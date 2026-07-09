@@ -1,0 +1,57 @@
+.idea/
+tmp/
+
+# Machine-specific local settings (contain absolute paths, never share)
+.claude/settings.local.json
+
+# Credentials & secrets
+.credentials.json
+.credentials/
+
+# Runtime state & caches
+history.jsonl
+stats-cache.json
+mcp-needs-auth-cache.json
+.update.lock
+paste-cache/
+cache/
+debug/
+file-history/
+logs/
+sessions/
+shell-snapshots/
+statsig/
+tasks/
+telemetry/
+todos/
+
+# IDE integration (machine-specific)
+ide/
+
+# User-specific project memories & plans
+projects/
+plans/
+
+# Plugins (installed separately per machine)
+plugins/
+
+# Backups & archives
+backups/
+*.zip
+*.bak
+
+# Downloads
+downloads/
+
+# Local memories
+.codex
+.serena/
+agent-docs/
+CLAUDE.md
+
+# MkDocs build output
+site/
+
+# OS files
+.DS_Store
+Thumbs.db

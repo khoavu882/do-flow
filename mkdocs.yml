@@ -1,0 +1,49 @@
+site_name: Agent Coding Workflow
+site_description: >
+  A configuration layer giving AI coding assistants persistent memory,
+  specialist expertise, and production-grade safety guardrails —
+  across Claude Code, Codex, and Gemini.
+site_url: https://khoavu882.github.io/claude-code-agent-workflow
+repo_url: https://github.com/khoavu882/claude-code-agent-workflow
+repo_name: khoavu882/claude-code-agent-workflow
+edit_uri: edit/main/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Overview: overview.md
+  - Quickstart: quickstart.md
+  - Setup: setup.md
+  - Guide: guide.md
+  - Reference: reference.md

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "MCP_TIMEOUT": "120000",
+    "ENABLE_TOOL_SEARCH": "true",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "75"
+  },
+  "outputStyle": "Explanatory",
+  "enableAllProjectMcpServers": true,
+  "plansDirectory": "./agent-docs",
+  "permissions": {
+    "allow": [
+      "Bash(git *:*)",
+      "Bash(./gradlew *:*)",
+      "Bash(npm *:*)",
+      "Bash(python *:*)",
+      "Bash(pytest *:*)",
+      "Bash(mvn *:*)"
+    ],
+    "deny": [
+      "Bash(git push --force*:*)",
+      "Bash(git reset --hard*:*)",
+      "Bash(git clean -fd*:*)"
+    ]
+  },
+  "alwaysThinkingEnabled": true,
+  "cleanupPeriodDays": 60,
+  "autoUpdatesChannel": "stable",
+  "availableModels": ["opus", "sonnet", "haiku"],
+  "model": "sonnet",
+  "hooks": {
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "~/.claude/hooks/session-start.sh"}]}
+    ],
+    "UserPromptSubmit": [
+      {"hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-submit.sh"}]}
+    ],
+    "SubagentStart": [
+      {"matcher": ".*", "hooks": [{"type": "command", "command": "~/.claude/hooks/subagent-audit.sh"}]}
+    ],
+    "SubagentStop": [
+      {"matcher": ".*", "hooks": [{"type": "command", "command": "~/.claude/hooks/subagent-audit.sh"}]}
+    ],
+    "ConfigChange": [
+      {"matcher": "skills", "hooks": [{"type": "command", "command": "~/.claude/hooks/skill-config-audit.sh"}]}
+    ],
+    "PreToolUse": [
+      {"matcher": "Bash", "hooks": [{"type": "command", "command": "~/.claude/hooks/pre-bash-guard.sh"}]},
+      {"matcher": "mcp__.*", "hooks": [{"type": "command", "command": "~/.claude/hooks/mcp-tool-guard.sh"}]},
+      {"matcher": "Edit|Write|MultiEdit", "hooks": [{"type": "command", "command": "~/.claude/hooks/pre-implement-gate.sh"}]}
+    ],
+    "PostToolUse": [
+      {"matcher": "Edit",  "hooks": [{"type": "command", "command": "~/.claude/hooks/post-edit-lint.sh"}]},
+      {"matcher": "Write", "hooks": [{"type": "command", "command": "~/.claude/hooks/post-edit-lint.sh"}]}
+    ],
+    "Stop": [
+      {"hooks": [{"type": "command", "command": "~/.claude/hooks/stop-check.sh"}]}
+    ],
+    "PreCompact": [
+      {"hooks": [{"type": "command", "command": "~/.claude/hooks/pre-compact.sh"}]}
+    ],
+    "PostCompact": [
+      {"hooks": [{"type": "command", "command": "~/.claude/hooks/post-compact.sh"}]}
+    ],
+    "SessionEnd": [
+      {"hooks": [{"type": "command", "command": "~/.claude/hooks/session-end.sh"}]}
+    ]
+  }
+}
