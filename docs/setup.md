@@ -26,7 +26,7 @@ implementation for parity testing — not for normal installs.
 Clone directly into `~/.claude`. Claude Code reads this directory at startup.
 
 ```bash
-git clone git@github.com:khoavu882/claude-code-agent-workflow.git ~/.claude
+git clone git@github.com:khoavu882/do-flow.git ~/.claude
 chmod +x ~/.claude/hooks/*.sh
 ```
 
@@ -41,8 +41,8 @@ Clone to a working directory, then deploy with `doflow` — the maintained Node 
 dependencies, `node >= 18`.
 
 ```bash
-git clone git@github.com:khoavu882/claude-code-agent-workflow.git ~/agent-workflow
-cd ~/agent-workflow
+git clone git@github.com:khoavu882/do-flow.git ~/do-flow
+cd ~/do-flow
 
 # Make the `doflow` command available on your PATH, without a global npm publish/install.
 # npm link creates a symlink from your global node_modules/.bin into this repo's bin/doflow.js —

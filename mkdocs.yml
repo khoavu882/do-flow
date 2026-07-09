@@ -1,11 +1,11 @@
-site_name: Agent Coding Workflow
+site_name: DoFlow
 site_description: >
   A configuration layer giving AI coding assistants persistent memory,
   specialist expertise, and production-grade safety guardrails —
   across Claude Code, Codex, and Gemini.
-site_url: https://khoavu882.github.io/claude-code-agent-workflow
-repo_url: https://github.com/khoavu882/claude-code-agent-workflow
-repo_name: khoavu882/claude-code-agent-workflow
+site_url: https://khoavu882.github.io/do-flow
+repo_url: https://github.com/khoavu882/do-flow
+repo_name: khoavu882/do-flow
 edit_uri: edit/main/
 
 theme:

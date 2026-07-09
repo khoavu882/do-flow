@@ -1,4 +1,4 @@
-# Agent Coding Workflow
+# DoFlow
 
 **Give your AI a persistent brain, specialist expertise, and production-grade guardrails — across Claude, Codex, and Gemini.**
 
@@ -26,7 +26,7 @@ You use Claude for implementation, Gemini for documentation, Copilot for autocom
 
 ## What This Framework Does
 
-This repository is a **configuration layer** for your AI coding assistants. Install it and your AI gets:
+DoFlow is a **configuration layer** for your AI coding assistants. Install it and your AI gets:
 
 | Capability | What Changes |
 |-----------|-------------|
@@ -54,7 +54,7 @@ This repository is a **configuration layer** for your AI coding assistants. Inst
 ### Option A — Install for Claude Code only
 
 ```bash
-git clone git@github.com:khoavu882/claude-code-agent-workflow.git ~/.claude
+git clone git@github.com:khoavu882/do-flow.git ~/.claude
 chmod +x ~/.claude/hooks/*.sh
 ```
 
@@ -73,8 +73,8 @@ Open Claude Code — the status line shows context%, model, and cost. Type `/ski
 
 ```bash
 # Clone to a working directory, not directly to ~/.claude
-git clone git@github.com:khoavu882/claude-code-agent-workflow.git ~/agent-workflow
-cd ~/agent-workflow
+git clone git@github.com:khoavu882/do-flow.git ~/do-flow
+cd ~/do-flow
 
 # npm link puts the `doflow` command on your PATH via a symlink to bin/doflow.js —
 # no publish/global install needed, edits to the repo take effect immediately.
@@ -689,7 +689,7 @@ Key rules:
 ## Structure
 
 ```
-claude-code-agent-workflow/
+do-flow/
   sync.sh            # Repo-root entry point (delegates to bin/sync.sh)
   requirements.txt   # Python deps for MkDocs CI
   mkdocs.yml         # GitHub Pages site configuration

@@ -5,7 +5,7 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
-## [1.2.0] - 2026-07-09
+## [1.0.0] - 2026-07-09
 
 ### Added
 

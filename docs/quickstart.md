@@ -1,6 +1,6 @@
 # Quick Start
 
-Get the framework running in under 5 minutes.
+Get DoFlow running in under 5 minutes.
 
 ---
 
@@ -18,7 +18,7 @@ Get the framework running in under 5 minutes.
 Clone directly into `~/.claude`. Claude Code reads this directory automatically.
 
 ```bash
-git clone git@github.com:khoavu882/claude-code-agent-workflow.git ~/.claude
+git clone git@github.com:khoavu882/do-flow.git ~/.claude
 chmod +x ~/.claude/hooks/*.sh
 ```
 
@@ -44,8 +44,8 @@ Open Claude Code. Type `/do-help` to verify everything loaded.
 Clone to a working directory (not directly to `~/.claude`), then deploy via `doflow`.
 
 ```bash
-git clone git@github.com:khoavu882/claude-code-agent-workflow.git ~/agent-workflow
-cd ~/agent-workflow
+git clone git@github.com:khoavu882/do-flow.git ~/do-flow
+cd ~/do-flow
 
 # Puts `doflow` on your PATH via a symlink to bin/doflow.js — no publish/global install needed.
 npm link

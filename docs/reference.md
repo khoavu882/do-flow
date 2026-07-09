@@ -6,7 +6,7 @@ Complete reference for skills, agents, hooks, behavioral flags, and rules.
 
 ## Skills
 
-Claude Code skills in this framework use three invocation modes:
+Claude Code skills in DoFlow use three invocation modes:
 
 - **Manual command**: invoked by typing `/skill-name`; used for side effects, commits, implementation execution, and explicit workflow control.
 - **Hybrid**: invoked directly or auto-loaded by Claude when the request clearly matches; auto mode is read-only unless the user explicitly asks for edits.
