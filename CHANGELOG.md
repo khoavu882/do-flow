@@ -5,6 +5,13 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-07-13
+
+### Fixed
+
+- Retry `EAGAIN` on stdin reads left non-blocking by raw-mode prompts, instead of failing the
+  prompt closed (`src/prompt.js`, `src/mcp.js`).
+
 ## [1.0.0] - 2026-07-09
 
 ### Added
