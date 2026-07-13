@@ -11,6 +11,7 @@
 // project's own .mcp.json can just as easily carry a hand-added server doflow must not clobber.
 const fs = require('node:fs');
 const path = require('node:path');
+const { readSyncBlocking } = require('./prompt');
 
 const ESC = String.fromCharCode(27);
 const CTRL_C = String.fromCharCode(3);
@@ -134,6 +135,20 @@ const KEY = {
 };
 
 /**
+ * Block for one raw-mode keypress, via prompt.js's readSyncBlocking (retries the EAGAIN-while-TTY
+ * case, bounded by a deadline for a genuinely unusable fd).
+ * @returns {string|null} the decoded chunk, or null if the fd is unusable
+ */
+function readKeypress(buf) {
+  try {
+    const n = readSyncBlocking(0, buf);
+    return buf.toString('utf8', 0, n);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Synchronous raw-mode checkbox prompt (arrow keys / j-k to move, space to toggle, 'a' to
  * toggle-all, enter to confirm). Matches src/prompt.js's synchronous-read style — this CLI has no
  * async control flow to hang off, so a real TTY read loop is built directly on fs.readSync(0, ...),
@@ -160,14 +175,18 @@ function promptMcpCheckbox(servers, initialSelected, message = 'Select MCP serve
   };
 
   let wasRaw = false;
+  let aborted = false;
   try {
     wasRaw = Boolean(process.stdin.isRaw);
     process.stdin.setRawMode(true);
     render(true);
     const buf = Buffer.alloc(16);
     for (;;) {
-      const n = fs.readSync(0, buf, 0, buf.length, null);
-      const chunk = buf.toString('utf8', 0, n);
+      const chunk = readKeypress(buf);
+      if (chunk === null) {
+        aborted = true;
+        break;
+      }
       if (chunk === KEY.ENTER_CR || chunk === KEY.ENTER_LF) break;
       if (chunk === KEY.CTRL_C) {
         console.log('\n[INFO]  Aborted.');
@@ -189,6 +208,7 @@ function promptMcpCheckbox(servers, initialSelected, message = 'Select MCP serve
     process.stdin.setRawMode(wasRaw);
   }
   console.log('');
+  if (aborted) return null; // fd went unusable mid-prompt — caller falls back to manifest/all
   return servers.filter((s) => selected.has(s));
 }
 
