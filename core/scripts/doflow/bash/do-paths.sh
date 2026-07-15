@@ -68,15 +68,29 @@ branch=""
 specs_rel="agent-docs/doflow"
 specs_dir="$repo_root/$specs_rel"
 
+# ── numeric-prefixed feature dirs under agent-docs/doflow/ (shared by the non-git candidate-slug
+# fallback below and the next_number scan further down — one scan, not two; applies the same
+# numeric-prefix filter next_number always used, so a stray non-numeric dir — notes/, .archive/,
+# a manual-cleanup leftover — can never masquerade as a feature candidate) ────────────────────
+numbered_dirs=()
+if { [ "$is_git_repo" = false ] || [ "$mode" != "paths-only" ]; } && [ -d "$specs_dir" ]; then
+  for d in "$specs_dir"/*/; do
+    [ -d "$d" ] || continue
+    n="$(basename "$d")"
+    case "${n%%-*}" in ''|*[!0-9]*) continue ;; esac
+    numbered_dirs+=("$n")
+  done
+fi
+
 # ── feature slug: branch-derived in a git repo; directory-scan otherwise ──────
 # A non-git root (doflow installed above the actual git repos — e.g. a multi-service
 # container workspace) has no branch to key off at all, so branch parsing doesn't apply here —
-# fall back to scanning agent-docs/doflow/ directly. Exactly one candidate dir is unambiguous
-# and gets auto-selected (no prompt needed — nothing to decide). Zero candidates is genuinely
-# "no active feature." Two or more is a real decision this deterministic script cannot make on
-# its own; it surfaces every candidate via `candidate_slugs` instead of guessing, so the calling
-# skill (do-execute-plan / do-flow, which has AskUserQuestion access) can ask the user, then
-# re-invoke with `--slug=<chosen>` to force resolution.
+# fall back to scanning agent-docs/doflow/ directly (numbered_dirs above). Exactly one candidate
+# dir is unambiguous and gets auto-selected (no prompt needed — nothing to decide). Zero
+# candidates is genuinely "no active feature." Two or more is a real decision this deterministic
+# script cannot make on its own; it surfaces every candidate via `candidate_slugs` instead of
+# guessing, so the calling skill (do-execute-plan / do-flow, which has AskUserQuestion access)
+# can ask the user, then re-invoke with `--slug=<chosen>` to force resolution.
 feature_slug=""
 candidate_slugs_json="[]"
 if [ "$is_git_repo" = true ]; then
@@ -85,16 +99,11 @@ if [ "$is_git_repo" = true ]; then
     */*)                         feature_slug="${branch#*/}" ;;  # strip feat/, fix/, …
     *)                           feature_slug="$branch" ;;
   esac
-elif [ -d "$specs_dir" ]; then
-  dirs=()
-  for d in "$specs_dir"/*/; do
-    [ -d "$d" ] || continue
-    dirs+=("$(basename "$d")")
-  done
-  case "${#dirs[@]}" in
+else
+  case "${#numbered_dirs[@]}" in
     0) : ;;
-    1) feature_slug="${dirs[0]}" ;;
-    *) candidate_slugs_json="$(printf '%s\n' "${dirs[@]}" | jq -R . | jq -s .)" ;;
+    1) feature_slug="${numbered_dirs[0]}" ;;
+    *) candidate_slugs_json="$(printf '%s\n' "${numbered_dirs[@]}" | jq -R . | jq -s .)" ;;
   esac
 fi
 
@@ -121,14 +130,9 @@ fi
 next_number="001"
 if [ "$mode" != "paths-only" ]; then
   max=0
-  if [ -d "$specs_dir" ]; then
-    for d in "$specs_dir"/*/; do
-      [ -d "$d" ] || continue
-      n="$(basename "$d")"; n="${n%%-*}"
-      case "$n" in ''|*[!0-9]*) continue ;; esac
-      n=$((10#$n)); [ "$n" -gt "$max" ] && max="$n"
-    done
-  fi
+  for n in "${numbered_dirs[@]}"; do
+    nn=$((10#${n%%-*})); [ "$nn" -gt "$max" ] && max="$nn"
+  done
   while IFS= read -r b; do
     seg="${b##*/}"; num="${seg%%-*}"
     case "$num" in ''|*[!0-9]*) continue ;; esac

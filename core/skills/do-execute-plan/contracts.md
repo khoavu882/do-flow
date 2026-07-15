@@ -24,8 +24,11 @@ completion, then stops. Idempotent — safe to re-run.
    - `in-process` — a known legacy monolith (e.g. `cops-backend`), or a module in the same repo as
      the consuming task.
 
-4. **Per dependency service, three outcomes** based on `contracts/<service>/manifest.yaml`:
-   - **Doesn't exist** → write `contracts/<service>/{code,data,mock}/` (empty scaffold — content
+4. **Per dependency service, three outcomes** based on
+   `agent-docs/doflow/<slug>/contracts/<service>/manifest.yaml` (always under the active feature's
+   own dir — never elsewhere):
+   - **Doesn't exist** → write `agent-docs/doflow/<slug>/contracts/<service>/{code,data,mock}/`
+     (empty scaffold — content
      freeform, loosely guided by `integration_style`, not generated here) plus `manifest.yaml`:
      ```yaml
      service: sources/otp-service          # derived service identity

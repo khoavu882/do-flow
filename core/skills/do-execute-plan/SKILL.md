@@ -55,9 +55,9 @@ the active feature.
 5. **Select work** — `--next` (default): one dependency-ready task. `--phase N`: one phase
    (matches `plan.md`'s Phase A/B/... groupings). `--all`: to completion/blocker. `--resume`:
    continue from `state.md`. If the selected task's `depends-on:` names a service with no
-   `contracts/<service>/` scaffolded yet, surface a non-blocking advisory notice (e.g. "this task
-   depends on `<service>`, no contract scaffolded yet — run `--contracts` first, or proceed
-   anyway") — not a gate; the one hard gate stays step 2, unchanged.
+   `agent-docs/doflow/<slug>/contracts/<service>/` scaffolded yet, surface a non-blocking advisory
+   notice (e.g. "this task depends on `<service>`, no contract scaffolded yet — run `--contracts`
+   first, or proceed anyway") — not a gate; the one hard gate stays step 2, unchanged.
 6. **Orchestrate (pm-agent)** — dispatch each task to its owning specialist (backend-architect,
    security-engineer, quality-engineer, …) via the Agent tool:
    - **`[P]`, dependency-ready** tasks → fan out concurrently with `/parallel-agents`; subagents
@@ -81,6 +81,6 @@ manifest), or commit unless explicitly asked (`/do-git`).
 ## CRITICAL BOUNDARIES
 Implement phase. Requires `requirement.md`, `design.md`, **and** `plan.md` (hard gate). Output:
 code + updated `state.md` + checked-off tasks in `plan.md`; with `--contracts`, also
-`contracts/<service>/` scaffolds + `manifest.yaml`.
+`agent-docs/doflow/<slug>/contracts/<service>/` scaffolds + `manifest.yaml`.
 
 **Next Step:** `/do-code-review` to review the change for code quality.

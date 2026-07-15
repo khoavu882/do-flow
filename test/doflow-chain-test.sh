@@ -72,6 +72,18 @@ rm -rf agent-docs
 eq "zero feature dirs -> error is no-active-feature (not ambiguous)" \
    "$("$PATHS" --json --require feature 2>/dev/null | jq -r '.error')" "no-active-feature"
 
+# Regression: a stray non-numeric dir under agent-docs/doflow/ (notes/, .archive/, a manual-cleanup
+# leftover) must never masquerade as a feature candidate -- candidate scan needs the same
+# numeric-prefix filter next_number always used.
+mkdir -p agent-docs/doflow/001-real-feature agent-docs/doflow/.archive agent-docs/doflow/notes
+eq "non-numeric stray dirs excluded -> single real feature still auto-selects" \
+   "$("$PATHS" --json | jq -r '.feature_slug')" "001-real-feature"
+eq "non-numeric stray dirs excluded -> candidate_slugs empty (not ambiguous)" \
+   "$("$PATHS" --json | jq -c '.candidate_slugs')" "[]"
+eq "non-numeric stray dirs excluded -> next_number unaffected by them" \
+   "$("$PATHS" --json | jq -r '.next_number')" "002"
+rm -rf agent-docs
+
 echo "[prereqs gate: non-git ambiguity + --slug passthrough]"
 mkdir -p agent-docs/doflow/001-solo agent-docs/doflow/002-other
 echo r > agent-docs/doflow/001-solo/requirement.md

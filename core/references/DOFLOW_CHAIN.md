@@ -23,8 +23,13 @@ itself.
 - **Deterministic / generative split:** all path math, feature numbering, and existence checks
   live in `scripts/bash/*.sh` (`--json` output); skill prompts only reason. No filesystem math in
   prompts.
-- **Branch-coupled state:** the active feature is derived from the git branch (`feat/NNN-slug`),
-  not a separate state file. Artifacts live in `<repo>/agent-docs/doflow/NNN-slug/`.
+- **Branch-coupled state (git repos) / directory-scan fallback (non-git roots):** in a git repo,
+  the active feature is derived from the branch (`feat/NNN-slug`), not a separate state file.
+  Outside a git repo (e.g. doflow installed at a multi-service container root, above the actual
+  git sub-repos), `do-paths.sh` falls back to scanning `agent-docs/doflow/` directly — one
+  candidate auto-selects, 2+ candidates surface via `candidate_slugs` for the calling skill to
+  disambiguate with `AskUserQuestion`. Artifacts live in `<repo>/agent-docs/doflow/NNN-slug/`
+  either way.
 - **One hard gate:** source edits are blocked when a feature is started but `requirement.md`,
   `design.md`, or `plan.md` is missing. Every other gate is advisory/skippable (solo,
   low-ceremony).

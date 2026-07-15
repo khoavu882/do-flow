@@ -23,6 +23,12 @@ Phase 3 of the doflow chain. Turns `requirement.md` (WHAT/WHY) + `design.md` (sy
    [ -f "$RESOLVER" ] || RESOLVER="core/scripts/doflow/bash/do-paths.sh"
    bash "$RESOLVER" --json
    ```
+   If `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root with 2+
+   `agent-docs/doflow/` feature dirs and no branch to disambiguate), ask via `AskUserQuestion`, one
+   option per `candidate_slugs` entry, before continuing. Re-resolve with `bash "$RESOLVER" --json
+   --slug="<chosen>"` and use that slug for the rest of this flow. If `/do-flow` already
+   disambiguated and is invoking this skill directly, it passes `--slug="<chosen>"` itself — skip
+   the prompt in that case (resolver output already has a non-null `feature_slug`).
 2. **Precondition (advisory)** — if `has_requirement` or `has_design` is false, warn and offer to
    run `/do-brainstorm` / `/do-design` first. This gate is **advisory** (skippable), not the hard
    hook gate.
