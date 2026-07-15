@@ -45,31 +45,13 @@ the active feature.
 3. **Load** — read `plan.md` (its section 8 Tasks subsection) and `requirement.md`/`design.md` for
    context, using the paths from step 1's resolved JSON. Parse the `- [ ]` tasks, `[P]` parallel
    markers, `[US#]` traceability, dependencies, and per-task owner.
-4. **Contracts scaffold (`--contracts`, alternative path)** — reads `plan.md`'s task list already
-   loaded in step 3, but produces a distinct deliverable from the task-execution loop in steps 5-8
-   below; runs standalone (no task-selection mode required), to completion, then stops. Idempotent
-   — safe to re-run.
-   - Derive each task's service identity from its `files:` path against known roots
-     (`sources/<name>`, `sources-rf/<name>`, `clients/<name>`); paths outside these roots are
-     excluded, not misfired into a fake service.
-   - Partition touched services into **dependency** (named in some task's `depends-on:`, owns no
-     task of its own in this plan) vs. **in-scope** (owns a task — being built for real, no
-     contract needed).
-   - Classify each dependency service's integration style: `network` for a `sources/` or
-     `sources-rf/` root (microservice-style), `in-process` for a known legacy monolith (e.g.
-     `cops-backend`) or a module in the same repo as the consuming task.
-   - Per dependency service, three outcomes based on `contracts/<service>/manifest.yaml`:
-     **doesn't exist** → write `contracts/<service>/{code,data,mock}/` (empty scaffold, content
-     freeform — loosely guided by `integration_style`, not generated here) plus `manifest.yaml`
-     (`service`, `integration_style`, `generated_from_plan`, `source_task_ids`, `generation_hash`
-     — sha256 of the source tasks' full text, `generated_at`). **Exists, `generation_hash` matches**
-     the current source tasks' full text → skip (already current). **Exists, `generation_hash`
-     mismatches** (the source tasks changed since last scaffold) → do NOT auto-overwrite; surface a
-     warning naming the service and stale manifest path so the user can reconcile manually — the
-     existing `code`/`data`/`mock` content may hold manual edits (NFR-002).
-   - Report N services scaffolded, M skipped (already current), K flagged stale (mismatch, not
-     overwritten), and the in-scope services with no
-     contract generated (expected outcome, not an error).
+4. **Contracts scaffold (`--contracts`, alternative path)** — only when `--contracts` is passed:
+   read `contracts.md` (co-located with this file) and follow its algorithm exactly. Reads
+   `plan.md`'s task list already loaded in step 3; produces a distinct deliverable from the
+   task-execution loop in steps 5-8 below; runs standalone (no task-selection mode required), to
+   completion, then stops. Idempotent — safe to re-run. Skip reading `contracts.md` entirely for
+   every other flag mode — its content is irrelevant to `--next`/`--phase`/`--all`/`--resume`/
+   `--dry-run`.
 5. **Select work** — `--next` (default): one dependency-ready task. `--phase N`: one phase
    (matches `plan.md`'s Phase A/B/... groupings). `--all`: to completion/blocker. `--resume`:
    continue from `state.md`. If the selected task's `depends-on:` names a service with no
