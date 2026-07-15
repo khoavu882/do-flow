@@ -1,6 +1,6 @@
 {
   "name": "doflow",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "DoFlow config installer — npx CLI that replaces bin/sync.sh (installer-only, parity-tested)",
   "bin": { "doflow": "bin/doflow.js" },
   "engines": { "node": ">=18" },

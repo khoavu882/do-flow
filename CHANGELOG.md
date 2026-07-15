@@ -3,6 +3,36 @@
 All notable changes to DoFlow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [2.1.1] - 2026-07-15
+
+### Fixed
+
+- **Project-scoped resolver lookups:** the `RESOLVER`/`SYNC`/`PREREQ` bash snippets in
+  `do-brainstorm`, `do-design`, `do-plan`, `do-execute-plan` (both its resolver and prereq-gate
+  lookups), and `do-constitution` only checked the global config dir and the do-flow dev tree —
+  neither matches a project-scoped install (a target project's own `.claude/`, e.g. doflow
+  installed at a multi-service container workspace root). `/do-execute-plan --contracts` (and
+  every other chain skill) failed to find `do-paths.sh` outright in this scope, reproduced against
+  a real workspace. Now walks upward from `$PWD` looking for `.claude/scripts/doflow/bash/<script>`.
+  `pre-implement-gate.sh` gets the equivalent fix via `${CLAUDE_PROJECT_DIR}` — the env var hook
+  subprocesses actually receive (skills' own Bash calls do not, verified against official docs) —
+  where it previously had no project-scoped fallback at all and silently fail-opened.
+- **MCP config merge:** `mergeKnownServers` (backing both the global `~/.claude.json` and
+  project-scoped `<dir>/.mcp.json` writers) reset a hand-edited known-server definition — a
+  customized arg, an extra env var — back to its shipped `core/.mcp.json` default every time that
+  server was reselected on install/update. Now only writes the shipped default the first time a
+  name is newly selected; an already-present definition is left untouched.
+
+### Changed
+
+- Removed the dev-tree fallback branch (`core/scripts/doflow/bash/...`) from every resolver-lookup
+  snippet above — it only ever matched inside the do-flow source repo itself, so it was dead
+  code/token cost on every real install now that the project-scoped walk-up covers the do-flow
+  repo's own dogfooded use equally well. Swept `core/` for the same core/-prefixed-path leak class
+  already fixed once in 2.1.0 and found four more instances (`RULE_02_WORKFLOW.md`,
+  `hooks/lib.sh`, `hooks/skill-config-audit.sh`, `scripts/doflow/bash/do-paths.sh`) plus the
+  `DOFLOW_CHAIN.md` note describing the now-removed dev-tree special case.
+
 ## [2.1.0] - 2026-07-15
 
 ### Added
