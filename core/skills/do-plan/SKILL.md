@@ -35,7 +35,9 @@ Phase 3 of the doflow chain. Turns `requirement.md` (WHAT/WHY) + `design.md` (sy
    violation, STOP and revise the approach before continuing. Record PASS/FAIL in the plan.
 6. **Decompose into Tasks (section 8)** — dependency-ordered, `[P]`-marked where parallel-safe,
    `[US#]`-traced to the requirement's user stories, owner+files named per task, with checkpoints
-   and completion criteria. The `- [ ]` checkboxes are the execution contract `/do-execute-plan`
+   and completion criteria. Set `depends-on:` on a task when it references a service (via its
+   `files:` or description) that has no owning task in this plan and is external to what the plan
+   builds. The `- [ ]` checkboxes are the execution contract `/do-execute-plan`
    parses — keep the marker syntax intact, don't reflow it into prose.
 7. **Stop** — report the plan path, Constitution Check result, and the task count
    (`[P]`/sequential).

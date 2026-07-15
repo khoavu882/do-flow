@@ -34,14 +34,17 @@
 ## 8. Tasks
 > Dependency-ordered. `[P]` = parallel-safe with its phase siblings. `[US#]` = traces to a
 > user story in requirement.md. The `- [ ]` checkboxes are the execution contract parsed by
-> `/do-execute-plan` — keep the markers intact.
+> `/do-execute-plan` — keep the markers intact. `depends-on:` is optional — set it when a task
+> depends on an external service that has no owning task in this same plan (not a service also
+> touched by another task here); `/do-execute-plan --contracts` reads it to know which services
+> need a mock contract scaffolded.
 
 ### Phase A — [name]
-- [ ] A.1 [P] [US1] [task] — owner: [agent]; files: [paths]
-- [ ] A.2 [US1] [task, depends A.1] — owner: [agent]; files: [paths]
+- [ ] A.1 [P] [US1] [task] — owner: [agent]; files: [paths]; depends-on: [service, optional]
+- [ ] A.2 [US1] [task, depends A.1] — owner: [agent]; files: [paths]; depends-on: [service, optional]
 
 ### Phase B — [name]
-- [ ] B.1 [P] [US2] [task] — owner: [agent]; files: [paths]
+- [ ] B.1 [P] [US2] [task] — owner: [agent]; files: [paths]; depends-on: [service, optional]
 
 ### Checkpoints
 - After Phase A: [validation step]; commit `[message]`
