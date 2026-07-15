@@ -29,9 +29,12 @@ implementation approach and task decomposition, not system-shape decisions.
    (skippable), not the hard hook gate.
 3. **Read inputs** — `requirement.md` for the user stories, FRs, and NFRs the design must serve.
 4. **Design** — per `--type` (architecture/api/component/database), produce the system-shape
-   decisions: component boundaries, API/interface contracts, data model, sequence/data-flow where
-   useful. `--format` controls output shape (diagram/spec/code-sketch) within `design.md`, not
-   whether it gets written.
+   decisions: a C4 System Context diagram (actors + external systems this feature touches) and,
+   when the feature spans more than one deployable unit, a C4 Container diagram; component
+   boundaries, API/interface contracts, data model, sequence/data-flow where useful. `--format`
+   controls output shape (diagram/spec/code-sketch) within `design.md`, not whether it gets
+   written. For a trivial, single-file change with no new external interaction, write
+   "N/A: [why]" in the System Overview section instead of forcing a diagram.
 5. **Write `design.md`** — copy `templates/doflow/design-template.md` into the feature dir, fill
    it from step 4.
 6. **Stop** — report the design path.
