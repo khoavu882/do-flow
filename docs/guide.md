@@ -54,6 +54,7 @@ Primary source skills: `do-brainstorm`, `do-design`, `do-plan`, `do-execute-plan
 @agent-system-architect "review this design for scalability and maintainability issues"
 
 # Step 5: Generate the implementation plan (HOW) + task checklist from requirement.md + design.md
+# (also drafts a per-repo branch plan when the feature spans multiple repos)
 /do-plan --strategy systematic
 
 # Step 6: Preview the execution order before changing files
@@ -64,6 +65,7 @@ Primary source skills: `do-brainstorm`, `do-design`, `do-plan`, `do-execute-plan
 
 # Step 7: Execute one dependency-ready task at a time
 # confidence-check auto-loads before implementation-class edits
+# (creates each repo's branch lazily, the first time that repo is touched)
 /do-execute-plan --next --safe
 
 # Step 8: Validate the completed slice before shipping

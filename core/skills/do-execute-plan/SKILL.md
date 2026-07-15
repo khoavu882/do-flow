@@ -60,7 +60,7 @@ the active feature.
 4. **Contracts scaffold (`--contracts`, alternative path)** — only when `--contracts` is passed:
    read `contracts.md` (co-located with this file) and follow its algorithm exactly. Reads
    `plan.md`'s task list already loaded in step 3; produces a distinct deliverable from the
-   task-execution loop in steps 5-8 below; runs standalone (no task-selection mode required), to
+   task-execution loop in steps 5-9 below; runs standalone (no task-selection mode required), to
    completion, then stops. Idempotent — safe to re-run. Skip reading `contracts.md` entirely for
    every other flag mode — its content is irrelevant to `--next`/`--phase`/`--all`/`--resume`/
    `--dry-run`.
@@ -70,25 +70,41 @@ the active feature.
    `agent-docs/doflow/<slug>/contracts/<service>/` scaffolded yet, surface a non-blocking advisory
    notice (e.g. "this task depends on `<service>`, no contract scaffolded yet — run `--contracts`
    first, or proceed anyway") — not a gate; the one hard gate stays step 2, unchanged.
-6. **Orchestrate (pm-agent)** — dispatch each task to its owning specialist (backend-architect,
+6. **Repo branch check (per task)** — runs for every task, regardless of what `plan.md`'s Repo
+   Branch Plan said at plan-time (its `N/A` is a documentation convenience, not a runtime flag —
+   a plan that started single-repo can still grow a second repo mid-execution, per FR-004, and
+   this check must catch that live rather than trust a stale snapshot). Resolve the task's repo
+   (nearest `.git` from its `files:` path); if that repo has no `state.md` row yet, **or its row's
+   `Status` is `blocked`** (never skip re-checking a blocked repo), `cd` into it and run `git
+   status --short` first — **dirty tree → do not switch or discard anything, record `blocked`
+   immediately in `state.md`'s Repo Branch Status table, route to step 9, regardless of whether
+   the planned branch already exists** (a resumed run's own uncommitted work is indistinguishable
+   from unrelated foreign work by `git status` alone, so treat both the same per NFR-002 and let
+   the user confirm). Tree clean → run `git branch --list <planned-branch>` (from `plan.md`'s Repo
+   Branch Plan, or derived inline via `do-plan/SKILL.md` step 7's formula — `feat/<TICKET>-<slug-
+   description>` or `feat/<slug>` — if this repo has no row there): exists → checkout, record
+   `existing`; absent → `git checkout -b <planned-branch>`, record `created`. A `created`/`existing`
+   row is trusted as-is on later visits — no re-check.
+7. **Orchestrate (pm-agent)** — dispatch each task to its owning specialist (backend-architect,
    security-engineer, quality-engineer, …) via the Agent tool:
    - **`[P]`, dependency-ready** tasks → fan out concurrently with `/parallel-agents`; subagents
      return **summaries only** (protects the main context).
    - **sequential / dependent** tasks → run in dependency order.
-7. **Validate then record** — run the task/phase validation; check the `- [ ]` box in `plan.md`;
+8. **Validate then record** — run the task/phase validation; check the `- [ ]` box in `plan.md`;
    update `state.md` (seed from `templates/doflow/state-template.md` on first write if absent;
-   sections: Completed / In Progress / Blocked / Next Action). With `--safe`, validate + checkpoint
-   more often.
-8. **Stop on risk** — ambiguity, blocker, or failed validation → report and wait (route failures
-   to `root-cause-analyst` / `/do-troubleshoot`).
+   sections: Completed / In Progress / Blocked / Next Action), folding in any Repo Branch Status row
+   from step 6. With `--safe`, validate + checkpoint more often.
+9. **Stop on risk** — ambiguity, blocker, failed validation, or a step 6 `blocked` repo → report and
+   wait (route failures to `root-cause-analyst` / `/do-troubleshoot`).
 
 ## Boundaries
 **Will:** enforce the prereq gate, orchestrate named specialists over `plan.md`'s task checklist,
-fan out `[P]` work, validate, keep `state.md` resumable, and scaffold dependency-service contracts
-(`--contracts`).
+fan out `[P]` work, validate, keep `state.md` resumable, scaffold dependency-service contracts
+(`--contracts`), and lazily create/check out each repo's branch (step 6).
 **Will Not:** generate the requirement/design/plan (use `/do-brainstorm`, `/do-design`,
 `/do-plan`), skip the gate or validation, generate contract content beyond the scaffold (folders +
-manifest), or commit unless explicitly asked (`/do-git`).
+manifest), commit unless explicitly asked (`/do-git`), or force-switch/discard uncommitted work
+when checking out a repo's branch.
 
 ## CRITICAL BOUNDARIES
 Implement phase. Requires `requirement.md`, `design.md`, **and** `plan.md` (hard gate). Output:

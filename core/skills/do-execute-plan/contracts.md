@@ -6,7 +6,7 @@ guidance so the other five flag modes (`--next`/`--phase`/`--all`/`--resume`/`--
 the token cost of this algorithm on every invocation.
 
 `plan.md`'s task list is already loaded (step 3). This produces a distinct deliverable from the
-task-execution loop in steps 5-8 — runs standalone (no task-selection mode required), to
+task-execution loop in steps 5-9 — runs standalone (no task-selection mode required), to
 completion, then stops. Idempotent — safe to re-run.
 
 ## Algorithm

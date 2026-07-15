@@ -51,13 +51,23 @@ Phase 3 of the doflow chain. Turns `requirement.md` (WHAT/WHY) + `design.md` (sy
    `files:` or description) that has no owning task in this plan and is external to what the plan
    builds. The `- [ ]` checkboxes are the execution contract `/do-execute-plan`
    parses — keep the marker syntax intact, don't reflow it into prose.
-7. **Stop** — report the plan path, Constitution Check result, and the task count
-   (`[P]`/sequential).
+7. **Derive branch plan** — read `requirement.md`'s `**Ticket:**` field (absent/`none` → no
+   ticket). Branch name: `feat/<TICKET>-<slug-description>` (ticket present, slug's leading
+   `NNN-` stripped) or `feat/<slug>` (no ticket). Resolve a repo for each task's `files:` path
+   *and* each task's `depends-on:` value the same way — walk up to the nearest `.git`; if a
+   `depends-on:` value doesn't resolve to a `.git` (not a real local path), skip that row rather
+   than guessing. Write one row per repo to `plan.md`'s Repo Branch Plan table: `primary` if it
+   owns a task via `files:`, `dependency-only` if it's only ever reached via `depends-on:`. A
+   single-repo result → `N/A: single-repo feature`. Derivation only — no branch is created here
+   (`/do-execute-plan`'s job, lazily, per repo).
+8. **Stop** — report the plan path, Constitution Check result, the task count (`[P]`/sequential),
+   and the derived branch name/repo count when the Repo Branch Plan is populated.
 
 ## Boundaries
 **Will:** read requirement + design + constitution, write `plan.md` including its embedded task
-checklist, run the Constitution Check, resolve clarifications.
-**Will Not:** write `design.md` (that's `/do-design`), write code, or execute the plan.
+checklist and Repo Branch Plan, run the Constitution Check, resolve clarifications.
+**Will Not:** write `design.md` (that's `/do-design`), write code, execute the plan, or create any
+git branch (derivation only).
 
 ## CRITICAL BOUNDARIES
 **STOP AFTER PLAN CREATION.** Output: `agent-docs/doflow/<slug>/plan.md` (HOW + tasks).
