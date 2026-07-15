@@ -17,30 +17,47 @@ the active feature.
 ```
 
 ## Behavioral Flow
-1. **Prerequisite gate (HARD)** — run, and STOP on a non-zero exit:
+1. **Resolve the active feature** — run the resolver first, before the gate:
+   ```bash
+   RESOLVER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
+   [ -f "$RESOLVER" ] || RESOLVER="core/scripts/doflow/bash/do-paths.sh"
+   bash "$RESOLVER" --json
+   ```
+   In a git repo this always resolves deterministically (branch-derived) — proceed to the next
+   step. Outside a git repo (e.g. doflow installed at a multi-service container root, above the
+   actual git sub-repos — no branch to key off), `do-paths.sh` falls back to scanning
+   `agent-docs/doflow/` itself: `feature_slug` is already auto-set when exactly one candidate dir
+   exists (nothing to ask — proceed to the next step). If `feature_slug` is `null` **and**
+   `candidate_slugs` is non-empty, this is a genuine ambiguity only the user can resolve: ask via
+   `AskUserQuestion`, one option per `candidate_slugs` entry, no invented filler, header naming
+   the feature slug. Carry the chosen slug through every remaining step by appending
+   `--slug="<chosen>"` to both the resolver and prereq-gate calls below.
+2. **Prerequisite gate (HARD)** — run, and STOP on a non-zero exit:
    ```bash
    PREREQ="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-prereqs.sh"
    [ -f "$PREREQ" ] || PREREQ="core/scripts/doflow/bash/do-prereqs.sh"
-   bash "$PREREQ" --require-plan   # exit 2 -> missing requirement/design/plan: tell user what to run
+   bash "$PREREQ" --require-plan   # add --slug="<chosen>" if step 1 disambiguated
    ```
    This is the primary, prompt-level half of the one hard gate; the `pre-implement-gate.sh` hook is
-   the backstop. Do not proceed past a `--require-plan` failure.
-2. **Resolve & load** — `do-paths.sh --json` for paths; read `plan.md` (its section 8 Tasks
-   subsection) and `requirement.md`/`design.md` for context. Parse the `- [ ]` tasks, `[P]`
-   parallel markers, `[US#]` traceability, dependencies, and per-task owner.
-3. **Select work** — `--next` (default): one dependency-ready task. `--phase N`: one phase
+   the backstop. Do not proceed past a `--require-plan` failure. An `ambiguous-feature` error here
+   means step 1's disambiguation didn't happen or wasn't carried through — do not retry blindly;
+   go back to step 1.
+3. **Load** — read `plan.md` (its section 8 Tasks subsection) and `requirement.md`/`design.md` for
+   context, using the paths from step 1's resolved JSON. Parse the `- [ ]` tasks, `[P]` parallel
+   markers, `[US#]` traceability, dependencies, and per-task owner.
+4. **Select work** — `--next` (default): one dependency-ready task. `--phase N`: one phase
    (matches `plan.md`'s Phase A/B/... groupings). `--all`: to completion/blocker. `--resume`:
    continue from `state.md`.
-4. **Orchestrate (pm-agent)** — dispatch each task to its owning specialist (backend-architect,
+5. **Orchestrate (pm-agent)** — dispatch each task to its owning specialist (backend-architect,
    security-engineer, quality-engineer, …) via the Agent tool:
    - **`[P]`, dependency-ready** tasks → fan out concurrently with `/parallel-agents`; subagents
      return **summaries only** (protects the main context).
    - **sequential / dependent** tasks → run in dependency order.
-5. **Validate then record** — run the task/phase validation; check the `- [ ]` box in `plan.md`;
+6. **Validate then record** — run the task/phase validation; check the `- [ ]` box in `plan.md`;
    update `state.md` (seed from `templates/doflow/state-template.md` on first write if absent;
    sections: Completed / In Progress / Blocked / Next Action). With `--safe`, validate + checkpoint
    more often.
-6. **Stop on risk** — ambiguity, blocker, or failed validation → report and wait (route failures
+7. **Stop on risk** — ambiguity, blocker, or failed validation → report and wait (route failures
    to `root-cause-analyst` / `/do-troubleshoot`).
 
 ## Boundaries

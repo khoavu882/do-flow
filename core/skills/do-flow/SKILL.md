@@ -21,10 +21,19 @@ not part of this chain; invoke it directly when you need to set or amend repo-le
 
 ## Behavioral Flow
 1. **Resolve state** — `do-paths.sh --json`. Determine the starting phase:
-   - No active feature (trunk branch): start at `do-brainstorm`.
-   - On a `feat/NNN-slug` branch: resume from the first missing artifact —
-     `!has_requirement` → `do-brainstorm`; `has_requirement && !has_design` → `do-design`;
-     `has_design && !has_plan` → `do-plan`; all three present → Gate A (step 4).
+   - `feature_slug` is `null` **and** `candidate_slugs` is empty (trunk branch, or a non-git root
+     with zero `agent-docs/doflow/` dirs): no active feature — start at `do-brainstorm`.
+   - `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root — e.g. doflow
+     installed at a multi-service container root — with 2+ feature dirs and no branch to
+     disambiguate): this is NOT "no active feature," it's an unresolved choice. Ask via
+     `AskUserQuestion`, one option per `candidate_slugs` entry, before doing anything else — never
+     default to `do-brainstorm` here, that would create a duplicate feature dir alongside an
+     existing one. Re-resolve with `do-paths.sh --json --slug="<chosen>"` and carry that slug
+     through every remaining phase invocation and gate.
+   - `feature_slug` is set (branch-derived, or auto-selected/disambiguated above): resume from the
+     first missing artifact — `!has_requirement` → `do-brainstorm`; `has_requirement &&
+     !has_design` → `do-design`; `has_design && !has_plan` → `do-plan`; all three present →
+     Gate A (step 4).
    - `--from <phase>` overrides auto-detection to deliberately re-run a specific phase.
 2. **Run phases in sequence**, invoking each phase skill's own Behavioral Flow directly:
    `do-brainstorm` → [**Gate 0**] → `do-design` → `do-plan` → [**Gate A**] → `do-execute-plan` →
