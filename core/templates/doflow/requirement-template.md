@@ -1,7 +1,7 @@
 # Feature Requirement: [FEATURE NAME]
 
 **Feature:** [NNN-slug] · **Branch:** `feat/[NNN-slug]` · **Status:** Draft
-**Created:** [DATE] · **Owner:** [OWNER]
+**Created:** [DATE] · **Owner:** [OWNER] · **Ticket:** [PBI/ticket ID, or "none"]
 
 > WHAT and WHY only — no tech or implementation detail. Cap unresolved
 > `[NEEDS CLARIFICATION]` markers at 3; the rest are resolved in `/do-plan`.
