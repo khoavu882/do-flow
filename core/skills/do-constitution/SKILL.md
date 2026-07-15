@@ -32,7 +32,14 @@ Maintains the **tier-2** per-repo constitution that overlays the tier-1 `CONSTIT
    context file without rewriting it:
    ```bash
    SYNC="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/sync-context.sh"
-   [ -f "$SYNC" ] || SYNC="core/scripts/doflow/bash/sync-context.sh"
+   [ -f "$SYNC" ] || SYNC="core/scripts/doflow/bash/sync-context.sh"   # dev tree
+   if [ ! -f "$SYNC" ]; then                                          # project-scoped install
+     d="$PWD"
+     while [ "$d" != / ]; do
+       [ -f "$d/.claude/scripts/doflow/bash/sync-context.sh" ] && SYNC="$d/.claude/scripts/doflow/bash/sync-context.sh" && break
+       d="$(dirname "$d")"
+     done
+   fi
    printf 'doflow: active constitution = agent-docs/constitution.md (v<version>), overlaying CONSTITUTION_BASE.md.\n' \
      | bash "$SYNC" --file CLAUDE.md   # or AGENTS.md for Codex
    ```
