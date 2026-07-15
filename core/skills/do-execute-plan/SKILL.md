@@ -58,13 +58,17 @@ the active feature.
    - Classify each dependency service's integration style: `network` for a `sources/` or
      `sources-rf/` root (microservice-style), `in-process` for a known legacy monolith (e.g.
      `cops-backend`) or a module in the same repo as the consuming task.
-   - Per dependency service: if `contracts/<service>/manifest.yaml` exists and its
-     `generation_hash` matches the current source tasks' full text, skip (never clobbers manual
-     edits). Otherwise write `contracts/<service>/{code,data,mock}/` (empty scaffold, content
+   - Per dependency service, three outcomes based on `contracts/<service>/manifest.yaml`:
+     **doesn't exist** → write `contracts/<service>/{code,data,mock}/` (empty scaffold, content
      freeform — loosely guided by `integration_style`, not generated here) plus `manifest.yaml`
      (`service`, `integration_style`, `generated_from_plan`, `source_task_ids`, `generation_hash`
-     — sha256 of the source tasks' full text, `generated_at`).
-   - Report N services scaffolded, M skipped (already current), and the in-scope services with no
+     — sha256 of the source tasks' full text, `generated_at`). **Exists, `generation_hash` matches**
+     the current source tasks' full text → skip (already current). **Exists, `generation_hash`
+     mismatches** (the source tasks changed since last scaffold) → do NOT auto-overwrite; surface a
+     warning naming the service and stale manifest path so the user can reconcile manually — the
+     existing `code`/`data`/`mock` content may hold manual edits (NFR-002).
+   - Report N services scaffolded, M skipped (already current), K flagged stale (mismatch, not
+     overwritten), and the in-scope services with no
      contract generated (expected outcome, not an error).
 5. **Select work** — `--next` (default): one dependency-ready task. `--phase N`: one phase
    (matches `plan.md`'s Phase A/B/... groupings). `--all`: to completion/blocker. `--resume`:
