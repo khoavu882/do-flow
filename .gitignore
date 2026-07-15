@@ -47,7 +47,7 @@ downloads/
 .codex
 .serena/
 agent-docs/
-CLAUDE.md
+.claude/
 
 # MkDocs build output
 site/
@@ -55,3 +55,4 @@ site/
 # OS files
 .DS_Store
 Thumbs.db
+/CLAUDE.md

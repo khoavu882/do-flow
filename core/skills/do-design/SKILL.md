@@ -1,6 +1,6 @@
 ---
 name: do-design
-description: "Design system architecture, APIs, and component interfaces with comprehensive specifications"
+description: "Design system architecture, APIs, and component interfaces (HOW at the system-shape level); writes design.md"
 argument-hint: "[target] [--type architecture|api|component|database] [--format diagram|spec|code]"
 disable-model-invocation: true
 effort: high
@@ -8,58 +8,40 @@ effort: high
 
 # do-design
 
-Use this skill for the corresponding DoFlow workflow.
+Phase 2 of the doflow chain. Turns `requirement.md` (WHAT/WHY) into `design.md` — the system
+shape: architecture, APIs, data/interface contracts. Distinct from `/do-plan`'s HOW, which covers
+implementation approach and task decomposition, not system-shape decisions.
 
 ## Invocation
 ```text
 /do-design [target] [--type architecture|api|component|database] [--format diagram|spec|code]
 ```
 
-## Metadata
-- Category: `utility`
-- Complexity: `basic`
-- Effort: `high`
-
-## Triggers
-- Architecture planning and system design requests
-- API specification and interface design needs
-- Component design and technical specification requirements
-- Database schema and data model design requests
-
 ## Behavioral Flow
-1. **Analyze**: Examine target requirements and existing system context
-2. **Plan**: Define design approach and structure based on type and format
-3. **Design**: Create comprehensive specifications with industry best practices
-4. **Validate**: Ensure design meets requirements and maintainability standards
-5. **Document**: Generate clear design documentation with diagrams and specifications
-
-Key behaviors:
-- Requirements-driven design approach with scalability considerations
-- Industry best practices integration for maintainable solutions
-- Multi-format output (diagrams, specifications, code) based on needs
-- Validation against existing system architecture and constraints
-
-## Key Patterns
-- **Architecture Design**: Requirements → system structure → scalability planning
-- **API Design**: Interface specification → RESTful/GraphQL patterns → documentation
-- **Component Design**: Functional requirements → interface design → implementation guidance
-- **Database Design**: Data requirements → schema design → relationship modeling
+1. **Resolve** — run the resolver, parse JSON:
+   ```bash
+   RESOLVER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
+   [ -f "$RESOLVER" ] || RESOLVER="core/scripts/doflow/bash/do-paths.sh"
+   bash "$RESOLVER" --json
+   ```
+2. **Precondition (advisory)** — if `has_requirement` is false, warn that there's no
+   `requirement.md` and offer to run `/do-brainstorm` first. This gate is **advisory**
+   (skippable), not the hard hook gate.
+3. **Read inputs** — `requirement.md` for the user stories, FRs, and NFRs the design must serve.
+4. **Design** — per `--type` (architecture/api/component/database), produce the system-shape
+   decisions: component boundaries, API/interface contracts, data model, sequence/data-flow where
+   useful. `--format` controls output shape (diagram/spec/code-sketch) within `design.md`, not
+   whether it gets written.
+5. **Write `design.md`** — copy `templates/doflow/design-template.md` into the feature dir, fill
+   it from step 4.
+6. **Stop** — report the design path.
 
 ## Boundaries
-**Will:**
-- Create comprehensive design specifications with industry best practices
-- Generate multiple format outputs (diagrams, specs, code) based on requirements
-- Validate designs against maintainability and scalability standards
+**Will:** read `requirement.md`, produce system-shape design decisions, write `design.md`.
+**Will Not:** write `plan.md` (implementation approach/task decomposition — that's `/do-plan`),
+write code, or execute anything.
 
-**Will Not:**
-- Generate actual implementation code (use /do-implement for implementation)
-- Modify existing system architecture without explicit design approval
-- Create designs that violate established architectural constraints
+## CRITICAL BOUNDARIES
+**STOP AFTER DESIGN CREATION.** Output: `agent-docs/doflow/<slug>/design.md`.
 
-**Output**: Architecture documents containing:
-- System diagrams (component, sequence, data flow)
-- API specifications
-- Database schemas
-- Interface definitions
-
-**Next Step**: After design is approved, use `/do-implement` to build the designed components.
+**Next Step:** `/do-plan` to turn the design into an implementation plan (HOW to build it).

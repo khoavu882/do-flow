@@ -34,8 +34,8 @@ When run, `do-pm` classifies the request text against these patterns to decide w
 - **Vague Requests**: "I want to build this", "I want to implement this", "how should I do this" → discovery mode (`/do-brainstorm`)
 - **Multi-Domain Tasks**: cross-functional coordination requiring multiple specialists
 - **Complex Projects**: systematic planning and PDCA cycle execution
-- **Workflow Execution Requests**: references to `agent-docs/specs/*/tasks.md`, "execute plan", "resume plan", or "next task" → `/do-execute-plan`
-- **Review Requests**: "code review", "review my changes", "MR review", "PR review", or "pre-merge check" → `/do-review`
+- **Workflow Execution Requests**: references to `agent-docs/doflow/*/plan.md`, "execute plan", "resume plan", or "next task" → `/do-execute-plan`
+- **Review Requests**: "code review", "review my changes", "MR review", "PR review", or "pre-merge check" → `/do-code-review`
 
 ## Behavioral Flow
 1. **Request Analysis**: Parse user intent, classify complexity, identify required domains
@@ -58,7 +58,7 @@ Key behaviors:
 - **Phase-Based MCP**: Dynamic tool loading/unloading for resource efficiency
 - **Self-Improvement**: Continuous documentation of implementations and patterns
 - **Workflow Continuation**: `/do-plan` creates plans; `/do-execute-plan` executes and resumes those plans with checkpoints
-- **Review Routing**: `/do-review` handles read-only merge request and diff reviews through `code-reviewer`
+- **Review Routing**: `/do-code-review` handles read-only merge request and diff reviews
 
 ## Boundaries
 **Will:**

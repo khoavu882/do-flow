@@ -2,7 +2,7 @@
 
 Practical workflows for Claude Code. Each flow shows the commands in order — copy and adapt to your project.
 
-Claude may auto-load hybrid read-only skills such as `do-analyze`, `do-review`, `do-document`, `do-estimate`, `do-explain`, `do-select-tool`, `do-troubleshoot`, and `parallel-agents` when your request clearly matches. Auto mode is analysis or coordination only. Any file edit, refactor, dependency change, or implementation workflow must pass the auto-loaded `confidence-check` gate first.
+Claude may auto-load hybrid read-only skills such as `do-analyze`, `do-code-review`, `do-document`, `do-estimate`, `do-explain`, `do-select-tool`, `do-troubleshoot`, and `parallel-agents` when your request clearly matches. Auto mode is analysis or coordination only. Any file edit, refactor, dependency change, or implementation workflow must pass the auto-loaded `confidence-check` gate first.
 
 This guide is the canonical workflow example source. README links here instead of duplicating the full flows.
 
@@ -25,8 +25,8 @@ When a workflow example conflicts with one of those source files, update the sou
 | Mode | How to Use | Examples |
 |------|------------|----------|
 | Manual command | Type `/skill-name`; used for side effects or explicit orchestration | `/do-implement`, `/do-git`, `/do-execute-plan`, `/do-cleanup` |
-| Hybrid read-only | Type `/skill-name` or let Claude auto-load it; auto mode does not edit files | `/do-analyze`, `/do-review`, `/do-document`, `/do-troubleshoot`, `/parallel-agents` |
-| Auto-loaded policy | Claude loads it as background guidance; normally not user-invoked | `confidence-check`, `code-conventions`, `java-conventions`, `token-efficiency` |
+| Hybrid read-only | Type `/skill-name` or let Claude auto-load it; auto mode does not edit files | `/do-analyze`, `/do-code-review`, `/do-document`, `/do-troubleshoot`, `/parallel-agents` |
+| Auto-loaded policy | Claude loads it as background guidance; normally not user-invoked | `confidence-check`, `token-efficiency` |
 | Forked research | Runs in an isolated context and returns a summarized result | `/do-research` |
 
 ---
@@ -35,48 +35,42 @@ When a workflow example conflicts with one of those source files, update the sou
 
 Starting from a vague idea and ending at a committed, tested feature.
 
-Primary source skills: `do-brainstorm`, `do-design`, `do-spec`, `do-plan`, `do-tasks`, `do-execute-plan`, `do-analyze`, `do-review`, `do-git`. `confidence-check` auto-loads before implementation-class edits. `do-spec` through `do-review` are the five phases of the doflow chain (`constitution → spec → plan → tasks → implement → review`); `/do-flow` can auto-chain those phases with three approval gates instead of invoking each one manually, as shown below.
+Primary source skills: `do-brainstorm`, `do-design`, `do-plan`, `do-execute-plan`, `do-analyze`, `do-code-review`, `do-git`. `confidence-check` auto-loads before implementation-class edits. `do-brainstorm` through `do-code-review` are the phases of the doflow chain (`brainstorm → design → plan → implement → test → review`); `/do-flow` can auto-chain those phases with three approval gates instead of invoking each one manually, as shown below.
 
 ```bash
-# Session start — git context already injected by SessionStart hook
-/do-load  # Restore cross-session memories (run this after any /compact)
+# Session start — git context and prior compact summary already injected by hooks
 
-# Step 1: Discover and clarify requirements through Socratic dialogue
+# Step 1: Discover requirements through Socratic dialogue — writes requirement.md
 /do-brainstorm "user authentication with JWT and refresh tokens"
 
-# Step 2: Get specialist input before designing
+# Step 2: Get specialist input to refine requirements before designing
 @agent-security "define security requirements for JWT auth — what could go wrong?"
+# (patch requirement.md directly with any new findings)
 
-# Step 3: Design with the requirements in mind
+# Step 3: Design the system shape — writes design.md
 /do-design "feature architecture for JWT auth service" --think-hard --c7
 
 # Step 4: Architecture review
 @agent-system-architect "review this design for scalability and maintainability issues"
 
-# Step 5: Record the agreed spec (WHAT/WHY) — folds in the brainstorm/design output above
-/do-spec "JWT auth service with refresh token rotation"
-
-# Step 6: Generate the implementation plan (HOW) from the spec
+# Step 5: Generate the implementation plan (HOW) + task checklist from requirement.md + design.md
 /do-plan --strategy systematic
 
-# Step 7: Decompose the plan into a dependency-ordered task list
-/do-tasks
-
-# Step 8: Preview the execution order before changing files
+# Step 6: Preview the execution order before changing files
 /do-execute-plan --dry-run
 
-# Step 9: Execute one dependency-ready task at a time
+# Step 7: Execute one dependency-ready task at a time
 # confidence-check auto-loads before implementation-class edits
 /do-execute-plan --next --safe
 
-# Step 10: Validate the completed slice before shipping
+# Step 8: Validate the completed slice before shipping
 /do-analyze src/auth --focus security --depth deep
 /do-test --type unit --coverage
 
-# Step 11: Review merge readiness — code quality plus spec/task traceability
-/do-review --scope changed --format mr
+# Step 9: Review merge readiness — automated code-quality review
+/do-code-review
 
-# Step 12: Commit cleanly
+# Step 10: Commit cleanly
 /do-git "implement JWT auth with refresh token rotation"
 ```
 
@@ -84,9 +78,9 @@ Primary source skills: `do-brainstorm`, `do-design`, `do-spec`, `do-plan`, `do-t
 
 ## Flow A.1 — Resume a Generated Plan
 
-Use this when `/do-plan` and `/do-tasks` already produced `plan.md`/`tasks.md` for the active feature and you want controlled implementation without re-planning.
+Use this when `/do-plan` already produced `plan.md` (with its embedded task checklist) for the active feature and you want controlled implementation without re-planning.
 
-State source: `/do-execute-plan` treats `agent-docs/specs/<slug>/tasks.md` (and its `state.md`) as the source of truth. It should stop on unclear requirements, failed validation, or dependency conflicts, then report the blocker and next action.
+State source: `/do-execute-plan` treats `agent-docs/doflow/<slug>/plan.md` (and its `state.md`) as the source of truth. It should stop on unclear requirements, failed validation, or dependency conflicts, then report the blocker and next action.
 
 ```bash
 # Inspect the generated plan and saved execution state
@@ -99,7 +93,7 @@ State source: `/do-execute-plan` treats `agent-docs/specs/<slug>/tasks.md` (and 
 /do-execute-plan --phase 2
 
 # Stop for review before committing
-/do-review --scope changed --format mr
+/do-code-review
 ```
 
 ---
@@ -108,7 +102,7 @@ State source: `/do-execute-plan` treats `agent-docs/specs/<slug>/tasks.md` (and 
 
 Use `/do-pm` when you want the project manager layer to drive discovery, planning, execution, validation, and review from one request. This works best when the goal is clear enough to start but broad enough to need coordination.
 
-Routing source: `core/skills/do-pm/SKILL.md` maps workflow execution requests to `/do-execute-plan` and review requests to `/do-review`.
+Routing source: `core/skills/do-pm/SKILL.md` maps workflow execution requests to `/do-execute-plan` and review requests to `/do-code-review`.
 
 ```bash
 /do-pm "
@@ -242,7 +236,7 @@ Source skill: `do-document`. Documentation edits still count as file edits, so t
 /do-document "Update reference and example workflow docs for hybrid skills"
 
 # Review the docs-only diff
-/do-review --scope changed
+/do-code-review
 
 # Optional: run your documentation build if configured
 # mkdocs build
@@ -261,10 +255,10 @@ Agents are specialist personas invoked via the `Agent` tool. Each has domain-spe
 @agent-security "review PaymentService for vulnerabilities"
 
 # Merge request review with language-aware conventions
-/do-review --scope changed --format mr
+/do-code-review
 
-# Financial-services review — java-conventions auto-loads for .java files
-/do-review --scope branch --format mr
+# Financial-services review — do-code-review applies languages/java.md rules to .java files
+/do-code-review
 
 # Backend architecture decisions
 @agent-backend-architect "design the repository pattern for UserService"
@@ -316,7 +310,7 @@ When you use Claude, Copilot/Codex, and Gemini together:
 /do-implement "Redis-backed session service with TTL and graceful degradation" --c7
 
 # Phase 4: Code review (Copilot inline — same rules apply)
-# "Using code-reviewer agent: review this session service before I commit"
+# /do-code-review: review this session service before I commit
 
 # Phase 5: Commit (Claude — hooks enforce safety)
 /do-git "add Redis session service with TTL-based expiry"

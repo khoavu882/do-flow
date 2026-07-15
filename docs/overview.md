@@ -13,7 +13,7 @@ Every AI session has two layers of memory that operate at different timescales:
 | **Short-context** | Active conversation window | LLM token budget (auto-compacted at 75%) | No |
 | **Long-context** | Cross-session persistence | Files on disk, native memory (MEMORY.md + agent-docs) | Yes |
 
-Hooks bridge these two horizons. `SessionStart` captures state to disk, `UserPromptSubmit` injects lightweight context on the first prompt, and compaction hooks preserve summaries for later `/do-load`.
+Hooks bridge these two horizons. `SessionStart` captures state to disk, `UserPromptSubmit` injects lightweight context plus the prior session's compact summary directly on the first prompt, and compaction hooks preserve those summaries to disk for the next session to read.
 
 ---
 
@@ -156,19 +156,16 @@ flowchart TD
 
     subgraph SESSION_N1["Session N+1"]
         SS[SessionStart fires]
-        INJ[Injects git context\nfirst prompt via UserPromptSubmit]
-        LOAD[/do-load restores\ncompact summary if present]
+        INJ[UserPromptSubmit injects:\ngit context + prior compact summary,\nif present, directly into the first prompt]
         SS --> INJ
-        INJ --> LOAD
     end
 
     TS --> TS2
     SE --> LOG2
-    TS2 -->|user runs /do-load| LOAD
-    MEM -->|/do-load reads memories| LOAD
+    TS2 -->|First prompt detects and injects directly| INJ
 ```
 
-**Default behavior**: Sessions start fresh with lightweight git context only. The compact summary is available on disk but not injected automatically — run `/do-load` when you want deeper context from a prior session.
+**Default behavior**: Sessions start with lightweight git context, plus the prior session's compact summary automatically injected on the first prompt if one exists on disk — no manual restore command needed.
 
 ---
 
@@ -200,5 +197,5 @@ Typical per-session allocation:
 └── Tool results: ~1–50K per call (varies widely)
 
 At 75% -> PreCompact fires -> context compressed
-Summary saved to disk -> next session /do-load restores it
+Summary saved to disk -> next session's first prompt injects it automatically
 ```

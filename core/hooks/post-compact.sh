@@ -2,7 +2,8 @@
 # post-compact.sh — PostCompact hook
 #
 # Saves the AI-generated compact_summary (from stdin JSON) to a project-scoped
-# file so /do-load can restore it in a future session.
+# file. user-prompt-submit.sh reads and injects it directly on the next session's
+# first prompt — no manual restore command required.
 #
 # Atomic write: mktemp → populate → mv ensures readers never see partial content.
 # Multi-session safe: project directory is keyed by cwd hash, not session_id.
@@ -22,8 +23,8 @@ COMPACT_SUMMARY=$(json_field "$INPUT" ".compact_summary")
 # Guard: nothing useful to save if we don't know where we are
 [[ -z "$CWD" ]] && exit 0
 
-# Guard: an empty summary would write a frontmatter-only file that /do-load
-# would inject as empty context — useless noise, skip it.
+# Guard: an empty summary would write a frontmatter-only file that would be
+# injected as empty context on the next session's first prompt — useless noise, skip it.
 [[ -z "$COMPACT_SUMMARY" ]] && exit 0
 
 PROJECT_DIR=$(ensure_project_dir "$CWD")

@@ -5,7 +5,7 @@
 # never compute paths, feature numbers, or existence themselves (the
 # deterministic/generative split — design §4). The active feature is derived
 # from the git branch (branch-coupled, FR-6): `feat/<NNN-slug>` → feature dir
-# `agent-docs/specs/<NNN-slug>/`. On a trunk branch (master/main/develop) the
+# `agent-docs/doflow/<NNN-slug>/`. On a trunk branch (master/main/develop) the
 # slug is null and the caller must prompt for one.
 #
 # Self-contained by design: it does NOT source core/hooks/lib.sh, because this
@@ -57,19 +57,19 @@ case "$branch" in
   *)                           feature_slug="$branch" ;;
 esac
 
-specs_rel="agent-docs/specs"
+specs_rel="agent-docs/doflow"
 specs_dir="$repo_root/$specs_rel"
 
-feature_dir=""; spec=""; plan=""; tasks=""; state=""
-has_spec=false; has_plan=false; has_tasks=false
+feature_dir=""; requirement=""; design=""; plan=""; state=""
+has_requirement=false; has_design=false; has_plan=false
 if [ -n "$feature_slug" ]; then
   feature_dir="$specs_rel/$feature_slug"
   abs="$repo_root/$feature_dir"
-  spec="$feature_dir/spec.md"; plan="$feature_dir/plan.md"
-  tasks="$feature_dir/tasks.md"; state="$feature_dir/state.md"
-  [ -f "$abs/spec.md" ]  && has_spec=true
-  [ -f "$abs/plan.md" ]  && has_plan=true
-  [ -f "$abs/tasks.md" ] && has_tasks=true
+  requirement="$feature_dir/requirement.md"; design="$feature_dir/design.md"
+  plan="$feature_dir/plan.md"; state="$feature_dir/state.md"
+  [ -f "$abs/requirement.md" ] && has_requirement=true
+  [ -f "$abs/design.md" ]      && has_design=true
+  [ -f "$abs/plan.md" ]        && has_plan=true
 fi
 
 # ── next number: max(existing spec dirs, numbered branches) + 1 ───────────────
@@ -98,9 +98,9 @@ constitution_local="agent-docs/constitution.md"   # tier-2, per-repo (may not ex
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 constitution_base=""
 for c in \
-  "$script_dir/../../reference/CONSTITUTION_BASE.md" \
-  "$script_dir/../../../reference/CONSTITUTION_BASE.md" \
-  "$HOME/.claude/reference/CONSTITUTION_BASE.md"; do
+  "$script_dir/../../references/CONSTITUTION_BASE.md" \
+  "$script_dir/../../../references/CONSTITUTION_BASE.md" \
+  "$HOME/.claude/references/CONSTITUTION_BASE.md"; do
   if [ -f "$c" ]; then
     constitution_base="$(cd "$(dirname "$c")" && pwd)/CONSTITUTION_BASE.md"
     break
@@ -112,7 +112,7 @@ if [ "$require" = "feature" ] && [ -z "$feature_slug" ]; then
   jq -n --arg branch "$branch" \
     '{error:"no-active-feature",
       branch:(if $branch=="" then null else $branch end),
-      hint:"checkout a feat/<NNN-slug> branch or run /do-spec to start one"}'
+      hint:"checkout a feat/<NNN-slug> branch or run /do-brainstorm to start one"}'
   exit 2
 fi
 
@@ -122,8 +122,8 @@ jq -n \
   --arg branch "$branch" \
   --arg feature_slug "$feature_slug" \
   --arg feature_dir "$feature_dir" \
-  --arg spec "$spec" --arg plan "$plan" --arg tasks "$tasks" --arg state "$state" \
-  --argjson has_spec "$has_spec" --argjson has_plan "$has_plan" --argjson has_tasks "$has_tasks" \
+  --arg requirement "$requirement" --arg design "$design" --arg plan "$plan" --arg state "$state" \
+  --argjson has_requirement "$has_requirement" --argjson has_design "$has_design" --argjson has_plan "$has_plan" \
   --arg next_number "$next_number" \
   --arg constitution_base "$constitution_base" \
   --arg constitution_local "$constitution_local" \
@@ -132,13 +132,13 @@ jq -n \
     branch:             (if $branch=="" then null else $branch end),
     feature_slug:       (if $feature_slug=="" then null else $feature_slug end),
     feature_dir:        (if $feature_dir=="" then null else $feature_dir end),
-    spec:               (if $spec=="" then null else $spec end),
+    requirement:        (if $requirement=="" then null else $requirement end),
+    design:             (if $design=="" then null else $design end),
     plan:               (if $plan=="" then null else $plan end),
-    tasks:              (if $tasks=="" then null else $tasks end),
     state:              (if $state=="" then null else $state end),
-    has_spec:           $has_spec,
+    has_requirement:    $has_requirement,
+    has_design:         $has_design,
     has_plan:           $has_plan,
-    has_tasks:          $has_tasks,
     next_number:        $next_number,
     constitution_base:  (if $constitution_base=="" then null else $constitution_base end),
     constitution_local: $constitution_local
