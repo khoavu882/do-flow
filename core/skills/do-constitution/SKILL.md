@@ -45,4 +45,4 @@ marker-delimited pointer via `sync-context.sh`.
 
 ## CRITICAL BOUNDARIES
 Output: `agent-docs/constitution.md` (tier-2) + an updated `<!-- DOFLOW START/END -->` block in the
-context file. **Next Step:** `/do-spec` to start a feature under this constitution.
+context file. **Next Step:** `/do-brainstorm` to start a feature under this constitution.

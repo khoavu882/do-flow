@@ -35,17 +35,23 @@ echo "[resolver]"
 eq "trunk branch -> slug null"        "$("$PATHS" | jq -r '.feature_slug // "null"')" "null"
 git checkout -q -b feat/001-auth
 eq "feat branch -> slug"              "$("$PATHS" | jq -r '.feature_slug')" "001-auth"
-mkdir -p agent-docs/specs/003-x agent-docs/specs/007-y
+mkdir -p agent-docs/doflow/003-x agent-docs/doflow/007-y
 eq "numbering = max(dirs,branch)+1"   "$("$PATHS" | jq -r '.next_number')" "008"
-mkdir -p agent-docs/specs/001-auth
-eq "has_spec false pre-file"          "$("$PATHS" | jq -r '.has_spec')" "false"
-echo s > agent-docs/specs/001-auth/spec.md
-eq "has_spec true post-file"          "$("$PATHS" | jq -r '.has_spec')" "true"
+mkdir -p agent-docs/doflow/001-auth
+eq "has_requirement false pre-file"   "$("$PATHS" | jq -r '.has_requirement')" "false"
+echo r > agent-docs/doflow/001-auth/requirement.md
+eq "has_requirement true post-file"   "$("$PATHS" | jq -r '.has_requirement')" "true"
+eq "has_design false pre-file"        "$("$PATHS" | jq -r '.has_design')" "false"
+echo d > agent-docs/doflow/001-auth/design.md
+eq "has_design true post-file"        "$("$PATHS" | jq -r '.has_design')" "true"
 
 echo "[prereqs gate]"
-"$PREREQ" --require-tasks >/dev/null 2>&1; eq "missing plan/tasks -> exit 2" "$?" "2"
-echo p > agent-docs/specs/001-auth/plan.md; echo t > agent-docs/specs/001-auth/tasks.md
-"$PREREQ" --require-tasks >/dev/null 2>&1; eq "prereqs met -> exit 0" "$?" "0"
+"$PREREQ" --require-plan >/dev/null 2>&1; eq "missing plan -> exit 2" "$?" "2"
+echo p > agent-docs/doflow/001-auth/plan.md
+"$PREREQ" --require-plan >/dev/null 2>&1; eq "prereqs met -> exit 0" "$?" "0"
+rm agent-docs/doflow/001-auth/design.md
+"$PREREQ" --require-plan >/dev/null 2>&1; eq "requirement+plan present, design missing -> exit 2" "$?" "2"
+echo d > agent-docs/doflow/001-auth/design.md
 
 echo "[pre-implement-gate hook]"
 ROOT="$(pwd -P)"
@@ -55,17 +61,17 @@ decision() {
   local d; d=$(echo "$1" | bash "$GATE" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)
   echo "${d:-allow}"
 }
-# remove tasks.md so the feature is started-but-incomplete
-rm agent-docs/specs/001-auth/tasks.md
-eq "in-flow source edit, no tasks -> deny" \
+# remove design.md so the feature is started-but-incomplete (widened gate: requirement+design+plan all required)
+rm agent-docs/doflow/001-auth/design.md
+eq "in-flow source edit, requirement+plan present but design missing -> deny" \
    "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}")" "deny"
 eq "agent-docs edit -> allow" \
-   "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/agent-docs/specs/001-auth/spec.md\"}}")" "allow"
+   "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/agent-docs/doflow/001-auth/requirement.md\"}}")" "allow"
 eq "outside-repo edit -> allow" \
    "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"/etc/hosts\"}}")" "allow"
 eq "non-edit tool -> allow" \
    "$(decision "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls\"}}")" "allow"
-echo t > agent-docs/specs/001-auth/tasks.md
+echo d > agent-docs/doflow/001-auth/design.md
 eq "prereqs met -> allow" \
    "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}")" "allow"
 git checkout -q master

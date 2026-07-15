@@ -1,4 +1,4 @@
-# Feature Specification: [FEATURE NAME]
+# Feature Requirement: [FEATURE NAME]
 
 **Feature:** [NNN-slug] · **Branch:** `feat/[NNN-slug]` · **Status:** Draft
 **Created:** [DATE] · **Owner:** [OWNER]

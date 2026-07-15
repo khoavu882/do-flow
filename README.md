@@ -31,9 +31,9 @@ DoFlow is a **configuration layer** for your AI coding assistants. Install it an
 | Capability | What Changes |
 |-----------|-------------|
 | **Session memory** | Hooks capture git state at session start and inject branch, commit, and prior-context hints on the first prompt |
-| **15 specialist agents** | Route tasks to the right expert: code reviewer, security engineer, backend architect, root-cause analyst, etc. |
-| **37 project skills** | `/do-brainstorm`, `/do-review`, `/do-execute-plan`, `/do-implement`, `/do-analyze`, `/parallel-agents`, `/do-research` — structured Claude Code skills for execution, research, coordination, and verification |
-| **8 safety hooks** | Blocks `--force` push, `git reset --hard`, `rm -rf /`, `DROP TABLE`, `TRUNCATE TABLE`, `DELETE FROM` without WHERE, `curl/wget \| bash` — automatically |
+| **14 specialist agents** | Route tasks to the right expert: security engineer, backend architect, root-cause analyst, quality engineer, etc. |
+| **32 project skills** | `/do-brainstorm`, `/do-code-review`, `/do-execute-plan`, `/do-implement`, `/do-analyze`, `/parallel-agents`, `/do-research` — structured Claude Code skills for execution, research, coordination, and verification |
+| **12 safety hooks** | Blocks `--force` push, `git reset --hard`, `rm -rf /`, `DROP TABLE`, `TRUNCATE TABLE`, `DELETE FROM` without WHERE, `curl/wget \| bash` — automatically |
 | **4 MCP servers** | Library docs (Context7), structured reasoning (Sequential), browser testing (Playwright + Chrome DevTools) |
 | **Cross-tool consistency** | Same engineering rules (safety, workflow, quality) enforced across Claude, Codex, and Gemini |
 
@@ -101,9 +101,9 @@ The detailed, copy-ready workflows live in [docs/guide.md](docs/guide.md). READM
 
 | Tool | Installed Source | Capability Tier | Canonical Docs |
 |------|------------------|-----------------|----------------|
-| Claude Code | `core/skills/`, `core/agents/`, `core/hooks/`, `core/mcp/`, `core/rules/`, `core/reference/`, `core/settings.json`, `core/CLAUDE.md` | Full orchestration: slash skills, auto-loaded policy skills, agents, hooks, MCP servers, session memory | [Guide](docs/guide.md), [Reference](docs/reference.md) |
-| Codex / Copilot-style tools | `core/rules/`, `core/agents/`, `core/reference/` | Shared engineering standards and specialist persona prompts | [Guide: Multi-Tool Workflows](docs/guide.md#multi-tool-workflows) |
-| Gemini | `core/rules/`, `core/agents/`, `core/reference/` | Broad review, documentation, and architecture support with the same rules | [Guide: Multi-Tool Workflows](docs/guide.md#multi-tool-workflows) |
+| Claude Code | `core/skills/`, `core/agents/`, `core/hooks/`, `core/mcp/`, `core/rules/`, `core/references/`, `core/settings.json`, `core/CLAUDE.md` | Full orchestration: slash skills, auto-loaded policy skills, agents, hooks, MCP servers, session memory | [Guide](docs/guide.md), [Reference](docs/reference.md) |
+| Codex / Copilot-style tools | `core/rules/`, `core/agents/`, `core/references/` | Shared engineering standards and specialist persona prompts | [Guide: Multi-Tool Workflows](docs/guide.md#multi-tool-workflows) |
+| Gemini | `core/rules/`, `core/agents/`, `core/references/` | Broad review, documentation, and architecture support with the same rules | [Guide: Multi-Tool Workflows](docs/guide.md#multi-tool-workflows) |
 
 The actual install mapping is defined in [bin/mappings.conf](bin/mappings.conf). If a file is not listed there, it is documentation or source material only.
 
@@ -111,13 +111,13 @@ Most-used Claude Code paths:
 
 ```bash
 # Spec-driven feature flow (doflow chain, part of core)
-/do-constitution                        # one-time per repo: set project rules
-/do-spec "feature idea"                 # WHAT/WHY -> agent-docs/specs/NNN/spec.md
-/do-plan                                # HOW -> plan.md (Constitution Check gate)
-/do-tasks                               # dependency-ordered tasks.md ([P]/[US#])
-/do-execute-plan latest --next --safe   # gated execution (requires plan + tasks)
-/do-review --scope changed              # review + spec/tasks traceability
-# /do-flow auto-chains constitution -> spec -> plan -> tasks -> implement -> review
+/do-constitution                        # one-time per repo: set project rules (standalone, not part of the chain)
+/do-brainstorm "feature idea"           # WHAT/WHY -> agent-docs/doflow/NNN/requirement.md
+/do-design                              # system shape -> design.md
+/do-plan                                # HOW + task checklist -> plan.md (Constitution Check gate)
+/do-execute-plan latest --next --safe   # gated execution (requires requirement + design + plan)
+/do-code-review                         # automated code-quality review
+# /do-flow auto-chains brainstorm -> design -> plan -> implement -> test -> review
 # with three approval gates, instead of invoking each phase manually
 
 # Independent investigation flow
@@ -135,7 +135,7 @@ Most-used Claude Code paths:
 
 **Before**: Every session starts with: "We're using TypeScript strict mode. Our service layer lives in `src/services/`. We follow camelCase. We're on Node 20. We use Prisma for the ORM. Don't suggest mongoose."
 
-**After**: `SessionStart` captures git state, then `UserPromptSubmit` injects branch and commit context on the first prompt. `/do-load` restores native memory (compact summary + project memory files) from the previous session. CLAUDE.md auto-loads your rules and principles. The AI's first message is productive work — not re-onboarding.
+**After**: `SessionStart` captures git state, then `UserPromptSubmit` injects branch and commit context — plus the prior session's compact summary, read directly from disk — on the first prompt. CLAUDE.md auto-loads your rules and principles. The AI's first message is productive work — not re-onboarding.
 
 ---
 
@@ -181,7 +181,7 @@ doflow install -g --target claude,codex,gemini
 
 **Before**: 40 messages in, Claude suggests a pattern that conflicts with a decision made at message 12. The context window has filled up and earlier decisions are now compressed or gone.
 
-**After**: Auto-compact fires at 75% context. `pre-compact.sh` outputs git state as custom instructions to enrich the compact summary; `post-compact.sh` saves the resulting summary to disk. The next session's first prompt includes a hint that a prior compact summary is available, and `/do-load` restores project memories. Subagent delegation with `--delegate` offloads large analysis to isolated contexts, protecting the main window from filling up with tool call noise.
+**After**: Auto-compact fires at 75% context. `pre-compact.sh` outputs git state as custom instructions to enrich the compact summary; `post-compact.sh` saves the resulting summary to disk. The next session's first prompt automatically injects that summary directly into context via `user-prompt-submit.sh` — no manual restore step. Subagent delegation with `--delegate` offloads large analysis to isolated contexts, protecting the main window from filling up with tool call noise.
 
 ---
 
@@ -358,13 +358,13 @@ flowchart LR
         A3[SubagentStop hook<br/>logs completion to disk]
     end
 
-    M3 -->|UserPromptSubmit adds hint| S2
+    M3 -->|UserPromptSubmit injects directly| S2
     M6 -->|Auto-loaded at init| S1
-    M1 -->|/do-load reads memory files| S6
+    M1 -->|Read directly when needed, e.g. by pm-agent| S6
 
     S3 -.->|PreCompact: timestamp written to disk| M3
     S4 -->|Stop hook logs completion| M4
-    S6 -->|/do-save persists| M1
+    S6 -->|Written directly, e.g. by pm-agent| M1
 
     S4 -->|Agent tool spawns subagent| A1
     A3 -->|SubagentStop: logs to disk| M4
@@ -384,7 +384,7 @@ flowchart TD
         PC[PreCompact fires]
         WN --> PC
         PC --> TS[Write timestamp marker<br/>to last-compact-summary.txt]
-        WN --> SAVE[/do-save - write_memory called]
+        WN --> SAVE[Direct writes to agent-docs/ and MEMORY.md]
         WN --> SE[SessionEnd fires]
         SE --> LOG[Append session_id and timestamp<br/>to sessions.log]
     end
@@ -397,7 +397,7 @@ flowchart TD
 
     subgraph SESSION_N1["Session N+1"]
         SS[SessionStart fires]
-        INJ[UserPromptSubmit injects:<br/>git branch + last commit<br/>+ prior compact hint if present]
+        INJ[UserPromptSubmit injects:<br/>git branch + last commit<br/>+ prior compact summary, if present]
         WORK[Session proceeds with<br/>awareness of prior compaction]
         SS --> INJ
         INJ --> WORK
@@ -406,8 +406,7 @@ flowchart TD
     TS --> TS2
     LOG --> LOG2
     SAVE --> MEM
-    TS2 -->|First prompt detects| INJ
-    MEM -->|/do-load reads| INJ
+    TS2 -->|First prompt detects and injects directly| INJ
 ```
 
 ---
@@ -439,7 +438,7 @@ Typical per-session allocation:
 └── Remaining before compaction: depends on turn count
 
 At 75% fill -> PreCompact fires -> context compressed
-Compact marker written to disk -> next session /do-load restores it
+Summary written to disk -> next session's first prompt injects it automatically
 ```
 
 ---
@@ -521,7 +520,6 @@ Configured in `mappings.conf`:
 | `system-architect` | Scalable system design |
 | `backend-architect` | Backend systems and APIs |
 | `frontend-architect` | UI/UX and frontend |
-| `code-reviewer` | Merge request, diff, branch, and coding standard review |
 | `security-engineer` | Vulnerability assessment |
 | `devops-architect` | Infrastructure and CI/CD |
 | `performance-engineer` | Bottleneck identification |
@@ -543,8 +541,7 @@ Manual invocation: describe the task naturally — Claude selects the agent. For
 | Skill | Invocation | Description |
 |-------|-----------|-------------|
 | `token-efficiency` | agent-preloaded (hidden) | Compressed output when context > 75% |
-| `code-conventions` | agent-preloaded (hidden) | Language-aware convention router for Java, Python, JavaScript, and TypeScript |
-| `java-conventions` | agent-preloaded (hidden) | Java naming, structure, DB standards — auto-loaded into code-reviewer |
+| `do-code-review` | `/do-code-review` | Automated code-quality review across 13 languages (SOLID violations, code smells, security/performance findings) |
 | `do-brainstorm` | `/do-brainstorm [topic]` | Socratic requirements discovery |
 | `do-research` | `/do-research "[query]"` | Evidence-based research (forked context — only final result in main context) |
 
@@ -557,11 +554,15 @@ Manual invocation: describe the task naturally — Claude selects the agent. For
 | `session-start.sh` | SessionStart | Captures git branch, SHA, last 5 commits to `sessions/{id}/git-context.json` |
 | `user-prompt-submit.sh` | UserPromptSubmit | Injects git context on first prompt only via `additionalContext`; flag prevents re-injection |
 | `pre-bash-guard.sh` | PreToolUse(Bash) | Blocks dangerous patterns from `blocked-patterns.conf` |
+| `mcp-tool-guard.sh` | PreToolUse(mcp__*) | Blocks MCP tool calls matching `mcp-policy.conf` (same pattern convention as `pre-bash-guard.sh`; ships with zero active patterns — pure infrastructure until usage data justifies specific rules) |
+| `pre-implement-gate.sh` | PreToolUse(Edit\|Write\|MultiEdit) | Doflow chain's hard gate — blocks source edits until `requirement.md`, `design.md`, and `plan.md` all exist |
 | `post-edit-lint.sh` | PostToolUse(Edit\|Write) | Appends file path to `edited-files.txt` for batch lint at Stop |
 | `stop-check.sh` | Stop | Batch lint dispatch; blocks if last assistant response has TODO/stub |
 | `pre-compact.sh` | PreCompact | Outputs git state as `custom_instructions` to enrich the compact summary |
 | `post-compact.sh` | PostCompact | Saves AI-generated summary to `projects/{cwd_hash}/last-compact-summary.md` |
 | `session-end.sh` | SessionEnd | Logs END, writes uncommitted-warning, deletes session dir, trims log |
+| `subagent-audit.sh` | SubagentStart / SubagentStop | Pure observability — logs which specialist agents actually run, to `subagent-audit.log`; no deny path |
+| `skill-config-audit.sh` | ConfigChange | Pure observability — logs skill-file mutations regardless of which tool made them; no deny path |
 
 Blocked operations (always denied, no override):
 ```
@@ -584,14 +585,14 @@ The complete skill table lives in [docs/reference.md](docs/reference.md). Source
 | Group | Examples | Contract |
 |-------|----------|----------|
 | Manual workflow commands | `/do-implement`, `/do-execute-plan`, `/do-git`, `/do-cleanup` | Human chooses timing; side effects are allowed only through explicit command use. |
-| Hybrid read-only skills | `/do-analyze`, `/do-review`, `/do-document`, `/do-troubleshoot`, `/parallel-agents` | Claude may auto-load for matching requests, but auto mode analyzes, drafts, verifies, or coordinates only. |
-| Auto-loaded policy skills | `confidence-check`, `code-conventions`, `java-conventions`, `token-efficiency` | Hidden background guidance; `confidence-check` gates implementation-class edits. |
+| Hybrid read-only skills | `/do-analyze`, `/do-code-review`, `/do-document`, `/do-troubleshoot`, `/parallel-agents` | Claude may auto-load for matching requests, but auto mode analyzes, drafts, verifies, or coordinates only. |
+| Auto-loaded policy skills | `confidence-check`, `token-efficiency` | Hidden background guidance; `confidence-check` gates implementation-class edits. |
 
 ---
 
 ### Workflow Execution and Review Gate
 
-The standard delivery path is `/do-spec` -> `/do-plan` -> `/do-tasks` -> `/do-execute-plan` -> `/do-review` (or `/do-flow` to auto-chain the same phases behind three approval gates). See [docs/guide.md](docs/guide.md) for copy-ready examples and [docs/reference.md](docs/reference.md) for invocation modes.
+The standard delivery path is `/do-brainstorm` -> `/do-design` -> `/do-plan` -> `/do-execute-plan` -> `/do-code-review` (or `/do-flow` to auto-chain the same phases behind three approval gates). See [docs/guide.md](docs/guide.md) for copy-ready examples and [docs/reference.md](docs/reference.md) for invocation modes.
 
 ---
 
@@ -704,8 +705,8 @@ do-flow/
                      #   where doflow actually installs the selection: ~/.claude.json or
                      #   <projectRoot>/.mcp.json, never .claude/.mcp.json)
     agents/          # 15 specialized agents
-    hooks/           # 8 event-driven safety hooks + lib.sh shared library
-    skills/          # 37 Claude Code skills
+    hooks/           # 12 event-driven safety hooks + lib.sh shared library
+    skills/          # 32 Claude Code skills
     modes/           # 6 behavioral modes (on-demand)
     rules/           # Split rules (<60 lines each for adherence)
     mcp/             # MCP server documentation (4 servers)

@@ -3,7 +3,46 @@
 All notable changes to DoFlow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [2.0.0] - 2026-07-15
+
+### Changed
+
+- **Breaking (installed framework content):** consolidated the doflow spec-driven chain.
+  `do-spec` merged into `do-brainstorm` (which now creates the feature branch/dir and writes
+  `requirement.md` as part of its own Socratic-discovery flow); `do-tasks` merged into `do-plan`
+  (writes the dependency-ordered task checklist as a rigid subsection inside `plan.md`, no
+  separate `tasks.md`). `do-design` gained the same concrete resolver/file-write treatment,
+  writing `design.md`. Artifact root renamed `agent-docs/specs/<slug>/` →
+  `agent-docs/doflow/<slug>/`. The implement-phase hard gate now requires `requirement.md`,
+  `design.md`, and `plan.md` (previously `plan.md`+`tasks.md` only — `design.md` is newly
+  mandatory). `do-flow`'s auto-chain sequence and gate names updated to match; `do-constitution`
+  no longer runs as an implicit phase-0 of `do-flow` — it stays a standalone, manually-invoked
+  skill. In-flight `agent-docs/specs/<slug>/` feature directories from before this change are
+  not auto-migrated.
+- **Breaking:** retired `/do-load` and `/do-save`. Session-memory restoration
+  (`last-compact-summary.md`, `uncommitted-warning.txt`) is now handled automatically by
+  `user-prompt-submit.sh` — direct injection on the first prompt, no manual command needed.
+  `pm-agent` reads/writes the underlying files directly.
+- **Breaking (installed framework content):** replaced the `do-review` chain phase (code quality
+  + `requirement.md`/`plan.md` traceability) with `do-code-review`, a portable, tool-agnostic
+  code-quality skill covering 13 languages via dispatch rules, per-language rule files, and
+  deterministic analyzer scripts (`pr_analyzer.py`, `code_quality_checker.py`,
+  `review_report_generator.py`). `do-code-review` does not check requirement/task traceability —
+  the doflow chain's Gate-B review step is now code-quality only. Every chain skill
+  (`do-flow`, `do-brainstorm`, `do-execute-plan`, `do-pm`, `do-help`) and doc reference to
+  `/do-review` was repointed to `/do-code-review`.
+- **Breaking (installed framework content):** renamed `core/reference/` → `core/references/`;
+  removed the standalone `JAVA_CODING_RULE.md`/`CODE_REVIEW_CHECKLIST.md` reference docs and the
+  `code-conventions`/`java-conventions` skills (superseded by `do-code-review`'s per-language
+  rule files). Removed the now-redundant `code-reviewer` agent (14 agents remain);
+  `do-code-review` is self-contained and does not dispatch to it.
+
+### Removed
+
+- `do-spec`, `do-tasks`, `do-load`, `do-save`, `do-review`, `code-conventions`, `java-conventions`
+  skills.
+- `code-reviewer` agent.
+- `core/reference/JAVA_CODING_RULE.md`, `core/reference/CODE_REVIEW_CHECKLIST.md`.
 
 ## [1.0.1] - 2026-07-13
 

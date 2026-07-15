@@ -79,20 +79,18 @@ You should see the DoFlow skill reference. If skills respond and the status line
 ## First Session
 
 ```bash
-# Restore any prior session context (run this after any /compact)
-/do-load
-
 # Try a specialist agent
 @agent-security "review this function for vulnerabilities: [paste code]"
 
-# Start a structured workflow
+# Start a structured workflow — writes requirement.md
 /do-brainstorm "add user authentication with JWT"
 
-# Save the agreed requirements to spec.md, then plan and execute
+# Design the system shape, then plan and execute
+/do-design
 /do-plan --strategy systematic
 /do-execute-plan --dry-run
 
-# Or auto-chain the whole spec-driven flow (constitution -> spec -> plan -> tasks -> implement -> review)
+# Or auto-chain the whole spec-driven flow (brainstorm -> design -> plan -> implement -> test -> review)
 # instead of invoking each phase manually — pauses only at defined approval gates
 /do-flow "add user authentication with JWT"
 ```

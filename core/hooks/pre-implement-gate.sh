@@ -4,7 +4,8 @@
 # prompt-level do-prereqs.sh inside /do-execute-plan — defense in depth).
 #
 # Denies a SOURCE-file edit when a feature has been STARTED (its feature_dir exists) but
-# plan.md or tasks.md is still missing: "don't write code before you've planned." It is
+# requirement.md, design.md, or plan.md is still missing: "don't write code before you've
+# planned." It is
 # deliberately SCOPED so it never fires outside the doflow chain:
 #   - no active feature dir            -> allow
 #   - edit target is under agent-docs/ -> allow (editing the artifacts themselves)
@@ -30,10 +31,11 @@ RESOLVER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
 [ -x "$RESOLVER" ] || exit 0                      # resolver absent -> allow
 json=$("$RESOLVER" --json 2>/dev/null) || exit 0
 
-feature_dir=$(echo "$json" | jq -r '.feature_dir // empty' 2>/dev/null)
-repo_root=$(echo "$json"   | jq -r '.repo_root // empty' 2>/dev/null)
-has_plan=$(echo "$json"    | jq -r '.has_plan' 2>/dev/null)
-has_tasks=$(echo "$json"   | jq -r '.has_tasks' 2>/dev/null)
+feature_dir=$(echo "$json"     | jq -r '.feature_dir // empty' 2>/dev/null)
+repo_root=$(echo "$json"       | jq -r '.repo_root // empty' 2>/dev/null)
+has_requirement=$(echo "$json" | jq -r '.has_requirement' 2>/dev/null)
+has_design=$(echo "$json"      | jq -r '.has_design' 2>/dev/null)
+has_plan=$(echo "$json"        | jq -r '.has_plan' 2>/dev/null)
 
 # Not in the flow (no started feature) -> allow.
 [ -n "$feature_dir" ] || exit 0
@@ -44,13 +46,13 @@ case "$file" in
   /*) case "$file" in "$repo_root"/*) ;; *) exit 0 ;; esac ;;
 esac
 
-# In the flow: block source edits until BOTH plan.md and tasks.md exist.
-if [ "$has_plan" != "true" ] || [ "$has_tasks" != "true" ]; then
+# In the flow: block source edits until requirement.md, design.md, AND plan.md all exist.
+if [ "$has_requirement" != "true" ] || [ "$has_design" != "true" ] || [ "$has_plan" != "true" ]; then
   jq -n --arg fd "$feature_dir" '{
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
-      permissionDecisionReason: ("doflow gate: feature \($fd) has no plan.md/tasks.md yet — run /do-plan then /do-tasks before editing source. (Edits under agent-docs/ are always allowed; skip the flow by removing the feature dir.)")
+      permissionDecisionReason: ("doflow gate: feature \($fd) is missing requirement.md, design.md, or plan.md — run /do-brainstorm, /do-design, then /do-plan before editing source. (Edits under agent-docs/ are always allowed; skip the flow by removing the feature dir.)")
     }
   }'
   exit 0
