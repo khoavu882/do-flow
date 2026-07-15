@@ -45,6 +45,56 @@ eq "has_design false pre-file"        "$("$PATHS" | jq -r '.has_design')" "false
 echo d > agent-docs/doflow/001-auth/design.md
 eq "has_design true post-file"        "$("$PATHS" | jq -r '.has_design')" "true"
 
+echo "[resolver: non-git root fallback]"
+# Reproduces the real bug: doflow installed at a container root above the actual git repos
+# (e.g. a multi-service workspace) has no branch to derive feature_slug from at all — resolution
+# must fall back to scanning agent-docs/doflow/ directly instead of permanently reporting null.
+NG="$T/nongit"; mkdir -p "$NG"; cd "$NG" || exit 1
+eq "non-git root, no agent-docs -> is_git_repo false" "$("$PATHS" --json | jq -r '.is_git_repo')" "false"
+eq "non-git root, no agent-docs -> slug null"         "$("$PATHS" --json | jq -r '.feature_slug // "null"')" "null"
+mkdir -p agent-docs/doflow/001-solo
+eq "non-git root, exactly one feature dir -> auto-selected" \
+   "$("$PATHS" --json | jq -r '.feature_slug')" "001-solo"
+eq "non-git root, one dir -> candidate_slugs empty" \
+   "$("$PATHS" --json | jq -c '.candidate_slugs')" "[]"
+mkdir -p agent-docs/doflow/002-other
+eq "non-git root, two feature dirs -> slug still null" \
+   "$("$PATHS" --json | jq -r '.feature_slug // "null"')" "null"
+eq "non-git root, two feature dirs -> candidate_slugs lists both" \
+   "$("$PATHS" --json | jq -c '.candidate_slugs | sort')" '["001-solo","002-other"]'
+"$PATHS" --json --require feature >/dev/null 2>&1; eq "ambiguous + --require feature -> exit 2" "$?" "2"
+eq "ambiguous + --require feature -> error is ambiguous-feature (not no-active-feature)" \
+   "$("$PATHS" --json --require feature 2>/dev/null | jq -r '.error')" "ambiguous-feature"
+eq "--slug override resolves the ambiguity" \
+   "$("$PATHS" --json --slug=002-other | jq -r '.feature_slug')" "002-other"
+rm -rf agent-docs
+"$PATHS" --json --require feature >/dev/null 2>&1; eq "zero feature dirs + --require feature -> exit 2" "$?" "2"
+eq "zero feature dirs -> error is no-active-feature (not ambiguous)" \
+   "$("$PATHS" --json --require feature 2>/dev/null | jq -r '.error')" "no-active-feature"
+
+# Regression: a stray non-numeric dir under agent-docs/doflow/ (notes/, .archive/, a manual-cleanup
+# leftover) must never masquerade as a feature candidate -- candidate scan needs the same
+# numeric-prefix filter next_number always used.
+mkdir -p agent-docs/doflow/001-real-feature agent-docs/doflow/.archive agent-docs/doflow/notes
+eq "non-numeric stray dirs excluded -> single real feature still auto-selects" \
+   "$("$PATHS" --json | jq -r '.feature_slug')" "001-real-feature"
+eq "non-numeric stray dirs excluded -> candidate_slugs empty (not ambiguous)" \
+   "$("$PATHS" --json | jq -c '.candidate_slugs')" "[]"
+eq "non-numeric stray dirs excluded -> next_number unaffected by them" \
+   "$("$PATHS" --json | jq -r '.next_number')" "002"
+rm -rf agent-docs
+
+echo "[prereqs gate: non-git ambiguity + --slug passthrough]"
+mkdir -p agent-docs/doflow/001-solo agent-docs/doflow/002-other
+echo r > agent-docs/doflow/001-solo/requirement.md
+echo d > agent-docs/doflow/001-solo/design.md
+echo p > agent-docs/doflow/001-solo/plan.md
+"$PREREQ" --require-plan >/dev/null 2>&1; eq "ambiguous non-git -> prereqs exit 2" "$?" "2"
+eq "ambiguous non-git -> prereqs error is ambiguous-feature" \
+   "$("$PREREQ" --require-plan 2>/dev/null | jq -r '.error')" "ambiguous-feature"
+"$PREREQ" --require-plan --slug=001-solo >/dev/null 2>&1; eq "--slug disambiguates -> prereqs exit 0" "$?" "0"
+cd "$T/repo" || exit 1
+
 echo "[prereqs gate]"
 "$PREREQ" --require-plan >/dev/null 2>&1; eq "missing plan -> exit 2" "$?" "2"
 echo p > agent-docs/doflow/001-auth/plan.md

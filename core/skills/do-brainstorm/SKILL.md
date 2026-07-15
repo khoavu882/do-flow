@@ -25,15 +25,27 @@ continuity gap: brainstorm output survives a compact/session-end without a separ
    [ -f "$RESOLVER" ] || RESOLVER="core/scripts/doflow/bash/do-paths.sh"   # dev tree
    bash "$RESOLVER" --json
    ```
+   If `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root — e.g.
+   doflow installed at a multi-service container root — with 2+ `agent-docs/doflow/` feature dirs
+   and no branch to disambiguate), this is NOT "no active feature" — it's an unresolved choice.
+   Ask via `AskUserQuestion`, one option per `candidate_slugs` entry, before continuing to step 2;
+   never fall through to step 3's fresh-feature path on an ambiguous result, that would create a
+   duplicate feature dir. Re-resolve with `bash "$RESOLVER" --json --slug="<chosen>"` and use that
+   slug for the rest of this flow. If `/do-flow` already disambiguated and is invoking this skill
+   directly, it passes `--slug="<chosen>"` itself — the resolver output already has a non-null
+   `feature_slug` in that case, so no prompt is needed here.
 2. **Explore** — Socratic dialogue: transform the idea through systematic questioning.
    `--depth shallow|normal|deep` and `--strategy systematic|agile|enterprise` shape how many
    rounds and how wide the exploration goes. Coordinate architecture/analysis/frontend/backend/
    security domain framing as needed, but stay in discovery mode — no implementation decisions
    here.
-3. **Pick the feature** — if `feature_slug` is non-null, use it. If null (trunk branch), ask the
-   user for a slug using the RULE_04 question format, default
-   `<next_number>-<kebab-of-description>`, then create the branch and dir:
-   `git checkout -b feat/<slug>` and `mkdir -p agent-docs/doflow/<slug>`.
+3. **Pick the feature** — if `feature_slug` is non-null (branch-derived, auto-selected from a
+   single non-git candidate, or resolved via step 1's disambiguation), use it. If still null
+   (genuinely no active feature: trunk branch, or a non-git root with zero existing feature dirs),
+   ask the user for a slug using the RULE_04 question format, default
+   `<next_number>-<kebab-of-description>`, then create the dir: `mkdir -p
+   agent-docs/doflow/<slug>`, plus `git checkout -b feat/<slug>` when `is_git_repo` is `true`
+   (skip the branch step entirely at a non-git root — there's no repo to branch).
 4. **Write `requirement.md`** — copy `templates/doflow/requirement-template.md` into the feature
    dir, fill the tokens from the dialogue. WHAT/WHY only: user stories (P1/P2/P3 → US#), `FR-###`,
    NFRs, out-of-scope, acceptance criteria. Cap unresolved `[NEEDS CLARIFICATION]` markers at 3.
