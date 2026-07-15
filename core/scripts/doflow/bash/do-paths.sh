@@ -12,9 +12,9 @@
 # resolution falls back to scanning `agent-docs/doflow/` directly — see the
 # "feature slug" section below and `candidate_slugs` in the emitted JSON.
 #
-# Self-contained by design: it does NOT source core/hooks/lib.sh, because this
-# script and lib.sh sit at different relative depths in the dev tree vs after
-# sync.sh install. It needs only `git` + `jq`.
+# Self-contained by design: it does NOT source hooks/lib.sh, because this
+# script and lib.sh sit at different relative depths depending on install
+# location (global vs project-scoped). It needs only `git` + `jq`.
 #
 # Fail-open: on any error it still emits best-effort JSON and exits 0, so a
 # skill is never hard-blocked by path resolution. The one non-zero exit is the

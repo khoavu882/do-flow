@@ -20,7 +20,13 @@ Phase 3 of the doflow chain. Turns `requirement.md` (WHAT/WHY) + `design.md` (sy
 1. **Resolve** — run the resolver, parse JSON:
    ```bash
    RESOLVER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
-   [ -f "$RESOLVER" ] || RESOLVER="core/scripts/doflow/bash/do-paths.sh"
+   if [ ! -f "$RESOLVER" ]; then                                          # project-scoped install
+     d="$PWD"
+     while [ "$d" != / ]; do
+       [ -f "$d/.claude/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/.claude/scripts/doflow/bash/do-paths.sh" && break
+       d="$(dirname "$d")"
+     done
+   fi
    bash "$RESOLVER" --json
    ```
    If `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root with 2+

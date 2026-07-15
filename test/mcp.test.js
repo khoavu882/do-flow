@@ -53,6 +53,19 @@ test('writeProjectMcpJson merges — a hand-added project server doflow does not
   assert.ok(result.mcpServers['sequential-thinking'], 'the newly selected known server must be present');
 });
 
+test('writeProjectMcpJson preserves a reselected known server\'s existing (hand-edited) definition instead of resetting it to the shipped default', () => {
+  const dir = scratchDir();
+  const dest = path.join(dir, '.mcp.json');
+  fs.writeFileSync(dest, JSON.stringify({ mcpServers: { context7: { command: 'my-custom-wrapper', args: ['--extra-flag'] } } }));
+
+  const all = readAllServers(MCP_JSON);
+  const defs = filterServerDefs(MCP_JSON, all, ['context7']); // context7 reselected, still known+present
+  writeProjectMcpJson(dir, all, defs);
+
+  const result = JSON.parse(fs.readFileSync(dest, 'utf8'));
+  assert.deepStrictEqual(result.mcpServers.context7, { command: 'my-custom-wrapper', args: ['--extra-flag'] }, 'a hand-edited definition for an already-present known server must survive reselection, not reset to the shipped default');
+});
+
 test('writeProjectMcpJson refuses to touch a malformed existing .mcp.json rather than silently discarding it', () => {
   const dir = scratchDir();
   fs.writeFileSync(path.join(dir, '.mcp.json'), '{ not valid json');
@@ -89,6 +102,21 @@ test('mergeGlobalMcpServers only touches known server keys, leaving unrelated ~/
   assert.ok(result.mcpServers['my-custom-server'], 'a server doflow does not know about must survive');
   assert.ok(!('context7' in result.mcpServers), 'a known server not in the new selection must be removed');
   assert.ok(result.mcpServers['sequential-thinking'], 'the newly selected known server must be present');
+});
+
+test('mergeGlobalMcpServers preserves a reselected known server\'s existing (hand-edited) definition instead of resetting it to the shipped default', () => {
+  const dir = scratchDir();
+  const file = path.join(dir, '.claude.json');
+  fs.writeFileSync(file, JSON.stringify({
+    mcpServers: { context7: { command: 'my-custom-wrapper', args: ['--extra-flag'] } },
+  }));
+
+  const all = readAllServers(MCP_JSON);
+  const defs = filterServerDefs(MCP_JSON, all, ['context7']); // context7 reselected, still known+present
+  mergeGlobalMcpServers(dir, all, defs);
+
+  const result = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepStrictEqual(result.mcpServers.context7, { command: 'my-custom-wrapper', args: ['--extra-flag'] }, 'a hand-edited definition for an already-present known server must survive reselection, not reset to the shipped default');
 });
 
 test('mergeGlobalMcpServers creates ~/.claude.json from scratch when absent', () => {

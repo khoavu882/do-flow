@@ -9,11 +9,9 @@
 #   3. capture stdin once: INPUT=$(cat)
 #   4. use: json_field "$INPUT" ".field_name"
 #
-# Deployment path:
-#   Source lives in  core/hooks/  (edit here — tracked by git)
-#   Installed to     ~/.claude/hooks/  by sync.sh
-#   Do NOT edit the installed copy directly — it will be overwritten on update.
-#   To update: edit core/hooks/, then re-run: ./sync.sh --update --target claude
+# Deployment:
+#   This file is installed by the doflow CLI and overwritten on update — do
+#   not edit an installed copy directly.
 
 set -euo pipefail
 
