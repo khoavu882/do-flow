@@ -25,7 +25,7 @@ Claude Code skills in DoFlow use three invocation modes:
 | `do-design` | `/do-design [target] [--type architecture\|api\|component\|database]` | Architecture, API, and component design (HOW at the system-shape level); writes `design.md` |
 | `do-document` | `/do-document [target] [--type inline\|external\|api\|guide]` | Generate documentation |
 | `do-estimate` | `/do-estimate [target] [--type time\|effort\|complexity]` | Task and feature estimation |
-| `do-execute-plan` | `/do-execute-plan [--next\|--phase N\|--all\|--resume\|--dry-run] [--safe]` | Execute `plan.md`'s embedded task checklist via pm-agent orchestration over named specialists, gated by the implement-phase prerequisite hook |
+| `do-execute-plan` | `/do-execute-plan [--next\|--phase N\|--all\|--resume\|--dry-run\|--contracts] [--safe]` | Execute `plan.md`'s embedded task checklist via pm-agent orchestration over named specialists, gated by the implement-phase prerequisite hook |
 | `do-explain` | `/do-explain [target] [--level basic\|intermediate\|advanced]` | Deep code and system behavior explanation |
 | `do-flow` | `/do-flow [feature description] [--from brainstorm\|design\|plan\|implement\|test\|review]` | Auto-chain the doflow spec-driven flow (brainstorm→design→plan→implement→test→review), pausing only at defined approval gates |
 | `do-git` | `/do-git [operation] [args] [--smart-commit]` | Smart git operations with conventional commit messages |

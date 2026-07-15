@@ -12,10 +12,10 @@ itself.
 
 | Path | Holds |
 |------|-------|
-| `core/skills/` | Chain skills: `do-brainstorm` (also creates the feature branch/dir and writes `requirement.md`), `do-design` (writes `design.md`), `do-plan` (also writes the dependency-ordered task checklist inside `plan.md`), `do-execute-plan`, `do-code-review`. `do-constitution` is standalone, not part of the numbered chain. |
+| `core/skills/` | Chain skills: `do-brainstorm` (also creates the feature branch/dir and writes `requirement.md`), `do-design` (writes `design.md`), `do-plan` (also writes the dependency-ordered task checklist inside `plan.md`), `do-execute-plan` (also supports `--contracts` to scaffold cross-service contract stubs from the task list), `do-code-review`. `do-constitution` is standalone, not part of the numbered chain. |
 | `core/scripts/doflow/bash/` | Deterministic helpers — `do-paths.sh` (path/number resolver, `--json`), `do-prereqs.sh` (gate check) |
 | `core/hooks/`               | `pre-implement-gate.sh` — PreToolUse(Edit\|Write) backstop for the one hard gate |
-| `core/templates/doflow/`    | `requirement-template.md` / `design-template.md` / `plan-template.md` (its own "Tasks" subsection folds in what used to be a separate tasks template) / `state-template.md` / `constitution-template.md` — seeded into each feature dir. A shared pool across skills, not per-skill `assets/` — see note below. |
+| `core/templates/doflow/`    | `requirement-template.md` / `design-template.md` / `plan-template.md` (its own "Tasks" subsection folds in what used to be a separate tasks template, and supports an optional `depends-on:` field per task for external-service dependencies) / `state-template.md` / `constitution-template.md` — seeded into each feature dir. A shared pool across skills, not per-skill `assets/` — see note below. |
 | `core/references/`          | `CONSTITUTION_BASE.md` — tier-1 global constitution base |
 
 ## Core design rules
