@@ -21,7 +21,6 @@ implementation approach and task decomposition, not system-shape decisions.
 1. **Resolve** — run the resolver, parse JSON:
    ```bash
    RESOLVER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
-   [ -f "$RESOLVER" ] || RESOLVER="core/scripts/doflow/bash/do-paths.sh"   # dev tree
    if [ ! -f "$RESOLVER" ]; then                                          # project-scoped install
      d="$PWD"
      while [ "$d" != / ]; do

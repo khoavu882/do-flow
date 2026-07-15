@@ -6,9 +6,8 @@
 - Validate before execution, verify after; run lint/typecheck before marking complete
 - Check deps (package.json) and existing patterns before any changes
 - Plan → Execute → Verify for all codebase modifications
-- Feature delivery follows the doflow chain — see `references/DOFLOW_CHAIN.md` (dev tree:
-  `core/references/DOFLOW_CHAIN.md`) for the phase-gated flow, artifact contracts, and the
-  enforced gate
+- Feature delivery follows the doflow chain — see `references/DOFLOW_CHAIN.md` for the
+  phase-gated flow, artifact contracts, and the enforced gate
 
 ---
 

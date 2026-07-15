@@ -20,7 +20,6 @@ Phase 3 of the doflow chain. Turns `requirement.md` (WHAT/WHY) + `design.md` (sy
 1. **Resolve** — run the resolver, parse JSON:
    ```bash
    RESOLVER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
-   [ -f "$RESOLVER" ] || RESOLVER="core/scripts/doflow/bash/do-paths.sh"   # dev tree
    if [ ! -f "$RESOLVER" ]; then                                          # project-scoped install
      d="$PWD"
      while [ "$d" != / ]; do

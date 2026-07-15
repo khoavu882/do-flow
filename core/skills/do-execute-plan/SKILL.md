@@ -20,7 +20,6 @@ the active feature.
 1. **Resolve the active feature** — run the resolver first, before the gate:
    ```bash
    RESOLVER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
-   [ -f "$RESOLVER" ] || RESOLVER="core/scripts/doflow/bash/do-paths.sh"   # dev tree
    if [ ! -f "$RESOLVER" ]; then                                          # project-scoped install
      d="$PWD"
      while [ "$d" != / ]; do
@@ -42,7 +41,6 @@ the active feature.
 2. **Prerequisite gate (HARD)** — run, and STOP on a non-zero exit:
    ```bash
    PREREQ="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-prereqs.sh"
-   [ -f "$PREREQ" ] || PREREQ="core/scripts/doflow/bash/do-prereqs.sh"   # dev tree
    if [ ! -f "$PREREQ" ]; then                                          # project-scoped install
      d="$PWD"
      while [ "$d" != / ]; do

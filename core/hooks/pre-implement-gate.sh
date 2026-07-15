@@ -31,7 +31,6 @@ RESOLVER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
 if [ ! -x "$RESOLVER" ] && [ -n "${CLAUDE_PROJECT_DIR:-}" ]; then
   RESOLVER="$CLAUDE_PROJECT_DIR/.claude/scripts/doflow/bash/do-paths.sh"    # project-scoped install
 fi
-[ -x "$RESOLVER" ] || RESOLVER="core/scripts/doflow/bash/do-paths.sh"       # dev tree
 [ -x "$RESOLVER" ] || exit 0                      # resolver absent -> allow
 json=$("$RESOLVER" --json 2>/dev/null) || exit 0
 
