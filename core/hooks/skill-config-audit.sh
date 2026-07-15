@@ -6,8 +6,9 @@
 # already watches for the doflow chain's own narrower purpose. Appends
 # {timestamp, session_id, event} to a session-scoped log, same convention as subagent-audit.sh.
 #
-# Per agent-docs/research/hook-governance-agent-tool-mcp-skill.md §3.4: this repo edits its own
-# core/skills/*/SKILL.md intentionally during development, so a naive hard-block on skill-file
+# Per agent-docs/research/hook-governance-agent-tool-mcp-skill.md §3.4: the do-flow repo edits its
+# own skill files (core/skills/*/SKILL.md in its source tree) intentionally during development, so
+# a naive hard-block on skill-file
 # change would fight the repo's actual purpose — `decision: "block"` is deliberately NOT used here.
 # This ships pure-logging only; a stricter follow-on (only once the log shows what "normal" skill
 # churn looks like in practice) is a separate, later decision.

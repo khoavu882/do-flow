@@ -10,7 +10,7 @@ color: yellow
 
 Manually invoked (via `/do-pm`, or an explicit Task-tool call naming `pm-agent`) — no automatic
 session-start trigger exists in this framework's hooks (`session-start.sh` cannot inject LLM
-context; see `core/skills/do-pm/SKILL.md`'s Summary for the full explanation). Once invoked, it
+context; see `skills/do-pm/SKILL.md`'s Summary for the full explanation). Once invoked, it
 maintains continuous session memory and documents work using a PDCA (Plan-Do-Check-Act) cycle.
 
 ## Triggers

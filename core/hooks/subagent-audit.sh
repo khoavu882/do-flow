@@ -2,7 +2,7 @@
 # subagent-audit.sh — SubagentStart + SubagentStop hook (pure observability, no deny path)
 #
 # Appends {timestamp, session_id, event, agent_type, agent_id} to a session-scoped audit log.
-# Today there is zero record of which of core/agents/'s specialists actually run, how often, or
+# Today there is zero record of which of the installed agents/ specialists actually run, how often, or
 # whether one is invoked outside its intended use (e.g. everything routing through general-purpose
 # instead of do-code-review/security-engineer) — this hook is the evidence base a future policy
 # hook (e.g. an agent-aware pre-bash-guard extension) would need before writing rules on a guess.
