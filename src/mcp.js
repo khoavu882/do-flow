@@ -4,11 +4,14 @@
 //   global (-g)   -> ~/.claude.json's top-level `mcpServers` key
 //   project scope -> <projectRoot>/.mcp.json (sibling to .claude/, the project-root convention
 //                    Claude Code actually auto-discovers)
-// Both are read-merge-write, never a wholesale overwrite: only the server names doflow itself
-// ships in core/.mcp.json are added/removed. Any server the user (or another tool) registered
-// under a name doflow doesn't know about — in either file — is left completely untouched. This
-// matters more for ~/.claude.json (also holds history/projects/credentials-adjacent state), but a
-// project's own .mcp.json can just as easily carry a hand-added server doflow must not clobber.
+// Both are read-merge-write, never a wholesale overwrite, and scan-then-append: only the server
+// names doflow itself ships in core/.mcp.json are added/removed by selection, and a selected name
+// already present keeps its existing definition rather than being reset to doflow's shipped
+// default (a user's hand-edited arg/env survives). Any server under a name doflow doesn't know
+// about — in either file — is left completely untouched regardless of selection. This matters
+// more for ~/.claude.json (also holds history/projects/credentials-adjacent state), but a
+// project's own .mcp.json can just as easily carry a hand-added or hand-edited server doflow must
+// not clobber.
 const fs = require('node:fs');
 const path = require('node:path');
 const { readSyncBlocking } = require('./prompt');
@@ -34,14 +37,21 @@ function filterServerDefs(mcpJsonSrcPath, allServers, selected) {
 
 /**
  * Merge selected server defs into an existing mcpServers object, touching only the names doflow
- * ships (`knownServerNames`). A known name not present in `serverDefs` (deselected) is removed;
- * every other key — including a server under a name doflow doesn't recognize — passes through.
+ * ships (`knownServerNames`). A known name not present in `serverDefs` (deselected) is removed.
+ * A known name that's selected AND already present is left as-is — scan-then-append, not
+ * overwrite — so a definition the user hand-edited (a different arg, an extra env var) survives
+ * an install/update instead of being silently reset to doflow's shipped default; doflow's default
+ * is only written the first time a name is newly selected. Every other key — including a server
+ * under a name doflow doesn't recognize — passes through untouched.
  */
 function mergeKnownServers(existingMcpServers, knownServerNames, serverDefs) {
   const merged = { ...existingMcpServers };
   for (const name of knownServerNames) {
-    if (name in serverDefs) merged[name] = serverDefs[name];
-    else delete merged[name];
+    if (name in serverDefs) {
+      if (!(name in merged)) merged[name] = serverDefs[name];
+    } else {
+      delete merged[name];
+    }
   }
   return merged;
 }
