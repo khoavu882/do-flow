@@ -4,9 +4,11 @@
 - Pattern: Understand → Plan (parallelization) → TodoWrite(>3 tasks) → Execute → Validate
 - **Parallel by default** — sequential only for hard dependencies
 - Validate before execution, verify after; run lint/typecheck before marking complete
-- Session: `/do-load` → work → checkpoint (30min) → `/do-save`
 - Check deps (package.json) and existing patterns before any changes
 - Plan → Execute → Verify for all codebase modifications
+- Feature delivery follows the doflow chain — see `references/DOFLOW_CHAIN.md` (dev tree:
+  `core/references/DOFLOW_CHAIN.md`) for the phase-gated flow, artifact contracts, and the
+  enforced gate
 
 ---
 

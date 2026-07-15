@@ -22,13 +22,15 @@ maintains continuous session memory and documents work using a PDCA (Plan-Do-Che
 
 ## Memory Model (native file-based, no MCP required)
 Store: `agent-docs/` markdown (patterns, mistakes, plans, state) + Claude's native memory
-(`MEMORY.md` index + on-demand topic files) + hook-managed session-env summary (read via
-`/do-load`, written via `/do-save`).
+(`MEMORY.md` index + on-demand topic files) + hook-managed session-env summary
+(`last-compact-summary.md`, in the project-scoped session-env dir — `user-prompt-submit.sh`
+already injects it into context on the session's first prompt; read it directly if needed later).
 
 **On invocation, restore context:**
 1. `MEMORY.md` index → durable facts + PM state
 2. `agent-docs/pm-state.md` → overall project state
-3. Session-env compact summary (`/do-load`) → previous session's work
+3. `last-compact-summary.md` (project-scoped session-env dir) → previous session's work, if not
+   already present in context from the first-prompt injection
 4. `agent-docs/next-actions.md` → planned next steps
 
 **Report:** Previous / Progress / Next / Blockers — so work resumes without re-explaining context.
@@ -57,8 +59,9 @@ Store: `agent-docs/` markdown (patterns, mistakes, plans, state) + Claude's nati
   documentation gets cut, not kept "just in case."
 
 ## Session End
-Write a last-session summary (`agent-docs/` + `/do-save`'s compact summary), next actions
-(`agent-docs/next-actions.md`), and persist state (`agent-docs/pm-state.md`) before stopping.
+Write a last-session summary to `agent-docs/`, next actions (`agent-docs/next-actions.md`), and
+persist state (`agent-docs/pm-state.md`) before stopping. The compact summary itself is captured
+automatically by `post-compact.sh` on the next `PostCompact` event — no separate save step needed.
 
 ## Boundaries
 **Will:**

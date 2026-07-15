@@ -15,13 +15,13 @@ do-flow/
 │   ├── settings.json   # Permissions, hooks, model, outputStyle, autocompact
 │   ├── keybindings.json
 │   ├── .mcp.json       # MCP server registration
-│   ├── agents/         # 15 specialist agent definitions
-│   ├── skills/         # 37 Claude Code slash-command skills
+│   ├── agents/         # 14 specialist agent definitions
+│   ├── skills/         # 31 Claude Code slash-command skills
 │   ├── modes/          # 6 behavioral modes (on-demand only)
 │   ├── rules/          # 4 rule files (<60 lines each)
 │   ├── mcp/            # MCP server documentation
 │   ├── hooks/          # Shell hooks for session lifecycle
-│   └── reference/      # Domain reference (Java, spec/constitution, research)
+│   └── references/     # Domain reference (constitution base, doflow chain, research)
 ├── bin/
 │   ├── doflow.js       # Installer (Node, maintained) — deploys core/ to ~/.claude/, ~/.codex/, ~/.gemini/
 │   ├── sync.sh         # Deprecation shim — translates sync.sh's flag grammar and delegates to doflow.js
@@ -76,7 +76,7 @@ core/settings.json : settings.json
 [codex]
 core/rules/    : rules/
 core/agents/   : agents/
-core/reference/ : reference/
+core/references/ : references/
 ```
 
 `bin/doflow.js` (backed by `src/copy.js`, `src/backup.js`, `src/manifest.js`) reads these mappings and

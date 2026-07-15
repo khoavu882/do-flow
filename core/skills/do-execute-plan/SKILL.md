@@ -1,6 +1,6 @@
 ---
 name: do-execute-plan
-description: "Execute tasks.md: pm-agent orchestration over named specialists with the implement-phase prerequisite gate."
+description: "Execute plan.md's embedded task checklist: pm-agent orchestration over named specialists with the implement-phase prerequisite gate."
 argument-hint: "[--next|--phase N|--all|--resume|--dry-run] [--safe]"
 disable-model-invocation: true
 effort: high
@@ -8,7 +8,8 @@ effort: high
 
 # do-execute-plan
 
-Phase 4 of the doflow chain. Executes the `tasks.md` of the active feature.
+Phase 4 of the doflow chain. Executes the task checklist embedded in `plan.md` (section 8) for
+the active feature.
 
 ## Invocation
 ```text
@@ -20,31 +21,36 @@ Phase 4 of the doflow chain. Executes the `tasks.md` of the active feature.
    ```bash
    PREREQ="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-prereqs.sh"
    [ -f "$PREREQ" ] || PREREQ="core/scripts/doflow/bash/do-prereqs.sh"
-   bash "$PREREQ" --require-tasks   # exit 2 -> no plan.md/tasks.md: tell user to run /do-plan, /do-tasks
+   bash "$PREREQ" --require-plan   # exit 2 -> missing requirement/design/plan: tell user what to run
    ```
-   This is the primary, prompt-level half of the one hard gate; the `pre-implement-gate.sh` hook is the
-   backstop. Do not proceed past a `--require-tasks` failure.
-2. **Resolve & load** — `do-paths.sh --json` for paths; read `tasks.md` (and `plan.md`/`spec.md` for context).
-   Parse the `- [ ]` tasks, `[P]` parallel markers, `[US#]` traceability, dependencies, and per-task owner.
-3. **Select work** — `--next` (default): one dependency-ready task. `--phase N`: one phase. `--all`: to
-   completion/blocker. `--resume`: continue from `state.md`.
+   This is the primary, prompt-level half of the one hard gate; the `pre-implement-gate.sh` hook is
+   the backstop. Do not proceed past a `--require-plan` failure.
+2. **Resolve & load** — `do-paths.sh --json` for paths; read `plan.md` (its section 8 Tasks
+   subsection) and `requirement.md`/`design.md` for context. Parse the `- [ ]` tasks, `[P]`
+   parallel markers, `[US#]` traceability, dependencies, and per-task owner.
+3. **Select work** — `--next` (default): one dependency-ready task. `--phase N`: one phase
+   (matches `plan.md`'s Phase A/B/... groupings). `--all`: to completion/blocker. `--resume`:
+   continue from `state.md`.
 4. **Orchestrate (pm-agent)** — dispatch each task to its owning specialist (backend-architect,
    security-engineer, quality-engineer, …) via the Agent tool:
-   - **`[P]`, dependency-ready** tasks → fan out concurrently with `/parallel-agents`; subagents return
-     **summaries only** (protects the main context).
+   - **`[P]`, dependency-ready** tasks → fan out concurrently with `/parallel-agents`; subagents
+     return **summaries only** (protects the main context).
    - **sequential / dependent** tasks → run in dependency order.
-5. **Validate then record** — run the task/phase validation; check the `- [ ]` box; update `state.md`
-   (Completed / In Progress / Blocked / Next Action). With `--safe`, validate + checkpoint more often.
-6. **Stop on risk** — ambiguity, blocker, or failed validation → report and wait (route failures to
-   `root-cause-analyst` / `/do-troubleshoot`).
+5. **Validate then record** — run the task/phase validation; check the `- [ ]` box in `plan.md`;
+   update `state.md` (seed from `templates/doflow/state-template.md` on first write if absent;
+   sections: Completed / In Progress / Blocked / Next Action). With `--safe`, validate + checkpoint
+   more often.
+6. **Stop on risk** — ambiguity, blocker, or failed validation → report and wait (route failures
+   to `root-cause-analyst` / `/do-troubleshoot`).
 
 ## Boundaries
-**Will:** enforce the prereq gate, orchestrate named specialists over `tasks.md`, fan out `[P]` work,
-validate, and keep `state.md` resumable.
-**Will Not:** generate the plan/tasks (use `/do-plan`,`/do-tasks`), skip the gate or validation, or
-commit unless explicitly asked (`/do-git`).
+**Will:** enforce the prereq gate, orchestrate named specialists over `plan.md`'s task checklist,
+fan out `[P]` work, validate, and keep `state.md` resumable.
+**Will Not:** generate the requirement/design/plan (use `/do-brainstorm`, `/do-design`,
+`/do-plan`), skip the gate or validation, or commit unless explicitly asked (`/do-git`).
 
 ## CRITICAL BOUNDARIES
-Implement phase. Requires `plan.md` **and** `tasks.md` (hard gate). Output: code + updated `state.md`.
+Implement phase. Requires `requirement.md`, `design.md`, **and** `plan.md` (hard gate). Output:
+code + updated `state.md` + checked-off tasks in `plan.md`.
 
-**Next Step:** `/do-review` to review the change against `spec.md`/`tasks.md`.
+**Next Step:** `/do-code-review` to review the change for code quality.
