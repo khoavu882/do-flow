@@ -20,7 +20,13 @@ the active feature.
 1. **Resolve the active feature** — run the resolver first, before the gate:
    ```bash
    RESOLVER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
-   [ -f "$RESOLVER" ] || RESOLVER="core/scripts/doflow/bash/do-paths.sh"
+   if [ ! -f "$RESOLVER" ]; then                                          # project-scoped install
+     d="$PWD"
+     while [ "$d" != / ]; do
+       [ -f "$d/.claude/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/.claude/scripts/doflow/bash/do-paths.sh" && break
+       d="$(dirname "$d")"
+     done
+   fi
    bash "$RESOLVER" --json
    ```
    In a git repo this always resolves deterministically (branch-derived) — proceed to the next
@@ -35,7 +41,13 @@ the active feature.
 2. **Prerequisite gate (HARD)** — run, and STOP on a non-zero exit:
    ```bash
    PREREQ="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-prereqs.sh"
-   [ -f "$PREREQ" ] || PREREQ="core/scripts/doflow/bash/do-prereqs.sh"
+   if [ ! -f "$PREREQ" ]; then                                          # project-scoped install
+     d="$PWD"
+     while [ "$d" != / ]; do
+       [ -f "$d/.claude/scripts/doflow/bash/do-prereqs.sh" ] && PREREQ="$d/.claude/scripts/doflow/bash/do-prereqs.sh" && break
+       d="$(dirname "$d")"
+     done
+   fi
    bash "$PREREQ" --require-plan   # add --slug="<chosen>" if step 1 disambiguated
    ```
    This is the primary, prompt-level half of the one hard gate; the `pre-implement-gate.sh` hook is

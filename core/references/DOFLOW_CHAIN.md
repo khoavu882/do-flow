@@ -18,11 +18,9 @@ itself.
 | `templates/doflow/`    | `requirement-template.md` / `design-template.md` / `plan-template.md` (its own "Tasks" subsection folds in what used to be a separate tasks template, and supports an optional `depends-on:` field per task for external-service dependencies) / `state-template.md` / `constitution-template.md` — seeded into each feature dir. A shared pool across skills, not per-skill `assets/` — see note below. |
 | `references/`          | `CONSTITUTION_BASE.md` — tier-1 global constitution base |
 
-> Paths above are relative to the installed root (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}`, or a
-> project's `.claude/` in project scope). In the `do-flow` source repo itself, every path here
-> sits one level deeper, under `core/` (e.g. `core/skills/`) — stripped by `bin/mappings.conf` on
-> install, same as every other file this chain's skills reference with a `core/...` dev-tree
-> fallback in their own Behavioral Flow.
+> Paths above are relative to the installed root (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}` globally,
+> or a project's own `.claude/` in project scope). Chain skills' resolver lookups check the global
+> config dir first, then walk upward from `$PWD` for a project-scoped `.claude/` install.
 
 ## Core design rules
 

@@ -22,7 +22,13 @@ continuity gap: brainstorm output survives a compact/session-end without a separ
 1. **Resolve** — run the deterministic resolver and parse its JSON (never compute paths yourself):
    ```bash
    RESOLVER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
-   [ -f "$RESOLVER" ] || RESOLVER="core/scripts/doflow/bash/do-paths.sh"   # dev tree
+   if [ ! -f "$RESOLVER" ]; then                                          # project-scoped install
+     d="$PWD"
+     while [ "$d" != / ]; do
+       [ -f "$d/.claude/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/.claude/scripts/doflow/bash/do-paths.sh" && break
+       d="$(dirname "$d")"
+     done
+   fi
    bash "$RESOLVER" --json
    ```
    If `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root — e.g.
