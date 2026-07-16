@@ -48,6 +48,7 @@ downloads/
 .serena/
 agent-docs/
 .claude/
+.mcp.json
 
 # MkDocs build output
 site/
