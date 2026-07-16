@@ -60,7 +60,8 @@ Primary source skills: `do-brainstorm`, `do-design`, `do-plan`, `do-execute-plan
 # Step 6: Preview the execution order before changing files
 /do-execute-plan --dry-run
 
-# Step 6.5: Scaffold cross-service contracts for dependency services before implementing
+# Step 6.5: Generate a code frame (signatures + types, inferred language) for dependency services
+# to review before implementing
 /do-execute-plan --contracts
 
 # Step 7: Execute one dependency-ready task at a time

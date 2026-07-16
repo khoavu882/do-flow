@@ -57,7 +57,8 @@ the active feature.
 3. **Load** — read `plan.md` (its section 8 Tasks subsection) and `requirement.md`/`design.md` for
    context, using the paths from step 1's resolved JSON. Parse the `- [ ]` tasks, `[P]` parallel
    markers, `[US#]` traceability, dependencies, and per-task owner.
-4. **Contracts scaffold (`--contracts`, alternative path)** — only when `--contracts` is passed:
+4. **Contracts frame generation (`--contracts`, alternative path)** — only when `--contracts` is
+   passed:
    read `contracts.md` (co-located with this file) and follow its algorithm exactly. Reads
    `plan.md`'s task list already loaded in step 3; produces a distinct deliverable from the
    task-execution loop in steps 5-9 below; runs standalone (no task-selection mode required), to
@@ -67,9 +68,9 @@ the active feature.
 5. **Select work** — `--next` (default): one dependency-ready task. `--phase N`: one phase
    (matches `plan.md`'s Phase A/B/... groupings). `--all`: to completion/blocker. `--resume`:
    continue from `state.md`. If the selected task's `depends-on:` names a service with no
-   `agent-docs/doflow/<slug>/contracts/<service>/` scaffolded yet, surface a non-blocking advisory
-   notice (e.g. "this task depends on `<service>`, no contract scaffolded yet — run `--contracts`
-   first, or proceed anyway") — not a gate; the one hard gate stays step 2, unchanged.
+   `agent-docs/doflow/<slug>/contracts/<service>/` generated yet, surface a non-blocking advisory
+   notice (e.g. "this task depends on `<service>`, no contract frame generated yet — run
+   `--contracts` first, or proceed anyway") — not a gate; the one hard gate stays step 2, unchanged.
 6. **Repo branch check (per task)** — runs for every task, regardless of what `plan.md`'s Repo
    Branch Plan said at plan-time (its `N/A` is a documentation convenience, not a runtime flag —
    a plan that started single-repo can still grow a second repo mid-execution, per FR-004, and
@@ -99,16 +100,17 @@ the active feature.
 
 ## Boundaries
 **Will:** enforce the prereq gate, orchestrate named specialists over `plan.md`'s task checklist,
-fan out `[P]` work, validate, keep `state.md` resumable, scaffold dependency-service contracts
-(`--contracts`), and lazily create/check out each repo's branch (step 6).
+fan out `[P]` work, validate, keep `state.md` resumable, generate a per-dependency-service code
+frame — signatures and type/data shapes only, inferred language (`--contracts`) — and lazily
+create/check out each repo's branch (step 6).
 **Will Not:** generate the requirement/design/plan (use `/do-brainstorm`, `/do-design`,
-`/do-plan`), skip the gate or validation, generate contract content beyond the scaffold (folders +
-manifest), commit unless explicitly asked (`/do-git`), or force-switch/discard uncommitted work
-when checking out a repo's branch.
+`/do-plan`), skip the gate or validation, generate real behavior/implementation logic inside a
+contract frame (signatures and type shapes only — see `contracts.md`), commit unless explicitly
+asked (`/do-git`), or force-switch/discard uncommitted work when checking out a repo's branch.
 
 ## CRITICAL BOUNDARIES
 Implement phase. Requires `requirement.md`, `design.md`, **and** `plan.md` (hard gate). Output:
 code + updated `state.md` + checked-off tasks in `plan.md`; with `--contracts`, also
-`agent-docs/doflow/<slug>/contracts/<service>/` scaffolds + `manifest.yaml`.
+`agent-docs/doflow/<slug>/contracts/<service>/` code frames + `manifest.yaml`.
 
 **Next Step:** `/do-code-review` to review the change for code quality.

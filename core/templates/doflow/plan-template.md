@@ -37,7 +37,7 @@
 > `/do-execute-plan` — keep the markers intact. `depends-on:` is optional — set it when a task
 > depends on an external service that has no owning task in this same plan (not a service also
 > touched by another task here); `/do-execute-plan --contracts` reads it to know which services
-> need a mock contract scaffolded.
+> need a code frame generated.
 
 ### Repo Branch Plan
 > Populate when this plan spans 2+ repos (a container workspace, not a monorepo) — derive `Repo`

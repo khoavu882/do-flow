@@ -3,6 +3,19 @@
 All notable changes to DoFlow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- `--contracts` flag on `/do-execute-plan` now generates an actual code frame per dependency
+  service — method/interface signatures and native-language type/DTO shapes only, zero
+  implementation logic — instead of an empty `code/`/`data/`/`mock/` scaffold. Language is
+  inferred from the dependency service's own repo (build/package manifest first, file-extension
+  frequency fallback, generic placeholder if inconclusive), never hardcoded. This is a deliberate
+  change to an already-shipped flag's behavior, not a bug fix; `manifest.yaml`'s `generation_hash`
+  now also covers the inferred language and which signal produced it, so a change in the
+  dependency service's own language/build setup between runs is still correctly detected as stale.
+
 ## [2.1.1] - 2026-07-15
 
 ### Fixed
