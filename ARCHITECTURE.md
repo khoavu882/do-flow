@@ -20,7 +20,9 @@ do-flow/
 │   ├── modes/          # 6 behavioral modes (on-demand only)
 │   ├── rules/          # 4 rule files (<60 lines each)
 │   ├── mcp/            # MCP server documentation
-│   ├── hooks/          # Shell hooks for session lifecycle
+│   ├── hooks/          # Shell hooks for session lifecycle + their .conf pattern files
+│   ├── scripts/doflow/bash/  # Deterministic path/feature resolvers the doflow-chain skills shell out to
+│   ├── templates/doflow/     # Document skeletons (requirement/design/plan/state/constitution) the chain fills in
 │   └── references/     # Domain reference (constitution base, doflow chain, research)
 ├── bin/
 │   ├── doflow.js       # Installer (Node, maintained) — deploys core/ to ~/.claude/, ~/.codex/, ~/.gemini/
@@ -32,7 +34,8 @@ do-flow/
 ├── test/               # All tests: *.test.js (node --test's default discovery path) +
 │                       # bash integration suites (cli-parity.sh, verify-hooks.sh, doflow-chain-test.sh,
 │                       # hooks/test-hooks.sh), invoked explicitly by path
-├── agent-docs/         # Generated analysis and design documents (not deployed)
+├── agent-docs/         # Generated analysis/design docs (not deployed); agent-docs/doflow/<NNN-slug>/
+│                       # is this repo dogfooding its own doflow chain on its own features
 └── mkdocs.yml          # GitHub Pages configuration
 ```
 
@@ -131,18 +134,22 @@ Skills are prompt templates. When a user invokes `/do-implement`, Claude Code ex
 Hooks are shell scripts registered in `core/settings.json` under the `hooks` key. Claude Code invokes them at specific lifecycle events by passing JSON via stdin and reading JSON from stdout.
 
 ```
-SessionStart        → session-start.sh     (write git-context.json to disk)
-UserPromptSubmit    → user-prompt-submit.sh (inject git context on first prompt)
-PreToolUse(Bash)    → pre-bash-guard.sh    (deny dangerous patterns)
-PostToolUse(Edit)   → post-edit-lint.sh    (collect edited paths)
-PostToolUse(Write)  → post-edit-lint.sh    (collect edited paths)
-Stop                → stop-check.sh        (batch lint + stub detection)
-PreCompact          → pre-compact.sh       (enrich compaction with git state)
-PostCompact         → post-compact.sh      (save compact summary to disk)
-SessionEnd          → session-end.sh       (cleanup + log trim)
+SessionStart              → session-start.sh       (write git-context.json to disk)
+UserPromptSubmit          → user-prompt-submit.sh   (inject git context on first prompt)
+SubagentStart/Stop        → subagent-audit.sh       (log which agents/ specialists actually run — observability, no deny path)
+ConfigChange(skills)      → skill-config-audit.sh   (log skill-file mutations from any tool, not just Edit/Write — observability, no deny path)
+PreToolUse(Bash)          → pre-bash-guard.sh       (deny dangerous patterns, from hooks/blocked-patterns.conf)
+PreToolUse(mcp__.*)       → mcp-tool-guard.sh       (deny MCP tool calls matching hooks/mcp-policy.conf — ships empty, pure infrastructure)
+PreToolUse(Edit|Write|MultiEdit) → pre-implement-gate.sh (the HARD half of the one enforced doflow gate: deny a source edit if a feature dir exists but requirement/design/plan.md is still missing)
+PostToolUse(Edit)         → post-edit-lint.sh      (collect edited paths)
+PostToolUse(Write)        → post-edit-lint.sh      (collect edited paths)
+Stop                      → stop-check.sh           (batch lint + stub detection)
+PreCompact                → pre-compact.sh          (enrich compaction with git state)
+PostCompact               → post-compact.sh         (save compact summary to disk)
+SessionEnd                → session-end.sh          (cleanup + log trim)
 ```
 
-All hook scripts source `core/hooks/lib.sh` for shared constants (`STATE_DIR`, `SESSION_DIR`, `PROJECTS_DIR`) and helpers (`json_field`, `ensure_session_dir`, `ensure_project_dir`, `require_jq`).
+All hook scripts source `core/hooks/lib.sh` for shared constants (`STATE_DIR`, `SESSION_DIR`, `PROJECTS_DIR`) and helpers (`json_field`, `ensure_session_dir`, `ensure_project_dir`, `require_jq`) — except `pre-bash-guard.sh` and `mcp-tool-guard.sh`, which read their deny patterns from `hooks/blocked-patterns.conf` and `hooks/mcp-policy.conf` respectively (a shared TAB-separated `pattern<TAB>reason` convention), and `do-paths.sh`/`do-prereqs.sh`/`sync-context.sh` under `scripts/doflow/bash/`, which are deliberately self-contained (no `lib.sh`) since they run at different relative depths depending on install location.
 
 **Multi-session isolation:** Session state is keyed by `session_id` (from hook input JSON). Project state is keyed by `sha256sum` of the working directory path. Multiple Claude Code windows can run simultaneously without conflict.
 
