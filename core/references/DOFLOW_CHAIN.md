@@ -12,10 +12,10 @@ itself.
 
 | Path | Holds |
 |------|-------|
-| `skills/` | Chain skills: `do-brainstorm` (also creates the feature branch/dir and writes `requirement.md`), `do-design` (writes `design.md`), `do-plan` (also writes the dependency-ordered task checklist inside `plan.md`), `do-execute-plan` (also supports `--contracts` to scaffold cross-service contract stubs from the task list), `do-code-review`. `do-constitution` is standalone, not part of the numbered chain. |
+| `skills/` | Chain skills: `do-brainstorm` (also creates the feature branch/dir, writes `requirement.md`, optionally captures a PBI/ticket ID), `do-design` (writes `design.md`), `do-plan` (also writes the dependency-ordered task checklist inside `plan.md`, plus a Repo Branch Plan for multi-repo features), `do-execute-plan` (also supports `--contracts` to generate a per-dependency-service code frame — signatures + type shapes, inferred language — from the task list, and lazily creates/tracks each repo's branch as it's first touched), `do-code-review`. `do-constitution` is standalone, not part of the numbered chain. |
 | `scripts/doflow/bash/` | Deterministic helpers — `do-paths.sh` (path/number resolver, `--json`), `do-prereqs.sh` (gate check) |
 | `hooks/`               | `pre-implement-gate.sh` — PreToolUse(Edit\|Write) backstop for the one hard gate |
-| `templates/doflow/`    | `requirement-template.md` / `design-template.md` / `plan-template.md` (its own "Tasks" subsection folds in what used to be a separate tasks template, and supports an optional `depends-on:` field per task for external-service dependencies) / `state-template.md` / `constitution-template.md` — seeded into each feature dir. A shared pool across skills, not per-skill `assets/` — see note below. |
+| `templates/doflow/`    | `requirement-template.md` (optional `**Ticket:**` header field) / `design-template.md` / `plan-template.md` (its own "Tasks" subsection folds in what used to be a separate tasks template, supports an optional `depends-on:` field per task, and a Repo Branch Plan table for multi-repo features) / `state-template.md` (Repo Branch Status table) / `constitution-template.md` — seeded into each feature dir. A shared pool across skills, not per-skill `assets/` — see note below. |
 | `references/`          | `CONSTITUTION_BASE.md` — tier-1 global constitution base |
 
 > Paths above are relative to the installed root (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}` globally,

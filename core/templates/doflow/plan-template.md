@@ -37,7 +37,20 @@
 > `/do-execute-plan` — keep the markers intact. `depends-on:` is optional — set it when a task
 > depends on an external service that has no owning task in this same plan (not a service also
 > touched by another task here); `/do-execute-plan --contracts` reads it to know which services
-> need a mock contract scaffolded.
+> need a code frame generated.
+
+### Repo Branch Plan
+> Populate when this plan spans 2+ repos (a container workspace, not a monorepo) — derive `Repo`
+> from each task's `files:` path *and* each task's `depends-on:` value the same way, by walking up
+> to the nearest enclosing `.git` (a `depends-on:` value that resolves to no `.git` is skipped, not
+> guessed); derive `Planned Branch` from `requirement.md`'s `**Ticket:**`
+> field + this feature's slug (`feat/<TICKET>-<slug-description>`, or `feat/<slug>` if no ticket is
+> recorded); `Role` is `primary` (owns a task here) or `dependency-only` (referenced only via
+> `depends-on:`). For a single-repo plan, write "N/A: single-repo feature" instead of the table.
+
+| Repo | Planned Branch | Role |
+|---|---|---|
+| [repo path] | `feat/[branch]` | primary |
 
 ### Phase A — [name]
 - [ ] A.1 [P] [US1] [task] — owner: [agent]; files: [paths]; depends-on: [service, optional]

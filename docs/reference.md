@@ -79,7 +79,7 @@ Claude Code skills in DoFlow use three invocation modes:
 /do-flow "feature description"
 ```
 
-`do-execute-plan` is gated by `pre-implement-gate.sh`, which blocks source edits until `requirement.md`, `design.md`, and `plan.md` all exist. `do-code-review` is review-only and reports code-quality findings (SOLID violations, code smells, security/async/resource issues) across 13 languages before summaries.
+`do-execute-plan` is gated by `pre-implement-gate.sh`, which blocks source edits until `requirement.md`, `design.md`, and `plan.md` all exist. `do-code-review` is review-only and reports code-quality findings (SOLID violations, code smells, security/async/resource issues) across 13 languages before summaries. For a feature spanning multiple repos, `do-plan` also drafts a Repo Branch Plan that `do-execute-plan` lazily turns into real per-repo branches as each is first touched.
 
 Hybrid read-only skills such as `do-analyze`, `do-document`, `do-estimate`, `do-explain`, `do-code-review`, `do-select-tool`, and `do-troubleshoot` can be invoked directly or auto-loaded by Claude when the request clearly matches. In auto mode, they analyze, draft, verify, or recommend only; implementation edits require an explicit user request and the `confidence-check` gate first.
 

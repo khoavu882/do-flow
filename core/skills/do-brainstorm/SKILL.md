@@ -55,6 +55,9 @@ continuity gap: brainstorm output survives a compact/session-end without a separ
 4. **Write `requirement.md`** — copy `templates/doflow/requirement-template.md` into the feature
    dir, fill the tokens from the dialogue. WHAT/WHY only: user stories (P1/P2/P3 → US#), `FR-###`,
    NFRs, out-of-scope, acceptance criteria. Cap unresolved `[NEEDS CLARIFICATION]` markers at 3.
+   Populate the `**Ticket:**` header field only if the user referenced a PBI/epic/ticket ID during
+   the dialogue (confirm the exact ID via `AskUserQuestion` if it was ambiguous) — otherwise write
+   `none`; do not add a new forced question to every brainstorm session just to fill this field.
 5. **Stop** — report the requirement path and the open `[NEEDS CLARIFICATION]` items.
 
 ## Boundaries
