@@ -3,7 +3,20 @@
 All notable changes to DoFlow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [2.2.0] - 2026-07-16
+
+### Added
+
+- **Cross-service branch management** for `/do-plan`/`/do-execute-plan`: when a feature spans
+  multiple independent git repos, `do-plan` now derives a per-repo branch name (an optional
+  PBI/ticket ID + the feature slug, e.g. `feat/EDP-147-some-feature`) and writes a Repo Branch Plan
+  into `plan.md`, resolving each repo via a nearest-`.git` walk-up from task `files:`/`depends-on:`
+  metadata rather than a hardcoded folder-name list. `do-execute-plan` lazily creates or checks out
+  each repo's branch right before its first task, always checking for a dirty working tree before
+  branch existence so it never silently continues over uncommitted work — and re-checks any repo
+  left `blocked` rather than trusting a stale status. Status is tracked in a Repo Branch Status
+  table in `state.md`. `do-brainstorm` gains an optional `**Ticket:**` header field, captured only
+  when the user references a PBI/epic during discovery.
 
 ### Changed
 
