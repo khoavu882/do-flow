@@ -1,4 +1,4 @@
-# code-reviewer
+# do-code-review
 
 Code review automation for TypeScript, JavaScript, Python, Go, Swift, Kotlin, C#, .NET, Java, C, C++, Rust, Ruby, PHP, and Dart/Flutter. Analyzes PRs for complexity and risk, checks code quality for SOLID violations and code smells, and generates review reports.
 
@@ -22,7 +22,7 @@ All three scripts are stdlib-only — no `pip install` required.
 
 ```bash
 # From inside the repo you want to analyze:
-python /path/to/skills/code-reviewer/scripts/pr_analyzer.py . --base main --head HEAD
+python /path/to/skills/do-code-review/scripts/pr_analyzer.py . --base main --head HEAD
 ```
 
 Outputs: complexity score (1-10), risk categorization (critical / high / medium / low), prioritized review order, commit-message validation.

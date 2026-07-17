@@ -37,7 +37,11 @@
 > `/do-execute-plan` — keep the markers intact. `depends-on:` is optional — set it when a task
 > depends on an external service that has no owning task in this same plan (not a service also
 > touched by another task here); `/do-execute-plan --contracts` reads it to know which services
-> need a code frame generated.
+> need a code frame generated. `contract-doc:` is also optional — set it alongside `depends-on:`
+> only when that dependency has no local repo (a vendor API, a SaaS integration) but *does* have a
+> documented contract; points to a doc built from `templates/doflow/contract-doc-template.md`, and
+> tells `--contracts` to generate a real frame from it instead of silently skipping a non-local
+> dependency (the default when no `contract-doc:` is set — not every dependency needs one).
 
 ### Repo Branch Plan
 > Populate when this plan spans 2+ repos (a container workspace, not a monorepo) — derive `Repo`
@@ -53,11 +57,11 @@
 | [repo path] | `feat/[branch]` | primary |
 
 ### Phase A — [name]
-- [ ] A.1 [P] [US1] [task] — owner: [agent]; files: [paths]; depends-on: [service, optional]
-- [ ] A.2 [US1] [task, depends A.1] — owner: [agent]; files: [paths]; depends-on: [service, optional]
+- [ ] A.1 [P] [US1] [task] — owner: [agent]; files: [paths]; depends-on: [service, optional]; contract-doc: [doc path, optional]
+- [ ] A.2 [US1] [task, depends A.1] — owner: [agent]; files: [paths]; depends-on: [service, optional]; contract-doc: [doc path, optional]
 
 ### Phase B — [name]
-- [ ] B.1 [P] [US2] [task] — owner: [agent]; files: [paths]; depends-on: [service, optional]
+- [ ] B.1 [P] [US2] [task] — owner: [agent]; files: [paths]; depends-on: [service, optional]; contract-doc: [doc path, optional]
 
 ### Checkpoints
 - After Phase A: [validation step]; commit `[message]`

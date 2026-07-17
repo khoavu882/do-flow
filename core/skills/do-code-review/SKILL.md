@@ -1,5 +1,5 @@
 ---
-name: "code-reviewer"
+name: do-code-review
 description: Code review automation for TypeScript, JavaScript, Python, Go, Swift, Kotlin, C#, .NET, Java, C, C++, Rust, Ruby, PHP, and Dart/Flutter. Analyzes PRs for complexity and risk, checks code quality for SOLID violations and code smells, generates review reports. Use when reviewing pull requests, analyzing code quality, identifying issues, generating review checklists.
 ---
 
@@ -12,7 +12,7 @@ Automated code review tools for analyzing pull requests, detecting code quality 
 ## How This Skill Is Organized
 
 ```
-code-reviewer/
+do-code-review/
   SKILL.md                        ← you are here (tools + dispatch table)
   rules/
     universal.md                  ← security, async, resources, exceptions, performance — all languages
