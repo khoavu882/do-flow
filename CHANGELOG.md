@@ -5,6 +5,19 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`contract-doc:` field for `/do-plan` tasks**: an optional field, set alongside `depends-on:`,
+  for a dependency with no local repo (a vendor API, a SaaS integration) that nonetheless has a
+  documented contract. Points to a doc built from the new `templates/doflow/contract-doc-template.md`
+  (pinned `## Methods`/`## Types`/optional `## Webhook` structure, reusing `--contracts`'s own
+  generic-pseudocode grammar). When set, `/do-execute-plan --contracts` mechanically generates a
+  real frame from that doc — `code/`/`data/`/`mock/`, rendered in the *consuming* task's own
+  inferred language — instead of silently skipping the dependency, its default behavior when
+  `contract-doc:` is absent. A non-compliant doc target surfaces an explicit warning rather than a
+  silent skip or a guessed frame; multiple tasks referencing the same non-local dependency must
+  agree on `contract-doc:` (same target, or none) or the same warning applies.
+
 ### Changed
 
 - `--contracts` service-boundary detection is now generic: instead of matching a `files:`/
