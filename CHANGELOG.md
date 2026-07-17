@@ -3,6 +3,41 @@
 All notable changes to DoFlow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [2.3.0] - 2026-07-17
+
+### Added
+
+- **`do-document --type feature`**: generates feature-level documentation (C4 context/container
+  diagrams, sequence diagrams, a data model section, an API spec section) backed by new reference
+  templates (`api-reference.md`, `feature-flow.md`, `user-guide.md`), alongside expanded usage
+  examples and tool-coordination notes in `do-document/SKILL.md`.
+- **`contract-doc:` field for `/do-plan` tasks**: an optional field, set alongside `depends-on:`,
+  for a dependency with no local repo (a vendor API, a SaaS integration) that nonetheless has a
+  documented contract. Points to a doc built from the new `templates/doflow/contract-doc-template.md`
+  (pinned `## Methods`/`## Types`/optional `## Webhook` structure, reusing `--contracts`'s own
+  generic-pseudocode grammar). When set, `/do-execute-plan --contracts` mechanically generates a
+  real frame from that doc — `code/`/`data/`/`mock/`, rendered in the *consuming* task's own
+  inferred language — instead of silently skipping the dependency, its default behavior when
+  `contract-doc:` is absent. A non-compliant doc target surfaces an explicit warning rather than a
+  silent skip or a guessed frame; multiple tasks referencing the same non-local dependency must
+  agree on `contract-doc:` (same target, or none) or the same warning applies.
+
+### Changed
+
+- `--contracts` service-boundary detection is now generic: instead of matching a `files:`/
+  `depends-on:` path against a fixed three-name root list (`sources/`, `sources-rf/`, `clients/`),
+  it walks up to the nearest ancestor that is a distinct git repo or contains a known build/
+  package manifest — the same signal step 4's language inference already uses — falling back to
+  the path's own containing directory (never the consuming repo's own root) when no such ancestor
+  exists. This means `--contracts` now works in any consuming repo's layout, not only one shaped
+  like a specific multi-service container workspace. `integration_style` (`network`/`in-process`)
+  is derived the same way — from how the boundary was found, not a named-root/known-monolith list.
+  When a dependency's language can't be inferred, the generated frame is now structurally-valid
+  generic pseudocode (`code/interface.pseudo`, `data/types.pseudo`, `mock/interface.pseudo` —
+  fixed grammar, explicit banner comment) instead of a prose placeholder. Both are deliberate
+  extensions of `--contracts`'s existing behavior, not bug fixes; the resolved-language success
+  path (real native-language declarations) is unchanged.
+
 ## [2.2.0] - 2026-07-16
 
 ### Added
