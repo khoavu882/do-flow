@@ -3,6 +3,24 @@
 All notable changes to DoFlow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- `--contracts` service-boundary detection is now generic: instead of matching a `files:`/
+  `depends-on:` path against a fixed three-name root list (`sources/`, `sources-rf/`, `clients/`),
+  it walks up to the nearest ancestor that is a distinct git repo or contains a known build/
+  package manifest — the same signal step 4's language inference already uses — falling back to
+  the path's own containing directory (never the consuming repo's own root) when no such ancestor
+  exists. This means `--contracts` now works in any consuming repo's layout, not only one shaped
+  like a specific multi-service container workspace. `integration_style` (`network`/`in-process`)
+  is derived the same way — from how the boundary was found, not a named-root/known-monolith list.
+  When a dependency's language can't be inferred, the generated frame is now structurally-valid
+  generic pseudocode (`code/interface.pseudo`, `data/types.pseudo`, `mock/interface.pseudo` —
+  fixed grammar, explicit banner comment) instead of a prose placeholder. Both are deliberate
+  extensions of `--contracts`'s existing behavior, not bug fixes; the resolved-language success
+  path (real native-language declarations) is unchanged.
+
 ## [2.2.0] - 2026-07-16
 
 ### Added
