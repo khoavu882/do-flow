@@ -3,10 +3,14 @@
 All notable changes to DoFlow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [2.3.0] - 2026-07-17
 
 ### Added
 
+- **`do-document --type feature`**: generates feature-level documentation (C4 context/container
+  diagrams, sequence diagrams, a data model section, an API spec section) backed by new reference
+  templates (`api-reference.md`, `feature-flow.md`, `user-guide.md`), alongside expanded usage
+  examples and tool-coordination notes in `do-document/SKILL.md`.
 - **`contract-doc:` field for `/do-plan` tasks**: an optional field, set alongside `depends-on:`,
   for a dependency with no local repo (a vendor API, a SaaS integration) that nonetheless has a
   documented contract. Points to a doc built from the new `templates/doflow/contract-doc-template.md`
