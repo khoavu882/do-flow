@@ -101,12 +101,13 @@ the active feature.
 ## Boundaries
 **Will:** enforce the prereq gate, orchestrate named specialists over `plan.md`'s task checklist,
 fan out `[P]` work, validate, keep `state.md` resumable, generate a per-dependency-service code
-frame — signatures and type/data shapes only, inferred language (`--contracts`) — and lazily
-create/check out each repo's branch (step 6).
+frame — signatures, type/data shapes, and a pinned safe-default implementation, in the inferred
+language (`--contracts`) — and lazily create/check out each repo's branch (step 6).
 **Will Not:** generate the requirement/design/plan (use `/do-brainstorm`, `/do-design`,
 `/do-plan`), skip the gate or validation, generate real behavior/implementation logic inside a
-contract frame (signatures and type shapes only — see `contracts.md`), commit unless explicitly
-asked (`/do-git`), or force-switch/discard uncommitted work when checking out a repo's branch.
+contract frame (signatures, type shapes, and a pinned "not implemented" default only — see
+`contracts.md`), commit unless explicitly asked (`/do-git`), or force-switch/discard uncommitted
+work when checking out a repo's branch.
 
 ## CRITICAL BOUNDARIES
 Implement phase. Requires `requirement.md`, `design.md`, **and** `plan.md` (hard gate). Output:

@@ -112,8 +112,9 @@ completion, then stops. Idempotent — safe to re-run.
 5. **Per local dependency, three outcomes** based on
    `agent-docs/doflow/<slug>/contracts/<service>/manifest.yaml` (always under the active feature's
    own dir — never elsewhere). `generation_hash` covers source task text *and* the inferred
-   language *and* which signal produced it (manifest file vs. extension-frequency) — a change in
-   any of the three counts as stale, not just a task-text change:
+   language *and* which signal produced it (manifest file vs. extension-frequency) *and*
+   `default/`'s generated content — a change in any of the four counts as stale, not just a
+   task-text change:
    - **Doesn't exist** → generate, in the inferred language:
      `code/` — an interface/client declaration with the method signature(s) implied by the
      consuming task's `depends-on:` relationship (a clearly-labeled placeholder signature if not
@@ -122,6 +123,40 @@ completion, then stops. Idempotent — safe to re-run.
      only, no schema file.
      `mock/` — an unfilled skeleton mirroring `code/`'s interface shape — signature-only, same as
      `code/`, not a working fake with canned responses.
+     `default/` — a compilable **default implementation** of `code/`'s interface, so a reviewer (or
+     the consuming task's own code) has something to read/compile against immediately, not just a
+     shape to hand-implement first: one file per `code/` interface file, same naming convention,
+     every method resolving to a single pinned, language-family-specific "not implemented" signal
+     (see the Default-Implementation Grammar table below) — never real business logic, never a
+     guessed behavior. Generated only when `inferred_language` resolves to a real language; the
+     pseudocode fallback immediately below covers `code/`/`data/`/`mock/` but never `default/` —
+     pseudocode has no execution semantics to carry a "not implemented" signal, so an
+     `inferred_language: unresolved` service gets no `default/` artifact at all, not a pseudocode
+     stand-in.
+
+     **Default-Implementation Grammar** — one pinned rule per language family (never invented per
+     service), each producing an explicit, idiomatic "not implemented" signal and nothing else. The
+     message text is a fixed template (`"<Service> default implementation — not implemented"`,
+     substituted only with the service name) so two generations of the same interface produce
+     byte-identical output:
+
+     | Language family | Mechanism | Example shape |
+     |---|---|---|
+     | Java / Kotlin | throw an unchecked "unsupported operation" exception | `throw new UnsupportedOperationException("<Service> default implementation — not implemented")` |
+     | JavaScript / TypeScript | throw an `Error` | `throw new Error("<Service> default implementation — not implemented")` |
+     | Python | raise `NotImplementedError` | `raise NotImplementedError("<Service> default implementation — not implemented")` |
+     | C# | throw `NotImplementedException` | `throw new NotImplementedException("<Service> default implementation — not implemented")` |
+     | Swift | trap via the language's fatal-error function | `fatalError("<Service> default implementation — not implemented")` |
+     | Objective-C | trap via an always-failing assertion | `NSAssert(NO, @"<Service> default implementation — not implemented")` |
+     | Rust | the language's own "unimplemented" macro | `unimplemented!("<Service> default implementation — not implemented")` |
+     | Go (no exceptions — idiomatic error return, not a trap) | zero value + non-nil error | `return <zero-value>, errors.New("<Service> default implementation — not implemented")` |
+
+     This table's language-family set is exactly step 4's existing manifest-detection set
+     (`pom.xml`/`build.gradle`→Java/Kotlin, `package.json`→JS/TS, `Package.swift`/`Podfile`→
+     Swift/Objective-C, `Cargo.toml`→Rust, `go.mod`→Go, `pyproject.toml`/`requirements.txt`→Python,
+     `*.csproj`→C#) — no language reaches `default/` generation that step 4 doesn't already resolve
+     to, so this table never needs a language step 4 itself doesn't cover.
+
      A service whose language couldn't be inferred (`inferred_language: unresolved`) gets a
      structurally-valid **generic pseudocode** frame instead — never a real-language extension, so
      no editor mistakes it for compilable code, and never freeform prose. Every file opens with the
@@ -156,14 +191,16 @@ completion, then stops. Idempotent — safe to re-run.
      inference_signal: build.gradle        # which manifest file, "extension-frequency", or "none" if unresolved
      generated_from_plan: agent-docs/doflow/<slug>/plan.md
      source_task_ids: ["T-004", "T-007"]   # plan.md tasks whose depends-on: produced this entry
-     generation_hash: <sha256 of source_task_ids' full task text + inferred_language + inference_signal>
+     generation_hash: <sha256 of source_task_ids' full task text + inferred_language + inference_signal + default/'s generated content>
      generated_at: <ISO-8601 timestamp>
      ```
    - **Exists, `generation_hash` matches** → skip (already current).
-   - **Exists, `generation_hash` mismatches** (source tasks, inferred language, or inference signal
-     changed since last generation) → do NOT auto-overwrite; surface a warning naming the service
-     and stale manifest path so the user can reconcile manually — the existing `code`/`data`/`mock`
-     content may hold manual edits that a silent regeneration would destroy.
+   - **Exists, `generation_hash` mismatches** (source tasks, inferred language, inference signal, or
+     `default/`'s generated content changed since last generation — including a manifest generated
+     before `default/` existed at all) → do NOT auto-overwrite; surface a warning naming the service
+     and stale manifest path so the user can reconcile manually — the existing
+     `code`/`data`/`mock`/`default` content may hold manual edits that a silent regeneration would
+     destroy.
 
    **Documented dependencies** (a `contract-doc:` field is present — step 2's non-local case) are
    generated the same way, in the same `manifest.yaml`-driven three-outcome shape, but from a
@@ -189,9 +226,13 @@ completion, then stops. Idempotent — safe to re-run.
        to language detection at all: many root-level tasks correctly sharing "this repo's own
        language" is the right outcome, not a collision). Render `code/`, `data/`, `mock/` in that
        language — or in this step's pseudocode grammar if even the consuming repo's own root has
-       no recognizable manifest — same zero-implementation, signature/shape-only rule as every
-       other frame this algorithm generates; `mock/` mirrors `code/`, unfilled, same rule as
-       always. Also write `manifest.yaml`:
+       no recognizable manifest — same zero-implementation, signature/shape-only rule `code/`,
+       `data/`, and `mock/` share everywhere else in this algorithm (`default/`, next, follows a
+       different rule); `mock/` mirrors `code/`, unfilled, same rule as always. Also render
+       `default/` in that same resolved language, using the
+       Default-Implementation Grammar table above, applying the same exclusion it already states:
+       skip `default/` entirely (not a pseudocode stand-in) when even the consuming repo's own root
+       has no recognizable manifest. Also write `manifest.yaml`:
        ```yaml
        service: notification-vendor              # the literal depends-on: value; no local path to derive from
        source: contract-doc
@@ -201,20 +242,25 @@ completion, then stops. Idempotent — safe to re-run.
        inference_signal: build.gradle              # same step-4 signal, applied to the consumer's repo
        generated_from_plan: agent-docs/doflow/<slug>/plan.md
        source_task_ids: ["T-004"]
-       generation_hash: <sha256 of source_task_ids full task text plus the contract-doc target's full file content plus inferred_language>
+       generation_hash: <sha256 of source_task_ids full task text plus the contract-doc target's full file content plus inferred_language plus default/'s generated content>
        generated_at: <ISO-8601 timestamp>
        ```
    - **Exists, `generation_hash` matches** → skip (already current) — same rule as above.
    - **Exists, `generation_hash` mismatches** (source tasks, the `contract-doc:` target's content,
-     or the consumer's inferred language changed since last generation) → do NOT auto-overwrite;
-     same warn-don't-clobber rule as above — a doc edit is real drift and must be caught, not
-     silently missed.
+     the consumer's inferred language, or `default/`'s generated content changed since last
+     generation — including a manifest generated before `default/` existed at all) → do NOT
+     auto-overwrite; same warn-don't-clobber rule as above — a doc edit is real drift and must be
+     caught, not silently missed.
 
 6. **Report** — N services generated, M skipped (already current), K flagged stale (mismatch, not
    overwritten), the in-scope services with no contract generated (expected outcome, not an error),
    and, separately, J documented-dependency frames generated from `contract-doc:` (step 5's
    "Documented dependencies" case) — state this breakdown explicitly so a documented-dependency
-   frame doesn't read as an ordinary local-inference one, or vice versa.
+   frame doesn't read as an ordinary local-inference one, or vice versa. Also state, separately
+   again, how many of the generated/current services got a `default/` artifact vs. how many were
+   skipped because `inferred_language` is `unresolved` (step 5's pseudocode-fallback case never
+   producing `default/`) — a `default/`-skip is an expected outcome of that case, not an error,
+   but must be named so it doesn't read as an omission.
 
 ## Constraints (carried from the design — do not relax these)
 - Never write outside `agent-docs/doflow/<slug>/contracts/` — never into a target service's own
@@ -223,6 +269,11 @@ completion, then stops. Idempotent — safe to re-run.
   zero implementation logic — in the inferred language, or the pinned generic-pseudocode grammar
   (`.pseudo` files, step 5) when language inference fails. `mock/` mirrors `code/`'s interface
   shape; it is not a working fake, in either case.
+- `default/` content is pinned too, but under a different rule than `code/`/`data/`/`mock/`: zero
+  *real* implementation, not zero implementation, period — every method body is one fixed,
+  language-family-specific "not implemented" signal (the Default-Implementation Grammar table,
+  step 5), never freeform, never a guessed behavior, and never generated at all for the
+  pseudocode-fallback case (no `.pseudo` equivalent — step 5 states this explicitly).
 - Service-boundary detection (step 1) is walk-up-based (nearest `.git` or manifest ancestor, or
   the starting directory itself — from a `files:` path or a `depends-on:` value alike — as a
   last-resort fallback) — never a fixed list of named root directories, so this algorithm works
@@ -232,10 +283,11 @@ completion, then stops. Idempotent — safe to re-run.
   `contracts/` entries for what may be one logical service — no automatic consolidation; this is
   the same class of ambiguity NFR-002 already accepts elsewhere in this algorithm rather than
   guessing. Sharper case of the same limitation: if a nested fallback identity's final path
-  segment is literally `code`, `data`, or `mock` (e.g. `legacy/mod` and `legacy/mod/code`), the
-  inner service's `manifest.yaml` lands inside the outer service's own generated `code/`/`data/`/
-  `mock/` output directory — still not a write outside `agent-docs/doflow/<slug>/contracts/`
-  (the first Constraint above still holds), but visually confusing; not auto-detected or renamed.
+  segment is literally `code`, `data`, `mock`, or `default` (e.g. `legacy/mod` and
+  `legacy/mod/code`), the inner service's `manifest.yaml` lands inside the outer service's own
+  generated `code/`/`data/`/`mock/`/`default/` output directory — still not a write outside
+  `agent-docs/doflow/<slug>/contracts/` (the first Constraint above still holds), but visually
+  confusing; not auto-detected or renamed.
 - The one hard gate is step 2 (`do-prereqs.sh --require-plan`) — this algorithm does not add a new
   gate; the advisory notice in step 5 ("Select work") is non-blocking.
 - A `depends-on:` value whose starting directory does not exist on disk at all is excluded from

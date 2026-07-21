@@ -3,6 +3,24 @@
 All notable changes to DoFlow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **`--contracts` now generates a `default/` artifact per dependency**, alongside the existing
+  `code/`/`data/`/`mock/` frames: a compilable default implementation of the dependency's
+  interface, so a reviewer (or the consuming task's own in-scope code) has something to read and
+  compile against immediately, not just a shape to hand-implement first. Every method resolves to
+  one pinned, language-family-specific "not implemented" signal (a new Default-Implementation
+  Grammar table in `contracts.md` — e.g. Java/Kotlin throw `UnsupportedOperationException`, C#
+  throws `NotImplementedException`, Python raises `NotImplementedError`, Go returns a zero value +
+  error) — never real business logic, never a guessed behavior. Generated for both local-inference and documented
+  (`contract-doc:`) dependencies alike; skipped entirely for the `inferred_language: unresolved`
+  (generic-pseudocode) case, which has no execution semantics to carry a "not implemented" signal.
+  This is the new default `--contracts` behavior, no flag required — `generation_hash` now also
+  covers `default/`'s generated content, so a contract frame generated before this change is
+  correctly flagged stale (not silently treated as current) the next time `--contracts` runs.
+
 ## [2.3.0] - 2026-07-17
 
 ### Added
