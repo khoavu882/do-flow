@@ -3,7 +3,7 @@
 All notable changes to DoFlow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [2.4.0] - 2026-07-21
 
 ### Added
 
@@ -14,9 +14,10 @@ All notable changes to DoFlow are documented here. Format follows
   one pinned, language-family-specific "not implemented" signal (a new Default-Implementation
   Grammar table in `contracts.md` — e.g. Java/Kotlin throw `UnsupportedOperationException`, C#
   throws `NotImplementedException`, Python raises `NotImplementedError`, Go returns a zero value +
-  error) — never real business logic, never a guessed behavior. Generated for both local-inference and documented
-  (`contract-doc:`) dependencies alike; skipped entirely for the `inferred_language: unresolved`
-  (generic-pseudocode) case, which has no execution semantics to carry a "not implemented" signal.
+  error) — never real business logic, never a guessed behavior. Generated for both local-inference
+  and documented (`contract-doc:`) dependencies alike; skipped entirely for the
+  `inferred_language: unresolved` (generic-pseudocode) case, which has no execution semantics to
+  carry a "not implemented" signal.
   This is the new default `--contracts` behavior, no flag required — `generation_hash` now also
   covers `default/`'s generated content, so a contract frame generated before this change is
   correctly flagged stale (not silently treated as current) the next time `--contracts` runs.
