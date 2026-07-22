@@ -46,9 +46,22 @@ implementation approach and task decomposition, not system-shape decisions.
    boundaries, API/interface contracts, data model, sequence/data-flow where useful. `--format`
    controls output shape (diagram/spec/code-sketch) within `design.md`, not whether it gets
    written. For a trivial, single-file change with no new external interaction, write
-   "N/A: [why]" in the System Overview section instead of forcing a diagram.
+   "N/A: [why]" in the System Overview section instead of forcing a diagram. Before finalizing
+   system-shape decisions, run the same clarification loop `do-brainstorm` uses for any
+   design-level ambiguity encountered while shaping architecture/API/data-model choices (e.g.
+   "extend an existing endpoint vs. add a new one", "single container vs. split service").
+   Concretely: partition ambiguities surfaced while designing into independent ones (up to 4,
+   batched into one `AskUserQuestion` call) and dependent ones (asked individually, in dependency
+   order, after their dependency resolves, never batched with what they depend on). Every question
+   built for this loop MUST include an explicit "Decide for me" choice among its listed options
+   (on top of the tool's automatic "Other" free-text escape), so this defer path is actually
+   selectable. A question where the user picks that "Decide for me" option (distinct from the
+   general "Other" free-text escape) resolves via a recorded assumption, not by re-prompting —
+   see Step 5 below for where that's recorded.
 5. **Write `design.md`** — copy `templates/doflow/design-template.md` into the feature dir, fill
-   it from step 4.
+   it from step 4. `design-template.md`'s §8 "Assumptions" section must read "None" unless a
+   design-level clarification question was resolved via the defer escape hatch in Step 4, in
+   which case record it there with a one-line rationale.
 6. **Stop** — report the design path.
 
 ## Boundaries
