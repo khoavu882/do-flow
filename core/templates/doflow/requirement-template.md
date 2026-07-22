@@ -3,8 +3,9 @@
 **Feature:** [NNN-slug] · **Branch:** `feat/[NNN-slug]` · **Status:** Draft
 **Created:** [DATE] · **Owner:** [OWNER] · **Ticket:** [PBI/ticket ID, or "none"]
 
-> WHAT and WHY only — no tech or implementation detail. Cap unresolved
-> `[NEEDS CLARIFICATION]` markers at 3; the rest are resolved in `/do-plan`.
+> WHAT and WHY only — no tech or implementation detail. Zero unresolved
+> `[NEEDS CLARIFICATION]` markers at hand-off — every ambiguity is resolved via
+> `AskUserQuestion` before this file is written; deferred answers become assumptions in §8.
 
 ## 1. Summary
 [1–2 sentences: the user-facing outcome and why it matters.]
@@ -28,4 +29,10 @@
 - [ ] [observable, testable outcome tied to a US/FR].
 
 ## 7. Open Questions
-- [NEEDS CLARIFICATION: question]   <!-- max 3 — resolve in /do-plan -->
+None. (The `[NEEDS CLARIFICATION: question]` marker syntax is reserved for a session
+aborted mid-loop — a completed artifact carries zero of these.)
+
+## 8. Assumptions
+- [FR/US ref] — [assumption stated] — **Rationale:** [why this default, or "user deferred"].
+<!-- Write "None — no clarification questions were deferred." if every ambiguity was
+     resolved by a direct answer rather than the defer escape hatch. -->

@@ -44,7 +44,16 @@ continuity gap: brainstorm output survives a compact/session-end without a separ
    `--depth shallow|normal|deep` and `--strategy systematic|agile|enterprise` shape how many
    rounds and how wide the exploration goes. Coordinate architecture/analysis/frontend/backend/
    security domain framing as needed, but stay in discovery mode — no implementation decisions
-   here.
+   here. After each dialogue round, before moving to the next round, partition any ambiguities
+   surfaced that round into: *independent* ones (answerable without knowing another's answer) —
+   up to 4 — batched into one `AskUserQuestion` call (the tool's 4-question max); *dependent*
+   ones (whose options depend on a prior answer) — asked as their own individual `AskUserQuestion`
+   call, in dependency order, after the dependency resolves; never batched with something it
+   depends on. Every question built for this loop MUST include an explicit "Decide for me" choice
+   among its listed options (on top of the tool's automatic "Other" free-text escape), so the
+   defer path below is actually selectable. Any question where the user picks that "Decide for
+   me" option (distinct from the general "Other" free-text escape) resolves via a recorded
+   assumption rather than by re-prompting — see Step 4 for where that assumption is recorded.
 3. **Pick the feature** — if `feature_slug` is non-null (branch-derived, auto-selected from a
    single non-git candidate, or resolved via step 1's disambiguation), use it. If still null
    (genuinely no active feature: trunk branch, or a non-git root with zero existing feature dirs),
@@ -54,11 +63,17 @@ continuity gap: brainstorm output survives a compact/session-end without a separ
    (skip the branch step entirely at a non-git root — there's no repo to branch).
 4. **Write `requirement.md`** — copy `templates/doflow/requirement-template.md` into the feature
    dir, fill the tokens from the dialogue. WHAT/WHY only: user stories (P1/P2/P3 → US#), `FR-###`,
-   NFRs, out-of-scope, acceptance criteria. Cap unresolved `[NEEDS CLARIFICATION]` markers at 3.
-   Populate the `**Ticket:**` header field only if the user referenced a PBI/epic/ticket ID during
-   the dialogue (confirm the exact ID via `AskUserQuestion` if it was ambiguous) — otherwise write
-   `none`; do not add a new forced question to every brainstorm session just to fill this field.
-5. **Stop** — report the requirement path and the open `[NEEDS CLARIFICATION]` items.
+   NFRs, out-of-scope, acceptance criteria. Zero `[NEEDS CLARIFICATION]` markers remain in §7 at
+   hand-off — every ambiguity from Step 2 is either a resolved answer folded into the relevant
+   US/FR/NFR, or an assumption recorded in `requirement-template.md`'s §8 "Assumptions" section
+   with a one-line rationale.
+   The `[NEEDS CLARIFICATION]` marker syntax remains only as a fallback for a session aborted
+   mid-loop, not for a completed artifact. Populate the `**Ticket:**` header field only if the user
+   referenced a PBI/epic/ticket ID during the dialogue (confirm the exact ID via `AskUserQuestion`
+   if it was ambiguous) — otherwise write `none`; do not add a new forced question to every
+   brainstorm session just to fill this field.
+5. **Stop** — report the requirement path and confirmation that §7 has zero remaining
+   `[NEEDS CLARIFICATION]` markers (or, in the rare aborted-session case, whatever markers remain).
 
 ## Boundaries
 **Will:** run Socratic discovery, create the feature branch+dir (if needed), seed and fill

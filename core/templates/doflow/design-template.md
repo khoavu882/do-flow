@@ -58,3 +58,9 @@ C4Container
 
 ## 7. Design Risks & Alternatives Considered
 - [risk/alternative] → [why this shape was chosen]
+
+## 8. Assumptions
+- [design decision ref] — [assumption stated] — **Rationale:** [why this default, or "user deferred"].
+<!-- Write "None — no design-level clarification questions were deferred." if every
+     design-level ambiguity was resolved by a direct answer rather than the defer escape
+     hatch during /do-design's clarification loop. -->
