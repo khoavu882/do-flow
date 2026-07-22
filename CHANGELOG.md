@@ -3,6 +3,19 @@
 All notable changes to DoFlow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [2.4.1] - 2026-07-22
+
+### Changed
+
+- **`do-brainstorm` and `do-design` now resolve every open question to zero before writing
+  their artifact**, instead of letting up to 3 `[NEEDS CLARIFICATION]` markers pass through
+  unresolved. Ambiguities surfaced during dialogue are partitioned into independent questions
+  (batched up to 4 per `AskUserQuestion` call) and dependent ones (asked individually, in
+  order); a user who explicitly defers is recorded as a traceable assumption in a new §8
+  "Assumptions" section (added to both `requirement-template.md` and `design-template.md`)
+  instead of leaving the ambiguity open. `do-flow`'s Gate 0 description is updated to reflect
+  that it's now a safety net for an aborted session, not the normal path.
+
 ## [2.4.0] - 2026-07-21
 
 ### Added

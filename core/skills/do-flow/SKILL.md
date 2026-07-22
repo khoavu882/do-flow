@@ -44,10 +44,12 @@ not part of this chain; invoke it directly when you need to set or amend repo-le
 4. **Stop at exactly three points; auto-advance everywhere else:**
 
    - **Gate 0 — unresolved `[NEEDS CLARIFICATION]` markers** (after `do-brainstorm`):
-     `do-brainstorm` caps these at 3. If any remain unresolved, stop and surface them via
-     `AskUserQuestion` (one question per marker, or grouped if closely related) before continuing
-     to `do-design`. Patch resolved answers into `requirement.md` directly; do not re-run
-     `do-brainstorm`.
+     `do-brainstorm` now resolves every ambiguity to zero via its own clarification loop before
+     writing `requirement.md`, so this gate is a safety net rather than the normal path — it only
+     fires if a marker survives from a session aborted mid-loop. If any remain unresolved, stop
+     and surface them via `AskUserQuestion` (one question per marker, or grouped if closely
+     related) before continuing to `do-design`. Patch resolved answers into `requirement.md`
+     directly; do not re-run `do-brainstorm`.
    - **Gate A — before implementation** (after `do-plan`, before `do-execute-plan`): this is the
      auto-chain's *conversational* checkpoint on top of the already-existing hard hook gate
      (`pre-implement-gate.sh`, which blocks source edits until `requirement.md` + `design.md` +
