@@ -7,80 +7,62 @@ effort: low
 
 # do-help
 
-Use this skill for the corresponding DoFlow workflow.
+Skill discovery — lists every skill currently in `core/skills/`, not a fixed/cached list.
 
 ## Invocation
 ```text
 /do-help
 ```
 
-## Metadata
-- Category: `utility`
-- Complexity: `low`
-- Effort: `low`
-
-## Triggers
-- Command discovery and reference lookup requests
-- Framework exploration and capability understanding needs
-- Documentation requests for available DoFlow skills
-
 ## Behavioral Flow
-1. **Display**: Present complete skill list with descriptions
-2. **Complete**: End interaction after displaying information
+1. **Enumerate** — `ls core/skills/` (or the installed `.claude/skills/` if running outside this
+   repo) rather than reciting a hardcoded table, so a skill added or removed since this file was
+   last edited still shows up correctly.
+2. **Read each skill's frontmatter** (`description`) to build the summary column — don't
+   paraphrase from memory, since a description can change independently of this file.
+3. **Group and present**: doflow-chain skills (`do-brainstorm` → `do-design` → `do-plan` →
+   `do-execute-plan` → `do-code-review`, plus `do-constitution`) first, since they're the primary
+   delivery path; the rest grouped by invocation mode (manual command / hybrid read-only /
+   auto-loaded policy / forked research) per `docs/reference.md`'s Invocation Modes table.
+4. **Flag drift**: if the skill count found in step 1 doesn't match a count stated in
+   `README.md`/`ARCHITECTURE.md`/`docs/index.md`, say so — this repo's own `CLAUDE.md` documents
+   that these counts drift silently when skills are added/removed without updating every doc.
 
-Key behaviors:
-- Information display only - no execution or implementation
-- Reference documentation mode without action triggers
-
-Here is a complete list of all available DoFlow (`/do-*`) skills.
+## Current skill list (as of this file's last edit — step 1 re-derives this live)
 
 | Skill | Description |
 |---|---|
 | `/do` | DoFlow command dispatcher, session announcement, and skill recommendation |
-| `/do-analyze` | Comprehensive code analysis across quality, security, performance, and architecture domains |
-| `/do-brainstorm` | Interactive requirements discovery through Socratic dialogue; seeds requirement.md in a branch-coupled feature dir |
-| `/do-build` | Build, compile, and package projects with intelligent error handling and optimization |
-| `/do-cleanup` | Systematically clean up code, remove dead code, and optimize project structure |
-| `/do-code-review` | Automated code-quality review of the implemented change — SOLID violations, code smells, and security/performance findings across 13 languages |
-| `confidence-check` | Mandatory pre-implementation confidence gate before any code edit, refactor, or config change |
-| `/do-constitution` | Create or amend the per-repo constitution, overlaying the base; versions it and propagates a pointer into the agent context file |
-| `/do-design` | Design system architecture, APIs, and component interfaces (HOW at the system-shape level); writes design.md |
-| `/do-document` | Generate focused documentation for components, functions, APIs, and features |
-| `/do-estimate` | Provide development estimates for tasks, features, or projects with intelligent analysis |
-| `/do-execute-plan` | Execute plan.md's embedded task checklist via pm-agent orchestration over named specialists, with the implement-phase prerequisite gate |
-| `/do-explain` | Provide clear explanations of code, concepts, and system behavior with educational clarity |
-| `/do-flow` | Auto-chain the doflow spec-driven flow (brainstorm→design→plan→implement→test→review), pausing only at defined approval gates |
-| `/do-git` | Git operations with intelligent commit messages and workflow optimization |
-| `/do-help` | List all available DoFlow skills and their functionality |
-| `/do-implement` | Feature and code implementation with intelligent persona activation and MCP integration |
-| `/do-improve` | Apply systematic improvements to code quality, performance, and maintainability |
-| `/do-index` | Generate comprehensive project documentation and knowledge base with intelligent organization |
-| `/do-pm` | Project manager orchestration for routing and coordinating complex workflows |
-| `/do-plan` | Generate the implementation plan (HOW) and dependency-ordered task checklist from requirement.md + design.md, with a Constitution Check gate |
-| `/do-reflect` | Task reflection and validation using native self-review |
-| `/do-research` | Deep web research with adaptive planning and evidence-based reporting |
-| `/do-select-tool` | Intelligent MCP tool selection based on complexity scoring and operation analysis |
-| `/do-spawn` | Meta-system task orchestration with intelligent breakdown and delegation |
-| `/do-spec-panel` | Multi-expert specification review and improvement using renowned specification and software engineering experts |
-| `/do-task` | Execute complex tasks with intelligent workflow management and delegation |
-| `/do-test` | Execute tests with coverage analysis and automated quality reporting |
-| `/do-troubleshoot` | Diagnose and resolve issues in code, builds, deployments, and system behavior |
-| `token-efficiency` | Activate compressed, symbol-based communication when context usage is high or brevity is requested |
-| `parallel-agents` | Fan out 2+ independent tasks/files/investigations concurrently without shared state or overlapping write scope |
+| `/do-analyze` | Read-only, multi-domain code analysis (quality/security/performance/architecture) |
+| `/do-brainstorm` | Interactive requirements discovery through Socratic dialogue; seeds requirement.md |
+| `/do-build` | Detect and run the project's own build system |
+| `/do-code-review` | Automated code-quality review across 13 languages |
+| `confidence-check` | Auto-loaded pre-implementation confidence gate |
+| `/do-constitution` | Create or amend the per-repo constitution |
+| `/do-design` | System-shape architecture/API/component design; writes design.md |
+| `/do-document` | Documentation for one component/function/API/feature |
+| `/do-estimate` | Read-only, confidence-banded development estimates |
+| `/do-execute-plan` | Execute plan.md's task checklist via pm-agent orchestration |
+| `/do-explain` | No-artifact educational explanation of code/concepts/behavior |
+| `/do-flow` | Auto-chain the doflow spec-driven flow, pausing at approval gates |
+| `/do-git` | Git operations with safety checks and smart commit messages |
+| `/do-help` | This skill — list all available DoFlow skills |
+| `/do-implement` | Standalone feature/component implementation (outside the doflow chain) |
+| `/do-improve` | Refactor or clean up existing code (quality/performance/style/cleanup) |
+| `/do-index` | Whole-project documentation/knowledge-base generation |
+| `/do-pm` | Classify an ambiguous/multi-part request and route it to the right skill/agent |
+| `/do-plan` | Implementation plan (HOW) + task checklist from requirement.md + design.md |
+| `/do-reflect` | Post-task self-review against what was asked |
+| `/do-research` | Deep web research in an isolated forked context |
+| `/do-select-tool` | Native vs. MCP tool routing decision |
+| `/do-spec-panel` | Multi-expert specification review via named lenses |
+| `/do-test` | Run the project's own existing test suite |
+| `/do-troubleshoot` | Diagnose an active, reproducing issue (diagnosis-first) |
+| `parallel-agents` | Fan out 2+ independent tasks concurrently |
+| `token-efficiency` | Compressed communication when context usage is high |
 
 ## Boundaries
-**Will:**
-- Display comprehensive list of available DoFlow skills
-- Provide clear descriptions of each skill's functionality
-- Present information in readable tabular format
-- Show all available DoFlow framework flags and their usage
-- Provide flag usage examples and priority rules
-
-**Will Not:**
-- Execute any commands or create any files
-- Activate implementation modes or start projects
-- Engage TodoWrite or any execution tools
-
----
-
-**Note:** This list is manually generated and may become outdated. If you suspect it is inaccurate, please consider regenerating it or contacting a maintainer.
+**Will:** enumerate the live skill set from `core/skills/` and its frontmatter; flag count drift
+against other docs.
+**Will Not:** execute any listed skill; edit any file; treat this file's own table as
+authoritative over a live `ls` if they disagree — the live count always wins.

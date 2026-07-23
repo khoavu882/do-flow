@@ -18,8 +18,7 @@ Claude Code skills in DoFlow use three invocation modes:
 | `confidence-check` | Auto-loaded | Mandatory pre-implementation confidence gate before any code edit, refactor, or config change |
 | `do-analyze` | `/do-analyze [target] [--focus quality\|security\|performance\|architecture] [--depth shallow\|normal\|deep]` | Code quality, security, performance, and architecture analysis |
 | `do-brainstorm` | `/do-brainstorm [topic/idea] [--strategy systematic\|agile\|enterprise]` | Interactive Socratic requirements discovery; seeds `requirement.md` in a branch-coupled feature dir |
-| `do-build` | `/do-build [target] [--type dev\|prod\|test] [--clean] [--optimize]` | Compile and package project artifacts |
-| `do-cleanup` | `/do-cleanup [target] [--type code\|imports\|files\|all] [--safe\|--aggressive]` | Remove dead code and clutter |
+| `do-build` | `/do-build [target] [--type dev\|prod\|test] [--clean] [--optimize]` | Detect and run the project's own build system |
 | `do-code-review` | `/do-code-review` | Automated code-quality review across 13 languages — SOLID violations, code smells, security/performance findings |
 | `do-constitution` | `/do-constitution [principle inputs] [--amend]` | Create or amend the per-repo (tier-2) constitution overlaying the base; bumps semver, writes a Sync Impact Report |
 | `do-design` | `/do-design [target] [--type architecture\|api\|component\|database]` | Architecture, API, and component design (HOW at the system-shape level); writes `design.md` |
@@ -30,18 +29,16 @@ Claude Code skills in DoFlow use three invocation modes:
 | `do-flow` | `/do-flow [feature description] [--from brainstorm\|design\|plan\|implement\|test\|review]` | Auto-chain the doflow spec-driven flow (brainstorm→design→plan→implement→test→review), pausing only at defined approval gates |
 | `do-git` | `/do-git [operation] [args] [--smart-commit]` | Smart git operations with conventional commit messages |
 | `do-help` | `/do-help` | Command reference and skill discovery |
-| `do-implement` | `/do-implement [feature-description] [--type component\|api\|service\|feature]` | Execute implementation with agent delegation |
-| `do-improve` | `/do-improve [target] [--type quality\|performance\|maintainability\|style]` | Apply systematic improvements |
-| `do-index` | `/do-index [target] [--type docs\|api\|structure\|readme]` | Generate project knowledge base |
+| `do-implement` | `/do-implement [feature-description] [--type component\|api\|service\|feature]` | Standalone feature/component implementation, outside the doflow chain |
+| `do-improve` | `/do-improve [target] [--type quality\|performance\|style\|cleanup\|all]` | Refactor or clean up existing code — quality, performance, style, or dead code/imports/files |
+| `do-index` | `/do-index [target] [--type docs\|api\|structure\|readme]` | Whole-project documentation/knowledge-base generation |
 | `do-plan` | `/do-plan [--strategy systematic\|agile] [--depth normal\|deep] [--parallel]` | Generate the implementation plan (HOW) and task checklist from `requirement.md` + `design.md`, with a Constitution Check gate |
-| `do-pm` | `/do-pm [request] [--strategy brainstorm\|direct\|wave]` | Project management orchestration and PDCA cycle |
-| `do-reflect` | `/do-reflect [--type task\|session\|completion]` | Task reflection and quality assessment |
+| `do-pm` | `/do-pm [request] [--depth shallow\|normal\|deep] [--agent name]` | Classify an ambiguous/multi-part request and route each part to the right skill/agent |
+| `do-reflect` | `/do-reflect [--type task\|session\|completion]` | Post-task self-review against what was actually asked |
 | `do-research` | `/do-research "[query]" [--depth quick\|standard\|deep\|exhaustive]` | Deep web research in an isolated forked context (`deep-research-agent`) |
 | `do-select-tool` | `/do-select-tool [operation] [--analyze] [--explain]` | Optimal MCP vs native tool selection |
-| `do-spawn` | `/do-spawn [complex-task] [--strategy sequential\|parallel\|adaptive]` | Delegate complex tasks to sub-agents |
-| `do-spec-panel` | `/do-spec-panel [specification_content\|@file] [--mode discussion\|critique\|socratic]` | Specification quality review panel |
-| `do-task` | `/do-task [action] [target] [--strategy systematic\|agile\|enterprise]` | Multi-agent task coordination |
-| `do-test` | `/do-test [target] [--type unit\|integration\|e2e\|all]` | Run tests with coverage analysis |
+| `do-spec-panel` | `/do-spec-panel [specification_content\|@file] [--mode discussion\|critique\|socratic]` | Specification quality review via named expert lenses |
+| `do-test` | `/do-test [target] [--type unit\|integration\|e2e\|all]` | Run the project's own existing test suite |
 | `do-troubleshoot` | `/do-troubleshoot [issue] [--type bug\|build\|performance\|deployment]` | Diagnose build and runtime failures |
 | `parallel-agents` | `/parallel-agents [tasks]` or Auto-loaded | Coordinate concurrent agents for independent tasks with disjoint context or write scope |
 | `token-efficiency` | Auto-loaded | Compressed output when context usage is high or `--uc` is requested |
@@ -50,7 +47,7 @@ Claude Code skills in DoFlow use three invocation modes:
 
 | Mode | Skills | Contract |
 |------|--------|----------|
-| Manual command | `do`, `do-brainstorm`, `do-build`, `do-cleanup`, `do-constitution`, `do-design`, `do-execute-plan`, `do-git`, `do-help`, `do-implement`, `do-improve`, `do-index`, `do-pm`, `do-plan`, `do-reflect`, `do-spawn`, `do-spec-panel`, `do-task`, `do-test` | Human chooses timing with `/skill-name` (`disable-model-invocation: true`). Use for side-effectful workflows, implementation, cleanup, commits, build actions, planning, and explicit orchestration. |
+| Manual command | `do`, `do-brainstorm`, `do-build`, `do-constitution`, `do-design`, `do-execute-plan`, `do-git`, `do-help`, `do-implement`, `do-improve`, `do-index`, `do-pm`, `do-plan`, `do-reflect`, `do-spec-panel`, `do-test` | Human chooses timing with `/skill-name` (`disable-model-invocation: true`). Use for side-effectful workflows, implementation, cleanup, commits, build actions, planning, and explicit orchestration. |
 | Hybrid read-only | `do-analyze`, `do-code-review`, `do-document`, `do-estimate`, `do-explain`, `do-flow`, `do-select-tool`, `do-troubleshoot`, `parallel-agents` | Claude may auto-load for matching requests (`disable-model-invocation: false`). Auto mode analyzes, drafts, verifies, recommends, or coordinates only. File edits require explicit user request and `confidence-check` first; `do-flow` additionally stops at its own approval gates before implementation or commit. |
 | Auto-loaded policy | `confidence-check`, `token-efficiency` | Background guidance only (`user-invocable: false`). Users normally do not invoke these directly. |
 | Forked research | `do-research` | Runs isolated research (`context: fork`, `agent: deep-research-agent`) when invoked or selected for a matching research task. |
@@ -117,7 +114,7 @@ Strategy guide:
 | `direct` | The task is clear and small enough for a focused pass |
 | `wave` | The task spans multiple phases, domains, or validation gates |
 
-`do-pm` routes plan-execution requests to `/do-execute-plan` and review requests to `/do-code-review`. Use `/do-task` instead when you already have one bounded task with a clear start and stop.
+`do-pm` routes plan-execution requests to `/do-execute-plan` and review requests to `/do-code-review`. Invoke the target skill directly instead when you already have one bounded task with a clear start and stop — `do-pm`'s value is in the classification step, not in re-routing an already-obvious request.
 
 ---
 
