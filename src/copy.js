@@ -4,6 +4,7 @@
 // and file mappings with `cp -p`. fs.cpSync({recursive,force}) matches the dir-merge.
 const fs = require('node:fs');
 const path = require('node:path');
+const { mergeMarkedSection } = require('./claude-md-merge');
 
 /** Recursively list regular files under dir (absolute paths). */
 function walkFiles(dir) {
@@ -117,7 +118,14 @@ function installTool(repoRoot, mappings, dstRoot) {
       }
       n++;
     } else if (st.isFile()) {
-      copyFilePreservingMeta(srcAbs, dstAbs);
+      // CLAUDE.md is the one mapping with merge (not overwrite) semantics — a target project's
+      // own hand-authored content must survive install/update, confined to doflow's marked
+      // section rather than replaced wholesale. See src/claude-md-merge.js.
+      if (dst === 'CLAUDE.md') {
+        mergeMarkedSection(srcAbs, dstAbs);
+      } else {
+        copyFilePreservingMeta(srcAbs, dstAbs);
+      }
       n++;
     }
   }
