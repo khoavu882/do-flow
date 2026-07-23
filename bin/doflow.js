@@ -8,7 +8,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { readMappings } = require('../src/mappings');
 const { resolveTargets, toolDirs } = require('../src/targets');
-const { planFiles, installTool, copyFilePreservingMeta } = require('../src/copy');
+const { planFiles, installTool, copyFilePreservingMeta, assertWithinRoot } = require('../src/copy');
+const { mergeMarkedSection } = require('../src/claude-md-merge');
 const { resolveContext, printContext } = require('../src/context');
 const { createBackup, restoreBackup, listBackups, pruneBackups } = require('../src/backup');
 const { writeManifest, readManifest } = require('../src/manifest');
@@ -235,6 +236,31 @@ function cmdInstall(o) {
   console.log('[OK] Installation complete!');
 }
 
+/**
+ * Resolve CLAUDE.md's merge-managed mapping for `update` and peek whether it would change.
+ * Excluded from diffFiles/allChanged (see src/diff.js) because a merge target never mirrors its
+ * source byte-for-byte, so whole-file mtime/checksum comparison is the wrong model for it — this
+ * gives it the same idempotency-checked peek `install` gets via installTool, so both commands
+ * apply identical merge semantics with no first-run-only special case.
+ *
+ * Mirrors the two safety properties every other mapping gets via resolveFilePairs/installTool
+ * (src/copy.js), which this path bypasses by not going through either: a missing source file is
+ * skipped gracefully instead of throwing a raw ENOENT, and the resolved destination is checked
+ * with assertWithinRoot before anything reads or writes it.
+ * @returns {{srcAbs: string|null, dstAbs: string|null, willChange: boolean}}
+ */
+function resolveClaudeMdUpdate(targets, dirs) {
+  if (!targets.includes('claude')) return { srcAbs: null, dstAbs: null, willChange: false };
+  const mapping = readMappings(MAPPINGS_FILE, 'claude').find((m) => m.dst === 'CLAUDE.md');
+  if (!mapping) return { srcAbs: null, dstAbs: null, willChange: false };
+  const srcAbs = path.join(REPO_ROOT, mapping.src);
+  if (!fs.existsSync(srcAbs)) return { srcAbs: null, dstAbs: null, willChange: false };
+  const dstAbs = path.join(dirs.claude, mapping.dst);
+  assertWithinRoot(dirs.claude, dstAbs, mapping.dst);
+  const willChange = mergeMarkedSection(srcAbs, dstAbs, { dryRun: true }).changed;
+  return { srcAbs, dstAbs, willChange };
+}
+
 function cmdUpdate(o) {
   const targets = resolveTargets(o.targets);
   const scope = scopeOf(o);
@@ -250,28 +276,32 @@ function cmdUpdate(o) {
     if (changed.length) { perTool[tool] = changed; allChanged = allChanged.concat(changed); }
   }
 
+  const { srcAbs: claudeMdSrcAbs, dstAbs: claudeMdDstAbs, willChange: claudeMdWillChange } = resolveClaudeMdUpdate(targets, dirs);
+  const totalChanged = allChanged.length + (claudeMdWillChange ? 1 : 0);
+
   // Never interactive here (resolveMcpForTool only prompts for cmd:'install') — update reuses the
   // manifest-remembered selection, or applies an explicit --mcp override, without re-prompting.
   const mcp = targets.includes('claude') ? resolveMcpForTool({ o, dirs, scope, cmd: 'update' }) : null;
   const mcpChanged = Boolean(mcp && mcp.changed);
 
-  if (allChanged.length === 0 && !mcpChanged) {
+  if (totalChanged === 0 && !mcpChanged) {
     console.log('[OK] Already up to date — no changes detected');
     return;
   }
 
-  console.log(`[INFO] Found ${allChanged.length} changed file(s)${mcpChanged ? ' + MCP server selection change' : ''}`);
+  console.log(`[INFO] Found ${totalChanged} changed file(s)${mcpChanged ? ' + MCP server selection change' : ''}`);
 
   if (o.dryRun) {
     for (const { srcAbs, dstAbs } of allChanged) console.log(`[DRY]  ${srcAbs} -> ${dstAbs}`);
+    if (claudeMdWillChange) console.log(`[DRY]  ${claudeMdSrcAbs} -> ${claudeMdDstAbs}  (merge: marked section)`);
     if (mcpChanged) console.log(`[DRY]  MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})`);
-    if (!o.noBackup && allChanged.length > 0) console.log(`[DRY]  Would create partial backup: ${backupRoot}/update_<timestamp>`);
+    if (!o.noBackup && totalChanged > 0) console.log(`[DRY]  Would create partial backup: ${backupRoot}/update_<timestamp>`);
     console.log(`[DRY]  Would write manifest: ${path.join(dirs.claude, '.install-manifest.json')}`);
     console.log('[DRY] Dry run complete');
     return;
   }
 
-  if (!confirm(`Update ${allChanged.length} changed file(s)${mcpChanged ? ' + MCP server selection' : ''} in: ${targets.join(' ')}?`, o.force)) {
+  if (!confirm(`Update ${totalChanged} changed file(s)${mcpChanged ? ' + MCP server selection' : ''} in: ${targets.join(' ')}?`, o.force)) {
     console.error('[INFO]  Aborted.');
     return;
   }
@@ -280,15 +310,22 @@ function cmdUpdate(o) {
   // Nothing outside dirs[tool] (which is what partialFiles/backup covers) needs backing up for an
   // MCP-only change — ~/.claude.json / <project>/.mcp.json are outside the tool dir by design (see
   // src/mcp.js), so a backup is only meaningful when actual mapped files changed.
-  if (!o.noBackup && allChanged.length > 0) {
+  if (!o.noBackup && totalChanged > 0) {
     const existingDstFiles = allChanged.map((c) => c.dstAbs).filter((f) => fs.existsSync(f));
+    if (claudeMdWillChange && fs.existsSync(claudeMdDstAbs)) existingDstFiles.push(claudeMdDstAbs);
     bid = createBackup({ operation: 'update', tools: targets, dirs, backupRoot, repoRoot: SCRIPT_DIR, sourceCommit: commit, partialFiles: existingDstFiles, date: new Date() });
     console.error(`[INFO]  Backup created: ${bid}`);
   }
 
-  for (const tool of Object.keys(perTool)) {
-    for (const { srcAbs, dstAbs } of perTool[tool]) copyFilePreservingMeta(srcAbs, dstAbs);
-    console.log(`[INFO] ${tool}: synced ${perTool[tool].length} changed item(s) -> ${dirs[tool]}`);
+  for (const tool of targets) {
+    const items = perTool[tool] || [];
+    for (const { srcAbs, dstAbs } of items) copyFilePreservingMeta(srcAbs, dstAbs);
+    let count = items.length;
+    if (tool === 'claude' && claudeMdWillChange) {
+      mergeMarkedSection(claudeMdSrcAbs, claudeMdDstAbs);
+      count += 1;
+    }
+    if (count > 0) console.log(`[INFO] ${tool}: synced ${count} changed item(s) -> ${dirs[tool]}`);
   }
   // If settings.json was just re-synced from source (which always has ~/.claude/... paths), a
   // project-scoped install's ${CLAUDE_PROJECT_DIR} rewrite would otherwise get silently reverted

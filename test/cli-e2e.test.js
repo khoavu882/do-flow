@@ -103,6 +103,8 @@ test('full lifecycle: install -> mutate -> update -> rollback restores the pre-u
 
   let r = run(['install', '-g', '--force', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
+  // A fresh install's CLAUDE.md is already exactly doflow's marked section, verbatim (no user
+  // content yet) — see src/claude-md-merge.js.
   const cleanContent = fs.readFileSync(claudeMd, 'utf8');
 
   fs.writeFileSync(claudeMd, 'mutated by test\n');
@@ -112,7 +114,13 @@ test('full lifecycle: install -> mutate -> update -> rollback restores the pre-u
 
   r = run(['update', '-g', '--force', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
-  assert.strictEqual(fs.readFileSync(claudeMd, 'utf8'), cleanContent, 'update should resync to clean content');
+  // CLAUDE.md is merge-managed, not mirrored: mutatedContent has no doflow markers, so update
+  // must treat it as foreign content and APPEND doflow's section after it (not overwrite it) —
+  // that's the whole point of this feature. mutatedContent ends with exactly one "\n", so the
+  // separator-normalization rule (src/claude-md-merge.js) adds exactly one more before the
+  // section.
+  const expectedAfterUpdate = `${mutatedContent}\n${cleanContent}`;
+  assert.strictEqual(fs.readFileSync(claudeMd, 'utf8'), expectedAfterUpdate, 'update should append doflow\'s section after the foreign (unmarked) content, not overwrite it');
 
   r = run(['list-backups', '-g'], { home });
   const bid = /update_[\d_-]+/.exec(r.stdout)?.[0];
@@ -171,6 +179,18 @@ test('update --dry-run when already up to date reports so and exits before the d
   const r = run(['update', '-g', '--dry-run', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stdout, /Already up to date/);
+});
+
+test('a second update with no upstream change is a true no-op for CLAUDE.md (idempotent merge)', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  run(['install', '-g', '--force', '--target', 'claude'], { home });
+  const claudeMd = path.join(home, '.claude', 'CLAUDE.md');
+  const bytesAfterInstall = fs.readFileSync(claudeMd, 'utf8');
+
+  const r = run(['update', '-g', '--force', '--target', 'claude'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Already up to date/, 'nothing changed, including CLAUDE.md\'s marked section, so this must not run the write/backup path');
+  assert.strictEqual(fs.readFileSync(claudeMd, 'utf8'), bytesAfterInstall, 'CLAUDE.md bytes must be untouched by a no-op update');
 });
 
 test('status (text, no --json) prints the resolved context and install status table', () => {
@@ -297,6 +317,53 @@ test('a missing bin/mappings.conf fails every command cleanly instead of an ENOE
     assert.ok(!/at Object\.readFileSync/.test(r.stderr), 'must not leak a raw Node stack trace');
   } finally {
     fs.renameSync(movedAside, mappingsFile);
+  }
+});
+
+test('update rejects a traversing CLAUDE.md destination just like install does, instead of writing outside the install root', () => {
+  // Regression test: cmdUpdate's CLAUDE.md resolution used to build its destination path with a
+  // raw path.join and no assertWithinRoot call, unlike every other write path in this codebase
+  // (installTool and resolveFilePairs both guard every mapping before writing). Simulate a
+  // corrupted mappings.conf the same way the "missing mappings.conf" test above does: mutate the
+  // real file on disk temporarily, restore it in finally.
+  const mappingsFile = path.join(REPO, 'bin', 'mappings.conf');
+  const original = fs.readFileSync(mappingsFile, 'utf8');
+  const mutated = original.replace(
+    /^core\/CLAUDE\.md\s*:\s*CLAUDE\.md$/m,
+    'core/CLAUDE.md        : ../../outside.md'
+  );
+  assert.notStrictEqual(mutated, original, 'expected to find and rewrite the CLAUDE.md mapping line');
+  fs.writeFileSync(mappingsFile, mutated);
+  try {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+    const r = run(['update', '-g', '--force', '--target', 'claude'], { home });
+    assert.strictEqual(r.status, 1);
+    assert.match(r.stderr, /outside install root/);
+    assert.ok(!fs.existsSync(path.join(home, 'outside.md')), 'the traversing path must never be written');
+  } finally {
+    fs.writeFileSync(mappingsFile, original);
+  }
+});
+
+test('update skips a missing CLAUDE.md source gracefully instead of crashing with a raw ENOENT', () => {
+  // Regression test: cmdUpdate's CLAUDE.md resolution used to call mergeMarkedSection
+  // unconditionally once the mapping was found, without checking the source file exists first —
+  // unlike every other mapping (resolveFilePairs/installTool both skip a missing source silently).
+  const mappingsFile = path.join(REPO, 'bin', 'mappings.conf');
+  const original = fs.readFileSync(mappingsFile, 'utf8');
+  const mutated = original.replace(
+    /^core\/CLAUDE\.md\s*:\s*CLAUDE\.md$/m,
+    'core/no-such-file.md  : CLAUDE.md'
+  );
+  assert.notStrictEqual(mutated, original, 'expected to find and rewrite the CLAUDE.md mapping line');
+  fs.writeFileSync(mappingsFile, mutated);
+  try {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+    const r = run(['update', '-g', '--force', '--target', 'claude'], { home });
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.ok(!/ENOENT/.test(r.stderr), 'a missing CLAUDE.md source must not surface a raw ENOENT');
+  } finally {
+    fs.writeFileSync(mappingsFile, original);
   }
 });
 
