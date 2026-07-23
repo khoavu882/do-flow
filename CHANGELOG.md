@@ -3,6 +3,18 @@
 All notable changes to DoFlow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [2.4.2] - 2026-07-23
+
+### Changed
+
+- **`install`/`update` no longer overwrite a target project's existing `CLAUDE.md`.** doflow's
+  content now lives inside a clearly delimited, always-regenerated marked section
+  (`<!-- doflow:start -->` … `<!-- doflow:end -->`); a pre-existing hand-authored `CLAUDE.md`
+  gets that section appended after its own content instead of replaced wholesale, and a file
+  that already has the marked section only has that span refreshed — everything else in the
+  file is preserved byte-for-byte. Applies identically to `install` and `update`, global and
+  project scope. `.mcp.json` needed no change — it was already read-merge-write via `src/mcp.js`.
+
 ## [2.4.1] - 2026-07-22
 
 ### Changed

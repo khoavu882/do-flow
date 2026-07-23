@@ -5,6 +5,7 @@
 // fs.statSync/crypto calls have no such subshell cost, so a direct per-file loop is equivalent
 // in outcome without needing bash's batching trick.
 const fs = require('node:fs');
+const path = require('node:path');
 const crypto = require('node:crypto');
 const { resolveFilePairs } = require('./copy');
 
@@ -20,6 +21,11 @@ function diffFiles({ repoRoot, mappings, dstRoot, checksum = false }) {
   const pairs = resolveFilePairs(repoRoot, mappings, dstRoot);
   const changed = [];
   for (const pair of pairs) {
+    // CLAUDE.md is merge-managed (src/claude-md-merge.js), not mirrored — its destination
+    // deliberately never matches its source byte-for-byte once user content coexists with
+    // doflow's marked section, so whole-file mtime/checksum comparison is the wrong model here.
+    // cmdUpdate handles it via its own always-run, idempotency-checked merge step instead.
+    if (path.relative(dstRoot, pair.dstAbs) === 'CLAUDE.md') continue;
     if (!fs.existsSync(pair.dstAbs)) { changed.push(pair); continue; }
     if (checksum) {
       if (sha256(pair.srcAbs) !== sha256(pair.dstAbs)) changed.push(pair);

@@ -99,10 +99,18 @@ echo "[Phase C] update parity (--target claude)"
 
 # Simulate drift by touching one already-installed dst file's mtime (avoids mutating this repo's
 # actual source files, which both tools would otherwise read identically anyway).
+#
+# Deliberately NOT CLAUDE.md: as of the CLAUDE.md-preservation feature, doflow.js detects a
+# pending CLAUDE.md change by content (via its marker-merge peek), not mtime — sync-legacy.sh has
+# no such concept and still diffs it by mtime like every other file. Back-dating CLAUDE.md's mtime
+# with nothing else changed would make sync-legacy.sh resync it (mtime looks stale) while doflow.js
+# correctly no-ops it (content is already up to date), a deliberate improvement beyond parity, not
+# a bug this script should catch — same category already carved out above for .claude.json/MCP.
+# settings.json stays plain-mirrored in both tools, so it's still a valid mtime-drift target.
 H5="$(mktemp -d)"; H6="$(mktemp -d)"
 HOME="$H5" bash "$SYNC"   --install --force --no-backup --target claude >/dev/null 2>&1
 HOME="$H6" node "$DOFLOW" install -g --force --no-backup --target claude >/dev/null 2>&1
-touch -d '2000-01-01' "$H5/.claude/CLAUDE.md" "$H6/.claude/CLAUDE.md"
+touch -d '2000-01-01' "$H5/.claude/settings.json" "$H6/.claude/settings.json"
 
 HOME="$H5" bash "$SYNC"   --update --force --no-backup --target claude >/dev/null 2>&1
 HOME="$H6" node "$DOFLOW" update -g --force --no-backup --target claude >/dev/null 2>&1
