@@ -1,6 +1,6 @@
 {
   "name": "doflow",
-  "version": "2.4.3",
+  "version": "2.4.4",
   "description": "Reusable engineering workflows, quality gates, and specialist guidance for Codex.",
   "author": {
     "name": "DoFlow"
