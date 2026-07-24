@@ -191,10 +191,10 @@ Configured in `bin/mappings.conf`. Each tool gets the appropriate subset:
 
 | Component | Claude | Codex | Gemini |
 |-----------|--------|-------|--------|
-| `CLAUDE.md` + `FLAGS.md` + `PRINCIPLES.md` | ✓ | — | — |
+| Native instruction file | `CLAUDE.md` + `FLAGS.md` + `PRINCIPLES.md` | `AGENTS.md` | `AGENTS.md` + `FLAGS.md` + `PRINCIPLES.md` |
 | `rules/` (4 rule files) | ✓ | ✓ | ✓ |
 | `agents/` (14 agents) | ✓ | ✓ | ✓ |
-| `skills/` (31 skills) | ✓ | — | — |
+| `skills/` | ✓ | ✓ | ✓ |
 | `modes/` (6 modes) | ✓ | — | — |
 | `hooks/` (13 hook scripts) | ✓ | — | — |
 | `mcp/` (4 server docs) | ✓ | — | — |
@@ -250,5 +250,8 @@ doflow status -g
 # In Claude Code, verify skills loaded
 /do-help
 ```
+
+For Codex, start a session in the configured project and ask it to use an installed skill such as
+`do-implement`; Codex discovers `AGENTS.md` and `skills/` from its project or user configuration.
 
 The status output shows which tools are installed and when they were last updated.

@@ -237,8 +237,8 @@ function cmdInstall(o) {
 }
 
 /**
- * Resolve CLAUDE.md's merge-managed mapping for `update` and peek whether it would change.
- * Excluded from diffFiles/allChanged (see src/diff.js) because a merge target never mirrors its
+ * Resolve all merge-managed instruction files for `update` and peek whether they would change.
+ * They are excluded from diffFiles/allChanged (see src/diff.js) because a merge target never mirrors its
  * source byte-for-byte, so whole-file mtime/checksum comparison is the wrong model for it — this
  * gives it the same idempotency-checked peek `install` gets via installTool, so both commands
  * apply identical merge semantics with no first-run-only special case.
@@ -247,18 +247,21 @@ function cmdInstall(o) {
  * (src/copy.js), which this path bypasses by not going through either: a missing source file is
  * skipped gracefully instead of throwing a raw ENOENT, and the resolved destination is checked
  * with assertWithinRoot before anything reads or writes it.
- * @returns {{srcAbs: string|null, dstAbs: string|null, willChange: boolean}}
+ * @returns {{tool:string, srcAbs:string, dstAbs:string, willChange:boolean}[]}
  */
-function resolveClaudeMdUpdate(targets, dirs) {
-  if (!targets.includes('claude')) return { srcAbs: null, dstAbs: null, willChange: false };
-  const mapping = readMappings(MAPPINGS_FILE, 'claude').find((m) => m.dst === 'CLAUDE.md');
-  if (!mapping) return { srcAbs: null, dstAbs: null, willChange: false };
-  const srcAbs = path.join(REPO_ROOT, mapping.src);
-  if (!fs.existsSync(srcAbs)) return { srcAbs: null, dstAbs: null, willChange: false };
-  const dstAbs = path.join(dirs.claude, mapping.dst);
-  assertWithinRoot(dirs.claude, dstAbs, mapping.dst);
-  const willChange = mergeMarkedSection(srcAbs, dstAbs, { dryRun: true }).changed;
-  return { srcAbs, dstAbs, willChange };
+function resolveManagedInstructionUpdates(targets, dirs) {
+  const updates = [];
+  for (const tool of targets) {
+    for (const mapping of readMappings(MAPPINGS_FILE, tool)) {
+      if (mapping.dst !== 'CLAUDE.md' && mapping.dst !== 'AGENTS.md') continue;
+      const srcAbs = path.join(REPO_ROOT, mapping.src);
+      if (!fs.existsSync(srcAbs)) continue;
+      const dstAbs = path.join(dirs[tool], mapping.dst);
+      assertWithinRoot(dirs[tool], dstAbs, mapping.dst);
+      updates.push({ tool, srcAbs, dstAbs, willChange: mergeMarkedSection(srcAbs, dstAbs, { dryRun: true }).changed });
+    }
+  }
+  return updates;
 }
 
 function cmdUpdate(o) {
@@ -276,8 +279,9 @@ function cmdUpdate(o) {
     if (changed.length) { perTool[tool] = changed; allChanged = allChanged.concat(changed); }
   }
 
-  const { srcAbs: claudeMdSrcAbs, dstAbs: claudeMdDstAbs, willChange: claudeMdWillChange } = resolveClaudeMdUpdate(targets, dirs);
-  const totalChanged = allChanged.length + (claudeMdWillChange ? 1 : 0);
+  const managedInstructions = resolveManagedInstructionUpdates(targets, dirs);
+  const changedManagedInstructions = managedInstructions.filter((instruction) => instruction.willChange);
+  const totalChanged = allChanged.length + changedManagedInstructions.length;
 
   // Never interactive here (resolveMcpForTool only prompts for cmd:'install') — update reuses the
   // manifest-remembered selection, or applies an explicit --mcp override, without re-prompting.
@@ -293,7 +297,9 @@ function cmdUpdate(o) {
 
   if (o.dryRun) {
     for (const { srcAbs, dstAbs } of allChanged) console.log(`[DRY]  ${srcAbs} -> ${dstAbs}`);
-    if (claudeMdWillChange) console.log(`[DRY]  ${claudeMdSrcAbs} -> ${claudeMdDstAbs}  (merge: marked section)`);
+    for (const instruction of changedManagedInstructions) {
+      console.log(`[DRY]  ${instruction.srcAbs} -> ${instruction.dstAbs}  (merge: marked section)`);
+    }
     if (mcpChanged) console.log(`[DRY]  MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})`);
     if (!o.noBackup && totalChanged > 0) console.log(`[DRY]  Would create partial backup: ${backupRoot}/update_<timestamp>`);
     console.log(`[DRY]  Would write manifest: ${path.join(dirs.claude, '.install-manifest.json')}`);
@@ -312,7 +318,9 @@ function cmdUpdate(o) {
   // src/mcp.js), so a backup is only meaningful when actual mapped files changed.
   if (!o.noBackup && totalChanged > 0) {
     const existingDstFiles = allChanged.map((c) => c.dstAbs).filter((f) => fs.existsSync(f));
-    if (claudeMdWillChange && fs.existsSync(claudeMdDstAbs)) existingDstFiles.push(claudeMdDstAbs);
+    for (const instruction of changedManagedInstructions) {
+      if (fs.existsSync(instruction.dstAbs)) existingDstFiles.push(instruction.dstAbs);
+    }
     bid = createBackup({ operation: 'update', tools: targets, dirs, backupRoot, repoRoot: SCRIPT_DIR, sourceCommit: commit, partialFiles: existingDstFiles, date: new Date() });
     console.error(`[INFO]  Backup created: ${bid}`);
   }
@@ -321,8 +329,9 @@ function cmdUpdate(o) {
     const items = perTool[tool] || [];
     for (const { srcAbs, dstAbs } of items) copyFilePreservingMeta(srcAbs, dstAbs);
     let count = items.length;
-    if (tool === 'claude' && claudeMdWillChange) {
-      mergeMarkedSection(claudeMdSrcAbs, claudeMdDstAbs);
+    for (const instruction of changedManagedInstructions) {
+      if (instruction.tool !== tool) continue;
+      mergeMarkedSection(instruction.srcAbs, instruction.dstAbs);
       count += 1;
     }
     if (count > 0) console.log(`[INFO] ${tool}: synced ${count} changed item(s) -> ${dirs[tool]}`);

@@ -121,7 +121,7 @@ function installTool(repoRoot, mappings, dstRoot) {
       // CLAUDE.md is the one mapping with merge (not overwrite) semantics — a target project's
       // own hand-authored content must survive install/update, confined to doflow's marked
       // section rather than replaced wholesale. See src/claude-md-merge.js.
-      if (dst === 'CLAUDE.md') {
+      if (dst === 'CLAUDE.md' || dst === 'AGENTS.md') {
         mergeMarkedSection(srcAbs, dstAbs);
       } else {
         copyFilePreservingMeta(srcAbs, dstAbs);

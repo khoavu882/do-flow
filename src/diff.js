@@ -25,7 +25,8 @@ function diffFiles({ repoRoot, mappings, dstRoot, checksum = false }) {
     // deliberately never matches its source byte-for-byte once user content coexists with
     // doflow's marked section, so whole-file mtime/checksum comparison is the wrong model here.
     // cmdUpdate handles it via its own always-run, idempotency-checked merge step instead.
-    if (path.relative(dstRoot, pair.dstAbs) === 'CLAUDE.md') continue;
+    const relDst = path.relative(dstRoot, pair.dstAbs);
+    if (relDst === 'CLAUDE.md' || relDst === 'AGENTS.md') continue;
     if (!fs.existsSync(pair.dstAbs)) { changed.push(pair); continue; }
     if (checksum) {
       if (sha256(pair.srcAbs) !== sha256(pair.dstAbs)) changed.push(pair);

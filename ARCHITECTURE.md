@@ -8,7 +8,7 @@ How this repository is structured and how the components relate.
 
 ```
 do-flow/
-├── core/               # Deployable framework (installed to ~/.claude/)
+├── core/               # Deployable framework (installed to tool-specific configuration directories)
 │   ├── CLAUDE.md       # Session entrypoint — @-includes FLAGS, PRINCIPLES, RULES
 │   ├── FLAGS.md        # Behavioral flags and MCP trigger conditions
 │   ├── PRINCIPLES.md   # Engineering principles (SOLID, DRY, KISS, YAGNI)
@@ -43,7 +43,7 @@ do-flow/
 
 ## `core/` vs `bin/`
 
-**`core/`** contains everything that gets deployed to `~/.claude/` (and subsets to `~/.codex/`, `~/.gemini/`). These are the files the AI reads.
+**`core/`** contains everything that gets deployed to `~/.claude/`, `~/.codex/`, and `~/.gemini/`. These are the files the AI reads.
 
 **`bin/` + `src/`** contain the tooling that manages the deployment — `doflow.js`, its shim/legacy siblings, and `mappings.conf`. These are never copied to AI tool directories.
 
@@ -77,6 +77,8 @@ core/settings.json : settings.json
 ...
 
 [codex]
+core/AGENTS.md  : AGENTS.md
+core/skills/    : skills/
 core/rules/    : rules/
 core/agents/   : agents/
 core/references/ : references/
@@ -94,7 +96,9 @@ independent reference `test/cli-parity.sh` diffs `doflow` against.
 (sync-legacy.sh, parity-testing only):** bash 4.0+, jq, rsync. On macOS: `brew install bash jq rsync`
 (the system bash is 3.2).
 
-Claude gets everything. Codex and Gemini get the tool-agnostic subset (rules, agents, reference) — they have no equivalent of Claude Code's slash commands or hooks.
+Claude gets the full integration, including hooks and MCP registration. Codex receives its native
+`AGENTS.md` instructions and reusable skills alongside the shared rules, agents, and references;
+Gemini receives the tool-appropriate subset. Hooks remain Claude-specific.
 
 **`core/.mcp.json` is deliberately not in `mappings.conf`.** Claude Code never reads a `.mcp.json`
 from inside `.claude/` — it resolves MCP servers from `~/.claude.json`'s `mcpServers` key (global
