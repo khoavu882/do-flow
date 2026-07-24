@@ -1,287 +1,90 @@
 # Reference
 
-Complete reference for skills, agents, hooks, behavioral flags, and rules.
-
----
+This is the compact lookup for DoFlow. Each skill's `SKILL.md` is the implementation-level source of truth.
 
 ## Skills
 
-Claude Code skills in DoFlow use three invocation modes:
+| Goal | Skill |
+|---|---|
+| Find the right command | `do`, `do-help`, `do-pm` |
+| Understand code or a system | `do-explain`, `do-analyze`, `do-troubleshoot` |
+| Shape a feature | `do-brainstorm`, `do-design`, `do-plan`, `do-spec-panel` |
+| Implement and refine | `do-implement`, `do-execute-plan`, `do-improve` |
+| Validate quality | `do-test`, `do-code-review`, `do-reflect` |
+| Build, commit, or estimate | `do-build`, `do-git`, `do-estimate` |
+| Research and documentation | `do-research`, `do-document`, `do-index` |
+| Set project rules | `do-constitution` |
+| Choose available tools | `do-select-tool` |
+| Coordinate independent work | `parallel-agents` |
+| Apply background safeguards | `confidence-check`, `token-efficiency` |
 
-- **Manual command**: invoked by typing `/skill-name`; used for side effects, commits, implementation execution, and explicit workflow control.
-- **Hybrid**: invoked directly or auto-loaded by Claude when the request clearly matches; auto mode is read-only unless the user explicitly asks for edits.
-- **Auto-loaded policy**: hidden from the slash menu and loaded by Claude as background guidance.
+### Common commands
 
-| Skill | Invocation | Description |
-|-------|-----------|-------------|
-| `do` | `/do [command] [args...]` | Command dispatcher, session-start announcement, and skill recommendation engine |
-| `confidence-check` | Auto-loaded | Mandatory pre-implementation confidence gate before any code edit, refactor, or config change |
-| `do-analyze` | `/do-analyze [target] [--focus quality\|security\|performance\|architecture] [--depth shallow\|normal\|deep]` | Code quality, security, performance, and architecture analysis |
-| `do-brainstorm` | `/do-brainstorm [topic/idea] [--strategy systematic\|agile\|enterprise]` | Interactive Socratic requirements discovery; seeds `requirement.md` in a branch-coupled feature dir |
-| `do-build` | `/do-build [target] [--type dev\|prod\|test] [--clean] [--optimize]` | Detect and run the project's own build system |
-| `do-code-review` | `/do-code-review` | Automated code-quality review across 13 languages — SOLID violations, code smells, security/performance findings |
-| `do-constitution` | `/do-constitution [principle inputs] [--amend]` | Create or amend the per-repo (tier-2) constitution overlaying the base; bumps semver, writes a Sync Impact Report |
-| `do-design` | `/do-design [target] [--type architecture\|api\|component\|database]` | Architecture, API, and component design (HOW at the system-shape level); writes `design.md` |
-| `do-document` | `/do-document [target] [--type inline\|external\|api\|guide]` | Generate documentation |
-| `do-estimate` | `/do-estimate [target] [--type time\|effort\|complexity]` | Task and feature estimation |
-| `do-execute-plan` | `/do-execute-plan [--next\|--phase N\|--all\|--resume\|--dry-run\|--contracts] [--safe]` | Execute `plan.md`'s embedded task checklist via pm-agent orchestration over named specialists, gated by the implement-phase prerequisite hook |
-| `do-explain` | `/do-explain [target] [--level basic\|intermediate\|advanced]` | Deep code and system behavior explanation |
-| `do-flow` | `/do-flow [feature description] [--from brainstorm\|design\|plan\|implement\|test\|review]` | Auto-chain the doflow spec-driven flow (brainstorm→design→plan→implement→test→review), pausing only at defined approval gates |
-| `do-git` | `/do-git [operation] [args] [--smart-commit]` | Smart git operations with conventional commit messages |
-| `do-help` | `/do-help` | Command reference and skill discovery |
-| `do-implement` | `/do-implement [feature-description] [--type component\|api\|service\|feature]` | Standalone feature/component implementation, outside the doflow chain |
-| `do-improve` | `/do-improve [target] [--type quality\|performance\|style\|cleanup\|all]` | Refactor or clean up existing code — quality, performance, style, or dead code/imports/files |
-| `do-index` | `/do-index [target] [--type docs\|api\|structure\|readme]` | Whole-project documentation/knowledge-base generation |
-| `do-plan` | `/do-plan [--strategy systematic\|agile] [--depth normal\|deep] [--parallel]` | Generate the implementation plan (HOW) and task checklist from `requirement.md` + `design.md`, with a Constitution Check gate |
-| `do-pm` | `/do-pm [request] [--depth shallow\|normal\|deep] [--agent name]` | Classify an ambiguous/multi-part request and route each part to the right skill/agent |
-| `do-reflect` | `/do-reflect [--type task\|session\|completion]` | Post-task self-review against what was actually asked |
-| `do-research` | `/do-research "[query]" [--depth quick\|standard\|deep\|exhaustive]` | Deep web research in an isolated forked context (`deep-research-agent`) |
-| `do-select-tool` | `/do-select-tool [operation] [--analyze] [--explain]` | Optimal MCP vs native tool selection |
-| `do-spec-panel` | `/do-spec-panel [specification_content\|@file] [--mode discussion\|critique\|socratic]` | Specification quality review via named expert lenses |
-| `do-test` | `/do-test [target] [--type unit\|integration\|e2e\|all]` | Run the project's own existing test suite |
-| `do-troubleshoot` | `/do-troubleshoot [issue] [--type bug\|build\|performance\|deployment]` | Diagnose build and runtime failures |
-| `parallel-agents` | `/parallel-agents [tasks]` or Auto-loaded | Coordinate concurrent agents for independent tasks with disjoint context or write scope |
-| `token-efficiency` | Auto-loaded | Compressed output when context usage is high or `--uc` is requested |
+| Command | Use it for |
+|---|---|
+| `/do-flow "feature"` | Guided feature delivery with approval gates |
+| `/do-implement "task"` | Standalone implementation work |
+| `/do-analyze path --focus quality` | Read-only quality, security, performance, or architecture analysis |
+| `/do-improve path --type quality` | Scoped cleanup or refactoring |
+| `/do-test --type all` | Run the project's test suite |
+| `/do-code-review` | Review the current change set |
+| `/do-git --smart-commit` | Prepare an accurate commit |
+| `/do-document "topic" --type guide` | Create or revise documentation |
 
-### Invocation Modes
-
-| Mode | Skills | Contract |
-|------|--------|----------|
-| Manual command | `do`, `do-brainstorm`, `do-build`, `do-constitution`, `do-design`, `do-execute-plan`, `do-git`, `do-help`, `do-implement`, `do-improve`, `do-index`, `do-pm`, `do-plan`, `do-reflect`, `do-spec-panel`, `do-test` | Human chooses timing with `/skill-name` (`disable-model-invocation: true`). Use for side-effectful workflows, implementation, cleanup, commits, build actions, planning, and explicit orchestration. |
-| Hybrid read-only | `do-analyze`, `do-code-review`, `do-document`, `do-estimate`, `do-explain`, `do-flow`, `do-select-tool`, `do-troubleshoot`, `parallel-agents` | Claude may auto-load for matching requests (`disable-model-invocation: false`). Auto mode analyzes, drafts, verifies, recommends, or coordinates only. File edits require explicit user request and `confidence-check` first; `do-flow` additionally stops at its own approval gates before implementation or commit. |
-| Auto-loaded policy | `confidence-check`, `token-efficiency` | Background guidance only (`user-invocable: false`). Users normally do not invoke these directly. |
-| Forked research | `do-research` | Runs isolated research (`context: fork`, `agent: deep-research-agent`) when invoked or selected for a matching research task. |
-
-### Doflow Chain (spec-driven delivery)
-
-`do-brainstorm` → `do-design` → `do-plan` → `do-execute-plan` → `do-code-review` form the normal feature delivery path (merged into core; no longer a separate opt-in extension). `do-constitution` sets repo-level rules but is invoked standalone, outside the numbered chain. `do-flow` auto-chains the chain phases in sequence, pausing only at its three approval gates (unresolved requirement clarifications, before implementation, before commit/merge):
-
-```bash
-# Discover and record the feature requirement (WHAT/WHY) — seeds requirement.md in a branch-coupled feature dir
-/do-brainstorm "feature description"
-
-# Design the system shape (architecture, APIs, data model) — writes design.md
-/do-design
-
-# Generate the implementation plan (HOW) + dependency-ordered task checklist from requirement.md + design.md, with a Constitution Check gate
-/do-plan --strategy systematic
-
-# Execute plan.md's task checklist via pm-agent orchestration, gated by the implement-phase prerequisite hook
-/do-execute-plan --next --safe
-
-# Review the resulting diff for code quality before commit or merge
-/do-code-review
-
-# Or auto-chain the whole flow end to end
-/do-flow "feature description"
-```
-
-`do-execute-plan` is gated by `pre-implement-gate.sh`, which blocks source edits until `requirement.md`, `design.md`, and `plan.md` all exist. `do-code-review` is review-only and reports code-quality findings (SOLID violations, code smells, security/async/resource issues) across 13 languages before summaries. For a feature spanning multiple repos, `do-plan` also drafts a Repo Branch Plan that `do-execute-plan` lazily turns into real per-repo branches as each is first touched.
-
-Hybrid read-only skills such as `do-analyze`, `do-document`, `do-estimate`, `do-explain`, `do-code-review`, `do-select-tool`, and `do-troubleshoot` can be invoked directly or auto-loaded by Claude when the request clearly matches. In auto mode, they analyze, draft, verify, or recommend only; implementation edits require an explicit user request and the `confidence-check` gate first.
-
-`parallel-agents` coordinates from the main context. It may dispatch isolated agents only after proving the tasks are independent, have no sequential dependency, and do not share write scope.
-
-`confidence-check` is mandatory before implementation-class work:
-
-- Creating or editing source files
-- Refactoring existing code
-- Fixing bugs through code or test changes
-- Adding, removing, or upgrading dependencies
-- Changing runtime configuration or architecture
-- Executing generated implementation workflows
-
-It should not block pure explanation, read-only review, estimation, brainstorming, or requirements discovery.
-
-### PM Orchestration
-
-`do-pm` is the project manager layer for broad or multi-step requests. It can coordinate discovery, planning, implementation, validation, review, and session notes from a single prompt:
-
-```bash
-/do-pm "
-Goal: modernize the dashboard filters.
-Scope: UI controls, query-state handling, tests, and browser verification.
-Validation: run frontend tests and verify the dashboard in Playwright.
-Deliverable: working implementation, validation output, review notes, and follow-up actions.
-" --strategy wave --verbose
-```
-
-Strategy guide:
-
-| Strategy | Use When |
-|----------|----------|
-| `brainstorm` | The goal is vague and requirements need discovery before implementation |
-| `direct` | The task is clear and small enough for a focused pass |
-| `wave` | The task spans multiple phases, domains, or validation gates |
-
-`do-pm` routes plan-execution requests to `/do-execute-plan` and review requests to `/do-code-review`. Invoke the target skill directly instead when you already have one bounded task with a clear start and stop — `do-pm`'s value is in the classification step, not in re-routing an already-obvious request.
-
----
+The full installed skill set is: `confidence-check`, `do`, `do-analyze`, `do-brainstorm`, `do-build`, `do-code-review`, `do-constitution`, `do-design`, `do-document`, `do-estimate`, `do-execute-plan`, `do-explain`, `do-flow`, `do-git`, `do-help`, `do-implement`, `do-improve`, `do-index`, `do-plan`, `do-pm`, `do-reflect`, `do-research`, `do-select-tool`, `do-spec-panel`, `do-test`, `do-troubleshoot`, `parallel-agents`, and `token-efficiency`.
 
 ## Agents
 
-| Agent | Specialization |
-|-------|---------------|
-| `backend-architect` | Backend systems, APIs, data integrity |
-| `deep-research-agent` | Comprehensive multi-source research |
-| `devops-architect` | Infrastructure, CI/CD, reliability |
-| `frontend-architect` | UI/UX, accessibility, frontend performance |
-| `performance-engineer` | Bottleneck identification and optimization |
-| `pm-agent` | PDCA self-improvement workflow execution |
-| `python-expert` | Python best practices and modern patterns |
-| `quality-engineer` | Testing strategy and systematic edge case detection |
-| `refactoring-expert` | Code quality improvement and technical debt |
-| `requirements-analyst` | Requirements discovery and specification |
-| `root-cause-analyst` | Systematic problem investigation |
-| `security-engineer` | Vulnerability assessment, OWASP, threat modeling |
-| `system-architect` | Scalable system design and architecture |
-| `technical-writer` | Documentation for technical and non-technical audiences |
+Agents are specialist perspectives used by planning and review workflows. Their definitions live in `core/agents/`.
 
-Invoke by describing the task naturally — Claude selects the appropriate agent. For explicit routing: `@agent-security "..."` or use the `Agent` tool directly.
+| Area | Typical perspectives |
+|---|---|
+| Product and delivery | product manager, business analyst, project manager |
+| Architecture and implementation | system architect, backend architect, frontend architect, developer |
+| Quality and safety | QA engineer, code reviewer, security reviewer, root-cause analyst |
+| Research and communication | researcher, technical writer, documentation specialist |
 
----
+Ask the relevant workflow to involve a specialist, or use `/do-pm` when the work crosses several areas.
 
 ## Hooks
 
-| Hook | Event | Action |
-|------|-------|--------|
-| `session-start.sh` | `SessionStart` | Captures git branch, SHA, last 5 commits to `sessions/{id}/git-context.json` |
-| `user-prompt-submit.sh` | `UserPromptSubmit` | Injects git context on first prompt only via `additionalContext` |
-| `pre-bash-guard.sh` | `PreToolUse(Bash)` | Blocks dangerous patterns; reads `blocked-patterns.conf` |
-| `mcp-tool-guard.sh` | `PreToolUse(mcp__*)` | Blocks MCP tool calls matching `mcp-policy.conf`; ships with zero active patterns |
-| `pre-implement-gate.sh` | `PreToolUse(Edit\|Write\|MultiEdit)` | Doflow chain's hard gate — blocks source edits until `requirement.md`, `design.md`, and `plan.md` all exist |
-| `post-edit-lint.sh` | `PostToolUse(Edit\|Write)` | Collects edited file paths to `edited-files.txt` |
-| `stop-check.sh` | `Stop` | Batch lint dispatch; blocks if last assistant response has TODO/stub |
-| `pre-compact.sh` | `PreCompact` | Outputs git state as `custom_instructions` for the compaction LLM |
-| `post-compact.sh` | `PostCompact` | Saves AI-generated compact summary to `projects/{cwd_hash}/last-compact-summary.md` |
-| `session-end.sh` | `SessionEnd` | Logs END, writes uncommitted-warning, deletes session dir, trims log |
-| `subagent-audit.sh` | `SubagentStart` / `SubagentStop` | Pure observability — logs which specialist agents actually run; no deny path |
-| `skill-config-audit.sh` | `ConfigChange` | Pure observability — logs skill-file mutations regardless of which tool made them; no deny path |
+Claude Code hooks add guardrails around sessions and commands.
 
-**Blocked operations** (always denied, no override):
-```
-git push --force        (git push --force-with-lease is allowed)
-git reset --hard
-git clean -fd
-rm -rf /  rm -rf ~/  rm -rf $HOME
-DROP TABLE / DROP DATABASE / DROP SCHEMA
-DELETE FROM <table> ;   (no WHERE clause)
-TRUNCATE TABLE
-curl <url> | bash  /  wget <url> | bash
-```
+| Hook family | Purpose |
+|---|---|
+| Session start | Establish repository context and restore useful session state |
+| Before prompt | Classify or enrich a request before it is handled |
+| Before tool use | Block unsafe shell patterns and enforce workflow gates |
+| After tool use | Capture follow-up context when appropriate |
+| Stop / compaction | Preserve concise continuity across a long session |
 
-**State directories** (in `~/.config/doflow/session-env/`):
-```
-sessions/{session_id}/     — private per Claude Code window
-  git-context.json         — branch, sha, commits, uncommitted count
-  injected                 — flag: additionalContext already sent this session
-  edited-files.txt         — paths collected by post-edit-lint.sh
+Hooks are configured for Claude Code; the shared instruction, skill, script, template, and reference sources are also installed for Codex and Gemini CLI.
 
-projects/{cwd_hash}/       — shared per project directory, across all agents
-  last-compact-summary.md  — AI-generated summary from last /compact
-  uncommitted-warning.txt  — written if session ended with dirty tree
-  meta.json                — last_agent, last_active, compacted_at, branch
-```
+## MCP and flags
 
-Override base path: `XDG_CONFIG_HOME=/custom/path` (defaults to `~/.config`).
-Override agent identity: `DOFLOW_AGENT=codex` (defaults to `claude-code`).
+MCP integrations are optional. The short flags select the appropriate capability where supported.
 
----
+| Flag | Intent |
+|---|---|
+| `--c7` | Use Context7 documentation support |
+| `--seq` | Use sequential reasoning support |
+| `--chrome` | Use Chrome DevTools support |
+| `--play` | Use Playwright support |
+| `--all-mcp` | Allow all configured MCP integrations |
+| `--no-mcp` | Keep work to native tools |
 
-## MCP Servers
+See `core/mcp/` for server-specific operating guidance and `core/.mcp.json` for the Claude registration source.
 
-| Server | Flag | Purpose |
-|--------|------|---------|
-| Context7 | `--c7` / `--context7` | Library documentation lookup for any framework/SDK |
-| Sequential Thinking | `--seq` / `--sequential` | Structured multi-step reasoning and hypothesis testing |
-| Chrome DevTools | `--chrome` / `--devtools` | Browser inspection, Lighthouse performance, network analysis |
-| Playwright | `--play` / `--playwright` | Browser automation, E2E scenarios, accessibility testing |
+## Rules and behavioral modes
 
-Composite flags:
-- `--all-mcp` → all 4 servers
-- `--no-mcp` → disable all, native tools only
+| Source | Governs |
+|---|---|
+| `core/PRINCIPLES.md` | Baseline collaboration and engineering principles |
+| `core/FLAGS.md` | Shared flags and their meaning |
+| `core/rules/RULE_01_SAFETY.md` | Safety boundaries |
+| `core/rules/RULE_02_WORKFLOW.md` | Delivery workflow |
+| `core/rules/RULE_03_QUALITY.md` | Quality expectations |
+| `core/rules/RULE_04_QUESTIONS.md` | When and how to ask for clarification |
+| `core/modes/` | Optional modes for research, orchestration, brainstorming, and task management |
 
----
-
-## Behavioral Flags
-
-### Analysis Depth
-
-| Flag | Token Budget | MCPs Enabled |
-|------|-------------|-------------|
-| `--think` | ~4K | Sequential |
-| `--think-hard` | ~10K | Sequential + Context7 |
-| `--ultrathink` | ~32K | All installed |
-
-### Execution Control
-
-| Flag | Description |
-|------|-------------|
-| `--delegate [auto]` | Sub-agent parallel processing (auto-triggers at >7 dirs or >50 files) |
-| `--concurrency [n]` | Max concurrent operations (1–15) |
-| `--loop` | Iterative improvement cycles with validation gates |
-| `--iterations [n]` | Number of improvement cycles (1–10) |
-| `--safe-mode` | Maximum validation, conservative execution |
-| `--validate` | Pre-execution risk assessment |
-| `--uc` / `--ultracompressed` | 30–50% output compression via symbol system |
-
-### Common Combinations
-
-```bash
-# Standard analysis
-/do-analyze src/ --focus quality --think
-
-# Deep security audit
-/do-analyze src/ --focus security --think-hard --verbose
-
-# Implement against official documentation
-/do-implement "feature" --c7 --seq
-
-# Token-efficient large codebase scan
-/do-analyze large-codebase/ --uc --delegate
-
-# Iterative improvement
-/do-improve src/ --type quality --loop --iterations 3
-
-# Planned implementation with review gate
-/do-brainstorm "feature description"
-/do-design
-/do-plan --strategy systematic
-/do-execute-plan --next --safe
-/do-code-review
-
-# Parallel investigation when failures are independent
-/parallel-agents "three unrelated failing test files: auth refresh, billing export, dashboard filter state"
-```
-
----
-
-## Rules
-
-Four rule files loaded into every session via `CLAUDE.md`:
-
-**RULE_01_SAFETY — Critical** (never compromise)
-- Root cause analysis always — understand WHY before fixing
-- Never skip or disable tests to pass builds
-- `git status && git branch` before starting; feature branches for all work
-- Force-push to main is never allowed
-
-**RULE_02_WORKFLOW — Important**
-- Parallel by default — batch independent operations; never read-one-by-one then edit-one-by-one
-- Start it = Finish it — no TODO stubs, no "not implemented" throws
-- Validate before execution, verify after; run lint/typecheck before marking complete
-- Build ONLY what's asked — no bonus features, no enterprise bloat
-
-**RULE_03_QUALITY — Recommended**
-- Follow language naming standards (camelCase JS, snake_case Python)
-- No marketing language — no "blazingly fast", no invented metrics
-- Push back on bad approaches; evidence-based claims only
-- Tests in `tests/`, scripts in `scripts/`, reports in `agent-docs/`
-
-**RULE_04_QUESTIONS — Important**
-- Ask only for genuine user-owned decisions; when you have enough to act, act
-- Clarifications use structured multiple-choice (Claude Code: `AskUserQuestion`; Codex/Gemini: question file)
-- 2–4 meaningful mutually-exclusive options + mandatory "Other"; no filler options
-- Validate answers for contradictions/ambiguity before proceeding
-
-**Conflict resolution priority:** Safety > Scope > Quality > Speed
+Installed instruction files load the core rules and point to optional material on demand. Do not duplicate rule text in project documentation; link to the source that owns it.

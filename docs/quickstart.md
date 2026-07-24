@@ -1,106 +1,62 @@
-# Quick Start
+# Quickstart
 
-Get DoFlow running in under 5 minutes.
+Use this page to reach a working installation quickly. For all flags, scopes, MCP configuration,
+and recovery procedures, continue to [Setup](setup.md).
 
----
+## 1. Choose an installation path
 
-## Prerequisites
+| Path | Best for |
+|---|---|
+| Claude-only | A personal Claude Code configuration with hooks and MCP support |
+| CLI install | One source deployed to Claude, Codex, and/or Gemini; supports project scope and rollback |
 
-- **Git**
-- **Claude Code** — [install guide](https://code.claude.com/docs)
-- **Node.js 18+** — for MCP servers
-- **jq** — `sudo apt-get install jq` / `brew install jq`
-
----
-
-## Option A — Claude Code Only
-
-Clone directly into `~/.claude`. Claude Code reads this directory automatically.
+### Claude Code only
 
 ```bash
 git clone git@github.com:khoavu882/do-flow.git ~/.claude
 chmod +x ~/.claude/hooks/*.sh
 ```
 
-Then install the MCP servers:
-
-```bash
-# Library documentation lookup
-npx -y @upstash/context7-mcp
-
-# Structured multi-step reasoning
-npx -y @modelcontextprotocol/server-sequential-thinking
-
-# Browser performance and debugging
-npx -y chrome-devtools-mcp@latest
-```
-
-Open Claude Code. Type `/do-help` to verify everything loaded.
-
----
-
-## Option B — All Tools (Claude + Codex + Gemini)
-
-Clone to a working directory (not directly to `~/.claude`), then deploy via `doflow`.
+### CLI install
 
 ```bash
 git clone git@github.com:khoavu882/do-flow.git ~/do-flow
 cd ~/do-flow
-
-# Puts `doflow` on your PATH via a symlink to bin/doflow.js — no publish/global install needed.
 npm link
 
-# Preview changes without writing anything
-doflow install --dry-run -g
-
-# Install to all tools
-doflow install -g
-
-# Or install specific tools only
+# Preview, then install only the tools you use.
+doflow install --dry-run -g --target claude,codex
 doflow install -g --target claude,codex
 ```
 
-See [setup.md](setup.md) for the full CLI reference.
-
----
-
-## Verify
-
-After opening Claude Code:
-
-```
-/do-help
-```
-
-You should see the DoFlow skill reference. If skills respond and the status line is visible, the install is complete.
-
----
-
-## First Session
+## 2. Verify
 
 ```bash
-# Try a specialist agent
-@agent-security "review this function for vulnerabilities: [paste code]"
-
-# Start a structured workflow — writes requirement.md
-/do-brainstorm "add user authentication with JWT"
-
-# Design the system shape, then plan and execute
-/do-design
-/do-plan --strategy systematic
-/do-execute-plan --dry-run
-
-# Or auto-chain the whole spec-driven flow (brainstorm -> design -> plan -> implement -> test -> review)
-# instead of invoking each phase manually — pauses only at defined approval gates
-/do-flow "add user authentication with JWT"
+doflow status -g
 ```
 
-The `SessionStart` hook has already captured git state; `UserPromptSubmit` injects branch, commit, and prior-context hints on the first prompt, so no manual re-onboarding is needed.
+In Claude Code, run `/do-help`. In Codex, open a configured project and ask it to use an installed
+skill such as `do-implement`.
 
----
+## 3. Run one workflow
 
-## Next Steps
+```text
+/do-brainstorm "add an audit export"
+/do-design
+/do-plan
+/do-execute-plan --next --safe
+/do-test
+/do-code-review
+```
 
-- [Setup](setup.md) — full installation options, MCP config, and troubleshooting
-- [Guide](guide.md) — complete development workflows with examples
-- [Reference](reference.md) — all skills, agents, flags, and hooks
+Or let DoFlow advance the phase sequence with approval gates:
+
+```text
+/do-flow "add an audit export"
+```
+
+## Next steps
+
+- [Setup](setup.md) for installation details and rollback.
+- [Guide](guide.md) for task-based workflows.
+- [Overview](overview.md) for the component and lifecycle diagrams.

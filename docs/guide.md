@@ -1,337 +1,154 @@
 # Guide
 
-Practical workflows for Claude Code. Each flow shows the commands in order — copy and adapt to your project.
+Use this page to choose a workflow. Use [Reference](reference.md) when you need an exact command or capability.
 
-Claude may auto-load hybrid read-only skills such as `do-analyze`, `do-code-review`, `do-document`, `do-estimate`, `do-explain`, `do-select-tool`, `do-troubleshoot`, and `parallel-agents` when your request clearly matches. Auto mode is analysis or coordination only. Any file edit, refactor, dependency change, or implementation workflow must pass the auto-loaded `confidence-check` gate first.
+## Choose a path
 
-This guide is the canonical workflow example source. README links here instead of duplicating the full flows.
+```mermaid
+flowchart TD
+    A[What are you trying to do?] --> B{Starting a feature?}
+    B -->|Yes| C[Discovery → design → plan → implement → validate]
+    B -->|No| D{Investigating a problem?}
+    D -->|Yes| E[Diagnose → explain → fix → test]
+    D -->|No| F{Improving existing code?}
+    F -->|Yes| G[Analyze → improve → test → review]
+    F -->|No| H[Research, document, or ask /do-pm to route it]
+```
 
-## Current Source Map
+## Deliver a feature
 
-| Behavior | Source |
-|----------|--------|
-| Skill invocation, arguments, auto/manual behavior | `core/skills/*/SKILL.md` |
-| Agent personas and review roles | `core/agents/*.md` |
-| Safety, workflow, and quality rules | `core/rules/*.md`, loaded through `core/CLAUDE.md` |
-| Hook behavior and blocked shell patterns | `core/hooks/*.sh`, `core/hooks/blocked-patterns.conf` |
-| MCP server usage notes | `core/mcp/*.md`, `core/.mcp.json` |
-| Cross-tool install mapping | `bin/mappings.conf` |
-| Public reference table | `docs/reference.md` |
+Choose the guided path when the request needs requirements, design decisions, or multiple implementation steps.
 
-When a workflow example conflicts with one of those source files, update the source behavior first, then update this guide.
+### The spec-driven workflow
 
-## Skill Invocation Model
+DoFlow treats feature delivery as a sequence of durable specifications, not one long chat. Each phase writes an artifact under `agent-docs/doflow/<feature-slug>/`; the next phase reads that artifact rather than relying on conversation memory.
 
-| Mode | How to Use | Examples |
-|------|------------|----------|
-| Manual command | Type `/skill-name`; used for side effects or explicit orchestration | `/do-implement`, `/do-git`, `/do-execute-plan`, `/do-improve` |
-| Hybrid read-only | Type `/skill-name` or let Claude auto-load it; auto mode does not edit files | `/do-analyze`, `/do-code-review`, `/do-document`, `/do-troubleshoot`, `/parallel-agents` |
-| Auto-loaded policy | Claude loads it as background guidance; normally not user-invoked | `confidence-check`, `token-efficiency` |
-| Forked research | Runs in an isolated context and returns a summarized result | `/do-research` |
+```mermaid
+flowchart LR
+    R[Requirement\nWHAT and WHY] --> D[Design\nsystem shape]
+    D --> P[Plan\nHOW and tasks]
+    P --> G{Ready to implement?}
+    G -->|Approved| I[Execute and validate]
+    I --> V[Test and review]
+    V --> C{Ready to commit?}
+    C -->|Approved| M[Commit or merge]
+```
 
----
+| Phase | Command | Artifact | It answers |
+|---|---|---|---|
+| Discover | `/do-brainstorm` | `requirement.md` | What problem are we solving, for whom, and why? |
+| Design | `/do-design` | `design.md` | What system shape, interfaces, and decisions satisfy the requirement? |
+| Plan | `/do-plan` | `plan.md` | How will work be broken into dependency-ordered, verifiable tasks? |
+| Execute | `/do-execute-plan` | Checked tasks and `state.md` | What is complete, what is next, and what blocked progress? |
+| Validate | `/do-test`, `/do-code-review` | Test and review results | Does the implementation meet the agreed specification? |
 
-## Flow A — Feature from Idea to Commit
+The three specifications are deliberately different. Do not put implementation tasks into `requirement.md`, or repeat design decisions in `plan.md`; update the artifact that owns the decision.
 
-Starting from a vague idea and ending at a committed, tested feature.
+### Gates and review points
 
-Primary source skills: `do-brainstorm`, `do-design`, `do-plan`, `do-execute-plan`, `do-analyze`, `do-code-review`, `do-git`. `confidence-check` auto-loads before implementation-class edits. `do-brainstorm` through `do-code-review` are the phases of the doflow chain (`brainstorm → design → plan → implement → test → review`); `/do-flow` can auto-chain those phases with three approval gates instead of invoking each one manually, as shown below.
+`/do-flow` advances through phases automatically, but pauses where human judgment matters:
+
+1. **Clarification gate:** resolve any remaining requirement ambiguity before design.
+2. **Implementation gate:** review `requirement.md`, `design.md`, and `plan.md` before code changes. The prerequisite gate also prevents implementation when any of those files is missing.
+3. **Commit gate:** review test and code-review results before using `/do-git` to commit or merge.
+
+Use this as the normal path for a new feature:
 
 ```bash
-# Session start — git context and prior compact summary already injected by hooks
-
-# Step 1: Discover requirements through Socratic dialogue — writes requirement.md
-/do-brainstorm "user authentication with JWT and refresh tokens"
-
-# Step 2: Get specialist input to refine requirements before designing
-@agent-security "define security requirements for JWT auth — what could go wrong?"
-# (patch requirement.md directly with any new findings)
-
-# Step 3: Design the system shape — writes design.md
-/do-design "feature architecture for JWT auth service" --think-hard --c7
-
-# Step 4: Architecture review
-@agent-system-architect "review this design for scalability and maintainability issues"
-
-# Step 5: Generate the implementation plan (HOW) + task checklist from requirement.md + design.md
-# (also drafts a per-repo branch plan when the feature spans multiple repos)
+/do-brainstorm "add team invitations"
+/do-design "team invitation flow"
 /do-plan --strategy systematic
-
-# Step 6: Preview the execution order before changing files
 /do-execute-plan --dry-run
-
-# Step 6.5: Generate a code frame (signatures + types, inferred language) for dependency services
-# to review before implementing
-/do-execute-plan --contracts
-
-# Step 7: Execute one dependency-ready task at a time
-# confidence-check auto-loads before implementation-class edits
-# (creates each repo's branch lazily, the first time that repo is touched)
 /do-execute-plan --next --safe
-
-# Step 8: Validate the completed slice before shipping
-/do-analyze src/auth --focus security --depth deep
-/do-test --type unit --coverage
-
-# Step 9: Review merge readiness — automated code-quality review
+/do-test --type all
 /do-code-review
-
-# Step 10: Commit cleanly
-/do-git "implement JWT auth with refresh token rotation"
-```
-
----
-
-## Flow A.1 — Resume a Generated Plan
-
-Use this when `/do-plan` already produced `plan.md` (with its embedded task checklist) for the active feature and you want controlled implementation without re-planning.
-
-State source: `/do-execute-plan` treats `agent-docs/doflow/<slug>/plan.md` (and its `state.md`) as the source of truth. It should stop on unclear requirements, failed validation, or dependency conflicts, then report the blocker and next action.
-
-```bash
-# Inspect the generated plan and saved execution state
-/do-execute-plan --dry-run
-
-# Continue from the next pending task
-/do-execute-plan --resume --next --safe
-
-# Run a whole phase only when the dry run shows clear dependencies
-/do-execute-plan --phase 2
-
-# Stop for review before committing
-/do-code-review
-```
-
----
-
-## Flow A.2 — One-Prompt PM Orchestration
-
-Use `/do-pm` when you want the project manager layer to drive discovery, planning, execution, validation, and review from one request. This works best when the goal is clear enough to start but broad enough to need coordination.
-
-Routing source: `core/skills/do-pm/SKILL.md` maps workflow execution requests to `/do-execute-plan` and review requests to `/do-code-review`.
-
-```bash
-/do-pm "
-Goal: add JWT authentication with refresh token rotation.
-Scope: backend auth service, login/logout endpoints, token tests, and docs.
-Validation: run unit tests and review changed files before commit.
-Deliverable: implemented feature, test results, review findings, and next-session notes.
-" --strategy wave --verbose
-```
-
-For smaller but still coordinated work, use `--strategy direct`:
-
-```bash
-/do-pm "Update API docs for the billing endpoints and verify MkDocs builds" --strategy direct
-```
-
-For vague product ideas, start with discovery:
-
-```bash
-/do-pm "I want role-based access control, but I am not sure what model fits this app" --strategy brainstorm
-```
-
-`/do-pm` should pause when requirements are risky or underspecified. For large work, it may execute in phases and checkpoint progress instead of forcing every step into one uninterrupted pass.
-
----
-
-## Flow B — Bug Investigation
-
-Primary source skills: `do-troubleshoot`, `confidence-check`, `do-test`, `do-git`. In auto mode, `do-troubleshoot` diagnoses first and must not apply fixes until the user requests edits.
-
-```bash
-# Paste the error — root-cause-analyst agent activates automatically
-/do-troubleshoot "NullPointerException in UserService.validateToken() — line 147"
-
-# Framework rule: understand WHY before proposing a fix (never disable tests)
-# Claude must identify root cause before suggesting anything
-
-# Start fixing only after root cause is explained
-# confidence-check auto-loads before code or test edits
-/do-troubleshoot --fix
-
-# Verify nothing regressed
-/do-test --type unit --coverage
-
-# Commit with an accurate message
 /do-git --smart-commit
 ```
 
----
+`/do-flow "add team invitations"` coordinates the same path and pauses at its approval gates. Use it when one feature should progress through the full delivery sequence.
 
-## Flow C — Code Quality Sprint
+### Resume a generated plan
 
-Use this when you want deliberate improvement work rather than review-only findings. `do-analyze` is hybrid and read-only in auto mode; `do-improve` is a manual command because it can edit files.
+The plan and its checklist are the source of truth once planning is complete. `state.md` records progress so a later session can resume without reconstructing the work from chat history.
 
 ```bash
-# Scan first — understand before changing
-/do-analyze src/ --focus quality --scope module
+/do-execute-plan --dry-run
+/do-execute-plan --resume --next --safe
+/do-execute-plan --phase 2
+```
 
-# Deep dive into flagged areas
-/do-analyze src/service/ --focus security --think-hard
+Stop and update the requirements or design if a dependency, decision, or validation result makes the plan invalid.
 
-# Apply safe, automated fixes
+### Start or resume with one command
+
+`/do-flow` detects the active feature and starts at the first missing specification. It begins with discovery for a new feature, creates a design when only a requirement exists, creates a plan when design is the missing artifact, and asks for implementation approval when the specification set is complete.
+
+```bash
+# Start a new spec-driven feature
+/do-flow "add team invitations"
+
+# Continue an existing feature from its first incomplete phase
+/do-flow
+
+# Deliberately rerun a phase after a material change
+/do-flow --from design
+```
+
+## Investigate a bug
+
+Start with diagnosis. A fix is an explicit next step, not an assumption.
+
+```bash
+/do-troubleshoot "login returns 500 after password reset"
+/do-troubleshoot --fix
+/do-test --type unit --coverage
+/do-git --smart-commit
+```
+
+For a narrow question, `/do-explain` can clarify a component before you investigate further.
+
+## Improve code deliberately
+
+Use analysis to establish the problem, then improve only the agreed scope.
+
+```bash
+/do-analyze src/ --focus quality --depth deep
 /do-improve src/ --type quality --safe
-
-# Iterative refinement with validation gates between cycles
-/do-improve src/ --type quality --loop --iterations 3
-
-# Clean up dead code and unused imports/files (a distinct --type, not a separate skill)
-/do-improve src/ --type cleanup
-```
-
----
-
-## Flow D — Large Codebase Analysis
-
-When a codebase is too large to analyze in one pass, use read-only analysis first. If the domains are independent, use `parallel-agents` to coordinate isolated investigations from the main session. The coordinator must prove the work has no shared root cause, sequential dependency, or overlapping write scope before dispatching agents.
-
-Source skills: `do-analyze` for scoped read-only review and `parallel-agents` for main-session coordination. `parallel-agents` is intentionally not `context: fork`; it coordinates from the active session and dispatches isolated agents only after the independence gate passes.
-
-```bash
-# Read-only module analysis
-/do-analyze src/auth/ --focus security --think
-/do-analyze src/api/ --focus performance --think
-/do-analyze src/frontend/ --focus quality --think
-
-# Coordinate independent follow-up investigations
-/parallel-agents "
-Investigate these independent analysis findings:
-1. auth token refresh race in src/auth
-2. slow reporting query in src/api/reports
-3. dashboard filter state reset in src/frontend
-"
-
-# Synthesize findings into a refactoring plan
-/do-design "refactoring plan based on analysis findings" --think-hard
-```
-
-Use `parallel-agents` for independent read-only investigations or disjoint implementation slices. Do not use it when one fix may resolve multiple failures, when agents would edit the same files, or when full-system reasoning is needed before decomposition.
-
----
-
-## Flow E — Research Before Implementation
-
-Use this when implementation depends on current framework behavior, tradeoffs, or external documentation. `do-research` keeps the research context isolated; implementation still goes through `confidence-check`.
-
-```bash
-# Research runs in a forked context — won't pollute main conversation
-/do-research "Spring Boot reactive WebFlux vs MVC — performance tradeoffs at 10K req/s" --depth deep
-
-# Design with the research findings in mind
-/do-design "reactive API layer for high-throughput financial transactions"
-
-@agent-backend-architect "review this design for potential bottlenecks and failure modes"
-
-# Implement against official documentation
-# confidence-check auto-loads before implementation begins
-/do-implement "reactive payment service"
-```
-
----
-
-## Flow F — Documentation Update
-
-Use this for README, API docs, guides, reference pages, and workflow examples.
-
-Source skill: `do-document`. Documentation edits still count as file edits, so the confidence gate should run before changing files. For this repo, run `mkdocs build` after changing `docs/*.md`.
-
-```bash
-# Draft or update docs for a specific target
-/do-document "Update reference and example workflow docs for hybrid skills"
-
-# Review the docs-only diff
+/do-test --type all
 /do-code-review
-
-# Optional: run your documentation build if configured
-# mkdocs build
 ```
 
-`do-document` is hybrid. Claude may auto-load it when you ask for documentation, but auto mode should draft or explain only. Editing documentation files requires an explicit request, and `confidence-check` should run first because it is still a file edit.
+For independent, non-overlapping investigations, use `/parallel-agents`. Do not split work that has a shared root cause or overlapping files.
 
----
+## Research before committing to a design
 
-## Using Agents
-
-Agents are specialist personas invoked via the `Agent` tool. Each has domain-specific knowledge beyond what a generalist provides.
+Keep current or uncertain external knowledge separate from implementation work.
 
 ```bash
-# Security review with actual OWASP depth
-@agent-security "review PaymentService for vulnerabilities"
-
-# Merge request review with language-aware conventions
-/do-code-review
-
-# Financial-services review — do-code-review applies languages/java.md rules to .java files
-/do-code-review
-
-# Backend architecture decisions
-@agent-backend-architect "design the repository pattern for UserService"
-
-# Root cause analysis (automatically activated for error-paste tasks)
-@agent-root-cause-analyst "investigate why this query is running for 12 seconds"
-
-# Requirements discovery before implementation
-@agent-requirements-analyst "extract functional requirements from this product brief"
+/do-research "current OAuth 2.1 authorization-code guidance" --depth deep
+/do-design "OAuth login for this application"
+/do-implement "OAuth login flow"
 ```
 
----
+Research produces evidence; it does not replace a design decision or validation.
 
-## Using MCP Flags
+## Write and maintain documentation
 
-Add flags to any skill invocation to activate MCP servers:
+Use documentation work as a focused task, then build the site when repository documentation changes.
 
 ```bash
-# Official library documentation lookup
-/do-implement "Redis session store" --c7
-
-# Structured multi-step reasoning for complex design
-/do-design "distributed transaction pattern" --seq
-
-# Combined: official docs + structured reasoning
-/do-implement "Spring Boot reactive service" --c7 --seq
-
-# All MCP servers (maximum depth — use sparingly)
-/do-analyze src/ --all-mcp
-
-# Native tools only — fastest execution
-/do-implement "simple utility function" --no-mcp
+/do-document "document the billing API" --type api
+mkdocs build --strict
 ```
 
----
+For this repository, keep one canonical home for each topic: installation in [Setup](setup.md), workflows here, complete lookup material in [Reference](reference.md), and system concepts in [Overview](overview.md).
 
-## Multi-Tool Workflows
+## Work across supported tools
 
-When you use Claude, Copilot/Codex, and Gemini together:
+| Environment | Start point | What to expect |
+|---|---|---|
+| Claude Code | `/do-help` or a named skill | Full skill, hook, and MCP integration |
+| Codex | Read `AGENTS.md`, then use installed skills | Shared instructions, skills, scripts, templates, and references |
+| Gemini CLI | Read `GEMINI.md`, then use installed skills | Shared instruction and skill material |
 
-```bash
-# Phase 1: Research (Claude — deep reasoning)
-/do-research "Redis vs PostgreSQL for session storage at 100K concurrent users"
-
-# Phase 2: Architecture (Gemini — broad context)
-# "Using system-architect agent: design session service based on research findings: [paste]"
-
-# Phase 3: Implementation (Claude — execution)
-/do-implement "Redis-backed session service with TTL and graceful degradation" --c7
-
-# Phase 4: Code review (Copilot inline — same rules apply)
-# /do-code-review: review this session service before I commit
-
-# Phase 5: Commit (Claude — hooks enforce safety)
-/do-git "add Redis session service with TTL-based expiry"
-```
-
-All three tools apply the same `rules/` and `agents/`. The handoff is consistent.
-
----
-
-## Keyboard Shortcuts (Claude Code)
-
-| Shortcut | Action |
-|----------|--------|
-| `ctrl+shift+t` | Toggle todos panel |
-| `ctrl+shift+o` | Toggle transcript |
-| `ctrl+e` | Open external editor |
-| `ctrl+r` | Search command history |
-| `ctrl+s` | Stash current input |
-| `shift+tab` | Cycle input mode (plan/auto/edit) |
+The same repository sources drive every installation. Tool-specific behavior is summarized in [Setup](setup.md).
