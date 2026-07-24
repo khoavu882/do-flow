@@ -3,6 +3,13 @@
 All notable changes to DoFlow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [2.4.4] - 2026-07-24
+
+### Added
+
+- **Claude Code marketplace plugin distribution.** `core/.claude-plugin/` now contains the
+  marketplace registry and DoFlow plugin manifest, pointing to the canonical `core/` content tree.
+
 ## [2.4.3] - 2026-07-24
 
 ### Changed
