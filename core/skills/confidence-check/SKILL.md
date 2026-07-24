@@ -3,7 +3,6 @@ name: confidence-check
 description: Mandatory pre-implementation confidence gate. Use automatically before any code edit, refactor, bug fix, dependency change, test change, configuration change, or implementation workflow.
 when_to_use: Trigger before source edits, test edits, dependency changes, configuration changes, architecture changes, generated workflow execution, bug fixes, or implementation work. Do not trigger for pure explanation, read-only review, brainstorming, estimation, or requirements discovery.
 user-invocable: false
-disable-model-invocation: false
 effort: low
 ---
 

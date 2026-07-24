@@ -2,7 +2,6 @@
 name: do-reflect
 description: "Task reflection and validation using native self-review (no MCP server required)"
 argument-hint: "[--type task|session|completion] [--analyze] [--validate]"
-disable-model-invocation: true
 effort: low
 ---
 

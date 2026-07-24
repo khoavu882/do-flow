@@ -1,0 +1,24 @@
+{
+  "name": "doflow",
+  "version": "2.4.3",
+  "description": "Reusable engineering workflows, quality gates, and specialist guidance for Codex.",
+  "author": {
+    "name": "DoFlow"
+  },
+  "license": "MIT",
+  "keywords": ["engineering", "workflows", "quality", "codex"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "DoFlow",
+    "shortDescription": "Engineering workflows and quality gates for Codex.",
+    "longDescription": "Reusable skills for implementation, review, testing, research, and disciplined engineering workflows.",
+    "developerName": "DoFlow",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": [
+      "Use DoFlow to review this change.",
+      "Use DoFlow to implement this feature safely.",
+      "Use DoFlow to create a focused test plan."
+    ]
+  }
+}

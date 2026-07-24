@@ -3,7 +3,6 @@ name: do-estimate
 description: "Provide development estimates for tasks, features, or projects with intelligent analysis"
 when_to_use: Trigger automatically for read-only time, effort, complexity, scope, risk, or resource estimates. Stop after the estimate; do not start planning or implementation.
 argument-hint: "[target] [--type time|effort|complexity] [--unit hours|days|weeks] [--breakdown]"
-disable-model-invocation: false
 user-invocable: true
 effort: low
 ---

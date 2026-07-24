@@ -102,7 +102,7 @@ The detailed, copy-ready workflows live in [docs/guide.md](docs/guide.md). READM
 | Tool | Installed Source | Capability Tier | Canonical Docs |
 |------|------------------|-----------------|----------------|
 | Claude Code | `core/skills/`, `core/agents/`, `core/hooks/`, `core/mcp/`, `core/rules/`, `core/references/`, `core/settings.json`, `core/CLAUDE.md` | Full orchestration: slash skills, auto-loaded policy skills, agents, hooks, MCP servers, session memory | [Guide](docs/guide.md), [Reference](docs/reference.md) |
-| Codex | `core/AGENTS.md`, `core/skills/`, `core/rules/`, `core/agents/`, `core/references/` | Native project instructions, reusable skills, and shared engineering standards | [Guide: Multi-Tool Workflows](docs/guide.md#multi-tool-workflows) |
+| Codex | `core/CLAUDE.md` → `AGENTS.md`, `core/skills/`, `core/scripts/`, `core/templates/`, `core/rules/`, `core/agents/`, `core/references/` | Native project instructions, reusable skills, and shared engineering standards | [Guide: Multi-Tool Workflows](docs/guide.md#multi-tool-workflows) |
 | Gemini | `core/CLAUDE.md`, `core/FLAGS.md`, `core/PRINCIPLES.md`, `core/rules/`, `core/agents/`, `core/references/` | Broad review, documentation, and architecture support with the same rules | [Guide: Multi-Tool Workflows](docs/guide.md#multi-tool-workflows) |
 
 The actual install mapping is defined in [bin/mappings.conf](bin/mappings.conf). If a file is not listed there, it is documentation or source material only.
@@ -495,7 +495,7 @@ Configured in `mappings.conf`:
 | Tool | What Gets Installed |
 |------|-------------------|
 | **claude** | Full install — commands, agents, hooks, modes, rules, mcp, reference, skills, settings, CLAUDE.md |
-| **codex** | Native install — AGENTS.md, skills, rules, agents, and reference |
+| **codex** | Native install — AGENTS.md, skills, scripts, templates, rules, agents, and reference |
 | **gemini** | Subset — AGENTS.md, shared framework files, rules, agents, modes, skills, and reference |
 
 ---
@@ -706,7 +706,7 @@ do-flow/
                      #   <projectRoot>/.mcp.json, never .claude/.mcp.json)
     agents/          # 15 specialized agents
     hooks/           # 12 event-driven safety hooks + lib.sh shared library
-    skills/          # 32 Claude Code skills
+    skills/          # 28 structured workflow skills
     modes/           # 6 behavioral modes (on-demand)
     rules/           # Split rules (<60 lines each for adherence)
     mcp/             # MCP server documentation (4 servers)

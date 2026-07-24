@@ -2,7 +2,6 @@
 name: do-constitution
 description: "Create or amend the per-repo constitution (tier-2), overlaying the base; bumps semver, writes a Sync Impact Report, and propagates a pointer into the agent context file."
 argument-hint: "[principle inputs] [--amend]"
-disable-model-invocation: true
 effort: high
 ---
 
@@ -17,11 +16,27 @@ Maintains the **tier-2** per-repo constitution that overlays the tier-1 `CONSTIT
 ```
 
 ## Behavioral Flow
-1. **Resolve** — `do-paths.sh --json`; note `constitution_base`, `constitution_local`, `repo_root`.
+1. **Resolve** — resolve and run `do-paths.sh --json` from the installed DoFlow config, then note
+   `constitution_base`, `constitution_local`, and `repo_root`:
+   ```bash
+   DOFLOW_CONFIG_DIR="${DOFLOW_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}"
+   [ -f "$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh" ] || DOFLOW_CONFIG_DIR="$HOME/.codex"
+   if [ ! -f "$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh" ]; then
+     d="$PWD"
+     while [ "$d" != / ]; do
+       for config_dir in .claude .codex .agents; do
+         [ -f "$d/$config_dir/scripts/doflow/bash/do-paths.sh" ] && DOFLOW_CONFIG_DIR="$d/$config_dir" && break 2
+       done
+       d="$(dirname "$d")"
+     done
+   fi
+   bash "$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh" --json
+   ```
 2. **Read both tiers** — the base (read-only) and the local file if it exists. The effective set is
    `base ⊕ local` with **local winning on conflict** — except it may not weaken base P1 (Safety).
 3. **Create or amend** —
-   - if `constitution_local` is absent: copy `templates/doflow/constitution-template.md` to
+   - if `constitution_local` is absent: copy the installed
+     `$DOFLOW_CONFIG_DIR/templates/doflow/constitution-template.md` to
      `agent-docs/constitution.md` and fill it from the user's principle inputs (repo-specific rules only;
      don't restate base principles).
    - if present and `--amend`: apply the requested change.
@@ -31,11 +46,14 @@ Maintains the **tier-2** per-repo constitution that overlays the tier-1 `CONSTIT
 5. **Propagate (deterministic)** — pipe a short pointer block to the helper so it lands in the agent
    context file without rewriting it:
    ```bash
-   SYNC="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/sync-context.sh"
+   SYNC="${DOFLOW_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/scripts/doflow/bash/sync-context.sh"
+   [ -f "$SYNC" ] || SYNC="$HOME/.codex/scripts/doflow/bash/sync-context.sh"
    if [ ! -f "$SYNC" ]; then                                          # project-scoped install
      d="$PWD"
      while [ "$d" != / ]; do
-       [ -f "$d/.claude/scripts/doflow/bash/sync-context.sh" ] && SYNC="$d/.claude/scripts/doflow/bash/sync-context.sh" && break
+       for config_dir in .claude .codex .agents; do
+         [ -f "$d/$config_dir/scripts/doflow/bash/sync-context.sh" ] && SYNC="$d/$config_dir/scripts/doflow/bash/sync-context.sh" && break 2
+       done
        d="$(dirname "$d")"
      done
    fi

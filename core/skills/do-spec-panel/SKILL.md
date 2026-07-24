@@ -2,7 +2,6 @@
 name: do-spec-panel
 description: "Multi-expert specification review and improvement using renowned specification and software engineering experts"
 argument-hint: "[specification_content|@file] [--mode discussion|critique|socratic] [--experts \"name1,name2\"] [--focus requirements|architecture|testing|compliance] [--iterations N] [--format standard|structured|detailed]"
-disable-model-invocation: true
 effort: high
 ---
 

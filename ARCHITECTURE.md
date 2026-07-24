@@ -9,6 +9,7 @@ How this repository is structured and how the components relate.
 ```
 do-flow/
 ├── core/               # Deployable framework (installed to tool-specific configuration directories)
+│   ├── .codex-plugin/  # Codex/ChatGPT plugin manifest; core/ is the plugin root
 │   ├── CLAUDE.md       # Session entrypoint — @-includes FLAGS, PRINCIPLES, RULES
 │   ├── FLAGS.md        # Behavioral flags and MCP trigger conditions
 │   ├── PRINCIPLES.md   # Engineering principles (SOLID, DRY, KISS, YAGNI)
@@ -77,8 +78,10 @@ core/settings.json : settings.json
 ...
 
 [codex]
-core/AGENTS.md  : AGENTS.md
+core/CLAUDE.md  : AGENTS.md
 core/skills/    : skills/
+core/scripts/   : scripts/
+core/templates/ : templates/
 core/rules/    : rules/
 core/agents/   : agents/
 core/references/ : references/

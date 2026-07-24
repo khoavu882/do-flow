@@ -2,7 +2,6 @@
 name: do-test
 description: "Execute tests with coverage analysis and automated quality reporting"
 argument-hint: "[target] [--type unit|integration|e2e|all] [--coverage] [--watch] [--fix]"
-disable-model-invocation: true
 effort: medium
 ---
 

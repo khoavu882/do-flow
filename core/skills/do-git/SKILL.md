@@ -2,7 +2,6 @@
 name: do-git
 description: "Git operations with intelligent commit messages and workflow optimization"
 argument-hint: "[operation] [args] [--smart-commit] [--interactive]"
-disable-model-invocation: true
 effort: low
 ---
 

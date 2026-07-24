@@ -2,7 +2,6 @@
 name: do-build
 description: "Build, compile, and package projects with intelligent error handling and optimization"
 argument-hint: "[target] [--type dev|prod|test] [--clean] [--optimize] [--verbose]"
-disable-model-invocation: true
 effort: medium
 ---
 

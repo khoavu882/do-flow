@@ -3,7 +3,6 @@ name: parallel-agents
 description: Use when there are 2+ independent tasks, failures, files, subsystems, or investigations that can be handled concurrently without shared state, sequential dependency, or overlapping write scope.
 when_to_use: Trigger for unrelated test failures, independent bug reports, parallel codebase investigations, or disjoint implementation slices. Do not use when tasks may share one root cause, require full-system reasoning first, or would edit the same files.
 argument-hint: "[optional: describe current tasks to analyze for parallelization]"
-disable-model-invocation: false
 user-invocable: true
 effort: high
 ---

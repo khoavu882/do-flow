@@ -3,7 +3,6 @@ name: token-efficiency
 description: Activate compressed communication with symbols and abbreviations when context usage is high (>75%) or user requests brevity with --uc flag
 when_to_use: Trigger automatically when context usage is high, the user passes --uc, or the user asks for terse/compressed output. Use as background communication guidance.
 user-invocable: false
-disable-model-invocation: false
 effort: low
 ---
 
