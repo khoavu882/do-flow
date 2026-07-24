@@ -37,11 +37,17 @@ test('planFiles yields tool-prefixed dest paths', () => {
   assert.ok(files.includes('claude/CLAUDE.md'));
 });
 
+test('readMappings gemini includes skills and modes', () => {
+  const g = readMappings(MAP, 'gemini');
+  assert.ok(g.some((x) => x.dst === 'skills/'), 'gemini must include skills');
+  assert.ok(g.some((x) => x.dst === 'modes/'), 'gemini must include modes');
+});
+
 test('toolDirs defaults to project scope rooted at projectRoot', () => {
   const dirs = toolDirs({ projectRoot: '/tmp/some-project' });
   assert.strictEqual(dirs.claude, '/tmp/some-project/.claude');
   assert.strictEqual(dirs.codex, '/tmp/some-project/.codex');
-  assert.strictEqual(dirs.gemini, '/tmp/some-project/.gemini');
+  assert.strictEqual(dirs.gemini, '/tmp/some-project/.agents');
 });
 
 test('toolDirs defaults projectRoot to cwd when omitted', () => {
