@@ -1,0 +1,10 @@
+{
+  "name": "doflow",
+  "version": "2.4.3",
+  "description": "Reusable engineering workflows, quality gates, and specialist guidance for Claude Code.",
+  "author": {
+    "name": "DoFlow"
+  },
+  "license": "MIT",
+  "keywords": ["engineering", "workflows", "quality", "claude-code"]
+}
