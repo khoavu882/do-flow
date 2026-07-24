@@ -32,7 +32,7 @@ DoFlow is a **configuration layer** for your AI coding assistants. Install it an
 |-----------|-------------|
 | **Session memory** | Hooks capture git state at session start and inject branch, commit, and prior-context hints on the first prompt |
 | **14 specialist agents** | Route tasks to the right expert: security engineer, backend architect, root-cause analyst, quality engineer, etc. |
-| **32 project skills** | `/do-brainstorm`, `/do-code-review`, `/do-execute-plan`, `/do-implement`, `/do-analyze`, `/parallel-agents`, `/do-research` — structured Claude Code skills for execution, research, coordination, and verification |
+| **28 project skills** | `/do-brainstorm`, `/do-code-review`, `/do-execute-plan`, `/do-implement`, `/do-analyze`, `/parallel-agents`, `/do-research` — structured Claude Code skills for execution, research, coordination, and verification |
 | **12 safety hooks** | Blocks `--force` push, `git reset --hard`, `rm -rf /`, `DROP TABLE`, `TRUNCATE TABLE`, `DELETE FROM` without WHERE, `curl/wget \| bash` — automatically |
 | **4 MCP servers** | Library docs (Context7), structured reasoning (Sequential), browser testing (Playwright + Chrome DevTools) |
 | **Cross-tool consistency** | Same engineering rules (safety, workflow, quality) enforced across Claude, Codex, and Gemini |
@@ -584,7 +584,7 @@ The complete skill table lives in [docs/reference.md](docs/reference.md). Source
 
 | Group | Examples | Contract |
 |-------|----------|----------|
-| Manual workflow commands | `/do-implement`, `/do-execute-plan`, `/do-git`, `/do-cleanup` | Human chooses timing; side effects are allowed only through explicit command use. |
+| Manual workflow commands | `/do-implement`, `/do-execute-plan`, `/do-git`, `/do-improve` | Human chooses timing; side effects are allowed only through explicit command use. |
 | Hybrid read-only skills | `/do-analyze`, `/do-code-review`, `/do-document`, `/do-troubleshoot`, `/parallel-agents` | Claude may auto-load for matching requests, but auto mode analyzes, drafts, verifies, or coordinates only. |
 | Auto-loaded policy skills | `confidence-check`, `token-efficiency` | Hidden background guidance; `confidence-check` gates implementation-class edits. |
 

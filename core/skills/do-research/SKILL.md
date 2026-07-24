@@ -10,109 +10,46 @@ agent: deep-research-agent
 
 # do-research
 
-Use this skill for the corresponding DoFlow workflow.
+Deep, evidence-based web research — forks into `deep-research-agent` so the main session's context
+isn't consumed by search noise. Produces a cited report only, never implements findings.
 
 ## Invocation
 ```text
 /do-research "[query]" [--depth quick|standard|deep|exhaustive] [--strategy planning|intent|unified]
 ```
 
-## Metadata
-- Category: `command`
-- Complexity: `advanced`
-- Effort: `high`
-- Suggested MCP/tooling: `sequential`, `playwright`
-- Suggested specialist roles: `deep-research-agent`
-
-## Summary
-> **Context Framework Note**: This command activates comprehensive research capabilities with adaptive planning, multi-hop reasoning, and evidence-based synthesis.
-
-## Triggers
-- Research questions beyond knowledge cutoff
-- Complex research questions
-- Current events and real-time information
-- Academic or technical research requirements
-- Market analysis and competitive intelligence
-
 ## Behavioral Flow
-### 1. Understand (5-10% effort)
-- Assess query complexity and ambiguity
-- Identify required information types
-- Determine resource requirements
-- Define success criteria
+1. **Understand** (5-10% effort): assess query complexity/ambiguity, identify what information
+   types are actually needed, define what "answered" looks like before searching.
+2. **Plan** (10-15% effort): decompose into sub-questions; identify which can be searched in
+   parallel (no dependency between them) vs. which require a prior answer first (multi-hop).
+3. **TodoWrite** (5% effort): scale task count to `--depth` (roughly 3 tasks at `quick`, up to 15
+   at `exhaustive`); set dependencies so parallel-safe searches are marked as such.
+4. **Execute** (50-60% effort): batch all independent searches in one turn, not one-by-one; follow
+   entity/concept chains for multi-hop questions; track each claim's source as it's collected, not
+   after the fact.
+5. **Track** (continuous): update confidence per claim as corroborating/contradicting sources
+   appear; note information gaps explicitly rather than filling them with inference.
+6. **Validate** (10-15% effort): every claim in the final report traces to a source; contradictions
+   between sources are surfaced, not silently resolved by picking one; sources are logged even
+   when a claim can't be confidently made — dropping evidence a search actually surfaced changes
+   the report's conclusions and readers can't distinguish "verified" from "asserted" without it.
 
-### 2. Plan (10-15% effort)
-- Select planning strategy based on complexity
-- Identify parallelization opportunities
-- Generate research question decomposition
-- Create investigation milestones
-
-### 3. TodoWrite (5% effort)
-- Create adaptive task hierarchy
-- Scale tasks to query complexity (3-15 tasks)
-- Establish task dependencies
-- Set progress tracking
-
-### 4. Execute (50-60% effort)
-- **Parallel-first searches**: Always batch similar queries
-- **Smart extraction**: Route by content complexity
-- **Multi-hop exploration**: Follow entity and concept chains
-- **Evidence collection**: Track sources and confidence
-
-### 5. Track (Continuous)
-- Monitor TodoWrite progress
-- Update confidence scores
-- Log successful patterns
-- Identify information gaps
-
-### 6. Validate (10-15% effort)
-- Verify evidence chains
-- Check source credibility
-- Resolve contradictions
-- Ensure completeness
-
-## Key Patterns
-### Parallel Execution
-- Batch all independent searches
-- Run concurrent extractions
-- Only sequential for dependencies
-
-### Evidence Management
-- Track search results
-- Provide clear citations when available
-- Note uncertainties explicitly
-
-### Adaptive Depth
-- **Quick**: Basic search, 1 hop, summary output
-- **Standard**: Extended search, 2-3 hops, structured report
-- **Deep**: Comprehensive search, 3-4 hops, detailed analysis
-- **Exhaustive**: Maximum depth, 5 hops, complete investigation
+## Depth levels
+- `quick`: 1 hop, summary output.
+- `standard` (default): 2-3 hops, structured report.
+- `deep`: 3-4 hops, detailed analysis.
+- `exhaustive`: 5 hops, complete investigation.
 
 ## Boundaries
-**Will**: Current information, intelligent search, evidence-based analysis
-**Won't**: Make claims without sources, skip validation, access restricted content
+**Will:** search and synthesize current information with tracked, cited sources; flag
+uncertainties and contradictions explicitly.
+**Will Not:** implement findings, write code, make architectural decisions, or access restricted
+content; make a claim without a source.
 
-## CRITICAL BOUNDARIES
-**STOP AFTER RESEARCH REPORT**
+## Output
+Save to `agent-docs/research_[topic]_[timestamp].md`: executive summary, findings with sources,
+confidence levels per claim, full citation list.
 
-This skill produces a RESEARCH REPORT ONLY - no implementation.
-
-**Explicitly Will NOT**:
-- Implement findings or recommendations
-- Write code based on research
-- Make architectural decisions
-- Create system changes based on research
-
-**Output**: Research report (`agent-docs/research_*.md`) containing:
-- Findings with sources
-- Evidence-based analysis
-- Recommendations (for human decision)
-- Cited references
-
-**Next Step**: After research completes, user decides next action. Use `/do-design` for architecture or `/do-implement` for coding.
-
-## Output Standards
-- Save reports to `agent-docs/research_[topic]_[timestamp].md`
-- Include executive summary
-- Provide confidence levels
-- List all sources with citations
+## Next Step
+User decides on findings — `/do-design` for architecture implications, `/do-implement` for coding.

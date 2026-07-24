@@ -8,57 +8,43 @@ effort: high
 
 # do-spec-panel
 
-Use this skill for the corresponding DoFlow workflow.
+Reviews a specification (requirement/design doc) through multiple named expert lenses applied in
+sequence within one response — not separate subagent spawns unless the input is large enough to
+warrant parallelizing per lens via `/parallel-agents`.
 
 ## Invocation
 ```text
 /do-spec-panel [specification_content|@file] [--mode discussion|critique|socratic] [--experts "name1,name2"] [--focus requirements|architecture|testing|compliance] [--iterations N] [--format standard|structured|detailed]
 ```
 
-## Metadata
-- Category: `analysis`
-- Complexity: `enhanced`
-- Effort: `high`
-- Suggested MCP/tooling: `sequential`, `context7`
-- Suggested specialist roles: `technical-writer`, `system-architect`, `quality-engineer`
-
-## Triggers
-- Specification quality review and improvement requests
-- Technical documentation validation and enhancement needs
-- Requirements analysis and completeness verification
-- Professional specification writing guidance and mentoring
-
 ## Behavioral Flow
-1. **Analyze**: Parse specification content and identify key components, gaps, and quality issues
-2. **Assemble**: Select appropriate expert panel based on specification type and focus area
-3. **Review**: Multi-expert analysis using distinct methodologies and quality frameworks
-4. **Collaborate**: Expert interaction through discussion, critique, or socratic questioning
-5. **Synthesize**: Generate consolidated findings with prioritized recommendations
-6. **Improve**: Create enhanced specification incorporating expert feedback and best practices
-
-Key behaviors:
-- Multi-expert perspective analysis with distinct methodologies and quality frameworks
-- Intelligent expert selection based on specification domain and focus requirements
-- Structured review process with evidence-based recommendations and improvement guidance
-- Iterative improvement cycles with quality validation and progress tracking
+1. **Load the spec** — `@file` reads the actual file (typically `requirement.md`/`design.md` for a
+   doflow feature); inline content is used as-is.
+2. **Select the panel** — default experts by `--focus`: `requirements` → a completeness/
+   ambiguity-focused reviewer (unstated assumptions, untestable acceptance criteria);
+   `architecture` → a systems-design reviewer (coupling, failure modes, scalability); `testing` →
+   a verifiability reviewer (is every FR/AC actually checkable); `compliance` → a
+   standards/regulatory reviewer if the spec touches a regulated domain. `--experts` overrides
+   with named lenses instead of the focus-based default.
+3. **Review** by `--mode`: `critique` — each lens produces its findings independently, no
+   cross-talk. `discussion` — lenses respond to each other's findings where they conflict.
+   `socratic` — each lens asks the spec's author probing questions instead of stating verdicts
+   directly (mirrors `/do-brainstorm`'s Socratic approach, applied to critique instead of
+   discovery).
+4. **Synthesize**: consolidate findings across lenses, dedupe overlapping points, flag genuine
+   disagreements between lenses rather than averaging them away.
+5. **Rank recommendations** by impact (would this cause a real defect or rework if unaddressed) —
+   not just by which lens raised it.
+6. **`--iterations N`**: repeat steps 3-5 against a revised spec if the user applies feedback
+   between rounds; `N` caps how many rounds this runs unattended before stopping to check in.
 
 ## Boundaries
-**Will:**
-- Provide expert-level specification review and improvement guidance
-- Generate specific, actionable recommendations with priority rankings
-- Support multiple analysis modes for different use cases and learning objectives
-- Integrate with specification generation tools for comprehensive workflow support
+**Will:** review an existing spec through multiple named expert lenses; produce ranked,
+actionable findings; flag genuine cross-lens disagreement.
+**Will Not:** write a specification from scratch (needs existing content to review); modify the
+spec file directly — findings are a report, applying them is a separate, explicit step; claim
+regulatory/legal compliance sign-off (advisory only).
 
-**Will Not:**
-- Replace human judgment and domain expertise in critical decisions
-- Modify specifications without explicit user consent and validation
-- Generate specifications from scratch without existing content or context
-- Provide legal or regulatory compliance guarantees beyond analysis guidance
-
-**Output**: Expert review document containing:
-- Multi-expert analysis (10 simulated experts)
-- Specific, actionable recommendations
-- Consensus points and disagreements
-- Priority-ranked improvements
-
-**Next Step**: After review, incorporate feedback into spec, then use `/do-design` for architecture or `/do-implement` for coding.
+## Next Step
+Apply the accepted recommendations to the spec (by hand, or `/do-brainstorm`/`/do-design` to
+re-run discovery on the flagged gaps), then `/do-plan` once the spec is settled.

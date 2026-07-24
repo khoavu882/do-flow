@@ -8,52 +8,41 @@ effort: medium
 
 # do-index
 
-Use this skill for the corresponding DoFlow workflow.
+Whole-project documentation/knowledge-base generation — scope is the entire project (or a named
+subtree), not one component. Distinct from `/do-document` (docs for one specific
+component/function/API/feature) and `/do-explain` (no-artifact educational explanation).
 
 ## Invocation
 ```text
 /do-index [target] [--type docs|api|structure|readme] [--format md|json|yaml]
 ```
 
-## Metadata
-- Category: `special`
-- Complexity: `standard`
-- Effort: `medium`
-- Suggested MCP/tooling: `sequential`, `context7`
-- Suggested specialist roles: `architect`, `scribe`, `quality`
-
-## Triggers
-- Project documentation creation and maintenance requirements
-- Knowledge base generation and organization needs
-- API documentation and structure analysis requirements
-- Cross-referencing and navigation enhancement requests
-
 ## Behavioral Flow
-1. **Analyze**: Examine project structure and identify key documentation components
-2. **Organize**: Apply intelligent organization patterns and cross-referencing strategies
-3. **Generate**: Create comprehensive documentation with framework-specific patterns
-4. **Validate**: Ensure documentation completeness and quality standards
-5. **Maintain**: Update existing documentation while preserving manual additions and customizations
-
-Key behaviors:
-- Multi-persona coordination (architect, scribe, quality) based on documentation scope and complexity
-- Sequential MCP integration for systematic analysis and comprehensive documentation workflows
-- Context7 MCP integration for framework-specific patterns and documentation standards
-- Intelligent organization with cross-referencing capabilities and automated maintenance
-
-## Key Patterns
-- **Structure Analysis**: Project examination → component identification → logical organization → cross-referencing
-- **Documentation Types**: API docs → Structure docs → README → Knowledge base approaches
-- **Quality Validation**: Completeness assessment → accuracy verification → standard compliance → maintenance planning
-- **Framework Integration**: Context7 patterns → official standards → best practices → consistency validation
+1. **Survey** `[target]` (default: repo root) — enumerate top-level directories, entry points
+   (`package.json`/`pyproject.toml`/build files), and existing docs (`README.md`, `docs/`,
+   `CLAUDE.md`) so new output builds on what's there instead of duplicating it.
+2. **Generate** by `--type`:
+   - `structure`: a directory/module map with a one-line responsibility per top-level
+     component — grounded in what's actually in the tree, not an assumed convention.
+   - `api`: enumerate actual exported functions/endpoints/classes (via real exports, route
+     definitions, or OpenAPI/GraphQL schema if present) — never invent a signature that isn't in
+     the source.
+   - `readme`: project overview, install/run instructions pulled from actual `package.json`
+     scripts or build files (not generic placeholders), and a structure summary.
+   - `docs`: all of the above assembled into one navigable set, cross-linked.
+3. **Preserve manual content** — if a target doc file already exists, diff against it first;
+   merge generated content into the existing structure rather than overwriting hand-written
+   prose, and flag (don't silently drop) any manual section that no longer matches the current
+   code so the user can decide whether it's stale or intentional.
+4. **Cross-reference**: link related sections (e.g. an API doc entry back to its structure-map
+   entry) so the output is navigable as a set, not a pile of disconnected files.
+5. **Output** in `--format` (`md` default; `json`/`yaml` for tooling consumption) to the target
+   location implied by `--type` (e.g. `README.md` for `readme`, `docs/` for `docs`/`api`).
 
 ## Boundaries
-**Will:**
-- Generate comprehensive project documentation with intelligent organization and cross-referencing
-- Apply multi-persona coordination for systematic analysis and quality validation
-- Provide framework-specific patterns and established documentation standards
-
-**Will Not:**
-- Override existing manual documentation without explicit update permission
-- Generate documentation without appropriate project structure analysis and validation
-- Bypass established documentation standards or quality requirements
+**Will:** generate or update whole-project documentation grounded in the actual codebase;
+preserve and flag conflicts with existing manual documentation; cross-reference generated
+sections.
+**Will Not:** overwrite hand-written documentation without flagging the conflict first; invent
+API signatures, structure, or install instructions not present in the actual source; document a
+single component in isolation (that's `/do-document`'s scope, not this skill's).

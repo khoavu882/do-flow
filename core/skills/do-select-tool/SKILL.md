@@ -10,51 +10,36 @@ effort: low
 
 # do-select-tool
 
-Use this skill for the corresponding DoFlow workflow.
+Decides native tool vs. MCP server for a described operation — a routing decision, not an
+execution. Distinct from `/do-pm` (routes a *request* to a skill/agent) — this routes an
+*operation* to a specific tool.
 
 ## Invocation
 ```text
 /do-select-tool [operation] [--analyze] [--explain]
 ```
 
-## Metadata
-- Category: `special`
-- Complexity: `high`
-- Effort: `low`
-- Suggested MCP/tooling: native (`Grep`, `Glob`, `Read`, `Edit`), `sequential`
-
-## Triggers
-- Operations requiring optimal tool selection between MCP servers and native tools
-- Meta-system decisions needing complexity analysis and capability matching
-- Tool routing decisions requiring performance vs accuracy trade-offs
-- Operations benefiting from intelligent tool capability assessment
-
 ## Behavioral Flow
-1. **Parse**: Analyze operation type, scope, file count, and complexity indicators
-2. **Score**: Apply multi-dimensional complexity scoring across various operation factors
-3. **Match**: Compare operation requirements against available MCP servers and native tool capabilities
-4. **Select**: Choose optimal tool based on scoring matrix and performance requirements
-5. **Validate**: Verify selection accuracy and provide confidence metrics
-
-Key behaviors:
-- Complexity scoring based on file count, operation type, language, and framework requirements
-- Performance assessment evaluating speed vs accuracy trade-offs for optimal selection
-- Decision logic matrix with direct mappings and threshold-based routing rules
-- Tool capability matching for MCP servers (specialized capability) vs native tools (fast pattern/file operations)
-
-## Key Patterns
-- **Direct Mapping**: Deep reasoning → Sequential, Library docs → Context7, Browser/UI verification → Playwright / Chrome DevTools, Symbol search & pattern edits → native (Grep / Glob / Read / Edit), Cross-session memory → native files (`agent-docs/`, Claude memory)
-- **Complexity Thresholds**: Score >0.6 → MCP server, Score <0.4 → Native tools, 0.4-0.6 → Feature-based
-- **Performance Trade-offs**: Speed requirements → Native tools, Specialized capability → MCP server
-- **Fallback Strategy**: MCP server → Native tools degradation chain
+1. **Classify the operation**: symbol search/pattern edit (→ native `Grep`/`Glob`/`Read`/`Edit`),
+   library/framework documentation lookup (→ `context7`), multi-step reasoning or hypothesis
+   testing (→ `sequential-thinking`), browser/UI verification (→ `playwright` or
+   `chrome-devtools` depending on whether it's automated testing or live debugging),
+   cross-session memory (→ native files: `agent-docs/`, this session's memory system).
+2. **Score complexity** if the mapping in step 1 is ambiguous (spans multiple categories or an
+   unfamiliar operation type): file count touched, whether it needs semantic understanding vs.
+   literal pattern match, whether a specialized MCP capability is actually required or native
+   tools can do it faster.
+3. **Prefer native when it's sufficient** — MCP tool overhead (connection, larger context) only
+   pays off when the operation genuinely needs that server's specialized capability; a simple
+   grep-able pattern stays native even if an MCP server *could* also do it.
+4. **`--explain`**: state the reasoning (which factor decided it), not just the tool name.
+   **`--analyze`**: score without committing to a recommendation — useful when comparing two
+   plausible tools.
+5. **Respect an explicit user preference** — if the user already named a tool, don't override it;
+   this skill is for when the choice is genuinely open.
 
 ## Boundaries
-**Will:**
-- Analyze operations and provide optimal tool selection between MCP servers and native tools
-- Apply complexity scoring based on file count, operation type, and requirements
-- Provide sub-100ms decision time with >95% selection accuracy
-
-**Will Not:**
-- Override explicit tool specifications when user has clear preference
-- Select tools without proper complexity analysis and capability matching
-- Compromise performance requirements for convenience or speed
+**Will:** classify an operation and recommend native vs. MCP tool with reasoning; score
+complexity when the mapping is ambiguous.
+**Will Not:** execute the operation itself (routing decision only); override an explicit user tool
+preference; recommend an MCP server that isn't actually connected in this session.

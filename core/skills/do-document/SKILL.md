@@ -41,12 +41,8 @@ Key behaviors:
 - **Write**: Documentation file creation with proper formatting
 - **Glob**: Multi-file documentation projects and organization
 
-## Key Patterns
-- **Inline Documentation**: Code analysis → JSDoc/docstring generation → inline comments
-- **API Documentation**: Interface extraction → reference material → usage examples
-- **User Guides**: Feature analysis → tutorial content → implementation guidance
-- **External Docs**: Component overview → detailed specifications → integration instructions
-- **Feature Flow Docs**: Service topology discovery → C4 diagrams (context/container/component) → sequence diagrams per sub-flow → data model + API spec → structured template population
+Distinct from `/do-index` (whole-project documentation) and `/do-explain` (no-artifact
+conversational explanation) — this produces a documentation file scoped to one target.
 
 ## Examples
 

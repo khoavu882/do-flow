@@ -10,72 +10,39 @@ effort: low
 
 # do-estimate
 
-Use this skill for the corresponding DoFlow workflow.
+Read-only estimate — stops after producing the number(s), never continues into planning or
+implementation.
 
 ## Invocation
 ```text
 /do-estimate [target] [--type time|effort|complexity] [--unit hours|days|weeks] [--breakdown]
 ```
 
-## Metadata
-- Category: `special`
-- Complexity: `standard`
-- Effort: `low`
-- Suggested MCP/tooling: `sequential`, `context7`
-- Suggested specialist roles: `architect`, `performance`, `project-manager`
-
-## Triggers
-- Development planning requiring time, effort, or complexity estimates
-- Project scoping and resource allocation decisions
-- Feature breakdown needing systematic estimation methodology
-- Risk assessment and confidence interval analysis requirements
-
 ## Behavioral Flow
-1. **Analyze**: Examine scope, complexity factors, dependencies, and framework patterns
-2. **Calculate**: Apply estimation methodology with historical benchmarks and complexity scoring
-3. **Validate**: Cross-reference estimates with project patterns and domain expertise
-4. **Present**: Provide detailed breakdown with confidence intervals and risk assessment
-5. **Track**: Document estimation accuracy for continuous methodology improvement
-
-Key behaviors:
-- Multi-persona coordination (architect, performance, project-manager) based on estimation scope
-- Sequential MCP integration for systematic analysis and complexity assessment
-- Context7 MCP integration for framework-specific patterns and historical benchmarks
-- Intelligent breakdown analysis with confidence intervals and risk factors
-
-## Key Patterns
-- **Scope Analysis**: Project requirements → complexity factors → framework patterns → risk assessment
-- **Estimation Methodology**: Time-based → Effort-based → Complexity-based → Cost-based approaches
-- **Multi-Domain Assessment**: Architecture complexity → Performance requirements → Project timeline
-- **Validation Framework**: Historical benchmarks → cross-validation → confidence intervals → accuracy tracking
+1. **Scope `[target]`**: if it's an existing `requirement.md`/`plan.md` (a doflow feature), estimate
+   against its actual user stories/tasks, not a re-description. If it's a freeform description,
+   decompose it into the same shape first (rough FR list) so the estimate has something concrete
+   to size.
+2. **Size each piece** by `--type`:
+   - `time`/`effort`: compare each piece against similar work already in this repo (git log for
+     comparable past changes gives a real anchor, not a guess) plus known unknowns (new
+     dependency, unfamiliar area of the codebase, external approval needed).
+   - `complexity`: rate each piece low/medium/high based on concrete factors — number of files
+     touched, cross-repo/cross-service span, whether it's additive or requires understanding
+     existing behavior first.
+3. **State the confidence band**, not a single number: a range plus what would narrow it (e.g.
+   "3-5 days; narrows to 3 once the API contract is confirmed with the external-bank-service
+   owner"). A point estimate without a stated confidence level is not acceptable output here.
+4. **`--breakdown`**: show the per-piece estimates that sum to the total, not just the total.
+5. **Report and stop** — do not proceed into `/do-plan` or `/do-implement` even if the estimate
+   suggests the work is small; that decision belongs to the user.
 
 ## Boundaries
-**Will:**
-- Provide systematic development estimates with confidence intervals and risk assessment
-- Apply multi-persona coordination for comprehensive complexity analysis
-- Generate detailed breakdown analysis with historical benchmark comparisons
+**Will:** produce a scoped, confidence-banded estimate anchored to comparable past work in this
+repo where available; break down by piece under `--breakdown`.
+**Will Not:** start planning, implementation, or any file edit; present a single point number
+without a stated confidence range; commit the user to a timeline.
 
-**Will Not:**
-- Guarantee estimate accuracy without proper scope analysis and validation
-- Provide estimates without appropriate domain expertise and complexity assessment
-- Override historical benchmarks without clear justification and analysis
-
-## CRITICAL BOUNDARIES
-**STOP AFTER ESTIMATION**
-
-This skill produces an ESTIMATION REPORT ONLY - no implementation.
-
-**Explicitly Will NOT**:
-- Execute work based on estimates
-- Create implementation timelines for execution
-- Start implementation tasks
-- Make commitments on behalf of user
-
-**Output**: Estimation report containing:
-- Time/effort breakdown
-- Complexity analysis
-- Confidence intervals
-- Risk assessment
-- Resource requirements
-
-**Next Step**: After estimation, user decides on timeline. Use `/do-plan` for planning or `/do-implement` for execution.
+## Next Step
+User decides whether to proceed — `/do-plan` for a doflow feature's implementation plan, or
+`/do-implement` for a standalone build.

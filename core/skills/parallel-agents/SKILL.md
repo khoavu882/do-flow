@@ -12,6 +12,11 @@ effort: high
 
 Use this skill from the main coordination context. Do not fork this skill itself; the coordinator needs the current conversation, repo state, and task constraints to decide whether parallelization is safe.
 
+This skill fans out tasks whose independence is already known. If that classification hasn't
+happened yet — an ambiguous or multi-part request where routing itself is the open question — use
+`/do-pm` first; it decides *what* to route and *where*, this skill handles *executing* that
+routing concurrently once decided.
+
 ## Decision Gate
 
 Parallelize only when all conditions are true:
