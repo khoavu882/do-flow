@@ -18,10 +18,11 @@ test('readMappings parses the claude section', () => {
   assert.ok(m.some((x) => x.dst === 'CLAUDE.md'));
 });
 
-test('readMappings codex is a subset (no skills)', () => {
+test('readMappings codex includes native instructions and skills', () => {
   const c = readMappings(MAP, 'codex');
-  assert.ok(c.length >= 3);
-  assert.ok(!c.some((x) => x.dst === 'skills/'), 'codex must not get skills');
+  assert.ok(c.length >= 5);
+  assert.ok(c.some((x) => x.src === 'core/CLAUDE.md' && x.dst === 'AGENTS.md'));
+  assert.ok(c.some((x) => x.src === 'core/skills/' && x.dst === 'skills/'));
 });
 
 test('resolveTargets defaults to all and validates', () => {

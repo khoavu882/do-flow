@@ -97,6 +97,28 @@ test('project-scoped install (no -g, no path) resolves under cwd, not $HOME', ()
   assert.ok(!fs.existsSync(path.join(home, '.claude')), 'must not also write to $HOME');
 });
 
+test('Codex install merges AGENTS.md and installs reusable skills', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const codexDir = path.join(home, '.codex');
+  fs.mkdirSync(codexDir, { recursive: true });
+  fs.writeFileSync(path.join(codexDir, 'AGENTS.md'), '# Project instructions\n\nPreserve this content.\n');
+
+  const r = run(['install', '-g', '--force', '--target', 'codex'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+
+  const agents = fs.readFileSync(path.join(codexDir, 'AGENTS.md'), 'utf8');
+  assert.match(agents, /Preserve this content\./);
+  assert.match(agents, /# Core Framework/);
+  assert.ok(fs.existsSync(path.join(codexDir, 'skills', 'do-implement', 'SKILL.md')));
+
+  fs.writeFileSync(path.join(codexDir, 'AGENTS.md'), agents.replace('# Core Framework', 'stale managed instructions'));
+  const update = run(['update', '-g', '--force', '--target', 'codex'], { home });
+  assert.strictEqual(update.status, 0, update.stderr);
+  const updatedAgents = fs.readFileSync(path.join(codexDir, 'AGENTS.md'), 'utf8');
+  assert.match(updatedAgents, /Preserve this content\./);
+  assert.match(updatedAgents, /# Core Framework/);
+});
+
 test('full lifecycle: install -> mutate -> update -> rollback restores the pre-update dst content', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   const claudeMd = path.join(home, '.claude', 'CLAUDE.md');
