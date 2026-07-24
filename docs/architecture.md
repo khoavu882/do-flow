@@ -6,29 +6,43 @@ This guide is for contributors changing DoFlow itself. For the user-facing model
 
 ```mermaid
 flowchart LR
-    Sources[core/\ncanonical configuration] --> Map[bin/mappings.conf]
-    Map --> CLI[bin/doflow]
-    CLI --> Logic[src/\ninstall and validation logic]
-    Logic --> Claude[Claude Code home]
-    Logic --> Codex[Codex home]
-    Logic --> Gemini[Gemini CLI home]
+    Shared[core/shared\ncontent index] --> Registry[core/registry\ncapabilities and assets]
+    Registry --> Lifecycle[src/lifecycle\nplan apply verify]
+    Lifecycle --> Claude[Claude adapter]
+    Lifecycle --> Codex[Codex adapter]
+    Lifecycle --> Gemini[Gemini adapter]
+    Lifecycle --> State[.doflow/state\nneutral ledger]
     Tests[test/] --> Logic
 ```
 
-The architecture has a deliberately simple boundary: **content lives in `core/`; distribution behavior lives in the installer.** Do not duplicate a skill, rule, or template simply because clients place it in different directories.
+The architecture has a deliberately simple boundary: **shared content is described once; adapters
+own native paths and formats; lifecycle code owns planning, ownership, and recovery.** Do not
+duplicate a skill, rule, or template simply because clients place it in different directories.
+
+Each target is a native projection, not a copy of another target's settings. Its supported
+surfaces, prerequisites, verification steps, and intentional gaps are the contract in the
+[multi-harness capability map](capability-map.md). In particular, configuration and hook discovery
+can be trust-sensitive, plugin activation belongs to a user or workspace, and unavailable surfaces
+are reported rather than imitated.
 
 ## Repository map
 
 | Path | Owns |
 |---|---|
-| `core/` | Canonical instructions, skills, rules, agents, hooks, MCP notes, scripts, templates, and references |
+| `core/shared/` | Compatibility-first shared-content index: stable IDs, projections, and legacy source paths without duplicated bytes |
+| `core/registry/` | Harness capabilities, assets, neutral MCP catalog, and lifecycle-policy declarations |
+| `core/` | Current physical sources for instructions, skills, rules, agents, hooks, MCP notes, scripts, templates, and references during migration |
 | `core/.claude-plugin/` | Claude Code marketplace registry and plugin manifest; `core/` is the plugin root |
 | `core/.codex-plugin/` | Codex plugin manifest for plugin-based distribution |
 | `bin/doflow` | CLI entry point |
 | `bin/mappings.conf` | Client-to-destination mapping definitions |
-| `src/` | Copy, merge, backup, restore, status, and validation implementation |
+| `src/adapters/` | Native Claude, Codex, and Gemini file formats and verification boundaries |
+| `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification |
+| `src/state/` | Harness-neutral ledger and recovery records |
+| `src/` | Legacy-compatible copy, merge, backup, restore, status, and validation implementation |
 | `test/` | Installer and mapping behavior tests |
 | `docs/` | User-facing and contributor documentation site |
+| `docs/capability-map.md` | Registry-derived cross-harness capability contract, evidence, and verification criteria |
 
 ## Installation data flow
 
@@ -36,37 +50,74 @@ The architecture has a deliberately simple boundary: **content lives in `core/`;
 sequenceDiagram
     participant U as User
     participant CLI as doflow CLI
-    participant M as Mapping table
-    participant S as Source in core/
+    participant R as Registry
+    participant A as Native adapter
+    participant S as Neutral state
     participant T as Client destination
     U->>CLI: install, update, status, or rollback
-    CLI->>M: Select client mappings
-    M->>S: Read canonical source
-    CLI->>T: Copy or merge content
-    CLI->>CLI: Record backup and report result
+    CLI->>R: Select target capabilities and shared assets
+    R->>A: Request a native change plan
+    A->>T: Render only owned native resources
+    CLI->>S: Journal, verify, and record neutral ownership
 ```
 
-Mappings describe whether a source is copied, merged into a managed section, or intentionally excluded for a client. The installer should be the only place that knows client-specific destination paths.
+The transition keeps legacy mappings available, but new behavior should ask the registry and
+adapter rather than infer a target from a copy path. An adapter is the only component that knows a
+client-specific destination or serialization format.
+
+## Ownership and projection boundary
+
+Every target has three distinct ownership domains:
+
+| Domain | DoFlow may manage | DoFlow must preserve or leave to the user/workspace |
+|---|---|---|
+| Repository assets | Managed instruction sections, selected DoFlow assets, and documented hook definitions. | User instructions and assets outside managed boundaries; target-specific configuration may require project trust. |
+| Configuration and integrations | Explicitly named DoFlow configuration keys and selected curated MCP registrations, with recorded ownership. | Unknown configuration keys, unrelated MCP servers, credentials, approval/sandbox policy, and ambiguous user modifications. |
+| Host-managed capabilities | Discoverable plugin package metadata and documentation of supported workflow entry points. | Plugin marketplace activation, hook review/trust, and scheduled-task creation/management. |
+
+This division prevents a false parity claim: an installed file is not evidence that a host has
+activated a plugin, trusted a hook, connected an MCP server, or made an automation available. The
+lifecycle verifier must report those prerequisites.
 
 ## Shared content and client adapters
 
-`core/` is organized by purpose, not by client:
+`core/shared/` is the single physical source for cross-harness content — `core/registry/assets.yaml`
+declares each asset's `source` path and per-harness projection; `core/registry/*.yaml` overall
+declares target capability and ownership inputs, and is not itself a native configuration file.
 
-| Content | Why it is shared |
-|---|---|
-| `CLAUDE.md`, `FLAGS.md`, `PRINCIPLES.md`, `rules/` | Base guidance can be read by every supported client |
-| `skills/`, `agents/`, `scripts/`, `templates/`, `references/` | Task knowledge and reusable assets are client-neutral |
-| `hooks/`, `.mcp.json`, `mcp/` | Retained in the source tree, but copied as native configuration only where supported |
+| Content | Where it lives | Why it is shared |
+|---|---|---|
+| `CLAUDE.md`, `FLAGS.md`, `PRINCIPLES.md`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | Base guidance can be read by every supported client |
+| `skills/`, `agent-specs/`, `scripts/`, `templates/` | `core/shared/{skills,agent-specs,scripts,templates}/` | Task knowledge and reusable assets are client-neutral |
+| Native config/hooks/agents per harness, `.mcp.json` | `core/harnesses/{claude,codex,gemini}/`, `core/.mcp.json` | Copied or reconciled as native configuration only where supported |
 
-The installer projects `core/CLAUDE.md` as the appropriate client instruction file, including `AGENTS.md` for Codex and `GEMINI.md` for Gemini CLI. Managed sections let DoFlow update its portion without replacing user-owned instructions.
+The adapters project the common instruction source to `CLAUDE.md`, `AGENTS.md`, or `GEMINI.md`.
+Managed sections let DoFlow update its portion without replacing user-owned instructions. A later,
+versioned migration may move a physical source only after every adapter consumes the shared index.
+
+For Codex-specific configuration, keep durable preferences and MCP servers in the applicable
+`config.toml` layer, use a single `hooks.json` representation per layer for lifecycle handlers,
+and keep custom agents as separate `.codex/agents/*.toml` files. Equivalent native details belong
+to their own adapters; see the [capability map](capability-map.md) before claiming parity.
+
+## Neutral state and migration
+
+The lifecycle ledger is independent of a harness directory: project installations use
+`<project>/.doflow/state/`; user installations use `~/.doflow/state/`. It records only verified
+DoFlow-owned resources and recovery references. Legacy manifests remain import sources during the
+migration, so existing installs can continue to update without rewriting foreign configuration.
+
+Migration order is deliberate: declare registry ownership, introduce adapters and neutral state,
+route the CLI through lifecycle planning, then retire a compatibility path only after idempotency,
+conflict, rollback, and recovery tests pass.
 
 ## How to make a change
 
 ```mermaid
 flowchart TD
     A[Identify the canonical owner] --> B{Is it shared content?}
-    B -->|Yes| C[Edit core/ once]
-    B -->|No| D[Edit mapping or installer logic]
+    B -->|Yes| C[Update shared index and one physical source]
+    B -->|No| D[Update registry or native adapter]
     C --> E[Update the one document that owns the explanation]
     D --> E
     E --> F[Run targeted tests and parity checks]
@@ -74,7 +125,7 @@ flowchart TD
 
 Examples:
 
-- Add or revise a workflow: edit its `core/skills/<name>/SKILL.md`; keep the public description compact in [Reference](reference.md).
+- Add or revise a workflow: edit its `core/shared/skills/<name>/SKILL.md`; keep the public description compact in [Reference](reference.md).
 - Change a client destination or add a supported asset: edit `bin/mappings.conf`, then cover it in tests.
 - Change managed instruction behavior: edit the merge/copy implementation in `src/`, then test both fresh install and update paths.
 - Change user guidance: give it one canonical document—Quickstart, Setup, Guide, Reference, or Overview—rather than copying it across all of them.

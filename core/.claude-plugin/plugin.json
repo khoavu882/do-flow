@@ -6,5 +6,7 @@
     "name": "DoFlow"
   },
   "license": "MIT",
-  "keywords": ["engineering", "workflows", "quality", "claude-code"]
+  "keywords": ["engineering", "workflows", "quality", "claude-code"],
+  "skills": ["./shared/skills/"],
+  "agents": ["./shared/agent-specs/"]
 }

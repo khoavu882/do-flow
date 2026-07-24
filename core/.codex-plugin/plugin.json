@@ -3,11 +3,14 @@
   "version": "2.4.4",
   "description": "Reusable engineering workflows, quality gates, and specialist guidance for Codex.",
   "author": {
-    "name": "DoFlow"
+    "name": "DoFlow",
+    "url": "https://github.com/khoavu882/do-flow"
   },
+  "homepage": "https://github.com/khoavu882/do-flow",
+  "repository": "https://github.com/khoavu882/do-flow",
   "license": "MIT",
   "keywords": ["engineering", "workflows", "quality", "codex"],
-  "skills": "./skills/",
+  "skills": "./shared/skills/",
   "interface": {
     "displayName": "DoFlow",
     "shortDescription": "Engineering workflows and quality gates for Codex.",

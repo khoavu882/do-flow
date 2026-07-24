@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "servers": [
+    {"id": "context7", "transport": "stdio", "command": "npx", "args": ["-y", "@upstash/context7-mcp"], "selection": "optional"},
+    {"id": "sequential-thinking", "transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"], "selection": "optional"},
+    {"id": "chrome-devtools", "transport": "stdio", "command": "npx", "args": ["-y", "chrome-devtools-mcp"], "selection": "optional"},
+    {"id": "playwright", "transport": "stdio", "command": "npx", "args": ["-y", "@playwright/mcp"], "selection": "optional"}
+  ]
+}

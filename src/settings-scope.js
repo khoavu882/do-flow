@@ -1,5 +1,5 @@
 'use strict';
-// settings-scope.js — rewrites core/settings.json's hook `command` paths after a project-scoped
+// settings-scope.js — rewrites core/harnesses/claude/settings/settings.json's hook `command` paths after a project-scoped
 // install. `~/.claude/hooks/*.sh` is only correct for a global install (a fixed, home-relative
 // location); a project-scoped install's hooks live at `<project>/.claude/hooks/`, which Claude
 // Code's own ${CLAUDE_PROJECT_DIR} placeholder is documented to resolve to a project's root — see

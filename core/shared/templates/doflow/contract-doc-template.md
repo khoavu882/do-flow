@@ -6,7 +6,7 @@
 > required — a doc missing either fails `--contracts`'s compliance check with an explicit warning,
 > not a silent skip. `## Webhook` is optional; omit the whole section if this dependency never
 > pushes data back. Grammar inside every section is identical to `--contracts`'s own
-> generic-pseudocode fallback notation (`core/skills/do-execute-plan/contracts.md`) — one notation
+> generic-pseudocode fallback notation (`core/shared/skills/do-execute-plan/contracts.md`) — one notation
 > for both, nothing new to learn.
 
 ## Methods
