@@ -3,6 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const os = require('node:os');
 const path = require('node:path');
+const fs = require('node:fs');
 const { readMappings } = require('../src/mappings');
 const { resolveTargets, VALID, toolDirs } = require('../src/targets');
 const { planFiles } = require('../src/copy');
@@ -20,9 +21,20 @@ test('readMappings parses the claude section', () => {
 
 test('readMappings codex includes native instructions and skills', () => {
   const c = readMappings(MAP, 'codex');
-  assert.ok(c.length >= 5);
+  assert.ok(c.length >= 7);
   assert.ok(c.some((x) => x.src === 'core/CLAUDE.md' && x.dst === 'AGENTS.md'));
   assert.ok(c.some((x) => x.src === 'core/skills/' && x.dst === 'skills/'));
+  assert.ok(c.some((x) => x.src === 'core/scripts/' && x.dst === 'scripts/'));
+  assert.ok(c.some((x) => x.src === 'core/templates/' && x.dst === 'templates/'));
+});
+
+test('Codex plugin manifest packages the single-source core skills tree', () => {
+  const manifestPath = path.join(REPO, 'core', '.codex-plugin', 'plugin.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  assert.strictEqual(manifest.name, 'doflow');
+  assert.strictEqual(manifest.version, require('../package.json').version);
+  assert.strictEqual(manifest.skills, './skills/');
+  assert.ok(fs.existsSync(path.join(REPO, 'core', 'skills', 'do-implement', 'SKILL.md')));
 });
 
 test('resolveTargets defaults to all and validates', () => {

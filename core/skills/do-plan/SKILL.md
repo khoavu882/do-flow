@@ -2,7 +2,6 @@
 name: do-plan
 description: "Generate the implementation plan (HOW) and dependency-ordered task checklist from requirement.md + design.md, with a Constitution Check gate."
 argument-hint: "[--strategy systematic|agile] [--depth normal|deep] [--parallel]"
-disable-model-invocation: true
 effort: high
 ---
 
@@ -17,16 +16,24 @@ Phase 3 of the doflow chain. Turns `requirement.md` (WHAT/WHY) + `design.md` (sy
 ```
 
 ## Behavioral Flow
+**Cross-client clarification:** Every `AskUserQuestion` reference below means the mechanism in
+`RULE_04_QUESTIONS.md`: use that tool in Claude Code; in Codex or Gemini, write the stage question
+file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a question file.
+
 1. **Resolve** — run the resolver, parse JSON:
    ```bash
-   RESOLVER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
+   RESOLVER="${DOFLOW_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/scripts/doflow/bash/do-paths.sh"
+   [ -f "$RESOLVER" ] || RESOLVER="$HOME/.codex/scripts/doflow/bash/do-paths.sh"
    if [ ! -f "$RESOLVER" ]; then                                          # project-scoped install
      d="$PWD"
      while [ "$d" != / ]; do
-       [ -f "$d/.claude/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/.claude/scripts/doflow/bash/do-paths.sh" && break
+       for config_dir in .claude .codex .agents; do
+         [ -f "$d/$config_dir/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/$config_dir/scripts/doflow/bash/do-paths.sh" && break 2
+       done
        d="$(dirname "$d")"
      done
    fi
+   DOFLOW_CONFIG_DIR="$(dirname "$(dirname "$(dirname "$(dirname "$RESOLVER")")")")"
    bash "$RESOLVER" --json
    ```
    If `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root with 2+
@@ -40,7 +47,8 @@ Phase 3 of the doflow chain. Turns `requirement.md` (WHAT/WHY) + `design.md` (sy
    hook gate.
 3. **Read inputs** — `requirement.md`, `design.md`, and the resolved constitution
    (`constitution_base` overlaid by `constitution_local`; local wins).
-4. **Write `plan.md`, sections 1–7** — copy `templates/doflow/plan-template.md` into the feature
+4. **Write `plan.md`, sections 1–7** — copy `$DOFLOW_CONFIG_DIR/templates/doflow/plan-template.md`
+   into the feature
    dir, fill it: approach, research/decisions that resolve every `[NEEDS CLARIFICATION]` from the
    requirement, components, data/contracts, risks, validation strategy.
 5. **Constitution Check (gate)** — evaluate the plan against the resolved constitution. On a

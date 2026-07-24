@@ -2,7 +2,6 @@
 name: do-design
 description: "Design system architecture, APIs, and component interfaces (HOW at the system-shape level); writes design.md"
 argument-hint: "[target] [--type architecture|api|component|database] [--format diagram|spec|code]"
-disable-model-invocation: true
 effort: high
 ---
 
@@ -18,16 +17,24 @@ implementation approach and task decomposition, not system-shape decisions.
 ```
 
 ## Behavioral Flow
+**Cross-client clarification:** Every `AskUserQuestion` reference below means the mechanism in
+`RULE_04_QUESTIONS.md`: use that tool in Claude Code; in Codex or Gemini, write the stage question
+file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a question file.
+
 1. **Resolve** — run the resolver, parse JSON:
    ```bash
-   RESOLVER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
+   RESOLVER="${DOFLOW_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/scripts/doflow/bash/do-paths.sh"
+   [ -f "$RESOLVER" ] || RESOLVER="$HOME/.codex/scripts/doflow/bash/do-paths.sh"
    if [ ! -f "$RESOLVER" ]; then                                          # project-scoped install
      d="$PWD"
      while [ "$d" != / ]; do
-       [ -f "$d/.claude/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/.claude/scripts/doflow/bash/do-paths.sh" && break
+       for config_dir in .claude .codex .agents; do
+         [ -f "$d/$config_dir/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/$config_dir/scripts/doflow/bash/do-paths.sh" && break 2
+       done
        d="$(dirname "$d")"
      done
    fi
+   DOFLOW_CONFIG_DIR="$(dirname "$(dirname "$(dirname "$(dirname "$RESOLVER")")")")"
    bash "$RESOLVER" --json
    ```
    If `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root with 2+
@@ -58,7 +65,8 @@ implementation approach and task decomposition, not system-shape decisions.
    selectable. A question where the user picks that "Decide for me" option (distinct from the
    general "Other" free-text escape) resolves via a recorded assumption, not by re-prompting —
    see Step 5 below for where that's recorded.
-5. **Write `design.md`** — copy `templates/doflow/design-template.md` into the feature dir, fill
+5. **Write `design.md`** — copy `$DOFLOW_CONFIG_DIR/templates/doflow/design-template.md` into the
+   feature dir, fill
    it from step 4. `design-template.md`'s §8 "Assumptions" section must read "None" unless a
    design-level clarification question was resolved via the defer escape hatch in Step 4, in
    which case record it there with a one-line rationale.

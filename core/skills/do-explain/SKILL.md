@@ -3,7 +3,6 @@ name: do-explain
 description: "Provide clear explanations of code, concepts, and system behavior with educational clarity"
 when_to_use: Trigger automatically for read-only explanations of code, architecture, system behavior, errors, APIs, framework concepts, or project workflows. Do not edit files in auto mode.
 argument-hint: "[target] [--level basic|intermediate|advanced] [--format text|examples|interactive] [--context domain]"
-disable-model-invocation: false
 user-invocable: true
 effort: medium
 ---

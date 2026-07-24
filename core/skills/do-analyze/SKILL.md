@@ -3,7 +3,6 @@ name: do-analyze
 description: "Comprehensive code analysis across quality, security, performance, and architecture domains"
 when_to_use: Trigger automatically for read-only quality, security, performance, architecture, or technical-debt analysis. Auto mode must report findings and recommendations only; edits require explicit user request and confidence-check first.
 argument-hint: "[target] [--focus quality|security|performance|architecture] [--depth shallow|normal|deep] [--format text|json|report]"
-disable-model-invocation: false
 user-invocable: true
 effort: medium
 ---

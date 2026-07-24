@@ -2,7 +2,6 @@
 name: do-execute-plan
 description: "Execute plan.md's embedded task checklist: pm-agent orchestration over named specialists with the implement-phase prerequisite gate."
 argument-hint: "[--next|--phase N|--all|--resume|--dry-run|--contracts] [--safe]"
-disable-model-invocation: true
 effort: high
 ---
 
@@ -17,16 +16,24 @@ the active feature.
 ```
 
 ## Behavioral Flow
+**Cross-client clarification:** Every `AskUserQuestion` reference below means the mechanism in
+`RULE_04_QUESTIONS.md`: use that tool in Claude Code; in Codex or Gemini, write the stage question
+file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a question file.
+
 1. **Resolve the active feature** — run the resolver first, before the gate:
    ```bash
-   RESOLVER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
+   RESOLVER="${DOFLOW_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/scripts/doflow/bash/do-paths.sh"
+   [ -f "$RESOLVER" ] || RESOLVER="$HOME/.codex/scripts/doflow/bash/do-paths.sh"
    if [ ! -f "$RESOLVER" ]; then                                          # project-scoped install
      d="$PWD"
      while [ "$d" != / ]; do
-       [ -f "$d/.claude/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/.claude/scripts/doflow/bash/do-paths.sh" && break
+       for config_dir in .claude .codex .agents; do
+         [ -f "$d/$config_dir/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/$config_dir/scripts/doflow/bash/do-paths.sh" && break 2
+       done
        d="$(dirname "$d")"
      done
    fi
+   DOFLOW_CONFIG_DIR="$(dirname "$(dirname "$(dirname "$(dirname "$RESOLVER")")")")"
    bash "$RESOLVER" --json
    ```
    In a git repo this always resolves deterministically (branch-derived) — proceed to the next
@@ -40,11 +47,14 @@ the active feature.
    `--slug="<chosen>"` to both the resolver and prereq-gate calls below.
 2. **Prerequisite gate (HARD)** — run, and STOP on a non-zero exit:
    ```bash
-   PREREQ="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-prereqs.sh"
+   PREREQ="${DOFLOW_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/scripts/doflow/bash/do-prereqs.sh"
+   [ -f "$PREREQ" ] || PREREQ="$HOME/.codex/scripts/doflow/bash/do-prereqs.sh"
    if [ ! -f "$PREREQ" ]; then                                          # project-scoped install
      d="$PWD"
      while [ "$d" != / ]; do
-       [ -f "$d/.claude/scripts/doflow/bash/do-prereqs.sh" ] && PREREQ="$d/.claude/scripts/doflow/bash/do-prereqs.sh" && break
+       for config_dir in .claude .codex .agents; do
+         [ -f "$d/$config_dir/scripts/doflow/bash/do-prereqs.sh" ] && PREREQ="$d/$config_dir/scripts/doflow/bash/do-prereqs.sh" && break 2
+       done
        d="$(dirname "$d")"
      done
    fi
@@ -92,7 +102,8 @@ the active feature.
      return **summaries only** (protects the main context).
    - **sequential / dependent** tasks → run in dependency order.
 8. **Validate then record** — run the task/phase validation; check the `- [ ]` box in `plan.md`;
-   update `state.md` (seed from `templates/doflow/state-template.md` on first write if absent;
+   update `state.md` (seed from `$DOFLOW_CONFIG_DIR/templates/doflow/state-template.md` on first
+   write if absent;
    sections: Completed / In Progress / Blocked / Next Action), folding in any Repo Branch Status row
    from step 6. With `--safe`, validate + checkpoint more often.
 9. **Stop on risk** — ambiguity, blocker, failed validation, or a step 6 `blocked` repo → report and

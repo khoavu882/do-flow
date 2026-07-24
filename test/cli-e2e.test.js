@@ -110,6 +110,8 @@ test('Codex install merges AGENTS.md and installs reusable skills', () => {
   assert.match(agents, /Preserve this content\./);
   assert.match(agents, /# Core Framework/);
   assert.ok(fs.existsSync(path.join(codexDir, 'skills', 'do-implement', 'SKILL.md')));
+  assert.ok(fs.existsSync(path.join(codexDir, 'scripts', 'doflow', 'bash', 'do-paths.sh')));
+  assert.ok(fs.existsSync(path.join(codexDir, 'templates', 'doflow', 'plan-template.md')));
 
   fs.writeFileSync(path.join(codexDir, 'AGENTS.md'), agents.replace('# Core Framework', 'stale managed instructions'));
   const update = run(['update', '-g', '--force', '--target', 'codex'], { home });

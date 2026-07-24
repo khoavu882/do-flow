@@ -2,7 +2,6 @@
 name: do-pm
 description: "Classify an ambiguous or multi-part request and route each part to the right existing skill or specialist agent, instead of picking manually. Use when a request bundles 2+ unrelated asks (different files/domains/no shared root cause), when it's unclear which /do-* skill or agent fits, or when the user explicitly asks who/what should handle a multi-service or multi-task request. Not for a single, already-obvious task — route that directly instead."
 argument-hint: "[request] [--depth shallow|normal|deep] [--agent name]"
-disable-model-invocation: true
 effort: high
 ---
 

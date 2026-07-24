@@ -2,7 +2,6 @@
 name: do-research
 description: "Deep web research with adaptive planning and intelligent search"
 argument-hint: "\"[query]\" [--depth quick|standard|deep|exhaustive] [--strategy planning|intent|unified]"
-disable-model-invocation: true
 effort: high
 context: fork
 agent: deep-research-agent

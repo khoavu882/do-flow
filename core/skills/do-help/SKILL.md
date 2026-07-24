@@ -1,7 +1,6 @@
 ---
 name: do-help
 description: "List all available DoFlow skills and their functionality"
-disable-model-invocation: true
 effort: low
 ---
 

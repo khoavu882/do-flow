@@ -3,7 +3,6 @@ name: do-select-tool
 description: "Intelligent MCP tool selection based on complexity scoring and operation analysis"
 when_to_use: Trigger automatically for read-only tool-routing decisions, MCP/native tool selection, complexity scoring, or when the user asks which tool or workflow should handle an operation.
 argument-hint: "[operation] [--analyze] [--explain]"
-disable-model-invocation: false
 user-invocable: true
 effort: low
 ---

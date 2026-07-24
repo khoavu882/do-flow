@@ -74,6 +74,15 @@ doflow install ../my-other-project --target claude
 or you want project-scoped installs (config that lives with a specific repo rather than globally).
 `doflow` handles per-tool file selection and maintains an install manifest for rollback.
 
+### Codex / ChatGPT plugin package
+
+`core/` is also a self-contained Codex plugin root: its
+[`core/.codex-plugin/plugin.json`](../core/.codex-plugin/plugin.json) manifest exposes the existing
+`core/skills/` directory without copying or maintaining a second skill set. It deliberately declares
+no apps or MCP servers, so installation does not request external-system access. Use this package
+when distributing DoFlow through a Codex/ChatGPT plugin workflow; use `doflow install` when you
+want the local, file-based configuration installation described above.
+
 ---
 
 ## MCP Servers
@@ -195,6 +204,7 @@ Configured in `bin/mappings.conf`. Each tool gets the appropriate subset:
 | `rules/` (4 rule files) | ✓ | ✓ | ✓ |
 | `agents/` (14 agents) | ✓ | ✓ | ✓ |
 | `skills/` | ✓ | ✓ | ✓ |
+| `scripts/`, `templates/` (workflow helpers) | ✓ | ✓ | — |
 | `modes/` (6 modes) | ✓ | — | — |
 | `hooks/` (13 hook scripts) | ✓ | — | — |
 | `mcp/` (4 server docs) | ✓ | — | — |

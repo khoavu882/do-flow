@@ -2,7 +2,6 @@
 name: do
 description: "DoFlow command dispatcher — session-start announcement, quick command reference, and skill recommendation engine"
 argument-hint: "[command] [args...]"
-disable-model-invocation: true
 effort: low
 ---
 

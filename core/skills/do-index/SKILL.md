@@ -2,7 +2,6 @@
 name: do-index
 description: "Generate comprehensive project documentation and knowledge base with intelligent organization"
 argument-hint: "[target] [--type docs|api|structure|readme] [--format md|json|yaml]"
-disable-model-invocation: true
 effort: medium
 ---
 
