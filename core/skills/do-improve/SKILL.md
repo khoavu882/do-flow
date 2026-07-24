@@ -10,7 +10,6 @@ effort: high
 
 Refactor existing code for quality/performance/style, or remove dead code/imports/files — both
 are the same job (transform existing code toward a better state), distinguished only by `--type`.
-Absorbs `do-cleanup`; see the benchmark note in `--type cleanup` below for why they merged.
 
 ## Invocation
 ```text
@@ -24,15 +23,11 @@ Absorbs `do-cleanup`; see the benchmark note in `--type cleanup` below for why t
    before treating it as removable.
 2. **Scope the change to what was asked**:
    - `--type cleanup`: only dead code / unused imports / unreferenced files. Do not restructure
-     live logic even if it's messy — that's `--type quality`/`performance`, not cleanup. A
-     skill-creator benchmark on this exact boundary
-     (`agent-docs/doflow/010-skills-core-refactor/benchmarks/quality-cluster-workspace/`) found
-     that without this explicit rule, a cleanup-scoped run drifts into full logic restructuring
-     whenever the surrounding code happens to look messy — stay inside the requested type.
+     live logic even if it's messy — that's `--type quality`/`performance`, not cleanup, even when
+     the surrounding code looks messy enough to invite it.
    - `--type quality|performance|style`: restructure the live logic named in the request. If
      `--type` isn't `all`, do not also delete dead code you notice nearby — **flag it in the
-     report instead of silently removing it**; the same benchmark found this exact scope creep
-     happening in practice (unrequested dead-code deletion during a pure logic-improvement pass).
+     report instead of silently removing it**, rather than expanding scope unasked.
    - `--type all` (or no `--type` given and the user's own wording spans both): do both, and say
      so explicitly in the report.
 3. **Apply** the in-scope change only. Preserve the existing public interface (exports, function
