@@ -3,6 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const os = require('node:os');
 const path = require('node:path');
+const fs = require('node:fs');
 const { readMappings } = require('../src/mappings');
 const { resolveTargets, VALID, toolDirs } = require('../src/targets');
 const { planFiles } = require('../src/copy');
@@ -18,10 +19,36 @@ test('readMappings parses the claude section', () => {
   assert.ok(m.some((x) => x.dst === 'CLAUDE.md'));
 });
 
-test('readMappings codex is a subset (no skills)', () => {
+test('readMappings codex includes native instructions and skills', () => {
   const c = readMappings(MAP, 'codex');
-  assert.ok(c.length >= 3);
-  assert.ok(!c.some((x) => x.dst === 'skills/'), 'codex must not get skills');
+  assert.ok(c.length >= 7);
+  assert.ok(c.some((x) => x.src === 'core/CLAUDE.md' && x.dst === 'AGENTS.md'));
+  assert.ok(c.some((x) => x.src === 'core/skills/' && x.dst === 'skills/'));
+  assert.ok(c.some((x) => x.src === 'core/scripts/' && x.dst === 'scripts/'));
+  assert.ok(c.some((x) => x.src === 'core/templates/' && x.dst === 'templates/'));
+});
+
+test('Codex plugin manifest packages the single-source core skills tree', () => {
+  const manifestPath = path.join(REPO, 'core', '.codex-plugin', 'plugin.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  assert.strictEqual(manifest.name, 'doflow');
+  assert.strictEqual(manifest.version, require('../package.json').version);
+  assert.strictEqual(manifest.skills, './skills/');
+  assert.ok(fs.existsSync(path.join(REPO, 'core', 'skills', 'do-implement', 'SKILL.md')));
+});
+
+test('Claude marketplace exposes the single-source core plugin', () => {
+  const marketplacePath = path.join(REPO, 'core', '.claude-plugin', 'marketplace.json');
+  const manifestPath = path.join(REPO, 'core', '.claude-plugin', 'plugin.json');
+  const marketplace = JSON.parse(fs.readFileSync(marketplacePath, 'utf8'));
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+  assert.strictEqual(marketplace.name, 'doflow');
+  assert.strictEqual(marketplace.plugins.length, 1);
+  assert.deepStrictEqual(marketplace.plugins[0].source, '.');
+  assert.strictEqual(marketplace.plugins[0].name, manifest.name);
+  assert.strictEqual(manifest.version, require('../package.json').version);
+  assert.ok(fs.existsSync(path.join(REPO, 'core', 'skills', 'do-implement', 'SKILL.md')));
 });
 
 test('resolveTargets defaults to all and validates', () => {
@@ -37,11 +64,17 @@ test('planFiles yields tool-prefixed dest paths', () => {
   assert.ok(files.includes('claude/CLAUDE.md'));
 });
 
+test('readMappings gemini includes skills and modes', () => {
+  const g = readMappings(MAP, 'gemini');
+  assert.ok(g.some((x) => x.dst === 'skills/'), 'gemini must include skills');
+  assert.ok(g.some((x) => x.dst === 'modes/'), 'gemini must include modes');
+});
+
 test('toolDirs defaults to project scope rooted at projectRoot', () => {
   const dirs = toolDirs({ projectRoot: '/tmp/some-project' });
   assert.strictEqual(dirs.claude, '/tmp/some-project/.claude');
   assert.strictEqual(dirs.codex, '/tmp/some-project/.codex');
-  assert.strictEqual(dirs.gemini, '/tmp/some-project/.gemini');
+  assert.strictEqual(dirs.gemini, '/tmp/some-project/.agents');
 });
 
 test('toolDirs defaults projectRoot to cwd when omitted', () => {

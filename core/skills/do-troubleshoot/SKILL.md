@@ -3,7 +3,6 @@ name: do-troubleshoot
 description: "Diagnose and resolve issues in code, builds, deployments, and system behavior"
 when_to_use: Trigger automatically for diagnosis of errors, failing tests, build failures, runtime issues, deployment problems, and performance symptoms. Auto mode is diagnosis-first and must not apply fixes unless the user explicitly requests edits and confidence-check passes.
 argument-hint: "[issue] [--type bug|build|performance|deployment] [--trace] [--fix]"
-disable-model-invocation: false
 user-invocable: true
 effort: medium
 ---

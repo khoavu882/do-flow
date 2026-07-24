@@ -3,7 +3,6 @@ name: do-document
 description: "Generate focused documentation for components, functions, APIs, and features"
 when_to_use: Trigger automatically when the user asks for documentation, API docs, usage guides, README content, docstrings, or explanatory reference material. Auto mode may draft documentation in the response; file edits require explicit user request and confidence-check first.
 argument-hint: "[target] [--type inline|external|api|guide|feature] [--style brief|detailed]"
-disable-model-invocation: false
 user-invocable: true
 effort: medium
 ---

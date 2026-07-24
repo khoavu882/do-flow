@@ -2,7 +2,6 @@
 name: do-implement
 description: "Feature and code implementation, standalone (outside the doflow chain)"
 argument-hint: "[feature-description] [--type component|api|service|feature] [--framework react|vue|express] [--safe] [--with-tests]"
-disable-model-invocation: true
 effort: high
 ---
 

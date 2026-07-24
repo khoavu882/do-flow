@@ -36,7 +36,7 @@ function toolDirs(opts = {}) {
   return {
     claude: path.join(root, '.claude'),
     codex: path.join(root, '.codex'),
-    gemini: path.join(root, '.gemini'),
+    gemini: global ? path.join(root, '.gemini') : path.join(root, '.agents'),
   };
 }
 

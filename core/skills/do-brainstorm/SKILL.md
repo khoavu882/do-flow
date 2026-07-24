@@ -2,7 +2,6 @@
 name: do-brainstorm
 description: "Interactive requirements discovery through Socratic dialogue; seeds requirement.md in a branch-coupled feature dir"
 argument-hint: "[topic/idea] [--strategy systematic|agile|enterprise] [--depth shallow|normal|deep] [--parallel]"
-disable-model-invocation: true
 effort: high
 ---
 
@@ -19,16 +18,24 @@ continuity gap: brainstorm output survives a compact/session-end without a separ
 ```
 
 ## Behavioral Flow
+**Cross-client clarification:** Every `AskUserQuestion` reference below means the mechanism in
+`RULE_04_QUESTIONS.md`: use that tool in Claude Code; in Codex or Gemini, write the stage question
+file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a question file.
+
 1. **Resolve** — run the deterministic resolver and parse its JSON (never compute paths yourself):
    ```bash
-   RESOLVER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
+   RESOLVER="${DOFLOW_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/scripts/doflow/bash/do-paths.sh"
+   [ -f "$RESOLVER" ] || RESOLVER="$HOME/.codex/scripts/doflow/bash/do-paths.sh"
    if [ ! -f "$RESOLVER" ]; then                                          # project-scoped install
      d="$PWD"
      while [ "$d" != / ]; do
-       [ -f "$d/.claude/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/.claude/scripts/doflow/bash/do-paths.sh" && break
+       for config_dir in .claude .codex .agents; do
+         [ -f "$d/$config_dir/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/$config_dir/scripts/doflow/bash/do-paths.sh" && break 2
+       done
        d="$(dirname "$d")"
      done
    fi
+   DOFLOW_CONFIG_DIR="$(dirname "$(dirname "$(dirname "$(dirname "$RESOLVER")")")")"
    bash "$RESOLVER" --json
    ```
    If `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root — e.g.
@@ -61,7 +68,8 @@ continuity gap: brainstorm output survives a compact/session-end without a separ
    `<next_number>-<kebab-of-description>`, then create the dir: `mkdir -p
    agent-docs/doflow/<slug>`, plus `git checkout -b feat/<slug>` when `is_git_repo` is `true`
    (skip the branch step entirely at a non-git root — there's no repo to branch).
-4. **Write `requirement.md`** — copy `templates/doflow/requirement-template.md` into the feature
+4. **Write `requirement.md`** — copy
+   `$DOFLOW_CONFIG_DIR/templates/doflow/requirement-template.md` into the feature
    dir, fill the tokens from the dialogue. WHAT/WHY only: user stories (P1/P2/P3 → US#), `FR-###`,
    NFRs, out-of-scope, acceptance criteria. Zero `[NEEDS CLARIFICATION]` markers remain in §7 at
    hand-off — every ambiguity from Step 2 is either a resolved answer folded into the relevant

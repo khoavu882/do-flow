@@ -2,7 +2,6 @@
 name: do-improve
 description: "Refactor or clean up existing code — quality, performance, style, dead code, unused imports/files. Use when the user asks to improve, refactor, optimize, or clean up code that already exists, not to write new code."
 argument-hint: "[target] [--type quality|performance|style|cleanup|all] [--safe] [--interactive]"
-disable-model-invocation: true
 effort: high
 ---
 

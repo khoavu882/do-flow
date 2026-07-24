@@ -32,7 +32,8 @@ itself.
   Outside a git repo (e.g. doflow installed at a multi-service container root, above the actual
   git sub-repos), `do-paths.sh` falls back to scanning `agent-docs/doflow/` directly — one
   candidate auto-selects, 2+ candidates surface via `candidate_slugs` for the calling skill to
-  disambiguate with `AskUserQuestion`. Artifacts live in `<repo>/agent-docs/doflow/NNN-slug/`
+  disambiguate using the platform-specific `RULE_04_QUESTIONS.md` mechanism. Artifacts live in
+  `<repo>/agent-docs/doflow/NNN-slug/`
   either way.
 - **One hard gate:** source edits are blocked when a feature is started but `requirement.md`,
   `design.md`, or `plan.md` is missing. Every other gate is advisory/skippable (solo,

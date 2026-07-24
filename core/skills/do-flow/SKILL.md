@@ -2,7 +2,6 @@
 name: do-flow
 description: "Auto-chain the doflow spec-driven flow (brainstorm → design → plan → implement → test → review), pausing only at defined approval gates"
 argument-hint: "[feature description] [--from brainstorm|design|plan|implement|test|review]"
-disable-model-invocation: false
 effort: high
 ---
 
@@ -20,7 +19,26 @@ not part of this chain; invoke it directly when you need to set or amend repo-le
 ```
 
 ## Behavioral Flow
-1. **Resolve state** — `do-paths.sh --json`. Determine the starting phase:
+**Cross-client clarification:** Every `AskUserQuestion` reference below means the mechanism in
+`RULE_04_QUESTIONS.md`: use that tool in Claude Code; in Codex or Gemini, write the stage question
+file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a question file.
+
+1. **Resolve state** — resolve and run `do-paths.sh --json` from the installed DoFlow config:
+   ```bash
+   RESOLVER="${DOFLOW_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/scripts/doflow/bash/do-paths.sh"
+   [ -f "$RESOLVER" ] || RESOLVER="$HOME/.codex/scripts/doflow/bash/do-paths.sh"
+   if [ ! -f "$RESOLVER" ]; then
+     d="$PWD"
+     while [ "$d" != / ]; do
+       for config_dir in .claude .codex .agents; do
+         [ -f "$d/$config_dir/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/$config_dir/scripts/doflow/bash/do-paths.sh" && break 2
+       done
+       d="$(dirname "$d")"
+     done
+   fi
+   bash "$RESOLVER" --json
+   ```
+   Determine the starting phase:
    - `feature_slug` is `null` **and** `candidate_slugs` is empty (trunk branch, or a non-git root
      with zero `agent-docs/doflow/` dirs): no active feature — start at `do-brainstorm`.
    - `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root — e.g. doflow

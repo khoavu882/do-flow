@@ -45,9 +45,9 @@ downloads/
 
 # Local memories
 .codex
-.serena/
+.claude
+.gemini
 agent-docs/
-.claude/
 .mcp.json
 
 # MkDocs build output
