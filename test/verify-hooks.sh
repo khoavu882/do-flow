@@ -11,7 +11,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HOOKS="$REPO_ROOT/core/hooks"
+HOOKS="$REPO_ROOT/core/harnesses/claude/hooks"
 TEST_HOME="$REPO_ROOT/tmp/test-home"
 DOFLOW_HOME="$TEST_HOME/.config/doflow"
 SESS_ENV="$DOFLOW_HOME/session-env"

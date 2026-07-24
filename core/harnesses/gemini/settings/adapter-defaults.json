@@ -1,0 +1,6 @@
+{
+  "instructionFile": "GEMINI.md",
+  "settingsFile": ".gemini/settings.json",
+  "mcpKey": "mcpServers",
+  "extensionInstall": "native-host-workflow"
+}

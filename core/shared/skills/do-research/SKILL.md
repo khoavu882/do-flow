@@ -47,7 +47,7 @@ uncertainties and contradictions explicitly.
 content; make a claim without a source.
 
 ## Output
-Save to `agent-docs/research_[topic]_[timestamp].md`: executive summary, findings with sources,
+Save to `agent-docs/research/[topic]_[timestamp].md`: executive summary, findings with sources,
 confidence levels per claim, full citation list.
 
 ## Next Step

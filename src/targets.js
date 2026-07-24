@@ -27,8 +27,11 @@ function resolveTargets(requested) {
 /**
  * Map tool -> install root.
  * @param {{global?: boolean, projectRoot?: string}} [opts]
- *   global=true       -> $HOME/.{claude,codex,gemini}        (sync.sh parity)
- *   global=false (dflt) -> <resolved projectRoot>/.{claude,codex,gemini}
+ *   global=true         -> $HOME/.{claude,codex,gemini}     (sync.sh parity)
+ *   global=false (dflt) -> <resolved projectRoot>/.{claude,codex}, but .agents for gemini —
+ *     project-scoped Gemini config follows the Antigravity customization convention, not
+ *     `.gemini/`, so it is deliberately asymmetric with the other two targets and with its own
+ *     global-scope directory.
  */
 function toolDirs(opts = {}) {
   const { global = false, projectRoot = '.' } = opts;

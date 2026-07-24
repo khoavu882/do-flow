@@ -147,8 +147,10 @@ For this repository, keep one canonical home for each topic: installation in [Se
 
 | Environment | Start point | What to expect |
 |---|---|---|
-| Claude Code | `/do-help` or a named skill | Full skill, hook, and MCP integration |
-| Codex | Read `AGENTS.md`, then use installed skills | Shared instructions, skills, scripts, templates, and references |
-| Gemini CLI | Read `GEMINI.md`, then use installed skills | Shared instruction and skill material |
+| Claude Code | `/do-help` or a named skill | Native instructions, skills, hooks, and MCP after verification |
+| Codex | Read `AGENTS.md`, then use installed skills | Native settings/MCP/hook behavior requires trust and hook review |
+| Gemini CLI | Read `GEMINI.md`, then use installed skills | Skills and instructions are native; unavailable hooks/scripts/templates are reported, not emulated |
 
-The same repository sources drive every installation. Tool-specific behavior is summarized in [Setup](setup.md).
+The same shared sources drive every installation, but adapters render them into native target
+formats. Tool-specific behavior, activation prerequisites, and unavailable differences are in the
+[capability map](capability-map.md) and [Setup](setup.md).

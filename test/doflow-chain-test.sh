@@ -8,8 +8,8 @@
 
 set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BASH_SCRIPTS="$REPO_ROOT/core/scripts/doflow/bash"
-HOOKS="$REPO_ROOT/core/hooks"
+BASH_SCRIPTS="$REPO_ROOT/core/shared/scripts/doflow/bash"
+HOOKS="$REPO_ROOT/core/harnesses/claude/hooks"
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); printf '  \033[32m✓\033[0m %s\n' "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf '  \033[31m✗\033[0m %s (got: %s)\n' "$1" "$2"; }

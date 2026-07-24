@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test/hooks/test-hooks.sh — Regression tests for core/hooks/
+# test/hooks/test-hooks.sh — Regression tests for core/harnesses/claude/hooks/
 #
 # Tests:
 #   1. lib.sh          — utility function correctness
@@ -12,7 +12,7 @@
 
 set -uo pipefail
 
-HOOKS_DIR="${HOOKS_DIR:-core/hooks}"
+HOOKS_DIR="${HOOKS_DIR:-core/harnesses/claude/hooks}"
 PASS=0
 FAIL=0
 
@@ -101,7 +101,7 @@ echo "1. lib.sh — utility functions"
 echo "──────────────────────────────"
 
 # Source without running hook logic (lib.sh has no top-level side effects)
-# shellcheck source=core/hooks/lib.sh
+# shellcheck source=core/harnesses/claude/hooks/lib.sh
 source "$HOOKS_DIR/lib.sh"
 
 # cwd_hash: must return a 16-char stable hex string

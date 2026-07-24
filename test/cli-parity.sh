@@ -27,13 +27,79 @@ command -v node >/dev/null 2>&1 || { echo "node required"; exit 1; }
 
 tree() { ( cd "$1" 2>/dev/null && find . -type f ! -name '.install-manifest.json' ! -name '.claude.json' 2>/dev/null | sort ); }
 
+# The neutral lifecycle ledger/recovery journal (src/state) has no sync-legacy.sh equivalent for
+# ANY harness — Claude, Codex, and Gemini all now reconcile native resources through it. Strip it
+# unconditionally before any tree diff, the same way core/CLAUDE.md's CLAUDE.md-only content diff
+# is deliberately out of scope for this file-SET comparison.
+tree_without_neutral_state() {
+  tree "$1" | sed '/^\.\/\.doflow\/state\/ledger\.json$/d;/^\.\/\.doflow\/state\/recovery\/recovery_.*\.json$/d'
+}
+
+# Codex custom agents are a native lifecycle projection with no equivalent in sync-legacy.sh.
+# They are deliberately excluded only after being verified against the source projection; every
+# other installed path remains in the strict legacy-vs-CLI tree comparison below.
+codex_native_projection_paths() {
+  ( cd "$ROOT/core/harnesses/codex/agents" && find . -maxdepth 1 -type f -name '*.toml' -printf './.codex/agents/%f\n' )
+  printf '%s\n' './.codex/config.toml' './.codex/hooks.json'
+  printf '%s\n' pre-implement-gate.sh session-end.sh session-start.sh stop-check.sh subagent-audit.sh user-prompt-submit.sh mcp-tool-guard.sh pre-bash-guard.sh \
+    session-end.impl.sh session-start.impl.sh stop-check.impl.sh subagent-audit.impl.sh user-prompt-submit.impl.sh \
+    lib.sh blocked-patterns.conf mcp-policy.conf | sed 's#^#./.codex/hooks/#'
+}
+
+# GEMINI.md is a native lifecycle projection too (src/adapters/gemini) — sync-legacy.sh (and the
+# now-trimmed mappings.conf [gemini] section) has no instructions-file mapping for Gemini at all.
+gemini_native_projection_paths() { printf '%s\n' './.gemini/GEMINI.md'; }
+
+# Build the combined set of native-projection paths expected only in doflow's tree, for whichever
+# harnesses are actually in $TGT, then diff against sync-legacy's tree with the neutral state
+# stripped from both sides of the comparison ($1) up front.
+tree_without_native_projections() {
+  local root="$1" tgt="$2" expected=""
+  if [[ ",$tgt," == *,codex,* ]]; then expected="$expected
+$(codex_native_projection_paths)"; fi
+  if [[ ",$tgt," == *,gemini,* ]]; then expected="$expected
+$(gemini_native_projection_paths)"; fi
+  comm -23 <(tree_without_neutral_state "$root") <(printf '%s\n' "$expected" | sed '/^$/d' | sort)
+}
+
+verify_codex_native_projection() {
+  local home="$1" source_file destination_file recovery
+  while IFS= read -r source_file; do
+    destination_file="$home/.codex/agents/$(basename "$source_file")"
+    cmp -s "$source_file" "$destination_file" || return 1
+  done < <(find "$ROOT/core/harnesses/codex/agents" -maxdepth 1 -type f -name '*.toml' | sort)
+  grep -q '^hooks = true$' "$home/.codex/config.toml" || return 1
+  for source_file in context7 sequential-thinking chrome-devtools playwright; do grep -q "^\[mcp_servers\.$source_file\]" "$home/.codex/config.toml" || return 1; done
+  cmp -s "$ROOT/core/harnesses/codex/hooks/hooks.json" "$home/.codex/hooks.json" || return 1
+  for source_file in pre-implement-gate.sh session-end.sh session-start.sh stop-check.sh subagent-audit.sh user-prompt-submit.sh mcp-tool-guard.sh pre-bash-guard.sh \
+      session-end.impl.sh session-start.impl.sh stop-check.impl.sh subagent-audit.impl.sh user-prompt-submit.impl.sh \
+      lib.sh blocked-patterns.conf mcp-policy.conf; do cmp -s "$ROOT/core/harnesses/codex/hooks/$source_file" "$home/.codex/hooks/$source_file" || return 1; done
+  jq -e '.version == 1 and .targets.codex.installed == true and ([.resources[] | select(.harness == "codex")] | length > 0)' "$home/.doflow/state/ledger.json" >/dev/null || return 1
+  recovery="$(find "$home/.doflow/state/recovery" -maxdepth 1 -type f -name 'recovery_*.json' | head -1)"
+  [ -n "$recovery" ] && jq -e '.version == 1 and .status == "verified" and (.changes | length > 0)' "$recovery" >/dev/null
+}
+
+verify_gemini_native_projection() {
+  local home="$1"
+  grep -q '<!-- doflow:start -->' "$home/.gemini/GEMINI.md" 2>/dev/null || return 1
+  grep -q '<!-- doflow:end -->' "$home/.gemini/GEMINI.md" 2>/dev/null || return 1
+  jq -e '.version == 1 and .targets.gemini.installed == true and ([.resources[] | select(.harness == "gemini")] | length > 0)' "$home/.doflow/state/ledger.json" >/dev/null
+}
+
 for TGT in claude codex gemini "claude,codex,gemini"; do
   H1="$(mktemp -d)"; H2="$(mktemp -d)"
   # sync.sh is global-only; doflow defaults to project-scoped, so -g/--global is required here
   # to compare the same thing (see agent-docs/design_doflow-cli.md §11).
   HOME="$H1" bash "$SYNC"   --install --force --no-backup --target "$TGT" >/dev/null 2>&1
   HOME="$H2" node "$DOFLOW" install -g --force --no-backup --target "$TGT" >/dev/null 2>&1
-  d="$(diff <(tree "$H1") <(tree "$H2") 2>&1)"
+  ok=1
+  if [[ ",$TGT," == *,codex,* ]]; then verify_codex_native_projection "$H2" || ok=0; fi
+  if [[ ",$TGT," == *,gemini,* ]]; then verify_gemini_native_projection "$H2" || ok=0; fi
+  if [ "$ok" -eq 1 ]; then
+    d="$(diff <(tree_without_neutral_state "$H1") <(tree_without_native_projections "$H2" "$TGT") 2>&1)"
+  else
+    d='Native lifecycle projection is missing or differs from its registry source'
+  fi
   if [ -z "$d" ]; then
     n="$(tree "$H1" | wc -l | tr -d ' ')"
     pass "install --target $TGT : file-set parity ($n files)"

@@ -3,6 +3,60 @@
 All notable changes to DoFlow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Multi-harness registry architecture.** `core/registry/{harnesses,assets,mcp,lifecycle}.yaml`
+  declares capabilities, shared assets, the neutral MCP catalog, and logical hook policies for
+  Claude, Codex, and Gemini CLI. `src/registry/`, `src/adapters/{claude,codex,gemini}/`,
+  `src/lifecycle/`, and `src/state/` implement a common discover/plan/apply/remove/verify contract
+  per harness, with ownership tracked in a neutral ledger (`.doflow/state/`) instead of a
+  Claude-anchored manifest. `install`/`update`/`remove` now route Claude and Gemini through the same
+  live lifecycle path Codex already used.
+- Generated `docs/capability-map.md` (registry-derived, three-harness) with a "Codex capability
+  detail" appendix for surfaces too granular for the shared taxonomy.
+
+### Changed
+
+- **Breaking (installed framework content — repository shape).** Canonical shared content moved
+  from a flat `core/` into `core/shared/{guidance,skills,templates,scripts,agent-specs}/`; Codex- and
+  Claude-native assets moved into `core/harnesses/{codex,claude}/`; Gemini's adapter defaults moved
+  under `core/harnesses/gemini/settings/`. `core/.claude-plugin/` and `core/.codex-plugin/` remain at
+  `core/` (required by each tool's plugin-discovery convention) with explicit `skills`/`agents` path
+  overrides pointing at the new `core/shared/` locations. `bin/mappings.conf`,
+  `core/registry/{harnesses,assets}.yaml`, and hardcoded source constants in `bin/doflow.js` /
+  `src/adapters/gemini/index.js` were repointed accordingly; deployed output is unchanged
+  (byte-identical, verified against this repo's own dogfooded install).
+- Gemini's instruction file mapping corrected from a stale `AGENTS.md` copy to the registry-declared
+  `GEMINI.md`, reconciled through the Gemini adapter's managed section instead of a plain file copy.
+- Retired `docs/codex-capability-map.md` (merged into `docs/capability-map.md`) and
+  `core/shared/content-index.json` (a Phase-B compatibility index superseded by the actual move
+  above).
+- Dropped the redundant `codex-` filename prefix from Codex's hook scripts
+  (`core/harnesses/codex/hooks/`) — directory-level namespacing already disambiguates them from
+  Claude's identically-named scripts.
+
+### Fixed
+
+- **Codex lifecycle hooks were non-functional after the repository-shape move above.** Five hook
+  scripts (`session-start.sh`, `session-end.sh`, `stop-check.sh`, `subagent-audit.sh`,
+  `user-prompt-submit.sh`) were thin wrappers delegating to a differently-named real
+  implementation; dropping their `codex-` prefix collided each wrapper's filename with its own
+  delegation target, causing infinite self-recursion on every invocation. Separately,
+  `deployCodexHooks` only ever copied files named literally inside a `hooks.json` command string,
+  so `lib.sh` and two guard-config files (sourced/read at runtime, never named in a command) were
+  silently missing from every real install. Both fixed: the deploy step now copies every file in
+  the hooks source directory, and the five wrappers delegate to a distinctly-named `.impl.sh` copy
+  instead of a same-named sibling.
+
+## [2.4.4] - 2026-07-24
+
+### Added
+
+- **Claude Code marketplace plugin distribution.** `core/.claude-plugin/` now contains the
+  marketplace registry and DoFlow plugin manifest, pointing to the canonical `core/` content tree.
+
 ## [2.4.3] - 2026-07-24
 
 ### Changed
