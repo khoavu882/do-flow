@@ -2,7 +2,7 @@
 
 **Give your AI a persistent brain, specialist expertise, and production-grade guardrails — across Claude, Codex, and Gemini.**
 
-A configuration layer for AI coding assistants. Install it and your AI gets session memory, 14 specialist agents, 31 structured skills, 8 safety hooks, and cross-tool consistency — from one config.
+A configuration layer for AI coding assistants. Install it and your AI gets session memory, 14 specialist agents, 28 structured skills, 8 safety hooks, and cross-tool consistency — from one config.
 
 ---
 
@@ -23,7 +23,7 @@ A configuration layer for AI coding assistants. Install it and your AI gets sess
 |-----------|---------|
 | **Session memory** | Git branch, last commit, and prior-context hints injected on the first prompt |
 | **14 specialist agents** | Security engineer, backend architect, root-cause analyst, quality engineer, and more |
-| **31 project skills** | `/do-brainstorm`, `/do-code-review`, `/do-execute-plan`, `/do-implement`, `/do-analyze`, `/parallel-agents`, and more |
+| **28 project skills** | `/do-brainstorm`, `/do-code-review`, `/do-execute-plan`, `/do-implement`, `/do-analyze`, `/parallel-agents`, and more |
 | **8 safety hooks** | Blocks `git push --force`, `git reset --hard`, `rm -rf /`, `DROP TABLE`, unscoped `DELETE`, and `curl|bash` patterns |
 | **4 MCP servers** | Context7 (docs), Sequential (reasoning), Playwright, Chrome DevTools |
 | **Cross-tool sync** | Same engineering rules deployed to Claude, Codex, and Gemini via `doflow` |

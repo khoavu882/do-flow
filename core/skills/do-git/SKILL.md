@@ -8,50 +8,33 @@ effort: low
 
 # do-git
 
-Use this skill for the corresponding DoFlow workflow.
+Run a git operation with the safety checks from RULE_01_SAFETY applied by default — check state
+before anything that could discard work, confirm before anything hard to reverse.
 
 ## Invocation
 ```text
 /do-git [operation] [args] [--smart-commit] [--interactive]
 ```
 
-## Metadata
-- Category: `utility`
-- Complexity: `basic`
-- Effort: `low`
-
-## Triggers
-- Git repository operations: status, add, commit, push, pull, branch
-- Need for intelligent commit message generation
-- Repository workflow optimization requests
-- Branch management and merge operations
-
 ## Behavioral Flow
-1. **Analyze**: Check repository state and working directory changes
-2. **Validate**: Ensure operation is appropriate for current Git context
-3. **Execute**: Run Git command with intelligent automation
-4. **Optimize**: Apply smart commit messages and workflow patterns
-5. **Report**: Provide status and next steps guidance
-
-Key behaviors:
-- Generate conventional commit messages based on change analysis
-- Apply consistent branch naming conventions
-- Handle merge conflicts with guided resolution
-- Provide clear status summaries and workflow recommendations
-
-## Key Patterns
-- **Smart Commits**: Analyze changes → generate conventional commit message
-- **Status Analysis**: Repository state → actionable recommendations
-- **Branch Strategy**: Consistent naming and workflow enforcement
-- **Error Recovery**: Conflict resolution and state restoration guidance
+1. **Check state first**: `git status` (and `git branch` for any operation that switches/creates a
+   branch) before running `[operation]` — always, not just for destructive ones.
+2. **Gate on reversibility**: `checkout`/`restore`/`reset`/`clean` that could discard uncommitted
+   work → stash (`git stash -u` if untracked files matter) or confirm with the user first, per
+   RULE_01_SAFETY. `push --force`, `push` to `main`/`master`, or rewriting published history →
+   always confirm first, never assume prior approval carries over.
+3. **`--smart-commit`**: run `git diff --cached` (or `git diff` if nothing's staged yet — stage
+   first, showing what was added) and generate a commit message from the actual diff content —
+   summarize the *why* where inferable from the changes, not a generic "update files."
+4. **`--interactive`**: show the planned command before running it and wait for confirmation,
+   for any operation beyond a read-only `status`/`log`/`diff`.
+5. **Execute** the operation, then **report**: what ran, the resulting state (new HEAD, branch,
+   or status), and a concrete next-step suggestion if the state suggests one (e.g. untracked files
+   after `status` that look like they should be added).
 
 ## Boundaries
-**Will:**
-- Execute Git operations with intelligent automation
-- Generate conventional commit messages from change analysis
-- Provide workflow optimization and best practice guidance
-
-**Will Not:**
-- Modify repository configuration without explicit authorization
-- Execute destructive operations without confirmation
-- Handle complex merges requiring manual intervention
+**Will:** run git operations with state checks and reversibility gates applied by default;
+generate commit messages from actual diff content under `--smart-commit`.
+**Will Not:** force-push to `main`/`master` even with `--interactive` confirmed, without the user
+explicitly naming that branch; modify `.git/config` or repo-level git settings; resolve a complex
+merge conflict without surfacing the conflicting hunks for the user to decide.

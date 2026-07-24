@@ -3,6 +3,21 @@
 All notable changes to DoFlow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **`core/skills/` audited and rewritten for concrete mechanics, in progress.** A `/skill-creator`
+  benchmark pilot found `do-pm`/`do-spawn`/`do-task` functionally redundant (all three
+  classify-and-delegate a request) and `do-improve`/`do-cleanup`'s boundary unenforced in practice
+  (a cleanup-scoped run drifted into full logic restructuring on an ambiguous prompt). `do-spawn`
+  and `do-task` are merged into `do-pm` (absorbing its Epic/Story/Task depth option and explicit
+  Validate step); `do-cleanup` is merged into `do-improve` via a `--type cleanup` value. Both
+  survivors, plus `do-analyze`, `do-troubleshoot`, `do-reflect`, `do-build`, `do-test`, `do-git`,
+  `do-estimate`, `do-spec-panel`, `do-select-tool`, and `do-research`, are rewritten from generic
+  templated boilerplate to skill-specific Behavioral Flow steps. Skill count in `core/skills/`
+  drops from 31 to 28. Full details: `agent-docs/doflow/010-skills-core-refactor/`.
+
 ## [2.4.2] - 2026-07-23
 
 ### Changed

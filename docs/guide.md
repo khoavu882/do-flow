@@ -24,7 +24,7 @@ When a workflow example conflicts with one of those source files, update the sou
 
 | Mode | How to Use | Examples |
 |------|------------|----------|
-| Manual command | Type `/skill-name`; used for side effects or explicit orchestration | `/do-implement`, `/do-git`, `/do-execute-plan`, `/do-cleanup` |
+| Manual command | Type `/skill-name`; used for side effects or explicit orchestration | `/do-implement`, `/do-git`, `/do-execute-plan`, `/do-improve` |
 | Hybrid read-only | Type `/skill-name` or let Claude auto-load it; auto mode does not edit files | `/do-analyze`, `/do-code-review`, `/do-document`, `/do-troubleshoot`, `/parallel-agents` |
 | Auto-loaded policy | Claude loads it as background guidance; normally not user-invoked | `confidence-check`, `token-efficiency` |
 | Forked research | Runs in an isolated context and returns a summarized result | `/do-research` |
@@ -161,7 +161,7 @@ Primary source skills: `do-troubleshoot`, `confidence-check`, `do-test`, `do-git
 
 ## Flow C — Code Quality Sprint
 
-Use this when you want deliberate improvement work rather than review-only findings. `do-analyze` is hybrid and read-only in auto mode; `do-improve` and `do-cleanup` are manual commands because they can edit files.
+Use this when you want deliberate improvement work rather than review-only findings. `do-analyze` is hybrid and read-only in auto mode; `do-improve` is a manual command because it can edit files.
 
 ```bash
 # Scan first — understand before changing
@@ -176,9 +176,8 @@ Use this when you want deliberate improvement work rather than review-only findi
 # Iterative refinement with validation gates between cycles
 /do-improve src/ --type quality --loop --iterations 3
 
-# Clean up dead code (dry-run first to preview)
-/do-cleanup src/ --dry-run
-/do-cleanup src/
+# Clean up dead code and unused imports/files (a distinct --type, not a separate skill)
+/do-improve src/ --type cleanup
 ```
 
 ---

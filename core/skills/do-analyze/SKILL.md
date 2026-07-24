@@ -10,59 +10,45 @@ effort: medium
 
 # do-analyze
 
-Use this skill for the corresponding DoFlow workflow.
+Read-only, multi-domain code analysis — produces findings and recommendations, never edits.
+Distinct from `/do-troubleshoot` (issue-driven diagnosis of something already broken) — this is a
+proactive audit of code that may be working fine today.
 
 ## Invocation
 ```text
 /do-analyze [target] [--focus quality|security|performance|architecture] [--depth shallow|normal|deep] [--format text|json|report]
 ```
 
-## Metadata
-- Category: `utility`
-- Complexity: `basic`
-- Effort: `medium`
-
-## Triggers
-- Code quality assessment requests for projects or specific components
-- Security vulnerability scanning and compliance validation needs
-- Performance bottleneck identification and optimization planning
-- Architecture review and technical debt assessment requirements
-
 ## Behavioral Flow
-1. **Discover**: Categorize source files using language detection and project analysis
-2. **Scan**: Apply domain-specific analysis techniques and pattern matching
-3. **Evaluate**: Generate prioritized findings with severity ratings and impact assessment
-4. **Recommend**: Create actionable recommendations with implementation guidance
-5. **Report**: Present comprehensive analysis with metrics and improvement roadmap
-
-Key behaviors:
-- Multi-domain analysis combining static analysis and heuristic evaluation
-- Intelligent file discovery and language-specific pattern recognition
-- Severity-based prioritization of findings and recommendations
-- Comprehensive reporting with metrics, trends, and actionable insights
-
-## Key Patterns
-- **Domain Analysis**: Quality/Security/Performance/Architecture → specialized assessment
-- **Pattern Recognition**: Language detection → appropriate analysis techniques
-- **Severity Assessment**: Issue classification → prioritized recommendations
-- **Report Generation**: Analysis results → structured documentation
+1. **Scope the target** — resolve `[target]` to a file/directory/glob; if omitted, default to the
+   current working directory. Detect language(s) present (by extension/build files) so domain
+   checks below use the right tooling per language rather than generic pattern-matching.
+2. **Run domain checks** per `--focus` (all four if omitted):
+   - `quality`: duplication, long functions/files, inconsistent naming, missing error handling at
+     system boundaries.
+   - `security`: hardcoded secrets/credentials, unvalidated input reaching a sink (SQL/shell/eval),
+     missing auth checks on new endpoints, outdated dependencies with known CVEs if a lockfile is
+     present.
+   - `performance`: O(n²)+ patterns in hot paths, N+1 query patterns, unbounded loops/recursion,
+     missing pagination on list endpoints.
+   - `architecture`: circular dependencies, layering violations (e.g. UI importing DB internals),
+     god objects/files, technical-debt markers (`TODO`/`FIXME`/`HACK`) left in delivered code.
+   `--depth shallow` limits to the target's own files; `normal` follows direct imports/callers;
+   `deep` follows the full dependency graph.
+3. **Rate severity** — critical (security exploit / data loss), high (correctness/perf risk),
+   medium (maintainability), low (style) — based on actual impact, not just presence of a pattern.
+4. **Report** in `--format` (`text` default, `json` for tooling, `report` for a shareable
+   markdown doc): findings grouped by domain and severity, each with file:line, why it matters,
+   and a concrete fix direction (not just "consider refactoring").
 
 ## Boundaries
-**Will:**
-- Perform comprehensive static code analysis across multiple domains
-- Generate severity-rated findings with actionable recommendations
-- Provide detailed reports with metrics and improvement guidance
+**Will:** perform read-only static analysis across the requested domain(s); rate and prioritize
+findings; recommend concrete fixes.
+**Will Not:** modify any file or apply a fix — that requires an explicit follow-up request through
+`/do-improve` (refactor/cleanup) and passes through `confidence-check` first, same as any other
+edit. Does not execute code or run a build (static analysis only).
 
-**Will Not:**
-- Execute dynamic analysis requiring code compilation or runtime
-- Modify source code or apply fixes without explicit user consent
-- Analyze external dependencies beyond import and usage patterns
-
-**Output**: Analysis report containing:
-- Severity-rated findings
-- Code quality metrics
-- Security vulnerabilities
-- Performance issues
-- Recommendations
-
-**Next Step**: After review, use `/do-improve` to apply recommended fixes or `/do-cleanup` for dead code removal.
+## Next Step
+`/do-improve --type quality|performance|style|cleanup` to apply the recommended fixes, or
+`/do-troubleshoot` if a finding turns out to be an active, reproducing bug rather than a latent
+risk.

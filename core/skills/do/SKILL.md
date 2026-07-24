@@ -25,6 +25,10 @@ requested skill, and recommends the best-matching skill when the input doesn't n
 ## Quick Reference
 | Skill | Description | Example |
 |---------|-------------|---------|
+| `/do-pm` | Classify an ambiguous/multi-part request and route each part | `/do-pm "fix X and also document Y"` |
 | `/do-research` | Deep web research | `/do-research topic` |
 | `/do-index` | Project documentation and knowledge base | `/do-index` |
 | `/do-help` | Full skill list | `/do-help` |
+
+If `$ARGUMENTS` bundles 2+ unrelated asks or it's unclear which skill fits, recommend `/do-pm`
+over guessing a single skill yourself.

@@ -1,59 +1,47 @@
 ---
 name: do-improve
-description: "Apply systematic improvements to code quality, performance, and maintainability"
-argument-hint: "[target] [--type quality|performance|maintainability|style] [--safe] [--interactive]"
+description: "Refactor or clean up existing code — quality, performance, style, dead code, unused imports/files. Use when the user asks to improve, refactor, optimize, or clean up code that already exists, not to write new code."
+argument-hint: "[target] [--type quality|performance|style|cleanup|all] [--safe] [--interactive]"
 disable-model-invocation: true
 effort: high
 ---
 
 # do-improve
 
-Use this skill for the corresponding DoFlow workflow.
+Refactor existing code for quality/performance/style, or remove dead code/imports/files — both
+are the same job (transform existing code toward a better state), distinguished only by `--type`.
 
 ## Invocation
 ```text
-/do-improve [target] [--type quality|performance|maintainability|style] [--safe] [--interactive]
+/do-improve [target] [--type quality|performance|style|cleanup|all] [--safe] [--interactive]
 ```
 
-## Metadata
-- Category: `workflow`
-- Complexity: `standard`
-- Effort: `high`
-- Suggested MCP/tooling: `sequential`, `context7`
-- Suggested specialist roles: `architect`, `performance`, `quality`, `security`
-
-## Triggers
-- Code quality enhancement and refactoring requests
-- Performance optimization and bottleneck resolution needs
-- Maintainability improvements and technical debt reduction
-- Best practices application and coding standards enforcement
-
 ## Behavioral Flow
-1. **Analyze**: Examine codebase for improvement opportunities and quality issues
-2. **Plan**: Choose improvement approach and activate relevant personas for expertise
-3. **Execute**: Apply systematic improvements with domain-specific best practices
-4. **Validate**: Ensure improvements preserve functionality and meet quality standards
-5. **Document**: Generate improvement summary and recommendations for future work
-
-Key behaviors:
-- Multi-persona coordination (architect, performance, quality, security) based on improvement type
-- Framework-specific optimization via Context7 integration for best practices
-- Systematic analysis via Sequential MCP for complex multi-component improvements
-- Safe refactoring with comprehensive validation and rollback capabilities
-
-## Key Patterns
-- **Quality Improvement**: Code analysis → technical debt identification → refactoring application
-- **Performance Optimization**: Profiling analysis → bottleneck identification → optimization implementation
-- **Maintainability Enhancement**: Structure analysis → complexity reduction → documentation improvement
-- **Security Hardening**: Vulnerability analysis → security pattern application → validation verification
+1. **Analyze** the target for issues across categories: code quality/style, performance, and
+   dead/unreferenced code (unused imports, unused functions, unreferenced files) — regardless of
+   which `--type` was requested. Confirm each finding is actually dead (no callers, not exported)
+   before treating it as removable.
+2. **Scope the change to what was asked**:
+   - `--type cleanup`: only dead code / unused imports / unreferenced files. Do not restructure
+     live logic even if it's messy — that's `--type quality`/`performance`, not cleanup, even when
+     the surrounding code looks messy enough to invite it.
+   - `--type quality|performance|style`: restructure the live logic named in the request. If
+     `--type` isn't `all`, do not also delete dead code you notice nearby — **flag it in the
+     report instead of silently removing it**, rather than expanding scope unasked.
+   - `--type all` (or no `--type` given and the user's own wording spans both): do both, and say
+     so explicitly in the report.
+3. **Apply** the in-scope change only. Preserve the existing public interface (exports, function
+   signatures) unless the user explicitly asked to change it.
+4. **Validate**: for a logic change, trace representative inputs (including edge cases: empty
+   input, boundary values) through old vs. new to confirm identical behavior. For a cleanup
+   change, confirm the removed symbols truly have zero remaining references.
+5. **Report**: what changed, grouped by category (cleanup vs. quality/performance/style); what was
+   found but left out-of-scope and why, so the user can request it explicitly next if they want it.
 
 ## Boundaries
-**Will:**
-- Apply systematic improvements with domain-specific expertise and validation
-- Provide comprehensive analysis with multi-persona coordination and best practices
-- Execute safe refactoring with rollback capabilities and quality preservation
-
-**Will Not:**
-- Apply risky improvements without proper analysis and user confirmation
-- Make architectural changes without understanding full system impact
-- Override established coding standards or project-specific conventions
+**Will:** refactor/clean up existing code within the requested `--type` scope; flag out-of-scope
+findings instead of silently fixing them; preserve behavior and public interface unless asked
+otherwise.
+**Will Not:** write new features or new code from scratch (that's `/do-implement`); expand scope
+beyond the requested `--type` without flagging it first; skip the behavior-preservation validation
+step for a logic change.

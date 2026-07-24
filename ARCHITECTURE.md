@@ -16,7 +16,7 @@ do-flow/
 │   ├── keybindings.json
 │   ├── .mcp.json       # MCP server registration
 │   ├── agents/         # 14 specialist agent definitions
-│   ├── skills/         # 31 Claude Code slash-command skills
+│   ├── skills/         # 28 Claude Code slash-command skills
 │   ├── modes/          # 6 behavioral modes (on-demand only)
 │   ├── rules/          # 4 rule files (<60 lines each)
 │   ├── mcp/            # MCP server documentation
