@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "doflow",
+  "description": "Engineering workflows, quality gates, and specialist guidance for Claude Code.",
+  "owner": {
+    "name": "DoFlow"
+  },
+  "plugins": [
+    {
+      "name": "doflow",
+      "description": "Reusable engineering workflows, quality gates, and specialist guidance for Claude Code.",
+      "author": {
+        "name": "DoFlow"
+      },
+      "category": "development",
+      "source": ".",
+      "homepage": "https://github.com/khoavu882/do-flow"
+    }
+  ]
+}

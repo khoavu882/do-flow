@@ -41,7 +41,7 @@ The client decides how to execute work. DoFlow supplies shared guidance, task wo
 | Agents, scripts, templates, references | Yes | Yes | Yes |
 | Hook configuration | Yes | No file-based installer support | No file-based installer support |
 | MCP registration from DoFlow | Yes | No file-based installer support | No file-based installer support |
-| Plugin manifest distribution | N/A | Available in `core/.codex-plugin/` | N/A |
+| Plugin marketplace distribution | Available in `core/.claude-plugin/` | Available in `core/.codex-plugin/` | N/A |
 
 “No file-based installer support” means the source is not copied as a client configuration file. It does not prevent that client from using its own native extension or connector system.
 

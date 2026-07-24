@@ -37,6 +37,20 @@ test('Codex plugin manifest packages the single-source core skills tree', () => 
   assert.ok(fs.existsSync(path.join(REPO, 'core', 'skills', 'do-implement', 'SKILL.md')));
 });
 
+test('Claude marketplace exposes the single-source core plugin', () => {
+  const marketplacePath = path.join(REPO, 'core', '.claude-plugin', 'marketplace.json');
+  const manifestPath = path.join(REPO, 'core', '.claude-plugin', 'plugin.json');
+  const marketplace = JSON.parse(fs.readFileSync(marketplacePath, 'utf8'));
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+
+  assert.strictEqual(marketplace.name, 'doflow');
+  assert.strictEqual(marketplace.plugins.length, 1);
+  assert.deepStrictEqual(marketplace.plugins[0].source, '.');
+  assert.strictEqual(marketplace.plugins[0].name, manifest.name);
+  assert.strictEqual(manifest.version, require('../package.json').version);
+  assert.ok(fs.existsSync(path.join(REPO, 'core', 'skills', 'do-implement', 'SKILL.md')));
+});
+
 test('resolveTargets defaults to all and validates', () => {
   assert.deepStrictEqual(resolveTargets([]), VALID);
   assert.deepStrictEqual(resolveTargets(['claude']), ['claude']);

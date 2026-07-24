@@ -22,6 +22,7 @@ The architecture has a deliberately simple boundary: **content lives in `core/`;
 | Path | Owns |
 |---|---|
 | `core/` | Canonical instructions, skills, rules, agents, hooks, MCP notes, scripts, templates, and references |
+| `core/.claude-plugin/` | Claude Code marketplace registry and plugin manifest; `core/` is the plugin root |
 | `core/.codex-plugin/` | Codex plugin manifest for plugin-based distribution |
 | `bin/doflow` | CLI entry point |
 | `bin/mappings.conf` | Client-to-destination mapping definitions |

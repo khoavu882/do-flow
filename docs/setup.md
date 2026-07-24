@@ -80,9 +80,23 @@ configuration is disposable. `sync.sh` remains a compatibility shim; use `doflow
 | Hooks and settings | ✓ | — | — |
 | MCP registration | ✓ | — | — |
 
-Codex’s file-based installation intentionally excludes Claude hooks. The repository also exposes
-`core/` as a Codex/ChatGPT plugin root through `core/.codex-plugin/plugin.json`; that manifest is a
-distribution artifact and is not copied by `doflow install`.
+Codex’s file-based installation intentionally excludes Claude hooks. The repository exposes
+`core/` as a Claude Code marketplace plugin through its `.claude-plugin/marketplace.json` and
+`.claude-plugin/plugin.json`, and as a Codex/ChatGPT plugin through
+`core/.codex-plugin/plugin.json`. These manifests are distribution artifacts and are not copied by
+`doflow install`.
+
+### Claude Code marketplace
+
+To add the canonical Claude configuration directory as a marketplace, run:
+
+```bash
+claude plugin marketplace add /path/to/do-flow/core
+```
+
+Then install `doflow` from the marketplace in Claude Code. The marketplace entry points to the
+current `core/` directory, so the plugin and the CLI installer share the same canonical skills and
+guidance.
 
 ## Claude MCP servers
 
