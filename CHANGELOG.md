@@ -21,6 +21,16 @@ moved. The corresponding git tags were renamed to match.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-07-25
+
+### Fixed
+
+- **`templates/doflow/contract-doc-template.md` leaked its own pre-install source path.** It
+  referenced `core/shared/skills/do-execute-plan/contracts.md` (a do-flow-repo-only path) instead
+  of the installed, harness-relative `skills/do-execute-plan/contracts.md` — every fresh install of
+  this template carried a broken reference. Same leak class as the one fixed once before in 0.3.0;
+  swept the rest of `core/shared/` and `core/harnesses/` and found no further instances.
+
 ## [0.7.0] - 2026-07-25
 
 ### Added
