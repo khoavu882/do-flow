@@ -3,7 +3,25 @@
 All notable changes to DoFlow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+**Versioning convention:**
+- **MAJOR** — any breaking change: a removed/renamed CLI surface (subcommand, flag, script
+  entrypoint), a changed installed-output shape/path, or a changed exported module API.
+- **MINOR** — backward-compatible additions: new flags, skills, agents, hooks, install targets.
+- **PATCH** — backward-compatible fixes, docs, or internal refactors with no observable behavior
+  change.
+- **Cadence** — cut a release when a feature branch merges to `develop` and this file's
+  `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
+  work into the same pending bump instead of tagging a same-day patch on top of it.
+
+**Note on 2026-07-25:** every entry below `[0.7.0]` was renumbered from its original `1.x`/`2.x`
+tag onto this `0.y.z` scheme (`1.0.0`→`0.1.0`, `2.0.0`→`0.2.0`, `2.1.0`→`0.3.0`, ... `2.4.4`→
+`0.6.4`) — the `1.x`/`2.x` series never should have left SemVer's own "initial development, anything
+may still break" `0.y.z` range. Content and dates are otherwise unchanged; only the version numbers
+moved. The corresponding git tags were renamed to match.
+
 ## [Unreleased]
+
+## [0.7.0] - 2026-07-25
 
 ### Added
 
@@ -47,6 +65,9 @@ All notable changes to DoFlow are documented here. Format follows
 - Dropped the redundant `codex-` filename prefix from Codex's hook scripts
   (`core/harnesses/codex/hooks/`) — directory-level namespacing already disambiguates them from
   Claude's identically-named scripts.
+- Centralized the marker-removal logic the Claude and Codex adapters each carried as an identical
+  private copy into a single `removeMarkedSection(file)` in `src/marker-merge.js` (renamed from
+  `claude-md-merge.js` now that it's shared, not Claude-specific).
 
 ### Removed
 
@@ -71,15 +92,17 @@ All notable changes to DoFlow are documented here. Format follows
   silently missing from every real install. Both fixed: the deploy step now copies every file in
   the hooks source directory, and the five wrappers delegate to a distinctly-named `.impl.sh` copy
   instead of a same-named sibling.
+- `update --dry-run` for an MCP-only change no longer falsely claims a backup will be created —
+  its preview message now uses the same guard as the real backup-creation path.
 
-## [2.4.4] - 2026-07-24
+## [0.6.4] - 2026-07-24
 
 ### Added
 
 - **Claude Code marketplace plugin distribution.** `core/.claude-plugin/` now contains the
   marketplace registry and DoFlow plugin manifest, pointing to the canonical `core/` content tree.
 
-## [2.4.3] - 2026-07-24
+## [0.6.3] - 2026-07-24
 
 ### Changed
 
@@ -98,7 +121,7 @@ All notable changes to DoFlow are documented here. Format follows
   to enumerate the live skill set instead of a hardcoded table, so this doesn't drift again the
   same way. Full details: `agent-docs/doflow/010-skills-core-refactor/`.
 
-## [2.4.2] - 2026-07-23
+## [0.6.2] - 2026-07-23
 
 ### Changed
 
@@ -110,7 +133,7 @@ All notable changes to DoFlow are documented here. Format follows
   file is preserved byte-for-byte. Applies identically to `install` and `update`, global and
   project scope. `.mcp.json` needed no change — it was already read-merge-write via `src/mcp.js`.
 
-## [2.4.1] - 2026-07-22
+## [0.6.1] - 2026-07-22
 
 ### Changed
 
@@ -123,7 +146,7 @@ All notable changes to DoFlow are documented here. Format follows
   instead of leaving the ambiguity open. `do-flow`'s Gate 0 description is updated to reflect
   that it's now a safety net for an aborted session, not the normal path.
 
-## [2.4.0] - 2026-07-21
+## [0.6.0] - 2026-07-21
 
 ### Added
 
@@ -142,7 +165,7 @@ All notable changes to DoFlow are documented here. Format follows
   covers `default/`'s generated content, so a contract frame generated before this change is
   correctly flagged stale (not silently treated as current) the next time `--contracts` runs.
 
-## [2.3.0] - 2026-07-17
+## [0.5.0] - 2026-07-17
 
 ### Added
 
@@ -177,7 +200,7 @@ All notable changes to DoFlow are documented here. Format follows
   extensions of `--contracts`'s existing behavior, not bug fixes; the resolved-language success
   path (real native-language declarations) is unchanged.
 
-## [2.2.0] - 2026-07-16
+## [0.4.0] - 2026-07-16
 
 ### Added
 
@@ -203,7 +226,7 @@ All notable changes to DoFlow are documented here. Format follows
   now also covers the inferred language and which signal produced it, so a change in the
   dependency service's own language/build setup between runs is still correctly detected as stale.
 
-## [2.1.1] - 2026-07-15
+## [0.3.1] - 2026-07-15
 
 ### Fixed
 
@@ -229,11 +252,11 @@ All notable changes to DoFlow are documented here. Format follows
   snippet above — it only ever matched inside the do-flow source repo itself, so it was dead
   code/token cost on every real install now that the project-scoped walk-up covers the do-flow
   repo's own dogfooded use equally well. Swept `core/` for the same core/-prefixed-path leak class
-  already fixed once in 2.1.0 and found four more instances (`RULE_02_WORKFLOW.md`,
+  already fixed once in 0.3.0 and found four more instances (`RULE_02_WORKFLOW.md`,
   `hooks/lib.sh`, `hooks/skill-config-audit.sh`, `scripts/doflow/bash/do-paths.sh`) plus the
   `DOFLOW_CHAIN.md` note describing the now-removed dev-tree special case.
 
-## [2.1.0] - 2026-07-15
+## [0.3.0] - 2026-07-15
 
 ### Added
 
@@ -279,7 +302,7 @@ All notable changes to DoFlow are documented here. Format follows
   Skills best practices) — `SKILL.md` no longer pays that token cost on every other invocation
   (`--next`/`--phase`/`--all`/`--resume`/`--dry-run`). 105 → 87 lines.
 
-## [2.0.0] - 2026-07-15
+## [0.2.0] - 2026-07-15
 
 ### Changed
 
@@ -320,14 +343,14 @@ All notable changes to DoFlow are documented here. Format follows
 - `code-reviewer` agent.
 - `core/reference/JAVA_CODING_RULE.md`, `core/reference/CODE_REVIEW_CHECKLIST.md`.
 
-## [1.0.1] - 2026-07-13
+## [0.1.1] - 2026-07-13
 
 ### Fixed
 
 - Retry `EAGAIN` on stdin reads left non-blocking by raw-mode prompts, instead of failing the
   prompt closed (`src/prompt.js`, `src/mcp.js`).
 
-## [1.0.0] - 2026-07-09
+## [0.1.0] - 2026-07-09
 
 ### Added
 
