@@ -4,40 +4,28 @@ const assert = require('node:assert');
 const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
-const { readMappings } = require('../src/mappings');
 const { resolveTargets, VALID, toolDirs } = require('../src/targets');
-const { planFiles } = require('../src/copy');
+const { writeManifest, readManifest, manifestPath } = require('../src/manifest');
+const { resolveContext } = require('../src/context');
 
 const REPO = path.resolve(__dirname, '..');
-const MAP = path.join(REPO, 'bin', 'mappings.conf');
-
-test('readMappings parses the claude section', () => {
-  const m = readMappings(MAP, 'claude');
-  assert.ok(m.length > 5, 'expected several claude mappings');
-  assert.ok(m.every((x) => x.src && x.dst), 'every entry has src+dst');
-  assert.ok(m.some((x) => x.src === 'core/agents/' && x.dst === 'agents/'));
-  assert.ok(m.some((x) => x.dst === 'CLAUDE.md'));
-});
-
-test('readMappings codex includes native instructions and skills', () => {
-  const c = readMappings(MAP, 'codex');
-  assert.ok(c.length >= 7);
-  assert.ok(c.some((x) => x.src === 'core/CLAUDE.md' && x.dst === 'AGENTS.md'));
-  assert.ok(c.some((x) => x.src === 'core/skills/' && x.dst === 'skills/'));
-  assert.ok(c.some((x) => x.src === 'core/scripts/' && x.dst === 'scripts/'));
-  assert.ok(c.some((x) => x.src === 'core/templates/' && x.dst === 'templates/'));
-});
 
 test('Codex plugin manifest packages the single-source core skills tree', () => {
+  // .codex-plugin/ must keep its exact required name and location (core/) — Codex plugin
+  // discovery requires .codex-plugin/plugin.json, with all other content (skills/, etc.) as
+  // siblings at the plugin root, not nested under core/harnesses/codex/ with the rest of the
+  // harness-native reorg.
   const manifestPath = path.join(REPO, 'core', '.codex-plugin', 'plugin.json');
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   assert.strictEqual(manifest.name, 'doflow');
   assert.strictEqual(manifest.version, require('../package.json').version);
-  assert.strictEqual(manifest.skills, './skills/');
-  assert.ok(fs.existsSync(path.join(REPO, 'core', 'skills', 'do-implement', 'SKILL.md')));
+  assert.strictEqual(manifest.skills, './shared/skills/');
+  assert.ok(fs.existsSync(path.join(REPO, 'core', 'shared', 'skills', 'do-implement', 'SKILL.md')));
 });
 
 test('Claude marketplace exposes the single-source core plugin', () => {
+  // Same constraint as Codex's plugin: .claude-plugin/ must stay at core/ (the documented
+  // marketplace root), not moved under core/harnesses/claude/.
   const marketplacePath = path.join(REPO, 'core', '.claude-plugin', 'marketplace.json');
   const manifestPath = path.join(REPO, 'core', '.claude-plugin', 'plugin.json');
   const marketplace = JSON.parse(fs.readFileSync(marketplacePath, 'utf8'));
@@ -48,26 +36,16 @@ test('Claude marketplace exposes the single-source core plugin', () => {
   assert.deepStrictEqual(marketplace.plugins[0].source, '.');
   assert.strictEqual(marketplace.plugins[0].name, manifest.name);
   assert.strictEqual(manifest.version, require('../package.json').version);
-  assert.ok(fs.existsSync(path.join(REPO, 'core', 'skills', 'do-implement', 'SKILL.md')));
+  assert.deepStrictEqual(manifest.skills, ['./shared/skills/']);
+  assert.deepStrictEqual(manifest.agents, ['./shared/agent-specs/']);
+  assert.ok(fs.existsSync(path.join(REPO, 'core', 'shared', 'skills', 'do-implement', 'SKILL.md')));
+  assert.ok(fs.existsSync(path.join(REPO, 'core', 'shared', 'agent-specs', 'backend-architect.md')));
 });
 
 test('resolveTargets defaults to all and validates', () => {
   assert.deepStrictEqual(resolveTargets([]), VALID);
   assert.deepStrictEqual(resolveTargets(['claude']), ['claude']);
   assert.throws(() => resolveTargets(['bogus']), /Unknown target/);
-});
-
-test('planFiles yields tool-prefixed dest paths', () => {
-  const files = planFiles(REPO, readMappings(MAP, 'claude'), 'claude');
-  assert.ok(files.length > 10);
-  assert.ok(files.every((f) => f.startsWith('claude/')), 'all dest paths tool-prefixed');
-  assert.ok(files.includes('claude/CLAUDE.md'));
-});
-
-test('readMappings gemini includes skills and modes', () => {
-  const g = readMappings(MAP, 'gemini');
-  assert.ok(g.some((x) => x.dst === 'skills/'), 'gemini must include skills');
-  assert.ok(g.some((x) => x.dst === 'modes/'), 'gemini must include modes');
 });
 
 test('toolDirs defaults to project scope rooted at projectRoot', () => {
@@ -82,8 +60,62 @@ test('toolDirs defaults projectRoot to cwd when omitted', () => {
   assert.strictEqual(dirs.claude, path.join(process.cwd(), '.claude'));
 });
 
-test('toolDirs global:true resolves under $HOME (sync.sh parity)', () => {
+test('toolDirs global:true resolves under $HOME', () => {
   const dirs = toolDirs({ global: true });
   assert.strictEqual(dirs.claude, path.join(os.homedir(), '.claude'));
   assert.strictEqual(dirs.codex, path.join(os.homedir(), '.codex'));
+});
+
+test('manifest keeps legacy state readable without a managed-resource ledger', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-manifest-'));
+  const claudeDir = path.join(root, '.claude');
+  fs.mkdirSync(claudeDir, { recursive: true });
+  fs.writeFileSync(manifestPath(claudeDir), JSON.stringify({
+    script_version: '2.4.4', last_operation: 'install', last_run: '2026-07-24T00:00:00Z',
+    source_path: REPO, source_commit: 'legacy', last_backup_id: 'install_legacy', tools: {},
+  }));
+
+  const manifest = readManifest(claudeDir);
+  assert.strictEqual(manifest.operation, 'install');
+  assert.deepStrictEqual(manifest.managedResources, []);
+});
+
+test('manifest writes and reads Codex managed-resource ownership records', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-manifest-'));
+  const claudeDir = path.join(root, '.claude');
+  const managedResources = [{
+    target: 'codex', scope: 'project', kind: 'mcp-server', identity: 'doflow.context7',
+    sourceVersion: '2.4.4', fingerprint: 'sha256:managed-value', selection: true,
+    recoveryPoint: 'install_2026-07-24_00-00-00',
+  }];
+
+  writeManifest({
+    claudeDir, scriptVersion: '2.4.4', operation: 'install', repoRoot: REPO,
+    tools: ['codex'], date: new Date('2026-07-24T00:00:00Z'), sourceCommit: 'test',
+    managedResources,
+  });
+
+  const raw = JSON.parse(fs.readFileSync(manifestPath(claudeDir), 'utf8'));
+  assert.deepStrictEqual(raw.managed_resources, managedResources);
+  assert.deepStrictEqual(readManifest(claudeDir).managedResources, managedResources);
+});
+
+test('manifest preserves a managed-resource ledger when legacy callers omit it', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-manifest-'));
+  const claudeDir = path.join(root, '.claude');
+  const managedResources = [{ target: 'codex', scope: 'global', kind: 'asset', identity: 'doflow.config', sourceVersion: '2.4.4', fingerprint: 'sha256:config', selection: null, recoveryPoint: 'backup_1' }];
+  const common = { claudeDir, scriptVersion: '2.4.4', repoRoot: REPO, tools: ['codex'], sourceCommit: 'test' };
+
+  writeManifest({ ...common, operation: 'install', date: new Date('2026-07-24T00:00:00Z'), managedResources });
+  writeManifest({ ...common, operation: 'update', date: new Date('2026-07-25T00:00:00Z') });
+
+  assert.deepStrictEqual(readManifest(claudeDir).managedResources, managedResources);
+});
+
+test('resolveContext exposes an optional managed-resource ledger without changing legacy context', () => {
+  const base = { repoRoot: REPO, global: false, projectRoot: '/tmp/project', targets: ['codex'], dirs: { codex: '/tmp/project/.codex' }, sourceCommit: 'test' };
+  assert.ok(!Object.hasOwn(resolveContext(base), 'managedResources'));
+
+  const managedResources = [{ target: 'codex', scope: 'project', kind: 'hook-handler', identity: 'doflow.pre-implement', sourceVersion: '2.4.4', fingerprint: 'sha256:hook', selection: true, recoveryPoint: 'backup_2' }];
+  assert.deepStrictEqual(resolveContext({ ...base, managedResources }).managedResources, managedResources);
 });

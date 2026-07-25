@@ -35,7 +35,7 @@ The full installed skill set is: `confidence-check`, `do`, `do-analyze`, `do-bra
 
 ## Agents
 
-Agents are specialist perspectives used by planning and review workflows. Their definitions live in `core/agents/`.
+Agents are specialist perspectives used by planning and review workflows. Their definitions live in `core/shared/agent-specs/`.
 
 | Area | Typical perspectives |
 |---|---|
@@ -46,7 +46,7 @@ Agents are specialist perspectives used by planning and review workflows. Their 
 
 Ask the relevant workflow to involve a specialist, or use `/do-pm` when the work crosses several areas.
 
-## Hooks
+## Harness adapters and hooks
 
 Claude Code hooks add guardrails around sessions and commands.
 
@@ -58,7 +58,10 @@ Claude Code hooks add guardrails around sessions and commands.
 | After tool use | Capture follow-up context when appropriate |
 | Stop / compaction | Preserve concise continuity across a long session |
 
-Hooks are configured for Claude Code; the shared instruction, skill, script, template, and reference sources are also installed for Codex and Gemini CLI.
+Hooks are native, target-specific integrations. Claude Code supports the listed lifecycle and tool
+hooks. Codex hooks require a trusted project and review before they become active. Gemini CLI hooks
+are currently unavailable and must be reported as a gap, not copied as if active. See the
+[capability map](capability-map.md) for the verification contract.
 
 ## MCP and flags
 
@@ -73,18 +76,21 @@ MCP integrations are optional. The short flags select the appropriate capability
 | `--all-mcp` | Allow all configured MCP integrations |
 | `--no-mcp` | Keep work to native tools |
 
-See `core/mcp/` for server-specific operating guidance and `core/.mcp.json` for the Claude registration source.
+See `core/shared/guidance/mcp/` for server-specific operating guidance. The neutral server catalog is
+`core/registry/mcp.yaml`; target adapters serialize it into native registration formats.
 
 ## Rules and behavioral modes
 
 | Source | Governs |
 |---|---|
-| `core/PRINCIPLES.md` | Baseline collaboration and engineering principles |
-| `core/FLAGS.md` | Shared flags and their meaning |
-| `core/rules/RULE_01_SAFETY.md` | Safety boundaries |
-| `core/rules/RULE_02_WORKFLOW.md` | Delivery workflow |
-| `core/rules/RULE_03_QUALITY.md` | Quality expectations |
-| `core/rules/RULE_04_QUESTIONS.md` | When and how to ask for clarification |
-| `core/modes/` | Optional modes for research, orchestration, brainstorming, and task management |
+| `core/registry/*.yaml` | Capability, asset, MCP, and lifecycle-policy declarations |
+| `core/shared/guidance/docs/PRINCIPLES.md` | Baseline collaboration and engineering principles |
+| `core/shared/guidance/docs/FLAGS.md` | Shared flags and their meaning |
+| `core/shared/guidance/rules/RULE_01_SAFETY.md` | Safety boundaries |
+| `core/shared/guidance/rules/RULE_02_WORKFLOW.md` | Delivery workflow |
+| `core/shared/guidance/rules/RULE_03_QUALITY.md` | Quality expectations |
+| `core/shared/guidance/rules/RULE_04_QUESTIONS.md` | When and how to ask for clarification |
+| `core/shared/guidance/modes/` | Optional modes for research, orchestration, brainstorming, and task management |
 
-Installed instruction files load the core rules and point to optional material on demand. Do not duplicate rule text in project documentation; link to the source that owns it.
+Installed instruction files load the core rules and point to optional material on demand. Do not
+duplicate rule text in project documentation.

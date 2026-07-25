@@ -1,10 +1,12 @@
 {
   "name": "doflow",
-  "version": "2.4.4",
+  "version": "0.7.0",
   "description": "Reusable engineering workflows, quality gates, and specialist guidance for Claude Code.",
   "author": {
     "name": "DoFlow"
   },
   "license": "MIT",
-  "keywords": ["engineering", "workflows", "quality", "claude-code"]
+  "keywords": ["engineering", "workflows", "quality", "claude-code"],
+  "skills": ["./shared/skills/"],
+  "agents": ["./shared/agent-specs/"]
 }

@@ -83,4 +83,4 @@ Claude-only hooks are intentionally not installed for Codex or Gemini. See the [
 ## Contributing
 
 The repository layout and deployment model are documented in the [Architecture guide](docs/architecture.md).
-Run `npm test`, `npm run parity`, and the shell suites described there before submitting changes.
+Run `npm test` and the shell suites described there before submitting changes.

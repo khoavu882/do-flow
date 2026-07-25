@@ -1,0 +1,100 @@
+{
+  "description": "DoFlow lifecycle hooks for Codex. Review and trust these hooks in Codex before use.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.codex/hooks/session-start.sh\" ] && printf '%s/.codex/hooks/session-start.sh' \"$root\" || printf '%s/hooks/session-start.sh' \"${CODEX_HOME:-$HOME/.codex}\")\"",
+            "statusMessage": "Preparing DoFlow session context"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.codex/hooks/user-prompt-submit.sh\" ] && printf '%s/.codex/hooks/user-prompt-submit.sh' \"$root\" || printf '%s/hooks/user-prompt-submit.sh' \"${CODEX_HOME:-$HOME/.codex}\")\""
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.codex/hooks/subagent-audit.sh\" ] && printf '%s/.codex/hooks/subagent-audit.sh' \"$root\" || printf '%s/hooks/subagent-audit.sh' \"${CODEX_HOME:-$HOME/.codex}\")\""
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.codex/hooks/subagent-audit.sh\" ] && printf '%s/.codex/hooks/subagent-audit.sh' \"$root\" || printf '%s/hooks/subagent-audit.sh' \"${CODEX_HOME:-$HOME/.codex}\")\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.codex/hooks/pre-bash-guard.sh\" ] && printf '%s/.codex/hooks/pre-bash-guard.sh' \"$root\" || printf '%s/hooks/pre-bash-guard.sh' \"${CODEX_HOME:-$HOME/.codex}\")\"",
+            "statusMessage": "Checking command safety"
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.codex/hooks/mcp-tool-guard.sh\" ] && printf '%s/.codex/hooks/mcp-tool-guard.sh' \"$root\" || printf '%s/hooks/mcp-tool-guard.sh' \"${CODEX_HOME:-$HOME/.codex}\")\"",
+            "statusMessage": "Checking MCP policy"
+          }
+        ]
+      },
+      {
+        "matcher": "^(apply_patch|Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.codex/hooks/pre-implement-gate.sh\" ] && printf '%s/.codex/hooks/pre-implement-gate.sh' \"$root\" || printf '%s/hooks/pre-implement-gate.sh' \"${CODEX_HOME:-$HOME/.codex}\")\"",
+            "statusMessage": "Checking DoFlow prerequisites"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.codex/hooks/stop-check.sh\" ] && printf '%s/.codex/hooks/stop-check.sh' \"$root\" || printf '%s/hooks/stop-check.sh' \"${CODEX_HOME:-$HOME/.codex}\")\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.codex/hooks/session-end.sh\" ] && printf '%s/.codex/hooks/session-end.sh' \"$root\" || printf '%s/hooks/session-end.sh' \"${CODEX_HOME:-$HOME/.codex}\")\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

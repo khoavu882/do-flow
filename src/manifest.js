@@ -7,7 +7,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { sourceCommit: gitSourceCommit } = require('./git');
 
-const MANIFEST_FILE_NAME = '.install-manifest.json';
+// Compatibility bridge: the CLI and pre-registry installations still store
+// this record beneath .claude. Neutral state imports it read-only; do not move
+// or delete it until every installed client has migrated to src/state.
+const LEGACY_MANIFEST_FILE_NAME = '.install-manifest.json';
+const MANIFEST_FILE_NAME = LEGACY_MANIFEST_FILE_NAME;
 
 function manifestPath(claudeDir) {
   return path.join(claudeDir, MANIFEST_FILE_NAME);
@@ -22,8 +26,11 @@ function manifestPath(claudeDir) {
  *           calling this module directly). `mcpServers`, when provided, persists the resolved MCP
  *           server selection so a later `update` (which never re-prompts) can reuse it instead of
  *           silently reverting to "all servers" — omit it to leave any existing value untouched.
+ *           `managedResources` is the optional ownership ledger for fine-grained Codex resources.
+ *           Each record uses {target,scope,kind,identity,sourceVersion,fingerprint,selection,
+ *           recoveryPoint}. Omit it to preserve a ledger written by a newer lifecycle command.
  */
-function writeManifest({ claudeDir, scriptVersion, operation, repoRoot, backupId = '', tools, date, dryRun = false, sourceCommit, mcpServers }) {
+function writeManifest({ claudeDir, scriptVersion, operation, repoRoot, backupId = '', tools, date, dryRun = false, sourceCommit, mcpServers, managedResources }) {
   const file = manifestPath(claudeDir);
   if (dryRun) return file;
 
@@ -31,11 +38,17 @@ function writeManifest({ claudeDir, scriptVersion, operation, repoRoot, backupId
   // incremental jq merge, which only touches the tools passed to write_manifest).
   let existingTools = {};
   let existingMcpServers;
+  let existingManagedResources;
   if (fs.existsSync(file)) {
     try {
       const existing = JSON.parse(fs.readFileSync(file, 'utf8'));
       existingTools = existing.tools || {};
       existingMcpServers = existing.mcp_servers;
+      // `managedResources` is accepted as a short-lived compatibility alias for manifests
+      // written by pre-release lifecycle work. New writes use the established snake_case
+      // top-level convention, while resource field names stay camelCase as specified by the
+      // ownership contract.
+      existingManagedResources = existing.managed_resources ?? existing.managedResources;
     } catch { /* start fresh */ }
   }
   const ts = date.toISOString().replace(/\.\d+Z$/, 'Z');
@@ -52,6 +65,8 @@ function writeManifest({ claudeDir, scriptVersion, operation, repoRoot, backupId
     tools: toolsOut,
     mcp_servers: mcpServers ?? existingMcpServers,
   };
+  const resources = managedResources ?? existingManagedResources;
+  if (resources !== undefined) manifest.managed_resources = resources;
 
   fs.mkdirSync(path.dirname(file), { recursive: true });
   // Security: the temp file must live next to `file` itself, not a shared os.tmpdir() — a
@@ -66,7 +81,7 @@ function writeManifest({ claudeDir, scriptVersion, operation, repoRoot, backupId
   return file;
 }
 
-/** @returns {{operation:string,lastRun:string,sourceCommit:string,backupId:string}|null} null if no manifest yet */
+/** @returns {{operation:string,lastRun:string,sourceCommit:string,backupId:string,managedResources:object[]}|null} null if no manifest yet */
 function readManifest(claudeDir) {
   const file = manifestPath(claudeDir);
   if (!fs.existsSync(file)) return null;
@@ -80,10 +95,18 @@ function readManifest(claudeDir) {
       tools: m.tools ?? {},
       scriptVersion: m.script_version ?? 'none',
       mcpServers: m.mcp_servers ?? null,
+      // Older manifests have no ownership ledger. Returning an empty list gives lifecycle
+      // callers a migration-safe baseline without changing their legacy install state.
+      managedResources: Array.isArray(m.managed_resources)
+        ? m.managed_resources
+        : (Array.isArray(m.managedResources) ? m.managedResources : []),
     };
   } catch {
-    return { operation: 'error', lastRun: 'error', sourceCommit: 'error', backupId: 'error', tools: {}, scriptVersion: 'error', mcpServers: null };
+    return {
+      operation: 'error', lastRun: 'error', sourceCommit: 'error', backupId: 'error',
+      tools: {}, scriptVersion: 'error', mcpServers: null, managedResources: [],
+    };
   }
 }
 
-module.exports = { MANIFEST_FILE_NAME, manifestPath, writeManifest, readManifest };
+module.exports = { LEGACY_MANIFEST_FILE_NAME, MANIFEST_FILE_NAME, manifestPath, writeManifest, readManifest };

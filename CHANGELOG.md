@@ -3,14 +3,106 @@
 All notable changes to DoFlow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
-## [2.4.4] - 2026-07-24
+**Versioning convention:**
+- **MAJOR** — any breaking change: a removed/renamed CLI surface (subcommand, flag, script
+  entrypoint), a changed installed-output shape/path, or a changed exported module API.
+- **MINOR** — backward-compatible additions: new flags, skills, agents, hooks, install targets.
+- **PATCH** — backward-compatible fixes, docs, or internal refactors with no observable behavior
+  change.
+- **Cadence** — cut a release when a feature branch merges to `develop` and this file's
+  `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
+  work into the same pending bump instead of tagging a same-day patch on top of it.
+
+**Note on 2026-07-25:** every entry below `[0.7.0]` was renumbered from its original `1.x`/`2.x`
+tag onto this `0.y.z` scheme (`1.0.0`→`0.1.0`, `2.0.0`→`0.2.0`, `2.1.0`→`0.3.0`, ... `2.4.4`→
+`0.6.4`) — the `1.x`/`2.x` series never should have left SemVer's own "initial development, anything
+may still break" `0.y.z` range. Content and dates are otherwise unchanged; only the version numbers
+moved. The corresponding git tags were renamed to match.
+
+## [Unreleased]
+
+## [0.7.0] - 2026-07-25
+
+### Added
+
+- **Multi-harness registry architecture.** `core/registry/{harnesses,assets,mcp,lifecycle}.yaml`
+  declares capabilities, shared assets, the neutral MCP catalog, and logical hook policies for
+  Claude, Codex, and Gemini CLI. `src/registry/`, `src/adapters/{claude,codex,gemini}/`,
+  `src/lifecycle/`, and `src/state/` implement a common discover/plan/apply/remove/verify contract
+  per harness, with ownership tracked in a neutral ledger (`.doflow/state/`) instead of a
+  Claude-anchored manifest. `install`/`update`/`remove` now route Claude and Gemini through the same
+  live lifecycle path Codex already used.
+- Generated `docs/capability-map.md` (registry-derived, three-harness) with a "Codex capability
+  detail" appendix for surfaces too granular for the shared taxonomy.
+
+### Changed
+
+- **Claude's and Gemini's shared assets, hooks, and settings now install through the same
+  registry/lifecycle path Codex already used**, via a new shared copy-tree engine
+  (`src/adapters/copy-tree.js`) with per-file SHA-256 ownership tracking. `bin/mappings.conf`'s
+  `[claude]`/`[codex]`/`[gemini]` sections are now fully empty — every asset those sections used to
+  copy is adapter-owned; deployed output is unchanged (byte-identical, verified against this repo's
+  own dogfooded install). Adding a new deployable file under `core/` now means declaring it in
+  `core/registry/assets.yaml`, not adding a `bin/mappings.conf` line.
+- **MCP server catalog consolidated to a single source.** `core/registry/mcp.yaml` is now the only
+  MCP catalog; `core/.mcp.json` (the pre-registry duplicate) is removed. `src/mcp.js`,
+  `src/codex-mcp.js`, and the Claude adapter's `discover()` all resolve known/selected servers from
+  the registry.
+- **Breaking (installed framework content — repository shape).** Canonical shared content moved
+  from a flat `core/` into `core/shared/{guidance,skills,templates,scripts,agent-specs}/`; Codex- and
+  Claude-native assets moved into `core/harnesses/{codex,claude}/`; Gemini's adapter defaults moved
+  under `core/harnesses/gemini/settings/`. `core/.claude-plugin/` and `core/.codex-plugin/` remain at
+  `core/` (required by each tool's plugin-discovery convention) with explicit `skills`/`agents` path
+  overrides pointing at the new `core/shared/` locations. `bin/mappings.conf`,
+  `core/registry/{harnesses,assets}.yaml`, and hardcoded source constants in `bin/doflow.js` /
+  `src/adapters/gemini/index.js` were repointed accordingly; deployed output is unchanged
+  (byte-identical, verified against this repo's own dogfooded install).
+- Gemini's instruction file mapping corrected from a stale `AGENTS.md` copy to the registry-declared
+  `GEMINI.md`, reconciled through the Gemini adapter's managed section instead of a plain file copy.
+- Retired `docs/codex-capability-map.md` (merged into `docs/capability-map.md`) and
+  `core/shared/content-index.json` (a Phase-B compatibility index superseded by the actual move
+  above).
+- Dropped the redundant `codex-` filename prefix from Codex's hook scripts
+  (`core/harnesses/codex/hooks/`) — directory-level namespacing already disambiguates them from
+  Claude's identically-named scripts.
+- Centralized the marker-removal logic the Claude and Codex adapters each carried as an identical
+  private copy into a single `removeMarkedSection(file)` in `src/marker-merge.js` (renamed from
+  `claude-md-merge.js` now that it's shared, not Claude-specific).
+
+### Removed
+
+- **Breaking (CLI).** `bin/sync.sh` and the repo-root `./sync.sh` wrapper are removed. `doflow`
+  (via `npx doflow` or `bin/doflow.js`) is the only installer; anyone still invoking `sync.sh`
+  directly must switch to the equivalent `doflow` subcommand (see `docs/setup.md`).
+- `bin/sync-legacy.sh` (the frozen bash reference implementation) and `test/cli-parity.sh` (the
+  harness that diffed `doflow.js` against it) are removed, along with `package.json`'s `parity`
+  script. The parity net served its purpose during the registry migration — every phase was
+  validated against it before this final removal — and is no longer needed now that `doflow.js` is
+  the only installer.
+
+### Fixed
+
+- **Codex lifecycle hooks were non-functional after the repository-shape move above.** Five hook
+  scripts (`session-start.sh`, `session-end.sh`, `stop-check.sh`, `subagent-audit.sh`,
+  `user-prompt-submit.sh`) were thin wrappers delegating to a differently-named real
+  implementation; dropping their `codex-` prefix collided each wrapper's filename with its own
+  delegation target, causing infinite self-recursion on every invocation. Separately,
+  `deployCodexHooks` only ever copied files named literally inside a `hooks.json` command string,
+  so `lib.sh` and two guard-config files (sourced/read at runtime, never named in a command) were
+  silently missing from every real install. Both fixed: the deploy step now copies every file in
+  the hooks source directory, and the five wrappers delegate to a distinctly-named `.impl.sh` copy
+  instead of a same-named sibling.
+- `update --dry-run` for an MCP-only change no longer falsely claims a backup will be created —
+  its preview message now uses the same guard as the real backup-creation path.
+
+## [0.6.4] - 2026-07-24
 
 ### Added
 
 - **Claude Code marketplace plugin distribution.** `core/.claude-plugin/` now contains the
   marketplace registry and DoFlow plugin manifest, pointing to the canonical `core/` content tree.
 
-## [2.4.3] - 2026-07-24
+## [0.6.3] - 2026-07-24
 
 ### Changed
 
@@ -29,7 +121,7 @@ All notable changes to DoFlow are documented here. Format follows
   to enumerate the live skill set instead of a hardcoded table, so this doesn't drift again the
   same way. Full details: `agent-docs/doflow/010-skills-core-refactor/`.
 
-## [2.4.2] - 2026-07-23
+## [0.6.2] - 2026-07-23
 
 ### Changed
 
@@ -41,7 +133,7 @@ All notable changes to DoFlow are documented here. Format follows
   file is preserved byte-for-byte. Applies identically to `install` and `update`, global and
   project scope. `.mcp.json` needed no change — it was already read-merge-write via `src/mcp.js`.
 
-## [2.4.1] - 2026-07-22
+## [0.6.1] - 2026-07-22
 
 ### Changed
 
@@ -54,7 +146,7 @@ All notable changes to DoFlow are documented here. Format follows
   instead of leaving the ambiguity open. `do-flow`'s Gate 0 description is updated to reflect
   that it's now a safety net for an aborted session, not the normal path.
 
-## [2.4.0] - 2026-07-21
+## [0.6.0] - 2026-07-21
 
 ### Added
 
@@ -73,7 +165,7 @@ All notable changes to DoFlow are documented here. Format follows
   covers `default/`'s generated content, so a contract frame generated before this change is
   correctly flagged stale (not silently treated as current) the next time `--contracts` runs.
 
-## [2.3.0] - 2026-07-17
+## [0.5.0] - 2026-07-17
 
 ### Added
 
@@ -108,7 +200,7 @@ All notable changes to DoFlow are documented here. Format follows
   extensions of `--contracts`'s existing behavior, not bug fixes; the resolved-language success
   path (real native-language declarations) is unchanged.
 
-## [2.2.0] - 2026-07-16
+## [0.4.0] - 2026-07-16
 
 ### Added
 
@@ -134,7 +226,7 @@ All notable changes to DoFlow are documented here. Format follows
   now also covers the inferred language and which signal produced it, so a change in the
   dependency service's own language/build setup between runs is still correctly detected as stale.
 
-## [2.1.1] - 2026-07-15
+## [0.3.1] - 2026-07-15
 
 ### Fixed
 
@@ -160,11 +252,11 @@ All notable changes to DoFlow are documented here. Format follows
   snippet above — it only ever matched inside the do-flow source repo itself, so it was dead
   code/token cost on every real install now that the project-scoped walk-up covers the do-flow
   repo's own dogfooded use equally well. Swept `core/` for the same core/-prefixed-path leak class
-  already fixed once in 2.1.0 and found four more instances (`RULE_02_WORKFLOW.md`,
+  already fixed once in 0.3.0 and found four more instances (`RULE_02_WORKFLOW.md`,
   `hooks/lib.sh`, `hooks/skill-config-audit.sh`, `scripts/doflow/bash/do-paths.sh`) plus the
   `DOFLOW_CHAIN.md` note describing the now-removed dev-tree special case.
 
-## [2.1.0] - 2026-07-15
+## [0.3.0] - 2026-07-15
 
 ### Added
 
@@ -210,7 +302,7 @@ All notable changes to DoFlow are documented here. Format follows
   Skills best practices) — `SKILL.md` no longer pays that token cost on every other invocation
   (`--next`/`--phase`/`--all`/`--resume`/`--dry-run`). 105 → 87 lines.
 
-## [2.0.0] - 2026-07-15
+## [0.2.0] - 2026-07-15
 
 ### Changed
 
@@ -251,14 +343,14 @@ All notable changes to DoFlow are documented here. Format follows
 - `code-reviewer` agent.
 - `core/reference/JAVA_CODING_RULE.md`, `core/reference/CODE_REVIEW_CHECKLIST.md`.
 
-## [1.0.1] - 2026-07-13
+## [0.1.1] - 2026-07-13
 
 ### Fixed
 
 - Retry `EAGAIN` on stdin reads left non-blocking by raw-mode prompts, instead of failing the
   prompt closed (`src/prompt.js`, `src/mcp.js`).
 
-## [1.0.0] - 2026-07-09
+## [0.1.0] - 2026-07-09
 
 ### Added
 

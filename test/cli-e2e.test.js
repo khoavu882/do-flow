@@ -16,7 +16,9 @@ function run(args, { home, input } = {}) {
   return spawnSync('node', [DOFLOW, ...args], {
     cwd: REPO,
     env: { ...process.env, HOME: home ?? fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-')) },
-    input: input ?? '',
+    // Reply "no" explicitly for prompt-abort cases. An empty input can leave the test worker's
+    // non-blocking pseudo-TTY attached and make the CLI retry EAGAIN as if a user were typing.
+    input: input || '\n',
     encoding: 'utf8',
   });
 }
@@ -128,7 +130,7 @@ test('full lifecycle: install -> mutate -> update -> rollback restores the pre-u
   let r = run(['install', '-g', '--force', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   // A fresh install's CLAUDE.md is already exactly doflow's marked section, verbatim (no user
-  // content yet) — see src/claude-md-merge.js.
+  // content yet) — see src/marker-merge.js.
   const cleanContent = fs.readFileSync(claudeMd, 'utf8');
 
   fs.writeFileSync(claudeMd, 'mutated by test\n');
@@ -141,7 +143,7 @@ test('full lifecycle: install -> mutate -> update -> rollback restores the pre-u
   // CLAUDE.md is merge-managed, not mirrored: mutatedContent has no doflow markers, so update
   // must treat it as foreign content and APPEND doflow's section after it (not overwrite it) —
   // that's the whole point of this feature. mutatedContent ends with exactly one "\n", so the
-  // separator-normalization rule (src/claude-md-merge.js) adds exactly one more before the
+  // separator-normalization rule (src/marker-merge.js) adds exactly one more before the
   // section.
   const expectedAfterUpdate = `${mutatedContent}\n${cleanContent}`;
   assert.strictEqual(fs.readFileSync(claudeMd, 'utf8'), expectedAfterUpdate, 'update should append doflow\'s section after the foreign (unmarked) content, not overwrite it');
@@ -177,7 +179,9 @@ test('install --dry-run previews files and writes nothing', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   const r = run(['install', '-g', '--dry-run', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
-  assert.match(r.stdout, /\[DRY\]\s+claude\/CLAUDE\.md/);
+  // Every Claude asset is registry-owned as of Phase E — the legacy copier's per-file preview
+  // lines are gone; the registry lifecycle's own preview line is the real signal now.
+  assert.match(r.stdout, /\[DRY\] Registry lifecycle: \d+ native change\(s\)/);
   assert.match(r.stdout, /Dry run complete/);
   assert.ok(!fs.existsSync(path.join(home, '.claude')), 'dry-run must not create any files');
 });
@@ -260,6 +264,90 @@ test('rollback --dry-run (no --force) does not block on the confirm prompt', () 
   assert.ok(!/Aborted/.test(r.stderr), 'dry-run rollback must not be treated as aborted by an empty confirm answer');
 });
 
+test('Codex-native lifecycle supports isolated project dry-run, selected MCP update, and verifiable ownership', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+
+  let r = run(['install', project, '--dry-run', '--target', 'codex', '--mcp', 'context7'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Registry lifecycle: \d+ native change\(s\), 0 conflict\(s\)/);
+  assert.match(r.stdout, /\[DRY\]\s+codex: \d+ change\(s\)/);
+  assert.match(r.stdout, /codex hooks trust: review-required \(review required in Codex\)/);
+  assert.ok(!fs.existsSync(path.join(project, '.codex')), 'Codex dry-run must not create project config');
+
+  r = run(['install', project, '--force', '--target', 'codex', '--mcp', 'context7'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const config = path.join(project, '.codex', 'config.toml');
+  assert.match(fs.readFileSync(config, 'utf8'), /\[features\]\nhooks = true/);
+  assert.match(fs.readFileSync(config, 'utf8'), /\[mcp_servers\.context7\]/);
+  assert.ok(fs.statSync(path.join(project, '.codex', 'hooks', 'session-start.sh')).mode & 0o111);
+  assert.ok(fs.existsSync(path.join(project, '.codex', 'agents', 'backend-architect.toml')));
+
+  r = run(['update', project, '--force', '--target', 'codex', '--mcp', 'playwright'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const updated = fs.readFileSync(config, 'utf8');
+  assert.doesNotMatch(updated, /mcp_servers\.context7/);
+  assert.match(updated, /mcp_servers\.playwright/);
+
+  r = run(['status', project, '--target', 'codex', '--json'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const status = JSON.parse(r.stdout);
+  assert.strictEqual(status.codex.status, 'verified');
+  assert.strictEqual(status.codex.hooksTrust.status, 'review-required');
+  assert.ok(status.codex.resources.some((resource) => resource.kind === 'mcp-server' && resource.identity === 'playwright'));
+});
+
+test('Codex reconciliation preserves foreign config and fails closed on a conflicting managed key', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const codex = path.join(home, '.codex');
+  fs.mkdirSync(codex, { recursive: true });
+  const config = path.join(codex, 'config.toml');
+  const foreign = '# personal setting\n[features]\nhooks = false\n';
+  fs.writeFileSync(config, foreign);
+
+  const r = run(['install', '-g', '--force', '--target', 'codex'], { home });
+  assert.strictEqual(r.status, 1);
+  assert.match(r.stderr, /exists but is not owned by DoFlow/);
+  assert.strictEqual(fs.readFileSync(config, 'utf8'), foreign, 'foreign TOML must remain byte-for-byte intact');
+});
+
+test('Codex dry-run and status expose the non-mutating registry lifecycle and neutral state location', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+  const dry = run(['install', project, '--dry-run', '--target', 'codex', '--mcp', 'context7'], { home });
+  assert.strictEqual(dry.status, 0, dry.stderr);
+  assert.match(dry.stdout, /Registry lifecycle: \d+ native change\(s\), 0 conflict\(s\)/);
+  assert.match(dry.stdout, new RegExp(`Neutral state: ${project.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/\\.doflow/state`));
+  assert.ok(!fs.existsSync(path.join(project, '.doflow')), 'dry planning must not create neutral state');
+
+  const status = run(['status', project, '--target', 'codex', '--json'], { home });
+  assert.strictEqual(status.status, 0, status.stderr);
+  const parsed = JSON.parse(status.stdout);
+  assert.strictEqual(parsed.context.registry.ledgerPresent, false);
+  assert.strictEqual(parsed.context.registry.stateRoot, path.join(project, '.doflow', 'state'));
+  assert.ok(parsed.context.registry.plan.changes > 0);
+});
+
+test('Codex remove clears only lifecycle-owned native resources and retains compatibility assets', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+  let result = run(['install', project, '--force', '--target', 'codex', '--mcp', 'context7'], { home });
+  assert.strictEqual(result.status, 0, result.stderr);
+  // A genuinely foreign, untracked file the user placed themselves — unlike a doflow-shipped
+  // asset, this can never become lifecycle-owned by a later migration phase, so it's a durable
+  // "remove never broadly deletes" example (as of Phase E, every doflow-shipped Codex asset is
+  // lifecycle-owned; there is no longer an unmigrated compatibility asset to point at instead).
+  const foreignFile = path.join(project, '.codex', 'notes.txt');
+  fs.mkdirSync(path.dirname(foreignFile), { recursive: true });
+  fs.writeFileSync(foreignFile, 'my own notes\n');
+  result = run(['remove', project, '--force', '--target', 'codex'], { home });
+  assert.strictEqual(result.status, 0, result.stderr);
+  const ledger = JSON.parse(fs.readFileSync(path.join(project, '.doflow', 'state', 'ledger.json'), 'utf8'));
+  assert.deepStrictEqual(ledger.resources, []);
+  assert.ok(!fs.existsSync(path.join(project, '.codex', 'skills', 'do-implement', 'SKILL.md')), 'skills are lifecycle-owned and must be removed');
+  assert.equal(fs.readFileSync(foreignFile, 'utf8'), 'my own notes\n', 'a foreign file never owned by doflow must survive remove untouched');
+});
+
 test('rollback with no id argument prompts interactively and accepts a typed backup id', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   run(['install', '-g', '--force', '--target', 'claude'], { home });
@@ -329,67 +417,15 @@ test('--prune keeps only the N most recent backups on both install and update', 
   assert.strictEqual((listed.stdout.match(/(install|update)_[\d_-]+/g) || []).length, 1, '--prune 1 on update must also keep exactly one backup total');
 });
 
-test('a missing bin/mappings.conf fails every command cleanly instead of an ENOENT stack trace', () => {
-  const mappingsFile = path.join(REPO, 'bin', 'mappings.conf');
-  const movedAside = `${mappingsFile}.e2e-test-backup`;
-  fs.renameSync(mappingsFile, movedAside);
-  try {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-    const r = run(['install', '-g', '--force', '--target', 'claude'], { home });
-    assert.strictEqual(r.status, 1);
-    assert.match(r.stderr, /mappings\.conf not found/);
-    assert.ok(!/at Object\.readFileSync/.test(r.stderr), 'must not leak a raw Node stack trace');
-  } finally {
-    fs.renameSync(movedAside, mappingsFile);
-  }
-});
-
-test('update rejects a traversing CLAUDE.md destination just like install does, instead of writing outside the install root', () => {
-  // Regression test: cmdUpdate's CLAUDE.md resolution used to build its destination path with a
-  // raw path.join and no assertWithinRoot call, unlike every other write path in this codebase
-  // (installTool and resolveFilePairs both guard every mapping before writing). Simulate a
-  // corrupted mappings.conf the same way the "missing mappings.conf" test above does: mutate the
-  // real file on disk temporarily, restore it in finally.
-  const mappingsFile = path.join(REPO, 'bin', 'mappings.conf');
-  const original = fs.readFileSync(mappingsFile, 'utf8');
-  const mutated = original.replace(
-    /^core\/CLAUDE\.md\s*:\s*CLAUDE\.md$/m,
-    'core/CLAUDE.md        : ../../outside.md'
-  );
-  assert.notStrictEqual(mutated, original, 'expected to find and rewrite the CLAUDE.md mapping line');
-  fs.writeFileSync(mappingsFile, mutated);
-  try {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-    const r = run(['update', '-g', '--force', '--target', 'claude'], { home });
-    assert.strictEqual(r.status, 1);
-    assert.match(r.stderr, /outside install root/);
-    assert.ok(!fs.existsSync(path.join(home, 'outside.md')), 'the traversing path must never be written');
-  } finally {
-    fs.writeFileSync(mappingsFile, original);
-  }
-});
-
-test('update skips a missing CLAUDE.md source gracefully instead of crashing with a raw ENOENT', () => {
-  // Regression test: cmdUpdate's CLAUDE.md resolution used to call mergeMarkedSection
-  // unconditionally once the mapping was found, without checking the source file exists first —
-  // unlike every other mapping (resolveFilePairs/installTool both skip a missing source silently).
-  const mappingsFile = path.join(REPO, 'bin', 'mappings.conf');
-  const original = fs.readFileSync(mappingsFile, 'utf8');
-  const mutated = original.replace(
-    /^core\/CLAUDE\.md\s*:\s*CLAUDE\.md$/m,
-    'core/no-such-file.md  : CLAUDE.md'
-  );
-  assert.notStrictEqual(mutated, original, 'expected to find and rewrite the CLAUDE.md mapping line');
-  fs.writeFileSync(mappingsFile, mutated);
-  try {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-    const r = run(['update', '-g', '--force', '--target', 'claude'], { home });
-    assert.strictEqual(r.status, 0, r.stderr);
-    assert.ok(!/ENOENT/.test(r.stderr), 'a missing CLAUDE.md source must not surface a raw ENOENT');
-  } finally {
-    fs.writeFileSync(mappingsFile, original);
-  }
-});
+// Three regression tests formerly here ("a missing bin/mappings.conf fails every command
+// cleanly...", "update rejects a traversing CLAUDE.md destination...", "update skips a missing
+// CLAUDE.md source...") protected the legacy mappings.conf-driven copier (readMappings/
+// installTool/diffFiles/resolveManagedInstructionUpdates), deleted entirely in Phase I once every
+// asset it copied became adapter-owned via the registry/lifecycle path. The safety properties they
+// covered — rejecting a traversing or missing asset source, and failing cleanly rather than with a
+// raw stack trace — are now enforced earlier and more strongly at registry load time; see
+// test/registry.test.js's "rejects projections to unavailable capabilities and missing source
+// files" test.
 
 test('--mcp <list> on global install merges only the selected servers into ~/.claude.json, not .claude/.mcp.json', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
@@ -449,6 +485,25 @@ test('update with an explicit --mcp overrides and re-persists the remembered sel
   assert.deepStrictEqual(Object.keys(claudeJson.mcpServers).sort(), ['chrome-devtools', 'playwright']);
 });
 
+test('update --dry-run for an MCP-only change never claims a backup will be created, matching the real run', () => {
+  // Regression test: the dry-run branch used to print "Would create partial backup" whenever
+  // --no-backup was absent, regardless of whether anything backup-worthy (a native/lifecycle
+  // change) was actually pending — an MCP-only selection change never triggers a backup on the
+  // real run (MCP files live outside the tool dir), so the preview must not claim otherwise.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  let r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+
+  r = run(['update', '-g', '--force', '--dry-run', '--target', 'claude', '--mcp', 'playwright'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(!/Would create partial backup/.test(r.stdout), `dry-run must not claim a backup for an MCP-only change:\n${r.stdout}`);
+
+  r = run(['update', '-g', '--force', '--target', 'claude', '--mcp', 'playwright'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const listed = run(['list-backups', '-g'], { home });
+  assert.ok(!/update_/.test(listed.stdout), `the real run must not have created an update backup either:\n${listed.stdout}`);
+});
+
 test('--mcp on install rejects an unknown server name with a clear message', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   const r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'not-a-real-server'], { home });
@@ -464,4 +519,150 @@ test('doflow status reports the persisted MCP server selection', () => {
   assert.strictEqual(r.status, 0, r.stderr);
   const status = JSON.parse(r.stdout);
   assert.deepStrictEqual(status.manifest.mcpServers.sort(), ['context7', 'playwright']);
+});
+
+// --- Multi-harness lifecycle wiring (claude/codex/gemini all reconcile through the same
+// registry/lifecycle path — see bin/doflow.js's unified `lifecycleView`) ---------------------
+
+test('Claude lifecycle: fresh install owns the instructions asset in the neutral ledger with unchanged CLAUDE.md bytes', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+  const r = run(['install', project, '--force', '--target', 'claude'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  // Claude now owns its instructions asset plus every copy-tree asset (rules, skills, agents,
+  // templates, scripts, modes, references, hooks scripts) and claude.settings — well over 1,
+  // unlike before the registry migration covered anything beyond the instructions file.
+  assert.match(r.stdout, /\[INFO\] claude: lifecycle verified \((\d+) owned resource\(s\)\)/);
+  const ownedCount = Number(r.stdout.match(/lifecycle verified \((\d+) owned resource/)[1]);
+  assert.ok(ownedCount > 100, `expected well over 100 owned Claude resources once copy-tree/settings assets are included, got ${ownedCount}`);
+
+  const claudeMd = path.join(project, '.claude', 'CLAUDE.md');
+  const content = fs.readFileSync(claudeMd, 'utf8');
+  // A fresh install has no foreign content to preserve, so CLAUDE.md must be exactly doflow's
+  // marker span around core/CLAUDE.md's own content, byte for byte — proving the legacy copy
+  // loop's merge and the lifecycle's own re-apply of the same merge (now wired in behind it)
+  // converge to the identical, unchanged output rather than double-inserting anything.
+  const MARKER_START = '<!-- doflow:start — content below is managed by doflow install/update; edits here are overwritten on the next run -->';
+  const MARKER_END = '<!-- doflow:end -->';
+  const coreClaudeMd = fs.readFileSync(path.join(REPO, 'core', 'shared', 'guidance', 'CLAUDE.md'), 'utf8').replace(/\s+$/, '');
+  assert.strictEqual(content, `${MARKER_START}\n${coreClaudeMd}\n${MARKER_END}\n`);
+
+  const ledger = JSON.parse(fs.readFileSync(path.join(project, '.doflow', 'state', 'ledger.json'), 'utf8'));
+  const owned = ledger.resources.filter((resource) => resource.harness === 'claude');
+  assert.strictEqual(owned.length, ownedCount);
+  const instructionResource = owned.find((resource) => resource.assetId === 'guidance.core');
+  assert.strictEqual(instructionResource.target, claudeMd);
+  // Spot-check that copy-tree and settings assets are genuinely ledger-owned now, not just the
+  // instructions file — the actual point of this phase's migration.
+  assert.ok(owned.some((resource) => resource.assetId === 'skills.doflow'), 'skills.doflow must be ledger-owned');
+  assert.ok(owned.some((resource) => resource.assetId === 'claude.settings'), 'claude.settings must be ledger-owned');
+  assert.ok(fs.existsSync(path.join(project, '.claude', 'skills', 'do-analyze', 'SKILL.md')));
+});
+
+test('Gemini lifecycle: fresh install writes GEMINI.md (not AGENTS.md) and owns it in the neutral ledger', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+  const r = run(['install', project, '--force', '--target', 'gemini'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  // Gemini now owns its instructions asset plus five copy-tree assets (rules, skills, agents,
+  // modes, references) under .agents/ (project scope) — well over 1, unlike before Phase C.
+  assert.match(r.stdout, /\[INFO\] gemini: lifecycle verified \((\d+) owned resource\(s\)\)/);
+  const ownedCount = Number(r.stdout.match(/lifecycle verified \((\d+) owned resource/)[1]);
+  assert.ok(ownedCount > 50, `expected well over 50 owned Gemini resources once copy-tree assets are included, got ${ownedCount}`);
+
+  const geminiMd = path.join(project, 'GEMINI.md');
+  assert.ok(fs.existsSync(geminiMd), 'GEMINI.md must be written by the Gemini adapter');
+  const content = fs.readFileSync(geminiMd, 'utf8');
+  assert.match(content, /<!-- doflow:start -->/);
+  assert.match(content, /<!-- doflow:end -->/);
+  assert.ok(!fs.existsSync(path.join(project, 'AGENTS.md')), 'Gemini must no longer write AGENTS.md (mappings.conf mapping removed)');
+
+  const ledger = JSON.parse(fs.readFileSync(path.join(project, '.doflow', 'state', 'ledger.json'), 'utf8'));
+  const owned = ledger.resources.filter((resource) => resource.harness === 'gemini');
+  assert.strictEqual(owned.length, ownedCount);
+  const instructionResource = owned.find((resource) => resource.target === geminiMd);
+  assert.ok(instructionResource, 'GEMINI.md must be ledger-owned');
+  assert.ok(owned.some((resource) => resource.assetId === 'skills.doflow'), 'skills.doflow must be ledger-owned');
+  assert.ok(owned.some((resource) => resource.assetId === 'agents.shared'), 'agents.shared must be ledger-owned');
+  assert.ok(fs.existsSync(path.join(project, '.agents', 'skills', 'do-analyze', 'SKILL.md')));
+  assert.ok(fs.existsSync(path.join(project, '.agents', 'agents', 'backend-architect.md')));
+});
+
+test('Claude lifecycle: remove strips only the managed section from CLAUDE.md, preserves foreign content, and updates the ledger', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+  let r = run(['install', project, '--force', '--target', 'claude'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+
+  const claudeMd = path.join(project, '.claude', 'CLAUDE.md');
+  const managedOnly = fs.readFileSync(claudeMd, 'utf8');
+  fs.writeFileSync(claudeMd, `# My own notes\n\n${managedOnly}`);
+
+  r = run(['remove', project, '--force', '--target', 'claude'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+
+  const after = fs.readFileSync(claudeMd, 'utf8');
+  assert.match(after, /# My own notes/, 'foreign content outside the marker span must survive remove');
+  assert.ok(!after.includes('<!-- doflow:start'), 'the managed section must be gone after remove');
+
+  const ledger = JSON.parse(fs.readFileSync(path.join(project, '.doflow', 'state', 'ledger.json'), 'utf8'));
+  assert.ok(!ledger.resources.some((resource) => resource.harness === 'claude'), 'claude resource must be removed from the ledger');
+});
+
+test("Gemini lifecycle: remove deletes GEMINI.md per the adapter's own remove() semantics, updating the ledger", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+  let r = run(['install', project, '--force', '--target', 'gemini'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const geminiMd = path.join(project, 'GEMINI.md');
+  assert.ok(fs.existsSync(geminiMd));
+
+  r = run(['remove', project, '--force', '--target', 'gemini'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  // Unlike Claude's marker-only removal, the Gemini adapter's remove() deletes the whole
+  // owned file — this test locks in that documented adapter behavior, not a section-only edit.
+  assert.ok(!fs.existsSync(geminiMd), "Gemini's remove() deletes the whole managed file");
+
+  const ledger = JSON.parse(fs.readFileSync(path.join(project, '.doflow', 'state', 'ledger.json'), 'utf8'));
+  assert.ok(!ledger.resources.some((resource) => resource.harness === 'gemini'), 'gemini resource must be removed from the ledger');
+});
+
+test('mixed -t claude,codex,gemini: install, update, and remove all reconcile in one invocation without cross-harness interference', () => {
+  // Global scope (matching the existing "already up to date" convergence tests): a project-scoped
+  // Claude install also rewrites settings.json's hook paths to ${CLAUDE_PROJECT_DIR} after the
+  // copy, which is an orthogonal, pre-existing legacy-path concern unrelated to this lifecycle
+  // wiring — global scope keeps this test focused on the three harnesses' lifecycle convergence.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  let r = run(['install', '-g', '--force', '--target', 'claude,codex,gemini'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+
+  const claudeMd = path.join(home, '.claude', 'CLAUDE.md');
+  const geminiMd = path.join(home, '.gemini', 'GEMINI.md');
+  const codexConfig = path.join(home, '.codex', 'config.toml');
+  assert.ok(fs.existsSync(claudeMd));
+  assert.ok(fs.existsSync(geminiMd));
+  assert.ok(fs.existsSync(codexConfig));
+
+  const ledgerFile = path.join(home, '.doflow', 'state', 'ledger.json');
+  let ledger = JSON.parse(fs.readFileSync(ledgerFile, 'utf8'));
+  for (const harness of ['claude', 'codex', 'gemini']) {
+    assert.ok(ledger.resources.some((resource) => resource.harness === harness), `${harness} resource missing after mixed install`);
+  }
+
+  // A second, immediate update has no upstream drift for any of the three harnesses — it must
+  // converge to a true no-op, exactly like the single-harness "already up to date" contract.
+  r = run(['update', '-g', '--force', '--target', 'claude,codex,gemini'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Already up to date/);
+
+  r = run(['remove', '-g', '--force', '--target', 'claude,codex,gemini'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(!fs.existsSync(geminiMd), 'gemini remove deletes its file');
+  assert.ok(!fs.readFileSync(claudeMd, 'utf8').includes('<!-- doflow:start'), 'claude remove strips only its managed section; the file remains');
+  ledger = JSON.parse(fs.readFileSync(ledgerFile, 'utf8'));
+  assert.deepStrictEqual(ledger.resources, []);
+  // Skills are lifecycle-owned for Codex too (Phase D), so remove correctly deletes them; every
+  // doflow-shipped Codex asset is lifecycle-owned as of Phase E, so a genuinely foreign file (not
+  // a doflow asset at all) is the durable "remove never broadly deletes" example.
+  assert.ok(!fs.existsSync(path.join(home, '.codex', 'skills', 'do-implement', 'SKILL.md')));
 });

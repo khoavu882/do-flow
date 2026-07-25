@@ -1,13 +1,12 @@
 {
   "name": "doflow",
-  "version": "2.4.4",
-  "description": "DoFlow config installer — npx CLI that replaces bin/sync.sh (installer-only, parity-tested)",
+  "version": "0.7.0",
+  "description": "DoFlow config installer — npx CLI for the registry-driven multi-harness install/update/remove lifecycle",
   "bin": { "doflow": "bin/doflow.js" },
   "engines": { "node": ">=18" },
   "scripts": {
-    "test": "node --test",
-    "parity": "bash test/cli-parity.sh"
+    "test": "node --test"
   },
-  "files": ["bin/", "src/", "core/", "bin/mappings.conf"],
+  "files": ["bin/", "src/", "core/"],
   "license": "MIT"
 }

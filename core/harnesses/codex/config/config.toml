@@ -1,0 +1,10 @@
+# DoFlow Codex configuration source.
+#
+# This deliberately contains only the lifecycle-hook feature flag. The installer
+# owns just this key and must preserve every unrelated Codex setting, provider,
+# MCP server, and custom-agent declaration when it reconciles this file.
+# Hooks themselves live exclusively in hooks.json beside this config; do not add
+# inline [hooks] tables here because Codex would load both representations.
+
+[features]
+hooks = true

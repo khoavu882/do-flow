@@ -6,24 +6,28 @@ const path = require('node:path');
 const { sourceCommit: gitSourceCommit } = require('./git');
 
 /**
- * @param {{repoRoot:string, mappingsFile:string, global:boolean, projectRoot:string,
- *          targets:string[], dirs:Record<string,string>, sourceCommit?:string}} p
+ * @param {{repoRoot:string, global:boolean, projectRoot:string,
+ *          targets:string[], dirs:Record<string,string>, sourceCommit?:string,
+ *          managedResources?:object[]}} p
  *          `sourceCommit` lets a caller (bin/doflow.js) pass an already-resolved commit instead of
  *          this module spawning its own `git rev-parse`; omit it to resolve here (e.g. tests
  *          calling this module directly).
  * @returns {object} plain properties object (used by both the text and --json renderers)
  */
-function resolveContext({ repoRoot, mappingsFile, global, projectRoot, targets, dirs, sourceCommit }) {
-  return {
+function resolveContext({ repoRoot, global, projectRoot, targets, dirs, sourceCommit, managedResources }) {
+  const context = {
     scope: global ? 'global' : 'project',
     scopeRoot: global ? path.dirname(dirs.claude) : path.resolve(projectRoot),
     targets,
     dirs: Object.fromEntries(targets.map((t) => [t, dirs[t]])),
     repoRoot,
     sourceCommit: sourceCommit ?? gitSourceCommit(repoRoot),
-    mappingsFile,
     nodeVersion: process.version,
   };
+  // The lifecycle engine may provide its ownership ledger for status/verify output. Do not add
+  // an empty field for existing callers: their JSON/text output remains backwards compatible.
+  if (managedResources !== undefined) context.managedResources = managedResources;
+  return context;
 }
 
 /** Human-readable "Resolved context" block, printed to stderr (keeps stdout clean like sync.sh's log()). */
@@ -35,9 +39,9 @@ function printContext(ctx) {
     ...ctx.targets.map((t) => `    ${t.padEnd(7)}-> ${ctx.dirs[t]}`),
     `  repo root     : ${ctx.repoRoot}`,
     `  source commit : ${ctx.sourceCommit}`,
-    `  mappings file : ${ctx.mappingsFile}`,
     `  node          : ${ctx.nodeVersion}`,
   ];
+  if (ctx.managedResources !== undefined) lines.push(`  managed resources: ${ctx.managedResources.length}`);
   console.error(lines.join('\n'));
 }
 

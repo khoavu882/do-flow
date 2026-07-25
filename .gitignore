@@ -47,6 +47,9 @@ downloads/
 .codex
 .claude
 .gemini
+.agents
+.doflow
+GEMINI.md
 agent-docs/
 .mcp.json
 
