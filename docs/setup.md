@@ -88,7 +88,7 @@ configuration is disposable.
 | Skills | ✓ | ✓ | ✓ |
 | Scripts and templates | ✓ | ✓ | Scripts/templates unavailable |
 | Modes | ✓ | Native mode unavailable | Guidance projection |
-| Hooks and settings | ✓ | Hooks require trust/review; settings differ | Hooks unavailable; settings differ |
+| Hooks and settings | ✓ | Hooks require trust/review; settings differ | Hooks merge into settings.json, require trust/review; some events unmapped |
 | MCP registration | ✓ | ✓ | Native registration differs |
 
 This is a capability contract, not a statement that every native surface is active after copying

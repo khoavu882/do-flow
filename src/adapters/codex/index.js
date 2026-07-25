@@ -11,7 +11,7 @@ const { configPath, fingerprint: configFingerprint, parseToml, planCodexConfig, 
 const { renderServer, planCodexMcp, applyCodexMcp } = require('../../codex-mcp');
 const { agentDirectory, discoverCodexAgents, planCodexAgents, applyCodexAgents } = require('../../codex-agents');
 const { planCodexHooks, deployCodexHooks } = require('../../codex-hooks');
-const { planTree, applyTree, removeTree, verifyTree } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources } = require('../copy-tree');
 const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../marker-merge');
 const { nativeMcpCatalog } = require('../../registry');
 
@@ -173,9 +173,7 @@ function resourcesFromApplied({ components, scope, sourceVersion, recoveryRef })
 
 // ---- copy-tree assets (rules, skills, agents, templates, scripts, references) ----
 
-function copyTreeAssets(assets) { return (assets || []).filter((asset) => asset?.renderer === 'copy-tree'); }
 function codexConfigDir(context) { return context.scope === 'global' ? context.codexDir : path.join(context.projectRoot, '.codex'); }
-function copyTreeDestDir(context, asset) { return path.join(codexConfigDir(context), asset.nativeDir || ''); }
 function sourceDirFor(asset, repoRoot) {
   if (!asset || typeof asset.source !== 'string') throw new Error('Codex asset requires a source path');
   const root = repoRoot ? path.resolve(repoRoot) : process.cwd();
@@ -184,11 +182,6 @@ function sourceDirFor(asset, repoRoot) {
     throw new Error(`Codex asset source is unavailable: ${asset.source}`);
   }
   return source;
-}
-function ledgerFileResources(neutralResources, assetId) {
-  return (neutralResources || [])
-    .filter((resource) => resource.harness === HARNESS && resource.assetId === assetId && resource.kind === 'copy-tree-file')
-    .map((resource) => ({ relPath: resource.identity, fingerprint: resource.fingerprint }));
 }
 
 // ---- guidance.core instructions (AGENTS.md managed-section merge) ----
@@ -257,9 +250,9 @@ function planCopyTreeAssets({ assets, context, neutralResources, removing, repoR
   const changes = [];
   const conflicts = [];
   for (const asset of copyTreeAssets(assets)) {
-    const destDir = copyTreeDestDir(context, asset);
+    const destDir = copyTreeDestDir(codexConfigDir(context), asset);
     const sourceDir = sourceDirFor(asset, repoRoot);
-    const previousResources = ledgerFileResources(neutralResources, asset.id);
+    const previousResources = ledgerFileResources(neutralResources, HARNESS, asset.id);
     const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply' });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const change of result.changes) {
@@ -292,7 +285,7 @@ function verifyCopyTreeAssets({ assets, context, repoRoot, sourceVersion }) {
   const resources = [];
   const conflicts = [];
   for (const asset of copyTreeAssets(assets)) {
-    const destDir = copyTreeDestDir(context, asset);
+    const destDir = copyTreeDestDir(codexConfigDir(context), asset);
     const sourceDir = sourceDirFor(asset, repoRoot);
     const result = verifyTree({ sourceDir, destDir });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));

@@ -34,7 +34,7 @@ gap and offers guidance instead of installing a non-functional approximation.
 |---|---|---|
 | Claude Code | Confirm `CLAUDE.md` loads, a skill is discoverable, one hook event runs, and selected MCP servers appear in status. | Preserve user text outside the managed instruction section and foreign MCP entries. |
 | Codex | Confirm managed `AGENTS.md`, discover a skill, exercise an approved hook, and connect selected MCP servers. | Settings and hooks require a trusted project; hooks require review; plugin enablement remains user-controlled. |
-| Gemini CLI | Confirm `GEMINI.md` loads, skills are discoverable, and any adapter-supported MCP/settings action works. | Agents, modes, MCP, and extensions have target-specific behavior. Scripts, templates, and hooks must be reported as unavailable. |
+| Gemini CLI | Confirm `GEMINI.md` loads, skills are discoverable, an installed hook event runs, and any adapter-supported MCP/settings action works. | Agents, modes, MCP, and extensions have target-specific behavior. Hooks merge into a key inside `settings.json` DoFlow does not fully own — never a full-file replace. No Gemini event maps `UserPromptSubmit`, `Stop`, or `SubagentStart`/`SubagentStop` (`BeforeAgent`/`AfterAgent` fire at full-turn granularity, not matching semantics) — reported as unavailable, not approximated. Scripts and templates remain unsupported. |
 
 ## Evidence
 
@@ -45,7 +45,7 @@ surface availability, not a guarantee that a local configuration has been accept
 |---|---|
 | Claude Code | [memory](https://code.claude.com/docs/en/memory), [skills](https://code.claude.com/docs/en/skills), [subagents](https://code.claude.com/docs/en/sub-agents), [settings](https://code.claude.com/docs/en/settings), [hooks](https://code.claude.com/docs/en/hooks), [MCP](https://code.claude.com/docs/en/mcp), [plugins](https://code.claude.com/docs/en/plugins) |
 | Codex | [customization](https://developers.openai.com/codex/concepts/customization), [advanced configuration](https://developers.openai.com/codex/config-advanced), [hooks](https://developers.openai.com/codex/config-advanced#hooks), [MCP servers](https://developers.openai.com/codex/config-advanced#mcp-servers), [subagents](https://developers.openai.com/codex/subagents), [plugins](https://developers.openai.com/codex/concepts/plugins) |
-| Gemini CLI | [GEMINI.md](https://geminicli.com/docs/cli/gemini-md/), [skills](https://geminicli.com/docs/cli/skills/), [configuration](https://geminicli.com/docs/cli/configuration/), [MCP](https://geminicli.com/docs/tools/mcp/), [extensions](https://geminicli.com/docs/extensions/), [Gemini CLI source](https://github.com/google-gemini/gemini-cli) |
+| Gemini CLI | [GEMINI.md](https://geminicli.com/docs/cli/gemini-md/), [skills](https://geminicli.com/docs/cli/skills/), [configuration](https://geminicli.com/docs/cli/configuration/), [hooks](https://geminicli.com/docs/hooks/), [MCP](https://geminicli.com/docs/tools/mcp/), [extensions](https://geminicli.com/docs/extensions/), [Gemini CLI source](https://github.com/google-gemini/gemini-cli) |
 
 See [Architecture](architecture.md) for registry ownership and [Setup](setup.md) for installation,
 recovery, and verification procedures.

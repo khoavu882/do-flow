@@ -21,6 +21,28 @@ moved. The corresponding git tags were renamed to match.
 
 ## [Unreleased]
 
+### Added
+
+- **Gemini CLI hooks.** `src/gemini-hooks.js` plans/deploys a `hooks` key merged into
+  `.gemini/settings.json` (never a full-file replace — pre-existing keys like `mcpServers`/`ui`
+  are preserved through both install and remove), with scripts ported to
+  `core/harnesses/gemini/hooks/` and mapped onto Gemini's real event vocabulary (`SessionStart`,
+  `SessionEnd`, `BeforeTool`, `AfterTool`, `PreCompress`). `UserPromptSubmit`, `Stop`, and the
+  subagent events have no correct Gemini equivalent and are intentionally left unmapped rather
+  than approximated.
+- **Codex `PostToolUse`/`PreCompact` hooks**, closing a gap where Claude's `post-edit-lint.sh` and
+  `pre-compact.sh` guardrails had no Codex counterpart. Codex's `apply_patch` reports edited files
+  via a raw patch string, not a `file_path` field, and its `PreCompact` output must be JSON, not
+  Claude's plain string — both scripts are adapted for Codex's actual contract, not copy-pasted.
+
+### Fixed
+
+- `README.md`/`docs/overview.md`/`docs/setup.md` claimed Codex had no file-based hook installer
+  support; it already did (`src/codex-hooks.js` predates this release). All three now match
+  verified installer behavior for both Codex and Gemini.
+- `lifecycle-view.js`'s hook-trust status line hardcoded "(review required in Codex)" regardless
+  of which harness produced it.
+
 ## [0.7.1] - 2026-07-25
 
 ### Fixed

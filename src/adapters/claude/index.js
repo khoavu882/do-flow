@@ -9,7 +9,7 @@ const path = require('node:path');
 const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../marker-merge');
 const { selectMcpServers } = require('../../registry');
 const { GLOBAL_HOOK_PREFIX, PROJECT_HOOK_PREFIX } = require('../../settings-scope');
-const { planTree, applyTree, removeTree, verifyTree } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources } = require('../copy-tree');
 
 const INSTRUCTION_RENDERER = 'claude-instructions';
 const SETTINGS_RENDERER = 'claude-settings';
@@ -64,23 +64,14 @@ function discover({ scope, scopeRoot, context = {}, registry }) {
 
 // ---- copy-tree assets (rules, skills, agents, templates, scripts, modes, references, hooks) ----
 
-function copyTreeAssets(assets) { return (assets || []).filter((asset) => asset?.renderer === 'copy-tree'); }
-function copyTreeDestDir(paths, asset) { return path.join(paths.configDir, asset.nativeDir || ''); }
-
-function ledgerFileResources(ledger, assetId) {
-  return (ledger?.resources || [])
-    .filter((resource) => resource.harness === 'claude' && resource.assetId === assetId && resource.kind === 'copy-tree-file')
-    .map((resource) => ({ relPath: resource.identity, fingerprint: resource.fingerprint }));
-}
-
 function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing }) {
   const paths = nativePaths({ scope, scopeRoot });
   const changes = [];
   const conflicts = [];
   for (const asset of copyTreeAssets(assets)) {
-    const destDir = copyTreeDestDir(paths, asset);
+    const destDir = copyTreeDestDir(paths.configDir, asset);
     const sourceDir = sourcePath(asset, context);
-    const previousResources = ledgerFileResources(ledger, asset.id);
+    const previousResources = ledgerFileResources(ledger?.resources, 'claude', asset.id);
     const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply' });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const change of result.changes) {
@@ -114,7 +105,7 @@ function verifyCopyTreeAssets({ assets, scope, scopeRoot, context }) {
   const resources = [];
   const conflicts = [];
   for (const asset of copyTreeAssets(assets)) {
-    const destDir = copyTreeDestDir(paths, asset);
+    const destDir = copyTreeDestDir(paths.configDir, asset);
     const sourceDir = sourcePath(asset, context);
     const result = verifyTree({ sourceDir, destDir });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
