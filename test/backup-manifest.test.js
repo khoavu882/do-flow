@@ -6,7 +6,6 @@ const os = require('node:os');
 const path = require('node:path');
 const { backupId, createBackup, restoreBackup, listBackups, pruneBackups, assertSafeBackupId } = require('../src/backup');
 const { writeManifest, readManifest, manifestPath } = require('../src/manifest');
-const { installTool, assertWithinRoot } = require('../src/copy');
 
 const FIXED_DATE = new Date('2026-03-15T10:20:30');
 const REPO = path.resolve(__dirname, '..');
@@ -158,19 +157,4 @@ test('manifest preserves other tools\' last_updated across incremental writes', 
 test('readManifest returns null when no manifest exists yet', () => {
   const root = scratchDir();
   assert.strictEqual(readManifest(path.join(root, '.claude')), null);
-});
-
-test('assertWithinRoot rejects a mapping dst that escapes the tool dir', () => {
-  const root = scratchDir();
-  assert.throws(() => assertWithinRoot(root, path.join(root, '..', 'escaped.md'), '../escaped.md'));
-  assert.doesNotThrow(() => assertWithinRoot(root, path.join(root, 'ok.md'), 'ok.md'));
-});
-
-test('installTool refuses to copy when a mapping dst escapes dstRoot', () => {
-  const root = scratchDir();
-  const srcFile = path.join(root, 'src.md');
-  fs.writeFileSync(srcFile, 'x');
-  const dstRoot = path.join(root, 'dstroot');
-  fs.mkdirSync(dstRoot, { recursive: true });
-  assert.throws(() => installTool(root, [{ src: 'src.md', dst: '../escape.md' }], dstRoot), /outside install root/);
 });

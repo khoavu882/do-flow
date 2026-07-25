@@ -8,30 +8,31 @@ const {
   readAllServers, filterServerDefs, writeProjectMcpJson, mergeGlobalMcpServers, resolveMcpSelection,
   promptMcpCheckbox,
 } = require('../src/mcp');
+const { loadRegistry } = require('../src/registry');
 
 const REPO = path.resolve(__dirname, '..');
-const MCP_JSON = path.join(REPO, 'core', '.mcp.json');
+const registry = loadRegistry({ repoRoot: REPO });
 
 function scratchDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-mcp-'));
 }
 
-test('readAllServers returns core/.mcp.json server names in source order', () => {
-  const servers = readAllServers(MCP_JSON);
+test('readAllServers returns the registry MCP catalog\'s server names in declaration order', () => {
+  const servers = readAllServers(registry);
   assert.deepStrictEqual(servers, ['context7', 'sequential-thinking', 'chrome-devtools', 'playwright']);
 });
 
 test('filterServerDefs keeps only the selected servers, each with its full definition', () => {
-  const all = readAllServers(MCP_JSON);
-  const defs = filterServerDefs(MCP_JSON, all, ['context7', 'playwright']);
+  const all = readAllServers(registry);
+  const defs = filterServerDefs(registry, all, ['context7', 'playwright']);
   assert.deepStrictEqual(Object.keys(defs), ['context7', 'playwright']);
   assert.strictEqual(defs.context7.command, 'npx');
 });
 
 test('writeProjectMcpJson writes {mcpServers} at the given root when no file exists yet', () => {
   const dir = scratchDir();
-  const all = readAllServers(MCP_JSON);
-  const defs = filterServerDefs(MCP_JSON, all, ['context7']);
+  const all = readAllServers(registry);
+  const defs = filterServerDefs(registry, all, ['context7']);
   const dest = writeProjectMcpJson(dir, all, defs);
   assert.strictEqual(dest, path.join(dir, '.mcp.json'));
   const written = JSON.parse(fs.readFileSync(dest, 'utf8'));
@@ -43,8 +44,8 @@ test('writeProjectMcpJson merges — a hand-added project server doflow does not
   const dest = path.join(dir, '.mcp.json');
   fs.writeFileSync(dest, JSON.stringify({ mcpServers: { 'my-project-server': { command: 'foo' }, context7: { command: 'old' } } }));
 
-  const all = readAllServers(MCP_JSON);
-  const defs = filterServerDefs(MCP_JSON, all, ['sequential-thinking']);
+  const all = readAllServers(registry);
+  const defs = filterServerDefs(registry, all, ['sequential-thinking']);
   writeProjectMcpJson(dir, all, defs);
 
   const result = JSON.parse(fs.readFileSync(dest, 'utf8'));
@@ -58,8 +59,8 @@ test('writeProjectMcpJson preserves a reselected known server\'s existing (hand-
   const dest = path.join(dir, '.mcp.json');
   fs.writeFileSync(dest, JSON.stringify({ mcpServers: { context7: { command: 'my-custom-wrapper', args: ['--extra-flag'] } } }));
 
-  const all = readAllServers(MCP_JSON);
-  const defs = filterServerDefs(MCP_JSON, all, ['context7']); // context7 reselected, still known+present
+  const all = readAllServers(registry);
+  const defs = filterServerDefs(registry, all, ['context7']); // context7 reselected, still known+present
   writeProjectMcpJson(dir, all, defs);
 
   const result = JSON.parse(fs.readFileSync(dest, 'utf8'));
@@ -69,16 +70,16 @@ test('writeProjectMcpJson preserves a reselected known server\'s existing (hand-
 test('writeProjectMcpJson refuses to touch a malformed existing .mcp.json rather than silently discarding it', () => {
   const dir = scratchDir();
   fs.writeFileSync(path.join(dir, '.mcp.json'), '{ not valid json');
-  const all = readAllServers(MCP_JSON);
-  const defs = filterServerDefs(MCP_JSON, all, ['context7']);
+  const all = readAllServers(registry);
+  const defs = filterServerDefs(registry, all, ['context7']);
   assert.throws(() => writeProjectMcpJson(dir, all, defs), /Refusing to touch malformed/);
 });
 
 test('mergeGlobalMcpServers refuses to touch a malformed ~/.claude.json rather than silently discarding it', () => {
   const dir = scratchDir();
   fs.writeFileSync(path.join(dir, '.claude.json'), '{ not valid json');
-  const all = readAllServers(MCP_JSON);
-  const defs = filterServerDefs(MCP_JSON, all, ['context7']);
+  const all = readAllServers(registry);
+  const defs = filterServerDefs(registry, all, ['context7']);
   assert.throws(() => mergeGlobalMcpServers(dir, all, defs), /Refusing to touch malformed/);
   assert.strictEqual(fs.readFileSync(path.join(dir, '.claude.json'), 'utf8'), '{ not valid json', 'the malformed file itself must be left exactly as-is');
 });
@@ -92,8 +93,8 @@ test('mergeGlobalMcpServers only touches known server keys, leaving unrelated ~/
     mcpServers: { 'my-custom-server': { command: 'foo' }, context7: { command: 'old' } },
   }));
 
-  const all = readAllServers(MCP_JSON);
-  const defs = filterServerDefs(MCP_JSON, all, ['sequential-thinking']);
+  const all = readAllServers(registry);
+  const defs = filterServerDefs(registry, all, ['sequential-thinking']);
   mergeGlobalMcpServers(dir, all, defs);
 
   const result = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -111,8 +112,8 @@ test('mergeGlobalMcpServers preserves a reselected known server\'s existing (han
     mcpServers: { context7: { command: 'my-custom-wrapper', args: ['--extra-flag'] } },
   }));
 
-  const all = readAllServers(MCP_JSON);
-  const defs = filterServerDefs(MCP_JSON, all, ['context7']); // context7 reselected, still known+present
+  const all = readAllServers(registry);
+  const defs = filterServerDefs(registry, all, ['context7']); // context7 reselected, still known+present
   mergeGlobalMcpServers(dir, all, defs);
 
   const result = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -121,8 +122,8 @@ test('mergeGlobalMcpServers preserves a reselected known server\'s existing (han
 
 test('mergeGlobalMcpServers creates ~/.claude.json from scratch when absent', () => {
   const dir = scratchDir();
-  const all = readAllServers(MCP_JSON);
-  const defs = filterServerDefs(MCP_JSON, all, all);
+  const all = readAllServers(registry);
+  const defs = filterServerDefs(registry, all, all);
   const file = mergeGlobalMcpServers(dir, all, defs);
   assert.strictEqual(file, path.join(dir, '.claude.json'));
   const result = JSON.parse(fs.readFileSync(file, 'utf8'));

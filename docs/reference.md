@@ -77,16 +77,15 @@ MCP integrations are optional. The short flags select the appropriate capability
 | `--no-mcp` | Keep work to native tools |
 
 See `core/shared/guidance/mcp/` for server-specific operating guidance. The neutral server catalog is
-`core/registry/mcp.yaml`; target adapters serialize it into native registration formats. The legacy
-`core/.mcp.json` remains a Claude-compatible source during migration.
+`core/registry/mcp.yaml`; target adapters serialize it into native registration formats.
 
 ## Rules and behavioral modes
 
 | Source | Governs |
 |---|---|
 | `core/registry/*.yaml` | Capability, asset, MCP, and lifecycle-policy declarations |
-| `core/shared/guidance/PRINCIPLES.md` | Baseline collaboration and engineering principles |
-| `core/shared/guidance/FLAGS.md` | Shared flags and their meaning |
+| `core/shared/guidance/docs/PRINCIPLES.md` | Baseline collaboration and engineering principles |
+| `core/shared/guidance/docs/FLAGS.md` | Shared flags and their meaning |
 | `core/shared/guidance/rules/RULE_01_SAFETY.md` | Safety boundaries |
 | `core/shared/guidance/rules/RULE_02_WORKFLOW.md` | Delivery workflow |
 | `core/shared/guidance/rules/RULE_03_QUALITY.md` | Quality expectations |

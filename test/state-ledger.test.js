@@ -7,7 +7,7 @@ const path = require('node:path');
 const { writeManifest } = require('../src/manifest');
 const {
   STATE_VERSION, stateRoot, ledgerPath, defaultLedger, readLedger, writeLedger,
-  writeRecoveryRecord, readRecoveryRecord, migrateLegacyManifest,
+  writeRecoveryRecord, readRecoveryRecord, migrateLegacyManifest, ownershipKey,
 } = require('../src/state');
 
 const REPO = path.resolve(__dirname, '..');
@@ -84,4 +84,55 @@ test('legacy migration does not create ownership from tool-only or malformed leg
   assert.equal(invalid.migrated, false);
   assert.equal(invalid.reason, 'legacy-invalid');
   assert.equal(readLedger(stateRoot({ scope: 'project', projectRoot: invalidProject })), null);
+});
+
+// Phases B-E migrated Claude/Codex/Gemini's assets from the legacy copier+manifest onto the
+// registry/adapter path; a project touched by both across its lifetime now has a ledger holding
+// both `legacy.<kind>` (from an old manifest import) and adapter-owned (`skills.doflow`, etc.)
+// assetIds side by side. This scenario post-dates every existing coverage above (which only ever
+// imports into an *empty* ledger) and is the one FR-007 gap Phase H's plan identified.
+test('legacy manifest import coexists with pre-existing adapter-owned copy-tree/settings resources without collision or data loss', () => {
+  const project = scratch();
+  const claude = path.join(project, '.claude');
+  const root = stateRoot({ scope: 'project', projectRoot: project });
+
+  const adapterOwned = [
+    {
+      harness: 'codex', scope: 'project', assetId: 'skills.doflow', target: path.join(project, '.codex', 'skills', 'do-implement', 'SKILL.md'),
+      ownershipIdentity: 'doflow:codex:copy-tree-file:skills/do-implement/SKILL.md', kind: 'copy-tree-file',
+      identity: 'skills/do-implement/SKILL.md', fingerprint: 'sha256:copytree', sourceVersion: 'registry-v1',
+      projection: { renderer: 'copy-tree' },
+    },
+    {
+      harness: 'claude', scope: 'project', assetId: 'claude.settings', target: path.join(project, '.claude', 'settings.json'),
+      ownershipIdentity: 'doflow:claude:settings-file:settings.json', kind: 'claude-settings-file',
+      identity: 'settings.json', fingerprint: 'sha256:settings', sourceVersion: 'registry-v1',
+      projection: { renderer: 'claude-settings' },
+    },
+  ];
+  const seeded = defaultLedger({ scope: 'project', scopeRoot: project });
+  seeded.resources.push(...adapterOwned);
+  writeLedger(root, seeded);
+
+  writeManifest({
+    claudeDir: claude, scriptVersion: '2.4.4', operation: 'install', repoRoot: REPO,
+    backupId: 'install_2026-07-24_12-34-56', tools: ['claude', 'codex'], date: DATE,
+    managedResources: [
+      { target: 'codex', scope: 'project', kind: 'mcp-server', identity: 'context7', sourceVersion: '2.4.4', fingerprint: 'abc', selection: true },
+      { target: 'claude', scope: 'project', kind: 'hook-handler', identity: 'doflow.pre-implement', sourceVersion: '2.4.4', fingerprint: 'def', selection: true },
+    ],
+  });
+
+  const result = migrateLegacyManifest({ root, scope: 'project', scopeRoot: project, claudeDir: claude, now: DATE });
+
+  assert.equal(result.migrated, true);
+  assert.equal(result.ledger.resources.length, 4, 'both pre-existing adapter resources and both newly-imported legacy resources must be present');
+  assert.deepEqual(result.ledger.resources.slice(0, 2), adapterOwned, 'pre-existing adapter-owned resources must survive byte-identical, never rewritten or deduped away');
+  assert.deepEqual(
+    result.ledger.resources.slice(2).map((resource) => [resource.harness, resource.assetId, resource.ownershipIdentity]),
+    [['codex', 'legacy.mcp-server', 'context7'], ['claude', 'legacy.hook-handler', 'doflow.pre-implement']],
+  );
+
+  const keys = result.ledger.resources.map(ownershipKey);
+  assert.equal(new Set(keys).size, keys.length, 'every resource must have a distinct ownershipKey — no legacy.<kind> vs adapter-owned assetId collision');
 });

@@ -6,7 +6,7 @@ const path = require('node:path');
 const { sourceCommit: gitSourceCommit } = require('./git');
 
 /**
- * @param {{repoRoot:string, mappingsFile:string, global:boolean, projectRoot:string,
+ * @param {{repoRoot:string, global:boolean, projectRoot:string,
  *          targets:string[], dirs:Record<string,string>, sourceCommit?:string,
  *          managedResources?:object[]}} p
  *          `sourceCommit` lets a caller (bin/doflow.js) pass an already-resolved commit instead of
@@ -14,7 +14,7 @@ const { sourceCommit: gitSourceCommit } = require('./git');
  *          calling this module directly).
  * @returns {object} plain properties object (used by both the text and --json renderers)
  */
-function resolveContext({ repoRoot, mappingsFile, global, projectRoot, targets, dirs, sourceCommit, managedResources }) {
+function resolveContext({ repoRoot, global, projectRoot, targets, dirs, sourceCommit, managedResources }) {
   const context = {
     scope: global ? 'global' : 'project',
     scopeRoot: global ? path.dirname(dirs.claude) : path.resolve(projectRoot),
@@ -22,7 +22,6 @@ function resolveContext({ repoRoot, mappingsFile, global, projectRoot, targets, 
     dirs: Object.fromEntries(targets.map((t) => [t, dirs[t]])),
     repoRoot,
     sourceCommit: sourceCommit ?? gitSourceCommit(repoRoot),
-    mappingsFile,
     nodeVersion: process.version,
   };
   // The lifecycle engine may provide its ownership ledger for status/verify output. Do not add
@@ -40,7 +39,6 @@ function printContext(ctx) {
     ...ctx.targets.map((t) => `    ${t.padEnd(7)}-> ${ctx.dirs[t]}`),
     `  repo root     : ${ctx.repoRoot}`,
     `  source commit : ${ctx.sourceCommit}`,
-    `  mappings file : ${ctx.mappingsFile}`,
     `  node          : ${ctx.nodeVersion}`,
   ];
   if (ctx.managedResources !== undefined) lines.push(`  managed resources: ${ctx.managedResources.length}`);

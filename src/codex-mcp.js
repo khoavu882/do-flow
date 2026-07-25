@@ -12,14 +12,14 @@ const {
   atomicWrite,
 } = require('./codex-config');
 const { resolveMcpSelection } = require('./mcp');
+const { selectMcpServers, nativeMcpCatalog } = require('./registry');
 
 const MCP_KIND = 'mcp-server';
 const MCP_PREFIX = 'mcp_servers.';
 
-function readCodexMcpCatalog(mcpJsonSrcPath) {
-  const parsed = JSON.parse(fs.readFileSync(mcpJsonSrcPath, 'utf8'));
-  const serverDefs = parsed.mcpServers || {};
-  return { allServers: Object.keys(serverDefs), serverDefs };
+/** @param {object} registry a loaded registry (src/registry#loadRegistry) */
+function readCodexMcpCatalog(registry) {
+  return nativeMcpCatalog(selectMcpServers(registry));
 }
 
 function resolveCodexMcpSelection(options) {

@@ -58,6 +58,7 @@ function projectAdapterInput({ registry, harness, scope, scopeRoot, assets = [],
       id: asset.id, kind: asset.kind, source: asset.source, ownership: asset.ownership,
       renderer: projection.renderer, capability: projection.capability,
       capabilityStatus: capability.status, nativeTarget: harness.nativeTargets?.[projection.capability] ?? null,
+      nativeDir: asset.nativeDir?.[harness.id] ?? null,
       prerequisites: [...(capability.prerequisites || [])],
     });
   };

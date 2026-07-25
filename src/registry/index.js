@@ -221,6 +221,20 @@ function selectMcpServers(registry, ids) {
   return registry.mcp.filter((server) => wanted.has(server.id));
 }
 
+/** Reshape registry MCP server declarations into the {allServers, serverDefs} catalog shape every
+ * harness's native MCP reconciliation (Codex's config.toml writer, Claude's ~/.claude.json/
+ * .mcp.json writer) expects — the one place this transform is derived, reused rather than
+ * re-implemented per consumer. */
+function nativeMcpCatalog(servers = []) {
+  const allServers = servers.map((server) => server.id);
+  const serverDefs = Object.fromEntries(servers.map((server) => [server.id, {
+    command: server.command,
+    ...(server.args?.length ? { args: server.args } : {}),
+    ...(server.url ? { url: server.url } : {}),
+  }]));
+  return { allServers, serverDefs };
+}
+
 function capabilityMapData(registry) {
   return registry.harnesses.flatMap((harness) => Object.entries(harness.capabilities).map(([capability, declaration]) => ({
     harness: harness.id,
@@ -236,5 +250,5 @@ function capabilityMapData(registry) {
 
 module.exports = {
   REGISTRY_FILES, CAPABILITY_STATUS, parseRegistryFile, registryDir, loadRegistry, validateRegistry,
-  harnessFor, selectAssets, selectMcpServers, capabilityMapData,
+  harnessFor, selectAssets, selectMcpServers, nativeMcpCatalog, capabilityMapData,
 };

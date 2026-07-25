@@ -1,23 +1,17 @@
 #!/usr/bin/env node
 'use strict';
-// doflow — DoFlow config installer CLI (replaces bin/sync.sh). Installer-only.
-// Built incrementally with a parity gate (test/cli-parity.sh) vs sync.sh.
-// Phase A: arg parsing + mappings/targets + `install` (dry-run preview + real copy).
+// doflow — DoFlow config installer CLI. Installs/updates/removes Claude, Codex, and Gemini
+// framework content via the registry/lifecycle path (src/registry, src/adapters/, src/lifecycle).
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { readMappings } = require('../src/mappings');
 const { resolveTargets, toolDirs } = require('../src/targets');
-const { planFiles, installTool, copyFilePreservingMeta, assertWithinRoot } = require('../src/copy');
-const { mergeMarkedSection } = require('../src/claude-md-merge');
 const { resolveContext, printContext } = require('../src/context');
 const { createBackup, restoreBackup, listBackups, pruneBackups } = require('../src/backup');
 const { writeManifest, readManifest } = require('../src/manifest');
 const { confirm, promptLine } = require('../src/prompt');
-const { diffFiles } = require('../src/diff');
 const { sourceCommit } = require('../src/git');
-const { rewriteHookPathsForProjectScope } = require('../src/settings-scope');
-const { parseToml } = require('../src/codex-config');
+const { chmodHooksExecutable } = require('../src/settings-scope');
 const { readCodexMcpCatalog, resolveCodexMcpSelection } = require('../src/codex-mcp');
 const {
   readAllServers, filterServerDefs, writeProjectMcpJson, mergeGlobalMcpServers,
@@ -29,21 +23,15 @@ const { createAdapterRegistry } = require('../src/adapters');
 const claudeAdapter = require('../src/adapters/claude');
 const codexAdapter = require('../src/adapters/codex');
 const { createGeminiAdapter } = require('../src/adapters/gemini');
-const { planLifecycle, applyLifecycle, removeLifecycle } = require('../src/lifecycle');
-const { stateRoot, readLedger, defaultLedger } = require('../src/state');
+const { applyLifecycle, removeLifecycle } = require('../src/lifecycle');
+const { readLedger } = require('../src/state');
+const { codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan } = require('../src/lifecycle-view');
 
 const SCRIPT_DIR = __dirname; // bin/
 const REPO_ROOT = path.dirname(SCRIPT_DIR);
-const MAPPINGS_FILE = path.join(SCRIPT_DIR, 'mappings.conf');
-const MCP_JSON_SRC = path.join(REPO_ROOT, 'core', '.mcp.json');
-const CODEX_CONFIG_SRC = path.join(REPO_ROOT, 'core', 'harnesses', 'codex', 'config', 'config.toml');
-const CODEX_HOOKS_SRC = path.join(REPO_ROOT, 'core', 'harnesses', 'codex', 'hooks', 'hooks.json');
-const CODEX_AGENTS_SRC = path.join(REPO_ROOT, 'core', 'harnesses', 'codex', 'agents');
-const CODEX_HOOK_SCRIPTS_SRC = path.join(REPO_ROOT, 'core', 'harnesses', 'codex', 'hooks');
 const pkg = require('../package.json');
 
-/** PARITY: sync.sh's validate_env() hard-exits before any work if --no-backup lacks --force —
- * "skip all backup protection" must be an explicit, deliberate choice, never a default combo. */
+/** "skip all backup protection" must be an explicit, deliberate choice, never a default combo. */
 function assertNoBackupRequiresForce(o) {
   if (o.noBackup && !o.force) {
     console.error('doflow: --no-backup skips all backup protection and requires --force');
@@ -51,20 +39,9 @@ function assertNoBackupRequiresForce(o) {
   }
 }
 
-/** PARITY: sync.sh's validate_env() also hard-exits up front if mappings.conf isn't found next to
- * the script — without this, a missing/relocated mappings.conf surfaced as a raw ENOENT stack
- * trace out of readMappings() instead of a clean, actionable message. */
-function assertMappingsFileExists() {
-  if (!fs.existsSync(MAPPINGS_FILE)) {
-    console.error(`doflow: mappings.conf not found: ${MAPPINGS_FILE}`);
-    console.error('doflow: run from within the claude-code-agent-workflow repo (or reinstall doflow)');
-    process.exit(1);
-  }
-}
-
 function parseArgs(argv) {
   const o = { cmd: null, positional: [], targets: [], mcp: null, dryRun: false, force: false,
-    noBackup: false, prune: 0, checksum: false, global: false, json: false, help: false, version: false };
+    noBackup: false, prune: 0, global: false, json: false, help: false, version: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
@@ -74,7 +51,6 @@ function parseArgs(argv) {
       case '-f': case '--force': o.force = true; break;
       case '-g': case '--global': o.global = true; break;
       case '--no-backup': o.noBackup = true; break;
-      case '--checksum': o.checksum = true; break;
       case '--json': o.json = true; break;
       case '-t': case '--target': {
         const val = argv[i + 1];
@@ -105,7 +81,7 @@ function scopeOf(o) {
   return { global: o.global, projectRoot: o.positional[0] || '.' };
 }
 
-const HELP = `doflow — DoFlow config installer (replaces sync.sh)
+const HELP = `doflow — DoFlow config installer
 
 Usage: doflow <command> [path] [options]
 
@@ -119,7 +95,7 @@ Commands:
   self-update          git pull + reinstall
 
 Scope (mutually exclusive — global wins if both given):
-  -g, --global         Install to \$HOME/.{claude,codex,gemini} (matches sync.sh)
+  -g, --global         Install to \$HOME/.{claude,codex,gemini}
   [path]               Project-scoped install root (default: '.', i.e. cwd); e.g.
                        'doflow install ../my-app' -> ../my-app/.claude/, .codex/, .gemini/
                        (rollback's one positional slot is the backup id instead — its scope is
@@ -134,7 +110,6 @@ Options:
   -f, --force          Skip confirmation prompts
       --no-backup      Skip backup (requires --force; ignored by rollback's safety snapshot)
       --prune <N>      Keep only N most recent backups
-      --checksum       Use sha256 diff (update)
       --json           Machine-readable output (status)
   -h, --help           Show help
   -v, --version        Show version`;
@@ -145,11 +120,11 @@ Options:
  * prompt (install only, real TTY, no --force/--dry-run) fires at most once and its result can be
  * reused for both the dry-run preview and the real write.
  * @returns {{allServers:string[], selected:string[], changed:boolean, destDescription:string, apply:()=>void}|null}
- *          null if core/.mcp.json doesn't exist (nothing to resolve).
+ *          null if the registry declares no MCP servers (nothing to resolve).
  */
-function resolveMcpForTool({ o, dirs, scope, cmd }) {
-  if (!fs.existsSync(MCP_JSON_SRC)) return null;
-  const allServers = readAllServers(MCP_JSON_SRC);
+function resolveMcpForTool({ o, dirs, scope, cmd, registry }) {
+  const allServers = readAllServers(registry);
+  if (!allServers.length) return null;
   const manifestServers = readManifest(dirs.claude)?.mcpServers ?? null;
   const interactive = cmd === 'install' && !o.dryRun && !o.force && Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY);
   const selected = resolveMcpSelection({ cmd, requested: o.mcp, allServers, manifestServers, interactive, promptFn: promptMcpCheckbox });
@@ -158,104 +133,11 @@ function resolveMcpForTool({ o, dirs, scope, cmd }) {
   const projectRoot = path.dirname(dirs.claude); // == os.homedir() when scope.global, by construction
   const destDescription = scope.global ? '~/.claude.json (mcpServers)' : path.join(projectRoot, '.mcp.json');
   const apply = () => {
-    const serverDefs = filterServerDefs(MCP_JSON_SRC, allServers, selected);
+    const serverDefs = filterServerDefs(registry, allServers, selected);
     if (scope.global) mergeGlobalMcpServers(os.homedir(), allServers, serverDefs);
     else writeProjectMcpJson(projectRoot, allServers, serverDefs);
   };
   return { allServers, selected, changed, destDescription, apply };
-}
-
-/** The generic copier predates Codex-native reconciliation.  These surfaces must be planned
- * through their ownership-aware adapters, never copied wholesale. */
-function mappingsFor(tool) {
-  const mappings = readMappings(MAPPINGS_FILE, tool);
-  if (tool !== 'codex') return mappings;
-  return mappings.filter(({ src }) => ![
-    'core/harnesses/codex/config/config.toml', 'core/harnesses/codex/hooks/hooks.json', 'core/harnesses/codex/hooks/',
-  ].includes(src));
-}
-
-function codexScope(scope) { return scope.global ? 'global' : 'project'; }
-
-function codexConfigResources() {
-  const parsed = parseToml(fs.readFileSync(CODEX_CONFIG_SRC, 'utf8'));
-  return [...parsed.entries.entries()].map(([identity, entry]) => ({
-    target: 'codex', kind: 'configuration-entry', identity, value: entry.value,
-    sourceVersion: pkg.version, selection: true,
-  }));
-}
-
-/** Registry/lifecycle is introduced as a read-only companion to the legacy installer.  It makes
- * the capability and neutral-ledger view observable without changing the proven copy/backup
- * mutation path until every native adapter has CLI-level parity. */
-function registryLifecycleView({ scope, dirs, targets, mcpIds, operation }) {
-  const registry = loadRegistry({ repoRoot: REPO_ROOT });
-  const lifecycleScope = codexScope(scope);
-  const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
-  const neutralStateRoot = stateRoot({ scope: lifecycleScope, projectRoot: scopeRoot, homeDir: scopeRoot });
-  const ledger = readLedger(neutralStateRoot) ?? defaultLedger({ scope: lifecycleScope, scopeRoot });
-  const adapters = createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter() });
-  const plan = planLifecycle({ registry, adapters, scope: lifecycleScope, scopeRoot, targets, mcpIds, ledger, context: {
-    repoRoot: REPO_ROOT, projectRoot: scopeRoot, homeDir: os.homedir(), sourceVersion: pkg.version,
-    codexConfigResources: codexConfigResources(), codexAgentsSourceDir: CODEX_AGENTS_SRC,
-    codexHooksSourceFile: CODEX_HOOKS_SRC, codexHooksSourceDir: CODEX_HOOK_SCRIPTS_SRC, operation,
-  } });
-  return { registry, stateRoot: neutralStateRoot, ledger, plan };
-}
-
-function printRegistryLifecycle(view, prefix = '[PLAN]') {
-  console.log(`${prefix} Registry lifecycle: ${view.plan.changes.length} native change(s), ${view.plan.conflicts.length} conflict(s), ${view.plan.prerequisites.length} prerequisite(s)`);
-  for (const target of view.plan.targets) {
-    console.log(`${prefix}   ${target.harness}: ${target.changes.length} change(s)${target.conflicts.length ? `; conflicts: ${target.conflicts.join('; ')}` : ''}`);
-    const hookChange = target.changes.find((change) => change.nativeComponent === 'hooks');
-    if (hookChange?.nativePlan?.trust?.required) {
-      console.log(`${prefix}   ${target.harness} hooks trust: ${hookChange.nativePlan.trust.status} (review required in Codex)`);
-    }
-  }
-  console.log(`${prefix} Neutral state: ${view.stateRoot}${readLedger(view.stateRoot) ? ' (existing ledger)' : ' (not yet created)'}`);
-}
-
-/** Harnesses whose native resources are reconciled through the registry/lifecycle path (all of
- * them, as of this wiring). Kept as an explicit list — rather than reusing VALID from
- * src/targets.js — so a future non-lifecycle target doesn't silently gain lifecycle behavior. */
-const LIFECYCLE_HARNESSES = ['claude', 'codex', 'gemini'];
-
-function assertSafeRegistryPlan(view) {
-  if (view.plan.safe) return;
-  for (const conflict of view.plan.conflicts) console.error(`[ERROR] ${conflict.harness} lifecycle refused: ${conflict.reason}`);
-  for (const prerequisite of view.plan.prerequisites) console.error(`[ERROR] ${prerequisite.harness} lifecycle prerequisite: ${prerequisite.prerequisite}`);
-  process.exitCode = 1;
-}
-
-/** PARITY: sync.sh runs `chmod +x` (relative — adds ugo+x, preserves existing bits), not an
- * absolute mode — a hook file copied in at 664/775 must stay that way, only gaining +x. */
-function chmodHooksExecutable(claudeDir) {
-  const hooksDir = path.join(claudeDir, 'hooks');
-  if (!fs.existsSync(hooksDir)) return;
-  for (const f of fs.readdirSync(hooksDir)) {
-    if (!f.endsWith('.sh')) continue;
-    const p = path.join(hooksDir, f);
-    const currentMode = fs.statSync(p).mode & 0o777;
-    fs.chmodSync(p, currentMode | 0o111);
-  }
-}
-
-/**
- * Rewrite a project-scoped settings.json's hook paths, then restore the mtime it had right after
- * install/update's own mtime-preserving copy (copyFilePreservingMeta) set it to match source.
- * Without this, the content rewrite's own fs.writeFileSync bumps the mtime to "now", so every
- * later `doflow update` sees a permanent mtime mismatch and reports this one file as changed
- * forever, even with zero real drift — diffFiles (src/diff.js) has no other way to know the
- * rewrite is the *only* difference from source and is already accounted for.
- * @returns {boolean} whether the file was rewritten (same contract as rewriteHookPathsForProjectScope)
- */
-function rewriteProjectSettingsPreservingMtime(settingsPath) {
-  const preRewriteStat = fs.existsSync(settingsPath) ? fs.statSync(settingsPath) : null;
-  const rewritten = rewriteHookPathsForProjectScope(settingsPath);
-  if (rewritten && preRewriteStat) {
-    fs.utimesSync(settingsPath, Math.floor(preRewriteStat.atimeMs / 1000), Math.floor(preRewriteStat.mtimeMs / 1000));
-  }
-  return rewritten;
 }
 
 function cmdInstall(o) {
@@ -267,27 +149,23 @@ function cmdInstall(o) {
   // — those three used to each spawn their own `git rev-parse` for the identical value.
   const commit = sourceCommit(SCRIPT_DIR);
 
-  printContext(resolveContext({ repoRoot: REPO_ROOT, mappingsFile: MAPPINGS_FILE, targets, dirs, sourceCommit: commit, ...scope }));
+  printContext(resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: commit, ...scope }));
 
+  const registry = loadRegistry({ repoRoot: REPO_ROOT });
   const existingManifest = readManifest(dirs.claude);
-  const mcp = targets.includes('claude') ? resolveMcpForTool({ o, dirs, scope, cmd: 'install' }) : null;
-  const codexCatalog = targets.includes('codex') ? readCodexMcpCatalog(MCP_JSON_SRC) : null;
+  const mcp = targets.includes('claude') ? resolveMcpForTool({ o, dirs, scope, cmd: 'install', registry }) : null;
+  const codexCatalog = targets.includes('codex') ? readCodexMcpCatalog(registry) : null;
   const codexMcpSelection = codexCatalog ? (mcp?.selected ?? resolveCodexMcpSelection({ cmd: 'install', requested: o.mcp,
     allServers: codexCatalog.allServers, manifestServers: existingManifest?.mcpServers ?? null,
     interactive: !o.dryRun && !o.force && Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY), promptFn: promptMcpCheckbox })) : [];
   const mcpIds = mcp?.selected ?? (codexCatalog ? codexMcpSelection : undefined);
   // One lifecycle view across every requested target — computed unconditionally (not only under
   // --dry-run) so its safety gate and its plan are the exact same object the real apply below uses.
-  const lifecycleView = registryLifecycleView({ scope, dirs, targets, mcpIds });
+  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds });
   if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
 
   if (o.dryRun) {
     console.log(`[INFO] Install targets: ${targets.join(' ')}`);
-    for (const tool of targets) {
-      for (const f of planFiles(REPO_ROOT, mappingsFor(tool), tool)) {
-        console.log(`[DRY]  ${f}`);
-      }
-    }
     if (mcp) console.log(`[DRY]  MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})`);
     printRegistryLifecycle(lifecycleView, '[DRY]');
     if (!o.noBackup) console.log(`[DRY]  Would create backup: ${backupRoot}/install_<timestamp>`);
@@ -303,32 +181,10 @@ function cmdInstall(o) {
 
   let bid = '';
   if (!o.noBackup) {
-    // PARITY: sync.sh records $SCRIPT_DIR (bin/), not the repo root, as source_path — same value
-    // it passes to `git -C` (works identically from a subdirectory of the repo).
     bid = createBackup({ operation: 'install', tools: targets, dirs, backupRoot, repoRoot: SCRIPT_DIR, sourceCommit: commit, date: new Date() });
     console.error(`[INFO]  Backup created: ${bid}`);
   } else {
     console.error('[WARN]  Skipping backup (--no-backup)');
-  }
-
-  for (const tool of targets) {
-    fs.mkdirSync(dirs[tool], { recursive: true });
-    const n = installTool(REPO_ROOT, mappingsFor(tool), dirs[tool]);
-    console.log(`[INFO] ${tool}: synced ${n} mapping(s) -> ${dirs[tool]}`);
-    if (tool === 'claude') {
-      chmodHooksExecutable(dirs.claude);
-      // core/harnesses/claude/settings/settings.json ships with ~/.claude/hooks/... paths, only correct for a global
-      // install. A project-scoped install's hooks live at <project>/.claude/hooks/, so rewrite
-      // to Claude Code's documented ${CLAUDE_PROJECT_DIR} placeholder — otherwise every hook
-      // would silently point at the wrong (or a stale/absent) location.
-      if (!scope.global && rewriteProjectSettingsPreservingMtime(path.join(dirs.claude, 'settings.json'))) {
-        console.log('[INFO]   settings.json hook paths rewritten for project scope (${CLAUDE_PROJECT_DIR})');
-      }
-      if (mcp) {
-        mcp.apply();
-        console.log(`[INFO]   MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})`);
-      }
-    }
   }
 
   if (lifecycleView.plan.changes.length) {
@@ -342,6 +198,18 @@ function cmdInstall(o) {
     }
   }
 
+  if (targets.includes('claude')) {
+    // A npm-packaged tarball does not reliably preserve the executable bit on arbitrary files
+    // (unlike git checkouts, which usually do) — copy-tree's mode-preserving copy only carries
+    // over whatever bit the source file actually has on this machine, so this runs after
+    // applyLifecycle (once the hook scripts are actually on disk) as a final, unconditional +x.
+    chmodHooksExecutable(dirs.claude);
+    if (mcp) {
+      mcp.apply();
+      console.log(`[INFO]   MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})`);
+    }
+  }
+
   writeManifest({ claudeDir: dirs.claude, scriptVersion: pkg.version, operation: 'install', repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: targets, date: new Date(), mcpServers: mcpIds });
 
   if (o.prune > 0) {
@@ -352,121 +220,61 @@ function cmdInstall(o) {
   console.log('[OK] Installation complete!');
 }
 
-/**
- * Resolve all merge-managed instruction files for `update` and peek whether they would change.
- * They are excluded from diffFiles/allChanged (see src/diff.js) because a merge target never mirrors its
- * source byte-for-byte, so whole-file mtime/checksum comparison is the wrong model for it — this
- * gives it the same idempotency-checked peek `install` gets via installTool, so both commands
- * apply identical merge semantics with no first-run-only special case.
- *
- * Mirrors the two safety properties every other mapping gets via resolveFilePairs/installTool
- * (src/copy.js), which this path bypasses by not going through either: a missing source file is
- * skipped gracefully instead of throwing a raw ENOENT, and the resolved destination is checked
- * with assertWithinRoot before anything reads or writes it.
- * @returns {{tool:string, srcAbs:string, dstAbs:string, willChange:boolean}[]}
- */
-function resolveManagedInstructionUpdates(targets, dirs) {
-  const updates = [];
-  for (const tool of targets) {
-    for (const mapping of readMappings(MAPPINGS_FILE, tool)) {
-      if (mapping.dst !== 'CLAUDE.md' && mapping.dst !== 'AGENTS.md') continue;
-      const srcAbs = path.join(REPO_ROOT, mapping.src);
-      if (!fs.existsSync(srcAbs)) continue;
-      const dstAbs = path.join(dirs[tool], mapping.dst);
-      assertWithinRoot(dirs[tool], dstAbs, mapping.dst);
-      updates.push({ tool, srcAbs, dstAbs, willChange: mergeMarkedSection(srcAbs, dstAbs, { dryRun: true }).changed });
-    }
-  }
-  return updates;
-}
-
 function cmdUpdate(o) {
   const targets = resolveTargets(o.targets);
   const scope = scopeOf(o);
   const dirs = toolDirs(scope);
   const backupRoot = path.join(dirs.claude, 'backups');
   const commit = sourceCommit(SCRIPT_DIR);
-  printContext(resolveContext({ repoRoot: REPO_ROOT, mappingsFile: MAPPINGS_FILE, targets, dirs, sourceCommit: commit, ...scope }));
-
-  const perTool = {};
-  let allChanged = [];
-  for (const tool of targets) {
-    const changed = diffFiles({ repoRoot: REPO_ROOT, mappings: mappingsFor(tool), dstRoot: dirs[tool], checksum: o.checksum });
-    if (changed.length) { perTool[tool] = changed; allChanged = allChanged.concat(changed); }
-  }
-
-  const managedInstructions = resolveManagedInstructionUpdates(targets, dirs);
-  const changedManagedInstructions = managedInstructions.filter((instruction) => instruction.willChange);
-  const totalChanged = allChanged.length + changedManagedInstructions.length;
+  printContext(resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: commit, ...scope }));
 
   // Never interactive here (resolveMcpForTool only prompts for cmd:'install') — update reuses the
   // manifest-remembered selection, or applies an explicit --mcp override, without re-prompting.
+  const registry = loadRegistry({ repoRoot: REPO_ROOT });
   const existingManifest = readManifest(dirs.claude);
-  const mcp = targets.includes('claude') ? resolveMcpForTool({ o, dirs, scope, cmd: 'update' }) : null;
+  const mcp = targets.includes('claude') ? resolveMcpForTool({ o, dirs, scope, cmd: 'update', registry }) : null;
   const mcpChanged = Boolean(mcp && mcp.changed);
-  const codexCatalog = targets.includes('codex') ? readCodexMcpCatalog(MCP_JSON_SRC) : null;
+  const codexCatalog = targets.includes('codex') ? readCodexMcpCatalog(registry) : null;
   const codexMcpSelection = codexCatalog ? (mcp?.selected ?? resolveCodexMcpSelection({ cmd: 'update', requested: o.mcp,
     allServers: codexCatalog.allServers, manifestServers: existingManifest?.mcpServers ?? null, interactive: false, promptFn: promptMcpCheckbox })) : [];
   const mcpIds = mcp?.selected ?? (codexCatalog ? codexMcpSelection : undefined);
   // One lifecycle view across every requested target — computed unconditionally (not only under
   // --dry-run) so its safety gate and its plan are the exact same object the real apply below uses.
-  const lifecycleView = registryLifecycleView({ scope, dirs, targets, mcpIds });
+  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds });
   if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
   const lifecycleChanged = Boolean(lifecycleView.plan.changes.length);
 
-  if (totalChanged === 0 && !mcpChanged && !lifecycleChanged) {
+  if (!mcpChanged && !lifecycleChanged) {
     console.log('[OK] Already up to date — no changes detected');
     return;
   }
 
-  console.log(`[INFO] Found ${totalChanged} changed file(s)${mcpChanged ? ' + MCP server selection change' : ''}${lifecycleChanged ? ` + ${lifecycleView.plan.changes.length} native change(s)` : ''}`);
+  console.log(`[INFO] Found${mcpChanged ? ' MCP server selection change' : ''}${mcpChanged && lifecycleChanged ? ' +' : ''}${lifecycleChanged ? ` ${lifecycleView.plan.changes.length} native change(s)` : ''}`);
 
   if (o.dryRun) {
-    for (const { srcAbs, dstAbs } of allChanged) console.log(`[DRY]  ${srcAbs} -> ${dstAbs}`);
-    for (const instruction of changedManagedInstructions) {
-      console.log(`[DRY]  ${instruction.srcAbs} -> ${instruction.dstAbs}  (merge: marked section)`);
-    }
     if (mcpChanged) console.log(`[DRY]  MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})`);
     printRegistryLifecycle(lifecycleView, '[DRY]');
-    if (!o.noBackup && (totalChanged > 0 || lifecycleChanged)) console.log(`[DRY]  Would create partial backup: ${backupRoot}/update_<timestamp>`);
+    if (!o.noBackup && lifecycleChanged) console.log(`[DRY]  Would create partial backup: ${backupRoot}/update_<timestamp>`);
     console.log(`[DRY]  Would write manifest: ${path.join(dirs.claude, '.install-manifest.json')}`);
     console.log('[DRY] Dry run complete');
     return;
   }
 
-  if (!confirm(`Update ${totalChanged} changed file(s)${mcpChanged ? ' + MCP server selection' : ''}${lifecycleChanged ? ' + native resources' : ''} in: ${targets.join(' ')}?`, o.force)) {
+  if (!confirm(`Update${mcpChanged ? ' MCP server selection' : ''}${mcpChanged && lifecycleChanged ? ' +' : ''}${lifecycleChanged ? ' native resources' : ''} in: ${targets.join(' ')}?`, o.force)) {
     console.error('[INFO]  Aborted.');
     return;
   }
 
   let bid = '';
-  // Nothing outside dirs[tool] (which is what partialFiles/backup covers) needs backing up for an
-  // MCP-only change — ~/.claude.json / <project>/.mcp.json are outside the tool dir by design (see
-  // src/mcp.js), so a backup is only meaningful when actual mapped files changed.
-  if (!o.noBackup && (totalChanged > 0 || lifecycleChanged)) {
-    const existingDstFiles = allChanged.map((c) => c.dstAbs).filter((f) => fs.existsSync(f));
-    for (const instruction of changedManagedInstructions) {
-      if (fs.existsSync(instruction.dstAbs)) existingDstFiles.push(instruction.dstAbs);
-    }
-    bid = createBackup({ operation: 'update', tools: targets, dirs, backupRoot, repoRoot: SCRIPT_DIR, sourceCommit: commit, partialFiles: existingDstFiles, date: new Date() });
+  // Nothing outside dirs[tool] needs backing up for an MCP-only change — ~/.claude.json /
+  // <project>/.mcp.json are outside the tool dir by design (see src/mcp.js), so a backup is only
+  // meaningful when a native resource is about to change.
+  if (!o.noBackup && lifecycleChanged) {
+    const existingTargets = lifecycleView.plan.changes.map((change) => change.target).filter((f) => typeof f === 'string' && fs.existsSync(f));
+    bid = createBackup({ operation: 'update', tools: targets, dirs, backupRoot, repoRoot: SCRIPT_DIR, sourceCommit: commit, partialFiles: existingTargets, date: new Date() });
     console.error(`[INFO]  Backup created: ${bid}`);
   }
 
-  for (const tool of targets) {
-    const items = perTool[tool] || [];
-    for (const { srcAbs, dstAbs } of items) copyFilePreservingMeta(srcAbs, dstAbs);
-    let count = items.length;
-    for (const instruction of changedManagedInstructions) {
-      if (instruction.tool !== tool) continue;
-      mergeMarkedSection(instruction.srcAbs, instruction.dstAbs);
-      count += 1;
-    }
-    if (count > 0) console.log(`[INFO] ${tool}: synced ${count} changed item(s) -> ${dirs[tool]}`);
-  }
-  // If settings.json was just re-synced from source (which always has ~/.claude/... paths), a
-  // project-scoped install's ${CLAUDE_PROJECT_DIR} rewrite would otherwise get silently reverted
-  // on every update. Idempotent — a no-op once already rewritten.
-  if (!scope.global && perTool.claude) rewriteProjectSettingsPreservingMtime(path.join(dirs.claude, 'settings.json'));
   if (mcpChanged) {
     mcp.apply();
     console.log(`[INFO] claude: MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})`);
@@ -481,6 +289,7 @@ function cmdUpdate(o) {
       console.log(`[INFO] ${target.harness}: lifecycle verified (${owned} owned resource(s))`);
     }
   }
+  if (targets.includes('claude')) chmodHooksExecutable(dirs.claude);
 
   writeManifest({ claudeDir: dirs.claude, scriptVersion: pkg.version, operation: 'update', repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: targets, date: new Date(), mcpServers: mcpIds });
 
@@ -501,7 +310,8 @@ function cmdRemove(o) {
     console.log('[INFO] No lifecycle-owned native resources selected; legacy compatibility assets are never broadly removed.');
     return;
   }
-  const view = registryLifecycleView({ scope, dirs, targets: lifecycleTargets, mcpIds: [], operation: 'remove' });
+  const registry = loadRegistry({ repoRoot: REPO_ROOT });
+  const view = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets: lifecycleTargets, mcpIds: [], operation: 'remove' });
   if (!view.plan.safe) { assertSafeRegistryPlan(view); return; }
   if (o.dryRun) {
     printRegistryLifecycle(view, '[DRY]');
@@ -524,11 +334,12 @@ function cmdStatus(o) {
   const targets = resolveTargets(o.targets);
   const scope = scopeOf(o);
   const dirs = toolDirs(scope);
-  const ctx = resolveContext({ repoRoot: REPO_ROOT, mappingsFile: MAPPINGS_FILE, targets, dirs, sourceCommit: sourceCommit(SCRIPT_DIR), ...scope });
+  const ctx = resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: sourceCommit(SCRIPT_DIR), ...scope });
   const manifest = readManifest(dirs.claude);
   let registryView = null;
   try {
-    registryView = registryLifecycleView({ scope, dirs, targets,
+    const registry = loadRegistry({ repoRoot: REPO_ROOT });
+    registryView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets,
       mcpIds: manifest?.mcpServers ?? undefined });
     ctx.registry = {
       directory: registryView.registry.directory,
@@ -537,30 +348,28 @@ function cmdStatus(o) {
       ledgerPresent: Boolean(readLedger(registryView.stateRoot)),
       plan: { changes: registryView.plan.changes.length, conflicts: registryView.plan.conflicts, prerequisites: registryView.plan.prerequisites },
     };
-    if (targets.includes('codex')) {
-      const resources = registryView.ledger.resources.filter((resource) => resource.harness === 'codex');
-      ctx.codex = {
-        status: registryView.plan.conflicts.length ? 'conflict-or-invalid' : (registryView.plan.changes.length ? 'drift-or-pending-change' : 'verified'),
-        resources,
-        hooksTrust: { required: true, trusted: false, status: 'review-required' },
-        errors: registryView.plan.conflicts.map((conflict) => conflict.reason),
+    // Per-harness status must derive from that harness's own plan target, not the flattened
+    // registryView.plan.changes/conflicts across every target — otherwise, e.g., Codex having
+    // pending changes when it isn't installed yet would make Claude's line falsely report
+    // 'drift-or-pending-change' even though Claude itself has nothing pending.
+    const harnessPlan = (harness) => registryView.plan.targets.find((target) => target.harness === harness);
+    const harnessStatus = (harness) => {
+      const target = harnessPlan(harness);
+      if (!target) return { status: 'verified', resources: [], errors: [] };
+      return {
+        status: target.conflicts.length ? 'conflict-or-invalid' : (target.changes.length ? 'drift-or-pending-change' : 'verified'),
+        resources: registryView.ledger.resources.filter((resource) => resource.harness === harness),
+        errors: target.conflicts,
       };
+    };
+    if (targets.includes('codex')) {
+      ctx.codex = { ...harnessStatus('codex'), hooksTrust: { required: true, trusted: false, status: 'review-required' } };
     }
     if (targets.includes('claude')) {
-      const resources = registryView.ledger.resources.filter((resource) => resource.harness === 'claude');
-      ctx.claude = {
-        status: registryView.plan.conflicts.length ? 'conflict-or-invalid' : (registryView.plan.changes.length ? 'drift-or-pending-change' : 'verified'),
-        resources,
-        errors: registryView.plan.conflicts.map((conflict) => conflict.reason),
-      };
+      ctx.claude = harnessStatus('claude');
     }
     if (targets.includes('gemini')) {
-      const resources = registryView.ledger.resources.filter((resource) => resource.harness === 'gemini');
-      ctx.gemini = {
-        status: registryView.plan.conflicts.length ? 'conflict-or-invalid' : (registryView.plan.changes.length ? 'drift-or-pending-change' : 'verified'),
-        resources,
-        errors: registryView.plan.conflicts.map((conflict) => conflict.reason),
-      };
+      ctx.gemini = harnessStatus('gemini');
     }
   } catch (error) {
     // Status must remain usable for an existing installation even if a local registry is invalid.
@@ -635,7 +444,7 @@ function cmdRollback(o) {
   const dirs = toolDirs({ global: o.global, projectRoot: '.' });
   const backupRoot = path.join(dirs.claude, 'backups');
   const commit = sourceCommit(SCRIPT_DIR);
-  printContext(resolveContext({ repoRoot: REPO_ROOT, mappingsFile: MAPPINGS_FILE, targets, dirs, sourceCommit: commit, global: o.global, projectRoot: '.' }));
+  printContext(resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: commit, global: o.global, projectRoot: '.' }));
 
   let bid = o.positional[0] || '';
   if (!bid) {
@@ -694,20 +503,14 @@ function cmdSelfUpdate(o) {
       console.error('[WARN]  Fast-forward not possible — using current local state');
     }
   }
-  // Mirrors sync.sh: self-update always runs install with --checksum afterward (a git pull can
-  // refresh mtimes without changing content, so mtime-based diff would false-positive).
-  console.log(`[INFO] Running install with --checksum (required after ${pulled ? 'a git pull' : 'checking for updates'})...`);
-  cmdInstall({ ...o, checksum: true });
+  console.log(`[INFO] Running install (after ${pulled ? 'a git pull' : 'checking for updates'})...`);
+  cmdInstall(o);
 }
 
 function main() {
   const o = parseArgs(process.argv.slice(2));
   if (o.version) { console.log(pkg.version); return; }
   if (o.help || !o.cmd) { console.log(HELP); return; }
-  // PARITY: sync.sh's validate_env() runs this check once before dispatch, for every operation
-  // (including --dry-run and --help-adjacent ones like --status) — not just the two commands
-  // that actually take a backup.
-  assertMappingsFileExists();
   assertNoBackupRequiresForce(o);
   try {
     switch (o.cmd) {
