@@ -35,11 +35,10 @@ are reported rather than imitated.
 | `core/.claude-plugin/` | Claude Code marketplace registry and plugin manifest; `core/` is the plugin root |
 | `core/.codex-plugin/` | Codex plugin manifest for plugin-based distribution |
 | `bin/doflow` | CLI entry point |
-| `bin/mappings.conf` | Client-to-destination mapping definitions |
 | `src/adapters/` | Native Claude, Codex, and Gemini file formats and verification boundaries |
 | `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification |
 | `src/state/` | Harness-neutral ledger and recovery records |
-| `src/` | Legacy-compatible copy, merge, backup, restore, status, and validation implementation |
+| `src/` | Backup, restore, status, and MCP-selection implementation |
 | `test/` | Installer and mapping behavior tests |
 | `docs/` | User-facing and contributor documentation site |
 | `docs/capability-map.md` | Registry-derived cross-harness capability contract, evidence, and verification criteria |
@@ -87,9 +86,11 @@ declares target capability and ownership inputs, and is not itself a native conf
 
 | Content | Where it lives | Why it is shared |
 |---|---|---|
-| `CLAUDE.md`, `FLAGS.md`, `PRINCIPLES.md`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | Base guidance can be read by every supported client |
+| `CLAUDE.md`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | Base guidance can be read by every supported client |
+| `FLAGS.md`, `PRINCIPLES.md` | `core/shared/guidance/docs/` | Same rationale, split into its own copy-tree asset (`guidance.docs`) since copy-tree operates on whole directories |
 | `skills/`, `agent-specs/`, `scripts/`, `templates/` | `core/shared/{skills,agent-specs,scripts,templates}/` | Task knowledge and reusable assets are client-neutral |
-| Native config/hooks/agents per harness, `.mcp.json` | `core/harnesses/{claude,codex,gemini}/`, `core/.mcp.json` | Copied or reconciled as native configuration only where supported |
+| Native config/hooks/agents per harness | `core/harnesses/{claude,codex,gemini}/` | Copied or reconciled as native configuration only where supported |
+| MCP server catalog | `core/registry/mcp.yaml` | Single neutral source every harness's adapter selects from |
 
 The adapters project the common instruction source to `CLAUDE.md`, `AGENTS.md`, or `GEMINI.md`.
 Managed sections let DoFlow update its portion without replacing user-owned instructions. A later,
@@ -120,13 +121,13 @@ flowchart TD
     B -->|No| D[Update registry or native adapter]
     C --> E[Update the one document that owns the explanation]
     D --> E
-    E --> F[Run targeted tests and parity checks]
+    E --> F[Run targeted tests]
 ```
 
 Examples:
 
 - Add or revise a workflow: edit its `core/shared/skills/<name>/SKILL.md`; keep the public description compact in [Reference](reference.md).
-- Change a client destination or add a supported asset: edit `bin/mappings.conf`, then cover it in tests.
+- Change a client destination or add a supported asset: edit `core/registry/assets.yaml`, then cover it in tests.
 - Change managed instruction behavior: edit the merge/copy implementation in `src/`, then test both fresh install and update paths.
 - Change user guidance: give it one canonical document—Quickstart, Setup, Guide, Reference, or Overview—rather than copying it across all of them.
 
@@ -136,7 +137,6 @@ Run checks appropriate to the change:
 
 ```bash
 node test/doflow.test.js
-npm run parity
 mkdocs build --strict --site-dir /tmp/doflow-docs-site
 ```
 

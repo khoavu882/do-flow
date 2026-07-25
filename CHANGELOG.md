@@ -19,6 +19,17 @@ All notable changes to DoFlow are documented here. Format follows
 
 ### Changed
 
+- **Claude's and Gemini's shared assets, hooks, and settings now install through the same
+  registry/lifecycle path Codex already used**, via a new shared copy-tree engine
+  (`src/adapters/copy-tree.js`) with per-file SHA-256 ownership tracking. `bin/mappings.conf`'s
+  `[claude]`/`[codex]`/`[gemini]` sections are now fully empty — every asset those sections used to
+  copy is adapter-owned; deployed output is unchanged (byte-identical, verified against this repo's
+  own dogfooded install). Adding a new deployable file under `core/` now means declaring it in
+  `core/registry/assets.yaml`, not adding a `bin/mappings.conf` line.
+- **MCP server catalog consolidated to a single source.** `core/registry/mcp.yaml` is now the only
+  MCP catalog; `core/.mcp.json` (the pre-registry duplicate) is removed. `src/mcp.js`,
+  `src/codex-mcp.js`, and the Claude adapter's `discover()` all resolve known/selected servers from
+  the registry.
 - **Breaking (installed framework content — repository shape).** Canonical shared content moved
   from a flat `core/` into `core/shared/{guidance,skills,templates,scripts,agent-specs}/`; Codex- and
   Claude-native assets moved into `core/harnesses/{codex,claude}/`; Gemini's adapter defaults moved
@@ -36,6 +47,17 @@ All notable changes to DoFlow are documented here. Format follows
 - Dropped the redundant `codex-` filename prefix from Codex's hook scripts
   (`core/harnesses/codex/hooks/`) — directory-level namespacing already disambiguates them from
   Claude's identically-named scripts.
+
+### Removed
+
+- **Breaking (CLI).** `bin/sync.sh` and the repo-root `./sync.sh` wrapper are removed. `doflow`
+  (via `npx doflow` or `bin/doflow.js`) is the only installer; anyone still invoking `sync.sh`
+  directly must switch to the equivalent `doflow` subcommand (see `docs/setup.md`).
+- `bin/sync-legacy.sh` (the frozen bash reference implementation) and `test/cli-parity.sh` (the
+  harness that diffed `doflow.js` against it) are removed, along with `package.json`'s `parity`
+  script. The parity net served its purpose during the registry migration — every phase was
+  validated against it before this final removal — and is no longer needed now that `doflow.js` is
+  the only installer.
 
 ### Fixed
 

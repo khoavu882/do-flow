@@ -4,31 +4,11 @@ const assert = require('node:assert');
 const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
-const { readMappings } = require('../src/mappings');
 const { resolveTargets, VALID, toolDirs } = require('../src/targets');
-const { planFiles } = require('../src/copy');
 const { writeManifest, readManifest, manifestPath } = require('../src/manifest');
 const { resolveContext } = require('../src/context');
 
 const REPO = path.resolve(__dirname, '..');
-const MAP = path.join(REPO, 'bin', 'mappings.conf');
-
-test('readMappings parses the claude section', () => {
-  const m = readMappings(MAP, 'claude');
-  assert.ok(m.length > 5, 'expected several claude mappings');
-  assert.ok(m.every((x) => x.src && x.dst), 'every entry has src+dst');
-  assert.ok(m.some((x) => x.src === 'core/shared/agent-specs/' && x.dst === 'agents/'));
-  assert.ok(m.some((x) => x.dst === 'CLAUDE.md'));
-});
-
-test('readMappings codex includes native instructions and skills', () => {
-  const c = readMappings(MAP, 'codex');
-  assert.ok(c.length >= 7);
-  assert.ok(c.some((x) => x.src === 'core/shared/guidance/CLAUDE.md' && x.dst === 'AGENTS.md'));
-  assert.ok(c.some((x) => x.src === 'core/shared/skills/' && x.dst === 'skills/'));
-  assert.ok(c.some((x) => x.src === 'core/shared/scripts/' && x.dst === 'scripts/'));
-  assert.ok(c.some((x) => x.src === 'core/shared/templates/' && x.dst === 'templates/'));
-});
 
 test('Codex plugin manifest packages the single-source core skills tree', () => {
   // .codex-plugin/ must keep its exact required name and location (core/) — Codex plugin
@@ -68,19 +48,6 @@ test('resolveTargets defaults to all and validates', () => {
   assert.throws(() => resolveTargets(['bogus']), /Unknown target/);
 });
 
-test('planFiles yields tool-prefixed dest paths', () => {
-  const files = planFiles(REPO, readMappings(MAP, 'claude'), 'claude');
-  assert.ok(files.length > 10);
-  assert.ok(files.every((f) => f.startsWith('claude/')), 'all dest paths tool-prefixed');
-  assert.ok(files.includes('claude/CLAUDE.md'));
-});
-
-test('readMappings gemini includes skills and modes', () => {
-  const g = readMappings(MAP, 'gemini');
-  assert.ok(g.some((x) => x.dst === 'skills/'), 'gemini must include skills');
-  assert.ok(g.some((x) => x.dst === 'modes/'), 'gemini must include modes');
-});
-
 test('toolDirs defaults to project scope rooted at projectRoot', () => {
   const dirs = toolDirs({ projectRoot: '/tmp/some-project' });
   assert.strictEqual(dirs.claude, '/tmp/some-project/.claude');
@@ -93,7 +60,7 @@ test('toolDirs defaults projectRoot to cwd when omitted', () => {
   assert.strictEqual(dirs.claude, path.join(process.cwd(), '.claude'));
 });
 
-test('toolDirs global:true resolves under $HOME (sync.sh parity)', () => {
+test('toolDirs global:true resolves under $HOME', () => {
   const dirs = toolDirs({ global: true });
   assert.strictEqual(dirs.claude, path.join(os.homedir(), '.claude'));
   assert.strictEqual(dirs.codex, path.join(os.homedir(), '.codex'));
@@ -146,7 +113,7 @@ test('manifest preserves a managed-resource ledger when legacy callers omit it',
 });
 
 test('resolveContext exposes an optional managed-resource ledger without changing legacy context', () => {
-  const base = { repoRoot: REPO, mappingsFile: MAP, global: false, projectRoot: '/tmp/project', targets: ['codex'], dirs: { codex: '/tmp/project/.codex' }, sourceCommit: 'test' };
+  const base = { repoRoot: REPO, global: false, projectRoot: '/tmp/project', targets: ['codex'], dirs: { codex: '/tmp/project/.codex' }, sourceCommit: 'test' };
   assert.ok(!Object.hasOwn(resolveContext(base), 'managedResources'));
 
   const managedResources = [{ target: 'codex', scope: 'project', kind: 'hook-handler', identity: 'doflow.pre-implement', sourceVersion: '2.4.4', fingerprint: 'sha256:hook', selection: true, recoveryPoint: 'backup_2' }];

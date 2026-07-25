@@ -8,9 +8,12 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { configPath, fingerprint: configFingerprint, parseToml, planCodexConfig, applyCodexConfig } = require('../../codex-config');
-const { readCodexMcpCatalog, renderServer, planCodexMcp, applyCodexMcp } = require('../../codex-mcp');
+const { renderServer, planCodexMcp, applyCodexMcp } = require('../../codex-mcp');
 const { agentDirectory, discoverCodexAgents, planCodexAgents, applyCodexAgents } = require('../../codex-agents');
 const { planCodexHooks, deployCodexHooks } = require('../../codex-hooks');
+const { planTree, applyTree, removeTree, verifyTree } = require('../copy-tree');
+const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../marker-merge');
+const { nativeMcpCatalog } = require('../../registry');
 
 const HARNESS = 'codex';
 
@@ -95,16 +98,6 @@ function addChanges(output, assetId, component, componentName) {
   });
 }
 
-function nativeMcpCatalog(servers = []) {
-  const allServers = servers.map((server) => server.id);
-  const serverDefs = Object.fromEntries(servers.map((server) => [server.id, {
-    command: server.command,
-    ...(server.args?.length ? { args: server.args } : {}),
-    ...(server.url ? { url: server.url } : {}),
-  }]));
-  return { allServers, serverDefs };
-}
-
 function sha256(text) { return `sha256:${crypto.createHash('sha256').update(text).digest('hex')}`; }
 function lifecycleResource({ scope, assetId, kind, identity, target, fingerprint, sourceVersion, selection, recoveryRef, projection }) {
   return { harness: HARNESS, scope, assetId, kind, identity, target, ownershipIdentity: `doflow:codex:${kind}:${identity}`,
@@ -178,6 +171,144 @@ function resourcesFromApplied({ components, scope, sourceVersion, recoveryRef })
   return resources;
 }
 
+// ---- copy-tree assets (rules, skills, agents, templates, scripts, references) ----
+
+function copyTreeAssets(assets) { return (assets || []).filter((asset) => asset?.renderer === 'copy-tree'); }
+function codexConfigDir(context) { return context.scope === 'global' ? context.codexDir : path.join(context.projectRoot, '.codex'); }
+function copyTreeDestDir(context, asset) { return path.join(codexConfigDir(context), asset.nativeDir || ''); }
+function sourceDirFor(asset, repoRoot) {
+  if (!asset || typeof asset.source !== 'string') throw new Error('Codex asset requires a source path');
+  const root = repoRoot ? path.resolve(repoRoot) : process.cwd();
+  const source = path.resolve(root, asset.source);
+  if (!source.startsWith(`${root}${path.sep}`) || !fs.existsSync(source)) {
+    throw new Error(`Codex asset source is unavailable: ${asset.source}`);
+  }
+  return source;
+}
+function ledgerFileResources(neutralResources, assetId) {
+  return (neutralResources || [])
+    .filter((resource) => resource.harness === HARNESS && resource.assetId === assetId && resource.kind === 'copy-tree-file')
+    .map((resource) => ({ relPath: resource.identity, fingerprint: resource.fingerprint }));
+}
+
+// ---- guidance.core instructions (AGENTS.md managed-section merge) ----
+// The registry declares this asset's codex projection as renderer "codex-agents" (see
+// core/registry/assets.yaml), but nothing previously implemented it — Codex's AGENTS.md merge was
+// silently carried entirely by the legacy mappings.conf copier (its `dst === 'AGENTS.md'`
+// special-case in bin/doflow.js), invisible until Phase E emptied that copier's mappings.
+
+function instructionsAsset(assets) { return (assets || []).find((asset) => asset?.renderer === 'codex-agents'); }
+function instructionsPath(context) { return path.join(codexConfigDir(context), 'AGENTS.md'); }
+function sha256Text(text) { return crypto.createHash('sha256').update(text).digest('hex'); }
+
+function planInstructionsAsset({ assets, context, removing, repoRoot }) {
+  const asset = instructionsAsset(assets);
+  const changes = [];
+  const conflicts = [];
+  if (!asset) return { changes, conflicts };
+  const target = instructionsPath(context);
+  if (removing) {
+    if (!fs.existsSync(target)) return { changes, conflicts };
+    const existing = fs.readFileSync(target, 'utf8');
+    if (!existing.includes(MARKER_START)) return { changes, conflicts };
+    changes.push({ assetId: asset.id, target, operation: 'remove', ownershipIdentity: 'doflow:codex:instructions:managed-section',
+      kind: 'instructions-section', identity: 'AGENTS.md', projection: { renderer: 'codex-agents' } });
+    return { changes, conflicts };
+  }
+  const source = sourceDirFor(asset, repoRoot);
+  if (!mergeMarkedSection(source, target, { dryRun: true }).changed) return { changes, conflicts };
+  const content = fs.readFileSync(source, 'utf8').replace(/\s+$/, '');
+  changes.push({ assetId: asset.id, target, source, operation: fs.existsSync(target) ? 'update' : 'create',
+    ownershipIdentity: 'doflow:codex:instructions:managed-section', kind: 'instructions-section', identity: 'AGENTS.md',
+    afterFingerprint: sha256Text(content), sourceVersion: 'registry-v1', projection: { renderer: 'codex-agents' } });
+  return { changes, conflicts };
+}
+
+function applyInstructionsAsset(changes) {
+  for (const change of changes) {
+    if (change.projection?.renderer !== 'codex-agents' || change.operation === 'remove') continue;
+    mergeMarkedSection(change.source, change.target);
+  }
+}
+
+function removeInstructionsAsset(changes) {
+  for (const change of changes) {
+    if (change.projection?.renderer === 'codex-agents' && change.operation === 'remove') removeMarkedSection(change.target);
+  }
+}
+
+function verifyInstructionsAsset({ assets, context, repoRoot }) {
+  const asset = instructionsAsset(assets);
+  const statuses = []; const resources = [];
+  if (!asset) return { statuses, resources };
+  const target = instructionsPath(context);
+  const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : null;
+  const managed = existing !== null && existing.includes(MARKER_START) && existing.includes(MARKER_END);
+  statuses.push({ assetId: asset.id, capability: asset.capability, status: managed ? 'managed' : 'absent', target });
+  if (managed) {
+    resources.push({ assetId: asset.id, target, ownershipIdentity: 'doflow:codex:instructions:managed-section',
+      kind: 'instructions-section', identity: 'AGENTS.md', fingerprint: sha256Text(existing), sourceVersion: 'registry-v1',
+      projection: { renderer: 'codex-agents' } });
+  }
+  return { statuses, resources };
+}
+
+function planCopyTreeAssets({ assets, context, neutralResources, removing, repoRoot, sourceVersion }) {
+  const changes = [];
+  const conflicts = [];
+  for (const asset of copyTreeAssets(assets)) {
+    const destDir = copyTreeDestDir(context, asset);
+    const sourceDir = sourceDirFor(asset, repoRoot);
+    const previousResources = ledgerFileResources(neutralResources, asset.id);
+    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply' });
+    conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+    for (const change of result.changes) {
+      changes.push({
+        assetId: asset.id, target: change.target, source: change.source, operation: change.operation,
+        ownershipIdentity: `doflow:codex:copy-tree:${asset.id}:${change.relPath}`,
+        kind: 'copy-tree-file', identity: change.relPath,
+        afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: sourceVersion ?? 'unknown',
+        projection: { renderer: 'copy-tree' },
+      });
+    }
+  }
+  return { changes, conflicts };
+}
+
+function applyCopyTreeAssets(changes) {
+  const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation !== 'remove')
+    .map((change) => ({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint }));
+  return applyTree({ changes: treeChanges }).applied;
+}
+
+function removeCopyTreeAssets(changes) {
+  const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove')
+    .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
+  return removeTree({ changes: treeChanges }).removed;
+}
+
+function verifyCopyTreeAssets({ assets, context, repoRoot, sourceVersion }) {
+  const statuses = [];
+  const resources = [];
+  const conflicts = [];
+  for (const asset of copyTreeAssets(assets)) {
+    const destDir = copyTreeDestDir(context, asset);
+    const sourceDir = sourceDirFor(asset, repoRoot);
+    const result = verifyTree({ sourceDir, destDir });
+    conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+    for (const resource of result.resources) {
+      resources.push({
+        assetId: asset.id, target: resource.target, ownershipIdentity: `doflow:codex:copy-tree:${asset.id}:${resource.relPath}`,
+        kind: 'copy-tree-file', identity: resource.relPath,
+        fingerprint: resource.fingerprint, sourceVersion: sourceVersion ?? 'unknown',
+        projection: { renderer: 'copy-tree' },
+      });
+    }
+    statuses.push({ assetId: asset.id, capability: asset.capability, status: result.ok ? 'managed' : 'conflict', target: destDir });
+  }
+  return { statuses, resources, conflicts };
+}
+
 /** Resolve the explicit projected-native shape. During the migration, direct
  * callers may still use legacy option names; lifecycle callers pass `assets`,
  * `mcp`, `policies`, and optionally `projection` for source-bearing surfaces.
@@ -218,7 +349,7 @@ function plan(options) {
     components.config.reconciliationManagedResources = managedResources;
   }
   if (native.selectedMcp !== undefined) {
-    const catalog = options.mcpCatalogFile ? readCodexMcpCatalog(options.mcpCatalogFile) : nativeMcpCatalog(native.mcpCatalog);
+    const catalog = nativeMcpCatalog(native.mcpCatalog);
     const managedResources = nativeManagedResources(neutralResources, context, { kind: 'mcp-server', target: configFile });
     components.mcp = planCodexMcp({ file: configFile, scope: context.scope, managedResources, selected: removing ? [] : native.selectedMcp,
       ...catalog, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion, recoveryPoint: options.recoveryPoint });
@@ -245,16 +376,31 @@ function plan(options) {
       }
     }
   }
+  const copyTree = planCopyTreeAssets({ assets: options.assets, context, neutralResources, removing,
+    repoRoot: options.context?.repoRoot, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion });
+  const instructions = planInstructionsAsset({ assets: options.assets, context, removing, repoRoot: options.context?.repoRoot });
+  // Two pseudo-components: their changes are already in final adapter shape (unlike the other
+  // components' native shape, which addChanges() below converts), so they're appended to `changes`
+  // directly rather than run through addChanges. Registering them in `components` still gets their
+  // conflicts picked up by both the existing `failures` reduction and the lifecycle's own
+  // adapterConflicts() component scan, with no special-casing needed in either.
+  components.copyTree = { ok: copyTree.conflicts.length === 0, conflicts: copyTree.conflicts };
+  components.instructions = { ok: instructions.conflicts.length === 0, conflicts: instructions.conflicts };
   const failures = Object.entries(components).filter(([, component]) => !component.ok);
   const changes = [];
   addChanges(changes, assetIdFor(options, 'config'), components.config, 'config');
   addChanges(changes, assetIdFor(options, 'mcp'), components.mcp, 'mcp');
   addChanges(changes, assetIdFor(options, 'agents'), components.agents, 'agents');
   addChanges(changes, assetIdFor(options, 'hooks'), components.hooks, 'hooks');
-  const requiredNativeResources = Object.entries(components).flatMap(([component, result]) => (result.changes || []).map((change) => ({
-    harness: HARNESS, component, target: change.target ?? change.file ?? result.file ?? result.destination ?? result.directory,
-    operation: change.operation ?? change.type, identity: change.identity ?? null,
-  })));
+  changes.push(...copyTree.changes, ...instructions.changes);
+  const requiredNativeResources = [
+    ...Object.entries(components).flatMap(([component, result]) => (result.changes || []).map((change) => ({
+      harness: HARNESS, component, target: change.target ?? change.file ?? result.file ?? result.destination ?? result.directory,
+      operation: change.operation ?? change.type, identity: change.identity ?? null,
+    }))),
+    ...copyTree.changes.map((change) => ({ harness: HARNESS, component: 'copyTree', target: change.target, operation: change.operation, identity: change.identity })),
+    ...instructions.changes.map((change) => ({ harness: HARNESS, component: 'instructions', target: change.target, operation: change.operation, identity: change.identity })),
+  ];
   return { harness: HARNESS, scope: options.scope, ok: failures.length === 0, safe: failures.length === 0, components, failures, changes, requiredNativeResources };
 }
 
@@ -278,8 +424,12 @@ function apply({ changes = [], dryRun = false, scope, sourceVersion, recoveryRef
   const agentsPlan = components.get('agents'); const hooksPlan = components.get('hooks');
   const agents = agentsPlan && !agentsPlan.directRemove ? applyCodexAgents(agentsPlan, { dryRun }) : null;
   const hooks = hooksPlan && !hooksPlan.directRemove ? deployCodexHooks(hooksPlan, { dryRun }) : null;
+  // applyCopyTreeAssets/applyInstructionsAsset already filter to non-remove operations, so calling
+  // them unconditionally here (including when apply() is invoked from remove(), below) is safe.
+  const copyTreeApplied = dryRun ? 0 : applyCopyTreeAssets(changes);
+  if (!dryRun) applyInstructionsAsset(changes);
   const nativeComponents = { mcp, config, agents, hooks };
-  return { harness: HARNESS, applied: [mcp, config, agents, hooks].filter((result) => result?.applied).length,
+  return { harness: HARNESS, applied: [mcp, config, agents, hooks].filter((result) => result?.applied).length + copyTreeApplied,
     components: nativeComponents, resources: resourcesFromApplied({ components: nativeComponents, scope: scope ?? 'project', sourceVersion, recoveryRef }) };
 }
 
@@ -296,6 +446,7 @@ function remove({ changes = [], dryRun = false } = {}) {
     if (current !== change.fingerprint) throw new Error(`Refusing to remove modified Codex resource '${change.identity}'`);
     if (!dryRun) fs.unlinkSync(change.target);
   }
+  if (!dryRun) { removeCopyTreeAssets(changes); removeInstructionsAsset(changes); }
   return { ...result, removed: changes.filter((change) => (change.operation ?? change.type) === 'remove').length };
 }
 
@@ -355,6 +506,10 @@ function verify(options = {}) {
     const rendered = render({ registry, asset });
     if (rendered.status !== 'renderable') statuses.push(rendered);
   }
+  const copyTree = verifyCopyTreeAssets({ assets, context, repoRoot: options.context?.repoRoot, sourceVersion });
+  statuses.push(...copyTree.statuses); resources.push(...copyTree.resources); conflicts.push(...copyTree.conflicts);
+  const instructions = verifyInstructionsAsset({ assets, context, repoRoot: options.context?.repoRoot });
+  statuses.push(...instructions.statuses); resources.push(...instructions.resources);
   const componentFailures = Object.values(proposed?.components || {}).filter((component) => !component.ok);
   for (const component of componentFailures) conflicts.push(...(component.conflicts || component.errors || []));
   return { ok: conflicts.length === 0 && statuses.every((status) => status.status !== 'missing' && status.status !== 'conflict'), resources, statuses, conflicts };

@@ -4,41 +4,35 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { rewriteHookPathsForProjectScope } = require('../src/settings-scope');
+const { chmodHooksExecutable } = require('../src/settings-scope');
 
 function scratchDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-settingsscope-'));
 }
 
-test('rewriteHookPathsForProjectScope replaces ~/.claude/hooks/ with ${CLAUDE_PROJECT_DIR}/.claude/hooks/', () => {
+// The project-scope hook path rewrite itself (${CLAUDE_PROJECT_DIR} substitution) now lives in
+// src/adapters/claude/index.js#settingsContent, covered by test/claude-adapter.test.js's
+// project/global-scope settings tests — this file only covers chmodHooksExecutable, the one
+// piece of settings-scope.js still called from bin/doflow.js.
+
+test('chmodHooksExecutable adds +x to every .sh hook while preserving existing bits, and skips non-.sh files', () => {
   const dir = scratchDir();
-  const file = path.join(dir, 'settings.json');
-  fs.writeFileSync(file, JSON.stringify({
-    hooks: {
-      SessionStart: [{ hooks: [{ type: 'command', command: '~/.claude/hooks/session-start.sh' }] }],
-      SubagentStart: [{ matcher: '.*', hooks: [{ type: 'command', command: '~/.claude/hooks/subagent-audit.sh' }] }],
-    },
-  }));
+  const hooksDir = path.join(dir, 'hooks');
+  fs.mkdirSync(hooksDir, { recursive: true });
+  const hook = path.join(hooksDir, 'session-start.sh');
+  const readme = path.join(hooksDir, 'README.md');
+  fs.writeFileSync(hook, '#!/bin/sh\necho hi\n');
+  fs.chmodSync(hook, 0o664);
+  fs.writeFileSync(readme, 'not a hook\n');
+  fs.chmodSync(readme, 0o664);
 
-  const changed = rewriteHookPathsForProjectScope(file);
-  assert.strictEqual(changed, true);
+  chmodHooksExecutable(dir);
 
-  const result = JSON.parse(fs.readFileSync(file, 'utf8'));
-  assert.strictEqual(result.hooks.SessionStart[0].hooks[0].command, '${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start.sh');
-  assert.strictEqual(result.hooks.SubagentStart[0].hooks[0].command, '${CLAUDE_PROJECT_DIR}/.claude/hooks/subagent-audit.sh');
+  assert.strictEqual(fs.statSync(hook).mode & 0o777, 0o775, 'existing rw bits preserved, +x added');
+  assert.strictEqual(fs.statSync(readme).mode & 0o777, 0o664, 'a non-.sh file must be left untouched');
 });
 
-test('rewriteHookPathsForProjectScope is idempotent (already-rewritten file is a no-op)', () => {
+test('chmodHooksExecutable is a no-op when there is no hooks/ directory', () => {
   const dir = scratchDir();
-  const file = path.join(dir, 'settings.json');
-  const already = JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: '${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start.sh' }] }] } });
-  fs.writeFileSync(file, already);
-
-  const changed = rewriteHookPathsForProjectScope(file);
-  assert.strictEqual(changed, false);
-  assert.strictEqual(fs.readFileSync(file, 'utf8'), already);
-});
-
-test('rewriteHookPathsForProjectScope returns false for a missing file', () => {
-  assert.strictEqual(rewriteHookPathsForProjectScope('/nonexistent/settings.json'), false);
+  assert.doesNotThrow(() => chmodHooksExecutable(dir));
 });

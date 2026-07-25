@@ -1,13 +1,13 @@
 'use strict';
 // mcp.js — selectable MCP server install, written to Claude Code's REAL config locations (not a
-// generic mappings.conf copy target — .mcp.json under .claude/ is never read by Claude Code):
+// generic file-copy target — .mcp.json under .claude/ is never read by Claude Code):
 //   global (-g)   -> ~/.claude.json's top-level `mcpServers` key
 //   project scope -> <projectRoot>/.mcp.json (sibling to .claude/, the project-root convention
 //                    Claude Code actually auto-discovers)
 // Both are read-merge-write, never a wholesale overwrite, and scan-then-append: only the server
-// names doflow itself ships in core/.mcp.json are added/removed by selection, and a selected name
-// already present keeps its existing definition rather than being reset to doflow's shipped
-// default (a user's hand-edited arg/env survives). Any server under a name doflow doesn't know
+// names doflow itself ships in core/registry/mcp.yaml are added/removed by selection, and a
+// selected name already present keeps its existing definition rather than being reset to doflow's
+// shipped default (a user's hand-edited arg/env survives). Any server under a name doflow doesn't know
 // about — in either file — is left completely untouched regardless of selection. This matters
 // more for ~/.claude.json (also holds history/projects/credentials-adjacent state), but a
 // project's own .mcp.json can just as easily carry a hand-added or hand-edited server doflow must
@@ -15,22 +15,24 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { readSyncBlocking } = require('./prompt');
+const { selectMcpServers, nativeMcpCatalog } = require('./registry');
 
 const ESC = String.fromCharCode(27);
 const CTRL_C = String.fromCharCode(3);
 
-/** @returns {string[]} server names in core/.mcp.json's mcpServers key order */
-function readAllServers(mcpJsonSrcPath) {
-  const parsed = JSON.parse(fs.readFileSync(mcpJsonSrcPath, 'utf8'));
-  return Object.keys(parsed.mcpServers || {});
+/** @param {object} registry a loaded registry (src/registry#loadRegistry)
+ *  @returns {string[]} server names in registry declaration order */
+function readAllServers(registry) {
+  return nativeMcpCatalog(selectMcpServers(registry)).allServers;
 }
 
-/** @returns {{[name:string]: object}} only the selected server definitions, source key order */
-function filterServerDefs(mcpJsonSrcPath, allServers, selected) {
-  const parsed = JSON.parse(fs.readFileSync(mcpJsonSrcPath, 'utf8'));
+/** @param {object} registry a loaded registry (src/registry#loadRegistry)
+ *  @returns {{[name:string]: object}} only the selected server definitions, source key order */
+function filterServerDefs(registry, allServers, selected) {
+  const { serverDefs } = nativeMcpCatalog(selectMcpServers(registry));
   const out = {};
   for (const name of allServers) {
-    if (selected.includes(name)) out[name] = parsed.mcpServers[name];
+    if (selected.includes(name)) out[name] = serverDefs[name];
   }
   return out;
 }
@@ -87,7 +89,7 @@ function writeProjectMcpJson(projectRoot, knownServerNames, serverDefs) {
 /**
  * Global scope: ~/.claude.json is a shared, multi-purpose state file (history, projects,
  * credentials-adjacent references) doflow does not own — read-merge-write, touching only the
- * `mcpServers` keys that match a name doflow itself ships in core/.mcp.json. Every other key in
+ * `mcpServers` keys that match a name doflow itself ships in core/registry/mcp.yaml. Every other key in
  * the file, including any MCP server the user registered themselves via `claude mcp add`, is left
  * untouched.
  * @returns {string} the path written

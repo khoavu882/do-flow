@@ -5,22 +5,17 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { readMappings } = require('../src/mappings');
 const { LEGACY_MANIFEST_FILE_NAME, manifestPath, readManifest, writeManifest } = require('../src/manifest');
 
 const REPO = path.resolve(__dirname, '..');
-const MAP = path.join(REPO, 'bin', 'mappings.conf');
 const DATE = new Date('2026-07-24T00:00:00Z');
 
-test('Codex native lifecycle surfaces are no longer generic copier mappings', () => {
-  const codex = readMappings(MAP, 'codex');
-  assert.ok(!codex.some((entry) => ['core/harnesses/codex/config/config.toml', 'core/harnesses/codex/hooks/hooks.json', 'core/harnesses/codex/hooks/'].includes(entry.src)));
-  for (const source of ['core/shared/guidance/rules/', 'core/shared/agent-specs/', 'core/shared/skills/', 'core/shared/scripts/', 'core/shared/templates/', 'core/shared/guidance/CLAUDE.md']) {
-    assert.ok(codex.some((entry) => entry.src === source), `shared Codex compatibility asset retained: ${source}`);
-  }
-  assert.ok(readMappings(MAP, 'claude').some((entry) => entry.src === 'core/harnesses/claude/hooks/'), 'Claude hook mapping remains compatible');
-  assert.ok(readMappings(MAP, 'gemini').some((entry) => entry.src === 'core/shared/skills/'), 'Gemini shared mapping remains compatible');
-});
+// Codex/Claude/Gemini native lifecycle surfaces are no longer generic copier mappings at all —
+// bin/mappings.conf and the copier that read it (src/copy.js, src/mappings.js, src/diff.js) were
+// deleted entirely in Phase I (012-legacy-surface-retirement) once every asset they used to copy
+// became adapter-owned via the registry/lifecycle path. This file's remaining tests cover a
+// different, still-live legacy bridge: reading the pre-registry .install-manifest.json format
+// (src/manifest.js), which migrateLegacyManifest (src/state/) still imports from.
 
 test('legacy manifest bridge remains idempotent across registry migration-era writes', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-legacy-bridge-'));

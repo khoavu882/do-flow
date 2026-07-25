@@ -10,7 +10,6 @@ const { projectAdapterInput } = require('../src/adapters');
 const { normalizeContext, discover, render, plan, apply, remove, verify } = require('../src/adapters/codex');
 
 const REPO = path.resolve(__dirname, '..');
-const MCP = path.join(REPO, 'core', '.mcp.json');
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-codex-adapter-')); }
 
 test('discovers native Codex locations in neutral project scope', () => {
@@ -45,7 +44,8 @@ test('plans Codex MCP through legacy-safe reconciliation and preserves foreign s
   fs.mkdirSync(path.dirname(config), { recursive: true });
   const before = '[mcp_servers.personal]\ncommand = "keep"\n\n[mcp_servers.context7]\ncommand = "custom"\n';
   fs.writeFileSync(config, before);
-  const result = plan({ scope: 'project', projectRoot, selectedMcp: ['context7'], mcpCatalogFile: MCP });
+  const registry = loadRegistry({ repoRoot: REPO });
+  const result = plan({ scope: 'project', projectRoot, selectedMcp: ['context7'], mcpCatalog: registry.mcp });
   assert.equal(result.ok, true);
   assert.equal(result.components.mcp.status, 'unchanged');
   assert.equal(fs.readFileSync(config, 'utf8'), before, 'planning must not alter foreign configuration');
@@ -140,6 +140,48 @@ test('full apply then verify returns lifecycle-ready owned resources for project
   assert.equal(conflicted.safe, false);
   assert.equal(conflicted.components.config.status, 'conflict');
   assert.equal(fs.readFileSync(config, 'utf8'), edited, 'planning a conflict must preserve user-edited bytes');
+});
+
+test('copy-tree assets (rules/skills/agents/templates/scripts/references) install, converge, and remove under .codex/', () => {
+  const registry = loadRegistry({ repoRoot: REPO }); const projectRoot = scratch(); const harness = harnessFor(registry, 'codex');
+  const assets = selectAssets(registry, { harness: 'codex' });
+  const projected = projectAdapterInput({ registry, harness, scope: 'project', scopeRoot: projectRoot, assets, mcp: [], policies: [], context: { sourceVersion: 'test-v1' } });
+  const input = { ...projected, projectRoot, context: { repoRoot: REPO, sourceVersion: 'test-v1' } };
+
+  const planned = plan(input);
+  assert.equal(planned.components.copyTree.ok, true);
+  apply({ ...input, changes: planned.changes });
+
+  for (const [dir, file] of [['rules', 'RULE_01_SAFETY.md'], ['skills', path.join('do-analyze', 'SKILL.md')],
+    ['agents', 'backend-architect.md'], ['templates', path.join('doflow', 'plan-template.md')],
+    ['scripts', path.join('doflow', 'bash', 'do-paths.sh')], ['references', 'DOFLOW_CHAIN.md']]) {
+    assert.ok(fs.existsSync(path.join(projectRoot, '.codex', dir, file)), `${dir}/${file} must exist after install`);
+  }
+  // agents.shared's copy-tree write (.codex/agents/*.md) coexists with the pre-existing native
+  // custom-agent mechanism (.codex/agents/*.toml) — same directory, disjoint file extensions.
+  assert.ok(fs.existsSync(path.join(projectRoot, '.codex', 'agents', 'backend-architect.toml')), 'native .toml agent must still be deployed alongside the .md copy-tree file');
+
+  // verify()'s `assets` param must stay the flat lifecycle-projected shape (from `input`, i.e.
+  // `projected.assets`) here — this adapter's render()-fallback loop separately expects the raw
+  // registry shape when a caller passes one explicitly (see the next test), but copy-tree
+  // verification needs the flat `renderer`/`nativeDir` fields, matching what production's
+  // verifyLifecycle() actually passes via target.adapterInput.
+  const verified = verify({ ...input, registry });
+  assert.equal(verified.ok, true);
+  const copyTreeResources = verified.resources.filter((resource) => resource.kind === 'copy-tree-file');
+  assert.ok(copyTreeResources.length > 50, `expected many copy-tree resources, got ${copyTreeResources.length}`);
+
+  // verify()'s raw resources don't carry `harness` — the lifecycle layer's verificationResources()
+  // adds that externally in production; a direct-call test must add it manually to feed plan()'s
+  // ledger-based idempotency check correctly.
+  const ledger = { resources: verified.resources.map((resource) => ({ ...resource, harness: 'codex' })) };
+  const second = plan({ ...input, ledger });
+  assert.equal(second.changes.filter((change) => change.projection?.renderer === 'copy-tree').length, 0, 'a second plan must be idempotent for copy-tree assets');
+
+  const removal = plan({ ...input, ledger, context: { ...input.context, operation: 'remove' } });
+  remove({ ...input, changes: removal.changes });
+  assert.equal(fs.existsSync(path.join(projectRoot, '.codex', 'rules', 'RULE_01_SAFETY.md')), false);
+  assert.equal(fs.existsSync(path.join(projectRoot, '.codex', 'skills', 'do-analyze', 'SKILL.md')), false);
 });
 
 test('verification reports registry gaps and reconciliation conflicts', () => {

@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { mergeMarkedSection, MARKER_START, MARKER_END } = require('../src/claude-md-merge');
+const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../src/marker-merge');
 
 function scratchDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-claudemd-'));
@@ -265,4 +265,71 @@ test('dryRun: nothing would change -> reports changed:false and performs no writ
   assert.strictEqual(result.changed, false);
   assert.strictEqual(fs.readFileSync(dst, 'utf8'), bytesAfterSetup, 'dryRun no-op must not touch dst bytes');
   assert.strictEqual(fs.statSync(dst).mtimeMs, mtimeMsBefore, 'dryRun no-op must not touch dst mtime');
+});
+
+// removeMarkedSection: shared by the Claude and Codex adapters' remove() — previously an
+// identical private copy in each adapter, centralized here alongside mergeMarkedSection.
+test('removeMarkedSection: file does not exist -> returns false, creates nothing', () => {
+  const dir = scratchDir();
+  const file = dstPath(dir);
+
+  assert.strictEqual(removeMarkedSection(file), false);
+  assert.strictEqual(fs.existsSync(file), false);
+});
+
+test('removeMarkedSection: file exists with no markers -> returns false, bytes untouched', () => {
+  const dir = scratchDir();
+  const file = dstPath(dir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const content = 'Just a plain file, no doflow markers at all.\n';
+  fs.writeFileSync(file, content);
+
+  assert.strictEqual(removeMarkedSection(file), false);
+  assert.strictEqual(fs.readFileSync(file, 'utf8'), content);
+});
+
+test('removeMarkedSection: strips the span, preserving content before and after byte-for-byte', () => {
+  const dir = scratchDir();
+  const file = dstPath(dir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const before = '# My File\n\nSome intro text.\n\n';
+  const span = MARKER_START + '\n' + 'MANAGED CONTENT' + '\n' + MARKER_END + '\n';
+  const after = '## After\n\nMore text after the managed span.\n';
+  fs.writeFileSync(file, before + span + after);
+
+  assert.strictEqual(removeMarkedSection(file), true);
+  const actual = fs.readFileSync(file, 'utf8');
+  assert.strictEqual(actual, before + after);
+});
+
+test('removeMarkedSection: file is only the managed span -> ends up empty, not deleted', () => {
+  const dir = scratchDir();
+  const file = dstPath(dir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, MARKER_START + '\n' + 'ONLY CONTENT' + '\n' + MARKER_END + '\n');
+
+  assert.strictEqual(removeMarkedSection(file), true);
+  assert.strictEqual(fs.existsSync(file), true, 'file must still exist, just emptied');
+  assert.strictEqual(fs.readFileSync(file, 'utf8'), '');
+});
+
+test('removeMarkedSection: malformed markers (MARKER_START with no MARKER_END) throws', () => {
+  const dir = scratchDir();
+  const file = dstPath(dir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, 'prefix\n' + MARKER_START + '\nno end marker anywhere\n');
+
+  assert.throws(() => removeMarkedSection(file));
+});
+
+test('removeMarkedSection: duplicate MARKER_START throws', () => {
+  const dir = scratchDir();
+  const file = dstPath(dir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const content =
+    MARKER_START + '\n' + 'first' + '\n' + MARKER_END + '\n' +
+    MARKER_START + '\n' + 'second' + '\n' + MARKER_END + '\n';
+  fs.writeFileSync(file, content);
+
+  assert.throws(() => removeMarkedSection(file));
 });

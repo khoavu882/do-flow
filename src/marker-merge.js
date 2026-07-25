@@ -1,5 +1,5 @@
 'use strict';
-// claude-md-merge.js — marker-delimited merge so a target project's own CLAUDE.md
+// marker-merge.js — marker-delimited merge so a target project's own CLAUDE.md
 // content survives repeated doflow install/update runs; only the span between the
 // markers is ever regenerated.
 const fs = require('node:fs');
@@ -82,4 +82,31 @@ function mergeMarkedSection(srcAbs, dstAbs, { dryRun = false } = {}) {
   return { changed: true };
 }
 
-module.exports = { mergeMarkedSection, MARKER_START, MARKER_END };
+/**
+ * Strip only the doflow-managed span from `file`, leaving any surrounding content (before/after
+ * the markers) byte-for-byte untouched. Companion to `mergeMarkedSection` — shared by the Claude
+ * and Codex adapters' `remove()`, which had each carried an identical private copy of this.
+ * @param {string} file
+ * @returns {boolean} whether a managed span was found and stripped (false if the file doesn't
+ *          exist or has no doflow markers — both are no-ops, not errors)
+ */
+function removeMarkedSection(file) {
+  if (!fs.existsSync(file)) return false;
+  const existing = fs.readFileSync(file, 'utf8');
+  const start = existing.indexOf(MARKER_START);
+  if (start === -1) return false;
+  const end = existing.indexOf(MARKER_END, start + MARKER_START.length);
+  if (end === -1 || existing.indexOf(MARKER_START, end + MARKER_END.length) !== -1) {
+    throw new Error(`Refusing to remove malformed DoFlow markers in ${file}`);
+  }
+  let after = end + MARKER_END.length;
+  if (existing[after] === '\n') after += 1;
+  let next = existing.slice(0, start) + existing.slice(after);
+  // Do not alter user content; only remove separator whitespace that was added
+  // immediately before an appended managed section.
+  if (next === '\n') next = '';
+  fs.writeFileSync(file, next);
+  return true;
+}
+
+module.exports = { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END };

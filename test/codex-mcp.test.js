@@ -8,11 +8,12 @@ const {
   MCP_KIND, readCodexMcpCatalog, resolveCodexMcpSelection, renderServer, resourceFor,
   reconcileCodexMcp,
 } = require('../src/codex-mcp');
+const { loadRegistry } = require('../src/registry');
 
 const REPO = path.resolve(__dirname, '..');
-const CATALOG = path.join(REPO, 'core', '.mcp.json');
+const REGISTRY = loadRegistry({ repoRoot: REPO });
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-codex-mcp-')); }
-function catalog() { return readCodexMcpCatalog(CATALOG); }
+function catalog() { return readCodexMcpCatalog(REGISTRY); }
 function options(file, selected, extra = {}) { return { file, scope: 'project', selected, ...catalog(), ...extra }; }
 
 test('uses the shared curated catalog and existing selection precedence', () => {

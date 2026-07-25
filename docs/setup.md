@@ -12,8 +12,6 @@ contains only the shortest path to a working installation.
 | Claude Code, Codex, or Gemini CLI | At least one target harness |
 | `jq` | Hook scripts where the selected harness supports hooks |
 
-`bash`, `rsync`, and `jq` are additionally required only when running the frozen legacy parity harness.
-
 ## Installation modes
 
 ### Claude Code only
@@ -79,7 +77,7 @@ doflow install --dry-run -g --target codex
 ```
 
 Every normal install creates a backup. `--no-backup` requires `--force`; use it only when the
-configuration is disposable. `sync.sh` remains a compatibility shim; use `doflow` for new setup.
+configuration is disposable.
 
 ## Harness capabilities and activation
 
