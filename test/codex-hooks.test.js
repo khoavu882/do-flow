@@ -4,7 +4,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { validateHooksConfig, classifyClaudeGuardrails, verifyHookCommands, planCodexHooks, deployCodexHooks } = require('../src/codex-hooks');
+
+const CODEX_HOOKS_DIR = path.resolve(__dirname, '..', 'core', 'harnesses', 'codex', 'hooks');
 
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-codex-hooks-')); }
 function hookConfig(command = 'bash "$(root)/hooks/session-start.sh"') {
@@ -74,6 +77,66 @@ test('deploy copies every file in scriptsDir, not just ones named in a hooks.jso
   // hooks.json itself lives alongside the scripts in the source tree but is deployed separately
   // to .codex/hooks.json (not .codex/hooks/hooks.json) — must not be duplicated into hooks/.
   assert.equal(fs.existsSync(path.join(deployedHooks, 'hooks.json')), false);
+});
+
+test('accepts PostToolUse and PreCompact — the two events closing the Claude/Codex hook-coverage gap', () => {
+  const config = { hooks: {
+    PostToolUse: [{ matcher: '^(apply_patch|Edit|Write)$', hooks: [{ type: 'command', command: 'bash "$(dirname)/post-edit-lint.sh"' }] }],
+    PreCompact: [{ hooks: [{ type: 'command', command: 'bash "$(dirname)/pre-compact.sh"', timeout: 3 }] }],
+  } };
+  assert.equal(validateHooksConfig(config).ok, true);
+  const classified = classifyClaudeGuardrails({ PostToolUse: [], PreCompact: [] });
+  assert.deepEqual(classified.supported.map((item) => item.targetEvent), ['PostToolUse', 'PreCompact']);
+  assert.deepEqual(classified.unsupported, []);
+});
+
+test('the real core/harnesses/codex/hooks/hooks.json fixture is itself valid per validateHooksConfig', () => {
+  const fixture = JSON.parse(fs.readFileSync(path.join(CODEX_HOOKS_DIR, 'hooks.json'), 'utf8'));
+  const result = validateHooksConfig(fixture);
+  assert.equal(result.ok, true, `hooks.json fixture failed validation: ${JSON.stringify(result.errors)}`);
+  assert.ok(result.events.includes('PostToolUse'), 'hooks.json should wire PostToolUse');
+  assert.ok(result.events.includes('PreCompact'), 'hooks.json should wire PreCompact');
+});
+
+test('post-edit-lint.impl.sh extracts every file path from a multi-file apply_patch, not just Edit/Write file_path', () => {
+  // Regression test: apply_patch's tool_input is
+  // {"command": "<raw patch>"}, not {"file_path": "..."} — a naive Edit/Write-only port would
+  // silently collect nothing for every Codex edit.
+  const patch = [
+    '*** Begin Patch',
+    '*** Add File: foo/bar.txt',
+    '+hello',
+    '*** Update File: baz/qux.txt',
+    '@@',
+    '-old',
+    '+new',
+    '*** End Patch',
+  ].join('\n');
+  const sessionId = `test-apply-patch-${process.pid}-${Date.now()}`;
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-codex-post-edit-lint-'));
+  try {
+    execFileSync('bash', [path.join(CODEX_HOOKS_DIR, 'post-edit-lint.impl.sh')], {
+      input: JSON.stringify({ session_id: sessionId, tool_name: 'apply_patch', tool_input: { command: patch } }),
+      env: { ...process.env, XDG_CONFIG_HOME: stateDir },
+    });
+    const collected = fs.readFileSync(path.join(stateDir, 'doflow', 'session-env', 'sessions', sessionId, 'edited-files.txt'), 'utf8');
+    assert.deepEqual(collected.trim().split('\n'), ['foo/bar.txt', 'baz/qux.txt']);
+  } finally {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('pre-compact.impl.sh emits valid JSON with only Codex-accepted universal fields', () => {
+  // Regression test: Codex's PreCompact output schema is JSON-only (deny_unknown_fields on
+  // HookUniversalOutputWire) — Claude's plain-string custom_instructions output would not parse.
+  const out = execFileSync('bash', [path.join(CODEX_HOOKS_DIR, 'pre-compact.impl.sh')], {
+    input: JSON.stringify({ cwd: process.cwd() }),
+  }).toString('utf8');
+  const parsed = JSON.parse(out); // throws if not valid JSON
+  const allowedKeys = new Set(['continue', 'stopReason', 'suppressOutput', 'systemMessage']);
+  for (const key of Object.keys(parsed)) assert.ok(allowedKeys.has(key), `unexpected key '${key}' — Codex's schema rejects unknown fields`);
+  assert.equal(typeof parsed.systemMessage, 'string');
+  assert.ok(parsed.systemMessage.length <= 490);
 });
 
 test('every Codex hook script that delegates to a sibling script names a file other than itself', () => {

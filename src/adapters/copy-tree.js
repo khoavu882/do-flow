@@ -130,4 +130,23 @@ function verifyTree({ sourceDir, destDir, fsImpl = fs }) {
   return { ok: conflicts.length === 0, resources, conflicts };
 }
 
-module.exports = { discoverTree, planTree, applyTree, removeTree, verifyTree };
+// ---- per-adapter copy-tree glue, shared so codex/claude/gemini don't each carry their own copy ----
+
+/** Filter a harness's asset list down to the ones this engine handles. */
+function copyTreeAssets(assets) {
+  return (assets || []).filter((asset) => asset?.renderer === 'copy-tree');
+}
+
+/** Resolve an asset's native destination directory under the harness's already-resolved config dir. */
+function copyTreeDestDir(configDir, asset) {
+  return path.join(configDir, asset.nativeDir || '');
+}
+
+/** Narrow a harness's flat neutral-resource list to one asset's previously-owned copy-tree files. */
+function ledgerFileResources(resources, harness, assetId) {
+  return (resources || [])
+    .filter((resource) => resource.harness === harness && resource.assetId === assetId && resource.kind === 'copy-tree-file')
+    .map((resource) => ({ relPath: resource.identity, fingerprint: resource.fingerprint }));
+}
+
+module.exports = { discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources };

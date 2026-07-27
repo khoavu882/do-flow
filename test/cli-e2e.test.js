@@ -272,7 +272,7 @@ test('Codex-native lifecycle supports isolated project dry-run, selected MCP upd
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stdout, /Registry lifecycle: \d+ native change\(s\), 0 conflict\(s\)/);
   assert.match(r.stdout, /\[DRY\]\s+codex: \d+ change\(s\)/);
-  assert.match(r.stdout, /codex hooks trust: review-required \(review required in Codex\)/);
+  assert.match(r.stdout, /codex hooks trust: review-required \(review required in codex\)/);
   assert.ok(!fs.existsSync(path.join(project, '.codex')), 'Codex dry-run must not create project config');
 
   r = run(['install', project, '--force', '--target', 'codex', '--mcp', 'context7'], { home });
