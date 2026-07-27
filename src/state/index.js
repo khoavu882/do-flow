@@ -61,6 +61,7 @@ function defaultLedger({ scope, scopeRoot }) {
     resources: [],
     legacyImports: [],
     lastRecoveryId: null,
+    guidanceVersion: null,
   };
 }
 

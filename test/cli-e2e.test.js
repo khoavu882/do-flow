@@ -110,17 +110,20 @@ test('Codex install merges AGENTS.md and installs reusable skills', () => {
 
   const agents = fs.readFileSync(path.join(codexDir, 'AGENTS.md'), 'utf8');
   assert.match(agents, /Preserve this content\./);
-  assert.match(agents, /# Core Framework/);
+  // Codex has no native @file import expansion, so its managed section is a prose pointer into
+  // the shared .doflow/guidance/ tree rather than the full merged guidance content.
+  assert.match(agents, /\.doflow\/guidance\/DOFLOW_CORE\.md/);
+  assert.ok(fs.existsSync(path.join(home, '.doflow', 'guidance', 'rules', 'RULE_01_SAFETY.md')));
   assert.ok(fs.existsSync(path.join(codexDir, 'skills', 'do-implement', 'SKILL.md')));
   assert.ok(fs.existsSync(path.join(codexDir, 'scripts', 'doflow', 'bash', 'do-paths.sh')));
   assert.ok(fs.existsSync(path.join(codexDir, 'templates', 'doflow', 'plan-template.md')));
 
-  fs.writeFileSync(path.join(codexDir, 'AGENTS.md'), agents.replace('# Core Framework', 'stale managed instructions'));
+  fs.writeFileSync(path.join(codexDir, 'AGENTS.md'), agents.replace('.doflow/guidance/DOFLOW_CORE.md', 'stale managed instructions'));
   const update = run(['update', '-g', '--force', '--target', 'codex'], { home });
   assert.strictEqual(update.status, 0, update.stderr);
   const updatedAgents = fs.readFileSync(path.join(codexDir, 'AGENTS.md'), 'utf8');
   assert.match(updatedAgents, /Preserve this content\./);
-  assert.match(updatedAgents, /# Core Framework/);
+  assert.match(updatedAgents, /\.doflow\/guidance\/DOFLOW_CORE\.md/);
 });
 
 test('full lifecycle: install -> mutate -> update -> rollback restores the pre-update dst content', () => {
@@ -539,13 +542,15 @@ test('Claude lifecycle: fresh install owns the instructions asset in the neutral
   const claudeMd = path.join(project, '.claude', 'CLAUDE.md');
   const content = fs.readFileSync(claudeMd, 'utf8');
   // A fresh install has no foreign content to preserve, so CLAUDE.md must be exactly doflow's
-  // marker span around core/CLAUDE.md's own content, byte for byte — proving the legacy copy
-  // loop's merge and the lifecycle's own re-apply of the same merge (now wired in behind it)
-  // converge to the identical, unchanged output rather than double-inserting anything.
+  // marker span around the pointer source's own content, byte for byte — CLAUDE.md's managed
+  // section is a short pointer into .doflow/guidance/, not the full guidance content anymore.
   const MARKER_START = '<!-- doflow:start — content below is managed by doflow install/update; edits here are overwritten on the next run -->';
   const MARKER_END = '<!-- doflow:end -->';
-  const coreClaudeMd = fs.readFileSync(path.join(REPO, 'core', 'shared', 'guidance', 'CLAUDE.md'), 'utf8').replace(/\s+$/, '');
-  assert.strictEqual(content, `${MARKER_START}\n${coreClaudeMd}\n${MARKER_END}\n`);
+  const pointerMd = fs.readFileSync(path.join(REPO, 'core', 'shared', 'guidance', 'pointers', 'claude-gemini.md'), 'utf8').replace(/\s+$/, '');
+  assert.strictEqual(content, `${MARKER_START}\n${pointerMd}\n${MARKER_END}\n`);
+  assert.ok(fs.existsSync(path.join(project, '.doflow', 'guidance', 'DOFLOW_CORE.md')), 'canonical guidance mirror must exist under .doflow/');
+  assert.ok(fs.existsSync(path.join(project, '.doflow', 'guidance', 'rules', 'RULE_01_SAFETY.md')));
+  assert.ok(!fs.existsSync(path.join(project, '.claude', 'rules')), 'rules must no longer be duplicated into .claude/');
 
   const ledger = JSON.parse(fs.readFileSync(path.join(project, '.doflow', 'state', 'ledger.json'), 'utf8'));
   const owned = ledger.resources.filter((resource) => resource.harness === 'claude');

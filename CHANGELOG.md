@@ -13,12 +13,6 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
-**Note on 2026-07-25:** every entry below `[0.7.0]` was renumbered from its original `1.x`/`2.x`
-tag onto this `0.y.z` scheme (`1.0.0`→`0.1.0`, `2.0.0`→`0.2.0`, `2.1.0`→`0.3.0`, ... `2.4.4`→
-`0.6.4`) — the `1.x`/`2.x` series never should have left SemVer's own "initial development, anything
-may still break" `0.y.z` range. Content and dates are otherwise unchanged; only the version numbers
-moved. The corresponding git tags were renamed to match.
-
 ## [Unreleased]
 
 ### Added
@@ -42,6 +36,29 @@ moved. The corresponding git tags were renamed to match.
   verified installer behavior for both Codex and Gemini.
 - `lifecycle-view.js`'s hook-trust status line hardcoded "(review required in Codex)" regardless
   of which harness produced it.
+
+### Changed
+
+- **Breaking: shared guidance content is no longer duplicated per harness — it now lives once in
+  `.doflow/guidance/` (project scope) or `~/.doflow/guidance/` (global scope), mirroring
+  `core/shared/guidance/` byte-for-byte.** Each harness's native entry file (`.claude/CLAUDE.md`,
+  Codex's `AGENTS.md`, Gemini's `GEMINI.md`) now carries only a short pointer into that shared
+  tree instead of a full copy of the rules/modes/mcp/references content — an `@`-import for Claude
+  and Gemini (both resolve `@file` imports natively), a prose read-instruction for Codex (no
+  native import-expansion mechanism). The canonical root doc is renamed
+  `core/shared/guidance/CLAUDE.md` → `DOFLOW_CORE.md` (harness-neutral, since it's read by all
+  three). A new `core/shared/guidance/VERSION` file is the single source for the guidance-content
+  layer's own version, independent of this package's version — no more editing `package.json` +
+  `core/.claude-plugin/plugin.json` + `core/.codex-plugin/plugin.json` in lockstep for a
+  content-only change. `.doflow/state/ledger.json` gains a `guidanceVersion` field recording which
+  layer version is installed. **Existing installs need a clean reinstall, not just `doflow
+  update`/`install` on top of what's there**: retiring the old per-harness `guidance.rules`/
+  `modes.doflow`/`claude.mcp-docs`/`references.doflow`/`guidance.docs` asset ids means neither
+  `install`, `update`, nor `remove` will delete the `rules/`, `modes/`, `mcp/`, `references/`
+  directories those ids used to own — removing an asset id that no longer exists in the registry
+  isn't yet an automatic lifecycle capability. Run `doflow remove` and delete any of those four
+  directories it leaves behind under `.claude/`/`.codex/`/`.agents/`, then `doflow install`, to
+  reach a clean state.
 
 ## [0.7.1] - 2026-07-25
 
