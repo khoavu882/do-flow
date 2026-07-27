@@ -3,6 +3,8 @@
 // Native state and formats remain adapter-owned. The lifecycle layer selects
 // registry assets, validates declarative changes, journals mutations, and keeps
 // the neutral ledger in sync only after successful verification.
+const fs = require('node:fs');
+const path = require('node:path');
 const { harnessFor, selectAssets, selectMcpServers } = require('../registry');
 const { defaultLedger, ownershipKey, writeLedger, writeRecoveryRecord } = require('../state');
 const { resolveAdapter, projectAdapterInput } = require('../adapters');
@@ -53,6 +55,23 @@ function matchesChange(resource, change) {
   return typeof resource?.identity === 'string' && typeof change?.identity === 'string' && resource.identity === change.identity;
 }
 
+/** Whether one removed change is genuinely gone, and if so, how `statuses` should record that.
+ * `statuses` is read live, not a snapshot — an earlier change in the same removal batch can add
+ * or update an entry a later change's own lookup then finds. */
+function reconcileRemovedChange(verification, statuses, change) {
+  const reported = verification.resources.some((resource) => matchesChange(resource, change));
+  const statusIndex = statuses.findIndex((item) => matchesChange(item, change));
+  const status = statusIndex >= 0 ? statuses[statusIndex] : null;
+  if (reported || (status && !['missing', 'removed', 'not-managed'].includes(status.status))) {
+    return { conflict: `Removed resource remains present: ${change.target}` };
+  }
+  const removedStatus = {
+    ...(status ?? { harness: change.harness, assetId: change.assetId, target: change.target, ownershipIdentity: change.ownershipIdentity }),
+    status: 'removed', expectedRemoval: true,
+  };
+  return { statusIndex, removedStatus };
+}
+
 /** A missing resource is success only when it is exactly one that this plan
  * removed. All unrelated status rows remain untouched, and a removed resource
  * still reported as present is a verification conflict. */
@@ -62,46 +81,53 @@ function normalizeRemovalVerification(verification, changes) {
   const statuses = [...verification.statuses];
   const conflicts = [...(verification.conflicts || [])];
   for (const change of removed) {
-    const reported = verification.resources.some((resource) => matchesChange(resource, change));
-    const statusIndex = statuses.findIndex((item) => matchesChange(item, change));
-    const status = statusIndex >= 0 ? statuses[statusIndex] : null;
-    if (reported || (status && !['missing', 'removed', 'not-managed'].includes(status.status))) {
-      conflicts.push(`Removed resource remains present: ${change.target}`);
-      continue;
-    }
-    if (status) statuses[statusIndex] = { ...status, status: 'removed', expectedRemoval: true };
-    else statuses.push({ harness: change.harness, assetId: change.assetId, target: change.target,
-      ownershipIdentity: change.ownershipIdentity, status: 'removed', expectedRemoval: true });
+    const outcome = reconcileRemovedChange(verification, statuses, change);
+    if (outcome.conflict) { conflicts.push(outcome.conflict); continue; }
+    if (outcome.statusIndex >= 0) statuses[outcome.statusIndex] = outcome.removedStatus;
+    else statuses.push(outcome.removedStatus);
   }
+  return { ...verification, statuses, conflicts, ok: removalVerificationOk(verification.ok, statuses, conflicts) };
+}
+
+/** An adapter may initially report ok:false because a now-removed resource is missing. Once
+ * that exact absence has been normalized (an `expectedRemoval` status), recompute rather than
+ * carrying the stale false forward. A bare adapter failure, conflict, or any unrelated
+ * missing/error status remains a hard verification failure. */
+function removalVerificationOk(ok, statuses, conflicts) {
   const unresolvedFailure = statuses.some((status) => ['missing', 'conflict', 'error', 'invalid'].includes(status?.status));
-  // An adapter may initially report ok:false because a now-removed resource is
-  // missing. Once that exact absence has been normalized, recompute rather than
-  // carrying the stale false forward. A bare adapter failure, conflict, or any
-  // unrelated missing/error status remains a hard verification failure.
-  const onlyExpectedRemovalFailure = verification.ok === false && statuses.some((status) => status?.expectedRemoval) && !unresolvedFailure && conflicts.length === 0;
-  return { ...verification, statuses, conflicts,
-    ok: conflicts.length === 0 && !unresolvedFailure && (verification.ok !== false || onlyExpectedRemovalFailure) };
+  const onlyExpectedRemovalFailure = ok === false && statuses.some((status) => status?.expectedRemoval) && !unresolvedFailure && conflicts.length === 0;
+  return conflicts.length === 0 && !unresolvedFailure && (ok !== false || onlyExpectedRemovalFailure);
+}
+
+/** A `failures` entry comes in three shapes from different adapters: a [name, detail] tuple,
+ * a bare string, or an object with its own conflicts/errors. */
+function failureReasons(failure) {
+  if (Array.isArray(failure)) {
+    const [name, detail] = failure;
+    const detailReasons = detail?.conflicts || detail?.errors || [];
+    return detailReasons.map((reason) => `${name}: ${reason}`);
+  }
+  if (typeof failure === 'string') return [failure];
+  if (failure?.conflicts || failure?.errors) return failure.conflicts || failure.errors;
+  return [];
+}
+
+function componentReasons(name, component) {
+  if (component?.ok !== false) return [];
+  const details = component.conflicts || component.errors || [];
+  return details.length ? details.map((reason) => `${name}: ${reason}`) : [`${name}: native plan failed`];
 }
 
 /** Promote adapter-declared failed components into the common conflict channel.
  * A false `ok` is never advisory: otherwise a native adapter can decline a
  * dangerous reconciliation while the lifecycle still journals and writes state. */
 function adapterConflicts(result, harness) {
-  const reasons = [...(result.conflicts || []), ...(result.errors || [])];
-  for (const failure of result.failures || []) {
-    if (Array.isArray(failure)) {
-      const [name, detail] = failure;
-      const detailReasons = detail?.conflicts || detail?.errors || [];
-      reasons.push(...detailReasons.map((reason) => `${name}: ${reason}`));
-    } else if (typeof failure === 'string') reasons.push(failure);
-    else if (failure?.conflicts || failure?.errors) reasons.push(...(failure.conflicts || failure.errors));
-  }
-  for (const [name, component] of Object.entries(result.components || {})) {
-    if (component?.ok === false) {
-      const details = component.conflicts || component.errors || [];
-      reasons.push(...(details.length ? details.map((reason) => `${name}: ${reason}`) : [`${name}: native plan failed`]));
-    }
-  }
+  const reasons = [
+    ...(result.conflicts || []),
+    ...(result.errors || []),
+    ...(result.failures || []).flatMap(failureReasons),
+    ...Object.entries(result.components || {}).flatMap(([name, component]) => componentReasons(name, component)),
+  ];
   if (result.ok === false && reasons.length === 0) reasons.push(`Adapter '${harness.id}' rejected its native plan`);
   return [...new Set(reasons)];
 }
@@ -147,7 +173,16 @@ function verificationResources(verification, changes, scope, recoveryRef) {
   }));
 }
 
-function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recoveryRef }) {
+/** The guidance-content layer's own version marker (core/shared/guidance/VERSION, copy-treed
+ * to <scopeRoot>/.doflow/guidance/VERSION) is independent of this package's version — read it
+ * fresh on every ledger update so the ledger reflects whatever is actually on disk. */
+function readGuidanceVersion(scopeRoot, fsImpl = fs) {
+  const file = path.join(scopeRoot, '.doflow', 'guidance', 'VERSION');
+  if (!fsImpl.existsSync(file)) return null;
+  return fsImpl.readFileSync(file, 'utf8').trim();
+}
+
+function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recoveryRef, fsImpl = fs }) {
   const next = JSON.parse(JSON.stringify(ledger ?? defaultLedger({ scope, scopeRoot })));
   for (const verification of verifications) {
     const related = changes.filter((change) => change.harness === verification.harness);
@@ -163,6 +198,8 @@ function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recove
     next.targets[verification.harness] = { installed: true, lastUpdated: new Date().toISOString() };
   }
   next.lastRecoveryId = recoveryRef;
+  const guidanceVersion = readGuidanceVersion(scopeRoot, fsImpl);
+  if (guidanceVersion !== null) next.guidanceVersion = guidanceVersion;
   return next;
 }
 
@@ -182,10 +219,14 @@ function verifyLifecycle({ plan, adapters, context = {} }) {
   return { verifications, conflicts, ok: conflicts.length === 0 && verifications.every((result) => result.ok !== false) };
 }
 
-function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.ledger, context = {}, mode = 'apply', acceptPrerequisites = false, writeLedgerFn = writeLedger, writeRecoveryRecordFn = writeRecoveryRecord }) {
+function assertPlanApplicable(plan, stateRoot, acceptPrerequisites) {
   if (!plan.safe && !(acceptPrerequisites && plan.conflicts.length === 0)) throw new Error('Refusing to apply an unsafe lifecycle plan');
   if (!stateRoot) throw new Error('stateRoot is required before lifecycle mutation');
   if (!plan.requiredNativeResources?.length || !plan.changes.length) throw new Error('Refusing to apply a lifecycle plan with no required native resources');
+}
+
+function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.ledger, context = {}, mode = 'apply', acceptPrerequisites = false, writeLedgerFn = writeLedger, writeRecoveryRecordFn = writeRecoveryRecord }) {
+  assertPlanApplicable(plan, stateRoot, acceptPrerequisites);
   const recovery = writeRecoveryRecordFn(stateRoot, { status: 'pending', changes: plan.changes });
   const completedHarnesses = [];
   try {

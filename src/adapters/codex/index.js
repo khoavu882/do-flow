@@ -77,7 +77,7 @@ function assetIdFor(options, componentName) {
   if (explicit) return explicit;
   const assets = options.assets || [];
   if (componentName === 'agents') return assets.find((asset) => asset.id === 'agents.shared')?.id ?? assets[0]?.id;
-  return assets.find((asset) => asset.id === 'guidance.core')?.id ?? assets[0]?.id ?? `codex.${componentName}`;
+  return assets.find((asset) => asset.id === 'guidance.codex-pointer')?.id ?? assets[0]?.id ?? `codex.${componentName}`;
 }
 
 function ownershipKind(componentName) {
@@ -140,35 +140,45 @@ function ownedRemovalPlan(resources, context, kind, directory) {
   return { ok: conflicts.length === 0, status: conflicts.length ? 'conflict' : (changes.length ? 'change' : 'unchanged'), changes, conflicts, directRemove: true };
 }
 
-function resourcesFromApplied({ components, scope, sourceVersion, recoveryRef }) {
-  const resources = [];
-  const config = components.config;
-  for (const record of config?.managedResources || []) {
-    if (record.kind !== 'configuration-entry' && record.kind !== 'config-entry') continue;
-    resources.push(lifecycleResource({ scope, assetId: 'guidance.core', kind: 'configuration-entry', identity: record.identity,
+function configResourcesFrom(config, { scope, sourceVersion, recoveryRef }) {
+  return (config?.managedResources || [])
+    .filter((record) => record.kind === 'configuration-entry' || record.kind === 'config-entry')
+    .map((record) => lifecycleResource({ scope, assetId: 'guidance.codex-pointer', kind: 'configuration-entry', identity: record.identity,
       target: config.file, fingerprint: record.fingerprint, sourceVersion: record.sourceVersion ?? sourceVersion, recoveryRef,
       projection: { renderer: 'codex-config' } }));
-  }
-  const mcp = components.mcp;
-  for (const record of mcp?.managedResources || []) {
-    if (record.kind !== 'mcp-server') continue;
-    resources.push(lifecycleResource({ scope, assetId: 'guidance.core', kind: 'mcp-server', identity: record.identity,
+}
+
+function mcpResourcesFrom(mcp, { scope, sourceVersion, recoveryRef }) {
+  return (mcp?.managedResources || [])
+    .filter((record) => record.kind === 'mcp-server')
+    .map((record) => lifecycleResource({ scope, assetId: 'guidance.codex-pointer', kind: 'mcp-server', identity: record.identity,
       target: mcp.file, fingerprint: record.fingerprint, sourceVersion: record.sourceVersion ?? sourceVersion, selection: record.selection, recoveryRef,
       projection: { renderer: 'codex-mcp' } }));
-  }
-  const agents = components.agents;
-  for (const record of agents?.managedResources || []) {
-    if (record.kind !== 'custom-agent') continue;
-    const name = record.identity.replace(/^agent:/, '');
-    resources.push(lifecycleResource({ scope, assetId: 'agents.shared', kind: 'custom-agent', identity: record.identity,
-      target: path.join(agents.directory, `${name}.toml`), fingerprint: record.fingerprint, sourceVersion: record.sourceVersion ?? sourceVersion, recoveryRef,
-      projection: { renderer: 'codex-agent' } }));
-  }
-  const hooks = components.hooks;
-  if (hooks?.applied && hooks.destination) resources.push(lifecycleResource({ scope, assetId: 'guidance.core', kind: 'hooks-file', identity: 'hooks.json',
+}
+
+function agentResourcesFrom(agents, { scope, sourceVersion, recoveryRef }) {
+  return (agents?.managedResources || [])
+    .filter((record) => record.kind === 'custom-agent')
+    .map((record) => lifecycleResource({ scope, assetId: 'agents.shared', kind: 'custom-agent', identity: record.identity,
+      target: path.join(agents.directory, `${record.identity.replace(/^agent:/, '')}.toml`), fingerprint: record.fingerprint,
+      sourceVersion: record.sourceVersion ?? sourceVersion, recoveryRef, projection: { renderer: 'codex-agent' } }));
+}
+
+function hooksResourceFrom(hooks, { scope, sourceVersion, recoveryRef }) {
+  if (!hooks?.applied || !hooks.destination) return [];
+  return [lifecycleResource({ scope, assetId: 'guidance.codex-pointer', kind: 'hooks-file', identity: 'hooks.json',
     target: hooks.destination, fingerprint: sha256(fs.readFileSync(hooks.destination, 'utf8')), sourceVersion, recoveryRef,
-    projection: { renderer: 'codex-hooks' } }));
-  return resources;
+    projection: { renderer: 'codex-hooks' } })];
+}
+
+function resourcesFromApplied({ components, scope, sourceVersion, recoveryRef }) {
+  const shared = { scope, sourceVersion, recoveryRef };
+  return [
+    ...configResourcesFrom(components.config, shared),
+    ...mcpResourcesFrom(components.mcp, shared),
+    ...agentResourcesFrom(components.agents, shared),
+    ...hooksResourceFrom(components.hooks, shared),
+  ];
 }
 
 // ---- copy-tree assets (rules, skills, agents, templates, scripts, references) ----
@@ -191,7 +201,7 @@ function ledgerFileResources(neutralResources, assetId) {
     .map((resource) => ({ relPath: resource.identity, fingerprint: resource.fingerprint }));
 }
 
-// ---- guidance.core instructions (AGENTS.md managed-section merge) ----
+// ---- guidance.codex-pointer instructions (AGENTS.md managed-section merge) ----
 // The registry declares this asset's codex projection as renderer "codex-agents" (see
 // core/registry/assets.yaml), but nothing previously implemented it — Codex's AGENTS.md merge was
 // silently carried entirely by the legacy mappings.conf copier (its `dst === 'AGENTS.md'`
@@ -326,6 +336,65 @@ function projectedNativeOptions(options) {
   return { configResources, mcpCatalog, selectedMcp, agentsSourceDir, hooksSourceFile, hooksSourceDir, hooksConfig, hooksTrusted };
 }
 
+function planConfigComponent({ native, neutralResources, context, configFile, removing }) {
+  if (native.configResources === undefined) return undefined;
+  const managedResources = nativeManagedResources(neutralResources, context, { kind: 'configuration-entry', target: configFile });
+  const component = planCodexConfig({ file: configFile, scope: context.scope, managedResources, desiredResources: removing ? [] : native.configResources });
+  component.scope = context.scope;
+  component.desiredResources = removing ? [] : native.configResources;
+  // The next ledger intentionally omits a removed record. Keep the pre-plan
+  // ownership proof solely for apply's immediate replan over the current file.
+  component.reconciliationManagedResources = managedResources;
+  return component;
+}
+
+function planMcpComponent({ native, neutralResources, context, configFile, removing, options }) {
+  if (native.selectedMcp === undefined) return undefined;
+  const catalog = nativeMcpCatalog(native.mcpCatalog);
+  const managedResources = nativeManagedResources(neutralResources, context, { kind: 'mcp-server', target: configFile });
+  return planCodexMcp({ file: configFile, scope: context.scope, managedResources, selected: removing ? [] : native.selectedMcp,
+    ...catalog, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion, recoveryPoint: options.recoveryPoint });
+}
+
+/** Codex hooks.json is only replaced when the file on disk still matches the ledger's last-known
+ * fingerprint — a foreign edit (or a record the ledger never owned) downgrades an otherwise-clean
+ * plan to a conflict rather than silently overwriting it. */
+function planHooksComponent({ native, neutralResources, context }) {
+  let hooks = planCodexHooks({ config: native.hooksConfig, sourceFile: native.hooksSourceFile,
+    sourceHooksDir: native.hooksSourceDir, trusted: native.hooksTrusted, destinationContext: context });
+  const hooksFile = hooks.destination;
+  if (hooks.ok && fs.existsSync(hooksFile)) {
+    const [record] = nativeManagedResources(neutralResources, context, { kind: 'hooks-file', target: hooksFile });
+    const current = sha256(fs.readFileSync(hooksFile, 'utf8'));
+    if (!record) {
+      hooks = { ...hooks, ok: false, status: 'conflict', changes: [], errors: ['Codex hooks.json exists but is not owned by the neutral ledger'] };
+    } else if (record.fingerprint !== current) {
+      hooks = { ...hooks, ok: false, status: 'conflict', changes: [], errors: ['Codex hooks.json was modified outside DoFlow'] };
+    }
+  }
+  return hooks;
+}
+
+/** Agents/hooks share one removing-vs-planning fork: removal always owns both via the neutral
+ * ledger's own records, regardless of what native input the caller provided this run. */
+function planAgentsAndHooksComponents({ native, neutralResources, context, agentsDirectory, removing, options }) {
+  if (removing) {
+    return {
+      agents: ownedRemovalPlan(neutralResources, context, 'custom-agent', agentsDirectory),
+      hooks: ownedRemovalPlan(neutralResources, context, 'hooks-file'),
+    };
+  }
+  const components = {};
+  if (native.agentsSourceDir !== undefined) {
+    const managedResources = nativeManagedResources(neutralResources, context, { kind: 'custom-agent', directory: agentsDirectory });
+    components.agents = planCodexAgents({ ...context, managedResources, sourceDir: native.agentsSourceDir, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion });
+  }
+  if (native.hooksSourceFile !== undefined || native.hooksConfig !== undefined) {
+    components.hooks = planHooksComponent({ native, neutralResources, context });
+  }
+  return components;
+}
+
 /**
  * Compose native, non-mutating plans. Callers opt into a component by providing
  * its desired input, which prevents a generic plan from accidentally removing
@@ -337,45 +406,13 @@ function plan(options) {
   const native = projectedNativeOptions(options);
   const configFile = configPath(context);
   const agentsDirectory = agentDirectory(context);
-  const components = {};
   const removing = options.context?.operation === 'remove';
-  if (native.configResources !== undefined) {
-    const managedResources = nativeManagedResources(neutralResources, context, { kind: 'configuration-entry', target: configFile });
-    components.config = planCodexConfig({ file: configFile, scope: context.scope, managedResources, desiredResources: removing ? [] : native.configResources });
-    components.config.scope = context.scope;
-    components.config.desiredResources = removing ? [] : native.configResources;
-    // The next ledger intentionally omits a removed record. Keep the pre-plan
-    // ownership proof solely for apply's immediate replan over the current file.
-    components.config.reconciliationManagedResources = managedResources;
-  }
-  if (native.selectedMcp !== undefined) {
-    const catalog = nativeMcpCatalog(native.mcpCatalog);
-    const managedResources = nativeManagedResources(neutralResources, context, { kind: 'mcp-server', target: configFile });
-    components.mcp = planCodexMcp({ file: configFile, scope: context.scope, managedResources, selected: removing ? [] : native.selectedMcp,
-      ...catalog, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion, recoveryPoint: options.recoveryPoint });
-  }
-  if (removing) {
-    components.agents = ownedRemovalPlan(neutralResources, context, 'custom-agent', agentsDirectory);
-    components.hooks = ownedRemovalPlan(neutralResources, context, 'hooks-file');
-  } else if (native.agentsSourceDir !== undefined) {
-    const managedResources = nativeManagedResources(neutralResources, context, { kind: 'custom-agent', directory: agentsDirectory });
-    components.agents = planCodexAgents({ ...context, managedResources, sourceDir: native.agentsSourceDir, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion });
-  }
-  if (!removing && (native.hooksSourceFile !== undefined || native.hooksConfig !== undefined)) {
-    components.hooks = planCodexHooks({ config: native.hooksConfig, sourceFile: native.hooksSourceFile,
-      sourceHooksDir: native.hooksSourceDir, trusted: native.hooksTrusted, destinationContext: context });
-    const hooksFile = components.hooks.destination;
-    const hookRecords = nativeManagedResources(neutralResources, context, { kind: 'hooks-file', target: hooksFile });
-    if (components.hooks.ok && fs.existsSync(hooksFile)) {
-      const record = hookRecords[0];
-      const current = sha256(fs.readFileSync(hooksFile, 'utf8'));
-      if (!record) {
-        components.hooks = { ...components.hooks, ok: false, status: 'conflict', changes: [], errors: ['Codex hooks.json exists but is not owned by the neutral ledger'] };
-      } else if (record.fingerprint !== current) {
-        components.hooks = { ...components.hooks, ok: false, status: 'conflict', changes: [], errors: ['Codex hooks.json was modified outside DoFlow'] };
-      }
-    }
-  }
+  const components = {};
+  const configComponent = planConfigComponent({ native, neutralResources, context, configFile, removing });
+  if (configComponent) components.config = configComponent;
+  const mcpComponent = planMcpComponent({ native, neutralResources, context, configFile, removing, options });
+  if (mcpComponent) components.mcp = mcpComponent;
+  Object.assign(components, planAgentsAndHooksComponents({ native, neutralResources, context, agentsDirectory, removing, options }));
   const copyTree = planCopyTreeAssets({ assets: options.assets, context, neutralResources, removing,
     repoRoot: options.context?.repoRoot, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion });
   const instructions = planInstructionsAsset({ assets: options.assets, context, removing, repoRoot: options.context?.repoRoot });
@@ -450,18 +487,8 @@ function remove({ changes = [], dryRun = false } = {}) {
   return { ...result, removed: changes.filter((change) => (change.operation ?? change.type) === 'remove').length };
 }
 
-function verify(options = {}) {
-  const { registry, assets = [], discovery: found, plan: proposed } = options;
-  const context = nativeContext(options);
-  const native = projectedNativeOptions(options);
-  const discovery = found || discover(options);
-  const statuses = []; const resources = []; const conflicts = [];
-  const sourceVersion = options.sourceVersion ?? options.context?.sourceVersion;
-  const recoveryRef = options.recoveryRef;
-  let configText = '';
-  if (fs.existsSync(configPath(context))) configText = fs.readFileSync(configPath(context), 'utf8');
-  let parsed;
-  try { parsed = parseToml(configText); } catch (error) { conflicts.push(`Malformed Codex config: ${error.message}`); }
+function verifyConfigResources({ native, parsed, context, options, sourceVersion, recoveryRef }) {
+  const statuses = []; const resources = [];
   for (const resource of native.configResources || []) {
     const entry = parsed?.entries.get(resource.identity);
     const status = entry && configFingerprint(entry.value) === configFingerprint(resource.value) ? 'managed' : 'missing';
@@ -470,6 +497,11 @@ function verify(options = {}) {
     if (status === 'managed') resources.push(lifecycleResource({ scope: options.scope, assetId: assetIdFor(options, 'config'), kind: 'configuration-entry', identity: resource.identity,
       target: configPath(context), fingerprint: configFingerprint(entry.value), sourceVersion, recoveryRef, projection: { renderer: 'codex-config' } }));
   }
+  return { statuses, resources };
+}
+
+function verifyMcpResources({ native, configText, context, options, sourceVersion, recoveryRef }) {
+  const statuses = []; const resources = [];
   const catalog = nativeMcpCatalog(native.mcpCatalog);
   for (const id of native.selectedMcp || []) {
     const definition = catalog.serverDefs[id];
@@ -481,37 +513,72 @@ function verify(options = {}) {
       target: configPath(context), fingerprint: configFingerprint(renderServer(id, definition)), sourceVersion, recoveryRef,
       projection: { renderer: 'codex-mcp' } }));
   }
-  if (native.agentsSourceDir) {
-    for (const agent of discoverCodexAgents(native.agentsSourceDir)) {
-      const target = path.join(agentDirectory(context), agent.fileName);
-      const present = fs.existsSync(target) && fs.readFileSync(target, 'utf8') === agent.source;
-      const identity = `agent:${agent.name}`;
-      statuses.push({ assetId: assetIdFor(options, 'agents'), capability: 'agents', status: present ? 'managed' : 'missing', identity,
-        ownershipIdentity: ownershipIdentity('agents', identity), target });
-      if (present) resources.push(lifecycleResource({ scope: options.scope, assetId: assetIdFor(options, 'agents'), kind: 'custom-agent', identity: `agent:${agent.name}`,
-        target, fingerprint: agent.fingerprint, sourceVersion, recoveryRef, projection: { renderer: 'codex-agent' } }));
-    }
+  return { statuses, resources };
+}
+
+function verifyAgentResources({ native, context, options, sourceVersion, recoveryRef }) {
+  const statuses = []; const resources = [];
+  if (!native.agentsSourceDir) return { statuses, resources };
+  for (const agent of discoverCodexAgents(native.agentsSourceDir)) {
+    const target = path.join(agentDirectory(context), agent.fileName);
+    const present = fs.existsSync(target) && fs.readFileSync(target, 'utf8') === agent.source;
+    const identity = `agent:${agent.name}`;
+    statuses.push({ assetId: assetIdFor(options, 'agents'), capability: 'agents', status: present ? 'managed' : 'missing', identity,
+      ownershipIdentity: ownershipIdentity('agents', identity), target });
+    if (present) resources.push(lifecycleResource({ scope: options.scope, assetId: assetIdFor(options, 'agents'), kind: 'custom-agent', identity: `agent:${agent.name}`,
+      target, fingerprint: agent.fingerprint, sourceVersion, recoveryRef, projection: { renderer: 'codex-agent' } }));
   }
-  if (native.hooksSourceFile || native.hooksConfig) {
-    const hooks = planCodexHooks({ config: native.hooksConfig, sourceFile: native.hooksSourceFile, sourceHooksDir: native.hooksSourceDir,
-      trusted: native.hooksTrusted, destinationContext: context });
-    const status = hooks.ok && hooks.status === 'unchanged' ? 'managed' : (hooks.ok ? 'missing' : 'conflict');
-    statuses.push({ assetId: assetIdFor(options, 'hooks'), capability: 'hooks', status, identity: 'hooks.json',
-      ownershipIdentity: ownershipIdentity('hooks', 'hooks.json'), target: hooks.destination });
-    if (!hooks.ok) conflicts.push(...hooks.errors);
-    if (status === 'managed') resources.push(lifecycleResource({ scope: options.scope, assetId: assetIdFor(options, 'hooks'), kind: 'hooks-file', identity: 'hooks.json',
-      target: hooks.destination, fingerprint: sha256(fs.readFileSync(hooks.destination, 'utf8')), sourceVersion, recoveryRef, projection: { renderer: 'codex-hooks' } }));
-  }
-  for (const asset of assets) {
-    const rendered = render({ registry, asset });
-    if (rendered.status !== 'renderable') statuses.push(rendered);
-  }
+  return { statuses, resources };
+}
+
+function verifyHooksResource({ native, context, options, sourceVersion, recoveryRef }) {
+  const statuses = []; const resources = []; const conflicts = [];
+  if (!native.hooksSourceFile && !native.hooksConfig) return { statuses, resources, conflicts };
+  const hooks = planCodexHooks({ config: native.hooksConfig, sourceFile: native.hooksSourceFile, sourceHooksDir: native.hooksSourceDir,
+    trusted: native.hooksTrusted, destinationContext: context });
+  const status = hooks.ok && hooks.status === 'unchanged' ? 'managed' : (hooks.ok ? 'missing' : 'conflict');
+  statuses.push({ assetId: assetIdFor(options, 'hooks'), capability: 'hooks', status, identity: 'hooks.json',
+    ownershipIdentity: ownershipIdentity('hooks', 'hooks.json'), target: hooks.destination });
+  if (!hooks.ok) conflicts.push(...hooks.errors);
+  if (status === 'managed') resources.push(lifecycleResource({ scope: options.scope, assetId: assetIdFor(options, 'hooks'), kind: 'hooks-file', identity: 'hooks.json',
+    target: hooks.destination, fingerprint: sha256(fs.readFileSync(hooks.destination, 'utf8')), sourceVersion, recoveryRef, projection: { renderer: 'codex-hooks' } }));
+  return { statuses, resources, conflicts };
+}
+
+function verifyAssetRenderStatuses({ registry, assets }) {
+  return assets.map((asset) => render({ registry, asset })).filter((rendered) => rendered.status !== 'renderable');
+}
+
+function verify(options = {}) {
+  const { registry, assets = [], plan: proposed } = options;
+  const context = nativeContext(options);
+  const native = projectedNativeOptions(options);
+  const sourceVersion = options.sourceVersion ?? options.context?.sourceVersion;
+  const recoveryRef = options.recoveryRef;
+  let configText = '';
+  if (fs.existsSync(configPath(context))) configText = fs.readFileSync(configPath(context), 'utf8');
+  let parsed;
+  const conflicts = [];
+  try { parsed = parseToml(configText); } catch (error) { conflicts.push(`Malformed Codex config: ${error.message}`); }
+
+  const shared = { context, options, sourceVersion, recoveryRef };
+  const config = verifyConfigResources({ native, parsed, ...shared });
+  const mcp = verifyMcpResources({ native, configText, ...shared });
+  const agents = verifyAgentResources({ native, ...shared });
+  const hooks = verifyHooksResource({ native, ...shared });
   const copyTree = verifyCopyTreeAssets({ assets, context, repoRoot: options.context?.repoRoot, sourceVersion });
-  statuses.push(...copyTree.statuses); resources.push(...copyTree.resources); conflicts.push(...copyTree.conflicts);
   const instructions = verifyInstructionsAsset({ assets, context, repoRoot: options.context?.repoRoot });
-  statuses.push(...instructions.statuses); resources.push(...instructions.resources);
+
+  const statuses = [
+    ...config.statuses, ...mcp.statuses, ...agents.statuses, ...hooks.statuses,
+    ...verifyAssetRenderStatuses({ registry, assets }),
+    ...copyTree.statuses, ...instructions.statuses,
+  ];
+  const resources = [...config.resources, ...mcp.resources, ...agents.resources, ...hooks.resources, ...copyTree.resources, ...instructions.resources];
+  conflicts.push(...hooks.conflicts, ...copyTree.conflicts);
   const componentFailures = Object.values(proposed?.components || {}).filter((component) => !component.ok);
   for (const component of componentFailures) conflicts.push(...(component.conflicts || component.errors || []));
+
   return { ok: conflicts.length === 0 && statuses.every((status) => status.status !== 'missing' && status.status !== 'conflict'), resources, statuses, conflicts };
 }
 

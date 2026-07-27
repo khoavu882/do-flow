@@ -1,6 +1,6 @@
 # Core Framework (always needed)
-@PRINCIPLES.md
-@FLAGS.md
+@docs/PRINCIPLES.md
+@docs/FLAGS.md
 @rules/RULE_01_SAFETY.md
 @rules/RULE_02_WORKFLOW.md
 @rules/RULE_03_QUALITY.md
