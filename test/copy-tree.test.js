@@ -181,3 +181,80 @@ test('discoverTree throws when the source directory itself is missing', () => {
   assert.throws(() => discoverTree({ sourceDir: path.join(root, 'nope'), destDir: path.join(root, 'dest') }),
     /copy-tree source is missing/);
 });
+
+// Regression: a destination-only file with no source counterpart (e.g. the generated
+// .doflow/guidance/docs/MCP_INDEX.md, written directly by applyLifecycle rather than through
+// applyTree) must never surface as a copy-tree resource, conflict, or removal candidate — every
+// enumeration in this module walks the SOURCE tree, never the destination tree independently.
+test('discoverTree ignores a destination-only file with no source counterpart (orphan generated file)', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'a.md': 'A', 'nested/b.md': 'B' });
+  const destDir = path.join(root, 'dest');
+  fs.mkdirSync(path.join(destDir, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(destDir, 'docs', 'MCP_INDEX.md'), 'generated, not source-tracked');
+
+  const { files } = discoverTree({ sourceDir, destDir });
+  assert.equal(files.length, 2);
+  assert.ok(!files.some((f) => f.relPath === 'docs/MCP_INDEX.md'));
+});
+
+test('verifyTree reports zero conflicts for a destination-only file with no source counterpart', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'a.md': 'A' });
+  const destDir = path.join(root, 'dest');
+  applyTree({ changes: planTree({ sourceDir, destDir }).changes });
+  fs.mkdirSync(path.join(destDir, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(destDir, 'docs', 'MCP_INDEX.md'), 'generated, not source-tracked');
+
+  const result = verifyTree({ sourceDir, destDir });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.conflicts, []);
+  assert.equal(result.resources.length, 1);
+  assert.ok(!result.resources.some((r) => r.relPath === 'docs/MCP_INDEX.md'));
+});
+
+test('planTree never proposes removal of a destination-only file absent from previousResources', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'a.md': 'A' });
+  const destDir = path.join(root, 'dest');
+  const first = planTree({ sourceDir, destDir });
+  applyTree({ changes: first.changes });
+  const previousResources = first.changes.map((c) => ({ relPath: c.relPath, fingerprint: c.fingerprint }));
+  // Simulate MCP_INDEX.md: present on disk, but never registered as a copy-tree ledger resource
+  // because it was written directly via fs, not through applyTree.
+  fs.mkdirSync(path.join(destDir, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(destDir, 'docs', 'MCP_INDEX.md'), 'generated, not source-tracked');
+
+  const { changes, conflicts } = planTree({ sourceDir, destDir, previousResources });
+  assert.deepEqual(conflicts, []);
+  assert.deepEqual(changes, []); // a.md unchanged, no-op; MCP_INDEX.md never considered at all
+});
+
+// Regression: DOFLOW_CORE.md's pre-existing generic on-demand block must survive the addition of
+// the new `@docs/MCP_INDEX.md` line untouched.
+test('DOFLOW_CORE.md still ships the generic on-demand resources block unchanged', () => {
+  const doflowCorePath = path.join(__dirname, '..', 'core/shared/guidance/DOFLOW_CORE.md');
+  const content = fs.readFileSync(doflowCorePath, 'utf8');
+  assert.equal(content.includes('@docs/MCP_INDEX.md'), true);
+  assert.ok(content.includes(
+    '# On-demand resources (NOT auto-loaded — load manually when needed)\n' +
+    '# Behavioral Modes → @modes/\n' +
+    '#   MODE_Brainstorming.md     — discovery/requirements sessions\n' +
+    '#   MODE_DeepResearch.md      — research sessions\n' +
+    '#   MODE_Introspection.md     — debugging/meta-cognition\n' +
+    '#   MODE_Orchestration.md     — multi-tool coordination\n' +
+    '#   MODE_Task_Management.md   — complex multi-step tasks\n' +
+    '#   MODE_Token_Efficiency.md  — high context-usage sessions\n' +
+    '#\n' +
+    '# MCP Documentation → @mcp/\n' +
+    '#   MCP_Context7.md           — when using Context7\n' +
+    '#   MCP_Sequential.md         — when using Sequential\n' +
+    '#   MCP_ChromeDevTools.md     — when using Chrome DevTools\n' +
+    '#   MCP_Playwright.md         — when using Playwright\n' +
+    '#\n' +
+    '# Reference → @references/\n' +
+    '#   DOFLOW_CHAIN.md           - core change multi-workflow with DoFlow\n' +
+    '#   CONSTITUTION_BASE.md      - constitution base details\n' +
+    '#   RESEARCH_CONFIG.md        — deep research sessions'
+  ));
+});

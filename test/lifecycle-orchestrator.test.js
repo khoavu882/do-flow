@@ -7,13 +7,26 @@ const os = require('node:os');
 const path = require('node:path');
 const { createAdapterRegistry } = require('../src/adapters');
 const { defaultLedger, readLedger } = require('../src/state');
-const { planLifecycle, applyLifecycle, removeLifecycle, normalizeRemovalVerification } = require('../src/lifecycle');
+const { loadRegistry } = require('../src/registry');
+const { planLifecycle, applyLifecycle, removeLifecycle, normalizeRemovalVerification, mcpIndexPath } = require('../src/lifecycle');
 
+const REPO = path.resolve(__dirname, '..');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-'));
 const registry = {
   harnesses: [{ id: 'fake', displayName: 'Fake', adapter: 'fake', scopes: ['project', 'user'], nativeTargets: {}, capabilities: { instructions: { status: 'supported' } } }],
   assets: [{ id: 'guidance.fake', kind: 'guidance', source: 'ignored', appliesTo: ['fake'], ownership: 'managed-file', projection: { fake: { renderer: 'fake', capability: 'instructions' } } }],
   mcp: [], lifecycle: [],
+};
+// Real registry's MCP catalog (core/registry/mcp.yaml, loaded via loadRegistry) supplies the
+// actual short-flag/doc pairs MCP_INDEX.md rendering depends on; everything else about the
+// fixture (fake harness/adapter, scratch scopeRoot) stays the same lightweight pattern used above.
+// The fake harness also needs its own 'mcp' capability declared (projectAdapterInput rejects a
+// non-empty selection otherwise) — the base 'fake' harness above has none since its own tests
+// never select MCP servers.
+const mcpRegistry = {
+  ...registry,
+  harnesses: [{ ...registry.harnesses[0], capabilities: { ...registry.harnesses[0].capabilities, mcp: { status: 'supported' } } }],
+  mcp: loadRegistry({ repoRoot: REPO }).mcp,
 };
 
 function fakeAdapter({ conflict = false, prerequisite = null } = {}) {
@@ -137,4 +150,71 @@ test('expected removed absence recomputes a provisional false verification, but 
   ], conflicts: [] }, [removal]);
   assert.equal(unrelated.ok, false);
   assert.equal(unrelated.statuses[1].status, 'missing');
+});
+
+test('install with a non-empty MCP selection writes MCP_INDEX.md containing only the selected servers\' short flags', () => {
+  const adapter = fakeAdapter();
+  const adapters = createAdapterRegistry({ fake: adapter });
+  const scopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-mcpindex-'));
+  const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-state-'));
+  const plan = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpIds: ['context7', 'playwright'] });
+  applyLifecycle({ plan, registry: mcpRegistry, adapters, stateRoot });
+
+  const indexFile = mcpIndexPath(scopeRoot);
+  assert.ok(fs.existsSync(indexFile));
+  const content = fs.readFileSync(indexFile, 'utf8');
+  assert.match(content, /--c7/);
+  assert.match(content, /--play/);
+  assert.doesNotMatch(content, /--seq/);
+  assert.doesNotMatch(content, /--chrome/);
+});
+
+test('update with a changed MCP selection overwrites MCP_INDEX.md with the new selection only, no stale content', () => {
+  const adapter = fakeAdapter();
+  const adapters = createAdapterRegistry({ fake: adapter });
+  const scopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-mcpindex-'));
+  const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-state-'));
+
+  const planA = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpIds: ['context7'] });
+  const resultA = applyLifecycle({ plan: planA, registry: mcpRegistry, adapters, stateRoot });
+  const indexFile = mcpIndexPath(scopeRoot);
+  assert.match(fs.readFileSync(indexFile, 'utf8'), /--c7/);
+
+  // Simulate `doflow update` after the user changed their MCP selection: same scopeRoot/stateRoot,
+  // plan+apply run again with a different selection, no prompt involved — purely a function of mcpIds.
+  const planB = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpIds: ['chrome-devtools'], ledger: resultA.ledger });
+  applyLifecycle({ plan: planB, registry: mcpRegistry, adapters, stateRoot, ledger: resultA.ledger });
+
+  const content = fs.readFileSync(indexFile, 'utf8');
+  assert.match(content, /--chrome/);
+  assert.doesNotMatch(content, /--c7/, 'stale selection A content must not survive an update to selection B');
+  assert.doesNotMatch(content, /--play/);
+  assert.doesNotMatch(content, /--seq/);
+});
+
+test('an empty MCP selection leaves MCP_INDEX.md absent rather than writing an empty file', () => {
+  const adapter = fakeAdapter();
+  const adapters = createAdapterRegistry({ fake: adapter });
+  const scopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-mcpindex-'));
+  const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-state-'));
+  const plan = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpIds: [] });
+  applyLifecycle({ plan, registry: mcpRegistry, adapters, stateRoot });
+
+  assert.ok(!fs.existsSync(mcpIndexPath(scopeRoot)));
+});
+
+test('remove deletes MCP_INDEX.md regardless of what selection would otherwise apply', () => {
+  const adapter = fakeAdapter();
+  const adapters = createAdapterRegistry({ fake: adapter });
+  const scopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-mcpindex-'));
+  const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-state-'));
+
+  const installPlan = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpIds: ['context7'] });
+  const installResult = applyLifecycle({ plan: installPlan, registry: mcpRegistry, adapters, stateRoot });
+  const indexFile = mcpIndexPath(scopeRoot);
+  assert.ok(fs.existsSync(indexFile), 'precondition: install produced the index file');
+
+  const removed = removeLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpIds: ['context7'], stateRoot, ledger: installResult.ledger });
+  assert.equal(removed.verification.ok, true);
+  assert.ok(!fs.existsSync(indexFile), 'remove deletes the index file even though mcpIds still resolves to a non-empty selection');
 });

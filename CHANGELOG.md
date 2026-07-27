@@ -36,6 +36,13 @@ All notable changes to DoFlow are documented here. Format follows
   verified installer behavior for both Codex and Gemini.
 - `lifecycle-view.js`'s hook-trust status line hardcoded "(review required in Codex)" regardless
   of which harness produced it.
+- **Per-install MCP short-flag index restored.** The guidance layer had no way to tell an agent
+  which MCP servers a given install actually selected — a capability that existed before the
+  `.doflow/guidance/` unification and silently disappeared with it. `core/registry/mcp.yaml`
+  entries now carry `shortFlag`/`doc` fields; `applyLifecycle` renders and writes
+  `.doflow/guidance/docs/MCP_INDEX.md` from the resolved selection on every `install`/`update`
+  (and removes it when the selection is empty or the harness is removed), imported unconditionally
+  via a new `@docs/MCP_INDEX.md` line in `DOFLOW_CORE.md`.
 
 ### Changed
 

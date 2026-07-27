@@ -9,6 +9,7 @@ const { harnessFor, selectAssets, selectMcpServers } = require('../registry');
 const { defaultLedger, ownershipKey, writeLedger, writeRecoveryRecord } = require('../state');
 const { resolveAdapter, projectAdapterInput } = require('../adapters');
 const { renderPolicies } = require('./policies');
+const { renderMcpIndex } = require('./mcp-index');
 
 const OPERATIONS = new Set(['create', 'merge', 'update', 'remove']);
 
@@ -160,7 +161,7 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpIds, 
   const conflicts = harnessPlans.flatMap((item) => item.conflicts.map((reason) => ({ harness: item.harness, reason })));
   const prerequisites = harnessPlans.flatMap((item) => item.prerequisites.map((prerequisite) => ({ harness: item.harness, prerequisite })));
   const requiredNativeResources = harnessPlans.flatMap((item) => item.requiredNativeResources || []);
-  return Object.freeze({ scope, scopeRoot, ledger: baseLedger, targets: harnessPlans, changes, requiredNativeResources, conflicts, prerequisites,
+  return Object.freeze({ scope, scopeRoot, mcp: selectedMcp, ledger: baseLedger, targets: harnessPlans, changes, requiredNativeResources, conflicts, prerequisites,
     safe: conflicts.length === 0 && prerequisites.length === 0 });
 }
 
@@ -180,6 +181,28 @@ function readGuidanceVersion(scopeRoot, fsImpl = fs) {
   const file = path.join(scopeRoot, '.doflow', 'guidance', 'VERSION');
   if (!fsImpl.existsSync(file)) return null;
   return fsImpl.readFileSync(file, 'utf8').trim();
+}
+
+/** Path to the per-install MCP short-flag index. Generated fresh by applyLifecycle on every
+ * apply, rather than copy-treed from core/shared/guidance/ — the one guidance-tree file whose
+ * content varies by install, so it stays isolated from copy-tree's byte-mirror/fingerprint
+ * contract for the rest of that tree. */
+function mcpIndexPath(scopeRoot) {
+  return path.join(scopeRoot, '.doflow', 'guidance', 'docs', 'MCP_INDEX.md');
+}
+
+/** apply + non-empty selection -> write; apply + empty selection -> delete if present (an agent
+ * must never see a stale entry for a server that's no longer selected); remove -> always delete
+ * regardless of selection, since the whole install is going away. */
+function applyMcpIndex({ scopeRoot, selectedMcp, mode, fsImpl = fs }) {
+  const file = mcpIndexPath(scopeRoot);
+  const content = mode === 'remove' ? null : renderMcpIndex(selectedMcp);
+  if (content === null) {
+    if (fsImpl.existsSync(file)) fsImpl.unlinkSync(file);
+    return;
+  }
+  fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+  fsImpl.writeFileSync(file, content);
 }
 
 function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recoveryRef, fsImpl = fs }) {
@@ -251,6 +274,15 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
     writeRecoveryRecordFn(stateRoot, { ...recovery.record, status: 'verification-failed', verification });
     throw new Error('Lifecycle verification failed; ledger was not updated');
   }
+  try {
+    applyMcpIndex({ scopeRoot: plan.scopeRoot, selectedMcp: plan.mcp, mode });
+  } catch (error) {
+    // Same reasoning as the harness-loop catch above: every native resource already applied and
+    // verified successfully by this point, so leaving the record at 'pending' on a failure here
+    // would hide that success and make a retry indistinguishable from a from-scratch install.
+    writeRecoveryRecordFn(stateRoot, { ...recovery.record, status: 'failed', completedHarnesses, verification, error: error.message });
+    throw error;
+  }
   const nextLedger = updateLedger({ ledger, scope: plan.scope, scopeRoot: plan.scopeRoot, verifications: verification.verifications, changes: plan.changes, recoveryRef: recovery.id });
   writeLedgerFn(stateRoot, nextLedger);
   writeRecoveryRecordFn(stateRoot, { ...recovery.record, status: 'verified', verification });
@@ -262,4 +294,4 @@ function removeLifecycle(options) {
   return applyLifecycle({ ...options, plan, mode: 'remove', acceptPrerequisites: options.acceptPrerequisites });
 }
 
-module.exports = { OPERATIONS, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger };
+module.exports = { OPERATIONS, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex };
