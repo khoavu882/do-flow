@@ -1,6 +1,6 @@
 {
   "name": "doflow",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Reusable engineering workflows, quality gates, and specialist guidance for Claude Code.",
   "author": {
     "name": "DoFlow"

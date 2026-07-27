@@ -15,6 +15,8 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-28
+
 ### Added
 
 - **Gemini CLI hooks.** `src/gemini-hooks.js` plans/deploys a `hooks` key merged into
@@ -40,12 +42,29 @@ All notable changes to DoFlow are documented here. Format follows
   which MCP servers a given install actually selected — a capability that existed before the
   `.doflow/guidance/` unification and silently disappeared with it. `core/registry/mcp.yaml`
   entries now carry `shortFlag`/`doc` fields; `applyLifecycle` renders and writes
-  `.doflow/guidance/docs/MCP_INDEX.md` from the resolved selection on every `install`/`update`
+  `.doflow/guidance/MCP_INDEX.md` from the resolved selection on every `install`/`update`
   (and removes it when the selection is empty or the harness is removed), imported unconditionally
-  via a new `@docs/MCP_INDEX.md` line in `DOFLOW_CORE.md`.
+  via a new `@MCP_INDEX.md` line in `DOFLOW_CORE.md`.
+- **Every MCP doc pointer in the generated index resolved to a nonexistent file.** `mcp.yaml`'s
+  `doc` values (`mcp/MCP_Context7.md`, …) are anchored at the guidance root, but `MCP_INDEX.md` was
+  written one level deeper into `docs/`, so each `on use, read …` instruction pointed at
+  `guidance/docs/mcp/MCP_*.md` — a path that never existed. The index is now written to the
+  guidance root. The unit test that should have caught this only re-asserted its own input string;
+  it is replaced by one that resolves each emitted path against the real tree.
 
 ### Changed
 
+- **Breaking (installed output shape): `guidance/docs/` is flattened into the guidance root.**
+  `PRINCIPLES.md` and `FLAGS.md` move from `.doflow/guidance/docs/` to `.doflow/guidance/`, and
+  `DOFLOW_CORE.md` imports them as `@PRINCIPLES.md`/`@FLAGS.md`. Every path the guidance layer
+  depends on — `DOFLOW_CORE.md`'s `@`-imports and `mcp.yaml`'s `doc` values alike — is now anchored
+  at a single directory, removing the split anchor that produced the broken MCP doc pointers above.
+  It also drops a name collision with this repo's own top-level `docs/` (the MkDocs site).
+  A stale `.doflow/guidance/docs/` left by a `0.8.0`-prerelease install is not removed
+  automatically; delete it by hand if present.
+- `DOFLOW_CORE.md` no longer carries a static "MCP Documentation → `@mcp/`" listing. It enumerated
+  all four MCP docs regardless of what was installed, which the per-install `MCP_INDEX.md` now
+  supersedes with the servers actually selected.
 - **Breaking: shared guidance content is no longer duplicated per harness — it now lives once in
   `.doflow/guidance/` (project scope) or `~/.doflow/guidance/` (global scope), mirroring
   `core/shared/guidance/` byte-for-byte.** Each harness's native entry file (`.claude/CLAUDE.md`,

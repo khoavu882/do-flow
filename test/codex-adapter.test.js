@@ -159,9 +159,13 @@ test('copy-tree assets (rules/skills/agents/templates/scripts/references) instal
   }
   // rules/ and references/ (guidance.context-layer) no longer duplicate into .codex/ — they land
   // in the shared .doflow/guidance/ tree, referenced by AGENTS.md's pointer instead of copied.
-  for (const [dir, file] of [['rules', 'RULE_01_SAFETY.md'], ['references', 'DOFLOW_CHAIN.md'], ['docs', 'PRINCIPLES.md']]) {
-    assert.ok(fs.existsSync(path.join(projectRoot, '.doflow', 'guidance', dir, file)), `.doflow/guidance/${dir}/${file} must exist after install`);
+  // PRINCIPLES.md/FLAGS.md sit at that tree's root (not a docs/ subdir), which is what makes
+  // DOFLOW_CORE.md's root-relative @imports resolve.
+  for (const rel of [path.join('rules', 'RULE_01_SAFETY.md'), path.join('references', 'DOFLOW_CHAIN.md'),
+    'PRINCIPLES.md', 'FLAGS.md', 'DOFLOW_CORE.md']) {
+    assert.ok(fs.existsSync(path.join(projectRoot, '.doflow', 'guidance', rel)), `.doflow/guidance/${rel} must exist after install`);
   }
+  assert.ok(!fs.existsSync(path.join(projectRoot, '.doflow', 'guidance', 'docs')), 'guidance/docs/ was flattened into the guidance root');
   assert.ok(!fs.existsSync(path.join(projectRoot, '.codex', 'rules')), 'rules must no longer be duplicated into .codex/');
   // agents.shared's copy-tree write (.codex/agents/*.md) coexists with the pre-existing native
   // custom-agent mechanism (.codex/agents/*.toml) — same directory, disjoint file extensions.

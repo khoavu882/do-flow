@@ -86,8 +86,15 @@ declares target capability and ownership inputs, and is not itself a native conf
 
 | Content | Where it lives | Why it is shared |
 |---|---|---|
-| `DOFLOW_CORE.md`, `rules/`, `references/`, `modes/`, `mcp/`, `docs/`, `VERSION` | `core/shared/guidance/` | One `guidance.context-layer` copy-tree asset mirrors this whole tree, byte-for-byte, into `.doflow/guidance/` for every scope — regardless of which harnesses are targeted |
-| `docs/MCP_INDEX.md` (`.doflow/guidance/docs/` only, no `core/` source) | Written directly by `applyLifecycle` (`src/lifecycle/index.js`) | The one file in `.doflow/guidance/` that varies per install (the resolved MCP selection) — deliberately outside `guidance.context-layer`'s copy-tree source so its per-install content never conflicts with that asset's byte-for-byte mirror; imported unconditionally from `DOFLOW_CORE.md` |
+| `DOFLOW_CORE.md`, `PRINCIPLES.md`, `FLAGS.md`, `VERSION`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | One `guidance.context-layer` copy-tree asset mirrors this whole tree, byte-for-byte, into `.doflow/guidance/` for every scope — regardless of which harnesses are targeted |
+| `MCP_INDEX.md` (`.doflow/guidance/` only, no `core/` source) | Written directly by `applyLifecycle` (`src/lifecycle/index.js`) | The one file in `.doflow/guidance/` that varies per install (the resolved MCP selection) — deliberately outside `guidance.context-layer`'s copy-tree source so its per-install content never conflicts with that asset's byte-for-byte mirror; imported unconditionally from `DOFLOW_CORE.md` |
+
+> **Path anchor (load-bearing).** Every `@import` in `DOFLOW_CORE.md`, and every `doc` value in
+> `core/registry/mcp.yaml`, is relative to the **guidance root** (`.doflow/guidance/`). That is why
+> `PRINCIPLES.md`/`FLAGS.md`/`MCP_INDEX.md` sit at the root rather than in a subdirectory: writing
+> any of them one level deeper silently reinterprets those relative paths against that subdirectory
+> and breaks them without any error. `test/copy-tree.test.js` and `test/mcp-index.test.js` resolve
+> both sets of paths against the real tree to keep that anchor enforced rather than assumed.
 | `skills/`, `agent-specs/`, `scripts/`, `templates/` | `core/shared/{skills,agent-specs,scripts,templates}/` | Task knowledge and reusable assets are client-neutral |
 | Native config/hooks/agents per harness | `core/harnesses/{claude,codex,gemini}/` | Copied or reconciled as native configuration only where supported |
 | MCP server catalog | `core/registry/mcp.yaml` | Single neutral source every harness's adapter selects from |

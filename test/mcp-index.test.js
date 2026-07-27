@@ -2,11 +2,15 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const { loadRegistry, selectMcpServers } = require('../src/registry');
 const { renderMcpIndex } = require('../src/lifecycle/mcp-index');
+const { mcpIndexPath } = require('../src/lifecycle');
 
-const registry = loadRegistry({ repoRoot: path.resolve(__dirname, '..') });
+const repoRoot = path.resolve(__dirname, '..');
+const registry = loadRegistry({ repoRoot });
+const guidanceSource = path.join(repoRoot, 'core', 'shared', 'guidance');
 
 const HEADER = '# MCP short flags — this install';
 
@@ -71,4 +75,39 @@ test('real registry shape: selectMcpServers output renders correctly', () => {
   assert.equal(lines[2], '#   on use, read mcp/MCP_Context7.md first');
   assert.equal(lines[3], '# --play — prefer the `playwright` MCP server');
   assert.equal(lines[4], '#   on use, read mcp/MCP_Playwright.md first');
+});
+
+// Anchor regression guard. Every `doc` path is relative, so it is only meaningful against an
+// implied base directory, and nothing in the data itself records what that base is. These two
+// tests pin the base down from both ends — the directory MCP_INDEX.md is written into, and the
+// files the paths must land on — so relocating either side fails here instead of silently
+// emitting dead read-instructions into every install's guidance layer.
+test('anchor: MCP_INDEX.md is written to the guidance root, not a subdirectory of it', () => {
+  const written = mcpIndexPath('/scope');
+  assert.equal(written, path.join('/scope', '.doflow', 'guidance', 'MCP_INDEX.md'));
+  assert.equal(
+    path.dirname(written),
+    path.join('/scope', '.doflow', 'guidance'),
+    'doc paths in mcp.yaml are guidance-root-relative; writing MCP_INDEX.md deeper breaks them all',
+  );
+});
+
+test('anchor: every rendered doc path resolves to a real file under the guidance tree', () => {
+  const servers = selectMcpServers(registry, Array.from(registry.mcp, (s) => s.id));
+  assert.ok(servers.length > 0, 'registry must define at least one MCP server to guard');
+
+  // Reproduce what an agent actually does: read the doc path out of the rendered line, then
+  // resolve it relative to the directory MCP_INDEX.md itself lives in.
+  const indexDir = path.dirname(mcpIndexPath('/scope'));
+  const guidanceRelativeDir = path.relative(path.join('/scope', '.doflow', 'guidance'), indexDir);
+
+  for (const line of renderMcpIndex(servers).split('\n')) {
+    const match = line.match(/^#\s+on use, read (\S+) first$/);
+    if (!match) continue;
+    const resolved = path.join(guidanceSource, guidanceRelativeDir, match[1]);
+    assert.ok(
+      fs.existsSync(resolved),
+      `MCP_INDEX.md points at '${match[1]}', which resolves to a nonexistent file: ${resolved}`,
+    );
+  }
 });

@@ -84,8 +84,8 @@ See `core/shared/guidance/mcp/` for server-specific operating guidance. The neut
 | Source | Governs |
 |---|---|
 | `core/registry/*.yaml` | Capability, asset, MCP, and lifecycle-policy declarations |
-| `core/shared/guidance/docs/PRINCIPLES.md` | Baseline collaboration and engineering principles |
-| `core/shared/guidance/docs/FLAGS.md` | Shared flags and their meaning |
+| `core/shared/guidance/PRINCIPLES.md` | Baseline collaboration and engineering principles |
+| `core/shared/guidance/FLAGS.md` | Shared flags and their meaning |
 | `core/shared/guidance/rules/RULE_01_SAFETY.md` | Safety boundaries |
 | `core/shared/guidance/rules/RULE_02_WORKFLOW.md` | Delivery workflow |
 | `core/shared/guidance/rules/RULE_03_QUALITY.md` | Quality expectations |
