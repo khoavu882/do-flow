@@ -25,14 +25,11 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
 
 1. **Resolve state** — resolve and run `do-paths.sh --json` from the installed DoFlow config:
    ```bash
-   RESOLVER="${DOFLOW_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/scripts/doflow/bash/do-paths.sh"
-   [ -f "$RESOLVER" ] || RESOLVER="$HOME/.codex/scripts/doflow/bash/do-paths.sh"
-   if [ ! -f "$RESOLVER" ]; then
+   RESOLVER="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh}"
+   if [ -z "$RESOLVER" ] || [ ! -f "$RESOLVER" ]; then
      d="$PWD"
      while [ "$d" != / ]; do
-       for config_dir in .claude .codex .agents; do
-         [ -f "$d/$config_dir/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/$config_dir/scripts/doflow/bash/do-paths.sh" && break 2
-       done
+       [ -f "$d/.doflow/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/.doflow/scripts/doflow/bash/do-paths.sh" && break
        d="$(dirname "$d")"
      done
    fi
