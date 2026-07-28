@@ -15,6 +15,21 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **`scripts.doflow` and `templates.doflow` now project to a single shared `.doflow/scripts` /
+  `.doflow/templates` destination** (claude + codex), instead of a separate copy per harness —
+  the same mechanism `guidance.context-layer` already used. A project with DoFlow installed
+  asymmetrically across harnesses (e.g. Claude project-scoped, Codex global) could have a skill's
+  RESOLVER bootstrap silently pick up the wrong harness's `do-paths.sh`/`do-prereqs.sh`/
+  `sync-context.sh` copy; with one shared location there's nothing to drift. The RESOLVER bootstrap
+  in every skill that resolves DoFlow's own tooling (`do-flow`, `do-design`, `do-plan`,
+  `do-execute-plan`, `do-brainstorm`, `do-constitution`) now does a single `.doflow`-relative
+  upward walk instead of a three-branch harness/scope fallback; `do-paths.sh`'s own
+  `constitution_base` search was updated to match its new install depth. Gemini was evaluated for
+  the same move but is not included — `core/registry/harnesses.yaml` declares its `scripts`/
+  `templates` capabilities `"unavailable"`.
+
 ## [0.9.2] - 2026-07-28
 
 ### Fixed

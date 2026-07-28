@@ -146,9 +146,8 @@ constitution_local="agent-docs/constitution.md"   # tier-2, per-repo (may not ex
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 constitution_base=""
 for c in \
-  "$script_dir/../../references/CONSTITUTION_BASE.md" \
-  "$script_dir/../../../references/CONSTITUTION_BASE.md" \
-  "$HOME/.claude/references/CONSTITUTION_BASE.md"; do
+  "$script_dir/../../../guidance/references/CONSTITUTION_BASE.md" \
+  "$HOME/.doflow/guidance/references/CONSTITUTION_BASE.md"; do
   if [ -f "$c" ]; then
     constitution_base="$(cd "$(dirname "$c")" && pwd)/CONSTITUTION_BASE.md"
     break

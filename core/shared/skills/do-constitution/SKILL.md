@@ -19,14 +19,11 @@ Maintains the **tier-2** per-repo constitution that overlays the tier-1 `CONSTIT
 1. **Resolve** — resolve and run `do-paths.sh --json` from the installed DoFlow config, then note
    `constitution_base`, `constitution_local`, and `repo_root`:
    ```bash
-   DOFLOW_CONFIG_DIR="${DOFLOW_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}"
-   [ -f "$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh" ] || DOFLOW_CONFIG_DIR="$HOME/.codex"
-   if [ ! -f "$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh" ]; then
+   DOFLOW_CONFIG_DIR="${DOFLOW_CONFIG_DIR:-}"
+   if [ -z "$DOFLOW_CONFIG_DIR" ] || [ ! -f "$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh" ]; then
      d="$PWD"
      while [ "$d" != / ]; do
-       for config_dir in .claude .codex .agents; do
-         [ -f "$d/$config_dir/scripts/doflow/bash/do-paths.sh" ] && DOFLOW_CONFIG_DIR="$d/$config_dir" && break 2
-       done
+       [ -f "$d/.doflow/scripts/doflow/bash/do-paths.sh" ] && DOFLOW_CONFIG_DIR="$d/.doflow" && break
        d="$(dirname "$d")"
      done
    fi
@@ -46,14 +43,11 @@ Maintains the **tier-2** per-repo constitution that overlays the tier-1 `CONSTIT
 5. **Propagate (deterministic)** — pipe a short pointer block to the helper so it lands in the agent
    context file without rewriting it:
    ```bash
-   SYNC="${DOFLOW_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/scripts/doflow/bash/sync-context.sh"
-   [ -f "$SYNC" ] || SYNC="$HOME/.codex/scripts/doflow/bash/sync-context.sh"
-   if [ ! -f "$SYNC" ]; then                                          # project-scoped install
+   SYNC="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/sync-context.sh}"
+   if [ -z "$SYNC" ] || [ ! -f "$SYNC" ]; then
      d="$PWD"
      while [ "$d" != / ]; do
-       for config_dir in .claude .codex .agents; do
-         [ -f "$d/$config_dir/scripts/doflow/bash/sync-context.sh" ] && SYNC="$d/$config_dir/scripts/doflow/bash/sync-context.sh" && break 2
-       done
+       [ -f "$d/.doflow/scripts/doflow/bash/sync-context.sh" ] && SYNC="$d/.doflow/scripts/doflow/bash/sync-context.sh" && break
        d="$(dirname "$d")"
      done
    fi

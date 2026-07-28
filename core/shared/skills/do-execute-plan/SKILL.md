@@ -22,14 +22,11 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
 
 1. **Resolve the active feature** — run the resolver first, before the gate:
    ```bash
-   RESOLVER="${DOFLOW_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/scripts/doflow/bash/do-paths.sh"
-   [ -f "$RESOLVER" ] || RESOLVER="$HOME/.codex/scripts/doflow/bash/do-paths.sh"
-   if [ ! -f "$RESOLVER" ]; then                                          # project-scoped install
+   RESOLVER="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh}"
+   if [ -z "$RESOLVER" ] || [ ! -f "$RESOLVER" ]; then
      d="$PWD"
      while [ "$d" != / ]; do
-       for config_dir in .claude .codex .agents; do
-         [ -f "$d/$config_dir/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/$config_dir/scripts/doflow/bash/do-paths.sh" && break 2
-       done
+       [ -f "$d/.doflow/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/.doflow/scripts/doflow/bash/do-paths.sh" && break
        d="$(dirname "$d")"
      done
    fi
@@ -47,14 +44,11 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    `--slug="<chosen>"` to both the resolver and prereq-gate calls below.
 2. **Prerequisite gate (HARD)** — run, and STOP on a non-zero exit:
    ```bash
-   PREREQ="${DOFLOW_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/scripts/doflow/bash/do-prereqs.sh"
-   [ -f "$PREREQ" ] || PREREQ="$HOME/.codex/scripts/doflow/bash/do-prereqs.sh"
-   if [ ! -f "$PREREQ" ]; then                                          # project-scoped install
+   PREREQ="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-prereqs.sh}"
+   if [ -z "$PREREQ" ] || [ ! -f "$PREREQ" ]; then
      d="$PWD"
      while [ "$d" != / ]; do
-       for config_dir in .claude .codex .agents; do
-         [ -f "$d/$config_dir/scripts/doflow/bash/do-prereqs.sh" ] && PREREQ="$d/$config_dir/scripts/doflow/bash/do-prereqs.sh" && break 2
-       done
+       [ -f "$d/.doflow/scripts/doflow/bash/do-prereqs.sh" ] && PREREQ="$d/.doflow/scripts/doflow/bash/do-prereqs.sh" && break
        d="$(dirname "$d")"
      done
    fi
