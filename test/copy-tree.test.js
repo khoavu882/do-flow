@@ -183,19 +183,19 @@ test('discoverTree throws when the source directory itself is missing', () => {
 });
 
 // Regression: a destination-only file with no source counterpart (e.g. the generated
-// .doflow/guidance/docs/MCP_INDEX.md, written directly by applyLifecycle rather than through
+// .doflow/guidance/MCP_INDEX.md, written directly by applyLifecycle rather than through
 // applyTree) must never surface as a copy-tree resource, conflict, or removal candidate — every
 // enumeration in this module walks the SOURCE tree, never the destination tree independently.
 test('discoverTree ignores a destination-only file with no source counterpart (orphan generated file)', () => {
   const root = scratch();
   const sourceDir = seedSource(root, { 'a.md': 'A', 'nested/b.md': 'B' });
   const destDir = path.join(root, 'dest');
-  fs.mkdirSync(path.join(destDir, 'docs'), { recursive: true });
-  fs.writeFileSync(path.join(destDir, 'docs', 'MCP_INDEX.md'), 'generated, not source-tracked');
+  fs.mkdirSync(destDir, { recursive: true });
+  fs.writeFileSync(path.join(destDir, 'MCP_INDEX.md'), 'generated, not source-tracked');
 
   const { files } = discoverTree({ sourceDir, destDir });
   assert.equal(files.length, 2);
-  assert.ok(!files.some((f) => f.relPath === 'docs/MCP_INDEX.md'));
+  assert.ok(!files.some((f) => f.relPath === 'MCP_INDEX.md'));
 });
 
 test('verifyTree reports zero conflicts for a destination-only file with no source counterpart', () => {
@@ -203,14 +203,14 @@ test('verifyTree reports zero conflicts for a destination-only file with no sour
   const sourceDir = seedSource(root, { 'a.md': 'A' });
   const destDir = path.join(root, 'dest');
   applyTree({ changes: planTree({ sourceDir, destDir }).changes });
-  fs.mkdirSync(path.join(destDir, 'docs'), { recursive: true });
-  fs.writeFileSync(path.join(destDir, 'docs', 'MCP_INDEX.md'), 'generated, not source-tracked');
+  fs.mkdirSync(destDir, { recursive: true });
+  fs.writeFileSync(path.join(destDir, 'MCP_INDEX.md'), 'generated, not source-tracked');
 
   const result = verifyTree({ sourceDir, destDir });
   assert.equal(result.ok, true);
   assert.deepEqual(result.conflicts, []);
   assert.equal(result.resources.length, 1);
-  assert.ok(!result.resources.some((r) => r.relPath === 'docs/MCP_INDEX.md'));
+  assert.ok(!result.resources.some((r) => r.relPath === 'MCP_INDEX.md'));
 });
 
 test('planTree never proposes removal of a destination-only file absent from previousResources', () => {
@@ -222,39 +222,66 @@ test('planTree never proposes removal of a destination-only file absent from pre
   const previousResources = first.changes.map((c) => ({ relPath: c.relPath, fingerprint: c.fingerprint }));
   // Simulate MCP_INDEX.md: present on disk, but never registered as a copy-tree ledger resource
   // because it was written directly via fs, not through applyTree.
-  fs.mkdirSync(path.join(destDir, 'docs'), { recursive: true });
-  fs.writeFileSync(path.join(destDir, 'docs', 'MCP_INDEX.md'), 'generated, not source-tracked');
+  fs.mkdirSync(destDir, { recursive: true });
+  fs.writeFileSync(path.join(destDir, 'MCP_INDEX.md'), 'generated, not source-tracked');
 
   const { changes, conflicts } = planTree({ sourceDir, destDir, previousResources });
   assert.deepEqual(conflicts, []);
   assert.deepEqual(changes, []); // a.md unchanged, no-op; MCP_INDEX.md never considered at all
 });
 
-// Regression: DOFLOW_CORE.md's pre-existing generic on-demand block must survive the addition of
-// the new `@docs/MCP_INDEX.md` line untouched.
-test('DOFLOW_CORE.md still ships the generic on-demand resources block unchanged', () => {
-  const doflowCorePath = path.join(__dirname, '..', 'core/shared/guidance/DOFLOW_CORE.md');
-  const content = fs.readFileSync(doflowCorePath, 'utf8');
-  assert.equal(content.includes('@docs/MCP_INDEX.md'), true);
-  assert.ok(content.includes(
-    '# On-demand resources (NOT auto-loaded — load manually when needed)\n' +
-    '# Behavioral Modes → @modes/\n' +
-    '#   MODE_Brainstorming.md     — discovery/requirements sessions\n' +
-    '#   MODE_DeepResearch.md      — research sessions\n' +
-    '#   MODE_Introspection.md     — debugging/meta-cognition\n' +
-    '#   MODE_Orchestration.md     — multi-tool coordination\n' +
-    '#   MODE_Task_Management.md   — complex multi-step tasks\n' +
-    '#   MODE_Token_Efficiency.md  — high context-usage sessions\n' +
-    '#\n' +
-    '# MCP Documentation → @mcp/\n' +
-    '#   MCP_Context7.md           — when using Context7\n' +
-    '#   MCP_Sequential.md         — when using Sequential\n' +
-    '#   MCP_ChromeDevTools.md     — when using Chrome DevTools\n' +
-    '#   MCP_Playwright.md         — when using Playwright\n' +
-    '#\n' +
-    '# Reference → @references/\n' +
-    '#   DOFLOW_CHAIN.md           - core change multi-workflow with DoFlow\n' +
-    '#   CONSTITUTION_BASE.md      - constitution base details\n' +
-    '#   RESEARCH_CONFIG.md        — deep research sessions'
-  ));
+const GUIDANCE_SOURCE = path.join(__dirname, '..', 'core/shared/guidance');
+const DOFLOW_CORE = path.join(GUIDANCE_SOURCE, 'DOFLOW_CORE.md');
+
+// The load-bearing contract, asserted structurally rather than as a byte-exact copy of the prose:
+// every `@import` in DOFLOW_CORE.md is a path relative to the guidance ROOT, and must land on a
+// real file there. Pinning the exact wording instead (as this test used to) made every deliberate
+// edit to the doc look like a regression while still failing to catch a genuinely broken path.
+test('every always-loaded @import in DOFLOW_CORE.md resolves to a real file in the guidance tree', () => {
+  const content = fs.readFileSync(DOFLOW_CORE, 'utf8');
+  const imports = content
+    .split('\n')
+    .filter((line) => line.startsWith('@'))
+    .map((line) => line.slice(1).trim());
+
+  assert.ok(imports.length > 0, 'DOFLOW_CORE.md must declare at least one always-loaded import');
+
+  for (const rel of imports) {
+    // MCP_INDEX.md is generated per install by applyLifecycle, so it has no core/ source
+    // counterpart; its own resolution is guarded in test/mcp-index.test.js instead.
+    if (rel === 'MCP_INDEX.md') continue;
+    assert.ok(
+      fs.existsSync(path.join(GUIDANCE_SOURCE, rel)),
+      `DOFLOW_CORE.md imports '@${rel}', which does not exist under core/shared/guidance/`,
+    );
+  }
+});
+
+test('DOFLOW_CORE.md imports the generated per-install MCP index from the guidance root', () => {
+  const content = fs.readFileSync(DOFLOW_CORE, 'utf8');
+  assert.ok(content.includes('\n@MCP_INDEX.md'), 'MCP_INDEX.md must be imported root-relative');
+  assert.ok(!content.includes('@docs/'), 'guidance/docs/ was flattened into the guidance root');
+});
+
+// The on-demand block must stay inert: it advertises directories an agent may load on demand, so
+// every one of its lines has to remain a comment. A bare `@modes/` line here would turn an
+// explicitly-not-auto-loaded resource into an always-loaded one.
+test('DOFLOW_CORE.md on-demand block is comment-only and points at directories that exist', () => {
+  const content = fs.readFileSync(DOFLOW_CORE, 'utf8');
+  const marker = '# On-demand resources (NOT auto-loaded — load manually when needed)';
+  const start = content.indexOf(marker);
+  assert.ok(start !== -1, 'the on-demand resources block must still be present');
+
+  const block = content.slice(start).split('\n').filter((line) => line.trim().length > 0);
+  for (const line of block) {
+    assert.ok(line.startsWith('#'), `on-demand block line must stay commented out: ${line}`);
+  }
+
+  for (const dir of block.join('\n').match(/@[a-z]+\//g) ?? []) {
+    const rel = dir.slice(1);
+    assert.ok(
+      fs.existsSync(path.join(GUIDANCE_SOURCE, rel)),
+      `on-demand block advertises '${dir}', which does not exist under core/shared/guidance/`,
+    );
+  }
 });

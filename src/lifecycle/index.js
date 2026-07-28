@@ -186,9 +186,15 @@ function readGuidanceVersion(scopeRoot, fsImpl = fs) {
 /** Path to the per-install MCP short-flag index. Generated fresh by applyLifecycle on every
  * apply, rather than copy-treed from core/shared/guidance/ — the one guidance-tree file whose
  * content varies by install, so it stays isolated from copy-tree's byte-mirror/fingerprint
- * contract for the rest of that tree. */
+ * contract for the rest of that tree.
+ *
+ * It sits at the guidance ROOT, next to DOFLOW_CORE.md. That is load-bearing: the `doc` paths it
+ * emits come from core/registry/mcp.yaml as `mcp/MCP_*.md`, anchored at the guidance root — the
+ * same anchor DOFLOW_CORE.md's own @-imports use. Writing this file into a subdirectory would
+ * silently reinterpret every one of those paths against that subdirectory and break them all,
+ * with no error at install time. test/mcp-index.test.js pins the anchor from both ends. */
 function mcpIndexPath(scopeRoot) {
-  return path.join(scopeRoot, '.doflow', 'guidance', 'docs', 'MCP_INDEX.md');
+  return path.join(scopeRoot, '.doflow', 'guidance', 'MCP_INDEX.md');
 }
 
 /** apply + non-empty selection -> write; apply + empty selection -> delete if present (an agent
