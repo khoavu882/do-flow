@@ -15,6 +15,21 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A relocated asset's file at its old location leaked forever instead of being removed.**
+  Found immediately after v0.10.0 shipped a real `nativeDir` change (`scripts.doflow`/
+  `templates.doflow` moving to a shared `.doflow/` destination): `copy-tree.js`'s removal logic
+  matched old-vs-new purely by `relPath`, so a relocated file's `relPath` being "still present"
+  (just under a different `destDir` now) suppressed removal of the stale copy at its old location
+  entirely — and separately, even a direct removal call recomputed the target from the *current*
+  `destDir` instead of the file's actual recorded location, so it would have looked in the wrong
+  place regardless. `planTree()` now tracks each previously-owned file's own recorded `target` and
+  only treats it as "still needed here" when that target matches the current install's destination;
+  otherwise it creates the new copy and removes the old one. The next `doflow update` on any
+  project that installed v0.10.0's `scripts.doflow`/`templates.doflow` move will clean up the
+  orphaned per-harness copies this introduced.
+
 ## [0.10.0] - 2026-07-29
 
 ### Changed

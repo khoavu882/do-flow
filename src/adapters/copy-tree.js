@@ -51,7 +51,11 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
   const conflicts = [];
 
   const proposeRemoval = (prev) => {
-    const destAbs = path.join(destDir, prev.relPath);
+    // prev's OWN recorded location, not the current destDir — an asset whose nativeDir changed
+    // since prev was recorded must be removed from where it actually is, not from where it would
+    // land today. Absent (pre-this-fix data, or a caller-constructed previousResources entry with
+    // no target) falls back to the old destDir-relative computation, unchanged.
+    const destAbs = prev.target ?? path.join(destDir, prev.relPath);
     if (!fsImpl.existsSync(destAbs)) return;
     const current = sha256(fsImpl.readFileSync(destAbs));
     if (current !== prev.fingerprint) { conflicts.push(`${prev.relPath} was modified outside DoFlow`); return; }
@@ -64,31 +68,39 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
   }
 
   const { files } = discoverTree({ sourceDir, destDir, fsImpl });
-  const seen = new Set();
+  const satisfiedAtSameLocation = new Set();
   for (const file of files) {
-    seen.add(file.relPath);
     const prev = prevByPath.get(file.relPath);
+    // prev.target === undefined means "location unknown" (pre-this-fix ledger data, or a
+    // caller-constructed previousResources entry) — treat as same-location, matching pre-fix
+    // behavior exactly, rather than misreading "no data" as "relocated" and spuriously removing
+    // it. Only an explicit, differing target means the asset's nativeDir actually changed.
+    const sameLocation = prev !== undefined && (prev.target === undefined || prev.target === file.destAbs);
+    if (sameLocation) satisfiedAtSameLocation.add(file.relPath);
     if (file.exists) {
-      const current = sha256(fsImpl.readFileSync(file.destAbs));
       // A destination file is untampered if it matches the source we are about to write, OR the
-      // fingerprint this harness last recorded. Source-match is checked FIRST and unconditionally:
-      // it is the stronger signal, and a present-but-stale `prev` must not shadow it.
+      // fingerprint this harness last recorded AT THIS LOCATION. Source-match is checked FIRST and
+      // unconditionally: it is the stronger signal, and a present-but-stale `prev` must not shadow
+      // it.
       //
       // This matters because guidance.context-layer projects one destination for all three
       // harnesses while ownership is recorded per harness, so a sibling's install legitimately
       // changes bytes that this harness's row still describes. Comparing only against `prev` made
       // that indistinguishable from a hand edit and refused the whole install. Ordering the
       // disjunction this way adds no new notion of safety — it stops a weaker signal from
-      // preempting a check that would have passed.
-      const knownGood = current === file.fingerprint || (prev !== undefined && current === prev.fingerprint);
+      // preempting a check that would have passed. Gating the fallback on `sameLocation` (rather
+      // than `prev !== undefined` alone, as before) is strictly more precise: a relocated asset's
+      // old row describes different bytes at a different path, so it must not be consulted here.
+      const current = sha256(fsImpl.readFileSync(file.destAbs));
+      const knownGood = current === file.fingerprint || (sameLocation && current === prev.fingerprint);
       if (!knownGood) { conflicts.push(`${file.relPath} was modified outside DoFlow`); continue; }
     }
-    if (prev && prev.fingerprint === file.fingerprint && file.exists) continue; // unchanged, no-op
+    if (sameLocation && prev.fingerprint === file.fingerprint && file.exists) continue; // unchanged, no-op
     changes.push({ relPath: file.relPath, target: file.destAbs, source: file.sourceAbs,
-      operation: prev ? 'update' : 'create', fingerprint: file.fingerprint });
+      operation: sameLocation ? 'update' : 'create', fingerprint: file.fingerprint });
   }
   for (const prev of previousResources) {
-    if (!seen.has(prev.relPath)) proposeRemoval(prev);
+    if (!satisfiedAtSameLocation.has(prev.relPath)) proposeRemoval(prev);
   }
   return { changes, conflicts };
 }
@@ -156,7 +168,7 @@ function copyTreeDestDir(configDir, asset) {
 function ledgerFileResources(resources, harness, assetId) {
   return (resources || [])
     .filter((resource) => resource.harness === harness && resource.assetId === assetId && resource.kind === 'copy-tree-file')
-    .map((resource) => ({ relPath: resource.identity, fingerprint: resource.fingerprint }));
+    .map((resource) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
 module.exports = { discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources };
