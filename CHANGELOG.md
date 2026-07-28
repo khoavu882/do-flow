@@ -15,6 +15,8 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-07-29
+
 ### Fixed
 
 - **A relocated asset's file at its old location leaked forever instead of being removed.**
