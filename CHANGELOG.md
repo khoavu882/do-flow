@@ -15,6 +15,8 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-29
+
 ### Changed
 
 - **`scripts.doflow` and `templates.doflow` now project to a single shared `.doflow/scripts` /
