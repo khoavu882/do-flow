@@ -15,6 +15,44 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-28
+
+**Upgrading.** Eleven documented flags are gone. None had a working implementation — each restated
+a mechanism that already takes effect — so nothing you were relying on stops working, but the
+names are no longer recognized. Reasoning depth is `effort` (skill/agent frontmatter, or a session
+setting); parallel execution is the default stated in `rules/RULE_02_WORKFLOW.md`; a behavioral
+mode loads through the skill that reads it, not through a flag.
+
+### Removed
+
+- **`--think`, `--think-hard`, `--ultrathink`** — superseded by `effort`, which every skill and
+  agent spec declares and every harness honours. A flag could only ask for depth; `effort` sets it.
+- **`--delegate` and `--parallel`** — both asked for behavior already mandated as the default.
+  `--parallel` additionally appeared in two skills' `argument-hint` while appearing zero times in
+  either Behavioral Flow: an advertised argument neither skill acted on.
+- **`--brainstorm`, `--introspect`, `--task-manage`**, and the mode files' own "Manual flag" lines
+  including an undocumented `--bs` alias — a mode's trigger is the skill that reads it, and a
+  skill's `description:` is the only trigger all three harnesses evaluate.
+- **`--research` and `--introspection`** — referenced in mode files, documented nowhere, wired to
+  nothing.
+
+`FLAGS.md` drops from 28 flags to 3 (`--iterations`, `--focus`, `--validate`), each naming the
+skill that consumes it.
+
+### Added
+
+- **G4 reverse direction**: a flag referenced anywhere in the guidance tree must be documented in
+  `FLAGS.md`. The forward check cannot see a reference left behind by a removal; adding the reverse
+  one immediately found four such references that had survived a green suite.
+
+### Fixed
+
+- **G2 did not catch the defect its own design credited it with.** The design named v0.8.0's
+  `MCP_INDEX` anchor bug as G2's purpose, but the implementation excluded `MCP_INDEX.md` and
+  delegated elsewhere — reintroducing that defect produced zero failures from G2. It now renders
+  the index and resolves each emitted path from the index's own location, catching all three
+  mutations of the anchor where it previously caught none.
+
 ## [0.8.0] - 2026-07-28
 
 **Upgrading.** This release changes the installed output shape, so an existing install needs a
