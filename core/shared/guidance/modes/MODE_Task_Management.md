@@ -7,7 +7,6 @@ native tracking mechanisms — no external memory-server dependency.
 - Operations with >3 steps requiring coordination
 - Multiple file/directory scope (>2 directories OR >3 files)
 - Complex dependencies requiring phases
-- Manual flag: `--task-manage`
 - Quality improvement requests: polish, refine, enhance
 
 ## Task Hierarchy

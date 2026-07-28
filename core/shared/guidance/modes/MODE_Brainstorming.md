@@ -8,7 +8,6 @@
 - Uncertainty indicators: "maybe", "possibly", "thinking about", "could we"
 - PRD prerequisites: need requirements discovery before documentation
 - Interactive discovery contexts benefiting from dialogue exploration
-- Manual flags: `--brainstorm`, `--bs`
 
 ## Behavioral Changes
 - **Socratic Dialogue**: Ask probing questions to uncover hidden requirements
