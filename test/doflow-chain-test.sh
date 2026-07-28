@@ -45,6 +45,28 @@ eq "has_design false pre-file"        "$("$PATHS" | jq -r '.has_design')" "false
 echo d > agent-docs/doflow/001-auth/design.md
 eq "has_design true post-file"        "$("$PATHS" | jq -r '.has_design')" "true"
 
+echo "[resolver: constitution_base]"
+# do-paths.sh's constitution_base search is script_dir-relative (based on $0, not $PWD), so it must
+# actually be invoked from a synthetic .doflow/scripts/doflow/bash/do-paths.sh path to exercise the
+# real candidate list, not run in place from core/shared/.
+CB="$T/doflowhome"; mkdir -p "$CB/.doflow/scripts/doflow/bash" "$CB/.doflow/guidance/references"
+cp "$BASH_SCRIPTS/do-paths.sh" "$CB/.doflow/scripts/doflow/bash/"
+CBPATHS="$CB/.doflow/scripts/doflow/bash/do-paths.sh"
+echo base > "$CB/.doflow/guidance/references/CONSTITUTION_BASE.md"
+eq "constitution_base found via script_dir-relative .doflow candidate" \
+   "$("$CBPATHS" --paths-only | jq -r '.constitution_base')" \
+   "$CB/.doflow/guidance/references/CONSTITUTION_BASE.md"
+rm "$CB/.doflow/guidance/references/CONSTITUTION_BASE.md"
+FAKEHOME="$T/fakehome"; mkdir -p "$FAKEHOME/.doflow/guidance/references"
+echo global > "$FAKEHOME/.doflow/guidance/references/CONSTITUTION_BASE.md"
+eq "constitution_base falls back to \$HOME/.doflow when no local candidate" \
+   "$(HOME="$FAKEHOME" "$CBPATHS" --paths-only | jq -r '.constitution_base')" \
+   "$FAKEHOME/.doflow/guidance/references/CONSTITUTION_BASE.md"
+rm -rf "$FAKEHOME/.doflow"
+eq "constitution_base is null when no candidate exists" \
+   "$(HOME="$FAKEHOME" "$CBPATHS" --paths-only | jq -r '.constitution_base // "null"')" \
+   "null"
+
 echo "[resolver: non-git root fallback]"
 # Reproduces the real bug: doflow installed at a container root above the actual git repos
 # (e.g. a multi-service workspace) has no branch to derive feature_slug from at all — resolution

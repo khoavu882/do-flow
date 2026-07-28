@@ -153,8 +153,7 @@ test('copy-tree assets (rules/skills/agents/templates/scripts/references) instal
   apply({ ...input, changes: planned.changes });
 
   for (const [dir, file] of [['skills', path.join('do-analyze', 'SKILL.md')],
-    ['agents', 'backend-architect.md'], ['templates', path.join('doflow', 'plan-template.md')],
-    ['scripts', path.join('doflow', 'bash', 'do-paths.sh')]]) {
+    ['agents', 'backend-architect.md']]) {
     assert.ok(fs.existsSync(path.join(projectRoot, '.codex', dir, file)), `${dir}/${file} must exist after install`);
   }
   // rules/ and references/ (guidance.context-layer) no longer duplicate into .codex/ — they land
@@ -167,6 +166,13 @@ test('copy-tree assets (rules/skills/agents/templates/scripts/references) instal
   }
   assert.ok(!fs.existsSync(path.join(projectRoot, '.doflow', 'guidance', 'docs')), 'guidance/docs/ was flattened into the guidance root');
   assert.ok(!fs.existsSync(path.join(projectRoot, '.codex', 'rules')), 'rules must no longer be duplicated into .codex/');
+  // templates.doflow/scripts.doflow also project to the shared .doflow/ tree now (same mechanism
+  // as guidance.context-layer), not a per-harness .codex/templates or .codex/scripts copy.
+  for (const rel of [path.join('templates', 'doflow', 'plan-template.md'), path.join('scripts', 'doflow', 'bash', 'do-paths.sh')]) {
+    assert.ok(fs.existsSync(path.join(projectRoot, '.doflow', rel)), `.doflow/${rel} must exist after install`);
+  }
+  assert.ok(!fs.existsSync(path.join(projectRoot, '.codex', 'templates')), 'templates must no longer be duplicated into .codex/');
+  assert.ok(!fs.existsSync(path.join(projectRoot, '.codex', 'scripts')), 'scripts must no longer be duplicated into .codex/');
   // agents.shared's copy-tree write (.codex/agents/*.md) coexists with the pre-existing native
   // custom-agent mechanism (.codex/agents/*.toml) — same directory, disjoint file extensions.
   assert.ok(fs.existsSync(path.join(projectRoot, '.codex', 'agents', 'backend-architect.toml')), 'native .toml agent must still be deployed alongside the .md copy-tree file');

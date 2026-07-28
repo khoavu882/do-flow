@@ -1,6 +1,6 @@
 {
   "name": "doflow",
-  "version": "0.9.2",
+  "version": "0.10.0",
   "description": "DoFlow config installer — npx CLI for the registry-driven multi-harness install/update/remove lifecycle",
   "bin": { "doflow": "bin/doflow.js" },
   "engines": { "node": ">=18" },
