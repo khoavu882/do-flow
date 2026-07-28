@@ -40,6 +40,12 @@ isn't consumed by search noise. Produces a cited report only, never implements f
 - `deep`: 3-4 hops, detailed analysis.
 - `exhaustive`: 5 hops, complete investigation.
 
+## Behavioral Posture
+
+Before starting, read `modes/MODE_DeepResearch.md` and `references/RESEARCH_CONFIG.md` in the shared guidance tree for
+the research posture it sets (source breadth, confidence thresholds). That file is loaded on demand through this skill — it has no other trigger,
+so skipping the read silently drops the posture it defines.
+
 ## Boundaries
 **Will:** search and synthesize current information with tracked, cited sources; flag
 uncertainties and contradictions explicitly.

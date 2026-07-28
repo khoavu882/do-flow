@@ -7,16 +7,6 @@
 @rules/RULE_03_QUALITY.md
 @rules/RULE_04_QUESTIONS.md
 
-# On-demand resources (NOT auto-loaded — load manually when needed)
-# Behavioral Modes → @modes/
-#   MODE_Brainstorming.md     — discovery/requirements sessions
-#   MODE_DeepResearch.md      — research sessions
-#   MODE_Introspection.md     — debugging/meta-cognition
-#   MODE_Orchestration.md     — multi-tool coordination
-#   MODE_Task_Management.md   — complex multi-step tasks
-#   MODE_Token_Efficiency.md  — high context-usage sessions
-
-# Reference → @references/
-#   DOFLOW_CHAIN.md           - core change multi-workflow with DoFlow
-#   CONSTITUTION_BASE.md      - constitution base details
-#   RESEARCH_CONFIG.md        — deep research sessions
+# Everything else under this tree — modes/, references/, mcp/ — is loaded on demand by the skill
+# that needs it, never from here. A commented inventory in this file would read like a load
+# mechanism while nothing evaluates it, leaving every resource it names unloaded.

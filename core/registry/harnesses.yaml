@@ -5,7 +5,10 @@
       "id": "claude",
       "displayName": "Claude Code",
       "adapter": "claude",
-      "scopes": ["project", "user"],
+      "scopes": [
+        "project",
+        "user"
+      ],
       "nativeTargets": {
         "instructions": "CLAUDE.md",
         "settings": "settings.json",
@@ -13,23 +16,121 @@
         "mcp": ".mcp.json"
       },
       "capabilities": {
-        "instructions": {"status": "supported", "evidence": ["https://code.claude.com/docs/en/memory"], "verification": "Confirm CLAUDE.md is loaded by Claude Code."},
-        "skills": {"status": "supported", "evidence": ["https://code.claude.com/docs/en/skills"], "verification": "Confirm the installed skill is discoverable."},
-        "agents": {"status": "supported", "evidence": ["https://code.claude.com/docs/en/sub-agents"], "verification": "Delegate a test task to an installed agent."},
-        "scripts": {"status": "supported", "evidence": ["https://code.claude.com/docs/en/hooks"], "verification": "Confirm referenced scripts exist."},
-        "templates": {"status": "supported", "evidence": ["https://code.claude.com/docs/en/skills"], "verification": "Confirm a skill can read its template."},
-        "modes": {"status": "supported", "evidence": ["https://code.claude.com/docs/en/memory"], "verification": "Confirm the referenced mode file exists."},
-        "settings": {"status": "supported", "evidence": ["https://code.claude.com/docs/en/settings"], "verification": "Inspect the merged native settings."},
-        "hooks": {"status": "supported", "evidence": ["https://code.claude.com/docs/en/hooks"], "verification": "Exercise one installed hook event."},
-        "mcp": {"status": "supported", "evidence": ["https://code.claude.com/docs/en/mcp"], "verification": "Confirm selected MCP servers appear in status."},
-        "plugin": {"status": "supported", "evidence": ["https://code.claude.com/docs/en/plugins"], "verification": "Install or inspect the plugin manifest."}
+        "instructions": {
+          "status": "supported",
+          "evidence": [
+            "https://code.claude.com/docs/en/memory"
+          ],
+          "verification": "Confirm CLAUDE.md is loaded by Claude Code."
+        },
+        "skills": {
+          "status": "supported",
+          "evidence": [
+            "https://code.claude.com/docs/en/skills"
+          ],
+          "verification": "Confirm the installed skill is discoverable."
+        },
+        "agents": {
+          "status": "supported",
+          "evidence": [
+            "https://code.claude.com/docs/en/sub-agents"
+          ],
+          "verification": "Delegate a test task to an installed agent."
+        },
+        "scripts": {
+          "status": "supported",
+          "evidence": [
+            "https://code.claude.com/docs/en/hooks"
+          ],
+          "verification": "Confirm referenced scripts exist."
+        },
+        "templates": {
+          "status": "supported",
+          "evidence": [
+            "https://code.claude.com/docs/en/skills"
+          ],
+          "verification": "Confirm a skill can read its template."
+        },
+        "modes": {
+          "status": "supported",
+          "evidence": [
+            "https://code.claude.com/docs/en/memory"
+          ],
+          "verification": "Confirm the referenced mode file exists."
+        },
+        "settings": {
+          "status": "supported",
+          "evidence": [
+            "https://code.claude.com/docs/en/settings"
+          ],
+          "verification": "Inspect the merged native settings."
+        },
+        "hooks": {
+          "status": "supported",
+          "evidence": [
+            "https://code.claude.com/docs/en/hooks"
+          ],
+          "verification": "Exercise one installed hook event.",
+          "events": {
+            "ConfigChange": {
+              "status": "supported"
+            },
+            "PostCompact": {
+              "status": "supported"
+            },
+            "PostToolUse": {
+              "status": "supported"
+            },
+            "PreCompact": {
+              "status": "supported"
+            },
+            "PreToolUse": {
+              "status": "supported"
+            },
+            "SessionEnd": {
+              "status": "supported"
+            },
+            "SessionStart": {
+              "status": "supported"
+            },
+            "Stop": {
+              "status": "supported"
+            },
+            "SubagentStart": {
+              "status": "supported"
+            },
+            "SubagentStop": {
+              "status": "supported"
+            },
+            "UserPromptSubmit": {
+              "status": "supported"
+            }
+          }
+        },
+        "mcp": {
+          "status": "supported",
+          "evidence": [
+            "https://code.claude.com/docs/en/mcp"
+          ],
+          "verification": "Confirm selected MCP servers appear in status."
+        },
+        "plugin": {
+          "status": "supported",
+          "evidence": [
+            "https://code.claude.com/docs/en/plugins"
+          ],
+          "verification": "Install or inspect the plugin manifest."
+        }
       }
     },
     {
       "id": "codex",
       "displayName": "Codex",
       "adapter": "codex",
-      "scopes": ["project", "user"],
+      "scopes": [
+        "project",
+        "user"
+      ],
       "nativeTargets": {
         "instructions": "AGENTS.md",
         "settings": ".codex/config.toml",
@@ -41,43 +142,270 @@
         "config": {
           "source": "core/harnesses/codex/config/config.toml",
           "resources": [
-            {"kind": "configuration-entry", "identity": "features.hooks", "value": true}
+            {
+              "kind": "configuration-entry",
+              "identity": "features.hooks",
+              "value": true
+            }
           ]
         },
-        "mcp": {"catalog": "registry.mcp", "selection": "optional"},
-        "agents": {"source": "core/harnesses/codex/agents"},
-        "hooks": {"configSource": "core/harnesses/codex/hooks/hooks.json", "scriptsSource": "core/harnesses/codex/hooks", "trusted": false}
+        "mcp": {
+          "catalog": "registry.mcp",
+          "selection": "optional"
+        },
+        "agents": {
+          "source": "core/harnesses/codex/agents"
+        },
+        "hooks": {
+          "configSource": "core/harnesses/codex/hooks/hooks.json",
+          "scriptsSource": "core/harnesses/codex/hooks",
+          "trusted": false
+        }
       },
       "capabilities": {
-        "instructions": {"status": "supported", "evidence": ["https://developers.openai.com/codex/concepts/customization"], "verification": "Confirm the managed AGENTS.md section is applied."},
-        "skills": {"status": "supported", "evidence": ["https://developers.openai.com/codex/concepts/customization"], "verification": "Confirm the installed skill is discoverable."},
-        "agents": {"status": "supported", "evidence": ["https://developers.openai.com/codex/subagents"], "verification": "Delegate a test task to a custom agent."},
-        "scripts": {"status": "supported", "evidence": ["https://developers.openai.com/codex/concepts/customization"], "verification": "Confirm referenced scripts exist."},
-        "templates": {"status": "supported", "evidence": ["https://developers.openai.com/codex/concepts/customization"], "verification": "Confirm a skill can read its template."},
-        "modes": {"status": "unavailable", "evidence": ["https://developers.openai.com/codex/concepts/customization"], "verification": "Report the capability gap; do not render a native mode."},
-        "settings": {"status": "different", "evidence": ["https://developers.openai.com/codex/config-advanced"], "prerequisites": ["trusted-project"], "verification": "Inspect the reconciled config.toml."},
-        "hooks": {"status": "supported", "evidence": ["https://developers.openai.com/codex/config-advanced#hooks"], "prerequisites": ["trusted-project", "hook-review"], "verification": "Review and exercise a mapped hook."},
-        "mcp": {"status": "supported", "evidence": ["https://developers.openai.com/codex/config-advanced#mcp-servers"], "verification": "Confirm selected MCP servers connect."},
-        "plugin": {"status": "supported", "evidence": ["https://developers.openai.com/codex/concepts/plugins"], "prerequisites": ["user-activation"], "verification": "Confirm the plugin is enabled by the host."}
+        "instructions": {
+          "status": "supported",
+          "evidence": [
+            "https://developers.openai.com/codex/concepts/customization"
+          ],
+          "verification": "Confirm the managed AGENTS.md section is applied."
+        },
+        "skills": {
+          "status": "supported",
+          "evidence": [
+            "https://developers.openai.com/codex/concepts/customization"
+          ],
+          "verification": "Confirm the installed skill is discoverable."
+        },
+        "agents": {
+          "status": "supported",
+          "evidence": [
+            "https://developers.openai.com/codex/subagents"
+          ],
+          "verification": "Delegate a test task to a custom agent."
+        },
+        "scripts": {
+          "status": "supported",
+          "evidence": [
+            "https://developers.openai.com/codex/concepts/customization"
+          ],
+          "verification": "Confirm referenced scripts exist."
+        },
+        "templates": {
+          "status": "supported",
+          "evidence": [
+            "https://developers.openai.com/codex/concepts/customization"
+          ],
+          "verification": "Confirm a skill can read its template."
+        },
+        "modes": {
+          "status": "unavailable",
+          "evidence": [
+            "https://developers.openai.com/codex/concepts/customization"
+          ],
+          "verification": "Report the capability gap; do not render a native mode."
+        },
+        "settings": {
+          "status": "different",
+          "evidence": [
+            "https://developers.openai.com/codex/config-advanced"
+          ],
+          "prerequisites": [
+            "trusted-project"
+          ],
+          "verification": "Inspect the reconciled config.toml."
+        },
+        "hooks": {
+          "status": "supported",
+          "evidence": [
+            "https://developers.openai.com/codex/config-advanced#hooks"
+          ],
+          "prerequisites": [
+            "trusted-project",
+            "hook-review"
+          ],
+          "verification": "Review and exercise a mapped hook.",
+          "events": {
+            "SessionStart": {
+              "status": "supported"
+            },
+            "SessionEnd": {
+              "status": "supported"
+            },
+            "UserPromptSubmit": {
+              "status": "supported"
+            },
+            "Stop": {
+              "status": "supported"
+            },
+            "PreToolUse": {
+              "status": "supported"
+            },
+            "PostToolUse": {
+              "status": "supported"
+            },
+            "SubagentStart": {
+              "status": "supported"
+            },
+            "SubagentStop": {
+              "status": "supported"
+            },
+            "PreCompact": {
+              "status": "supported"
+            },
+            "PostToolUseFailure": {
+              "status": "unavailable",
+              "note": "No Codex event fires only on tool failure; PostToolUse cannot distinguish the two."
+            },
+            "PermissionDenied": {
+              "status": "unavailable",
+              "note": "Codex exposes no permission-decision event."
+            }
+          }
+        },
+        "mcp": {
+          "status": "supported",
+          "evidence": [
+            "https://developers.openai.com/codex/config-advanced#mcp-servers"
+          ],
+          "verification": "Confirm selected MCP servers connect."
+        },
+        "plugin": {
+          "status": "supported",
+          "evidence": [
+            "https://developers.openai.com/codex/concepts/plugins"
+          ],
+          "prerequisites": [
+            "user-activation"
+          ],
+          "verification": "Confirm the plugin is enabled by the host."
+        }
       }
     },
     {
       "id": "gemini",
       "displayName": "Gemini CLI",
       "adapter": "gemini",
-      "scopes": ["project", "user"],
-      "nativeTargets": {"instructions": "GEMINI.md"},
+      "scopes": [
+        "project",
+        "user"
+      ],
+      "nativeTargets": {
+        "instructions": "GEMINI.md",
+        "hooks": "settings.json"
+      },
       "capabilities": {
-        "instructions": {"status": "supported", "evidence": ["https://geminicli.com/docs/cli/gemini-md/"], "verification": "Confirm GEMINI.md is loaded by Gemini CLI."},
-        "skills": {"status": "supported", "evidence": ["https://geminicli.com/docs/cli/skills/"], "verification": "Confirm the installed skill is discoverable."},
-        "agents": {"status": "different", "evidence": ["https://github.com/google-gemini/gemini-cli"], "verification": "Report the shared-prompt projection and native limitations."},
-        "scripts": {"status": "unavailable", "evidence": ["https://geminicli.com/docs/"], "verification": "Report the capability gap; do not install scripts."},
-        "templates": {"status": "unavailable", "evidence": ["https://geminicli.com/docs/"], "verification": "Report the capability gap; do not install templates."},
-        "modes": {"status": "different", "evidence": ["https://geminicli.com/docs/cli/gemini-md/"], "verification": "Confirm mode guidance is available through instructions."},
-        "settings": {"status": "different", "evidence": ["https://geminicli.com/docs/cli/configuration/"], "verification": "Verify only adapter-supported native settings."},
-        "hooks": {"status": "unavailable", "evidence": ["https://geminicli.com/docs/"], "verification": "Report the capability gap; do not render hooks."},
-        "mcp": {"status": "different", "evidence": ["https://geminicli.com/docs/tools/mcp/"], "verification": "Verify only adapter-supported MCP registration."},
-        "plugin": {"status": "different", "evidence": ["https://geminicli.com/docs/extensions/"], "verification": "Verify extensions through the native host workflow."}
+        "instructions": {
+          "status": "supported",
+          "evidence": [
+            "https://geminicli.com/docs/cli/gemini-md/"
+          ],
+          "verification": "Confirm GEMINI.md is loaded by Gemini CLI."
+        },
+        "skills": {
+          "status": "supported",
+          "evidence": [
+            "https://geminicli.com/docs/cli/skills/"
+          ],
+          "verification": "Confirm the installed skill is discoverable."
+        },
+        "agents": {
+          "status": "different",
+          "evidence": [
+            "https://github.com/google-gemini/gemini-cli"
+          ],
+          "verification": "Report the shared-prompt projection and native limitations."
+        },
+        "scripts": {
+          "status": "unavailable",
+          "evidence": [
+            "https://geminicli.com/docs/"
+          ],
+          "verification": "Report the capability gap; do not install scripts."
+        },
+        "templates": {
+          "status": "unavailable",
+          "evidence": [
+            "https://geminicli.com/docs/"
+          ],
+          "verification": "Report the capability gap; do not install templates."
+        },
+        "modes": {
+          "status": "different",
+          "evidence": [
+            "https://geminicli.com/docs/cli/gemini-md/"
+          ],
+          "verification": "Confirm mode guidance is available through instructions."
+        },
+        "settings": {
+          "status": "different",
+          "evidence": [
+            "https://geminicli.com/docs/cli/configuration/"
+          ],
+          "verification": "Verify only adapter-supported native settings."
+        },
+        "hooks": {
+          "status": "supported",
+          "evidence": [
+            "https://geminicli.com/docs/hooks/"
+          ],
+          "verification": "Exercise one installed hook event.",
+          "events": {
+            "SessionStart": {
+              "status": "supported"
+            },
+            "SessionEnd": {
+              "status": "supported"
+            },
+            "BeforeTool": {
+              "status": "supported"
+            },
+            "AfterTool": {
+              "status": "supported"
+            },
+            "PreCompress": {
+              "status": "supported"
+            },
+            "UserPromptSubmit": {
+              "status": "unavailable",
+              "note": "No Gemini equivalent; BeforeAgent fires at full-turn granularity, not per prompt."
+            },
+            "Stop": {
+              "status": "unavailable",
+              "note": "No Gemini equivalent at matching semantics."
+            },
+            "SubagentStart": {
+              "status": "unavailable",
+              "note": "BeforeAgent/AfterAgent are turn-scoped, not subagent-scoped."
+            },
+            "SubagentStop": {
+              "status": "unavailable",
+              "note": "BeforeAgent/AfterAgent are turn-scoped, not subagent-scoped."
+            },
+            "PostToolUseFailure": {
+              "status": "unavailable",
+              "note": "AfterTool fires regardless of outcome; failure cannot be isolated."
+            },
+            "PermissionDenied": {
+              "status": "unavailable",
+              "note": "Gemini exposes no permission-decision event."
+            }
+          }
+        },
+        "mcp": {
+          "status": "different",
+          "evidence": [
+            "https://geminicli.com/docs/tools/mcp/"
+          ],
+          "verification": "Verify only adapter-supported MCP registration."
+        },
+        "plugin": {
+          "status": "different",
+          "evidence": [
+            "https://geminicli.com/docs/extensions/"
+          ],
+          "verification": "Verify extensions through the native host workflow."
+        }
       }
     }
   ]

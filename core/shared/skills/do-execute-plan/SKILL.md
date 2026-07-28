@@ -109,6 +109,12 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
 9. **Stop on risk** — ambiguity, blocker, failed validation, or a step 6 `blocked` repo → report and
    wait (route failures to `root-cause-analyst` / `/do-troubleshoot`).
 
+## Behavioral Posture
+
+Before starting, read `modes/MODE_Task_Management.md` in the shared guidance tree for
+the task-hierarchy and delegation posture it sets. That file is loaded on demand through this skill — it has no other trigger,
+so skipping the read silently drops the posture it defines.
+
 ## Boundaries
 **Will:** enforce the prereq gate, orchestrate named specialists over `plan.md`'s task checklist,
 fan out `[P]` work, validate, keep `state.md` resumable, generate a per-dependency-service code

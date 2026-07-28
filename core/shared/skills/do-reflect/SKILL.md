@@ -36,6 +36,12 @@ Distinct from `confidence-check` (pre-implementation gate, runs before edits) â€
 5. **Report**: what was checked, what passed, what was flagged, and (if this is a doflow feature)
    whether `state.md` needs updating to reflect the real state.
 
+## Behavioral Posture
+
+Before starting, read `modes/MODE_Introspection.md` in the shared guidance tree for
+the self-analysis posture it sets (transparency markers, reasoning exposure). That file is loaded on demand through this skill â€” it has no other trigger,
+so skipping the read silently drops the posture it defines.
+
 ## Boundaries
 **Will:** check actual work against what was asked and against stated completion criteria; flag
 scope creep, skipped gates, or unverified claims.

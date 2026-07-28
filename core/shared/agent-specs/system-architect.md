@@ -1,13 +1,14 @@
 ---
 name: system-architect
 description: Design scalable system architecture with focus on maintainability and long-term technical decisions
-category: engineering
 effort: high
 permissionMode: plan
 color: blue
 ---
 
 # System Architect
+
+**Role category:** engineering (maintainer-facing; not harness frontmatter).
 
 ## Triggers
 - System architecture design and scalability analysis needs

@@ -5,6 +5,7 @@ when_to_use: Trigger automatically for read-only explanations of code, architect
 argument-hint: "[target] [--level basic|intermediate|advanced] [--format text|examples|interactive] [--context domain]"
 user-invocable: true
 effort: medium
+disallowed-tools: Edit, Write, NotebookEdit
 ---
 
 # do-explain

@@ -1,117 +1,52 @@
 # DoFlow Framework Flags
 
-Behavioral flags for Claude Code to enable specific execution modes and tool selection patterns.
+Behavioral flags that change how a request is handled. This file is loaded into **every** session
+on every harness, so it documents only flags that route somewhere real — a flag with no consumer
+is removed rather than kept as aspiration.
 
-## Mode Activation Flags
+**MCP short flags are not listed here.** They vary per install and are generated into
+`MCP_INDEX.md` from the servers actually selected, so this file never names a server you may not
+have installed.
 
-**--brainstorm**
-- Trigger: Vague project requests, exploration keywords ("maybe", "thinking about", "not sure")
-- Behavior: Activate collaborative discovery mindset, ask probing questions, guide requirement elicitation
+## Mode Activation
 
-**--introspect**
-- Trigger: Self-analysis requests, error recovery, complex problem solving requiring meta-cognition
-- Behavior: Expose thinking process with transparency markers for each reasoning stage
+Each of these loads a behavioral mode from `modes/`. Modes are lazy — the skill named below is
+what reads them, so every mode has exactly one load point.
 
-**--task-manage**
-- Trigger: Multi-step operations (>3 steps), complex scope (>2 directories OR >3 files)
-- Behavior: Orchestrate through delegation, progressive enhancement, systematic organization
+**--brainstorm** — vague or exploratory request ("maybe", "thinking about", "not sure").
+Collaborative discovery: probe before proposing. Loaded by `do-brainstorm`.
 
-**--orchestrate**
-- Trigger: Multi-tool operations, performance constraints, parallel execution opportunities
-- Behavior: Optimize tool selection matrix, enable parallel thinking, adapt to resource constraints
+**--introspect** — self-analysis, error recovery, or a problem needing exposed reasoning.
+Surfaces the thinking process with transparency markers. Loaded by `do-reflect`.
 
-**--token-efficient**
-- Trigger: Context usage >75%, large-scale operations, --uc flag
-- Behavior: Symbol-enhanced communication, 30-50% token reduction while preserving clarity
+**--task-manage** — multi-step work (>3 steps) or wide scope (>2 directories, >3 files).
+Orchestrates through delegation and progressive checkpoints. Loaded by `do-execute-plan`.
 
-## MCP Server Flags
+**--delegate** — >7 directories, >50 files, or complexity above ~0.8. Routes work to sub-agents
+in parallel instead of one pass. Described in `modes/MODE_Task_Management.md`.
 
-### Installed
-**--c7 / --context7**
-- Trigger: Library imports, framework questions, official documentation needs
-- Behavior: Enable Context7 for curated documentation lookup and pattern guidance
+## Analysis Depth
 
-**--seq / --sequential**
-- Trigger: Complex debugging, system design, multi-component analysis
-- Behavior: Enable Sequential for structured multi-step reasoning and hypothesis testing
+Escalating reasoning budget; each tier subsumes the one before it.
 
-**--chrome / --devtools**
-- Trigger: Performance auditing, debugging, layout issues, network analysis, console errors
-- Behavior: Enable Chrome DevTools for real-time browser inspection and performance analysis
+**--think** — multi-component analysis, moderate complexity.
+**--think-hard** — architectural analysis, system-wide dependencies.
+**--ultrathink** — critical redesign, legacy modernization, hard debugging.
 
-**--play / --playwright**
-- Trigger: Browser testing, E2E scenarios, visual validation, accessibility testing
-- Behavior: Enable Playwright for real browser automation and testing
+## Execution Control
 
-### Composite Flags
-**--all-mcp**
-- Trigger: Maximum complexity scenarios, multi-domain problems
-- Behavior: Enable all installed MCP servers (Context7, Sequential, Chrome DevTools, Playwright)
+**--iterations [n]** — improvement cycles to run (1–10). Consumed by `do-spec-panel`.
 
-**--no-mcp**
-- Trigger: Native-only execution needs, performance priority
-- Behavior: Disable all MCP servers, use native tools with WebSearch fallback
+**--focus [performance|security|quality|architecture|accessibility|testing]** — narrows analysis
+to one domain. Consumed by `do-analyze`, `do-troubleshoot`, and `do-spec-panel`.
 
-## Analysis Depth Flags
-
-**--think**
-- Trigger: Multi-component analysis needs, moderate complexity
-- Behavior: Standard structured analysis (~4K tokens), enables Sequential
-
-**--think-hard**
-- Trigger: Architectural analysis, system-wide dependencies
-- Behavior: Deep analysis (~10K tokens), enables Sequential + Context7
-
-**--ultrathink**
-- Trigger: Critical system redesign, legacy modernization, complex debugging
-- Behavior: Maximum depth analysis (~32K tokens), enables all MCP servers
-
-## Execution Control Flags
-
-**--delegate [auto|files|folders]**
-- Trigger: >7 directories OR >50 files OR complexity >0.8
-- Behavior: Enable sub-agent parallel processing with intelligent routing
-
-**--concurrency [n]**
-- Trigger: Resource optimization needs, parallel operation control
-- Behavior: Control max concurrent operations (range: 1-15)
-
-**--loop**
-- Trigger: Improvement keywords (polish, refine, enhance, improve)
-- Behavior: Enable iterative improvement cycles with validation gates
-
-**--iterations [n]**
-- Trigger: Specific improvement cycle requirements
-- Behavior: Set improvement cycle count (range: 1-10)
-
-<important if="operating in production environment, resource usage above 75%, or performing risky operations">
-**--validate**
-- Trigger: Risk score >0.7, resource usage >75%, production environment
-- Behavior: Pre-execution risk assessment and validation gates
-
-**--safe-mode**
-- Trigger: Resource usage >85%, production environment, critical operations
-- Behavior: Maximum validation, conservative execution, auto-enable --uc
+<important if="operating in production, on shared infrastructure, or performing risky operations">
+**--validate** — pre-execution risk assessment and validation gates before acting. Consumed by
+`do-reflect`.
 </important>
 
-## Output Optimization Flags
+## Priority Rules
 
-**--uc / --ultracompressed**
-- Trigger: Context pressure, efficiency requirements, large operations
-- Behavior: Symbol communication system, 30-50% token reduction
-
-**--scope [file|module|project|system]**
-- Trigger: Analysis boundary needs
-- Behavior: Define operational scope and analysis depth
-
-**--focus [performance|security|quality|architecture|accessibility|testing]**
-- Trigger: Domain-specific optimization needs
-- Behavior: Target specific analysis domain and expertise application
-
-## Flag Priority Rules
-
-**Safety First**: --safe-mode > --validate > optimization flags
-**Explicit Override**: User flags > auto-detection
-**Depth Hierarchy**: --ultrathink > --think-hard > --think
-**MCP Control**: --no-mcp overrides all individual MCP flags
-**Scope Precedence**: system > project > module > file
+**Safety first** — `--validate` outranks any optimization flag.
+**Explicit over inferred** — a flag the user typed beats auto-detection.
+**Depth is ordered** — `--ultrathink` > `--think-hard` > `--think`.

@@ -15,6 +15,72 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Context-layer reachability guards** (`test/guards/`). Five families assert that a declaration
+  connects to something real: recognized frontmatter fields (G1), resolvable paths (G2), a load
+  point for every lazy resource (G3), a consumer for every documented flag (G4), and a registry
+  that matches the code that ships (G5). Each was landed failing against the then-current tree and
+  observed red before the content fix, because the defect class they exist to catch is an
+  assertion that cannot fail.
+- **`core/registry/contracts.yaml`** — a fifth registry file declaring what each harness *accepts*
+  (legal skill/agent frontmatter fields, legal hook event names), kept separate from
+  `harnesses.yaml`'s what-DoFlow-*supports*. Nesting them would make G5 validate the registry
+  against itself. Claude's lists are verified against current documentation; Codex's and Gemini's
+  are marked `lower-bound` — what DoFlow actually wires — rather than claiming coverage that was
+  not independently checked.
+- **Per-event hook support** (`capabilities.hooks.events`, optional and additive). A gap is now
+  recorded with the reason no equivalent exists instead of being omitted, which was
+  indistinguishable from an oversight. `docs/capability-map.md` publishes the resulting matrix.
+
+### Fixed
+
+- **The registry contradicted its own shipped code.** `gemini.hooks` was declared `unavailable`
+  with the verification "do not render hooks" while DoFlow has shipped a Gemini hooks deployer,
+  five wired events, and a test file since v0.8.0 — and `docs/capability-map.md` published that
+  false status. A test asserted `status === 'unavailable'`, which is why it survived a green suite.
+- **Six behavioral modes and one reference file were unreachable.** No skill loaded any of them;
+  their only documented triggers were flags, two of which did not exist. A mode's own
+  `## Activation Triggers` section is prose *about* a trigger — no harness evaluates it. Each mode
+  now binds to its paired skill, and `references/RESEARCH_CONFIG.md` binds to `do-research`.
+- **`do-document` instructed the agent to use three templates that do not exist**
+  (`references/feature-flow.md`, `api-reference.md`, `user-guide.md`). Every invocation pointed at
+  missing files.
+- **14 agent specs carried an unrecognized `category:` frontmatter field**, inert on all three
+  harnesses. The taxonomy moves into prose, where it costs nothing and claims nothing.
+
+### Known gaps
+
+- **Failure and permission hook paths remain unwired on Claude.** `PostToolUseFailure` and
+  `PermissionDenied` were added and then reverted before release: both had been bound to existing
+  handlers written for a different payload. `post-edit-lint.sh` is a collector that queues an
+  edited path for end-of-turn linting, so on a *failed* edit it would queue a file that never
+  changed; `subagent-audit.sh` reads `agent_type`/`agent_id`, which a permission event does not
+  carry. Wiring these correctly needs purpose-built handlers, which is deliberately out of scope
+  here rather than shipped wrong. The two events are recorded as `unavailable` for Codex and
+  Gemini, which genuinely have no equivalent.
+
+### Changed
+
+- **Breaking: 14 of 28 flags removed from `FLAGS.md`.** `--orchestrate`, `--token-efficient`,
+  `--all-mcp`, `--no-mcp`, `--concurrency`, `--loop`, `--safe-mode`, `--scope`, the long aliases
+  `--context7`/`--sequential`/`--playwright`/`--devtools`, and `--uc`/`--ultracompressed` routed to
+  nothing. The four MCP short flags also leave: they are generated per install into `MCP_INDEX.md`
+  from the servers actually selected, so `FLAGS.md` no longer names a server you may not have.
+  The always-loaded guidance surface drops from 14,477 to 11,971 bytes — paid on every session, on
+  every harness.
+- **Breaking: `MODE_Token_Efficiency.md` and the `token-efficiency` skill are removed**, taking
+  `--uc`/`--ultracompressed` with them. **Migration:** there is no in-framework replacement. The
+  guidance instructed the model to compress what it *emits*; if you want output filtering, install
+  a tool that does it. DoFlow ships no runtime dependency and does not assume one. Skill count
+  drops 28 → 27.
+- **Breaking: four read-only skills now enforce their own documented boundaries** via
+  `disallowed-tools` (`do-estimate`, `do-select-tool`, `do-explain`, `do-analyze`). Only skills
+  whose Boundaries state an *unconditional* no-edit are scoped; skills that say "in auto mode"
+  keep the explicit-request escape their documentation promises, deliberately unscoped.
+- `DOFLOW_CORE.md` no longer carries a commented resource inventory. It read like a load mechanism
+  but nothing evaluated it, so every file it named went unloaded for as long as it existed.
+
 ## [0.8.0] - 2026-07-28
 
 ### Added

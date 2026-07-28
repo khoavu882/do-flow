@@ -263,25 +263,14 @@ test('DOFLOW_CORE.md imports the generated per-install MCP index from the guidan
   assert.ok(!content.includes('@docs/'), 'guidance/docs/ was flattened into the guidance root');
 });
 
-// The on-demand block must stay inert: it advertises directories an agent may load on demand, so
-// every one of its lines has to remain a comment. A bare `@modes/` line here would turn an
-// explicitly-not-auto-loaded resource into an always-loaded one.
-test('DOFLOW_CORE.md on-demand block is comment-only and points at directories that exist', () => {
+// The commented on-demand inventory is deliberately gone. It named modes/, references/ and mcp/
+// in a form that read like a load mechanism but that nothing evaluates, so every resource it
+// listed went unloaded for as long as it existed. Reachability is now a skill binding, enforced
+// by test/guards/consumers.test.js.
+test('DOFLOW_CORE.md carries no commented resource inventory', () => {
   const content = fs.readFileSync(DOFLOW_CORE, 'utf8');
-  const marker = '# On-demand resources (NOT auto-loaded — load manually when needed)';
-  const start = content.indexOf(marker);
-  assert.ok(start !== -1, 'the on-demand resources block must still be present');
-
-  const block = content.slice(start).split('\n').filter((line) => line.trim().length > 0);
-  for (const line of block) {
-    assert.ok(line.startsWith('#'), `on-demand block line must stay commented out: ${line}`);
-  }
-
-  for (const dir of block.join('\n').match(/@[a-z]+\//g) ?? []) {
-    const rel = dir.slice(1);
-    assert.ok(
-      fs.existsSync(path.join(GUIDANCE_SOURCE, rel)),
-      `on-demand block advertises '${dir}', which does not exist under core/shared/guidance/`,
-    );
-  }
+  assert.ok(!content.includes('On-demand resources'), 'the inert inventory block must not return');
+  const advertised = content.match(/^#\s+\w+.*→\s*@[a-z]+\//gm) ?? [];
+  assert.deepEqual(advertised, [], 'a commented "→ @dir/" listing loads nothing; bind the resource to a skill instead');
 });
+
