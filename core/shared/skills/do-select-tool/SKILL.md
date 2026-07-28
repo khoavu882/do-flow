@@ -5,6 +5,7 @@ when_to_use: Trigger automatically for read-only tool-routing decisions, MCP/nat
 argument-hint: "[operation] [--analyze] [--explain]"
 user-invocable: true
 effort: low
+disallowed-tools: Edit, Write, NotebookEdit
 ---
 
 # do-select-tool

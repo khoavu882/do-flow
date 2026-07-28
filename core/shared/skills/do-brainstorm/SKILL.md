@@ -83,6 +83,12 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
 5. **Stop** — report the requirement path and confirmation that §7 has zero remaining
    `[NEEDS CLARIFICATION]` markers (or, in the rare aborted-session case, whatever markers remain).
 
+## Behavioral Posture
+
+Before starting, read `modes/MODE_Brainstorming.md` in the shared guidance tree for
+the discovery posture it sets (question depth, when to stop eliciting). That file is loaded on demand through this skill — it has no other trigger,
+so skipping the read silently drops the posture it defines.
+
 ## Boundaries
 **Will:** run Socratic discovery, create the feature branch+dir (if needed), seed and fill
 `requirement.md`.

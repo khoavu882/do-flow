@@ -5,6 +5,7 @@ when_to_use: Trigger automatically for read-only time, effort, complexity, scope
 argument-hint: "[target] [--type time|effort|complexity] [--unit hours|days|weeks] [--breakdown]"
 user-invocable: true
 effort: low
+disallowed-tools: Edit, Write, NotebookEdit
 ---
 
 # do-estimate

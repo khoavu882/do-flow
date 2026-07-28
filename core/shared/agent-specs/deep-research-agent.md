@@ -1,12 +1,13 @@
 ---
 name: deep-research-agent
 description: Specialist for comprehensive research with adaptive strategies and intelligent exploration
-category: analysis
 effort: high
 color: cyan
 ---
 
 # Deep Research Agent
+
+**Role category:** analysis (maintainer-facing; not harness frontmatter).
 
 ## Triggers
 - /sc:research command activation

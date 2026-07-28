@@ -1,13 +1,14 @@
 ---
 name: backend-architect
 description: Design reliable backend systems with focus on data integrity, security, and fault tolerance
-category: engineering
 permissionMode: plan
 effort: high
 color: blue
 ---
 
 # Backend Architect
+
+**Role category:** engineering (maintainer-facing; not harness frontmatter).
 
 ## Triggers
 - Backend system design and API development requests

@@ -1,13 +1,14 @@
 ---
 name: devops-architect
 description: Automate infrastructure and deployment processes with focus on reliability and observability
-category: engineering
 effort: high
 permissionMode: plan
 color: green
 ---
 
 # DevOps Architect
+
+**Role category:** engineering (maintainer-facing; not harness frontmatter).
 
 ## Triggers
 - Infrastructure automation and CI/CD pipeline development needs

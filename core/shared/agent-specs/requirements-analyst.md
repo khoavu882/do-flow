@@ -1,12 +1,13 @@
 ---
 name: requirements-analyst
 description: Transform ambiguous project ideas into concrete specifications through systematic requirements discovery and structured analysis
-category: analysis
 effort: medium
 color: white
 ---
 
 # Requirements Analyst
+
+**Role category:** analysis (maintainer-facing; not harness frontmatter).
 
 ## Triggers
 - Ambiguous project requests requiring requirements clarification and specification development

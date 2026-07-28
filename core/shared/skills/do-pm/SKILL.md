@@ -55,6 +55,12 @@ breakdown) and `do-task` (explicit per-part validation) — both merged here, se
    itself. If 2+ parts are independent and dependency-ready, suggest `/parallel-agents` to fan them
    out; otherwise state the required order.
 
+## Behavioral Posture
+
+Before starting, read `modes/MODE_Orchestration.md` in the shared guidance tree for
+the tool-selection matrix and parallel-execution triggers it defines. That file is loaded on demand through this skill — it has no other trigger,
+so skipping the read silently drops the posture it defines.
+
 ## Boundaries
 **Will:** classify and decompose a request, verify referenced targets exist first, name concrete
 skills/agents to delegate to, state dependencies and completion gates per part.

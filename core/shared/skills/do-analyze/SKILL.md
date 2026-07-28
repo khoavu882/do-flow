@@ -5,6 +5,7 @@ when_to_use: Trigger automatically for read-only quality, security, performance,
 argument-hint: "[target] [--focus quality|security|performance|architecture] [--depth shallow|normal|deep] [--format text|json|report]"
 user-invocable: true
 effort: medium
+disallowed-tools: Edit, Write, NotebookEdit
 ---
 
 # do-analyze

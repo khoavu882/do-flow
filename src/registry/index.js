@@ -13,6 +13,7 @@ const REGISTRY_FILES = Object.freeze({
   assets: 'assets.yaml',
   mcp: 'mcp.yaml',
   lifecycle: 'lifecycle.yaml',
+  contracts: 'contracts.yaml',
 });
 const CAPABILITY_STATUS = new Set(['supported', 'different', 'unavailable']);
 const SCOPES = new Set(['project', 'user']);
@@ -55,6 +56,7 @@ function loadRegistry({ repoRoot, dir, fsImpl = fs } = {}) {
     assets: loaded.assets.assets,
     mcp: loaded.mcp.servers,
     lifecycle: loaded.lifecycle.policies,
+    contracts: loaded.contracts.contracts,
     versions: Object.fromEntries(Object.entries(loaded).map(([name, value]) => [name, value.version])),
   };
   const validation = validateRegistry(registry, { repoRoot: registry.repoRoot, fsImpl });
@@ -66,6 +68,48 @@ function loadRegistry({ repoRoot, dir, fsImpl = fs } = {}) {
   return Object.freeze({ ...registry, validation });
 }
 
+const CONTRACT_COMPLETENESS = new Set(['verified', 'lower-bound']);
+
+/** Validates core/registry/contracts.yaml — what each harness ACCEPTS (legal frontmatter fields,
+ * legal hook event names), kept separate from harnesses.yaml's what-DoFlow-SUPPORTS. The split is
+ * what keeps the registry-truth guard from validating the registry against itself.
+ *
+ * `evidence` is required for the same reason capabilities require it: a contract claim with no
+ * citation is folklore, and these lists are copied from vendor documentation that moves. */
+function validateContract(value, location, errors, harnessIds) {
+  if (!object(value)) { issue(errors, location, 'must be an object'); return; }
+  if (typeof value.harness !== 'string' || !harnessIds.has(value.harness)) {
+    issue(errors, location, `harness must be one of: ${[...harnessIds].join(', ')}`);
+  }
+  if (!CONTRACT_COMPLETENESS.has(value.completeness)) {
+    issue(errors, location, 'completeness must be verified or lower-bound');
+  }
+  // skillFields/agentFields are optional: shared skills and agent specs are byte-identical across
+  // harnesses, so a per-harness field list is necessarily a subset of the union and cannot change
+  // any guard outcome. Declaring one anyway would restate an unverified claim as fact — the exact
+  // shape of inert declaration these guards exist to remove. hookEvents is required because those
+  // genuinely differ per harness and G5 reads them.
+  for (const field of ['skillFields', 'agentFields']) {
+    if (value[field] === undefined) continue;
+    const list = value[field];
+    if (!Array.isArray(list) || list.length === 0 || list.some((item) => typeof item !== 'string' || !item)) {
+      issue(errors, `${location}.${field}`, 'must be a non-empty array of non-empty strings when present');
+      continue;
+    }
+    if (new Set(list).size !== list.length) issue(errors, `${location}.${field}`, 'must not contain duplicates');
+  }
+  const events = value.hookEvents;
+  if (!Array.isArray(events) || events.length === 0 || events.some((item) => typeof item !== 'string' || !item)) {
+    issue(errors, `${location}.hookEvents`, 'must be a non-empty array of non-empty strings');
+  } else if (new Set(events).size !== events.length) {
+    issue(errors, `${location}.hookEvents`, 'must not contain duplicates');
+  }
+  if (!Array.isArray(value.evidence) || value.evidence.length === 0
+    || value.evidence.some((url) => typeof url !== 'string' || !/^https:\/\//.test(url))) {
+    issue(errors, location, 'must include one or more HTTPS evidence URLs');
+  }
+}
+
 function validateCapability(value, location, errors) {
   if (!object(value)) { issue(errors, location, 'must be an object'); return; }
   if (!CAPABILITY_STATUS.has(value.status)) issue(errors, location, 'status must be supported, different, or unavailable');
@@ -75,6 +119,24 @@ function validateCapability(value, location, errors) {
   if (typeof value.verification !== 'string' || !value.verification.trim()) issue(errors, location, 'requires a verification instruction');
   if (value.prerequisites !== undefined && (!Array.isArray(value.prerequisites) || value.prerequisites.some((item) => typeof item !== 'string' || !item))) {
     issue(errors, location, 'prerequisites must be an array of non-empty strings');
+  }
+  // Optional per-event detail, reusing the same three-value status vocabulary. Additive on
+  // purpose: a capability without it keeps today's coarse behaviour, so harnesses migrate one at
+  // a time instead of all three needing per-event data before any of them can have it.
+  if (value.events !== undefined) {
+    if (!object(value.events) || Object.keys(value.events).length === 0) {
+      issue(errors, `${location}.events`, 'must be a non-empty object when present');
+    } else {
+      for (const [event, detail] of Object.entries(value.events)) {
+        if (!/^[A-Z][A-Za-z]*$/.test(event)) issue(errors, `${location}.events`, `invalid event name '${event}'`);
+        if (!object(detail) || !CAPABILITY_STATUS.has(detail.status)) {
+          issue(errors, `${location}.events.${event}`, 'status must be supported, different, or unavailable');
+        }
+        if (detail?.note !== undefined && (typeof detail.note !== 'string' || !detail.note.trim())) {
+          issue(errors, `${location}.events.${event}`, 'note must be a non-empty string when present');
+        }
+      }
+    }
   }
 }
 
@@ -125,6 +187,8 @@ function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
   if (!assets) issue(errors, 'assets', 'must be an array');
   if (!mcp) issue(errors, 'mcp', 'must be an array');
   if (!lifecycle) issue(errors, 'lifecycle', 'must be an array');
+  const contracts = Array.isArray(registry?.contracts) ? registry.contracts : null;
+  if (!contracts) issue(errors, 'contracts', 'must be an array');
   idsUnique(harnesses, 'harnesses', errors); idsUnique(assets, 'assets', errors);
   idsUnique(mcp, 'mcp', errors); idsUnique(lifecycle, 'lifecycle', errors);
 
@@ -143,6 +207,20 @@ function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
       validateCapability(declaration, `${at} capability '${capability}'`, errors);
     }
     if (harness.id === 'codex') validateNativeProjection(harness.nativeProjection, harness, { repoRoot, fsImpl }, errors);
+  }
+
+  const contractHarnesses = new Set();
+  for (const contract of contracts || []) {
+    validateContract(contract, `contract '${contract?.harness ?? '?'}'`, errors, harnessIds);
+    if (object(contract) && typeof contract.harness === 'string') {
+      if (contractHarnesses.has(contract.harness)) issue(errors, 'contracts', `duplicate contract for '${contract.harness}'`);
+      contractHarnesses.add(contract.harness);
+    }
+  }
+  // Every harness needs a contract: without one there is nothing to validate its shipped
+  // frontmatter and hook events against, so drift in that harness would go unnoticed.
+  for (const id of harnessIds) {
+    if (!contractHarnesses.has(id)) issue(errors, 'contracts', `no contract declared for harness '${id}'`);
   }
 
   for (const asset of assets || []) {
