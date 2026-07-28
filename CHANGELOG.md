@@ -15,6 +15,8 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-07-28
+
 ### Fixed
 
 - **A single-target install could wedge its sibling harnesses.** `guidance.context-layer` projects
@@ -32,6 +34,9 @@ All notable changes to DoFlow are documented here. Format follows
 
   Reproducing it needs all three conditions: a prior multi-target install, then a source change,
   then a single-target install. A first install on a fresh machine was never affected.
+- `DOFLOW_CORE.md` is now a pure import manifest. The trailing comment explaining why a resource
+  inventory would be inert was itself commentary the file did not need to carry into every
+  session.
 
 ## [0.9.1] - 2026-07-28
 
