@@ -23,7 +23,7 @@ const { createAdapterRegistry } = require('../src/adapters');
 const claudeAdapter = require('../src/adapters/claude');
 const codexAdapter = require('../src/adapters/codex');
 const { createGeminiAdapter } = require('../src/adapters/gemini');
-const { applyLifecycle, removeLifecycle } = require('../src/lifecycle');
+const { applyLifecycle, removeLifecycle, applyMcpIndex } = require('../src/lifecycle');
 const { readLedger } = require('../src/state');
 const { codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan } = require('../src/lifecycle-view');
 
@@ -196,6 +196,13 @@ function cmdInstall(o) {
       const owned = result.ledger.resources.filter((resource) => resource.harness === target.harness).length;
       console.log(`[INFO] ${target.harness}: lifecycle verified (${owned} owned resource(s))`);
     }
+  } else {
+    // MCP_INDEX.md is generated, not a tracked resource, so it never appears in plan.changes and
+    // applyLifecycle — which owns the only call that writes it — is skipped entirely when nothing
+    // else changed. Without this branch the index is rewritten only as a side effect of some
+    // unrelated asset changing, so a change to the renderer, to a server's `doc`/`shortFlag`, or
+    // to the resolved selection silently does nothing whenever the rest of the tree is current.
+    applyMcpIndex({ scopeRoot: lifecycleView.plan.scopeRoot, selectedMcp: lifecycleView.plan.mcp, mode: 'apply' });
   }
 
   if (targets.includes('claude')) {

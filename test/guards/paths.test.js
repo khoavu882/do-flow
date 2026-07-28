@@ -65,12 +65,15 @@ test('G2: every doc path the generated MCP index emits resolves from the index l
   const indexDir = path.dirname(mcpIndexPath('/scope'));
   const relativeToRoot = path.relative(guidanceRoot, indexDir);
 
-  const missing = [];
-  for (const line of renderMcpIndex(servers).split('\n')) {
-    const match = line.match(/^#\s+on use, read (\S+) first$/);
-    if (!match) continue;
-    if (!fs.existsSync(path.join(GUIDANCE, relativeToRoot, match[1]))) missing.push(match[1]);
-  }
+  const emitted = renderMcpIndex(servers).split('\n')
+    .filter((line) => line.startsWith('@'))
+    .map((line) => line.slice(1).trim());
+  // A parser that matches nothing makes every assertion below vacuously true — the exact way the
+  // v0.8.0 test failed. Pin the count to the input so a format change fails loudly instead.
+  assert.equal(emitted.length, servers.length,
+    'every selected server must emit exactly one @import; a silent parse mismatch would make this guard vacuous');
+
+  const missing = emitted.filter((rel) => !fs.existsSync(path.join(GUIDANCE, relativeToRoot, rel)));
   assert.deepEqual(missing, [],
     `MCP_INDEX.md emits doc paths that do not resolve from its own directory: ${missing.join(', ')}`);
 });
