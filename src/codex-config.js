@@ -100,6 +100,62 @@ function parseValue(raw) {
   throw new Error('unsupported or invalid TOML value');
 }
 
+const BARE_KEY = /^[A-Za-z0-9_-]+$/;
+
+/** Splits a TOML key path (`a.b`, `mcp_servers."my-server"`, `'lit'.x`) into its segments.
+ * Quoted segments are ordinary TOML — a table header like `[mcp_servers."timo-document-hub"]` is
+ * spec-valid — but this scanner previously matched bare keys only and rejected the whole file,
+ * making any config that used one unreadable. Returns null for anything it cannot represent
+ * faithfully, so every caller keeps failing closed rather than guessing at a rewrite.
+ *
+ * A dot *inside* a quoted segment is legal TOML (`"gpt-5.5" = 4`) and is preserved — see
+ * flattenKeyPath for how it is kept from colliding with a genuine path separator. */
+function parseKeyPath(raw) {
+  const segments = [];
+  let i = 0;
+  const skipSpace = () => { while (i < raw.length && (raw[i] === ' ' || raw[i] === '\t')) i += 1; };
+  skipSpace();
+  if (i >= raw.length) return null;
+  while (i < raw.length) {
+    let segment;
+    const quote = raw[i];
+    if (quote === '"' || quote === "'") {
+      i += 1;
+      let body = '';
+      while (i < raw.length && raw[i] !== quote) {
+        if (quote === '"' && raw[i] === '\\') { body += raw.slice(i, i + 2); i += 2; continue; }
+        body += raw[i]; i += 1;
+      }
+      if (raw[i] !== quote) return null;                       // unterminated
+      i += 1;
+      try { segment = quote === '"' ? JSON.parse(`"${body}"`) : body; } catch { return null; }
+    } else {
+      const start = i;
+      while (i < raw.length && raw[i] !== '.' && raw[i] !== ' ' && raw[i] !== '\t') i += 1;
+      segment = raw.slice(start, i);
+      if (!BARE_KEY.test(segment)) return null;
+    }
+    if (!segment) return null;
+    segments.push(segment);
+    skipSpace();
+    if (i >= raw.length) break;
+    if (raw[i] !== '.') return null;
+    i += 1;
+    skipSpace();
+    if (i >= raw.length) return null;                          // trailing dot
+  }
+  return segments.length ? segments : null;
+}
+
+/** Flattens key-path segments into the dotted string `entries` is keyed by, escaping any dot that
+ * lives *inside* a segment so it cannot be mistaken for a path separator — without this,
+ * `["a.b"]` and `[a.b]` collide and a surgical edit could rewrite the wrong line. Managed
+ * identities (normaliseDesired) are bare-key-only, so their flattened form is unchanged and
+ * lookups against them still match. */
+function flattenKeyPath(segments) {
+  return segments.map((segment) => segment.replace(/\\/g, '\\\\').replace(/\./g, '\\.')).join('.');
+}
+
 /** A conservative TOML scanner. It validates the subset needed to safely locate scalar keys;
  * unsupported multi-line syntax fails closed rather than risking a destructive rewrite. */
 function parseToml(text) {
@@ -109,18 +165,25 @@ function parseToml(text) {
   for (let index = 0; index < lines.length; index++) {
     const clean = stripComment(lines[index]).trim();
     if (!clean) continue;
-    const tableMatch = clean.match(/^\[([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)\]$/);
-    if (tableMatch) { table = tableMatch[1].split('.'); continue; }
+    // `[[array.of.tables]]` still fails closed: the inner capture starts with '[', which
+    // parseKeyPath rejects, so array-of-tables remains unsupported exactly as before.
+    const tableMatch = clean.match(/^\[(.+)\]$/);
+    if (tableMatch) {
+      const tablePath = parseKeyPath(tableMatch[1].trim());
+      if (!tablePath) throw new Error(`Malformed or unsupported TOML table on line ${index + 1}`);
+      table = tablePath;
+      continue;
+    }
     if (clean.startsWith('[')) throw new Error(`Malformed or unsupported TOML table on line ${index + 1}`);
     const assignment = splitAssignment(clean);
     if (!assignment) throw new Error(`Malformed TOML assignment on line ${index + 1}`);
-    const key = assignment[0].trim();
-    if (!/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/.test(key)) throw new Error(`Unsupported TOML key on line ${index + 1}`);
+    const keyPath = parseKeyPath(assignment[0].trim());
+    if (!keyPath) throw new Error(`Unsupported TOML key on line ${index + 1}`);
     let value;
     try { value = parseValue(assignment[1]); } catch { throw new Error(`Malformed TOML value on line ${index + 1}`); }
-    const fullKey = [...table, ...key.split('.')].join('.');
+    const fullKey = flattenKeyPath([...table, ...keyPath]);
     if (entries.has(fullKey)) throw new Error(`Duplicate TOML key '${fullKey}'`);
-    entries.set(fullKey, { value, line: index, table: table.join('.') });
+    entries.set(fullKey, { value, line: index, table: flattenKeyPath(table) });
   }
   return { lines, entries };
 }
@@ -196,19 +259,29 @@ function planCodexConfig({ file, scope, managedResources = [], desiredResources 
     nextLines[change.line] = `${indentation}${key} = ${renderValue(change.value)}${suffix && !/^\s/.test(suffix) ? ' ' : ''}${suffix}`;
   }
   for (const change of changes.filter((change) => change.type === 'remove')) nextLines[change.line] = '';
+  // A new key must land INSIDE its own table. Appending at end-of-file only happens to be
+  // correct when that table is the file's last one — otherwise the key silently joins whichever
+  // table trails the file, so `features.hooks` written after an `[mcp_servers.x]` block becomes
+  // `mcp_servers.x.hooks`. Existing tables get an insertion after their final entry; genuinely
+  // new tables are appended once each, with all of their keys grouped under a single header.
+  const insertions = [];
+  const newTables = new Map();
   for (const change of changes.filter((change) => change.type === 'create')) {
     const parts = change.identity.split('.');
     const table = parts.slice(0, -1).join('.');
-    const key = parts.at(-1);
-    const hasTable = parsed.entries.get(change.identity)?.table === table || [...parsed.entries.values()].some((entry) => entry.table === table);
-    if (!hasTable) {
-      // `''.split(/\\r?\\n/)` is [`''`]; drop that synthetic line so a brand-new file does
-      // not start with an unintended blank line.
-      if (nextLines.length === 1 && nextLines[0] === '') nextLines.pop();
-      if (nextLines.length && nextLines.at(-1) !== '') nextLines.push('');
-      nextLines.push(`[${table}]`);
-    }
-    nextLines.push(`${key} = ${renderValue(change.value)}`);
+    const line = `${parts.at(-1)} = ${renderValue(change.value)}`;
+    const tableLines = [...parsed.entries.values()].filter((entry) => entry.table === table).map((entry) => entry.line);
+    if (tableLines.length) insertions.push({ at: Math.max(...tableLines) + 1, line });
+    else newTables.set(table, [...(newTables.get(table) || []), line]);
+  }
+  // Descending, so an earlier insertion never shifts the index of one still pending.
+  for (const insertion of insertions.sort((a, b) => b.at - a.at)) nextLines.splice(insertion.at, 0, insertion.line);
+  for (const [table, lines] of newTables) {
+    // `''.split(/\r?\n/)` is [`''`]; drop that synthetic line so a brand-new file does
+    // not start with an unintended blank line.
+    if (nextLines.length === 1 && nextLines[0] === '') nextLines.pop();
+    if (nextLines.length && nextLines.at(-1) !== '') nextLines.push('');
+    nextLines.push(`[${table}]`, ...lines);
   }
   let content = nextLines.join('\n');
   if (content && !content.endsWith('\n')) content += '\n';

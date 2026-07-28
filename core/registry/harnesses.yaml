@@ -104,6 +104,12 @@
             },
             "UserPromptSubmit": {
               "status": "supported"
+            },
+            "PostToolUseFailure": {
+              "status": "supported"
+            },
+            "PermissionDenied": {
+              "status": "supported"
             }
           }
         },

@@ -29,6 +29,13 @@ All notable changes to DoFlow are documented here. Format follows
   against itself. Claude's lists are verified against current documentation; Codex's and Gemini's
   are marked `lower-bound` — what DoFlow actually wires — rather than claiming coverage that was
   not independently checked.
+- **Failure and permission hook paths on Claude**, each with its own handler.
+  `post-tool-failure.sh` records a failed tool call — the one outcome nothing else logged — and
+  deliberately does *not* reuse `post-edit-lint.sh`, which queues a path for end-of-turn linting
+  and on a failed edit would queue a file that was never written. `permission-audit.sh` records
+  refusals so the trail is no longer allow-only, and stays out of the subagent audit log, whose
+  `agent_type`/`agent_id` a permission decision does not carry. Both degrade to a thinner record
+  when optional payload fields are absent, and are no-ops without a session id.
 - **Per-event hook support** (`capabilities.hooks.events`, optional and additive). A gap is now
   recorded with the reason no equivalent exists instead of being omitted, which was
   indistinguishable from an oversight. `docs/capability-map.md` publishes the resulting matrix.
@@ -48,17 +55,6 @@ All notable changes to DoFlow are documented here. Format follows
   missing files.
 - **14 agent specs carried an unrecognized `category:` frontmatter field**, inert on all three
   harnesses. The taxonomy moves into prose, where it costs nothing and claims nothing.
-
-### Known gaps
-
-- **Failure and permission hook paths remain unwired on Claude.** `PostToolUseFailure` and
-  `PermissionDenied` were added and then reverted before release: both had been bound to existing
-  handlers written for a different payload. `post-edit-lint.sh` is a collector that queues an
-  edited path for end-of-turn linting, so on a *failed* edit it would queue a file that never
-  changed; `subagent-audit.sh` reads `agent_type`/`agent_id`, which a permission event does not
-  carry. Wiring these correctly needs purpose-built handlers, which is deliberately out of scope
-  here rather than shipped wrong. The two events are recorded as `unavailable` for Codex and
-  Gemini, which genuinely have no equivalent.
 
 ### Changed
 

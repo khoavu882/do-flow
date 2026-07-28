@@ -63,7 +63,10 @@ function reconcileRemovedChange(verification, statuses, change) {
   const reported = verification.resources.some((resource) => matchesChange(resource, change));
   const statusIndex = statuses.findIndex((item) => matchesChange(item, change));
   const status = statusIndex >= 0 ? statuses[statusIndex] : null;
-  if (reported || (status && !['missing', 'removed', 'not-managed'].includes(status.status))) {
+  // 'absent' belongs here alongside 'missing': a shared file (settings.json) survives removal
+  // holding the user's own content, and its adapter reports 'absent' once none of DoFlow's
+  // entries remain. That is a successful strip, not a resource that refused to go away.
+  if (reported || (status && !['missing', 'absent', 'removed', 'not-managed'].includes(status.status))) {
     return { conflict: `Removed resource remains present: ${change.target}` };
   }
   const removedStatus = {

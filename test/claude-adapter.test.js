@@ -125,7 +125,10 @@ test('Claude adapter rewrites settings.json hook paths for project scope but not
   claude.apply({ changes: planned.changes, scope: 'project', scopeRoot: projectRoot, context });
   const installed = JSON.parse(fs.readFileSync(path.join(projectRoot, '.claude', 'settings.json'), 'utf8'));
   assert.equal(installed.hooks.SessionStart[0].hooks[0].command, '${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start.sh');
-  assert.equal(fs.readFileSync(path.join(projectRoot, '.claude', 'keybindings.json'), 'utf8'), '{"bind":"ctrl+k"}');
+  // Compared as parsed JSON, not bytes: the installed file is re-serialized to one canonical
+  // form so repeat runs are byte-stable. What this asserts is that keybindings.json is NOT
+  // hook-path-rewritten for project scope the way settings.json is.
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(projectRoot, '.claude', 'keybindings.json'), 'utf8')), { bind: 'ctrl+k' });
 
   const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-claude-adapter-global-'));
   const globalPlanned = claude.plan({ assets: [asset2], scope: 'global', scopeRoot: globalRoot, context, ledger: { resources: [] } });
@@ -134,16 +137,56 @@ test('Claude adapter rewrites settings.json hook paths for project scope but not
   assert.equal(globalInstalled.hooks.SessionStart[0].hooks[0].command, '~/.claude/hooks/session-start.sh');
 });
 
-test('Claude adapter reports a settings conflict instead of silently overwriting a hand-edited settings.json', () => {
+// settings.json is a SHARED file — the user hand-maintains it and other tools register hooks in
+// it — so a hand edit is the normal steady state, not drift. This used to assert a refusal, which
+// made a first install impossible on any already-configured machine (the whole lifecycle aborted
+// before a single file landed). The guarantee it was really protecting is preserved and asserted
+// directly below: a hand edit is never silently overwritten.
+test('Claude adapter merges into a hand-edited settings.json, preserving foreign keys instead of overwriting', () => {
   const { repoRoot, projectRoot } = fixture();
   const asset2 = settingsAssetFixture(repoRoot);
   const context = { repoRoot, assets: [asset2] };
   const first = claude.plan({ assets: [asset2], scope: 'project', scopeRoot: projectRoot, context, ledger: { resources: [] } });
   claude.apply({ changes: first.changes, scope: 'project', scopeRoot: projectRoot, context });
   const settingsPath = path.join(projectRoot, '.claude', 'settings.json');
-  fs.writeFileSync(settingsPath, '{"handEdited":true}');
+  fs.writeFileSync(settingsPath, JSON.stringify({
+    handEdited: true,
+    hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'foreign-tool hook' }] }] },
+  }));
   const ledger = { resources: first.changes.map((c) => ({ harness: 'claude', assetId: asset2.id, kind: 'settings-file', identity: c.identity, fingerprint: c.fingerprint })) };
   const second = claude.plan({ assets: [asset2], scope: 'project', scopeRoot: projectRoot, context, ledger });
-  assert.equal(second.changes.some((c) => c.identity === 'settings.json'), false);
-  assert.match(second.conflicts.join('\n'), /settings\.json was modified outside DoFlow/);
+
+  const change = second.changes.find((c) => c.identity === 'settings.json');
+  assert.ok(change, 'a hand-edited settings.json must still be reconcilable, not refused');
+  assert.deepEqual(second.conflicts, []);
+
+  const merged = JSON.parse(change.content);
+  assert.equal(merged.handEdited, true, 'foreign top-level key must survive');
+  const commands = merged.hooks.SessionStart.flatMap((entry) => entry.hooks.map((h) => h.command));
+  assert.ok(commands.includes('foreign-tool hook'), 'foreign hook entry must survive');
+  assert.ok(commands.includes('${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start.sh'), 'DoFlow hook must be added');
+});
+
+test('Claude adapter leaves a foreign settings.json standing on remove, stripping only its own hooks', () => {
+  const { repoRoot, projectRoot } = fixture();
+  const asset2 = settingsAssetFixture(repoRoot);
+  const context = { repoRoot, assets: [asset2] };
+  const settingsPath = path.join(projectRoot, '.claude', 'settings.json');
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  fs.writeFileSync(settingsPath, JSON.stringify({
+    model: 'user-choice',
+    hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'foreign-tool hook' }] }] },
+  }));
+  const planned = claude.plan({ assets: [asset2], scope: 'project', scopeRoot: projectRoot, context, ledger: { resources: [] } });
+  claude.apply({ changes: planned.changes, scope: 'project', scopeRoot: projectRoot, context });
+
+  const ledger = { resources: planned.changes.map((c) => ({ harness: 'claude', assetId: asset2.id, kind: 'settings-file', identity: c.identity, fingerprint: c.fingerprint })) };
+  const removal = claude.plan({ assets: [asset2], scope: 'project', scopeRoot: projectRoot, context: { ...context, operation: 'remove' }, ledger, removing: true });
+  claude.remove({ changes: removal.changes });
+
+  assert.ok(fs.existsSync(settingsPath), 'a user-owned settings.json must never be deleted by remove');
+  const after = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+  assert.equal(after.model, 'user-choice', 'user settings must survive remove');
+  const commands = (after.hooks?.SessionStart || []).flatMap((entry) => entry.hooks.map((h) => h.command));
+  assert.deepEqual(commands, ['foreign-tool hook'], 'only DoFlow hooks are stripped');
 });

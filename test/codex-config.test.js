@@ -88,3 +88,62 @@ test('an atomic-write failure leaves the original file unchanged and cleans its 
   assert.equal(fs.readFileSync(file, 'utf8'), before);
   assert.equal(fs.readdirSync(root).filter((name) => name.endsWith('.tmp')).length, 0);
 });
+
+// --- quoted TOML keys -------------------------------------------------------
+// Quoted keys are ordinary TOML. The scanner previously matched bare keys only and threw on the
+// whole file, so a single `[mcp_servers."my-server"]` made the entire config unreadable and
+// blocked every Codex operation.
+const { parseToml } = require('../src/codex-config');
+
+test('parses quoted table headers and quoted assignment keys', () => {
+  for (const toml of [
+    '[mcp_servers."my-server"]\ncommand = "uv"\n',
+    "[mcp_servers.'my-server']\ncommand = 'uv'\n",
+    '[plugins."scope@name"]\nx = 1\n',
+    '[tui.nux]\n"gpt-5.5" = 4\n',        // a dot INSIDE a quoted key is legal
+  ]) {
+    assert.doesNotThrow(() => parseToml(toml), `must parse: ${toml.split('\n')[0]}`);
+  }
+});
+
+test('still fails closed on genuinely unsupported table syntax', () => {
+  for (const toml of ['[[a.b]]\nx = 1\n', '[a."b]\nx = 1\n', '[a.]\nx = 1\n', '[]\nx = 1\n']) {
+    assert.throws(() => parseToml(toml), `must reject: ${toml.split('\n')[0]}`);
+  }
+});
+
+test('a dot inside a quoted key cannot collide with a real path separator', () => {
+  const entries = parseToml('[t]\n"a.b" = 1\n[t.a]\nb = 2\n').entries;
+  assert.equal(entries.size, 2, 'the two distinct keys must not collapse into one');
+  assert.notDeepEqual([...entries.keys()][0], [...entries.keys()][1]);
+});
+
+// --- new-key placement ------------------------------------------------------
+// Regression: a new key whose table already existed was pushed at end-of-file, so it silently
+// joined whichever table happened to trail the file. `features.hooks` written after an
+// `[mcp_servers.x]` block became `mcp_servers.x.hooks` — the managed entry looked applied but
+// landed under the wrong table entirely.
+test('a new key is inserted into its own table, not appended after a trailing table', () => {
+  const file = path.join(scratch(), 'config.toml');
+  fs.writeFileSync(file, '[features]\nskills = true\n\n[mcp_servers.playwright]\ncommand = "npx"\n');
+  const plan = planCodexConfig({ file, scope: 'user', managedResources: [], desiredResources: [{ identity: 'features.hooks', value: true }] });
+  applyCodexConfig(plan);
+
+  const entries = parseToml(fs.readFileSync(file, 'utf8')).entries;
+  assert.equal(entries.get('features.hooks')?.value, true, 'must land in [features]');
+  assert.equal(entries.get('mcp_servers.playwright.hooks'), undefined, 'must not leak into the trailing table');
+});
+
+test('several new keys for one absent table share a single header', () => {
+  const file = path.join(scratch(), 'config.toml');
+  fs.writeFileSync(file, '[other]\nz = 1\n');
+  const plan = planCodexConfig({ file, scope: 'user', managedResources: [], desiredResources: [
+    { identity: 'features.hooks', value: true }, { identity: 'features.skills', value: true }] });
+  applyCodexConfig(plan);
+
+  const text = fs.readFileSync(file, 'utf8');
+  assert.equal(text.split('[features]').length - 1, 1, 'exactly one [features] header');
+  const entries = parseToml(text).entries;
+  assert.equal(entries.get('features.hooks')?.value, true);
+  assert.equal(entries.get('features.skills')?.value, true);
+});
