@@ -13,7 +13,11 @@ const REPO = path.resolve(__dirname, '..');
 test('loads and validates the complete multi-harness registry', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   assert.deepEqual(registry.harnesses.map((item) => item.id), ['claude', 'codex', 'gemini']);
-  assert.deepEqual(Object.keys(REGISTRY_FILES), ['harnesses', 'assets', 'mcp', 'lifecycle']);
+  assert.deepEqual(Object.keys(REGISTRY_FILES), ['harnesses', 'assets', 'mcp', 'lifecycle', 'contracts']);
+  // contracts.yaml declares what each harness ACCEPTS, deliberately separate from harnesses.yaml's
+  // what-DoFlow-SUPPORTS: nesting them would make the registry-truth guard validate the registry
+  // against itself. Every harness must have exactly one contract.
+  assert.deepEqual(registry.contracts.map((c) => c.harness), ['claude', 'codex', 'gemini']);
   assert.equal(registry.validation.ok, true);
   assert.deepEqual(registry.harnesses.find((harness) => harness.id === 'codex').nativeProjection.config.resources,
     [{ kind: 'configuration-entry', identity: 'features.hooks', value: true }]);
@@ -41,7 +45,12 @@ test('generates capability-map records with evidence and explicit gaps', () => {
   const geminiHooks = map.find((row) => row.harness === 'gemini' && row.capability === 'hooks');
   assert.equal(codexHooks.status, 'supported');
   assert.ok(codexHooks.evidence.every((url) => url.startsWith('https://')));
-  assert.equal(geminiHooks.status, 'unavailable');
+  // Was asserted 'unavailable' — which pinned a factual error in the registry as expected
+  // behaviour and is exactly why the contradiction survived a green suite: DoFlow has shipped a
+  // Gemini hooks deployer, wired events, and a test file since v0.8.0. test/guards/registry.test.js
+  // now catches this class directly by comparing the declaration against what actually deploys.
+  assert.equal(geminiHooks.status, 'supported');
+  assert.ok(geminiHooks.evidence.every((url) => url.startsWith('https://')));
 });
 
 test('fails closed for malformed JSON-compatible YAML', () => {

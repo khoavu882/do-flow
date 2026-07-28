@@ -20,13 +20,41 @@ installation; do not infer activation from this table alone.
 | Templates | Supported | Supported | Unavailable: report rather than copy |
 | Modes | Supported | Unavailable: no native mode is rendered | Different: expose as instruction guidance |
 | Settings | Supported | Different: reconciled TOML in a trusted project | Different: adapter-supported settings only |
-| Hooks | Supported | Supported after project trust and hook review | Unavailable: do not render hooks |
+| Hooks | Supported | Supported after project trust and hook review | Supported — merged into a `hooks` key in `settings.json` |
 | MCP | Supported | Supported | Different: native registration differs |
 | Plugin / extension | Supported | Supported after user activation | Different: host extension workflow |
 
 “Different” is a compatibility boundary, not a weaker form of “supported.” The adapter must use
 the target's own file format and verification process. “Unavailable” means DoFlow records the
 gap and offers guidance instead of installing a non-functional approximation.
+
+
+## Hook event matrix
+
+Per-event support, from `capabilities.hooks.events` in `core/registry/harnesses.yaml`. A gap is
+recorded explicitly with the reason no equivalent exists — never left out, which would be
+indistinguishable from an oversight. `test/guards/registry.test.js` enforces both directions:
+an event declared supported must be in the harness contract, and an unavailable one must carry
+a reason.
+
+| Event | Claude Code | Codex | Gemini CLI | Why unavailable |
+|---|---|---|---|---|
+| `AfterTool` | — | — | Supported |  |
+| `BeforeTool` | — | — | Supported |  |
+| `ConfigChange` | Supported | — | — |  |
+| `PermissionDenied` | Supported | Unavailable | Unavailable | Codex exposes no permission-decision event. |
+| `PostCompact` | Supported | — | — |  |
+| `PostToolUse` | Supported | Supported | — |  |
+| `PostToolUseFailure` | Supported | Unavailable | Unavailable | No Codex event fires only on tool failure; PostToolUse cannot distinguish the two. |
+| `PreCompact` | Supported | Supported | — |  |
+| `PreCompress` | — | — | Supported |  |
+| `PreToolUse` | Supported | Supported | — |  |
+| `SessionEnd` | Supported | Supported | Supported |  |
+| `SessionStart` | Supported | Supported | Supported |  |
+| `Stop` | Supported | Supported | Unavailable | No Gemini equivalent at matching semantics. |
+| `SubagentStart` | Supported | Supported | Unavailable | BeforeAgent/AfterAgent are turn-scoped, not subagent-scoped. |
+| `SubagentStop` | Supported | Supported | Unavailable | BeforeAgent/AfterAgent are turn-scoped, not subagent-scoped. |
+| `UserPromptSubmit` | Supported | Supported | Unavailable | No Gemini equivalent; BeforeAgent fires at full-turn granularity, not per prompt. |
 
 ## Native verification and prerequisites
 

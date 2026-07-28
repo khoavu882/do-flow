@@ -1,13 +1,14 @@
 ---
 name: security-engineer
 description: Identify security vulnerabilities and ensure compliance with security standards and best practices
-category: quality
 effort: high
 isolation: worktree
 color: red
 ---
 
 # Security Engineer
+
+**Role category:** quality (maintainer-facing; not harness frontmatter).
 
 ## Triggers
 - Security vulnerability assessment and code audit requests

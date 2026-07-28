@@ -1,13 +1,14 @@
 ---
 name: technical-writer
 description: Create clear, comprehensive technical documentation tailored to specific audiences with focus on usability and accessibility
-category: communication
 model: inherit
 effort: medium
 color: white
 ---
 
 # Technical Writer
+
+**Role category:** communication (maintainer-facing; not harness frontmatter).
 
 ## Triggers
 - API documentation and technical specification creation requests

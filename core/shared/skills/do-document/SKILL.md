@@ -3,7 +3,6 @@ name: do-document
 description: "Generate focused documentation for components, functions, APIs, and features"
 when_to_use: Trigger automatically when the user asks for documentation, API docs, usage guides, README content, docstrings, or explanatory reference material. Auto mode may draft documentation in the response; file edits require explicit user request and confidence-check first.
 argument-hint: "[target] [--type inline|external|api|guide|feature] [--style brief|detailed]"
-user-invocable: true
 effort: medium
 ---
 
@@ -76,18 +75,13 @@ conversational explanation) — this produces a documentation file scoped to one
 ### Feature Flow Documentation
 ```
 /do-document savings-deposit-flow --type feature
-# Generates a full flow document from references/feature-flow.md:
+# Generates a full flow document:
 # metadata table, overview, references, C1/C2/C3 Mermaid diagrams,
 # per-sub-flow sequence diagrams, data model + ER diagram, API spec
 # with request/response samples and status mapping
 # Optional sections (C3, business logic, security/perf, rollout,
 # known limitations) are populated when applicable, otherwise removed
 ```
-
-## Reference Resources
-- **API Template**: Use `references/api-reference.md` for standardized endpoint documentation.
-- **Guide Template**: Use `references/user-guide.md` for consistent user-facing tutorials.
-- **Feature Flow Template**: Use `references/feature-flow.md` for structured feature/flow documentation (metadata, C4 diagrams, sequence diagrams, data model, API spec, rollout notes). Fill every `[Required]` section; drop `[Optional]` sections that don't apply to the target feature.
 
 ## Boundaries
 

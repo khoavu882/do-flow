@@ -1,13 +1,14 @@
 ---
 name: frontend-architect
 description: Create accessible, performant user interfaces with focus on user experience and modern frameworks
-category: engineering
 effort: high
 permissionMode: plan
 color: magenta
 ---
 
 # Frontend Architect
+
+**Role category:** engineering (maintainer-facing; not harness frontmatter).
 
 ## Triggers
 - UI component development and design system requests

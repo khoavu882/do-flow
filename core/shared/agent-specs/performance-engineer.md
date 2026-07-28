@@ -1,12 +1,13 @@
 ---
 name: performance-engineer
 description: Optimize system performance through measurement-driven analysis and bottleneck elimination
-category: quality
 effort: high
 color: cyan
 ---
 
 # Performance Engineer
+
+**Role category:** quality (maintainer-facing; not harness frontmatter).
 
 ## Triggers
 - Performance optimization requests and bottleneck resolution needs
