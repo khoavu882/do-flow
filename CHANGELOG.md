@@ -15,6 +15,32 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-07-28
+
+### Changed
+
+- **`MCP_INDEX.md` imports each selected server's doc instead of naming it in prose.** The old
+  `on use, read mcp/X.md first` line was prose describing a trigger, and nothing evaluates prose —
+  the same shape this guidance layer removed from its behavioral modes in 0.9.0. A mode could bind
+  to the skill that reads it at no context cost; a server doc has no per-server skill to bind to,
+  so the choice was an import that loads or a sentence that hopes. Only selected servers are
+  imported, so a one-server install pays for one doc and a zero-server install still writes no
+  file. The file regenerates on install; no migration step.
+
+### Fixed
+
+- **The generated MCP index could never be updated on its own.** It is not a tracked resource, so
+  it never appears in the change plan, and the CLI skipped the lifecycle — which owns the only
+  call that writes it — whenever nothing else had changed. The index was rewritten only as a side
+  effect of some unrelated asset changing, so an install could report success against a stale
+  file. Changing the renderer, a server's `doc`/`shortFlag`, or the resolved selection silently
+  did nothing on an otherwise-current tree.
+- **Both `MCP_INDEX` anchor guards would have gone silently vacuous.** They parsed the rendered
+  `on use, read X first` line; after the format change their parsers matched nothing, making every
+  assertion below the parse trivially true — the same defect class those guards exist to prevent.
+  Each now pins the number of emitted imports against the number of selected servers, so a format
+  change fails loudly instead of disabling the check.
+
 ## [0.9.0] - 2026-07-28
 
 **Upgrading.** Eleven documented flags are gone. None had a working implementation — each restated

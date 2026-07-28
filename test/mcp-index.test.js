@@ -35,7 +35,7 @@ test('full selection: one header line, two lines per server, in input order', ()
     const flagLine = lines[1 + index * 2];
     const docLine = lines[1 + index * 2 + 1];
     assert.equal(flagLine, `# ${server.shortFlag} — prefer the \`${server.id}\` MCP server`);
-    assert.equal(docLine, `#   on use, read ${server.doc} first`);
+    assert.equal(docLine, `@${server.doc}`);
   }
 });
 
@@ -72,9 +72,9 @@ test('real registry shape: selectMcpServers output renders correctly', () => {
   assert.equal(lines[0], HEADER);
   assert.equal(lines.length, 1 + servers.length * 2);
   assert.equal(lines[1], '# --c7 — prefer the `context7` MCP server');
-  assert.equal(lines[2], '#   on use, read mcp/MCP_Context7.md first');
+  assert.equal(lines[2], '@mcp/MCP_Context7.md');
   assert.equal(lines[3], '# --play — prefer the `playwright` MCP server');
-  assert.equal(lines[4], '#   on use, read mcp/MCP_Playwright.md first');
+  assert.equal(lines[4], '@mcp/MCP_Playwright.md');
 });
 
 // Anchor regression guard. Every `doc` path is relative, so it is only meaningful against an
@@ -101,13 +101,40 @@ test('anchor: every rendered doc path resolves to a real file under the guidance
   const indexDir = path.dirname(mcpIndexPath('/scope'));
   const guidanceRelativeDir = path.relative(path.join('/scope', '.doflow', 'guidance'), indexDir);
 
-  for (const line of renderMcpIndex(servers).split('\n')) {
-    const match = line.match(/^#\s+on use, read (\S+) first$/);
-    if (!match) continue;
-    const resolved = path.join(guidanceSource, guidanceRelativeDir, match[1]);
-    assert.ok(
-      fs.existsSync(resolved),
-      `MCP_INDEX.md points at '${match[1]}', which resolves to a nonexistent file: ${resolved}`,
-    );
+  const emitted = renderMcpIndex(servers).split('\n')
+    .filter((line) => line.startsWith('@')).map((line) => line.slice(1).trim());
+  assert.equal(emitted.length, servers.length,
+    'a parse that finds nothing would make the resolution check below vacuous');
+  for (const rel of emitted) {
+    const resolved = path.join(guidanceSource, guidanceRelativeDir, rel);
+    assert.ok(fs.existsSync(resolved),
+      `MCP_INDEX.md imports '${rel}', which resolves to a nonexistent file: ${resolved}`);
   }
+});
+
+// Regression: the generated index is not a tracked resource, so it never appears in plan.changes.
+// applyLifecycle owns the only call that writes it, and the CLI skipped applyLifecycle entirely
+// when nothing else changed — so a change to the renderer, to a server's doc/shortFlag, or to the
+// resolved selection silently did nothing on any tree that was otherwise current. The index was
+// only ever rewritten as a side effect of some unrelated asset happening to change.
+test('a no-native-change install still reconciles the generated index', () => {
+  const { execFileSync } = require('node:child_process');
+  const os = require('node:os');
+  const scope = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-mcpidx-'));
+  const run = () => execFileSync(process.execPath,
+    [path.join(repoRoot, 'bin/doflow.js'), 'install', scope, '-t', 'claude', '--force', '--mcp', 'context7'],
+    { stdio: ['pipe', 'pipe', 'pipe'] });
+
+  run();
+  const index = path.join(scope, '.doflow', 'guidance', 'MCP_INDEX.md');
+  assert.ok(fs.existsSync(index), 'first install must write the index');
+
+  // Corrupt it, then re-install with nothing else to change — the second run has zero native
+  // changes, which is exactly the case that used to skip the write.
+  fs.writeFileSync(index, '# stale\n');
+  run();
+  assert.notEqual(fs.readFileSync(index, 'utf8'), '# stale\n',
+    'an install with no native changes must still reconcile the generated index');
+  assert.match(fs.readFileSync(index, 'utf8'), /^@mcp\/MCP_Context7\.md$/m);
+  fs.rmSync(scope, { recursive: true, force: true });
 });
