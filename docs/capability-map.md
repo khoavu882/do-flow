@@ -20,7 +20,7 @@ installation; do not infer activation from this table alone.
 | Templates | Supported | Supported | Unavailable: report rather than copy |
 | Modes | Supported | Unavailable: no native mode is rendered | Different: expose as instruction guidance |
 | Settings | Supported | Different: reconciled TOML in a trusted project | Different: adapter-supported settings only |
-| Hooks | Supported | Supported after project trust and hook review | Unavailable: do not render hooks |
+| Hooks | Supported | Supported after project trust and hook review | Supported — merged into a `hooks` key in `settings.json` |
 | MCP | Supported | Supported | Different: native registration differs |
 | Plugin / extension | Supported | Supported after user activation | Different: host extension workflow |
 
@@ -28,13 +28,41 @@ installation; do not infer activation from this table alone.
 the target's own file format and verification process. “Unavailable” means DoFlow records the
 gap and offers guidance instead of installing a non-functional approximation.
 
+
+## Hook event matrix
+
+Per-event support, from `capabilities.hooks.events` in `core/registry/harnesses.yaml`. A gap is
+recorded explicitly with the reason no equivalent exists — never left out, which would be
+indistinguishable from an oversight. `test/guards/registry.test.js` enforces both directions:
+an event declared supported must be in the harness contract, and an unavailable one must carry
+a reason.
+
+| Event | Claude Code | Codex | Gemini CLI | Why unavailable |
+|---|---|---|---|---|
+| `AfterTool` | — | — | Supported |  |
+| `BeforeTool` | — | — | Supported |  |
+| `ConfigChange` | Supported | — | — |  |
+| `PermissionDenied` | Supported | Unavailable | Unavailable | Codex exposes no permission-decision event. |
+| `PostCompact` | Supported | — | — |  |
+| `PostToolUse` | Supported | Supported | — |  |
+| `PostToolUseFailure` | Supported | Unavailable | Unavailable | No Codex event fires only on tool failure; PostToolUse cannot distinguish the two. |
+| `PreCompact` | Supported | Supported | — |  |
+| `PreCompress` | — | — | Supported |  |
+| `PreToolUse` | Supported | Supported | — |  |
+| `SessionEnd` | Supported | Supported | Supported |  |
+| `SessionStart` | Supported | Supported | Supported |  |
+| `Stop` | Supported | Supported | Unavailable | No Gemini equivalent at matching semantics. |
+| `SubagentStart` | Supported | Supported | Unavailable | BeforeAgent/AfterAgent are turn-scoped, not subagent-scoped. |
+| `SubagentStop` | Supported | Supported | Unavailable | BeforeAgent/AfterAgent are turn-scoped, not subagent-scoped. |
+| `UserPromptSubmit` | Supported | Supported | Unavailable | No Gemini equivalent; BeforeAgent fires at full-turn granularity, not per prompt. |
+
 ## Native verification and prerequisites
 
 | Harness | Verify | Prerequisites / boundary |
 |---|---|---|
 | Claude Code | Confirm `CLAUDE.md` loads, a skill is discoverable, one hook event runs, and selected MCP servers appear in status. | Preserve user text outside the managed instruction section and foreign MCP entries. |
 | Codex | Confirm managed `AGENTS.md`, discover a skill, exercise an approved hook, and connect selected MCP servers. | Settings and hooks require a trusted project; hooks require review; plugin enablement remains user-controlled. |
-| Gemini CLI | Confirm `GEMINI.md` loads, skills are discoverable, and any adapter-supported MCP/settings action works. | Agents, modes, MCP, and extensions have target-specific behavior. Scripts, templates, and hooks must be reported as unavailable. |
+| Gemini CLI | Confirm `GEMINI.md` loads, skills are discoverable, an installed hook event runs, and any adapter-supported MCP/settings action works. | Agents, modes, MCP, and extensions have target-specific behavior. Hooks merge into a key inside `settings.json` DoFlow does not fully own — never a full-file replace. No Gemini event maps `UserPromptSubmit`, `Stop`, or `SubagentStart`/`SubagentStop` (`BeforeAgent`/`AfterAgent` fire at full-turn granularity, not matching semantics) — reported as unavailable, not approximated. Scripts and templates remain unsupported. |
 
 ## Evidence
 
@@ -45,7 +73,7 @@ surface availability, not a guarantee that a local configuration has been accept
 |---|---|
 | Claude Code | [memory](https://code.claude.com/docs/en/memory), [skills](https://code.claude.com/docs/en/skills), [subagents](https://code.claude.com/docs/en/sub-agents), [settings](https://code.claude.com/docs/en/settings), [hooks](https://code.claude.com/docs/en/hooks), [MCP](https://code.claude.com/docs/en/mcp), [plugins](https://code.claude.com/docs/en/plugins) |
 | Codex | [customization](https://developers.openai.com/codex/concepts/customization), [advanced configuration](https://developers.openai.com/codex/config-advanced), [hooks](https://developers.openai.com/codex/config-advanced#hooks), [MCP servers](https://developers.openai.com/codex/config-advanced#mcp-servers), [subagents](https://developers.openai.com/codex/subagents), [plugins](https://developers.openai.com/codex/concepts/plugins) |
-| Gemini CLI | [GEMINI.md](https://geminicli.com/docs/cli/gemini-md/), [skills](https://geminicli.com/docs/cli/skills/), [configuration](https://geminicli.com/docs/cli/configuration/), [MCP](https://geminicli.com/docs/tools/mcp/), [extensions](https://geminicli.com/docs/extensions/), [Gemini CLI source](https://github.com/google-gemini/gemini-cli) |
+| Gemini CLI | [GEMINI.md](https://geminicli.com/docs/cli/gemini-md/), [skills](https://geminicli.com/docs/cli/skills/), [configuration](https://geminicli.com/docs/cli/configuration/), [hooks](https://geminicli.com/docs/hooks/), [MCP](https://geminicli.com/docs/tools/mcp/), [extensions](https://geminicli.com/docs/extensions/), [Gemini CLI source](https://github.com/google-gemini/gemini-cli) |
 
 See [Architecture](architecture.md) for registry ownership and [Setup](setup.md) for installation,
 recovery, and verification procedures.

@@ -74,6 +74,28 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "^(apply_patch|Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.codex/hooks/post-edit-lint.sh\" ] && printf '%s/.codex/hooks/post-edit-lint.sh' \"$root\" || printf '%s/hooks/post-edit-lint.sh' \"${CODEX_HOME:-$HOME/.codex}\")\""
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.codex/hooks/pre-compact.sh\" ] && printf '%s/.codex/hooks/pre-compact.sh' \"$root\" || printf '%s/hooks/pre-compact.sh' \"${CODEX_HOME:-$HOME/.codex}\")\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

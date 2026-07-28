@@ -86,15 +86,25 @@ declares target capability and ownership inputs, and is not itself a native conf
 
 | Content | Where it lives | Why it is shared |
 |---|---|---|
-| `CLAUDE.md`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | Base guidance can be read by every supported client |
-| `FLAGS.md`, `PRINCIPLES.md` | `core/shared/guidance/docs/` | Same rationale, split into its own copy-tree asset (`guidance.docs`) since copy-tree operates on whole directories |
+| `DOFLOW_CORE.md`, `PRINCIPLES.md`, `FLAGS.md`, `VERSION`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | One `guidance.context-layer` copy-tree asset mirrors this whole tree, byte-for-byte, into `.doflow/guidance/` for every scope — regardless of which harnesses are targeted |
+| `MCP_INDEX.md` (`.doflow/guidance/` only, no `core/` source) | Written directly by `applyLifecycle` (`src/lifecycle/index.js`) | The one file in `.doflow/guidance/` that varies per install (the resolved MCP selection) — deliberately outside `guidance.context-layer`'s copy-tree source so its per-install content never conflicts with that asset's byte-for-byte mirror; imported unconditionally from `DOFLOW_CORE.md` |
+
+> **Path anchor (load-bearing).** Every `@import` in `DOFLOW_CORE.md`, and every `doc` value in
+> `core/registry/mcp.yaml`, is relative to the **guidance root** (`.doflow/guidance/`). That is why
+> `PRINCIPLES.md`/`FLAGS.md`/`MCP_INDEX.md` sit at the root rather than in a subdirectory: writing
+> any of them one level deeper silently reinterprets those relative paths against that subdirectory
+> and breaks them without any error. `test/copy-tree.test.js` and `test/mcp-index.test.js` resolve
+> both sets of paths against the real tree to keep that anchor enforced rather than assumed.
 | `skills/`, `agent-specs/`, `scripts/`, `templates/` | `core/shared/{skills,agent-specs,scripts,templates}/` | Task knowledge and reusable assets are client-neutral |
 | Native config/hooks/agents per harness | `core/harnesses/{claude,codex,gemini}/` | Copied or reconciled as native configuration only where supported |
 | MCP server catalog | `core/registry/mcp.yaml` | Single neutral source every harness's adapter selects from |
 
-The adapters project the common instruction source to `CLAUDE.md`, `AGENTS.md`, or `GEMINI.md`.
-Managed sections let DoFlow update its portion without replacing user-owned instructions. A later,
-versioned migration may move a physical source only after every adapter consumes the shared index.
+Each harness's native entry file (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`) no longer receives a full
+copy of the guidance content — its managed section is a short pointer into `.doflow/guidance/`
+instead: `@`-import syntax for Claude and Gemini (both resolve relative/absolute `@file` imports
+natively), a prose read-instruction for Codex (AGENTS.md has no native import-expansion
+mechanism, unlike Claude/Gemini). This replaces the physical per-harness duplication this section
+previously described as pending — see `CHANGELOG.md` for when it landed.
 
 For Codex-specific configuration, keep durable preferences and MCP servers in the applicable
 `config.toml` layer, use a single `hooks.json` representation per layer for lifecycle handlers,

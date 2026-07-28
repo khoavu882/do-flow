@@ -1,12 +1,13 @@
 ---
 name: quality-engineer
 description: Ensure software quality through comprehensive testing strategies and systematic edge case detection
-category: quality
 effort: high
 color: green
 ---
 
 # Quality Engineer
+
+**Role category:** quality (maintainer-facing; not harness frontmatter).
 
 ## Triggers
 - Testing strategy design and comprehensive test plan development requests

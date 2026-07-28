@@ -1,0 +1,77 @@
+{
+  "description": "DoFlow lifecycle hooks for Gemini CLI. Gemini fingerprints hook name/command and warns before executing a changed one.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$GEMINI_PROJECT_DIR/.gemini/hooks/session-start.sh\""
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$GEMINI_PROJECT_DIR/.gemini/hooks/session-end.sh\"",
+            "timeout": 3000
+          }
+        ]
+      }
+    ],
+    "BeforeTool": [
+      {
+        "matcher": "^run_shell_command$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$GEMINI_PROJECT_DIR/.gemini/hooks/pre-bash-guard.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp_.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$GEMINI_PROJECT_DIR/.gemini/hooks/mcp-tool-guard.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "^(write_file|replace)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$GEMINI_PROJECT_DIR/.gemini/hooks/pre-implement-gate.sh\""
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "^(write_file|replace)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$GEMINI_PROJECT_DIR/.gemini/hooks/post-edit-lint.sh\""
+          }
+        ]
+      }
+    ],
+    "PreCompress": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$GEMINI_PROJECT_DIR/.gemini/hooks/pre-compact.sh\"",
+            "timeout": 3000
+          }
+        ]
+      }
+    ]
+  }
+}

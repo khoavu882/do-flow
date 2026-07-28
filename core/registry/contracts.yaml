@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "contracts": [
+    {
+      "harness": "claude",
+      "completeness": "verified",
+      "note": "Field lists and hook events verified against current Claude Code documentation. A frontmatter key or hook event absent here is rejected by the guards, not silently tolerated.",
+      "skillFields": [
+        "name",
+        "description",
+        "when_to_use",
+        "argument-hint",
+        "arguments",
+        "disable-model-invocation",
+        "user-invocable",
+        "allowed-tools",
+        "disallowed-tools",
+        "model",
+        "effort",
+        "context",
+        "agent",
+        "background",
+        "hooks",
+        "paths",
+        "shell"
+      ],
+      "agentFields": [
+        "name",
+        "description",
+        "tools",
+        "disallowedTools",
+        "model",
+        "permissionMode",
+        "maxTurns",
+        "skills",
+        "mcpServers",
+        "hooks",
+        "memory",
+        "background",
+        "effort",
+        "isolation",
+        "color",
+        "initialPrompt"
+      ],
+      "hookEvents": [
+        "SessionStart",
+        "Setup",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "UserPromptExpansion",
+        "Stop",
+        "StopFailure",
+        "PreToolUse",
+        "PermissionRequest",
+        "PermissionDenied",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "PostToolBatch",
+        "SubagentStart",
+        "SubagentStop",
+        "TeammateIdle",
+        "TaskCreated",
+        "TaskCompleted",
+        "InstructionsLoaded",
+        "ConfigChange",
+        "CwdChanged",
+        "FileChanged",
+        "PreCompact",
+        "PostCompact",
+        "WorktreeCreate",
+        "WorktreeRemove",
+        "Notification",
+        "MessageDisplay",
+        "Elicitation",
+        "ElicitationResult"
+      ],
+      "evidence": [
+        "https://code.claude.com/docs/en/skills",
+        "https://code.claude.com/docs/en/sub-agents",
+        "https://code.claude.com/docs/en/hooks",
+        "https://code.claude.com/docs/en/settings"
+      ]
+    },
+    {
+      "harness": "codex",
+      "completeness": "lower-bound",
+      "note": "Frontmatter field lists are deliberately absent: shared skills and agent specs are byte-identical across harnesses, so a per-harness list could only restate a subset of claude's and would change no guard outcome \u2014 an inert declaration of exactly the kind these guards exist to remove. hookEvents IS per-harness and lists the events DoFlow actually wires; widen it only with an added evidence URL.",
+      "hookEvents": [
+        "SessionStart",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "Stop",
+        "PreToolUse",
+        "PostToolUse",
+        "SubagentStart",
+        "SubagentStop",
+        "PreCompact"
+      ],
+      "evidence": [
+        "https://developers.openai.com/codex/concepts/customization",
+        "https://developers.openai.com/codex/config-advanced#hooks",
+        "https://developers.openai.com/codex/subagents"
+      ]
+    },
+    {
+      "harness": "gemini",
+      "completeness": "lower-bound",
+      "note": "Frontmatter field lists are deliberately absent: shared skills and agent specs are byte-identical across harnesses, so a per-harness list could only restate a subset of claude's and would change no guard outcome \u2014 an inert declaration of exactly the kind these guards exist to remove. hookEvents IS per-harness and lists the events DoFlow actually wires; widen it only with an added evidence URL.",
+      "hookEvents": [
+        "SessionStart",
+        "SessionEnd",
+        "BeforeTool",
+        "AfterTool",
+        "PreCompress"
+      ],
+      "evidence": [
+        "https://geminicli.com/docs/cli/skills/",
+        "https://geminicli.com/docs/hooks/",
+        "https://geminicli.com/docs/cli/configuration/"
+      ]
+    }
+  ]
+}

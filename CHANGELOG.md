@@ -13,13 +13,143 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
-**Note on 2026-07-25:** every entry below `[0.7.0]` was renumbered from its original `1.x`/`2.x`
-tag onto this `0.y.z` scheme (`1.0.0`→`0.1.0`, `2.0.0`→`0.2.0`, `2.1.0`→`0.3.0`, ... `2.4.4`→
-`0.6.4`) — the `1.x`/`2.x` series never should have left SemVer's own "initial development, anything
-may still break" `0.y.z` range. Content and dates are otherwise unchanged; only the version numbers
-moved. The corresponding git tags were renamed to match.
-
 ## [Unreleased]
+
+## [0.8.0] - 2026-07-28
+
+**Upgrading.** This release changes the installed output shape, so an existing install needs a
+clean reinstall rather than an update on top: run `doflow remove`, delete any `rules/`, `modes/`,
+`mcp/`, or `references/` directories it leaves behind under `.claude/`/`.codex/`/`.agents/`, then
+`doflow install`. If a previous `0.8.0` prerelease left a `.doflow/guidance/docs/` directory,
+delete that too. First-time global installs on an already-configured machine now work — earlier
+builds refused when `~/.claude/settings.json` already existed, which aborted the whole run.
+Flags removed in this release (`--uc`, `--all-mcp`, `--safe-mode`, and 11 others) will simply not
+be recognized; none had a working implementation.
+
+### Added
+
+- **Gemini CLI hooks.** `src/gemini-hooks.js` plans/deploys a `hooks` key merged into
+  `.gemini/settings.json` (never a full-file replace — pre-existing keys like `mcpServers`/`ui`
+  are preserved through both install and remove), with scripts ported to
+  `core/harnesses/gemini/hooks/` and mapped onto Gemini's real event vocabulary (`SessionStart`,
+  `SessionEnd`, `BeforeTool`, `AfterTool`, `PreCompress`). `UserPromptSubmit`, `Stop`, and the
+  subagent events have no correct Gemini equivalent and are intentionally left unmapped rather
+  than approximated.
+- **Codex `PostToolUse`/`PreCompact` hooks**, closing a gap where Claude's `post-edit-lint.sh` and
+  `pre-compact.sh` guardrails had no Codex counterpart. Codex's `apply_patch` reports edited files
+  via a raw patch string, not a `file_path` field, and its `PreCompact` output must be JSON, not
+  Claude's plain string — both scripts are adapted for Codex's actual contract, not copy-pasted.
+
+- **Context-layer reachability guards** (`test/guards/`). Five families assert that a declaration
+  connects to something real: recognized frontmatter fields (G1), resolvable paths (G2), a load
+  point for every lazy resource (G3), a consumer for every documented flag (G4), and a registry
+  that matches the code that ships (G5). Each was landed failing against the then-current tree and
+  observed red before the content fix, because the defect class they exist to catch is an
+  assertion that cannot fail.
+- **`core/registry/contracts.yaml`** — a fifth registry file declaring what each harness *accepts*
+  (legal skill/agent frontmatter fields, legal hook event names), kept separate from
+  `harnesses.yaml`'s what-DoFlow-*supports*. Nesting them would make G5 validate the registry
+  against itself. Claude's lists are verified against current documentation; Codex's and Gemini's
+  are marked `lower-bound` — what DoFlow actually wires — rather than claiming coverage that was
+  not independently checked.
+- **Failure and permission hook paths on Claude**, each with its own handler.
+  `post-tool-failure.sh` records a failed tool call — the one outcome nothing else logged — and
+  deliberately does *not* reuse `post-edit-lint.sh`, which queues a path for end-of-turn linting
+  and on a failed edit would queue a file that was never written. `permission-audit.sh` records
+  refusals so the trail is no longer allow-only, and stays out of the subagent audit log, whose
+  `agent_type`/`agent_id` a permission decision does not carry. Both degrade to a thinner record
+  when optional payload fields are absent, and are no-ops without a session id.
+- **Per-event hook support** (`capabilities.hooks.events`, optional and additive). A gap is now
+  recorded with the reason no equivalent exists instead of being omitted, which was
+  indistinguishable from an oversight. `docs/capability-map.md` publishes the resulting matrix.
+
+### Fixed
+
+- `README.md`/`docs/overview.md`/`docs/setup.md` claimed Codex had no file-based hook installer
+  support; it already did (`src/codex-hooks.js` predates this release). All three now match
+  verified installer behavior for both Codex and Gemini.
+- `lifecycle-view.js`'s hook-trust status line hardcoded "(review required in Codex)" regardless
+  of which harness produced it.
+- **Per-install MCP short-flag index restored.** The guidance layer had no way to tell an agent
+  which MCP servers a given install actually selected — a capability that existed before the
+  `.doflow/guidance/` unification and silently disappeared with it. `core/registry/mcp.yaml`
+  entries now carry `shortFlag`/`doc` fields; `applyLifecycle` renders and writes
+  `.doflow/guidance/MCP_INDEX.md` from the resolved selection on every `install`/`update`
+  (and removes it when the selection is empty or the harness is removed), imported unconditionally
+  via a new `@MCP_INDEX.md` line in `DOFLOW_CORE.md`.
+- **Every MCP doc pointer in the generated index resolved to a nonexistent file.** `mcp.yaml`'s
+  `doc` values (`mcp/MCP_Context7.md`, …) are anchored at the guidance root, but `MCP_INDEX.md` was
+  written one level deeper into `docs/`, so each `on use, read …` instruction pointed at
+  `guidance/docs/mcp/MCP_*.md` — a path that never existed. The index is now written to the
+  guidance root. The unit test that should have caught this only re-asserted its own input string;
+  it is replaced by one that resolves each emitted path against the real tree.
+
+- **The registry contradicted its own shipped code.** `gemini.hooks` was declared `unavailable`
+  with the verification "do not render hooks" while DoFlow has shipped a Gemini hooks deployer,
+  five wired events, and a test file since v0.8.0 — and `docs/capability-map.md` published that
+  false status. A test asserted `status === 'unavailable'`, which is why it survived a green suite.
+- **Six behavioral modes and one reference file were unreachable.** No skill loaded any of them;
+  their only documented triggers were flags, two of which did not exist. A mode's own
+  `## Activation Triggers` section is prose *about* a trigger — no harness evaluates it. Each mode
+  now binds to its paired skill, and `references/RESEARCH_CONFIG.md` binds to `do-research`.
+- **`do-document` instructed the agent to use three templates that do not exist**
+  (`references/feature-flow.md`, `api-reference.md`, `user-guide.md`). Every invocation pointed at
+  missing files.
+- **14 agent specs carried an unrecognized `category:` frontmatter field**, inert on all three
+  harnesses. The taxonomy moves into prose, where it costs nothing and claims nothing.
+
+### Changed
+
+- **Breaking (installed output shape): `guidance/docs/` is flattened into the guidance root.**
+  `PRINCIPLES.md` and `FLAGS.md` move from `.doflow/guidance/docs/` to `.doflow/guidance/`, and
+  `DOFLOW_CORE.md` imports them as `@PRINCIPLES.md`/`@FLAGS.md`. Every path the guidance layer
+  depends on — `DOFLOW_CORE.md`'s `@`-imports and `mcp.yaml`'s `doc` values alike — is now anchored
+  at a single directory, removing the split anchor that produced the broken MCP doc pointers above.
+  It also drops a name collision with this repo's own top-level `docs/` (the MkDocs site).
+  A stale `.doflow/guidance/docs/` left by a `0.8.0`-prerelease install is not removed
+  automatically; delete it by hand if present.
+- `DOFLOW_CORE.md` no longer carries a static "MCP Documentation → `@mcp/`" listing. It enumerated
+  all four MCP docs regardless of what was installed, which the per-install `MCP_INDEX.md` now
+  supersedes with the servers actually selected.
+- **Breaking: shared guidance content is no longer duplicated per harness — it now lives once in
+  `.doflow/guidance/` (project scope) or `~/.doflow/guidance/` (global scope), mirroring
+  `core/shared/guidance/` byte-for-byte.** Each harness's native entry file (`.claude/CLAUDE.md`,
+  Codex's `AGENTS.md`, Gemini's `GEMINI.md`) now carries only a short pointer into that shared
+  tree instead of a full copy of the rules/modes/mcp/references content — an `@`-import for Claude
+  and Gemini (both resolve `@file` imports natively), a prose read-instruction for Codex (no
+  native import-expansion mechanism). The canonical root doc is renamed
+  `core/shared/guidance/CLAUDE.md` → `DOFLOW_CORE.md` (harness-neutral, since it's read by all
+  three). A new `core/shared/guidance/VERSION` file is the single source for the guidance-content
+  layer's own version, independent of this package's version — no more editing `package.json` +
+  `core/.claude-plugin/plugin.json` + `core/.codex-plugin/plugin.json` in lockstep for a
+  content-only change. `.doflow/state/ledger.json` gains a `guidanceVersion` field recording which
+  layer version is installed. **Existing installs need a clean reinstall, not just `doflow
+  update`/`install` on top of what's there**: retiring the old per-harness `guidance.rules`/
+  `modes.doflow`/`claude.mcp-docs`/`references.doflow`/`guidance.docs` asset ids means neither
+  `install`, `update`, nor `remove` will delete the `rules/`, `modes/`, `mcp/`, `references/`
+  directories those ids used to own — removing an asset id that no longer exists in the registry
+  isn't yet an automatic lifecycle capability. Run `doflow remove` and delete any of those four
+  directories it leaves behind under `.claude/`/`.codex/`/`.agents/`, then `doflow install`, to
+  reach a clean state.
+
+- **Breaking: 14 of 28 flags removed from `FLAGS.md`.** `--orchestrate`, `--token-efficient`,
+  `--all-mcp`, `--no-mcp`, `--concurrency`, `--loop`, `--safe-mode`, `--scope`, the long aliases
+  `--context7`/`--sequential`/`--playwright`/`--devtools`, and `--uc`/`--ultracompressed` routed to
+  nothing. The four MCP short flags also leave: they are generated per install into `MCP_INDEX.md`
+  from the servers actually selected, so `FLAGS.md` no longer names a server you may not have.
+  The always-loaded guidance surface drops from 14,477 to 11,971 bytes — paid on every session, on
+  every harness.
+- **Breaking: `MODE_Token_Efficiency.md` and the `token-efficiency` skill are removed**, taking
+  `--uc`/`--ultracompressed` with them. **Migration:** there is no in-framework replacement. The
+  guidance instructed the model to compress what it *emits*; if you want output filtering, install
+  a tool that does it. DoFlow ships no runtime dependency and does not assume one. Skill count
+  drops 28 → 27.
+- **Breaking: four read-only skills now enforce their own documented boundaries** via
+  `disallowed-tools` (`do-estimate`, `do-select-tool`, `do-explain`, `do-analyze`). Only skills
+  whose Boundaries state an *unconditional* no-edit are scoped; skills that say "in auto mode"
+  keep the explicit-request escape their documentation promises, deliberately unscoped.
+- `DOFLOW_CORE.md` no longer carries a commented resource inventory. It read like a load mechanism
+  but nothing evaluated it, so every file it named went unloaded for as long as it existed.
 
 ## [0.7.1] - 2026-07-25
 

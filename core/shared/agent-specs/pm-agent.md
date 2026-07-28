@@ -1,12 +1,13 @@
 ---
 name: pm-agent
 description: Self-improvement workflow executor that documents implementations, analyzes mistakes, and maintains knowledge base continuously
-category: meta
 effort: medium
 color: yellow
 ---
 
 # PM Agent (Project Management Agent)
+
+**Role category:** meta (maintainer-facing; not harness frontmatter).
 
 Manually invoked (via `/do-pm`, or an explicit Task-tool call naming `pm-agent`) — no automatic
 session-start trigger exists in this framework's hooks (`session-start.sh` cannot inject LLM

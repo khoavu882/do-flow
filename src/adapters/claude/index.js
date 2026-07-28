@@ -9,7 +9,8 @@ const path = require('node:path');
 const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../marker-merge');
 const { selectMcpServers } = require('../../registry');
 const { GLOBAL_HOOK_PREFIX, PROJECT_HOOK_PREFIX } = require('../../settings-scope');
-const { planTree, applyTree, removeTree, verifyTree } = require('../copy-tree');
+const { mergeSettings, settingsContains, settingsContainsAny, stripManagedSettings } = require('../../settings-merge');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources } = require('../copy-tree');
 
 const INSTRUCTION_RENDERER = 'claude-instructions';
 const SETTINGS_RENDERER = 'claude-settings';
@@ -64,23 +65,14 @@ function discover({ scope, scopeRoot, context = {}, registry }) {
 
 // ---- copy-tree assets (rules, skills, agents, templates, scripts, modes, references, hooks) ----
 
-function copyTreeAssets(assets) { return (assets || []).filter((asset) => asset?.renderer === 'copy-tree'); }
-function copyTreeDestDir(paths, asset) { return path.join(paths.configDir, asset.nativeDir || ''); }
-
-function ledgerFileResources(ledger, assetId) {
-  return (ledger?.resources || [])
-    .filter((resource) => resource.harness === 'claude' && resource.assetId === assetId && resource.kind === 'copy-tree-file')
-    .map((resource) => ({ relPath: resource.identity, fingerprint: resource.fingerprint }));
-}
-
 function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing }) {
   const paths = nativePaths({ scope, scopeRoot });
   const changes = [];
   const conflicts = [];
   for (const asset of copyTreeAssets(assets)) {
-    const destDir = copyTreeDestDir(paths, asset);
+    const destDir = copyTreeDestDir(paths.configDir, asset);
     const sourceDir = sourcePath(asset, context);
-    const previousResources = ledgerFileResources(ledger, asset.id);
+    const previousResources = ledgerFileResources(ledger?.resources, 'claude', asset.id);
     const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply' });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const change of result.changes) {
@@ -114,7 +106,7 @@ function verifyCopyTreeAssets({ assets, scope, scopeRoot, context }) {
   const resources = [];
   const conflicts = [];
   for (const asset of copyTreeAssets(assets)) {
-    const destDir = copyTreeDestDir(paths, asset);
+    const destDir = copyTreeDestDir(paths.configDir, asset);
     const sourceDir = sourcePath(asset, context);
     const result = verifyTree({ sourceDir, destDir });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
@@ -146,6 +138,8 @@ function settingsLedgerResources(ledger, assetId) {
   return byFile;
 }
 const settingsChangeExtras = (fileName) => ({ kind: 'settings-file', identity: fileName });
+// Single serialization form for every settings write, so repeated runs are byte-stable.
+const serializeSettings = (value) => `${JSON.stringify(value, null, 2)}\n`;
 
 function planSettingsAsset({ assets, scope, scopeRoot, context, ledger, removing }) {
   const asset = settingsAsset(assets);
@@ -161,27 +155,54 @@ function planSettingsAsset({ assets, scope, scopeRoot, context, ledger, removing
       if (!prev) continue;
       const target = settingsTarget(fileName, paths);
       if (!fs.existsSync(target)) continue;
-      const current = sha256(fs.readFileSync(target, 'utf8'));
-      if (current !== prev.fingerprint) { conflicts.push(`${fileName} was modified outside DoFlow`); continue; }
+      const sourceAbs = path.join(sourceDir, fileName);
+      if (!fs.existsSync(sourceAbs)) continue;
+      // No fingerprint gate on removal any more: a shared file is *expected* to have drifted
+      // (the user edited it, another tool registered a hook). removeSettingsAsset subtracts only our own
+      // entries, so a drifted file is safe to process rather than a reason to refuse.
       changes.push({ assetId: asset.id, target, operation: 'remove', ownershipIdentity: `doflow:claude:settings:${fileName}`,
-        ...settingsChangeExtras(fileName), fingerprint: prev.fingerprint, projection: { renderer: SETTINGS_RENDERER } });
+        ...settingsChangeExtras(fileName), fingerprint: prev.fingerprint,
+        managed: settingsContent(fileName, fs.readFileSync(sourceAbs, 'utf8'), scope),
+        projection: { renderer: SETTINGS_RENDERER } });
     }
     return { changes, conflicts };
   }
   for (const fileName of SETTINGS_FILES) {
     const sourceAbs = path.join(sourceDir, fileName);
     if (!fs.existsSync(sourceAbs)) continue;
-    const content = settingsContent(fileName, fs.readFileSync(sourceAbs, 'utf8'), scope);
-    const fingerprint = sha256(content);
+    const managedRaw = settingsContent(fileName, fs.readFileSync(sourceAbs, 'utf8'), scope);
     const target = settingsTarget(fileName, paths);
     const prev = previous.get(fileName);
+    // Both the fresh-install and merge paths emit re-serialized JSON so the on-disk bytes are
+    // identical either way. Writing raw source bytes on create and re-serialized bytes on every
+    // later run would make each update look like a change and break idempotency.
+    let content;
+    try { content = serializeSettings(JSON.parse(managedRaw)); }
+    catch { conflicts.push(`${fileName} source is not valid JSON`); continue; }
+    let operation = prev ? 'update' : 'create';
+
     if (fs.existsSync(target)) {
-      const current = sha256(fs.readFileSync(target, 'utf8'));
-      const knownGood = prev ? current === prev.fingerprint : current === fingerprint;
-      if (!knownGood) { conflicts.push(`${fileName} was modified outside DoFlow`); continue; }
-      if (current === fingerprint) continue;
+      // settings.json is shared with the user and with third-party installers, so "the file
+      // differs from our source" is the normal steady state, not drift. Merge our keys in and
+      // leave everything else alone; only genuinely unreadable JSON is a conflict now. The old
+      // byte-identity check made a first install impossible on any already-configured machine.
+      const currentRaw = fs.readFileSync(target, 'utf8');
+      let merged;
+      try {
+        merged = mergeSettings(JSON.parse(currentRaw), JSON.parse(managedRaw));
+      } catch {
+        conflicts.push(`${fileName} is not valid JSON and cannot be merged`);
+        continue;
+      }
+      content = serializeSettings(merged);
+      if (sha256(currentRaw) === sha256(content)) continue;   // already contains our keys verbatim
+      // 'merge' is the same operation the marker-merged instructions file reports — it is the
+      // lifecycle's existing vocabulary for "fold our content into a file we do not own".
+      operation = 'merge';
     }
-    changes.push({ assetId: asset.id, target, source: sourceAbs, content, operation: prev ? 'update' : 'create',
+
+    const fingerprint = sha256(content);
+    changes.push({ assetId: asset.id, target, source: sourceAbs, content, operation,
       ownershipIdentity: `doflow:claude:settings:${fileName}`, ...settingsChangeExtras(fileName),
       afterFingerprint: fingerprint, fingerprint, sourceVersion: 'registry-v1',
       projection: { renderer: SETTINGS_RENDERER } });
@@ -206,12 +227,24 @@ function applySettingsAsset(changes) {
   return applied;
 }
 
+// Strips only DoFlow's own hook entries and leaves the rest of a shared file standing. The file
+// is deleted outright only when nothing but schema pointers remains — i.e. DoFlow created it.
+// Previously this rmSync'd unconditionally, which on a user-maintained settings.json would have
+// destroyed their model, permissions, env, and every foreign tool's hooks along with ours.
 function removeSettingsAsset(changes) {
   let removed = 0;
   for (const change of changes) {
     if (change.projection?.renderer !== SETTINGS_RENDERER || change.operation !== 'remove') continue;
     if (!fs.existsSync(change.target)) continue;
-    fs.rmSync(change.target, { force: true });
+    let remaining = null;
+    if (change.managed) {
+      try {
+        remaining = stripManagedSettings(JSON.parse(fs.readFileSync(change.target, 'utf8')), JSON.parse(change.managed));
+      } catch { remaining = undefined; }        // unreadable -> leave the file untouched
+    }
+    if (remaining === undefined) continue;
+    if (remaining === null) fs.rmSync(change.target, { force: true });
+    else fs.writeFileSync(change.target, serializeSettings(remaining));
     removed += 1;
   }
   return removed;
@@ -236,9 +269,27 @@ function verifySettingsAsset({ assets, scope, scopeRoot, context }) {
     // failure (nothing to overwrite it back to 'removed', since this is a per-file, not a
     // Codex-style shared-container-with-ownershipIdentity-matched status).
     if (!fs.existsSync(target)) { statuses.push({ assetId: asset.id, capability: 'settings', status: 'absent', target }); continue; }
-    const current = sha256(fs.readFileSync(target, 'utf8'));
-    if (current !== fingerprint) {
-      conflicts.push(`${fileName} does not match source`);
+    // Containment, not equality: a shared file legitimately holds the user's own keys and other
+    // tools' hook entries. Verification asks only "are DoFlow's keys still here and intact?" —
+    // byte-equality would report every user edit as a conflict forever.
+    let current;
+    let managed;
+    try {
+      current = JSON.parse(fs.readFileSync(target, 'utf8'));
+      managed = JSON.parse(settingsContent(fileName, fs.readFileSync(sourceAbs, 'utf8'), scope));
+    } catch {
+      conflicts.push(`${fileName} is not valid JSON`);
+      statuses.push({ assetId: asset.id, capability: 'settings', status: 'conflict', target });
+      continue;
+    }
+    if (!settingsContains(current, managed)) {
+      // None of our hook entries left -> this is a removed/never-installed file that legitimately
+      // still holds the user's own content, not damage. Only a partial presence is a conflict.
+      if (!settingsContainsAny(current, managed)) {
+        statuses.push({ assetId: asset.id, capability: 'settings', status: 'absent', target });
+        continue;
+      }
+      conflicts.push(`${fileName} is missing DoFlow-managed settings`);
       statuses.push({ assetId: asset.id, capability: 'settings', status: 'conflict', target });
       continue;
     }

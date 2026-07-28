@@ -26,44 +26,176 @@
   "alwaysThinkingEnabled": true,
   "cleanupPeriodDays": 60,
   "autoUpdatesChannel": "stable",
-  "availableModels": ["opus", "sonnet", "haiku"],
+  "availableModels": [
+    "opus",
+    "sonnet",
+    "haiku"
+  ],
   "model": "sonnet",
   "hooks": {
     "SessionStart": [
-      {"hooks": [{"type": "command", "command": "~/.claude/hooks/session-start.sh"}]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/session-start.sh"
+          }
+        ]
+      }
     ],
     "UserPromptSubmit": [
-      {"hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-submit.sh"}]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/user-prompt-submit.sh"
+          }
+        ]
+      }
     ],
     "SubagentStart": [
-      {"matcher": ".*", "hooks": [{"type": "command", "command": "~/.claude/hooks/subagent-audit.sh"}]}
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/subagent-audit.sh"
+          }
+        ]
+      }
     ],
     "SubagentStop": [
-      {"matcher": ".*", "hooks": [{"type": "command", "command": "~/.claude/hooks/subagent-audit.sh"}]}
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/subagent-audit.sh"
+          }
+        ]
+      }
     ],
     "ConfigChange": [
-      {"matcher": "skills", "hooks": [{"type": "command", "command": "~/.claude/hooks/skill-config-audit.sh"}]}
+      {
+        "matcher": "skills",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/skill-config-audit.sh"
+          }
+        ]
+      }
     ],
     "PreToolUse": [
-      {"matcher": "Bash", "hooks": [{"type": "command", "command": "~/.claude/hooks/pre-bash-guard.sh"}]},
-      {"matcher": "mcp__.*", "hooks": [{"type": "command", "command": "~/.claude/hooks/mcp-tool-guard.sh"}]},
-      {"matcher": "Edit|Write|MultiEdit", "hooks": [{"type": "command", "command": "~/.claude/hooks/pre-implement-gate.sh"}]}
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/pre-bash-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/mcp-tool-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/pre-implement-gate.sh"
+          }
+        ]
+      }
     ],
     "PostToolUse": [
-      {"matcher": "Edit",  "hooks": [{"type": "command", "command": "~/.claude/hooks/post-edit-lint.sh"}]},
-      {"matcher": "Write", "hooks": [{"type": "command", "command": "~/.claude/hooks/post-edit-lint.sh"}]}
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-edit-lint.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-edit-lint.sh"
+          }
+        ]
+      }
     ],
     "Stop": [
-      {"hooks": [{"type": "command", "command": "~/.claude/hooks/stop-check.sh"}]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/stop-check.sh"
+          }
+        ]
+      }
     ],
     "PreCompact": [
-      {"hooks": [{"type": "command", "command": "~/.claude/hooks/pre-compact.sh"}]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/pre-compact.sh"
+          }
+        ]
+      }
     ],
     "PostCompact": [
-      {"hooks": [{"type": "command", "command": "~/.claude/hooks/post-compact.sh"}]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-compact.sh"
+          }
+        ]
+      }
     ],
     "SessionEnd": [
-      {"hooks": [{"type": "command", "command": "~/.claude/hooks/session-end.sh"}]}
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/session-end.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-tool-failure.sh"
+          }
+        ]
+      }
+    ],
+    "PermissionDenied": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/permission-audit.sh"
+          }
+        ]
+      }
     ]
   }
 }

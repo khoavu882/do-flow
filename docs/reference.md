@@ -16,7 +16,7 @@ This is the compact lookup for DoFlow. Each skill's `SKILL.md` is the implementa
 | Set project rules | `do-constitution` |
 | Choose available tools | `do-select-tool` |
 | Coordinate independent work | `parallel-agents` |
-| Apply background safeguards | `confidence-check`, `token-efficiency` |
+| Apply background safeguards | `confidence-check` |
 
 ### Common commands
 
@@ -31,7 +31,7 @@ This is the compact lookup for DoFlow. Each skill's `SKILL.md` is the implementa
 | `/do-git --smart-commit` | Prepare an accurate commit |
 | `/do-document "topic" --type guide` | Create or revise documentation |
 
-The full installed skill set is: `confidence-check`, `do`, `do-analyze`, `do-brainstorm`, `do-build`, `do-code-review`, `do-constitution`, `do-design`, `do-document`, `do-estimate`, `do-execute-plan`, `do-explain`, `do-flow`, `do-git`, `do-help`, `do-implement`, `do-improve`, `do-index`, `do-plan`, `do-pm`, `do-reflect`, `do-research`, `do-select-tool`, `do-spec-panel`, `do-test`, `do-troubleshoot`, `parallel-agents`, and `token-efficiency`.
+The full installed skill set is: `confidence-check`, `do`, `do-analyze`, `do-brainstorm`, `do-build`, `do-code-review`, `do-constitution`, `do-design`, `do-document`, `do-estimate`, `do-execute-plan`, `do-explain`, `do-flow`, `do-git`, `do-help`, `do-implement`, `do-improve`, `do-index`, `do-plan`, `do-pm`, `do-reflect`, `do-research`, `do-select-tool`, `do-spec-panel`, `do-test`, `do-troubleshoot`, and `parallel-agents`.
 
 ## Agents
 
@@ -84,8 +84,8 @@ See `core/shared/guidance/mcp/` for server-specific operating guidance. The neut
 | Source | Governs |
 |---|---|
 | `core/registry/*.yaml` | Capability, asset, MCP, and lifecycle-policy declarations |
-| `core/shared/guidance/docs/PRINCIPLES.md` | Baseline collaboration and engineering principles |
-| `core/shared/guidance/docs/FLAGS.md` | Shared flags and their meaning |
+| `core/shared/guidance/PRINCIPLES.md` | Baseline collaboration and engineering principles |
+| `core/shared/guidance/FLAGS.md` | Flags that route to a real consumer (enforced by `test/guards/flags.test.js`) |
 | `core/shared/guidance/rules/RULE_01_SAFETY.md` | Safety boundaries |
 | `core/shared/guidance/rules/RULE_02_WORKFLOW.md` | Delivery workflow |
 | `core/shared/guidance/rules/RULE_03_QUALITY.md` | Quality expectations |

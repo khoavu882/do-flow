@@ -1,13 +1,14 @@
 ---
 name: refactoring-expert
 description: Improve code quality and reduce technical debt through systematic refactoring and clean code principles
-category: quality
 effort: high
 isolation: worktree
 color: yellow
 ---
 
 # Refactoring Expert
+
+**Role category:** quality (maintainer-facing; not harness frontmatter).
 
 ## Triggers
 - Code complexity reduction and technical debt elimination requests

@@ -152,11 +152,21 @@ test('copy-tree assets (rules/skills/agents/templates/scripts/references) instal
   assert.equal(planned.components.copyTree.ok, true);
   apply({ ...input, changes: planned.changes });
 
-  for (const [dir, file] of [['rules', 'RULE_01_SAFETY.md'], ['skills', path.join('do-analyze', 'SKILL.md')],
+  for (const [dir, file] of [['skills', path.join('do-analyze', 'SKILL.md')],
     ['agents', 'backend-architect.md'], ['templates', path.join('doflow', 'plan-template.md')],
-    ['scripts', path.join('doflow', 'bash', 'do-paths.sh')], ['references', 'DOFLOW_CHAIN.md']]) {
+    ['scripts', path.join('doflow', 'bash', 'do-paths.sh')]]) {
     assert.ok(fs.existsSync(path.join(projectRoot, '.codex', dir, file)), `${dir}/${file} must exist after install`);
   }
+  // rules/ and references/ (guidance.context-layer) no longer duplicate into .codex/ — they land
+  // in the shared .doflow/guidance/ tree, referenced by AGENTS.md's pointer instead of copied.
+  // PRINCIPLES.md/FLAGS.md sit at that tree's root (not a docs/ subdir), which is what makes
+  // DOFLOW_CORE.md's root-relative @imports resolve.
+  for (const rel of [path.join('rules', 'RULE_01_SAFETY.md'), path.join('references', 'DOFLOW_CHAIN.md'),
+    'PRINCIPLES.md', 'FLAGS.md', 'DOFLOW_CORE.md']) {
+    assert.ok(fs.existsSync(path.join(projectRoot, '.doflow', 'guidance', rel)), `.doflow/guidance/${rel} must exist after install`);
+  }
+  assert.ok(!fs.existsSync(path.join(projectRoot, '.doflow', 'guidance', 'docs')), 'guidance/docs/ was flattened into the guidance root');
+  assert.ok(!fs.existsSync(path.join(projectRoot, '.codex', 'rules')), 'rules must no longer be duplicated into .codex/');
   // agents.shared's copy-tree write (.codex/agents/*.md) coexists with the pre-existing native
   // custom-agent mechanism (.codex/agents/*.toml) — same directory, disjoint file extensions.
   assert.ok(fs.existsSync(path.join(projectRoot, '.codex', 'agents', 'backend-architect.toml')), 'native .toml agent must still be deployed alongside the .md copy-tree file');
@@ -180,7 +190,7 @@ test('copy-tree assets (rules/skills/agents/templates/scripts/references) instal
 
   const removal = plan({ ...input, ledger, context: { ...input.context, operation: 'remove' } });
   remove({ ...input, changes: removal.changes });
-  assert.equal(fs.existsSync(path.join(projectRoot, '.codex', 'rules', 'RULE_01_SAFETY.md')), false);
+  assert.equal(fs.existsSync(path.join(projectRoot, '.doflow', 'guidance', 'rules', 'RULE_01_SAFETY.md')), false);
   assert.equal(fs.existsSync(path.join(projectRoot, '.codex', 'skills', 'do-analyze', 'SKILL.md')), false);
 });
 

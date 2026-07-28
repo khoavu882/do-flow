@@ -39,7 +39,7 @@ The client decides how to execute work. DoFlow supplies shared guidance, task wo
 | Base instructions | Yes | Yes | Yes |
 | Skills | Yes | Yes | Yes |
 | Agents, scripts, templates, references | Yes | Yes | Yes |
-| Hook configuration | Yes | No file-based installer support | No file-based installer support |
+| Hook configuration | Yes | Yes — requires trust/review in Codex | Yes — merges into `settings.json`; some events (`UserPromptSubmit`, `Stop`, subagent events) have no Gemini equivalent and are intentionally omitted |
 | MCP registration from DoFlow | Yes | No file-based installer support | No file-based installer support |
 | Plugin marketplace distribution | Available in `core/.claude-plugin/` | Available in `core/.codex-plugin/` | N/A |
 

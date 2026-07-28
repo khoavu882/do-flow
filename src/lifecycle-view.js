@@ -43,6 +43,8 @@ function registryLifecycleView({ registry, scope, targets, mcpIds, operation, re
     codexAgentsSourceDir: path.join(repoRoot, 'core', 'harnesses', 'codex', 'agents'),
     codexHooksSourceFile: path.join(repoRoot, 'core', 'harnesses', 'codex', 'hooks', 'hooks.json'),
     codexHooksSourceDir: path.join(repoRoot, 'core', 'harnesses', 'codex', 'hooks'),
+    geminiHooksSourceFile: path.join(repoRoot, 'core', 'harnesses', 'gemini', 'hooks', 'hooks.json'),
+    geminiHooksSourceDir: path.join(repoRoot, 'core', 'harnesses', 'gemini', 'hooks'),
     operation,
   } });
   return { registry, stateRoot: neutralStateRoot, ledger, plan };
@@ -54,7 +56,7 @@ function printRegistryLifecycle(view, prefix = '[PLAN]') {
     console.log(`${prefix}   ${target.harness}: ${target.changes.length} change(s)${target.conflicts.length ? `; conflicts: ${target.conflicts.join('; ')}` : ''}`);
     const hookChange = target.changes.find((change) => change.nativeComponent === 'hooks');
     if (hookChange?.nativePlan?.trust?.required) {
-      console.log(`${prefix}   ${target.harness} hooks trust: ${hookChange.nativePlan.trust.status} (review required in Codex)`);
+      console.log(`${prefix}   ${target.harness} hooks trust: ${hookChange.nativePlan.trust.status} (review required in ${target.harness})`);
     }
   }
   console.log(`${prefix} Neutral state: ${view.stateRoot}${readLedger(view.stateRoot) ? ' (existing ledger)' : ' (not yet created)'}`);
