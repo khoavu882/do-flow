@@ -304,6 +304,55 @@ test('planTree adopts a file a sibling rewrote to current source, despite a stal
   assert.equal(changes[0].fingerprint, sha256('V2'));
 });
 
+// Regression: when an asset's nativeDir changes between installs, the file at its OLD location
+// must be removed, not silently orphaned. Reproduces the real bug found installing scripts.doflow/
+// templates.doflow's move to a shared .doflow/ destination — planTree used to match old-vs-new
+// purely by relPath, so a relocated file's relPath being "still present" (just under a new
+// destDir) suppressed removal of the stale copy at its old destDir entirely.
+test('planTree removes a relocated asset\'s file at its OLD location and creates it at the new one', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'a.md': 'A' });
+  const oldDestDir = path.join(root, 'old-dest');
+  const newDestDir = path.join(root, 'new-dest');
+
+  applyTree({ changes: planTree({ sourceDir, destDir: oldDestDir }).changes });
+  // Real previousResources always carry `target` (ledgerFileResources now passes it through).
+  const previousResources = [{ relPath: 'a.md', fingerprint: sha256('A'), target: path.join(oldDestDir, 'a.md') }];
+  assert.ok(fs.existsSync(path.join(oldDestDir, 'a.md')));
+
+  const { changes, conflicts } = planTree({ sourceDir, destDir: newDestDir, previousResources });
+  assert.deepEqual(conflicts, []);
+  assert.equal(changes.length, 2);
+
+  const create = changes.find((c) => c.operation === 'create');
+  assert.ok(create, 'must create the file at the new location');
+  assert.equal(create.target, path.join(newDestDir, 'a.md'));
+
+  const remove = changes.find((c) => c.operation === 'remove');
+  assert.ok(remove, 'must remove the file at the OLD location');
+  assert.equal(remove.target, path.join(oldDestDir, 'a.md'));
+
+  applyTree({ changes: [create] });
+  removeTree({ changes: [remove] });
+  assert.equal(fs.existsSync(path.join(newDestDir, 'a.md')), true);
+  assert.equal(fs.existsSync(path.join(oldDestDir, 'a.md')), false, 'old location must no longer exist');
+});
+
+// Regression: a previousResources entry with no `target` (pre-this-fix ledger data, or a
+// caller-constructed fixture, as every OTHER test in this file uses) must behave exactly as before
+// this fix — same-location, not misread as "relocated."
+test('planTree treats a previousResources entry with no target as same-location (backward compatible)', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'a.md': 'A' });
+  const destDir = path.join(root, 'dest');
+  applyTree({ changes: planTree({ sourceDir, destDir }).changes });
+  const previousResources = [{ relPath: 'a.md', fingerprint: sha256('A') }]; // no target
+
+  const { changes, conflicts } = planTree({ sourceDir, destDir, previousResources });
+  assert.deepEqual(conflicts, []);
+  assert.deepEqual(changes, [], 'unchanged content at the same destDir must still be a no-op');
+});
+
 test('planTree still refuses a destination edited to content matching neither source nor ledger', () => {
   const root = scratch();
   const sourceDir = seedSource(root, { 'a.md': 'V1' });
