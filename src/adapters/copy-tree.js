@@ -70,7 +70,17 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
     const prev = prevByPath.get(file.relPath);
     if (file.exists) {
       const current = sha256(fsImpl.readFileSync(file.destAbs));
-      const knownGood = prev ? current === prev.fingerprint : current === file.fingerprint;
+      // A destination file is untampered if it matches the source we are about to write, OR the
+      // fingerprint this harness last recorded. Source-match is checked FIRST and unconditionally:
+      // it is the stronger signal, and a present-but-stale `prev` must not shadow it.
+      //
+      // This matters because guidance.context-layer projects one destination for all three
+      // harnesses while ownership is recorded per harness, so a sibling's install legitimately
+      // changes bytes that this harness's row still describes. Comparing only against `prev` made
+      // that indistinguishable from a hand edit and refused the whole install. Ordering the
+      // disjunction this way adds no new notion of safety — it stops a weaker signal from
+      // preempting a check that would have passed.
+      const knownGood = current === file.fingerprint || (prev !== undefined && current === prev.fingerprint);
       if (!knownGood) { conflicts.push(`${file.relPath} was modified outside DoFlow`); continue; }
     }
     if (prev && prev.fingerprint === file.fingerprint && file.exists) continue; // unchanged, no-op

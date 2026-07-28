@@ -15,6 +15,24 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A single-target install could wedge its sibling harnesses.** `guidance.context-layer` projects
+  one destination for all three harnesses, but ownership is recorded per harness, so a sibling's
+  install legitimately rewrites bytes that another harness's ledger row still describes. The
+  known-good check consulted that row first, making the situation indistinguishable from a hand
+  edit and refusing the whole install with "was modified outside DoFlow". Recovery required
+  installing every target or a clean reinstall.
+
+  The check now treats "matches the source we are about to write" as untampered regardless of who
+  wrote it, consulting the recorded fingerprint only as a fallback. This adds no new notion of
+  safety — the same rule already applied whenever no ledger row existed; a present-but-stale row
+  was simply preempting it. Genuine tampering, matching neither source nor ledger, is still
+  refused.
+
+  Reproducing it needs all three conditions: a prior multi-target install, then a source change,
+  then a single-target install. A first install on a fresh machine was never affected.
+
 ## [0.9.1] - 2026-07-28
 
 ### Changed

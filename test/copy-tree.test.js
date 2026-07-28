@@ -274,3 +274,48 @@ test('DOFLOW_CORE.md carries no commented resource inventory', () => {
   assert.deepEqual(advertised, [], 'a commented "→ @dir/" listing loads nothing; bind the resource to a skill instead');
 });
 
+
+// Regression: guidance.context-layer projects ONE destination for all three harnesses while
+// ownership is recorded per harness, so a sibling's install legitimately rewrites bytes that this
+// harness's ledger row still describes. Comparing only against `prev` made that indistinguishable
+// from a hand edit and refused the whole install — reproducible as: install all targets, change
+// the source, install one target, then install any sibling.
+test('planTree adopts a file a sibling rewrote to current source, despite a stale own-ledger row', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'a.md': 'V1' });
+  const destDir = path.join(root, 'dest');
+
+  // This harness installs V1 and records it.
+  applyTree({ changes: planTree({ sourceDir, destDir }).changes });
+  const previousResources = [{ relPath: 'a.md', fingerprint: sha256('V1') }];
+
+  // Source moves to V2 and a SIBLING harness installs it, writing the shared destination. This
+  // harness's row still says V1 — stale, not tampered.
+  fs.writeFileSync(path.join(sourceDir, 'a.md'), 'V2');
+  fs.writeFileSync(path.join(destDir, 'a.md'), 'V2');
+
+  const { changes, conflicts } = planTree({ sourceDir, destDir, previousResources });
+  assert.deepEqual(conflicts, [], 'a file matching current source is untampered whoever wrote it');
+  // It still plans an update: the bytes are already correct, but this harness's ledger row says V1
+  // and only applying the change refreshes it to V2. The write is redundant; the ownership
+  // bookkeeping is the point.
+  assert.equal(changes.length, 1);
+  assert.equal(changes[0].operation, 'update');
+  assert.equal(changes[0].fingerprint, sha256('V2'));
+});
+
+test('planTree still refuses a destination edited to content matching neither source nor ledger', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'a.md': 'V1' });
+  const destDir = path.join(root, 'dest');
+  applyTree({ changes: planTree({ sourceDir, destDir }).changes });
+  const previousResources = [{ relPath: 'a.md', fingerprint: sha256('V1') }];
+
+  fs.writeFileSync(path.join(sourceDir, 'a.md'), 'V2');
+  fs.writeFileSync(path.join(destDir, 'a.md'), 'HAND EDITED');  // matches nothing
+
+  const { changes, conflicts } = planTree({ sourceDir, destDir, previousResources });
+  assert.equal(changes.length, 0);
+  assert.match(conflicts[0], /a\.md was modified outside DoFlow/,
+    'widening known-good must not stop real tampering being caught');
+});
