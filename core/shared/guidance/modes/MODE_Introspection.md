@@ -8,7 +8,6 @@
 - Complex problem solving requiring meta-cognitive oversight
 - Pattern recognition needs: recurring behaviors, optimization opportunities
 - Framework discussions or troubleshooting sessions
-- Manual flag: `--introspect`, `--introspection`
 
 ## Behavioral Changes
 - **Self-Examination**: Consciously analyze decision logic and reasoning chains

@@ -1,7 +1,7 @@
 ---
 name: do-brainstorm
 description: "Interactive requirements discovery through Socratic dialogue; seeds requirement.md in a branch-coupled feature dir"
-argument-hint: "[topic/idea] [--strategy systematic|agile|enterprise] [--depth shallow|normal|deep] [--parallel]"
+argument-hint: "[topic/idea] [--strategy systematic|agile|enterprise] [--depth shallow|normal|deep]"
 effort: high
 ---
 
@@ -14,7 +14,7 @@ continuity gap: brainstorm output survives a compact/session-end without a separ
 
 ## Invocation
 ```text
-/do-brainstorm [topic/idea] [--strategy systematic|agile|enterprise] [--depth shallow|normal|deep] [--parallel]
+/do-brainstorm [topic/idea] [--strategy systematic|agile|enterprise] [--depth shallow|normal|deep]
 ```
 
 ## Behavioral Flow

@@ -5,7 +5,7 @@
 ## Triggers
 - Complex debugging scenarios with multiple layers
 - Architectural analysis and system design questions
-- `--think`, `--think-hard`, `--ultrathink` flags
+- Elevated reasoning effort for the task at hand (`effort: high` or above)
 - Problems requiring hypothesis testing and validation
 - Multi-component failure investigation
 - Performance bottleneck identification requiring methodical approach

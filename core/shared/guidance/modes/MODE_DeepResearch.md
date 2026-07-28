@@ -11,7 +11,6 @@ category: mode
 - Research-related keywords: investigate, explore, discover, analyze
 - Questions requiring current information
 - Complex research requirements
-- Manual flag: --research
 
 ## Behavioral Modifications
 
