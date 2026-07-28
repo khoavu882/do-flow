@@ -13,14 +13,17 @@
 // the file as none of its business — preserved on write, ignored on verify, left behind on
 // remove.
 
-/** DoFlow-owned hook entries are identified by their command string, not by position or matcher:
- * that is the only field guaranteed stable across a re-render, and it is what distinguishes
- * a DoFlow hook script from a foreign command registered on the same event. */
+/** A hook entry's identity is its (matcher, commands) pair — NOT the commands alone. One script is
+ * legitimately registered under several matchers for the same event (post-edit-lint.sh runs on
+ * both `Edit` and `Write`), so comparing commands only makes those entries indistinguishable and
+ * silently collapses them to one during a merge. Position is not usable: it is not stable across
+ * a re-render. */
 function hookCommands(entry) {
   return (entry?.hooks || []).map((hook) => hook?.command).filter((command) => typeof command === 'string');
 }
 
 function sameHookEntry(a, b) {
+  if ((a?.matcher ?? null) !== (b?.matcher ?? null)) return false;
   const left = hookCommands(a);
   const right = hookCommands(b);
   return left.length === right.length && left.every((command, index) => command === right[index]);
