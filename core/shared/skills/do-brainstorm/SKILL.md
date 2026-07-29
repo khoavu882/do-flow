@@ -77,7 +77,17 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    referenced a PBI/epic/ticket ID during the dialogue (confirm the exact ID via `AskUserQuestion`
    if it was ambiguous) — otherwise write `none`; do not add a new forced question to every
    brainstorm session just to fill this field.
-5. **Stop** — report the requirement path and confirmation that §7 has zero remaining
+   Structure the artifact per `references/ARTIFACT_FORMAT.md` — read it before filling the
+   template: index-then-detail for §3/§4/§8, the closed `Live` / `Superseded → <ref>` status
+   vocabulary, the §1 scope-boundary diagram (or `N/A: <why>`), and §9 History.
+5. **Validate** — run the advisory consistency check and surface any findings verbatim:
+   ```bash
+   bash "$DOFLOW_CONFIG_DIR/scripts/doflow/bash/validate-artifacts.sh" "<requirement path>"
+   ```
+   Findings are reported to the user, never repaired automatically — when an index and its detail
+   disagree, which one is wrong is authoring judgement. A non-zero exit is advisory and does not
+   halt the chain.
+6. **Stop** — report the requirement path and confirmation that §7 has zero remaining
    `[NEEDS CLARIFICATION]` markers (or, in the rare aborted-session case, whatever markers remain).
 
 ## Behavioral Posture

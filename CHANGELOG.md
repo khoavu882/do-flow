@@ -30,7 +30,22 @@ All notable changes to DoFlow are documented here. Format follows
   feature-scoped block, or behind the `--paths-only` skip, passes a naive present/absent test — and
   each is paired with a precondition assertion proving it tests what it claims.
 
+- **Artifact authoring convention** — `guidance/references/ARTIFACT_FORMAT.md`, a new on-demand
+  reference defining how chain artifacts are structured: an index table above full `**Detail**` for
+  every enumerated section, a closed `Live` / `Superseded → <ref>` status vocabulary, a History
+  section that keeps superseded prose out of the live body, and the diagram rules for the scope
+  boundary and C4 levels. Loaded only when a chain skill pulls it in, so it costs nothing at
+  session start.
+- **`scripts/doflow/bash/validate-artifacts.sh`** — advisory consistency checker for chain
+  artifacts. Verifies index/detail parity in both directions, the status vocabulary, that
+  ID-shaped supersede targets resolve, that superseded items have a History entry, and that
+  `plan.md`'s phase rollup counts match its task checklist. Accepts `[--json] [--slug=<slug>]
+  [<path>...]`; exits `0` clean, `1` on findings, `0` with a printed note when it cannot determine
+  what to check. **No hook consumes it** — the framework's single hard gate is unchanged, and
+  findings never halt the chain or get repaired automatically.
+
 ### Changed
+
 
 - **The two-tier constitution is now described as what it is.** The documentation said
   `do-paths.sh` "resolved (base ⊕ local)" and that `/do-plan`'s Constitution Check "enforced" it.
@@ -42,6 +57,20 @@ All notable changes to DoFlow are documented here. Format follows
   `DOFLOW_CHAIN.md` now carries a canonical table naming each step *computed*, *convention*, or
   *advisory*, and the other five locations point at it rather than restating it. This changes no
   behaviour — only what the documentation claims about it.
+
+- **Chain templates restructured** for scannability. `requirement-template.md`, `design-template.md`
+  and `plan-template.md` now open each enumerated section with an index table above the full
+  detail, and each gains a `History` section. `requirement-template.md` adds a scope-boundary
+  diagram; `plan-template.md` adds a `### Task Summary` phase rollup. Existing normative content was
+  relocated, not condensed — the index is navigation, never a substitute for the detail.
+- **`design-template.md` no longer uses the `C4Context` / `C4Container` diagram types.** C4 is kept
+  as the conceptual zoom model, but every level now renders as a Mermaid `flowchart` with
+  `subgraph` boundaries. The C4 types are experimental: they offer no direction control, route
+  relationship labels into arrowheads, and render inconsistently across viewers. A conditional
+  `C3: Component` level is added, required only when a feature touches 3+ components within one
+  container.
+- **`do-brainstorm`, `do-design` and `do-plan`** now read `ARTIFACT_FORMAT.md` before filling their
+  template, and run `validate-artifacts.sh` after writing, surfacing any findings verbatim.
 
 ## [0.10.1] - 2026-07-29
 

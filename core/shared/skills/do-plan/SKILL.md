@@ -52,6 +52,10 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    into the feature
    dir, fill it: approach, research/decisions that resolve every `[NEEDS CLARIFICATION]` from the
    requirement, components, data/contracts, risks, validation strategy.
+   Structure the artifact per `references/ARTIFACT_FORMAT.md` — read it before filling the
+   template: index-then-detail for §4/§6, the closed `Live` / `Superseded → <ref>` status
+   vocabulary, and §9 History. Its §5 governs §8's `### Task Summary` rollup — the per-task
+   `- [ ]` checklist stays the single source of truth and is never mirrored into a per-task index.
 5. **Constitution Check (advisory gate)** — evaluate the plan against both tiers as reconciled in
    step 3. On a violation, STOP and revise the approach before continuing, then record PASS/FAIL in
    the plan. The verdict is **advisory**: it is recorded in `plan.md` §2 "Constitution Check" and nothing downstream
@@ -77,7 +81,14 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    table: `primary` if it owns a task via `files:`, `dependency-only` if it's only ever reached via
    `depends-on:`. A single-repo result → `N/A: single-repo feature`. Derivation only — no branch is
    created here (`/do-execute-plan`'s job, lazily, per repo).
-8. **Stop** — report the plan path, Constitution Check result, the task count (`[P]`/sequential),
+8. **Validate** — run the advisory consistency check and surface any findings verbatim:
+   ```bash
+   bash "$DOFLOW_CONFIG_DIR/scripts/doflow/bash/validate-artifacts.sh" "<plan path>"
+   ```
+   This also verifies each `### Task Summary` rollup row against the `- [ ]` lines under its
+   `### Phase <X>` heading. Findings are reported to the user, never repaired automatically. A
+   non-zero exit is advisory and does not halt the chain.
+9. **Stop** — report the plan path, Constitution Check result, the task count (`[P]`/sequential),
    and the derived branch name/repo count when the Repo Branch Plan is populated.
 
 ## Boundaries
