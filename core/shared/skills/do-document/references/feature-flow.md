@@ -1,6 +1,6 @@
 # {Feature Name} — Flow Documentation
 
-> **Template version**: 2.0 | **Source**: [Sample flow](https://timo.atlassian.net/wiki/spaces/TECH/pages/1588101121)
+> **Template version**: 2.0
 >
 > Replace `{placeholders}` with actual content. Remove sections marked `[Optional]` if not applicable.
 

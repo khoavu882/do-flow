@@ -1,5 +1,5 @@
 {
-  "file": "/home/user/claude-skills/engineering-team/skills/code-reviewer/assets/sample_java_smells.java",
+  "file": "assets/sample_java_smells.java",
   "language": "java",
   "metrics": {
     "lines": {

@@ -175,11 +175,30 @@ score the new language:
 
 Labelled fixtures live in `assets/` with their committed `--json` output in
 `expected_outputs/` (C#, Java, and C). Drift from the committed JSON signals a
-behaviour change in the analyzer:
+behaviour change in the analyzer.
+
+The analyzer resolves its input to an absolute path (`Path(args.path).resolve()`),
+so the `file` field differs on every machine. The committed fixtures store the
+repo-relative path instead, and the comparison normalizes the live output to
+match — without that step the diff reports a difference on every checkout,
+regardless of whether the analyzer's behaviour actually changed:
 
 ```bash
 python scripts/code_quality_checker.py assets/sample_java_smells.java --json \
+  | sed 's|"file": ".*/assets/|"file": "assets/|' \
   | diff - expected_outputs/sample_java_smells_quality.json
+```
+
+Run from this skill's own directory. To check every fixture at once:
+
+```bash
+for f in assets/sample_*; do
+  exp="expected_outputs/$(basename "${f%.*}")_quality.json"
+  [ -f "$exp" ] || continue
+  python scripts/code_quality_checker.py "$f" --json \
+    | sed 's|"file": ".*/assets/|"file": "assets/|' \
+    | diff -q - "$exp" >/dev/null && echo "ok $(basename "$f")" || echo "DRIFT $(basename "$f")"
+done
 ```
 
 ## Next Step
