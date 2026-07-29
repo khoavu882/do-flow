@@ -15,6 +15,8 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-07-30
+
 ### Fixed
 
 - **`do-code-review`'s regression fixtures could never pass.** The analyzer resolves its input to
