@@ -9,8 +9,9 @@
 [Chosen approach in 2–4 sentences; the key technical decisions.]
 
 ## 2. Constitution Check (GATE)
-> Verify against the resolved constitution (base + local). Any violation = STOP and revise
-> the approach before continuing. (Advisory by default; not the hard hook gate.)
+> Verify against both constitution tiers, tier-2 taking precedence — you reconcile them yourself;
+> nothing merges them for you. Any violation = STOP and revise the approach before continuing.
+> (Advisory by default; not the hard hook gate.)
 - [ ] Complies with [PRINCIPLE]: [how]
 - [ ] No violation of [PRINCIPLE]: [how]
 
