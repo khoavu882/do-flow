@@ -15,6 +15,28 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **`code_quality_checker.py` now emits working-directory-relative paths** in its `--json` output
+  (`file` and `directory`), instead of the absolute path it resolved internally. Input is still
+  resolved so filesystem checks stay unambiguous; only the emitted value changed. This removes the
+  root cause behind v0.11.1 rather than working around it: fixtures no longer need normalizing
+  before comparison, so a newly added fixture cannot silently reintroduce the bug. It also makes
+  the tool's output consistent with `pr_analyzer.py`, which already emits git-relative paths —
+  `review_report_generator.py` merges findings from both into one report, and until now the same
+  file could appear under two different path forms and never be grouped.
+  Implemented with `os.path.relpath` rather than `Path.relative_to`, which raises for a target
+  outside the working directory — a supported input here.
+
+### Added
+
+- **`test/code-review-fixtures.sh`** — runs all six analyzer fixtures and fails on drift. The guard
+  existed only as a command in `SKILL.md` that someone had to remember, which is how it stayed
+  broken unnoticed. Invoked by path like `verify-hooks.sh` and `doflow-chain-test.sh`, since
+  `npm test` is `node --test` and discovers only `test/*.test.js`. Skips with exit 0 when `python3`
+  is unavailable — this repo has no Python dependency, so a missing interpreter is not a failure —
+  and also skips rather than reporting success when it finds no fixture pairs at all.
+
 ## [0.11.1] - 2026-07-30
 
 ### Fixed

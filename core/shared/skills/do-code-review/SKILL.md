@@ -177,29 +177,18 @@ Labelled fixtures live in `assets/` with their committed `--json` output in
 `expected_outputs/` (C#, Java, and C). Drift from the committed JSON signals a
 behaviour change in the analyzer.
 
-The analyzer resolves its input to an absolute path (`Path(args.path).resolve()`),
-so the `file` field differs on every machine. The committed fixtures store the
-repo-relative path instead, and the comparison normalizes the live output to
-match — without that step the diff reports a difference on every checkout,
-regardless of whether the analyzer's behaviour actually changed:
+Emitted paths are relative to the working directory, so the output is identical on
+every machine and the fixtures compare directly. Run from this skill's own directory:
 
 ```bash
 python scripts/code_quality_checker.py assets/sample_java_smells.java --json \
-  | sed 's|"file": ".*/assets/|"file": "assets/|' \
   | diff - expected_outputs/sample_java_smells_quality.json
 ```
 
-Run from this skill's own directory. To check every fixture at once:
-
-```bash
-for f in assets/sample_*; do
-  exp="expected_outputs/$(basename "${f%.*}")_quality.json"
-  [ -f "$exp" ] || continue
-  python scripts/code_quality_checker.py "$f" --json \
-    | sed 's|"file": ".*/assets/|"file": "assets/|' \
-    | diff -q - "$exp" >/dev/null && echo "ok $(basename "$f")" || echo "DRIFT $(basename "$f")"
-done
-```
+`bash test/code-review-fixtures.sh` (from the repo root) checks all of them at once,
+and is how they are normally run. Regenerate a fixture after an intentional analyzer
+change with `… --json > expected_outputs/<name>_quality.json`, from this directory so
+the recorded path stays relative.
 
 ## Next Step
 After review, use `/do-implement` or `/do-improve` to address requested changes, then rerun `/do-code-review`.
