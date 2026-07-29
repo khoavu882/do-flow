@@ -15,6 +15,8 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-29
+
 ### Added
 
 - **`has_constitution_local` in the resolver's JSON.** `do-paths.sh` reported the tier-2
