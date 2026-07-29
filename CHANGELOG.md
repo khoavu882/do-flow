@@ -15,6 +15,34 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`has_constitution_local` in the resolver's JSON.** `do-paths.sh` reported the tier-2
+  constitution's *intended* path but never whether the file existed — unlike `requirement`,
+  `design`, and `plan`, which each carry a `has_*` flag. Every consumer therefore had to
+  re-implement its own existence check, contradicting the standing "no filesystem math in prompts"
+  rule. The flag is computed at repo scope (a constitution exists or does not regardless of whether
+  a feature is active) and outside the `--paths-only` skip, and `constitution_local` is still
+  emitted when the file is absent, because that is exactly when `do-constitution` needs the path in
+  order to create it. Purely additive: consumers that ignore the field are unaffected.
+- **Six chain-suite assertions covering tier-2 resolution**, which previously had none while tier-1
+  had three. Two of them exist specifically to catch mis-placement — a flag computed inside the
+  feature-scoped block, or behind the `--paths-only` skip, passes a naive present/absent test — and
+  each is paired with a precondition assertion proving it tests what it claims.
+
+### Changed
+
+- **The two-tier constitution is now described as what it is.** The documentation said
+  `do-paths.sh` "resolved (base ⊕ local)" and that `/do-plan`'s Constitution Check "enforced" it.
+  Neither was true: the resolver locates paths and never opens either file, nothing detects a
+  conflict between the tiers, nothing validates the "tier-2 may not weaken P1" rule, and the Check
+  is advisory — its verdict is recorded in `plan.md` §2 and blocks nothing. The overlay is
+  performed by the chain skill reading both files, which is a legitimate design under DoFlow's
+  deterministic/generative split; describing it in mechanism language was the problem.
+  `DOFLOW_CHAIN.md` now carries a canonical table naming each step *computed*, *convention*, or
+  *advisory*, and the other five locations point at it rather than restating it. This changes no
+  behaviour — only what the documentation claims about it.
+
 ## [0.10.1] - 2026-07-29
 
 ### Fixed

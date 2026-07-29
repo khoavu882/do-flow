@@ -29,14 +29,19 @@ Maintains the **tier-2** per-repo constitution that overlays the tier-1 `CONSTIT
    fi
    bash "$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh" --json
    ```
-2. **Read both tiers** — the base (read-only) and the local file if it exists. The effective set is
-   `base ⊕ local` with **local winning on conflict** — except it may not weaken base P1 (Safety).
-3. **Create or amend** —
-   - if `constitution_local` is absent: copy the installed
-     `$DOFLOW_CONFIG_DIR/templates/doflow/constitution-template.md` to
-     `agent-docs/constitution.md` and fill it from the user's principle inputs (repo-specific rules only;
+2. **Read both tiers** — the base (read-only), and the local file when `has_constitution_local` is
+   true. You reconcile them yourself, tier-2 taking precedence — nothing merges them for you — and
+   tier-2 may not weaken base P1 (Safety), a rule stated here rather than validated by any check.
+   See `references/DOFLOW_CHAIN.md` → "Two-tier constitution" for what is computed and what is
+   convention.
+3. **Create or amend** — branch on `has_constitution_local` from step 1, not a filesystem check of
+   your own (path math belongs to the resolver; `constitution_local` is still emitted when the file
+   is absent, which is exactly the create case):
+   - `has_constitution_local` false: copy the installed
+     `$DOFLOW_CONFIG_DIR/templates/doflow/constitution-template.md` to `constitution_local`
+     and fill it from the user's principle inputs (repo-specific rules only;
      don't restate base principles).
-   - if present and `--amend`: apply the requested change.
+   - true, and `--amend`: apply the requested change.
 4. **Version + Sync Impact** — bump the semver version line and fill the `SYNC IMPACT REPORT` comment
    (old→new version, what changed, what it propagates to). If a change clarifies/renames a principle that
    templates reference, note it.

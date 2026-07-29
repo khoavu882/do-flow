@@ -38,9 +38,26 @@ itself.
 - **One hard gate:** source edits are blocked when a feature is started but `requirement.md`,
   `design.md`, or `plan.md` is missing. Every other gate is advisory/skippable (solo,
   low-ceremony).
-- **Two-tier constitution:** `references/CONSTITUTION_BASE.md` (global) overlaid by
-  `<repo>/agent-docs/constitution.md` (per-repo); local wins. Resolved unconditionally by
-  `do-paths.sh` regardless of whether `do-constitution` has ever been invoked.
+- **Two-tier constitution — what is computed vs. what is convention.**
+  `references/CONSTITUTION_BASE.md` (tier-1, global) is overlaid by
+  `<repo>/agent-docs/constitution.md` (tier-2, per-repo), and tier-2 takes precedence. **That
+  overlay is performed by the chain skill reading both files — no component merges them.** This is
+  the canonical statement; other places point here rather than restating it.
+
+  | Step | What happens | Guarantee |
+  |------|--------------|-----------|
+  | Locate tier-1 | `do-paths.sh` searches two candidates, first hit wins; `null` if none | **computed** |
+  | Locate tier-2 | `do-paths.sh` emits the path plus `has_constitution_local` | **computed** |
+  | Read both files | the chain skill opens them | agent-performed |
+  | Overlay; tier-2 takes precedence on conflict | the chain skill reconciles them in its own reasoning | **convention** |
+  | "Tier-2 may not weaken P1 (Safety)" | a rule stated to the agent | **convention, unvalidated** |
+  | Constitution Check verdict | recorded in `plan.md` §2 "Constitution Check" | **advisory — blocks nothing** |
+  | Propagate pointer to the agent context file | `sync-context.sh` writes a marker block | **computed** |
+
+  Both path lookups run unconditionally, whether or not `do-constitution` has ever been invoked.
+  Nothing detects a conflict between the tiers, and nothing validates the P1 rule — so avoid
+  describing this model as *resolved* (there is no merged artifact) or *enforced* (nothing blocks).
+  The convention is still load-bearing: it is how the rules actually reach a feature's planning.
 - **`templates/doflow/` is a shared template pool, not the Agent Skills standard's
   `references/`/`assets/` pattern.** The standard nests bundled resources one level inside their
   owning skill (`skill-name/assets/*`); these templates sit outside any single skill's directory

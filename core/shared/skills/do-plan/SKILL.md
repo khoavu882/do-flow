@@ -42,14 +42,21 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
 2. **Precondition (advisory)** — if `has_requirement` or `has_design` is false, warn and offer to
    run `/do-brainstorm` / `/do-design` first. This gate is **advisory** (skippable), not the hard
    hook gate.
-3. **Read inputs** — `requirement.md`, `design.md`, and the resolved constitution
-   (`constitution_base` overlaid by `constitution_local`; local wins).
+3. **Read inputs** — `requirement.md`, `design.md`, and the constitution. Read `constitution_base`,
+   then read `constitution_local` **only when `has_constitution_local` is true** — use that flag,
+   never a filesystem check of your own (path math belongs to the resolver). You then reconcile the
+   two tiers yourself, tier-2 taking precedence: nothing hands you a merged set. See
+   `references/DOFLOW_CHAIN.md` → "Two-tier constitution" for what is computed and what is
+   convention.
 4. **Write `plan.md`, sections 1–7** — copy `$DOFLOW_CONFIG_DIR/templates/doflow/plan-template.md`
    into the feature
    dir, fill it: approach, research/decisions that resolve every `[NEEDS CLARIFICATION]` from the
    requirement, components, data/contracts, risks, validation strategy.
-5. **Constitution Check (gate)** — evaluate the plan against the resolved constitution. On a
-   violation, STOP and revise the approach before continuing. Record PASS/FAIL in the plan.
+5. **Constitution Check (advisory gate)** — evaluate the plan against both tiers as reconciled in
+   step 3. On a violation, STOP and revise the approach before continuing, then record PASS/FAIL in
+   the plan. The verdict is **advisory**: it is recorded in `plan.md` §2 "Constitution Check" and nothing downstream
+   blocks on it — the chain's one hard gate covers artifact existence only. Stopping on a violation
+   is a discipline this skill observes, not something a hook enforces.
 6. **Decompose into Tasks (section 8)** — dependency-ordered, `[P]`-marked where parallel-safe,
    `[US#]`-traced to the requirement's user stories, owner+files named per task, with checkpoints
    and completion criteria. Set `depends-on:` on a task when it references a service (via its
