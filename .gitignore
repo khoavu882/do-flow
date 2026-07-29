@@ -56,6 +56,12 @@ agent-docs/
 # MkDocs build output
 site/
 
+# Python bytecode — do-code-review bundles Python analyzers under
+# core/shared/skills/do-code-review/scripts/, so importing or byte-compiling one
+# leaves artifacts inside the shipped tree
+__pycache__/
+*.py[cod]
+
 # OS files
 .DS_Store
 Thumbs.db

@@ -13,6 +13,7 @@ Usage:
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -833,6 +834,21 @@ def get_grade(score: int) -> str:
         return "F"
 
 
+def display_path(path: Path) -> str:
+    """The form a path takes in emitted output: relative to the working directory.
+
+    Input is resolved to an absolute path so filesystem checks are unambiguous, but an
+    absolute path in the *output* is machine-specific. That has two costs: committed
+    fixtures under expected_outputs/ can only ever match the machine that produced them,
+    and findings here cannot be matched against pr_analyzer.py's git-relative paths when
+    review_report_generator.py merges both into one report.
+
+    os.path.relpath rather than Path.relative_to: the latter raises ValueError for a
+    target outside the working directory, which is a supported input here.
+    """
+    return os.path.relpath(str(path), os.getcwd())
+
+
 def analyze_file(filepath: Path) -> Dict:
     """Analyze a single file for code quality."""
     language = detect_language(filepath)
@@ -857,7 +873,7 @@ def analyze_file(filepath: Path) -> Dict:
     score = calculate_quality_score(line_metrics, functions, classes, smells, violations)
 
     return {
-        "file": str(filepath),
+        "file": display_path(filepath),
         "language": language,
         "metrics": {
             "lines": line_metrics,
@@ -908,7 +924,7 @@ def analyze_directory(
     total_violations = sum(len(r["solid_violations"]) for r in results)
 
     return {
-        "directory": str(dir_path),
+        "directory": display_path(dir_path),
         "files_analyzed": len(results),
         "average_score": round(avg_score, 1),
         "overall_grade": get_grade(int(avg_score)),
