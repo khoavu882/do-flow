@@ -1,5 +1,5 @@
 {
-  "file": "/home/user/claude-skills/engineering-team/skills/code-reviewer/assets/sample_c_clean.c",
+  "file": "assets/sample_c_clean.c",
   "language": "c",
   "metrics": {
     "lines": {

@@ -1,5 +1,5 @@
 {
-  "file": "/home/user/claude-skills/engineering-team/skills/code-reviewer/assets/sample_csharp_clean.cs",
+  "file": "assets/sample_csharp_clean.cs",
   "language": "csharp",
   "metrics": {
     "lines": {
