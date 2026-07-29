@@ -15,6 +15,21 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **`do-code-review`'s regression fixtures could never pass.** The analyzer resolves its input to
+  an absolute path, so the committed `expected_outputs/*.json` pinned `file` to the machine that
+  generated them — a path under `/home/user/claude-skills/…`. The documented `diff` therefore
+  reported drift on every checkout except that one, which makes a guard worse than useless: it
+  fails constantly, so it stops being read. The fixtures now store the repo-relative `assets/…`
+  path and the documented command normalizes the live output to match, with a loop for checking
+  all six at once. The analyzer itself is untouched — its `--json` shape is unchanged, and every
+  field other than `file` already matched.
+- **Private references removed from shipped content.** The six fixtures above carried another
+  contributor's home directory, and `do-document`'s feature-flow template linked a private
+  Confluence page. Both shipped verbatim into every install, where an absolute path is
+  meaningless and an internal link is unreachable.
+
 ## [0.11.0] - 2026-07-29
 
 ### Added
