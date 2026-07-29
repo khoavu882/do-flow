@@ -67,7 +67,18 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    it from step 4. `design-template.md`'s §8 "Assumptions" section must read "None" unless a
    design-level clarification question was resolved via the defer escape hatch in Step 4, in
    which case record it there with a one-line rationale.
-6. **Stop** — report the design path.
+   Structure the artifact per `references/ARTIFACT_FORMAT.md` — read it before filling the
+   template: index-then-detail for §3/§7/§8, the closed `Live` / `Superseded → <ref>` status
+   vocabulary, and §9 History. Its §4 also governs the C4 diagrams — keep C4 as the conceptual
+   zoom model but render every level with Mermaid `flowchart` plus `subgraph` boundaries; the
+   experimental `C4Context` / `C4Container` types must not be used.
+6. **Validate** — run the advisory consistency check and surface any findings verbatim:
+   ```bash
+   bash "$DOFLOW_CONFIG_DIR/scripts/doflow/bash/validate-artifacts.sh" "<design path>"
+   ```
+   Findings are reported to the user, never repaired automatically. A non-zero exit is advisory
+   and does not halt the chain.
+7. **Stop** — report the design path.
 
 ## Boundaries
 **Will:** read `requirement.md`, produce system-shape design decisions, write `design.md`.
