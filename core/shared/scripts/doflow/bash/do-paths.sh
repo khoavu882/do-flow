@@ -153,6 +153,12 @@ for c in \
     break
   fi
 done
+# Existence of tier-2 is repo-scoped, not feature-scoped, so it is computed here rather than in the
+# has_requirement/has_design/has_plan block above — a constitution is present or absent regardless
+# of whether any feature is active. It also stays outside the --paths-only skip, like the two paths
+# above, because callers using that cheap mode still need it.
+has_constitution_local=false
+[ -f "$repo_root/$constitution_local" ] && has_constitution_local=true
 
 # ── --require feature gate (the one non-zero exit) ────────────────────────────
 if [ "$require" = "feature" ] && [ -z "$feature_slug" ]; then
@@ -184,6 +190,7 @@ jq -n \
   --arg next_number "$next_number" \
   --arg constitution_base "$constitution_base" \
   --arg constitution_local "$constitution_local" \
+  --argjson has_constitution_local "$has_constitution_local" \
   '{
     repo_root:          $repo_root,
     is_git_repo:        $is_git_repo,
@@ -200,6 +207,7 @@ jq -n \
     has_plan:           $has_plan,
     next_number:        $next_number,
     constitution_base:  (if $constitution_base=="" then null else $constitution_base end),
-    constitution_local: $constitution_local
+    constitution_local: $constitution_local,
+    has_constitution_local: $has_constitution_local
   }'
 exit 0

@@ -3,8 +3,11 @@
 **Version:** 1.0.0 · **Scope:** all repos using the doflow chain
 
 > The universal, non-negotiable rules every feature inherits. This is the **tier-1 base**;
-> each repo's `agent-docs/constitution.md` (tier-2) overlays it and **wins on conflict**.
-> Resolved (base ⊕ local) by `do-paths.sh`; enforced by `/do-plan`'s Constitution Check.
+> each repo's `agent-docs/constitution.md` (tier-2) overlays it and **takes precedence on
+> conflict**. `do-paths.sh` locates both tiers and reports whether tier-2 exists; the overlay
+> itself is performed by the chain skill reading both files, and `/do-plan`'s Constitution Check
+> records an **advisory** verdict. See `DOFLOW_CHAIN.md` → "Two-tier constitution" for what is
+> computed and what is convention.
 
 ## Principles
 
@@ -33,5 +36,9 @@ bad approaches with evidence.
 
 ## Governance
 - This base is versioned (semver). Tier-2 repo constitutions may **add** or **override** principles,
-  but may not weaken P1 (Safety).
-- `/do-plan` MUST evaluate its Constitution Check against the resolved (base ⊕ local) set and record PASS/FAIL.
+  but may not weaken P1 (Safety). *This constraint is stated to the reading agent; nothing
+  validates it, so a tier-2 file that weakened P1 would not be rejected by any check.*
+- `/do-plan` MUST evaluate its Constitution Check against both tiers together (tier-2 taking
+  precedence) and record PASS/FAIL. The verdict is **advisory** — it is recorded in `plan.md`
+  §2 "Constitution Check" and does not block work; the chain's one hard gate covers artifact
+  existence only.

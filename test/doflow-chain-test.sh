@@ -67,6 +67,39 @@ eq "constitution_base is null when no candidate exists" \
    "$(HOME="$FAKEHOME" "$CBPATHS" --paths-only | jq -r '.constitution_base // "null"')" \
    "null"
 
+echo "[resolver: constitution_local existence]"
+# has_constitution_local is repo-scoped, not feature-scoped, and must survive --paths-only. A naive
+# present/absent test passes even if the flag were computed inside the feature block or behind the
+# --paths-only skip, so both of those placements get their own assertion below.
+eq "has_constitution_local false when tier-2 absent" \
+   "$("$PATHS" | jq -r '.has_constitution_local')" "false"
+eq "constitution_local path still emitted when absent (do-constitution's create path needs it)" \
+   "$("$PATHS" | jq -r '.constitution_local')" "agent-docs/constitution.md"
+# Anchored to the scratch repo rather than the cwd, matching how every other scratch path in this
+# file is built. The assertions above still compare against the *relative* string, because that is
+# what the resolver emits.
+LOCALCON="$T/repo/agent-docs/constitution.md"
+mkdir -p "$(dirname "$LOCALCON")" && echo "# local" > "$LOCALCON"
+eq "has_constitution_local true when tier-2 present" \
+   "$("$PATHS" | jq -r '.has_constitution_local')" "true"
+eq "has_constitution_local survives --paths-only (not behind the cheap-mode skip)" \
+   "$("$PATHS" --paths-only | jq -r '.has_constitution_local')" "true"
+# Prove repo-scope by asking off a non-feature branch. Save and restore the branch: later tests in
+# this file depend on the scratch repo's branch state, and leaking a switch out of this block breaks
+# them.
+# The slug is empty only on a trunk name (main/master/develop/HEAD) — any other branch name becomes
+# a slug, which would leave feature_slug non-empty and defeat the point of this check. Borrow
+# `develop`; -B rather than -b so a pre-existing branch of that name is reset instead of erroring.
+ORIG_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+git checkout -q -B develop
+eq "no active feature on a trunk branch, so the next assertion really tests repo scope" \
+   "$("$PATHS" | jq -r '.feature_slug // "null"')" "null"
+eq "has_constitution_local correct with no active feature (repo-scoped, not feature-scoped)" \
+   "$("$PATHS" | jq -r '.has_constitution_local')" "true"
+git checkout -q "$ORIG_BRANCH"
+git branch -q -D develop
+rm -f "$LOCALCON"
+
 echo "[resolver: non-git root fallback]"
 # Reproduces the real bug: doflow installed at a container root above the actual git repos
 # (e.g. a multi-service workspace) has no branch to derive feature_slug from at all — resolution

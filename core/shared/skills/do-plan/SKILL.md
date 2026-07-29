@@ -42,14 +42,25 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
 2. **Precondition (advisory)** — if `has_requirement` or `has_design` is false, warn and offer to
    run `/do-brainstorm` / `/do-design` first. This gate is **advisory** (skippable), not the hard
    hook gate.
-3. **Read inputs** — `requirement.md`, `design.md`, and the resolved constitution
-   (`constitution_base` overlaid by `constitution_local`; local wins).
+3. **Read inputs** — `requirement.md`, `design.md`, and the constitution. Read `constitution_base`,
+   then read `constitution_local` **only when `has_constitution_local` is true** — use that flag,
+   never a filesystem check of your own (path math belongs to the resolver). You then reconcile the
+   two tiers yourself, tier-2 taking precedence: nothing hands you a merged set. See
+   `references/DOFLOW_CHAIN.md` → "Two-tier constitution" for what is computed and what is
+   convention.
 4. **Write `plan.md`, sections 1–7** — copy `$DOFLOW_CONFIG_DIR/templates/doflow/plan-template.md`
    into the feature
    dir, fill it: approach, research/decisions that resolve every `[NEEDS CLARIFICATION]` from the
    requirement, components, data/contracts, risks, validation strategy.
-5. **Constitution Check (gate)** — evaluate the plan against the resolved constitution. On a
-   violation, STOP and revise the approach before continuing. Record PASS/FAIL in the plan.
+   Structure the artifact per `references/ARTIFACT_FORMAT.md` — read it before filling the
+   template: index-then-detail for §4/§6, the closed `Live` / `Superseded → <ref>` status
+   vocabulary, and §9 History. Its §5 governs §8's `### Task Summary` rollup — the per-task
+   `- [ ]` checklist stays the single source of truth and is never mirrored into a per-task index.
+5. **Constitution Check (advisory gate)** — evaluate the plan against both tiers as reconciled in
+   step 3. On a violation, STOP and revise the approach before continuing, then record PASS/FAIL in
+   the plan. The verdict is **advisory**: it is recorded in `plan.md` §2 "Constitution Check" and nothing downstream
+   blocks on it — the chain's one hard gate covers artifact existence only. Stopping on a violation
+   is a discipline this skill observes, not something a hook enforces.
 6. **Decompose into Tasks (section 8)** — dependency-ordered, `[P]`-marked where parallel-safe,
    `[US#]`-traced to the requirement's user stories, owner+files named per task, with checkpoints
    and completion criteria. Set `depends-on:` on a task when it references a service (via its
@@ -70,7 +81,14 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    table: `primary` if it owns a task via `files:`, `dependency-only` if it's only ever reached via
    `depends-on:`. A single-repo result → `N/A: single-repo feature`. Derivation only — no branch is
    created here (`/do-execute-plan`'s job, lazily, per repo).
-8. **Stop** — report the plan path, Constitution Check result, the task count (`[P]`/sequential),
+8. **Validate** — run the advisory consistency check and surface any findings verbatim:
+   ```bash
+   bash "$DOFLOW_CONFIG_DIR/scripts/doflow/bash/validate-artifacts.sh" "<plan path>"
+   ```
+   This also verifies each `### Task Summary` rollup row against the `- [ ]` lines under its
+   `### Phase <X>` heading. Findings are reported to the user, never repaired automatically. A
+   non-zero exit is advisory and does not halt the chain.
+9. **Stop** — report the plan path, Constitution Check result, the task count (`[P]`/sequential),
    and the derived branch name/repo count when the Repo Branch Plan is populated.
 
 ## Boundaries
