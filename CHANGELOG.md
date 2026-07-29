@@ -15,6 +15,8 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-30
+
 ### Changed
 
 - **`code_quality_checker.py` now emits working-directory-relative paths** in its `--json` output
