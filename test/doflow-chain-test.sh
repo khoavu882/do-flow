@@ -20,7 +20,9 @@ command -v git >/dev/null 2>&1 || { echo "git required"; exit 1; }
 
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 FAKE="$T/claudehome"; mkdir -p "$FAKE/scripts/doflow/bash"
-cp "$BASH_SCRIPTS/do-paths.sh" "$BASH_SCRIPTS/do-prereqs.sh" "$BASH_SCRIPTS/sync-context.sh" "$FAKE/scripts/doflow/bash/"
+cp "$BASH_SCRIPTS/do-paths.sh" "$BASH_SCRIPTS/do-prereqs.sh" "$BASH_SCRIPTS/sync-context.sh" \
+   "$BASH_SCRIPTS/do-exec-paths.sh" "$BASH_SCRIPTS/do-task-brief.sh" \
+   "$BASH_SCRIPTS/do-review-package.sh" "$BASH_SCRIPTS/do-parallel-check.sh" "$FAKE/scripts/doflow/bash/"
 export CLAUDE_CONFIG_DIR="$FAKE"
 PATHS="$FAKE/scripts/doflow/bash/do-paths.sh"
 PREREQ="$FAKE/scripts/doflow/bash/do-prereqs.sh"
@@ -190,6 +192,158 @@ printf 'pointer v2' | "$SYNC" --file "$CTX" >/dev/null
 eq "single marker block (idempotent)" "$(grep -c 'DOFLOW START' "$CTX")" "1"
 eq "block updated to v2"               "$(grep -c 'pointer v2' "$CTX")" "1"
 eq "original content preserved"        "$(grep -c 'keep me' "$CTX")" "1"
+
+EXECPATHS="$FAKE/scripts/doflow/bash/do-exec-paths.sh"
+BRIEF="$FAKE/scripts/doflow/bash/do-task-brief.sh"
+PACKAGE="$FAKE/scripts/doflow/bash/do-review-package.sh"
+PARCHECK="$FAKE/scripts/doflow/bash/do-parallel-check.sh"
+
+cd "$T/repo" || exit 1
+git checkout -q feat/001-auth
+
+# Realistic artifacts: brief composition reads named sections of all three, so a fixture of
+# `echo r > requirement.md` would make every trace assertion vacuous rather than passing.
+cat > agent-docs/doflow/001-auth/requirement.md <<'FIXTURE'
+## 2. User Stories
+- **US1 (P1):** As a user, I want to log in, so that I can reach my account.
+  Continuation line that must survive.
+- **US2 (P2):** As an admin, I want an audit trail.
+## 3. Functional Requirements
+| ID | Requirement | Story | Priority | Status |
+|---|---|---|---|---|
+| FR-001 | login endpoint | US1 | P1 | Live |
+| FR-002 | audit record | US2 | P2 | Live |
+**Detail**
+- **FR-001:** The system MUST accept a POST with the exact field name `credential`.
+- **FR-002:** The system MUST write an audit row.
+## 4. Non-Functional Requirements
+| ID | Constraint | Kind | Status |
+|---|---|---|---|
+| NFR-001 | p95 under 200ms | performance | Live |
+**Detail**
+- **NFR-001 (Latency):** p95 under 200ms measured at the edge.
+## 5. Out of Scope
+FIXTURE
+cat > agent-docs/doflow/001-auth/design.md <<'FIXTURE'
+## 3. Components & Boundaries
+| ID | Component | Kind | Serves | Status |
+|---|---|---|---|---|
+| CMP1 | auth handler | service | FR-001 | Live |
+| CMP2 | audit writer | service | FR-002 | Live |
+**Detail**
+- **CMP1** → owns credential verification; does not own session storage.
+- **CMP2** → owns the audit row.
+## 4. API / Interface Contracts
+FIXTURE
+cat > agent-docs/doflow/001-auth/plan.md <<'FIXTURE'
+## 1. Approach
+Bottom-up: handler first, audit second.
+## 7. Validation Strategy
+| Requirement | Verified by |
+|---|---|
+| FR-001 | integration test on the login route |
+## 8. Tasks
+### Phase A — auth
+- [ ] A.1 [P] [US1] build the handler — owner: backend-architect; files: src/auth.js
+- [ ] A.2 [P] [US1] also writes auth.js — owner: backend-architect; files: src/auth.js, src/x.js
+- [ ] A.3 [P] [US2] disjoint — owner: backend-architect; files: src/audit.js
+- [ ] A.4 [US1] sequential, same file — owner: backend-architect; files: src/auth.js
+- [ ] A.5 [P] [US1] verification only — owner: devops-architect; files: none (verification only)
+### Phase B — later
+- [ ] B.1 [US9] traces a story that does not exist — owner: x; files: src/b.js
+### Checkpoints
+- After Phase A: run the suite; commit `feat: auth`
+FIXTURE
+
+echo "[do-exec-paths]"
+eq "workspace is exec/ inside the feature dir" \
+   "$("$EXECPATHS" --task=A.1 | jq -r '.workspace')" "agent-docs/doflow/001-auth/exec"
+eq "brief path is named per task" \
+   "$("$EXECPATHS" --task=A.1 | jq -r '.brief')" "agent-docs/doflow/001-auth/exec/task-A.1-brief.md"
+eq "report path is named per task" \
+   "$("$EXECPATHS" --task=A.1 | jq -r '.report')" "agent-docs/doflow/001-auth/exec/task-A.1-report.md"
+eq "workspace is created, not just named" "$([ -d agent-docs/doflow/001-auth/exec ] && echo yes)" "yes"
+# A task id becomes a filename, so traversal must be refused rather than sanitized: a silently
+# rewritten id writes a brief where its reader does not look.
+"$EXECPATHS" --task=../../etc/passwd >/dev/null 2>&1; eq "path traversal in task id -> exit 2" "$?" "2"
+eq "traversal reports invalid-task" \
+   "$("$EXECPATHS" --task=../../etc/passwd 2>/dev/null | jq -r '.error')" "invalid-task"
+"$EXECPATHS" >/dev/null 2>&1; eq "missing --task -> exit 2" "$?" "2"
+
+echo "[do-task-brief]"
+eq "traces the story from the task line"   "$("$BRIEF" --task=A.1 | jq -r '.traced.story')" "US1"
+eq "traces only FRs of that story"         "$("$BRIEF" --task=A.1 | jq -c '.traced.frs')" '["FR-001"]'
+eq "traces the component serving those FRs" "$("$BRIEF" --task=A.1 | jq -c '.traced.components')" '["CMP1"]'
+# NFRs bind every task, so all of them are copied regardless of which story the task traces.
+eq "copies every NFR as global constraints" "$("$BRIEF" --task=A.1 | jq -c '.traced.nfrs')" '["NFR-001"]'
+eq "different story traces different FRs"  "$("$BRIEF" --task=A.3 | jq -c '.traced.frs')" '["FR-002"]'
+eq "nothing missing on a complete trace"   "$("$BRIEF" --task=A.1 | jq -c '.missing')" '[]'
+# Present, not counted: the exact value legitimately appears in both the requirement detail and the
+# component boundary, so pinning a count would fail for a correct brief.
+eq "brief carries the exact value verbatim" \
+   "$(grep -q 'field name `credential`' agent-docs/doflow/001-auth/exec/task-A.1-brief.md && echo yes)" "yes"
+eq "story continuation line survives" \
+   "$(grep -c 'must survive' agent-docs/doflow/001-auth/exec/task-A.1-brief.md)" "1"
+eq "verification bar is included" \
+   "$(grep -c 'integration test on the login route' agent-docs/doflow/001-auth/exec/task-A.1-brief.md)" "1"
+# An unresolvable trace must be reported, not silently produce a thin brief that reads complete.
+eq "unresolvable story is reported in missing[]" \
+   "$("$BRIEF" --task=B.1 | jq -r '.missing | length > 0')" "true"
+"$BRIEF" --task=Z.9 >/dev/null 2>&1; eq "unknown task -> exit 3" "$?" "3"
+
+echo "[do-review-package]"
+echo change > src_a.txt; git add -A; git commit -q -m "first change"
+BASE_SHA="$(git rev-parse HEAD~1)"; HEAD_SHA="$(git rev-parse HEAD)"
+PKG="$("$PACKAGE" --task=A.1 --base="$BASE_SHA" --head="$HEAD_SHA")"
+eq "package counts the commits in range" "$(printf '%s' "$PKG" | jq -r '.commits')" "1"
+eq "package file exists"                 "$([ -f "$(printf '%s' "$PKG" | jq -r '.path')" ] && echo yes)" "yes"
+eq "package holds the diff body"          "$(grep -c '^## Diff' "$(printf '%s' "$PKG" | jq -r '.path')")" "1"
+# Named per RANGE, not per task: a re-review must not read the diff the first review already saw.
+eq "package is named per range" \
+   "$(printf '%s' "$PKG" | jq -r '.path' | grep -c "review-$(git rev-parse --short "$BASE_SHA")\.\.$(git rev-parse --short "$HEAD_SHA")\.diff")" "1"
+"$PACKAGE" --task=A.1 --base=deadbeef --head="$HEAD_SHA" >/dev/null 2>&1
+eq "bad base ref -> exit 2" "$?" "2"
+"$PACKAGE" --task=A.1 --base="$BASE_SHA" >/dev/null 2>&1
+eq "missing --head -> exit 2" "$?" "2"
+
+echo "[do-parallel-check]"
+PC="$("$PARCHECK" --phase=A)"
+eq "overlap on a shared file is detected" "$(printf '%s' "$PC" | jq -r '.parallel_safe')" "false"
+eq "both overlapping tasks are named"     "$(printf '%s' "$PC" | jq -c '.overlaps[0].tasks')" '["A.1","A.2"]'
+eq "the shared path is reported"          "$(printf '%s' "$PC" | jq -r '.overlaps[0].path')" "src/auth.js"
+eq "serialize lists exactly the offenders" "$(printf '%s' "$PC" | jq -c '.serialize')" '["A.1","A.2"]'
+# A sequential task cannot conflict with a sibling it never runs beside, so A.4 writing the same
+# file must NOT be flagged — treating it as a conflict would invent one and serialize needlessly.
+eq "sequential task on the same file is not flagged" \
+   "$(printf '%s' "$PC" | jq -r '[.overlaps[].tasks[]] | index("A.4") // "absent"')" "absent"
+eq "sequential tasks are still reported separately" \
+   "$(printf '%s' "$PC" | jq -c '.sequential_tasks')" '["A.4"]'
+# files: none contributes nothing to compare rather than colliding with everything.
+eq "verification-only task stays parallel" \
+   "$(printf '%s' "$PC" | jq -r '.parallel_tasks | index("A.5") != null')" "true"
+eq "disjoint-only phase is safe" "$("$PARCHECK" --phase=B | jq -r '.parallel_safe')" "true"
+"$PARCHECK" >/dev/null 2>&1; eq "missing --phase -> exit 2" "$?" "2"
+
+echo "[helpers: a failed write is an error, not a success]"
+# Both helpers emit a path in their success contract. Reporting one for a file that was never
+# written is worse than failing: the caller dispatches a subagent at nothing, and only a bytes/lines
+# of 0 hints at it. This is the case that was missed the first time round.
+# Remove the artifacts the earlier tests left behind before locking the directory: a read-only
+# directory blocks CREATING an entry, but rewriting a file that already exists needs permission on
+# the file, not on its directory — so leaving them in place would let the write succeed and make
+# these four assertions test nothing.
+rm -f agent-docs/doflow/001-auth/exec/task-A.1-brief.md agent-docs/doflow/001-auth/exec/review-*.diff
+chmod 500 agent-docs/doflow/001-auth/exec
+"$BRIEF" --task=A.1 >/dev/null 2>&1; eq "unwritable workspace: brief -> exit 2" "$?" "2"
+eq "unwritable workspace: brief reports write-failed" \
+   "$("$BRIEF" --task=A.1 2>/dev/null | jq -r '.error')" "write-failed"
+"$PACKAGE" --task=A.1 --base="$BASE_SHA" --head="$HEAD_SHA" >/dev/null 2>&1
+eq "unwritable workspace: package -> exit 2" "$?" "2"
+eq "unwritable workspace: package reports write-failed" \
+   "$("$PACKAGE" --task=A.1 --base="$BASE_SHA" --head="$HEAD_SHA" 2>/dev/null | jq -r '.error')" "write-failed"
+chmod 700 agent-docs/doflow/001-auth/exec
+eq "writable again: brief succeeds"   "$("$BRIEF" --task=A.1 | jq -r '.traced.story')" "US1"
+eq "writable again: package succeeds" "$("$PACKAGE" --task=A.1 --base="$BASE_SHA" --head="$HEAD_SHA" | jq -r '.commits')" "1"
 
 echo ""
 echo "[Results] $PASS passed, $FAIL failed"

@@ -323,18 +323,20 @@
           "verification": "Report the shared-prompt projection and native limitations."
         },
         "scripts": {
-          "status": "unavailable",
+          "status": "supported",
           "evidence": [
-            "https://geminicli.com/docs/"
+            "https://geminicli.com/docs/reference/tools",
+            "https://geminicli.com/docs/cli/creating-skills"
           ],
-          "verification": "Report the capability gap; do not install scripts."
+          "verification": "Confirm run_shell_command executes an installed helper and that a bundled skill scripts/ directory is reachable."
         },
         "templates": {
-          "status": "unavailable",
+          "status": "supported",
           "evidence": [
-            "https://geminicli.com/docs/"
+            "https://geminicli.com/docs/cli/creating-skills",
+            "https://geminicli.com/docs/cli/skills-best-practices"
           ],
-          "verification": "Report the capability gap; do not install templates."
+          "verification": "Confirm the installed template tree is readable by the agent."
         },
         "modes": {
           "status": "different",

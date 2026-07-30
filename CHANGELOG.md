@@ -15,6 +15,76 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-30
+
+### Fixed
+
+- **A project-scoped Gemini install loaded none of the shared guidance.** The pointer source carries
+  one hardcoded `../`, and the adapter copied it verbatim — but Gemini reads a project-level
+  `GEMINI.md` from the workspace *root*, so the import resolved one level above the install at a path
+  that does not exist. `PRINCIPLES.md`, `FLAGS.md`, `MCP_INDEX.md` and all four `RULE_0*` files
+  silently never loaded, while the install reported success because the file was written correctly
+  and only its content aimed at nothing. The prefix depends on **scope**, not harness — Gemini's
+  instruction file is one level deep globally and zero deep in a project — so no static pointer can
+  satisfy both; it is now computed at render time from `guidance.context-layer`'s `nativeDir`. Claude
+  is deliberately untouched: its instruction file is always one level deep in both scopes, so `../`
+  is always correct there.
+
+### Added
+
+- **`subagent-driven` skill** — the task-execution engine `do-execute-plan` now delegates its
+  per-task loop to: one fresh subagent per task, a review returning **both** a spec-compliance and a
+  code-quality verdict, and a bounded three-round fix loop (rounds 1–2 resume the implementer that
+  holds the context, round 3 escalates a tier) with a circuit breaker that forces an explicit
+  recorded ruling on every finding still open at the cap. Previously a task was checked off on its
+  tests alone, so a task that passed its tests while missing a traced requirement was not caught
+  until the end-of-chain review. Prompt bodies live in three bundled templates
+  (`implementer-prompt.md`, `task-reviewer-prompt.md`, `re-review-prompt.md`) rather than inflating
+  the skill file. Carries `disable-model-invocation: true`: it is a dispatch loop, and one supported
+  harness blocks a subagent from dispatching further subagents outright.
+- **Four deterministic helpers** under `scripts/doflow/bash/`, all `--json` like the existing
+  resolver: `do-exec-paths.sh` (the single source of truth for a task's brief/report/workspace paths),
+  `do-task-brief.sh` (composes a brief from plan/requirement/design — a DoFlow task is one checklist
+  line, so a brief is composed rather than extracted, and `requirement.md`'s NFR section supplies the
+  global-constraints block), `do-review-package.sh` (commit list + stat + diff to a file named per
+  range, so a re-review never re-reads the diff the first review saw), and `do-parallel-check.sh`.
+- **`references/MODEL_SELECTION.md`** — one home for tier-selection policy, loaded on demand by both
+  dispatch surfaces so the tiers cannot drift between them. Tiers are named by capability, never by
+  vendor model name, because rosters differ per harness and turn over faster than shipped guidance.
+- **`--sync` and `--review`/`--no-review` on `do-execute-plan`** — `--sync` runs every selected task
+  serially regardless of `[P]` and reports that fan-out was suppressed. The review flags resolve a
+  tri-state defaulting to *auto*: on for `--all`, off for `--next`/`--phase`.
+- **Write-set disjointness precheck** — `[P]` asserted at plan time that a task's `files:` set did not
+  overlap its phase siblings', and nothing verified it; two agents dispatched onto one file lose an
+  edit silently. `do-parallel-check.sh` turns the claim into a check, and a sequential sibling
+  writing the same file is correctly not flagged, since it never runs alongside one.
+- **Task Ledger and Findings sections in `state-template.md`** — per-task commit range, rounds used
+  and review outcome, plus a home for parked rulings and deferred minors so no finding is discarded
+  silently. The `Plan:` field is now documented as the record's identity: a record naming a different
+  plan belongs to another run.
+
+### Changed
+
+- **Gemini now receives the helper-script and template trees.** Both capabilities were declared
+  `unavailable` against a generic docs root, so no Gemini install got them — while every chain skill
+  resolves its paths through `do-paths.sh`. Gemini CLI documents an executable `scripts/` directory
+  in its own skill layout and a shell-execution tool to run it; the declarations now carry those
+  specific pages as evidence. Verified end to end against Gemini CLI 0.50.0: a real install lands
+  every helper and template, and an installed helper executes from its installed location. This is
+  the same class of error as the Gemini `hooks` entry corrected in v0.8.0, and `test/guards/registry.test.js`
+  (G5) is what would have caught a half-applied change — `validateRegistry` also refuses to render an
+  unavailable capability, so the projection and the declaration cannot move independently.
+- **`do-plan` now marks `[P]` by default** wherever a task's `files:` set is disjoint from its phase
+  siblings', making an unmarked task the exception that owes a reason. The marker's syntax and
+  meaning are unchanged — unmarked still means sequential. Inverting it was rejected deliberately:
+  every deliberately unmarked task in an existing plan would have been reinterpreted as
+  parallel-safe, which fails unsafe.
+- **`parallel-agents` hardened**, additively — the mechanic that actually produces concurrency
+  (dispatches issued together in one response run in parallel; one per response runs sequentially),
+  why isolation cuts both ways, a worked exemplar dispatch, anti-pattern pairs, a pointer to the
+  model-selection policy, and a spot-check rule for correlated errors: agents given similar prompts
+  fail in similar ways, so N agreeing summaries are not evidence.
+
 ## [0.12.0] - 2026-07-30
 
 ### Changed

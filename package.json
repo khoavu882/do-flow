@@ -1,12 +1,20 @@
 {
   "name": "doflow",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "DoFlow config installer — npx CLI for the registry-driven multi-harness install/update/remove lifecycle",
-  "bin": { "doflow": "bin/doflow.js" },
-  "engines": { "node": ">=18" },
+  "bin": {
+    "doflow": "bin/doflow.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "test": "node --test"
   },
-  "files": ["bin/", "src/", "core/"],
+  "files": [
+    "bin/",
+    "src/",
+    "core/"
+  ],
   "license": "MIT"
 }
