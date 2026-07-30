@@ -116,7 +116,18 @@ detail_for() { # detail_for <file> <section-regex> <id>
   '
 }
 
+# Components serving the traced FRs, resolved once — the brief body and the emitted JSON both
+# need this list, and computing it twice is how the two drift apart.
+components=""
+if [ -n "$frs" ] && [ -f "$des_abs" ]; then
+  components="$(for fr in $frs; do
+    section "$des_abs" '^## 3[.]' | awk -F'|' -v fr="$fr" '
+      /^\| *CMP/ { if ($5 ~ fr) { id = $2; gsub(/^[ \t]+|[ \t]+$/, "", id); print id } }'
+  done | sort -u)"
+fi
+
 # ── compose ───────────────────────────────────────────────────────────────────
+write_ok=1
 {
   echo "# Task brief: $task_id"
   echo
@@ -161,13 +172,10 @@ detail_for() { # detail_for <file> <section-regex> <id>
     echo
   fi
 
-  if [ -n "$frs" ] && [ -f "$des_abs" ]; then
+  if [ -n "$components" ]; then
     echo "## Component boundary"
     echo
-    for fr in $frs; do
-      section "$des_abs" '^## 3[.]' | awk -F'|' -v fr="$fr" '
-        /^\| *CMP/ { if ($5 ~ fr) { id = $2; gsub(/^[ \t]+|[ \t]+$/, "", id); print id } }'
-    done | sort -u | while read -r cmp; do
+    printf '%s\n' "$components" | while read -r cmp; do
       [ -n "$cmp" ] && detail_for "$des_abs" '^## 3[.]' "$cmp"
     done
     echo
@@ -180,15 +188,18 @@ detail_for() { # detail_for <file> <section-regex> <id>
   done
   [ -n "$phase_letter" ] && grep -F "After Phase $phase_letter:" "$plan_abs" || true
   echo
-} > "$brief_abs"
+} > "$brief_abs" || write_ok=0
+
+# Reporting a path for a brief that was never written is worse than failing: the caller
+# dispatches an implementer at nothing. A real brief always has its title, so empty means the
+# write did not survive.
+if [ "${write_ok:-1}" -eq 0 ] || [ ! -s "$brief_abs" ]; then
+  jq -n --arg path "$brief_rel" \
+    '{error:"write-failed", path:$path, hint:"the task brief could not be written — check the workspace is writable"}'
+  exit 2
+fi
 
 lines="$(wc -l < "$brief_abs" | tr -d ' ')"
-components="$(if [ -n "$frs" ] && [ -f "$des_abs" ]; then
-  for fr in $frs; do
-    section "$des_abs" '^## 3[.]' | awk -F'|' -v fr="$fr" '
-      /^\| *CMP/ { if ($5 ~ fr) { id = $2; gsub(/^[ \t]+|[ \t]+$/, "", id); print id } }'
-  done | sort -u
-fi)"
 nfrs="$(if [ -f "$req_abs" ]; then section "$req_abs" '^## 4[.]' | grep -o '^| *NFR-[0-9]*' | tr -d '| ' ; fi)"
 
 to_json_array() { if [ -z "$1" ]; then echo '[]'; else printf '%s\n' "$1" | jq -R . | jq -s .; fi; }

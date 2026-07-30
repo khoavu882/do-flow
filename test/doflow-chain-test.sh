@@ -324,6 +324,27 @@ eq "verification-only task stays parallel" \
 eq "disjoint-only phase is safe" "$("$PARCHECK" --phase=B | jq -r '.parallel_safe')" "true"
 "$PARCHECK" >/dev/null 2>&1; eq "missing --phase -> exit 2" "$?" "2"
 
+echo "[helpers: a failed write is an error, not a success]"
+# Both helpers emit a path in their success contract. Reporting one for a file that was never
+# written is worse than failing: the caller dispatches a subagent at nothing, and only a bytes/lines
+# of 0 hints at it. This is the case that was missed the first time round.
+# Remove the artifacts the earlier tests left behind before locking the directory: a read-only
+# directory blocks CREATING an entry, but rewriting a file that already exists needs permission on
+# the file, not on its directory — so leaving them in place would let the write succeed and make
+# these four assertions test nothing.
+rm -f agent-docs/doflow/001-auth/exec/task-A.1-brief.md agent-docs/doflow/001-auth/exec/review-*.diff
+chmod 500 agent-docs/doflow/001-auth/exec
+"$BRIEF" --task=A.1 >/dev/null 2>&1; eq "unwritable workspace: brief -> exit 2" "$?" "2"
+eq "unwritable workspace: brief reports write-failed" \
+   "$("$BRIEF" --task=A.1 2>/dev/null | jq -r '.error')" "write-failed"
+"$PACKAGE" --task=A.1 --base="$BASE_SHA" --head="$HEAD_SHA" >/dev/null 2>&1
+eq "unwritable workspace: package -> exit 2" "$?" "2"
+eq "unwritable workspace: package reports write-failed" \
+   "$("$PACKAGE" --task=A.1 --base="$BASE_SHA" --head="$HEAD_SHA" 2>/dev/null | jq -r '.error')" "write-failed"
+chmod 700 agent-docs/doflow/001-auth/exec
+eq "writable again: brief succeeds"   "$("$BRIEF" --task=A.1 | jq -r '.traced.story')" "US1"
+eq "writable again: package succeeds" "$("$PACKAGE" --task=A.1 --base="$BASE_SHA" --head="$HEAD_SHA" | jq -r '.commits')" "1"
+
 echo ""
 echo "[Results] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] && { echo "ALL DOFLOW CHAIN TESTS PASSED ✓"; exit 0; } || exit 1

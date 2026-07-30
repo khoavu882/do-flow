@@ -74,6 +74,7 @@ head7="$(git rev-parse --short "$head_ref")"
 out_rel="$workspace/review-$base7..$head7.diff"
 out_abs="$repo_root/$out_rel"
 
+write_ok=1
 {
   echo "# Review package: $base7..$head7"
   echo
@@ -85,7 +86,17 @@ out_abs="$repo_root/$out_rel"
   echo
   echo "## Diff"
   git diff -U10 "$base..$head_ref"
-} > "$out_abs" 2>/dev/null
+} > "$out_abs" 2>/dev/null || write_ok=0
+
+# Reporting a path for a file that was never written is worse than failing: the caller
+# dispatches a reviewer at nothing, and the reviewer's own fallback re-derives the diff in
+# its context — the exact cost this package exists to avoid. A real package always has its
+# header, so empty means the write did not survive.
+if [ "$write_ok" -eq 0 ] || [ ! -s "$out_abs" ]; then
+  jq -n --arg path "$out_rel" \
+    '{error:"write-failed", path:$path, hint:"the review package could not be written — check the workspace is writable"}'
+  exit 2
+fi
 
 commits="$(git rev-list --count "$base..$head_ref" 2>/dev/null || echo 0)"
 bytes="$(wc -c < "$out_abs" 2>/dev/null | tr -d ' ')"
