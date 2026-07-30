@@ -51,6 +51,17 @@ test('generates capability-map records with evidence and explicit gaps', () => {
   // now catches this class directly by comparing the declaration against what actually deploys.
   assert.equal(geminiHooks.status, 'supported');
   assert.ok(geminiHooks.evidence.every((url) => url.startsWith('https://')));
+  // Same class as the hooks entry above: declared 'unavailable' against a generic docs root while
+  // Gemini CLI documents both an executable skill `scripts/` directory and a shell-execution tool.
+  // The projection and the declaration must move together — validateRegistry refuses to render an
+  // unavailable capability, so a half-applied change cannot load at all.
+  for (const capability of ['scripts', 'templates']) {
+    const row = map.find((item) => item.harness === 'gemini' && item.capability === capability);
+    assert.equal(row.status, 'supported', `gemini.${capability} must not be declared unavailable while it deploys`);
+    assert.ok(row.evidence.length > 0 && row.evidence.every((url) => url.startsWith('https://')));
+    assert.ok(row.evidence.some((url) => url !== 'https://geminicli.com/docs/'),
+      `gemini.${capability} evidence must cite a specific page, not the docs root`);
+  }
 });
 
 test('fails closed for malformed JSON-compatible YAML', () => {

@@ -16,6 +16,7 @@ This is the compact lookup for DoFlow. Each skill's `SKILL.md` is the implementa
 | Set project rules | `do-constitution` |
 | Choose available tools | `do-select-tool` |
 | Coordinate independent work | `parallel-agents` |
+| Execute a plan's tasks with review | `subagent-driven` |
 | Apply background safeguards | `confidence-check` |
 
 ### Common commands
@@ -31,7 +32,7 @@ This is the compact lookup for DoFlow. Each skill's `SKILL.md` is the implementa
 | `/do-git --smart-commit` | Prepare an accurate commit |
 | `/do-document "topic" --type guide` | Create or revise documentation |
 
-The full installed skill set is: `confidence-check`, `do`, `do-analyze`, `do-brainstorm`, `do-build`, `do-code-review`, `do-constitution`, `do-design`, `do-document`, `do-estimate`, `do-execute-plan`, `do-explain`, `do-flow`, `do-git`, `do-help`, `do-implement`, `do-improve`, `do-index`, `do-plan`, `do-pm`, `do-reflect`, `do-research`, `do-select-tool`, `do-spec-panel`, `do-test`, `do-troubleshoot`, and `parallel-agents`.
+The full installed skill set is: `confidence-check`, `do`, `do-analyze`, `do-brainstorm`, `do-build`, `do-code-review`, `do-constitution`, `do-design`, `do-document`, `do-estimate`, `do-execute-plan`, `do-explain`, `do-flow`, `do-git`, `do-help`, `do-implement`, `do-improve`, `do-index`, `do-plan`, `do-pm`, `do-reflect`, `do-research`, `do-select-tool`, `do-spec-panel`, `do-test`, `do-troubleshoot`, `parallel-agents`, and `subagent-driven`.
 
 ## Agents
 

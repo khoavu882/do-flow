@@ -41,6 +41,75 @@ test('preserves foreign GEMINI.md and reports unsupported policy automation plus
   assert.equal(planned.surfaces.extensions.status, 'different');
 });
 
+// The helper-script and template trees were declared 'unavailable' for Gemini against a generic
+// docs root, so no install received them — while every chain skill resolves its paths through
+// do-paths.sh. This pins the projection so the gap cannot silently reopen.
+test('projects the shared helper-script and template trees into the doflow directory', () => {
+  const { loadRegistry, selectAssets, harnessFor } = require('../src/registry');
+  const { projectAdapterInput } = require('../src/adapters');
+  const repoRoot = path.resolve(__dirname, '..');
+  const registry = loadRegistry({ repoRoot });
+  const harness = harnessFor(registry, 'gemini');
+  const adapter = createGeminiAdapter();
+
+  for (const capability of ['scripts', 'templates']) {
+    // selectAssets filters out unavailable capabilities, so this returning an asset at all is the
+    // behavioural difference: while the declaration said 'unavailable', no Gemini install could
+    // receive the tree — and every chain skill resolves its paths through do-paths.sh.
+    const selected = selectAssets(registry, { harness: 'gemini', capability });
+    assert.equal(selected.length, 1, `gemini must receive exactly one ${capability} asset`);
+    const root = scratch();
+    const input = projectAdapterInput({
+      registry, harness, scope: 'global', scopeRoot: root, assets: selected, context: { repoRoot, homeDir: root },
+    });
+    assert.equal(input.assets[0].renderer, 'copy-tree');
+    const planned = adapter.plan({ ...input, ledger: { resources: [] } });
+    assert.equal(planned.conflicts.length, 0);
+    assert.ok(planned.changes.length > 0, `${capability} projection planned no files`);
+    // nativeDir escapes .gemini/ on purpose: the tree is harness-neutral and shared, exactly as for
+    // the other two harnesses, so all three read helpers and templates from one location.
+    for (const change of planned.changes) {
+      assert.ok(change.target.startsWith(path.join(root, '.doflow', capability)),
+        `${capability} must land in .doflow/${capability}, got ${change.target}`);
+    }
+  }
+});
+
+// The pointer source carries one hardcoded `../`, correct only when the instruction file sits a
+// level below the install root. Gemini reads a project-level GEMINI.md from the workspace ROOT, so
+// that prefix pointed above the install and the entire guidance chain silently failed to load —
+// the install still reported success, because the file was written correctly and only its content
+// aimed at nothing. Depth varies by SCOPE, not by harness, so no static pointer can satisfy both.
+test('the guidance import resolves from wherever GEMINI.md lands, in either scope', () => {
+  const { loadRegistry, selectAssets, harnessFor } = require('../src/registry');
+  const { projectAdapterInput } = require('../src/adapters');
+  const repoRoot = path.resolve(__dirname, '..');
+  const registry = loadRegistry({ repoRoot });
+  const harness = harnessFor(registry, 'gemini');
+  const adapter = createGeminiAdapter();
+  const selected = selectAssets(registry, { harness: 'gemini' })
+    .filter((a) => ['guidance.core', 'guidance.context-layer'].includes(a.id));
+
+  for (const scope of ['project', 'global']) {
+    const root = scratch();
+    const input = projectAdapterInput({
+      registry, harness, scope, scopeRoot: root, assets: selected, context: { repoRoot, homeDir: root },
+    });
+    const planned = adapter.plan({ ...input, ledger: { resources: [] } });
+    const instruction = planned.changes.find((c) => c.assetId === 'guidance.core');
+    assert.ok(instruction, `${scope}: no instruction change planned`);
+
+    const imported = instruction.content.split('\n').find((l) => l.startsWith('@'));
+    assert.ok(imported, `${scope}: rendered instruction has no @import`);
+    // Resolve the emitted path the way the agent will: relative to the file's own directory.
+    const resolved = path.resolve(path.dirname(instruction.target), imported.slice(1).trim());
+    const expected = path.resolve(nativePaths({ scope, scopeRoot: root, homeDir: root }).configDir,
+      '../.doflow/guidance/DOFLOW_CORE.md');
+    assert.equal(resolved, expected,
+      `${scope}: '${imported}' from ${instruction.target} resolves to ${resolved}, not the installed guidance tree`);
+  }
+});
+
 test('remove strips only the managed section, preserving foreign content on both sides', () => {
   const root = scratch(); const adapter = createGeminiAdapter();
   const install = adapter.plan({ scope: 'project', scopeRoot: root, assets, context: { instructionContent: '# DoFlow' } });

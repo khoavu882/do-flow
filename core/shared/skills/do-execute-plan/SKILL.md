@@ -1,7 +1,7 @@
 ---
 name: do-execute-plan
 description: "Execute plan.md's embedded task checklist: pm-agent orchestration over named specialists with the implement-phase prerequisite gate."
-argument-hint: "[--next|--phase N|--all|--resume|--dry-run|--contracts] [--safe]"
+argument-hint: "[--next|--phase N|--all|--resume|--dry-run|--contracts] [--safe] [--sync] [--review|--no-review]"
 effort: high
 ---
 
@@ -12,8 +12,13 @@ the active feature.
 
 ## Invocation
 ```text
-/do-execute-plan [--next|--phase N|--all|--resume|--dry-run|--contracts] [--safe]
+/do-execute-plan [--next|--phase N|--all|--resume|--dry-run|--contracts] [--safe] [--sync] [--review|--no-review]
 ```
+
+`--sync` runs every selected task serially, ignoring `[P]`. `--review` / `--no-review` force the
+per-task review loop on or off; the default is **auto** — on for `--all`, off for `--next` and
+`--phase`. Both are passed through to `/subagent-driven` rather than re-derived there, so a delegated
+run and a standalone one behave identically.
 
 ## Behavioral Flow
 **Cross-client clarification:** Every `AskUserQuestion` reference below means the mechanism in
@@ -90,11 +95,21 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    description>` or `feat/<slug>` — if this repo has no row there): exists → checkout, record
    `existing`; absent → `git checkout -b <planned-branch>`, record `created`. A `created`/`existing`
    row is trusted as-is on later visits — no re-check.
-7. **Orchestrate (pm-agent)** — dispatch each task to its owning specialist (backend-architect,
-   security-engineer, quality-engineer, …) via the Agent tool:
-   - **`[P]`, dependency-ready** tasks → fan out concurrently with `/parallel-agents`; subagents
-     return **summaries only** (protects the main context).
-   - **sequential / dependent** tasks → run in dependency order.
+7. **Delegate the task loop to `/subagent-driven`** — it owns per-task execution: composing each
+   brief, dispatching the owning specialist, reviewing the result for spec compliance and quality,
+   running the bounded fix loop, and adjudicating at the cap. Pass the selected task set, the
+   resolved feature slug, and the resolved `--sync` / review mode; do not re-derive them there.
+   Report the resolved review mode, so whether a task was reviewed is never ambiguous afterwards.
+
+   Before any concurrent dispatch, run the write-set precheck — `[P]` is a plan-time claim that
+   nothing verified, and two agents on one file lose an edit silently:
+   ```bash
+   bash "$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-parallel-check.sh" --phase=<X>   # add --slug= if step 1 disambiguated
+   ```
+   Fan out only the tasks it reports safe; **serialize everything in its `serialize[]` and say which
+   tasks were serialized and why.** With `--sync`, skip fan-out entirely and report that it was
+   suppressed — a silent serial run is indistinguishable from a plan with no parallel-safe work.
+   Subagents return **summaries only**; artifacts move as file paths, never as prompt bodies.
 8. **Validate then record** — run the task/phase validation; check the `- [ ]` box in `plan.md`;
    update `state.md` (seed from `$DOFLOW_CONFIG_DIR/templates/doflow/state-template.md` on first
    write if absent;
@@ -110,8 +125,9 @@ the task-hierarchy and delegation posture it sets. That file is loaded on demand
 so skipping the read silently drops the posture it defines.
 
 ## Boundaries
-**Will:** enforce the prereq gate, orchestrate named specialists over `plan.md`'s task checklist,
-fan out `[P]` work, validate, keep `state.md` resumable, generate a per-dependency-service code
+**Will:** enforce the prereq gate, select work, delegate the per-task loop to `/subagent-driven`,
+verify write-set disjointness before fanning out `[P]` work, validate, keep `state.md` resumable
+(including its Task Ledger), generate a per-dependency-service code
 frame — signatures, type/data shapes, and a pinned safe-default implementation, in the inferred
 language (`--contracts`) — and lazily create/check out each repo's branch (step 6).
 **Will Not:** generate the requirement/design/plan (use `/do-brainstorm`, `/do-design`,
