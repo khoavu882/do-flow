@@ -15,6 +15,21 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-30
+
+### Fixed
+
+- **A project-scoped Gemini install loaded none of the shared guidance.** The pointer source carries
+  one hardcoded `../`, and the adapter copied it verbatim — but Gemini reads a project-level
+  `GEMINI.md` from the workspace *root*, so the import resolved one level above the install at a path
+  that does not exist. `PRINCIPLES.md`, `FLAGS.md`, `MCP_INDEX.md` and all four `RULE_0*` files
+  silently never loaded, while the install reported success because the file was written correctly
+  and only its content aimed at nothing. The prefix depends on **scope**, not harness — Gemini's
+  instruction file is one level deep globally and zero deep in a project — so no static pointer can
+  satisfy both; it is now computed at render time from `guidance.context-layer`'s `nativeDir`. Claude
+  is deliberately untouched: its instruction file is always one level deep in both scopes, so `../`
+  is always correct there.
+
 ### Added
 
 - **`subagent-driven` skill** — the task-execution engine `do-execute-plan` now delegates its
