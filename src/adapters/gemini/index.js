@@ -66,12 +66,34 @@ function managedInstruction(existing, rendered) {
   return { ok: true, operation: content === existing ? 'none' : 'merge', content };
 }
 
-function instructionContent({ assets, context, fsImpl = fs }) {
+/**
+ * Rewrite the pointer's guidance import so it resolves from wherever the instruction file
+ * actually lands. The shared pointer source carries one hardcoded `../`, which is correct only
+ * when the instruction file sits one level below the install root — true for Gemini's global
+ * scope (`.gemini/GEMINI.md`) and false for its project scope, where Gemini reads `GEMINI.md`
+ * from the workspace root itself. A static prefix cannot satisfy both, because the depth varies
+ * by scope rather than by harness, so it is computed here instead. Left unrewritten, the import
+ * pointed above the install root and the whole guidance chain silently failed to load.
+ */
+function rewriteGuidanceImport(content, assets, paths) {
+  const guidance = assets.find((item) => item.id === 'guidance.context-layer');
+  if (!guidance?.nativeDir || !paths?.instruction || !paths?.configDir) return content;
+  const guidanceDir = path.resolve(paths.configDir, guidance.nativeDir);
+  const rel = path.relative(path.dirname(paths.instruction), guidanceDir).split(path.sep).join('/');
+  if (!rel) return content;
+  // `./` is added explicitly for a same-directory descent: the bare form starts with the dot of
+  // `.doflow`, which reads as an extension rather than a path segment.
+  const prefix = rel.startsWith('../') ? rel : `./${rel}`;
+  return content.replace(/@\S*?(DOFLOW_CORE\.md)/g, `@${prefix}/$1`);
+}
+
+function instructionContent({ assets, context, paths, fsImpl = fs }) {
   if (context.instructionContent !== undefined) return String(context.instructionContent);
   const asset = assets.find((item) => item.id === 'guidance.core');
   if (!asset || !context.repoRoot) return null;
   const source = path.resolve(context.repoRoot, asset.source);
-  return fsImpl.existsSync(source) ? fsImpl.readFileSync(source, 'utf8') : null;
+  if (!fsImpl.existsSync(source)) return null;
+  return rewriteGuidanceImport(fsImpl.readFileSync(source, 'utf8'), assets, paths);
 }
 
 function policyStatuses(policies = []) {
@@ -186,7 +208,7 @@ function plan({ scope, scopeRoot, assets = [], mcp = [], discovery, context = {}
       changes.push({ assetId: 'guidance.core', target: found.paths.instruction, operation: 'remove', ownershipIdentity: 'gemini:instructions', projection: { renderer: 'gemini-instructions' } });
     }
   } else {
-    const content = instructionContent({ assets, context, fsImpl });
+    const content = instructionContent({ assets, context, paths: found.paths, fsImpl });
     if (content !== null) {
       const next = managedInstruction(found.instruction, render({ content }));
       if (!next.ok) conflicts.push(next.conflict);
