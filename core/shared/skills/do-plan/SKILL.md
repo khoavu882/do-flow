@@ -61,9 +61,16 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    the plan. The verdict is **advisory**: it is recorded in `plan.md` §2 "Constitution Check" and nothing downstream
    blocks on it — the chain's one hard gate covers artifact existence only. Stopping on a violation
    is a discipline this skill observes, not something a hook enforces.
-6. **Decompose into Tasks (section 8)** — dependency-ordered, `[P]`-marked where parallel-safe,
-   `[US#]`-traced to the requirement's user stories, owner+files named per task, with checkpoints
-   and completion criteria. Set `depends-on:` on a task when it references a service (via its
+6. **Decompose into Tasks (section 8)** — dependency-ordered, `[US#]`-traced to the requirement's
+   user stories, owner+files named per task, with checkpoints and completion criteria.
+   **Mark `[P]` by default:** parallel execution is the framework default, so apply `[P]` to every
+   task whose `files:` set is disjoint from its phase siblings' and leave it off only where a real
+   dependency forces the order — an unmarked task is the exception that owes a reason, not the norm.
+   Siblings that write any path in common are not parallel-safe however independent they otherwise
+   look, so compare the actual `files:` sets rather than judging by description. Do not change the
+   marker's syntax or meaning: unmarked still means sequential, which is what keeps plans written
+   before this rule behaving as they always did.
+   Set `depends-on:` on a task when it references a service (via its
    `files:` or description) that has no owning task in this plan and is external to what the plan
    builds. When such a dependency has no local repo at all (a vendor API, a SaaS integration) but
    *does* have a documented contract, also set `contract-doc:` pointing to a doc built from
