@@ -47,6 +47,42 @@ canonicalize_path() {
 
 # ── with_file_lock ───────────────────────────────────────────────────────────
 
+# Internal: break in on $1 (a lock directory) if it looks abandoned — its
+# recorded owner PID is no longer alive, or it's older than 5x the caller's
+# timeout (floored at 30s so short test timeouts don't make legitimately-held
+# locks look stale). Best-effort: mkdir-based locking has no kernel-enforced
+# ownership the way flock did, so a PID can in principle be reused by an
+# unrelated process — the age check is the backstop for that race. The
+# guarded section this protects (session-log trimming) tolerates a rare
+# double-run; this is a soft safety net against a lock leaking forever after
+# its owner is SIGKILLed, not a hard mutual-exclusion guarantee.
+_with_file_lock_break_if_stale() {
+  local lockfile="$1"
+  local timeout_seconds="$2"
+
+  local owner_pid=""
+  [ -f "$lockfile/pid" ] && owner_pid=$(cat "$lockfile/pid" 2>/dev/null || true)
+  local owner_dead=0
+  if [ -n "$owner_pid" ] && ! kill -0 "$owner_pid" 2>/dev/null; then
+    owner_dead=1
+  fi
+
+  local too_old=0
+  local mtime
+  mtime=$(stat -f %m "$lockfile" 2>/dev/null || stat -c %Y "$lockfile" 2>/dev/null || echo "")
+  if [ -n "$mtime" ]; then
+    local max_age=$((timeout_seconds * 5))
+    [ "$max_age" -lt 30 ] && max_age=30
+    if [ $(($(date +%s) - mtime)) -gt "$max_age" ]; then
+      too_old=1
+    fi
+  fi
+
+  if [ "$owner_dead" -eq 1 ] || [ "$too_old" -eq 1 ]; then
+    rm -rf "$lockfile" 2>/dev/null || true
+  fi
+}
+
 # Acquire a lock via atomic `mkdir` (atomic on every filesystem DoFlow runs
 # on, including NTFS via MSYS2) — replaces `flock -x -w 5 200`, which is
 # util-linux-only and confirmed absent entirely on macOS.
@@ -62,27 +98,57 @@ canonicalize_path() {
 #   fi
 #
 # Returns 1 (without acquiring the lock) if timeout_seconds elapses first.
+# A lock whose owner process is gone, or that has sat far longer than the
+# caller's own timeout, is treated as abandoned and broken into rather than
+# waited out (see _with_file_lock_break_if_stale) — a `flock`-held lock was
+# always released by the kernel on process death; a bare `mkdir` lock is not,
+# so this replaces that guarantee instead of silently dropping it.
+#
+# Any EXIT trap the caller already had installed (e.g. its own temp-file
+# cleanup) is preserved: it still runs at real process exit (after this
+# lock's own cleanup), and is still armed as the active EXIT trap after an
+# explicit "release" call — acquiring/releasing this lock never discards it.
 with_file_lock() {
   local lockfile="$1"
   local arg="$2"
 
   if [ "$arg" = "release" ]; then
+    rm -f "$lockfile/pid" 2>/dev/null || true
     rmdir "$lockfile" 2>/dev/null || true
-    trap - EXIT
+    if [ -n "${_DOFLOW_LOCK_PREV_TRAP:-}" ]; then
+      eval "$_DOFLOW_LOCK_PREV_TRAP"
+    else
+      trap - EXIT
+    fi
+    unset _DOFLOW_LOCK_PREV_TRAP
     return 0
   fi
 
   local timeout_seconds="$arg"
   local waited=0
   while ! mkdir "$lockfile" 2>/dev/null; do
+    _with_file_lock_break_if_stale "$lockfile" "$timeout_seconds"
     if [ "$waited" -ge "$timeout_seconds" ]; then
       return 1
     fi
     sleep 1
     waited=$((waited + 1))
   done
-  # shellcheck disable=SC2064  # intentional immediate expansion of $lockfile
-  trap "rmdir '$lockfile' 2>/dev/null" EXIT
+  echo "$$" >"$lockfile/pid" 2>/dev/null || true
+
+  # Capture the caller's existing EXIT trap (if any) so releasing this lock
+  # can restore it verbatim, and so real process exit runs both this lock's
+  # cleanup and the caller's original cleanup rather than only the latest
+  # one registered.
+  _DOFLOW_LOCK_PREV_TRAP=$(trap -p EXIT)
+  local prev_cmd=""
+  if [ -n "$_DOFLOW_LOCK_PREV_TRAP" ]; then
+    local prev_body="${_DOFLOW_LOCK_PREV_TRAP#trap -- }"
+    prev_body="${prev_body% EXIT}"
+    eval "prev_cmd=$prev_body"
+  fi
+  # shellcheck disable=SC2064  # intentional immediate expansion of $lockfile/$prev_cmd
+  trap "rm -f '$lockfile/pid' 2>/dev/null; rmdir '$lockfile' 2>/dev/null; $prev_cmd" EXIT
   return 0
 }
 
@@ -90,9 +156,18 @@ with_file_lock() {
 
 # Run <command...> and terminate it if it exceeds <seconds>. Replaces bare
 # GNU `timeout` calls, which are not installed by default on stock macOS
-# without Homebrew coreutils. When neither `timeout` nor `gtimeout` (the
-# Homebrew coreutils name) is on PATH, runs the command directly with no
-# enforced budget — a soft safety net, not a correctness requirement.
+# without Homebrew coreutils. When neither a verified-GNU `timeout` nor
+# `gtimeout` (the Homebrew coreutils name) is on PATH, runs the command
+# directly with no enforced budget — a soft safety net, not a correctness
+# requirement.
+#
+# `timeout` is not trusted just because something by that name is on PATH:
+# on Git Bash/MSYS2, PATH can resolve it to Windows' native
+# `System32\timeout.exe`, whose syntax (`timeout /T n`) is incompatible —
+# invoking it the GNU way would fail the command outright instead of just
+# running it unbounded. `timeout --version` is a cheap, side-effect-free way
+# to confirm it's the GNU coreutils build before trusting it (Windows'
+# timeout.exe doesn't understand --version and errors).
 #
 # Usage: run_with_timeout <seconds> -- <command...>
 run_with_timeout() {
@@ -102,7 +177,7 @@ run_with_timeout() {
     shift
   fi
 
-  if command -v timeout &>/dev/null; then
+  if command -v timeout &>/dev/null && timeout --version &>/dev/null; then
     timeout "$seconds" "$@"
   elif command -v gtimeout &>/dev/null; then
     gtimeout "$seconds" "$@"
@@ -115,10 +190,21 @@ run_with_timeout() {
 
 # Derive a stable 16-char hash of an absolute directory path.
 # Used to namespace per-project state (compact summaries, warnings).
-# Normalizes symlinks and ../ components so equivalent paths hash identically.
+#
+# For a path that is (or resolves to) an existing directory — the case this
+# function exists for — fully resolves it, including a symlink at the path's
+# own leaf component, via `(cd "$1" && pwd -P)`, so equivalent directories
+# always hash identically. Callers that ever pass a non-directory or
+# nonexistent path fall back to the general-purpose canonicalize_path, which
+# — being usable by any file or missing path, not just directories — only
+# resolves symlinks in the parent chain, not the leaf itself.
 cwd_hash() {
   local canonical
-  canonical=$(canonicalize_path "$1")
+  if [ -d "$1" ]; then
+    canonical=$(cd "$1" && pwd -P)
+  else
+    canonical=$(canonicalize_path "$1")
+  fi
   if command -v sha256sum &>/dev/null; then
     echo "$canonical" | sha256sum | cut -c1-16
   elif command -v shasum &>/dev/null; then
