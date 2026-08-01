@@ -28,15 +28,113 @@ SESSIONS_LOG="$DOFLOW_HOME/sessions.log"
 # Identifies which agent is running. Override via env var for non-Claude agents.
 export DOFLOW_AGENT="${DOFLOW_AGENT:-claude-code}"
 
+# ── canonicalize_path ─────────────────────────────────────────────────────────
+
+# Print an absolute, symlink-resolved form of <path> to stdout when <path>
+# exists; otherwise print <path> unchanged.
+#
+# Replaces `realpath -e "$1" 2>/dev/null || echo "$1"`, which already fails
+# silently on stock macOS (BSD realpath has no -e flag there) and falls back
+# to an uncanonicalized path. Uses only primitives present on every target
+# (cd, pwd -P, dirname, basename) — no GNU-only flag, no assumed Homebrew
+# coreutils.
+canonicalize_path() {
+  local path="$1"
+  if [[ -e "$path" ]]; then
+    (cd "$(dirname "$path")" && printf '%s/%s\n' "$(pwd -P)" "$(basename "$path")")
+  else
+    printf '%s\n' "$path"
+  fi
+}
+
 # ── cwd_hash ─────────────────────────────────────────────────────────────────
 
 # Derive a stable 16-char hash of an absolute directory path.
 # Used to namespace per-project state (compact summaries, warnings).
 # Normalizes symlinks and ../ components so equivalent paths hash identically.
+#
+# Hash fallback chain: sha256sum (Linux, Git Bash) -> shasum -a 256 (macOS,
+# every release since 10.6) -> cksum (last resort). Collision risk from the
+# cksum fallback is acceptable here — this is only a cache-key namespace, not
+# security-relevant.
 cwd_hash() {
   local canonical
-  canonical=$(realpath -e "$1" 2>/dev/null || echo "$1")
-  echo "$canonical" | sha256sum | cut -c1-16
+  canonical=$(canonicalize_path "$1")
+  if command -v sha256sum &>/dev/null; then
+    echo "$canonical" | sha256sum | cut -c1-16
+  elif command -v shasum &>/dev/null; then
+    echo "$canonical" | shasum -a 256 | cut -c1-16
+  else
+    echo "$canonical" | cksum | tr -d ' \t' | cut -c1-16
+  fi
+}
+
+# ── with_file_lock / release_file_lock ────────────────────────────────────────
+
+# Cross-platform mutual exclusion via atomic `mkdir` (atomic on every
+# filesystem DoFlow runs on, including NTFS via MSYS2). Replaces
+# `flock -x -w 5 200`, which is entirely absent on stock macOS (util-linux
+# only, causing the session-end log-trimming block to silently no-op today).
+#
+# Usage (caller acquires, then is responsible for releasing — including on
+# failure paths, ideally via `trap`):
+#
+#   if with_file_lock "$LOCK_FILE" 5; then
+#     trap 'release_file_lock "$LOCK_FILE"' EXIT
+#     ...critical section...
+#     release_file_lock "$LOCK_FILE"
+#   fi
+#
+# Polls for the lock (creating "<lockfile>.d" as the lock token) until
+# acquired or until <timeout_seconds> elapses. Returns 0 once acquired
+# (lock held), or 1 on timeout — callers should treat a timeout the same
+# way the old `flock -w 5 200 || exit 0` did: skip the guarded section
+# rather than block indefinitely.
+with_file_lock() {
+  local lockfile="$1"
+  local timeout_seconds="$2"
+  local lockdir="${lockfile}.d"
+  local waited=0
+  while ! mkdir "$lockdir" 2>/dev/null; do
+    if (( waited >= timeout_seconds )); then
+      return 1
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  return 0
+}
+
+# Companion release for with_file_lock. Idempotent — safe to call even if
+# the lock was never acquired or was already released.
+release_file_lock() {
+  local lockfile="$1"
+  rmdir "${lockfile}.d" 2>/dev/null || true
+}
+
+# ── run_with_timeout ─────────────────────────────────────────────────────────
+
+# Run <command...>, terminating it if it exceeds <seconds>. When no
+# timeout-enforcing binary (`timeout`/`gtimeout`) is on PATH — stock macOS
+# lacks GNU coreutils' `timeout` unless Homebrew is installed — runs
+# <command...> directly with no enforced budget rather than failing (a soft
+# safety net, not a correctness requirement; NFR-002 forbids requiring a new
+# dependency).
+#
+# Usage: run_with_timeout 5 -- git status
+run_with_timeout() {
+  local seconds="$1"
+  shift
+  if [[ "${1:-}" == "--" ]]; then
+    shift
+  fi
+  if command -v timeout &>/dev/null; then
+    timeout "$seconds" "$@"
+  elif command -v gtimeout &>/dev/null; then
+    gtimeout "$seconds" "$@"
+  else
+    "$@"
+  fi
 }
 
 # ── Directory helpers ─────────────────────────────────────────────────────────
