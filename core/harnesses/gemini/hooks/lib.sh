@@ -28,6 +28,84 @@ SESSIONS_LOG="$DOFLOW_HOME/sessions.log"
 # Identifies which agent is running. Override via env var for non-Claude agents.
 export DOFLOW_AGENT="${DOFLOW_AGENT:-claude-code}"
 
+# ── Portability primitives ───────────────────────────────────────────────────
+#
+# The helpers in this section replace non-portable GNU/Linux-only dependencies
+# (realpath -e, flock, GNU timeout, bare sha256sum) with equivalents that run
+# on stock macOS, Git Bash/MSYS2, and common Linux distros without requiring
+# any additional package install (no Homebrew coreutils assumed).
+
+# Print an absolute, symlink-resolved form of <path> to stdout when <path>
+# exists; otherwise print <path> unchanged. Replaces `realpath -e "$1" ||
+# echo "$1"`, which already fails silently on stock macOS (BSD realpath has
+# no -e flag) and falls back to an uncanonicalized path. Uses only primitives
+# present on every target: cd, pwd -P, dirname, basename.
+canonicalize_path() {
+  local path="$1"
+  if [[ -e "$path" ]]; then
+    (cd "$(dirname "$path")" && printf '%s/%s\n' "$(pwd -P)" "$(basename "$path")")
+  else
+    printf '%s\n' "$path"
+  fi
+}
+
+# Acquire an exclusive lock on <lockfile>, using atomic mkdir (atomic on
+# every filesystem DoFlow runs on, including NTFS via MSYS2). Replaces
+# `flock -x -w <seconds> 200`, which is confirmed absent entirely on macOS
+# (util-linux only). Gives up after <timeout_seconds> instead of blocking
+# indefinitely, returning non-zero on timeout.
+#
+# Calling convention: the caller acquires the lock, then is responsible for
+# releasing it with a matching release_file_lock call — including on
+# failure, via trap, so the lock directory is never left stranded:
+#
+#   if with_file_lock "$lockfile" 5; then
+#     trap 'release_file_lock "$lockfile"' RETURN
+#     ... guarded section ...
+#   else
+#     echo "[hooks] timed out waiting for lock: $lockfile" >&2
+#   fi
+with_file_lock() {
+  local lockfile="$1"
+  local timeout_seconds="$2"
+  local waited=0
+  while ! mkdir "$lockfile" 2>/dev/null; do
+    if (( waited >= timeout_seconds )); then
+      return 1
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+}
+
+# Release a lock acquired with with_file_lock.
+release_file_lock() {
+  local lockfile="$1"
+  rmdir "$lockfile" 2>/dev/null || true
+}
+
+# Run <command...> (after a literal `--` separator), terminating it if it
+# exceeds <seconds>. Replaces a bare dependency on GNU `timeout`, which is
+# not installed by default on stock macOS without Homebrew coreutils. When
+# neither `timeout` nor `gtimeout` is on PATH, runs <command...> directly
+# with no enforced budget (soft safety net, not a correctness requirement).
+#
+# Usage: run_with_timeout 5 -- some_command --with --args
+run_with_timeout() {
+  local seconds="$1"
+  shift
+  if [[ "${1:-}" == "--" ]]; then
+    shift
+  fi
+  if command -v timeout &>/dev/null; then
+    timeout "$seconds" "$@"
+  elif command -v gtimeout &>/dev/null; then
+    gtimeout "$seconds" "$@"
+  else
+    "$@"
+  fi
+}
+
 # ── cwd_hash ─────────────────────────────────────────────────────────────────
 
 # Derive a stable 16-char hash of an absolute directory path.
@@ -35,8 +113,14 @@ export DOFLOW_AGENT="${DOFLOW_AGENT:-claude-code}"
 # Normalizes symlinks and ../ components so equivalent paths hash identically.
 cwd_hash() {
   local canonical
-  canonical=$(realpath -e "$1" 2>/dev/null || echo "$1")
-  echo "$canonical" | sha256sum | cut -c1-16
+  canonical=$(canonicalize_path "$1")
+  if command -v sha256sum &>/dev/null; then
+    echo "$canonical" | sha256sum | cut -c1-16
+  elif command -v shasum &>/dev/null; then
+    echo "$canonical" | shasum -a 256 | cut -c1-16
+  else
+    echo "$canonical" | cksum | cut -d' ' -f1
+  fi
 }
 
 # ── Directory helpers ─────────────────────────────────────────────────────────
