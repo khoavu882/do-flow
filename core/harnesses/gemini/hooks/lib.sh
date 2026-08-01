@@ -49,18 +49,48 @@ canonicalize_path() {
   fi
 }
 
+# Internal: age in whole seconds of <path>'s mtime, or nothing (and a
+# non-zero return) if it cannot be determined. Handles both GNU stat
+# (-c %Y) and BSD/macOS stat (-f %m) since this file assumes neither.
+lock_dir_age_seconds() {
+  local path="$1"
+  local mtime
+  mtime=$(stat -c %Y "$path" 2>/dev/null) || mtime=$(stat -f %m "$path" 2>/dev/null) || return 1
+  echo $(( $(date +%s) - mtime ))
+}
+
+# A lock dir older than this is presumed abandoned (holder crashed or was
+# killed before it could release) and eligible for reclaim. Deliberately
+# independent of any given with_file_lock call's own <timeout_seconds>: a
+# caller's polling budget is "how long am I willing to wait," which is
+# unrelated to "is the current holder still plausibly alive." Reusing
+# timeout_seconds for both would let a live holder's lock get stolen out
+# from under it the moment a contending caller's own wait approaches its
+# timeout — reclaim needs a threshold generous enough that no legitimate
+# hook invocation is still running, not tied to a contender's patience.
+LOCK_STALE_SECONDS=${LOCK_STALE_SECONDS:-300}
+
 # Acquire an exclusive lock on <lockfile>, using atomic mkdir (atomic on
 # every filesystem DoFlow runs on, including NTFS via MSYS2). Replaces
 # `flock -x -w <seconds> 200`, which is confirmed absent entirely on macOS
 # (util-linux only). Gives up after <timeout_seconds> instead of blocking
 # indefinitely, returning non-zero on timeout.
 #
-# Calling convention: the caller acquires the lock, then is responsible for
-# releasing it with a matching release_file_lock call — including on
-# failure, via trap, so the lock directory is never left stranded:
+# Unlike `flock`, a `mkdir`-based lock has no kernel-backed release on
+# holder crash/kill, so this also reclaims the lock directory once it is
+# older than LOCK_STALE_SECONDS (treating it as abandoned), and separately
+# clears — rather than waits out the full timeout on — a non-directory
+# occupying <lockfile>, since a live holder created here always makes a
+# directory. That second case matters on upgrade: hosts that ran the old
+# `flock -x 200>"$LOCK_FILE"` implementation already have a *regular file*
+# at that path, which `mkdir` would otherwise EEXIST against forever.
+#
+# Calling convention: on success, installs a matching release via an EXIT
+# trap (fires on normal exit, on `set -e` abort, and on a killed subshell —
+# unlike a RETURN trap, which never fires for a top-level script, only for
+# a function return), so the caller does not need to remember to release:
 #
 #   if with_file_lock "$lockfile" 5; then
-#     trap 'release_file_lock "$lockfile"' RETURN
 #     ... guarded section ...
 #   else
 #     echo "[hooks] timed out waiting for lock: $lockfile" >&2
@@ -68,8 +98,23 @@ canonicalize_path() {
 with_file_lock() {
   local lockfile="$1"
   local timeout_seconds="$2"
-  local waited=0
-  while ! mkdir "$lockfile" 2>/dev/null; do
+  local waited=0 age
+  while true; do
+    if mkdir "$lockfile" 2>/dev/null; then
+      trap 'release_file_lock "'"$lockfile"'"' EXIT
+      return 0
+    fi
+    if [[ -e "$lockfile" && ! -d "$lockfile" ]]; then
+      rm -f "$lockfile" 2>/dev/null || true
+      continue
+    fi
+    if [[ -d "$lockfile" ]]; then
+      age=$(lock_dir_age_seconds "$lockfile") || age=""
+      if [[ -n "$age" ]] && (( age >= LOCK_STALE_SECONDS )); then
+        rmdir "$lockfile" 2>/dev/null || true
+        continue
+      fi
+    fi
     if (( waited >= timeout_seconds )); then
       return 1
     fi
@@ -78,7 +123,8 @@ with_file_lock() {
   done
 }
 
-# Release a lock acquired with with_file_lock.
+# Release a lock acquired with with_file_lock. Normally invoked via the
+# EXIT trap with_file_lock installs on success; safe to call directly too.
 release_file_lock() {
   local lockfile="$1"
   rmdir "$lockfile" 2>/dev/null || true
@@ -90,6 +136,13 @@ release_file_lock() {
 # neither `timeout` nor `gtimeout` is on PATH, runs <command...> directly
 # with no enforced budget (soft safety net, not a correctness requirement).
 #
+# `command -v timeout` is verified to actually be GNU coreutils' `timeout`
+# before use: Git Bash inherits the Windows PATH, where `timeout` can
+# resolve to System32's interactive delay command instead — a completely
+# different, incompatible CLI that would reject our arguments and prevent
+# the wrapped command from running at all. `timeout --version` succeeds
+# only on the GNU coreutils build; the Windows binary errors on it.
+#
 # Usage: run_with_timeout 5 -- some_command --with --args
 run_with_timeout() {
   local seconds="$1"
@@ -97,7 +150,7 @@ run_with_timeout() {
   if [[ "${1:-}" == "--" ]]; then
     shift
   fi
-  if command -v timeout &>/dev/null; then
+  if command -v timeout &>/dev/null && timeout --version &>/dev/null; then
     timeout "$seconds" "$@"
   elif command -v gtimeout &>/dev/null; then
     gtimeout "$seconds" "$@"
@@ -119,7 +172,11 @@ cwd_hash() {
   elif command -v shasum &>/dev/null; then
     echo "$canonical" | shasum -a 256 | cut -c1-16
   else
-    echo "$canonical" | cksum | cut -d' ' -f1
+    # Last resort: cksum's decimal CRC is not hex and not 16 characters, so
+    # normalize it to fit the same 16-hex-char contract every other branch
+    # provides (collision risk is acceptable here — this is a cache key,
+    # not security-relevant).
+    printf '%016x\n' "$(echo "$canonical" | cksum | cut -d' ' -f1)"
   fi
 }
 
