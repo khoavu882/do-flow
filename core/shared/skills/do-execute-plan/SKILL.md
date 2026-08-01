@@ -16,7 +16,7 @@ the active feature.
 ```
 
 `--sync` runs every selected task serially, ignoring `[P]`. `--review` / `--no-review` force the
-per-task review loop on or off; the default is **auto** — on for `--all`, off for `--next` and
+per-phase review loop on or off; the default is **auto** — on for `--all`, off for `--next` and
 `--phase`. Both are passed through to `/subagent-driven` rather than re-derived there, so a delegated
 run and a standalone one behave identically.
 
