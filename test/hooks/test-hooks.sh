@@ -145,6 +145,177 @@ assert_eq  "ensure_project_dir: path uses hash" "$PROJECTS_DIR/$HASH_P" "$PPATH"
 rm -rf "$TMP_STATE"
 unset STATE_DIR SESSION_DIR PROJECTS_DIR
 
+# canonicalize_path: resolves an existing dir to its physical absolute path
+CANON_DIR=$(mktemp -d)
+CANON_EXPECTED=$(cd "$CANON_DIR" && pwd -P)
+assert_eq "canonicalize_path: resolves existing dir" "$CANON_EXPECTED" "$(canonicalize_path "$CANON_DIR")"
+
+# canonicalize_path: non-existent path is returned unchanged (degrade, not fail)
+assert_eq "canonicalize_path: non-existent path unchanged" "/no/such/path-xyz123" \
+  "$(canonicalize_path "/no/such/path-xyz123")"
+
+# canonicalize_path: never emits a leading // (POSIX-undefined; Cygwin/MSYS2 reads it as a UNC path)
+CANON_ROOT_CHILD=$(canonicalize_path "/tmp")
+if [[ "$CANON_ROOT_CHILD" == //* ]]; then
+  _fail "canonicalize_path: no leading // for /tmp  (got='$CANON_ROOT_CHILD')"
+else
+  _pass "canonicalize_path: no leading // for /tmp"
+fi
+
+# canonicalize_path: a path starting with '-' isn't parsed as an option
+CANON_DASH_BASE=$(mktemp -d)
+mkdir -p "$CANON_DASH_BASE/-dashdir"
+CANON_DASH_EXPECTED="$(cd "$CANON_DASH_BASE" && pwd -P)/-dashdir"
+assert_eq "canonicalize_path: path starting with '-' is not treated as an option" \
+  "$CANON_DASH_EXPECTED" "$(cd "$CANON_DASH_BASE" && canonicalize_path "-dashdir")"
+
+# canonicalize_path: ignores CDPATH — must resolve relative to cwd (not a
+# same-named dir found via CDPATH) and print exactly one line (a bare `cd`
+# under CDPATH can otherwise echo a "found via CDPATH" line to stdout)
+CANON_CDPATH_BASE=$(mktemp -d)
+mkdir -p "$CANON_CDPATH_BASE/here/foo" "$CANON_CDPATH_BASE/elsewhere/foo"
+CANON_CDPATH_EXPECTED=$(cd "$CANON_CDPATH_BASE/here/foo" && pwd -P)
+CANON_CDPATH_OUT=$(cd "$CANON_CDPATH_BASE/here" && CDPATH="$CANON_CDPATH_BASE/elsewhere" canonicalize_path foo)
+CANON_CDPATH_LINES=$(printf '%s' "$CANON_CDPATH_OUT" | grep -c '^')
+if [[ "$CANON_CDPATH_OUT" == "$CANON_CDPATH_EXPECTED" && "$CANON_CDPATH_LINES" == "1" ]]; then
+  _pass "canonicalize_path: ignores CDPATH, resolves relative to cwd, single line"
+else
+  _fail "canonicalize_path: CDPATH handling  (out='$CANON_CDPATH_OUT' expected='$CANON_CDPATH_EXPECTED' lines=$CANON_CDPATH_LINES)"
+fi
+rm -rf "$CANON_DIR" "$CANON_DASH_BASE" "$CANON_CDPATH_BASE"
+
+# cwd_hash: fallback chain — shasum branch (simulate sha256sum absent).
+# Shadows the `command` builtin inside a subshell so the fallback path is
+# exercised deterministically without uninstalling sha256sum on this host.
+HASH_SHASUM_FALLBACK=$(
+  command() { [[ "$1" == -v && "$2" == sha256sum ]] && return 1; builtin command "$@"; }
+  cwd_hash "/home/user/project-a"
+)
+assert_eq "cwd_hash: shasum fallback produces the same hash as sha256sum" "$HASH_A" "$HASH_SHASUM_FALLBACK"
+
+# cwd_hash: fallback chain — cksum branch (simulate sha256sum AND shasum absent)
+HASH_CKSUM_FALLBACK=$(
+  command() { [[ "$1" == -v && ( "$2" == sha256sum || "$2" == shasum ) ]] && return 1; builtin command "$@"; }
+  cwd_hash "/home/user/project-a"
+)
+if [[ -n "$HASH_CKSUM_FALLBACK" ]]; then
+  _pass "cwd_hash: cksum fallback (no sha256sum/shasum) produces a non-empty hash"
+else
+  _fail "cwd_hash: cksum fallback produced empty output"
+fi
+
+# with_file_lock / release_file_lock
+LOCK_TMP=$(mktemp -d)
+LOCK_FILE="$LOCK_TMP/test.lock"
+
+if with_file_lock "$LOCK_FILE" 5; then
+  _pass "with_file_lock: acquires an uncontended lock"
+else
+  _fail "with_file_lock: failed to acquire an uncontended lock"
+fi
+assert_eq "with_file_lock: creates the lockdir" "0" "$([ -d "${LOCK_FILE}.d" ] && echo 0 || echo 1)"
+assert_eq "with_file_lock: records the holder's own PID" "$$" "$(cat "${LOCK_FILE}.d/pid" 2>/dev/null)"
+
+release_file_lock "$LOCK_FILE"
+assert_eq "release_file_lock: removes the lockdir" "1" "$([ -d "${LOCK_FILE}.d" ] && echo 0 || echo 1)"
+
+# release_file_lock is idempotent even when no lock is held
+release_file_lock "$LOCK_FILE"
+_pass "release_file_lock: idempotent when no lock is held"
+
+# with_file_lock: a lock held by a still-running process is NOT reclaimed —
+# waits, then times out (rc=1)
+mkdir -p "${LOCK_FILE}.d"
+sleep 30 &
+LIVE_PID=$!
+echo "$LIVE_PID" >"${LOCK_FILE}.d/pid"
+if with_file_lock "$LOCK_FILE" 1; then
+  _fail "with_file_lock: should NOT acquire a lock held by a live process"
+  release_file_lock "$LOCK_FILE"
+else
+  _pass "with_file_lock: times out (rc=1) when the lock is held by a live process"
+fi
+kill "$LIVE_PID" 2>/dev/null || true
+wait "$LIVE_PID" 2>/dev/null || true
+rm -rf "${LOCK_FILE}.d"
+
+# with_file_lock: a lockdir left behind by a now-dead PID is reclaimed
+# promptly rather than waiting out the full timeout (regression test for the
+# stale-lock finding — a crashed holder must not permanently wedge the lock)
+mkdir -p "${LOCK_FILE}.d"
+( : ) &
+DEAD_PID=$!
+wait "$DEAD_PID" 2>/dev/null || true
+echo "$DEAD_PID" >"${LOCK_FILE}.d/pid"
+STALE_START=$(date +%s)
+if with_file_lock "$LOCK_FILE" 10; then
+  STALE_ELAPSED=$(($(date +%s) - STALE_START))
+  if (( STALE_ELAPSED < 5 )); then
+    _pass "with_file_lock: reclaims a stale lock (dead PID) promptly, not after the full timeout"
+  else
+    _fail "with_file_lock: reclaimed stale lock but took ${STALE_ELAPSED}s (expected well under the 10s timeout)"
+  fi
+  release_file_lock "$LOCK_FILE"
+else
+  _fail "with_file_lock: failed to reclaim a lock left behind by a dead PID"
+fi
+rm -rf "$LOCK_TMP"
+
+# run_with_timeout: a command that finishes within budget runs normally and
+# its own exit code (not a timeout code) is propagated
+if run_with_timeout 5 -- true; then
+  _pass "run_with_timeout: runs a command that finishes within budget"
+else
+  _fail "run_with_timeout: unexpected failure running 'true' under a budget"
+fi
+if run_with_timeout 5 -- false; then
+  _fail "run_with_timeout: 'false' unexpectedly reported success"
+else
+  assert_eq "run_with_timeout: propagates the wrapped command's own exit code" "1" "$?"
+fi
+
+# run_with_timeout: enforced-budget termination (rc=124), only asserted when
+# this host actually has a GNU-compatible timeout/gtimeout — on a host with
+# neither, the function's documented soft-fallback (run directly, no budget)
+# applies instead and is not itself a failure.
+RWT_HAS_GNU_TIMEOUT=0
+if command -v timeout &>/dev/null && timeout --version >/dev/null 2>&1; then
+  RWT_HAS_GNU_TIMEOUT=1
+elif command -v gtimeout &>/dev/null && gtimeout --version >/dev/null 2>&1; then
+  RWT_HAS_GNU_TIMEOUT=1
+fi
+if [[ "$RWT_HAS_GNU_TIMEOUT" == "1" ]]; then
+  if run_with_timeout 1 -- sleep 5; then
+    _fail "run_with_timeout: sleep 5 under a 1s budget should have been terminated"
+  else
+    assert_eq "run_with_timeout: terminates a command that exceeds its budget (rc=124)" "124" "$?"
+  fi
+else
+  _pass "run_with_timeout: no GNU timeout/gtimeout on this host — soft-fallback path applies, skipping rc=124 assertion"
+fi
+
+# run_with_timeout: never trusts a non-GNU 'timeout' shadowing PATH (e.g.
+# Windows' native timeout.exe, reachable via Git Bash inheriting System32 on
+# PATH) — regression test for the Windows-shadowing finding. A fake
+# non-GNU `timeout` that rejects --version is placed first on PATH; if the
+# GNU-ness probe were skipped, this fake binary would "eat" the command
+# instead of it ever running.
+RWT_FAKEBIN=$(mktemp -d)
+cat >"$RWT_FAKEBIN/timeout" <<'FAKEEOF'
+#!/usr/bin/env bash
+if [[ "$1" == "--version" ]]; then
+  echo "ERROR: not GNU" >&2
+  exit 1
+fi
+echo "FAKE-WINDOWS-TIMEOUT-EXE-INVOKED" >&2
+exit 99
+FAKEEOF
+chmod +x "$RWT_FAKEBIN/timeout"
+RWT_FAKE_OUT=$(PATH="$RWT_FAKEBIN:$PATH" run_with_timeout 5 -- echo "real-command-ran")
+assert_eq "run_with_timeout: never trusts a non-GNU 'timeout' shadowing PATH (e.g. Windows timeout.exe)" \
+  "real-command-ran" "$RWT_FAKE_OUT"
+rm -rf "$RWT_FAKEBIN"
+
 # ── 2. pre-bash-guard.sh — end-to-end deny/allow decisions ───────────────────
 
 echo ""
