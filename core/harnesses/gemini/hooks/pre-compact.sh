@@ -21,11 +21,11 @@ BRANCH=""
 SHA=""
 UNCOMMITTED=0
 
-if [[ -n "$CWD" ]] && timeout 1 git -C "$CWD" rev-parse --is-inside-work-tree &>/dev/null; then
-  BRANCH=$(timeout 1 git -C "$CWD" branch --show-current 2>/dev/null || echo "")
-  SHA=$(timeout 1 git -C "$CWD" rev-parse --short HEAD 2>/dev/null || echo "")
-  UNCOMMITTED=$(timeout 1 git -C "$CWD" status --porcelain 2>/dev/null | wc -l | tr -d ' ' || echo "0")
-  RECENT=$(timeout 1 git -C "$CWD" log --format="%h %s" -2 2>/dev/null | paste -sd ' | ' - || echo "")
+if [[ -n "$CWD" ]] && run_with_timeout 1 -- git -C "$CWD" rev-parse --is-inside-work-tree &>/dev/null; then
+  BRANCH=$(run_with_timeout 1 -- git -C "$CWD" branch --show-current 2>/dev/null || echo "")
+  SHA=$(run_with_timeout 1 -- git -C "$CWD" rev-parse --short HEAD 2>/dev/null || echo "")
+  UNCOMMITTED=$(run_with_timeout 1 -- git -C "$CWD" status --porcelain 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+  RECENT=$(run_with_timeout 1 -- git -C "$CWD" log --format="%h %s" -2 2>/dev/null | paste -sd ' | ' - || echo "")
 
   MSG=$(printf 'Compacting session — git branch: %s sha: %s, recent commits: %s, uncommitted files: %s, cwd: %s' \
     "${BRANCH:-unknown}" "${SHA:-unknown}" "${RECENT:-none}" "$UNCOMMITTED" "${CWD:-unknown}")

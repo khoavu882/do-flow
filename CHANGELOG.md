@@ -15,6 +15,42 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-08-02
+
+### Fixed
+
+- **The dangerous-command guard (`pre-bash-guard.sh`) silently failed open on stock macOS.**
+  `blocked-patterns.conf` and `mcp-tool-guard.sh`/`stop-check.sh`'s pattern matching used PCRE
+  syntax (`(?:...)`, `\s`, and one true negative lookahead for `git push --force`) that BSD `grep`
+  (macOS's default, non-interactive) cannot run — the guard's own PCRE-availability preflight
+  detected this and printed a warning, then allowed every command through unfiltered, including
+  `wget url | bash`, `chmod -R 777`, and `rm -rf $HOME`. All patterns are now POSIX ERE, portable
+  across GNU grep (Linux, Windows Git Bash) and BSD grep (macOS) with no capability gap. A related
+  scoping bug in the force-push guard's negative-lookahead workaround (an unrelated
+  `--force-with-lease` occurring anywhere else in the command string disabled the block entirely)
+  was found and closed in the same pass.
+- **Session-log trimming and git-context hooks silently broke on macOS.** `realpath -e`, `flock`,
+  and bare `timeout` are all GNU-only or Linux-only; on stock macOS the first silently degraded to
+  an uncanonicalized path, the second is absent entirely (disabling `session-end.sh`'s log-trim
+  block permanently), and the third simply doesn't exist without Homebrew coreutils. Replaced with
+  portable equivalents (`cd -P`-based canonicalization, `mkdir`-based locking with stale-lock
+  recovery, a GNU-verified `timeout`/`gtimeout` cascade with graceful no-budget fallback) across
+  all three harnesses' `lib.sh`.
+- Four additional pre-existing portability bugs found while validating the new CI workflow
+  locally: `do-paths.sh` aborting under bash 3.2 on an empty candidate-slug array, a `jq` compile
+  error in `do-parallel-check.sh` (OS-independent — this one broke every platform), a BSD-awk
+  rejection of a multi-line `-v` assignment in `sync-context.sh`, and a BSD-`mktemp` template
+  incompatibility in `test/verify-hooks.sh`.
+- `test/guards/consumers.test.js` didn't recognize a skill's own `references/` subdirectory as a
+  valid resource location, only the shared guidance tree — any skill-scoped reference file always
+  reported as a dangling consumer reference regardless of whether it existed.
+
+### Added
+
+- **Windows support (Git Bash/MSYS2) for the bash script/hook layer.** `core/shared/scripts/doflow/bash/*` and every harness's hook tree now run correctly on Linux, macOS, and Windows Git Bash — no GNU-only flags, no bash-4-only syntax (stock macOS ships bash 3.2). WSL works via the existing Linux path with no special-casing needed.
+- **`hasBashCapableShell()` preflight** in the lifecycle layer: `doflow install`/`update` now fails loudly with an actionable message ("install Git Bash for Windows, or run inside WSL") before writing hook-bearing changes for a harness, rather than installing hooks that would error silently at runtime on a bash-less machine. Exempt on removal, since uninstalling hook files doesn't require running them.
+- **Cross-OS CI matrix** (`.github/workflows/cross-os-tests.yml`): runs `npm test` and the three shell-layer suites on `ubuntu-latest`, `macos-latest`, and `windows-latest` on every PR.
+
 ## [0.13.0] - 2026-07-30
 
 ### Fixed

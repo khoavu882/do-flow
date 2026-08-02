@@ -36,25 +36,25 @@ UNCOMMITTED=0
 STASH_COUNT=0
 UPSTREAM_BEHIND=0
 
-if [[ -n "$CWD" ]] && timeout 1 git -C "$CWD" rev-parse --is-inside-work-tree &>/dev/null; then
+if [[ -n "$CWD" ]] && run_with_timeout 1 -- git -C "$CWD" rev-parse --is-inside-work-tree &>/dev/null; then
   IS_GIT_REPO=true
 
-  BRANCH=$(timeout 1 git -C "$CWD" branch --show-current 2>/dev/null || echo "")
-  SHA=$(timeout 1 git -C "$CWD" rev-parse --short HEAD 2>/dev/null || echo "")
+  BRANCH=$(run_with_timeout 1 -- git -C "$CWD" branch --show-current 2>/dev/null || echo "")
+  SHA=$(run_with_timeout 1 -- git -C "$CWD" rev-parse --short HEAD 2>/dev/null || echo "")
 
   # Last 5 commits as a JSON array of one-liner strings
-  COMMITS_JSON=$(timeout 1 git -C "$CWD" log --oneline -5 2>/dev/null \
+  COMMITS_JSON=$(run_with_timeout 1 -- git -C "$CWD" log --oneline -5 2>/dev/null \
     | jq -R . | jq -s . 2>/dev/null || echo "[]")
 
   # Count uncommitted (staged + unstaged) files
-  UNCOMMITTED=$(timeout 1 git -C "$CWD" status --porcelain 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+  UNCOMMITTED=$(run_with_timeout 1 -- git -C "$CWD" status --porcelain 2>/dev/null | wc -l | tr -d ' ' || echo "0")
 
   # Count stash entries
-  STASH_COUNT=$(timeout 1 git -C "$CWD" stash list 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+  STASH_COUNT=$(run_with_timeout 1 -- git -C "$CWD" stash list 2>/dev/null | wc -l | tr -d ' ' || echo "0")
 
   # How far behind upstream (0 if no upstream configured)
   # shellcheck disable=SC1083  # @{u} is git upstream ref syntax, not a shell brace expression
-  UPSTREAM_BEHIND=$(timeout 1 git -C "$CWD" rev-list --count HEAD..@{u} 2>/dev/null || echo "0")
+  UPSTREAM_BEHIND=$(run_with_timeout 1 -- git -C "$CWD" rev-list --count HEAD..@{u} 2>/dev/null || echo "0")
 fi
 
 # ── Write git-context.json ────────────────────────────────────────────────────

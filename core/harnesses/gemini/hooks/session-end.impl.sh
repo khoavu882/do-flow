@@ -5,10 +5,11 @@
 #   1. Append END marker to sessions.log
 #   2. Write uncommitted-warning.txt if the working tree is dirty
 #   3. Delete the session-scoped state directory (cleanup)
-#   4. Trim sessions.log to last 500 lines (flock-guarded for parallel safety)
+#   4. Trim sessions.log to last 500 lines (lock-guarded for parallel safety)
 #
-# Multi-session safe: flock prevents concurrent sessions from corrupting the log
-# trim. Session directory deletion is per session_id so sessions don't interfere.
+# Multi-session safe: with_file_lock prevents concurrent sessions from
+# corrupting the log trim. Session directory deletion is per session_id so
+# sessions don't interfere.
 # Must never exit non-zero or block (SessionEnd is fire-and-forget).
 
 set -euo pipefail
@@ -29,9 +30,9 @@ echo "$TIMESTAMP END ${SESSION_ID:-unknown} ${CWD:-unknown}" >> "$SESSIONS_LOG"
 
 # ── 2. Uncommitted-changes warning ────────────────────────────────────────────
 
-if [[ -n "$CWD" ]] && timeout 1 git -C "$CWD" rev-parse --is-inside-work-tree &>/dev/null; then
-  if timeout 1 git -C "$CWD" status --porcelain 2>/dev/null | grep -q .; then
-    BRANCH=$(timeout 1 git -C "$CWD" branch --show-current 2>/dev/null || echo "unknown")
+if [[ -n "$CWD" ]] && run_with_timeout 1 -- git -C "$CWD" rev-parse --is-inside-work-tree &>/dev/null; then
+  if run_with_timeout 1 -- git -C "$CWD" status --porcelain 2>/dev/null | grep -q .; then
+    BRANCH=$(run_with_timeout 1 -- git -C "$CWD" branch --show-current 2>/dev/null || echo "unknown")
     PROJECT_DIR=$(ensure_project_dir "$CWD")
     echo "Session ${SESSION_ID:-unknown} ended with uncommitted changes on branch ${BRANCH}" \
       > "$PROJECT_DIR/uncommitted-warning.txt"
@@ -57,11 +58,10 @@ if [[ -n "$SESSION_ID" ]]; then
   rm -rf "$SESSION_PATH" 2>/dev/null || true
 fi
 
-# ── 4. Trim sessions.log (flock-guarded) ──────────────────────────────────────
+# ── 4. Trim sessions.log (lock-guarded) ───────────────────────────────────────
 
 LOCK_FILE="${SESSIONS_LOG}.lock"
-(
-  flock -x -w 5 200 || exit 0  # Give up after 5s rather than block indefinitely
+if with_file_lock "$LOCK_FILE" 5; then
   if [[ -f "$SESSIONS_LOG" ]]; then
     TMP=$(mktemp "${SESSIONS_LOG}.XXXXXX")
     if tail -n 500 "$SESSIONS_LOG" > "$TMP"; then
@@ -70,6 +70,8 @@ LOCK_FILE="${SESSIONS_LOG}.lock"
       rm -f "$TMP"
     fi
   fi
-) 200>"$LOCK_FILE"
+else
+  echo "[hooks] timed out waiting for lock: $LOCK_FILE" >&2  # Give up after 5s rather than block indefinitely
+fi
 
 exit 0

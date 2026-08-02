@@ -108,7 +108,7 @@ printf '%s\n' "$records" | jq -R -s --arg phase "$phase" '
       parallel_tasks: $par,
       sequential_tasks: $seq,
       overlaps: $overlaps,
-      parallel_safe: ($overlaps | length) == 0,
+      parallel_safe: (($overlaps | length) == 0),
       serialize: ([$overlaps[] | .tasks[]] | unique)
     }'
 exit 0
