@@ -8,7 +8,7 @@
 #   4. pre-bash-guard.sh — end-to-end deny/allow decisions
 #
 # Usage: bash test/hooks/test-hooks.sh
-# Run from repository root. Requires: bash 4+, jq, grep with PCRE support.
+# Run from repository root. Requires: bash 3.2+, jq, POSIX ERE grep (no PCRE needed).
 
 set -uo pipefail
 
@@ -37,7 +37,7 @@ assert_len() {
 
 assert_matches() {
   local desc="$1" text="$2" pattern="$3"
-  if echo "$text" | grep -qiP "$pattern" 2>/dev/null; then
+  if echo "$text" | grep -qiE -- "$pattern" 2>/dev/null; then
     _pass "$desc"
   else
     _fail "$desc  (pattern did not match text: '$text')"
@@ -46,7 +46,7 @@ assert_matches() {
 
 assert_no_match() {
   local desc="$1" text="$2" pattern="$3"
-  if echo "$text" | grep -qiP "$pattern" 2>/dev/null; then
+  if echo "$text" | grep -qiE -- "$pattern" 2>/dev/null; then
     _fail "$desc  (pattern unexpectedly matched text: '$text')"
   else
     _pass "$desc"
@@ -316,6 +316,26 @@ assert_eq "run_with_timeout: never trusts a non-GNU 'timeout' shadowing PATH (e.
   "real-command-ran" "$RWT_FAKE_OUT"
 rm -rf "$RWT_FAKEBIN"
 
+# canonicalize_path / cwd_hash: must be byte-identical across the three
+# harnesses' lib.sh copies (with_file_lock/release_file_lock/run_with_timeout
+# are intentionally harness-specific and are NOT asserted here).
+CLAUDE_LIB="$HOOKS_DIR/lib.sh"
+CODEX_LIB="core/harnesses/codex/hooks/lib.sh"
+GEMINI_LIB="core/harnesses/gemini/hooks/lib.sh"
+
+for FN in canonicalize_path cwd_hash; do
+  CLAUDE_FN=$(awk "/^${FN}\(\)/,/^}/" "$CLAUDE_LIB")
+  CODEX_FN=$(awk "/^${FN}\(\)/,/^}/" "$CODEX_LIB")
+  GEMINI_FN=$(awk "/^${FN}\(\)/,/^}/" "$GEMINI_LIB")
+  if [[ -z "$CLAUDE_FN" || -z "$CODEX_FN" || -z "$GEMINI_FN" ]]; then
+    _fail "$FN(): could not extract function body from one or more lib.sh files"
+  elif [[ "$CLAUDE_FN" == "$CODEX_FN" && "$CLAUDE_FN" == "$GEMINI_FN" ]]; then
+    _pass "$FN(): byte-identical across claude/codex/gemini lib.sh"
+  else
+    _fail "$FN(): differs across claude/codex/gemini lib.sh (should be byte-identical)"
+  fi
+done
+
 # ── 2. pre-bash-guard.sh — end-to-end deny/allow decisions ───────────────────
 
 echo ""
@@ -333,6 +353,14 @@ assert_hook_allows "allows: git push origin main (normal push)" "git push origin
 assert_hook_allows "allows: git push --tags"                    "git push --tags"
 # force appears in commit message — must NOT be blocked
 assert_hook_allows "allows: --force in commit message text"     "git commit -m 'add --force flag documentation'"
+# regression: --force-with-lease elsewhere in the command must not disable the
+# force-push guard (fix: `git push --force([^-]|$)` replaced exclude-column approach)
+assert_hook_denies "blocks: --force-with-lease elsewhere doesn't disable force block (&&)" \
+  "echo --force-with-lease && git push --force"
+assert_hook_denies "blocks: --force-with-lease in prior && chain doesn't disable later force block" \
+  "git push --force-with-lease && git push --force"
+assert_hook_denies "blocks: --force-with-lease in prior ; chain doesn't disable later force block" \
+  "git push --force-with-lease origin dev; git push --force origin main"
 
 # ── git reset --hard ─────────────────────────────────────────────
 
@@ -408,7 +436,7 @@ echo "3. stop-check.sh — stub detection pattern"
 echo "──────────────────────────────────────────"
 
 # Load the pattern directly from the script (single source of truth)
-STUB_PATTERN=$(grep -oP "(?<=STUB_PATTERN=')[^']+" "$HOOKS_DIR/stop-check.sh" | head -1)
+STUB_PATTERN=$(sed -n "s/.*STUB_PATTERN='\([^']*\)'.*/\1/p" "$HOOKS_DIR/stop-check.sh" | head -1)
 
 if [[ -z "$STUB_PATTERN" ]]; then
   _fail "could not extract STUB_PATTERN from stop-check.sh"
