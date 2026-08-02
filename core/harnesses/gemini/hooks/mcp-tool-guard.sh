@@ -16,11 +16,6 @@ set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 require_jq
 
-if ! echo "test" | grep -qP "test" 2>/dev/null; then
-  echo "[mcp-tool-guard] WARNING: PCRE grep unavailable on this system — MCP tool pattern guard is inactive" >&2
-  exit 0
-fi
-
 INPUT=$(cat)
 TOOL_NAME=$(json_field "$INPUT" ".tool_name")
 
@@ -34,7 +29,7 @@ while IFS=$'\t' read -r pattern reason || [[ -n "$pattern" ]]; do
   [[ -z "$pattern" || "$pattern" == \#* ]] && continue
 
   matched=false
-  if (echo "$TOOL_NAME" | grep -qiP "$pattern" 2>/dev/null); then
+  if (echo "$TOOL_NAME" | grep -qiE -- "$pattern" 2>/dev/null); then
     matched=true
   fi
 
