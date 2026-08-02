@@ -16,16 +16,6 @@ set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 require_jq
 
-# Verify PCRE grep is available. Without it, the patterns in blocked-patterns.conf
-# (which use PCRE syntax: (?:...), \s, negative lookahead (?!...)) cannot match.
-# Emit a visible warning rather than silently failing open, so the operator knows
-# pattern protection is inactive and can install PCRE grep (e.g. grep with --perl-regexp).
-if ! echo "test" | grep -qP "test" 2>/dev/null; then
-  echo "[pre-bash-guard] WARNING: PCRE grep unavailable on this system — command pattern guard is inactive" >&2
-  echo "[pre-bash-guard] Install a PCRE-capable grep (e.g. sudo apt install grep / brew install grep) for full protection" >&2
-  exit 0
-fi
-
 INPUT=$(cat)
 TOOL_NAME=$(json_field "$INPUT" ".tool_name")
 
@@ -44,15 +34,27 @@ PATTERNS_FILE="$(dirname "$0")/blocked-patterns.conf"
 
 # ── Pattern matching ──────────────────────────────────────────────────────────
 
-while IFS=$'\t' read -r pattern reason || [[ -n "$pattern" ]]; do
+while IFS=$'\t' read -r pattern reason exclude_pattern || [[ -n "$pattern" ]]; do
   # Skip comments and empty lines
   [[ -z "$pattern" || "$pattern" == \#* ]] && continue
 
-  # Match pattern against command (case-insensitive, extended regex)
+  # Match pattern against command (case-insensitive, POSIX extended regex)
   # Wrap in subshell so a bad regex exits the subshell, not the script
+  # `--` stops grep from treating a pattern beginning with '-' (e.g. an
+  # exclude_pattern like "--force-with-lease") as an option flag.
   matched=false
-  if (echo "$COMMAND" | grep -qiP "$pattern" 2>/dev/null); then
+  if (echo "$COMMAND" | grep -qiE -- "$pattern" 2>/dev/null); then
     matched=true
+  fi
+
+  # Optional third column: if the command also matches the exclude pattern,
+  # this pattern line is skipped entirely (approximates negative lookahead,
+  # which POSIX ERE cannot express — e.g. "--force-with-lease" excludes the
+  # "git push --force" block).
+  if [[ "$matched" == "true" && -n "$exclude_pattern" ]]; then
+    if (echo "$COMMAND" | grep -qiE -- "$exclude_pattern" 2>/dev/null); then
+      matched=false
+    fi
   fi
 
   if [[ "$matched" == "true" ]]; then

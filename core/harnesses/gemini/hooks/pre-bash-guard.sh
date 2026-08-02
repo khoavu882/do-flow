@@ -2,11 +2,11 @@
 # pre-bash-guard.impl.sh — BeforeTool(run_shell_command) hook
 #
 # Intercepts every shell-command tool call and blocks dangerous commands by matching
-# against patterns in blocked-patterns.conf. Same TAB-separated pattern<TAB>reason
-# convention as Claude's/Codex's pre-bash-guard.sh — the field paths
-# (.tool_name, .tool_input.command) are identical (docs/reference/tools.md confirms
-# run_shell_command uses a "command" key), only the tool name and the deny-output
-# shape differ from Claude/Codex.
+# against POSIX ERE patterns in blocked-patterns.conf (grep -E). Same TAB-separated
+# pattern<TAB>reason<TAB>exclude_pattern (exclude optional) convention as Claude's/
+# Codex's pre-bash-guard.sh — the field paths (.tool_name, .tool_input.command) are
+# identical (docs/reference/tools.md confirms run_shell_command uses a "command"
+# key), only the tool name and the deny-output shape differ from Claude/Codex.
 #
 # Gemini's hook output schema (packages/core/src/hooks/types.ts, confirmed this
 # session) is a top-level {"decision": "deny", "reason": "..."} — NOT nested under
@@ -20,12 +20,6 @@ set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 require_jq
 
-if ! echo "test" | grep -qP "test" 2>/dev/null; then
-  echo "[pre-bash-guard] WARNING: PCRE grep unavailable on this system — command pattern guard is inactive" >&2
-  echo "[pre-bash-guard] Install a PCRE-capable grep (e.g. sudo apt install grep / brew install grep) for full protection" >&2
-  exit 0
-fi
-
 INPUT=$(cat)
 TOOL_NAME=$(json_field "$INPUT" ".tool_name")
 
@@ -38,12 +32,18 @@ COMMAND=$(json_field "$INPUT" ".tool_input.command")
 PATTERNS_FILE="$(dirname "$0")/blocked-patterns.conf"
 [[ ! -f "$PATTERNS_FILE" ]] && exit 0
 
-while IFS=$'\t' read -r pattern reason || [[ -n "$pattern" ]]; do
+while IFS=$'\t' read -r pattern reason exclude || [[ -n "$pattern" ]]; do
   [[ -z "$pattern" || "$pattern" == \#* ]] && continue
 
   matched=false
-  if (echo "$COMMAND" | grep -qiP "$pattern" 2>/dev/null); then
+  if (echo "$COMMAND" | grep -qiE -- "$pattern" 2>/dev/null); then
     matched=true
+  fi
+
+  if [[ "$matched" == "true" && -n "$exclude" ]]; then
+    if (echo "$COMMAND" | grep -qiE -- "$exclude" 2>/dev/null); then
+      matched=false
+    fi
   fi
 
   if [[ "$matched" == "true" ]]; then

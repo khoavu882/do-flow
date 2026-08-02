@@ -54,7 +54,7 @@ if [[ -f "$PROC_FILE" ]] && [[ -s "$PROC_FILE" ]]; then
   if [[ ${#py_files[@]} -gt 0 ]]; then
     if command -v ruff &>/dev/null; then
       nohup ruff format "${py_files[@]}" </dev/null >/dev/null 2>&1 &
-      timeout 2 ruff check "${py_files[@]}" 2>&1 || true
+      run_with_timeout 2 -- ruff check "${py_files[@]}" 2>&1 || true
     fi
   fi
 
@@ -68,7 +68,7 @@ if [[ -f "$PROC_FILE" ]] && [[ -s "$PROC_FILE" ]]; then
   # Go: sync format (gofmt is fast, <100ms for typical files)
   if [[ ${#go_files[@]} -gt 0 ]]; then
     if command -v gofmt &>/dev/null; then
-      timeout 2 gofmt -w "${go_files[@]}" 2>&1 || true
+      run_with_timeout 2 -- gofmt -w "${go_files[@]}" 2>&1 || true
     fi
   fi
 
@@ -101,9 +101,9 @@ LAST_ASSISTANT_CONTENT=$(
 # Search extracted content for unfinished-work markers
 # Match stubs only inside code comment context to avoid false positives from
 # explanatory prose (e.g. "I removed the TODO comment" should not trigger).
-STUB_PATTERN='(?:#|//)\s*(?:TODO|FIXME)\b|raise NotImplementedError|throw new Error\(.*[Nn]ot [Ii]mplemented|(?:#|//)\s*stub\b'
+STUB_PATTERN='(#|//)[[:space:]]*(TODO|FIXME)([^[:alnum:]_]|$)|raise NotImplementedError|throw new Error\(.*[Nn]ot [Ii]mplemented|(#|//)[[:space:]]*stub([^[:alnum:]_]|$)'
 
-if echo "$LAST_ASSISTANT_CONTENT" | grep -qiP "$STUB_PATTERN" 2>/dev/null; then
+if echo "$LAST_ASSISTANT_CONTENT" | grep -qiE -- "$STUB_PATTERN" 2>/dev/null; then
   echo "[stop-check] Unfinished stub or TODO detected in last response — please complete the implementation before stopping." >&2
   exit 2
 fi

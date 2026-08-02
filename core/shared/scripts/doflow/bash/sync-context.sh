@@ -34,8 +34,16 @@ if [ ! -f "$file" ]; then
 fi
 
 if grep -qF "$START" "$file" && grep -qF "$END" "$file"; then
-  awk -v s="$START" -v e="$END" -v repl="$block" '
-    $0==s {print repl; skip=1; next}
+  # $block contains embedded newlines; passing it via awk -v triggers "newline in string" on
+  # BSD awk (macOS). Route it through ENVIRON instead — env-var access bypasses -v's
+  # argument-parsing grammar on both GNU and BSD awk.
+  export SYNC_CONTEXT_BLOCK="$block"
+  awk -v s="$START" -v e="$END" '
+    $0==s {
+      n = split(ENVIRON["SYNC_CONTEXT_BLOCK"], lines, "\n")
+      for (i = 1; i <= n; i++) print lines[i]
+      skip=1; next
+    }
     $0==e {skip=0; next}
     skip!=1 {print}
   ' "$file" > "$file.tmp" && mv "$file.tmp" "$file" && echo "sync-context: updated block in $file"
