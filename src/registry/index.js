@@ -14,10 +14,13 @@ const REGISTRY_FILES = Object.freeze({
   mcp: 'mcp.yaml',
   lifecycle: 'lifecycle.yaml',
   contracts: 'contracts.yaml',
+  externalTools: 'external-tools.yaml',
 });
 const CAPABILITY_STATUS = new Set(['supported', 'different', 'unavailable']);
 const SCOPES = new Set(['project', 'user']);
 const MCP_TRANSPORTS = new Set(['stdio', 'http', 'sse']);
+const EXTERNAL_TOOL_IDS = new Set(['rtk', 'graphify']);
+const EXTERNAL_TOOL_ACTIONS = new Set(['install', 'update', 'uninstall']);
 
 function issue(errors, location, message) { errors.push(`${location}: ${message}`); }
 function object(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
@@ -57,6 +60,7 @@ function loadRegistry({ repoRoot, dir, fsImpl = fs } = {}) {
     mcp: loaded.mcp.servers,
     lifecycle: loaded.lifecycle.policies,
     contracts: loaded.contracts.contracts,
+    externalTools: loaded.externalTools.tools,
     versions: Object.fromEntries(Object.entries(loaded).map(([name, value]) => [name, value.version])),
   };
   const validation = validateRegistry(registry, { repoRoot: registry.repoRoot, fsImpl });
@@ -177,20 +181,68 @@ function validateNativeProjection(projection, harness, { repoRoot, fsImpl }, err
   }
 }
 
+function validateCommand(command, location, errors) {
+  if (!Array.isArray(command) || command.length === 0
+    || command.some((argument) => typeof argument !== 'string' || !argument.trim())) {
+    issue(errors, location, 'command must be a non-empty array of non-empty strings');
+  }
+}
+
+function validateExternalTool(value, location, errors) {
+  if (!object(value)) { issue(errors, location, 'must be an object'); return; }
+  const allowed = new Set(['id', 'displayName', 'officialEvidence', 'status', 'install', 'update', 'uninstall', 'prerequisites']);
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) issue(errors, location, `unsupported field '${key}'`);
+  }
+  if (typeof value.id !== 'string' || !EXTERNAL_TOOL_IDS.has(value.id)) {
+    issue(errors, location, `id must be one of: ${[...EXTERNAL_TOOL_IDS].join(', ')}`);
+  }
+  if (typeof value.displayName !== 'string' || !value.displayName.trim()) issue(errors, location, 'requires displayName');
+  if (!Array.isArray(value.officialEvidence) || value.officialEvidence.length === 0
+    || value.officialEvidence.some((url) => typeof url !== 'string' || !/^https:\/\//.test(url))) {
+    issue(errors, location, 'must include one or more HTTPS officialEvidence URLs');
+  }
+  if (value.prerequisites !== undefined && (!Array.isArray(value.prerequisites)
+    || value.prerequisites.some((item) => typeof item !== 'string' || !item.trim())
+    || new Set(value.prerequisites).size !== value.prerequisites.length)) {
+    issue(errors, location, 'prerequisites must be an array of unique non-empty strings when present');
+  }
+  if (!object(value.status) || !Array.isArray(value.status.commands) || value.status.commands.length === 0) {
+    issue(errors, location, 'requires status.commands as a non-empty array of command arrays');
+  } else {
+    const allowedStatus = new Set(['commands']);
+    for (const key of Object.keys(value.status)) {
+      if (!allowedStatus.has(key)) issue(errors, `${location}.status`, `unsupported field '${key}'`);
+    }
+    value.status.commands.forEach((command, index) => validateCommand(command, `${location}.status.commands[${index}]`, errors));
+  }
+  for (const action of EXTERNAL_TOOL_ACTIONS) {
+    if (value[action] === undefined) continue;
+    if (!object(value[action])) { issue(errors, `${location}.${action}`, 'must be a command contract object'); continue; }
+    for (const key of Object.keys(value[action])) {
+      if (key !== 'command') issue(errors, `${location}.${action}`, `unsupported field '${key}'`);
+    }
+    validateCommand(value[action].command, `${location}.${action}.command`, errors);
+  }
+}
+
 function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
   const errors = [];
   const harnesses = Array.isArray(registry?.harnesses) ? registry.harnesses : null;
   const assets = Array.isArray(registry?.assets) ? registry.assets : null;
   const mcp = Array.isArray(registry?.mcp) ? registry.mcp : null;
   const lifecycle = Array.isArray(registry?.lifecycle) ? registry.lifecycle : null;
+  const externalTools = Array.isArray(registry?.externalTools) ? registry.externalTools : null;
   if (!harnesses) issue(errors, 'harnesses', 'must be an array');
   if (!assets) issue(errors, 'assets', 'must be an array');
   if (!mcp) issue(errors, 'mcp', 'must be an array');
   if (!lifecycle) issue(errors, 'lifecycle', 'must be an array');
+  if (!externalTools) issue(errors, 'externalTools', 'must be an array');
   const contracts = Array.isArray(registry?.contracts) ? registry.contracts : null;
   if (!contracts) issue(errors, 'contracts', 'must be an array');
   idsUnique(harnesses, 'harnesses', errors); idsUnique(assets, 'assets', errors);
   idsUnique(mcp, 'mcp', errors); idsUnique(lifecycle, 'lifecycle', errors);
+  idsUnique(externalTools, 'externalTools', errors);
 
   const harnessIds = new Set((harnesses || []).filter(object).map((item) => item.id));
   for (const harness of harnesses || []) {
@@ -270,6 +322,7 @@ function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
       if (mapping.status === 'unavailable' && typeof mapping.fallback !== 'string') issue(errors, at, `unavailable mapping '${harnessId}' requires fallback guidance`);
     }
   }
+  for (const tool of externalTools || []) validateExternalTool(tool, `external tool '${tool?.id ?? '?'}'`, errors);
   return { ok: errors.length === 0, errors };
 }
 
@@ -327,6 +380,7 @@ function capabilityMapData(registry) {
 }
 
 module.exports = {
-  REGISTRY_FILES, CAPABILITY_STATUS, parseRegistryFile, registryDir, loadRegistry, validateRegistry,
+  REGISTRY_FILES, CAPABILITY_STATUS, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS,
+  parseRegistryFile, registryDir, loadRegistry, validateRegistry,
   harnessFor, selectAssets, selectMcpServers, nativeMcpCatalog, capabilityMapData,
 };

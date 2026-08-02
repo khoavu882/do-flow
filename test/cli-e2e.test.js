@@ -12,16 +12,116 @@ const { spawnSync } = require('node:child_process');
 const REPO = path.resolve(__dirname, '..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 
-function run(args, { home, input } = {}) {
+function run(args, { home, input, env } = {}) {
   return spawnSync('node', [DOFLOW, ...args], {
     cwd: REPO,
-    env: { ...process.env, HOME: home ?? fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-')) },
+    env: { ...process.env, ...env, HOME: home ?? fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-')) },
     // Reply "no" explicitly for prompt-abort cases. An empty input can leave the test worker's
     // non-blocking pseudo-TTY attached and make the CLI retry EAGAIN as if a user were typing.
     input: input || '\n',
     encoding: 'utf8',
   });
 }
+
+function fakeBin(files) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-tools-bin-'));
+  for (const [name, body] of Object.entries(files)) {
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, `#!/bin/sh\n${body}\n`);
+    fs.chmodSync(file, 0o755);
+  }
+  return dir;
+}
+
+function toolEnv(bin, extra = {}) {
+  // Keep Node and /bin/sh reachable for the spawned test CLI and fake scripts, but deliberately
+  // exclude the developer's PATH so an installed RTK/Graphify cannot affect fixture outcomes.
+  return { ...extra, PATH: `${bin}:${path.dirname(process.execPath)}:/usr/bin:/bin` };
+}
+
+function runInteractive(args, { home, env, replies }) {
+  return new Promise((resolve, reject) => {
+    const child = require('node:child_process').spawn('node', [DOFLOW, ...args], {
+      cwd: REPO,
+      env: { ...process.env, ...env, HOME: home ?? fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-')) },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    let sent = 0;
+    const sendReplies = () => {
+      const prompts = (stdout.match(/\[y\/N\] /g) || []).length;
+      while (sent < prompts && sent < replies.length) child.stdin.write(`${replies[sent++]}\n`);
+      if (sent === replies.length) child.stdin.end();
+    };
+    child.stdout.on('data', (chunk) => { stdout += chunk; sendReplies(); });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.on('error', reject);
+    child.on('close', (status) => resolve({ status, stdout, stderr }));
+  });
+}
+
+test('tools status selects both registered tools and returns one JSON result per tool', () => {
+  const bin = fakeBin({
+    rtk: 'case "$1" in --version|gain) exit 0;; *) exit 1;; esac',
+    graphify: 'test "$1" = "--version"',
+    uv: 'test "$1" = "--version"',
+  });
+  const r = run(['tools', '--tool', 'rtk,graphify', '--json'], { env: toolEnv(bin) });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const result = JSON.parse(r.stdout);
+  assert.strictEqual(result.action, 'status');
+  assert.deepStrictEqual(result.results.map((item) => item.tool), ['rtk', 'graphify']);
+  assert.deepStrictEqual(result.results.map((item) => item.result.status), ['skipped', 'skipped']);
+});
+
+test('tools rejects --force and requires --tool outside an interactive terminal', () => {
+  const forced = run(['tools', '--tool', 'rtk', '--force']);
+  assert.strictEqual(forced.status, 1);
+  assert.match(forced.stderr, /--force is not supported/);
+
+  const omitted = run(['tools']);
+  assert.strictEqual(omitted.status, 1);
+  assert.match(omitted.stderr, /--tool is required when stdin is not an interactive terminal/);
+});
+
+test('tools --dry-run inspects and plans mutations without executing them', () => {
+  const bin = fakeBin({
+    uv: 'test "$1" = "--version"',
+  });
+  const r = run(['tools', '--tool', 'rtk,graphify', '--action', 'install', '--dry-run', '--json'], { env: toolEnv(bin) });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const result = JSON.parse(r.stdout);
+  assert.strictEqual(result.dryRun, true);
+  assert.deepStrictEqual(result.results.map((item) => item.result.status), ['not-attempted', 'not-attempted']);
+  assert.deepStrictEqual(result.results.map((item) => item.result.command), [
+    ['cargo', 'install', '--git', 'https://github.com/rtk-ai/rtk', '--branch', 'master', 'rtk'],
+    ['uv', 'tool', 'install', 'graphifyy'],
+  ]);
+});
+
+test('tools reports a declined lifecycle action without executing it', () => {
+  const bin = fakeBin({});
+  const r = run(['tools', '--tool', 'rtk', '--action', 'install'], { env: toolEnv(bin), input: 'n\n' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stderr, /RTK \(Rust Token Killer\): "cargo" "install"/);
+  assert.match(r.stdout, /rtk: declined/);
+});
+
+test('tools continues independently when one confirmed lifecycle command fails', async () => {
+  const bin = fakeBin({
+    rtk: 'case "$1" in --version|gain) exit 0;; *) exit 1;; esac',
+    graphify: 'test "$1" = "--version"',
+    uv: 'if test "$1" = "--version"; then exit 0; fi\nif test "$1" = "tool" && test "$2" = "uninstall"; then exit 0; fi\nexit 1',
+    cargo: 'exit 7',
+  });
+  const r = await runInteractive(['tools', '--tool', 'rtk,graphify', '--action', 'uninstall'], {
+    env: toolEnv(bin), replies: ['y', 'y'],
+  });
+  assert.strictEqual(r.status, 1, r.stderr);
+  assert.match(r.stdout, /rtk: failed/);
+  assert.match(r.stdout, /graphify: succeeded/);
+});
 
 test('--no-backup without --force is a hard error (exit 1), for install and update alike', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));

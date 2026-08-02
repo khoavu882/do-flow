@@ -15,6 +15,16 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-08-02
+
+### Added
+
+- **External-tool lifecycle management for RTK and Graphify.** `doflow tools` now inspects,
+  installs, updates, or uninstalls the supported tools through evidence-backed registry contracts.
+  Every external lifecycle command is displayed and confirmed individually; failures preserve
+  independent processing and return a non-zero process result. Graphify uses an existing `uv`
+  prerequisite, which DoFlow explains but never installs automatically.
+
 ## [0.14.0] - 2026-08-02
 
 ### Fixed

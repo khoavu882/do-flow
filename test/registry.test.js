@@ -13,7 +13,7 @@ const REPO = path.resolve(__dirname, '..');
 test('loads and validates the complete multi-harness registry', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   assert.deepEqual(registry.harnesses.map((item) => item.id), ['claude', 'codex', 'gemini']);
-  assert.deepEqual(Object.keys(REGISTRY_FILES), ['harnesses', 'assets', 'mcp', 'lifecycle', 'contracts']);
+  assert.deepEqual(Object.keys(REGISTRY_FILES), ['harnesses', 'assets', 'mcp', 'lifecycle', 'contracts', 'externalTools']);
   // contracts.yaml declares what each harness ACCEPTS, deliberately separate from harnesses.yaml's
   // what-DoFlow-SUPPORTS: nesting them would make the registry-truth guard validate the registry
   // against itself. Every harness must have exactly one contract.
@@ -21,6 +21,40 @@ test('loads and validates the complete multi-harness registry', () => {
   assert.equal(registry.validation.ok, true);
   assert.deepEqual(registry.harnesses.find((harness) => harness.id === 'codex').nativeProjection.config.resources,
     [{ kind: 'configuration-entry', identity: 'features.hooks', value: true }]);
+  assert.deepEqual(registry.externalTools.map((tool) => tool.id), ['rtk', 'graphify']);
+});
+
+test('loads evidence-backed external tool definitions with argument-vector commands only', () => {
+  const { externalTools } = loadRegistry({ repoRoot: REPO });
+  const rtk = externalTools.find((tool) => tool.id === 'rtk');
+  const graphify = externalTools.find((tool) => tool.id === 'graphify');
+
+  assert.deepEqual(rtk.status.commands, [['rtk', '--version'], ['rtk', 'gain']]);
+  assert.deepEqual(rtk.install.command, ['cargo', 'install', '--git', 'https://github.com/rtk-ai/rtk', '--branch', 'master', 'rtk']);
+  assert.equal(rtk.update, undefined, 'RTK has no verified update command');
+  assert.deepEqual(graphify.prerequisites, ['uv']);
+  assert.deepEqual(graphify.install.command, ['uv', 'tool', 'install', 'graphifyy']);
+  assert.deepEqual(graphify.update.command, ['uv', 'tool', 'upgrade', 'graphifyy']);
+  assert.deepEqual(graphify.uninstall.command, ['uv', 'tool', 'uninstall', 'graphifyy']);
+  for (const tool of externalTools) {
+    assert.ok(tool.officialEvidence.every((url) => url.startsWith('https://')));
+    assert.ok(tool.status.commands.every((command) => Array.isArray(command) && command.every((argument) => typeof argument === 'string')));
+  }
+});
+
+test('rejects malformed external tool provenance, identifiers, and command arrays', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const invalid = structuredClone(registry);
+  invalid.externalTools[0].id = 'unknown-tool';
+  invalid.externalTools[0].officialEvidence = ['http://example.test'];
+  invalid.externalTools[0].status.commands = ['rtk --version'];
+  invalid.externalTools[1].install.command = 'uv tool install graphifyy';
+
+  const result = validateRegistry(invalid, { repoRoot: REPO });
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join('\n'), /id must be one of: rtk, graphify/);
+  assert.match(result.errors.join('\n'), /HTTPS officialEvidence URLs/);
+  assert.match(result.errors.join('\n'), /command must be a non-empty array of non-empty strings/);
 });
 
 test('selects only renderable harness assets and filters by capability', () => {

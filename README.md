@@ -48,6 +48,20 @@ doflow install -g --target claude,codex
 `doflow install` creates a backup before changing configuration. The complete command reference,
 including project-scoped installation and rollback, is in [Setup](docs/setup.md).
 
+## External tools
+
+DoFlow can inspect or manage the supported RTK and Graphify command-line tools on macOS and Linux:
+
+```bash
+doflow tools --tool rtk,graphify --action status
+doflow tools --tool graphify --action install --dry-run --json
+```
+
+`install`, `update`, and `uninstall` display and require confirmation for every command; `--force`
+is intentionally rejected. Graphify uses `uv` and DoFlow explains a missing `uv` prerequisite
+without installing it. RTK update is reported as skipped because no verified upstream update command
+is registered.
+
 ## A typical feature flow
 
 ```mermaid
