@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "id": "rtk",
+      "displayName": "RTK (Rust Token Killer)",
+      "officialEvidence": [
+        "https://github.com/rtk-ai/rtk/blob/develop/INSTALL.md",
+        "https://www.rtk-ai.app/docs/getting-started/installation/"
+      ],
+      "status": {
+        "commands": [
+          ["rtk", "--version"],
+          ["rtk", "gain"]
+        ]
+      },
+      "install": {
+        "command": ["cargo", "install", "--git", "https://github.com/rtk-ai/rtk", "--branch", "master", "rtk"]
+      },
+      "uninstall": {
+        "command": ["cargo", "uninstall", "rtk"]
+      }
+    },
+    {
+      "id": "graphify",
+      "displayName": "Graphify",
+      "officialEvidence": [
+        "https://github.com/Graphify-Labs/graphify/blob/v8/README.md",
+        "https://docs.astral.sh/uv/guides/tools/",
+        "https://docs.astral.sh/uv/reference/cli/"
+      ],
+      "prerequisites": ["uv"],
+      "status": {
+        "commands": [
+          ["graphify", "--version"]
+        ]
+      },
+      "install": {
+        "command": ["uv", "tool", "install", "graphifyy"]
+      },
+      "update": {
+        "command": ["uv", "tool", "upgrade", "graphifyy"]
+      },
+      "uninstall": {
+        "command": ["uv", "tool", "uninstall", "graphifyy"]
+      }
+    }
+  ]
+}
