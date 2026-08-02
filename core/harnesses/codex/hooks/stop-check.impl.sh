@@ -54,7 +54,7 @@ if [[ -f "$PROC_FILE" ]] && [[ -s "$PROC_FILE" ]]; then
   if [[ ${#py_files[@]} -gt 0 ]]; then
     if command -v ruff &>/dev/null; then
       nohup ruff format "${py_files[@]}" </dev/null >/dev/null 2>&1 &
-      timeout 2 ruff check "${py_files[@]}" 2>&1 || true
+      run_with_timeout 2 -- ruff check "${py_files[@]}" 2>&1 || true
     fi
   fi
 
@@ -68,7 +68,7 @@ if [[ -f "$PROC_FILE" ]] && [[ -s "$PROC_FILE" ]]; then
   # Go: sync format (gofmt is fast, <100ms for typical files)
   if [[ ${#go_files[@]} -gt 0 ]]; then
     if command -v gofmt &>/dev/null; then
-      timeout 2 gofmt -w "${go_files[@]}" 2>&1 || true
+      run_with_timeout 2 -- gofmt -w "${go_files[@]}" 2>&1 || true
     fi
   fi
 
