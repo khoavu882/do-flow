@@ -399,7 +399,9 @@ make_transcript() {
 }
 
 # Test 6a: last assistant has TODO → exit 2
-T1=$(mktemp "$REPO_ROOT/tmp/transcript-XXXXXX.jsonl")
+T1=$(mktemp "$REPO_ROOT/tmp/transcript-XXXXXX")
+mv "$T1" "$T1.jsonl"
+T1="$T1.jsonl"
 make_transcript "user" "Can you add a TODO note to the list?" >> "$T1"
 make_transcript "assistant" "Sure, added to the list." >> "$T1"
 make_transcript "user" "Implement the function" >> "$T1"
@@ -414,7 +416,9 @@ else
 fi
 
 # Test 6b: user has TODO but last assistant is clean → exit 0
-T2=$(mktemp "$REPO_ROOT/tmp/transcript-XXXXXX.jsonl")
+T2=$(mktemp "$REPO_ROOT/tmp/transcript-XXXXXX")
+mv "$T2" "$T2.jsonl"
+T2="$T2.jsonl"
 make_transcript "user" "Add a TODO comment to the code" >> "$T2"
 make_transcript "assistant" "Done. Full implementation complete, no stubs." >> "$T2"
 
@@ -427,7 +431,9 @@ else
 fi
 
 # Test 6c: raise NotImplementedError → exit 2
-T3=$(mktemp "$REPO_ROOT/tmp/transcript-XXXXXX.jsonl")
+T3=$(mktemp "$REPO_ROOT/tmp/transcript-XXXXXX")
+mv "$T3" "$T3.jsonl"
+T3="$T3.jsonl"
 make_transcript "user" "implement auth" >> "$T3"
 make_transcript "assistant" "def authenticate(user):\n    raise NotImplementedError" >> "$T3"
 
