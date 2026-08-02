@@ -72,19 +72,33 @@ canonicalize_path() {
 # Used to namespace per-project state (compact summaries, warnings).
 # Normalizes symlinks and ../ components so equivalent paths hash identically.
 #
+# For a path that is (or resolves to) an existing directory — the case this
+# function exists for — fully resolves it, including a symlink at the path's
+# own leaf component, via `(cd "$1" && pwd -P)`, so equivalent directories
+# always hash identically. Callers that ever pass a non-directory or
+# nonexistent path fall back to the general-purpose canonicalize_path, which
+# — being usable by any file or missing path, not just directories — only
+# resolves symlinks in the parent chain, not the leaf itself.
+#
 # Hash fallback chain: sha256sum (Linux, Git Bash) -> shasum -a 256 (macOS,
-# every release since 10.6) -> cksum (last resort). Collision risk from the
-# cksum fallback is acceptable here — this is only a cache-key namespace, not
-# security-relevant.
+# every release since 10.6) -> cksum (last resort). The cksum branch is
+# normalized via printf '%016x' to the same 16-lowercase-hex-char contract
+# every other branch provides (raw cksum output is decimal and shorter).
+# Collision risk from the cksum fallback is acceptable here — this is only a
+# cache-key namespace, not security-relevant.
 cwd_hash() {
   local canonical
-  canonical=$(canonicalize_path "$1")
+  if [ -d "$1" ]; then
+    canonical=$(cd "$1" && pwd -P)
+  else
+    canonical=$(canonicalize_path "$1")
+  fi
   if command -v sha256sum &>/dev/null; then
     echo "$canonical" | sha256sum | cut -c1-16
   elif command -v shasum &>/dev/null; then
     echo "$canonical" | shasum -a 256 | cut -c1-16
   else
-    echo "$canonical" | cksum | tr -d ' \t' | cut -c1-16
+    printf '%016x\n' "$(echo "$canonical" | cksum | cut -d' ' -f1)"
   fi
 }
 

@@ -36,10 +36,29 @@ export DOFLOW_AGENT="${DOFLOW_AGENT:-claude-code}"
 # realpath has no -e flag). Uses only primitives present on every target
 # (cd, pwd -P, dirname, basename) — no GNU-only flag, no assumed Homebrew
 # coreutils.
+#
+# Hardening notes:
+#   - `CDPATH=` resets CDPATH for the internal `cd` so a user's exported
+#     CDPATH can't redirect it to an unrelated directory of the same name
+#     (and can't make `cd` echo a stray "found via CDPATH" line to stdout).
+#   - `--` guards `dirname`/`basename`/`cd` against a path that begins with
+#     `-` being parsed as an option.
+#   - if the internal `cd` fails for any reason, `||` falls through to the
+#     uncanonicalized-path branch instead of aborting under this file's
+#     `set -e` (matching the old `realpath ... || echo "$1"` degrade path).
+#   - a root-level parent directory ("/") is special-cased so the result
+#     never gets a leading `//`, which POSIX leaves undefined and which
+#     Cygwin/MSYS2 (a DoFlow target platform) interprets as a UNC path.
 canonicalize_path() {
-  local path="$1"
-  if [ -e "$path" ]; then
-    (cd "$(dirname "$path")" && printf '%s/%s\n' "$(pwd -P)" "$(basename "$path")")
+  local path="$1" dir base
+  if [[ -e "$path" ]] \
+    && dir=$(CDPATH= cd -P -- "$(dirname -- "$path")" 2>/dev/null && pwd -P); then
+    base=$(basename -- "$path")
+    if [[ "$dir" == "/" ]]; then
+      printf '/%s\n' "$base"
+    else
+      printf '%s/%s\n' "$dir" "$base"
+    fi
   else
     printf '%s\n' "$path"
   fi
@@ -198,6 +217,13 @@ run_with_timeout() {
 # nonexistent path fall back to the general-purpose canonicalize_path, which
 # — being usable by any file or missing path, not just directories — only
 # resolves symlinks in the parent chain, not the leaf itself.
+#
+# Hash fallback chain: sha256sum -> shasum -a 256 -> cksum (last resort).
+# The cksum branch is normalized via printf '%016x' to the same 16-char
+# hex contract every other branch provides — raw cksum output is a decimal
+# CRC, not hex, and not guaranteed to be 16 characters. Collision risk from
+# the cksum fallback is acceptable here — this is only a cache-key
+# namespace, not security-relevant.
 cwd_hash() {
   local canonical
   if [ -d "$1" ]; then
@@ -210,9 +236,7 @@ cwd_hash() {
   elif command -v shasum &>/dev/null; then
     echo "$canonical" | shasum -a 256 | cut -c1-16
   else
-    # Last resort: cksum is POSIX-guaranteed but not cryptographic. Collision
-    # risk is acceptable here — this is a cache-key hash, not security-relevant.
-    echo "$canonical" | cksum | tr -d ' ' | cut -c1-16
+    printf '%016x\n' "$(echo "$canonical" | cksum | cut -d' ' -f1)"
   fi
 }
 
