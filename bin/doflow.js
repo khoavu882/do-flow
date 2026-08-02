@@ -26,6 +26,7 @@ const { createGeminiAdapter } = require('../src/adapters/gemini');
 const { applyLifecycle, removeLifecycle, applyMcpIndex } = require('../src/lifecycle');
 const { readLedger } = require('../src/state');
 const { codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan } = require('../src/lifecycle-view');
+const { commandText, planToolLifecycle, executeToolLifecycle } = require('../src/tool-lifecycle');
 
 const SCRIPT_DIR = __dirname; // bin/
 const REPO_ROOT = path.dirname(SCRIPT_DIR);
@@ -41,7 +42,8 @@ function assertNoBackupRequiresForce(o) {
 
 function parseArgs(argv) {
   const o = { cmd: null, positional: [], targets: [], mcp: null, dryRun: false, force: false,
-    noBackup: false, prune: 0, global: false, json: false, help: false, version: false };
+    noBackup: false, prune: 0, global: false, json: false, help: false, version: false,
+    tools: null, action: 'status' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
@@ -61,6 +63,16 @@ function parseArgs(argv) {
         const val = argv[i + 1];
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
         o.mcp = val.split(',').map((s) => s.trim()).filter(Boolean); i++; break;
+      }
+      case '--tool': {
+        const val = argv[i + 1];
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
+        o.tools = val.split(',').map((s) => s.trim()).filter(Boolean); i++; break;
+      }
+      case '--action': {
+        const val = argv[i + 1];
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
+        o.action = val; i++; break;
       }
       case '--prune': {
         const val = argv[i + 1];
@@ -93,6 +105,7 @@ Commands:
   remove [path]        Remove only lifecycle-owned native resources
   list-backups         List available backups
   self-update          git pull + reinstall
+  tools                Inspect or manage registered external tools
 
 Scope (mutually exclusive — global wins if both given):
   -g, --global         Install to \$HOME/.{claude,codex,gemini}
@@ -111,6 +124,11 @@ Options:
       --no-backup      Skip backup (requires --force; ignored by rollback's safety snapshot)
       --prune <N>      Keep only N most recent backups
       --json           Machine-readable output (status)
+
+External tools:
+      --tool <list>    Comma-separated: rtk,graphify (required outside an interactive terminal)
+      --action <name>  status (default), install, update, or uninstall
+                       --force is intentionally unavailable: every mutation is separately confirmed
   -h, --help           Show help
   -v, --version        Show version`;
 
@@ -430,6 +448,88 @@ function cmdStatus(o) {
   }
 }
 
+function selectExternalTools(registry, o) {
+  let requested = o.tools;
+  if (!requested) {
+    const interactive = Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY);
+    if (!interactive) throw new Error("doflow tools: --tool is required when stdin is not an interactive terminal");
+    const answer = promptLine('Select tools (rtk, graphify; comma-separated): ');
+    requested = answer.split(',').map((item) => item.trim()).filter(Boolean);
+  }
+  if (!requested.length) throw new Error('doflow tools: select at least one tool');
+  const available = new Set(registry.externalTools.map((tool) => tool.id));
+  const unknown = [...new Set(requested)].filter((id) => !available.has(id));
+  if (unknown.length) throw new Error(`doflow tools: unknown tool id(s): ${unknown.join(', ')}; expected: ${[...available].join(', ')}`);
+  const wanted = new Set(requested);
+  return registry.externalTools.filter((tool) => wanted.has(tool.id));
+}
+
+function toolJsonResults(plan, execution = null) {
+  const executed = new Map((execution?.results || []).map((result) => [result.tool, result]));
+  return plan.tools.map((item) => ({
+    tool: item.tool.id,
+    state: item.state,
+    inspections: item.inspections,
+    prerequisites: item.prerequisites.map((prerequisite) => ({ name: prerequisite.name, available: prerequisite.available })),
+    action: item.action,
+    result: executed.get(item.tool.id) ?? (item.action.applicable
+      ? { tool: item.tool.id, status: 'not-attempted', command: [...item.action.command] }
+      : { tool: item.tool.id, status: 'skipped', reason: item.action.reason }),
+  }));
+}
+
+function cmdTools(o) {
+  if (o.force) throw new Error("doflow tools: --force is not supported; each lifecycle command requires its own confirmation");
+  if (!['status', 'install', 'update', 'uninstall'].includes(o.action)) {
+    throw new Error(`doflow tools: unsupported action '${o.action}'; expected: status, install, update, uninstall`);
+  }
+  const registry = loadRegistry({ repoRoot: REPO_ROOT });
+  const tools = selectExternalTools(registry, o);
+  const plan = planToolLifecycle({ registry: { ...registry, externalTools: tools }, action: o.action });
+
+  if (o.dryRun) {
+    if (!o.json) {
+      console.log(`[DRY] External-tool ${o.action} plan:`);
+      for (const item of plan.tools) {
+        if (item.action.applicable) console.log(`[DRY]  ${item.tool.id}: ${commandText(item.action.command)}`);
+        else console.log(`[DRY]  ${item.tool.id}: skipped (${item.action.reason})`);
+      }
+      console.log('[DRY] Dry run complete — no lifecycle commands executed');
+    }
+    if (o.json) console.log(JSON.stringify({ action: o.action, dryRun: true, results: toolJsonResults(plan) }, null, 2));
+    return;
+  }
+
+  if (o.action === 'status') {
+    if (o.json) {
+      console.log(JSON.stringify({ action: o.action, dryRun: false, results: toolJsonResults(plan) }, null, 2));
+      return;
+    }
+    for (const item of plan.tools) {
+      console.log(`${item.tool.displayName}: ${item.state}${item.action.reason ? ` (${item.action.reason})` : ''}`);
+    }
+    return;
+  }
+
+  const execution = executeToolLifecycle({
+    plan,
+    displayCommand: (command, tool) => console.error(`[INFO]  ${tool.displayName}: ${commandText(command)}`),
+    confirmCommand: (command, tool, action) => confirm(`Run ${tool.displayName} ${action}: ${commandText(command)}?`, false),
+  });
+  // Keep processing independent tools so the user receives every outcome, but make a confirmed
+  // command failure visible to scripts and CI through the process result as well as the report.
+  const hasFailures = execution.results.some((result) => result.status === 'failed');
+  if (o.json) {
+    console.log(JSON.stringify({ action: o.action, dryRun: false, results: toolJsonResults(plan, execution) }, null, 2));
+    if (hasFailures) process.exitCode = 1;
+    return;
+  }
+  for (const result of execution.results) {
+    console.log(`${result.tool}: ${result.status}${result.reason ? ` (${result.reason})` : ''}`);
+  }
+  if (hasFailures) process.exitCode = 1;
+}
+
 function printBackupTable(rows, backupRoot) {
   if (rows.length === 0) { console.log(`[INFO] No backups found in ${backupRoot}`); return; }
   console.log(`\n${'BACKUP ID'.padEnd(42)} ${'OPERATION'.padEnd(14)} ${'TYPE'.padEnd(9)} TIMESTAMP`);
@@ -528,6 +628,7 @@ function main() {
       case 'rollback': return cmdRollback(o);
       case 'list-backups': return cmdListBackups(o);
       case 'self-update': return cmdSelfUpdate(o);
+      case 'tools': return cmdTools(o);
       default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
     }
   } catch (error) {
