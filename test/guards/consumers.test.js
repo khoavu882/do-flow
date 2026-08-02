@@ -11,16 +11,31 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { GUIDANCE, SKILLS, coreTextFiles } = require('./_shared');
 
-function lazyResources() {
+function resourcesUnder(root) {
   const out = [];
   for (const dir of ['modes', 'references']) {
-    const abs = path.join(GUIDANCE, dir);
+    const abs = path.join(root, dir);
     if (!fs.existsSync(abs)) continue;
     for (const name of fs.readdirSync(abs)) {
       if (name.endsWith('.md')) out.push({ rel: `${dir}/${name}`, base: name.replace(/\.md$/, '') });
     }
   }
   return out;
+}
+
+/** Guidance-tree resources only — this is the set the "has a consumer" test checks, matching the
+ * file's own framing (DOFLOW_CORE.md's inventory comment names these without loading them). */
+function lazyResources() {
+  return resourcesUnder(GUIDANCE);
+}
+
+/** Guidance-tree resources PLUS every skill's own `modes/`/`references/` subdirectory — a skill
+ * that names `references/X.md` in its own SKILL.md means "relative to me", not "relative to the
+ * shared guidance tree". Used only for existence-checking (test 2): whether a skill-scoped
+ * resource has its OWN consumer is a separate, per-skill concern this guard does not police. */
+function allLazyResources() {
+  const skillDirs = fs.readdirSync(SKILLS).filter((name) => fs.statSync(path.join(SKILLS, name)).isDirectory());
+  return [...lazyResources(), ...skillDirs.flatMap((name) => resourcesUnder(path.join(SKILLS, name)))];
 }
 
 /** A consumer is a skill or an always-loaded rule — NOT DOFLOW_CORE.md's inventory comment block,
@@ -37,7 +52,7 @@ test('G3: every mode and reference file has at least one skill or rule consumer'
 });
 
 test('G3: no consumer references a mode or reference file that does not exist', () => {
-  const existing = new Set(lazyResources().map((r) => r.rel));
+  const existing = new Set(allLazyResources().map((r) => r.rel));
   const dangling = [];
   for (const { rel, text } of consumerFiles()) {
     for (const [, ref] of text.matchAll(/`?((?:modes|references)\/[A-Za-z0-9_.-]+\.md)`?/g)) {
