@@ -130,9 +130,11 @@ fi
 next_number="001"
 if [ "$mode" != "paths-only" ]; then
   max=0
-  for n in "${numbered_dirs[@]}"; do
-    nn=$((10#${n%%-*})); [ "$nn" -gt "$max" ] && max="$nn"
-  done
+  if [ "${#numbered_dirs[@]}" -gt 0 ]; then
+    for n in "${numbered_dirs[@]}"; do
+      nn=$((10#${n%%-*})); [ "$nn" -gt "$max" ] && max="$nn"
+    done
+  fi
   while IFS= read -r b; do
     seg="${b##*/}"; num="${seg%%-*}"
     case "$num" in ''|*[!0-9]*) continue ;; esac
