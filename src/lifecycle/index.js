@@ -10,6 +10,7 @@ const { defaultLedger, ownershipKey, writeLedger, writeRecoveryRecord } = requir
 const { resolveAdapter, projectAdapterInput } = require('../adapters');
 const { renderPolicies } = require('./policies');
 const { renderMcpIndex } = require('./mcp-index');
+const { hasBashCapableShell } = require('./bash-availability');
 
 const OPERATIONS = new Set(['create', 'merge', 'update', 'remove']);
 
@@ -257,8 +258,32 @@ function assertPlanApplicable(plan, stateRoot, acceptPrerequisites) {
   if (!plan.requiredNativeResources?.length || !plan.changes.length) throw new Error('Refusing to apply a lifecycle plan with no required native resources');
 }
 
-function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.ledger, context = {}, mode = 'apply', acceptPrerequisites = false, writeLedgerFn = writeLedger, writeRecoveryRecordFn = writeRecoveryRecord }) {
+/** Whether this harness's plan includes at least one hooks-bearing change. Claude's hooks are a
+ * registry-declared asset (`kind: "hooks"` in core/registry/assets.yaml); Codex and Gemini deploy
+ * hooks via their own bespoke code paths and tag the resulting change with `nativeComponent:
+ * 'hooks'` instead (see src/adapters/codex/index.js and src/adapters/gemini/index.js). Either
+ * signal is sufficient — this stays harness-agnostic on purpose. */
+function targetNeedsHooks(target) {
+  const hookAssetIds = new Set((target.assets || []).filter((asset) => asset.kind === 'hooks').map((asset) => asset.id));
+  return (target.changes || []).some((change) => hookAssetIds.has(change.assetId) || change.nativeComponent === 'hooks');
+}
+
+/** FR-003 preflight: refuse to write hook-bearing changes when no bash-capable shell (POSIX
+ * bash, Git Bash/MSYS2, or WSL) is invocable, rather than installing hooks that will error
+ * silently at runtime. Only harnesses whose selected changes actually include hooks trigger
+ * this — a plan touching only guidance/skills assets never invokes the check. Removal is
+ * exempt: deleting hook files does not require running them. */
+function assertBashAvailableForHooks(plan, mode, hasBashCapableShellFn) {
+  if (mode === 'remove') return;
+  const hookHarnesses = plan.targets.filter((target) => !target.skipped && targetNeedsHooks(target)).map((target) => target.harness);
+  if (hookHarnesses.length === 0) return;
+  if (hasBashCapableShellFn()) return;
+  throw new Error(`No bash-capable shell detected (checked: bash --version). Install Git Bash for Windows, or run inside WSL, before installing hooks for ${hookHarnesses.join(', ')}.`);
+}
+
+function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.ledger, context = {}, mode = 'apply', acceptPrerequisites = false, writeLedgerFn = writeLedger, writeRecoveryRecordFn = writeRecoveryRecord, hasBashCapableShellFn = hasBashCapableShell }) {
   assertPlanApplicable(plan, stateRoot, acceptPrerequisites);
+  assertBashAvailableForHooks(plan, mode, hasBashCapableShellFn);
   const recovery = writeRecoveryRecordFn(stateRoot, { status: 'pending', changes: plan.changes });
   const completedHarnesses = [];
   try {
@@ -303,4 +328,4 @@ function removeLifecycle(options) {
   return applyLifecycle({ ...options, plan, mode: 'remove', acceptPrerequisites: options.acceptPrerequisites });
 }
 
-module.exports = { OPERATIONS, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex };
+module.exports = { OPERATIONS, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks };
