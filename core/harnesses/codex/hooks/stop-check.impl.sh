@@ -101,9 +101,11 @@ LAST_ASSISTANT_CONTENT=$(
 # Search extracted content for unfinished-work markers
 # Match stubs only inside code comment context to avoid false positives from
 # explanatory prose (e.g. "I removed the TODO comment" should not trigger).
-STUB_PATTERN='(?:#|//)\s*(?:TODO|FIXME)\b|raise NotImplementedError|throw new Error\(.*[Nn]ot [Ii]mplemented|(?:#|//)\s*stub\b'
+# POSIX ERE has no \b; require what follows TODO/FIXME/stub to be a
+# non-word character or end-of-string instead, so "TODOX" doesn't match.
+STUB_PATTERN='(#|//)[[:space:]]*(TODO|FIXME)([^[:alnum:]_]|$)|raise NotImplementedError|throw new Error\(.*[Nn]ot [Ii]mplemented|(#|//)[[:space:]]*stub([^[:alnum:]_]|$)'
 
-if echo "$LAST_ASSISTANT_CONTENT" | grep -qiP "$STUB_PATTERN" 2>/dev/null; then
+if echo "$LAST_ASSISTANT_CONTENT" | grep -qiE "$STUB_PATTERN" 2>/dev/null; then
   echo "[stop-check] Unfinished stub or TODO detected in last response — please complete the implementation before stopping." >&2
   exit 2
 fi
