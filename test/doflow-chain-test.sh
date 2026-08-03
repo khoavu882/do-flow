@@ -305,6 +305,16 @@ eq "package is named per range" \
 eq "bad base ref -> exit 2" "$?" "2"
 "$PACKAGE" --task=A.1 --base="$BASE_SHA" >/dev/null 2>&1
 eq "missing --head -> exit 2" "$?" "2"
+# A range that resolves (both refs are real) but contains zero commits — e.g. from a
+# single mistyped character in a base SHA that still happens to name a real object —
+# must fail loud rather than write a syntactically valid, semantically empty package a
+# reviewer could mistake for "no changes, all clear."
+EMPTY_PKG_OUT="$("$PACKAGE" --task=A.1 --base="$HEAD_SHA" --head="$HEAD_SHA" 2>&1)"
+EMPTY_PKG_EXIT=$?
+eq "empty range -> exit 2"            "$EMPTY_PKG_EXIT" "2"
+eq "empty range reports empty-range"  "$(printf '%s' "$EMPTY_PKG_OUT" | jq -r '.error')" "empty-range"
+eq "empty range writes no package file" \
+   "$(find agent-docs/doflow/001-auth/exec -maxdepth 1 -name "review-$(git rev-parse --short "$HEAD_SHA")..$(git rev-parse --short "$HEAD_SHA").diff" 2>/dev/null | wc -l | tr -d ' ')" "0"
 
 echo "[do-parallel-check]"
 PC="$("$PARCHECK" --phase=A)"
