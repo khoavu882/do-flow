@@ -2,7 +2,6 @@
 name: subagent-driven
 description: "Execute a plan's tasks by dispatching a fresh subagent per task, reviewing each one for spec compliance and quality, and running a bounded fix loop before it counts as done. Use when executing plan.md's task checklist with review, either through /do-execute-plan or standalone against an existing plan."
 argument-hint: "[--task=<id>|--phase=<X>|--all] [--review|--no-review] [--sync]"
-disable-model-invocation: true
 effort: high
 ---
 
