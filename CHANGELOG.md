@@ -17,7 +17,7 @@ All notable changes to DoFlow are documented here. Format follows
 
 ### Removed
 
-- **`--type feature` removed from `/do-document`.** Use `--type impl` instead for implementation-focused documentation guidance (C4/sequence diagrams, API specs, data model sections).
+- **`--type feature` removed from `/do-document`.** Use `--type impl` instead — generates a narrative implementation summary (what was built, key decisions, deviations, changed surfaces) rather than the removed type's flow diagrams.
 
 ## [0.15.0] - 2026-08-02
 
