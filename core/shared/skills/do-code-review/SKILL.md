@@ -192,3 +192,4 @@ the recorded path stays relative.
 
 ## Next Step
 After review, use `/do-implement` or `/do-improve` to address requested changes, then rerun `/do-code-review`.
+On a clean review with nothing left to fix, consider `/do-document --type impl` to record what was built — optional, and does not gate or pause completion.

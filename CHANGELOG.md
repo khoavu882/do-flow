@@ -15,6 +15,16 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-08-03
+
+### Removed
+
+- **`--type feature` removed from `/do-document`.** Use `--type impl` instead — generates a narrative implementation summary (what was built, key decisions, deviations, changed surfaces) rather than the removed type's flow diagrams.
+
+### Changed
+
+- **`subagent-driven` reviews a phase as a unit, not each task in isolation.** Implementer dispatch is still per-task, but review now waits until every task in a phase reports done, then one reviewer covers the phase's whole diff — catching inconsistencies between parallel tasks in the same phase that per-task review structurally couldn't see. `do-execute-plan`, `task-reviewer-prompt.md`, and `re-review-prompt.md` updated to match.
+
 ## [0.15.0] - 2026-08-02
 
 ### Added

@@ -15,10 +15,12 @@ the active feature.
 /do-execute-plan [--next|--phase N|--all|--resume|--dry-run|--contracts] [--safe] [--sync] [--review|--no-review]
 ```
 
-`--sync` runs every selected task serially, ignoring `[P]`. `--review` / `--no-review` force the
-per-phase review loop on or off; the default is **auto** — on for `--all`, off for `--next` and
-`--phase`. Both are passed through to `/subagent-driven` rather than re-derived there, so a delegated
-run and a standalone one behave identically.
+`--sync` runs every selected task serially, ignoring `[P]`. `--review` / `--no-review` force
+`/subagent-driven`'s review loop on or off for this run — review batches one phase at a time (every
+task in a phase reports done, then one review covers the phase as a unit), never a single task in
+isolation; the default is **auto** — on for `--all`, off for `--next` and `--phase`. Both are passed
+through to `/subagent-driven` rather than re-derived there, so a delegated run and a standalone one
+behave identically.
 
 ## Behavioral Flow
 **Cross-client clarification:** Every `AskUserQuestion` reference below means the mechanism in
@@ -95,11 +97,12 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    description>` or `feat/<slug>` — if this repo has no row there): exists → checkout, record
    `existing`; absent → `git checkout -b <planned-branch>`, record `created`. A `created`/`existing`
    row is trusted as-is on later visits — no re-check.
-7. **Delegate the task loop to `/subagent-driven`** — it owns per-task execution: composing each
-   brief, dispatching the owning specialist, reviewing the result for spec compliance and quality,
-   running the bounded fix loop, and adjudicating at the cap. Pass the selected task set, the
-   resolved feature slug, and the resolved `--sync` / review mode; do not re-derive them there.
-   Report the resolved review mode, so whether a task was reviewed is never ambiguous afterwards.
+7. **Delegate the task loop to `/subagent-driven`** — it owns execution: composing each task's
+   brief, dispatching the owning specialist per task, then once every task in a phase reports done,
+   reviewing that phase as a unit for spec compliance and quality, running the bounded fix loop, and
+   adjudicating at the cap. Pass the selected task set, the resolved feature slug, and the resolved
+   `--sync` / review mode; do not re-derive them there. Report the resolved review mode, so whether
+   a phase was reviewed is never ambiguous afterwards.
 
    Before any concurrent dispatch, run the write-set precheck — `[P]` is a plan-time claim that
    nothing verified, and two agents on one file lose an edit silently:
@@ -125,7 +128,7 @@ the task-hierarchy and delegation posture it sets. That file is loaded on demand
 so skipping the read silently drops the posture it defines.
 
 ## Boundaries
-**Will:** enforce the prereq gate, select work, delegate the per-task loop to `/subagent-driven`,
+**Will:** enforce the prereq gate, select work, delegate the task/phase loop to `/subagent-driven`,
 verify write-set disjointness before fanning out `[P]` work, validate, keep `state.md` resumable
 (including its Task Ledger), generate a per-dependency-service code
 frame — signatures, type/data shapes, and a pinned safe-default implementation, in the inferred
