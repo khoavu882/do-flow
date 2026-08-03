@@ -1,6 +1,6 @@
 ---
 name: do-execute-plan
-description: "Execute plan.md's embedded task checklist: pm-agent orchestration over named specialists with the implement-phase prerequisite gate."
+description: "Execute plan.md's embedded task checklist: subagent-driven orchestration over named specialists with the implement-phase prerequisite gate."
 argument-hint: "[--next|--phase N|--all|--resume|--dry-run|--contracts] [--safe] [--sync] [--review|--no-review]"
 effort: high
 ---
@@ -51,14 +51,7 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    `--slug="<chosen>"` to both the resolver and prereq-gate calls below.
 2. **Prerequisite gate (HARD)** — run, and STOP on a non-zero exit:
    ```bash
-   PREREQ="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-prereqs.sh}"
-   if [ -z "$PREREQ" ] || [ ! -f "$PREREQ" ]; then
-     d="$PWD"
-     while [ "$d" != / ]; do
-       [ -f "$d/.doflow/scripts/doflow/bash/do-prereqs.sh" ] && PREREQ="$d/.doflow/scripts/doflow/bash/do-prereqs.sh" && break
-       d="$(dirname "$d")"
-     done
-   fi
+   PREREQ="$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-prereqs.sh"
    bash "$PREREQ" --require-plan   # add --slug="<chosen>" if step 1 disambiguated
    ```
    This is the primary, prompt-level half of the one hard gate; the `pre-implement-gate.sh` hook is
@@ -104,15 +97,14 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    `--sync` / review mode; do not re-derive them there. Report the resolved review mode, so whether
    a phase was reviewed is never ambiguous afterwards.
 
-   Before any concurrent dispatch, run the write-set precheck — `[P]` is a plan-time claim that
-   nothing verified, and two agents on one file lose an edit silently:
-   ```bash
-   bash "$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-parallel-check.sh" --phase=<X>   # add --slug= if step 1 disambiguated
-   ```
-   Fan out only the tasks it reports safe; **serialize everything in its `serialize[]` and say which
-   tasks were serialized and why.** With `--sync`, skip fan-out entirely and report that it was
-   suppressed — a silent serial run is indistinguishable from a plan with no parallel-safe work.
-   Subagents return **summaries only**; artifacts move as file paths, never as prompt bodies.
+   `/subagent-driven`'s own step 3 runs the write-set precheck before any concurrent dispatch —
+   `[P]` is a plan-time claim that nothing verified, and two agents on one file lose an edit
+   silently. `do-execute-plan` does not re-run that check; it reports the resolved outcome: fan
+   out only the tasks `/subagent-driven` reports safe; **serialize everything in its `serialize[]`
+   and say which tasks were serialized and why.** With `--sync`, skip fan-out entirely and report
+   that it was suppressed — a silent serial run is indistinguishable from a plan with no
+   parallel-safe work. Subagents return **summaries only**; artifacts move as file paths, never as
+   prompt bodies.
 8. **Validate then record** — run the task/phase validation; check the `- [ ]` box in `plan.md`;
    update `state.md` (seed from `$DOFLOW_CONFIG_DIR/templates/doflow/state-template.md` on first
    write if absent;

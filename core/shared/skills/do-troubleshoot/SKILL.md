@@ -41,13 +41,14 @@ Diagnose an active, reproducing issue — diagnosis-first by default. Distinct f
    skip this: present the plan before touching files.
 5. **Fix (only with `--fix`, only after user confirms)** — apply the smallest change that
    addresses the confirmed root cause; verify with the same reproduction from step 1 (now passing)
-   plus the existing test suite if one exists. Never skip/disable a failing test to make it pass.
+   plus the existing test suite if one exists, per RULE_01_SAFETY (never skip/disable a failing
+   test to make it pass).
 
 ## Boundaries
 **Will:** reproduce and diagnose an active issue with evidence; propose ranked, risk-assessed
 fixes; apply a fix only with `--fix` and explicit user confirmation.
 **Will Not:** apply any file change without `--fix`; skip reproduction/root-cause confirmation to
-jump straight to a fix; disable or skip a test/gate to make a build pass.
+jump straight to a fix; disable or skip a test/gate to make a build pass (RULE_01_SAFETY).
 
 ## Next Step
 Without `--fix`: re-run with `--fix` to apply the chosen option, or `/do-improve` if the finding is

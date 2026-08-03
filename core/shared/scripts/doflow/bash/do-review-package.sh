@@ -74,6 +74,18 @@ head7="$(git rev-parse --short "$head_ref")"
 out_rel="$workspace/review-$base7..$head7.diff"
 out_abs="$repo_root/$out_rel"
 
+# Guard before the write: a range that resolves to a valid-but-empty commit
+# span (e.g. a malformed base SHA that still happens to name some ancestor
+# commit) must never produce a package file at all — writing one first and
+# catching it after would leave a syntactically valid, semantically empty
+# file for a caller to stumble on if the guard were ever bypassed.
+commits="$(git rev-list --count "$base..$head_ref" 2>/dev/null || echo 0)"
+if [ "${commits:-0}" -eq 0 ]; then
+  jq -n --arg base "$base7" --arg head "$head7" \
+    '{error:"empty-range", base:$base, head:$head, hint:"range resolved but contains no commits — check the base SHA"}'
+  exit 2
+fi
+
 write_ok=1
 {
   echo "# Review package: $base7..$head7"
@@ -98,7 +110,6 @@ if [ "$write_ok" -eq 0 ] || [ ! -s "$out_abs" ]; then
   exit 2
 fi
 
-commits="$(git rev-list --count "$base..$head_ref" 2>/dev/null || echo 0)"
 bytes="$(wc -c < "$out_abs" 2>/dev/null | tr -d ' ')"
 
 jq -n \

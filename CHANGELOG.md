@@ -15,6 +15,38 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-08-03
+
+### Fixed
+
+- **`do-execute-plan`'s frontmatter description named the wrong orchestrator.** It read "pm-agent
+  orchestration over named specialists," but the actual Behavioral Flow and Boundaries section
+  have always delegated task execution to `/subagent-driven` — `pm-agent` never appears in the
+  file's body. Corrected to name `/subagent-driven`.
+- **`do-execute-plan` and `subagent-driven` each ran the same write-set precheck for the same
+  phase before dispatch.** `do-execute-plan` step 7 called `do-parallel-check.sh --phase=<X>`
+  immediately before delegating to `/subagent-driven`, which runs the identical check again in
+  its own step 3 before fan-out — same script, same phase, same answer, twice. Removed the
+  redundant precheck from `do-execute-plan`; `/subagent-driven` remains the sole enforcement
+  point.
+- **`do-execute-plan` re-derived `DOFLOW_CONFIG_DIR` via a ~10-line directory walk at two separate
+  points in the same flow.** Steps 1 and 2 each contained a near-identical resolver block.
+  Consolidated to one resolution in step 1, reused by every later script call in the file.
+- **`confidence-check` asserted fabricated precision/recall/ROI figures** ("Precision: 1.000,"
+  "8/8 test cases passed," "100% precision and recall in production testing") with no benchmark
+  harness anywhere in this repo to back them — a direct violation of this project's own
+  Professional Honesty rule. Replaced with an honest statement that no such harness exists.
+- **`do-troubleshoot` restated the "never skip/disable tests" rule inline at two points** instead
+  of citing `RULE_01_SAFETY.md`, the single source of truth `do-test` already cites for the same
+  constraint. Consolidated to a citation; the enforced rule is unchanged.
+- **`do-review-package.sh` could silently produce an empty review package.** A commit range whose
+  `--base`/`--head` both resolve to real git objects but span zero commits — e.g. from a single
+  mistyped character in a base SHA that still happens to name some other real commit — wrote a
+  syntactically valid but semantically empty package file instead of failing. A reviewer
+  dispatched against it would see nothing and could report false "no changes, all clear." The
+  script now exits 2 with an `empty-range` error and writes no file when the resolved range has
+  zero commits. Added regression coverage for the new guard in `test/doflow-chain-test.sh`.
+
 ## [0.16.0] - 2026-08-03
 
 ### Removed
