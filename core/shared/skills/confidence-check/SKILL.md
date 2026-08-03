@@ -26,10 +26,7 @@ Implementation-class work includes:
 
 If confidence is below threshold, stop implementation and gather more evidence or ask the user for clarification.
 
-**Test Results** (2025-10-21):
-- Precision: 1.000 (no false positives)
-- Recall: 1.000 (no false negatives)
-- 8/8 test cases passed
+**Validation status**: No benchmark harness exists in this repo to measure this skill's precision or recall — treat its effectiveness as unvalidated until one is built.
 
 ## When to Use
 
@@ -134,6 +131,4 @@ The TypeScript implementation is available in `scripts/confidence.ts` for refere
 
 ## ROI
 
-**Token Savings**: Spend 100-200 tokens on confidence check to save 5,000-50,000 tokens on wrong-direction work.
-
-**Success Rate**: 100% precision and recall in production testing.
+The intent of this check is to spend a small amount of tokens up front to catch wrong-direction work before it consumes a much larger amount of tokens. No benchmark harness exists in this repo to measure actual token savings or success rate for this skill — treat any such figures as unvalidated until one is built.
