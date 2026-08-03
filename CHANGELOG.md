@@ -15,6 +15,20 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Removed
+
+- **`--type feature` removed from `/do-document`.** Use `--type impl` instead — generates a narrative implementation summary (what was built, key decisions, deviations, changed surfaces) rather than the removed type's flow diagrams.
+
+## [0.15.0] - 2026-08-02
+
+### Added
+
+- **External-tool lifecycle management for RTK and Graphify.** `doflow tools` now inspects,
+  installs, updates, or uninstalls the supported tools through evidence-backed registry contracts.
+  Every external lifecycle command is displayed and confirmed individually; failures preserve
+  independent processing and return a non-zero process result. Graphify uses an existing `uv`
+  prerequisite, which DoFlow explains but never installs automatically.
+
 ## [0.14.0] - 2026-08-02
 
 ### Fixed

@@ -5,7 +5,7 @@ feature can learn what it contains without reading it end to end. Loaded on dema
 `do-brainstorm`, `do-design` and `do-plan`; not part of any always-loaded context.
 
 Checked mechanically by `scripts/doflow/bash/validate-artifacts.sh` — advisory, never blocking.
-`state.md` and contract docs are out of scope; they are already list-shaped.
+`state.md`, contract docs, and `implementation-flow.md` are out of scope; the former are list-shaped, the latter narrative-only.
 
 ## 1. Index then detail
 
