@@ -63,8 +63,21 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    (genuinely no active feature: trunk branch, or a non-git root with zero existing feature dirs),
    ask the user for a slug using the RULE_04 question format, default
    `<next_number>-<kebab-of-description>`, then create the dir: `mkdir -p
-   agent-docs/doflow/<slug>`, plus `git checkout -b feat/<slug>` when `is_git_repo` is `true`
-   (skip the branch step entirely at a non-git root — there's no repo to branch).
+   agent-docs/doflow/<slug>`. **Branch creation delegated to `/do-git`:**
+   
+   Resolve do-git-state.sh path (similar to do-paths.sh resolution):
+   ```bash
+   STATE="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-git-state.sh}"
+   if [ -z "$STATE" ] || [ ! -f "$STATE" ]; then
+     d="$PWD"
+     while [ "$d" != / ]; do
+       [ -f "$d/.doflow/scripts/doflow/bash/do-git-state.sh" ] && STATE="$d/.doflow/scripts/doflow/bash/do-git-state.sh" && break
+       d="$(dirname "$d")"
+     done
+   fi
+   ```
+   
+   If `is_git_repo` is true, call `bash "$STATE" --branch-name --class=feature --slug=<slug>` and use the returned branch name with `git checkout -b`; if false (non-git root), skip branch creation entirely.
 4. **Write `requirement.md`** — copy
    `$DOFLOW_CONFIG_DIR/templates/doflow/requirement-template.md` into the feature
    dir, fill the tokens from the dialogue. WHAT/WHY only: user stories (P1/P2/P3 → US#), `FR-###`,

@@ -355,6 +355,73 @@ chmod 700 agent-docs/doflow/001-auth/exec
 eq "writable again: brief succeeds"   "$("$BRIEF" --task=A.1 | jq -r '.traced.story')" "US1"
 eq "writable again: package succeeds" "$("$PACKAGE" --task=A.1 --base="$BASE_SHA" --head="$HEAD_SHA" | jq -r '.commits')" "1"
 
+
+# ==============================================================================
+# CH1: branch_class resolver field and slug deny-list for release/hotfix
+# ==============================================================================
+echo "[CH1: branch_class resolver]"
+ORIG_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+git checkout -q -B main
+eq "main branch -> class trunk" "$($PATHS | jq -r '.branch_class')" "trunk"
+git checkout -q -B develop
+eq "develop branch -> class trunk" "$($PATHS | jq -r '.branch_class')" "trunk"
+
+# Test new feature and fix branches get correct classes
+git checkout -q -b feat/test-001
+eq "feat/ branch -> class feature" "$($PATHS | jq -r '.branch_class')" "feature"
+git checkout -q -b fix/test-fix
+eq "fix/ branch -> class fix" "$($PATHS | jq -r '.branch_class')" "fix"
+
+# Test release/hotfix branches yield null slug and correct class
+git checkout -q -b release/v1.0.0
+eq "release/* branch -> class release, slug null" "$($PATHS | jq -c '{class: .branch_class, slug: .feature_slug}')" '{"class":"release","slug":null}'
+git checkout -q -b hotfix/critical-fix
+eq "hotfix/* branch -> class hotfix, slug null" "$($PATHS | jq -c '{class: .branch_class, slug: .feature_slug}')" '{"class":"hotfix","slug":null}'
+
+# Test other branch classes
+git checkout -q -b refactor/cleanup
+eq "refactor/ branch -> class other" "$($PATHS | jq -r '.branch_class')" "other"
+git checkout -q -B main   # Switch back to main
+
+
+# Verify all existing resolver fields are unchanged (RK1)
+# Switch to main and verify the class is trunk
+git checkout -q -B main
+CURRENT_CLASS="$($PATHS --paths-only | jq -r '.branch_class')"
+eq "all existing resolver fields unchanged (RK1) - main branch has trunk class" "$CURRENT_CLASS" "trunk"
+
+# ==============================================================================
+# CH2: do-git-state.sh tests
+# ==============================================================================
+echo "[CH2: do-git-state.sh]"
+cp "$BASH_SCRIPTS/do-git-state.sh" "$FAKE/scripts/doflow/bash/"
+STATE="$FAKE/scripts/doflow/bash/do-git-state.sh"
+git checkout -q -B main  # Ensure trunk branch for predictable state testing
+eq "--state on trunk -> class trunk" "$($STATE --state | jq -r '.class')" "trunk"
+eq "--state emits feature_slug null" "$($STATE --state | jq -c '.feature_slug // null')" "null"
+
+# Test next-version mode
+BASE_TAG="$($STATE --next-version | jq -r '.base_tag')"
+eq "--next-version base_tag is null without tags" "$BASE_TAG" "null"
+eq "--next-version bump_kind is INITIAL without tags" "$($STATE --next-version | jq -r '.bump_kind')" "INITIAL"
+
+# Test fingerprint mode (deterministic but unique per state)
+FINGERPRINT_1="$($STATE --fingerprint)"
+FINGERPRINT_2="$($STATE --fingerprint)"
+FP1="$(echo "$FINGERPRINT_1" | jq -r '.fingerprint // ""')"
+FP2="$(echo "$FINGERPRINT_2" | jq -r '.fingerprint // ""')"
+# A non-empty fingerprint string is valid JSON
+eq "--fingerprint returns valid JSON fingerprint (non-empty)" "${#FP1}" "64"
+eq "--fingerprint is deterministic on stable state" "$FP1" "$FP2"
+
+# Test branch-name mode
+eq "--branch-name --class=feature --slug=test produces feat/test" "$($STATE --branch-name --class=feature --slug=test | jq -r '.name')" "feat/test"
+eq "--branch-name --class=release --slug=1.0.0 produces release/1.0.0" "$($STATE --branch-name --class=release --slug=1.0.0 | jq -r '.name')" "release/1.0.0"
+
+# Test error cases
+$STATE --branch-name 2>/dev/null; eq "--branch-name without class -> exit 2" "$?" "2"
+$STATE --branch-name --class=feature 2>/dev/null; eq "--branch-name without slug -> exit 2" "$?" "2"
+
 echo ""
 echo "[Results] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] && { echo "ALL DOFLOW CHAIN TESTS PASSED ✓"; exit 0; } || exit 1

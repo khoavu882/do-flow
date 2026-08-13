@@ -62,7 +62,15 @@ Use this as the normal path for a new feature:
 /do-execute-plan --next --safe
 /do-test --type all
 /do-code-review
-/do-git --smart-commit
+/do-git save
+```
+
+Or use the lifecycle intents for git operations:
+
+```bash
+/do-git ship          # Ship current feature to integration
+/do-git release       # Full release with version bump, tag, and merge
+/do-git hotfix <id>   # Create and propagate a hotfix across all branches
 ```
 
 `/do-flow "add team invitations"` coordinates the same path and pauses at its approval gates. Use it when one feature should progress through the full delivery sequence.
@@ -102,7 +110,7 @@ Start with diagnosis. A fix is an explicit next step, not an assumption.
 /do-troubleshoot "login returns 500 after password reset"
 /do-troubleshoot --fix
 /do-test --type unit --coverage
-/do-git --smart-commit
+/do-git save
 ```
 
 For a narrow question, `/do-explain` can clarify a component before you investigate further.

@@ -14,6 +14,15 @@ All notable changes to DoFlow are documented here. Format follows
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
 ## [Unreleased]
+### Added
+
+- **New lifecycle intents for `/do-git`:** `start`, `save`, `sync`, `ship`, `release`, `hotfix`, `backport`, and `status` — cycle-aware git operations via deterministic helper scripts (FR-001, FR-010).
+- **`do-git-state.sh`:** New deterministic helper with modes for branch classification (`--state`), version bump proposals (`--next-version`), propagation targets (`--propagation-targets`), repository fingerprinting (`--fingerprint`), and branch-name construction (`--branch-name`) (FR-002, FR-003, FR-004, FR-005).
+- **Policy-based branching:** Deterministic resolver reports `branch_class` field with values: `feature`, `fix`, `release`, `hotfix`, `trunk`, or `other`. Release and hotfix branches now correctly yield `null` feature slugs (FR-006).
+
+### Changed
+
+- `/do-brainstorm` delegates branch name construction to `/do-git --branch-name`; observable behavior preserved (same name for same slug, non-git root skips branch creation) (FR-002).
 
 ## [0.16.1] - 2026-08-03
 
