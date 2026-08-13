@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # do-parallel-check.sh — verify one phase's [P] siblings really write disjoint files.
+#                        Form dispatch groups by (phase, owner) and detect union overlaps.
 #
 # `[P]` asserts at plan time that a task's `files:` set does not overlap its phase
 # siblings'. Nothing verified that assertion, so parallel-by-default rested on an
 # unchecked claim: two agents dispatched concurrently onto one file is a lost edit,
 # and the loss is silent. This script turns the claim into a check.
 #
-# Advisory by design: it reports the overlaps and the safe grouping, and the calling
-# skill decides to serialize. It never edits the plan and never dispatches anything.
+# Grouping by (phase, owner) lets one agent handle all tasks of the same owner in a phase,
+# reducing dispatch overhead. The script forms groups from `owner:` fields, computes union
+# file sets per group, and reports overlaps across groups (`group_overlaps[]`).
+#
+# Advisory by design: it reports overlaps and grouping decisions; the calling skill decides
+# to serialize or group dispatch. It never edits the plan and never dispatches anything.
 #
 # A task whose `files:` value names no real path (a verification-only task) simply
 # contributes nothing to compare, rather than being treated as conflicting with
@@ -15,9 +20,6 @@
 #
 # Usage:
 #   do-parallel-check.sh --phase=<X> [--slug=<slug>] [--json]
-#
-# Emits: {phase, parallel_tasks[], sequential_tasks[], overlaps[{path, tasks[]}],
-#         parallel_safe, serialize[]}
 
 set -uo pipefail
 
@@ -54,12 +56,10 @@ if [ "$has_plan" != "true" ] || [ -z "$plan_rel" ]; then
 fi
 plan_abs="$repo_root/$plan_rel"
 
-# One record per (task, file): id \t P|S \t file. Scoped to the requested phase only —
-# `[P]` means parallel-safe with PHASE siblings, so comparing across phases would
-# invent conflicts between tasks that never run together.
-records="$(awk -v want="$phase" '
+# Pipeline: awk outputs tab-separated values (one per line), jq reads raw lines as strings,
+# aggregates them into an array, then processes each row.
+awk -v want="$phase" '
   /^### Phase / {
-    # "### Phase A — name" → the phase letter is the third whitespace-separated field
     inphase = ($3 == want)
     next
   }
@@ -67,48 +67,128 @@ records="$(awk -v want="$phase" '
   !inphase { next }
   /^- \[[ x]\] / {
     line = $0
-    # task id is the first token after the checkbox
     if (match(line, /^- \[[ x]\] [^ ]+/) == 0) next
     id = substr(line, RSTART + 6, RLENGTH - 6)
     par = (line ~ /^- \[[ x]\] [^ ]+ \[P\]/) ? "P" : "S"
-    if (match(line, /files:[^;]*/) == 0) { print id "\t" par "\t"; next }
-    files = substr(line, RSTART + 6, RLENGTH - 6)
-    n = split(files, parts, ",")
-    emitted = 0
-    for (i = 1; i <= n; i++) {
-      f = parts[i]
-      gsub(/^[ \t]+|[ \t]+$/, "", f)
-      if (f == "" || f ~ /^none/) continue
-      print id "\t" par "\t" f
-      emitted = 1
+    # Extract only the portion after em-dash for owner:/files: parsing
+    dash_pos = index(line, "—")
+    if (dash_pos == 0) {
+      print id "\t" par "\t\t"
+      next
     }
-    if (!emitted) print id "\t" par "\t"
+    field_section = substr(line, dash_pos + length("—"))
+    owner = ""
+    if (match(field_section, /owner:[^;]*/)) {
+      owner = substr(field_section, RSTART + 7, RLENGTH - 7)
+      gsub(/^[ \t]+|[ \t]+$/, "", owner)
+    }
+    if (match(field_section, /files:[^;]*/)) {
+      files = substr(field_section, RSTART + 6, RLENGTH - 6)
+      n = split(files, parts, ",")
+      emitted = 0
+      for (i = 1; i <= n; i++) {
+        f = parts[i]
+        gsub(/^[ \t]+|[ \t]+$/, "", f)
+        if (f == "" || f ~ /^none/) continue
+        print id "\t" par "\t" owner "\t" f
+        emitted = 1
+      }
+      if (!emitted) print id "\t" par "\t" owner "\t"
+    } else {
+      print id "\t" par "\t" owner "\t"
+    }
   }
-' "$plan_abs")"
+' "$plan_abs" | jq -R . | jq -s --arg phase "$phase" '
+  # Convert array of tab-separated strings to array of objects
+  map(split("\t")) |
+  map({id: .[0], par: .[1], owner: (.[2] // ""), file: (.[3] // "")}) |
+  . as $rows |
+  
+  # Separate by parallel/sequential
+  ([.[] | select(.par == "P") | .id] | unique)   as $par |
+  ([.[] | select(.par == "S") | .id] | unique)   as $seq |
+  
+  # Existing overlaps: per-task file conflicts among [P] tasks
+  (
+    [.[] | select(.par == "P") | select(.file != "")] |
+    group_by(.file) |
+    map({path: .[0].file, tasks: ([.[] | .id] | unique)}) |
+    map(select(.tasks | length > 1))
+  ) as $overlaps |
+  
+  # Unowned tasks: those with empty owner
+  ([.[] | select(.owner == "") | .id] | unique)   as $unowned_ids |
+  
+  # Group by owner. Tasks with empty owner become their own singleton groups
+  (
+    {
+      owned: [.[] | select(.par != "") | select(.owner != "")] |
+        group_by(.owner) |
+        map({
+          owner: .[0].owner,
+          task_ids: ([.[].id] | unique),
+          files_set: ([.[] | select(.file != "") | .file] | unique)
+        }),
+      unowned: [.[] | select(.par != "") | select(.owner == "") | {id, par}]
+    }
+  ) as $group_data |
 
-if [ -z "$records" ]; then
-  jq -n --arg phase "$phase" \
-    '{phase:$phase, parallel_tasks:[], sequential_tasks:[], overlaps:[], parallel_safe:true, serialize:[],
-      note:"no tasks found under this phase heading"}'
-  exit 0
-fi
-
-printf '%s\n' "$records" | jq -R -s --arg phase "$phase" '
-  [ split("\n")[] | select(length > 0) | split("\t") | {id: .[0], par: .[1], file: (.[2] // "")} ]
-  | . as $rows
-  | ([$rows[] | select(.par == "P") | .id] | unique)   as $par
-  | ([$rows[] | select(.par == "S") | .id] | unique)   as $seq
-  # Only [P] rows can conflict: a sequential task never runs beside a sibling.
-  | ([$rows[] | select(.par == "P") | select(.file != "")]
-      | group_by(.file)
-      | map({path: .[0].file, tasks: ([.[] | .id] | unique)})
-      | map(select(.tasks | length > 1)))                as $overlaps
-  | {
-      phase: $phase,
-      parallel_tasks: $par,
-      sequential_tasks: $seq,
-      overlaps: $overlaps,
-      parallel_safe: (($overlaps | length) == 0),
-      serialize: ([$overlaps[] | .tasks[]] | unique)
-    }'
+  # Build final groups from owned tasks + singleton groups from unowned tasks
+  (
+    [$group_data.owned[] | {
+      id: ($phase + ":" + .owner),
+      owner: .owner,
+      tasks: .task_ids,
+      files: (.files_set)
+    }]
+    + [$group_data.unowned[] | {
+      id: ($phase + ":" + .id),
+      owner: null,
+      tasks: [.id],
+      files: []
+    }]
+  ) as $final_groups |
+  
+  # Group overlaps: paths appearing in more than one groups files[]
+  (
+    $rows |
+    [.[] | select(.par != "") | select(.file != "")] |
+    group_by(.file) |
+    map({
+      path: .[0].file,
+      owners: ([.[] | select(.owner != "") | .owner] | unique)
+    }) |
+    map(select((.owners | length) > 1)) |
+    # For each such file, find which groups contain tasks with those owners
+    map({
+      path: .path,
+      groups: ([
+        .owners[] as $owner |
+        $final_groups[] |
+        select(.owner == $owner) |
+        .id
+      ] | unique)
+    }) |
+    map(select((.groups | length) > 1))
+  ) as $group_overlaps_raw |
+  
+  # Filter to only those paths in more than one group
+  ([$group_overlaps_raw[] | select((.groups | length) > 1)]) as $final_group_overlaps |
+  
+  # Serialize list = union of group ids from overlaps
+  ([$final_group_overlaps[].groups[]] | unique) as $group_serialize |
+  
+  {
+    phase: $phase,
+    parallel_tasks: $par,
+    sequential_tasks: $seq,
+    overlaps: $overlaps,
+    parallel_safe: (($overlaps | length) == 0),
+    serialize: ([$overlaps[] | .tasks[]] | unique),
+    groups: $final_groups,
+    group_overlaps: $final_group_overlaps,
+    group_serialize: $group_serialize,
+    unowned_tasks: $unowned_ids
+  }
+'
 exit 0
