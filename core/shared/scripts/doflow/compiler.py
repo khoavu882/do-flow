@@ -9,6 +9,7 @@ import sys
 import os
 import json
 import shutil
+import subprocess
 import argparse
 from pathlib import Path
 
@@ -28,6 +29,15 @@ def find_registry_root():
         p = Path(os.environ["DOFLOW_ROOT"]).resolve()
         if (p / "core" / "registry" / "assets.yaml").exists():
             return p
+    # 3. Check installed global or local npm package location
+    try:
+        res = subprocess.run(["npm", "root", "-g"], capture_output=True, text=True)
+        if res.returncode == 0 and res.stdout.strip():
+            pkg_path = Path(res.stdout.strip()) / "doflow"
+            if (pkg_path / "core" / "registry" / "assets.yaml").exists():
+                return pkg_path
+    except Exception:
+        pass
     return None
 
 def get_target_project_root():
