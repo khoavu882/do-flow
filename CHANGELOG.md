@@ -13,7 +13,7 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
-## [Unreleased]
+## [0.18.0] - 2026-08-14
 ### Added
 
 - **Grouped implementer dispatch by phase and owner:** `/subagent-driven` now forms dispatch groups `(phase, owner)` via `do-parallel-check.sh`, reducing agent startup costs and prompt reloading overhead by executing same-owner tasks sequentially per subagent (FR-001, FR-002, FR-003, FR-004, FR-006).
