@@ -17,8 +17,19 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
 ## Behavioral Flow
 
 1. **Resolve State & Prerequisite Gate**:
-   - Run `do-paths.sh --json` to resolve active feature artifacts.
-   - Enforce hard prerequisite gate: `do-prereqs.sh --require-plan` (requires `requirement.md`, `design.md`, `plan.md`).
+   - Resolve and run `do-paths.sh --json`:
+     ```bash
+     RESOLVER="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh}"
+     if [ -z "$RESOLVER" ] || [ ! -f "$RESOLVER" ]; then
+       d="$PWD"
+       while [ "$d" != / ]; do
+         [ -f "$d/.doflow/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/.doflow/scripts/doflow/bash/do-paths.sh" && break
+         d="$(dirname "$d")"
+       done
+     fi
+     bash "$RESOLVER" --json
+     ```
+   - Enforce hard prerequisite gate: `bash "$(dirname "$RESOLVER")/do-prereqs.sh" --require-plan` (requires `requirement.md`, `design.md`, `plan.md`).
 
 2. **Readiness Evaluation (Confidence Check)**:
    - Validate task prerequisites against the 5 task classes. Consult `references/readiness_gate.md`.
