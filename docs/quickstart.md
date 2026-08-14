@@ -35,8 +35,8 @@ doflow install -g --target claude,codex
 doflow status -g
 ```
 
-In Claude Code, run `/do-help`. In Codex, open a configured project and ask it to use an installed
-skill such as `do-implement`.
+In Claude Code, run `/do`. In Codex, open a configured project and ask it to use an installed
+skill such as `do-execute-plan` or `do-diagnose`.
 
 ## 3. Run one workflow
 

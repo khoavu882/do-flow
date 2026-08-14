@@ -9,7 +9,9 @@ flowchart LR
     Core[core/\ncanonical content] --> Installer[bin/doflow\ninstaller]
     Installer --> Claude[Claude Code\nCLAUDE.md, hooks, MCP]
     Installer --> Codex[Codex\nAGENTS.md, skills]
-    Installer --> Gemini[Gemini CLI\nGEMINI.md, skills]
+    Installer --> Gemini[Gemini CLI / Antigravity\nGEMINI.md, skills]
+    Installer --> OpenCode[OpenCode\nAGENTS.md, skills]
+    Installer --> Pi[Pi Coding Agent\nAGENTS.md, skills]
     Core --> Content[Skills · rules · agents\nscripts · templates · references]
 ```
 
@@ -34,14 +36,14 @@ The client decides how to execute work. DoFlow supplies shared guidance, task wo
 
 ## Capability boundaries by client
 
-| Capability | Claude Code | Codex | Gemini CLI |
-|---|---|---|---|
-| Base instructions | Yes | Yes | Yes |
-| Skills | Yes | Yes | Yes |
-| Agents, scripts, templates, references | Yes | Yes | Yes |
-| Hook configuration | Yes | Yes — requires trust/review in Codex | Yes — merges into `settings.json`; some events (`UserPromptSubmit`, `Stop`, subagent events) have no Gemini equivalent and are intentionally omitted |
-| MCP registration from DoFlow | Yes | No file-based installer support | No file-based installer support |
-| Plugin marketplace distribution | Available in `core/.claude-plugin/` | Available in `core/.codex-plugin/` | N/A |
+| Capability | Claude Code | Codex | Gemini CLI / Antigravity | OpenCode | Pi Coding Agent |
+|---|---|---|---|---|---|
+| Base instructions | Yes (`CLAUDE.md`) | Yes (`AGENTS.md`) | Yes (`GEMINI.md`) | Yes (`AGENTS.md`) | Yes (`AGENTS.md`) |
+| Skills | Yes | Yes | Yes | Yes | Yes |
+| Agents, scripts, templates, references | Yes | Yes | Yes | Yes | Yes |
+| Hook configuration | Yes | Yes — requires trust/review | Yes — merges into `settings.json` | Yes | Extension hooks |
+| MCP registration from DoFlow | Yes (`.mcp.json`) | Yes (`config.toml`) | Yes (`settings.json`) | Yes (`opencode.json`) | Yes (`pi-mcp-adapter`) |
+| Plugin marketplace distribution | Available in `core/.claude-plugin/` | Available in `core/.codex-plugin/` | N/A | N/A | N/A |
 
 “No file-based installer support” means the source is not copied as a client configuration file. It does not prevent that client from using its own native extension or connector system.
 

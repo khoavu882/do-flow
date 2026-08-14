@@ -20,7 +20,7 @@ test('Codex plugin manifest packages the single-source core skills tree', () => 
   assert.strictEqual(manifest.name, 'doflow');
   assert.strictEqual(manifest.version, require('../package.json').version);
   assert.strictEqual(manifest.skills, './shared/skills/');
-  assert.ok(fs.existsSync(path.join(REPO, 'core', 'shared', 'skills', 'do-implement', 'SKILL.md')));
+  assert.ok(fs.existsSync(path.join(REPO, 'core', 'shared', 'skills', 'do-execute-plan', 'SKILL.md')));
 });
 
 test('Claude marketplace exposes the single-source core plugin', () => {
@@ -38,8 +38,8 @@ test('Claude marketplace exposes the single-source core plugin', () => {
   assert.strictEqual(manifest.version, require('../package.json').version);
   assert.deepStrictEqual(manifest.skills, ['./shared/skills/']);
   assert.deepStrictEqual(manifest.agents, ['./shared/agent-specs/']);
-  assert.ok(fs.existsSync(path.join(REPO, 'core', 'shared', 'skills', 'do-implement', 'SKILL.md')));
-  assert.ok(fs.existsSync(path.join(REPO, 'core', 'shared', 'agent-specs', 'backend-architect.md')));
+  assert.ok(fs.existsSync(path.join(REPO, 'core', 'shared', 'skills', 'do-execute-plan', 'SKILL.md')));
+  assert.ok(fs.existsSync(path.join(REPO, 'core', 'shared', 'agent-specs', 'system-architect.md')));
 });
 
 test('resolveTargets defaults to all and validates', () => {

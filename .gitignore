@@ -49,7 +49,10 @@ downloads/
 .gemini
 .agents
 .doflow
+.opencode
+.pi
 GEMINI.md
+AGENTS.md
 agent-docs/
 .mcp.json
 

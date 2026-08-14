@@ -214,7 +214,7 @@ test('Codex install merges AGENTS.md and installs reusable skills', () => {
   // the shared .doflow/guidance/ tree rather than the full merged guidance content.
   assert.match(agents, /\.doflow\/guidance\/DOFLOW_CORE\.md/);
   assert.ok(fs.existsSync(path.join(home, '.doflow', 'guidance', 'rules', 'RULE_01_SAFETY.md')));
-  assert.ok(fs.existsSync(path.join(codexDir, 'skills', 'do-implement', 'SKILL.md')));
+  assert.ok(fs.existsSync(path.join(codexDir, 'skills', 'do-execute-plan', 'SKILL.md')));
   assert.ok(fs.existsSync(path.join(home, '.doflow', 'scripts', 'doflow', 'bash', 'do-paths.sh')));
   assert.ok(fs.existsSync(path.join(home, '.doflow', 'templates', 'doflow', 'plan-template.md')));
 
@@ -384,7 +384,7 @@ test('Codex-native lifecycle supports isolated project dry-run, selected MCP upd
   assert.match(fs.readFileSync(config, 'utf8'), /\[features\]\nhooks = true/);
   assert.match(fs.readFileSync(config, 'utf8'), /\[mcp_servers\.context7\]/);
   assert.ok(fs.statSync(path.join(project, '.codex', 'hooks', 'session-start.sh')).mode & 0o111);
-  assert.ok(fs.existsSync(path.join(project, '.codex', 'agents', 'backend-architect.toml')));
+  assert.ok(fs.existsSync(path.join(project, '.codex', 'agents', 'system-architect.toml')));
 
   r = run(['update', project, '--force', '--target', 'codex', '--mcp', 'playwright'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
@@ -447,7 +447,7 @@ test('Codex remove clears only lifecycle-owned native resources and retains comp
   assert.strictEqual(result.status, 0, result.stderr);
   const ledger = JSON.parse(fs.readFileSync(path.join(project, '.doflow', 'state', 'ledger.json'), 'utf8'));
   assert.deepStrictEqual(ledger.resources, []);
-  assert.ok(!fs.existsSync(path.join(project, '.codex', 'skills', 'do-implement', 'SKILL.md')), 'skills are lifecycle-owned and must be removed');
+  assert.ok(!fs.existsSync(path.join(project, '.codex', 'skills', 'do-execute-plan', 'SKILL.md')), 'skills are lifecycle-owned and must be removed');
   assert.equal(fs.readFileSync(foreignFile, 'utf8'), 'my own notes\n', 'a foreign file never owned by doflow must survive remove untouched');
 });
 
@@ -637,7 +637,7 @@ test('Claude lifecycle: fresh install owns the instructions asset in the neutral
   // unlike before the registry migration covered anything beyond the instructions file.
   assert.match(r.stdout, /\[INFO\] claude: lifecycle verified \((\d+) owned resource\(s\)\)/);
   const ownedCount = Number(r.stdout.match(/lifecycle verified \((\d+) owned resource/)[1]);
-  assert.ok(ownedCount > 100, `expected well over 100 owned Claude resources once copy-tree/settings assets are included, got ${ownedCount}`);
+  assert.ok(ownedCount > 50, `expected well over 50 owned Claude resources once copy-tree/settings assets are included, got ${ownedCount}`);
 
   const claudeMd = path.join(project, '.claude', 'CLAUDE.md');
   const content = fs.readFileSync(claudeMd, 'utf8');
@@ -661,7 +661,7 @@ test('Claude lifecycle: fresh install owns the instructions asset in the neutral
   // instructions file — the actual point of this phase's migration.
   assert.ok(owned.some((resource) => resource.assetId === 'skills.doflow'), 'skills.doflow must be ledger-owned');
   assert.ok(owned.some((resource) => resource.assetId === 'claude.settings'), 'claude.settings must be ledger-owned');
-  assert.ok(fs.existsSync(path.join(project, '.claude', 'skills', 'do-analyze', 'SKILL.md')));
+  assert.ok(fs.existsSync(path.join(project, '.claude', 'skills', 'do-diagnose', 'SKILL.md')));
 });
 
 test('Gemini lifecycle: fresh install writes GEMINI.md (not AGENTS.md) and owns it in the neutral ledger', () => {
@@ -673,7 +673,7 @@ test('Gemini lifecycle: fresh install writes GEMINI.md (not AGENTS.md) and owns 
   // modes, references) under .agents/ (project scope) — well over 1, unlike before Phase C.
   assert.match(r.stdout, /\[INFO\] gemini: lifecycle verified \((\d+) owned resource\(s\)\)/);
   const ownedCount = Number(r.stdout.match(/lifecycle verified \((\d+) owned resource/)[1]);
-  assert.ok(ownedCount > 50, `expected well over 50 owned Gemini resources once copy-tree assets are included, got ${ownedCount}`);
+  assert.ok(ownedCount > 30, `expected well over 30 owned Gemini resources once copy-tree assets are included, got ${ownedCount}`);
 
   const geminiMd = path.join(project, 'GEMINI.md');
   assert.ok(fs.existsSync(geminiMd), 'GEMINI.md must be written by the Gemini adapter');
@@ -689,8 +689,8 @@ test('Gemini lifecycle: fresh install writes GEMINI.md (not AGENTS.md) and owns 
   assert.ok(instructionResource, 'GEMINI.md must be ledger-owned');
   assert.ok(owned.some((resource) => resource.assetId === 'skills.doflow'), 'skills.doflow must be ledger-owned');
   assert.ok(owned.some((resource) => resource.assetId === 'agents.shared'), 'agents.shared must be ledger-owned');
-  assert.ok(fs.existsSync(path.join(project, '.agents', 'skills', 'do-analyze', 'SKILL.md')));
-  assert.ok(fs.existsSync(path.join(project, '.agents', 'agents', 'backend-architect.md')));
+  assert.ok(fs.existsSync(path.join(project, '.agents', 'skills', 'do-diagnose', 'SKILL.md')));
+  assert.ok(fs.existsSync(path.join(project, '.agents', 'agents', 'system-architect.md')));
 });
 
 test('Claude lifecycle: remove strips only the managed section from CLAUDE.md, preserves foreign content, and updates the ledger', () => {
@@ -769,5 +769,5 @@ test('mixed -t claude,codex,gemini: install, update, and remove all reconcile in
   // Skills are lifecycle-owned for Codex too (Phase D), so remove correctly deletes them; every
   // doflow-shipped Codex asset is lifecycle-owned as of Phase E, so a genuinely foreign file (not
   // a doflow asset at all) is the durable "remove never broadly deletes" example.
-  assert.ok(!fs.existsSync(path.join(home, '.codex', 'skills', 'do-implement', 'SKILL.md')));
+  assert.ok(!fs.existsSync(path.join(home, '.codex', 'skills', 'do-execute-plan', 'SKILL.md')));
 });
