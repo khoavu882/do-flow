@@ -135,7 +135,7 @@ doflow status -g
 doflow list-backups -g
 ```
 
-Use `/do-help` in Claude Code. In Codex, verify the managed `AGENTS.md` section, skill discovery,
+Use `/do` in Claude Code. In Codex, verify the managed `AGENTS.md` section, skill discovery,
 and any trusted hook/MCP configuration. In Gemini CLI, verify `GEMINI.md` and discovered skills;
 unavailable capability rows must remain unavailable rather than appearing as copied files.
 

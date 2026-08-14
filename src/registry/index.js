@@ -19,7 +19,7 @@ const REGISTRY_FILES = Object.freeze({
 const CAPABILITY_STATUS = new Set(['supported', 'different', 'unavailable']);
 const SCOPES = new Set(['project', 'user']);
 const MCP_TRANSPORTS = new Set(['stdio', 'http', 'sse']);
-const EXTERNAL_TOOL_IDS = new Set(['rtk', 'graphify']);
+const EXTERNAL_TOOL_IDS = new Set(['rtk', 'graphify', 'semble']);
 const EXTERNAL_TOOL_ACTIONS = new Set(['install', 'update', 'uninstall']);
 
 function issue(errors, location, message) { errors.push(`${location}: ${message}`); }

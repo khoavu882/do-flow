@@ -11,18 +11,18 @@ installation; do not infer activation from this table alone.
 
 ## Capability matrix
 
-| Capability | Claude Code | Codex | Gemini CLI |
-|---|---|---|---|
-| Instructions | Supported — `CLAUDE.md` | Supported — managed `AGENTS.md` | Supported — `GEMINI.md` |
-| Skills | Supported | Supported | Supported |
-| Agents | Supported | Supported | Different: shared prompt projection, with native limits |
-| Scripts | Supported | Supported | Unavailable: report rather than copy |
-| Templates | Supported | Supported | Unavailable: report rather than copy |
-| Modes | Supported | Unavailable: no native mode is rendered | Different: expose as instruction guidance |
-| Settings | Supported | Different: reconciled TOML in a trusted project | Different: adapter-supported settings only |
-| Hooks | Supported | Supported after project trust and hook review | Supported — merged into a `hooks` key in `settings.json` |
-| MCP | Supported | Supported | Different: native registration differs |
-| Plugin / extension | Supported | Supported after user activation | Different: host extension workflow |
+| Capability | Claude Code | Codex | Gemini CLI / Antigravity | OpenCode | Pi Coding Agent |
+|---|---|---|---|---|---|
+| Instructions | Supported — `CLAUDE.md` | Supported — managed `AGENTS.md` | Supported — `GEMINI.md` | Supported — `AGENTS.md` | Supported — `AGENTS.md` |
+| Skills | Supported | Supported | Supported | Supported | Supported |
+| Agents | Supported | Supported | Different: shared prompt projection | Supported via `opencode.json` | Delegated extensions / packages |
+| Scripts | Supported | Supported | Supported via skill scripts | Supported | Supported |
+| Templates | Supported | Supported | Supported | Supported | Supported |
+| Modes | Supported | Unavailable | Different: instruction guidance | Different | Different |
+| Settings | Supported | Different: reconciled TOML | Different: adapter settings | Supported: `opencode.json` | Supported: `config.json` |
+| Hooks | Supported | Supported after review | Supported — `settings.json` | Supported | Extension hooks |
+| MCP | Supported | Supported | Different: native registration | Supported (`opencode.json`) | Supported (`pi-mcp-adapter`) |
+| Plugin / extension | Supported | Supported | Different: host extension | Supported | Supported |
 
 “Different” is a compatibility boundary, not a weaker form of “supported.” The adapter must use
 the target's own file format and verification process. “Unavailable” means DoFlow records the
@@ -62,7 +62,9 @@ a reason.
 |---|---|---|
 | Claude Code | Confirm `CLAUDE.md` loads, a skill is discoverable, one hook event runs, and selected MCP servers appear in status. | Preserve user text outside the managed instruction section and foreign MCP entries. |
 | Codex | Confirm managed `AGENTS.md`, discover a skill, exercise an approved hook, and connect selected MCP servers. | Settings and hooks require a trusted project; hooks require review; plugin enablement remains user-controlled. |
-| Gemini CLI | Confirm `GEMINI.md` loads, skills are discoverable, an installed hook event runs, and any adapter-supported MCP/settings action works. | Agents, modes, MCP, and extensions have target-specific behavior. Hooks merge into a key inside `settings.json` DoFlow does not fully own — never a full-file replace. No Gemini event maps `UserPromptSubmit`, `Stop`, or `SubagentStart`/`SubagentStop` (`BeforeAgent`/`AfterAgent` fire at full-turn granularity, not matching semantics) — reported as unavailable, not approximated. Scripts and templates **are** installed: Gemini CLI documents an executable `scripts/` directory in its own skill layout and a shell-execution tool to run it. That declaration rests on first-party documentation rather than an exercised install — confirm `run_shell_command` reaches an installed helper before relying on it. |
+| Gemini CLI | Confirm `GEMINI.md` loads, skills are discoverable, an installed hook event runs, and any adapter-supported MCP/settings action works. | Agents, modes, MCP, and extensions have target-specific behavior. Hooks merge into a key inside `settings.json` DoFlow does not fully own — never a full-file replace. |
+| OpenCode | Confirm `AGENTS.md` loads, skills are discovered in `.opencode/skills/`, and MCP servers connect via `opencode.json`. | Native JSON configuration with progressive skill discovery. |
+| Pi Coding Agent | Confirm `AGENTS.md` loads, skills discover in `.pi/skills/`, and MCP connects via `pi-mcp-adapter`. | Minimalist terminal harness; extensions manage external tools. |
 
 ## Evidence
 
@@ -74,6 +76,8 @@ surface availability, not a guarantee that a local configuration has been accept
 | Claude Code | [memory](https://code.claude.com/docs/en/memory), [skills](https://code.claude.com/docs/en/skills), [subagents](https://code.claude.com/docs/en/sub-agents), [settings](https://code.claude.com/docs/en/settings), [hooks](https://code.claude.com/docs/en/hooks), [MCP](https://code.claude.com/docs/en/mcp), [plugins](https://code.claude.com/docs/en/plugins) |
 | Codex | [customization](https://developers.openai.com/codex/concepts/customization), [advanced configuration](https://developers.openai.com/codex/config-advanced), [hooks](https://developers.openai.com/codex/config-advanced#hooks), [MCP servers](https://developers.openai.com/codex/config-advanced#mcp-servers), [subagents](https://developers.openai.com/codex/subagents), [plugins](https://developers.openai.com/codex/concepts/plugins) |
 | Gemini CLI | [GEMINI.md](https://geminicli.com/docs/cli/gemini-md/), [skills](https://geminicli.com/docs/cli/skills/), [configuration](https://geminicli.com/docs/cli/configuration/), [hooks](https://geminicli.com/docs/hooks/), [MCP](https://geminicli.com/docs/tools/mcp/), [extensions](https://geminicli.com/docs/extensions/), [Gemini CLI source](https://github.com/google-gemini/gemini-cli) |
+| OpenCode | [documentation](https://opencode.ai/docs), [skills](https://opencode.ai/docs/skills), [agents](https://opencode.ai/docs/agents), [mcp](https://opencode.ai/docs/mcp) |
+| Pi Coding Agent | [pi.dev](https://pi.dev), [packages](https://pi.dev/packages), [github](https://github.com/earendil-works/pi-coding-agent) |
 
 See [Architecture](architecture.md) for registry ownership and [Setup](setup.md) for installation,
 recovery, and verification procedures.

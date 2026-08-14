@@ -9,10 +9,10 @@ flowchart TD
     A[What are you trying to do?] --> B{Starting a feature?}
     B -->|Yes| C[Discovery → design → plan → implement → validate]
     B -->|No| D{Investigating a problem?}
-    D -->|Yes| E[Diagnose → explain → fix → test]
+    D -->|Yes| E[Diagnose → fix → test]
     D -->|No| F{Improving existing code?}
-    F -->|Yes| G[Analyze → improve → test → review]
-    F -->|No| H[Research, document, or ask /do-pm to route it]
+    F -->|Yes| G[Diagnose → refactor → test → review]
+    F -->|No| H[Research, document, or ask /do to route it]
 ```
 
 ## Deliver a feature
@@ -107,35 +107,32 @@ Stop and update the requirements or design if a dependency, decision, or validat
 Start with diagnosis. A fix is an explicit next step, not an assumption.
 
 ```bash
-/do-troubleshoot "login returns 500 after password reset"
-/do-troubleshoot --fix
+/do-diagnose "login returns 500 after password reset" --focus quality
+/do-diagnose src/auth.ts --focus security --validate
 /do-test --type unit --coverage
 /do-git save
 ```
 
-For a narrow question, `/do-explain` can clarify a component before you investigate further.
-
 ## Improve code deliberately
 
-Use analysis to establish the problem, then improve only the agreed scope.
+Use diagnosis to establish the root cause or audit scope, then improve only the agreed scope.
 
 ```bash
-/do-analyze src/ --focus quality --depth deep
-/do-improve src/ --type quality --safe
+/do-diagnose src/ --focus quality
 /do-test --type all
 /do-code-review
 ```
 
-For independent, non-overlapping investigations, use `/parallel-agents`. Do not split work that has a shared root cause or overlapping files.
+For parallel task orchestration, `do-execute-plan` automatically isolates write-sets across specialist subagents.
 
 ## Research before committing to a design
 
 Keep current or uncertain external knowledge separate from implementation work.
 
 ```bash
-/do-research "current OAuth 2.1 authorization-code guidance" --depth deep
+/do-document "current OAuth 2.1 authorization-code guidance" --type research
 /do-design "OAuth login for this application"
-/do-implement "OAuth login flow"
+/do-execute-plan --next
 ```
 
 Research produces evidence; it does not replace a design decision or validation.
@@ -155,7 +152,7 @@ For this repository, keep one canonical home for each topic: installation in [Se
 
 | Environment | Start point | What to expect |
 |---|---|---|
-| Claude Code | `/do-help` or a named skill | Native instructions, skills, hooks, and MCP after verification |
+| Claude Code | `/do` or a named skill | Native instructions, skills, hooks, and MCP after verification |
 | Codex | Read `AGENTS.md`, then use installed skills | Native settings/MCP/hook behavior requires trust and hook review |
 | Gemini CLI | Read `GEMINI.md`, then use installed skills | Skills and instructions are native; unavailable hooks/scripts/templates are reported, not emulated |
 

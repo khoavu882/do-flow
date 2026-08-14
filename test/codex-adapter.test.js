@@ -152,8 +152,8 @@ test('copy-tree assets (rules/skills/agents/templates/scripts/references) instal
   assert.equal(planned.components.copyTree.ok, true);
   apply({ ...input, changes: planned.changes });
 
-  for (const [dir, file] of [['skills', path.join('do-analyze', 'SKILL.md')],
-    ['agents', 'backend-architect.md']]) {
+  for (const [dir, file] of [['skills', path.join('do-diagnose', 'SKILL.md')],
+    ['agents', 'system-architect.md']]) {
     assert.ok(fs.existsSync(path.join(projectRoot, '.codex', dir, file)), `${dir}/${file} must exist after install`);
   }
   // rules/ and references/ (guidance.context-layer) no longer duplicate into .codex/ — they land
@@ -175,7 +175,7 @@ test('copy-tree assets (rules/skills/agents/templates/scripts/references) instal
   assert.ok(!fs.existsSync(path.join(projectRoot, '.codex', 'scripts')), 'scripts must no longer be duplicated into .codex/');
   // agents.shared's copy-tree write (.codex/agents/*.md) coexists with the pre-existing native
   // custom-agent mechanism (.codex/agents/*.toml) — same directory, disjoint file extensions.
-  assert.ok(fs.existsSync(path.join(projectRoot, '.codex', 'agents', 'backend-architect.toml')), 'native .toml agent must still be deployed alongside the .md copy-tree file');
+  assert.ok(fs.existsSync(path.join(projectRoot, '.codex', 'agents', 'system-architect.toml')), 'native .toml agent must still be deployed alongside the .md copy-tree file');
 
   // verify()'s `assets` param must stay the flat lifecycle-projected shape (from `input`, i.e.
   // `projected.assets`) here — this adapter's render()-fallback loop separately expects the raw
@@ -185,7 +185,7 @@ test('copy-tree assets (rules/skills/agents/templates/scripts/references) instal
   const verified = verify({ ...input, registry });
   assert.equal(verified.ok, true);
   const copyTreeResources = verified.resources.filter((resource) => resource.kind === 'copy-tree-file');
-  assert.ok(copyTreeResources.length > 50, `expected many copy-tree resources, got ${copyTreeResources.length}`);
+  assert.ok(copyTreeResources.length > 25, `expected many copy-tree resources, got ${copyTreeResources.length}`);
 
   // verify()'s raw resources don't carry `harness` — the lifecycle layer's verificationResources()
   // adds that externally in production; a direct-call test must add it manually to feed plan()'s
