@@ -17,16 +17,34 @@ def load_json_or_yaml(path):
         # Since files in registry are formatted as JSON within .yaml files
         return json.load(f)
 
-def get_repo_root():
+def find_registry_root():
+    # 1. Search up from this script file location
     current = Path(__file__).resolve()
-    for parent in current.parents:
-        if (parent / ".git").exists() or (parent / "core" / "registry").exists():
+    for parent in [current] + list(current.parents):
+        if (parent / "core" / "registry" / "assets.yaml").exists():
             return parent
-    return Path.cwd()
+    # 2. Check environment variable DOFLOW_ROOT
+    if os.environ.get("DOFLOW_ROOT"):
+        p = Path(os.environ["DOFLOW_ROOT"]).resolve()
+        if (p / "core" / "registry" / "assets.yaml").exists():
+            return p
+    return None
 
-def sync_managed_file_section(repo_root, source_rel, target_rel, check_mode=False):
-    source_path = repo_root / source_rel
-    target_path = repo_root / target_rel
+def get_target_project_root():
+    current = Path.cwd().resolve()
+    for parent in [current] + list(current.parents):
+        if (parent / ".git").exists() or (parent / ".doflow").exists():
+            return parent
+    return current
+
+def sync_managed_file_section(registry_root, target_project, source_rel, target_rel, check_mode=False):
+    source_path = registry_root / source_rel
+    # Fallback to local .doflow/guidance if running downstream
+    if not source_path.exists() and (target_project / ".doflow" / "guidance").exists():
+        if source_rel.startswith("core/shared/guidance/"):
+            source_path = target_project / ".doflow" / "guidance" / source_rel.replace("core/shared/guidance/", "")
+
+    target_path = target_project / target_rel
 
     if not source_path.exists():
         print(f"Warning: Source file {source_path} does not exist", file=sys.stderr)
@@ -100,13 +118,15 @@ def main():
     parser.add_argument("--repo-root", default=None, help="Root path of repository")
     args = parser.parse_args()
 
-    repo_root = Path(args.repo_root).resolve() if args.repo_root else get_repo_root()
-    assets_yaml = repo_root / "core" / "registry" / "assets.yaml"
-    harnesses_yaml = repo_root / "core" / "registry" / "harnesses.yaml"
+    registry_root = find_registry_root()
+    target_project = Path(args.repo_root).resolve() if args.repo_root else get_target_project_root()
 
-    if not assets_yaml.exists():
-        print(f"Error: {assets_yaml} not found", file=sys.stderr)
+    if not registry_root:
+        print(f"Error: Could not locate core/registry/assets.yaml.\nHint: If running inside a consumer project, guidance projections are managed via 'doflow update'.", file=sys.stderr)
         sys.exit(1)
+
+    assets_yaml = registry_root / "core" / "registry" / "assets.yaml"
+    harnesses_yaml = registry_root / "core" / "registry" / "harnesses.yaml"
 
     assets_data = load_json_or_yaml(assets_yaml)
     harnesses_data = load_json_or_yaml(harnesses_yaml)
@@ -134,10 +154,11 @@ def main():
                     target_file = "CLAUDE.md"
                 elif h == "gemini":
                     target_file = "GEMINI.md"
-                else:
-                    # codex, opencode, pi all standard-adopt AGENTS.md
+                elif h in ["codex", "opencode", "pi"]:
                     target_file = "AGENTS.md"
-                ok = sync_managed_file_section(repo_root, source, target_file, check_mode=args.check)
+                else:
+                    continue
+                ok = sync_managed_file_section(registry_root, target_project, source, target_file, check_mode=args.check)
                 if not ok:
                     all_in_sync = False
 
