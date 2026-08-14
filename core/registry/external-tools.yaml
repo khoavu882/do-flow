@@ -44,6 +44,28 @@
       "uninstall": {
         "command": ["uv", "tool", "uninstall", "graphifyy"]
       }
+    },
+    {
+      "id": "semble",
+      "displayName": "Semble",
+      "officialEvidence": [
+        "https://github.com/MinishLab/semble"
+      ],
+      "prerequisites": ["uv"],
+      "status": {
+        "commands": [
+          ["semble", "--version"]
+        ]
+      },
+      "install": {
+        "command": ["uv", "tool", "install", "semble"]
+      },
+      "update": {
+        "command": ["uv", "tool", "upgrade", "semble"]
+      },
+      "uninstall": {
+        "command": ["uv", "tool", "uninstall", "semble"]
+      }
     }
   ]
 }

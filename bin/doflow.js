@@ -27,6 +27,7 @@ const { applyLifecycle, removeLifecycle, applyMcpIndex } = require('../src/lifec
 const { readLedger } = require('../src/state');
 const { codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan } = require('../src/lifecycle-view');
 const { commandText, planToolLifecycle, executeToolLifecycle } = require('../src/tool-lifecycle');
+const { handleCapabilitiesCommand, handleDoctorCommand } = require('../src/runtime/cli');
 
 const SCRIPT_DIR = __dirname; // bin/
 const REPO_ROOT = path.dirname(SCRIPT_DIR);
@@ -54,6 +55,7 @@ function parseArgs(argv) {
       case '-g': case '--global': o.global = true; break;
       case '--no-backup': o.noBackup = true; break;
       case '--json': o.json = true; break;
+      case '--check': o.check = true; break;
       case '-t': case '--target': {
         const val = argv[i + 1];
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
@@ -106,6 +108,8 @@ Commands:
   list-backups         List available backups
   self-update          git pull + reinstall
   tools                Inspect or manage registered external tools
+  capabilities         Show registered abstract capabilities and resolved providers
+  doctor               System health and capability smoke check diagnostics
 
 Scope (mutually exclusive — global wins if both given):
   -g, --global         Install to \$HOME/.{claude,codex,gemini}
@@ -629,6 +633,8 @@ function main() {
       case 'list-backups': return cmdListBackups(o);
       case 'self-update': return cmdSelfUpdate(o);
       case 'tools': return cmdTools(o);
+      case 'capabilities': return handleCapabilitiesCommand({ json: o.json, check: o.check, repoRoot: REPO_ROOT });
+      case 'doctor': return handleDoctorCommand({ json: o.json, repoRoot: REPO_ROOT });
       default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
     }
   } catch (error) {

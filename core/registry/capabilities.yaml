@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "capabilities": {
+    "code.exact-search": {
+      "description": "Find exact symbols, strings, file paths, or regex patterns.",
+      "providers": [
+        {
+          "id": "native.rg",
+          "name": "Ripgrep Native Search",
+          "kind": "native",
+          "binary": "rg",
+          "checkCommand": ["rg", "--version"],
+          "costTier": "free"
+        }
+      ]
+    },
+    "code.semantic-search": {
+      "description": "Find code by natural language concept, behavior, or intent.",
+      "providers": [
+        {
+          "id": "semble.search",
+          "name": "Semble Semantic Search",
+          "kind": "cli",
+          "binary": "semble",
+          "checkCommand": ["semble", "--version"],
+          "costTier": "local-index"
+        },
+        {
+          "id": "native.rg",
+          "name": "Ripgrep Regex Fallback",
+          "kind": "native",
+          "binary": "rg",
+          "costTier": "free"
+        }
+      ]
+    },
+    "code.relationships": {
+      "description": "Query structural call graphs, caller/callee trees, and dependencies.",
+      "providers": [
+        {
+          "id": "graphify.query",
+          "name": "Graphify Knowledge Graph",
+          "kind": "cli",
+          "binary": "graphify",
+          "checkCommand": ["graphify", "--version"],
+          "costTier": "local-graph"
+        },
+        {
+          "id": "native.rg",
+          "name": "Ripgrep Reference Fallback",
+          "kind": "native",
+          "binary": "rg",
+          "costTier": "free"
+        }
+      ]
+    },
+    "code.impact-analysis": {
+      "description": "Determine blast radius and affected dependents of a symbol or component.",
+      "providers": [
+        {
+          "id": "graphify.query",
+          "name": "Graphify Blast Radius",
+          "kind": "cli",
+          "binary": "graphify",
+          "checkCommand": ["graphify", "--version"],
+          "costTier": "local-graph"
+        }
+      ]
+    },
+    "history.search": {
+      "description": "Inspect git commit history, commit rationale, diffs, and blame.",
+      "providers": [
+        {
+          "id": "git.native",
+          "name": "Git CLI",
+          "kind": "native",
+          "binary": "git",
+          "checkCommand": ["git", "--version"],
+          "costTier": "free"
+        }
+      ]
+    },
+    "behavior.verify": {
+      "description": "Execute automated test suites and behavioral assertions.",
+      "providers": [
+        {
+          "id": "native.test",
+          "name": "Project Test Runner",
+          "kind": "native",
+          "costTier": "compute"
+        }
+      ]
+    },
+    "command.compress": {
+      "description": "Preserve agent context by compressing CLI stdout/stderr.",
+      "providers": [
+        {
+          "id": "rtk",
+          "name": "Rust Token Killer",
+          "kind": "cli",
+          "binary": "rtk",
+          "checkCommand": ["rtk", "--version"],
+          "costTier": "free"
+        }
+      ]
+    }
+  }
+}
