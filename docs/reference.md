@@ -15,12 +15,18 @@
 
 | Skill | Description |
 |---|---|
+| `/do [task...]` | Universal dispatcher, intent routing, tool capability selection, and estimation |
 | `/do-flow "topic"` | Full-cycle development: brainstorm → design → plan → execute → test → code-review |
 | `/do-brainstorm "topic" [--strategy systematic|agile|enterprise] [--depth shallow|normal|deep]` | Discover requirements through Socratic dialogue; seeds requirement.md in a branch-coupled feature dir |
+| `/do-design [target]` | Design system architecture, APIs, and component interfaces; writes design.md |
+| `/do-plan [--strategy systematic|agile|enterprise]` | Generate implementation plan and dependency-ordered task checklist; writes plan.md |
+| `/do-execute-plan [--next|--phase N|--all|--resume|--contracts]` | Execute plan.md task checklist with specialist subagents and readiness gates |
+| `/do-test [--type build|unit|integration|e2e|all] [--coverage]` | Execute project builds, automated test suites, and coverage verification |
+| `/do-code-review [target]` | Code review automation: analyze complexity, risk, SOLID compliance, and code smells |
 | `/do-git [intent] [args...] [--confirm]` | Cycle-aware git operations via named intents: start, save, sync, ship, release, hotfix, backport, status |
-| `/do-test --type all` | Run the project's build and test suite |
-| `/do-diagnose [target] [--type bug|perf|security|refactor]` | Unified diagnostics, root-cause investigation, and code remediation |
-| `/do-document [target] [--type api|guide|impl|index|research]` | Unified technical documentation, architecture indexing, and web research |
+| `/do-constitution [--init|--amend]` | Create or amend the per-repo tier-2 constitution overlay and sync impact reports |
+| `/do-diagnose [target] [--focus quality|security|perf|architecture]` | Unified diagnostics, root-cause investigation, and targeted code remediation |
+| `/do-document [target] [--type api|guide|impl|index|research]` | Unified technical documentation, architecture indexing, and deep web research |
 
 ## Git Lifecycle Intents
 
@@ -41,11 +47,14 @@ Raw git operations still work via passthrough: `/do-git status`, `/do-git log --
 
 The full installed skill set is: `do`, `do-brainstorm`, `do-code-review`, `do-constitution`, `do-design`, `do-diagnose`, `do-document`, `do-execute-plan`, `do-flow`, `do-git`, `do-plan`, and `do-test`.
 
-## Agents
+## Specialist Agent Archetypes
 
-Agents are specialist perspectives used by planning and review workflows. Their definitions live in `core/shared/agent-specs/`.
+Specialist agent archetypes provide dedicated perspectives for planning, execution, and validation. Their definitions live in `core/shared/agent-specs/`:
 
-| Area | Typical perspectives |
-|---|---|
-| Architecture | system, infrastructure, frontend, backend, security |
-| Analysis | quality, performance, security, cost |
+| Archetype | Responsibilities | Default Mode |
+|---|---|---|
+| `spec-analyst` | Requirements elicitation, user story breakdown, effort estimation | Read-only |
+| `system-architect` | System architecture, boundary design, API contracts, infrastructure | Read-only |
+| `core-implementer` | Polyglot implementation, clean refactoring, algorithmic speedup | Workspace-write |
+| `quality-guardian` | Automated test suites, security vulnerability auditing, root-cause diagnosis | Read-only |
+| `research-writer` | Multi-hop cited web research, architecture indexing, technical documentation | Read-only |
