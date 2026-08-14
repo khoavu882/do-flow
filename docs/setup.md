@@ -113,8 +113,7 @@ guidance.
 
 ## Claude MCP servers
 
-DoFlow can register four optional servers for Claude Code: Context7, Sequential Thinking, Chrome
-DevTools, and Playwright. The installer writes only the DoFlow-owned server entries:
+DoFlow can register two optional servers for Claude Code: Context7 and Sequential Thinking. The installer writes only the DoFlow-owned server entries:
 
 | Scope | Registration location |
 |---|---|

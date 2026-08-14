@@ -157,16 +157,14 @@ test('install with a non-empty MCP selection writes MCP_INDEX.md containing only
   const adapters = createAdapterRegistry({ fake: adapter });
   const scopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-mcpindex-'));
   const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-state-'));
-  const plan = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpIds: ['context7', 'playwright'] });
+  const plan = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpIds: ['context7', 'sequential-thinking'] });
   applyLifecycle({ plan, registry: mcpRegistry, adapters, stateRoot });
 
   const indexFile = mcpIndexPath(scopeRoot);
   assert.ok(fs.existsSync(indexFile));
   const content = fs.readFileSync(indexFile, 'utf8');
   assert.match(content, /--c7/);
-  assert.match(content, /--play/);
-  assert.doesNotMatch(content, /--seq/);
-  assert.doesNotMatch(content, /--chrome/);
+  assert.match(content, /--seq/);
 });
 
 test('update with a changed MCP selection overwrites MCP_INDEX.md with the new selection only, no stale content', () => {
@@ -182,14 +180,12 @@ test('update with a changed MCP selection overwrites MCP_INDEX.md with the new s
 
   // Simulate `doflow update` after the user changed their MCP selection: same scopeRoot/stateRoot,
   // plan+apply run again with a different selection, no prompt involved — purely a function of mcpIds.
-  const planB = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpIds: ['chrome-devtools'], ledger: resultA.ledger });
+  const planB = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpIds: ['sequential-thinking'], ledger: resultA.ledger });
   applyLifecycle({ plan: planB, registry: mcpRegistry, adapters, stateRoot, ledger: resultA.ledger });
 
   const content = fs.readFileSync(indexFile, 'utf8');
-  assert.match(content, /--chrome/);
+  assert.match(content, /--seq/);
   assert.doesNotMatch(content, /--c7/, 'stale selection A content must not survive an update to selection B');
-  assert.doesNotMatch(content, /--play/);
-  assert.doesNotMatch(content, /--seq/);
 });
 
 test('an empty MCP selection leaves MCP_INDEX.md absent rather than writing an empty file', () => {

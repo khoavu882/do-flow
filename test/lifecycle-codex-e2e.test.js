@@ -51,14 +51,14 @@ test('Codex lifecycle install -> MCP update -> guarded user edit -> remove verif
   applyLifecycle({ plan: current, registry: run.registry, adapters: run.adapters, stateRoot: run.root });
 
   let ledger = readLedger(run.root);
-  current = plan({ ...run, ledger, mcpIds: ['playwright'] });
+  current = plan({ ...run, ledger, mcpIds: ['sequential-thinking'] });
   assert.equal(current.safe, true, JSON.stringify(current.conflicts));
   applyLifecycle({ plan: current, registry: run.registry, adapters: run.adapters, stateRoot: run.root, ledger });
   ledger = readLedger(run.root);
 
   const config = path.join(run.project, '.codex', 'config.toml');
   fs.writeFileSync(config, fs.readFileSync(config, 'utf8').replace('hooks = true', 'hooks = false'));
-  const conflict = plan({ ...run, ledger, mcpIds: ['playwright'] });
+  const conflict = plan({ ...run, ledger, mcpIds: ['sequential-thinking'] });
   assert.equal(conflict.safe, false, 'a user-modified managed key must block lifecycle mutation');
   assert.match(JSON.stringify(conflict.conflicts), /modified outside DoFlow/);
   fs.writeFileSync(config, fs.readFileSync(config, 'utf8').replace('hooks = false', 'hooks = true'));
@@ -67,7 +67,7 @@ test('Codex lifecycle install -> MCP update -> guarded user edit -> remove verif
   let failure;
   try {
     removed = removeLifecycle({ registry: run.registry, adapters: run.adapters, scope: 'project', scopeRoot: run.project,
-      targets: ['codex'], mcpIds: ['playwright'], stateRoot: run.root, ledger, context: run.context });
+      targets: ['codex'], mcpIds: ['sequential-thinking'], stateRoot: run.root, ledger, context: run.context });
   } catch (error) {
     failure = error;
   }

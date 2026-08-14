@@ -18,8 +18,8 @@ function options(file, selected, extra = {}) { return { file, scope: 'project', 
 
 test('uses the shared curated catalog and existing selection precedence', () => {
   const { allServers } = catalog();
-  assert.deepStrictEqual(allServers, ['context7', 'sequential-thinking', 'chrome-devtools', 'playwright']);
-  assert.deepStrictEqual(resolveCodexMcpSelection({ cmd: 'update', requested: null, allServers, manifestServers: ['playwright'], interactive: true, promptFn: () => { throw new Error('must not prompt'); } }), ['playwright']);
+  assert.deepStrictEqual(allServers, ['context7', 'sequential-thinking']);
+  assert.deepStrictEqual(resolveCodexMcpSelection({ cmd: 'update', requested: null, allServers, manifestServers: ['sequential-thinking'], interactive: true, promptFn: () => { throw new Error('must not prompt'); } }), ['sequential-thinking']);
 });
 
 test('creates selected Codex MCP tables and records only owned resources', () => {
@@ -84,10 +84,10 @@ test('fails closed for malformed configuration', () => {
 
 test('dry-run supplies plan and ownership records without writing', () => {
   const file = path.join(scratch(), 'config.toml');
-  const result = reconcileCodexMcp(options(file, ['playwright'], { dryRun: true }));
+  const result = reconcileCodexMcp(options(file, ['sequential-thinking'], { dryRun: true }));
   assert.equal(result.status, 'change');
   assert.equal(result.applied, false);
   assert.equal(fs.existsSync(file), false);
   assert.equal(result.changes[0].type, 'create');
-  assert.equal(result.managedResources[0].identity, 'playwright');
+  assert.equal(result.managedResources[0].identity, 'sequential-thinking');
 });
