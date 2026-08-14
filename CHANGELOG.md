@@ -16,12 +16,15 @@ All notable changes to DoFlow are documented here. Format follows
 ## [Unreleased]
 ### Added
 
+- **Grouped implementer dispatch by phase and owner:** `/subagent-driven` now forms dispatch groups `(phase, owner)` via `do-parallel-check.sh`, reducing agent startup costs and prompt reloading overhead by executing same-owner tasks sequentially per subagent (FR-001, FR-002, FR-003, FR-004, FR-006).
+- **New `--group` and `--no-group` flags and `--group` mode for deterministic helpers:** `do-exec-paths.sh` and `do-task-brief.sh` support `--group=<phase>:<owner> --tasks=<csv>` for composing single group briefs with shared preambles and ordered task blocks, while `--no-group` restores per-task fan-out (FR-007, FR-008).
 - **New lifecycle intents for `/do-git`:** `start`, `save`, `sync`, `ship`, `release`, `hotfix`, `backport`, and `status` — cycle-aware git operations via deterministic helper scripts (FR-001, FR-010).
 - **`do-git-state.sh`:** New deterministic helper with modes for branch classification (`--state`), version bump proposals (`--next-version`), propagation targets (`--propagation-targets`), repository fingerprinting (`--fingerprint`), and branch-name construction (`--branch-name`) (FR-002, FR-003, FR-004, FR-005).
 - **Policy-based branching:** Deterministic resolver reports `branch_class` field with values: `feature`, `fix`, `release`, `hotfix`, `trunk`, or `other`. Release and hotfix branches now correctly yield `null` feature slugs (FR-006).
 
 ### Changed
 
+- **Implementer dispatch grouped by default:** `/subagent-driven` dispatches one implementer per `(phase, owner)` group with run-start reporting of task-to-dispatch mapping; single-task brief and path contracts remain byte-identical (FR-005, FR-009, FR-010).
 - `/do-brainstorm` delegates branch name construction to `/do-git --branch-name`; observable behavior preserved (same name for same slug, non-git root skips branch creation) (FR-002).
 
 ## [0.16.1] - 2026-08-03

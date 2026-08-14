@@ -251,6 +251,10 @@ Bottom-up: handler first, audit second.
 - [ ] A.5 [P] [US1] verification only — owner: devops-architect; files: none (verification only)
 ### Phase B — later
 - [ ] B.1 [US9] traces a story that does not exist — owner: x; files: src/b.js
+### Phase C — unowned and groups
+- [ ] C.1 [P] [US1] unowned task 1 — files: src/shared_unowned.js
+- [ ] C.2 [P] [US1] unowned task 2 — files: src/shared_unowned.js
+- [ ] C.3 [P] [US1] single unowned — files: src/solo.js
 ### Checkpoints
 - After Phase A: run the suite; commit `feat: auth`
 FIXTURE
@@ -269,6 +273,13 @@ eq "workspace is created, not just named" "$([ -d agent-docs/doflow/001-auth/exe
 eq "traversal reports invalid-task" \
    "$("$EXECPATHS" --task=../../etc/passwd 2>/dev/null | jq -r '.error')" "invalid-task"
 "$EXECPATHS" >/dev/null 2>&1; eq "missing --task -> exit 2" "$?" "2"
+# Group path resolution and traversal rejection
+EP_GRP="$("$EXECPATHS" --group=A:backend-architect --tasks=A.1,A.2)"
+eq "group exec paths workspace" "$(printf '%s' "$EP_GRP" | jq -r '.workspace')" "agent-docs/doflow/001-auth/exec"
+eq "group exec paths brief" "$(printf '%s' "$EP_GRP" | jq -r '.group_brief')" "agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md"
+eq "group exec paths reports" "$(printf '%s' "$EP_GRP" | jq -c '.reports')" '["agent-docs/doflow/001-auth/exec/task-A.1-report.md","agent-docs/doflow/001-auth/exec/task-A.2-report.md"]'
+"$EXECPATHS" --group=../../etc:evil --tasks=A.1 >/dev/null 2>&1; eq "path traversal in group id -> exit 2" "$?" "2"
+"$EXECPATHS" --group=A:backend --tasks=../../etc/passwd >/dev/null 2>&1; eq "path traversal in task id inside group -> exit 2" "$?" "2"
 
 echo "[do-task-brief]"
 eq "traces the story from the task line"   "$("$BRIEF" --task=A.1 | jq -r '.traced.story')" "US1"
@@ -290,6 +301,17 @@ eq "verification bar is included" \
 eq "unresolvable story is reported in missing[]" \
    "$("$BRIEF" --task=B.1 | jq -r '.missing | length > 0')" "true"
 "$BRIEF" --task=Z.9 >/dev/null 2>&1; eq "unknown task -> exit 3" "$?" "3"
+# Group mode brief composition
+TB_GRP="$("$BRIEF" --group=A:backend-architect --tasks=A.1,A.2)"
+eq "group brief traces all tasks" "$(printf '%s' "$TB_GRP" | jq -c '.tasks')" '["A.1","A.2"]'
+eq "group brief shared context exists" "$([ -f agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md ] && grep -c '^## Shared context' agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md)" "1"
+eq "group brief task order exists" "$(grep -c '^## Task order' agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md)" "1"
+eq "group brief has task A.1 block" "$(grep -c '^## Task A.1' agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md)" "1"
+eq "group brief has task A.2 block" "$(grep -c '^## Task A.2' agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md)" "1"
+# Single-task byte-identity invariant (RK1): diff group of 1 against single task brief
+"$BRIEF" --task=A.5 >/dev/null 2>&1
+"$BRIEF" --group=A:devops-architect --tasks=A.5 >/dev/null 2>&1
+eq "single-task byte-identity invariant (RK1)" "$(diff -u agent-docs/doflow/001-auth/exec/task-A.5-brief.md agent-docs/doflow/001-auth/exec/group-A-devops-architect-brief.md | wc -l | tr -d ' ')" "0"
 
 echo "[do-review-package]"
 echo change > src_a.txt; git add -A; git commit -q -m "first change"
@@ -333,6 +355,16 @@ eq "verification-only task stays parallel" \
    "$(printf '%s' "$PC" | jq -r '.parallel_tasks | index("A.5") != null')" "true"
 eq "disjoint-only phase is safe" "$("$PARCHECK" --phase=B | jq -r '.parallel_safe')" "true"
 "$PARCHECK" >/dev/null 2>&1; eq "missing --phase -> exit 2" "$?" "2"
+# Group formation, owner splitting, intra-group safety, and unowned tasks
+eq "groups formed by owner split" "$(printf '%s' "$PC" | jq -r '.groups | length')" "2"
+eq "group A:backend-architect has all 4 tasks" "$(printf '%s' "$PC" | jq -c '.groups[0].tasks')" '["A.1","A.2","A.3","A.4"]'
+eq "group A:devops-architect has verification task" "$(printf '%s' "$PC" | jq -c '.groups[1].tasks')" '["A.5"]'
+eq "intra-group same-file safety (group_overlaps empty for Phase A)" "$(printf '%s' "$PC" | jq -c '.group_overlaps')" '[]'
+eq "Phase A unowned_tasks empty" "$(printf '%s' "$PC" | jq -c '.unowned_tasks')" '[]'
+PCC="$("$PARCHECK" --phase=C)"
+eq "Phase C unowned tasks reported" "$(printf '%s' "$PCC" | jq -c '.unowned_tasks')" '["C.1","C.2","C.3"]'
+eq "Phase C unowned overlap detected across singleton groups" "$(printf '%s' "$PCC" | jq -c '.group_overlaps[0].groups')" '["C:C.1","C:C.2"]'
+eq "Phase C group serialize lists offender groups" "$(printf '%s' "$PCC" | jq -c '.group_serialize')" '["C:C.1","C:C.2"]'
 
 echo "[helpers: a failed write is an error, not a success]"
 # Both helpers emit a path in their success contract. Reporting one for a file that was never

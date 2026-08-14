@@ -93,6 +93,11 @@ fi
 # can ask the user, then re-invoke with `--slug=<chosen>` to force resolution.
 feature_slug=""
 candidate_slugs_json="[]"
+# Initialized here, not only inside the git arm below: a non-git root never runs the branch
+# `case`, and the emit block reads this unconditionally under `set -u`. Leaving it unset made
+# the resolver die with "branch_class: unbound variable" at exactly the container-root layout
+# the directory-scan fallback exists to support.
+branch_class=""
 if [ "$is_git_repo" = true ]; then
   case "$branch" in
     "")                          feature_slug=""; branch_class="trunk" ;;
