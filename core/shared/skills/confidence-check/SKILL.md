@@ -1,134 +1,71 @@
 ---
 name: confidence-check
-description: Mandatory pre-implementation confidence gate. Use automatically before any code edit, refactor, bug fix, dependency change, test change, configuration change, or implementation workflow.
-when_to_use: Trigger before source edits, test edits, dependency changes, configuration changes, architecture changes, generated workflow execution, bug fixes, or implementation work. Do not trigger for pure explanation, read-only review, brainstorming, estimation, or requirements discovery.
+description: Mandatory pre-implementation readiness contract gate. Evaluates task readiness across 5 task classes (Bug, Feature, Refactor, Trivial Edit, Dependency Change) before executing source modifications.
+when_to_use: Trigger automatically before source edits, test edits, dependency changes, configuration changes, architecture changes, generated workflow execution, bug fixes, or implementation work. Do not trigger for pure explanation, read-only review, brainstorming, estimation, or requirements discovery.
 user-invocable: false
 effort: low
 ---
 
-# Confidence Check Skill
+# Pre-Implementation Readiness Contract Gate
 
-## Purpose
+Prevents premature or wrong-direction execution by evaluating explicit, grounded **Readiness Contracts** (`src/runtime/readiness.js`) before starting source code modifications.
 
-Prevents wrong-direction execution by assessing confidence **BEFORE** starting implementation.
+Replaces subjective numerical confidence estimation with verifiable evidence checks and categorical readiness gating.
 
-**Requirement**: ≥90% confidence to proceed with implementation.
+---
 
-This is an auto-only policy skill. It should load as a mandatory gate before implementation-class work, not as a user-facing command.
+## 1. Readiness States
 
-Implementation-class work includes:
-- Creating or editing source files
-- Refactoring existing code
-- Fixing bugs by changing code or tests
-- Adding, removing, or upgrading dependencies
-- Changing runtime configuration or architecture
-- Executing generated implementation workflows
+| State | Meaning | Permitted Action |
+|---|---|---|
+| `READY` | All mandatory prerequisites verified by fresh evidence in `EvidenceLedger`. | **PROCEED** with implementation. |
+| `NEEDS_EVIDENCE` | Specific required evidence locators or supported claims are missing. | **HALT** implementation. Execute recommended retrieval actions. |
+| `NEEDS_USER_DECISION` | Task has unresolved trade-offs or architectural ambiguity. | **HALT** and ask the user for explicit decision. |
+| `BLOCKED` | Conflicted claims detected with contradicting evidence. | **HALT**. Resolve contradictory evidence before continuing. |
 
-If confidence is below threshold, stop implementation and gather more evidence or ask the user for clarification.
+---
 
-**Validation status**: No benchmark harness exists in this repo to measure this skill's precision or recall — treat its effectiveness as unvalidated until one is built.
+## 2. Task-Specific Readiness Contracts
 
-## When to Use
+### A. Bug Fix (`taskClass: "bug"`)
+- [ ] **Reproduction Verified**: Failing test or runtime observation recorded (`runtime-observation` or `test-result`).
+- [ ] **Affected Code Located**: Target files and symbols identified with source locators (`exact-search` or `semantic-retrieval`).
+- [ ] **Root Cause Supported**: Root cause hypothesis validated by evidence into `status: "supported"`.
+- [ ] **Blast Radius Mapped**: Callers and downstream components mapped (`structural`).
+- [ ] **Regression Plan**: Verification command defined.
 
-Use this skill BEFORE implementing any task to ensure:
-- No duplicate implementations exist
-- Architecture compliance verified
-- Official documentation reviewed
-- Working OSS implementations found
-- Root cause properly identified
+### B. Feature Implementation (`taskClass: "feature"`)
+- [ ] **Scope Clear**: Scope boundaries and acceptance criteria defined.
+- [ ] **Affected Components**: Target integration points and files mapped (`structural` or `semantic-retrieval`).
+- [ ] **Verification Plan**: Test execution plan and assertions established.
 
-## Confidence Assessment Criteria
+### C. Refactoring (`taskClass: "refactor"`)
+- [ ] **Architecture Mapped**: Call graphs and dependencies mapped (`structural`).
+- [ ] **Invariants Captured**: Behavioral invariants documented.
+- [ ] **Baseline Green**: Existing test suite passes prior to modifications (`test-result`).
+- [ ] **Blast Radius Mapped**: All downstream dependents identified.
 
-Calculate confidence score (0.0 - 1.0) based on 5 checks:
+### D. Trivial Edit (`taskClass: "trivial-edit"`)
+- [ ] **Target Identified**: Exact file and line locator confirmed (`exact-search`).
+- [ ] **Scope Verified**: Single-file scope verified with no cascading structural impact.
 
-### 1. No Duplicate Implementations? (25%)
+### E. Dependency Change (`taskClass: "dependency-change"`)
+- [ ] **Compatibility Checked**: Official release notes and breaking changes reviewed (`documentation`).
+- [ ] **Usage Impact**: All repository usages of the library identified (`exact-search` / `structural`).
+- [ ] **Verification Command**: Build and test verification commands established.
 
-**Check**: Search codebase for existing functionality
+---
 
-```bash
-# Use Grep to search for similar functions
-# Use Glob to find related modules
-```
+## 3. Evaluation Flow
 
-✅ Pass if no duplicates found
-❌ Fail if similar implementation exists
+1. **Identify Task Class**: Classify the task into `bug`, `feature`, `refactor`, `trivial-edit`, or `dependency-change`.
+2. **Query Evidence Ledger**: Verify that required evidence items are registered in `EvidenceLedger` with `freshness.status === "FRESH"`.
+3. **Verify Claims**: Verify that key assumptions are promoted to `status: "supported"` in `ClaimsManager`.
+4. **Gate Output**:
+   - If `READY` → Output `[READY] Proceeding with implementation.`
+   - If `NEEDS_EVIDENCE` → List missing evidence locators and recommended retrieval commands from `CapabilityRouter`.
+   - If `BLOCKED` → Detail conflicting claims and stop execution.
 
-### 2. Architecture Compliance? (25%)
-
-**Check**: Verify tech stack alignment
-
-- Read `CLAUDE.md`, `PLANNING.md`
-- Confirm existing patterns used
-- Avoid reinventing existing solutions
-
-✅ Pass if uses existing tech stack (e.g., Supabase, UV, pytest)
-❌ Fail if introduces new dependencies unnecessarily
-
-### 3. Official Documentation Verified? (20%)
-
-**Check**: Review official docs before implementation
-
-- Use Context7 MCP for official docs
-- Use WebFetch for documentation URLs
-- Verify API compatibility
-
-✅ Pass if official docs reviewed
-❌ Fail if relying on assumptions
-
-### 4. Working OSS Implementations Referenced? (15%)
-
-**Check**: Find proven implementations
-
-- Use Tavily MCP or WebSearch
-- Search GitHub for examples
-- Verify working code samples
-
-✅ Pass if OSS reference found
-❌ Fail if no working examples
-
-### 5. Root Cause Identified? (15%)
-
-**Check**: Understand the actual problem
-
-- Analyze error messages
-- Check logs and stack traces
-- Identify underlying issue
-
-✅ Pass if root cause clear
-❌ Fail if symptoms unclear
-
-## Confidence Score Calculation
-
-```
-Total = Check1 (25%) + Check2 (25%) + Check3 (20%) + Check4 (15%) + Check5 (15%)
-
-If Total >= 0.90:  ✅ Proceed with implementation
-If Total >= 0.70:  ⚠️  Present alternatives, ask questions
-If Total < 0.70:   ❌ STOP - Request more context
-```
-
-## Output Format
-
-```
-📋 Confidence Checks:
-   ✅ No duplicate implementations found
-   ✅ Uses existing tech stack
-   ✅ Official documentation verified
-   ✅ Working OSS implementation found
-   ✅ Root cause identified
-
-📊 Confidence: 1.00 (100%)
-✅ High confidence - Proceeding to implementation
-```
-
-## Implementation Details
-
-The TypeScript implementation is available in `scripts/confidence.ts` for reference, containing:
-
-- `confidenceCheck(context)` - Main assessment function
-- Detailed check implementations
-- Context interface definitions
-
-## ROI
-
-The intent of this check is to spend a small amount of tokens up front to catch wrong-direction work before it consumes a much larger amount of tokens. No benchmark harness exists in this repo to measure actual token savings or success rate for this skill — treat any such figures as unvalidated until one is built.
+## Boundaries
+**Will:** Enforce task-specific readiness checks; report missing evidence locators; block implementation until required prerequisites are satisfied.
+**Will Not:** Allow implementation to start with unverified hypotheses; accept ungrounded numeric self-assessments.

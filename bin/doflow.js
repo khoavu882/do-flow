@@ -27,7 +27,7 @@ const { applyLifecycle, removeLifecycle, applyMcpIndex } = require('../src/lifec
 const { readLedger } = require('../src/state');
 const { codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan } = require('../src/lifecycle-view');
 const { commandText, planToolLifecycle, executeToolLifecycle } = require('../src/tool-lifecycle');
-const { handleCapabilitiesCommand, handleDoctorCommand } = require('../src/runtime/cli');
+const { handleCapabilitiesCommand, handleDoctorCommand, handleReadinessCommand, handleEvidenceCommand } = require('../src/runtime/cli');
 
 const SCRIPT_DIR = __dirname; // bin/
 const REPO_ROOT = path.dirname(SCRIPT_DIR);
@@ -76,6 +76,16 @@ function parseArgs(argv) {
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
         o.action = val; i++; break;
       }
+      case '--task-class': {
+        const val = argv[i + 1];
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
+        o.taskClass = val; i++; break;
+      }
+      case '--task-id': {
+        const val = argv[i + 1];
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
+        o.taskId = val; i++; break;
+      }
       case '--prune': {
         const val = argv[i + 1];
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a number`); process.exit(1); }
@@ -110,6 +120,8 @@ Commands:
   tools                Inspect or manage registered external tools
   capabilities         Show registered abstract capabilities and resolved providers
   doctor               System health and capability smoke check diagnostics
+  readiness            Evaluate task readiness contract (--task-class, --task-id)
+  evidence             Inspect recorded task evidence items (--task-id)
 
 Scope (mutually exclusive — global wins if both given):
   -g, --global         Install to \$HOME/.{claude,codex,gemini}
@@ -635,6 +647,8 @@ function main() {
       case 'tools': return cmdTools(o);
       case 'capabilities': return handleCapabilitiesCommand({ json: o.json, check: o.check, repoRoot: REPO_ROOT });
       case 'doctor': return handleDoctorCommand({ json: o.json, repoRoot: REPO_ROOT });
+      case 'readiness': return handleReadinessCommand({ taskClass: o.taskClass || 'feature', taskId: o.taskId || 'default', json: o.json, repoRoot: REPO_ROOT });
+      case 'evidence': return handleEvidenceCommand({ taskId: o.taskId || 'default', json: o.json, repoRoot: REPO_ROOT });
       default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
     }
   } catch (error) {

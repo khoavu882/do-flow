@@ -2,6 +2,9 @@
 
 const path = require('node:path');
 const { CapabilityRouter } = require('./capability-router');
+const { EvidenceLedger } = require('./evidence-ledger');
+const { ClaimsManager } = require('./claims');
+const { ReadinessEngine } = require('./readiness');
 const { loadRegistry } = require('../registry');
 
 /**
@@ -106,7 +109,94 @@ function handleDoctorCommand({ json = false, repoRoot } = {}) {
   console.log('\n' + '═'.repeat(60) + '\n');
 }
 
+/**
+ * Handles `doflow readiness` command execution.
+ * @param {Object} options
+ * @param {string} [options.taskClass='feature']
+ * @param {string} [options.taskId='default']
+ * @param {boolean} [options.json=false]
+ * @param {string} [options.repoRoot]
+ */
+function handleReadinessCommand({ taskClass = 'feature', taskId = 'default', json = false, repoRoot } = {}) {
+  const root = repoRoot || path.resolve(__dirname, '..', '..');
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  ledger.load(taskId);
+
+  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root });
+  claims.load(taskId);
+
+  const engine = new ReadinessEngine({ repoRoot: root });
+  const report = engine.evaluateReadiness(
+    { taskId, taskClass, verificationPlan: 'npm test', scopeClear: true },
+    ledger,
+    claims
+  );
+
+  if (json) {
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+
+  console.log(`\nDoFlow Task Readiness Evaluation [${report.taskClass.toUpperCase()}]:`);
+  console.log('═'.repeat(70));
+  console.log(`Task ID:       ${report.taskId}`);
+  console.log(`Template:      ${report.templateName}`);
+  console.log(`Overall State: ${report.state === 'READY' ? '✓ READY' : report.state === 'NEEDS_EVIDENCE' ? '▲ NEEDS EVIDENCE' : '✗ ' + report.state}`);
+  console.log(`Summary:       ${report.summary}`);
+  console.log('─'.repeat(70));
+  console.log('Requirements Breakdown:');
+
+  for (const req of report.requirements) {
+    const mark = req.satisfied ? '✓ Satisfied' : req.required ? '✗ MISSING' : '○ Optional';
+    console.log(`  ${req.id.padEnd(26)} ${mark.padEnd(14)} ${req.description}`);
+    if (!req.satisfied && req.recommendedAction) {
+      console.log(`    └─ Recommended: [${req.recommendedAction.capability}] ${req.recommendedAction.action}`);
+    }
+  }
+  console.log('═'.repeat(70) + '\n');
+}
+
+/**
+ * Handles `doflow evidence` command execution.
+ * @param {Object} options
+ * @param {string} [options.taskId='default']
+ * @param {boolean} [options.json=false]
+ * @param {string} [options.repoRoot]
+ */
+function handleEvidenceCommand({ taskId = 'default', json = false, repoRoot } = {}) {
+  const root = repoRoot || path.resolve(__dirname, '..', '..');
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  ledger.load(taskId);
+  const items = ledger.queryEvidence({ taskId });
+
+  if (json) {
+    console.log(JSON.stringify({ taskId, evidenceCount: items.length, evidence: items }, null, 2));
+    return;
+  }
+
+  console.log(`\nDoFlow Evidence Ledger [Task: ${taskId}]:`);
+  console.log('═'.repeat(78));
+  if (items.length === 0) {
+    console.log('No evidence items recorded for this task.');
+  } else {
+    console.log('ID'.padEnd(16) + 'Kind'.padEnd(20) + 'Status'.padEnd(12) + 'File Locator');
+    console.log('─'.repeat(78));
+    for (const item of items) {
+      const loc = item.locator?.file ? `${item.locator.file}` : 'None';
+      console.log(
+        item.id.padEnd(16) +
+        item.kind.padEnd(20) +
+        item.freshness.status.padEnd(12) +
+        loc
+      );
+    }
+  }
+  console.log('═'.repeat(78) + '\n');
+}
+
 module.exports = {
   handleCapabilitiesCommand,
   handleDoctorCommand,
+  handleReadinessCommand,
+  handleEvidenceCommand,
 };
