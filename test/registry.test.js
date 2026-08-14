@@ -73,8 +73,8 @@ test('selects only renderable harness assets and filters by capability', () => {
 
 test('selects the neutral MCP catalog and rejects unknown selections', () => {
   const registry = loadRegistry({ repoRoot: REPO });
-  assert.equal(selectMcpServers(registry).length, 4);
-  assert.deepEqual(selectMcpServers(registry, ['context7', 'playwright']).map((item) => item.id), ['context7', 'playwright']);
+  assert.equal(selectMcpServers(registry).length, 2);
+  assert.deepEqual(selectMcpServers(registry, ['context7', 'sequential-thinking']).map((item) => item.id), ['context7', 'sequential-thinking']);
   assert.throws(() => selectMcpServers(registry, ['unknown']), /Unknown registry MCP server/);
 });
 

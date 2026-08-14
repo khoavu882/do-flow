@@ -386,18 +386,18 @@ test('Codex-native lifecycle supports isolated project dry-run, selected MCP upd
   assert.ok(fs.statSync(path.join(project, '.codex', 'hooks', 'session-start.sh')).mode & 0o111);
   assert.ok(fs.existsSync(path.join(project, '.codex', 'agents', 'system-architect.toml')));
 
-  r = run(['update', project, '--force', '--target', 'codex', '--mcp', 'playwright'], { home });
+  r = run(['update', project, '--force', '--target', 'codex', '--mcp', 'sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   const updated = fs.readFileSync(config, 'utf8');
   assert.doesNotMatch(updated, /mcp_servers\.context7/);
-  assert.match(updated, /mcp_servers\.playwright/);
+  assert.match(updated, /mcp_servers\.sequential-thinking/);
 
   r = run(['status', project, '--target', 'codex', '--json'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   const status = JSON.parse(r.stdout);
   assert.strictEqual(status.codex.status, 'verified');
   assert.strictEqual(status.codex.hooksTrust.status, 'review-required');
-  assert.ok(status.codex.resources.some((resource) => resource.kind === 'mcp-server' && resource.identity === 'playwright'));
+  assert.ok(status.codex.resources.some((resource) => resource.kind === 'mcp-server' && resource.identity === 'sequential-thinking'));
 });
 
 test('Codex reconciliation preserves foreign config and fails closed on a conflicting managed key', () => {
@@ -543,11 +543,11 @@ test('--mcp <list> on global install merges only the selected servers into ~/.cl
 test('--mcp <list> on project-scoped install writes <projectRoot>/.mcp.json, not <projectRoot>/.claude/.mcp.json', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
-  const r = run(['install', projectDir, '--force', '--no-backup', '--target', 'claude', '--mcp', 'playwright'], { home });
+  const r = run(['install', projectDir, '--force', '--no-backup', '--target', 'claude', '--mcp', 'sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
 
   const mcpJson = JSON.parse(fs.readFileSync(path.join(projectDir, '.mcp.json'), 'utf8'));
-  assert.deepStrictEqual(Object.keys(mcpJson.mcpServers), ['playwright']);
+  assert.deepStrictEqual(Object.keys(mcpJson.mcpServers), ['sequential-thinking']);
   assert.ok(!fs.existsSync(path.join(projectDir, '.claude', '.mcp.json')));
 });
 
@@ -556,7 +556,7 @@ test('an install with no --mcp flag (non-interactive, piped stdin) defaults to a
   const r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   const claudeJson = JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf8'));
-  assert.deepStrictEqual(Object.keys(claudeJson.mcpServers).sort(), ['chrome-devtools', 'context7', 'playwright', 'sequential-thinking']);
+  assert.deepStrictEqual(Object.keys(claudeJson.mcpServers).sort(), ['context7', 'sequential-thinking']);
 });
 
 test('update with no --mcp flag remembers the prior install\'s selection instead of reverting to all servers', () => {
@@ -576,16 +576,16 @@ test('update with an explicit --mcp overrides and re-persists the remembered sel
   let r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'context7'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
 
-  r = run(['update', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'playwright,chrome-devtools'], { home });
+  r = run(['update', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   let claudeJson = JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf8'));
-  assert.deepStrictEqual(Object.keys(claudeJson.mcpServers).sort(), ['chrome-devtools', 'playwright']);
+  assert.deepStrictEqual(Object.keys(claudeJson.mcpServers).sort(), ['sequential-thinking']);
 
   // A later update with no --mcp must now remember THIS selection, not the original install's.
   r = run(['update', '-g', '--force', '--no-backup', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   claudeJson = JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf8'));
-  assert.deepStrictEqual(Object.keys(claudeJson.mcpServers).sort(), ['chrome-devtools', 'playwright']);
+  assert.deepStrictEqual(Object.keys(claudeJson.mcpServers).sort(), ['sequential-thinking']);
 });
 
 test('update --dry-run for an MCP-only change never claims a backup will be created, matching the real run', () => {
@@ -597,11 +597,11 @@ test('update --dry-run for an MCP-only change never claims a backup will be crea
   let r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
 
-  r = run(['update', '-g', '--force', '--dry-run', '--target', 'claude', '--mcp', 'playwright'], { home });
+  r = run(['update', '-g', '--force', '--dry-run', '--target', 'claude', '--mcp', 'sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.ok(!/Would create partial backup/.test(r.stdout), `dry-run must not claim a backup for an MCP-only change:\n${r.stdout}`);
 
-  r = run(['update', '-g', '--force', '--target', 'claude', '--mcp', 'playwright'], { home });
+  r = run(['update', '-g', '--force', '--target', 'claude', '--mcp', 'sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   const listed = run(['list-backups', '-g'], { home });
   assert.ok(!/update_/.test(listed.stdout), `the real run must not have created an update backup either:\n${listed.stdout}`);
@@ -616,12 +616,12 @@ test('--mcp on install rejects an unknown server name with a clear message', () 
 
 test('doflow status reports the persisted MCP server selection', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-  let r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'context7,playwright'], { home });
+  let r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'context7,sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   r = run(['status', '-g', '--json'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   const status = JSON.parse(r.stdout);
-  assert.deepStrictEqual(status.manifest.mcpServers.sort(), ['context7', 'playwright']);
+  assert.deepStrictEqual(status.manifest.mcpServers.sort(), ['context7', 'sequential-thinking']);
 });
 
 // --- Multi-harness lifecycle wiring (claude/codex/gemini all reconcile through the same

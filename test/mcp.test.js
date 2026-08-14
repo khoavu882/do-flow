@@ -19,13 +19,13 @@ function scratchDir() {
 
 test('readAllServers returns the registry MCP catalog\'s server names in declaration order', () => {
   const servers = readAllServers(registry);
-  assert.deepStrictEqual(servers, ['context7', 'sequential-thinking', 'chrome-devtools', 'playwright']);
+  assert.deepStrictEqual(servers, ['context7', 'sequential-thinking']);
 });
 
 test('filterServerDefs keeps only the selected servers, each with its full definition', () => {
   const all = readAllServers(registry);
-  const defs = filterServerDefs(registry, all, ['context7', 'playwright']);
-  assert.deepStrictEqual(Object.keys(defs), ['context7', 'playwright']);
+  const defs = filterServerDefs(registry, all, ['context7', 'sequential-thinking']);
+  assert.deepStrictEqual(Object.keys(defs), ['context7', 'sequential-thinking']);
   assert.strictEqual(defs.context7.command, 'npx');
 });
 

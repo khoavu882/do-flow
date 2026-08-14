@@ -18,7 +18,6 @@ function fixtureServers() {
   return [
     { id: 'context7', shortFlag: '--c7', doc: 'mcp/MCP_Context7.md' },
     { id: 'sequential-thinking', shortFlag: '--seq', doc: 'mcp/MCP_Sequential.md' },
-    { id: 'playwright', shortFlag: '--play', doc: 'mcp/MCP_Playwright.md' },
   ];
 }
 
@@ -65,7 +64,7 @@ test('determinism: same (non-identical) input array produces byte-identical outp
 });
 
 test('real registry shape: selectMcpServers output renders correctly', () => {
-  const servers = selectMcpServers(registry, ['context7', 'playwright']);
+  const servers = selectMcpServers(registry, ['context7', 'sequential-thinking']);
   const output = renderMcpIndex(servers);
   const lines = output.split('\n').filter((line) => line.length > 0);
 
@@ -73,8 +72,8 @@ test('real registry shape: selectMcpServers output renders correctly', () => {
   assert.equal(lines.length, 1 + servers.length * 2);
   assert.equal(lines[1], '# --c7 — prefer the `context7` MCP server');
   assert.equal(lines[2], '@mcp/MCP_Context7.md');
-  assert.equal(lines[3], '# --play — prefer the `playwright` MCP server');
-  assert.equal(lines[4], '@mcp/MCP_Playwright.md');
+  assert.equal(lines[3], '# --seq — prefer the `sequential-thinking` MCP server');
+  assert.equal(lines[4], '@mcp/MCP_Sequential.md');
 });
 
 // Anchor regression guard. Every `doc` path is relative, so it is only meaningful against an

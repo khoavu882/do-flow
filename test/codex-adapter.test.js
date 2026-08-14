@@ -105,8 +105,8 @@ test('dry planning does not write, then apply and remove use only fingerprint-pr
 test('shared config.toml removal removes owned config and MCP entries while preserving foreign content', () => {
   const projectRoot = scratch();
   const resource = { target: 'codex', kind: 'configuration-entry', identity: 'features.hooks', value: true };
-  const catalog = [{ id: 'playwright', transport: 'stdio', command: 'npx', args: ['-y', '@playwright/mcp'] }];
-  const input = { scope: 'project', projectRoot, projection: { configResources: [resource], mcp: { catalog, selected: ['playwright'] } } };
+  const catalog = [{ id: 'sequential-thinking', transport: 'stdio', command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] }];
+  const input = { scope: 'project', projectRoot, projection: { configResources: [resource], mcp: { catalog, selected: ['sequential-thinking'] } } };
   const installed = apply({ ...input, changes: plan(input).changes });
   const file = path.join(projectRoot, '.codex', 'config.toml');
   fs.appendFileSync(file, '\n[personal]\nkeep = true\n');
@@ -115,7 +115,7 @@ test('shared config.toml removal removes owned config and MCP entries while pres
   remove({ ...input, changes: removal.changes });
   const after = fs.readFileSync(file, 'utf8');
   assert.doesNotMatch(after, /hooks = true/);
-  assert.doesNotMatch(after, /mcp_servers\.playwright/);
+  assert.doesNotMatch(after, /mcp_servers\.sequential-thinking/);
   assert.match(after, /\[personal\]\nkeep = true/);
 });
 
