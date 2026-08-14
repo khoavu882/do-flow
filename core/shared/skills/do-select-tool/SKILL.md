@@ -1,7 +1,7 @@
 ---
 name: do-select-tool
-description: "Intelligent MCP tool selection based on complexity scoring and operation analysis"
-when_to_use: Trigger automatically for read-only tool-routing decisions, MCP/native tool selection, complexity scoring, or when the user asks which tool or workflow should handle an operation.
+description: "Capability-driven tool routing and progressive retrieval planning using DoFlow CapabilityRouter"
+when_to_use: Trigger automatically for read-only tool-routing decisions, information retrieval planning, capability selection, or when determining whether to use native search, Semble, Graphify, Git, or MCP tools.
 argument-hint: "[operation] [--analyze] [--explain]"
 user-invocable: true
 effort: low
@@ -10,36 +10,54 @@ disallowed-tools: Edit, Write, NotebookEdit
 
 # do-select-tool
 
-Decides native tool vs. MCP server for a described operation — a routing decision, not an
-execution. Distinct from `/do-pm` (routes a *request* to a skill/agent) — this routes an
-*operation* to a specific tool.
+Routes an information need or operation to the optimal capability and provider using DoFlow's **Capability Router** (`core/registry/capabilities.yaml` and `core/registry/routes.yaml`).
+
+Distinct from `/do-pm` (which routes user requests to skills/agents) — this routes an **information need** to a specific tool or retrieval plan.
 
 ## Invocation
 ```text
 /do-select-tool [operation] [--analyze] [--explain]
 ```
 
+## Abstract Capabilities & Default Routing Matrix
+
+| Information Intent | Preferred Capability | Primary Provider | Fallback Chain |
+|---|---|---|---|
+| Exact symbol, path, or regex pattern | `code.exact-search` | `native.rg` (Ripgrep/Grep) | — |
+| Natural-language concept or behavior | `code.semantic-search` | `semble.search` (Semble) | `code.exact-search` (`native.rg`) |
+| Call graph, dependencies, caller/callee | `code.relationships` | `graphify.query` (Graphify) | `code.exact-search` (`native.rg`) |
+| Change blast radius / impact analysis | `code.impact-analysis` | `graphify.query` (Graphify) | `code.relationships` → `code.exact-search` |
+| Git commit rationale, blame, history | `history.search` | `git.native` (Git CLI) | — |
+| Behavioral test execution | `behavior.verify` | `native.test` (Test Runner) | — |
+| High-output CLI command execution | `command.compress` | `rtk` (Rust Token Killer) | Raw uncompressed command |
+| External API/framework documentation | `docs.lookup` | `context7` MCP | Web search / Native docs |
+| Multi-step structured reasoning | `reasoning.structured`| `sequential-thinking` MCP | In-context chain of thought |
+
 ## Behavioral Flow
-1. **Classify the operation**: symbol search/pattern edit (→ native `Grep`/`Glob`/`Read`/`Edit`),
-   library/framework documentation lookup (→ `context7`), multi-step reasoning or hypothesis
-   testing (→ `sequential-thinking`), browser/UI verification (→ `playwright` or
-   `chrome-devtools` depending on whether it's automated testing or live debugging),
-   cross-session memory (→ native files: `agent-docs/`, this session's memory system).
-2. **Score complexity** if the mapping in step 1 is ambiguous (spans multiple categories or an
-   unfamiliar operation type): file count touched, whether it needs semantic understanding vs.
-   literal pattern match, whether a specialized MCP capability is actually required or native
-   tools can do it faster.
-3. **Prefer native when it's sufficient** — MCP tool overhead (connection, larger context) only
-   pays off when the operation genuinely needs that server's specialized capability; a simple
-   grep-able pattern stays native even if an MCP server *could* also do it.
-4. **`--explain`**: state the reasoning (which factor decided it), not just the tool name.
-   **`--analyze`**: score without committing to a recommendation — useful when comparing two
-   plausible tools.
-5. **Respect an explicit user preference** — if the user already named a tool, don't override it;
-   this skill is for when the choice is genuinely open.
+
+1. **Map to Intent & Capability**:
+   - Translate the described operation into an abstract capability and intent.
+   - Example: *"Where is invoice timeout handled?"* → `locate-concept` (`code.semantic-search`).
+   - Example: *"Find all references to validatePayment"* → `locate-known-symbol` (`code.exact-search`).
+
+2. **Apply Progressive Escalation (Do not fan out blindly)**:
+   - Use the single most specific tool for the job.
+   - If the exact identifier is known, **prefer native exact search** immediately.
+   - If the query is conceptual or natural language, **prefer semantic search (Semble)**.
+   - If the query asks for call trees or architectural blast radius, **prefer structural graph queries (Graphify)**.
+
+3. **Evaluate Availability & Fallbacks**:
+   - If a specialized tool (e.g. Semble or Graphify) is missing or unindexed, cleanly fall back to `native.rg` or Git.
+   - Never halt or fail because an optional tool is absent.
+
+4. **Formatting Output**:
+   - **Recommendation**: State the chosen capability, resolved provider, and concrete command/MCP tool invocation.
+   - **`--explain`**: Provide the rationale explaining why this capability was selected and what fallback was considered.
+   - **`--analyze`**: Compare viable capabilities and their context/token trade-offs without committing.
+
+5. **Respect Explicit User Preference**:
+   - If the user explicitly asks for a specific tool (e.g. *"Use grep to find..."*), honor that choice directly.
 
 ## Boundaries
-**Will:** classify an operation and recommend native vs. MCP tool with reasoning; score
-complexity when the mapping is ambiguous.
-**Will Not:** execute the operation itself (routing decision only); override an explicit user tool
-preference; recommend an MCP server that isn't actually connected in this session.
+**Will:** classify information needs, map them to abstract capabilities, construct progressive retrieval plans, and report tool choices with fallbacks.
+**Will Not:** execute the operation itself (routing decision only); override an explicit user tool choice; fan out multiple redundant searches for a single question.

@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "routes": {
+    "locate-known-symbol": {
+      "description": "Locate definition or occurrences of a known identifier or path.",
+      "capability": "code.exact-search",
+      "fallback": []
+    },
+    "locate-concept": {
+      "description": "Find implementation of an abstract feature or business logic.",
+      "capability": "code.semantic-search",
+      "fallback": [
+        "code.exact-search"
+      ]
+    },
+    "trace-dependency": {
+      "description": "Trace callers, callees, or module dependencies.",
+      "capability": "code.relationships",
+      "fallback": [
+        "code.exact-search"
+      ]
+    },
+    "estimate-blast-radius": {
+      "description": "Assess downstream impact of modifying a symbol or file.",
+      "capability": "code.impact-analysis",
+      "fallback": [
+        "code.relationships",
+        "code.exact-search"
+      ]
+    },
+    "inspect-history": {
+      "description": "Understand why code was changed or view recent commits.",
+      "capability": "history.search",
+      "fallback": []
+    },
+    "verify-runtime-behavior": {
+      "description": "Verify behavior against unit, integration, or regression tests.",
+      "capability": "behavior.verify",
+      "fallback": []
+    },
+    "compress-command": {
+      "description": "Execute large-output CLI command with token compression.",
+      "capability": "command.compress",
+      "fallback": []
+    }
+  }
+}

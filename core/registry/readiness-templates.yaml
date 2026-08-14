@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "templates": {
+    "bug": {
+      "name": "Bug Fix Readiness",
+      "description": "Verifies bug reproduction, affected code locators, supported root-cause claim, blast radius, and regression test plan.",
+      "requirements": {
+        "reproduction": {
+          "description": "Reproduction step or failing test verified",
+          "required": true,
+          "evidenceKinds": ["runtime-observation", "test-result"]
+        },
+        "affected_code": {
+          "description": "Exact files and symbols identified with source locators",
+          "required": true,
+          "evidenceKinds": ["exact-search", "semantic-retrieval"]
+        },
+        "root_cause": {
+          "description": "Root cause claim supported by evidence",
+          "required": true,
+          "requiresClaimStatus": "supported"
+        },
+        "blast_radius": {
+          "description": "Downstream callers and dependent components mapped",
+          "required": true,
+          "evidenceKinds": ["structural", "exact-search"]
+        },
+        "regression_verification": {
+          "description": "Targeted verification command or test defined",
+          "required": true
+        }
+      }
+    },
+    "feature": {
+      "name": "Feature Implementation Readiness",
+      "description": "Verifies acceptance criteria, affected component mappings, and verification plan.",
+      "requirements": {
+        "scope_clear": {
+          "description": "Acceptance criteria and scope boundaries defined",
+          "required": true
+        },
+        "affected_components": {
+          "description": "Target components and integration points identified",
+          "required": true,
+          "evidenceKinds": ["structural", "semantic-retrieval"]
+        },
+        "verification_plan": {
+          "description": "Test execution plan and assertions established",
+          "required": true
+        }
+      }
+    },
+    "refactor": {
+      "name": "Refactoring Readiness",
+      "description": "Verifies structural call graphs, behavioral invariants, baseline green tests, and blast radius.",
+      "requirements": {
+        "architecture_mapped": {
+          "description": "Current architecture and call graphs mapped",
+          "required": true,
+          "evidenceKinds": ["structural"]
+        },
+        "invariants_captured": {
+          "description": "Structural and behavioral invariants identified",
+          "required": true
+        },
+        "baseline_tests": {
+          "description": "Baseline test suite passing prior to edits",
+          "required": true,
+          "evidenceKinds": ["test-result"]
+        },
+        "blast_radius": {
+          "description": "Affected dependents mapped",
+          "required": true,
+          "evidenceKinds": ["structural", "exact-search"]
+        }
+      }
+    },
+    "trivial-edit": {
+      "name": "Trivial Edit Readiness",
+      "description": "Verifies target file/symbol locator and isolated single-file scope.",
+      "requirements": {
+        "target_identified": {
+          "description": "Target file and exact line locator identified",
+          "required": true,
+          "evidenceKinds": ["exact-search"]
+        },
+        "scope_verified": {
+          "description": "Single-file scope verified without cascading dependents",
+          "required": true
+        }
+      }
+    },
+    "dependency-change": {
+      "name": "Dependency Change Readiness",
+      "description": "Verifies upstream release notes, repository usage impact, and build verification commands.",
+      "requirements": {
+        "compatibility_checked": {
+          "description": "Upstream release notes and breaking changes reviewed",
+          "required": true,
+          "evidenceKinds": ["documentation"]
+        },
+        "usage_impact": {
+          "description": "All repository usages of dependency mapped",
+          "required": true,
+          "evidenceKinds": ["exact-search", "structural"]
+        },
+        "verification_command": {
+          "description": "Build and test verification commands established",
+          "required": true
+        }
+      }
+    }
+  }
+}

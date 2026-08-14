@@ -21,13 +21,14 @@ test('loads and validates the complete multi-harness registry', () => {
   assert.equal(registry.validation.ok, true);
   assert.deepEqual(registry.harnesses.find((harness) => harness.id === 'codex').nativeProjection.config.resources,
     [{ kind: 'configuration-entry', identity: 'features.hooks', value: true }]);
-  assert.deepEqual(registry.externalTools.map((tool) => tool.id), ['rtk', 'graphify']);
+  assert.deepEqual(registry.externalTools.map((tool) => tool.id), ['rtk', 'graphify', 'semble']);
 });
 
 test('loads evidence-backed external tool definitions with argument-vector commands only', () => {
   const { externalTools } = loadRegistry({ repoRoot: REPO });
   const rtk = externalTools.find((tool) => tool.id === 'rtk');
   const graphify = externalTools.find((tool) => tool.id === 'graphify');
+  const semble = externalTools.find((tool) => tool.id === 'semble');
 
   assert.deepEqual(rtk.status.commands, [['rtk', '--version'], ['rtk', 'gain']]);
   assert.deepEqual(rtk.install.command, ['cargo', 'install', '--git', 'https://github.com/rtk-ai/rtk', '--branch', 'master', 'rtk']);
@@ -36,6 +37,10 @@ test('loads evidence-backed external tool definitions with argument-vector comma
   assert.deepEqual(graphify.install.command, ['uv', 'tool', 'install', 'graphifyy']);
   assert.deepEqual(graphify.update.command, ['uv', 'tool', 'upgrade', 'graphifyy']);
   assert.deepEqual(graphify.uninstall.command, ['uv', 'tool', 'uninstall', 'graphifyy']);
+  assert.deepEqual(semble.prerequisites, ['uv']);
+  assert.deepEqual(semble.install.command, ['uv', 'tool', 'install', 'semble']);
+  assert.deepEqual(semble.update.command, ['uv', 'tool', 'upgrade', 'semble']);
+  assert.deepEqual(semble.uninstall.command, ['uv', 'tool', 'uninstall', 'semble']);
   for (const tool of externalTools) {
     assert.ok(tool.officialEvidence.every((url) => url.startsWith('https://')));
     assert.ok(tool.status.commands.every((command) => Array.isArray(command) && command.every((argument) => typeof argument === 'string')));
