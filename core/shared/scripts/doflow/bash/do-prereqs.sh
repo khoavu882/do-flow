@@ -24,9 +24,10 @@ done
 
 command -v jq >/dev/null 2>&1 || { echo '{"ok":true,"note":"jq-absent-skip-gate"}'; exit 0; }
 
-RESOLVER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
-[ -x "$RESOLVER" ] || RESOLVER="$(cd "$(dirname "$0")" && pwd)/do-paths.sh"   # co-located fallback
-[ -x "$RESOLVER" ] || { echo '{"ok":true,"note":"resolver-absent-skip-gate"}'; exit 0; }
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+RESOLVER="$script_dir/do-paths.sh"
+[ -f "$RESOLVER" ] || RESOLVER="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh}"
+[ -f "$RESOLVER" ] || { echo '{"ok":true,"note":"resolver-absent-skip-gate"}'; exit 0; }
 
 RESOLVER_ARGS=(--json)
 [ -n "$slug_override" ] && RESOLVER_ARGS+=("--slug=$slug_override")
