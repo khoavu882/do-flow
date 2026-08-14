@@ -119,61 +119,59 @@ awk -v want="$phase" '
   # Unowned tasks: those with empty owner
   ([.[] | select(.owner == "") | .id] | unique)   as $unowned_ids |
   
-  # Group by owner. Tasks with empty owner become their own singleton groups
+  # Form groups preserving first task appearance order
   (
-    {
-      owned: [.[] | select(.par != "") | select(.owner != "")] |
-        group_by(.owner) |
-        map({
-          owner: .[0].owner,
-          task_ids: ([.[].id] | unique),
-          files_set: ([.[] | select(.file != "") | .file] | unique)
-        }),
-      unowned: [.[] | select(.par != "") | select(.owner == "") | {id, par}]
-    }
-  ) as $group_data |
-
-  # Build final groups from owned tasks + singleton groups from unowned tasks
-  (
-    [$group_data.owned[] | {
-      id: ($phase + ":" + .owner),
-      owner: .owner,
-      tasks: .task_ids,
-      files: (.files_set)
-    }]
-    + [$group_data.unowned[] | {
-      id: ($phase + ":" + .id),
-      owner: null,
-      tasks: [.id],
-      files: []
-    }]
+    reduce $rows[] as $row (
+      [];
+      if $row.id == "" then .
+      elif $row.owner == "" then
+        # Check if unowned task already added
+        if any(.[]; .id == ($phase + ":" + $row.id)) then
+          map(if .id == ($phase + ":" + $row.id) then
+            .files = (.files + (if $row.file == "" then [] else [$row.file] end) | unique)
+          else . end)
+        else
+          . + [{
+            id: ($phase + ":" + $row.id),
+            owner: null,
+            tasks: [$row.id],
+            files: (if $row.file == "" then [] else [$row.file] end)
+          }]
+        end
+      else
+        ($row.owner) as $own |
+        ($phase + ":" + $own) as $gid |
+        if any(.[]; .id == $gid) then
+          map(if .id == $gid then
+            .tasks = (if (.tasks | index($row.id)) then .tasks else (.tasks + [$row.id]) end) |
+            .files = (.files + (if $row.file == "" then [] else [$row.file] end) | unique)
+          else . end)
+        else
+          . + [{
+            id: $gid,
+            owner: $own,
+            tasks: [$row.id],
+            files: (if $row.file == "" then [] else [$row.file] end)
+          }]
+        end
+      end
+    )
   ) as $final_groups |
-  
-  # Group overlaps: paths appearing in more than one groups files[]
+
+  # Create a mapping from task_id to group_id for lookup
+  ([$final_groups[] | .tasks[] as $t | {key: $t, value: .id}] | from_entries) as $task_to_group |
+
+  # Group overlaps: paths appearing in tasks assigned to more than one group
   (
     $rows |
     [.[] | select(.par != "") | select(.file != "")] |
     group_by(.file) |
     map({
       path: .[0].file,
-      owners: ([.[] | select(.owner != "") | .owner] | unique)
-    }) |
-    map(select((.owners | length) > 1)) |
-    # For each such file, find which groups contain tasks with those owners
-    map({
-      path: .path,
-      groups: ([
-        .owners[] as $owner |
-        $final_groups[] |
-        select(.owner == $owner) |
-        .id
-      ] | unique)
+      groups: ([.[] | .id as $tid | $task_to_group[$tid]] | unique)
     }) |
     map(select((.groups | length) > 1))
-  ) as $group_overlaps_raw |
-  
-  # Filter to only those paths in more than one group
-  ([$group_overlaps_raw[] | select((.groups | length) > 1)]) as $final_group_overlaps |
+  ) as $final_group_overlaps |
   
   # Serialize list = union of group ids from overlaps
   ([$final_group_overlaps[].groups[]] | unique) as $group_serialize |

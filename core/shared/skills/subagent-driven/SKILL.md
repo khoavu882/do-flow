@@ -1,32 +1,36 @@
 ---
 name: subagent-driven
-description: "Execute a plan's tasks by dispatching a fresh subagent per task, then batching the spec/quality review one phase at a time and running a bounded fix loop before the phase counts as done. Use when executing plan.md's task checklist with review, either through /do-execute-plan or standalone against an existing plan."
-argument-hint: "[--task=<id>|--phase=<X>|--all] [--review|--no-review] [--sync]"
+description: "Execute a plan's tasks by grouping implementer dispatches by (phase, owner), then batching the spec/quality review one phase at a time and running a bounded fix loop before the phase counts as done. Use when executing plan.md's task checklist with review, either through /do-execute-plan or standalone against an existing plan."
+argument-hint: "[--task=<id>|--phase=<X>|--all] [--review|--no-review] [--sync] [--group|--no-group]"
 disable-model-invocation: true
 effort: high
 ---
 
 # subagent-driven
 
-The task-execution engine for `plan.md`'s checklist: one fresh subagent per task, then a two-verdict
-review of the whole phase once every task in it reports done, and a bounded fix loop before the
-phase counts as done. `/do-execute-plan` delegates its task loop here; it can also run standalone
+The task-execution engine for `plan.md`'s checklist: implementer dispatches grouped by `(phase, owner)`,
+then a two-verdict review of the whole phase once every task in it reports done, and a bounded fix loop
+before the phase counts as done. `/do-execute-plan` delegates its task loop here; it can also run standalone
 against an existing plan.
 
-**Why phase-batched review, not per-task:** a phase's tasks are `[P]`-parallel precisely because
-they touch disjoint files serving related requirements. Reviewing the phase as a unit lets the
-reviewer judge whether the pieces are consistent with each other, not just individually correct, and
-costs one dispatch instead of N. Implementer dispatch stays per-task — each task still owns its own
-files and gets its own fresh subagent — only the review step batches.
+**Why phase-owner grouping, not per-task dispatch:** multiple tasks sharing an owner within a phase are
+executed sequentially by a single implementer subagent. This eliminates agent startup and repeated prompt/system
+loading costs, serializes same-owner edits safely without false conflict warnings, and preserves clean
+context boundaries between distinct phases and owners. Cross-owner groups still dispatch concurrently.
 
-**Why fresh subagents:** a dispatched agent inherits none of this conversation, so you construct
-exactly what it needs — which also leaves your own context free to coordinate. Everything you paste
-into a dispatch and everything an agent prints back stays resident for the rest of your run and is
-re-read on every later turn. **Hand artifacts over as file paths, never as prompt bodies.**
+**Why phase-batched review, not per-task:** a phase's tasks are parallel precisely because they touch
+disjoint files serving related requirements. Reviewing the phase as a unit lets the reviewer judge whether
+the pieces are consistent with each other, not just individually correct, and costs one dispatch instead
+of N.
+
+**Why fresh subagents:** a dispatched agent inherits none of this conversation, so you construct exactly
+what it needs — which also leaves your own context free to coordinate. Everything you paste into a dispatch
+and everything an agent prints back stays resident for the rest of your run and is re-read on every later
+turn. **Hand artifacts over as file paths, never as prompt bodies.**
 
 ## Invocation
 ```text
-/subagent-driven [--task=<id>|--phase=<X>|--all] [--review|--no-review] [--sync]
+/subagent-driven [--task=<id>|--phase=<X>|--all] [--review|--no-review] [--sync] [--group|--no-group]
 ```
 
 Run from a top-level context, not from inside a dispatched agent: at least one harness blocks a
@@ -38,9 +42,11 @@ subagent from dispatching further subagents outright, and this skill's whole job
 `RULE_04_QUESTIONS.md` — that tool in Claude Code; in Codex or Gemini, a stage question file whose
 `[Answer]:` tags you wait for.
 
-1. **Resolve paths.** Run `do-exec-paths.sh --task=<id>` for each task you will touch and use the
-   `workspace`, `brief` and `report` values it emits. Never construct one of those paths yourself.
-   When invoked by `/do-execute-plan`, take the feature slug it passes and forward it as `--slug=`.
+1. **Resolve paths.** In group mode (default), run `do-exec-paths.sh --group=<phase>:<owner> --tasks=<csv>`
+   for each group you will touch and use the `workspace`, `group_brief` and `reports[]` values it emits.
+   In single-task mode or with `--no-group`, run `do-exec-paths.sh --task=<id>` and use `workspace`,
+   `brief` and `report`. Never construct one of those paths yourself. When invoked by `/do-execute-plan`,
+   take the feature slug it passes and forward it as `--slug=`.
 
 2. **Pre-flight scan, once, before the first dispatch.** Read the plan once and look for tasks that
    contradict each other or the constraints they inherit, and for anything the plan mandates that
@@ -50,50 +56,67 @@ subagent from dispatching further subagents outright, and this skill's whole job
    scan proceeds without comment. The review loop remains the net for conflicts that only surface
    once code exists.
 
-3. **Check write-set disjointness before any fan-out.** Run
-   `do-parallel-check.sh --phase=<X>`. Dispatch concurrently only the `[P]` tasks it reports safe;
-   **serialize whatever it lists in `serialize[]` and say so**. With `--sync`, skip fan-out entirely
-   and run every task in dependency order — and report that fan-out was suppressed, so a serial run
-   is never mistaken for a plan with no parallel-safe work. Never dispatch two implementers
-   concurrently onto overlapping files.
+3. **Check write-set disjointness and form groups before any fan-out.** Run
+   `do-parallel-check.sh --phase=<X>`.
+   - **Group mode (default):** Read `groups[]`, `group_overlaps[]`, `group_serialize[]`, and `unowned_tasks[]`.
+     Dispatch concurrently only the groups whose union files are disjoint (`group_overlaps[]` is empty);
+     **serialize whatever groups appear in `group_serialize[]` and say so**.
+     Report the task-to-dispatch mapping at run start (e.g. `Phase A: 5 tasks → 2 dispatches (A.1–A.4 as A:backend-architect, A.5 as A:devops-architect)`).
+     Where grouping serializes same-owner tasks marked `[P]`, explicitly state the wall-clock trade
+     (FR-009, NFR-002, NFR-003).
+   - **`--no-group` mode:** Disregard `groups[]`; dispatch concurrently only the `[P]` tasks `parallel_tasks[]`
+     reports safe, and serialize `serialize[]`.
+   - **With `--sync`:** Skip fan-out entirely and run every group/task in dependency order — and report
+     that fan-out was suppressed, so a serial run is never mistaken for a plan with no parallel-safe work.
+   Never dispatch two implementers concurrently onto overlapping files.
 
 4. **Record `PHASE_BASE` once, before that phase's first dispatch.** `git rev-parse HEAD`. Every
    task in the phase, and the phase's own review package, diffs against this one SHA — never a
    per-task snapshot, or the phase's review would miss whatever landed between two of its tasks.
 
-5. **Per task — dispatch the implementer.** Run `do-task-brief.sh --task=<id>`, then dispatch
-   [implementer-prompt.md](implementer-prompt.md) with the brief path, the report path, the task's
-   `owner:` as the subagent type, and an explicit model tier. If the brief reported anything in
-   `missing[]`, say so in the dispatch — a thin brief must be visible to its reader.
-   Keep the dispatch to this task: no summaries of earlier tasks. Note the agent's identity, so a
+5. **Per group — dispatch the implementer.** In group mode, run
+   `do-task-brief.sh --group=<phase>:<owner> --tasks=<csv>`. In `--no-group` mode, run
+   `do-task-brief.sh --task=<id>`.
+   - Derive the group's model tier as the **highest tier any task in the group requires** (FR-006;
+     see `references/MODEL_SELECTION.md`).
+   - Dispatch [implementer-prompt.md](implementer-prompt.md) with the group brief path, the ordered
+     per-task report paths, the group's `owner:` as the subagent type, and the derived tier.
+   - If the brief reported anything in `missing[]`, say so in the dispatch — a thin brief must be visible
+     to its reader.
+   Keep the dispatch to this group: no summaries of earlier phases. Note the agent's identity, so a
    fix round can resume it where the harness allows.
 
-6. **Handle each report as it lands.** Four statuses, four different responses:
+6. **Handle reports and grouped replies as they land.**
+   The implementer executes each task in order, committing and writing that task's report before
+   beginning the next task. If an implementer encounters a `BLOCKED` task, it stops remaining tasks
+   in that group (stop-at-blocker).
+   
+   Handle the reply status for each task:
 
    | Status | What you do |
    |---|---|
    | `DONE` | Mark the task ready. Once every task in the phase is ready, go to step 7 |
    | `DONE_WITH_CONCERNS` | Read the concerns first. Correctness or scope → resolve before marking ready. An observation → note it and mark ready |
    | `NEEDS_CONTEXT` | Supply what was missing and re-dispatch |
-   | `BLOCKED` | Assess: context problem → add context; needs more reasoning → higher tier; too large → split it; plan is wrong → ask the user |
+   | `BLOCKED` | Assess: context problem → add context; needs more reasoning → higher tier; too large → split it; plan is wrong → ask the user. Remaining unattempted tasks in the group remain pending. |
 
    Never re-dispatch the same tier against unchanged inputs after `BLOCKED`. If the implementer says
    it is stuck, something must change. If it asks a question, answer it properly rather than pushing
    it back into implementation. A phase does not move to review until every one of its tasks — the
-   parallel-dispatched batch and any tasks `do-parallel-check.sh` serialized alike — has reported
-   `DONE` or a resolved `DONE_WITH_CONCERNS`.
+   parallel-dispatched groups and any serialized groups alike — has reported `DONE` or a resolved
+   `DONE_WITH_CONCERNS`.
 
 7. **Review the phase** — unless review is off for this run (see **Review mode**). Run
    `do-review-package.sh --task=<any task id in this phase> --base=<PHASE_BASE> --head=<HEAD>` —
    the `--task` value only resolves the shared workspace path (every task in a feature shares one
    `exec/` workspace), and the output file is named by SHA range, not by task, so which one you pass
-   is immaterial. Dispatch [task-reviewer-prompt.md](task-reviewer-prompt.md) with **every task's**
-   brief path in the phase, **every task's** report path, the one diff path, and the union of every
-   task's **Global constraints** block copied verbatim as the reviewer's lens. Use the `PHASE_BASE`
-   you recorded, never `HEAD~1`.
+   is immaterial. Dispatch [task-reviewer-prompt.md](task-reviewer-prompt.md) with **every group's**
+   brief path in the phase (or per-task brief paths under `--no-group`), **every task's** report path,
+   the one diff path, and the union of every task's **Global constraints** block copied verbatim as
+   the reviewer's lens. Use the `PHASE_BASE` you recorded, never `HEAD~1`.
 
    Both verdicts are required, and both cover the phase as a unit — one spec verdict, one quality
-   verdict, with each finding attributed to the task/file it belongs to. An implementer's
+   verdict, with each finding attributed to the specific task/file it belongs to. An implementer's
    self-review never substitutes. A ⚠️ cannot-verify item does not block the review, but **you**
    must resolve each one before completing the phase — you hold the cross-task context the reviewer
    lacks. A ⚠️ you confirm as a real gap becomes a finding and enters the loop.
@@ -104,16 +127,16 @@ subagent from dispatching further subagents outright, and this skill's whole job
    a **plan-mandated** finding is the user's call — present it beside the plan text and ask which
    governs.
 
-   One round is one fix dispatch per affected task, plus one scoped re-review of the whole phase:
+   One round is one fix dispatch per affected group/task, plus one scoped re-review of the whole phase:
 
-   - **Rounds 1–2** — route each finding to the implementer that owns the file it names, and resume
+   - **Rounds 1–2** — route each finding to the implementer/group that owns the file it names, and resume
      that implementer with its open findings verbatim. (A finding naming a file no task in this
      phase owns is a plan or brief defect — stop and ask, don't guess an owner.) Where the harness
-     cannot continue a live subagent, dispatch a fresh one with that task's brief path, report path,
+     cannot continue a live subagent, dispatch a fresh one with that group's brief path, report path(s),
      and the findings; the report file is the persistent memory either way, so this costs a re-read
-     rather than correctness. Findings against different tasks fix concurrently, under the same
+     rather than correctness. Findings against different groups fix concurrently, under the same
      write-set-disjointness rule as the initial dispatch.
-   - **Round 3** — for each task still carrying open findings, dispatch a fresh implementer one tier
+   - **Round 3** — for each task/group still carrying open findings, dispatch a fresh implementer one tier
      higher, framed plainly: prior attempts failed, the report file says what was tried. A loop that
      survives two resumes usually means the implementer cannot see its own problem, so change both
      context and capability at once.
@@ -146,6 +169,12 @@ subagent from dispatching further subagents outright, and this skill's whole job
     whether to continue: the user asked for these tasks to be executed. Stop only for a blocker you
     cannot resolve, an ambiguity that genuinely prevents progress, or completion.
 
+## Grouping mode
+
+`--group` (the default) groups tasks by `(phase, owner)` into single dispatches. `--no-group` restores
+per-task fan-out. Report the resolved grouping mode and the task-to-dispatch count mapping at the start
+of every run (FR-007, FR-009, NFR-002).
+
 ## Review mode
 
 `--review` forces the loop on, `--no-review` forces it off. The default is **auto**: on for `--all`,
@@ -159,7 +188,8 @@ the start of every run — whether a phase was reviewed must never be ambiguous 
 Read `references/MODEL_SELECTION.md` and name a tier on every dispatch — implementer, reviewer, and
 re-reviewer alike. An omitted tier inherits the session's model, typically the most capable and most
 expensive available, which defeats the policy silently. Where a harness cannot express a tier per
-dispatch, fix it in the dispatched agent's own definition instead.
+dispatch, fix it in the dispatched agent's own definition instead. For grouped dispatches, the tier is
+the highest tier required by any task in the group (FR-006).
 
 ## Behavioral Posture
 
@@ -185,8 +215,8 @@ Narrate at most one short line between tool calls. The ledger and the tool resul
 
 ## Boundaries
 
-**Will:** scan the plan for conflicts once up front, check write-set disjointness before fan-out,
-dispatch one implementer per task with a composed brief, review each phase together for spec
+**Will:** scan the plan for conflicts once up front, form dispatch groups by (phase, owner) and check union-overlap
+disjointness before fan-out, dispatch implementers with composed briefs, review each phase together for spec
 compliance and quality once every task in it is done, run a bounded fix loop per phase, adjudicate
 at the cap, and record every task and ruling in `state.md`.
 

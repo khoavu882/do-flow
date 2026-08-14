@@ -21,9 +21,9 @@ Prompt:
 
   ## What was requested
 
-  This phase has [N] tasks. Read every task's brief:
-  [BRIEF_PATHS — one path per task in the phase, each on its own line, labelled with its
-   task ID]
+  This phase has [N] tasks across [G] groups. Read the group brief(s) covering the phase:
+  [BRIEF_PATHS — one path per group (or task) in the phase, each on its own line, labelled with its
+   group/task ID]
 
   ## Constraints that bind this phase
 
@@ -147,9 +147,8 @@ Prompt:
   --head=<sha>`. Use the `PHASE_BASE` recorded **before** the phase's first implementer ran, never
   `HEAD~1` — that silently drops every commit but the last. Never dispatch a reviewer without a
   diff file.
-- `[BRIEF_PATHS]` / `[REPORT_PATHS]` are lists, one entry per task in the phase — never collapse
-  them into a summary of what each task did. The reviewer reads the actual briefs and reports, the
-  same way a single-task review would, just for every task in the phase instead of one.
+- `[BRIEF_PATHS]` / `[REPORT_PATHS]` are lists: group brief paths covering the phase and report
+  paths per task in the phase. The reviewer reads the actual briefs and reports.
 - **Never pre-judge.** Do not add "do not flag X", "treat Y as at most Minor", or "the plan chose
   this" to the prompt. If you believe a finding would be a false positive, let it be raised and
   adjudicate it afterwards. If the prompt you are writing contains language like that, stop — you are

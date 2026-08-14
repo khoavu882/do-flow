@@ -1,8 +1,15 @@
 # Implementer Prompt Template
 
-Fill and dispatch one per task. Placeholders in `[BRACKETS]` are required unless marked optional —
-`[MODEL_TIER]` especially: an omitted tier inherits the session's model, typically the most capable
-and most expensive available. See `references/MODEL_SELECTION.md`.
+Fill and dispatch one per group (or per task in single-task/`--no-group` mode). Placeholders in `[BRACKETS]`
+are required unless marked optional — `[MODEL_TIER]` especially: an omitted tier inherits the session's model,
+typically the most capable and most expensive available. See `references/MODEL_SELECTION.md`.
+
+For a single-task group (`|group| == 1`) or single-task dispatch, use **Template A (Single task)**.
+For a multi-task group (`|group| > 1`), use **Template B (Grouped dispatch)**.
+
+---
+
+## Template A (Single task / Group of 1)
 
 ```text
 Subagent type: [OWNER — the task's `owner:` field, e.g. backend-architect]
@@ -116,11 +123,97 @@ Prompt:
   Then reply with the same short contract.
 ```
 
+---
+
+## Template B (Grouped dispatch — multiple tasks)
+
+```text
+Subagent type: [OWNER — the group's owner, e.g. backend-architect]
+Model tier:    [MODEL_TIER — required; highest tier across the group's tasks per references/MODEL_SELECTION.md]
+Description:   Implement Group [GROUP_ID]: [TASK_LIST_CSV]
+
+Prompt:
+  You are implementing group [GROUP_ID], covering tasks: [TASK_LIST_CSV] in order.
+
+  ## Your requirements
+
+  Read your group brief first: [BRIEF_PATH]
+
+  It is your requirements for the entire group, with a shared preamble and self-contained
+  blocks per task. It carries the exact values to use verbatim — numbers, identifiers,
+  signatures, paths, test cases. Do not go looking for the plan; the brief was composed
+  so you would not need it.
+
+  ## What the brief cannot know
+
+  [CONTEXT — one or two lines only: interfaces or decisions from earlier phases that
+   postdate the brief. Leave out if none. Never paste summaries of earlier tasks.]
+
+  [INCOMPLETE_BRIEF — include only if the brief reported anything in `missing[]`: name
+   what could not be resolved so a thin brief is visible rather than looking complete.]
+
+  ## Before you begin
+
+  If anything about the requirements, the approach, the dependencies, or the brief itself
+  is unclear — ask now, before writing code. Asking is cheaper than rework.
+
+  ## Your job
+
+  Implement the tasks **in the specified order**, one by one:
+  [For each task TID in order:
+    1. Implement task TID per its section in the brief
+    2. Write or update tests covering TID
+    3. Run focused tests + relevant validation command
+    4. Commit TID's work
+    5. Write TID's report to [REPORT_PATH_TID] BEFORE starting the next task
+  ]
+
+  ## Stop-at-blocker rule
+
+  If any task in the group becomes BLOCKED or encounters unresolvable NEEDS_CONTEXT:
+  - Stop immediately. **Do not attempt the remaining unattempted tasks in this group.**
+  - Complete the report for the blocked task explaining what was tried and what is blocking.
+  - Report status for each task attempted so far, noting remaining tasks as unattempted.
+
+  ## Scope discipline
+
+  Build only what the brief asks. You own the union of files across the group's tasks:
+  [UNION_FILES — comma-separated list of all files owned by tasks in this group]
+  Do not edit files outside that set, and never revert or overwrite another agent's work.
+
+  ## Self-review before reporting
+
+  For each task, read your own work with fresh eyes before writing its report:
+  - **Complete?** Every requirement in the brief implemented, edge cases handled
+  - **Correct?** Names say what things do; errors handled rather than swallowed
+  - **Disciplined?** Nothing built that was not asked for
+  - **Tested?** Tests assert real behaviour; output is clean
+
+  ## Group reply contract
+
+  Write each task's full account to its respective report file.
+  Then reply with ONLY this grouped status block:
+  - **Group:** [GROUP_ID] — [M]/[N] tasks attempted
+  - **[TASK_1]:** DONE | commits: <sha> | tests: <result> | report: [REPORT_PATH_1]
+  - **[TASK_2]:** DONE | commits: <sha> | tests: <result> | report: [REPORT_PATH_2]
+  - **[TASK_3]:** BLOCKED | reason: <specifics> | report: [REPORT_PATH_3]
+
+  ## If the review finds something
+
+  Findings will be attributed by task ID. Fix them in the affected files, re-run covering
+  tests, and APPEND a fix report to that task's report file. Then reply with the updated
+  contract for touched tasks.
+```
+
+---
+
 ## Filling notes
 
-- `[BRIEF_PATH]` / `[REPORT_PATH]` come from `do-exec-paths.sh --task=<id>` and
-  `do-task-brief.sh --task=<id>` — never construct them by hand.
-- `[CONTEXT]` is one or two lines. A dispatch describes one task, not the session's history;
+- `[BRIEF_PATH]` and `[REPORT_PATHS]` come from:
+  - For single task / `--no-group`: `do-exec-paths.sh --task=<id>` and `do-task-brief.sh --task=<id>`.
+  - For group mode: `do-exec-paths.sh --group=<phase>:<owner> --tasks=<csv>` and `do-task-brief.sh --group=<phase>:<owner> --tasks=<csv>`.
+  Never construct them by hand.
+- `[CONTEXT]` is one or two lines. A dispatch describes the task/group, not the session's history;
   pasted prior-task summaries are the single largest source of wasted context.
 - Never dispatch two implementers concurrently onto overlapping files. Run
-  `do-parallel-check.sh --phase=<X>` first and serialize whatever it reports.
+  `do-parallel-check.sh --phase=<X>` first and serialize whatever `group_serialize[]` reports.
