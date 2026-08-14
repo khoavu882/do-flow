@@ -50,6 +50,7 @@ downloads/
 .agents
 .doflow
 GEMINI.md
+AGENTS.md
 agent-docs/
 .mcp.json
 
