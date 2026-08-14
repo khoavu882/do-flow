@@ -10,9 +10,7 @@ const SOURCE_ROLES = path.join(REPO, 'core', 'shared', 'agent-specs');
 const CODEX_AGENTS = path.join(REPO, 'core', 'harnesses', 'codex', 'agents');
 const REQUIRED_FIELDS = ['name', 'description', 'developer_instructions'];
 const READ_ONLY_ROLES = new Set([
-  'backend-architect', 'deep-research-agent', 'devops-architect', 'frontend-architect',
-  'quality-engineer', 'requirements-analyst', 'root-cause-analyst', 'security-engineer',
-  'system-architect', 'technical-writer',
+  'spec-analyst', 'system-architect', 'quality-guardian', 'research-writer',
 ]);
 
 function parseAgentToml(source, file) {
@@ -62,7 +60,7 @@ test('analysis-only roles use least-privilege read-only sandboxes and prohibit w
 });
 
 test('implementation-oriented roles do not receive an unnecessary read-only sandbox', () => {
-  for (const role of ['performance-engineer', 'pm-agent', 'python-expert', 'refactoring-expert']) {
+  for (const role of ['core-implementer']) {
     const source = fs.readFileSync(path.join(CODEX_AGENTS, `${role}.toml`), 'utf8');
     const agent = parseAgentToml(source, `${role}.toml`);
     assert.strictEqual(agent.sandbox_mode, undefined, `${role} must inherit the parent sandbox for requested implementation work`);

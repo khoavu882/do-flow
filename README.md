@@ -17,8 +17,8 @@ flowchart LR
 
 | Need | DoFlow component |
 |---|---|
-| Repeatable delivery work | 28 skills, including `/do-brainstorm`, `/do-plan`, `/do-test`, and `/do-code-review` |
-| Specialist review | 14 focused agent prompts for architecture, security, quality, and root-cause analysis |
+| Repeatable delivery work | 12 skills, including `/do-brainstorm`, `/do-plan`, `/do-test`, and `/do-code-review` |
+| Specialist review | 5 focused agent prompts for architecture, security, quality, and root-cause analysis |
 | Safer automation | Claude hooks block destructive commands and unfinished implementation stubs |
 | Shared standards | Rules for safety, workflow, quality, and clarification across supported tools |
 | Session continuity | Claude hooks capture lightweight Git context and compact-session summaries |

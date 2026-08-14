@@ -6,9 +6,10 @@
 |---|---|
 | Development cycles | `/do-flow "topic"`, `/do-brainstorm "topic"` |
 | Design & architecture | `/do-design "feature"`, `/do-constitution` |
-| Planning & implementation | `/do-plan`, `/do-execute-plan`, `/do-implement "task"` |
+| Planning & implementation | `/do-plan`, `/do-execute-plan` |
 | Testing & code review | `/do-test --type all`, `/do-code-review` |
-| Analysis & improvements | `/do-analyze path --focus quality`, `/do-improve path --type quality` |
+| Analysis & diagnostics | `/do-diagnose path --type bug|perf|security|refactor` |
+| Documentation & research | `/do-document path --type api|guide|impl|index|research` |
 
 ## Full Command Reference
 
@@ -17,7 +18,9 @@
 | `/do-flow "topic"` | Full-cycle development: brainstorm → design → plan → execute → test → code-review |
 | `/do-brainstorm "topic" [--strategy systematic|agile|enterprise] [--depth shallow|normal|deep]` | Discover requirements through Socratic dialogue; seeds requirement.md in a branch-coupled feature dir |
 | `/do-git [intent] [args...] [--confirm]` | Cycle-aware git operations via named intents: start, save, sync, ship, release, hotfix, backport, status |
-| `/do-test --type all` | Run the project's test suite |
+| `/do-test --type all` | Run the project's build and test suite |
+| `/do-diagnose [target] [--type bug|perf|security|refactor]` | Unified diagnostics, root-cause investigation, and code remediation |
+| `/do-document [target] [--type api|guide|impl|index|research]` | Unified technical documentation, architecture indexing, and web research |
 
 ## Git Lifecycle Intents
 
@@ -36,7 +39,7 @@ Raw git operations still work via passthrough: `/do-git status`, `/do-git log --
 
 ## Full Skill List
 
-The full installed skill set is: `confidence-check`, `do`, `do-analyze`, `do-brainstorm`, `do-build`, `do-code-review`, `do-constitution`, `do-design`, `do-document`, `do-estimate`, `do-execute-plan`, `do-explain`, `do-flow`, `do-git`, `do-help`, `do-implement`, `do-improve`, `do-index`, `do-plan`, `do-pm`, `do-reflect`, `do-research`, `do-select-tool`, `do-spec-panel`, `do-test`, `do-troubleshoot`, `parallel-agents`, and `subagent-driven`.
+The full installed skill set is: `do`, `do-brainstorm`, `do-code-review`, `do-constitution`, `do-design`, `do-diagnose`, `do-document`, `do-execute-plan`, `do-flow`, `do-git`, `do-plan`, and `do-test`.
 
 ## Agents
 

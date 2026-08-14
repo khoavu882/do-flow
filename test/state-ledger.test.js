@@ -98,9 +98,9 @@ test('legacy manifest import coexists with pre-existing adapter-owned copy-tree/
 
   const adapterOwned = [
     {
-      harness: 'codex', scope: 'project', assetId: 'skills.doflow', target: path.join(project, '.codex', 'skills', 'do-implement', 'SKILL.md'),
-      ownershipIdentity: 'doflow:codex:copy-tree-file:skills/do-implement/SKILL.md', kind: 'copy-tree-file',
-      identity: 'skills/do-implement/SKILL.md', fingerprint: 'sha256:copytree', sourceVersion: 'registry-v1',
+      harness: 'codex', scope: 'project', assetId: 'skills.doflow', target: path.join(project, '.codex', 'skills', 'do-execute-plan', 'SKILL.md'),
+      ownershipIdentity: 'doflow:codex:copy-tree-file:skills/do-execute-plan/SKILL.md', kind: 'copy-tree-file',
+      identity: 'skills/do-execute-plan/SKILL.md', fingerprint: 'sha256:copytree', sourceVersion: 'registry-v1',
       projection: { renderer: 'copy-tree' },
     },
     {
