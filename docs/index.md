@@ -7,10 +7,12 @@ guidance, and guardrails that stay close to the repository.
 flowchart LR
     D[DoFlow] --> C[Claude Code]
     D --> X[Codex]
-    D --> G[Gemini]
-    C --> H[Hooks and MCP]
-    X --> S[AGENTS.md and skills]
-    G --> R[Shared rules]
+    D --> G[Gemini / Antigravity]
+    D --> O[OpenCode]
+    D --> P[Pi Coding Agent]
+    C --> H[Hooks & MCP]
+    X --> S[AGENTS.md & skills]
+    G --> R[GEMINI.md & skills]
 ```
 
 ## What you get
