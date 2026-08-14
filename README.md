@@ -90,13 +90,14 @@ Use `/do-flow "add a customer export"` to run the same sequence with its approva
 |---|---|
 | Claude Code | Full integration: skills, agents, hooks, MCP registration, session context, and rules |
 | Codex | `AGENTS.md`, skills, scripts, templates, rules, agents, hooks, and references |
-| Gemini | Shared instructions, rules, agents, modes, skills, hooks, and references |
+| Gemini / Antigravity | `GEMINI.md`, rules, agents, modes, skills, hooks, and references |
+| OpenCode | `AGENTS.md`, `.opencode/skills/`, and `opencode.json` configuration |
+| Pi Coding Agent | `AGENTS.md`, `.pi/skills/`, and `pi-mcp-adapter` MCP integration |
 
 Codex hooks are installed as `hooks.json` but require review/trust in Codex before they run.
 Gemini hooks merge into a `hooks` key inside `settings.json` (never a full-file replace) and are
-similarly subject to Gemini's own hook trust/review gating; a few events with no correct Gemini
-equivalent (`UserPromptSubmit`, `Stop`, subagent events) are intentionally not mapped rather than
-approximated. See `docs/capability-map.md` and the
+similarly subject to Gemini's own hook trust/review gating. OpenCode and Pi standard-adopt `AGENTS.md`
+for seamless zero-drift rule projection. See `docs/capability-map.md` and the
 [installation matrix](docs/setup.md#what-gets-installed) for the exact mapping.
 
 ## Contributing
