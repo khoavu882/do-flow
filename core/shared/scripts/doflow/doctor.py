@@ -9,23 +9,33 @@ import subprocess
 import json
 from pathlib import Path
 
-def get_repo_root():
-    current = Path(__file__).resolve()
-    for parent in current.parents:
-        if (parent / ".git").exists() or (parent / "core" / "registry").exists():
+import shutil
+
+def get_target_project():
+    current = Path.cwd().resolve()
+    for parent in [current] + list(current.parents):
+        if (parent / ".git").exists() or (parent / ".doflow").exists():
             return parent
-    return Path.cwd()
+    return current
 
 def run_doctor():
-    repo_root = get_repo_root()
-    doflow_bin = repo_root / "bin" / "doflow.js"
-
-    if doflow_bin.exists():
-        res = subprocess.run(["node", str(doflow_bin), "doctor"], cwd=str(repo_root))
+    target = get_target_project()
+    # 1. Check if doflow is on PATH
+    doflow_path = shutil.which("doflow")
+    if doflow_path:
+        res = subprocess.run([doflow_path, "doctor", str(target)])
         return res.returncode
-    else:
-        print("Error: bin/doflow.js not found", file=sys.stderr)
-        return 1
+
+    # 2. Check development repo bin/doflow.js
+    current = Path(__file__).resolve()
+    for parent in [current] + list(current.parents):
+        doflow_bin = parent / "bin" / "doflow.js"
+        if doflow_bin.exists():
+            res = subprocess.run(["node", str(doflow_bin), "doctor", str(target)])
+            return res.returncode
+
+    print("Error: 'doflow' command not found on PATH and bin/doflow.js not found.", file=sys.stderr)
+    return 1
 
 if __name__ == "__main__":
     sys.exit(run_doctor())
