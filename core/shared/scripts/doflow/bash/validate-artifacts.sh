@@ -58,8 +58,9 @@ note() {
 if [ "${#targets[@]}" -eq 0 ]; then
   command -v jq >/dev/null 2>&1 || note "jq-absent"
 
-  RESOLVER="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
-  [ -f "$RESOLVER" ] || RESOLVER="$(cd "$(dirname "$0")" && pwd)/do-paths.sh"   # co-located fallback
+  script_dir="$(cd "$(dirname "$0")" && pwd)"
+  RESOLVER="$script_dir/do-paths.sh"
+  [ -f "$RESOLVER" ] || RESOLVER="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh}"
   [ -f "$RESOLVER" ] || note "resolver-absent"
 
   resolver_args=(--json)
