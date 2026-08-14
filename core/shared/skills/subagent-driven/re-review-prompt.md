@@ -18,8 +18,8 @@ Prompt:
 
   ## The phase
 
-  Read the brief for each task that had open findings:
-  [BRIEF_PATHS — one path per affected task, labelled with its task ID]
+  Read the group or task brief(s) for each task that had open findings:
+  [BRIEF_PATHS — one path per affected group or task, labelled with its ID]
 
   ## Findings under verification
 

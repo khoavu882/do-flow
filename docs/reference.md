@@ -1,36 +1,40 @@
-# Reference
+# DoFlow Skills Reference
 
-This is the compact lookup for DoFlow. Each skill's `SKILL.md` is the implementation-level source of truth.
+## Quick Command Reference
 
-## Skills
-
-| Goal | Skill |
+| Topic | Commands |
 |---|---|
-| Find the right command | `do`, `do-help`, `do-pm` |
-| Understand code or a system | `do-explain`, `do-analyze`, `do-troubleshoot` |
-| Shape a feature | `do-brainstorm`, `do-design`, `do-plan`, `do-spec-panel` |
-| Implement and refine | `do-implement`, `do-execute-plan`, `do-improve` |
-| Validate quality | `do-test`, `do-code-review`, `do-reflect` |
-| Build, commit, or estimate | `do-build`, `do-git`, `do-estimate` |
-| Research and documentation | `do-research`, `do-document`, `do-index` |
-| Set project rules | `do-constitution` |
-| Choose available tools | `do-select-tool` |
-| Coordinate independent work | `parallel-agents` |
-| Execute a plan's tasks with review | `subagent-driven` |
-| Apply background safeguards | `confidence-check` |
+| Development cycles | `/do-flow "topic"`, `/do-brainstorm "topic"` |
+| Design & architecture | `/do-design "feature"`, `/do-constitution` |
+| Planning & implementation | `/do-plan`, `/do-execute-plan`, `/do-implement "task"` |
+| Testing & code review | `/do-test --type all`, `/do-code-review` |
+| Analysis & improvements | `/do-analyze path --focus quality`, `/do-improve path --type quality` |
 
-### Common commands
+## Full Command Reference
 
-| Command | Use it for |
+| Skill | Description |
 |---|---|
-| `/do-flow "feature"` | Guided feature delivery with approval gates |
-| `/do-implement "task"` | Standalone implementation work |
-| `/do-analyze path --focus quality` | Read-only quality, security, performance, or architecture analysis |
-| `/do-improve path --type quality` | Scoped cleanup or refactoring |
+| `/do-flow "topic"` | Full-cycle development: brainstorm → design → plan → execute → test → code-review |
+| `/do-brainstorm "topic" [--strategy systematic|agile|enterprise] [--depth shallow|normal|deep]` | Discover requirements through Socratic dialogue; seeds requirement.md in a branch-coupled feature dir |
+| `/do-git [intent] [args...] [--confirm]` | Cycle-aware git operations via named intents: start, save, sync, ship, release, hotfix, backport, status |
 | `/do-test --type all` | Run the project's test suite |
-| `/do-code-review` | Review the current change set |
-| `/do-git --smart-commit` | Prepare an accurate commit |
-| `/do-document "topic" --type guide` | Create or revise documentation |
+
+## Git Lifecycle Intents
+
+The `/do-git` skill now provides cycle-aware commands:
+
+- **start** - Begin a new task on the appropriate branch type
+- **save** - Stage and commit with intelligent message from diff
+- **sync** - Sync local branches with remote state  
+- **ship** - Ship current feature to integration branch
+- **release** - Full release ritual: cut branch, bump version, merge to production, create tag
+- **hotfix** - Create and propagate hotfix across all live lines
+- **backport** - Cherry-pick a commit to another branch
+- **status** - Report repository state and lifecycle position
+
+Raw git operations still work via passthrough: `/do-git status`, `/do-git log --oneline`, etc.
+
+## Full Skill List
 
 The full installed skill set is: `confidence-check`, `do`, `do-analyze`, `do-brainstorm`, `do-build`, `do-code-review`, `do-constitution`, `do-design`, `do-document`, `do-estimate`, `do-execute-plan`, `do-explain`, `do-flow`, `do-git`, `do-help`, `do-implement`, `do-improve`, `do-index`, `do-plan`, `do-pm`, `do-reflect`, `do-research`, `do-select-tool`, `do-spec-panel`, `do-test`, `do-troubleshoot`, `parallel-agents`, and `subagent-driven`.
 
@@ -40,58 +44,5 @@ Agents are specialist perspectives used by planning and review workflows. Their 
 
 | Area | Typical perspectives |
 |---|---|
-| Product and delivery | product manager, business analyst, project manager |
-| Architecture and implementation | system architect, backend architect, frontend architect, developer |
-| Quality and safety | QA engineer, code reviewer, security reviewer, root-cause analyst |
-| Research and communication | researcher, technical writer, documentation specialist |
-
-Ask the relevant workflow to involve a specialist, or use `/do-pm` when the work crosses several areas.
-
-## Harness adapters and hooks
-
-Claude Code hooks add guardrails around sessions and commands.
-
-| Hook family | Purpose |
-|---|---|
-| Session start | Establish repository context and restore useful session state |
-| Before prompt | Classify or enrich a request before it is handled |
-| Before tool use | Block unsafe shell patterns and enforce workflow gates |
-| After tool use | Capture follow-up context when appropriate |
-| Stop / compaction | Preserve concise continuity across a long session |
-
-Hooks are native, target-specific integrations. Claude Code supports the listed lifecycle and tool
-hooks. Codex hooks require a trusted project and review before they become active. Gemini CLI hooks
-are currently unavailable and must be reported as a gap, not copied as if active. See the
-[capability map](capability-map.md) for the verification contract.
-
-## MCP and flags
-
-MCP integrations are optional. The short flags select the appropriate capability where supported.
-
-| Flag | Intent |
-|---|---|
-| `--c7` | Use Context7 documentation support |
-| `--seq` | Use sequential reasoning support |
-| `--chrome` | Use Chrome DevTools support |
-| `--play` | Use Playwright support |
-| `--all-mcp` | Allow all configured MCP integrations |
-| `--no-mcp` | Keep work to native tools |
-
-See `core/shared/guidance/mcp/` for server-specific operating guidance. The neutral server catalog is
-`core/registry/mcp.yaml`; target adapters serialize it into native registration formats.
-
-## Rules and behavioral modes
-
-| Source | Governs |
-|---|---|
-| `core/registry/*.yaml` | Capability, asset, MCP, and lifecycle-policy declarations |
-| `core/shared/guidance/PRINCIPLES.md` | Baseline collaboration and engineering principles |
-| `core/shared/guidance/FLAGS.md` | Flags that route to a real consumer (enforced by `test/guards/flags.test.js`) |
-| `core/shared/guidance/rules/RULE_01_SAFETY.md` | Safety boundaries |
-| `core/shared/guidance/rules/RULE_02_WORKFLOW.md` | Delivery workflow |
-| `core/shared/guidance/rules/RULE_03_QUALITY.md` | Quality expectations |
-| `core/shared/guidance/rules/RULE_04_QUESTIONS.md` | When and how to ask for clarification |
-| `core/shared/guidance/modes/` | Optional modes for research, orchestration, brainstorming, and task management |
-
-Installed instruction files load the core rules and point to optional material on demand. Do not
-duplicate rule text in project documentation.
+| Architecture | system, infrastructure, frontend, backend, security |
+| Analysis | quality, performance, security, cost |

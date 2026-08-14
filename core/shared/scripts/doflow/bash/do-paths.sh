@@ -93,11 +93,21 @@ fi
 # can ask the user, then re-invoke with `--slug=<chosen>` to force resolution.
 feature_slug=""
 candidate_slugs_json="[]"
+# Initialized here, not only inside the git arm below: a non-git root never runs the branch
+# `case`, and the emit block reads this unconditionally under `set -u`. Leaving it unset made
+# the resolver die with "branch_class: unbound variable" at exactly the container-root layout
+# the directory-scan fallback exists to support.
+branch_class=""
 if [ "$is_git_repo" = true ]; then
   case "$branch" in
-    ""|master|main|develop|HEAD) feature_slug="" ;;
-    */*)                         feature_slug="${branch#*/}" ;;  # strip feat/, fix/, …
-    *)                           feature_slug="$branch" ;;
+    "")                          feature_slug=""; branch_class="trunk" ;;
+    master|main|develop|HEAD)     feature_slug=""; branch_class="trunk" ;;
+    release/*)                    feature_slug=""; branch_class="release" ;;
+    hotfix/*)                     feature_slug=""; branch_class="hotfix" ;;
+    feat/*|feature/*)             feature_slug="${branch#*/}"; branch_class="feature" ;;
+    fix/*|bugfix/*)               feature_slug="${branch#*/}"; branch_class="fix" ;;
+    */)                           feature_slug="${branch#*/}"; branch_class="other" ;;
+    *)                            feature_slug="$branch"; branch_class="other" ;;
   esac
 else
   case "${#numbered_dirs[@]}" in
@@ -193,6 +203,7 @@ jq -n \
   --arg constitution_base "$constitution_base" \
   --arg constitution_local "$constitution_local" \
   --argjson has_constitution_local "$has_constitution_local" \
+  --arg branch_class "$branch_class" \
   '{
     repo_root:          $repo_root,
     is_git_repo:        $is_git_repo,
@@ -210,6 +221,7 @@ jq -n \
     next_number:        $next_number,
     constitution_base:  (if $constitution_base=="" then null else $constitution_base end),
     constitution_local: $constitution_local,
-    has_constitution_local: $has_constitution_local
+    has_constitution_local: $has_constitution_local,
+    branch_class:       (if $branch_class=="" then null else $branch_class end)
   }'
 exit 0

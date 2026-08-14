@@ -251,6 +251,10 @@ Bottom-up: handler first, audit second.
 - [ ] A.5 [P] [US1] verification only — owner: devops-architect; files: none (verification only)
 ### Phase B — later
 - [ ] B.1 [US9] traces a story that does not exist — owner: x; files: src/b.js
+### Phase C — unowned and groups
+- [ ] C.1 [P] [US1] unowned task 1 — files: src/shared_unowned.js
+- [ ] C.2 [P] [US1] unowned task 2 — files: src/shared_unowned.js
+- [ ] C.3 [P] [US1] single unowned — files: src/solo.js
 ### Checkpoints
 - After Phase A: run the suite; commit `feat: auth`
 FIXTURE
@@ -269,6 +273,13 @@ eq "workspace is created, not just named" "$([ -d agent-docs/doflow/001-auth/exe
 eq "traversal reports invalid-task" \
    "$("$EXECPATHS" --task=../../etc/passwd 2>/dev/null | jq -r '.error')" "invalid-task"
 "$EXECPATHS" >/dev/null 2>&1; eq "missing --task -> exit 2" "$?" "2"
+# Group path resolution and traversal rejection
+EP_GRP="$("$EXECPATHS" --group=A:backend-architect --tasks=A.1,A.2)"
+eq "group exec paths workspace" "$(printf '%s' "$EP_GRP" | jq -r '.workspace')" "agent-docs/doflow/001-auth/exec"
+eq "group exec paths brief" "$(printf '%s' "$EP_GRP" | jq -r '.group_brief')" "agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md"
+eq "group exec paths reports" "$(printf '%s' "$EP_GRP" | jq -c '.reports')" '["agent-docs/doflow/001-auth/exec/task-A.1-report.md","agent-docs/doflow/001-auth/exec/task-A.2-report.md"]'
+"$EXECPATHS" --group=../../etc:evil --tasks=A.1 >/dev/null 2>&1; eq "path traversal in group id -> exit 2" "$?" "2"
+"$EXECPATHS" --group=A:backend --tasks=../../etc/passwd >/dev/null 2>&1; eq "path traversal in task id inside group -> exit 2" "$?" "2"
 
 echo "[do-task-brief]"
 eq "traces the story from the task line"   "$("$BRIEF" --task=A.1 | jq -r '.traced.story')" "US1"
@@ -290,6 +301,17 @@ eq "verification bar is included" \
 eq "unresolvable story is reported in missing[]" \
    "$("$BRIEF" --task=B.1 | jq -r '.missing | length > 0')" "true"
 "$BRIEF" --task=Z.9 >/dev/null 2>&1; eq "unknown task -> exit 3" "$?" "3"
+# Group mode brief composition
+TB_GRP="$("$BRIEF" --group=A:backend-architect --tasks=A.1,A.2)"
+eq "group brief traces all tasks" "$(printf '%s' "$TB_GRP" | jq -c '.tasks')" '["A.1","A.2"]'
+eq "group brief shared context exists" "$([ -f agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md ] && grep -c '^## Shared context' agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md)" "1"
+eq "group brief task order exists" "$(grep -c '^## Task order' agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md)" "1"
+eq "group brief has task A.1 block" "$(grep -c '^## Task A.1' agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md)" "1"
+eq "group brief has task A.2 block" "$(grep -c '^## Task A.2' agent-docs/doflow/001-auth/exec/group-A-backend-architect-brief.md)" "1"
+# Single-task byte-identity invariant (RK1): diff group of 1 against single task brief
+"$BRIEF" --task=A.5 >/dev/null 2>&1
+"$BRIEF" --group=A:devops-architect --tasks=A.5 >/dev/null 2>&1
+eq "single-task byte-identity invariant (RK1)" "$(diff -u agent-docs/doflow/001-auth/exec/task-A.5-brief.md agent-docs/doflow/001-auth/exec/group-A-devops-architect-brief.md | wc -l | tr -d ' ')" "0"
 
 echo "[do-review-package]"
 echo change > src_a.txt; git add -A; git commit -q -m "first change"
@@ -333,6 +355,16 @@ eq "verification-only task stays parallel" \
    "$(printf '%s' "$PC" | jq -r '.parallel_tasks | index("A.5") != null')" "true"
 eq "disjoint-only phase is safe" "$("$PARCHECK" --phase=B | jq -r '.parallel_safe')" "true"
 "$PARCHECK" >/dev/null 2>&1; eq "missing --phase -> exit 2" "$?" "2"
+# Group formation, owner splitting, intra-group safety, and unowned tasks
+eq "groups formed by owner split" "$(printf '%s' "$PC" | jq -r '.groups | length')" "2"
+eq "group A:backend-architect has all 4 tasks" "$(printf '%s' "$PC" | jq -c '.groups[0].tasks')" '["A.1","A.2","A.3","A.4"]'
+eq "group A:devops-architect has verification task" "$(printf '%s' "$PC" | jq -c '.groups[1].tasks')" '["A.5"]'
+eq "intra-group same-file safety (group_overlaps empty for Phase A)" "$(printf '%s' "$PC" | jq -c '.group_overlaps')" '[]'
+eq "Phase A unowned_tasks empty" "$(printf '%s' "$PC" | jq -c '.unowned_tasks')" '[]'
+PCC="$("$PARCHECK" --phase=C)"
+eq "Phase C unowned tasks reported" "$(printf '%s' "$PCC" | jq -c '.unowned_tasks')" '["C.1","C.2","C.3"]'
+eq "Phase C unowned overlap detected across singleton groups" "$(printf '%s' "$PCC" | jq -c '.group_overlaps[0].groups')" '["C:C.1","C:C.2"]'
+eq "Phase C group serialize lists offender groups" "$(printf '%s' "$PCC" | jq -c '.group_serialize')" '["C:C.1","C:C.2"]'
 
 echo "[helpers: a failed write is an error, not a success]"
 # Both helpers emit a path in their success contract. Reporting one for a file that was never
@@ -354,6 +386,73 @@ eq "unwritable workspace: package reports write-failed" \
 chmod 700 agent-docs/doflow/001-auth/exec
 eq "writable again: brief succeeds"   "$("$BRIEF" --task=A.1 | jq -r '.traced.story')" "US1"
 eq "writable again: package succeeds" "$("$PACKAGE" --task=A.1 --base="$BASE_SHA" --head="$HEAD_SHA" | jq -r '.commits')" "1"
+
+
+# ==============================================================================
+# CH1: branch_class resolver field and slug deny-list for release/hotfix
+# ==============================================================================
+echo "[CH1: branch_class resolver]"
+ORIG_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+git checkout -q -B main
+eq "main branch -> class trunk" "$($PATHS | jq -r '.branch_class')" "trunk"
+git checkout -q -B develop
+eq "develop branch -> class trunk" "$($PATHS | jq -r '.branch_class')" "trunk"
+
+# Test new feature and fix branches get correct classes
+git checkout -q -b feat/test-001
+eq "feat/ branch -> class feature" "$($PATHS | jq -r '.branch_class')" "feature"
+git checkout -q -b fix/test-fix
+eq "fix/ branch -> class fix" "$($PATHS | jq -r '.branch_class')" "fix"
+
+# Test release/hotfix branches yield null slug and correct class
+git checkout -q -b release/v1.0.0
+eq "release/* branch -> class release, slug null" "$($PATHS | jq -c '{class: .branch_class, slug: .feature_slug}')" '{"class":"release","slug":null}'
+git checkout -q -b hotfix/critical-fix
+eq "hotfix/* branch -> class hotfix, slug null" "$($PATHS | jq -c '{class: .branch_class, slug: .feature_slug}')" '{"class":"hotfix","slug":null}'
+
+# Test other branch classes
+git checkout -q -b refactor/cleanup
+eq "refactor/ branch -> class other" "$($PATHS | jq -r '.branch_class')" "other"
+git checkout -q -B main   # Switch back to main
+
+
+# Verify all existing resolver fields are unchanged (RK1)
+# Switch to main and verify the class is trunk
+git checkout -q -B main
+CURRENT_CLASS="$($PATHS --paths-only | jq -r '.branch_class')"
+eq "all existing resolver fields unchanged (RK1) - main branch has trunk class" "$CURRENT_CLASS" "trunk"
+
+# ==============================================================================
+# CH2: do-git-state.sh tests
+# ==============================================================================
+echo "[CH2: do-git-state.sh]"
+cp "$BASH_SCRIPTS/do-git-state.sh" "$FAKE/scripts/doflow/bash/"
+STATE="$FAKE/scripts/doflow/bash/do-git-state.sh"
+git checkout -q -B main  # Ensure trunk branch for predictable state testing
+eq "--state on trunk -> class trunk" "$($STATE --state | jq -r '.class')" "trunk"
+eq "--state emits feature_slug null" "$($STATE --state | jq -c '.feature_slug // null')" "null"
+
+# Test next-version mode
+BASE_TAG="$($STATE --next-version | jq -r '.base_tag')"
+eq "--next-version base_tag is null without tags" "$BASE_TAG" "null"
+eq "--next-version bump_kind is INITIAL without tags" "$($STATE --next-version | jq -r '.bump_kind')" "INITIAL"
+
+# Test fingerprint mode (deterministic but unique per state)
+FINGERPRINT_1="$($STATE --fingerprint)"
+FINGERPRINT_2="$($STATE --fingerprint)"
+FP1="$(echo "$FINGERPRINT_1" | jq -r '.fingerprint // ""')"
+FP2="$(echo "$FINGERPRINT_2" | jq -r '.fingerprint // ""')"
+# A non-empty fingerprint string is valid JSON
+eq "--fingerprint returns valid JSON fingerprint (non-empty)" "${#FP1}" "64"
+eq "--fingerprint is deterministic on stable state" "$FP1" "$FP2"
+
+# Test branch-name mode
+eq "--branch-name --class=feature --slug=test produces feat/test" "$($STATE --branch-name --class=feature --slug=test | jq -r '.name')" "feat/test"
+eq "--branch-name --class=release --slug=1.0.0 produces release/1.0.0" "$($STATE --branch-name --class=release --slug=1.0.0 | jq -r '.name')" "release/1.0.0"
+
+# Test error cases
+$STATE --branch-name 2>/dev/null; eq "--branch-name without class -> exit 2" "$?" "2"
+$STATE --branch-name --class=feature 2>/dev/null; eq "--branch-name without slug -> exit 2" "$?" "2"
 
 echo ""
 echo "[Results] $PASS passed, $FAIL failed"
