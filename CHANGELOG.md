@@ -13,6 +13,26 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.0.0-beta.2] - 2026-08-14
+### Added
+
+- **Consolidated 12-Skill Taxonomy**: Consolidated 28 skills into 12 high-cohesion skills (`do`, `do-flow`, `do-brainstorm`, `do-design`, `do-plan`, `do-execute-plan`, `do-test`, `do-code-review`, `do-git`, `do-constitution`, `do-diagnose`, `do-document`) using 3-tier Progressive Disclosure with modular `references/` directories.
+- **Consolidated 5-Specialist Archetypes**: Streamlined 14 micro-agents into 5 core archetypes (`spec-analyst`, `system-architect`, `core-implementer`, `quality-guardian`, `research-writer`), yielding a 90% reduction in agent spec token footprint.
+- **AI Engineering Control Plane**: Decoupled control plane providing vendor-neutral evidence ledger, claim provenance, and multi-tier verification sandboxes with native parity across Claude Code, OpenAI Codex, Google Antigravity / Gemini CLI, OpenCode, and Pi Coding Agent.
+- **Portable Relative References**: Eliminated all machine-specific absolute file links across all skill definitions and references.
+- **Trigger Benchmark & Evaluation Suite**: Added 50-epoch stress-testing benchmark (`bench/evals/run_50_loop.py`) verifying 100% trigger accuracy and zero collisions across all 12 skills.
+
+### Changed
+
+- Reduced per-turn system prompt token tax by **68%** (from ~967 tokens to ~312 tokens).
+- Updated all documentation in `docs/*`, guards in `test/guards/`, and test fixtures across the full test suite (348/348 tests green).
+
+## [1.0.0-beta.1] - 2026-08-14
+### Added
+
+- **Evidence Ledger & Claims Model**: Runtime state tracking for hypothesis classification, supporting/contradicting evidence provenance, and task readiness contracts.
+- **Cross-Harness Parity Compiler**: Deterministic single-source projection compiler projecting canonical guidance into `CLAUDE.md`, `GEMINI.md`, and `AGENTS.md`.
+
 ## [0.18.0] - 2026-08-14
 ### Added
 
