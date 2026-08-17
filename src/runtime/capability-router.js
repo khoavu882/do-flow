@@ -234,10 +234,38 @@ class CapabilityRouter {
       };
     }
 
+    // `native.test` is the one registry provider with no binary of its own — it stands for
+    // "whatever this project runs its tests with". Without a branch here it fell through to the
+    // generic tail below and produced `native.test "x"`, a string no shell can execute, while
+    // still being reported HEALTHY. Emit the project's actual test command instead.
+    if (provider.id === 'native.test') {
+      const command = params.testCommand || this.detectTestCommand();
+      return {
+        cliCommand: query ? `${command} ${query}` : command,
+        args: { testCommand: command, ...(query ? { filter: query } : {}) },
+      };
+    }
+
     return {
       cliCommand: `${provider.binary || provider.id} "${query}"`,
       args: params,
     };
+  }
+
+  /** The repo's own test entrypoint, read from package.json when present. Kept deliberately narrow:
+   * a wrong guess here becomes a command the model runs, so fall back to the ecosystem default
+   * rather than inventing something. */
+  detectTestCommand() {
+    try {
+      const pkgPath = path.join(this.repoRoot, 'package.json');
+      if (fs.existsSync(pkgPath)) {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        if (pkg.scripts?.test) return 'npm test';
+      }
+    } catch {
+      // An unreadable or malformed package.json is not worth failing a capability lookup over.
+    }
+    return 'npm test';
   }
 
   /**
