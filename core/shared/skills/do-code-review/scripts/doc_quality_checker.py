@@ -278,6 +278,15 @@ def check_description(path: Path, lines: List[str]) -> List[Dict]:
 _REFERENCE_MENTION_RE = re.compile(r'`?((?:modes|references)/[A-Za-z0-9_.-]+\.md)`?')
 
 
+def _unresolved_reference_message(ref: str, bases: List[Path]) -> Optional[str]:
+    """None if `ref` resolves under any candidate base; otherwise the human-readable
+    "does not resolve" message citing every base that was tried."""
+    if any((base / ref).is_file() for base in bases):
+        return None
+    base_desc = " or ".join(display_path(b) for b in bases)
+    return f"'{ref}' does not resolve to a real file relative to {base_desc}."
+
+
 def check_dangling_references(path: Path, lines: List[str]) -> List[Dict]:
     findings: List[Dict] = []
     guidance_dir = find_guidance_dir(path)
@@ -301,14 +310,9 @@ def check_dangling_references(path: Path, lines: List[str]) -> List[Dict]:
         if in_fence:
             continue
         for m in _REFERENCE_MENTION_RE.finditer(line):
-            ref = m.group(1)
-            if any((base / ref).is_file() for base in bases):
-                continue
-            base_desc = " or ".join(display_path(b) for b in bases)
-            findings.append(make_finding(
-                path, i + 1, "dangling_reference", "high",
-                f"'{ref}' does not resolve to a real file relative to {base_desc}."
-            ))
+            message = _unresolved_reference_message(m.group(1), bases)
+            if message:
+                findings.append(make_finding(path, i + 1, "dangling_reference", "high", message))
     return findings
 
 
