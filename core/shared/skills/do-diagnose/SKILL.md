@@ -1,6 +1,6 @@
 ---
 name: do-diagnose
-description: "Unified diagnostic and code remediation engine — root cause analysis, performance profiling, security auditing, and targeted refactoring"
+description: "Unified diagnostic and code remediation engine — root cause analysis, performance profiling, security auditing, and targeted refactoring. Use when something is broken, slow, insecure, or needs cleanup and the user wants root-cause evidence before any fix, or says 'why is this crashing' / 'this endpoint feels slow' / 'audit this for security issues' rather than asking for a brand-new feature."
 argument-hint: "[target|issue] [--type bug|perf|security|refactor] [--focus quality|security|performance|architecture] [--iterations n] [--validate] [--trace] [--fix]"
 effort: medium
 ---
@@ -29,6 +29,10 @@ Unified diagnostic and code improvement engine. Replaces separate analyze/troubl
 3. **Remediation (`--fix`)**:
    - Only apply modifications when `--fix` is passed and after the user approves the remediation plan.
    - Verify fixes immediately by re-running tests.
+
+4. **Iteration & Validation (`--iterations`, `--validate`)**:
+   - `--iterations [n]`: repeat steps 1–2 for the given cycle count, re-diagnosing after each remediation pass.
+   - `--validate`: run a pre-execution risk assessment and require explicit confirmation before remediating production or shared infrastructure.
 
 ## Boundaries
 **Will:** Reproduce active issues, perform multi-domain static/runtime audits, and rank remediation strategies.
