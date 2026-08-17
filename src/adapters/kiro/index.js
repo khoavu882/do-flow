@@ -213,14 +213,16 @@ function atomicWrite(file, content, { fsImpl = fs } = {}) {
 }
 
 /**
- * `.kiro/hooks/` is a confirmed, writable native surface, but projecting DoFlow's hook
- * definitions into it is a separate task (plan.md D.1) that extends this adapter later. Until
- * then, this adapter's only job for hooks is to expose the native path/verify surface: report it
- * as present-but-not-yet-populated ('pending'), never as an error and never as something already
- * installed.
+ * `.kiro/hooks/` is now a real, populated native surface: `kiro.hooks-scripts`
+ * (core/registry/assets.yaml) is a copy-tree asset like skills/agents, so `kiroTreeAssets()` above
+ * already plans/applies/removes/verifies it alongside them. This function only reports the
+ * declarative capability surface — same unconditional shape `plan()` already uses for
+ * instructions/skills/agents — not whether that asset happens to be present in a given call's
+ * `assets` array; per-file installed status for the hooks tree itself is reported through
+ * `copyTree.statuses`/`copyTree.resources`, exactly like it is for skills and agents.
  */
 function hooksSurface(paths) {
-  return { status: 'pending', target: paths.hooks, note: 'Kiro hook projection is not yet implemented; .kiro/hooks/ is exposed as a native surface only (see plan.md D.1).' };
+  return { status: 'supported', target: paths.hooks };
 }
 
 function plan({ scope, scopeRoot, assets = [], mcp = [], discovery, context = {}, ledger, fsImpl = fs }) {

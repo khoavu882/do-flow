@@ -1,0 +1,43 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "doflow-session-context",
+      "trigger": "SessionStart",
+      "action": {
+        "type": "command",
+        "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.kiro/hooks/session-start.sh\" ] && printf '%s/.kiro/hooks/session-start.sh' \"$root\" || printf '%s/.kiro/hooks/session-start.sh' \"$HOME\")\""
+      },
+      "enabled": true
+    },
+    {
+      "name": "doflow-pre-implementation-gate",
+      "trigger": "PreToolUse",
+      "action": {
+        "type": "command",
+        "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.kiro/hooks/pre-implement-gate.sh\" ] && printf '%s/.kiro/hooks/pre-implement-gate.sh' \"$root\" || printf '%s/.kiro/hooks/pre-implement-gate.sh' \"$HOME\")\""
+      },
+      "enabled": true
+    },
+    {
+      "name": "doflow-mcp-tool-guard",
+      "trigger": "PreToolUse",
+      "matcher": "^mcp__.*",
+      "action": {
+        "type": "command",
+        "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.kiro/hooks/mcp-tool-guard.sh\" ] && printf '%s/.kiro/hooks/mcp-tool-guard.sh' \"$root\" || printf '%s/.kiro/hooks/mcp-tool-guard.sh' \"$HOME\")\""
+      },
+      "enabled": true
+    },
+    {
+      "name": "doflow-stop-check",
+      "trigger": "Stop",
+      "action": {
+        "type": "command",
+        "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.kiro/hooks/stop-check.sh\" ] && printf '%s/.kiro/hooks/stop-check.sh' \"$root\" || printf '%s/.kiro/hooks/stop-check.sh' \"$HOME\")\""
+      },
+      "timeout": 30,
+      "enabled": true
+    }
+  ]
+}

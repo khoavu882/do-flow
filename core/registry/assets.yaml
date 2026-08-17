@@ -263,6 +263,24 @@
       }
     },
     {
+      "id": "kiro.hooks-scripts",
+      "kind": "hooks",
+      "source": "core/harnesses/kiro/hooks",
+      "appliesTo": [
+        "kiro"
+      ],
+      "projection": {
+        "kiro": {
+          "renderer": "copy-tree",
+          "capability": "hooks"
+        }
+      },
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "kiro": "hooks"
+      }
+    },
+    {
       "id": "claude.settings",
       "kind": "settings",
       "source": "core/harnesses/claude/settings",

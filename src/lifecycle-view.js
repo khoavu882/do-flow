@@ -52,7 +52,7 @@ function registryLifecycleView({ registry, scope, targets, mcpIds, operation, re
     geminiHooksSourceDir: path.join(repoRoot, 'core', 'harnesses', 'gemini', 'hooks'),
     operation,
   } });
-  return { registry, stateRoot: neutralStateRoot, ledger, plan };
+  return { registry, stateRoot: neutralStateRoot, ledger, plan, adapters };
 }
 
 function printRegistryLifecycle(view, prefix = '[PLAN]') {

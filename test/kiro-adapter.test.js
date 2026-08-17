@@ -256,15 +256,15 @@ test('invalid mcp.json blocks planning but never mutates the file', () => {
   assert.equal(fs.readFileSync(mcpFile, 'utf8'), '{ broken');
 });
 
-test('hooks are reported as a pending, unpopulated surface rather than an error', () => {
+test('hooks surface reports supported with no hooks asset selected, and installs nothing', () => {
   const root = scratch(); const adapter = createKiroAdapter();
   const planned = adapter.plan({ scope: 'project', scopeRoot: root, assets: [], mcp: [], context: {} });
   assert.equal(planned.conflicts.length, 0);
-  assert.equal(planned.surfaces.hooks.status, 'pending');
+  assert.equal(planned.surfaces.hooks.status, 'supported');
   assert.equal(planned.surfaces.hooks.target, path.join(root, '.kiro', 'hooks'));
   assert.equal(fs.existsSync(planned.surfaces.hooks.target), false);
 
   const verified = adapter.verify({ scope: 'project', scopeRoot: root, assets: [], mcp: [], context: {} });
   assert.equal(verified.ok, true);
-  assert.equal(verified.statuses.hooks.status, 'pending');
+  assert.equal(verified.statuses.hooks.status, 'supported');
 });

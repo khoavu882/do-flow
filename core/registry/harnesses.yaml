@@ -871,10 +871,11 @@
         "hooks": {
           "status": "supported",
           "evidence": [
-            "https://kiro.dev/docs/hooks/"
+            "https://kiro.dev/docs/hooks/",
+            "https://kiro.dev/docs/hooks/actions/"
           ],
-          "note": "`.kiro/hooks/` is confirmed as a real, writable hook surface, but the steering and MCP documentation cited for this feature does not enumerate specific event names, so contracts.yaml's hookEvents stays a conservative lower bound (currently empty) until event names are confirmed against the installed CLI.",
-          "verification": "Confirm a projected hook file under .kiro/hooks/ is present and triggers at its configured event."
+          "note": "`.kiro/hooks/*.json` (flat `{version, hooks: [...]}` array, each entry naming its own `trigger`) is a confirmed, writable hook surface that activates automatically on session start — no trust/review prerequisite, unlike Codex's hooks.json. Confirmed trigger names: SessionStart, Stop, PreToolUse, PostToolUse, UserPromptSubmit, PreTaskExec, PostTaskExec, PostFileSave, PostFileCreate, PostFileDelete; PreToolUse/UserPromptSubmit/PreTaskExec are documented as blockable via a non-zero command exit code. DoFlow now projects a real doflow.json (kiro.hooks-scripts asset) wiring SessionStart, PreToolUse (x2: pre-implementation-gate and mcp-tool-guard), and Stop to the same shared session-start/stop-check implementations Claude and Codex reuse; Stop's own blocking semantics are not explicitly confirmed by the cited docs (only PreToolUse/UserPromptSubmit/PreTaskExec are), so stop-check's stub-detection block on Kiro is best-effort pending direct confirmation.",
+          "verification": "Confirm a projected hook file under .kiro/hooks/ is present, is well-formed JSON with the expected trigger names, and that a PreToolUse hook's non-zero exit actually blocks the tool call on the installed Kiro CLI."
         },
         "mcp": {
           "status": "supported",

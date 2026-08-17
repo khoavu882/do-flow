@@ -27,7 +27,7 @@ const { createOpenCodeAdapter } = require('../src/adapters/opencode');
 const { createPiAdapter } = require('../src/adapters/pi');
 const { createCopilotAdapter } = require('../src/adapters/copilot');
 const { createKiroAdapter } = require('../src/adapters/kiro');
-const { applyLifecycle, removeLifecycle, applyMcpIndex } = require('../src/lifecycle');
+const { applyLifecycle, removeLifecycle, applyMcpIndex, verifyLifecycle } = require('../src/lifecycle');
 const { readLedger } = require('../src/state');
 const { codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan } = require('../src/lifecycle-view');
 const { commandText, planToolLifecycle, executeToolLifecycle } = require('../src/tool-lifecycle');
@@ -415,23 +415,33 @@ function cmdStatus(o) {
     // pending changes when it isn't installed yet would make Claude's line falsely report
     // 'drift-or-pending-change' even though Claude itself has nothing pending.
     const harnessPlan = (harness) => registryView.plan.targets.find((target) => target.harness === harness);
+    // Hook-wiring status needs the same general per-harness verification every install/update run
+    // already flows through (src/lifecycle's verifyLifecycle) rather than a Codex-only hardcode:
+    // it is the one place that can tell 'installed and active' apart from 'installed but pending a
+    // prerequisite' (Codex's unreviewed trust, Gemini's live hook-trust check) from 'absent'.
+    const verification = verifyLifecycle({ plan: registryView.plan, adapters: registryView.adapters, context: { registry } });
+    const hooksFor = (harness) => verification.verifications.find((item) => item.harness === harness)?.hookWiring ?? null;
     const harnessStatus = (harness) => {
       const target = harnessPlan(harness);
-      if (!target) return { status: 'verified', resources: [], errors: [] };
+      if (!target) return { status: 'verified', resources: [], errors: [], hooks: hooksFor(harness) };
       return {
         status: target.conflicts.length ? 'conflict-or-invalid' : (target.changes.length ? 'drift-or-pending-change' : 'verified'),
         resources: registryView.ledger.resources.filter((resource) => resource.harness === harness),
         errors: target.conflicts,
+        hooks: hooksFor(harness),
       };
     };
     if (targets.includes('codex')) {
-      ctx.codex = { ...harnessStatus('codex'), hooksTrust: { required: true, trusted: false, status: 'review-required' } };
+      ctx.codex = harnessStatus('codex');
     }
     if (targets.includes('claude')) {
       ctx.claude = harnessStatus('claude');
     }
     if (targets.includes('gemini')) {
       ctx.gemini = harnessStatus('gemini');
+    }
+    if (targets.includes('kiro')) {
+      ctx.kiro = harnessStatus('kiro');
     }
   } catch (error) {
     // Status must remain usable for an existing installation even if a local registry is invalid.
@@ -442,6 +452,12 @@ function cmdStatus(o) {
     console.log(JSON.stringify({ context: ctx, manifest, codex: ctx.codex ?? null }, null, 2));
     return;
   }
+
+  const hookLine = (label, hooks) => {
+    if (!hooks || hooks.status === 'absent') return null;
+    const prereqSuffix = hooks.prerequisites.length ? ` (unmet: ${hooks.prerequisites.join(', ')})` : '';
+    return `  ${label} hooks: ${hooks.status}${prereqSuffix}`;
+  };
 
   printContext(ctx);
   if (!manifest) {
@@ -459,19 +475,31 @@ function cmdStatus(o) {
   if (ctx.codex) {
     console.log(`  Codex verification:   ${ctx.codex.status}`);
     console.log(`  Codex resources:      ${ctx.codex.resources.length} manifest-owned`);
-    console.log(`  Codex hook trust:     ${ctx.codex.hooksTrust?.status ?? 'not configured'}${ctx.codex.hooksTrust?.required ? ' (review required)' : ''}`);
+    const codexHookLine = hookLine('Codex', ctx.codex.hooks);
+    if (codexHookLine) console.log(codexHookLine);
     if (ctx.codex.errors.length) console.log(`  Codex issues:         ${ctx.codex.errors.join('; ')}`);
     console.log('  Codex capability gaps: no Claude-only event emulation is installed; review docs/capability-map.md#codex-capability-detail');
   }
   if (ctx.claude) {
     console.log(`  Claude verification:  ${ctx.claude.status}`);
     console.log(`  Claude resources:     ${ctx.claude.resources.length} manifest-owned`);
+    const claudeHookLine = hookLine('Claude', ctx.claude.hooks);
+    if (claudeHookLine) console.log(claudeHookLine);
     if (ctx.claude.errors.length) console.log(`  Claude issues:        ${ctx.claude.errors.join('; ')}`);
   }
   if (ctx.gemini) {
     console.log(`  Gemini verification:  ${ctx.gemini.status}`);
     console.log(`  Gemini resources:     ${ctx.gemini.resources.length} manifest-owned`);
+    const geminiHookLine = hookLine('Gemini', ctx.gemini.hooks);
+    if (geminiHookLine) console.log(geminiHookLine);
     if (ctx.gemini.errors.length) console.log(`  Gemini issues:        ${ctx.gemini.errors.join('; ')}`);
+  }
+  if (ctx.kiro) {
+    console.log(`  Kiro verification:    ${ctx.kiro.status}`);
+    console.log(`  Kiro resources:       ${ctx.kiro.resources.length} manifest-owned`);
+    const kiroHookLine = hookLine('Kiro', ctx.kiro.hooks);
+    if (kiroHookLine) console.log(kiroHookLine);
+    if (ctx.kiro.errors.length) console.log(`  Kiro issues:          ${ctx.kiro.errors.join('; ')}`);
   }
   if (ctx.registry) {
     console.log(`  Registry lifecycle:   ${ctx.registry.status === 'invalid' ? ctx.registry.error : `${ctx.registry.plan.changes} pending, ${ctx.registry.plan.conflicts.length} conflict(s)`}`);

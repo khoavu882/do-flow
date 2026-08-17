@@ -268,3 +268,101 @@ test('remove deletes MCP_INDEX.md regardless of what selection would otherwise a
   assert.equal(removed.verification.ok, true);
   assert.ok(!fs.existsSync(indexFile), 'remove deletes the index file even though mcpIds still resolves to a non-empty selection');
 });
+
+// --- hookWiringStatus: the general per-harness hook-wiring status (task 006-D.2) ---
+// Real registry + real adapters, installed into a scratch project, exercising the actual
+// prerequisite declarations in core/registry/harnesses.yaml (Codex) and the live trust
+// computation in src/gemini-hooks.js (Gemini) rather than a fake harness/adapter.
+{
+  const { verifyLifecycle, hookWiringStatus } = require('../src/lifecycle');
+  const realClaude = require('../src/adapters/claude');
+  const realCodex = require('../src/adapters/codex');
+  const { createGeminiAdapter } = require('../src/adapters/gemini');
+  const { createKiroAdapter } = require('../src/adapters/kiro');
+
+  function hookFixture(targets) {
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-hook-wiring-'));
+    const realRegistry = loadRegistry({ repoRoot: REPO });
+    const adapters = createAdapterRegistry({
+      claude: realClaude, codex: realCodex, gemini: createGeminiAdapter(), kiro: createKiroAdapter(),
+    });
+    const context = {
+      repoRoot: REPO, projectRoot: project, homeDir: project, sourceVersion: '2.4.4',
+      codexConfigResources: [],
+      codexAgentsSourceDir: path.join(REPO, 'core', 'harnesses', 'codex', 'agents'),
+      codexHooksSourceFile: path.join(REPO, 'core', 'harnesses', 'codex', 'hooks', 'hooks.json'),
+      codexHooksSourceDir: path.join(REPO, 'core', 'harnesses', 'codex', 'hooks'),
+      geminiHooksSourceFile: path.join(REPO, 'core', 'harnesses', 'gemini', 'hooks', 'hooks.json'),
+      geminiHooksSourceDir: path.join(REPO, 'core', 'harnesses', 'gemini', 'hooks'),
+    };
+    const installPlan = planLifecycle({ registry: realRegistry, adapters, scope: 'project', scopeRoot: project, targets, context });
+    const install = applyLifecycle({ plan: installPlan, registry: realRegistry, adapters, stateRoot: stateRootFor(project) });
+    return { project, realRegistry, adapters, context, ledger: install.ledger };
+  }
+
+  function stateRootFor(project) {
+    const { stateRoot } = require('../src/state');
+    return stateRoot({ scope: 'project', projectRoot: project });
+  }
+
+  function verifyInstalled({ realRegistry, adapters, project, context, ledger, targets }) {
+    const rePlan = planLifecycle({ registry: realRegistry, adapters, scope: 'project', scopeRoot: project, targets, context, ledger });
+    return verifyLifecycle({ plan: rePlan, adapters, context: { registry: realRegistry } });
+  }
+
+  test('hookWiringStatus: Claude reports active once its hooks resource is installed', () => {
+    const fixture = hookFixture(['claude']);
+    const verification = verifyInstalled({ ...fixture, targets: ['claude'] });
+    const claudeVerification = verification.verifications.find((item) => item.harness === 'claude');
+    assert.equal(claudeVerification.hookWiring.status, 'active');
+    assert.deepEqual(claudeVerification.hookWiring.prerequisites, []);
+  });
+
+  test('hookWiringStatus: Kiro reports active immediately, since Kiro hooks have no trust/review prerequisite', () => {
+    const fixture = hookFixture(['kiro']);
+    const verification = verifyInstalled({ ...fixture, targets: ['kiro'] });
+    const kiroVerification = verification.verifications.find((item) => item.harness === 'kiro');
+    assert.equal(kiroVerification.hookWiring.status, 'active');
+    assert.deepEqual(kiroVerification.hookWiring.prerequisites, []);
+  });
+
+  test('hookWiringStatus: Codex reports installed-pending (unmet hook-review prerequisite) even after install', () => {
+    const fixture = hookFixture(['codex']);
+    const verification = verifyInstalled({ ...fixture, targets: ['codex'] });
+    const codexVerification = verification.verifications.find((item) => item.harness === 'codex');
+    assert.equal(codexVerification.hookWiring.status, 'installed-pending');
+    assert.deepEqual(codexVerification.hookWiring.prerequisites, ['trusted-project', 'hook-review']);
+  });
+
+  test('hookWiringStatus: Gemini reports installed-pending from its own live trust computation, not a static registry prerequisite', () => {
+    const fixture = hookFixture(['gemini']);
+    // Gemini's registry capability declares no `prerequisites` field at all — confirms the
+    // installed-pending verdict below comes from src/gemini-hooks.js's live trust check, not a
+    // static registry list (unlike Codex).
+    const geminiCapability = fixture.realRegistry.harnesses.find((h) => h.id === 'gemini').capabilities.hooks;
+    assert.equal(geminiCapability.prerequisites, undefined);
+
+    const verification = verifyInstalled({ ...fixture, targets: ['gemini'] });
+    const geminiVerification = verification.verifications.find((item) => item.harness === 'gemini');
+    assert.equal(geminiVerification.hookWiring.status, 'installed-pending');
+    assert.ok(geminiVerification.hookWiring.prerequisites.length > 0);
+  });
+
+  test('hookWiringStatus: a harness with no hooks resource installed reports absent', () => {
+    // Claude's own plan target with nothing applied yet: the freshly-built plan's own `changes`
+    // still carry the pending create, but there is no ledger/verification yet, so nothing is owned.
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-hook-wiring-absent-'));
+    const realRegistry = loadRegistry({ repoRoot: REPO });
+    const adapters = createAdapterRegistry({ claude: realClaude });
+    const context = { repoRoot: REPO, projectRoot: project, homeDir: project, sourceVersion: '2.4.4' };
+    const freshPlan = planLifecycle({ registry: realRegistry, adapters, scope: 'project', scopeRoot: project, targets: ['claude'], context });
+    const verification = verifyLifecycle({ plan: freshPlan, adapters, context: { registry: realRegistry } });
+    const claudeVerification = verification.verifications.find((item) => item.harness === 'claude');
+    assert.equal(claudeVerification.hookWiring.status, 'absent');
+  });
+
+  test('hookWiringStatus falls back to absent for a skipped/missing target', () => {
+    assert.deepEqual(hookWiringStatus({ id: 'claude', capabilities: {} }, { skipped: true }, { resources: [] }), { status: 'absent', prerequisites: [] });
+    assert.deepEqual(hookWiringStatus({ id: 'claude', capabilities: {} }, null, { resources: [] }), { status: 'absent', prerequisites: [] });
+  });
+}

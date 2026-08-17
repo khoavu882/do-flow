@@ -11,6 +11,7 @@ const { resolveAdapter, projectAdapterInput } = require('../adapters');
 const { renderPolicies } = require('./policies');
 const { renderMcpIndex } = require('./mcp-index');
 const { hasBashCapableShell } = require('./bash-availability');
+const { planGeminiHooks } = require('../gemini-hooks');
 
 const OPERATIONS = new Set(['create', 'merge', 'update', 'remove']);
 
@@ -271,10 +272,11 @@ function verifyLifecycle({ plan, adapters, context = {} }) {
     const harness = harnessFor(context.registry ?? plan.registry, target.harness);
     const adapter = resolveAdapter(adapters, harness);
     const operation = context.operation ?? 'verify';
-    const verification = normalizeVerification(adapter.verify({ ...target.adapterInput,
+    let verification = normalizeVerification(adapter.verify({ ...target.adapterInput,
       registry: context.registry ?? plan.registry, discovery: target.discovery, ledger: plan.ledger,
       operation, context: { ...target.adapterInput.context, operation } }), harness);
-    verifications.push(operation === 'remove' ? normalizeRemovalVerification(verification, target.changes, plan.ledger) : verification);
+    if (operation === 'remove') verification = normalizeRemovalVerification(verification, target.changes, plan.ledger);
+    verifications.push({ ...verification, hookWiring: hookWiringStatus(harness, target, verification) });
   }
   const conflicts = verifications.flatMap((result) => (result.conflicts || []).map((reason) => ({ harness: result.harness, reason })));
   return { verifications, conflicts, ok: conflicts.length === 0 && verifications.every((result) => result.ok !== false) };
@@ -286,14 +288,76 @@ function assertPlanApplicable(plan, stateRoot, acceptPrerequisites) {
   if (!plan.requiredNativeResources?.length || !plan.changes.length) throw new Error('Refusing to apply a lifecycle plan with no required native resources');
 }
 
+/** Registry-declared hooks assets (`kind: "hooks"` in core/registry/assets.yaml) this harness's
+ * plan selected — currently only claude.hooks-scripts and kiro.hooks-scripts. Codex and Gemini
+ * deploy hooks via their own bespoke code paths (see targetNeedsHooks below) rather than a
+ * registered asset, so they never appear here. */
+function hookAssetIds(target) {
+  return new Set((target.assets || []).filter((asset) => asset.kind === 'hooks').map((asset) => asset.id));
+}
+
 /** Whether this harness's plan includes at least one hooks-bearing change. Claude's hooks are a
  * registry-declared asset (`kind: "hooks"` in core/registry/assets.yaml); Codex and Gemini deploy
  * hooks via their own bespoke code paths and tag the resulting change with `nativeComponent:
  * 'hooks'` instead (see src/adapters/codex/index.js and src/adapters/gemini/index.js). Either
  * signal is sufficient — this stays harness-agnostic on purpose. */
 function targetNeedsHooks(target) {
-  const hookAssetIds = new Set((target.assets || []).filter((asset) => asset.kind === 'hooks').map((asset) => asset.id));
-  return (target.changes || []).some((change) => hookAssetIds.has(change.assetId) || change.nativeComponent === 'hooks');
+  const hookIds = hookAssetIds(target);
+  return (target.changes || []).some((change) => hookIds.has(change.assetId) || change.nativeComponent === 'hooks');
+}
+
+/** Whether a verified resource is the hooks resource this harness owns. A registry-declared hooks
+ * asset (Claude, Kiro) is matched by assetId; Codex's bespoke hooks-file resource is matched by
+ * `kind`; Gemini's bespoke hooks resource (a key inside settings.json, not a standalone file) is
+ * matched by its `projection.renderer` tag — see src/adapters/codex/index.js's
+ * `lifecycleResource(..., kind: 'hooks-file', ...)` and src/adapters/gemini/index.js's verify(),
+ * which tags its hooks resource `projection: { renderer: 'gemini-hooks' }`. */
+function verificationOwnsHooks(verification, hookIds) {
+  return (verification?.resources || []).some((resource) =>
+    hookIds.has(resource.assetId) || resource.kind === 'hooks-file' || resource.projection?.renderer === 'gemini-hooks');
+}
+
+/** Gemini's hooks trust is not a static registry prerequisite the way Codex's `trusted-project`/
+ * `hook-review` are (see core/registry/harnesses.yaml's gemini.capabilities.hooks, which declares
+ * no `prerequisites`); Gemini fingerprints hook name/command and warns before running one that
+ * changed (geminicli.com/docs/hooks/), computed live by src/gemini-hooks.js's planGeminiHooks
+ * against the current hooks.json source and the harness's current settings.json. Re-deriving that
+ * plan here (rather than reading it off the adapter's own verify() output, which does not surface
+ * `trust` on the resources/statuses it returns) is the only way to observe it without adapter
+ * changes; it is read-only and side-effect free (planGeminiHooks never writes). */
+function geminiHookTrust(target) {
+  const context = target.adapterInput?.context || {};
+  const settingsFile = target.discovery?.paths?.settings;
+  if (!context.geminiHooksSourceFile || !settingsFile || target.discovery?.settings?.error) return null;
+  const plan = planGeminiHooks({
+    sourceFile: context.geminiHooksSourceFile, sourceHooksDir: context.geminiHooksSourceDir,
+    settingsFile, trusted: context.hooksTrusted,
+  });
+  return plan.ok ? (plan.trust ?? null) : null;
+}
+
+/** General, per-harness hook-wiring status — the one place install status distinguishes an
+ * installed-but-not-yet-active hooks resource from one already live, replacing the ad-hoc,
+ * Codex-only hardcode bin/doflow.js's `cmdStatus` used to carry. Three outcomes:
+ *  - 'absent': this harness owns no hooks resource in the current verification (nothing installed).
+ *  - 'installed-pending': a hooks resource is installed, but a prerequisite is unmet — Codex's
+ *    static `capabilities.hooks.prerequisites` (`trusted-project`, `hook-review`), which DoFlow has
+ *    no way to confirm a human satisfied, so it is reported unmet unconditionally; or Gemini's live
+ *    trust computation via geminiHookTrust above.
+ *  - 'active': installed with no unmet prerequisite (Claude and Kiro today, since neither declares
+ *    any `capabilities.hooks.prerequisites` and Kiro hooks activate automatically per kiro.dev). */
+function hookWiringStatus(harness, target, verification) {
+  if (!target || target.skipped) return { status: 'absent', prerequisites: [] };
+  if (!verificationOwnsHooks(verification, hookAssetIds(target))) return { status: 'absent', prerequisites: [] };
+  if (harness.id === 'gemini') {
+    const trust = geminiHookTrust(target);
+    if (trust?.required && !trust.trusted) return { status: 'installed-pending', prerequisites: ['hook-trust'] };
+    return { status: 'active', prerequisites: [] };
+  }
+  const prerequisites = harness.capabilities?.hooks?.prerequisites || [];
+  return prerequisites.length
+    ? { status: 'installed-pending', prerequisites: [...prerequisites] }
+    : { status: 'active', prerequisites: [] };
 }
 
 /** FR-003 preflight: refuse to write hook-bearing changes when no bash-capable shell (POSIX
@@ -356,4 +420,4 @@ function removeLifecycle(options) {
   return applyLifecycle({ ...options, plan, mode: 'remove', acceptPrerequisites: options.acceptPrerequisites });
 }
 
-module.exports = { OPERATIONS, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks };
+module.exports = { OPERATIONS, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus };
