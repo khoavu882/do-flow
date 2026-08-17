@@ -39,7 +39,12 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
 
 4. **Task Selection & Parallel Dispatch**:
    - Select next pending task(s) (`--next`, `--phase N`, `--all`, `--resume`).
-   - Group tasks by phase and dependency. For parallel orchestration and write-set isolation, consult `references/parallel_dispatch.md`.
+   - Compute dispatch groups with `do-parallel-check.sh --phase=<N> --json` — it groups by phase and
+     `owner:`, and returns the cross-group write-set collisions (`group_overlaps[]`,
+     `group_serialize[]`) that decide what may run concurrently. Do not derive write-set isolation
+     by inspection; it is computed. Build each group's brief with
+     `do-task-brief.sh --group=<phase>:<owner> --tasks=<csv>`. Full protocol, field meanings, and
+     the `--sync` / `--no-group` fallbacks: `references/parallel_dispatch.md`.
    - Dispatch tasks to appropriate specialist archetypes:
      - Architecture & Schema $\rightarrow$ `system-architect`
      - Code Implementation & Refactoring $\rightarrow$ `core-implementer`
