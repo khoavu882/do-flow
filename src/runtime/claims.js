@@ -2,6 +2,8 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+// Shared with EvidenceLedger so both stores enforce one definition of a safe task id.
+const { assertSafeTaskId } = require('./evidence-ledger');
 
 const CLAIM_STATUSES = new Set([
   'hypothesis',
@@ -206,7 +208,7 @@ class ClaimsManager {
     };
 
     this.fsImpl.mkdirSync(this.stateDir, { recursive: true });
-    const targetFile = path.join(this.stateDir, `${taskId}_claims.json`);
+    const targetFile = path.join(this.stateDir, `${assertSafeTaskId(taskId)}_claims.json`);
     this.fsImpl.writeFileSync(targetFile, JSON.stringify(payload, null, 2), 'utf8');
     return targetFile;
   }
@@ -217,7 +219,7 @@ class ClaimsManager {
    * @returns {number}
    */
   load(taskId = 'default') {
-    const targetFile = path.join(this.stateDir, `${taskId}_claims.json`);
+    const targetFile = path.join(this.stateDir, `${assertSafeTaskId(taskId)}_claims.json`);
     if (!this.fsImpl.existsSync(targetFile)) {
       return 0;
     }

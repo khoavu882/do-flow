@@ -64,7 +64,13 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 paths="$(bash "$script_dir/do-exec-paths.sh" --task="$task_id" ${slug_override:+--slug="$slug_override"} 2>/dev/null)"
 workspace="$(printf '%s' "$paths" | jq -r '.workspace // empty')"
 if [ -z "$workspace" ]; then
-  printf '%s\n' "${paths:-{\"error\":\"workspace-unresolved\"}}"
+  # See do-task-brief.sh: "${paths:-{...}}" terminates at the first unescaped `}`, appending a
+  # stray brace to $paths and emitting unparseable JSON on every error passthrough.
+  if [ -n "$paths" ]; then
+    printf '%s\n' "$paths"
+  else
+    printf '%s\n' '{"error":"workspace-unresolved"}'
+  fi
   exit 2
 fi
 

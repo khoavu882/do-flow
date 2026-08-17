@@ -105,6 +105,13 @@ function scopeOf(o) {
   return { global: o.global, projectRoot: o.positional[0] || '.' };
 }
 
+/** Where `readiness`/`evidence` read and write per-task state. Mirrors scopeOf()'s rules so these
+ * commands are scope-aware like the rest of the CLI, rather than defaulting to the DoFlow install
+ * directory — which for an npm install is inside node_modules/. */
+function evidenceRoot(o) {
+  return o.global ? os.homedir() : path.resolve(o.positional[0] || '.');
+}
+
 const HELP = `doflow — DoFlow config installer
 
 Usage: doflow <command> [path] [options]
@@ -654,8 +661,11 @@ function main() {
       case 'tools': return cmdTools(o);
       case 'capabilities': return handleCapabilitiesCommand({ json: o.json, check: o.check, repoRoot: REPO_ROOT });
       case 'doctor': return handleDoctorCommand({ json: o.json, repoRoot: REPO_ROOT });
-      case 'readiness': return handleReadinessCommand({ taskClass: o.taskClass || 'feature', taskId: o.taskId || 'default', json: o.json, repoRoot: REPO_ROOT });
-      case 'evidence': return handleEvidenceCommand({ taskId: o.taskId || 'default', json: o.json, repoRoot: REPO_ROOT });
+      // REPO_ROOT locates the registry (templates ship with the package); stateRoot locates the
+      // caller's evidence, which follows the same scope rules as every other command: -g means
+      // $HOME, otherwise the positional project root (default cwd).
+      case 'readiness': return handleReadinessCommand({ taskClass: o.taskClass || 'feature', taskId: o.taskId || 'default', json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
+      case 'evidence': return handleEvidenceCommand({ taskId: o.taskId || 'default', json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
       default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
     }
   } catch (error) {
@@ -663,7 +673,12 @@ function main() {
     // multi-harness run) — surface a clean, actionable message instead of a raw stack trace, and
     // point at the recovery record applyLifecycle already wrote before rethrowing.
     console.error(`[ERROR] ${error.message}`);
-    console.error('[ERROR] Some native resources may be partially applied — check .doflow/state/recovery/ (or ~/.doflow/state/recovery/ for -g) for the latest record before retrying.');
+    // Only the commands that actually mutate native resources can leave a partial application.
+    // Printing this after a rejected `readiness --task-id` or any other read-only query told the
+    // user to go inspect recovery records for a run that never wrote anything.
+    if (['install', 'update', 'remove', 'rollback', 'self-update', 'tools'].includes(o.cmd)) {
+      console.error('[ERROR] Some native resources may be partially applied — check .doflow/state/recovery/ (or ~/.doflow/state/recovery/ for -g) for the latest record before retrying.');
+    }
     process.exit(1);
   }
 }

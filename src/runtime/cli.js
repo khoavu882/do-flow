@@ -117,20 +117,26 @@ function handleDoctorCommand({ json = false, repoRoot } = {}) {
  * @param {boolean} [options.json=false]
  * @param {string} [options.repoRoot]
  */
-function handleReadinessCommand({ taskClass = 'feature', taskId = 'default', json = false, repoRoot } = {}) {
+function handleReadinessCommand({ taskClass = 'feature', taskId = 'default', json = false, repoRoot, stateRoot } = {}) {
+  // Two different roots, previously conflated into one. `root` locates the *registry* (the
+  // readiness templates ship inside the DoFlow package). `state` locates the invoking project's
+  // evidence, which belongs to the caller's repo — not to wherever DoFlow happens to be installed.
+  // Sharing one root put every project's per-task evidence inside the DoFlow install directory,
+  // which under an npm install is node_modules/ — shared across all projects and often read-only.
   const root = repoRoot || path.resolve(__dirname, '..', '..');
-  const ledger = new EvidenceLedger({ repoRoot: root });
+  const state = stateRoot || process.cwd();
+  const ledger = new EvidenceLedger({ repoRoot: state });
   ledger.load(taskId);
 
-  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root });
+  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: state });
   claims.load(taskId);
 
   const engine = new ReadinessEngine({ repoRoot: root });
-  const report = engine.evaluateReadiness(
-    { taskId, taskClass, verificationPlan: 'npm test', scopeClear: true },
-    ledger,
-    claims
-  );
+  // Only what the caller actually told us. Previously this asserted `verificationPlan: 'npm test'`
+  // and `scopeClear: true` unconditionally, which auto-satisfied the verification and scope
+  // requirement families for every task regardless of project state — the gate reported checkmarks
+  // it had not measured. Unproven prerequisites must read as MISSING.
+  const report = engine.evaluateReadiness({ taskId, taskClass }, ledger, claims);
 
   if (json) {
     console.log(JSON.stringify(report, null, 2));
@@ -163,8 +169,9 @@ function handleReadinessCommand({ taskClass = 'feature', taskId = 'default', jso
  * @param {boolean} [options.json=false]
  * @param {string} [options.repoRoot]
  */
-function handleEvidenceCommand({ taskId = 'default', json = false, repoRoot } = {}) {
-  const root = repoRoot || path.resolve(__dirname, '..', '..');
+function handleEvidenceCommand({ taskId = 'default', json = false, repoRoot, stateRoot } = {}) {
+  // See handleReadinessCommand: evidence is the caller's project state, not DoFlow package state.
+  const root = stateRoot || repoRoot || process.cwd();
   const ledger = new EvidenceLedger({ repoRoot: root });
   ledger.load(taskId);
   const items = ledger.queryEvidence({ taskId });
