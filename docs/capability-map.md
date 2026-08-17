@@ -11,22 +11,31 @@ installation; do not infer activation from this table alone.
 
 ## Capability matrix
 
-| Capability | Claude Code | Codex | Gemini CLI / Antigravity | OpenCode | Pi Coding Agent |
+| Capability | Claude Code | Codex | Gemini CLI | OpenCode | Pi Coding Agent |
 |---|---|---|---|---|---|
-| Instructions | Supported — `CLAUDE.md` | Supported — managed `AGENTS.md` | Supported — `GEMINI.md` | Supported — `AGENTS.md` | Supported — `AGENTS.md` |
+| Instructions | Supported — `CLAUDE.md` | Supported — `AGENTS.md` | Supported — `GEMINI.md` | Supported — `AGENTS.md` | Supported — `AGENTS.md` |
 | Skills | Supported | Supported | Supported | Supported | Supported |
-| Agents | Supported | Supported | Different: shared prompt projection | Supported via `opencode.json` | Delegated extensions / packages |
-| Scripts | Supported | Supported | Supported via skill scripts | Supported | Supported |
+| Agents | Supported | Supported — `.codex/agents/*.toml` | Different | Different | Different |
+| Scripts | Supported | Supported | Supported | Supported | Supported |
 | Templates | Supported | Supported | Supported | Supported | Supported |
-| Modes | Supported | Unavailable | Different: instruction guidance | Different | Different |
-| Settings | Supported | Different: reconciled TOML | Different: adapter settings | Supported: `opencode.json` | Supported: `config.json` |
-| Hooks | Supported | Supported after review | Supported — `settings.json` | Supported | Extension hooks |
-| MCP | Supported | Supported | Different: native registration | Supported (`opencode.json`) | Supported (`pi-mcp-adapter`) |
-| Plugin / extension | Supported | Supported | Different: host extension | Supported | Supported |
+| Modes | Supported | Unavailable | Different | Different | Different |
+| Settings | Supported — `settings.json` | Different — `.codex/config.toml` | Different | Supported — `opencode.json` | Supported — `.pi/settings.json` |
+| Hooks | Supported — `settings.json` | Supported — `.codex/hooks.json` | Supported — `settings.json` | Different | Different |
+| MCP | Supported — `.mcp.json` | Supported — `.codex/config.toml` | Different | Supported — `opencode.json` | Different |
+| Plugin / extension | Supported | Supported | Different | Different | Different |
+
+This table is generated from `capabilities` in `core/registry/harnesses.yaml`; the registry is the
+source of truth and a hand edit here will drift from it. Where a harness declares a native target
+for a capability, it is shown inline.
 
 “Different” is a compatibility boundary, not a weaker form of “supported.” The adapter must use
 the target's own file format and verification process. “Unavailable” means DoFlow records the
 gap and offers guidance instead of installing a non-functional approximation.
+
+For OpenCode and Pi, several rows read “Different” because those harnesses expect **registration**
+rather than projection: DoFlow points their settings at its existing skills directory instead of
+copying a second tree, and their hook and plugin surfaces take JS/TS modules rather than the shell
+scripts DoFlow ships.
 
 
 ## Hook event matrix
@@ -37,24 +46,32 @@ indistinguishable from an oversight. `test/guards/registry.test.js` enforces bot
 an event declared supported must be in the harness contract, and an unavailable one must carry
 a reason.
 
-| Event | Claude Code | Codex | Gemini CLI | Why unavailable |
-|---|---|---|---|---|
-| `AfterTool` | — | — | Supported |  |
-| `BeforeTool` | — | — | Supported |  |
-| `ConfigChange` | Supported | — | — |  |
-| `PermissionDenied` | Supported | Unavailable | Unavailable | Codex exposes no permission-decision event. |
-| `PostCompact` | Supported | — | — |  |
-| `PostToolUse` | Supported | Supported | — |  |
-| `PostToolUseFailure` | Supported | Unavailable | Unavailable | No Codex event fires only on tool failure; PostToolUse cannot distinguish the two. |
-| `PreCompact` | Supported | Supported | — |  |
-| `PreCompress` | — | — | Supported |  |
-| `PreToolUse` | Supported | Supported | — |  |
-| `SessionEnd` | Supported | Supported | Supported |  |
-| `SessionStart` | Supported | Supported | Supported |  |
-| `Stop` | Supported | Supported | Unavailable | No Gemini equivalent at matching semantics. |
-| `SubagentStart` | Supported | Supported | Unavailable | BeforeAgent/AfterAgent are turn-scoped, not subagent-scoped. |
-| `SubagentStop` | Supported | Supported | Unavailable | BeforeAgent/AfterAgent are turn-scoped, not subagent-scoped. |
-| `UserPromptSubmit` | Supported | Supported | Unavailable | No Gemini equivalent; BeforeAgent fires at full-turn granularity, not per prompt. |
+**Supported** means DoFlow installs a hook for that event. **Different** means the harness fires an
+equivalent event but DoFlow does not wire it — OpenCode and Pi both implement handlers as JS/TS code
+modules rather than command strings, so DoFlow's shell hooks have nothing to attach to. Wiring those
+would mean shipping executable code into the user's agent, which is a distribution decision rather
+than a projection. **Unavailable** means no equivalent event exists at matching semantics.
+
+A dash means the harness has no such event name in DoFlow's taxonomy and none was claimed.
+
+| Event | Claude Code | Codex | Gemini CLI | OpenCode | Pi Coding Agent | Notes |
+|---|---|---|---|---|---|---|
+| `AfterTool` | — | — | Supported | — | — |  |
+| `BeforeTool` | — | — | Supported | — | — |  |
+| `ConfigChange` | Supported | — | — | Unavailable | Unavailable | **OpenCode:** installation.updated tracks OpenCode upgrades, not configuration edits. **Pi Coding Agent:** Pi reloads configuration via /reload, surfaced as session_start with reason "reload", not as a distinct config event. |
+| `PermissionDenied` | Supported | Unavailable | Unavailable | Different | Unavailable | **Codex:** Codex exposes no permission-decision event. **Gemini CLI:** Gemini exposes no permission-decision event. **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: permission.replied, whose payload carries the decision. **Pi Coding Agent:** Pi has no permission-decision event; extensions run with full permissions rather than gating them. |
+| `PostCompact` | Supported | — | — | Different | Different | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.compacted. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: compaction_end. |
+| `PostToolUse` | Supported | Supported | — | Different | Different | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: tool.execute.after. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: tool_execution_end, exposed through session.subscribe rather than pi.on. |
+| `PostToolUseFailure` | Supported | Unavailable | Unavailable | Unavailable | Unavailable | **Codex:** No Codex event fires only on tool failure; PostToolUse cannot distinguish the two. **Gemini CLI:** AfterTool fires regardless of outcome; failure cannot be isolated. **OpenCode:** tool.execute.after fires for both outcomes; no failure-only event exists. **Pi Coding Agent:** tool_execution_end reports both outcomes; no failure-only event exists. |
+| `PreCompact` | Supported | Supported | — | Different | Different | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: experimental.session.compacting. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_before_compact, which may cancel or supply a summary. |
+| `PreCompress` | — | — | Supported | — | — |  |
+| `PreToolUse` | Supported | Supported | — | Different | Different | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: tool.execute.before. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: tool_execution_start, exposed through session.subscribe rather than pi.on. |
+| `SessionEnd` | Supported | Supported | Supported | Different | Different | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.idle / session.deleted. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_shutdown. |
+| `SessionStart` | Supported | Supported | Supported | Different | Different | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.created. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_start, which carries reason:"reload" on /reload. |
+| `Stop` | Supported | Supported | Unavailable | Different | Different | **Gemini CLI:** No Gemini equivalent at matching semantics. **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.idle. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: agent_end. |
+| `SubagentStart` | Supported | Supported | Unavailable | Unavailable | Unavailable | **Gemini CLI:** BeforeAgent/AfterAgent are turn-scoped, not subagent-scoped. **OpenCode:** OpenCode publishes no subagent lifecycle event. **Pi Coding Agent:** Pi publishes no subagent lifecycle event. |
+| `SubagentStop` | Supported | Supported | Unavailable | Unavailable | Unavailable | **Gemini CLI:** BeforeAgent/AfterAgent are turn-scoped, not subagent-scoped. **OpenCode:** OpenCode publishes no subagent lifecycle event. **Pi Coding Agent:** Pi publishes no subagent lifecycle event. |
+| `UserPromptSubmit` | Supported | Supported | Unavailable | Unavailable | Different | **Gemini CLI:** No Gemini equivalent; BeforeAgent fires at full-turn granularity, not per prompt. **OpenCode:** OpenCode exposes message.updated rather than a pre-submission prompt event, so a hook could not gate a prompt before the model sees it. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: input, which fires before skill expansion. |
 
 ## Native verification and prerequisites
 

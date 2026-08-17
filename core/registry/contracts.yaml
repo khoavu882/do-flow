@@ -84,7 +84,7 @@
     {
       "harness": "codex",
       "completeness": "lower-bound",
-      "note": "Frontmatter field lists are deliberately absent: shared skills and agent specs are byte-identical across harnesses, so a per-harness list could only restate a subset of claude's and would change no guard outcome \u2014 an inert declaration of exactly the kind these guards exist to remove. hookEvents IS per-harness and lists the events DoFlow actually wires; widen it only with an added evidence URL.",
+      "note": "Frontmatter field lists are deliberately absent: shared skills and agent specs are byte-identical across harnesses, so a per-harness list could only restate a subset of claude's and would change no guard outcome — an inert declaration of exactly the kind these guards exist to remove. hookEvents IS per-harness and lists the events DoFlow actually wires; widen it only with an added evidence URL.",
       "hookEvents": [
         "SessionStart",
         "SessionEnd",
@@ -105,7 +105,7 @@
     {
       "harness": "gemini",
       "completeness": "lower-bound",
-      "note": "Frontmatter field lists are deliberately absent: shared skills and agent specs are byte-identical across harnesses, so a per-harness list could only restate a subset of claude's and would change no guard outcome \u2014 an inert declaration of exactly the kind these guards exist to remove. hookEvents IS per-harness and lists the events DoFlow actually wires; widen it only with an added evidence URL.",
+      "note": "Frontmatter field lists are deliberately absent: shared skills and agent specs are byte-identical across harnesses, so a per-harness list could only restate a subset of claude's and would change no guard outcome — an inert declaration of exactly the kind these guards exist to remove. hookEvents IS per-harness and lists the events DoFlow actually wires; widen it only with an added evidence URL.",
       "hookEvents": [
         "SessionStart",
         "SessionEnd",
@@ -117,6 +117,28 @@
         "https://geminicli.com/docs/cli/skills/",
         "https://geminicli.com/docs/hooks/",
         "https://geminicli.com/docs/cli/configuration/"
+      ]
+    },
+    {
+      "harness": "opencode",
+      "completeness": "lower-bound",
+      "note": "hookEvents is empty by design, not by omission: OpenCode implements lifecycle handlers as JavaScript/TypeScript plugin modules exporting named hooks such as tool.execute.before, while DoFlow ships shell scripts invoked by a command string. The events exist natively and are recorded under capabilities.hooks.events with status \"different\"; wiring them would mean shipping executable code into the user's agent, which is a distribution decision rather than a projection. Widen this list only alongside that decision and an added evidence URL. See https://opencode.ai/docs/plugins.",
+      "hookEvents": [],
+      "evidence": [
+        "https://opencode.ai/docs/plugins",
+        "https://opencode.ai/docs/rules",
+        "https://opencode.ai/docs/config"
+      ]
+    },
+    {
+      "harness": "pi",
+      "completeness": "lower-bound",
+      "note": "hookEvents is empty by design, not by omission: Pi implements lifecycle handlers as TypeScript extension modules registering handlers through pi.on(), executing with full system permissions, while DoFlow ships shell scripts invoked by a command string. The events exist natively and are recorded under capabilities.hooks.events with status \"different\"; wiring them would mean shipping executable code into the user's agent, which is a distribution decision rather than a projection. Widen this list only alongside that decision and an added evidence URL. See https://pi.dev/docs/latest/extensions.",
+      "hookEvents": [],
+      "evidence": [
+        "https://pi.dev/docs/latest/extensions",
+        "https://pi.dev/docs/latest/settings",
+        "https://pi.dev/docs/latest/skills"
       ]
     }
   ]

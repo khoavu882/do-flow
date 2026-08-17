@@ -415,6 +415,295 @@
           "verification": "Verify extensions through the native host workflow."
         }
       }
+    },
+    {
+      "id": "opencode",
+      "displayName": "OpenCode",
+      "adapter": "opencode",
+      "scopes": [
+        "project",
+        "user"
+      ],
+      "nativeTargets": {
+        "instructions": "AGENTS.md",
+        "settings": "opencode.json",
+        "mcp": "opencode.json"
+      },
+      "capabilities": {
+        "instructions": {
+          "status": "supported",
+          "evidence": [
+            "https://opencode.ai/docs/rules"
+          ],
+          "verification": "Confirm AGENTS.md is loaded, and that opencode.json instructions[] pulls in the DoFlow guidance pointer."
+        },
+        "skills": {
+          "status": "supported",
+          "evidence": [
+            "https://opencode.ai/docs/skills",
+            "https://opencode.ai/docs/rules"
+          ],
+          "verification": "Confirm OpenCode discovers DoFlow skills from the registered directory rather than a copied tree."
+        },
+        "agents": {
+          "status": "different",
+          "evidence": [
+            "https://opencode.ai/docs/config"
+          ],
+          "note": "OpenCode defines agents in its own config rather than as standalone spec files, so DoFlow projects agent guidance through instructions instead of a native agents directory.",
+          "verification": "Report that agent guidance arrives via instructions, not a native agent registry."
+        },
+        "scripts": {
+          "status": "supported",
+          "evidence": [
+            "https://opencode.ai/docs/skills"
+          ],
+          "verification": "Confirm a bundled skill scripts/ directory is reachable from the registered skills path."
+        },
+        "templates": {
+          "status": "supported",
+          "evidence": [
+            "https://opencode.ai/docs/rules"
+          ],
+          "verification": "Confirm the installed template tree is readable by the agent."
+        },
+        "modes": {
+          "status": "different",
+          "evidence": [
+            "https://opencode.ai/docs/rules"
+          ],
+          "note": "OpenCode has no separate mode surface; DoFlow mode guidance is reachable through the instructions pointer.",
+          "verification": "Confirm mode guidance is available through instructions."
+        },
+        "settings": {
+          "status": "supported",
+          "evidence": [
+            "https://opencode.ai/docs/config"
+          ],
+          "verification": "Confirm opencode.json retains user keys and only DoFlow-owned entries change."
+        },
+        "hooks": {
+          "status": "different",
+          "evidence": [
+            "https://opencode.ai/docs/plugins"
+          ],
+          "note": "OpenCode extends behaviour through JavaScript/TypeScript plugin modules, not the shell hook scripts DoFlow ships, so no hook projection is attempted.",
+          "verification": "Report that DoFlow installs no OpenCode plugin and its shell hooks do not apply here.",
+          "events": {
+            "PreToolUse": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: tool.execute.before."
+            },
+            "PostToolUse": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: tool.execute.after."
+            },
+            "SessionStart": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.created."
+            },
+            "SessionEnd": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.idle / session.deleted."
+            },
+            "PreCompact": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: experimental.session.compacting."
+            },
+            "PostCompact": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.compacted."
+            },
+            "PermissionDenied": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: permission.replied, whose payload carries the decision."
+            },
+            "Stop": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.idle."
+            },
+            "UserPromptSubmit": {
+              "status": "unavailable",
+              "note": "OpenCode exposes message.updated rather than a pre-submission prompt event, so a hook could not gate a prompt before the model sees it."
+            },
+            "SubagentStart": {
+              "status": "unavailable",
+              "note": "OpenCode publishes no subagent lifecycle event."
+            },
+            "SubagentStop": {
+              "status": "unavailable",
+              "note": "OpenCode publishes no subagent lifecycle event."
+            },
+            "PostToolUseFailure": {
+              "status": "unavailable",
+              "note": "tool.execute.after fires for both outcomes; no failure-only event exists."
+            },
+            "ConfigChange": {
+              "status": "unavailable",
+              "note": "installation.updated tracks OpenCode upgrades, not configuration edits."
+            }
+          }
+        },
+        "mcp": {
+          "status": "supported",
+          "evidence": [
+            "https://opencode.ai/docs/mcp-servers"
+          ],
+          "verification": "Confirm selected MCP servers appear under the mcp key in opencode.json."
+        },
+        "plugin": {
+          "status": "different",
+          "evidence": [
+            "https://opencode.ai/docs/plugins"
+          ],
+          "note": "DoFlow publishes no OpenCode plugin package; its content reaches OpenCode by registration rather than plugin distribution.",
+          "verification": "Report that no plugin package is installed for OpenCode."
+        }
+      }
+    },
+    {
+      "id": "pi",
+      "displayName": "Pi Coding Agent",
+      "adapter": "pi",
+      "scopes": [
+        "project",
+        "user"
+      ],
+      "nativeTargets": {
+        "instructions": "AGENTS.md",
+        "settings": ".pi/settings.json"
+      },
+      "capabilities": {
+        "instructions": {
+          "status": "supported",
+          "evidence": [
+            "https://pi.dev/docs/latest/quickstart"
+          ],
+          "verification": "Confirm Pi loads AGENTS.md from the project (or ~/.pi/agent/AGENTS.md globally)."
+        },
+        "skills": {
+          "status": "supported",
+          "evidence": [
+            "https://pi.dev/docs/latest/skills"
+          ],
+          "verification": "Confirm the skills[] array in settings.json points at the DoFlow skills directory and Pi lists those skills."
+        },
+        "agents": {
+          "status": "different",
+          "evidence": [
+            "https://pi.dev/docs/latest/extensions"
+          ],
+          "note": "Pi has no declarative agent-spec directory; specialist guidance reaches it through instructions and skills instead.",
+          "verification": "Report that agent guidance arrives via instructions, not a native agent registry."
+        },
+        "scripts": {
+          "status": "supported",
+          "evidence": [
+            "https://pi.dev/docs/latest/skills"
+          ],
+          "verification": "Confirm a bundled skill scripts/ directory is reachable from the registered skills path."
+        },
+        "templates": {
+          "status": "supported",
+          "evidence": [
+            "https://pi.dev/docs/latest/skills"
+          ],
+          "verification": "Confirm the installed template tree is readable by the agent."
+        },
+        "modes": {
+          "status": "different",
+          "evidence": [
+            "https://pi.dev/docs/latest/quickstart"
+          ],
+          "note": "Pi has no separate mode surface; DoFlow mode guidance is reachable through the instructions pointer.",
+          "verification": "Confirm mode guidance is available through instructions."
+        },
+        "settings": {
+          "status": "supported",
+          "evidence": [
+            "https://pi.dev/docs/latest/settings"
+          ],
+          "verification": "Confirm ~/.pi/agent/settings.json (or .pi/settings.json) retains user keys and only DoFlow-owned entries change."
+        },
+        "hooks": {
+          "status": "different",
+          "evidence": [
+            "https://pi.dev/docs/latest/extensions"
+          ],
+          "note": "Pi lifecycle hooks are TypeScript extension modules registered through pi.on(), executing arbitrary code with full permissions — a different trust model from the shell hooks DoFlow ships, so no hook projection is attempted.",
+          "verification": "Report that DoFlow installs no Pi extension and its shell hooks do not apply here.",
+          "events": {
+            "SessionStart": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_start, which carries reason:\"reload\" on /reload."
+            },
+            "SessionEnd": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_shutdown."
+            },
+            "UserPromptSubmit": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: input, which fires before skill expansion."
+            },
+            "PreCompact": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_before_compact, which may cancel or supply a summary."
+            },
+            "PostCompact": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: compaction_end."
+            },
+            "PreToolUse": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: tool_execution_start, exposed through session.subscribe rather than pi.on."
+            },
+            "PostToolUse": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: tool_execution_end, exposed through session.subscribe rather than pi.on."
+            },
+            "Stop": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: agent_end."
+            },
+            "SubagentStart": {
+              "status": "unavailable",
+              "note": "Pi publishes no subagent lifecycle event."
+            },
+            "SubagentStop": {
+              "status": "unavailable",
+              "note": "Pi publishes no subagent lifecycle event."
+            },
+            "PostToolUseFailure": {
+              "status": "unavailable",
+              "note": "tool_execution_end reports both outcomes; no failure-only event exists."
+            },
+            "PermissionDenied": {
+              "status": "unavailable",
+              "note": "Pi has no permission-decision event; extensions run with full permissions rather than gating them."
+            },
+            "ConfigChange": {
+              "status": "unavailable",
+              "note": "Pi reloads configuration via /reload, surfaced as session_start with reason \"reload\", not as a distinct config event."
+            }
+          }
+        },
+        "mcp": {
+          "status": "different",
+          "evidence": [
+            "https://pi.dev/docs/latest/extensions"
+          ],
+          "note": "Pi reaches MCP servers through the separate pi-mcp-adapter extension rather than a native config key DoFlow can merge into.",
+          "verification": "Report that MCP registration for Pi is delegated to pi-mcp-adapter and not written by DoFlow."
+        },
+        "plugin": {
+          "status": "different",
+          "evidence": [
+            "https://pi.dev/docs/latest/extensions"
+          ],
+          "note": "DoFlow publishes no Pi extension package; its content reaches Pi by registration rather than extension distribution.",
+          "verification": "Report that no extension package is installed for Pi."
+        }
+      }
     }
   ]
 }
