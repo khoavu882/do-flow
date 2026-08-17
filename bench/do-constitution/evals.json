@@ -1,0 +1,46 @@
+{
+  "skill_name": "do-constitution",
+  "evals": [
+    {
+      "id": 1,
+      "kind": "triggering",
+      "name": "principles-request-invokes-constitution",
+      "prompt": "Set up the engineering principles this repo should hold itself to.",
+      "expected_output": "do-constitution is invoked and a tier-2 constitution is created",
+      "files": [],
+      "assertions": [
+        {
+          "text": "do-constitution was invoked",
+          "type": "skill_invoked",
+          "skill": "do-constitution"
+        },
+        {
+          "text": "agent-docs/constitution.md is created",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "kind": "behavioral",
+      "name": "amend-bumps-semver-and-reports-impact",
+      "prompt": "/do-constitution --amend Add a principle requiring structured logging on all services",
+      "expected_output": "Version bumped by semver rules and a Sync Impact Report written",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Version is bumped following semver rather than replaced arbitrarily",
+          "type": "manual"
+        },
+        {
+          "text": "A Sync Impact Report records what changed and what it affects",
+          "type": "manual"
+        },
+        {
+          "text": "The base tier-1 principles are overlaid, not silently discarded",
+          "type": "manual"
+        }
+      ]
+    }
+  ]
+}

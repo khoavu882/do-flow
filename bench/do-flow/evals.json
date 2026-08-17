@@ -1,0 +1,42 @@
+{
+  "skill_name": "do-flow",
+  "evals": [
+    {
+      "id": 1,
+      "kind": "triggering",
+      "name": "end-to-end-request-invokes-flow",
+      "prompt": "Take this from idea to reviewed code: a webhook receiver with signature verification.",
+      "expected_output": "do-flow is invoked and chains the phases with approval gates",
+      "files": [],
+      "assertions": [
+        {
+          "text": "do-flow was invoked",
+          "type": "skill_invoked",
+          "skill": "do-flow"
+        },
+        {
+          "text": "Phases are sequenced rather than collapsed into one step",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "kind": "behavioral",
+      "name": "pauses-at-approval-gates",
+      "prompt": "/do-flow Add CSV export to the reports page",
+      "expected_output": "The chain pauses at its defined gates instead of running straight through",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The run pauses for approval at least once rather than completing silently",
+          "type": "manual"
+        },
+        {
+          "text": "The current phase is stated clearly at each pause",
+          "type": "manual"
+        }
+      ]
+    }
+  ]
+}

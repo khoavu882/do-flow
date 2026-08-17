@@ -1,0 +1,64 @@
+{
+  "skill_name": "do-execute-plan",
+  "evals": [
+    {
+      "id": 1,
+      "kind": "triggering",
+      "name": "execute-request-invokes-executor",
+      "prompt": "Go ahead and work through the tasks in the plan.",
+      "expected_output": "do-execute-plan is invoked and the prerequisite gate runs first",
+      "files": [],
+      "assertions": [
+        {
+          "text": "do-execute-plan was invoked",
+          "type": "skill_invoked",
+          "skill": "do-execute-plan"
+        },
+        {
+          "text": "The prerequisite gate is evaluated before any task runs",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "kind": "behavioral",
+      "name": "blocks-without-chain-artifacts",
+      "prompt": "/do-execute-plan --next",
+      "expected_output": "With no requirement/design/plan present, the hard gate blocks rather than improvising",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Execution is refused or blocked when chain artifacts are missing",
+          "type": "manual"
+        },
+        {
+          "text": "The specific missing artifact is named",
+          "type": "manual"
+        },
+        {
+          "text": "No source files are modified while blocked",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "kind": "behavioral",
+      "name": "respects-write-set-isolation",
+      "prompt": "/do-execute-plan --phase 1",
+      "expected_output": "Only tasks with disjoint file sets are run concurrently",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Tasks sharing a file are serialized rather than run in parallel",
+          "type": "manual"
+        },
+        {
+          "text": "Parallel dispatch is justified by disjoint files, not by description",
+          "type": "manual"
+        }
+      ]
+    }
+  ]
+}

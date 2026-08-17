@@ -1,0 +1,60 @@
+{
+  "skill_name": "do",
+  "evals": [
+    {
+      "id": 1,
+      "kind": "triggering",
+      "name": "multi-part-request-routes",
+      "prompt": "I need to add rate limiting to the API, then write docs for it, then get it reviewed.",
+      "expected_output": "do decomposes the request into parts and names which skill handles each",
+      "files": [],
+      "assertions": [
+        {
+          "text": "do was invoked",
+          "type": "skill_invoked",
+          "skill": "do"
+        },
+        {
+          "text": "Response decomposes the request into 3 distinct parts",
+          "type": "manual"
+        },
+        {
+          "text": "Each part is mapped to a specific named skill rather than handled inline",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "kind": "behavioral",
+      "name": "estimation-is-ranged-not-false-precision",
+      "prompt": "/do --estimate Add OAuth2 login with refresh tokens to our Express API",
+      "expected_output": "An effort estimate with stated assumptions, not a single false-precision number",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Estimate states its assumptions explicitly",
+          "type": "manual"
+        },
+        {
+          "text": "Estimate is a range or is qualified, not a bare single number presented as certain",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "kind": "triggering",
+      "name": "simple-question-does-not-over-route",
+      "prompt": "What does the `--prune` flag do in doflow remove?",
+      "expected_output": "A direct answer; the dispatcher should not spin up a multi-skill decomposition",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Answers directly without decomposing into a multi-skill plan",
+          "type": "manual"
+        }
+      ]
+    }
+  ]
+}

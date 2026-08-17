@@ -29,7 +29,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "bench": "node bench/runner.js"
   },
   "files": [
     "bin/",

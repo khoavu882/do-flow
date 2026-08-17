@@ -1,0 +1,68 @@
+{
+  "skill_name": "do-implement",
+  "evals": [
+    {
+      "id": 1,
+      "kind": "triggering",
+      "name": "direct-fix-needs-no-chain",
+      "prompt": "Just fix the off-by-one in the pagination helper, no ceremony.",
+      "expected_output": "do-implement is invoked without demanding chain artifacts",
+      "files": [],
+      "assertions": [
+        {
+          "text": "do-implement was invoked",
+          "type": "skill_invoked",
+          "skill": "do-implement"
+        },
+        {
+          "text": "Does not demand a requirement.md before proceeding",
+          "type": "output_not_matches",
+          "pattern": "requirement\\.md.*(required|must exist)"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "kind": "triggering",
+      "name": "explanation-request-does-not-implement",
+      "prompt": "Explain how the pagination helper decides the offset.",
+      "expected_output": "An explanation; no code is modified",
+      "files": [],
+      "assertions": [
+        {
+          "text": "do-implement was NOT invoked",
+          "type": "skill_not_invoked",
+          "skill": "do-implement"
+        },
+        {
+          "text": "No files are edited",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "kind": "behavioral",
+      "name": "finishes-what-it-starts",
+      "prompt": "/do-implement Add a --dry-run flag to the export command",
+      "expected_output": "A complete working implementation with no stubs",
+      "files": [],
+      "assertions": [
+        {
+          "text": "No TODO stubs left behind",
+          "type": "output_not_matches",
+          "pattern": "TODO:?\\s*implement"
+        },
+        {
+          "text": "No not-implemented throws",
+          "type": "output_not_matches",
+          "pattern": "[Nn]ot implemented"
+        },
+        {
+          "text": "The flag actually works end to end rather than being scaffolded",
+          "type": "manual"
+        }
+      ]
+    }
+  ]
+}

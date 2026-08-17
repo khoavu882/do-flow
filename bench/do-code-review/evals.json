@@ -1,0 +1,56 @@
+{
+  "skill_name": "do-code-review",
+  "evals": [
+    {
+      "id": 1,
+      "kind": "triggering",
+      "name": "review-request-invokes-review",
+      "prompt": "Can you review the changes on this branch before I open a PR?",
+      "expected_output": "do-code-review is invoked and analyses the diff",
+      "files": [],
+      "assertions": [
+        {
+          "text": "do-code-review was invoked",
+          "type": "skill_invoked",
+          "skill": "do-code-review"
+        },
+        {
+          "text": "Findings reference specific files and lines",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "kind": "behavioral",
+      "name": "dispatches-to-language-checker",
+      "prompt": "/do-code-review Review src/payment/retry.py for quality issues",
+      "expected_output": "The Python language checker is used rather than generic prose review",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Review applies Python-specific criteria, not generic advice",
+          "type": "manual"
+        },
+        {
+          "text": "Findings are concrete and actionable rather than stylistic platitudes",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "kind": "triggering",
+      "name": "prose-review-uses-content-type-path",
+      "prompt": "/do-code-review Review the markdown in docs/architecture.md",
+      "expected_output": "The markdown content-type reviewer is used, not a language checker",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Review treats the target as prose, not code",
+          "type": "manual"
+        }
+      ]
+    }
+  ]
+}

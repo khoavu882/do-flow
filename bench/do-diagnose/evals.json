@@ -1,0 +1,47 @@
+{
+  "skill_name": "do-diagnose",
+  "evals": [
+    {
+      "id": 1,
+      "kind": "triggering",
+      "name": "perf-complaint-invokes-diagnose",
+      "prompt": "Our search endpoint got really slow this week and I don't know why.",
+      "expected_output": "do-diagnose is invoked and performs root-cause analysis",
+      "files": [],
+      "assertions": [
+        {
+          "text": "do-diagnose was invoked",
+          "type": "skill_invoked",
+          "skill": "do-diagnose"
+        },
+        {
+          "text": "Forms and tests hypotheses rather than guessing a fix",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "kind": "behavioral",
+      "name": "root-cause-before-fix",
+      "prompt": "/do-diagnose --focus performance The report page takes 12 seconds to render",
+      "expected_output": "A root cause is established with evidence before any remediation is proposed",
+      "files": [],
+      "assertions": [
+        {
+          "text": "A specific root-cause mechanism is stated, not just a symptom",
+          "type": "manual"
+        },
+        {
+          "text": "Evidence for the root cause is cited (measurement, code path, or trace)",
+          "type": "manual"
+        },
+        {
+          "text": "Does not disable or skip a test to make anything pass",
+          "type": "output_not_matches",
+          "pattern": "(skip|disable)\\s+(the\\s+)?test"
+        }
+      ]
+    }
+  ]
+}

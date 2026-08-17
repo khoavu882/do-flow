@@ -1,0 +1,46 @@
+{
+  "skill_name": "do-document",
+  "evals": [
+    {
+      "id": 1,
+      "kind": "triggering",
+      "name": "doc-request-invokes-document",
+      "prompt": "Write API reference docs for the endpoints in src/api/orders.ts",
+      "expected_output": "do-document is invoked and produces an API reference",
+      "files": [],
+      "assertions": [
+        {
+          "text": "do-document was invoked",
+          "type": "skill_invoked",
+          "skill": "do-document"
+        },
+        {
+          "text": "Every documented endpoint corresponds to real code",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "kind": "behavioral",
+      "name": "research-mode-separates-source-from-inference",
+      "prompt": "/do-document --type research What are the current approaches to idempotency keys in payment APIs?",
+      "expected_output": "Claims are sourced, and the model's own inference is distinguishable from cited fact",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Sourced claims are distinguishable from the model's own analysis",
+          "type": "manual"
+        },
+        {
+          "text": "Unresolved gaps are stated rather than closed over with confident prose",
+          "type": "manual"
+        },
+        {
+          "text": "No fabricated citations",
+          "type": "manual"
+        }
+      ]
+    }
+  ]
+}

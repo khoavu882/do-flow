@@ -1,0 +1,70 @@
+{
+  "skill_name": "do-plan",
+  "evals": [
+    {
+      "id": 1,
+      "kind": "triggering",
+      "name": "plan-request-invokes-plan",
+      "prompt": "Turn the design into an implementation plan I can hand to someone.",
+      "expected_output": "do-plan is invoked and produces plan.md with a task checklist",
+      "files": [],
+      "assertions": [
+        {
+          "text": "do-plan was invoked",
+          "type": "skill_invoked",
+          "skill": "do-plan"
+        },
+        {
+          "text": "plan.md contains a dependency-ordered task checklist",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "kind": "behavioral",
+      "name": "constitution-check-recorded",
+      "prompt": "/do-plan --strategy systematic",
+      "expected_output": "A Constitution Check verdict is recorded against both tiers",
+      "files": [],
+      "assertions": [
+        {
+          "text": "A Constitution Check result is recorded",
+          "type": "output_matches",
+          "pattern": "Constitution Check"
+        },
+        {
+          "text": "The verdict is PASS or FAIL with reasoning per principle",
+          "type": "manual"
+        },
+        {
+          "text": "Tier-2 is consulted only when it exists, per the resolver flag",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "kind": "behavioral",
+      "name": "task-markers-are-parseable",
+      "prompt": "/do-plan",
+      "expected_output": "Task checklist uses the exact marker syntax the executor parses",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Tasks use the - [ ] checkbox marker",
+          "type": "output_matches",
+          "pattern": "- \\[ \\] [A-Z]\\.\\d"
+        },
+        {
+          "text": "[P] markers only appear on tasks with disjoint files: sets",
+          "type": "manual"
+        },
+        {
+          "text": "Phase rollup task counts match the checklist beneath each phase",
+          "type": "manual"
+        }
+      ]
+    }
+  ]
+}
