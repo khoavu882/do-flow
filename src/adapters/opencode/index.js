@@ -14,8 +14,7 @@
 // https://opencode.ai/docs/rules
 const fs = require('node:fs');
 const path = require('node:path');
-const crypto = require('node:crypto');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
 
 // Only the marker constants: marker-merge.js reads and writes files itself, which cannot be used
 // from plan(), whose contract is to compute changes without touching disk. The gemini adapter
@@ -25,10 +24,6 @@ const { MARKER_START, MARKER_END } = require('../../marker-merge');
 const HARNESS = 'opencode';
 const CONFIG_FILE = 'opencode.json';
 const INSTRUCTION_FILE = 'AGENTS.md';
-
-function fingerprint(value) {
-  return crypto.createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
-}
 
 /**
  * Native paths for a scope.
@@ -53,12 +48,6 @@ function nativePaths({ scope, scopeRoot, homeDir }) {
  * `~/.config/opencode` already IS the skills root. */
 function copyTreeConfigDir(scope, paths) {
   return scope === 'global' ? paths.configDir : path.join(paths.root, '.opencode');
-}
-
-function readJson(file, { fsImpl = fs } = {}) {
-  if (!fsImpl.existsSync(file)) return { exists: false, value: {}, error: null };
-  try { return { exists: true, value: JSON.parse(fsImpl.readFileSync(file, 'utf8')), error: null }; }
-  catch (error) { return { exists: true, value: null, error: `Invalid JSON in ${file}: ${error.message}` }; }
 }
 
 function discover({ scope, scopeRoot, context = {}, fsImpl = fs }) {
@@ -136,16 +125,6 @@ function strippedInstruction(existing) {
 
 // ---- copy-tree assets (skills) ----
 
-function sourceDirFor(asset, context = {}, fsImpl = fs) {
-  if (!asset || typeof asset.source !== 'string') throw new Error('OpenCode asset requires a source path');
-  const repoRoot = context.repoRoot ? path.resolve(context.repoRoot) : process.cwd();
-  const source = path.resolve(repoRoot, asset.source);
-  if (!source.startsWith(`${repoRoot}${path.sep}`) || !fsImpl.existsSync(source)) {
-    throw new Error(`OpenCode asset source is unavailable: ${asset.source}`);
-  }
-  return source;
-}
-
 function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing, fsImpl = fs }) {
   const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir });
   const treeConfigDir = copyTreeConfigDir(scope, paths);
@@ -153,7 +132,7 @@ function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removin
   const conflicts = [];
   for (const asset of copyTreeAssets(assets)) {
     const destDir = copyTreeDestDir(treeConfigDir, asset);
-    const sourceDir = sourceDirFor(asset, context, fsImpl);
+    const sourceDir = sourceDirFor(asset, context, fsImpl, 'OpenCode');
     const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
     const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
@@ -190,7 +169,7 @@ function verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl = fs }
   const conflicts = [];
   for (const asset of copyTreeAssets(assets)) {
     const destDir = copyTreeDestDir(treeConfigDir, asset);
-    const sourceDir = sourceDirFor(asset, context, fsImpl);
+    const sourceDir = sourceDirFor(asset, context, fsImpl, 'OpenCode');
     const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const resource of result.resources) {

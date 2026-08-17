@@ -54,6 +54,9 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
      - Architecture & Schema $\rightarrow$ `system-architect`
      - Code Implementation & Refactoring $\rightarrow$ `core-implementer`
      - Test Automation & Quality $\rightarrow$ `quality-guardian`
+   - Name a model tier explicitly on every dispatch — an omitted tier silently inherits the
+     session's model rather than "using the default." Consult `references/MODEL_SELECTION.md` for
+     how to pick the tier per task and per review pass.
 
 5. **Phase Quality Review**:
    - Review each phase upon completion for spec compliance before advancing.

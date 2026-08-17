@@ -22,17 +22,12 @@
 // https://docs.github.com/en/copilot/reference/custom-agents-configuration
 const fs = require('node:fs');
 const path = require('node:path');
-const crypto = require('node:crypto');
 
 const { MARKER_START, MARKER_END } = require('../../marker-merge');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeDestDir, ledgerFileResources } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeDestDir, ledgerFileResources, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
 
 const HARNESS = 'copilot';
 const INSTRUCTION_FILE = 'copilot-instructions.md';
-
-function fingerprint(value) {
-  return crypto.createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
-}
 
 /**
  * Native paths for a scope. Unlike Claude/Codex/Kiro, Copilot has no single root: every capability
@@ -68,12 +63,6 @@ function nativePaths({ scope, scopeRoot, homeDir }) {
  * invented id like a literal 'copilot.mcp' string is rejected as unknown. */
 function pseudoAssetId(assets) {
   return assets.find((asset) => asset.capability === 'instructions')?.id ?? assets[0]?.id;
-}
-
-function readJson(file, { fsImpl = fs } = {}) {
-  if (!fsImpl.existsSync(file)) return { exists: false, value: {}, error: null };
-  try { return { exists: true, value: JSON.parse(fsImpl.readFileSync(file, 'utf8')), error: null }; }
-  catch (error) { return { exists: true, value: null, error: `Invalid JSON in ${file}: ${error.message}` }; }
 }
 
 function discover({ scope, scopeRoot, context = {}, fsImpl = fs }) {
@@ -137,16 +126,6 @@ function planInstructionsChange({ assets, found, context, removing, fsImpl }) {
 
 // ---- copy-tree assets (skills, agents) ----
 
-function sourceDirFor(asset, context = {}, fsImpl = fs) {
-  if (!asset || typeof asset.source !== 'string') throw new Error('Copilot asset requires a source path');
-  const repoRoot = context.repoRoot ? path.resolve(context.repoRoot) : process.cwd();
-  const source = path.resolve(repoRoot, asset.source);
-  if (!source.startsWith(`${repoRoot}${path.sep}`) || !fsImpl.existsSync(source)) {
-    throw new Error(`Copilot asset source is unavailable: ${asset.source}`);
-  }
-  return source;
-}
-
 function treeAssetsFor(assets, renderer) {
   return (assets || []).filter((asset) => asset?.renderer === renderer);
 }
@@ -173,7 +152,7 @@ function planTreeAssets({ assets, renderer, destRoot, layout, context, ledger, r
   const conflicts = [];
   for (const asset of treeAssetsFor(assets, renderer)) {
     const destDir = copyTreeDestDir(destRoot, asset);
-    const sourceDir = sourceDirFor(asset, context, fsImpl);
+    const sourceDir = sourceDirFor(asset, context, fsImpl, 'Copilot');
     const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
     const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: layout || asset.layout });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
@@ -208,7 +187,7 @@ function verifyTreeAssets({ assets, renderer, destRoot, layout, context, fsImpl 
   const conflicts = [];
   for (const asset of treeAssetsFor(assets, renderer)) {
     const destDir = copyTreeDestDir(destRoot, asset);
-    const sourceDir = sourceDirFor(asset, context, fsImpl);
+    const sourceDir = sourceDirFor(asset, context, fsImpl, 'Copilot');
     const result = verifyTree({ sourceDir, destDir, fsImpl, layout: layout || asset.layout });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const resource of result.resources) {

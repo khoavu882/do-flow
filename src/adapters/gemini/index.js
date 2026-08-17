@@ -5,8 +5,7 @@
 // settings/MCP/extensions as first-class native-surface results for the lifecycle UI.
 const fs = require('node:fs');
 const path = require('node:path');
-const crypto = require('node:crypto');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
 const { planGeminiHooks, deployGeminiHooks, planRemoveGeminiHooks, deployRemoveGeminiHooks } = require('../../gemini-hooks');
 
 const MARKER_START = '<!-- doflow:start -->';
@@ -14,12 +13,6 @@ const MARKER_END = '<!-- doflow:end -->';
 const DEFAULTS_FILE = path.resolve(__dirname, '../../../core/harnesses/gemini/settings/adapter-defaults.json');
 const HARNESS = 'gemini';
 
-function stable(value) {
-  if (Array.isArray(value)) return value.map(stable);
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])]));
-}
-function fingerprint(value) { return crypto.createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(stable(value))).digest('hex'); }
 function defaults({ fsImpl = fs } = {}) { return JSON.parse(fsImpl.readFileSync(DEFAULTS_FILE, 'utf8')); }
 
 function nativePaths({ scope, scopeRoot, homeDir, fsImpl = fs }) {
@@ -37,12 +30,6 @@ function nativePaths({ scope, scopeRoot, homeDir, fsImpl = fs }) {
     settings: path.join(root, config.settingsFile),
     extensionMode: config.extensionInstall,
   };
-}
-
-function readJson(file, { fsImpl = fs } = {}) {
-  if (!fsImpl.existsSync(file)) return { exists: false, value: {}, error: null };
-  try { return { exists: true, value: JSON.parse(fsImpl.readFileSync(file, 'utf8')), error: null }; }
-  catch (error) { return { exists: true, value: null, error: `Invalid JSON in ${file}: ${error.message}` }; }
 }
 
 function discover({ scope, scopeRoot, context = {}, fsImpl = fs }) {
@@ -102,23 +89,13 @@ function policyStatuses(policies = []) {
 
 // ---- copy-tree assets (rules, skills, agents, modes, references) ----
 
-function sourceDirFor(asset, context = {}, fsImpl = fs) {
-  if (!asset || typeof asset.source !== 'string') throw new Error('Gemini asset requires a source path');
-  const repoRoot = context.repoRoot ? path.resolve(context.repoRoot) : process.cwd();
-  const source = path.resolve(repoRoot, asset.source);
-  if (!source.startsWith(`${repoRoot}${path.sep}`) || !fsImpl.existsSync(source)) {
-    throw new Error(`Gemini asset source is unavailable: ${asset.source}`);
-  }
-  return source;
-}
-
 function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing, fsImpl = fs }) {
   const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir, fsImpl });
   const changes = [];
   const conflicts = [];
   for (const asset of copyTreeAssets(assets)) {
     const destDir = copyTreeDestDir(paths.configDir, asset);
-    const sourceDir = sourceDirFor(asset, context, fsImpl);
+    const sourceDir = sourceDirFor(asset, context, fsImpl, 'Gemini');
     const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
     const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
@@ -154,7 +131,7 @@ function verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl = fs }
   const conflicts = [];
   for (const asset of copyTreeAssets(assets)) {
     const destDir = copyTreeDestDir(paths.configDir, asset);
-    const sourceDir = sourceDirFor(asset, context, fsImpl);
+    const sourceDir = sourceDirFor(asset, context, fsImpl, 'Gemini');
     const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const resource of result.resources) {

@@ -19,18 +19,13 @@
 // https://pi.dev/docs/latest/quickstart, https://pi.dev/docs/latest/extensions
 const fs = require('node:fs');
 const path = require('node:path');
-const crypto = require('node:crypto');
 
 const { MARKER_START, MARKER_END } = require('../../marker-merge');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, fingerprint, sourceDirFor } = require('../copy-tree');
 
 const HARNESS = 'pi';
 const SETTINGS_FILE = 'settings.json';
 const INSTRUCTION_FILE = 'AGENTS.md';
-
-function fingerprint(value) {
-  return crypto.createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
-}
 
 /**
  * Native paths for a scope.
@@ -85,23 +80,13 @@ function strippedInstruction(existing) {
 
 // ---- copy-tree assets (skills) ----
 
-function sourceDirFor(asset, context = {}, fsImpl = fs) {
-  if (!asset || typeof asset.source !== 'string') throw new Error('Pi asset requires a source path');
-  const repoRoot = context.repoRoot ? path.resolve(context.repoRoot) : process.cwd();
-  const source = path.resolve(repoRoot, asset.source);
-  if (!source.startsWith(`${repoRoot}${path.sep}`) || !fsImpl.existsSync(source)) {
-    throw new Error(`Pi asset source is unavailable: ${asset.source}`);
-  }
-  return source;
-}
-
 function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing, fsImpl = fs }) {
   const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir });
   const changes = [];
   const conflicts = [];
   for (const asset of copyTreeAssets(assets)) {
     const destDir = copyTreeDestDir(paths.configDir, asset);
-    const sourceDir = sourceDirFor(asset, context, fsImpl);
+    const sourceDir = sourceDirFor(asset, context, fsImpl, 'Pi');
     const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
     const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
@@ -137,7 +122,7 @@ function verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl = fs }
   const conflicts = [];
   for (const asset of copyTreeAssets(assets)) {
     const destDir = copyTreeDestDir(paths.configDir, asset);
-    const sourceDir = sourceDirFor(asset, context, fsImpl);
+    const sourceDir = sourceDirFor(asset, context, fsImpl, 'Pi');
     const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const resource of result.resources) {

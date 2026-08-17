@@ -15,15 +15,10 @@
 // https://kiro.dev/docs/hooks/
 const fs = require('node:fs');
 const path = require('node:path');
-const crypto = require('node:crypto');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
 
 const HARNESS = 'kiro';
 const MCP_FILE = path.join('settings', 'mcp.json');
-
-function fingerprint(value) {
-  return crypto.createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
-}
 
 /**
  * Native paths for a scope. `.kiro` (project) / `~/.kiro` (global) is the whole native root; every
@@ -41,12 +36,6 @@ function nativePaths({ scope, scopeRoot, homeDir }) {
     hooks: path.join(kiroDir, 'hooks'),
     mcp: path.join(kiroDir, MCP_FILE),
   };
-}
-
-function readJson(file, { fsImpl = fs } = {}) {
-  if (!fsImpl.existsSync(file)) return { exists: false, value: {}, error: null };
-  try { return { exists: true, value: JSON.parse(fsImpl.readFileSync(file, 'utf8')), error: null }; }
-  catch (error) { return { exists: true, value: null, error: `Invalid JSON in ${file}: ${error.message}` }; }
 }
 
 function discover({ scope, scopeRoot, context = {}, fsImpl = fs }) {
@@ -84,23 +73,13 @@ function kiroTreeAssets(assets) {
   return [...copyTreeAssets(assets), ...(assets || []).filter((asset) => asset.renderer === 'kiro-agents')];
 }
 
-function sourceDirFor(asset, context = {}, fsImpl = fs) {
-  if (!asset || typeof asset.source !== 'string') throw new Error('Kiro asset requires a source path');
-  const repoRoot = context.repoRoot ? path.resolve(context.repoRoot) : process.cwd();
-  const source = path.resolve(repoRoot, asset.source);
-  if (!source.startsWith(`${repoRoot}${path.sep}`) || !fsImpl.existsSync(source)) {
-    throw new Error(`Kiro asset source is unavailable: ${asset.source}`);
-  }
-  return source;
-}
-
 function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing, fsImpl = fs }) {
   const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir });
   const changes = [];
   const conflicts = [];
   for (const asset of kiroTreeAssets(assets)) {
     const destDir = copyTreeDestDir(paths.configDir, asset);
-    const sourceDir = sourceDirFor(asset, context, fsImpl);
+    const sourceDir = sourceDirFor(asset, context, fsImpl, 'Kiro');
     const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
     const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
@@ -136,7 +115,7 @@ function verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl = fs }
   const conflicts = [];
   for (const asset of kiroTreeAssets(assets)) {
     const destDir = copyTreeDestDir(paths.configDir, asset);
-    const sourceDir = sourceDirFor(asset, context, fsImpl);
+    const sourceDir = sourceDirFor(asset, context, fsImpl, 'Kiro');
     const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const resource of result.resources) {
