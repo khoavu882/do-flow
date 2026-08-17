@@ -13,6 +13,65 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [Unreleased]
+
+### Added
+
+- **Four new install targets — GitHub Copilot CLI, Kiro, OpenCode, and Pi Coding Agent —
+  reaching CLI-level parity with the existing Claude/Codex/Gemini targets.** `--target` now
+  accepts `copilot`, `kiro`, `opencode`, or `pi` alongside the existing three, each with its own
+  registry declaration, capability contract, and dedicated adapter:
+  - **Copilot** writes `.github/copilot-instructions.md` (project only — Copilot documents no
+    global instructions file), skills to `~/.agents/skills` / `.agents/skills`, custom agents as
+    `.agent.md` files to `~/.copilot/agents` / `.github/agents`, and MCP servers to
+    `~/.copilot/mcp-config.json` / `.mcp.json`.
+  - **Kiro** projects the full DoFlow guidance tree as steering files under `.kiro/steering/`
+    (workspace wins over global on a naming conflict), skills to its own dedicated
+    `.kiro/skills/` / `~/.kiro/skills/` system (`SKILL.md` + frontmatter, the same open Agent
+    Skills format DoFlow already authors), agents to `.kiro/agents`, MCP to
+    `.kiro/settings/mcp.json`, and real hooks — `SessionStart`, `PreToolUse` (pre-implementation
+    gate and MCP-tool guard), and `Stop` — with no trust-gating step, unlike Codex.
+  - **OpenCode** and **Pi** now materialise their own skills trees (`~/.config/opencode/skills` /
+    `.opencode/skills` and `~/.pi/agent/skills` / `.pi/skills` respectively) instead of pointing
+    at Claude's, following the same copy-tree-and-marker-merge shape every other adapter uses.
+- `doflow status` now reports hook-wiring status (`active` / `installed-pending` / `absent`) for
+  every harness that declares hooks — previously this was hardcoded to Codex only.
+- Two new registry guards enforce the "adding a harness" contract mechanically: a declared
+  harness must have an adapter module, exactly one `contracts.yaml` entry, and a valid
+  `--target` id, and must be wired into every adapter-dispatch call site — not merely exist on
+  disk. Both guards were confirmed to actually fail by deliberately breaking the contract and
+  reverting.
+
+### Changed
+
+- **`doflow install`/`update` with no `--target` now installs Claude only, not all valid
+  targets.** Previously the default expanded to every target `VALID` declared, which meant an
+  install with no flag silently wrote configuration into harnesses the user may not even have
+  installed. As the target list grows past three, that cost rises with every addition; ask for
+  the rest explicitly with `--target claude,codex,gemini,...`. **This is a breaking change** for
+  any script or workflow relying on the previous all-targets default.
+- Corrected OpenCode's documented global config path from `~/.opencode/` to `~/.config/opencode/`
+  across the README and docs — the former was asserted incorrectly for several releases and does
+  not match what OpenCode itself reads.
+- Regenerated the capability and hook-event matrices in `docs/capability-map.md` from the
+  registry (5 columns → 7), and corrected a stale claim in its Codex-detail appendix that
+  OpenCode and Pi "have no entry in the registry."
+
+### Fixed
+
+- `doflow status --json` silently omitted Copilot, OpenCode, and Pi from its output; every
+  harness now reports.
+- `doflow remove --target opencode` left a stale `"instructions": ["AGENTS.md"]` entry behind in
+  `opencode.json` instead of unmerging it.
+- `core/registry/lifecycle.yaml`'s four behavioural hook policies (session-context,
+  pre-implementation-gate, mcp-tool-guard, stop-check) threw for any harness without an explicit
+  mapping — a gap that affected OpenCode and Pi from the commit that first declared them, not
+  just the harnesses added here.
+- A second, separate adapter registry inside `src/lifecycle-view.js` (used only for planning, not
+  for apply/remove) had silently never been extended past Claude/Codex/Gemini, so a fully wired
+  new harness would still fail during dry-run planning even after every other wiring point was
+  correct.
+
 ## [1.0.0-beta.3] - 2026-08-17
 
 Release-candidate for 1.0.0. No functional change to the installer or the projected config from

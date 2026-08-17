@@ -245,7 +245,11 @@ function plan({ scope, scopeRoot, assets = [], mcp = [], context = {}, ledger, f
     const next = removing ? unmergeConfig(current, { mcpServers: mcp }) : mergeConfig(current, { mcpServers: mcp });
     if (JSON.stringify(next) !== JSON.stringify(current)) {
       changes.push({ assetId: pseudoAssetId(assets), target: found.paths.config,
-        operation: found.config.exists ? 'update' : 'create', content: `${JSON.stringify(next, null, 2)}\n`,
+        // Tagged 'remove' during a remove operation (rather than always 'update'/'create') so this
+        // adapter's own apply()/remove() dispatch — which routes strictly on `operation` — writes
+        // the unmerged file during removal instead of silently skipping it (the same fix
+        // src/adapters/copilot/index.js's analogous mcp-merge change already carries).
+        operation: removing ? 'remove' : (found.config.exists ? 'update' : 'create'), content: `${JSON.stringify(next, null, 2)}\n`,
         ownershipIdentity: `${HARNESS}:config:registration`, fingerprint: fingerprint(next),
         harness: HARNESS, projection: { renderer: 'opencode-config' } });
     }

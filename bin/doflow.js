@@ -431,17 +431,11 @@ function cmdStatus(o) {
         hooks: hooksFor(harness),
       };
     };
-    if (targets.includes('codex')) {
-      ctx.codex = harnessStatus('codex');
-    }
-    if (targets.includes('claude')) {
-      ctx.claude = harnessStatus('claude');
-    }
-    if (targets.includes('gemini')) {
-      ctx.gemini = harnessStatus('gemini');
-    }
-    if (targets.includes('kiro')) {
-      ctx.kiro = harnessStatus('kiro');
+    // Every lifecycle-wired harness gets the same per-harness status treatment — not just the
+    // four that historically had it — so 'doflow status --target copilot/opencode/pi --json'
+    // reports 'verified'/'conflict-or-invalid' instead of silently omitting the harness.
+    for (const harness of LIFECYCLE_HARNESSES) {
+      if (targets.includes(harness)) ctx[harness] = harnessStatus(harness);
     }
   } catch (error) {
     // Status must remain usable for an existing installation even if a local registry is invalid.
@@ -472,41 +466,28 @@ function cmdStatus(o) {
   console.log(`  Last backup ID:       ${manifest.backupId}`);
   console.log(`  Script version:       ${manifest.scriptVersion}`);
   console.log(`  MCP servers:          ${manifest.mcpServers ? manifest.mcpServers.join(', ') || 'none' : 'all (default)'}`);
-  if (ctx.codex) {
-    console.log(`  Codex verification:   ${ctx.codex.status}`);
-    console.log(`  Codex resources:      ${ctx.codex.resources.length} manifest-owned`);
-    const codexHookLine = hookLine('Codex', ctx.codex.hooks);
-    if (codexHookLine) console.log(codexHookLine);
-    if (ctx.codex.errors.length) console.log(`  Codex issues:         ${ctx.codex.errors.join('; ')}`);
-    console.log('  Codex capability gaps: no Claude-only event emulation is installed; review docs/capability-map.md#codex-capability-detail');
-  }
-  if (ctx.claude) {
-    console.log(`  Claude verification:  ${ctx.claude.status}`);
-    console.log(`  Claude resources:     ${ctx.claude.resources.length} manifest-owned`);
-    const claudeHookLine = hookLine('Claude', ctx.claude.hooks);
-    if (claudeHookLine) console.log(claudeHookLine);
-    if (ctx.claude.errors.length) console.log(`  Claude issues:        ${ctx.claude.errors.join('; ')}`);
-  }
-  if (ctx.gemini) {
-    console.log(`  Gemini verification:  ${ctx.gemini.status}`);
-    console.log(`  Gemini resources:     ${ctx.gemini.resources.length} manifest-owned`);
-    const geminiHookLine = hookLine('Gemini', ctx.gemini.hooks);
-    if (geminiHookLine) console.log(geminiHookLine);
-    if (ctx.gemini.errors.length) console.log(`  Gemini issues:        ${ctx.gemini.errors.join('; ')}`);
-  }
-  if (ctx.kiro) {
-    console.log(`  Kiro verification:    ${ctx.kiro.status}`);
-    console.log(`  Kiro resources:       ${ctx.kiro.resources.length} manifest-owned`);
-    const kiroHookLine = hookLine('Kiro', ctx.kiro.hooks);
-    if (kiroHookLine) console.log(kiroHookLine);
-    if (ctx.kiro.errors.length) console.log(`  Kiro issues:          ${ctx.kiro.errors.join('; ')}`);
+  // Printed in the same order LIFECYCLE_HARNESSES declares, so every wired harness gets a line —
+  // not just the four that historically had a hand-written block — with Codex keeping its extra
+  // capability-gap line since that note is Codex-specific, not a general per-harness property.
+  for (const harness of LIFECYCLE_HARNESSES) {
+    const status = ctx[harness];
+    if (!status) continue;
+    const label = `${harness.charAt(0).toUpperCase()}${harness.slice(1)}`;
+    console.log(`  ${`${label} verification:`.padEnd(24)}${status.status}`);
+    console.log(`  ${`${label} resources:`.padEnd(24)}${status.resources.length} manifest-owned`);
+    const line = hookLine(label, status.hooks);
+    if (line) console.log(line);
+    if (status.errors.length) console.log(`  ${`${label} issues:`.padEnd(24)}${status.errors.join('; ')}`);
+    if (harness === 'codex') {
+      console.log('  Codex capability gaps: no Claude-only event emulation is installed; review docs/capability-map.md#codex-capability-detail');
+    }
   }
   if (ctx.registry) {
     console.log(`  Registry lifecycle:   ${ctx.registry.status === 'invalid' ? ctx.registry.error : `${ctx.registry.plan.changes} pending, ${ctx.registry.plan.conflicts.length} conflict(s)`}`);
     if (ctx.registry.status !== 'invalid') console.log(`  Neutral state:         ${ctx.registry.stateRoot}${ctx.registry.ledgerPresent ? ' (ledger present)' : ' (not yet created)'}`);
   }
   console.log('\n  TOOL         STATUS         LAST UPDATED');
-  for (const tool of ['claude', 'codex', 'gemini']) {
+  for (const tool of LIFECYCLE_HARNESSES) {
     const t = manifest.tools[tool];
     const status = t?.installed ? 'installed' : 'not installed';
     console.log(`  ${tool.padEnd(12)} ${status.padEnd(14)} ${t?.last_updated ?? 'never'}`);
