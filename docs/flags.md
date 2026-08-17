@@ -29,7 +29,7 @@ phase, not a guard failure by itself.
 | --coverage | do-test | (boolean flag) | measure line and branch coverage |
 | --depth | do | shallow \| normal \| deep | multi-part request decomposition depth |
 | --depth | do-brainstorm | shallow \| normal \| deep | exploration breadth |
-| --depth | do-document | quick \| standard \| deep | research depth |
+| --depth | do-document | shallow \| normal \| deep | research depth |
 | --depth | do-plan | normal \| deep | planning task granularity |
 | --estimate | do | (boolean flag) | produce scope/effort estimate |
 | --fix | do-diagnose | (boolean flag) | apply remediation after approval |
@@ -44,7 +44,7 @@ phase, not a guard failure by itself.
 | --resume | do-execute-plan | (boolean flag) | resume interrupted execution |
 | --review | do-execute-plan | (boolean flag) | run post-execution review pass |
 | --strategy | do-brainstorm | systematic \| agile \| enterprise | discovery approach shaping depth |
-| --strategy | do-plan | systematic \| agile | planning approach |
+| --strategy | do-plan | systematic \| agile \| enterprise | planning approach |
 | --sync | do-execute-plan | (boolean flag) | sync dispatch state fallback |
 | --tools | do | (boolean flag) | select optimal capability/tool |
 | --trace | do-diagnose | (boolean flag) | enable execution tracing |
