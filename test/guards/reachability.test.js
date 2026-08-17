@@ -207,11 +207,15 @@ test('G8: a `references/…` pointer resolves against one of the two roots that 
   // at runtime, not files that ship.
   const skillsRoot = path.join(REPO, 'core', 'shared', 'skills');
   const guidanceRefs = path.join(REPO, 'core', 'shared', 'guidance');
+  // do-code-review's assets/expected_outputs dirs intentionally hold malformed regression
+  // fixtures (deliberately dangling references included) to exercise its own checkers — not real
+  // prose, so they are excluded the same way consumers.test.js (G3) excludes them.
+  const FIXTURE_DIRS = new Set(['assets', 'expected_outputs']);
   const broken = [];
   (function walk(dir) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) { walk(full); continue; }
+      if (entry.isDirectory()) { if (!FIXTURE_DIRS.has(entry.name)) walk(full); continue; }
       if (!entry.name.endsWith('.md')) continue;
       const text = fs.readFileSync(full, 'utf8');
       for (const [, ref] of text.matchAll(/`(references\/[A-Za-z0-9_.-]+\.md)`/g)) {

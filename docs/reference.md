@@ -22,7 +22,7 @@ stay in sync, so a flag documented here always exists.
 | `/do-flow [feature description] [--from brainstorm\|design\|plan\|implement\|test\|review]` | Full-cycle development: brainstorm → design → plan → execute → test → code-review |
 | `/do-brainstorm [topic/idea] [--strategy systematic\|agile\|enterprise] [--depth shallow\|normal\|deep]` | Discover requirements through Socratic dialogue; seeds requirement.md in a branch-coupled feature dir |
 | `/do-design [target] [--type architecture\|api\|component\|database] [--format diagram\|spec\|code]` | Design system architecture, APIs, and component interfaces; writes design.md |
-| `/do-plan [--strategy systematic\|agile] [--depth normal\|deep]` | Generate implementation plan and dependency-ordered task checklist; writes plan.md |
+| `/do-plan [--strategy systematic\|agile\|enterprise] [--depth normal\|deep]` | Generate implementation plan and dependency-ordered task checklist; writes plan.md |
 | `/do-execute-plan [--next\|--phase N\|--all\|--resume\|--contracts] [--sync] [--review\|--no-review]` | Execute plan.md task checklist with specialist subagents and readiness gates |
 | `/do-test [target] [--type unit\|integration\|e2e\|build\|all] [--coverage] [--watch] [--clean]` | Execute project builds, automated test suites, and coverage verification |
 | `/do-code-review [target]` | Code review automation: analyze complexity, risk, SOLID compliance, and code smells |
@@ -30,7 +30,7 @@ stay in sync, so a flag documented here always exists.
 | `/do-git [intent] [args...] [--confirm]` | Cycle-aware git operations via named intents: start, save, sync, ship, release, hotfix, backport, status |
 | `/do-constitution [principle inputs] [--amend]` | Create or amend the per-repo tier-2 constitution overlay and sync impact reports |
 | `/do-diagnose [target\|issue] [--type bug\|perf\|security\|refactor] [--focus quality\|security\|performance\|architecture] [--iterations n] [--validate] [--trace] [--fix]` | Unified diagnostics, root-cause investigation, and targeted code remediation |
-| `/do-document [target\|query] [--type api\|guide\|impl\|index\|research] [--depth quick\|standard\|deep]` | Unified technical documentation, architecture indexing, and deep web research |
+| `/do-document [target\|query] [--type api\|guide\|impl\|index\|research] [--depth shallow\|normal\|deep]` | Unified technical documentation, architecture indexing, and deep web research |
 
 ## Runtime & Diagnostics Commands
 

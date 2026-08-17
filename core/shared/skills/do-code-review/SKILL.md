@@ -30,7 +30,12 @@ do-code-review/
     ruby.md                       ← Ruby -specific rules + idioms
     php.md                        ← PHP-specific rules + idioms
     dart.md                       ← Dart / Flutter-specific rules + idioms
+  content-types/
+    markdown.md                   ← Markdown / prose review notes (checked by doc_quality_checker.py)
 ```
+
+`content-types/` is a sibling of `languages/`, not a subdirectory of it — it dispatches by content
+type (prose vs. code) rather than by programming language; see `content-types/markdown.md`.
 
 ### Loading order for every review
 
@@ -55,6 +60,19 @@ That is always exactly **2 additional files**, regardless of scope.
 | `.rb`, `.rake`, `.gemspec`, `.ru` | `languages/ruby.md` |
 | `.php`, `.phtml` | `languages/php.md` |
 | `.dart` | `languages/dart.md` |
+
+---
+
+### Content-type dispatch
+
+For non-code content, a second axis applies alongside (or instead of) the language table above:
+
+| Content type | Extension(s) | Load |
+|---|---|---|
+| Markdown / prose | `.md` | `content-types/markdown.md` |
+
+This dispatch runs `scripts/doc_quality_checker.py` instead of `code_quality_checker.py` — see
+`content-types/markdown.md` for the checks it performs.
 
 ---
 
@@ -190,6 +208,16 @@ and is how they are normally run. Regenerate a fixture after an intentional anal
 change with `… --json > expected_outputs/<name>_quality.json`, from this directory so
 the recorded path stays relative.
 
+## Boundaries
+
+**Will:** Analyze source and prose for complexity, risk, SOLID violations, and code/doc smells;
+generate structured review reports with a verdict (Approve / Approve with suggestions / Request
+changes / Block); dispatch by language or content type to the matching rules file.
+
+**Will Not:** Edit files, apply fixes, or otherwise remediate the findings it reports — that is
+`/do-implement`'s job once a review has run. It also does not orchestrate a multi-task checklist
+through specialist subagents (`/do-execute-plan`'s job) or replace human judgment on a Block verdict.
+
 ## Next Step
-After review, use `/do-implement` or `/do-improve` to address requested changes, then rerun `/do-code-review`.
+After review, use `/do-implement` to address requested changes, then rerun `/do-code-review`.
 On a clean review with nothing left to fix, consider `/do-document --type impl` to record what was built — optional, and does not gate or pause completion.

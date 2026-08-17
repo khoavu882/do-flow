@@ -1,6 +1,6 @@
 ---
 name: do-design
-description: "Design system architecture, APIs, and component interfaces (HOW at the system-shape level); writes design.md"
+description: "Design system architecture, APIs, and component interfaces (HOW at the system-shape level); writes design.md as Phase 2 of the doflow chain, turning requirement.md into concrete architecture and interface decisions. Use when requirement.md already exists and the next need is system-shape decisions — diagrams, API contracts, data models — or the user says 'design the architecture for this' rather than asking for an implementation plan or task list."
 argument-hint: "[target] [--type architecture|api|component|database] [--format diagram|spec|code]"
 effort: high
 ---

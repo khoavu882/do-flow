@@ -10,12 +10,12 @@ have installed.
 
 ## Execution Control
 
-**--iterations [n]** — improvement cycles to run (1–10). Consumed by `do-diagnose` and `do-execute-plan`.
+**--iterations [n]** — improvement cycles to run (1–10). Consumed by `do-diagnose`.
 
 **--focus [performance|security|quality|architecture|accessibility|testing]** — narrows analysis to one domain. Consumed by `do-diagnose`.
 
 <important if="operating in production, on shared infrastructure, or performing risky operations">
-**--validate** — pre-execution risk assessment and validation gates before acting. Consumed by `do-diagnose` and `do-execute-plan`.
+**--validate** — pre-execution risk assessment and validation gates before acting. Consumed by `do-diagnose`.
 </important>
 
 ## Priority Rules

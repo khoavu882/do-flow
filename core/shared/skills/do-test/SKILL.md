@@ -1,6 +1,6 @@
 ---
 name: do-test
-description: "Execute project builds, automated test suites, and coverage verification with intelligent error reporting"
+description: "Execute project builds, automated test suites, and coverage verification with intelligent error reporting across whatever toolchain the repo already uses. Use when the user wants existing tests or builds run and reported on rather than new tests written, or says 'run the tests' / 'check coverage' / 'does this still build' rather than asking to implement or review code changes."
 argument-hint: "[target] [--type unit|integration|e2e|build|all] [--coverage] [--watch] [--clean]"
 effort: medium
 ---

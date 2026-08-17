@@ -1,7 +1,7 @@
 ---
 name: do-plan
-description: "Generate the implementation plan (HOW) and dependency-ordered task checklist from requirement.md + design.md, with a Constitution Check gate."
-argument-hint: "[--strategy systematic|agile] [--depth normal|deep]"
+description: "Generate the implementation plan (HOW) and dependency-ordered task checklist from requirement.md + design.md, with a Constitution Check gate, as Phase 3 of the doflow chain. Use when requirement.md and design.md already exist and the next need is a concrete, owner-and-file-scoped task breakdown before implementation starts, or the user says 'turn this design into a plan' rather than asking to design the system or write code."
+argument-hint: "[--strategy systematic|agile|enterprise] [--depth normal|deep]"
 effort: high
 ---
 
@@ -12,7 +12,7 @@ Phase 3 of the doflow chain. Turns `requirement.md` (WHAT/WHY) + `design.md` (sy
 
 ## Invocation
 ```text
-/do-plan [--strategy systematic|agile] [--depth normal|deep]
+/do-plan [--strategy systematic|agile|enterprise] [--depth normal|deep]
 ```
 
 ## Behavioral Flow

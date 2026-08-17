@@ -1,6 +1,6 @@
 ---
 name: do-brainstorm
-description: "Interactive requirements discovery through Socratic dialogue; seeds requirement.md in a branch-coupled feature dir"
+description: "Interactive requirements discovery through Socratic dialogue; seeds requirement.md in a branch-coupled feature dir as Phase 1 of the doflow chain. Use when an idea is still vague and needs discovery questions before any design or planning work starts, or when the user says something like 'I have an idea for a new feature' or 'help me figure out what we actually need to build' rather than describing a concrete, already-scoped task."
 argument-hint: "[topic/idea] [--strategy systematic|agile|enterprise] [--depth shallow|normal|deep]"
 effort: high
 ---
