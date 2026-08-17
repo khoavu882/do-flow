@@ -13,6 +13,47 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.0.0-beta.3] - 2026-08-17
+
+Release-candidate for 1.0.0. No functional change to the installer or the projected config from
+`1.0.0-beta.2`; this closes the distribution and packaging gaps found in the v1 release review, so
+that the eventual `1.0.0` tag is a version bump over a validated artifact rather than the first
+time any of this is exercised. Ships as a prerelease on npm — `1.0.0` follows once the published
+package and the tag pipeline are confirmed working end to end.
+
+### Added
+
+- **`LICENSE`** — the MIT terms `package.json` has always declared now ship as a file, so the
+  license is verifiable from the repository and the tarball rather than only asserted in metadata.
+- **npm publish metadata** — `repository`, `homepage`, `bugs`, `author`, `keywords`, and
+  `publishConfig.access`, so `npm bugs`, the package page, and provenance attestation all resolve.
+- **`.npmignore`** — npm stops consulting `.gitignore` once `files` is set, so backup and editor
+  artifacts inside the whitelisted `bin/`, `src/`, and `core/` trees were shipping in the tarball.
+- **`test/guards/package.test.js` (G7)** — asserts the published trees stay free of `*.bak`,
+  editor, and bytecode artifacts, and that publish metadata and the `LICENSE` file are present.
+- **`.github/workflows/release.yml`** — a `v*` tag now runs the full cross-OS suite and publishes
+  a GitHub Release, so no tag can be cut from a commit that never passed CI.
+
+### Changed
+
+- Published under the scoped name **`@khoavu882/doflow`**; the unscoped `doflow` name on the public
+  registry belongs to an unrelated package. Install is `npx @khoavu882/doflow install -g`. Beta
+  builds publish to the `beta` dist-tag, so reaching this one is `npx @khoavu882/doflow@beta`;
+  `latest` stays empty until `1.0.0`.
+- Cross-OS CI now also exercises **Node 18**, the floor declared in `engines`, alongside Node 20.
+
+### Fixed
+
+- Removed a stale `bin/doflow.js.bak` (a pre-refactor copy importing the deleted
+  `src/adapter-wiring` module) and a redundant `core/registry/harnesses.yaml.bak` — together 47 kB
+  of dead weight in the `1.0.0-beta.2` tarball.
+- Corrected the `1.0.0-beta.2` note that cited `bench/evals/run_50_loop.py`; those benchmark files
+  were removed and the evaluation entrypoint is
+  `core/shared/scripts/doflow/evaluation/benchmark_runner.py`.
+- README no longer describes DoFlow as targeting three harnesses while its own support table lists
+  five, and no longer names `security`/`root-cause` agents that the 5-archetype consolidation
+  replaced.
+
 ## [1.0.0-beta.2] - 2026-08-14
 ### Added
 
@@ -20,7 +61,7 @@ All notable changes to DoFlow are documented here. Format follows
 - **Consolidated 5-Specialist Archetypes**: Streamlined 14 micro-agents into 5 core archetypes (`spec-analyst`, `system-architect`, `core-implementer`, `quality-guardian`, `research-writer`), yielding a 90% reduction in agent spec token footprint.
 - **AI Engineering Control Plane**: Decoupled control plane providing vendor-neutral evidence ledger, claim provenance, and multi-tier verification sandboxes with native parity across Claude Code, OpenAI Codex, Google Antigravity / Gemini CLI, OpenCode, and Pi Coding Agent.
 - **Portable Relative References**: Eliminated all machine-specific absolute file links across all skill definitions and references.
-- **Trigger Benchmark & Evaluation Suite**: Added 50-epoch stress-testing benchmark (`bench/evals/run_50_loop.py`) verifying 100% trigger accuracy and zero collisions across all 12 skills.
+- **Trigger Benchmark & Evaluation Suite**: Added a 50-epoch stress-testing benchmark verifying 100% trigger accuracy and zero collisions across all 12 skills. (Corrected in 1.0.0-beta.3: this originally cited `bench/evals/run_50_loop.py`, which was removed; the shipped entrypoint is `core/shared/scripts/doflow/evaluation/benchmark_runner.py`.)
 
 ### Changed
 

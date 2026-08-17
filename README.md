@@ -1,16 +1,21 @@
 # DoFlow
 
-DoFlow is a configuration layer for AI coding tools. It gives Claude Code, Codex, and Gemini a
-shared set of engineering rules, reusable workflows, and safer defaults.
+DoFlow is a configuration layer for AI coding tools. It gives Claude Code, Codex, Gemini /
+Antigravity, OpenCode, and Pi a shared set of engineering rules, reusable workflows, and safer
+defaults — projected from one source, so the five never drift apart.
 
 ```mermaid
 flowchart LR
     R[One DoFlow source] --> C[Claude Code]
     R --> X[Codex]
-    R --> G[Gemini]
+    R --> G[Gemini / Antigravity]
+    R --> O[OpenCode]
+    R --> P[Pi]
     C --> H[Hooks + MCP + skills]
     X --> S[AGENTS.md + skills]
     G --> A[Shared guidance]
+    O --> S
+    P --> S
 ```
 
 ## What it provides
@@ -18,7 +23,7 @@ flowchart LR
 | Need | DoFlow component |
 |---|---|
 | Repeatable delivery work | 12 skills, including `/do-brainstorm`, `/do-plan`, `/do-test`, and `/do-code-review` |
-| Specialist review | 5 focused agent prompts for architecture, security, quality, and root-cause analysis |
+| Specialist review | 5 agents — `spec-analyst`, `system-architect`, `core-implementer`, `quality-guardian`, `research-writer` |
 | Safer automation | Claude hooks block destructive commands and unfinished implementation stubs |
 | Shared standards | Rules for safety, workflow, quality, and clarification across supported tools |
 | Session continuity | Claude hooks capture lightweight Git context and compact-session summaries |
@@ -33,17 +38,27 @@ flowchart LR
 
 ## Install with the CLI
 
-Use the maintained installer when you want one source deployed to one or more tools:
+Use the maintained installer when you want one source deployed to one or more tools. Nothing to
+clone — run it straight from npm:
+
+```bash
+# Inspect the plan first, then install globally.
+npx @khoavu882/doflow install --dry-run -g
+npx @khoavu882/doflow install -g --target claude,codex
+```
+
+To work on DoFlow itself, or to pin an installation to a checkout you control, link the repo
+instead — `doflow` then resolves to your working tree:
 
 ```bash
 git clone git@github.com:khoavu882/do-flow.git ~/do-flow
 cd ~/do-flow
 npm link
-
-# Inspect the plan first, then install globally.
 doflow install --dry-run -g
-doflow install -g --target claude,codex
 ```
+
+The package is published under the `@khoavu882` scope; the unscoped `doflow` name on npm belongs
+to an unrelated project.
 
 `doflow install` creates a backup before changing configuration. The complete command reference,
 including project-scoped installation and rollback, is in [Setup](docs/setup.md).

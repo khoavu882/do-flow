@@ -27,17 +27,31 @@ Update this installation with `git pull` from `~/.claude`.
 
 ### CLI installation
 
-Use the CLI for multi-tool or project-scoped configuration:
+Use the CLI for multi-tool or project-scoped configuration. It is published as
+`@khoavu882/doflow` — the unscoped `doflow` name on npm is an unrelated package:
+
+```bash
+# Always inspect the plan before the first real installation.
+npx @khoavu882/doflow install --dry-run -g
+npx @khoavu882/doflow install -g --target claude,codex
+```
+
+### CLI installation from a checkout
+
+Prefer this when you are developing DoFlow itself, or want installs to track a source tree you
+control rather than the published version:
 
 ```bash
 git clone git@github.com:khoavu882/do-flow.git ~/do-flow
 cd ~/do-flow
 npm link
 
-# Always inspect the plan before the first real installation.
 doflow install --dry-run -g
 doflow install -g --target claude,codex
 ```
+
+Both forms expose the same commands. The rest of this guide writes `doflow`; substitute
+`npx @khoavu882/doflow` if you did not link a checkout.
 
 Without `-g`, the optional path is the project root and configuration is placed beneath it:
 

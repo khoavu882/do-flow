@@ -1,0 +1,20 @@
+# npm does NOT fall back to .gitignore once this file exists, and the `files`
+# whitelist in package.json admits whole directories — so editor/backup cruft
+# living inside bin/, src/, or core/ ships in the tarball unless it is named
+# here. A v1.0.0-beta.2 pack was carrying a stale 34 kB bin/doflow.js.bak this
+# way. test/guards/package.test.js asserts the tree stays clean.
+*.bak
+*.orig
+*.rej
+*.swp
+*.tmp
+*~
+
+# OS + IDE
+.DS_Store
+Thumbs.db
+.idea/
+
+# Python bytecode from the analyzers bundled under core/shared/skills/
+__pycache__/
+*.py[cod]

@@ -20,14 +20,13 @@ chmod +x ~/.claude/hooks/*.sh
 ### CLI install
 
 ```bash
-git clone git@github.com:khoavu882/do-flow.git ~/do-flow
-cd ~/do-flow
-npm link
-
 # Preview, then install only the tools you use.
-doflow install --dry-run -g --target claude,codex
-doflow install -g --target claude,codex
+npx @khoavu882/doflow install --dry-run -g --target claude,codex
+npx @khoavu882/doflow install -g --target claude,codex
 ```
+
+The examples below shorten `npx @khoavu882/doflow` to `doflow`; both are equivalent, and a linked
+checkout (see [Setup](setup.md)) gives you the short form directly.
 
 ## 2. Verify
 
