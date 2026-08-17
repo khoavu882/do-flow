@@ -1,8 +1,8 @@
 # DoFlow
 
 DoFlow is a configuration layer for AI coding tools. It gives Claude Code, Codex, Gemini /
-Antigravity, OpenCode, and Pi a shared set of engineering rules, reusable workflows, and safer
-defaults — projected from one source, so the five never drift apart.
+Antigravity, OpenCode, Pi, GitHub Copilot CLI, and Kiro a shared set of engineering rules, reusable
+workflows, and safer defaults — projected from one source, so the seven never drift apart.
 
 ```mermaid
 flowchart LR
@@ -11,11 +11,15 @@ flowchart LR
     R --> G[Gemini / Antigravity]
     R --> O[OpenCode]
     R --> P[Pi]
+    R --> CP[Copilot CLI]
+    R --> K[Kiro]
     C --> H[Hooks + MCP + skills]
     X --> S[AGENTS.md + skills]
     G --> A[Shared guidance]
     O --> S
     P --> S
+    CP --> CI[copilot-instructions.md + skills]
+    K --> ST[Steering + skills]
 ```
 
 ## What it provides
@@ -106,14 +110,18 @@ Use `/do-flow "add a customer export"` to run the same sequence with its approva
 | Claude Code | Full integration: skills, agents, hooks, MCP registration, session context, and rules |
 | Codex | `AGENTS.md`, skills, scripts, templates, rules, agents, hooks, and references |
 | Gemini / Antigravity | `GEMINI.md`, rules, agents, modes, skills, hooks, and references |
-| OpenCode | `AGENTS.md`, `.opencode/skills/`, and `opencode.json` configuration |
-| Pi Coding Agent | `AGENTS.md`, `.pi/skills/`, and `pi-mcp-adapter` MCP integration |
+| OpenCode | `AGENTS.md`, skills discovered at `.opencode/skills/` (project) or `~/.config/opencode/skills/` (global), and `opencode.json` configuration |
+| Pi Coding Agent | `AGENTS.md`, skills discovered at `.pi/skills/` (project) or `~/.pi/agent/skills/` (global), and `pi-mcp-adapter` MCP integration |
+| GitHub Copilot CLI | `.github/copilot-instructions.md` (project scope only), skills at `.agents/skills/`, agents at `.github/agents/`, and MCP registered in `.mcp.json` |
+| Kiro | Steering files under `.kiro/steering/`, skills at `.kiro/skills/`, agents at `.kiro/agents/`, hooks at `.kiro/hooks/`, and MCP registered in `.kiro/settings/mcp.json` |
 
 Codex hooks are installed as `hooks.json` but require review/trust in Codex before they run.
 Gemini hooks merge into a `hooks` key inside `settings.json` (never a full-file replace) and are
-similarly subject to Gemini's own hook trust/review gating. OpenCode and Pi standard-adopt `AGENTS.md`
-for seamless zero-drift rule projection. See `docs/capability-map.md` and the
-[installation matrix](docs/setup.md#what-gets-installed) for the exact mapping.
+similarly subject to Gemini's own hook trust/review gating. Kiro's hooks activate immediately, with
+no trust/review gate. Copilot CLI has no documented hook surface, so DoFlow installs none there.
+OpenCode and Pi standard-adopt `AGENTS.md` for seamless zero-drift rule projection. See
+`docs/capability-map.md` and the [installation matrix](docs/setup.md#what-gets-installed) for the
+exact mapping.
 
 ## Contributing
 
