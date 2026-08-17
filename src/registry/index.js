@@ -102,9 +102,18 @@ function validateContract(value, location, errors, harnessIds) {
     }
     if (new Set(list).size !== list.length) issue(errors, `${location}.${field}`, 'must not contain duplicates');
   }
+  // An empty hookEvents used to be rejected outright, which assumed every harness wires at least one
+  // hook. OpenCode and Pi break that: both implement lifecycle handlers as JS/TS code modules, so
+  // DoFlow's shell hooks have nothing to attach to and it wires none. Forcing a non-empty list there
+  // would mean declaring a hook DoFlow does not install — an inert claim of exactly the kind these
+  // guards exist to remove. Empty is therefore allowed, but only with a note, so the distinction
+  // between "wires nothing, deliberately" and "nobody filled this in" stays visible.
   const events = value.hookEvents;
-  if (!Array.isArray(events) || events.length === 0 || events.some((item) => typeof item !== 'string' || !item)) {
-    issue(errors, `${location}.hookEvents`, 'must be a non-empty array of non-empty strings');
+  const noted = typeof value.note === 'string' && value.note.trim().length > 0;
+  if (!Array.isArray(events) || events.some((item) => typeof item !== 'string' || !item)) {
+    issue(errors, `${location}.hookEvents`, 'must be an array of non-empty strings');
+  } else if (events.length === 0 && !noted) {
+    issue(errors, `${location}.hookEvents`, 'may only be empty when `note` explains why no hook is wired');
   } else if (new Set(events).size !== events.length) {
     issue(errors, `${location}.hookEvents`, 'must not contain duplicates');
   }

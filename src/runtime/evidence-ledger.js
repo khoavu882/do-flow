@@ -18,6 +18,21 @@ const VALID_EVIDENCE_KINDS = new Set([
 
 const VALID_PROVENANCE = new Set(['extracted', 'inferred', 'asserted']);
 
+/** A task id becomes a filename inside the state directory, so it must not be able to name a path.
+ * `path.join(stateDir, `${taskId}.json`)` happily resolves `../../../etc/hosts` out of the state
+ * dir entirely — read-only today only because nothing calls save(), and an arbitrary file write
+ * the moment a writer is wired up. Constrain it to a flat, filename-safe token instead of trying
+ * to sanitize a traversal after the fact.
+ * @param {string} taskId
+ * @returns {string} the validated id, for use in an expression
+ */
+function assertSafeTaskId(taskId) {
+  if (typeof taskId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(taskId) || taskId.includes('..')) {
+    throw new Error(`Invalid task id '${taskId}': expected letters, digits, dot, dash or underscore, and no path separators`);
+  }
+  return taskId;
+}
+
 class EvidenceLedger {
   /**
    * @param {Object} [options]
@@ -164,7 +179,7 @@ class EvidenceLedger {
     };
 
     this.fsImpl.mkdirSync(this.stateDir, { recursive: true });
-    const targetFile = path.join(this.stateDir, `${taskId}.json`);
+    const targetFile = path.join(this.stateDir, `${assertSafeTaskId(taskId)}.json`);
     this.fsImpl.writeFileSync(targetFile, JSON.stringify(payload, null, 2), 'utf8');
     return targetFile;
   }
@@ -175,7 +190,7 @@ class EvidenceLedger {
    * @returns {number} count of loaded items
    */
   load(taskId = 'default') {
-    const targetFile = path.join(this.stateDir, `${taskId}.json`);
+    const targetFile = path.join(this.stateDir, `${assertSafeTaskId(taskId)}.json`);
     if (!this.fsImpl.existsSync(targetFile)) {
       return 0;
     }
@@ -207,4 +222,5 @@ module.exports = {
   EvidenceLedger,
   VALID_EVIDENCE_KINDS,
   VALID_PROVENANCE,
+  assertSafeTaskId,
 };

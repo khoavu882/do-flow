@@ -13,6 +13,117 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [Unreleased]
+
+### Added
+
+- **Four new install targets — GitHub Copilot CLI, Kiro, OpenCode, and Pi Coding Agent —
+  reaching CLI-level parity with the existing Claude/Codex/Gemini targets.** `--target` now
+  accepts `copilot`, `kiro`, `opencode`, or `pi` alongside the existing three, each with its own
+  registry declaration, capability contract, and dedicated adapter:
+  - **Copilot** writes `.github/copilot-instructions.md` (project only — Copilot documents no
+    global instructions file), skills to `~/.agents/skills` / `.agents/skills`, custom agents as
+    `.agent.md` files to `~/.copilot/agents` / `.github/agents`, and MCP servers to
+    `~/.copilot/mcp-config.json` / `.mcp.json`.
+  - **Kiro** projects the full DoFlow guidance tree as steering files under `.kiro/steering/`
+    (workspace wins over global on a naming conflict), skills to its own dedicated
+    `.kiro/skills/` / `~/.kiro/skills/` system (`SKILL.md` + frontmatter, the same open Agent
+    Skills format DoFlow already authors), agents to `.kiro/agents`, MCP to
+    `.kiro/settings/mcp.json`, and real hooks — `SessionStart`, `PreToolUse` (pre-implementation
+    gate and MCP-tool guard), and `Stop` — with no trust-gating step, unlike Codex.
+  - **OpenCode** and **Pi** now materialise their own skills trees (`~/.config/opencode/skills` /
+    `.opencode/skills` and `~/.pi/agent/skills` / `.pi/skills` respectively) instead of pointing
+    at Claude's, following the same copy-tree-and-marker-merge shape every other adapter uses.
+- `doflow status` now reports hook-wiring status (`active` / `installed-pending` / `absent`) for
+  every harness that declares hooks — previously this was hardcoded to Codex only.
+- Two new registry guards enforce the "adding a harness" contract mechanically: a declared
+  harness must have an adapter module, exactly one `contracts.yaml` entry, and a valid
+  `--target` id, and must be wired into every adapter-dispatch call site — not merely exist on
+  disk. Both guards were confirmed to actually fail by deliberately breaking the contract and
+  reverting.
+
+### Changed
+
+- **`doflow install`/`update` with no `--target` now installs Claude only, not all valid
+  targets.** Previously the default expanded to every target `VALID` declared, which meant an
+  install with no flag silently wrote configuration into harnesses the user may not even have
+  installed. As the target list grows past three, that cost rises with every addition; ask for
+  the rest explicitly with `--target claude,codex,gemini,...`. **This is a breaking change** for
+  any script or workflow relying on the previous all-targets default.
+- Corrected OpenCode's documented global config path from `~/.opencode/` to `~/.config/opencode/`
+  across the README and docs — the former was asserted incorrectly for several releases and does
+  not match what OpenCode itself reads.
+- Regenerated the capability and hook-event matrices in `docs/capability-map.md` from the
+  registry (5 columns → 7), and corrected a stale claim in its Codex-detail appendix that
+  OpenCode and Pi "have no entry in the registry."
+
+### Fixed
+
+- `doflow status --json` silently omitted Copilot, OpenCode, and Pi from its output; every
+  harness now reports.
+- `doflow remove --target opencode` left a stale `"instructions": ["AGENTS.md"]` entry behind in
+  `opencode.json` instead of unmerging it.
+- `core/registry/lifecycle.yaml`'s four behavioural hook policies (session-context,
+  pre-implementation-gate, mcp-tool-guard, stop-check) threw for any harness without an explicit
+  mapping — a gap that affected OpenCode and Pi from the commit that first declared them, not
+  just the harnesses added here.
+- A second, separate adapter registry inside `src/lifecycle-view.js` (used only for planning, not
+  for apply/remove) had silently never been extended past Claude/Codex/Gemini, so a fully wired
+  new harness would still fail during dry-run planning even after every other wiring point was
+  correct.
+
+## [1.0.0-beta.3] - 2026-08-17
+
+Release-candidate for 1.0.0. No functional change to the installer or the projected config from
+`1.0.0-beta.2`; this closes the distribution and packaging gaps found in the v1 release review, so
+that the eventual `1.0.0` tag is a version bump over a validated artifact rather than the first
+time any of this is exercised. Ships as a prerelease on npm — `1.0.0` follows once the published
+package and the tag pipeline are confirmed working end to end.
+
+### Added
+
+- **`LICENSE`** — the MIT terms `package.json` has always declared now ship as a file, so the
+  license is verifiable from the repository and the tarball rather than only asserted in metadata.
+- **npm publish metadata** — `repository`, `homepage`, `bugs`, `author`, `keywords`, and
+  `publishConfig.access`, so `npm bugs`, the package page, and provenance attestation all resolve.
+- **`.npmignore`** — npm stops consulting `.gitignore` once `files` is set, so backup and editor
+  artifacts inside the whitelisted `bin/`, `src/`, and `core/` trees were shipping in the tarball.
+- **`test/guards/package.test.js` (G7)** — asserts the published trees stay free of `*.bak`,
+  editor, and bytecode artifacts, and that publish metadata and the `LICENSE` file are present.
+- **`.github/workflows/release.yml`** — a `v*` tag now runs the full cross-OS suite and publishes
+  a GitHub Release, so no tag can be cut from a commit that never passed CI.
+
+### Changed
+
+- Published under the scoped name **`@khoavu882/doflow`**; the unscoped `doflow` name on the public
+  registry belongs to an unrelated package. Install is `npx @khoavu882/doflow install -g`. Beta
+  builds publish to the `beta` dist-tag, so reaching this one is `npx @khoavu882/doflow@beta`;
+  `latest` stays empty until `1.0.0`.
+- Cross-OS CI now also exercises **Node 18**, the floor declared in `engines`, alongside Node 20.
+
+### Fixed
+
+- **Upgrade path from pre-consolidation installs**, broken in two places by the same root cause — a
+  lifecycle plan computed from the current registry meeting state written by an older one. Both
+  affected every installation predating `1.0.0-beta.2`:
+    - `install` and `update` aborted with `Unknown registry MCP server(s): …` when the saved
+      selection named a server the registry had since retired (`chrome-devtools`, `playwright`).
+      The persisted selection is now reconciled against the current catalog and the drop reported;
+      an explicit `--mcp` naming an unknown server stays a hard error, since that is a typo.
+    - `remove` aborted with `Lifecycle verification failed; ledger was not updated`, leaving the
+      configuration half-stripped, because the verifier looked for the 5 consolidated agent
+      archetypes and flagged as `missing` the 4 that install had never created on that machine. A
+      resource the ledger has no claim on is now an expected absence; one it does claim still fails.
+- Removed a stale `bin/doflow.js.bak` (a pre-refactor copy importing the deleted
+  `src/adapter-wiring` module) and a redundant `core/registry/harnesses.yaml.bak` — together 47 kB
+  of dead weight in the `1.0.0-beta.2` tarball.
+- Corrected the `1.0.0-beta.2` note that cited `bench/evals/run_50_loop.py`; those benchmark files
+  were removed and the evaluation entrypoint is
+  `core/shared/scripts/doflow/evaluation/benchmark_runner.py`.
+- README no longer describes DoFlow as targeting three harnesses while its own support table lists
+  five, and no longer names `security`/`root-cause` agents that the 5-archetype consolidation
+  replaced.
+
 ## [1.0.0-beta.2] - 2026-08-14
 ### Added
 
@@ -20,7 +131,7 @@ All notable changes to DoFlow are documented here. Format follows
 - **Consolidated 5-Specialist Archetypes**: Streamlined 14 micro-agents into 5 core archetypes (`spec-analyst`, `system-architect`, `core-implementer`, `quality-guardian`, `research-writer`), yielding a 90% reduction in agent spec token footprint.
 - **AI Engineering Control Plane**: Decoupled control plane providing vendor-neutral evidence ledger, claim provenance, and multi-tier verification sandboxes with native parity across Claude Code, OpenAI Codex, Google Antigravity / Gemini CLI, OpenCode, and Pi Coding Agent.
 - **Portable Relative References**: Eliminated all machine-specific absolute file links across all skill definitions and references.
-- **Trigger Benchmark & Evaluation Suite**: Added 50-epoch stress-testing benchmark (`bench/evals/run_50_loop.py`) verifying 100% trigger accuracy and zero collisions across all 12 skills.
+- **Trigger Benchmark & Evaluation Suite**: Added a 50-epoch stress-testing benchmark verifying 100% trigger accuracy and zero collisions across all 12 skills. (Corrected in 1.0.0-beta.3: this originally cited `bench/evals/run_50_loop.py`, which was removed; the shipped entrypoint is `core/shared/scripts/doflow/evaluation/benchmark_runner.py`.)
 
 ### Changed
 

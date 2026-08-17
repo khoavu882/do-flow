@@ -6,12 +6,14 @@ DoFlow keeps one source configuration and projects the parts each AI coding envi
 
 ```mermaid
 flowchart LR
-    Core[core/\ncanonical content] --> Installer[bin/doflow\ninstaller]
+    Core[core/\ncanonical content] --> Installer[bin/doflow.js\ninstaller]
     Installer --> Claude[Claude Code\nCLAUDE.md, hooks, MCP]
     Installer --> Codex[Codex\nAGENTS.md, skills]
     Installer --> Gemini[Gemini CLI / Antigravity\nGEMINI.md, skills]
     Installer --> OpenCode[OpenCode\nAGENTS.md, skills]
     Installer --> Pi[Pi Coding Agent\nAGENTS.md, skills]
+    Installer --> Copilot[GitHub Copilot CLI\ncopilot-instructions.md, skills]
+    Installer --> Kiro[Kiro\nsteering, skills]
     Core --> Content[Skills · rules · agents\nscripts · templates · references]
 ```
 
@@ -36,16 +38,26 @@ The client decides how to execute work. DoFlow supplies shared guidance, task wo
 
 ## Capability boundaries by client
 
-| Capability | Claude Code | Codex | Gemini CLI / Antigravity | OpenCode | Pi Coding Agent |
-|---|---|---|---|---|---|
-| Base instructions | Yes (`CLAUDE.md`) | Yes (`AGENTS.md`) | Yes (`GEMINI.md`) | Yes (`AGENTS.md`) | Yes (`AGENTS.md`) |
-| Skills | Yes | Yes | Yes | Yes | Yes |
-| Agents, scripts, templates, references | Yes | Yes | Yes | Yes | Yes |
-| Hook configuration | Yes | Yes — requires trust/review | Yes — merges into `settings.json` | Yes | Extension hooks |
-| MCP registration from DoFlow | Yes (`.mcp.json`) | Yes (`config.toml`) | Yes (`settings.json`) | Yes (`opencode.json`) | Yes (`pi-mcp-adapter`) |
-| Plugin marketplace distribution | Available in `core/.claude-plugin/` | Available in `core/.codex-plugin/` | N/A | N/A | N/A |
+DoFlow now spans seven harnesses: Claude Code, Codex, Gemini CLI / Antigravity, OpenCode, Pi
+Coding Agent, GitHub Copilot CLI, and Kiro. Every one of them gets DoFlow's base instructions,
+skills, and specialist guidance (agents, scripts, templates, references) in whatever native form
+that harness documents — a managed instruction file, a discoverable skills directory, or both.
+Hooks, native settings merges, MCP registration, and plugin/marketplace distribution are where the
+harnesses diverge the most: some support all of them natively, some support a subset, and a few
+have DoFlow project the underlying guidance through instructions or skills instead of a dedicated
+native surface.
 
-“No file-based installer support” means the source is not copied as a client configuration file. It does not prevent that client from using its own native extension or connector system.
+The full capability matrix — generated from `core/registry/harnesses.yaml` and covering
+instructions, skills, agents, scripts, templates, modes, settings, hooks, MCP, and plugin support
+across all seven harnesses, plus the per-event hook matrix and per-harness verification and
+prerequisite tables — lives in [Capability Map](capability-map.md). This page intentionally does
+not repeat that table: DoFlow previously kept two hand-maintained copies of the same matrix, and
+they drifted from the registry and from each other. One generated source is kept instead.
+
+Anywhere that matrix marks a plugin/marketplace row as unavailable, it means DoFlow does not
+publish a plugin package for that client — not that the client lacks its own native extension
+system. Gemini CLI, OpenCode, and Pi, among others, each have one, reached through the file-based
+projection above instead of a DoFlow-distributed package.
 
 ## Workflow layers
 

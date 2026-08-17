@@ -32,18 +32,31 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
    - Enforce hard prerequisite gate: `bash "$(dirname "$RESOLVER")/do-prereqs.sh" --require-plan` (requires `requirement.md`, `design.md`, `plan.md`).
 
 2. **Readiness Evaluation (Confidence Check)**:
-   - Validate task prerequisites against the 5 task classes. Consult `references/readiness_gate.md`.
+   - Evaluate the task's contract with `doflow readiness --task-class <bug|feature|refactor|trivial-edit|dependency-change> --task-id <id>`,
+     run from the project the task belongs to. It reports which prerequisites are unmet and, for
+     each, the capability that would satisfy it. `doflow evidence --task-id <id>` shows what has been
+     recorded. Do not recall the contract from memory — the templates are versioned and the command
+     reads them. Consult `references/readiness_gate.md` for the class keys, how to read each state,
+     and the current evidence-capture limitation.
 
 3. **Contracts Frame Generation (`--contracts`)**:
    - When invoked with `--contracts`, parse cross-service interfaces and generate code frames. Consult `references/contracts.md` (or `contracts.md`).
 
 4. **Task Selection & Parallel Dispatch**:
    - Select next pending task(s) (`--next`, `--phase N`, `--all`, `--resume`).
-   - Group tasks by phase and dependency. For parallel orchestration and write-set isolation, consult `references/parallel_dispatch.md`.
+   - Compute dispatch groups with `do-parallel-check.sh --phase=<N> --json` — it groups by phase and
+     `owner:`, and returns the cross-group write-set collisions (`group_overlaps[]`,
+     `group_serialize[]`) that decide what may run concurrently. Do not derive write-set isolation
+     by inspection; it is computed. Build each group's brief with
+     `do-task-brief.sh --group=<phase>:<owner> --tasks=<csv>`. Full protocol, field meanings, and
+     the `--sync` / `--no-group` fallbacks: `references/parallel_dispatch.md`.
    - Dispatch tasks to appropriate specialist archetypes:
      - Architecture & Schema $\rightarrow$ `system-architect`
      - Code Implementation & Refactoring $\rightarrow$ `core-implementer`
      - Test Automation & Quality $\rightarrow$ `quality-guardian`
+   - Name a model tier explicitly on every dispatch — an omitted tier silently inherits the
+     session's model rather than "using the default." Consult `references/MODEL_SELECTION.md` for
+     how to pick the tier per task and per review pass.
 
 5. **Phase Quality Review**:
    - Review each phase upon completion for spec compliance before advancing.

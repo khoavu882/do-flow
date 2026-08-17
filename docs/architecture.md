@@ -34,7 +34,7 @@ are reported rather than imitated.
 | `core/` | Current physical sources for instructions, skills, rules, agents, hooks, MCP notes, scripts, templates, and references during migration |
 | `core/.claude-plugin/` | Claude Code marketplace registry and plugin manifest; `core/` is the plugin root |
 | `core/.codex-plugin/` | Codex plugin manifest for plugin-based distribution |
-| `bin/doflow` | CLI entry point |
+| `bin/doflow.js` | CLI entry point (exposed as the `doflow` command) |
 | `src/adapters/` | Native Claude, Codex, and Gemini file formats and verification boundaries |
 | `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification |
 | `src/state/` | Harness-neutral ledger and recovery records |

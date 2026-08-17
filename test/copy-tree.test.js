@@ -353,6 +353,36 @@ test('planTree treats a previousResources entry with no target as same-location 
   assert.deepEqual(changes, [], 'unchanged content at the same destDir must still be a no-op');
 });
 
+// Antigravity discovers a custom agent at .agents/agents/<name>/agent.md, so gemini's agents
+// projection declares layout 'dir-per-file:agent.md'. The upgrade matters as much as the shape:
+// an install that already wrote flat <name>.md files must have them relocated, not left behind as
+// files DoFlow no longer tracks but never cleaned up.
+test('a layout change relocates previously-owned files instead of orphaning them', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'spec-analyst.md': 'SPEC' });
+  const destDir = path.join(root, 'dest');
+
+  // Install once with the old flat layout, exactly as a pre-upgrade machine has it.
+  applyTree({ changes: planTree({ sourceDir, destDir }).changes });
+  assert.ok(fs.existsSync(path.join(destDir, 'spec-analyst.md')));
+  const previousResources = [{ relPath: 'spec-analyst.md', target: path.join(destDir, 'spec-analyst.md'), fingerprint: sha256('SPEC') }];
+
+  const { changes, conflicts } = planTree({ sourceDir, destDir, previousResources, layout: 'dir-per-file:agent.md' });
+  assert.deepEqual(conflicts, [], 'a relocation is not a conflict');
+  applyTree({ changes });
+  removeTree({ changes });
+
+  assert.ok(fs.existsSync(path.join(destDir, 'spec-analyst', 'agent.md')), 'must write the new location');
+  assert.ok(!fs.existsSync(path.join(destDir, 'spec-analyst.md')), 'must remove the old flat file');
+});
+
+test('an unknown layout name fails loudly rather than silently mirroring', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'a.md': 'A' });
+  assert.throws(() => planTree({ sourceDir, destDir: path.join(root, 'dest'), layout: 'typo' }),
+    /Unknown copy-tree layout 'typo'/);
+});
+
 test('planTree still refuses a destination edited to content matching neither source nor ledger', () => {
   const root = scratch();
   const sourceDir = seedSource(root, { 'a.md': 'V1' });

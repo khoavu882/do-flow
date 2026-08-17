@@ -1,14 +1,299 @@
 {
   "version": 1,
   "assets": [
-    {"id": "guidance.core", "kind": "guidance", "source": "core/shared/guidance/pointers/claude-gemini.md", "appliesTo": ["claude", "gemini"], "projection": {"claude": {"renderer": "claude-instructions", "capability": "instructions"}, "gemini": {"renderer": "gemini-instructions", "capability": "instructions"}}, "ownership": "managed-file-section"},
-    {"id": "guidance.codex-pointer", "kind": "guidance", "source": "core/shared/guidance/pointers/codex.md", "appliesTo": ["codex"], "projection": {"codex": {"renderer": "codex-agents", "capability": "instructions"}}, "ownership": "managed-file-section"},
-    {"id": "guidance.context-layer", "kind": "guidance", "source": "core/shared/guidance", "appliesTo": ["claude", "codex", "gemini"], "projection": {"claude": {"renderer": "copy-tree", "capability": "instructions"}, "codex": {"renderer": "copy-tree", "capability": "instructions"}, "gemini": {"renderer": "copy-tree", "capability": "instructions"}}, "ownership": "managed-tree", "nativeDir": {"claude": "../.doflow/guidance", "codex": "../.doflow/guidance", "gemini": "../.doflow/guidance"}},
-    {"id": "skills.doflow", "kind": "skill", "source": "core/shared/skills", "appliesTo": ["claude", "codex", "gemini"], "projection": {"claude": {"renderer": "copy-tree", "capability": "skills"}, "codex": {"renderer": "copy-tree", "capability": "skills"}, "gemini": {"renderer": "copy-tree", "capability": "skills"}}, "ownership": "managed-tree", "nativeDir": {"claude": "skills", "codex": "skills", "gemini": "skills"}},
-    {"id": "agents.shared", "kind": "agent", "source": "core/shared/agent-specs", "appliesTo": ["claude", "codex", "gemini"], "projection": {"claude": {"renderer": "copy-tree", "capability": "agents"}, "codex": {"renderer": "copy-tree", "capability": "agents"}, "gemini": {"renderer": "copy-tree", "capability": "agents"}}, "ownership": "managed-tree", "nativeDir": {"claude": "agents", "codex": "agents", "gemini": "agents"}},
-    {"id": "templates.doflow", "kind": "template", "source": "core/shared/templates", "appliesTo": ["claude", "codex", "gemini"], "projection": {"claude": {"renderer": "copy-tree", "capability": "templates"}, "codex": {"renderer": "copy-tree", "capability": "templates"}, "gemini": {"renderer": "copy-tree", "capability": "templates"}}, "ownership": "managed-tree", "nativeDir": {"claude": "../.doflow/templates", "codex": "../.doflow/templates", "gemini": "../.doflow/templates"}},
-    {"id": "scripts.doflow", "kind": "script", "source": "core/shared/scripts", "appliesTo": ["claude", "codex", "gemini"], "projection": {"claude": {"renderer": "copy-tree", "capability": "scripts"}, "codex": {"renderer": "copy-tree", "capability": "scripts"}, "gemini": {"renderer": "copy-tree", "capability": "scripts"}}, "ownership": "managed-tree", "nativeDir": {"claude": "../.doflow/scripts", "codex": "../.doflow/scripts", "gemini": "../.doflow/scripts"}},
-    {"id": "claude.hooks-scripts", "kind": "hooks", "source": "core/harnesses/claude/hooks", "appliesTo": ["claude"], "projection": {"claude": {"renderer": "copy-tree", "capability": "hooks"}}, "ownership": "managed-tree", "nativeDir": {"claude": "hooks"}},
-    {"id": "claude.settings", "kind": "settings", "source": "core/harnesses/claude/settings", "appliesTo": ["claude"], "projection": {"claude": {"renderer": "claude-settings", "capability": "settings"}}, "ownership": "managed-file"}
+    {
+      "id": "guidance.core",
+      "kind": "guidance",
+      "source": "core/shared/guidance/pointers/claude-gemini.md",
+      "appliesTo": [
+        "claude",
+        "gemini"
+      ],
+      "projection": {
+        "claude": {
+          "renderer": "claude-instructions",
+          "capability": "instructions"
+        },
+        "gemini": {
+          "renderer": "gemini-instructions",
+          "capability": "instructions"
+        }
+      },
+      "ownership": "managed-file-section"
+    },
+    {
+      "id": "guidance.codex-pointer",
+      "kind": "guidance",
+      "source": "core/shared/guidance/pointers/codex.md",
+      "appliesTo": [
+        "codex",
+        "opencode",
+        "pi",
+        "copilot"
+      ],
+      "projection": {
+        "codex": {
+          "renderer": "codex-agents",
+          "capability": "instructions"
+        },
+        "opencode": {
+          "renderer": "opencode-instructions",
+          "capability": "instructions"
+        },
+        "pi": {
+          "renderer": "pi-instructions",
+          "capability": "instructions"
+        },
+        "copilot": {
+          "renderer": "copilot-instructions",
+          "capability": "instructions"
+        }
+      },
+      "ownership": "managed-file-section"
+    },
+    {
+      "id": "guidance.context-layer",
+      "kind": "guidance",
+      "source": "core/shared/guidance",
+      "appliesTo": [
+        "claude",
+        "codex",
+        "gemini",
+        "kiro"
+      ],
+      "projection": {
+        "claude": {
+          "renderer": "copy-tree",
+          "capability": "instructions"
+        },
+        "codex": {
+          "renderer": "copy-tree",
+          "capability": "instructions"
+        },
+        "gemini": {
+          "renderer": "copy-tree",
+          "capability": "instructions"
+        },
+        "kiro": {
+          "renderer": "copy-tree",
+          "capability": "instructions"
+        }
+      },
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "claude": "../.doflow/guidance",
+        "codex": "../.doflow/guidance",
+        "gemini": "../.doflow/guidance",
+        "kiro": "steering"
+      }
+    },
+    {
+      "id": "skills.doflow",
+      "kind": "skill",
+      "source": "core/shared/skills",
+      "appliesTo": [
+        "claude",
+        "codex",
+        "gemini",
+        "opencode",
+        "pi",
+        "copilot",
+        "kiro"
+      ],
+      "projection": {
+        "claude": {
+          "renderer": "copy-tree",
+          "capability": "skills"
+        },
+        "codex": {
+          "renderer": "copy-tree",
+          "capability": "skills"
+        },
+        "gemini": {
+          "renderer": "copy-tree",
+          "capability": "skills"
+        },
+        "opencode": {
+          "renderer": "copy-tree",
+          "capability": "skills"
+        },
+        "pi": {
+          "renderer": "copy-tree",
+          "capability": "skills"
+        },
+        "copilot": {
+          "renderer": "copy-tree",
+          "capability": "skills"
+        },
+        "kiro": {
+          "renderer": "copy-tree",
+          "capability": "skills"
+        }
+      },
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "claude": "skills",
+        "codex": "skills",
+        "gemini": "skills",
+        "opencode": "skills",
+        "pi": "skills",
+        "copilot": "skills",
+        "kiro": "skills"
+      }
+    },
+    {
+      "id": "agents.shared",
+      "kind": "agent",
+      "source": "core/shared/agent-specs",
+      "appliesTo": [
+        "claude",
+        "codex",
+        "gemini",
+        "copilot",
+        "kiro"
+      ],
+      "projection": {
+        "claude": {
+          "renderer": "copy-tree",
+          "capability": "agents"
+        },
+        "codex": {
+          "renderer": "copy-tree",
+          "capability": "agents"
+        },
+        "gemini": {
+          "renderer": "copy-tree",
+          "capability": "agents",
+          "layout": "dir-per-file:agent.md"
+        },
+        "copilot": {
+          "renderer": "copilot-agents",
+          "capability": "agents"
+        },
+        "kiro": {
+          "renderer": "kiro-agents",
+          "capability": "agents"
+        }
+      },
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "claude": "agents",
+        "codex": "agents",
+        "gemini": "agents",
+        "copilot": "agents",
+        "kiro": "agents"
+      }
+    },
+    {
+      "id": "templates.doflow",
+      "kind": "template",
+      "source": "core/shared/templates",
+      "appliesTo": [
+        "claude",
+        "codex",
+        "gemini"
+      ],
+      "projection": {
+        "claude": {
+          "renderer": "copy-tree",
+          "capability": "templates"
+        },
+        "codex": {
+          "renderer": "copy-tree",
+          "capability": "templates"
+        },
+        "gemini": {
+          "renderer": "copy-tree",
+          "capability": "templates"
+        }
+      },
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "claude": "../.doflow/templates",
+        "codex": "../.doflow/templates",
+        "gemini": "../.doflow/templates"
+      }
+    },
+    {
+      "id": "scripts.doflow",
+      "kind": "script",
+      "source": "core/shared/scripts",
+      "appliesTo": [
+        "claude",
+        "codex",
+        "gemini"
+      ],
+      "projection": {
+        "claude": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        },
+        "codex": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        },
+        "gemini": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        }
+      },
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "claude": "../.doflow/scripts",
+        "codex": "../.doflow/scripts",
+        "gemini": "../.doflow/scripts"
+      }
+    },
+    {
+      "id": "claude.hooks-scripts",
+      "kind": "hooks",
+      "source": "core/harnesses/claude/hooks",
+      "appliesTo": [
+        "claude"
+      ],
+      "projection": {
+        "claude": {
+          "renderer": "copy-tree",
+          "capability": "hooks"
+        }
+      },
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "claude": "hooks"
+      }
+    },
+    {
+      "id": "kiro.hooks-scripts",
+      "kind": "hooks",
+      "source": "core/harnesses/kiro/hooks",
+      "appliesTo": [
+        "kiro"
+      ],
+      "projection": {
+        "kiro": {
+          "renderer": "copy-tree",
+          "capability": "hooks"
+        }
+      },
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "kiro": "hooks"
+      }
+    },
+    {
+      "id": "claude.settings",
+      "kind": "settings",
+      "source": "core/harnesses/claude/settings",
+      "appliesTo": [
+        "claude"
+      ],
+      "projection": {
+        "claude": {
+          "renderer": "claude-settings",
+          "capability": "settings"
+        }
+      },
+      "ownership": "managed-file"
+    }
   ]
 }

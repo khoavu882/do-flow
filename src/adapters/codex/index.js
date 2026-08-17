@@ -263,7 +263,7 @@ function planCopyTreeAssets({ assets, context, neutralResources, removing, repoR
     const destDir = copyTreeDestDir(codexConfigDir(context), asset);
     const sourceDir = sourceDirFor(asset, repoRoot);
     const previousResources = ledgerFileResources(neutralResources, HARNESS, asset.id);
-    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply' });
+    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', layout: asset.layout });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const change of result.changes) {
       changes.push({
@@ -297,7 +297,7 @@ function verifyCopyTreeAssets({ assets, context, repoRoot, sourceVersion }) {
   for (const asset of copyTreeAssets(assets)) {
     const destDir = copyTreeDestDir(codexConfigDir(context), asset);
     const sourceDir = sourceDirFor(asset, repoRoot);
-    const result = verifyTree({ sourceDir, destDir });
+    const result = verifyTree({ sourceDir, destDir, layout: asset.layout });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const resource of result.resources) {
       resources.push({

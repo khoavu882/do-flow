@@ -23,7 +23,11 @@ const { createAdapterRegistry } = require('../src/adapters');
 const claudeAdapter = require('../src/adapters/claude');
 const codexAdapter = require('../src/adapters/codex');
 const { createGeminiAdapter } = require('../src/adapters/gemini');
-const { applyLifecycle, removeLifecycle, applyMcpIndex } = require('../src/lifecycle');
+const { createOpenCodeAdapter } = require('../src/adapters/opencode');
+const { createPiAdapter } = require('../src/adapters/pi');
+const { createCopilotAdapter } = require('../src/adapters/copilot');
+const { createKiroAdapter } = require('../src/adapters/kiro');
+const { applyLifecycle, removeLifecycle, applyMcpIndex, verifyLifecycle } = require('../src/lifecycle');
 const { readLedger } = require('../src/state');
 const { codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan } = require('../src/lifecycle-view');
 const { commandText, planToolLifecycle, executeToolLifecycle } = require('../src/tool-lifecycle');
@@ -105,6 +109,13 @@ function scopeOf(o) {
   return { global: o.global, projectRoot: o.positional[0] || '.' };
 }
 
+/** Where `readiness`/`evidence` read and write per-task state. Mirrors scopeOf()'s rules so these
+ * commands are scope-aware like the rest of the CLI, rather than defaulting to the DoFlow install
+ * directory — which for an npm install is inside node_modules/. */
+function evidenceRoot(o) {
+  return o.global ? os.homedir() : path.resolve(o.positional[0] || '.');
+}
+
 const HELP = `doflow — DoFlow config installer
 
 Usage: doflow <command> [path] [options]
@@ -156,12 +167,19 @@ External tools:
  * @returns {{allServers:string[], selected:string[], changed:boolean, destDescription:string, apply:()=>void}|null}
  *          null if the registry declares no MCP servers (nothing to resolve).
  */
+/** Surface a reconciled-away MCP server rather than dropping it silently: the user picked it once,
+ * so its disappearance from their config should be explained, not discovered. */
+function reportRetiredMcp(retired) {
+  console.error(`[WARN]  Dropping MCP server(s) no longer in the registry: ${retired.join(', ')}`);
+  console.error('        They were removed from DoFlow; your saved selection is being reconciled.');
+}
+
 function resolveMcpForTool({ o, dirs, scope, cmd, registry }) {
   const allServers = readAllServers(registry);
   if (!allServers.length) return null;
   const manifestServers = readManifest(dirs.claude)?.mcpServers ?? null;
   const interactive = cmd === 'install' && !o.dryRun && !o.force && Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY);
-  const selected = resolveMcpSelection({ cmd, requested: o.mcp, allServers, manifestServers, interactive, promptFn: promptMcpCheckbox });
+  const selected = resolveMcpSelection({ cmd, requested: o.mcp, allServers, manifestServers, interactive, promptFn: promptMcpCheckbox, onStale: reportRetiredMcp });
   const baseline = manifestServers ?? allServers;
   const changed = [...baseline].sort().join(',') !== [...selected].sort().join(',');
   const projectRoot = path.dirname(dirs.claude); // == os.homedir() when scope.global, by construction
@@ -191,7 +209,7 @@ function cmdInstall(o) {
   const codexCatalog = targets.includes('codex') ? readCodexMcpCatalog(registry) : null;
   const codexMcpSelection = codexCatalog ? (mcp?.selected ?? resolveCodexMcpSelection({ cmd: 'install', requested: o.mcp,
     allServers: codexCatalog.allServers, manifestServers: existingManifest?.mcpServers ?? null,
-    interactive: !o.dryRun && !o.force && Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY), promptFn: promptMcpCheckbox })) : [];
+    interactive: !o.dryRun && !o.force && Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY), promptFn: promptMcpCheckbox, onStale: reportRetiredMcp })) : [];
   const mcpIds = mcp?.selected ?? (codexCatalog ? codexMcpSelection : undefined);
   // One lifecycle view across every requested target — computed unconditionally (not only under
   // --dry-run) so its safety gate and its plan are the exact same object the real apply below uses.
@@ -223,7 +241,8 @@ function cmdInstall(o) {
 
   if (lifecycleView.plan.changes.length) {
     const result = applyLifecycle({ plan: lifecycleView.plan, registry: lifecycleView.registry,
-      adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter() }),
+      adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter(),
+        opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter() }),
       stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
     for (const target of lifecycleView.plan.targets) {
       if (target.skipped || !target.changes.length) continue;
@@ -277,7 +296,7 @@ function cmdUpdate(o) {
   const mcpChanged = Boolean(mcp && mcp.changed);
   const codexCatalog = targets.includes('codex') ? readCodexMcpCatalog(registry) : null;
   const codexMcpSelection = codexCatalog ? (mcp?.selected ?? resolveCodexMcpSelection({ cmd: 'update', requested: o.mcp,
-    allServers: codexCatalog.allServers, manifestServers: existingManifest?.mcpServers ?? null, interactive: false, promptFn: promptMcpCheckbox })) : [];
+    allServers: codexCatalog.allServers, manifestServers: existingManifest?.mcpServers ?? null, interactive: false, promptFn: promptMcpCheckbox, onStale: reportRetiredMcp })) : [];
   const mcpIds = mcp?.selected ?? (codexCatalog ? codexMcpSelection : undefined);
   // One lifecycle view across every requested target — computed unconditionally (not only under
   // --dry-run) so its safety gate and its plan are the exact same object the real apply below uses.
@@ -322,7 +341,8 @@ function cmdUpdate(o) {
   }
   if (lifecycleView.plan.changes.length) {
     const result = applyLifecycle({ plan: lifecycleView.plan, registry: lifecycleView.registry,
-      adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter() }),
+      adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter(),
+        opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter() }),
       stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
     for (const target of lifecycleView.plan.targets) {
       if (target.skipped || !target.changes.length) continue;
@@ -364,7 +384,8 @@ function cmdRemove(o) {
     return;
   }
   const result = removeLifecycle({ registry: view.registry,
-    adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter() }),
+    adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter(),
+      opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter() }),
     scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot),
     targets: lifecycleTargets, mcpIds: [], stateRoot: view.stateRoot, ledger: view.ledger,
     context: view.plan.targets[0].adapterInput.context });
@@ -394,23 +415,27 @@ function cmdStatus(o) {
     // pending changes when it isn't installed yet would make Claude's line falsely report
     // 'drift-or-pending-change' even though Claude itself has nothing pending.
     const harnessPlan = (harness) => registryView.plan.targets.find((target) => target.harness === harness);
+    // Hook-wiring status needs the same general per-harness verification every install/update run
+    // already flows through (src/lifecycle's verifyLifecycle) rather than a Codex-only hardcode:
+    // it is the one place that can tell 'installed and active' apart from 'installed but pending a
+    // prerequisite' (Codex's unreviewed trust, Gemini's live hook-trust check) from 'absent'.
+    const verification = verifyLifecycle({ plan: registryView.plan, adapters: registryView.adapters, context: { registry } });
+    const hooksFor = (harness) => verification.verifications.find((item) => item.harness === harness)?.hookWiring ?? null;
     const harnessStatus = (harness) => {
       const target = harnessPlan(harness);
-      if (!target) return { status: 'verified', resources: [], errors: [] };
+      if (!target) return { status: 'verified', resources: [], errors: [], hooks: hooksFor(harness) };
       return {
         status: target.conflicts.length ? 'conflict-or-invalid' : (target.changes.length ? 'drift-or-pending-change' : 'verified'),
         resources: registryView.ledger.resources.filter((resource) => resource.harness === harness),
         errors: target.conflicts,
+        hooks: hooksFor(harness),
       };
     };
-    if (targets.includes('codex')) {
-      ctx.codex = { ...harnessStatus('codex'), hooksTrust: { required: true, trusted: false, status: 'review-required' } };
-    }
-    if (targets.includes('claude')) {
-      ctx.claude = harnessStatus('claude');
-    }
-    if (targets.includes('gemini')) {
-      ctx.gemini = harnessStatus('gemini');
+    // Every lifecycle-wired harness gets the same per-harness status treatment — not just the
+    // four that historically had it — so 'doflow status --target copilot/opencode/pi --json'
+    // reports 'verified'/'conflict-or-invalid' instead of silently omitting the harness.
+    for (const harness of LIFECYCLE_HARNESSES) {
+      if (targets.includes(harness)) ctx[harness] = harnessStatus(harness);
     }
   } catch (error) {
     // Status must remain usable for an existing installation even if a local registry is invalid.
@@ -421,6 +446,12 @@ function cmdStatus(o) {
     console.log(JSON.stringify({ context: ctx, manifest, codex: ctx.codex ?? null }, null, 2));
     return;
   }
+
+  const hookLine = (label, hooks) => {
+    if (!hooks || hooks.status === 'absent') return null;
+    const prereqSuffix = hooks.prerequisites.length ? ` (unmet: ${hooks.prerequisites.join(', ')})` : '';
+    return `  ${label} hooks: ${hooks.status}${prereqSuffix}`;
+  };
 
   printContext(ctx);
   if (!manifest) {
@@ -435,29 +466,28 @@ function cmdStatus(o) {
   console.log(`  Last backup ID:       ${manifest.backupId}`);
   console.log(`  Script version:       ${manifest.scriptVersion}`);
   console.log(`  MCP servers:          ${manifest.mcpServers ? manifest.mcpServers.join(', ') || 'none' : 'all (default)'}`);
-  if (ctx.codex) {
-    console.log(`  Codex verification:   ${ctx.codex.status}`);
-    console.log(`  Codex resources:      ${ctx.codex.resources.length} manifest-owned`);
-    console.log(`  Codex hook trust:     ${ctx.codex.hooksTrust?.status ?? 'not configured'}${ctx.codex.hooksTrust?.required ? ' (review required)' : ''}`);
-    if (ctx.codex.errors.length) console.log(`  Codex issues:         ${ctx.codex.errors.join('; ')}`);
-    console.log('  Codex capability gaps: no Claude-only event emulation is installed; review docs/capability-map.md#codex-capability-detail');
-  }
-  if (ctx.claude) {
-    console.log(`  Claude verification:  ${ctx.claude.status}`);
-    console.log(`  Claude resources:     ${ctx.claude.resources.length} manifest-owned`);
-    if (ctx.claude.errors.length) console.log(`  Claude issues:        ${ctx.claude.errors.join('; ')}`);
-  }
-  if (ctx.gemini) {
-    console.log(`  Gemini verification:  ${ctx.gemini.status}`);
-    console.log(`  Gemini resources:     ${ctx.gemini.resources.length} manifest-owned`);
-    if (ctx.gemini.errors.length) console.log(`  Gemini issues:        ${ctx.gemini.errors.join('; ')}`);
+  // Printed in the same order LIFECYCLE_HARNESSES declares, so every wired harness gets a line —
+  // not just the four that historically had a hand-written block — with Codex keeping its extra
+  // capability-gap line since that note is Codex-specific, not a general per-harness property.
+  for (const harness of LIFECYCLE_HARNESSES) {
+    const status = ctx[harness];
+    if (!status) continue;
+    const label = `${harness.charAt(0).toUpperCase()}${harness.slice(1)}`;
+    console.log(`  ${`${label} verification:`.padEnd(24)}${status.status}`);
+    console.log(`  ${`${label} resources:`.padEnd(24)}${status.resources.length} manifest-owned`);
+    const line = hookLine(label, status.hooks);
+    if (line) console.log(line);
+    if (status.errors.length) console.log(`  ${`${label} issues:`.padEnd(24)}${status.errors.join('; ')}`);
+    if (harness === 'codex') {
+      console.log('  Codex capability gaps: no Claude-only event emulation is installed; review docs/capability-map.md#codex-capability-detail');
+    }
   }
   if (ctx.registry) {
     console.log(`  Registry lifecycle:   ${ctx.registry.status === 'invalid' ? ctx.registry.error : `${ctx.registry.plan.changes} pending, ${ctx.registry.plan.conflicts.length} conflict(s)`}`);
     if (ctx.registry.status !== 'invalid') console.log(`  Neutral state:         ${ctx.registry.stateRoot}${ctx.registry.ledgerPresent ? ' (ledger present)' : ' (not yet created)'}`);
   }
   console.log('\n  TOOL         STATUS         LAST UPDATED');
-  for (const tool of ['claude', 'codex', 'gemini']) {
+  for (const tool of LIFECYCLE_HARNESSES) {
     const t = manifest.tools[tool];
     const status = t?.installed ? 'installed' : 'not installed';
     console.log(`  ${tool.padEnd(12)} ${status.padEnd(14)} ${t?.last_updated ?? 'never'}`);
@@ -647,8 +677,11 @@ function main() {
       case 'tools': return cmdTools(o);
       case 'capabilities': return handleCapabilitiesCommand({ json: o.json, check: o.check, repoRoot: REPO_ROOT });
       case 'doctor': return handleDoctorCommand({ json: o.json, repoRoot: REPO_ROOT });
-      case 'readiness': return handleReadinessCommand({ taskClass: o.taskClass || 'feature', taskId: o.taskId || 'default', json: o.json, repoRoot: REPO_ROOT });
-      case 'evidence': return handleEvidenceCommand({ taskId: o.taskId || 'default', json: o.json, repoRoot: REPO_ROOT });
+      // REPO_ROOT locates the registry (templates ship with the package); stateRoot locates the
+      // caller's evidence, which follows the same scope rules as every other command: -g means
+      // $HOME, otherwise the positional project root (default cwd).
+      case 'readiness': return handleReadinessCommand({ taskClass: o.taskClass || 'feature', taskId: o.taskId || 'default', json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
+      case 'evidence': return handleEvidenceCommand({ taskId: o.taskId || 'default', json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
       default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
     }
   } catch (error) {
@@ -656,7 +689,12 @@ function main() {
     // multi-harness run) — surface a clean, actionable message instead of a raw stack trace, and
     // point at the recovery record applyLifecycle already wrote before rethrowing.
     console.error(`[ERROR] ${error.message}`);
-    console.error('[ERROR] Some native resources may be partially applied — check .doflow/state/recovery/ (or ~/.doflow/state/recovery/ for -g) for the latest record before retrying.');
+    // Only the commands that actually mutate native resources can leave a partial application.
+    // Printing this after a rejected `readiness --task-id` or any other read-only query told the
+    // user to go inspect recovery records for a run that never wrote anything.
+    if (['install', 'update', 'remove', 'rollback', 'self-update', 'tools'].includes(o.cmd)) {
+      console.error('[ERROR] Some native resources may be partially applied — check .doflow/state/recovery/ (or ~/.doflow/state/recovery/ for -g) for the latest record before retrying.');
+    }
     process.exit(1);
   }
 }

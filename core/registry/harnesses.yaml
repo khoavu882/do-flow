@@ -415,6 +415,484 @@
           "verification": "Verify extensions through the native host workflow."
         }
       }
+    },
+    {
+      "id": "opencode",
+      "displayName": "OpenCode",
+      "adapter": "opencode",
+      "scopes": [
+        "project",
+        "user"
+      ],
+      "nativeTargets": {
+        "instructions": "AGENTS.md",
+        "settings": "opencode.json",
+        "mcp": "opencode.json"
+      },
+      "capabilities": {
+        "instructions": {
+          "status": "supported",
+          "evidence": [
+            "https://opencode.ai/docs/rules"
+          ],
+          "verification": "Confirm AGENTS.md is loaded, and that opencode.json instructions[] pulls in the DoFlow guidance pointer."
+        },
+        "skills": {
+          "status": "supported",
+          "evidence": [
+            "https://opencode.ai/docs/skills",
+            "https://opencode.ai/docs/rules"
+          ],
+          "verification": "Confirm OpenCode discovers DoFlow skills from the registered directory rather than a copied tree."
+        },
+        "agents": {
+          "status": "different",
+          "evidence": [
+            "https://opencode.ai/docs/config"
+          ],
+          "note": "OpenCode defines agents in its own config rather than as standalone spec files, so DoFlow projects agent guidance through instructions instead of a native agents directory.",
+          "verification": "Report that agent guidance arrives via instructions, not a native agent registry."
+        },
+        "scripts": {
+          "status": "supported",
+          "evidence": [
+            "https://opencode.ai/docs/skills"
+          ],
+          "verification": "Confirm a bundled skill scripts/ directory is reachable from the registered skills path."
+        },
+        "templates": {
+          "status": "supported",
+          "evidence": [
+            "https://opencode.ai/docs/rules"
+          ],
+          "verification": "Confirm the installed template tree is readable by the agent."
+        },
+        "modes": {
+          "status": "different",
+          "evidence": [
+            "https://opencode.ai/docs/rules"
+          ],
+          "note": "OpenCode has no separate mode surface; DoFlow mode guidance is reachable through the instructions pointer.",
+          "verification": "Confirm mode guidance is available through instructions."
+        },
+        "settings": {
+          "status": "supported",
+          "evidence": [
+            "https://opencode.ai/docs/config"
+          ],
+          "verification": "Confirm opencode.json retains user keys and only DoFlow-owned entries change."
+        },
+        "hooks": {
+          "status": "different",
+          "evidence": [
+            "https://opencode.ai/docs/plugins"
+          ],
+          "note": "OpenCode extends behaviour through JavaScript/TypeScript plugin modules, not the shell hook scripts DoFlow ships, so no hook projection is attempted.",
+          "verification": "Report that DoFlow installs no OpenCode plugin and its shell hooks do not apply here.",
+          "events": {
+            "PreToolUse": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: tool.execute.before."
+            },
+            "PostToolUse": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: tool.execute.after."
+            },
+            "SessionStart": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.created."
+            },
+            "SessionEnd": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.idle / session.deleted."
+            },
+            "PreCompact": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: experimental.session.compacting."
+            },
+            "PostCompact": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.compacted."
+            },
+            "PermissionDenied": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: permission.replied, whose payload carries the decision."
+            },
+            "Stop": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.idle."
+            },
+            "UserPromptSubmit": {
+              "status": "unavailable",
+              "note": "OpenCode exposes message.updated rather than a pre-submission prompt event, so a hook could not gate a prompt before the model sees it."
+            },
+            "SubagentStart": {
+              "status": "unavailable",
+              "note": "OpenCode publishes no subagent lifecycle event."
+            },
+            "SubagentStop": {
+              "status": "unavailable",
+              "note": "OpenCode publishes no subagent lifecycle event."
+            },
+            "PostToolUseFailure": {
+              "status": "unavailable",
+              "note": "tool.execute.after fires for both outcomes; no failure-only event exists."
+            },
+            "ConfigChange": {
+              "status": "unavailable",
+              "note": "installation.updated tracks OpenCode upgrades, not configuration edits."
+            }
+          }
+        },
+        "mcp": {
+          "status": "supported",
+          "evidence": [
+            "https://opencode.ai/docs/mcp-servers"
+          ],
+          "verification": "Confirm selected MCP servers appear under the mcp key in opencode.json."
+        },
+        "plugin": {
+          "status": "different",
+          "evidence": [
+            "https://opencode.ai/docs/plugins"
+          ],
+          "note": "DoFlow publishes no OpenCode plugin package; its content reaches OpenCode by registration rather than plugin distribution.",
+          "verification": "Report that no plugin package is installed for OpenCode."
+        }
+      }
+    },
+    {
+      "id": "pi",
+      "displayName": "Pi Coding Agent",
+      "adapter": "pi",
+      "scopes": [
+        "project",
+        "user"
+      ],
+      "nativeTargets": {
+        "instructions": "AGENTS.md",
+        "settings": ".pi/settings.json"
+      },
+      "capabilities": {
+        "instructions": {
+          "status": "supported",
+          "evidence": [
+            "https://pi.dev/docs/latest/quickstart"
+          ],
+          "verification": "Confirm Pi loads AGENTS.md from the project (or ~/.pi/agent/AGENTS.md globally)."
+        },
+        "skills": {
+          "status": "supported",
+          "evidence": [
+            "https://pi.dev/docs/latest/skills"
+          ],
+          "verification": "Confirm the skills[] array in settings.json points at the DoFlow skills directory and Pi lists those skills."
+        },
+        "agents": {
+          "status": "different",
+          "evidence": [
+            "https://pi.dev/docs/latest/extensions"
+          ],
+          "note": "Pi has no declarative agent-spec directory; specialist guidance reaches it through instructions and skills instead.",
+          "verification": "Report that agent guidance arrives via instructions, not a native agent registry."
+        },
+        "scripts": {
+          "status": "supported",
+          "evidence": [
+            "https://pi.dev/docs/latest/skills"
+          ],
+          "verification": "Confirm a bundled skill scripts/ directory is reachable from the registered skills path."
+        },
+        "templates": {
+          "status": "supported",
+          "evidence": [
+            "https://pi.dev/docs/latest/skills"
+          ],
+          "verification": "Confirm the installed template tree is readable by the agent."
+        },
+        "modes": {
+          "status": "different",
+          "evidence": [
+            "https://pi.dev/docs/latest/quickstart"
+          ],
+          "note": "Pi has no separate mode surface; DoFlow mode guidance is reachable through the instructions pointer.",
+          "verification": "Confirm mode guidance is available through instructions."
+        },
+        "settings": {
+          "status": "supported",
+          "evidence": [
+            "https://pi.dev/docs/latest/settings"
+          ],
+          "verification": "Confirm ~/.pi/agent/settings.json (or .pi/settings.json) retains user keys and only DoFlow-owned entries change."
+        },
+        "hooks": {
+          "status": "different",
+          "evidence": [
+            "https://pi.dev/docs/latest/extensions"
+          ],
+          "note": "Pi lifecycle hooks are TypeScript extension modules registered through pi.on(), executing arbitrary code with full permissions — a different trust model from the shell hooks DoFlow ships, so no hook projection is attempted.",
+          "verification": "Report that DoFlow installs no Pi extension and its shell hooks do not apply here.",
+          "events": {
+            "SessionStart": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_start, which carries reason:\"reload\" on /reload."
+            },
+            "SessionEnd": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_shutdown."
+            },
+            "UserPromptSubmit": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: input, which fires before skill expansion."
+            },
+            "PreCompact": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_before_compact, which may cancel or supply a summary."
+            },
+            "PostCompact": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: compaction_end."
+            },
+            "PreToolUse": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: tool_execution_start, exposed through session.subscribe rather than pi.on."
+            },
+            "PostToolUse": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: tool_execution_end, exposed through session.subscribe rather than pi.on."
+            },
+            "Stop": {
+              "status": "different",
+              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: agent_end."
+            },
+            "SubagentStart": {
+              "status": "unavailable",
+              "note": "Pi publishes no subagent lifecycle event."
+            },
+            "SubagentStop": {
+              "status": "unavailable",
+              "note": "Pi publishes no subagent lifecycle event."
+            },
+            "PostToolUseFailure": {
+              "status": "unavailable",
+              "note": "tool_execution_end reports both outcomes; no failure-only event exists."
+            },
+            "PermissionDenied": {
+              "status": "unavailable",
+              "note": "Pi has no permission-decision event; extensions run with full permissions rather than gating them."
+            },
+            "ConfigChange": {
+              "status": "unavailable",
+              "note": "Pi reloads configuration via /reload, surfaced as session_start with reason \"reload\", not as a distinct config event."
+            }
+          }
+        },
+        "mcp": {
+          "status": "different",
+          "evidence": [
+            "https://pi.dev/docs/latest/extensions"
+          ],
+          "note": "Pi reaches MCP servers through the separate pi-mcp-adapter extension rather than a native config key DoFlow can merge into.",
+          "verification": "Report that MCP registration for Pi is delegated to pi-mcp-adapter and not written by DoFlow."
+        },
+        "plugin": {
+          "status": "different",
+          "evidence": [
+            "https://pi.dev/docs/latest/extensions"
+          ],
+          "note": "DoFlow publishes no Pi extension package; its content reaches Pi by registration rather than extension distribution.",
+          "verification": "Report that no extension package is installed for Pi."
+        }
+      }
+    },
+    {
+      "id": "copilot",
+      "displayName": "GitHub Copilot CLI",
+      "adapter": "copilot",
+      "scopes": [
+        "project",
+        "user"
+      ],
+      "nativeTargets": {
+        "instructions": ".github/copilot-instructions.md",
+        "agents": ".github/agents",
+        "mcp": ".mcp.json"
+      },
+      "capabilities": {
+        "instructions": {
+          "status": "supported",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+          ],
+          "verification": "Confirm .github/copilot-instructions.md is loaded by Copilot CLI; no documented global-instructions equivalent exists beyond the shared, generic AGENTS.md file."
+        },
+        "skills": {
+          "status": "supported",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills"
+          ],
+          "verification": "Confirm Copilot CLI discovers the installed skill from .agents/skills (project) or ~/.agents/skills (personal) — the same SKILL.md + YAML frontmatter format DoFlow already authors, so no per-harness transformation is required."
+        },
+        "agents": {
+          "status": "supported",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli",
+            "https://docs.github.com/en/copilot/reference/custom-agents-configuration"
+          ],
+          "note": "The on-disk agent file format is `.agent.md` with YAML frontmatter, confirmed against the custom-agents-configuration reference: a required `description`, optional `name`, `tools`, `model`, `disable-model-invocation`, `user-invocable`, `mcp-servers`, and `metadata` fields, with the Markdown body below the frontmatter as the agent's instructions. The adapter renames each core/shared/agent-specs/<name>.md file to <name>.agent.md via copy-tree's layout mechanism on the way out; unrecognized frontmatter keys pass through untouched, the same posture Claude/Codex/Gemini's agent projections already take.",
+          "verification": "Confirm an installed custom agent under ~/.copilot/agents or .github/agents is discoverable and selectable by Copilot CLI."
+        },
+        "scripts": {
+          "status": "supported",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills"
+          ],
+          "verification": "Confirm a bundled skill scripts/ directory is reachable from the registered .agents/skills path."
+        },
+        "templates": {
+          "status": "supported",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills"
+          ],
+          "verification": "Confirm the installed template tree is readable from the registered .agents/skills path."
+        },
+        "modes": {
+          "status": "different",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+          ],
+          "note": "Copilot CLI has no separate mode surface; DoFlow mode guidance is reachable through the instructions pointer (.github/copilot-instructions.md) instead.",
+          "verification": "Confirm mode guidance is available through instructions."
+        },
+        "settings": {
+          "status": "unavailable",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+          ],
+          "note": "No general Copilot CLI settings/config file is documented separately from .mcp.json / ~/.copilot/mcp-config.json (covered under mcp) and the instructions, agent, and skill surfaces, each already covered by its own capability.",
+          "verification": "Report the capability gap; do not attempt a native settings merge."
+        },
+        "hooks": {
+          "status": "unavailable",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+          ],
+          "note": "No writable hook or lifecycle-event surface is documented for Copilot CLI.",
+          "verification": "Report the capability gap; do not attempt to install a hook."
+        },
+        "mcp": {
+          "status": "supported",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+          ],
+          "verification": "Confirm selected MCP servers appear via .mcp.json (project) or ~/.copilot/mcp-config.json (global)."
+        },
+        "plugin": {
+          "status": "unavailable",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+          ],
+          "note": "No plugin or marketplace mechanism is documented for Copilot CLI distinct from custom agents and MCP servers.",
+          "verification": "Report the capability gap; do not attempt to install a plugin."
+        }
+      }
+    },
+    {
+      "id": "kiro",
+      "displayName": "Kiro",
+      "adapter": "kiro",
+      "scopes": [
+        "project",
+        "user"
+      ],
+      "nativeTargets": {
+        "instructions": ".kiro/steering/",
+        "skills": ".kiro/skills",
+        "agents": ".kiro/agents",
+        "hooks": ".kiro/hooks",
+        "mcp": ".kiro/settings/mcp.json"
+      },
+      "capabilities": {
+        "instructions": {
+          "status": "supported",
+          "evidence": [
+            "https://kiro.dev/docs/steering/"
+          ],
+          "verification": "Confirm the full DoFlow guidance tree is discoverable as steering files under .kiro/steering/ (workspace) or ~/.kiro/steering/ (global); workspace files must win on conflict."
+        },
+        "skills": {
+          "status": "supported",
+          "evidence": [
+            "https://kiro.dev/docs/skills/"
+          ],
+          "note": "Kiro has a dedicated skills system, separate from steering: a skill is a folder containing SKILL.md with YAML frontmatter (name, description) plus optional scripts/references/assets subdirectories, following the same open Agent Skills standard DoFlow already authors — no transformation needed. Scanned from .kiro/skills/ (workspace) and ~/.kiro/skills/ (global); workspace wins on a same-name conflict. This corrects an earlier declaration made before kiro.dev/docs/skills/ was found.",
+          "verification": "Confirm the installed skill is discoverable under .kiro/skills/ (workspace) or ~/.kiro/skills/ (global)."
+        },
+        "agents": {
+          "status": "supported",
+          "evidence": [
+            "https://kiro.dev/docs/custom-agents/configuration-reference/"
+          ],
+          "note": "Confirmed: Kiro supports both .kiro/agents/<name>.json and .kiro/agents/<name>.md (Markdown, backward-compatible), with fields including name, description, tools, allowedTools/excludedTools, resources, prompt, model, permissions. DoFlow's shared agent-specs are already plain Markdown with name/description frontmatter, which Kiro's .md agent format accepts natively.",
+          "verification": "Confirm an installed custom agent under .kiro/agents is discoverable by Kiro."
+        },
+        "scripts": {
+          "status": "supported",
+          "evidence": [
+            "https://kiro.dev/docs/skills/"
+          ],
+          "note": "A skill's own scripts/ subdirectory travels with it inside .kiro/skills/, per the same bundled-with-skill pattern opencode/pi/copilot already use — not a standalone tree DoFlow projects separately.",
+          "verification": "Confirm a bundled skill scripts/ directory is reachable from the installed .kiro/skills/ path."
+        },
+        "templates": {
+          "status": "supported",
+          "evidence": [
+            "https://kiro.dev/docs/skills/"
+          ],
+          "note": "A skill's own references/assets subdirectories travel with it inside .kiro/skills/, the same bundled-with-skill pattern opencode/pi/copilot already use.",
+          "verification": "Confirm the installed template tree is readable from within a skill's own directory under .kiro/skills/."
+        },
+        "modes": {
+          "status": "different",
+          "evidence": [
+            "https://kiro.dev/docs/steering/"
+          ],
+          "note": "Kiro has no separate mode surface; DoFlow mode guidance is reachable through the projected steering tree.",
+          "verification": "Confirm mode guidance is available through the projected steering files."
+        },
+        "settings": {
+          "status": "unavailable",
+          "evidence": [
+            "https://kiro.dev/docs/mcp/configuration/"
+          ],
+          "note": "No general Kiro settings file is documented separately from .kiro/settings/mcp.json (covered under mcp) and the steering/hooks/agent directories, each already covered by its own capability.",
+          "verification": "Report the capability gap; do not attempt a native settings merge."
+        },
+        "hooks": {
+          "status": "supported",
+          "evidence": [
+            "https://kiro.dev/docs/hooks/",
+            "https://kiro.dev/docs/hooks/actions/"
+          ],
+          "note": "`.kiro/hooks/*.json` (flat `{version, hooks: [...]}` array, each entry naming its own `trigger`) is a confirmed, writable hook surface that activates automatically on session start — no trust/review prerequisite, unlike Codex's hooks.json. Confirmed trigger names: SessionStart, Stop, PreToolUse, PostToolUse, UserPromptSubmit, PreTaskExec, PostTaskExec, PostFileSave, PostFileCreate, PostFileDelete; PreToolUse/UserPromptSubmit/PreTaskExec are documented as blockable via a non-zero command exit code. DoFlow now projects a real doflow.json (kiro.hooks-scripts asset) wiring SessionStart, PreToolUse (x2: pre-implementation-gate and mcp-tool-guard), and Stop to the same shared session-start/stop-check implementations Claude and Codex reuse; Stop's own blocking semantics are not explicitly confirmed by the cited docs (only PreToolUse/UserPromptSubmit/PreTaskExec are), so stop-check's stub-detection block on Kiro is best-effort pending direct confirmation.",
+          "verification": "Confirm a projected hook file under .kiro/hooks/ is present, is well-formed JSON with the expected trigger names, and that a PreToolUse hook's non-zero exit actually blocks the tool call on the installed Kiro CLI."
+        },
+        "mcp": {
+          "status": "supported",
+          "evidence": [
+            "https://kiro.dev/docs/mcp/configuration/"
+          ],
+          "verification": "Confirm selected MCP servers appear in .kiro/settings/mcp.json (workspace) or ~/.kiro/settings/mcp.json (global), with workspace taking precedence."
+        },
+        "plugin": {
+          "status": "unavailable",
+          "evidence": [
+            "https://kiro.dev/docs/steering/"
+          ],
+          "note": "No plugin or extension marketplace mechanism is documented in the steering, hooks, or MCP sources cited for this feature.",
+          "verification": "Report the capability gap; do not attempt to install a plugin."
+        }
+      }
     }
   ]
 }

@@ -97,3 +97,25 @@ test('EvidenceLedger saves and loads task evidence to neutral JSON state', () =>
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
+
+// Regression: taskId is interpolated straight into a filename, so an id naming a path resolved
+// clean out of the state directory. Read-only today only because nothing calls save() — it becomes
+// an arbitrary file write the moment a writer is wired up.
+test('a task id that names a path is rejected rather than resolved out of the state dir', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-taskid-'));
+  const ledger = new EvidenceLedger({ stateDir: tmpDir });
+  for (const bad of ['../../../etc/passwd', '../escape', 'a/b', '.', '..', '', 'x y']) {
+    assert.throws(() => ledger.load(bad), /Invalid task id/, `must reject ${JSON.stringify(bad)}`);
+    assert.throws(() => ledger.save(bad), /Invalid task id/, `must reject ${JSON.stringify(bad)}`);
+  }
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+test('ordinary task ids are still accepted', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-taskid-ok-'));
+  const ledger = new EvidenceLedger({ stateDir: tmpDir });
+  for (const good of ['default', 'test-1', 'FEAT_003.a', '005-evidence-ledger']) {
+    assert.equal(ledger.load(good), 0, `${good} should load cleanly (absent file -> 0)`);
+  }
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});

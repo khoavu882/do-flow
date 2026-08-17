@@ -84,7 +84,7 @@
     {
       "harness": "codex",
       "completeness": "lower-bound",
-      "note": "Frontmatter field lists are deliberately absent: shared skills and agent specs are byte-identical across harnesses, so a per-harness list could only restate a subset of claude's and would change no guard outcome \u2014 an inert declaration of exactly the kind these guards exist to remove. hookEvents IS per-harness and lists the events DoFlow actually wires; widen it only with an added evidence URL.",
+      "note": "Frontmatter field lists are deliberately absent: shared skills and agent specs are byte-identical across harnesses, so a per-harness list could only restate a subset of claude's and would change no guard outcome — an inert declaration of exactly the kind these guards exist to remove. hookEvents IS per-harness and lists the events DoFlow actually wires; widen it only with an added evidence URL.",
       "hookEvents": [
         "SessionStart",
         "SessionEnd",
@@ -105,7 +105,7 @@
     {
       "harness": "gemini",
       "completeness": "lower-bound",
-      "note": "Frontmatter field lists are deliberately absent: shared skills and agent specs are byte-identical across harnesses, so a per-harness list could only restate a subset of claude's and would change no guard outcome \u2014 an inert declaration of exactly the kind these guards exist to remove. hookEvents IS per-harness and lists the events DoFlow actually wires; widen it only with an added evidence URL.",
+      "note": "Frontmatter field lists are deliberately absent: shared skills and agent specs are byte-identical across harnesses, so a per-harness list could only restate a subset of claude's and would change no guard outcome — an inert declaration of exactly the kind these guards exist to remove. hookEvents IS per-harness and lists the events DoFlow actually wires; widen it only with an added evidence URL.",
       "hookEvents": [
         "SessionStart",
         "SessionEnd",
@@ -117,6 +117,55 @@
         "https://geminicli.com/docs/cli/skills/",
         "https://geminicli.com/docs/hooks/",
         "https://geminicli.com/docs/cli/configuration/"
+      ]
+    },
+    {
+      "harness": "opencode",
+      "completeness": "lower-bound",
+      "note": "hookEvents is empty by design, not by omission: OpenCode implements lifecycle handlers as JavaScript/TypeScript plugin modules exporting named hooks such as tool.execute.before, while DoFlow ships shell scripts invoked by a command string. The events exist natively and are recorded under capabilities.hooks.events with status \"different\"; wiring them would mean shipping executable code into the user's agent, which is a distribution decision rather than a projection. Widen this list only alongside that decision and an added evidence URL. See https://opencode.ai/docs/plugins.",
+      "hookEvents": [],
+      "evidence": [
+        "https://opencode.ai/docs/plugins",
+        "https://opencode.ai/docs/rules",
+        "https://opencode.ai/docs/config"
+      ]
+    },
+    {
+      "harness": "pi",
+      "completeness": "lower-bound",
+      "note": "hookEvents is empty by design, not by omission: Pi implements lifecycle handlers as TypeScript extension modules registering handlers through pi.on(), executing with full system permissions, while DoFlow ships shell scripts invoked by a command string. The events exist natively and are recorded under capabilities.hooks.events with status \"different\"; wiring them would mean shipping executable code into the user's agent, which is a distribution decision rather than a projection. Widen this list only alongside that decision and an added evidence URL. See https://pi.dev/docs/latest/extensions.",
+      "hookEvents": [],
+      "evidence": [
+        "https://pi.dev/docs/latest/extensions",
+        "https://pi.dev/docs/latest/settings",
+        "https://pi.dev/docs/latest/skills"
+      ]
+    },
+    {
+      "harness": "copilot",
+      "completeness": "lower-bound",
+      "note": "hookEvents is empty because no writable hook or lifecycle-event surface is documented for Copilot CLI: it exposes custom instructions, skills, custom agents, and MCP configuration, but nothing DoFlow can wire a command-string hook into. Widen this list only if such a surface is documented, alongside an added evidence URL.",
+      "hookEvents": [],
+      "evidence": [
+        "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills",
+        "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli",
+        "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+      ]
+    },
+    {
+      "harness": "kiro",
+      "completeness": "lower-bound",
+      "note": "hookEvents lists only the events DoFlow actually installs a doflow.json entry for (session-context on SessionStart, pre-implementation-gate and mcp-tool-guard both on PreToolUse — hence PreToolUse appearing once, not twice — and stop-check on Stop), not the full set of trigger names Kiro's docs confirm (SessionStart, Stop, PreToolUse, PostToolUse, UserPromptSubmit, PreTaskExec, PostTaskExec, PostFileSave, PostFileCreate, PostFileDelete — see kiro.dev/docs/hooks/actions/). Widen this list only when DoFlow wires a hook to one of the unused confirmed events, alongside an added evidence URL.",
+      "hookEvents": [
+        "SessionStart",
+        "PreToolUse",
+        "Stop"
+      ],
+      "evidence": [
+        "https://kiro.dev/docs/steering/",
+        "https://kiro.dev/docs/mcp/configuration/",
+        "https://kiro.dev/docs/hooks/",
+        "https://kiro.dev/docs/hooks/actions/"
       ]
     }
   ]

@@ -1,7 +1,27 @@
 {
-  "name": "doflow",
-  "version": "1.0.0-beta.2",
+  "name": "@khoavu882/doflow",
+  "version": "1.0.0-beta.3",
   "description": "DoFlow config installer — npx CLI for the registry-driven multi-harness install/update/remove lifecycle",
+  "keywords": [
+    "claude-code",
+    "codex",
+    "gemini",
+    "opencode",
+    "ai-coding-agent",
+    "skills",
+    "hooks",
+    "mcp",
+    "cli"
+  ],
+  "homepage": "https://github.com/khoavu882/do-flow#readme",
+  "bugs": {
+    "url": "https://github.com/khoavu882/do-flow/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/khoavu882/do-flow.git"
+  },
+  "author": "Khoa Vu Dang",
   "bin": {
     "doflow": "bin/doflow.js"
   },
@@ -16,5 +36,8 @@
     "src/",
     "core/"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "MIT"
 }

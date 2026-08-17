@@ -396,8 +396,28 @@ test('Codex-native lifecycle supports isolated project dry-run, selected MCP upd
   assert.strictEqual(r.status, 0, r.stderr);
   const status = JSON.parse(r.stdout);
   assert.strictEqual(status.codex.status, 'verified');
-  assert.strictEqual(status.codex.hooksTrust.status, 'review-required');
+  assert.strictEqual(status.codex.hooks.status, 'installed-pending');
+  assert.deepStrictEqual(status.codex.hooks.prerequisites, ['trusted-project', 'hook-review']);
   assert.ok(status.codex.resources.some((resource) => resource.kind === 'mcp-server' && resource.identity === 'sequential-thinking'));
+});
+
+test('status --json reports the general per-harness hook-wiring status for claude, codex, gemini, and kiro', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+
+  let r = run(['install', project, '--force', '--target', 'claude,codex,gemini,kiro', '--mcp', 'context7'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+
+  r = run(['status', project, '--target', 'claude,codex,gemini,kiro', '--json'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const status = JSON.parse(r.stdout);
+
+  assert.deepStrictEqual(status.context.claude.hooks, { status: 'active', prerequisites: [] });
+  assert.deepStrictEqual(status.context.kiro.hooks, { status: 'active', prerequisites: [] });
+  assert.strictEqual(status.codex.hooks.status, 'installed-pending');
+  assert.deepStrictEqual(status.codex.hooks.prerequisites, ['trusted-project', 'hook-review']);
+  assert.strictEqual(status.context.gemini.hooks.status, 'installed-pending');
+  assert.ok(status.context.gemini.hooks.prerequisites.length > 0);
 });
 
 test('Codex reconciliation preserves foreign config and fails closed on a conflicting managed key', () => {
@@ -690,7 +710,9 @@ test('Gemini lifecycle: fresh install writes GEMINI.md (not AGENTS.md) and owns 
   assert.ok(owned.some((resource) => resource.assetId === 'skills.doflow'), 'skills.doflow must be ledger-owned');
   assert.ok(owned.some((resource) => resource.assetId === 'agents.shared'), 'agents.shared must be ledger-owned');
   assert.ok(fs.existsSync(path.join(project, '.agents', 'skills', 'do-diagnose', 'SKILL.md')));
-  assert.ok(fs.existsSync(path.join(project, '.agents', 'agents', 'system-architect.md')));
+  // Antigravity discovers a custom agent at .agents/agents/<name>/agent.md — a directory per
+  // agent, not a flat <name>.md, which it would never look at.
+  assert.ok(fs.existsSync(path.join(project, '.agents', 'agents', 'system-architect', 'agent.md')));
 });
 
 test('Claude lifecycle: remove strips only the managed section from CLAUDE.md, preserves foreign content, and updates the ledger', () => {

@@ -59,6 +59,9 @@ function projectAdapterInput({ registry, harness, scope, scopeRoot, assets = [],
       renderer: projection.renderer, capability: projection.capability,
       capabilityStatus: capability.status, nativeTarget: harness.nativeTargets?.[projection.capability] ?? null,
       nativeDir: asset.nativeDir?.[harness.id] ?? null,
+      // Optional destination shape for copy-tree assets. Null for every projection that mirrors
+      // source paths, which is all of them except Antigravity's directory-per-agent requirement.
+      layout: projection.layout ?? null,
       prerequisites: [...(capability.prerequisites || [])],
     });
   };

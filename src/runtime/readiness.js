@@ -178,7 +178,13 @@ class ReadinessEngine {
           reason = `Prerequisite '${reqId}' not documented.`;
         }
       } else {
-        isSatisfied = true;
+        // Fail closed. A gate whose unrecognized requirements default to satisfied reports READY
+        // for prerequisites it never actually evaluated — the one failure mode a readiness contract
+        // exists to prevent. No shipped template reaches here today; a future one adding a
+        // requirement without `evidenceKinds`/`requiresClaimStatus` should surface as unmet, not
+        // silently pass.
+        isSatisfied = false;
+        reason = `Requirement '${reqId}' has no evaluator; treating as unmet.`;
       }
 
       if (!isSatisfied && reqDef.required) {

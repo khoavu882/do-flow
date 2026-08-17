@@ -117,7 +117,7 @@ function mergeGlobalMcpServers(homeDir, knownServerNames, serverDefs) {
  *           interactive:boolean, promptFn:(servers:string[], seed:string[])=>string[]|null}} p
  * @returns {string[]}
  */
-function resolveMcpSelection({ cmd, requested, allServers, manifestServers, interactive, promptFn }) {
+function resolveMcpSelection({ cmd, requested, allServers, manifestServers, interactive, promptFn, onStale }) {
   if (requested) {
     if (requested.length === 0) {
       throw new Error('--mcp requires at least one server (omit the flag entirely to keep all)');
@@ -128,12 +128,32 @@ function resolveMcpSelection({ cmd, requested, allServers, manifestServers, inte
     }
     return [...new Set(requested)];
   }
+
+  // `requested` is user intent, so an unknown name above is a typo and must be fatal. The manifest
+  // selection is *persisted resolved state* (see src/manifest.js), so an id the registry no longer
+  // declares means the project retired that server between installs — a normal upgrade, not user
+  // error. Passing it through unfiltered reached selectMcpServers() in src/registry/index.js,
+  // which throws, so removing chrome-devtools and playwright from core/registry/mcp.yaml (d1bf9e8)
+  // made `install` and `update` fatally fail for every install predating that commit, with no hint
+  // that `--mcp <survivors>` was the way out. cmdStatus already tolerated the same state because
+  // it happens to wrap the call in try/catch; reconcile here so every caller behaves that way.
+  const remembered = manifestServers ?? null;
+  const known = remembered?.filter((s) => allServers.includes(s)) ?? null;
+  const retired = remembered?.filter((s) => !allServers.includes(s)) ?? [];
+  if (retired.length && onStale) onStale(retired);
+
   if (cmd === 'install' && interactive) {
-    const seed = manifestServers ?? allServers;
+    // Seed the checkbox from reconciled state too — pre-ticking a server that no longer exists
+    // would offer the user a choice the registry cannot honor.
+    const seed = known ?? allServers;
     const picked = promptFn(allServers, seed);
     if (picked !== null) return picked; // [] is a deliberate "no servers" choice, honored as-is
   }
-  return manifestServers ?? allServers;
+
+  // An install that had every one of its servers retired falls back to the full catalog rather
+  // than to [], which would silently uninstall MCP support the user never asked to remove.
+  if (known && known.length === 0) return [...allServers];
+  return known ?? allServers;
 }
 
 const KEY = {

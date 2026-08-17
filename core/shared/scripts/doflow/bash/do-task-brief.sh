@@ -104,7 +104,15 @@ else
 fi
 
 if [ -z "$brief_rel" ]; then
-  printf '%s\n' "${paths:-{\"error\":\"paths-unresolved\"}}"
+  # Not "${paths:-{...}}": bash ends the expansion at the first unescaped `}`, so the default word
+  # is `{"error":"paths-unresolved"` and the final `}` is emitted *outside* it — appending a stray
+  # brace to $paths whenever $paths is non-empty. Every error passthrough here (a rejected task id,
+  # or simply running with no active feature) therefore produced JSON that `jq` refuses to parse.
+  if [ -n "$paths" ]; then
+    printf '%s\n' "$paths"
+  else
+    printf '%s\n' '{"error":"paths-unresolved"}'
+  fi
   exit 2
 fi
 

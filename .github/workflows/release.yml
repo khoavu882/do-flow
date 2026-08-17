@@ -1,0 +1,92 @@
+name: Release
+
+# A tag is the release. Before v1.0.0 nothing ran on tag creation, so `v*` could be cut from a
+# commit that had never passed the Windows leg of cross-os-tests. This makes the tag itself the
+# gate: tests first, and the publish/release jobs only run if that job succeeds.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write        # create the GitHub Release
+  id-token: write        # npm provenance attestation
+
+jobs:
+  # Reuses the PR suite verbatim rather than restating it, so the two can never drift.
+  test:
+    uses: ./.github/workflows/cross-os-tests.yml
+
+  verify-tag:
+    name: tag matches package.json
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # A tag that disagrees with the manifest publishes a version nobody can trace back to a
+      # commit. Cheap to check, expensive to discover after the fact — npm versions are immutable.
+      - name: Compare tag to manifest version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg=$(node -p "require('./package.json').version")
+          echo "tag=$tag manifest=$pkg"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag v$tag does not match package.json version $pkg"
+            exit 1
+          fi
+
+      # test/guards/package.test.js asserts the source tree is clean; this asserts the artifact npm
+      # would actually upload is too, which is the thing users install.
+      - name: Fail if the tarball carries backup or editor artifacts
+        run: |
+          npm pack --dry-run 2>&1 | tee /tmp/pack.txt
+          if grep -Eq '\.(bak|orig|rej|swp|tmp)$|\.DS_Store|__pycache__' /tmp/pack.txt; then
+            echo "::error::npm tarball contains artifacts that must not ship"
+            exit 1
+          fi
+
+  publish:
+    name: publish to npm
+    needs: verify-tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      # --provenance needs id-token: write above; publishConfig.access in package.json makes the
+      # scoped package public. Requires an NPM_TOKEN secret with publish rights on @khoavu882.
+      #
+      # A prerelease MUST NOT land on the `latest` dist-tag, which npm assigns by default — that
+      # would make `npx @khoavu882/doflow` resolve to a beta for every user. SemVer prerelease
+      # versions are exactly those containing a hyphen, so the tag name decides the dist-tag.
+      - name: Publish
+        run: |
+          case "$GITHUB_REF_NAME" in
+            *-*) echo "prerelease → dist-tag beta"; npm publish --provenance --tag beta ;;
+            *)   echo "stable → dist-tag latest";   npm publish --provenance ;;
+          esac
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  github-release:
+    name: create GitHub Release
+    needs: verify-tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            $prerelease
