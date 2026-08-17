@@ -5,12 +5,60 @@ contains only the shortest path to a working installation.
 
 ## Prerequisites
 
-| Requirement | Needed for |
-|---|---|
-| Git | Cloning and source updates |
-| Node.js 18+ | The `doflow` installer |
-| Claude Code, Codex, or Gemini CLI | At least one target harness |
-| `jq` | Hook scripts where the selected harness supports hooks |
+### Core
+
+| Requirement | Needed for | Notes |
+|---|---|---|
+| Node.js 18+ | The `doflow` installer, and `npx` for the bundled MCP servers | `package.json` declares `engines.node >= 18`; CI exercises 18 and 20 |
+| Git | Cloning, `self-update`, and the git context hooks | |
+| `bash` | Hook scripts, on any harness that supports hooks | POSIX bash, Git Bash/MSYS2, and WSL bash all qualify. DoFlow runs `bash --version` rather than a PATH check, so a same-named unrelated binary will not satisfy it. Installs that carry no hooks do not need it. |
+| `jq` | The DoFlow shell scripts and hook payload parsing | Preinstalled on GitHub-hosted runners |
+| At least one coding agent | Somewhere to install to | See the table below |
+
+### Coding agents
+
+DoFlow installs into whichever of these you have. None is required individually; you need at least
+one.
+
+| Agent | `--target` value | What DoFlow installs |
+|---|---|---|
+| [Claude Code](https://claude.com/claude-code) | `claude` | `CLAUDE.md`, skills, agents, hooks, MCP registration, session context |
+| [Codex](https://learn.chatgpt.com/docs/customization/overview) | `codex` | `AGENTS.md`, skills, scripts, templates, agents, hooks, MCP via `config.toml` |
+| [Gemini CLI](https://geminicli.com/) / [Antigravity](https://antigravity.google/) | `gemini` | `GEMINI.md`, guidance, skills, agents, and hooks merged into `settings.json` |
+| [OpenCode](https://opencode.ai/) | *not yet* | Declared in the registry; the adapter is not implemented, so `--target opencode` is currently rejected |
+| [Pi](https://pi.dev/) | *not yet* | Declared in the registry; the adapter is not implemented, so `--target pi` is currently rejected |
+
+Codex and Gemini both gate hook execution behind their own trust/review step — DoFlow writes the
+configuration, but neither runs a hook until you approve it in that tool. Antigravity and Gemini CLI
+share `~/.gemini/GEMINI.md`, so a global `--target gemini` install affects both; see
+[what gets installed](#what-gets-installed).
+
+### Optional external tools
+
+DoFlow can inspect and manage these, but never requires them. `doflow tools --tool <list> --action
+status` reports what is present; `install`/`update`/`uninstall` display and separately confirm every
+command, and `--force` is intentionally rejected.
+
+| Tool | Requires | Used for | DoFlow's install command |
+|---|---|---|---|
+| [`uv`](https://docs.astral.sh/uv/) | — | Prerequisite for Graphify and Semble | **None.** DoFlow explains a missing `uv` and stops; it will not install a package manager for you |
+| [RTK](https://www.rtk-ai.app/docs/getting-started/installation/) | Rust toolchain (`cargo`) | Compressing high-output CLI commands (`command.compress`) | `cargo install --git https://github.com/rtk-ai/rtk --branch master rtk` |
+| [Graphify](https://docs.astral.sh/uv/) | `uv` | Code relationships and blast-radius analysis (`code.relationships`, `code.impact-analysis`) | `uv tool install graphifyy` |
+| [Semble](https://docs.astral.sh/uv/) | `uv` | Semantic code search (`code.semantic-search`) | `uv tool install semble` |
+
+`doflow tools --tool rtk --action update` always reports **skipped**: no upstream update command has
+been verified, and DoFlow will not guess one. Reinstall instead.
+
+Each tool backs a capability the router resolves. When one is absent the router falls back — Semble
+and Graphify degrade to Ripgrep — so DoFlow stays functional without any of them. Run `doflow
+capabilities` to see which provider is actually active on your machine, and `doflow doctor` for a
+health check across all three.
+
+### MCP servers
+
+DoFlow registers `context7` and `sequential-thinking` for the harnesses that support MCP. Both run
+via `npx`, so they need no separate installation beyond Node. Select a subset with `--mcp`, or omit
+the flag to be prompted on a real terminal.
 
 ## Installation modes
 
@@ -75,12 +123,28 @@ surface and its customization surface follow different conventions:
 
 | What | Project-scope location | Why |
 |---|---|---|
-| Skills, agents | `<projectRoot>/.agents/` | Antigravity customization convention |
+| Skills | `<projectRoot>/.agents/skills/` | Antigravity customization convention |
+| Agents | `<projectRoot>/.agents/agents/<name>/agent.md` | Antigravity discovers a custom agent as a **directory** containing `agent.md`, not a flat `<name>.md` |
 | `settings.json`, `hooks/` | `<projectRoot>/.gemini/` | Gemini CLI reads its own config from `.gemini/` in both scopes |
 | `GEMINI.md` | `<projectRoot>/GEMINI.md` | Gemini reads the instruction file from the workspace root |
 
 A project install therefore creates `.agents/`, `.gemini/`, and a root `GEMINI.md`. Auditing what
 DoFlow wrote into a repo means checking all three, not `.agents/` alone.
+
+#### Gemini CLI and Antigravity share one global file
+
+Both products read **`~/.gemini/GEMINI.md`**, and neither offers a way to separate them. A global
+`--target gemini` install therefore configures **both** tools, whichever one you meant. This is a
+property of those products, not of DoFlow — but it has two consequences worth knowing:
+
+- If you use only one of them, the other still picks up DoFlow's guidance the next time you run it.
+- If another tool already manages that file, DoFlow merges into its own marker block and leaves the
+  rest untouched. It will refuse the install outright rather than overwrite a `GEMINI.md` that has
+  no DoFlow section — add an empty `<!-- doflow:start -->` / `<!-- doflow:end -->` pair where you
+  want DoFlow's content to live, and re-run.
+
+Project scope avoids the collision entirely: `<projectRoot>/GEMINI.md` is per-repository, so
+installing without `-g` keeps the two tools' global configuration untouched.
 
 ## CLI lifecycle
 

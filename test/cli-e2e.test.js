@@ -690,7 +690,9 @@ test('Gemini lifecycle: fresh install writes GEMINI.md (not AGENTS.md) and owns 
   assert.ok(owned.some((resource) => resource.assetId === 'skills.doflow'), 'skills.doflow must be ledger-owned');
   assert.ok(owned.some((resource) => resource.assetId === 'agents.shared'), 'agents.shared must be ledger-owned');
   assert.ok(fs.existsSync(path.join(project, '.agents', 'skills', 'do-diagnose', 'SKILL.md')));
-  assert.ok(fs.existsSync(path.join(project, '.agents', 'agents', 'system-architect.md')));
+  // Antigravity discovers a custom agent at .agents/agents/<name>/agent.md — a directory per
+  // agent, not a flat <name>.md, which it would never look at.
+  assert.ok(fs.existsSync(path.join(project, '.agents', 'agents', 'system-architect', 'agent.md')));
 });
 
 test('Claude lifecycle: remove strips only the managed section from CLAUDE.md, preserves foreign content, and updates the ledger', () => {

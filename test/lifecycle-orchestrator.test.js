@@ -50,7 +50,7 @@ test('planning is non-mutating and returns normalized adapter changes', () => {
   assert.deepEqual(plan.changes[0], { assetId: 'guidance.fake', target: 'FAKE.md', operation: 'create', ownershipIdentity: 'fake:guidance', afterFingerprint: 'after', harness: 'fake' });
   assert.deepEqual(plan.targets[0].adapterInput.assets[0], {
     id: 'guidance.fake', kind: 'guidance', source: 'ignored', ownership: 'managed-file', renderer: 'fake',
-    capability: 'instructions', capabilityStatus: 'supported', nativeTarget: null, nativeDir: null, prerequisites: [],
+    capability: 'instructions', capabilityStatus: 'supported', nativeTarget: null, nativeDir: null, layout: null, prerequisites: [],
   });
 });
 

@@ -24,12 +24,40 @@ function walkRelFiles(dir, fsImpl) {
   return out;
 }
 
+/** Destination layouts. A copy-tree normally mirrors source paths exactly, but a harness may
+ * require a different shape for the same content: Antigravity discovers a custom agent at
+ * `.agents/agents/<name>/agent.md`, a directory per agent, so DoFlow's flat `<name>.md` specs were
+ * written where that harness never looks. Declared per projection in the registry rather than
+ * branched on inside an adapter, so the shape stays visible next to the asset it applies to.
+ * @type {Record<string, (sourceRel: string) => string>}
+ */
+const LAYOUTS = {
+  /** `spec-analyst.md` -> `spec-analyst/agent.md` */
+  'dir-per-file:agent.md': (sourceRel) => {
+    const ext = path.extname(sourceRel);
+    return path.join(sourceRel.slice(0, sourceRel.length - ext.length), `agent${ext || '.md'}`);
+  },
+};
+
+/** Resolve a declared layout name to its mapper. Unknown names fail loudly rather than silently
+ * mirroring, because a typo would otherwise install to the wrong shape and look like it worked. */
+function resolveLayout(name) {
+  if (!name) return (rel) => rel;
+  const layout = LAYOUTS[name];
+  if (!layout) throw new Error(`Unknown copy-tree layout '${name}' (known: ${Object.keys(LAYOUTS).join(', ')})`);
+  return layout;
+}
+
 /** List every source file with its would-be destination and content fingerprint. Does not touch
- * the destination tree beyond checking existence. */
-function discoverTree({ sourceDir, destDir, fsImpl = fs }) {
+ * the destination tree beyond checking existence. `relPath` is destination-relative and doubles as
+ * the ledger identity, so a layout change relocates the recorded resource too — planTree's
+ * relocation handling then removes the old path rather than orphaning it. */
+function discoverTree({ sourceDir, destDir, fsImpl = fs, layout }) {
   if (!fsImpl.existsSync(sourceDir)) throw new Error(`copy-tree source is missing: ${sourceDir}`);
-  const files = walkRelFiles(sourceDir, fsImpl).map((relPath) => {
-    const sourceAbs = path.join(sourceDir, relPath);
+  const mapRel = typeof layout === 'function' ? layout : resolveLayout(layout);
+  const files = walkRelFiles(sourceDir, fsImpl).map((sourceRel) => {
+    const relPath = mapRel(sourceRel);
+    const sourceAbs = path.join(sourceDir, sourceRel);
     const destAbs = path.join(destDir, relPath);
     return { relPath, sourceAbs, destAbs, exists: fsImpl.existsSync(destAbs), fingerprint: sha256(fsImpl.readFileSync(sourceAbs)) };
   });
@@ -45,7 +73,7 @@ function discoverTree({ sourceDir, destDir, fsImpl = fs }) {
  * `operation: 'remove'` skips the source tree entirely and only proposes removals for every
  * previously-owned file, mirroring Codex's `ownedRemovalPlan`.
  */
-function planTree({ sourceDir, destDir, previousResources = [], operation = 'apply', fsImpl = fs }) {
+function planTree({ sourceDir, destDir, previousResources = [], operation = 'apply', fsImpl = fs, layout }) {
   const prevByPath = new Map(previousResources.map((resource) => [resource.relPath, resource]));
   const changes = [];
   const conflicts = [];
@@ -67,7 +95,7 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
     return { changes, conflicts };
   }
 
-  const { files } = discoverTree({ sourceDir, destDir, fsImpl });
+  const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout });
   const satisfiedAtSameLocation = new Set();
   for (const file of files) {
     const prev = prevByPath.get(file.relPath);
@@ -139,8 +167,8 @@ function removeTree({ changes = [], fsImpl = fs }) {
 }
 
 /** Re-derive ownership resources from what's actually on disk right now, for status/verify. */
-function verifyTree({ sourceDir, destDir, fsImpl = fs }) {
-  const { files } = discoverTree({ sourceDir, destDir, fsImpl });
+function verifyTree({ sourceDir, destDir, fsImpl = fs, layout }) {
+  const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout });
   const resources = [];
   const conflicts = [];
   for (const file of files) {
@@ -171,4 +199,4 @@ function ledgerFileResources(resources, harness, assetId) {
     .map((resource) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
-module.exports = { discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources };
+module.exports = { discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, resolveLayout, LAYOUTS };
