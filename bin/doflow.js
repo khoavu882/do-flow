@@ -156,12 +156,19 @@ External tools:
  * @returns {{allServers:string[], selected:string[], changed:boolean, destDescription:string, apply:()=>void}|null}
  *          null if the registry declares no MCP servers (nothing to resolve).
  */
+/** Surface a reconciled-away MCP server rather than dropping it silently: the user picked it once,
+ * so its disappearance from their config should be explained, not discovered. */
+function reportRetiredMcp(retired) {
+  console.error(`[WARN]  Dropping MCP server(s) no longer in the registry: ${retired.join(', ')}`);
+  console.error('        They were removed from DoFlow; your saved selection is being reconciled.');
+}
+
 function resolveMcpForTool({ o, dirs, scope, cmd, registry }) {
   const allServers = readAllServers(registry);
   if (!allServers.length) return null;
   const manifestServers = readManifest(dirs.claude)?.mcpServers ?? null;
   const interactive = cmd === 'install' && !o.dryRun && !o.force && Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY);
-  const selected = resolveMcpSelection({ cmd, requested: o.mcp, allServers, manifestServers, interactive, promptFn: promptMcpCheckbox });
+  const selected = resolveMcpSelection({ cmd, requested: o.mcp, allServers, manifestServers, interactive, promptFn: promptMcpCheckbox, onStale: reportRetiredMcp });
   const baseline = manifestServers ?? allServers;
   const changed = [...baseline].sort().join(',') !== [...selected].sort().join(',');
   const projectRoot = path.dirname(dirs.claude); // == os.homedir() when scope.global, by construction
@@ -191,7 +198,7 @@ function cmdInstall(o) {
   const codexCatalog = targets.includes('codex') ? readCodexMcpCatalog(registry) : null;
   const codexMcpSelection = codexCatalog ? (mcp?.selected ?? resolveCodexMcpSelection({ cmd: 'install', requested: o.mcp,
     allServers: codexCatalog.allServers, manifestServers: existingManifest?.mcpServers ?? null,
-    interactive: !o.dryRun && !o.force && Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY), promptFn: promptMcpCheckbox })) : [];
+    interactive: !o.dryRun && !o.force && Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY), promptFn: promptMcpCheckbox, onStale: reportRetiredMcp })) : [];
   const mcpIds = mcp?.selected ?? (codexCatalog ? codexMcpSelection : undefined);
   // One lifecycle view across every requested target — computed unconditionally (not only under
   // --dry-run) so its safety gate and its plan are the exact same object the real apply below uses.
@@ -277,7 +284,7 @@ function cmdUpdate(o) {
   const mcpChanged = Boolean(mcp && mcp.changed);
   const codexCatalog = targets.includes('codex') ? readCodexMcpCatalog(registry) : null;
   const codexMcpSelection = codexCatalog ? (mcp?.selected ?? resolveCodexMcpSelection({ cmd: 'update', requested: o.mcp,
-    allServers: codexCatalog.allServers, manifestServers: existingManifest?.mcpServers ?? null, interactive: false, promptFn: promptMcpCheckbox })) : [];
+    allServers: codexCatalog.allServers, manifestServers: existingManifest?.mcpServers ?? null, interactive: false, promptFn: promptMcpCheckbox, onStale: reportRetiredMcp })) : [];
   const mcpIds = mcp?.selected ?? (codexCatalog ? codexMcpSelection : undefined);
   // One lifecycle view across every requested target — computed unconditionally (not only under
   // --dry-run) so its safety gate and its plan are the exact same object the real apply below uses.

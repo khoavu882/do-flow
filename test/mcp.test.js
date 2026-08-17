@@ -180,6 +180,59 @@ test('resolveMcpSelection: install + interactive, prompt unavailable (null, e.g.
   assert.deepStrictEqual(selected, ['a', 'b']);
 });
 
+// Regression: removing chrome-devtools and playwright from core/registry/mcp.yaml (d1bf9e8) made
+// `install` and `update` throw "Unknown registry MCP server(s)" for every install that had them in
+// its manifest — i.e. the upgrade path was broken for all pre-existing users, on both commands.
+// The asymmetry these tests pin down: `requested` is user intent (typo => fatal), the manifest is
+// persisted resolved state (retired server => reconcile).
+test('resolveMcpSelection: a manifest server the registry retired is dropped, not fatal', () => {
+  const dropped = [];
+  const selected = resolveMcpSelection({
+    cmd: 'update', requested: null, allServers: ['context7', 'sequential-thinking'],
+    manifestServers: ['context7', 'sequential-thinking', 'chrome-devtools', 'playwright'],
+    interactive: false, promptFn: null, onStale: (r) => dropped.push(...r),
+  });
+  assert.deepStrictEqual(selected, ['context7', 'sequential-thinking']);
+  assert.deepStrictEqual(dropped, ['chrome-devtools', 'playwright'], 'the drop must be reported, not silent');
+});
+
+test('resolveMcpSelection: reconciling a manifest works without an onStale callback', () => {
+  const selected = resolveMcpSelection({
+    cmd: 'install', requested: null, allServers: ['a'], manifestServers: ['a', 'gone'],
+    interactive: false, promptFn: null,
+  });
+  assert.deepStrictEqual(selected, ['a']);
+});
+
+test('resolveMcpSelection: an explicit --mcp naming a retired server is still fatal', () => {
+  assert.throws(
+    () => resolveMcpSelection({
+      cmd: 'update', requested: ['chrome-devtools'], allServers: ['context7'],
+      manifestServers: ['context7'], interactive: false, promptFn: null,
+    }),
+    /Unknown MCP server\(s\): chrome-devtools/,
+    'a typo in user-supplied intent must not be silently reconciled away',
+  );
+});
+
+test('resolveMcpSelection: a manifest whose every server was retired falls back to the full catalog', () => {
+  // Returning [] here would silently uninstall MCP support the user never asked to remove.
+  const selected = resolveMcpSelection({
+    cmd: 'update', requested: null, allServers: ['a', 'b'], manifestServers: ['gone-1', 'gone-2'],
+    interactive: false, promptFn: null,
+  });
+  assert.deepStrictEqual(selected, ['a', 'b']);
+});
+
+test('resolveMcpSelection: the interactive seed is reconciled, never pre-ticking a retired server', () => {
+  let seenSeed = null;
+  resolveMcpSelection({
+    cmd: 'install', requested: null, allServers: ['a', 'b'], manifestServers: ['a', 'retired'],
+    interactive: true, promptFn: (servers, seed) => { seenSeed = seed; return ['a']; },
+  });
+  assert.deepStrictEqual(seenSeed, ['a']);
+});
+
 test('resolveMcpSelection: update never prompts, even when interactive is true', () => {
   const selected = resolveMcpSelection({
     cmd: 'update', requested: null, allServers: ['a', 'b'], manifestServers: ['a'], interactive: true,
