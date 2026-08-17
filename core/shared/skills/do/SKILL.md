@@ -1,6 +1,6 @@
 ---
 name: do
-description: "DoFlow universal dispatcher and request router — session announcement, multi-part task decomposition, capability routing, and development estimation"
+description: "DoFlow universal dispatcher and request router — session announcement, multi-part task decomposition, capability routing, and development estimation. Use when a request doesn't clearly name one of the other /do-* skills, bundles multiple unrelated asks across files or domains, or needs a tool recommendation or effort estimate before any work begins — for example 'what should I use to search this repo' or 'give me a rough estimate for this change'."
 argument-hint: "[command|request] [--depth shallow|normal|deep] [--estimate] [--tools]"
 effort: low
 ---

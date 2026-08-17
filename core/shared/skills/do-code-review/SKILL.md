@@ -208,6 +208,16 @@ and is how they are normally run. Regenerate a fixture after an intentional anal
 change with `… --json > expected_outputs/<name>_quality.json`, from this directory so
 the recorded path stays relative.
 
+## Boundaries
+
+**Will:** Analyze source and prose for complexity, risk, SOLID violations, and code/doc smells;
+generate structured review reports with a verdict (Approve / Approve with suggestions / Request
+changes / Block); dispatch by language or content type to the matching rules file.
+
+**Will Not:** Edit files, apply fixes, or otherwise remediate the findings it reports — that is
+`/do-implement`'s job once a review has run. It also does not orchestrate a multi-task checklist
+through specialist subagents (`/do-execute-plan`'s job) or replace human judgment on a Block verdict.
+
 ## Next Step
 After review, use `/do-implement` to address requested changes, then rerun `/do-code-review`.
 On a clean review with nothing left to fix, consider `/do-document --type impl` to record what was built — optional, and does not gate or pause completion.

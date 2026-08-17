@@ -1,6 +1,6 @@
 ---
 name: do-constitution
-description: "Create or amend the per-repo constitution (tier-2), overlaying the base; bumps semver, writes a Sync Impact Report, and propagates a pointer into the agent context file."
+description: "Create or amend the per-repo constitution (tier-2), overlaying the base; bumps semver, writes a Sync Impact Report, and propagates a pointer into the agent context file. Use when the user wants to establish or change repo-specific governing principles that every later phase and agent must inherit, or says 'let's set some ground rules for this repo' or 'amend our constitution to require X' rather than asking for a feature."
 argument-hint: "[principle inputs] [--amend]"
 effort: high
 ---

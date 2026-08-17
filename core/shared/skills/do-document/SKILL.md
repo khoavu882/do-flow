@@ -1,6 +1,6 @@
 ---
 name: do-document
-description: "Unified documentation and knowledge engine — generate guides, API references, architecture knowledge bases, and deep web research reports"
+description: "Unified documentation and knowledge engine — generate guides, API references, architecture knowledge bases, and deep web research reports. Use when the user needs written documentation or research output rather than a code change, or says 'document what we just built' / 'write an API reference for this' / 'research how other projects solve this' — covering guides, indexes, and citation-backed research alike."
 argument-hint: "[target|query] [--type api|guide|impl|index|research] [--depth quick|standard|deep]"
 effort: medium
 ---
