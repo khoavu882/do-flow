@@ -140,6 +140,28 @@
         "https://pi.dev/docs/latest/settings",
         "https://pi.dev/docs/latest/skills"
       ]
+    },
+    {
+      "harness": "copilot",
+      "completeness": "lower-bound",
+      "note": "hookEvents is empty because no writable hook or lifecycle-event surface is documented for Copilot CLI: it exposes custom instructions, skills, custom agents, and MCP configuration, but nothing DoFlow can wire a command-string hook into. Widen this list only if such a surface is documented, alongside an added evidence URL.",
+      "hookEvents": [],
+      "evidence": [
+        "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills",
+        "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli",
+        "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+      ]
+    },
+    {
+      "harness": "kiro",
+      "completeness": "lower-bound",
+      "note": "hookEvents is empty for now, not by capability gap: .kiro/hooks/ is a real, writable hook surface (unlike OpenCode/Pi's code-module hooks), but the steering and MCP documentation cited for this feature does not enumerate specific hook event names, and DoFlow has not yet projected any Kiro hook definitions. Widen this list once event names are confirmed against the installed CLI and DoFlow actually wires them, alongside an added evidence URL. See https://kiro.dev/docs/hooks/.",
+      "hookEvents": [],
+      "evidence": [
+        "https://kiro.dev/docs/steering/",
+        "https://kiro.dev/docs/mcp/configuration/",
+        "https://kiro.dev/docs/hooks/"
+      ]
     }
   ]
 }

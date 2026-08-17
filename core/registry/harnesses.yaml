@@ -704,6 +704,192 @@
           "verification": "Report that no extension package is installed for Pi."
         }
       }
+    },
+    {
+      "id": "copilot",
+      "displayName": "GitHub Copilot CLI",
+      "adapter": "copilot",
+      "scopes": [
+        "project",
+        "user"
+      ],
+      "nativeTargets": {
+        "instructions": ".github/copilot-instructions.md",
+        "agents": ".github/agents",
+        "mcp": ".mcp.json"
+      },
+      "capabilities": {
+        "instructions": {
+          "status": "supported",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+          ],
+          "verification": "Confirm .github/copilot-instructions.md is loaded by Copilot CLI; no documented global-instructions equivalent exists beyond the shared, generic AGENTS.md file."
+        },
+        "skills": {
+          "status": "supported",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills"
+          ],
+          "verification": "Confirm Copilot CLI discovers the installed skill from .agents/skills (project) or ~/.agents/skills (personal) — the same SKILL.md + YAML frontmatter format DoFlow already authors, so no per-harness transformation is required."
+        },
+        "agents": {
+          "status": "supported",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli"
+          ],
+          "note": "The on-disk agent file format is documented inconsistently: GitHub's docs describe `.agent.md` with YAML frontmatter, while the CLI's own autodocs reportedly show JSON configuration instead. This declaration does not resolve that ambiguity — the adapter must confirm the actual format against the installed CLI before committing to one.",
+          "verification": "Confirm an installed custom agent under ~/.copilot/agents or .github/agents is discoverable and selectable by Copilot CLI."
+        },
+        "scripts": {
+          "status": "supported",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills"
+          ],
+          "verification": "Confirm a bundled skill scripts/ directory is reachable from the registered .agents/skills path."
+        },
+        "templates": {
+          "status": "supported",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills"
+          ],
+          "verification": "Confirm the installed template tree is readable from the registered .agents/skills path."
+        },
+        "modes": {
+          "status": "different",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+          ],
+          "note": "Copilot CLI has no separate mode surface; DoFlow mode guidance is reachable through the instructions pointer (.github/copilot-instructions.md) instead.",
+          "verification": "Confirm mode guidance is available through instructions."
+        },
+        "settings": {
+          "status": "unavailable",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+          ],
+          "note": "No general Copilot CLI settings/config file is documented separately from .mcp.json / ~/.copilot/mcp-config.json (covered under mcp) and the instructions, agent, and skill surfaces, each already covered by its own capability.",
+          "verification": "Report the capability gap; do not attempt a native settings merge."
+        },
+        "hooks": {
+          "status": "unavailable",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+          ],
+          "note": "No writable hook or lifecycle-event surface is documented for Copilot CLI.",
+          "verification": "Report the capability gap; do not attempt to install a hook."
+        },
+        "mcp": {
+          "status": "supported",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+          ],
+          "verification": "Confirm selected MCP servers appear via .mcp.json (project) or ~/.copilot/mcp-config.json (global)."
+        },
+        "plugin": {
+          "status": "unavailable",
+          "evidence": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+          ],
+          "note": "No plugin or marketplace mechanism is documented for Copilot CLI distinct from custom agents and MCP servers.",
+          "verification": "Report the capability gap; do not attempt to install a plugin."
+        }
+      }
+    },
+    {
+      "id": "kiro",
+      "displayName": "Kiro",
+      "adapter": "kiro",
+      "scopes": [
+        "project",
+        "user"
+      ],
+      "nativeTargets": {
+        "instructions": ".kiro/steering/",
+        "agents": ".kiro/agents",
+        "hooks": ".kiro/hooks",
+        "mcp": ".kiro/settings/mcp.json"
+      },
+      "capabilities": {
+        "instructions": {
+          "status": "supported",
+          "evidence": [
+            "https://kiro.dev/docs/steering/"
+          ],
+          "verification": "Confirm the full DoFlow guidance tree is discoverable as steering files under .kiro/steering/ (workspace) or ~/.kiro/steering/ (global); workspace files must win on conflict."
+        },
+        "skills": {
+          "status": "different",
+          "evidence": [
+            "https://kiro.dev/docs/steering/"
+          ],
+          "note": "Kiro has no dedicated SKILL.md skill directory; DoFlow projects skill content into the steering tree instead of a native skills format.",
+          "verification": "Confirm skill guidance is reachable through the projected steering files."
+        },
+        "agents": {
+          "status": "supported",
+          "evidence": [
+            "https://kiro.dev/docs/steering/"
+          ],
+          "note": "The .kiro/agents directory is inferred from Kiro's project conventions rather than cited from a dedicated agents documentation page; confirm its on-disk format against the installed CLI before the adapter commits to one.",
+          "verification": "Confirm an installed custom agent under .kiro/agents is discoverable by Kiro."
+        },
+        "scripts": {
+          "status": "different",
+          "evidence": [
+            "https://kiro.dev/docs/steering/"
+          ],
+          "note": "Kiro has no discrete skill directory to host a scripts/ subfolder; script guidance is folded into the projected steering tree rather than an executable directory Kiro discovers directly.",
+          "verification": "Confirm script guidance is reachable through the projected steering files."
+        },
+        "templates": {
+          "status": "different",
+          "evidence": [
+            "https://kiro.dev/docs/steering/"
+          ],
+          "note": "Kiro has no separate template directory surface; DoFlow template guidance is reachable through the projected steering tree.",
+          "verification": "Confirm template guidance is available through the projected steering files."
+        },
+        "modes": {
+          "status": "different",
+          "evidence": [
+            "https://kiro.dev/docs/steering/"
+          ],
+          "note": "Kiro has no separate mode surface; DoFlow mode guidance is reachable through the projected steering tree.",
+          "verification": "Confirm mode guidance is available through the projected steering files."
+        },
+        "settings": {
+          "status": "unavailable",
+          "evidence": [
+            "https://kiro.dev/docs/mcp/configuration/"
+          ],
+          "note": "No general Kiro settings file is documented separately from .kiro/settings/mcp.json (covered under mcp) and the steering/hooks/agent directories, each already covered by its own capability.",
+          "verification": "Report the capability gap; do not attempt a native settings merge."
+        },
+        "hooks": {
+          "status": "supported",
+          "evidence": [
+            "https://kiro.dev/docs/hooks/"
+          ],
+          "note": "`.kiro/hooks/` is confirmed as a real, writable hook surface, but the steering and MCP documentation cited for this feature does not enumerate specific event names, so contracts.yaml's hookEvents stays a conservative lower bound (currently empty) until event names are confirmed against the installed CLI.",
+          "verification": "Confirm a projected hook file under .kiro/hooks/ is present and triggers at its configured event."
+        },
+        "mcp": {
+          "status": "supported",
+          "evidence": [
+            "https://kiro.dev/docs/mcp/configuration/"
+          ],
+          "verification": "Confirm selected MCP servers appear in .kiro/settings/mcp.json (workspace) or ~/.kiro/settings/mcp.json (global), with workspace taking precedence."
+        },
+        "plugin": {
+          "status": "unavailable",
+          "evidence": [
+            "https://kiro.dev/docs/steering/"
+          ],
+          "note": "No plugin or extension marketplace mechanism is documented in the steering, hooks, or MCP sources cited for this feature.",
+          "verification": "Report the capability gap; do not attempt to install a plugin."
+        }
+      }
     }
   ]
 }

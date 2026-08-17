@@ -26,11 +26,26 @@
       "kind": "guidance",
       "source": "core/shared/guidance/pointers/codex.md",
       "appliesTo": [
-        "codex"
+        "codex",
+        "opencode",
+        "pi",
+        "copilot"
       ],
       "projection": {
         "codex": {
           "renderer": "codex-agents",
+          "capability": "instructions"
+        },
+        "opencode": {
+          "renderer": "opencode-instructions",
+          "capability": "instructions"
+        },
+        "pi": {
+          "renderer": "pi-instructions",
+          "capability": "instructions"
+        },
+        "copilot": {
+          "renderer": "copilot-instructions",
           "capability": "instructions"
         }
       },
@@ -43,7 +58,8 @@
       "appliesTo": [
         "claude",
         "codex",
-        "gemini"
+        "gemini",
+        "kiro"
       ],
       "projection": {
         "claude": {
@@ -57,13 +73,18 @@
         "gemini": {
           "renderer": "copy-tree",
           "capability": "instructions"
+        },
+        "kiro": {
+          "renderer": "copy-tree",
+          "capability": "instructions"
         }
       },
       "ownership": "managed-tree",
       "nativeDir": {
         "claude": "../.doflow/guidance",
         "codex": "../.doflow/guidance",
-        "gemini": "../.doflow/guidance"
+        "gemini": "../.doflow/guidance",
+        "kiro": "steering"
       }
     },
     {
@@ -73,7 +94,11 @@
       "appliesTo": [
         "claude",
         "codex",
-        "gemini"
+        "gemini",
+        "opencode",
+        "pi",
+        "copilot",
+        "kiro"
       ],
       "projection": {
         "claude": {
@@ -87,13 +112,33 @@
         "gemini": {
           "renderer": "copy-tree",
           "capability": "skills"
+        },
+        "opencode": {
+          "renderer": "copy-tree",
+          "capability": "skills"
+        },
+        "pi": {
+          "renderer": "copy-tree",
+          "capability": "skills"
+        },
+        "copilot": {
+          "renderer": "copy-tree",
+          "capability": "skills"
+        },
+        "kiro": {
+          "renderer": "copy-tree",
+          "capability": "skills"
         }
       },
       "ownership": "managed-tree",
       "nativeDir": {
         "claude": "skills",
         "codex": "skills",
-        "gemini": "skills"
+        "gemini": "skills",
+        "opencode": "skills",
+        "pi": "skills",
+        "copilot": "skills",
+        "kiro": "skills"
       }
     },
     {
@@ -103,7 +148,9 @@
       "appliesTo": [
         "claude",
         "codex",
-        "gemini"
+        "gemini",
+        "copilot",
+        "kiro"
       ],
       "projection": {
         "claude": {
@@ -118,13 +165,23 @@
           "renderer": "copy-tree",
           "capability": "agents",
           "layout": "dir-per-file:agent.md"
+        },
+        "copilot": {
+          "renderer": "copilot-agents",
+          "capability": "agents"
+        },
+        "kiro": {
+          "renderer": "kiro-agents",
+          "capability": "agents"
         }
       },
       "ownership": "managed-tree",
       "nativeDir": {
         "claude": "agents",
         "codex": "agents",
-        "gemini": "agents"
+        "gemini": "agents",
+        "copilot": "agents",
+        "kiro": "agents"
       }
     },
     {
