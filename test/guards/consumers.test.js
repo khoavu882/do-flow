@@ -40,9 +40,13 @@ function allLazyResources() {
 
 /** A consumer is a skill or an always-loaded rule — NOT DOFLOW_CORE.md's inventory comment block,
  * which names resources without loading them and is precisely what made these files look
- * reachable while nothing loaded them. */
+ * reachable while nothing loaded them. Also not a regression-fixture asset: do-code-review's
+ * assets/expected_outputs directories intentionally hold malformed sample content (deliberately
+ * broken references, stale language) to exercise its own checkers — real prose never lives there,
+ * so scanning it here would fail the guard on the fixture doing its job correctly. */
 const consumerFiles = () => coreTextFiles().filter(({ rel }) =>
-  rel.startsWith('core/shared/skills/') || rel.includes('guidance/rules/'));
+  (rel.startsWith('core/shared/skills/') || rel.includes('guidance/rules/'))
+  && !rel.includes('do-code-review/assets/') && !rel.includes('do-code-review/expected_outputs/'));
 
 test('G3: every mode and reference file has at least one skill or rule consumer', () => {
   const consumers = consumerFiles();
