@@ -15,7 +15,7 @@ function guidanceAsset(sourceFile) {
 }
 
 function contextWithSource(sourceFile) {
-  return { sourceFor: () => sourceFile };
+  return { repoRoot: path.dirname(sourceFile) };
 }
 
 test('implements the adapter contract and resolves official project/global native paths', () => {

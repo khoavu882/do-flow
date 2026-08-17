@@ -736,9 +736,10 @@
         "agents": {
           "status": "supported",
           "evidence": [
-            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli"
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli",
+            "https://docs.github.com/en/copilot/reference/custom-agents-configuration"
           ],
-          "note": "The on-disk agent file format is documented inconsistently: GitHub's docs describe `.agent.md` with YAML frontmatter, while the CLI's own autodocs reportedly show JSON configuration instead. This declaration does not resolve that ambiguity — the adapter must confirm the actual format against the installed CLI before committing to one.",
+          "note": "The on-disk agent file format is `.agent.md` with YAML frontmatter, confirmed against the custom-agents-configuration reference: a required `description`, optional `name`, `tools`, `model`, `disable-model-invocation`, `user-invocable`, `mcp-servers`, and `metadata` fields, with the Markdown body below the frontmatter as the agent's instructions. The adapter renames each core/shared/agent-specs/<name>.md file to <name>.agent.md via copy-tree's layout mechanism on the way out; unrecognized frontmatter keys pass through untouched, the same posture Claude/Codex/Gemini's agent projections already take.",
           "verification": "Confirm an installed custom agent under ~/.copilot/agents or .github/agents is discoverable and selectable by Copilot CLI."
         },
         "scripts": {
@@ -806,6 +807,7 @@
       ],
       "nativeTargets": {
         "instructions": ".kiro/steering/",
+        "skills": ".kiro/skills",
         "agents": ".kiro/agents",
         "hooks": ".kiro/hooks",
         "mcp": ".kiro/settings/mcp.json"
@@ -819,36 +821,36 @@
           "verification": "Confirm the full DoFlow guidance tree is discoverable as steering files under .kiro/steering/ (workspace) or ~/.kiro/steering/ (global); workspace files must win on conflict."
         },
         "skills": {
-          "status": "different",
+          "status": "supported",
           "evidence": [
-            "https://kiro.dev/docs/steering/"
+            "https://kiro.dev/docs/skills/"
           ],
-          "note": "Kiro has no dedicated SKILL.md skill directory; DoFlow projects skill content into the steering tree instead of a native skills format.",
-          "verification": "Confirm skill guidance is reachable through the projected steering files."
+          "note": "Kiro has a dedicated skills system, separate from steering: a skill is a folder containing SKILL.md with YAML frontmatter (name, description) plus optional scripts/references/assets subdirectories, following the same open Agent Skills standard DoFlow already authors — no transformation needed. Scanned from .kiro/skills/ (workspace) and ~/.kiro/skills/ (global); workspace wins on a same-name conflict. This corrects an earlier declaration made before kiro.dev/docs/skills/ was found.",
+          "verification": "Confirm the installed skill is discoverable under .kiro/skills/ (workspace) or ~/.kiro/skills/ (global)."
         },
         "agents": {
           "status": "supported",
           "evidence": [
-            "https://kiro.dev/docs/steering/"
+            "https://kiro.dev/docs/custom-agents/configuration-reference/"
           ],
-          "note": "The .kiro/agents directory is inferred from Kiro's project conventions rather than cited from a dedicated agents documentation page; confirm its on-disk format against the installed CLI before the adapter commits to one.",
+          "note": "Confirmed: Kiro supports both .kiro/agents/<name>.json and .kiro/agents/<name>.md (Markdown, backward-compatible), with fields including name, description, tools, allowedTools/excludedTools, resources, prompt, model, permissions. DoFlow's shared agent-specs are already plain Markdown with name/description frontmatter, which Kiro's .md agent format accepts natively.",
           "verification": "Confirm an installed custom agent under .kiro/agents is discoverable by Kiro."
         },
         "scripts": {
-          "status": "different",
+          "status": "supported",
           "evidence": [
-            "https://kiro.dev/docs/steering/"
+            "https://kiro.dev/docs/skills/"
           ],
-          "note": "Kiro has no discrete skill directory to host a scripts/ subfolder; script guidance is folded into the projected steering tree rather than an executable directory Kiro discovers directly.",
-          "verification": "Confirm script guidance is reachable through the projected steering files."
+          "note": "A skill's own scripts/ subdirectory travels with it inside .kiro/skills/, per the same bundled-with-skill pattern opencode/pi/copilot already use — not a standalone tree DoFlow projects separately.",
+          "verification": "Confirm a bundled skill scripts/ directory is reachable from the installed .kiro/skills/ path."
         },
         "templates": {
-          "status": "different",
+          "status": "supported",
           "evidence": [
-            "https://kiro.dev/docs/steering/"
+            "https://kiro.dev/docs/skills/"
           ],
-          "note": "Kiro has no separate template directory surface; DoFlow template guidance is reachable through the projected steering tree.",
-          "verification": "Confirm template guidance is available through the projected steering files."
+          "note": "A skill's own references/assets subdirectories travel with it inside .kiro/skills/, the same bundled-with-skill pattern opencode/pi/copilot already use.",
+          "verification": "Confirm the installed template tree is readable from within a skill's own directory under .kiro/skills/."
         },
         "modes": {
           "status": "different",

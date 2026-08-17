@@ -163,7 +163,7 @@ function plan({ scope, scopeRoot, assets = [], context = {}, ledger, fsImpl = fs
 
   const guidance = assets.find((asset) => asset.capability === 'instructions');
   if (guidance) {
-    const rendered = render({ content: fsImpl.readFileSync(context.sourceFor(guidance), 'utf8') });
+    const rendered = render({ content: fsImpl.readFileSync(path.resolve(context.repoRoot, guidance.source), 'utf8') });
     const outcome = removing
       ? { ok: true, operation: 'remove', content: strippedInstruction(found.instruction) }
       : managedInstruction(found.instruction, rendered);
@@ -215,14 +215,15 @@ function verify({ scope, scopeRoot, assets = [], context = {}, fsImpl = fs }) {
   const statuses = [];
   const resources = [];
   const conflicts = [];
+  const instructionsAssetId = assets.find((asset) => asset.capability === 'instructions')?.id ?? assets[0]?.id;
 
   const hasSection = typeof found.instruction === 'string'
     && found.instruction.includes(MARKER_START) && found.instruction.includes(MARKER_END);
-  statuses.push({ harness: HARNESS, assetId: 'guidance.core', capability: 'instructions',
+  statuses.push({ harness: HARNESS, assetId: instructionsAssetId, capability: 'instructions',
     status: hasSection ? 'managed' : 'absent', target: found.paths.instruction,
     ownershipIdentity: `${HARNESS}:instructions:managed-section` });
   if (hasSection) {
-    resources.push({ assetId: 'guidance.core', target: found.paths.instruction,
+    resources.push({ assetId: instructionsAssetId, target: found.paths.instruction,
       ownershipIdentity: `${HARNESS}:instructions:managed-section`, fingerprint: fingerprint(found.instruction),
       sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'pi-instructions' } });
   }

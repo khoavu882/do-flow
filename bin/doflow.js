@@ -23,6 +23,10 @@ const { createAdapterRegistry } = require('../src/adapters');
 const claudeAdapter = require('../src/adapters/claude');
 const codexAdapter = require('../src/adapters/codex');
 const { createGeminiAdapter } = require('../src/adapters/gemini');
+const { createOpenCodeAdapter } = require('../src/adapters/opencode');
+const { createPiAdapter } = require('../src/adapters/pi');
+const { createCopilotAdapter } = require('../src/adapters/copilot');
+const { createKiroAdapter } = require('../src/adapters/kiro');
 const { applyLifecycle, removeLifecycle, applyMcpIndex } = require('../src/lifecycle');
 const { readLedger } = require('../src/state');
 const { codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan } = require('../src/lifecycle-view');
@@ -237,7 +241,8 @@ function cmdInstall(o) {
 
   if (lifecycleView.plan.changes.length) {
     const result = applyLifecycle({ plan: lifecycleView.plan, registry: lifecycleView.registry,
-      adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter() }),
+      adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter(),
+        opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter() }),
       stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
     for (const target of lifecycleView.plan.targets) {
       if (target.skipped || !target.changes.length) continue;
@@ -336,7 +341,8 @@ function cmdUpdate(o) {
   }
   if (lifecycleView.plan.changes.length) {
     const result = applyLifecycle({ plan: lifecycleView.plan, registry: lifecycleView.registry,
-      adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter() }),
+      adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter(),
+        opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter() }),
       stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
     for (const target of lifecycleView.plan.targets) {
       if (target.skipped || !target.changes.length) continue;
@@ -378,7 +384,8 @@ function cmdRemove(o) {
     return;
   }
   const result = removeLifecycle({ registry: view.registry,
-    adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter() }),
+    adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter(),
+      opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter() }),
     scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot),
     targets: lifecycleTargets, mcpIds: [], stateRoot: view.stateRoot, ledger: view.ledger,
     context: view.plan.targets[0].adapterInput.context });

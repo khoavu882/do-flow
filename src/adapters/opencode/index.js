@@ -208,6 +208,16 @@ function verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl = fs }
 
 // ---- shared adapter contract ----
 
+/** OpenCode's settings-merge change has no asset of its own in core/registry/assets.yaml (it's a
+ * registration side-effect of the instructions/mcp assets, not a projected asset), so it piggybacks
+ * on a real asset id already routed to this harness — the same "pseudo-component" technique
+ * src/adapters/gemini/index.js#hooksAssetId and src/adapters/kiro/index.js#pseudoAssetId use. The
+ * lifecycle layer validates every change's assetId against the harness's actual asset list, so an
+ * invented id like the literal string 'opencode.config' is rejected as unknown. */
+function pseudoAssetId(assets) {
+  return assets.find((asset) => asset.capability === 'instructions')?.id ?? assets[0]?.id;
+}
+
 function plan({ scope, scopeRoot, assets = [], mcp = [], context = {}, ledger, fsImpl = fs }) {
   const found = discover({ scope, scopeRoot, context, fsImpl });
   const changes = [];
@@ -218,7 +228,7 @@ function plan({ scope, scopeRoot, assets = [], mcp = [], context = {}, ledger, f
 
   const guidance = assets.find((asset) => asset.capability === 'instructions');
   if (guidance) {
-    const rendered = render({ content: fsImpl.readFileSync(context.sourceFor(guidance), 'utf8') });
+    const rendered = render({ content: fsImpl.readFileSync(path.resolve(context.repoRoot, guidance.source), 'utf8') });
     const outcome = removing
       ? { ok: true, operation: 'remove', content: strippedInstruction(found.instruction) }
       : managedInstruction(found.instruction, rendered);
@@ -234,7 +244,7 @@ function plan({ scope, scopeRoot, assets = [], mcp = [], context = {}, ledger, f
     const current = found.config.value || {};
     const next = removing ? unmergeConfig(current, { mcpServers: mcp }) : mergeConfig(current, { mcpServers: mcp });
     if (JSON.stringify(next) !== JSON.stringify(current)) {
-      changes.push({ assetId: 'opencode.config', target: found.paths.config,
+      changes.push({ assetId: pseudoAssetId(assets), target: found.paths.config,
         operation: found.config.exists ? 'update' : 'create', content: `${JSON.stringify(next, null, 2)}\n`,
         ownershipIdentity: `${HARNESS}:config:registration`, fingerprint: fingerprint(next),
         harness: HARNESS, projection: { renderer: 'opencode-config' } });
@@ -283,35 +293,36 @@ function verify({ scope, scopeRoot, assets = [], mcp = [], context = {}, fsImpl 
   const statuses = [];
   const resources = [];
   const conflicts = [];
+  const instructionsAssetId = assets.find((asset) => asset.capability === 'instructions')?.id ?? pseudoAssetId(assets);
 
   const hasSection = typeof found.instruction === 'string'
     && found.instruction.includes(MARKER_START) && found.instruction.includes(MARKER_END);
-  statuses.push({ harness: HARNESS, assetId: 'guidance.core', capability: 'instructions',
+  statuses.push({ harness: HARNESS, assetId: instructionsAssetId, capability: 'instructions',
     status: hasSection ? 'managed' : 'absent', target: found.paths.instruction,
     ownershipIdentity: `${HARNESS}:instructions:managed-section` });
   if (hasSection) {
-    resources.push({ assetId: 'guidance.core', target: found.paths.instruction,
+    resources.push({ assetId: instructionsAssetId, target: found.paths.instruction,
       ownershipIdentity: `${HARNESS}:instructions:managed-section`, fingerprint: fingerprint(found.instruction),
       sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'opencode-instructions' } });
   }
 
   if (found.config.error) {
     conflicts.push(found.config.error);
-    statuses.push({ harness: HARNESS, assetId: 'opencode.config', capability: 'settings', status: 'invalid', target: found.paths.config });
+    statuses.push({ harness: HARNESS, assetId: pseudoAssetId(assets), capability: 'settings', status: 'invalid', target: found.paths.config });
   } else {
     const value = found.config.value || {};
     const registered = Array.isArray(value.instructions) && value.instructions.includes(INSTRUCTION_FILE);
-    statuses.push({ harness: HARNESS, assetId: 'opencode.config', capability: 'settings',
+    statuses.push({ harness: HARNESS, assetId: pseudoAssetId(assets), capability: 'settings',
       status: registered ? 'managed' : 'absent', target: found.paths.config,
       ownershipIdentity: `${HARNESS}:config:registration` });
     if (registered) {
-      resources.push({ assetId: 'opencode.config', target: found.paths.config,
+      resources.push({ assetId: pseudoAssetId(assets), target: found.paths.config,
         ownershipIdentity: `${HARNESS}:config:registration`, fingerprint: fingerprint(value),
         sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'opencode-config' } });
     }
     const missingMcp = mcp.filter((server) => !value.mcp?.[server.id]);
     for (const server of missingMcp) {
-      statuses.push({ harness: HARNESS, assetId: 'opencode.config', capability: 'mcp', status: 'missing',
+      statuses.push({ harness: HARNESS, assetId: pseudoAssetId(assets), capability: 'mcp', status: 'missing',
         identity: server.id, target: found.paths.config });
     }
   }

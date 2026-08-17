@@ -8,7 +8,7 @@ const { createOpenCodeAdapter, nativePaths, mergeConfig, unmergeConfig, MARKER_S
 const { assertAdapter } = require('../src/adapters');
 
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-opencode-')); }
-const instructionAssets = [{ id: 'guidance.codex-pointer', capability: 'instructions' }];
+const instructionAssets = [{ id: 'guidance.codex-pointer', capability: 'instructions', source: 'source.md' }];
 
 test('implements the adapter contract and resolves official project/user native paths', () => {
   assertAdapter(createOpenCodeAdapter(), 'OpenCode');
@@ -27,7 +27,7 @@ test('plans and applies a managed AGENTS.md section without overwriting foreign 
   fs.writeFileSync(sourceFile, '# DoFlow');
   const planned = adapter.plan({
     scope: 'project', scopeRoot: root, assets: instructionAssets,
-    context: { sourceFor: () => sourceFile },
+    context: { repoRoot: root },
   });
   assert.equal(planned.conflicts.length, 0);
   const instructionChange = planned.changes.find((c) => c.projection?.renderer === 'opencode-instructions');
@@ -45,7 +45,7 @@ test('preserves a foreign AGENTS.md that has no DoFlow managed section', () => {
   fs.writeFileSync(sourceFile, '# DoFlow');
   const planned = adapter.plan({
     scope: 'project', scopeRoot: root, assets: instructionAssets,
-    context: { sourceFor: () => sourceFile },
+    context: { repoRoot: root },
   });
   assert.match(planned.conflicts[0], /without a DoFlow managed section/);
 });
@@ -98,7 +98,7 @@ test('OpenCode adapter materialises skills under .opencode/skills for project sc
   assert.equal(first.conflicts.length, 0);
   // opencode.config also changes (mergeConfig always registers AGENTS.md in `instructions`), so the
   // copy-tree change is found by assetId rather than assumed to be the only or first entry.
-  const skillChange = first.changes.find((c) => c.assetId === asset.id);
+  const skillChange = first.changes.find((c) => c.assetId === asset.id && c.kind === 'copy-tree-file');
   assert.ok(skillChange, 'expected a skills.doflow change');
   adapter.apply({ changes: first.changes });
   const installed = path.join(root, '.opencode', 'skills', 'do-analyze', 'SKILL.md');
@@ -106,12 +106,16 @@ test('OpenCode adapter materialises skills under .opencode/skills for project sc
 
   const verified = adapter.verify({ scope: 'project', scopeRoot: root, assets: [asset], context });
   assert.equal(verified.ok, true);
-  const skillResource = verified.resources.find((r) => r.assetId === asset.id);
+  // Filter by kind, not just assetId: the config/mcp pseudo-change piggybacks on a real asset's id
+  // (see opencode/index.js's pseudoAssetId), so it can share an assetId with this test's own single
+  // copy-tree asset. `kind: 'copy-tree-file'` is the actual discriminator ledgerFileResources() uses
+  // in production — matching it here keeps this test correct regardless of that id collision.
+  const skillResource = verified.resources.find((r) => r.assetId === asset.id && r.kind === 'copy-tree-file');
   assert.ok(skillResource, 'expected a skills.doflow resource');
   assert.equal(skillResource.fingerprint, skillChange.fingerprint);
 
   const ledger = { resources: verified.resources
-    .filter((r) => r.assetId === asset.id)
+    .filter((r) => r.assetId === asset.id && r.kind === 'copy-tree-file')
     .map((r) => ({ harness: 'opencode', assetId: asset.id, kind: 'copy-tree-file', identity: r.identity, fingerprint: r.fingerprint })) };
   const second = adapter.plan({ scope: 'project', scopeRoot: root, assets: [asset], context, ledger });
   assert.deepEqual(second.changes, []);
@@ -134,7 +138,7 @@ test('OpenCode adapter refuses to overwrite a skill file modified outside DoFlow
   const context = { repoRoot };
   const first = adapter.plan({ scope: 'project', scopeRoot: root, assets: [asset], context, ledger: { resources: [] } });
   adapter.apply({ changes: first.changes });
-  const skillFingerprint = first.changes.find((c) => c.assetId === asset.id).fingerprint;
+  const skillFingerprint = first.changes.find((c) => c.assetId === asset.id && c.kind === 'copy-tree-file').fingerprint;
   const ledger = { resources: [{ harness: 'opencode', assetId: asset.id, kind: 'copy-tree-file', identity: 'do-analyze/SKILL.md', fingerprint: skillFingerprint }] };
   fs.writeFileSync(path.join(root, '.opencode', 'skills', 'do-analyze', 'SKILL.md'), '# tampered\n');
   const second = adapter.plan({ scope: 'project', scopeRoot: root, assets: [asset], context, ledger });
@@ -147,7 +151,7 @@ test('OpenCode adapter removes only fingerprint-matching copy-tree files', () =>
   const context = { repoRoot };
   const first = adapter.plan({ scope: 'project', scopeRoot: root, assets: [asset], context, ledger: { resources: [] } });
   adapter.apply({ changes: first.changes });
-  const skillFingerprint = first.changes.find((c) => c.assetId === asset.id).fingerprint;
+  const skillFingerprint = first.changes.find((c) => c.assetId === asset.id && c.kind === 'copy-tree-file').fingerprint;
   const ledger = { resources: [{ harness: 'opencode', assetId: asset.id, kind: 'copy-tree-file', identity: 'do-analyze/SKILL.md', fingerprint: skillFingerprint }] };
   const removal = adapter.plan({ scope: 'project', scopeRoot: root, assets: [asset], context: { ...context, operation: 'remove' }, ledger });
   adapter.remove({ changes: removal.changes });
@@ -158,11 +162,11 @@ test('remove strips only the managed AGENTS.md section, preserving foreign conte
   const root = scratch(); const adapter = createOpenCodeAdapter();
   const sourceFile = path.join(root, 'source.md');
   fs.writeFileSync(sourceFile, '# DoFlow');
-  const install = adapter.plan({ scope: 'project', scopeRoot: root, assets: instructionAssets, context: { sourceFor: () => sourceFile } });
+  const install = adapter.plan({ scope: 'project', scopeRoot: root, assets: instructionAssets, context: { repoRoot: root } });
   adapter.apply({ changes: install.changes });
   const managed = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
   fs.writeFileSync(path.join(root, 'AGENTS.md'), `# Before notes\n${managed}# After notes\n`);
-  const removal = adapter.plan({ scope: 'project', scopeRoot: root, assets: instructionAssets, context: { sourceFor: () => sourceFile, operation: 'remove' } });
+  const removal = adapter.plan({ scope: 'project', scopeRoot: root, assets: instructionAssets, context: { repoRoot: root, operation: 'remove' } });
   const instructionChange = removal.changes.find((c) => c.projection?.renderer === 'opencode-instructions');
   assert.equal(instructionChange.operation, 'remove');
   adapter.remove({ changes: removal.changes });
@@ -177,7 +181,7 @@ test('remove is a no-op on a foreign AGENTS.md that DoFlow never owned', () => {
   fs.writeFileSync(path.join(root, 'AGENTS.md'), '# Personal instructions\n');
   const sourceFile = path.join(root, 'source.md');
   fs.writeFileSync(sourceFile, '# DoFlow');
-  const removal = adapter.plan({ scope: 'project', scopeRoot: root, assets: instructionAssets, context: { sourceFor: () => sourceFile, operation: 'remove' } });
+  const removal = adapter.plan({ scope: 'project', scopeRoot: root, assets: instructionAssets, context: { repoRoot: root, operation: 'remove' } });
   const instructionChange = removal.changes.find((c) => c.projection?.renderer === 'opencode-instructions');
   assert.equal(instructionChange, undefined);
   assert.equal(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), '# Personal instructions\n');
