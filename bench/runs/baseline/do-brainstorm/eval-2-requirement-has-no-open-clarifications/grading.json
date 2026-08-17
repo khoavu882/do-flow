@@ -1,0 +1,28 @@
+{
+  "skill": "do-brainstorm",
+  "eval_id": 2,
+  "eval_name": "requirement-has-no-open-clarifications",
+  "expectations": [
+    {
+      "text": "requirement.md was created in the feature directory",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    },
+    {
+      "text": "Section 7 Open Questions contains no [NEEDS CLARIFICATION] markers",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    },
+    {
+      "text": "Every deferred ambiguity appears in section 8 Assumptions with a rationale",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    },
+    {
+      "text": "Functional requirements carry FR-### ids and an index table",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": null
+}

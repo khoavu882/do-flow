@@ -1,0 +1,50 @@
+I reviewed the changes on `task/bench-baseline-do-code-review-1` against its base, `develop` (confirmed via `git merge-base HEAD develop` = `85d50e6`, which is exactly the commit before your one new commit). This branch adds a bench evaluation harness for the 13 DoFlow skills.
+
+## Scope
+
+One commit (`d7d51ad`), 19 files, +1610/-1:
+- `bench/runner.js` (460 lines, new) — CLI: `coverage`, `list`, `plan`, `grade`, `baseline`, `report` subcommands
+- `src/runtime/worktree.js` (189 lines, new) — `WorktreeManager`: isolated git worktrees per bench run
+- `bench/config.json`, `bench/README.md`, 13x `bench/<skill>/evals.json` — eval case definitions
+- `test/guards/evals.test.js` (100 lines, new) — guard test for the eval fixtures
+- `package.json` — adds an `npm run bench` script (2-line diff)
+
+## What I ran
+- `pr_analyzer.py . --base develop --head HEAD` — complexity 5/10 ("Complex"), 0 critical, 0 high risk
+- `code_quality_checker.py` on both new JS files
+- `npm test` — full suite, **467/467 passing**, ~13.7s (no regressions)
+
+## Findings
+
+**No blocking issues.** Nothing critical or high-risk.
+
+1. **`src/runtime/worktree.js` — solid.** Quality grade A (95/100). Worth calling out specifically: worktree/branch IDs are validated against a `SAFE_ID` allowlist regex before being used in any git argument or path (`assertSafeId`), and all git calls go through `execFileSync` with an argv array — no shell interpolation, so no command-injection surface despite this code building paths and branch names from caller-supplied task IDs. Error states (`{ error }`) are returned explicitly rather than collapsed into a falsy/empty result, which is a good call given the comment explaining the Python original conflated "no changes" with "couldn't tell."
+
+2. **`bench/runner.js` — B (84/100), one real minor smell.** `cmdReport` is 59 lines (threshold 50) — it does one coherent job (build the delta report, write it, print the table) so I wouldn't split it, just flagging per the analyzer's threshold. Not blocking.
+
+3. **Two analyzer flags I checked and ruled out as false positives**, so I'm not carrying them forward as findings:
+   - "25 debug output statements" in `runner.js` — these are `console.log`/`console.error` calls in a CLI tool whose entire job is printing tables and usage text to stdout. Expected, not debug residue.
+   - "TODO/FIXME found" in `bench/do-implement/evals.json` — checked the line; it's the fixture text `"No TODO stubs left behind"` (an eval assertion description), not actual leftover work.
+   - Also noticed the quality checker misreports `workingTreeClean` (runner.js) and `git()` (worktree.js) as 53 and 58 lines respectively — I hand-counted both against the source and they're 8 and 11 lines. Looks like the checker's brace-matching gets confused by bare `catch { }` blocks (no binding) merging into whatever follows. Not a finding against this PR — flagging in case it's worth a follow-up issue against the checker itself, since that script ships in this same repo (`core/shared/skills/do-code-review/scripts/code_quality_checker.py`).
+
+4. **Trivial style nit:** the commit subject is 74 chars (`feat(bench): evaluation harness and worktree sandbox for 13-skill baseline`), 2 over the conventional 72-char guideline. Not worth amending unless you're already touching the commit.
+
+## Verdict: **Approve with minor suggestions**
+
+No critical/high risk, full test suite green, the one new piece of security-relevant code (worktree ID → path/branch/git-arg handling) is defensively written. The only real code-quality note is the 59-line `cmdReport`, which is optional cleanup, not a blocker. Safe to open the PR as-is.
+
+---
+
+### Tools and skills used
+1. Bash — `git status`, `git branch`, `git log`, `git merge-base`, `git diff develop...HEAD --stat`
+2. Skill — `do-code-review`
+3. Bash — `python3 scripts/pr_analyzer.py . --base develop --head HEAD --json`
+4. Bash — `python3 scripts/code_quality_checker.py bench/runner.js --language typescript --json`
+5. Bash — `python3 scripts/code_quality_checker.py src/runtime/worktree.js --language typescript --json`
+6. Bash — `git diff develop...HEAD -- package.json`, `grep -n -i "todo|fixme" bench/do-implement/evals.json`
+7. Bash — `grep`/`awk` to hand-verify `parseArgs`, `workingTreeClean`, `cmdReport` line spans in `bench/runner.js`
+8. Read — `src/runtime/worktree.js` (full file, manual security/quality read)
+9. Bash — `npm test` (full suite)
+
+### Assumptions substituted for questions
+None. The one thing that could have been ambiguous — which base branch to diff against — was resolved with evidence (`git merge-base HEAD develop` showed `develop` is the branch's actual fork point, matching the immediate parent of the branch's single commit), not by asking or guessing. No `AskUserQuestion`-worthy decision arose during this review.

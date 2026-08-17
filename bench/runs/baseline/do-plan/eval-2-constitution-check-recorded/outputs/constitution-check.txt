@@ -1,0 +1,16 @@
+## 2. Constitution Check (GATE)
+
+> Verify against both constitution tiers, tier-2 taking precedence — you reconcile them yourself;
+> nothing merges them for you. Any violation = STOP and revise the approach before continuing.
+> (Advisory by default; not the hard hook gate.)
+
+**Tiers evaluated:**
+
+- **Tier-1 (base):** `/Users/kai/.doflow/guidance/references/CONSTITUTION_BASE.md` — present, read in full (v1.0.0, principles P1–P6).
+- **Tier-2 (per-repo):** `agent-docs/constitution.md` — **not present** in this repo/sandbox (resolver reports `has_constitution_local: false`). No overlay to reconcile; tier-1 stands alone for this evaluation. This is a factual absence, not a skipped check — the resolver's `constitution_local` path was computed and checked.
+
+- [ ] Complies with P2 (Evidence over assumptions): **NO** — this plan has no `requirement.md` or `design.md` to serve as evidence. Any task list written here would be invented, not derived.
+- [ ] Complies with P4 (Scope discipline / YAGNI): **N/A to assess** — there is no requirement to bound scope against.
+- [ ] No violation of P3 (Finish what you start): **N/A** — no implementation is being started by this plan; it correctly stops short rather than fabricating a task list against a nonexistent design.
+
+**Result:** **FAIL** — Evaluated against tier-1 only (tier-2 constitution not present in this repo). Violates P2 (Evidence over assumptions): there is no `requirement.md`/`design.md` for this feature slug, so a genuine implementation plan cannot be evidenced. Per Behavioral Flow step 5, a Constitution Check violation means STOP and revise the approach before continuing — the "approach" here is revised down to: do not fabricate §1–§7 content; scope §8 to the remediation steps (`/do-brainstorm`, `/do-design`) instead of invented implementation tasks. The verdict is advisory and blocks nothing downstream, but is recorded honestly rather than as a pass.

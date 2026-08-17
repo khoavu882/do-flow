@@ -245,6 +245,60 @@
       }
     },
     {
+      "id": "locator.doflow",
+      "kind": "script",
+      "source": "core/harnesses/shared/locator",
+      "appliesTo": [
+        "claude",
+        "codex",
+        "gemini",
+        "opencode",
+        "pi",
+        "copilot",
+        "kiro"
+      ],
+      "projection": {
+        "claude": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        },
+        "codex": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        },
+        "gemini": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        },
+        "opencode": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        },
+        "pi": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        },
+        "copilot": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        },
+        "kiro": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        }
+      },
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "claude": "bin",
+        "codex": "bin",
+        "gemini": "bin",
+        "opencode": "bin",
+        "pi": "bin",
+        "copilot": "bin",
+        "kiro": "bin"
+      }
+    },
+    {
       "id": "claude.hooks-scripts",
       "kind": "hooks",
       "source": "core/harnesses/claude/hooks",

@@ -1,0 +1,23 @@
+{
+  "skill": "do-implement",
+  "eval_id": 3,
+  "eval_name": "finishes-what-it-starts",
+  "expectations": [
+    {
+      "text": "No TODO stubs left behind",
+      "passed": true,
+      "evidence": "absent as required"
+    },
+    {
+      "text": "No not-implemented throws",
+      "passed": false,
+      "evidence": "unexpectedly matched /[Nn]ot implemented/"
+    },
+    {
+      "text": "The flag actually works end to end rather than being scaffolded",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": 0.5
+}

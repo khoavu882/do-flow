@@ -1,0 +1,23 @@
+{
+  "skill": "do-brainstorm",
+  "eval_id": 1,
+  "eval_name": "vague-idea-starts-discovery",
+  "expectations": [
+    {
+      "text": "do-brainstorm was invoked",
+      "passed": true,
+      "evidence": "invoked: [do-brainstorm]"
+    },
+    {
+      "text": "No code was written during discovery",
+      "passed": true,
+      "evidence": "absent as required"
+    },
+    {
+      "text": "Asks clarifying questions before proposing any solution",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": 1
+}

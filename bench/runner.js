@@ -83,6 +83,23 @@ function workingTreeClean() {
  * subagent — forcing a programmatic check onto a judgment call produces a confidently wrong
  * number, which is worse than an honest "manual".
  */
+/**
+ * Which text a regex assertion reads. Default is the transcript, but that is the WRONG scope for a
+ * negative assertion and the baseline sweep proved it: `do-design/2` scored 0/3 while behaving
+ * perfectly, because its transcript said "none use the `C4Context`/`C4Container` diagram types" and
+ * `output_not_matches C4Context` fired on the very sentence demonstrating compliance. Same for
+ * `do-implement/3`: "grepped for `not implemented` — none found".
+ *
+ * A transcript legitimately discusses what it avoided; a produced artifact either contains the
+ * forbidden string or it does not. So `"in": "outputs"` concatenates every file the run produced
+ * and matches against that instead. Prefer it for anything phrased as an absence.
+ */
+function scopeFor(assertion, ctx) {
+  if (assertion.in !== 'outputs') return { text: ctx.transcript, where: 'transcript' };
+  if (!ctx.outputsText) return { text: '', where: 'outputs/ (empty — no artifacts produced)' };
+  return { text: ctx.outputsText, where: `outputs/ (${ctx.outputFiles.length} file(s))` };
+}
+
 const PROGRAMMATIC = {
   file_exists: (a, ctx) => {
     const target = path.resolve(ctx.runDir, a.path);
@@ -93,14 +110,16 @@ const PROGRAMMATIC = {
     return { passed: !fs.existsSync(target), evidence: `checked ${path.relative(ctx.runDir, target)}` };
   },
   output_matches: (a, ctx) => {
+    const { text, where } = scopeFor(a, ctx);
     const re = new RegExp(a.pattern, a.flags || 'm');
-    const hit = re.test(ctx.transcript);
-    return { passed: hit, evidence: hit ? `matched /${a.pattern}/` : `no match for /${a.pattern}/` };
+    const hit = re.test(text);
+    return { passed: hit, evidence: hit ? `matched /${a.pattern}/ in ${where}` : `no match for /${a.pattern}/ in ${where}` };
   },
   output_not_matches: (a, ctx) => {
+    const { text, where } = scopeFor(a, ctx);
     const re = new RegExp(a.pattern, a.flags || 'm');
-    const hit = re.test(ctx.transcript);
-    return { passed: !hit, evidence: hit ? `unexpectedly matched /${a.pattern}/` : `absent as required` };
+    const hit = re.test(text);
+    return { passed: !hit, evidence: hit ? `unexpectedly matched /${a.pattern}/ in ${where}` : `absent from ${where} as required` };
   },
   skill_invoked: (a, ctx) => {
     const hit = ctx.invokedSkills.includes(a.skill);
@@ -120,12 +139,40 @@ const PROGRAMMATIC = {
 function loadRunContext(runDir) {
   const transcriptFile = path.join(runDir, 'transcript.txt');
   const invokedFile = path.join(runDir, 'invoked_skills.json');
+  const outputsDir = path.join(runDir, 'outputs');
+  const outputFiles = fs.existsSync(outputsDir) ? walkFiles(outputsDir) : [];
   return {
     runDir,
     transcript: fs.existsSync(transcriptFile) ? fs.readFileSync(transcriptFile, 'utf8') : '',
     invokedSkills: fs.existsSync(invokedFile) ? readJson(invokedFile) : [],
     hasTranscript: fs.existsSync(transcriptFile),
+    outputFiles,
+    // Concatenated so one regex sweeps every artifact — an assertion about what a run produced
+    // rarely cares which file it landed in, and naming the file would couple the case to a layout
+    // the skill under test is free to change.
+    outputsText: outputFiles.map((f) => safeRead(f)).join('\n'),
   };
+}
+
+function walkFiles(dir) {
+  const out = [];
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) out.push(...walkFiles(p));
+    else if (e.isFile()) out.push(p);
+  }
+  return out;
+}
+
+/** Binary or unreadable artifacts contribute nothing rather than throwing — a run that produced a
+ * PNG should not crash grading of the markdown beside it. */
+function safeRead(file) {
+  try {
+    const buf = fs.readFileSync(file);
+    return buf.includes(0) ? '' : buf.toString('utf8');
+  } catch {
+    return '';
+  }
 }
 
 function gradeAssertion(assertion, ctx) {

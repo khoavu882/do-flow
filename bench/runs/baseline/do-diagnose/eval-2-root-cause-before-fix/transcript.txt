@@ -1,0 +1,107 @@
+## /do-diagnose --focus performance — "The report page takes 12 seconds to render"
+
+**Classification**: `--focus performance` → perf diagnostic path. Goal per skill flow: profile
+execution, detect hot paths, identify algorithmic complexity or N+1 queries — with root cause
+confirmed by concrete evidence *before* any remediation is proposed.
+
+### Step 1 — Locate the "report page"
+
+Searched this repository (`do-flow`, the DoFlow registry-driven multi-harness installer) for
+anything matching a browser-rendered "report page":
+
+- `find` for `*.html`, `*report*.js`, `*report*.py` outside `node_modules`/`.git` — the only hit
+  was `core/shared/skills/do-code-review/scripts/review_report_generator.py`, a CLI script that
+  writes a Markdown/JSON review report to disk (not a page a browser renders).
+- `package.json` — no `express`/`react`/`vue`/`fastify`/`koa`/`next` or any web-framework
+  dependency. `bin/doflow.js` is the sole entry point; this is a Node CLI installer, not a web
+  app.
+- `grep -ril "render"` across `src/` and `bin/` — the only matches are CLI "view" modules
+  (`src/lifecycle-view.js` etc.) that print an install/update/remove plan to the terminal, e.g.
+  `printRegistryLifecycle()`. Confirmed by reading the file: it renders text to stdout, not HTML.
+- `docs/` is built by `mkdocs.yml` (MkDocs Material) — a static-site generator; pages are built
+  ahead of time, not rendered per-request.
+- No `graphify-out/` directory present in this checkout, so no generated graph/report dashboard
+  either.
+- `bench/` is this project's own skill-evaluation harness (unrelated to any product "report page").
+
+**Finding: this codebase contains no web application, no HTTP server, and no page-rendering
+pipeline of any kind.** There is nothing here a user could load in a browser as "the report page."
+
+### Step 2 — Reasonable-default assumption (non-interactive; no user available to ask)
+
+Normally I would stop here and ask: *"Which application/repo is 'the report page' actually in —
+is this the wrong repo, or do you mean the do-code-review Markdown report generator?"* With no
+user to answer, I substituted the most defensible assumption: since the only artifact in this
+repo actually called a "report" is `review_report_generator.py` (which orchestrates
+`pr_analyzer.py` + `code_quality_checker.py`), I treated that pipeline's generation time as the
+closest available stand-in for "render time" and measured it directly rather than guessing.
+
+### Step 3 — Gather concrete evidence against that assumption
+
+Ran the report pipeline against this repo, timed:
+
+```
+time python3 core/shared/skills/do-code-review/scripts/review_report_generator.py . \
+  --format markdown --output <scratch>/review_test.md
+```
+
+Result: **2.625s total (1.26s user, 1.06s system, 88% CPU)** — it completed successfully and
+wrote a report. This is nowhere near 12 seconds, and critically, this script is a one-shot CLI
+invocation, not something a user "renders" repeatedly like a page load — there's no reproducible
+match to the reported symptom even under the most generous reading of "report page."
+
+### Step 4 — Diagnostic conclusion
+
+**Root cause: not established, and cannot be established from this repository.** The symptom
+described — a "report page" that takes 12 seconds to render — does not correspond to any
+reproducible artifact in this codebase:
+
+- No web/browser-rendered page exists here at all (confirmed by dependency, file, and grep
+  search).
+- The one candidate that is literally called a "report" (the do-code-review Markdown generator)
+  was actually measured at ~2.6s, is CLI-only, and has no "render" step a user would perceive as
+  page load.
+
+Per the skill's Evidence-First Diagnosis requirement ("Confirm root cause with concrete evidence
+before proposing any changes") and the root-cause protocol's explicit rule ("Never apply code
+changes until root cause mechanism is proven"), **I am not proposing a remediation.** Any fix
+targeting "the report page" here would be fabricated — this repo doesn't contain the thing being
+described.
+
+**What would unblock this**: confirm which repository/application actually contains the report
+page in question (this may be the wrong checkout), or point me at the specific route/component if
+it does live somewhere in this monorepo I haven't found. Until that's confirmed, there's no hot
+path, query, or render function to profile.
+
+No `--fix` was requested in any case, and none would have been applied without a proven root
+cause regardless.
+
+---TOOL & SKILL LOG---
+1. Skill: do-diagnose (args: `--focus performance "The report page takes 12 seconds to render"`)
+2. Bash: `cd <sandbox> && git status && git branch --show-current`
+3. Bash: `ls -la <sandbox>` + `find . -maxdepth 3 -iname "*report*" ...` (parallel)
+4. Bash: `find . -iname "*.html" -o -iname "*report*.js" -o -iname "*report*.py" ...`
+5. Bash: `cat package.json | head -40` (parallel with #4)
+6. Read: core/shared/skills/do-code-review/scripts/review_report_generator.py (lines 1-80)
+7. Bash: `grep -ril "report" docs/` + `ls bench/` + `cat mkdocs.yml | head -30` (parallel with #6)
+8. Bash: `ls /Users/kai/.claude/skills/do-diagnose/references/`
+9. Read: core/shared/skills/do-code-review/scripts/review_report_generator.py (lines 80-200) (parallel with #8)
+10. Read: /Users/kai/.claude/skills/do-diagnose/references/root_cause.md
+11. Bash: `wc -l` on pr_analyzer.py, code_quality_checker.py, review_report_generator.py (parallel with #10)
+12. Bash: `time python3 core/shared/skills/do-code-review/scripts/review_report_generator.py . --format markdown --output <scratch>/review_test.md`
+13. Bash: `ls graphify-out/` + `grep -rli "render" src/ bin/` + `head -40 bench/README.md` + `grep -E "express|react|vue|fastify|koa|next" package.json` (parallel)
+14. Bash: `head -20 src/lifecycle-view.js`
+15. Bash: `git status --short` (confirm sandbox untouched)
+16. Bash: `mkdir -p .../outputs`
+17. Bash: `git status --short` (final re-confirmation before writing transcript)
+
+---ASSUMPTIONS SUBSTITUTED FOR QUESTIONS---
+1. Question that would have been asked: "Which application/repository does 'the report page'
+   refer to? This checkout (do-flow) has no web frontend or HTTP-rendered page at all — is this
+   the wrong repo, or did you mean a specific generated report (e.g. the do-code-review Markdown
+   report) or a different, unlinked codebase?"
+   Assumption made instead: treated the do-code-review `review_report_generator.py` pipeline (the
+   only artifact in this repo literally called a "report") as the closest available stand-in, and
+   measured its actual runtime (~2.6s) as evidence rather than guessing at a fix. This assumption
+   was explicitly evidence-tested, found not to match the reported 12s symptom, and the diagnosis
+   was reported as inconclusive/blocked rather than papered over with a fabricated root cause.

@@ -1,0 +1,98 @@
+I ran this as Phase 0 of the doflow chain via the `do-constitution` skill, since this repo had no
+tier-2 constitution yet (`has_constitution_local: false`).
+
+## What I did
+
+1. Resolved paths with `do-paths.sh --json`: base constitution at
+   `~/.doflow/guidance/references/CONSTITUTION_BASE.md`, local (tier-2) constitution target at
+   `agent-docs/constitution.md` (did not yet exist).
+2. Read the tier-1 base constitution (P1 Safety, P2 Evidence, P3 Finish-what-you-start, P4 Scope
+   discipline, P5 Parallel-by-default, P6 Professional honesty) so the new tier-2 file adds
+   repo-specific rules rather than restating these.
+3. Since no principle inputs were given in the prompt, I derived repo-specific principles from
+   this repository's own CLAUDE.md and observable structure (registry-driven multi-harness
+   installer, no build step, a guard-suite-enforced structural-consistency system, a
+   ledger-mediated ownership model) rather than inventing generic boilerplate.
+4. Created `agent-docs/constitution.md` (v0.1.0) from the installed template, filled with four
+   principles:
+   - **Single Source, Many Projections** — `core/shared/` is the one physical source for
+     cross-harness content; never duplicate into a harness's native directory.
+   - **Guard Suite Is Ground Truth** — `test/guards/*.test.js` (G1-G10) encode structural truths;
+     a failure means fix the stale side, never weaken the guard.
+   - **Ledger-Mediated Ownership** — the neutral state ledger at `.doflow/state/` is authoritative
+     for what DoFlow owns; owned files change through plan/apply/verify, not hand-edits.
+   - **No Build Step, By Design** — plain Node >=18, no bundler/TypeScript, and that absence is a
+     deliberate constraint requiring justification to change.
+   Plus a Constraints section (npm test as the canonical validation gate, the separate
+   code-review-fixtures.sh suite, and the four-places-in-lockstep rule for adding a harness/asset)
+   and a filled Sync Impact Report.
+5. Propagated a pointer via `sync-context.sh --file CLAUDE.md`. No `CLAUDE.md` existed in this
+   sandbox (it's gitignored at the repo root and wasn't copied into the worktree), so the script
+   created a new one containing only the marker-delimited DOFLOW block:
+   ```
+   <!-- DOFLOW START -->
+   doflow: active constitution = agent-docs/constitution.md (v0.1.0), overlaying CONSTITUTION_BASE.md.
+   <!-- DOFLOW END -->
+   ```
+
+## Result
+
+- `agent-docs/constitution.md` — new tier-2 constitution, version 0.1.0, ratified 2026-08-17.
+- `CLAUDE.md` — new file at repo root containing the DOFLOW pointer block (created because none
+  existed in this worktree; a real Claude Code session with an existing CLAUDE.md would have had
+  only the marker block inserted/updated, not the whole file rewritten).
+
+Next step per the skill's boundaries: `/do-brainstorm` to start a feature under this constitution.
+
+---
+
+## Tool/Skill Usage Log
+
+1. Bash — inspected sandbox worktree (`git status --porcelain`, directory listing, search for any
+   existing constitution/skill files).
+2. Bash — located `core/shared/skills/do-constitution/SKILL.md` and confirmed skill directory
+   listing.
+3. Read — read `core/shared/skills/do-constitution/SKILL.md` (skill definition and trigger
+   description).
+4. Bash — checked for installed DoFlow config (`~/.doflow`), confirmed
+   `templates/doflow/constitution-template.md` and `guidance/references/CONSTITUTION_BASE.md`
+   present.
+5. Bash — checked `~/.doflow/scripts/doflow/bash/` for `do-paths.sh` and `sync-context.sh`.
+6. Skill — invoked `do-constitution` with the user's request as arguments.
+7. Bash — ran `do-paths.sh --json` in the sandbox to resolve `constitution_base`,
+   `constitution_local`, `has_constitution_local`, `repo_root`.
+8. Bash — read `CONSTITUTION_BASE.md` (tier-1) content.
+9. Bash — read `constitution-template.md` content.
+10. Read — read `sync-context.sh` to confirm its create/update/append behavior before invoking it.
+11. Bash — checked whether `CLAUDE.md` and `agent-docs/` existed in the sandbox, and whether they
+    are gitignored (`.gitignore` entries `/CLAUDE.md` and `agent-docs/`).
+12. Bash — created `agent-docs/` directory.
+13. Write — wrote `agent-docs/constitution.md` (the new tier-2 constitution).
+14. Bash — ran `sync-context.sh --file CLAUDE.md` to propagate the pointer block; inspected the
+    resulting `CLAUDE.md`.
+15. Bash — ran `git status --porcelain --ignored` in the sandbox to enumerate every new/modified
+    file (including gitignored ones) relative to the worktree's checkout point, for copying to
+    the output directory.
+16. Bash — created the OUTPUT DIR's `outputs/` tree and copied `CLAUDE.md` and
+    `agent-docs/constitution.md` into it.
+17. Write — wrote this `transcript.txt`.
+18. Write — wrote `invoked_skills.json`.
+
+## Assumptions Made
+
+- The prompt gave no concrete principle inputs ("Set up the engineering principles this repo
+  should hold itself to" names no specific rules). Per the non-interactive instruction, rather
+  than calling AskUserQuestion, I derived four repo-specific principles directly from this
+  repository's own CLAUDE.md and structure (core/shared as single source, the guard suite,
+  the state ledger, and the no-build-step convention) instead of inventing generic/unrelated
+  principles. This is the single substituted assumption in this run — a live session would
+  more likely have asked the user for their specific priorities or draft principles before
+  writing law-of-the-repo text, or at minimum flagged the draft for review before finalizing
+  the version bump.
+- Target context file: the skill names `CLAUDE.md ... or AGENTS.md for Codex`. Since this is a
+  Claude Code session, I used `CLAUDE.md` without asking.
+- `CLAUDE.md` did not exist in this sandbox worktree (gitignored, not copied into the worktree
+  checkout). I let `sync-context.sh`'s documented behavior (create the file with just the marker
+  block if absent) stand rather than fabricating a fuller CLAUDE.md around it — that stays
+  faithful to the skill's explicit boundary of only ever touching the DOFLOW block, never
+  rewriting the whole file.

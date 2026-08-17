@@ -1,0 +1,347 @@
+#!/usr/bin/env bash
+# doflow-run — the single runtime seam every skill calls through.
+#
+# One verb namespace (design.md §4.2), one place that decides whether a verb is served by a
+# shell helper or the Node CLI, and one place that records that a verb ran. Callers never learn
+# which side serves a verb, which is what lets a verb move between them without touching skills.
+#
+# Self-resolution is from this file's own REAL path, symlinks followed — never fixed-depth
+# `../../../..` arithmetic. Its predecessor `doflow.sh` did exactly that: installed at
+# ~/.doflow/scripts/doflow/ it computed a repo root of /Users and every Node-backed verb died
+# with "Cannot find module '/Users/bin/doflow.js'". The same script must answer identically from
+# a source checkout, a project-local `.doflow/`, a global `~/.doflow/`, and from a symlink on
+# PATH pointing at any of them.
+#
+# Usage: doflow-run <verb> [args...]
+#   Every verb accepts --json. Exit 0 = success, 1 = an actionable finding, 2 = usage or
+#   resolution error.
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------- self-resolution
+
+# `readlink -f` is GNU-only and arrived late on BSD; resolve the chain by hand so the dispatcher
+# keeps working on the oldest shell we support (macOS bash 3.2). Bounded, because a symlink loop
+# must produce a message rather than hang.
+resolve_real_dir() {
+  local src="$1" dir hops=0
+  while [ -L "$src" ]; do
+    hops=$((hops + 1))
+    if [ "$hops" -gt 40 ]; then
+      printf 'doflow-run: symlink loop resolving %s\n' "$1" >&2
+      exit 2
+    fi
+    dir="$(cd -P "$(dirname "$src")" >/dev/null 2>&1 && pwd)"
+    src="$(readlink "$src")"
+    case "$src" in
+      /*) ;;
+       *) src="$dir/$src" ;;
+    esac
+  done
+  cd -P "$(dirname "$src")" >/dev/null 2>&1 && pwd
+}
+
+SCRIPT_DIR="$(resolve_real_dir "${BASH_SOURCE[0]}")"
+
+# The install root that owns state. Mirrors the locator's resolution order (design.md §4.1) so a
+# verb dispatched inside a project records against that project, not against wherever the
+# dispatcher itself happens to live.
+resolve_config_dir() {
+  local dir
+  if [ -n "${DOFLOW_CONFIG_DIR:-}" ]; then
+    printf '%s' "$DOFLOW_CONFIG_DIR"
+    return 0
+  fi
+  dir="$(pwd -P 2>/dev/null || pwd)"
+  while [ -n "$dir" ] && [ "$dir" != "/" ]; do
+    if [ -d "$dir/.doflow" ]; then
+      printf '%s' "$dir/.doflow"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  # No project install above the caller: fall back to the install this dispatcher was copied
+  # into, and only then to the global one.
+  case "$SCRIPT_DIR" in
+    */.doflow/*) printf '%s' "${SCRIPT_DIR%%/.doflow/*}/.doflow"; return 0 ;;
+  esac
+  printf '%s' "${HOME:-.}/.doflow"
+}
+
+CONFIG_DIR="$(resolve_config_dir)"
+
+# Shell helpers sit beside this file in every shape shipped today (`.../doflow/bin` next to
+# `.../doflow/bash`); the third candidate covers the dispatcher being relocated to `<config>/bin`
+# without the helpers moving with it.
+resolve_bash_dir() {
+  local candidate
+  for candidate in \
+    "$SCRIPT_DIR/../bash" \
+    "$SCRIPT_DIR/bash" \
+    "$CONFIG_DIR/scripts/doflow/bash"
+  do
+    if [ -d "$candidate" ]; then
+      (cd -P "$candidate" >/dev/null 2>&1 && pwd)
+      return 0
+    fi
+  done
+  return 1
+}
+
+# A directory is the package root when it holds the CLI this dispatcher would exec AND a
+# package.json claiming the doflow name — `bin/doflow.js` alone would happily match an unrelated
+# project the install happens to sit inside.
+is_package_root() {
+  [ -f "$1/bin/doflow.js" ] &&
+  [ -f "$1/package.json" ] &&
+  grep -q '"name"[[:space:]]*:[[:space:]]*"[^"]*doflow"' "$1/package.json" 2>/dev/null
+}
+
+# Order is most-specific-first: an explicit override, then the checkout this file lives in, then
+# a dependency pinned by the project, then whatever is on PATH. Answers through globals rather
+# than stdout, so a path containing whitespace needs no field separator to survive.
+NODE_CLI_KIND=""   # "script" = run with node, "bin" = an executable that runs itself
+NODE_CLI_PATH=""
+resolve_node_cli() {
+  local dir project_root
+  if [ -n "${DOFLOW_CLI:-}" ] && [ -f "$DOFLOW_CLI" ]; then
+    NODE_CLI_KIND="script"; NODE_CLI_PATH="$DOFLOW_CLI"
+    return 0
+  fi
+  dir="$SCRIPT_DIR"
+  while [ -n "$dir" ] && [ "$dir" != "/" ]; do
+    if is_package_root "$dir"; then
+      NODE_CLI_KIND="script"; NODE_CLI_PATH="$dir/bin/doflow.js"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  project_root="$(dirname "$CONFIG_DIR")"
+  if [ -f "$project_root/node_modules/@khoavu882/doflow/bin/doflow.js" ]; then
+    NODE_CLI_KIND="script"; NODE_CLI_PATH="$project_root/node_modules/@khoavu882/doflow/bin/doflow.js"
+    return 0
+  fi
+  if command -v doflow >/dev/null 2>&1; then
+    NODE_CLI_KIND="bin"; NODE_CLI_PATH="$(command -v doflow)"
+    return 0
+  fi
+  return 1
+}
+
+# ---------------------------------------------------------------------------------- reporting
+
+wants_json=false
+for _arg in "$@"; do
+  [ "$_arg" = "--json" ] && wants_json=true
+done
+
+# Dispatcher-level failures answer in the caller's requested shape; a caller that asked for JSON
+# and got a bare English sentence has to special-case the dispatcher, which defeats the uniform
+# contract.
+fail() {
+  local code="$1" reason="$2" message="$3" escaped
+  if [ "$wants_json" = true ]; then
+    # Messages quote resolved paths, and a path is allowed to contain a quote or a backslash;
+    # unescaped, one such path turns an error report into unparseable JSON.
+    escaped="${message//\\/\\\\}"
+    escaped="${escaped//\"/\\\"}"
+    printf '{"ok":false,"error":"%s","message":"%s"}\n' "$reason" "$escaped" >&2
+  else
+    printf 'doflow-run: %s\n' "$message" >&2
+  fi
+  exit "$code"
+}
+
+usage() {
+  cat <<'EOF'
+doflow-run <verb> [args...] — the DoFlow runtime seam
+
+Every verb accepts --json. Exit 0 = success, 1 = an actionable finding,
+2 = a usage or resolution error.
+
+Artifact and repository state:
+  paths            resolve repo root, branch, feature slug, artifact paths
+  validate         artifact index/detail consistency check
+  git-state        branch class and derived branch names
+  prereqs          stage prerequisite checks
+  task-brief       task brief extraction for execution
+  review-package   assemble a review payload
+
+Workflow and evidence:
+  classify         validate a proposed task class, return its workflow
+  workflow         resolve stages, dependencies and gates for a class
+  route            resolve an information need to a healthy provider
+  evidence         append a stage's evidence batch; query the ledger
+  claim            record or update a claim and its support state
+  readiness        evaluate readiness; return state and missing items
+  context-pack     emit the compiled context pack for a stage
+
+Verification and recovery:
+  verify           compile the contract, run checks, emit the report
+  recover          classify a failure, return the targeted action
+
+Observability:
+  trace            current run trajectory
+  stats            aggregate run usage
+  discover         missed opportunities in recorded runs
+  capabilities     provider resolution
+  doctor           installation and provider health
+EOF
+}
+
+# ------------------------------------------------------------------------------------- clocks
+
+# Millisecond clocks are not portable: EPOCHREALTIME is bash 5+, `date +%N` exists on GNU and on
+# recent BSD but the GNU width modifier `%3N` does not, and older BSD has neither. Probe once and
+# keep the answer. The perl path pays its own interpreter startup inside the measured span, so
+# durations recorded through it read a few milliseconds high — accepted, because the alternative
+# on such a host is whole-second granularity.
+detect_clock() {
+  local nanos
+  if [ -n "${EPOCHREALTIME:-}" ]; then printf 'bash'; return 0; fi
+  # Require exactly nine digits: `%s%N` is only safe to read as one number when %N is
+  # zero-padded, and a date that prints a literal "N" fails this test rather than poisoning
+  # every duration with a non-numeric suffix.
+  nanos="$(date -u +%N 2>/dev/null || true)"
+  case "$nanos" in
+    [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) printf 'nanos'; return 0 ;;
+  esac
+  if command -v perl >/dev/null 2>&1; then printf 'perl'; return 0; fi
+  printf 'seconds'
+}
+
+CLOCK="$(detect_clock)"
+
+now_ms() {
+  local raw
+  case "$CLOCK" in
+    bash)
+      raw="${EPOCHREALTIME/./}"
+      printf '%s' "${raw:0:13}"
+      ;;
+    nanos)
+      # One call, not %s then %N, so the reading cannot straddle a second boundary.
+      printf '%s' "$(( $(date -u +%s%N) / 1000000 ))"
+      ;;
+    perl)
+      perl -MTime::HiRes -e 'printf "%d", Time::HiRes::time() * 1000'
+      ;;
+    *)
+      printf '%s' "$(( $(date -u +%s) * 1000 ))"
+      ;;
+  esac
+}
+
+# --------------------------------------------------------------------------------- run ledger
+
+# One metadata record per dispatched verb (FR-011). Metadata ONLY — the verb name comes from the
+# dispatcher's own table and the argument count is a count, so no argument value, no command
+# output and no file content can reach the ledger (NFR-004).
+#
+# Tracing never changes what a verb returned. Every step is failure-tolerant and the function
+# always succeeds: an unwritable state directory degrades observability, not the run.
+trace_run() {
+  local verb="$1" code="$2" duration="$3" argc="$4" started_at="$5"
+  local runs_dir="$CONFIG_DIR/state/runs"
+  mkdir -p "$runs_dir" 2>/dev/null || return 0
+  printf '{"timestamp":"%s","verb":"%s","exit_code":%s,"duration_ms":%s,"arg_count":%s}\n' \
+    "$started_at" "$verb" "$code" "$duration" "$argc" \
+    >>"$runs_dir/$(date -u +%Y-%m-%d).jsonl" 2>/dev/null || return 0
+  return 0
+}
+
+# ----------------------------------------------------------------------------------- dispatch
+
+# The two arms of the verb table (design.md §4.2). Together they also answer "is this a verb at
+# all", so there is no third list to keep in step.
+shell_helper_for() {
+  case "$1" in
+    paths)          printf 'do-paths.sh' ;;
+    validate)       printf 'validate-artifacts.sh' ;;
+    git-state)      printf 'do-git-state.sh' ;;
+    prereqs)        printf 'do-prereqs.sh' ;;
+    task-brief)     printf 'do-task-brief.sh' ;;
+    review-package) printf 'do-review-package.sh' ;;
+    *) return 1 ;;
+  esac
+}
+
+# The whole Node namespace, including the verbs later phases still have to build. Tracking which
+# of them the CLI implements *today* would mean a second inventory drifting against the CLI's own
+# command list; an unbuilt verb is dispatched and the CLI answers for itself.
+is_node_verb() {
+  case "$1" in
+    classify|workflow|route|evidence|claim|readiness|context-pack|verify|recover|\
+trace|stats|discover|capabilities|doctor) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+dispatch_shell() {
+  local verb="$1"; shift
+  local helper bash_dir script
+  helper="$(shell_helper_for "$verb")"
+  if ! bash_dir="$(resolve_bash_dir)"; then
+    fail 2 "helpers-not-found" \
+      "cannot locate the shell helpers; searched $SCRIPT_DIR/../bash, $SCRIPT_DIR/bash and $CONFIG_DIR/scripts/doflow/bash"
+  fi
+  script="$bash_dir/$helper"
+  [ -f "$script" ] || fail 2 "helper-missing" "verb '$verb' needs $script, which does not exist"
+  bash "$script" "$@"
+}
+
+dispatch_node() {
+  local verb="$1"; shift
+  if ! resolve_node_cli; then
+    fail 2 "cli-not-found" \
+      "verb '$verb' is served by the Node CLI, which could not be located; set DOFLOW_CLI to a doflow.js path, install the package (npm i -g @khoavu882/doflow), or run from a checkout"
+  fi
+  if [ "$NODE_CLI_KIND" = "script" ]; then
+    command -v node >/dev/null 2>&1 || fail 2 "node-not-found" \
+      "verb '$verb' needs node on PATH to run $NODE_CLI_PATH"
+    node "$NODE_CLI_PATH" "$verb" "$@"
+  else
+    "$NODE_CLI_PATH" "$verb" "$@"
+  fi
+}
+
+main() {
+  local verb rc started_ms started_at ended_ms argc
+
+  verb="${1:-}"
+  case "$verb" in
+    "")
+      usage >&2
+      fail 2 "no-verb" "no verb given"
+      ;;
+    -h|--help|help)
+      usage
+      exit 0
+      ;;
+  esac
+  shift
+
+  if ! shell_helper_for "$verb" >/dev/null 2>&1 && ! is_node_verb "$verb"; then
+    fail 2 "unknown-verb" "unknown verb '$verb' — run 'doflow-run --help' for the verb list"
+  fi
+
+  argc=$#
+  started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  started_ms="$(now_ms)"
+
+  # `|| rc=$?` rather than a bare call: the verb's exit code is the dispatcher's exit code, and
+  # under `set -e` a failing verb would otherwise abort before the run is ever recorded.
+  rc=0
+  if shell_helper_for "$verb" >/dev/null 2>&1; then
+    dispatch_shell "$verb" "$@" || rc=$?
+  else
+    dispatch_node "$verb" "$@" || rc=$?
+  fi
+
+  ended_ms="$(now_ms)"
+  trace_run "$verb" "$rc" "$(( ended_ms - started_ms ))" "$argc" "$started_at" || true
+
+  exit "$rc"
+}
+
+main "$@"

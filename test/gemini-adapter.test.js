@@ -52,12 +52,17 @@ test('projects the shared helper-script and template trees into the doflow direc
   const harness = harnessFor(registry, 'gemini');
   const adapter = createGeminiAdapter();
 
-  for (const capability of ['scripts', 'templates']) {
+  // The `scripts` capability now carries two assets with deliberately different placement:
+  // `scripts.doflow` is the harness-neutral shared tree that must land in `.doflow/scripts`, while
+  // `locator.doflow` is the per-harness entrypoint shim that must land inside the harness's own
+  // directory. Selecting by id keeps this test asserting the shared-tree property it was written
+  // for; the locator's own placement is asserted separately below rather than left uncovered.
+  for (const [capability, assetId] of [['scripts', 'scripts.doflow'], ['templates', 'templates.doflow']]) {
     // selectAssets filters out unavailable capabilities, so this returning an asset at all is the
     // behavioural difference: while the declaration said 'unavailable', no Gemini install could
     // receive the tree — and every chain skill resolves its paths through do-paths.sh.
-    const selected = selectAssets(registry, { harness: 'gemini', capability });
-    assert.equal(selected.length, 1, `gemini must receive exactly one ${capability} asset`);
+    const selected = selectAssets(registry, { harness: 'gemini', capability }).filter((a) => a.id === assetId);
+    assert.equal(selected.length, 1, `gemini must receive exactly one ${assetId} asset`);
     const root = scratch();
     const input = projectAdapterInput({
       registry, harness, scope: 'global', scopeRoot: root, assets: selected, context: { repoRoot, homeDir: root },
@@ -73,6 +78,45 @@ test('projects the shared helper-script and template trees into the doflow direc
         `${capability} must land in .doflow/${capability}, got ${change.target}`);
     }
   }
+});
+
+// The locator is the counterpart to the tree above: the shared tree is harness-neutral and lands
+// once in `.doflow/`, while this shim is projected per harness and must land INSIDE that harness's
+// own directory — it is the only thing a skill can name by a literal relative path. It is also the
+// first runtime-path asset to reach opencode, pi, copilot and kiro, which until now received chain
+// skills referencing scripts they never got, so all seven are checked rather than gemini alone.
+test('the runtime locator is projected into every harness, inside that harness own directory', () => {
+  const { loadRegistry, selectAssets, harnessFor } = require('../src/registry');
+  const { projectAdapterInput } = require('../src/adapters');
+  const repoRoot = path.resolve(__dirname, '..');
+  const registry = loadRegistry({ repoRoot });
+
+  for (const id of ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro']) {
+    const selected = selectAssets(registry, { harness: id, capability: 'scripts' })
+      .filter((a) => a.id === 'locator.doflow');
+    assert.equal(selected.length, 1, `${id} must receive the runtime locator`);
+    const root = scratch();
+    const input = projectAdapterInput({
+      registry, harness: harnessFor(registry, id), scope: 'global', scopeRoot: root, assets: selected,
+      context: { repoRoot, homeDir: root },
+    });
+    assert.equal(input.assets[0].renderer, 'copy-tree');
+    for (const target of input.assets[0].targets ?? []) {
+      // Never the shared .doflow tree: a locator there could not be reached by a literal relative
+      // path from a skill, which is the single thing it exists to make possible.
+      assert.ok(!target.includes(`${path.sep}.doflow${path.sep}`),
+        `${id} locator must not land in the shared .doflow tree, got ${target}`);
+    }
+  }
+});
+
+// The shim is exec'd directly by skill prose, so a non-executable mode makes every chain skill fail
+// at its first runtime call. `applyTree` copies the source mode verbatim, so the bit has to be
+// right in the repo — and Write creates 0644, which is exactly how this was missed once already.
+test('the locator source is executable', () => {
+  const src = path.resolve(__dirname, '..', 'core', 'harnesses', 'shared', 'locator', 'doflow-run');
+  assert.ok(fs.existsSync(src), 'locator source is missing');
+  assert.ok(fs.statSync(src).mode & 0o111, 'locator must be executable — applyTree copies the source mode verbatim');
 });
 
 // The pointer source carries one hardcoded `../`, correct only when the instruction file sits a

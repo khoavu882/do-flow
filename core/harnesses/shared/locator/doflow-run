@@ -1,0 +1,76 @@
+#!/bin/sh
+# DoFlow locator shim — projected to all seven harnesses by the `locator.doflow` asset in
+# core/registry/assets.yaml (design.md §3 C2, §4.1).
+#
+# Its ONLY job is to find the single dispatcher at `<config>/bin/doflow-run` and exec it with every
+# argument passed through unmodified. It deliberately holds NO verb table and NO verb knowledge:
+# the verb namespace lives in exactly one place — the dispatcher — so adding a verb never edits
+# seven projected copies of this file. Its content is byte-identical on every harness; only the
+# harness-native path it is written to differs.
+#
+# It is named `doflow-run` like the dispatcher it fronts, not `doflow`, so it is never confused
+# with the installer CLI (`bin/doflow.js`, published as the `doflow` command) — a different program
+# with a different verb surface.
+#
+# Resolution order (design.md §4.1), first hit wins:
+#   1. $DOFLOW_CONFIG_DIR/bin/doflow-run  — explicit override, and what harness session hooks export
+#   2. nearest .doflow/bin/doflow-run walking up from the working directory — project-local install
+#      wins over global
+#   3. $HOME/.doflow/bin/doflow-run       — global install
+# None found: exit 2 — a resolution error under the dispatcher's uniform exit codes (0 success,
+# 1 actionable finding, 2 usage/resolution error) — with one message naming all three places
+# searched. design.md R3 accepts this outcome deliberately: a harness install with no `.doflow/`
+# payload anywhere cannot reach the runtime, and one clear message is the required failure.
+#
+# Plain POSIX sh, no bashisms: this runs before anything else DoFlow ships, on whatever shell the
+# harness hands it.
+
+# Where the dispatcher actually lands, not where design.md §4.1/§5.1 originally drew it. Those
+# sections said `<config>/bin/doflow-run`, but the dispatcher ships inside the `scripts.doflow`
+# asset (`core/shared/scripts` -> `<config>/scripts`), so it installs one level deeper. Correcting
+# the search path here rather than adding a second asset to match the diagram: `../.doflow/bin`
+# would resolve wrong for opencode-global (`~/.config/.doflow`) and pi-global (`~/.pi/.doflow`),
+# so the diagram was the thing that was wrong. design.md is amended to match.
+REL='scripts/doflow/bin/doflow-run'
+dispatcher=''
+
+# 1. Explicit override.
+if [ -n "${DOFLOW_CONFIG_DIR:-}" ] && [ -f "$DOFLOW_CONFIG_DIR/$REL" ]; then
+  dispatcher="$DOFLOW_CONFIG_DIR/$REL"
+fi
+
+# 2. Nearest project-local install, walking up. Terminates on the filesystem root and also on a
+# parent that stops changing, so an unusual root (or a `dirname` that returns its input) cannot
+# spin forever.
+if [ -z "$dispatcher" ]; then
+  dir="${PWD:-$(pwd)}"
+  while [ -n "$dir" ]; do
+    if [ -f "$dir/.doflow/$REL" ]; then
+      dispatcher="$dir/.doflow/$REL"
+      break
+    fi
+    parent="$(dirname "$dir")"
+    [ "$parent" = "$dir" ] && break
+    dir="$parent"
+  done
+fi
+
+# 3. Global install.
+if [ -z "$dispatcher" ] && [ -n "${HOME:-}" ] && [ -f "$HOME/.doflow/$REL" ]; then
+  dispatcher="$HOME/.doflow/$REL"
+fi
+
+if [ -z "$dispatcher" ]; then
+  cat >&2 <<EOF
+doflow-run: no DoFlow runtime found. Searched for '$REL' in, in order:
+  1. \$DOFLOW_CONFIG_DIR       -> ${DOFLOW_CONFIG_DIR:-(unset)}
+  2. nearest .doflow/ above the working directory -> ${PWD:-(unknown)}
+  3. \$HOME/.doflow            -> ${HOME:-(unset)}/.doflow
+Install the runtime into one of them:
+  npx @khoavu882/doflow install        # project-local, creates ./.doflow
+  npx @khoavu882/doflow install -g     # global, creates \$HOME/.doflow
+EOF
+  exit 2
+fi
+
+exec "$dispatcher" "$@"

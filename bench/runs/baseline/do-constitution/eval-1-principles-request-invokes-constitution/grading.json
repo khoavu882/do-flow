@@ -1,0 +1,18 @@
+{
+  "skill": "do-constitution",
+  "eval_id": 1,
+  "eval_name": "principles-request-invokes-constitution",
+  "expectations": [
+    {
+      "text": "do-constitution was invoked",
+      "passed": true,
+      "evidence": "invoked: [do-constitution]"
+    },
+    {
+      "text": "agent-docs/constitution.md is created",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": 1
+}
