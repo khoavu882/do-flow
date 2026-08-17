@@ -80,10 +80,36 @@ function reconcileRemovedChange(verification, statuses, change) {
 /** A missing resource is success only when it is exactly one that this plan
  * removed. All unrelated status rows remain untouched, and a removed resource
  * still reported as present is a verification conflict. */
-function normalizeRemovalVerification(verification, changes) {
+/** An adapter's verifier enumerates what the *current source* declares and marks anything not on
+ * disk 'missing'. That is the right question for install/update and the inverted one for removal,
+ * and it misfires outright when the machine's state predates a rename: v1.0.0-beta.2 consolidated
+ * 14 agent specs into 5, so `doflow remove` on an older install planned removals for the 14 names
+ * the ledger owned while the codex verifier looked for the 5 the source now declares — and failed
+ * on the 4 that had never been installed here. `remove` became impossible for every install
+ * predating the consolidation, with no user recourse.
+ *
+ * You cannot fail to remove what you never installed, and the ledger is the record of what this
+ * machine actually owns. So a 'missing' the ledger has no claim on is an expected absence. A
+ * 'missing' the ledger *does* claim stays a hard failure — that is a removal which genuinely did
+ * not happen, and the existing "unrelated missing remains false" contract depends on it. Without a
+ * ledger, non-ownership cannot be proven, so the strict reading is kept. */
+function markUnownedAbsences(statuses, ledger, harness) {
+  if (!ledger) return statuses;
+  const owned = new Set((ledger.resources || [])
+    .filter((resource) => resource.harness === harness)
+    .map((resource) => resource.ownershipIdentity)
+    .filter(Boolean));
+  return statuses.map((status) => (
+    status?.status === 'missing' && status.ownershipIdentity && !owned.has(status.ownershipIdentity)
+      ? { ...status, status: 'absent', expectedAbsence: true }
+      : status
+  ));
+}
+
+function normalizeRemovalVerification(verification, changes, ledger) {
   const removed = changes.filter((change) => change.operation === 'remove' && change.harness === verification.harness);
   if (!removed.length) return verification;
-  const statuses = [...verification.statuses];
+  let statuses = [...verification.statuses];
   const conflicts = [...(verification.conflicts || [])];
   for (const change of removed) {
     const outcome = reconcileRemovedChange(verification, statuses, change);
@@ -91,6 +117,8 @@ function normalizeRemovalVerification(verification, changes) {
     if (outcome.statusIndex >= 0) statuses[outcome.statusIndex] = outcome.removedStatus;
     else statuses.push(outcome.removedStatus);
   }
+  // After reconciling the plan's own removals, so this only ever judges what the plan left over.
+  statuses = markUnownedAbsences(statuses, ledger, verification.harness);
   return { ...verification, statuses, conflicts, ok: removalVerificationOk(verification.ok, statuses, conflicts) };
 }
 
@@ -100,7 +128,7 @@ function normalizeRemovalVerification(verification, changes) {
  * missing/error status remains a hard verification failure. */
 function removalVerificationOk(ok, statuses, conflicts) {
   const unresolvedFailure = statuses.some((status) => ['missing', 'conflict', 'error', 'invalid'].includes(status?.status));
-  const onlyExpectedRemovalFailure = ok === false && statuses.some((status) => status?.expectedRemoval) && !unresolvedFailure && conflicts.length === 0;
+  const onlyExpectedRemovalFailure = ok === false && statuses.some((status) => status?.expectedRemoval || status?.expectedAbsence) && !unresolvedFailure && conflicts.length === 0;
   return conflicts.length === 0 && !unresolvedFailure && (ok !== false || onlyExpectedRemovalFailure);
 }
 
@@ -246,7 +274,7 @@ function verifyLifecycle({ plan, adapters, context = {} }) {
     const verification = normalizeVerification(adapter.verify({ ...target.adapterInput,
       registry: context.registry ?? plan.registry, discovery: target.discovery, ledger: plan.ledger,
       operation, context: { ...target.adapterInput.context, operation } }), harness);
-    verifications.push(operation === 'remove' ? normalizeRemovalVerification(verification, target.changes) : verification);
+    verifications.push(operation === 'remove' ? normalizeRemovalVerification(verification, target.changes, plan.ledger) : verification);
   }
   const conflicts = verifications.flatMap((result) => (result.conflicts || []).map((reason) => ({ harness: result.harness, reason })));
   return { verifications, conflicts, ok: conflicts.length === 0 && verifications.every((result) => result.ok !== false) };

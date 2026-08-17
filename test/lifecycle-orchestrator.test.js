@@ -152,6 +152,60 @@ test('expected removed absence recomputes a provisional false verification, but 
   assert.equal(unrelated.statuses[1].status, 'missing');
 });
 
+// Regression: `doflow remove -g` on an install predating the 14->5 agent consolidation aborted with
+// "Lifecycle verification failed; ledger was not updated", leaving the config half-stripped. The
+// plan correctly removed the 14 names the ledger owned, but codex's verifier enumerates the 5 the
+// *current source* declares and reported the 4 never installed here as 'missing'. Those matched no
+// change, so nothing reconciled them. Reproduced with the real identities from the failure.
+test('removal tolerates a source-declared resource the ledger never owned (post-rename upgrade)', () => {
+  const oldNames = ['backend-architect', 'python-expert', 'technical-writer'];
+  const newNames = ['core-implementer', 'quality-guardian', 'research-writer'];
+  const own = (name) => `doflow:codex:custom-agent:agent:${name}`;
+  const changes = oldNames.map((name) => ({
+    harness: 'codex', assetId: 'agents.shared', target: `/x/${name}.toml`,
+    ownershipIdentity: own(name), operation: 'remove',
+  }));
+  const ledger = { resources: oldNames.map((name) => ({ harness: 'codex', ownershipIdentity: own(name) })) };
+  const verification = {
+    harness: 'codex', ok: false, resources: [], conflicts: [],
+    // What the codex verifier actually produced: the new names it looked for and did not find.
+    statuses: newNames.map((name) => ({
+      harness: 'codex', assetId: 'agents.shared', target: `/x/${name}.toml`,
+      ownershipIdentity: own(name), status: 'missing',
+    })),
+  };
+
+  const result = normalizeRemovalVerification(verification, changes, ledger);
+  assert.equal(result.ok, true, 'a never-installed resource must not fail the removal');
+  assert.ok(result.statuses.every((s) => s.status !== 'missing'), 'no unresolved missing remains');
+  assert.equal(result.statuses.filter((s) => s.expectedAbsence).length, newNames.length);
+  assert.deepEqual(result.conflicts, []);
+});
+
+test('removal still fails when a resource the ledger DOES own is missing', () => {
+  // The other half of the contract: this is a removal that genuinely did not happen, and silently
+  // passing it would report success over a resource still unaccounted for.
+  const owned = { harness: 'codex', assetId: 'agents.shared', target: '/x/kept.toml', ownershipIdentity: 'doflow:codex:custom-agent:agent:kept' };
+  const removal = { harness: 'codex', assetId: 'agents.shared', target: '/x/gone.toml', ownershipIdentity: 'doflow:codex:custom-agent:agent:gone', operation: 'remove' };
+  const ledger = { resources: [{ harness: 'codex', ownershipIdentity: owned.ownershipIdentity }] };
+
+  const result = normalizeRemovalVerification({
+    harness: 'codex', ok: false, resources: [], conflicts: [],
+    statuses: [{ ...removal, status: 'missing' }, { ...owned, status: 'missing' }],
+  }, [removal], ledger);
+  assert.equal(result.ok, false);
+  assert.equal(result.statuses[1].status, 'missing', 'a ledger-owned missing resource stays a failure');
+});
+
+test('removal without a ledger keeps the strict reading, since non-ownership cannot be proven', () => {
+  const removal = { harness: 'fake', assetId: 'a', target: 'A.md', ownershipIdentity: 'fake:a', operation: 'remove' };
+  const result = normalizeRemovalVerification({
+    harness: 'fake', ok: false, resources: [], conflicts: [],
+    statuses: [{ ...removal, status: 'missing' }, { harness: 'fake', assetId: 'b', target: 'B.md', ownershipIdentity: 'fake:b', status: 'missing' }],
+  }, [removal], undefined);
+  assert.equal(result.ok, false);
+});
+
 test('install with a non-empty MCP selection writes MCP_INDEX.md containing only the selected servers\' short flags', () => {
   const adapter = fakeAdapter();
   const adapters = createAdapterRegistry({ fake: adapter });
