@@ -26,6 +26,7 @@ stay in sync, so a flag documented here always exists.
 | `/do-execute-plan [--next\|--phase N\|--all\|--resume\|--contracts] [--sync] [--review\|--no-review]` | Execute plan.md task checklist with specialist subagents and readiness gates |
 | `/do-test [target] [--type unit\|integration\|e2e\|build\|all] [--coverage] [--watch] [--clean]` | Execute project builds, automated test suites, and coverage verification |
 | `/do-code-review [target]` | Code review automation: analyze complexity, risk, SOLID compliance, and code smells |
+| `/do-implement [description of the change] [--from-review]` | Direct, standalone implementation from a description or `/do-code-review` findings — no chain artifacts required |
 | `/do-git [intent] [args...] [--confirm]` | Cycle-aware git operations via named intents: start, save, sync, ship, release, hotfix, backport, status |
 | `/do-constitution [principle inputs] [--amend]` | Create or amend the per-repo tier-2 constitution overlay and sync impact reports |
 | `/do-diagnose [target\|issue] [--type bug\|perf\|security\|refactor] [--focus quality\|security\|performance\|architecture] [--iterations n] [--validate] [--trace] [--fix]` | Unified diagnostics, root-cause investigation, and targeted code remediation |
@@ -64,7 +65,7 @@ Raw git operations still work via passthrough: `/do-git status`, `/do-git log --
 
 ## Full Skill List
 
-The full installed skill set is: `do`, `do-brainstorm`, `do-code-review`, `do-constitution`, `do-design`, `do-diagnose`, `do-document`, `do-execute-plan`, `do-flow`, `do-git`, `do-plan`, and `do-test`.
+The full installed skill set is: `do`, `do-brainstorm`, `do-code-review`, `do-constitution`, `do-design`, `do-diagnose`, `do-document`, `do-execute-plan`, `do-flow`, `do-git`, `do-implement`, `do-plan`, and `do-test`.
 
 ## Specialist Agent Archetypes
 

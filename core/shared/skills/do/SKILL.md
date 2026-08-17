@@ -51,6 +51,7 @@ Universal command dispatcher, task decomposer, capability router, and developmen
 | `/do-constitution` | Create or amend two-tier repository governance | Governance |
 | `/do-diagnose` | Diagnose bugs, performance, security, and refactoring needs | Diagnostics |
 | `/do-document` | Generate guides, API docs, architecture indices, or web research | Knowledge |
+| `/do-implement` | Direct, standalone implementation from a description or review findings — no chain artifacts required | Extension |
 
 ## Boundaries
 **Will:** Announce session status, route single and multi-part requests, select optimal retrieval tools, and generate scoped estimates.

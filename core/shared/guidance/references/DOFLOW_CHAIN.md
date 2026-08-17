@@ -6,7 +6,10 @@ specialist agents. Discipline borrowed from spec-kit; enforcement done with the 
 hooks rather than a prompt-read registry. The implement-gate hook is registered in
 `settings.json`. `do-constitution` sits outside the numbered chain — a standalone,
 still-invocable skill that maintains the persistent rules every phase inherits, not a phase
-itself.
+itself. `do-implement` sits outside the numbered chain too, for the opposite reason: it is the
+no-artifacts-required escape hatch for implementing directly from a description or
+`do-code-review` findings when there is no `plan.md` task checklist to orchestrate — `do-execute-plan`
+remains the chain's own implementation phase.
 
 ## Layout
 
