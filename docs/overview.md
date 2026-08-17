@@ -6,7 +6,7 @@ DoFlow keeps one source configuration and projects the parts each AI coding envi
 
 ```mermaid
 flowchart LR
-    Core[core/\ncanonical content] --> Installer[bin/doflow\ninstaller]
+    Core[core/\ncanonical content] --> Installer[bin/doflow.js\ninstaller]
     Installer --> Claude[Claude Code\nCLAUDE.md, hooks, MCP]
     Installer --> Codex[Codex\nAGENTS.md, skills]
     Installer --> Gemini[Gemini CLI / Antigravity\nGEMINI.md, skills]
@@ -45,7 +45,9 @@ The client decides how to execute work. DoFlow supplies shared guidance, task wo
 | MCP registration from DoFlow | Yes (`.mcp.json`) | Yes (`config.toml`) | Yes (`settings.json`) | Yes (`opencode.json`) | Yes (`pi-mcp-adapter`) |
 | Plugin marketplace distribution | Available in `core/.claude-plugin/` | Available in `core/.codex-plugin/` | N/A | N/A | N/A |
 
-“No file-based installer support” means the source is not copied as a client configuration file. It does not prevent that client from using its own native extension or connector system.
+“N/A” in the marketplace row means DoFlow does not publish a plugin package for that client. It does
+not prevent the client from using its own native extension system — Gemini CLI and Pi both have one,
+and DoFlow's guidance reaches them through the file-based projection above instead.
 
 ## Workflow layers
 

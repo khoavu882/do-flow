@@ -117,6 +117,23 @@ test('G8: every flag docs/reference.md documents for a skill exists in that skil
   assert.deepEqual(mismatches, [], `docs/reference.md documents flags that do not exist:\n  ${mismatches.join('\n  ')}`);
 });
 
+test('G8: every repo path a doc names in backticks exists', () => {
+  // architecture.md's structure table listed `bin/doflow`; the file is bin/doflow.js. Harmless to
+  // read, wrong to copy — and the same class of error as a moved directory silently outliving its
+  // documentation. Only backticked paths rooted at a known top-level directory are checked, so
+  // prose and command examples are unaffected.
+  const roots = 'core|src|bin|test|docs';
+  const missing = [];
+  for (const { rel, text } of consumerTexts()) {
+    for (const [, p] of text.matchAll(new RegExp(`\`((?:${roots})/[A-Za-z0-9_./-]*)\``, 'g'))) {
+      const clean = p.replace(/\/$/, '');
+      if (!fs.existsSync(path.join(REPO, clean))) missing.push(`${rel} -> ${p}`);
+    }
+  }
+  const unique = [...new Set(missing)].sort();
+  assert.deepEqual(unique, [], `these documented paths do not exist:\n  ${unique.join('\n  ')}`);
+});
+
 test('G8: every docs page is reachable from the mkdocs nav', () => {
   // capability-map.md shipped for several releases absent from nav, so it never appeared in the
   // built site even though README linked to it — a page that exists but cannot be navigated to.
