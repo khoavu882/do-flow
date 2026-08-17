@@ -84,7 +84,10 @@ recovery, and verification procedures.
 
 ## Codex capability detail
 
-The capability matrix above uses one uniform 10-row taxonomy across all three harnesses. Codex has
+The capability matrix above uses one uniform 10-row taxonomy across all five harnesses it lists.
+Three of them — Claude Code, Codex, and Gemini — are declared in `core/registry/harnesses.yaml` and
+driven by their own adapters; OpenCode and Pi are covered through `AGENTS.md` standard adoption
+rather than a dedicated adapter, which is why they have no entry in the registry. Codex has
 several additional native-workflow distinctions that don't collapse into that shared taxonomy
 without losing meaning — they're recorded here rather than folded into the matrix above.
 

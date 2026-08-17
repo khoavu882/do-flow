@@ -93,6 +93,39 @@ test('G8: every runtime CLI command is named by a skill or doc', () => {
   );
 });
 
+test('G8: every flag docs/reference.md documents for a skill exists in that skill', () => {
+  // A v1 re-review of reference.md found four factual errors: /do-constitution documented a
+  // --init flag that has never existed, /do-plan advertised a `enterprise` strategy it does not
+  // accept, and --focus was written `perf` where the skill takes `performance`. Nothing checked
+  // this: G4 verifies FLAGS.md against core/, but docs/ was outside every guard, so the user-facing
+  // reference could describe a CLI surface that was never built.
+  const skillsRoot = path.join(REPO, 'core', 'shared', 'skills');
+  const ref = fs.readFileSync(path.join(REPO, 'docs', 'reference.md'), 'utf8');
+  const flagsOf = (text) => new Set([...text.matchAll(/--[a-z][a-z-]*/g)].map((m) => m[0]));
+
+  const mismatches = [];
+  for (const [, skill, args] of ref.matchAll(/^\| `\/(do[a-z-]*)((?:[^|`]|\\\|)*)`/gm)) {
+    const skillMd = path.join(skillsRoot, skill, 'SKILL.md');
+    if (!fs.existsSync(skillMd)) continue;                       // G6 already guards skill existence
+    const hint = fs.readFileSync(skillMd, 'utf8').match(/^argument-hint:\s*"?(.*?)"?\s*$/m)?.[1];
+    if (!hint) continue;                                          // no declared surface to check against
+    const declared = flagsOf(hint);
+    for (const flag of flagsOf(args)) {
+      if (!declared.has(flag)) mismatches.push(`${skill}: docs say ${flag}, argument-hint does not`);
+    }
+  }
+  assert.deepEqual(mismatches, [], `docs/reference.md documents flags that do not exist:\n  ${mismatches.join('\n  ')}`);
+});
+
+test('G8: every docs page is reachable from the mkdocs nav', () => {
+  // capability-map.md shipped for several releases absent from nav, so it never appeared in the
+  // built site even though README linked to it — a page that exists but cannot be navigated to.
+  const nav = fs.readFileSync(path.join(REPO, 'mkdocs.yml'), 'utf8');
+  const pages = fs.readdirSync(path.join(REPO, 'docs')).filter((n) => n.endsWith('.md'));
+  const missing = pages.filter((p) => !nav.includes(p)).sort();
+  assert.deepEqual(missing, [], `these docs pages are not in the mkdocs nav:\n  ${missing.join('\n  ')}`);
+});
+
 test('G8: no doc claims a capability the registry does not declare', () => {
   // tool_matrix.md was a hand-copied snapshot of the router and had drifted: it documented
   // `docs.lookup` and `reasoning.structured`, both of which raise "Unknown capability". A table

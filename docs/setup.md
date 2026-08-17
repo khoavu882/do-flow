@@ -68,10 +68,19 @@ given invocation, so treat it as the source of truth over this table for a speci
 |---|---|---|
 | Claude Code | `~/.claude/` | `<projectRoot>/.claude/` |
 | Codex | `~/.codex/` | `<projectRoot>/.codex/` |
-| Gemini CLI | `~/.gemini/` | `<projectRoot>/.agents/` |
+| Gemini CLI | `~/.gemini/` | `<projectRoot>/.agents/` **and** `<projectRoot>/.gemini/` — see below |
 
-Gemini's project-scope directory is `.agents/`, not `.gemini/` — it follows the Antigravity
-customization convention rather than mirroring its own global-scope name.
+Gemini is the one target that writes to two directories in project scope, because its own config
+surface and its customization surface follow different conventions:
+
+| What | Project-scope location | Why |
+|---|---|---|
+| Skills, agents | `<projectRoot>/.agents/` | Antigravity customization convention |
+| `settings.json`, `hooks/` | `<projectRoot>/.gemini/` | Gemini CLI reads its own config from `.gemini/` in both scopes |
+| `GEMINI.md` | `<projectRoot>/GEMINI.md` | Gemini reads the instruction file from the workspace root |
+
+A project install therefore creates `.agents/`, `.gemini/`, and a root `GEMINI.md`. Auditing what
+DoFlow wrote into a repo means checking all three, not `.agents/` alone.
 
 ## CLI lifecycle
 
