@@ -28,6 +28,22 @@
 | `/do-diagnose [target] [--focus quality|security|perf|architecture]` | Unified diagnostics, root-cause investigation, and targeted code remediation |
 | `/do-document [target] [--type api|guide|impl|index|research]` | Unified technical documentation, architecture indexing, and deep web research |
 
+## Runtime & Diagnostics Commands
+
+These are `doflow` CLI commands, not slash-command skills. Installation and lifecycle commands
+(`install`, `update`, `status`, `rollback`, `remove`) are documented in [Setup](setup.md).
+
+| Command | Description |
+|---|---|
+| `doflow doctor [--json]` | System health check: harness adapters, external tools, and a smoke check of every runtime capability's provider |
+| `doflow capabilities [--json] [--check]` | Which provider currently backs each abstract capability on this machine. `--check` runs a deep smoke check instead of a presence check |
+| `doflow readiness --task-class <class> --task-id <id> [--json]` | Evaluate a task's readiness contract. Classes: `bug`, `feature`, `refactor`, `trivial-edit`, `dependency-change` |
+| `doflow evidence --task-id <id> [--json]` | Show evidence items recorded for a task |
+
+`readiness` and `evidence` read per-project state under the invoking repo's `.doflow/state/`; run
+them from the project the task belongs to, or pass `-g` for the global scope. `capabilities` and
+`doctor` report on the machine and are scope-independent.
+
 ## Git Lifecycle Intents
 
 The `/do-git` skill now provides cycle-aware commands:
