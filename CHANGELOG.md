@@ -44,6 +44,17 @@ package and the tag pipeline are confirmed working end to end.
 
 ### Fixed
 
+- **Upgrade path from pre-consolidation installs**, broken in two places by the same root cause — a
+  lifecycle plan computed from the current registry meeting state written by an older one. Both
+  affected every installation predating `1.0.0-beta.2`:
+    - `install` and `update` aborted with `Unknown registry MCP server(s): …` when the saved
+      selection named a server the registry had since retired (`chrome-devtools`, `playwright`).
+      The persisted selection is now reconciled against the current catalog and the drop reported;
+      an explicit `--mcp` naming an unknown server stays a hard error, since that is a typo.
+    - `remove` aborted with `Lifecycle verification failed; ledger was not updated`, leaving the
+      configuration half-stripped, because the verifier looked for the 5 consolidated agent
+      archetypes and flagged as `missing` the 4 that install had never created on that machine. A
+      resource the ledger has no claim on is now an expected absence; one it does claim still fails.
 - Removed a stale `bin/doflow.js.bak` (a pre-refactor copy importing the deleted
   `src/adapter-wiring` module) and a redundant `core/registry/harnesses.yaml.bak` — together 47 kB
   of dead weight in the `1.0.0-beta.2` tarball.
