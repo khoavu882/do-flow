@@ -26,8 +26,12 @@ Universal command dispatcher, task decomposer, capability router, and developmen
    - For detailed decomposition and dependency graph formatting, consult `references/pm_routing.md`.
 
 3. **Capability & Tool Selection (`--tools`)**:
-   - When determining the optimal search, graph, or testing tool for an information need, resolve against DoFlow's Capability Router matrix.
-   - Consult `references/tool_matrix.md` for retrieval escalation (Exact search $\rightarrow$ Semantic search $\rightarrow$ Knowledge graph).
+   - When determining the optimal search, graph, or testing tool for an information need, query the
+     Capability Router — run `doflow capabilities` (add `--json` to parse, `--check` for a deep smoke
+     check). It reports which provider is actually available on *this* machine; Semble and Graphify
+     degrade to Ripgrep when absent, and a static table cannot know that.
+   - Consult `references/tool_matrix.md` for the intent→capability map and the two fallback layers.
+     Treat the router's output as authoritative when the two disagree.
 
 4. **Scope & Effort Estimation (`--estimate`)**:
    - When asked for sizing, complexity, or timeline estimates, produce confidence-banded ranges anchored against git history and file scope.
