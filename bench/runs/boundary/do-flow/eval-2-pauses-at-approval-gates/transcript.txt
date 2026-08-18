@@ -1,0 +1,303 @@
+CASE: do-flow / eval 2 / pauses-at-approval-gates
+SANDBOX: .doflow/worktrees/bench-boundary-do-flow-2 (branch task/bench-boundary-do-flow-2)
+SKILL RESOLUTION: by path. Read
+  .doflow/worktrees/bench-boundary-do-flow-2/.claude/skills/do-flow/SKILL.md
+  sha256 f89fe7218f09c71a9ffa34a654770fa61a7c77a7c69475301ad8251c6348edc3 (matches brief)
+  No Skill tool invocation. /do-flow was never typed as a slash command.
+Also read by path, because do-flow step 6 says to invoke each stage skill's own Behavioral Flow:
+  .claude/skills/do-flow/references/task_classes.md
+  .claude/skills/do-brainstorm/SKILL.md      (discovery stage)
+  .claude/skills/do-design/SKILL.md          (design stage)
+  .claude/skills/do-plan/SKILL.md            (planning stage)
+  .doflow/guidance/modes/MODE_Brainstorming.md (do-brainstorm's Behavioral Posture)
+  .doflow/templates/doflow/{requirement,design,plan}-template.md
+  .doflow/guidance/references/CONSTITUTION_BASE.md
+
+PROMPT AS GIVEN
+  /do-flow Add a --since <date> filter to `doflow trace` so the run ledger can be windowed from an
+  explicit start date instead of only --days N.
+
+HEADLINE RESULT
+  The chain did not run straight through. It stopped twice, and named the phase at each stop:
+    STOP 1 — gate-a "Before implementation", after stage `planning`, trigger `always`.
+    STOP 2 — implementation-stage readiness block on task A.1 (state NEEDS_EVIDENCE), before
+             entering `do-execute-plan`.
+  gate-0 was evaluated and correctly did NOT fire (its trigger condition was false).
+  gate-b was never reached, because the run stopped before implementation.
+
+=====================================================================
+STEP 1 — RESOLVE STATE
+=====================================================================
+Ran SKILL.md step 1's resolver snippet verbatim from the sandbox root.
+  $ "$DOFLOW" paths --json   -> exit 0
+    branch = task/bench-boundary-do-flow-2
+    feature_slug = task/bench-boundary-do-flow-2   (branch-derived, includes a "/")
+    feature_dir  = agent-docs/doflow/task/bench-boundary-do-flow-2
+    candidate_slugs = []
+    has_requirement / has_design / has_plan = false / false / false
+
+feature_slug is non-null, so step 1's disambiguation branch (null slug + non-empty candidates) did
+not apply. Proceeded without asking.
+
+*** FRICTION 1: the branch-derived slug contains a path separator. *** Branch `task/...` falls to
+do-paths.sh's catch-all arm, so the slug keeps the whole branch name including the slash and the
+feature dir becomes a nested agent-docs/doflow/task/<name>/. Everything downstream inherits that.
+It bit later (FRICTION 3).
+
+=====================================================================
+STEP 2 — PROPOSE ONE CLASS
+=====================================================================
+Read references/task_classes.md. Proposed `feature`.
+Signal, in one line as the skill requires: "a capability that does not exist yet and needs to be
+specified before it is built" — `--since` has no parser arm, no reader option, and its interaction
+with `--days` is unspecified, so there is something to specify before there is something to build.
+Considered and rejected `trivial-edit` per the confusables guidance: this is not one file with a
+known correct value; it is two files plus a semantics decision.
+
+=====================================================================
+STEP 3 — VALIDATE THE CLASS THROUGH THE RUNTIME
+=====================================================================
+  $ "$DOFLOW" classify --task-class "feature" --json  -> exit 0
+    outcome = ACCEPTED
+    message = "Task class 'feature' selects the Feature Delivery workflow: discovery → design →
+               planning → implementation → verification → review."
+    stages: discovery(do-brainstorm, readinessTemplate null, mutatesSource false)
+            design(do-design, null, false)
+            planning(do-plan, null, false)
+            implementation(do-execute-plan, readinessTemplate "feature", mutatesSource TRUE)
+            verification(do-test, null, false)
+            review(do-code-review, null, false)
+    gates:  gate-0 afterStage discovery, trigger unresolved-clarifications
+            gate-a afterStage planning,  trigger always
+            gate-b afterStage review,    trigger always
+    handoff = "After the final gate, commit and merge through do-git, which is outside this workflow."
+
+=====================================================================
+STEP 4 — ANNOUNCE (one line, before anything ran)
+=====================================================================
+  feature → Feature Delivery: discovery → design → planning → implementation → verification →
+  review; gates gate-0, gate-a, gate-b.
+
+=====================================================================
+STEP 5 — PICK THE STARTING STAGE
+=====================================================================
+Class is `feature` and !has_requirement, so per step 5 the run resumes from the discovery stage.
+No --from was given.
+
+=====================================================================
+STAGE 1/6 — discovery (do-brainstorm)
+=====================================================================
+Followed do-brainstorm's own Behavioral Flow. Read MODE_Brainstorming.md first, as its Behavioral
+Posture section requires.
+
+Its step 2 re-validates the class; /do-flow had already passed `feature` and classify ACCEPTED it,
+so I did not re-run it a second time within the same run.
+
+Socratic discovery grounded in the real code first:
+  bin/doflow.js:41   trace/stats/discover handlers imported from src/runtime/trace
+  bin/doflow.js:878  "--days <N>  Run-ledger window in calendar days (trace, stats, discover)"
+  bin/doflow.js:1454 trace dispatch passes { json, days, global, projectRoot }
+  src/runtime/trace.js:358  read({ days = null })
+  src/runtime/trace.js:378-382  cutoff computed, names filtered by string compare on YYYY-MM-DD
+  src/runtime/trace.js:480  ledgerSummary exposes windowDays: read.days
+
+Four ambiguities surfaced. There is no user in this bench run, so per the harness rule I took the
+"Decide for me" option on each and recorded an assumption, which is exactly the path
+do-brainstorm's step 3 defines (every question must carry an explicit "Decide for me" choice, and
+choosing it resolves via a recorded assumption in the artifact's §8 rather than by re-prompting).
+
+  ASSUMPTION A1 — accepted date form is ISO YYYY-MM-DD only, no relative expressions.
+  ASSUMPTION A2 — `--since` and `--days` are mutually exclusive; passing both is a usage error.
+                  (The load-bearing one. Narrowest-wins / intersect / last-wins are all defensible,
+                  which is why guessing silently would be the wrong answer.)
+  ASSUMPTION A3 — the boundary date is inclusive.
+  ASSUMPTION A4 — scope is `doflow trace` only; `stats` and `discover` keep --days only.
+
+All four are recorded in requirement.md §8 with a rationale and a "what changes if wrong" line, as
+the template requires. §7 Open Questions reads "None"; grep for NEEDS CLARIFICATION returns 0.
+
+  Wrote agent-docs/doflow/task/bench-boundary-do-flow-2/requirement.md
+  $ "$DOFLOW" validate <requirement path>  -> "1 artifact(s) checked, no violations", exit 0
+
+Evidence batch (do-brainstorm step 7): 4 items written — two extracted locators
+(bin/doflow.js:878, src/runtime/trace.js:358), one asserted user-statement carrying the request
+verbatim, one inferred generated-analysis recording that all four ambiguities were resolved by
+assumption. Two claims added and linked to supporting evidence; both reached `supported`.
+
+*** FRICTION 2: `--statement` silently rejects text beginning with a dash, and exits 0 doing it. ***
+  $ "$DOFLOW" claim ... --action add --statement "--since is implementable as ..."
+  -> prints "doflow: --statement requires a value", writes nothing, EXIT CODE 0.
+Confirmed with a deliberate probe (`--statement "--leading-dashes probe"` → same message, exit 0).
+Two problems: the message is wrong (a value WAS supplied), and a failed write reports success. In a
+skill whose entire contract is "branch on the field, not the exit code", a verb that fails at exit 0
+with a misleading message is exactly the shape that gets missed. I only noticed because a later
+`claim --action list` was short one row. Worked around by rewording the statement.
+
+*** FRICTION 3: the documented task-id fallback is unusable on this branch. ***
+do-brainstorm step 7 (and the identical paragraph in do-design and do-plan) says the task id is
+"the plan task id once plan.md exists, otherwise the feature slug." The feature slug here is
+`task/bench-boundary-do-flow-2`, and the evidence store refuses it:
+  {"ok": false, "status": "USAGE", "exitCode": 2,
+   "summary": "Invalid task id 'task/bench-boundary-do-flow-2': expected letters, digits, dot,
+               dash or underscore, and no path separators"}
+The skills give no sanitisation rule, so there is no documented way to comply. SUBSTITUTION: I used
+the sanitised id `bench-boundary-do-flow-2` for every evidence/claim call in this run and recorded
+it here. Any branch prefix outside {feat, feature, fix, bugfix} produces a slashed slug and hits
+this.
+
+  STAGE REPORT: discovery · do-brainstorm ·
+                agent-docs/doflow/task/bench-boundary-do-flow-2/requirement.md
+
+GATE-0 EVALUATION — "Unresolved clarifications", afterStage discovery, trigger
+`unresolved-clarifications`. Per SKILL.md step 7, a non-`always` trigger stops only when its named
+condition actually holds. requirement.md carries zero [NEEDS CLARIFICATION] markers, so the
+condition is false and the gate did NOT fire. Stated rather than skipped silently.
+
+=====================================================================
+STAGE 2/6 — design (do-design)
+=====================================================================
+Followed do-design's Behavioral Flow. has_requirement is now true, so its step 3 advisory
+precondition passed without a warning.
+
+*** FRICTION 4: references/ARTIFACT_FORMAT.md does not exist anywhere in the install. ***
+do-design step 6 says "Structure the artifact per references/ARTIFACT_FORMAT.md — read it before
+filling the template", and the same instruction appears in do-brainstorm step 5, do-plan step 5,
+and in the header comment of all three templates. `find . -name ARTIFACT_FORMAT.md` over the whole
+sandbox returns nothing. Four separate "read this before writing" instructions point at a file that
+is not shipped. I fell back to the structure the templates themselves demonstrate (index table above
+**Detail**, Live/Superseded status vocabulary, §9 History) and the do-design §6 inline note that C4
+levels must be rendered as Mermaid `flowchart` + `subgraph`, never `C4Context`/`C4Container`.
+This is the same class of gap as do-execute-plan's missing references/MODEL_SELECTION.md.
+
+Design-level ambiguities, both taken via "Decide for me" and recorded in design.md §8:
+  A1 — the --since/--days conflict is rejected in the CLI layer, not inside RunLedger.read.
+  A2 — --since exits 2 on bad input, matching the neighbouring --days arm.
+
+  Wrote agent-docs/doflow/task/bench-boundary-do-flow-2/design.md
+       C1 System Context as a Mermaid flowchart; C2 "N/A: single deployable unit";
+       C3 "N/A: covered by §3" (2 components, below the 3+ threshold the template names);
+       §4 the CLI and module contracts; §7 four risks/alternatives incl. an accepted timezone caveat.
+  $ "$DOFLOW" validate <design path>  -> "no violations", exit 0
+
+Evidence batch: 4 items (three extracted locators, one inferred structural analysis). One claim,
+linked, `supported`.
+No readiness call — the design stage declares readinessTemplate: null, and do-design step 8 says
+explicitly not to call it or report it as skipped.
+
+  STAGE REPORT: design · do-design ·
+                agent-docs/doflow/task/bench-boundary-do-flow-2/design.md
+
+=====================================================================
+STAGE 3/6 — planning (do-plan)
+=====================================================================
+Followed do-plan's Behavioral Flow.
+
+Step 4 inputs: requirement.md, design.md, and the constitution. `has_constitution_local` is false,
+so per the instruction ("use that flag, never a filesystem check of your own") I read tier-1
+CONSTITUTION_BASE.md only and did not look for a tier-2 file. Nothing to reconcile.
+
+Step 6 Constitution Check, evaluated against P1–P6: PASS, recorded in plan.md §2 with a per-principle
+line. No violation, so no stop-and-revise was triggered.
+
+Step 7 decomposition, applying the "[P] by default" rule by comparing actual `files:` sets:
+  Phase A — A.1 src/runtime/trace.js [P] · A.2 bin/doflow.js [P] · A.3 docs/reference.md [P]
+            (three disjoint paths, so all three carry [P])
+  Phase B — B.1 test/runtime-trace.test.js (single task, no siblings; Task Summary [P] = no)
+No `depends-on:` set — nothing here reaches an external service.
+
+Step 8 branch plan: every task's `files:` resolves to this one repo, so "N/A: single-repo feature".
+
+  Wrote agent-docs/doflow/task/bench-boundary-do-flow-2/plan.md
+  $ "$DOFLOW" validate <plan path>  -> "no violations", exit 0
+       (this also cross-checks each Task Summary row's count against the - [ ] lines under its
+        phase heading; 3 and 1 both matched)
+
+A grounded finding that shaped the plan: `grep -l "RunLedger\|handleTraceCommand\|buildTrace"
+test/*.js` matches NO file. `doflow trace` has no regression coverage at all today, so phase B adds
+test/runtime-trace.test.js rather than extending something.
+
+Evidence batch: 4 items. Three D# decisions added as claims and linked; all `supported`.
+No readiness call — planning declares readinessTemplate: null.
+
+  STAGE REPORT: planning · do-plan · agent-docs/doflow/task/bench-boundary-do-flow-2/plan.md ·
+                Constitution Check PASS · 4 tasks (3 [P], 1 sequential) · single-repo
+
+=====================================================================
+*** STOP 1 — GATE-A ***
+=====================================================================
+gate-a "Before implementation", afterStage `planning`, trigger `always`, kind `approval`.
+Trigger is `always`, so it fires unconditionally. The chain HALTED here.
+
+Gate presented with its own prompt, verbatim from the resolved workflow:
+  "requirement.md, design.md, and plan.md are ready. Proceed to implementation?"
+Options, per SKILL.md step 7's gate-a bullet:
+  A) Proceed
+  B) Let me review the artifacts first
+  C) Stop here
+
+PHASE NAMED AT THE PAUSE: planning is complete; implementation is the phase being gated.
+
+There is no user in this bench run, so no answer arrived. SKILL.md step 8 is unambiguous about
+that case: "an unanswered or unclear response to any AskUserQuestion means stop and ask again."
+The faithful behaviour is therefore to stop, and that is what I recorded as the run's real
+terminal state for this gate.
+
+SUBSTITUTION (bench continuation, explicitly not a skill decision): to also observe what the
+implementation stage does, I continued past gate-a on a substituted "A) Proceed". Flagging it
+plainly — the skill would not have proceeded on its own.
+
+=====================================================================
+*** STOP 2 — IMPLEMENTATION READINESS BLOCK ***
+=====================================================================
+The implementation stage (do-execute-plan) declares readinessTemplate: "feature", so per SKILL.md
+step 6 readiness is consulted BEFORE entering the stage, with --task-class passed explicitly:
+
+  $ "$DOFLOW" readiness --task-class feature --task-id A.1 --json   -> exit 0
+    state   = NEEDS_EVIDENCE
+    summary = "Task requires 3 additional evidence item(s) before implementation."
+    scope_clear          unsatisfied — "Prerequisite 'scope_clear' not documented."
+    affected_components  unsatisfied — "Missing fresh evidence of kind: structural, semantic-retrieval."
+    verification_plan    unsatisfied — "No verification command or test execution plan defined in
+                                        task profile."
+
+SKILL.md step 6: "Not ready → report the missing items and stop; do not enter the stage."
+So the chain stopped a second time, before any source file was touched. This is the correct
+behaviour, not a failure: the three stage-boundary evidence batches were keyed to the feature-level
+id, and A.1's own ledger is empty, so the gate is grading an empty record for that task.
+
+PHASE NAMED AT THE PAUSE: implementation, blocked on task A.1's readiness contract.
+
+I did NOT gather A.1's evidence to push through. do-flow's instruction here is to stop and report;
+filling the contract is do-execute-plan's own step 3/6, on the far side of a gate this run never
+cleared. No source file in the sandbox was modified.
+
+=====================================================================
+GATES NOT REACHED
+=====================================================================
+gate-b "Before commit or merge", afterStage `review`, trigger `always` — never evaluated, because
+the run stopped at the implementation readiness block three stages earlier. Stages
+implementation / verification / review did not run.
+
+=====================================================================
+WHAT THE RUN PRODUCED
+=====================================================================
+  agent-docs/doflow/task/bench-boundary-do-flow-2/requirement.md   (all three validate clean)
+  agent-docs/doflow/task/bench-boundary-do-flow-2/design.md
+  agent-docs/doflow/task/bench-boundary-do-flow-2/plan.md
+  .doflow/state/evidence + claims for task id bench-boundary-do-flow-2 (12 evidence items,
+    6 claims, all supported)
+No source file was edited. `git status --short` in the sandbox shows only the two sandbox marker
+files; agent-docs/ is gitignored in this repo, so the artifacts are on disk but not in git's view.
+
+=====================================================================
+ASSUMPTIONS SUBSTITUTED (full list)
+=====================================================================
+  A1 discovery — ISO YYYY-MM-DD only            (recorded in requirement.md §8)
+  A2 discovery — --since/--days mutually exclusive (recorded in requirement.md §8)
+  A3 discovery — boundary date inclusive        (recorded in requirement.md §8)
+  A4 discovery — trace only, not stats/discover (recorded in requirement.md §8)
+  A1 design    — conflict rejected in the CLI layer (recorded in design.md §8)
+  A2 design    — exit 2 on bad --since input        (recorded in design.md §8)
+  task id      — sanitised feature slug, because the real one is refused (FRICTION 3)
+  gate-a       — substituted "Proceed" to observe the next stage; the skill itself would have
+                 stopped (see STOP 1)

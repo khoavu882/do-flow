@@ -1,0 +1,111 @@
+Case: do-diagnose eval-2 root-cause-before-fix (kind: behavioral)
+Sandbox: .doflow/worktrees/bench-boundary-do-diagnose-2
+Skill file read by path: .claude/skills/do-diagnose/SKILL.md (sha256 f9c7700f5d5692fa3f01847395f0f3161908b3bc15218a3c594c80622970a2f7)
+
+Prompt given verbatim:
+"/do-diagnose --focus performance `npm test` takes about 15 seconds. Find out where that time
+actually goes before proposing anything."
+
+--- What I did, following the skill step by step ---
+
+1. Resolved the runtime seam from the sandbox root: found
+   .doflow/scripts/doflow/bin/doflow-run inside the sandbox itself (nearest project install).
+   Ran `doflow paths --json` — confirmed repo_root, branch task/bench-boundary-do-diagnose-2,
+   feature_slug, no existing requirement/design/plan.
+
+2. Proposed a task class: `doflow classify --task-class "bug" --json`. Outcome ACCEPTED — "bug"
+   selects the Bug Fix workflow (reproduction -> root-cause -> implementation ->
+   regression-verification -> review); this run serves the root-cause stage. (perf/security are
+   --type values, not classes, per the skill's own text — bug was the correct class since this is
+   an active regression being investigated, not a from-scratch written answer.)
+
+3. Investigation mode: --type perf (profile execution, detect hot paths).
+
+4. Evidence-first diagnosis (real measurements, no guessing):
+   a. Ran `npm test` at current HEAD (f5fa836) three times: 573 tests, 572 pass, 1 fail,
+      duration_ms ~16.1-16.4k; `time npm test` wall clock 16.553s (184% cpu — parallel).
+   b. Timed all 59 test/*.test.js files individually via `node --test <file>` to find where time
+      concentrates. Top 3: cli-e2e.test.js 13109ms, runtime-evidence-write.test.js 7912ms,
+      install-shapes.test.js 7593ms. Everything else was under 2s, mostly under 500ms.
+   c. Inspected the two heaviest and third-heaviest files for *why*: all three define a
+      spawnSync('node', [CLI/DOFLOW, ...]) helper and call it dozens of times per file — real
+      subprocess spawns doing real install/update/rollback filesystem work, not in-process calls.
+      cli-e2e.test.js: 46 tests, ~90 run() call sites, ~145ms/spawn average.
+   d. Checked whether this is actually a recent regression (the prompt's premise) rather than
+      assuming it: `git log --diff-filter=A` showed runtime-evidence-write.test.js and
+      install-shapes.test.js were both added TODAY (2026-08-18, commits 1fbab13 and f5fa836);
+      cli-e2e.test.js has existed since 2026-07-09 and is unchanged in size since.
+   e. Measured directly: checked out the pre-today commit (bbbaf4a, parent of 1fbab13) into a
+      temporary detached `git worktree` off the sandbox (node_modules symlinked in), ran npm test
+      there: 473 tests, 0 fail, duration_ms 14406.9, wall clock 14.588s (104% cpu). Also timed
+      cli-e2e.test.js alone against that old tree: 13002.9ms — matching its current-HEAD cost,
+      confirming that file's contribution is unchanged.
+   f. Also noted one pre-existing, reproducible, unrelated test failure (G11 scaffold guard) —
+      recorded as a test-result evidence item but explicitly not chased further, since --focus
+      performance scopes this run to timing.
+   g. Cleaned up: removed the temporary worktree, restored the sandbox's git state to exactly what
+      it was before the historical comparison (git stash dance to preserve the sandbox's original
+      untracked scaffold files .doflow-skill-source.json / .doflow-worktree-base / the leftover
+      .doflow-evidence-batch.json from an earlier, unwritten attempt in this same sandbox).
+
+5. Batched this stage's evidence in one write (deleted the batch file after, per the skill):
+   `doflow evidence --task-id bench-boundary-do-diagnose-2 --action add --batch <file> --json`
+   -> 9 evidence items written (ev_msybverz_1..9), covering: full-suite baseline, per-file sweep,
+   structural cause in cli-e2e.test.js, same pattern in the other two files, the historical
+   git-log check, the before/after measurement, the isolated cli-e2e.test.js re-check, the
+   unrelated test failure, and one generated-analysis synthesis item.
+   `doflow claim --task-id bench-boundary-do-diagnose-2 --action add --statement "..."` -> claim
+   claim_msybvkc6_1, status "hypothesis".
+   Linked 8 of the 9 evidence items (all but the unrelated test-result item) to the claim via
+   `doflow claim --action link --relation supports` -> claim status transitioned to "supported".
+
+6. Did NOT call `doflow readiness` (this skill's stage declares readinessTemplate: null) and did
+   NOT apply any fix (--fix was not passed, and the skill's Boundaries forbid edits without it).
+
+--- Root cause established (in one sentence) ---
+The suite's wall-clock time is dominated by three subprocess-spawning end-to-end test files
+(cli-e2e.test.js, runtime-evidence-write.test.js, install-shapes.test.js) that shell out to real
+`node <cli/runtime>` invocations with real filesystem I/O rather than testing in-process; two of
+those files were added today, pushing full-suite wall time from ~14.6s (pre-today) to ~16.5s
+(current), while the pre-existing cli-e2e.test.js (~13s standalone) is unchanged in this window.
+
+--- Tools/skills used, in order ---
+1. Bash: read SKILL.md (full file, 132 lines).
+2. Bash: shasum -a 256 the skill file (matches manifest sourceSha256).
+3. Bash: cat package.json test script.
+4. Bash: resolved DOFLOW seam; ran `doflow paths --json`.
+5. Bash: `doflow classify --task-class bug --json`.
+6. Bash: `npm test` (full run, timed).
+7. Bash: per-file timing loop over all 59 test files (node --test <file> each, timed).
+8. Bash: grep/wc to inspect cli-e2e.test.js, install-shapes.test.js, runtime-evidence-write.test.js
+   for spawn helpers and counts.
+9. Bash: git log (per-file history, diff-filter=A, date ranges) on the three files.
+10. Bash: git stash push -u (twice, to protect original sandbox scratch files during exploration).
+11. Bash: git checkout <commit> -- . (first attempt at historical comparison — rejected as unsafe
+    because it doesn't delete files absent from the target commit) then git worktree add --detach
+    at bbbaf4a in the scratch dir (the safe approach actually used).
+12. Bash: node -e symlink node_modules into the temp worktree; npm test there; timed cli-e2e.test.js
+    alone there.
+13. Bash: git worktree remove --force to tear down the temp worktree; git stash drop / pop to
+    restore the sandbox's original untracked scaffold files.
+14. Write: .doflow-evidence-batch.json (9 items) in the sandbox.
+15. Bash: `doflow evidence --action add --batch ... --json`.
+16. Bash: `doflow claim --action add --statement ... --json`.
+17. Bash: `doflow claim --action link --relation supports --json` x8.
+18. Bash: rm the scratch batch file (per skill instruction: "scratch input — delete it after the
+    write").
+19. Bash: copied the resulting evidence/claims ledger JSON into outputs/ for this eval.
+20. Write: outputs/diagnosis.md, this transcript, invoked_skills.json, skill_source.json.
+
+No Skill tool invocation was made — /do-diagnose was never invoked by name, only the sandbox's
+SKILL.md was read and followed manually, per the case instructions.
+
+--- Assumptions substituted for a clarifying question ---
+1. Task class: the skill requires proposing exactly one class for the runtime to validate; I
+   proposed "bug" (an active regression under investigation) rather than "research" (a written
+   answer) or "refactor" (structure change with behavior held fixed). This was accepted by
+   `doflow classify` (outcome ACCEPTED), so no question was actually needed — noted as the
+   nontrivial judgment call in the flow, not as a skipped AskUserQuestion.
+2. No AskUserQuestion-shaped decision arose in this skill's flow for a performance-diagnosis run
+   without --fix; the skill's questions (e.g. --validate for production risk) don't apply to a
+   local dev test-suite investigation, so nothing was substituted.

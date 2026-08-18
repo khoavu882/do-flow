@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "taskId": "bench-boundary-do-2-estimate",
+  "updatedAt": "2026-08-18T06:25:07.134Z",
+  "claimsCount": 1,
+  "claims": [
+    {
+      "id": "claim_msya348u_1",
+      "taskId": "bench-boundary-do-2-estimate",
+      "statement": "Adding an 8th DoFlow harness adapter (registry entries in harnesses.yaml/contracts.yaml/assets.yaml, a src/adapters/<id>/index.js six-function adapter, dispatch wiring, and doc/guard-data updates) is estimated at 1-3 days of focused solo engineering, typically 1-2 days, grounded in the copilot+kiro precedent commit (96006da: 1374 insertions across 12 files for 2 new adapters) and current adapter sizes (228-578 lines each); width driven by not knowing the target harness's actual config/skill/MCP model.",
+      "status": "hypothesis",
+      "supportingEvidence": [],
+      "contradictingEvidence": [],
+      "createdAt": "2026-08-18T06:25:07.134Z",
+      "updatedAt": "2026-08-18T06:25:07.134Z"
+    }
+  ]
+}

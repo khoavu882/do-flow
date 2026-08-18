@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "taskId": "task-bench-boundary-do-plan-2",
+  "updatedAt": "2026-08-18T07:18:03.565Z",
+  "claimsCount": 1,
+  "claims": [
+    {
+      "id": "claim_msybz771_1",
+      "taskId": "task-bench-boundary-do-plan-2",
+      "statement": "D1: No implementation plan is authored for this feature because requirement.md and design.md do not exist; the Constitution Check verdict is FAIL against tier-1 P2 and P4, with tier-2 absent.",
+      "status": "hypothesis",
+      "supportingEvidence": [],
+      "contradictingEvidence": [],
+      "createdAt": "2026-08-18T07:18:03.565Z",
+      "updatedAt": "2026-08-18T07:18:03.565Z"
+    }
+  ]
+}

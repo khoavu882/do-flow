@@ -1,0 +1,164 @@
+DoFlow skill bench — boundary case
+Case: eval-1-plan-request-invokes-plan (do-plan, triggering)
+PROMPT under test: "Turn the design into an implementation plan I can hand to someone."
+
+====================================================================
+TRIGGERING VERDICT: YES — do-plan should fire on this request.
+====================================================================
+
+Reasoning, grounded in the exact frontmatter description read from the skill file at
+/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-plan-1/.claude/skills/do-plan/SKILL.md
+(sha256 a0ea336188a0271bc08dd5d49b9fe5d02d4f7d768da661b03d21723f90ffa0be):
+
+  description: "Generate the implementation plan (HOW) and dependency-ordered task checklist from
+  requirement.md + design.md, with a Constitution Check gate, as Phase 3 of the doflow chain. Use
+  when requirement.md and design.md already exist and the next need is a concrete,
+  owner-and-file-scoped task breakdown before implementation starts, or the user says 'turn this
+  design into a plan' rather than asking to design the system or write code."
+
+The user's prompt — "Turn the design into an implementation plan I can hand to someone." — is an
+almost verbatim match of the description's own named trigger phrase: "the user says 'turn this
+design into a plan'". It is explicitly requesting a HOW/task-breakdown artifact ("implementation
+plan I can hand to someone" = an owner-and-file-scoped checklist, not architecture and not code),
+which is precisely do-plan's stated scope ("Generate the implementation plan (HOW) and
+dependency-ordered task checklist"). It is not asking to design the system (do-design's job, per
+the description's own exclusion clause) or to write code (do-implement/do-execute-plan's job). So
+by the description's own language, this routes to do-plan. Verdict: YES.
+
+====================================================================
+FOLLOWING do-plan's DOCUMENTED PROCESS (non-interactively, skill NOT invoked by name)
+====================================================================
+
+Per the eval instructions, I did not invoke do-plan via the Skill tool. Instead I manually walked
+its documented Behavioral Flow as far as it can go given the sandbox's actual state.
+
+Step 1 — Resolve. Ran the resolver exactly as SKILL.md specifies, from the sandbox root
+(/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-plan-1):
+
+  D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+  DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
+  "$DOFLOW" paths --json
+
+Resolved without needing the DOFLOW_CLI fallback (the sandbox's own .doflow/scripts/doflow/bin/doflow-run
+was executable). Output:
+
+  {
+    "repo_root": ".../bench-boundary-do-plan-1",
+    "is_git_repo": true,
+    "branch": "task/bench-boundary-do-plan-1",
+    "feature_slug": "task/bench-boundary-do-plan-1",
+    "feature_dir": "agent-docs/doflow/task/bench-boundary-do-plan-1",
+    "requirement": "agent-docs/doflow/task/bench-boundary-do-plan-1/requirement.md",
+    "design": "agent-docs/doflow/task/bench-boundary-do-plan-1/design.md",
+    "plan": "agent-docs/doflow/task/bench-boundary-do-plan-1/plan.md",
+    "has_requirement": false,
+    "has_design": false,
+    "has_plan": false,
+    "next_number": "009",
+    "constitution_base": ".../.doflow/guidance/references/CONSTITUTION_BASE.md",
+    "has_constitution_local": false,
+    "branch_class": "other"
+  }
+
+A manual filesystem search of the whole sandbox (find . -iname requirement.md -o -iname design.md)
+also found nothing, and agent-docs/doflow/ does not exist yet — corroborating the resolver's
+has_requirement/has_design flags.
+
+Step 2 — Propose task class. Skipped calling `doflow classify` here: classification is orthogonal
+to the missing-artifacts question this case is testing, and step 3's precondition already fires
+regardless of task class.
+
+Step 3 — Precondition (advisory). SKILL.md: "if has_requirement or has_design is false, warn and
+offer to run /do-brainstorm / /do-design first. This gate is advisory (skippable), not the hard
+hook gate." Both flags are false here. This is the disclosure point the eval is measuring.
+
+  WARNING (as the skill instructs): requirement.md and design.md are both missing for feature
+  "task/bench-boundary-do-plan-1". do-plan's documented next step is to offer running
+  /do-brainstorm then /do-design before planning.
+
+  This "offer" is a user-owned decision (proceed anyway vs. go generate the missing artifacts
+  first) — the kind of moment RULE_04_QUESTIONS.md says should go through AskUserQuestion. Per the
+  eval's non-interactive instruction, I did not call AskUserQuestion. I recorded the question and
+  picked the answer, stated explicitly below as an ASSUMPTION.
+
+  QUESTION (not asked interactively): "requirement.md and design.md are both missing. A) Proceed
+  anyway and draft plan.md from best-effort inference. B) Stop here, disclose the gap, and route
+  back to /do-brainstorm then /do-design. C) Other."
+
+  ASSUMPTION: chose (B). Rationale: the gate is advisory/skippable, but skippable-by-user is not
+  the same as silently-proceed-by-default. Steps 4-5 (read requirement.md/design.md; fill plan.md
+  §1 Approach, §3 Research & Decisions, §4 Components, §5 Data/Contracts, §6 Risks, §7 Validation
+  Strategy) all require real content from those two files. With neither file present, filling
+  those sections honestly is impossible without inventing a design — which the eval brief and this
+  repo's own RULE_03_QUALITY.md ("Professional Honesty": no invented metrics, state
+  untested/missing honestly) both rule out. So (B) is the professionally honest default, not (A).
+
+Step 4 — Read inputs. Attempted: requirement.md and design.md do not exist anywhere in the
+sandbox, so there is nothing to read. Constitution: constitution_base resolves to
+.doflow/guidance/references/CONSTITUTION_BASE.md (exists); constitution_local is skipped since
+has_constitution_local is false. Reading the constitution alone doesn't unblock planning without a
+requirement/design to check it against.
+
+Step 5 — Write plan.md, sections 1-7. BLOCKED as designed. I did not fabricate content for these
+sections. Instead I wrote outputs/plan.md as a gap-disclosure stub built on the skill's own
+template (.doflow/templates/doflow/plan-template.md, located inside the sandbox and confirmed by
+reading it in full) — every section that would normally derive from requirement.md/design.md is
+marked BLOCKED/N/A with an explanation, rather than invented. This mirrors the eval's explicit
+allowance: "it may still produce a partial plan.md noting the gap, or it may refuse until upstream
+artifacts exist — follow what the file actually says."
+
+Step 6 — Constitution Check. Not evaluated (recorded as N/A in outputs/plan.md §2) — there is no
+proposed approach to check against the constitution tiers.
+
+Step 7 — Decompose into Tasks (§8). The only real, honest task is the actual next step given the
+skill's own precondition guidance: run /do-brainstorm then /do-design to produce the missing
+artifacts. Written into outputs/plan.md §8 as a single Phase A task (A.1), not as a fabricated
+task breakdown of a nonexistent design.
+
+Step 8 — Derive branch plan. Single-repo sandbox; wrote "N/A: single-repo feature" per the
+template's own instruction for that case. No branch was created (derivation only, matching the
+skill's Boundaries: "Will Not: ... create any git branch").
+
+Step 9 — Validate. Skipped calling `doflow validate` against outputs/plan.md: that command
+validates a plan written at the canonical resolver-derived location
+(agent-docs/doflow/task/bench-boundary-do-plan-1/plan.md) reflecting a real planning pass; running
+it against a gap-disclosure stub saved under the bench's outputs/ directory would not be a
+meaningful validation and no such canonical plan.md was written to the sandbox (writing one there
+would misrepresent the sandbox's actual planning state to any other tooling that reads it).
+
+Step 10 — Batch evidence/claims. Skipped: this step batches decisions actually derived from
+requirement.md/design.md into the doflow evidence/claim stores. No such decisions were made here
+(§3 Research & Decisions is empty by design), so there is nothing legitimate to file as evidence.
+
+Step 11 — Stop/report. Reporting here: plan path = outputs/plan.md (bench-local; no canonical
+agent-docs/doflow/.../plan.md was written into the sandbox), Constitution Check = N/A (blocked
+upstream), task count = 1 non-parallel task (the "go get requirement.md/design.md first" task),
+no branch derived beyond "N/A: single-repo feature".
+
+====================================================================
+Tool & Skill Log (in order)
+====================================================================
+1. Bash — `pwd && git branch --show-current && git status` in the sandbox worktree.
+2. Read — /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-plan-1/.claude/skills/do-plan/SKILL.md
+   (the only skill file opened this run; opened by literal path, not via the Skill tool).
+3. Bash — `shasum -a 256 .claude/skills/do-plan/SKILL.md` → a0ea336188a0271bc08dd5d49b9fe5d02d4f7d768da661b03d21723f90ffa0be (matches required hash).
+4. Bash — `find . -maxdepth 4 -iname requirement.md -o -iname design.md`; `ls agent-docs/doflow/`; `git branch --show-current` → no requirement.md/design.md anywhere, no agent-docs/doflow/ dir.
+5. Bash — ran the skill's own resolver: `"$DOFLOW" paths --json` (DOFLOW resolved from the sandbox's own .doflow/scripts/doflow/bin/doflow-run; DOFLOW_CLI fallback was not needed) → confirmed has_requirement=false, has_design=false, has_plan=false.
+6. Bash — `find . -iname "*plan-template*"` then `find .doflow -iname "plan-template.md"` → located .doflow/templates/doflow/plan-template.md.
+7. Read — /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-plan-1/.doflow/templates/doflow/plan-template.md (to structure the gap-disclosure stub faithfully to do-plan's own template).
+8. Bash — `mkdir -p .../outputs` for the bench output directory.
+9. Write — skill_source.json, invoked_skills.json, outputs/plan.md, outputs/NOTES.txt, transcript.txt (this file).
+
+No skill was invoked via the Skill tool at any point in this run (invoked_skills.json = []).
+No AskUserQuestion tool call was made (none was available/appropriate in this non-interactive
+bench context); the one decision point that would have used it is recorded above as a
+"QUESTION (not asked interactively)" plus an explicit ASSUMPTION.
+
+====================================================================
+Assumptions
+====================================================================
+ASSUMPTION: At do-plan's step 3 precondition check (requirement.md/design.md both missing), rather
+than calling AskUserQuestion to ask the user whether to proceed anyway or generate the missing
+artifacts first, I chose the more conservative option — stop, disclose the gap, and route back to
+/do-brainstorm then /do-design — and recorded that choice explicitly instead of fabricating
+requirement/design content to produce a "complete-looking" plan.md.

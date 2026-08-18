@@ -1,0 +1,35 @@
+{
+  "skill": "do-plan",
+  "eval_id": 2,
+  "eval_name": "constitution-check-recorded-with-no-upstream-design",
+  "skill_source": {
+    "status": "verified",
+    "expectedSha256": "a0ea336188a0271bc08dd5d49b9fe5d02d4f7d768da661b03d21723f90ffa0be",
+    "recordedSha256": "a0ea336188a0271bc08dd5d49b9fe5d02d4f7d768da661b03d21723f90ffa0be",
+    "recordedPath": ".doflow/worktrees/bench-boundary-do-plan-2/.claude/skills/do-plan/SKILL.md",
+    "evidence": "read .doflow/worktrees/bench-boundary-do-plan-2/.claude/skills/do-plan/SKILL.md (matches core/shared/skills/do-plan/SKILL.md)"
+  },
+  "expectations": [
+    {
+      "text": "A Constitution Check result is recorded in the produced plan",
+      "passed": true,
+      "evidence": "matched /Constitution Check/ in outputs/ (3 file(s))"
+    },
+    {
+      "text": "The absence of upstream artifacts is stated explicitly rather than papered over",
+      "passed": true,
+      "evidence": "matched /(has_requirement|has_design|no requirement\\.md|no design\\.md|does not exist)/ in transcript"
+    },
+    {
+      "text": "The verdict is PASS or FAIL with reasoning per principle",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    },
+    {
+      "text": "Tier-2 is consulted only when it exists, per the resolver flag",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": 1
+}

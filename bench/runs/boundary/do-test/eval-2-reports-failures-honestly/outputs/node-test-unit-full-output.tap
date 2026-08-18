@@ -1,0 +1,3176 @@
+TAP version 13
+# Subtest: backupId matches sync.sh format <op>_YYYY-MM-DD_HH-MM-SS
+ok 1 - backupId matches sync.sh format <op>_YYYY-MM-DD_HH-MM-SS
+  ---
+  duration_ms: 0.60475
+  type: 'test'
+  ...
+# Subtest: createBackup (full) writes a tar.gz per tool + a .manifest.json
+ok 2 - createBackup (full) writes a tar.gz per tool + a .manifest.json
+  ---
+  duration_ms: 45.375375
+  type: 'test'
+  ...
+# Subtest: createBackup (partial) copies only the listed files into <tool>/<rel>
+ok 3 - createBackup (partial) copies only the listed files into <tool>/<rel>
+  ---
+  duration_ms: 28.961042
+  type: 'test'
+  ...
+# Subtest: restoreBackup (full) round-trips a tar.gz back into the dst dir
+ok 4 - restoreBackup (full) round-trips a tar.gz back into the dst dir
+  ---
+  duration_ms: 54.621584
+  type: 'test'
+  ...
+# Subtest: assertSafeBackupId rejects traversal/absolute ids
+ok 5 - assertSafeBackupId rejects traversal/absolute ids
+  ---
+  duration_ms: 0.25175
+  type: 'test'
+  ...
+# Subtest: listBackups / pruneBackups: prune keeps exactly N newest
+ok 6 - listBackups / pruneBackups: prune keeps exactly N newest
+  ---
+  duration_ms: 3.274458
+  type: 'test'
+  ...
+# Subtest: createBackup disambiguates a same-second id collision instead of overwriting
+ok 7 - createBackup disambiguates a same-second id collision instead of overwriting
+  ---
+  duration_ms: 97.298958
+  type: 'test'
+  ...
+# Subtest: manifest temp file is written next to the manifest, not shared os.tmpdir() (symlink-race fix)
+ok 8 - manifest temp file is written next to the manifest, not shared os.tmpdir() (symlink-race fix)
+  ---
+  duration_ms: 30.2425
+  type: 'test'
+  ...
+# Subtest: manifest write/read round-trip, atomic (no .tmp left behind)
+ok 9 - manifest write/read round-trip, atomic (no .tmp left behind)
+  ---
+  duration_ms: 31.581083
+  type: 'test'
+  ...
+# Subtest: manifest preserves other tools' last_updated across incremental writes
+ok 10 - manifest preserves other tools' last_updated across incremental writes
+  ---
+  duration_ms: 59.625875
+  type: 'test'
+  ...
+# Subtest: readManifest returns null when no manifest exists yet
+ok 11 - readManifest returns null when no manifest exists yet
+  ---
+  duration_ms: 0.230791
+  type: 'test'
+  ...
+# Subtest: Claude adapter plans and applies a managed instruction section without replacing user content
+ok 12 - Claude adapter plans and applies a managed instruction section without replacing user content
+  ---
+  duration_ms: 4.051917
+  type: 'test'
+  ...
+# Subtest: Claude adapter removes only its managed instruction section
+ok 13 - Claude adapter removes only its managed instruction section
+  ---
+  duration_ms: 2.218875
+  type: 'test'
+  ...
+# Subtest: Claude adapter reports malformed instruction ownership as a planning conflict
+ok 14 - Claude adapter reports malformed instruction ownership as a planning conflict
+  ---
+  duration_ms: 1.014417
+  type: 'test'
+  ...
+# Subtest: Claude adapter plans, applies, and verifies a copy-tree asset, then converges to no-op
+ok 15 - Claude adapter plans, applies, and verifies a copy-tree asset, then converges to no-op
+  ---
+  duration_ms: 3.991709
+  type: 'test'
+  ...
+# Subtest: Claude adapter removes only fingerprint-matching copy-tree files
+ok 16 - Claude adapter removes only fingerprint-matching copy-tree files
+  ---
+  duration_ms: 2.99575
+  type: 'test'
+  ...
+# Subtest: Claude adapter rewrites settings.json hook paths for project scope but not global scope
+ok 17 - Claude adapter rewrites settings.json hook paths for project scope but not global scope
+  ---
+  duration_ms: 4.039084
+  type: 'test'
+  ...
+# Subtest: Claude adapter merges into a hand-edited settings.json, preserving foreign keys instead of overwriting
+ok 18 - Claude adapter merges into a hand-edited settings.json, preserving foreign keys instead of overwriting
+  ---
+  duration_ms: 2.68825
+  type: 'test'
+  ...
+# Subtest: Claude adapter leaves a foreign settings.json standing on remove, stripping only its own hooks
+ok 19 - Claude adapter leaves a foreign settings.json standing on remove, stripping only its own hooks
+  ---
+  duration_ms: 2.238167
+  type: 'test'
+  ...
+# Subtest: discovers native Codex locations in neutral project scope
+ok 20 - discovers native Codex locations in neutral project scope
+  ---
+  duration_ms: 1.209292
+  type: 'test'
+  ...
+# Subtest: normalizes user root to ~/.codex and project root to the selected repository only
+ok 21 - normalizes user root to ~/.codex and project root to the selected repository only
+  ---
+  duration_ms: 1.086083
+  type: 'test'
+  ...
+# Subtest: renders registry projections without making native writes
+ok 22 - renders registry projections without making native writes
+  ---
+  duration_ms: 2.406375
+  type: 'test'
+  ...
+# Subtest: plans Codex MCP through legacy-safe reconciliation and preserves foreign server bytes
+ok 23 - plans Codex MCP through legacy-safe reconciliation and preserves foreign server bytes
+  ---
+  duration_ms: 4.1255
+  type: 'test'
+  ...
+# Subtest: consumes real registry-shaped projected native input and returns required native changes
+ok 24 - consumes real registry-shaped projected native input and returns required native changes
+  ---
+  duration_ms: 33.203667
+  type: 'test'
+  ...
+# Subtest: reports unowned configuration conflicts instead of adopting or overwriting it
+ok 25 - reports unowned configuration conflicts instead of adopting or overwriting it
+  ---
+  duration_ms: 0.586084
+  type: 'test'
+  ...
+# Subtest: dry planning does not write, then apply and remove use only fingerprint-proven config ownership
+ok 26 - dry planning does not write, then apply and remove use only fingerprint-proven config ownership
+  ---
+  duration_ms: 3.113833
+  type: 'test'
+  ...
+# Subtest: shared config.toml removal removes owned config and MCP entries while preserving foreign content
+ok 27 - shared config.toml removal removes owned config and MCP entries while preserving foreign content
+  ---
+  duration_ms: 4.674333
+  type: 'test'
+  ...
+# Subtest: full apply then verify returns lifecycle-ready owned resources for projected native surfaces
+ok 28 - full apply then verify returns lifecycle-ready owned resources for projected native surfaces
+  ---
+  duration_ms: 73.384792
+  type: 'test'
+  ...
+# Subtest: copy-tree assets (rules/skills/agents/templates/scripts/references) install, converge, and remove under .codex/
+ok 29 - copy-tree assets (rules/skills/agents/templates/scripts/references) install, converge, and remove under .codex/
+  ---
+  duration_ms: 100.3835
+  type: 'test'
+  ...
+# Subtest: verification reports registry gaps and reconciliation conflicts
+ok 30 - verification reports registry gaps and reconciliation conflicts
+  ---
+  duration_ms: 1.304042
+  type: 'test'
+  ...
+# Subtest: discovers and validates a canonical custom-agent contract
+ok 31 - discovers and validates a canonical custom-agent contract
+  ---
+  duration_ms: 1.751042
+  type: 'test'
+  ...
+# Subtest: rejects malformed TOML, missing required fields, and incorrect role sandbox defaults
+ok 32 - rejects malformed TOML, missing required fields, and incorrect role sandbox defaults
+  ---
+  duration_ms: 2.307
+  type: 'test'
+  ...
+# Subtest: plans and applies project-scoped agents with manifest-owned resource records
+ok 33 - plans and applies project-scoped agents with manifest-owned resource records
+  ---
+  duration_ms: 2.5705
+  type: 'test'
+  ...
+# Subtest: plans global-scoped agents under the supplied Codex directory
+ok 34 - plans global-scoped agents under the supplied Codex directory
+  ---
+  duration_ms: 0.658459
+  type: 'test'
+  ...
+# Subtest: an owned, current projection produces an idempotent plan
+ok 35 - an owned, current projection produces an idempotent plan
+  ---
+  duration_ms: 1.589375
+  type: 'test'
+  ...
+# Subtest: does not permit traversal through agent contract names or destination filenames
+ok 36 - does not permit traversal through agent contract names or destination filenames
+  ---
+  duration_ms: 0.735584
+  type: 'test'
+  ...
+# Subtest: Codex custom-agent files cover every canonical specialist role
+ok 37 - Codex custom-agent files cover every canonical specialist role
+  ---
+  duration_ms: 1.582834
+  type: 'test'
+  ...
+# Subtest: every Codex custom-agent file has the required schema and valid narrow TOML content
+ok 38 - every Codex custom-agent file has the required schema and valid narrow TOML content
+  ---
+  duration_ms: 3.049625
+  type: 'test'
+  ...
+# Subtest: analysis-only roles use least-privilege read-only sandboxes and prohibit writes
+ok 39 - analysis-only roles use least-privilege read-only sandboxes and prohibit writes
+  ---
+  duration_ms: 1.513916
+  type: 'test'
+  ...
+# Subtest: implementation-oriented roles do not receive an unnecessary read-only sandbox
+ok 40 - implementation-oriented roles do not receive an unnecessary read-only sandbox
+  ---
+  duration_ms: 0.163166
+  type: 'test'
+  ...
+# Subtest: creates a valid project config and records only the owned entry
+ok 41 - creates a valid project config and records only the owned entry
+  ---
+  duration_ms: 3.529792
+  type: 'test'
+  ...
+# Subtest: merges without altering unknown TOML content
+ok 42 - merges without altering unknown TOML content
+  ---
+  duration_ms: 1.859458
+  type: 'test'
+  ...
+# Subtest: deselect removes only a proven-owned key and leaves its table and neighbours intact
+ok 43 - deselect removes only a proven-owned key and leaves its table and neighbours intact
+  ---
+  duration_ms: 1.243209
+  type: 'test'
+  ...
+# Subtest: refuses a foreign resource with byte-for-byte preservation
+ok 44 - refuses a foreign resource with byte-for-byte preservation
+  ---
+  duration_ms: 0.473625
+  type: 'test'
+  ...
+# Subtest: refuses malformed TOML without touching bytes
+ok 45 - refuses malformed TOML without touching bytes
+  ---
+  duration_ms: 0.741125
+  type: 'test'
+  ...
+# Subtest: refuses a user-modified owned entry
+ok 46 - refuses a user-modified owned entry
+  ---
+  duration_ms: 0.713
+  type: 'test'
+  ...
+# Subtest: requires a recorded fingerprint before changing an existing owned identity
+ok 47 - requires a recorded fingerprint before changing an existing owned identity
+  ---
+  duration_ms: 0.536958
+  type: 'test'
+  ...
+# Subtest: updates an owned value while preserving its user comment
+ok 48 - updates an owned value while preserving its user comment
+  ---
+  duration_ms: 1.119458
+  type: 'test'
+  ...
+# Subtest: dry-run reports a change but never creates the file
+ok 49 - dry-run reports a change but never creates the file
+  ---
+  duration_ms: 2.377208
+  type: 'test'
+  ...
+# Subtest: an atomic-write failure leaves the original file unchanged and cleans its temporary file
+ok 50 - an atomic-write failure leaves the original file unchanged and cleans its temporary file
+  ---
+  duration_ms: 2.899167
+  type: 'test'
+  ...
+# Subtest: parses quoted table headers and quoted assignment keys
+ok 51 - parses quoted table headers and quoted assignment keys
+  ---
+  duration_ms: 0.241417
+  type: 'test'
+  ...
+# Subtest: still fails closed on genuinely unsupported table syntax
+ok 52 - still fails closed on genuinely unsupported table syntax
+  ---
+  duration_ms: 0.096875
+  type: 'test'
+  ...
+# Subtest: a dot inside a quoted key cannot collide with a real path separator
+ok 53 - a dot inside a quoted key cannot collide with a real path separator
+  ---
+  duration_ms: 0.222333
+  type: 'test'
+  ...
+# Subtest: a new key is inserted into its own table, not appended after a trailing table
+ok 54 - a new key is inserted into its own table, not appended after a trailing table
+  ---
+  duration_ms: 1.523958
+  type: 'test'
+  ...
+# Subtest: several new keys for one absent table share a single header
+ok 55 - several new keys for one absent table share a single header
+  ---
+  duration_ms: 2.613875
+  type: 'test'
+  ...
+# Subtest: validates documented Codex hook event structure
+ok 56 - validates documented Codex hook event structure
+  ---
+  duration_ms: 1.25475
+  type: 'test'
+  ...
+# Subtest: classifies only Codex-supported Claude guardrail mappings
+ok 57 - classifies only Codex-supported Claude guardrail mappings
+  ---
+  duration_ms: 0.508917
+  type: 'test'
+  ...
+# Subtest: fails closed for missing or non-executable command wrappers
+ok 58 - fails closed for missing or non-executable command wrappers
+  ---
+  duration_ms: 1.860458
+  type: 'test'
+  ...
+# Subtest: reports hook trust as a prerequisite instead of bypassing it
+ok 59 - reports hook trust as a prerequisite instead of bypassing it
+  ---
+  duration_ms: 0.847083
+  type: 'test'
+  ...
+# Subtest: plans and deploys hook config using an explicit project destination
+ok 60 - plans and deploys hook config using an explicit project destination
+  ---
+  duration_ms: 2.733125
+  type: 'test'
+  ...
+# Subtest: deploy copies every file in scriptsDir, not just ones named in a hooks.json command
+ok 61 - deploy copies every file in scriptsDir, not just ones named in a hooks.json command
+  ---
+  duration_ms: 2.695583
+  type: 'test'
+  ...
+# Subtest: accepts PostToolUse and PreCompact — the two events closing the Claude/Codex hook-coverage gap
+ok 62 - accepts PostToolUse and PreCompact — the two events closing the Claude/Codex hook-coverage gap
+  ---
+  duration_ms: 0.946875
+  type: 'test'
+  ...
+# Subtest: the real core/harnesses/codex/hooks/hooks.json fixture is itself valid per validateHooksConfig
+ok 63 - the real core/harnesses/codex/hooks/hooks.json fixture is itself valid per validateHooksConfig
+  ---
+  duration_ms: 0.485625
+  type: 'test'
+  ...
+# Subtest: post-edit-lint.impl.sh extracts every file path from a multi-file apply_patch, not just Edit/Write file_path
+ok 64 - post-edit-lint.impl.sh extracts every file path from a multi-file apply_patch, not just Edit/Write file_path
+  ---
+  duration_ms: 44.57575
+  type: 'test'
+  ...
+# Subtest: pre-compact.impl.sh emits valid JSON with only Codex-accepted universal fields
+ok 65 - pre-compact.impl.sh emits valid JSON with only Codex-accepted universal fields
+  ---
+  duration_ms: 225.527166
+  type: 'test'
+  ...
+# Subtest: every Codex hook script that delegates to a sibling script names a file other than itself
+ok 66 - every Codex hook script that delegates to a sibling script names a file other than itself
+  ---
+  duration_ms: 2.228458
+  type: 'test'
+  ...
+# Subtest: uses the shared curated catalog and existing selection precedence
+ok 67 - uses the shared curated catalog and existing selection precedence
+  ---
+  duration_ms: 0.936625
+  type: 'test'
+  ...
+# Subtest: creates selected Codex MCP tables and records only owned resources
+ok 68 - creates selected Codex MCP tables and records only owned resources
+  ---
+  duration_ms: 1.862417
+  type: 'test'
+  ...
+# Subtest: updates a proven-owned server to the current catalog definition
+ok 69 - updates a proven-owned server to the current catalog definition
+  ---
+  duration_ms: 2.460334
+  type: 'test'
+  ...
+# Subtest: deselect removes only an unmodified DoFlow-owned table
+ok 70 - deselect removes only an unmodified DoFlow-owned table
+  ---
+  duration_ms: 1.9165
+  type: 'test'
+  ...
+# Subtest: deselect does not consume a non-MCP table after the owned MCP table
+ok 71 - deselect does not consume a non-MCP table after the owned MCP table
+  ---
+  duration_ms: 1.245125
+  type: 'test'
+  ...
+# Subtest: preserves unrelated and pre-existing user-owned server registrations
+ok 72 - preserves unrelated and pre-existing user-owned server registrations
+  ---
+  duration_ms: 0.601875
+  type: 'test'
+  ...
+# Subtest: fails closed for malformed configuration
+ok 73 - fails closed for malformed configuration
+  ---
+  duration_ms: 0.868458
+  type: 'test'
+  ...
+# Subtest: dry-run supplies plan and ownership records without writing
+ok 74 - dry-run supplies plan and ownership records without writing
+  ---
+  duration_ms: 0.611458
+  type: 'test'
+  ...
+# Subtest: implements the adapter contract
+ok 75 - implements the adapter contract
+  ---
+  duration_ms: 1.421917
+  type: 'test'
+  ...
+# Subtest: resolves official project and global native paths
+ok 76 - resolves official project and global native paths
+  ---
+  duration_ms: 1.439083
+  type: 'test'
+  ...
+# Subtest: plans and applies a managed copilot-instructions.md section without overwriting foreign content
+ok 77 - plans and applies a managed copilot-instructions.md section without overwriting foreign content
+  ---
+  duration_ms: 3.341542
+  type: 'test'
+  ...
+# Subtest: preserves a foreign copilot-instructions.md that has no DoFlow managed section
+ok 78 - preserves a foreign copilot-instructions.md that has no DoFlow managed section
+  ---
+  duration_ms: 0.796584
+  type: 'test'
+  ...
+# Subtest: remove strips only the managed copilot-instructions.md section, preserving foreign content on both sides
+ok 79 - remove strips only the managed copilot-instructions.md section, preserving foreign content on both sides
+  ---
+  duration_ms: 1.626791
+  type: 'test'
+  ...
+# Subtest: remove is a no-op on a foreign copilot-instructions.md that DoFlow never owned
+ok 80 - remove is a no-op on a foreign copilot-instructions.md that DoFlow never owned
+  ---
+  duration_ms: 0.795958
+  type: 'test'
+  ...
+# Subtest: global scope installs no instructions change and no conflict — Copilot has no documented global instructions file
+ok 81 - global scope installs no instructions change and no conflict — Copilot has no documented global instructions file
+  ---
+  duration_ms: 1.406292
+  type: 'test'
+  ...
+# Subtest: Copilot adapter materialises skills under .agents/skills for project scope
+ok 82 - Copilot adapter materialises skills under .agents/skills for project scope
+  ---
+  duration_ms: 2.730583
+  type: 'test'
+  ...
+# Subtest: Copilot adapter materialises the same skills tree under ~/.agents/skills for global scope
+ok 83 - Copilot adapter materialises the same skills tree under ~/.agents/skills for global scope
+  ---
+  duration_ms: 2.158208
+  type: 'test'
+  ...
+# Subtest: Copilot adapter refuses to overwrite a skill file modified outside DoFlow
+ok 84 - Copilot adapter refuses to overwrite a skill file modified outside DoFlow
+  ---
+  duration_ms: 2.053958
+  type: 'test'
+  ...
+# Subtest: Copilot adapter removes only fingerprint-matching skill files
+ok 85 - Copilot adapter removes only fingerprint-matching skill files
+  ---
+  duration_ms: 2.266666
+  type: 'test'
+  ...
+# Subtest: agentFileLayout renames a flat agent-spec file to the .agent.md extension Copilot requires
+ok 86 - agentFileLayout renames a flat agent-spec file to the .agent.md extension Copilot requires
+  ---
+  duration_ms: 0.177
+  type: 'test'
+  ...
+# Subtest: Copilot adapter materialises agent specs as .agent.md under .github/agents for project scope
+ok 87 - Copilot adapter materialises agent specs as .agent.md under .github/agents for project scope
+  ---
+  duration_ms: 2.157958
+  type: 'test'
+  ...
+# Subtest: Copilot adapter materialises agent specs under ~/.copilot/agents for global scope
+ok 88 - Copilot adapter materialises agent specs under ~/.copilot/agents for global scope
+  ---
+  duration_ms: 1.712917
+  type: 'test'
+  ...
+# Subtest: Copilot adapter refuses to overwrite an agent file modified outside DoFlow
+ok 89 - Copilot adapter refuses to overwrite an agent file modified outside DoFlow
+  ---
+  duration_ms: 1.817833
+  type: 'test'
+  ...
+# Subtest: Copilot adapter removes only fingerprint-matching agent files
+ok 90 - Copilot adapter removes only fingerprint-matching agent files
+  ---
+  duration_ms: 1.904334
+  type: 'test'
+  ...
+# Subtest: mergeMcpConfig writes only the selected servers under mcpServers, preserving foreign entries
+ok 91 - mergeMcpConfig writes only the selected servers under mcpServers, preserving foreign entries
+  ---
+  duration_ms: 0.237542
+  type: 'test'
+  ...
+# Subtest: unmergeMcpConfig removes only what mergeMcpConfig added, dropping an empty mcpServers key
+ok 92 - unmergeMcpConfig removes only what mergeMcpConfig added, dropping an empty mcpServers key
+  ---
+  duration_ms: 0.076333
+  type: 'test'
+  ...
+# Subtest: unmergeMcpConfig preserves a foreign server entry (e.g. one Claude Code's own adapter wrote to the same .mcp.json)
+ok 93 - unmergeMcpConfig preserves a foreign server entry (e.g. one Claude Code's own adapter wrote to the same .mcp.json)
+  ---
+  duration_ms: 0.241583
+  type: 'test'
+  ...
+# Subtest: plan folds an mcp merge into a single .mcp.json change for project scope
+ok 94 - plan folds an mcp merge into a single .mcp.json change for project scope
+  ---
+  duration_ms: 0.577334
+  type: 'test'
+  ...
+# Subtest: plan targets ~/.copilot/mcp-config.json for global scope
+ok 95 - plan targets ~/.copilot/mcp-config.json for global scope
+  ---
+  duration_ms: 0.33975
+  type: 'test'
+  ...
+# Subtest: apply then remove round-trips .mcp.json, preserving a foreign server entry throughout
+ok 96 - apply then remove round-trips .mcp.json, preserving a foreign server entry throughout
+  ---
+  duration_ms: 1.258583
+  type: 'test'
+  ...
+# Subtest: invalid mcp json blocks planning but never mutates the file
+ok 97 - invalid mcp json blocks planning but never mutates the file
+  ---
+  duration_ms: 0.474167
+  type: 'test'
+  ...
+# Subtest: discoverTree lists nested files with source fingerprints and dest existence
+ok 98 - discoverTree lists nested files with source fingerprints and dest existence
+  ---
+  duration_ms: 3.489375
+  type: 'test'
+  ...
+# Subtest: planTree proposes create for every file on a fresh (empty) destination
+ok 99 - planTree proposes create for every file on a fresh (empty) destination
+  ---
+  duration_ms: 2.230125
+  type: 'test'
+  ...
+# Subtest: applyTree writes files and preserves the source file mode (hook script +x survives)
+ok 100 - applyTree writes files and preserves the source file mode (hook script +x survives)
+  ---
+  duration_ms: 1.533458
+  type: 'test'
+  ...
+# Subtest: re-planning after an unchanged apply reports zero changes (idempotent convergence)
+ok 101 - re-planning after an unchanged apply reports zero changes (idempotent convergence)
+  ---
+  duration_ms: 1.904584
+  type: 'test'
+  ...
+# Subtest: planTree proposes update only for the file whose source content actually changed
+ok 102 - planTree proposes update only for the file whose source content actually changed
+  ---
+  duration_ms: 3.232083
+  type: 'test'
+  ...
+# Subtest: planTree proposes remove for a previously-owned file no longer present in source
+ok 103 - planTree proposes remove for a previously-owned file no longer present in source
+  ---
+  duration_ms: 2.187917
+  type: 'test'
+  ...
+# Subtest: removeTree deletes owned files and refuses a file modified since planning
+ok 104 - removeTree deletes owned files and refuses a file modified since planning
+  ---
+  duration_ms: 1.907459
+  type: 'test'
+  ...
+# Subtest: planTree reports a conflict (not a silent overwrite) for a destination file modified outside DoFlow
+ok 105 - planTree reports a conflict (not a silent overwrite) for a destination file modified outside DoFlow
+  ---
+  duration_ms: 2.200875
+  type: 'test'
+  ...
+# Subtest: planTree treats an already-present, content-identical file with no ledger record as a safe adoption
+ok 106 - planTree treats an already-present, content-identical file with no ledger record as a safe adoption
+  ---
+  duration_ms: 1.278542
+  type: 'test'
+  ...
+# Subtest: planTree reports a conflict for a foreign file with no ledger record and different content than source
+ok 107 - planTree reports a conflict for a foreign file with no ledger record and different content than source
+  ---
+  duration_ms: 0.901875
+  type: 'test'
+  ...
+# Subtest: verifyTree reports owned resources when on-disk content matches source, and a conflict when it does not
+ok 108 - verifyTree reports owned resources when on-disk content matches source, and a conflict when it does not
+  ---
+  duration_ms: 2.251
+  type: 'test'
+  ...
+# Subtest: discoverTree throws when the source directory itself is missing
+ok 109 - discoverTree throws when the source directory itself is missing
+  ---
+  duration_ms: 0.59075
+  type: 'test'
+  ...
+# Subtest: discoverTree ignores a destination-only file with no source counterpart (orphan generated file)
+ok 110 - discoverTree ignores a destination-only file with no source counterpart (orphan generated file)
+  ---
+  duration_ms: 1.765792
+  type: 'test'
+  ...
+# Subtest: verifyTree reports zero conflicts for a destination-only file with no source counterpart
+ok 111 - verifyTree reports zero conflicts for a destination-only file with no source counterpart
+  ---
+  duration_ms: 1.174667
+  type: 'test'
+  ...
+# Subtest: planTree never proposes removal of a destination-only file absent from previousResources
+ok 112 - planTree never proposes removal of a destination-only file absent from previousResources
+  ---
+  duration_ms: 1.468458
+  type: 'test'
+  ...
+# Subtest: every always-loaded @import in DOFLOW_CORE.md resolves to a real file in the guidance tree
+ok 113 - every always-loaded @import in DOFLOW_CORE.md resolves to a real file in the guidance tree
+  ---
+  duration_ms: 0.203625
+  type: 'test'
+  ...
+# Subtest: DOFLOW_CORE.md imports the generated per-install MCP index from the guidance root
+ok 114 - DOFLOW_CORE.md imports the generated per-install MCP index from the guidance root
+  ---
+  duration_ms: 0.08425
+  type: 'test'
+  ...
+# Subtest: DOFLOW_CORE.md carries no commented resource inventory
+ok 115 - DOFLOW_CORE.md carries no commented resource inventory
+  ---
+  duration_ms: 0.107417
+  type: 'test'
+  ...
+# Subtest: planTree adopts a file a sibling rewrote to current source, despite a stale own-ledger row
+ok 116 - planTree adopts a file a sibling rewrote to current source, despite a stale own-ledger row
+  ---
+  duration_ms: 1.806542
+  type: 'test'
+  ...
+# Subtest: planTree removes a relocated asset's file at its OLD location and creates it at the new one
+ok 117 - planTree removes a relocated asset's file at its OLD location and creates it at the new one
+  ---
+  duration_ms: 1.683167
+  type: 'test'
+  ...
+# Subtest: planTree treats a previousResources entry with no target as same-location (backward compatible)
+ok 118 - planTree treats a previousResources entry with no target as same-location (backward compatible)
+  ---
+  duration_ms: 1.597625
+  type: 'test'
+  ...
+# Subtest: a layout change relocates previously-owned files instead of orphaning them
+ok 119 - a layout change relocates previously-owned files instead of orphaning them
+  ---
+  duration_ms: 1.637875
+  type: 'test'
+  ...
+# Subtest: an unknown layout name fails loudly rather than silently mirroring
+ok 120 - an unknown layout name fails loudly rather than silently mirroring
+  ---
+  duration_ms: 0.505333
+  type: 'test'
+  ...
+# Subtest: planTree still refuses a destination edited to content matching neither source nor ledger
+ok 121 - planTree still refuses a destination edited to content matching neither source nor ledger
+  ---
+  duration_ms: 1.722291
+  type: 'test'
+  ...
+# Subtest: legacy manifest bridge remains idempotent across registry migration-era writes
+ok 122 - legacy manifest bridge remains idempotent across registry migration-era writes
+  ---
+  duration_ms: 4.538125
+  type: 'test'
+  ...
+# Subtest: malformed legacy manifest is reported as a conflict-safe error record, not adopted or rewritten
+ok 123 - malformed legacy manifest is reported as a conflict-safe error record, not adopted or rewritten
+  ---
+  duration_ms: 0.802708
+  type: 'test'
+  ...
+# Subtest: Codex plugin manifest packages the single-source core skills tree
+ok 124 - Codex plugin manifest packages the single-source core skills tree
+  ---
+  duration_ms: 2.348833
+  type: 'test'
+  ...
+# Subtest: Claude marketplace exposes the single-source core plugin
+ok 125 - Claude marketplace exposes the single-source core plugin
+  ---
+  duration_ms: 1.132583
+  type: 'test'
+  ...
+# Subtest: resolveTargets defaults to claude alone and validates
+ok 126 - resolveTargets defaults to claude alone and validates
+  ---
+  duration_ms: 0.393875
+  type: 'test'
+  ...
+# Subtest: VALID lists all seven harnesses
+ok 127 - VALID lists all seven harnesses
+  ---
+  duration_ms: 0.068542
+  type: 'test'
+  ...
+# Subtest: resolveTargets accepts the new 'copilot' target
+ok 128 - resolveTargets accepts the new 'copilot' target
+  ---
+  duration_ms: 0.245084
+  type: 'test'
+  ...
+# Subtest: resolveTargets accepts the new 'kiro' target
+ok 129 - resolveTargets accepts the new 'kiro' target
+  ---
+  duration_ms: 0.116125
+  type: 'test'
+  ...
+# Subtest: resolveTargets accepts the new 'opencode' target
+ok 130 - resolveTargets accepts the new 'opencode' target
+  ---
+  duration_ms: 0.051125
+  type: 'test'
+  ...
+# Subtest: resolveTargets accepts the new 'pi' target
+ok 131 - resolveTargets accepts the new 'pi' target
+  ---
+  duration_ms: 0.042333
+  type: 'test'
+  ...
+# Subtest: resolveTargets rejects an unknown target and names all seven valid ones
+ok 132 - resolveTargets rejects an unknown target and names all seven valid ones
+  ---
+  duration_ms: 0.353208
+  type: 'test'
+  ...
+# Subtest: toolDirs defaults to project scope rooted at projectRoot
+ok 133 - toolDirs defaults to project scope rooted at projectRoot
+  ---
+  duration_ms: 0.506708
+  type: 'test'
+  ...
+# Subtest: toolDirs defaults projectRoot to cwd when omitted
+ok 134 - toolDirs defaults projectRoot to cwd when omitted
+  ---
+  duration_ms: 0.241292
+  type: 'test'
+  ...
+# Subtest: toolDirs global:true resolves under $HOME
+ok 135 - toolDirs global:true resolves under $HOME
+  ---
+  duration_ms: 0.120167
+  type: 'test'
+  ...
+# Subtest: manifest keeps legacy state readable without a managed-resource ledger
+ok 136 - manifest keeps legacy state readable without a managed-resource ledger
+  ---
+  duration_ms: 0.846458
+  type: 'test'
+  ...
+# Subtest: manifest writes and reads Codex managed-resource ownership records
+ok 137 - manifest writes and reads Codex managed-resource ownership records
+  ---
+  duration_ms: 2.56175
+  type: 'test'
+  ...
+# Subtest: manifest preserves a managed-resource ledger when legacy callers omit it
+ok 138 - manifest preserves a managed-resource ledger when legacy callers omit it
+  ---
+  duration_ms: 1.776334
+  type: 'test'
+  ...
+# Subtest: resolveContext exposes an optional managed-resource ledger without changing legacy context
+ok 139 - resolveContext exposes an optional managed-resource ledger without changing legacy context
+  ---
+  duration_ms: 0.870375
+  type: 'test'
+  ...
+# Subtest: post-tool-failure.sh records the failed tool, its target, and the error
+ok 140 - post-tool-failure.sh records the failed tool, its target, and the error
+  ---
+  duration_ms: 64.217041
+  type: 'test'
+  ...
+# Subtest: permission-audit.sh records the refused tool and the reason
+ok 141 - permission-audit.sh records the refused tool and the reason
+  ---
+  duration_ms: 63.19775
+  type: 'test'
+  ...
+# Subtest: both hooks degrade to a thinner record when optional fields are absent
+ok 142 - both hooks degrade to a thinner record when optional fields are absent
+  ---
+  duration_ms: 60.419042
+  type: 'test'
+  ...
+# Subtest: both hooks are no-ops without a session id, and survive malformed input
+ok 143 - both hooks are no-ops without a session id, and survive malformed input
+  ---
+  duration_ms: 140.174542
+  type: 'test'
+  ...
+# Subtest: implements the adapter contract and resolves official project/user native paths
+ok 144 - implements the adapter contract and resolves official project/user native paths
+  ---
+  duration_ms: 2.989084
+  type: 'test'
+  ...
+# Subtest: plans and applies a managed GEMINI.md section without overwriting foreign content
+ok 145 - plans and applies a managed GEMINI.md section without overwriting foreign content
+  ---
+  duration_ms: 2.330542
+  type: 'test'
+  ...
+# Subtest: preserves foreign GEMINI.md and reports unsupported policy automation plus extension workflow
+ok 146 - preserves foreign GEMINI.md and reports unsupported policy automation plus extension workflow
+  ---
+  duration_ms: 1.372541
+  type: 'test'
+  ...
+# Subtest: projects the shared helper-script and template trees into the doflow directory
+ok 147 - projects the shared helper-script and template trees into the doflow directory
+  ---
+  duration_ms: 8.104458
+  type: 'test'
+  ...
+# Subtest: the runtime locator is projected into every harness, inside that harness own directory
+ok 148 - the runtime locator is projected into every harness, inside that harness own directory
+  ---
+  duration_ms: 6.183458
+  type: 'test'
+  ...
+# Subtest: the locator source is executable
+ok 149 - the locator source is executable
+  ---
+  duration_ms: 0.139833
+  type: 'test'
+  ...
+# Subtest: the guidance import resolves from wherever GEMINI.md lands, in either scope
+ok 150 - the guidance import resolves from wherever GEMINI.md lands, in either scope
+  ---
+  duration_ms: 4.739042
+  type: 'test'
+  ...
+# Subtest: remove strips only the managed section, preserving foreign content on both sides
+ok 151 - remove strips only the managed section, preserving foreign content on both sides
+  ---
+  duration_ms: 3.0115
+  type: 'test'
+  ...
+# Subtest: remove deletes the file only once nothing but the managed section remains
+ok 152 - remove deletes the file only once nothing but the managed section remains
+  ---
+  duration_ms: 2.262792
+  type: 'test'
+  ...
+# Subtest: remove is a no-op on a foreign GEMINI.md that DoFlow never owned
+ok 153 - remove is a no-op on a foreign GEMINI.md that DoFlow never owned
+  ---
+  duration_ms: 2.203708
+  type: 'test'
+  ...
+# Subtest: invalid native settings block settings/MCP planning but never mutate the file
+ok 154 - invalid native settings block settings/MCP planning but never mutate the file
+  ---
+  duration_ms: 0.813208
+  type: 'test'
+  ...
+# Subtest: project-scope config directory is .agents/, not .gemini/ (Antigravity convention)
+ok 155 - project-scope config directory is .agents/, not .gemini/ (Antigravity convention)
+  ---
+  duration_ms: 0.4885
+  type: 'test'
+  ...
+# Subtest: Gemini adapter plans, applies, and verifies a copy-tree asset under .agents/ for project scope
+ok 156 - Gemini adapter plans, applies, and verifies a copy-tree asset under .agents/ for project scope
+  ---
+  duration_ms: 2.390666
+  type: 'test'
+  ...
+# Subtest: Gemini adapter installs the same copy-tree asset under .gemini/ for global scope
+ok 157 - Gemini adapter installs the same copy-tree asset under .gemini/ for global scope
+  ---
+  duration_ms: 1.904416
+  type: 'test'
+  ...
+# Subtest: Gemini adapter removes only fingerprint-matching copy-tree files
+ok 158 - Gemini adapter removes only fingerprint-matching copy-tree files
+  ---
+  duration_ms: 1.849875
+  type: 'test'
+  ...
+# Subtest: validates the documented Gemini hook event set
+ok 159 - validates the documented Gemini hook event set
+  ---
+  duration_ms: 0.753083
+  type: 'test'
+  ...
+# Subtest: classifies Claude guardrails onto their real Gemini event, never approximating an unmapped one
+ok 160 - classifies Claude guardrails onto their real Gemini event, never approximating an unmapped one
+  ---
+  duration_ms: 0.484625
+  type: 'test'
+  ...
+# Subtest: fails closed for missing or non-executable command wrappers
+ok 161 - fails closed for missing or non-executable command wrappers
+  ---
+  duration_ms: 1.81525
+  type: 'test'
+  ...
+# Subtest: reports hook trust as a prerequisite instead of assuming Gemini activated it
+ok 162 - reports hook trust as a prerequisite instead of assuming Gemini activated it
+  ---
+  duration_ms: 1.466125
+  type: 'test'
+  ...
+# Subtest: plans a key-scoped merge into settings.json, preserving every unrelated key (FR-002)
+ok 163 - plans a key-scoped merge into settings.json, preserving every unrelated key (FR-002)
+  ---
+  duration_ms: 2.635667
+  type: 'test'
+  ...
+# Subtest: creates settings.json from scratch when none exists yet
+ok 164 - creates settings.json from scratch when none exists yet
+  ---
+  duration_ms: 2.312625
+  type: 'test'
+  ...
+# Subtest: refuses to touch a malformed settings.json rather than silently discarding its content
+ok 165 - refuses to touch a malformed settings.json rather than silently discarding its content
+  ---
+  duration_ms: 2.257375
+  type: 'test'
+  ...
+# Subtest: deploy is idempotent — a second plan over unchanged state reports unchanged, applies nothing
+ok 166 - deploy is idempotent — a second plan over unchanged state reports unchanged, applies nothing
+  ---
+  duration_ms: 1.78925
+  type: 'test'
+  ...
+# Subtest: does not duplicate hooks.json itself into the deployed hooks/ scripts dir
+ok 167 - does not duplicate hooks.json itself into the deployed hooks/ scripts dir
+  ---
+  duration_ms: 2.8065
+  type: 'test'
+  ...
+# Subtest: removal strips only the hooks key, preserving every unrelated key (FR-002)
+ok 168 - removal strips only the hooks key, preserving every unrelated key (FR-002)
+  ---
+  duration_ms: 3.347209
+  type: 'test'
+  ...
+# Subtest: removal is a no-op when settings.json has no hooks key (nothing to strip)
+ok 169 - removal is a no-op when settings.json has no hooks key (nothing to strip)
+  ---
+  duration_ms: 0.707333
+  type: 'test'
+  ...
+# Subtest: removal is a no-op when settings.json does not exist at all
+ok 170 - removal is a no-op when settings.json does not exist at all
+  ---
+  duration_ms: 1.3275
+  type: 'test'
+  ...
+# Subtest: G14: no agent specification references a file outside itself (FR-021)
+ok 171 - G14: no agent specification references a file outside itself (FR-021)
+  ---
+  duration_ms: 1.679167
+  type: 'test'
+  ...
+# Subtest: G14: every filename an agent specification mentions is a recorded artifact kind, not a dependency
+ok 172 - G14: every filename an agent specification mentions is a recorded artifact kind, not a dependency
+  ---
+  duration_ms: 0.543292
+  type: 'test'
+  ...
+# Subtest: G14: every recorded artifact-kind mention is still mentioned
+ok 173 - G14: every recorded artifact-kind mention is still mentioned
+  ---
+  duration_ms: 0.314208
+  type: 'test'
+  ...
+# Subtest: G3: every mode and reference file has at least one skill or rule consumer
+ok 174 - G3: every mode and reference file has at least one skill or rule consumer
+  ---
+  duration_ms: 20.026084
+  type: 'test'
+  ...
+# Subtest: G3: no consumer references a mode or reference file that does not exist
+ok 175 - G3: no consumer references a mode or reference file that does not exist
+  ---
+  duration_ms: 15.744584
+  type: 'test'
+  ...
+# Subtest: G3: every skill directory contains a SKILL.md
+ok 176 - G3: every skill directory contains a SKILL.md
+  ---
+  duration_ms: 0.224708
+  type: 'test'
+  ...
+# Subtest: G13: the always-loaded set resolves from DOFLOW_CORE.md and every import exists
+ok 177 - G13: the always-loaded set resolves from DOFLOW_CORE.md and every import exists
+  ---
+  duration_ms: 2.0295
+  type: 'test'
+  ...
+# Subtest: G13: the generated-file exclusion still names something the set actually imports
+ok 178 - G13: the generated-file exclusion still names something the set actually imports
+  ---
+  duration_ms: 0.941916
+  type: 'test'
+  ...
+# Subtest: G13: the DoFlow-authored always-loaded set stays within its byte ceiling
+ok 179 - G13: the DoFlow-authored always-loaded set stays within its byte ceiling
+  ---
+  duration_ms: 1.382209
+  type: 'test'
+  ...
+# Subtest: G9: every skill that names a specialist archetype also references MODEL_SELECTION
+ok 180 - G9: every skill that names a specialist archetype also references MODEL_SELECTION
+  ---
+  duration_ms: 4.741917
+  type: 'test'
+  ...
+# Subtest: G6: the skill list in docs/reference.md matches the installed skill set
+ok 181 - G6: the skill list in docs/reference.md matches the installed skill set
+  ---
+  duration_ms: 1.763583
+  type: 'test'
+  ...
+# Subtest: G6: skill and agent counts quoted in README.md are accurate
+ok 182 - G6: skill and agent counts quoted in README.md are accurate
+  ---
+  duration_ms: 1.56525
+  type: 'test'
+  ...
+# Subtest: G6: no doc references a skill or agent that does not exist
+ok 183 - G6: no doc references a skill or agent that does not exist
+  ---
+  duration_ms: 2.343791
+  type: 'test'
+  ...
+# Subtest: G11: every shipped skill has a bench case file
+ok 184 - G11: every shipped skill has a bench case file
+  ---
+  duration_ms: 3.811833
+  type: 'test'
+  ...
+# Subtest: G11: every skill has both triggering and behavioural coverage
+ok 185 - G11: every skill has both triggering and behavioural coverage
+  ---
+  duration_ms: 1.616459
+  type: 'test'
+  ...
+# Subtest: G11: case files are well formed and internally consistent
+ok 186 - G11: case files are well formed and internally consistent
+  ---
+  duration_ms: 0.967167
+  type: 'test'
+  ...
+# Subtest: G11b: every planned run is told to load its skill from the sandbox, by path
+ok 187 - G11b: every planned run is told to load its skill from the sandbox, by path
+  ---
+  duration_ms: 77.189208
+  type: 'test'
+  ...
+# Subtest: G11b: the plan states why bare-name invocation is not an option
+ok 188 - G11b: the plan states why bare-name invocation is not an option
+  ---
+  duration_ms: 0.227583
+  type: 'test'
+  ...
+# Subtest: G11b: a sandbox is projected from this repo, byte for byte
+ok 189 - G11b: a sandbox is projected from this repo, byte for byte
+  ---
+  duration_ms: 256.268375
+  type: 'test'
+  ...
+# Subtest: G11b: grading flags a run that resolved skills outside its sandbox
+ok 190 - G11b: grading flags a run that resolved skills outside its sandbox
+  ---
+  duration_ms: 5.962791
+  type: 'test'
+  ...
+# Subtest: G11b: the run contract in bench/README.md still requires provenance
+ok 191 - G11b: the run contract in bench/README.md still requires provenance
+  ---
+  duration_ms: 0.371084
+  type: 'test'
+  ...
+# Subtest: G11: the bench harness is not wired into the default test command
+ok 192 - G11: the bench harness is not wired into the default test command
+  ---
+  duration_ms: 0.521583
+  type: 'test'
+  ...
+# Subtest: G1: every skill frontmatter key is recognized by at least one harness it deploys to
+ok 193 - G1: every skill frontmatter key is recognized by at least one harness it deploys to
+  ---
+  duration_ms: 4.334167
+  type: 'test'
+  ...
+# Subtest: G1: every agent-spec frontmatter key is recognized by at least one harness it deploys to
+ok 194 - G1: every agent-spec frontmatter key is recognized by at least one harness it deploys to
+  ---
+  duration_ms: 0.450542
+  type: 'test'
+  ...
+# Subtest: G10: every argument-hint flag has a matching docs/flags.md row
+ok 195 - G10: every argument-hint flag has a matching docs/flags.md row
+  ---
+  duration_ms: 3.832209
+  type: 'test'
+  ...
+# Subtest: G10: every docs/flags.md row matches a flag the skill currently declares
+ok 196 - G10: every docs/flags.md row matches a flag the skill currently declares
+  ---
+  duration_ms: 3.028
+  type: 'test'
+  ...
+# Subtest: G4: every flag documented in FLAGS.md is referenced somewhere else in core/
+ok 197 - G4: every flag documented in FLAGS.md is referenced somewhere else in core/
+  ---
+  duration_ms: 17.430333
+  type: 'test'
+  ...
+# Subtest: G4: FLAGS.md does not enumerate MCP servers
+ok 198 - G4: FLAGS.md does not enumerate MCP servers
+  ---
+  duration_ms: 0.163458
+  type: 'test'
+  ...
+# Subtest: G4: every flag referenced in core/ is documented in FLAGS.md
+ok 199 - G4: every flag referenced in core/ is documented in FLAGS.md
+  ---
+  duration_ms: 11.648416
+  type: 'test'
+  ...
+# Subtest: G4: every BEHAVIOURAL_ONLY suppression names a flag that is still documented
+ok 200 - G4: every BEHAVIOURAL_ONLY suppression names a flag that is still documented
+  ---
+  duration_ms: 0.145083
+  type: 'test'
+  ...
+# Subtest: G7: no backup, editor, or bytecode artifacts live under the published `files` trees
+ok 201 - G7: no backup, editor, or bytecode artifacts live under the published `files` trees
+  ---
+  duration_ms: 10.332083
+  type: 'test'
+  ...
+# Subtest: G7: package.json carries the metadata npm needs to render a package page
+ok 202 - G7: package.json carries the metadata npm needs to render a package page
+  ---
+  duration_ms: 0.15825
+  type: 'test'
+  ...
+# Subtest: G7: a scoped package name declares public publishConfig access
+ok 203 - G7: a scoped package name declares public publishConfig access
+  ---
+  duration_ms: 0.077792
+  type: 'test'
+  ...
+# Subtest: G7: the declared license has a matching LICENSE file
+ok 204 - G7: the declared license has a matching LICENSE file
+  ---
+  duration_ms: 1.106042
+  type: 'test'
+  ...
+# Subtest: G2: every @import in DOFLOW_CORE.md resolves against the guidance tree
+ok 205 - G2: every @import in DOFLOW_CORE.md resolves against the guidance tree
+  ---
+  duration_ms: 1.616833
+  type: 'test'
+  ...
+# Subtest: G2: every guidance directory advertised in DOFLOW_CORE.md exists
+ok 206 - G2: every guidance directory advertised in DOFLOW_CORE.md exists
+  ---
+  duration_ms: 0.259458
+  type: 'test'
+  ...
+# Subtest: G2: every guidance-relative markdown link in the guidance tree resolves
+ok 207 - G2: every guidance-relative markdown link in the guidance tree resolves
+  ---
+  duration_ms: 1.402291
+  type: 'test'
+  ...
+# Subtest: G2: every doc path the generated MCP index emits resolves from the index location
+ok 208 - G2: every doc path the generated MCP index emits resolves from the index location
+  ---
+  duration_ms: 2.55925
+  type: 'test'
+  ...
+# Subtest: G8: every shipped shell script is reachable from a skill, doc, or another reachable script
+ok 209 - G8: every shipped shell script is reachable from a skill, doc, or another reachable script
+  ---
+  duration_ms: 13.865042
+  type: 'test'
+  ...
+# Subtest: G8: every verb a skill or doc invokes is a verb the dispatcher actually dispatches
+ok 210 - G8: every verb a skill or doc invokes is a verb the dispatcher actually dispatches
+  ---
+  duration_ms: 7.307042
+  type: 'test'
+  ...
+# Subtest: G8: every runtime CLI command is named by a skill or doc
+ok 211 - G8: every runtime CLI command is named by a skill or doc
+  ---
+  duration_ms: 7.9175
+  type: 'test'
+  ...
+# Subtest: G8: every flag docs/reference.md documents for a skill exists in that skill
+ok 212 - G8: every flag docs/reference.md documents for a skill exists in that skill
+  ---
+  duration_ms: 1.246375
+  type: 'test'
+  ...
+# Subtest: G8: every repo path a doc names in backticks exists
+ok 213 - G8: every repo path a doc names in backticks exists
+  ---
+  duration_ms: 10.25775
+  type: 'test'
+  ...
+# Subtest: G8: the capability matrix in docs matches the registry it claims to be generated from
+ok 214 - G8: the capability matrix in docs matches the registry it claims to be generated from
+  ---
+  duration_ms: 1.322209
+  type: 'test'
+  ...
+# Subtest: G8: every docs page is reachable from the mkdocs nav
+ok 215 - G8: every docs page is reachable from the mkdocs nav
+  ---
+  duration_ms: 0.491709
+  type: 'test'
+  ...
+# Subtest: G8: no doc claims a capability the registry does not declare
+ok 216 - G8: no doc claims a capability the registry does not declare
+  ---
+  duration_ms: 5.529
+  type: 'test'
+  ...
+# Subtest: G8: a `references/…` pointer resolves against one of the two roots that string can mean
+ok 217 - G8: a `references/…` pointer resolves against one of the two roots that string can mean
+  ---
+  duration_ms: 3.541084
+  type: 'test'
+  ...
+# Subtest: G8: every documented runtime-resolution snippet resolves with CWD at the project root
+ok 218 - G8: every documented runtime-resolution snippet resolves with CWD at the project root
+  ---
+  duration_ms: 2648.235334
+  type: 'test'
+  ...
+# Subtest: G8: no skill documents the known-broken `../../bin/doflow-run` relative call
+ok 219 - G8: no skill documents the known-broken `../../bin/doflow-run` relative call
+  ---
+  duration_ms: 5.42625
+  type: 'test'
+  ...
+# Subtest: G5: every capability an asset actually projects is declared by its harness
+ok 220 - G5: every capability an asset actually projects is declared by its harness
+  ---
+  duration_ms: 0.846166
+  type: 'test'
+  ...
+# Subtest: G5: a capability marked unavailable has no deployer contradicting it
+ok 221 - G5: a capability marked unavailable has no deployer contradicting it
+  ---
+  duration_ms: 0.25425
+  type: 'test'
+  ...
+# Subtest: G5: every per-event hook status marked supported is in its harness contract
+ok 222 - G5: every per-event hook status marked supported is in its harness contract
+  ---
+  duration_ms: 0.200375
+  type: 'test'
+  ...
+# Subtest: G5: every unavailable event carries a note explaining why no equivalent exists
+ok 223 - G5: every unavailable event carries a note explaining why no equivalent exists
+  ---
+  duration_ms: 0.142083
+  type: 'test'
+  ...
+# Subtest: G5: every declared harness has an adapter module, exactly one contract, and a valid --target id
+ok 224 - G5: every declared harness has an adapter module, exactly one contract, and a valid --target id
+  ---
+  duration_ms: 1.296917
+  type: 'test'
+  ...
+# Subtest: G5: every declared harness is wired into every createAdapterRegistry(...) dispatch call site
+ok 225 - G5: every declared harness is wired into every createAdapterRegistry(...) dispatch call site
+  ---
+  duration_ms: 1.462583
+  type: 'test'
+  ...
+# Subtest: G12: the only Python in core/ is the exempt do-code-review analyzer set (FR-005, FR-006)
+ok 226 - G12: the only Python in core/ is the exempt do-code-review analyzer set (FR-005, FR-006)
+  ---
+  duration_ms: 4.612958
+  type: 'test'
+  ...
+# Subtest: G12: exactly one dispatcher and one locator exist, and the retired entrypoints stay retired
+ok 227 - G12: exactly one dispatcher and one locator exist, and the retired entrypoints stay retired
+  ---
+  duration_ms: 7.314042
+  type: 'test'
+  ...
+# Subtest: G12: the locator asset claims every harness, consistently, inside each harness own directory
+ok 228 - G12: the locator asset claims every harness, consistently, inside each harness own directory
+  ---
+  duration_ms: 0.271
+  type: 'test'
+  ...
+# Subtest: G12: the path the locator searches for is where the registry projects the dispatcher
+ok 229 - G12: the path the locator searches for is where the registry projects the dispatcher
+  ---
+  duration_ms: 0.257209
+  type: 'test'
+  ...
+# Subtest: G12: every shell-backed verb resolves to a helper that exists
+ok 230 - G12: every shell-backed verb resolves to a helper that exists
+  ---
+  duration_ms: 0.345
+  type: 'test'
+  ...
+# Subtest: G12: every shell helper is either a verb target or a recorded non-verb helper
+ok 231 - G12: every shell helper is either a verb target or a recorded non-verb helper
+  ---
+  duration_ms: 0.287166
+  type: 'test'
+  ...
+# Subtest: G12: the dispatcher documents exactly the verbs it dispatches
+ok 232 - G12: the dispatcher documents exactly the verbs it dispatches
+  ---
+  duration_ms: 0.480125
+  type: 'test'
+  ...
+# Subtest: G12: every runtime command the CLI implements is dispatched by a verb (FR-003)
+ok 233 - G12: every runtime command the CLI implements is dispatched by a verb (FR-003)
+  ---
+  duration_ms: 0.4975
+  type: 'test'
+  ...
+# Subtest: G12: a wired runtime verb uses the case form the guards can parse
+ok 234 - G12: a wired runtime verb uses the case form the guards can parse
+  ---
+  duration_ms: 0.83475
+  type: 'test'
+  ...
+# Subtest: G12: every verb the dispatcher advertises on the Node arm has a CLI command (FR-003)
+ok 235 - G12: every verb the dispatcher advertises on the Node arm has a CLI command (FR-003)
+  ---
+  duration_ms: 0.665875
+  type: 'test'
+  ...
+# Subtest: G12: no skill reaches the JavaScript runtime except through the dispatcher (FR-004)
+ok 236 - G12: no skill reaches the JavaScript runtime except through the dispatcher (FR-004)
+  ---
+  duration_ms: 4.745917
+  type: 'test'
+  ...
+# Subtest: G12: trace.js is the only module that writes the run ledger (NFR-004)
+ok 237 - G12: trace.js is the only module that writes the run ledger (NFR-004)
+  ---
+  duration_ms: 10.683709
+  type: 'test'
+  ...
+# Subtest: G12: the ledger write in trace.js is the one guarded by sanitizeRunEvent (NFR-004)
+ok 238 - G12: the ledger write in trace.js is the one guarded by sanitizeRunEvent (NFR-004)
+  ---
+  duration_ms: 0.285083
+  type: 'test'
+  ...
+# Subtest: G12: the shell dispatcher records only fields the sanitizer would have allowed (NFR-004)
+ok 239 - G12: the shell dispatcher records only fields the sanitizer would have allowed (NFR-004)
+  ---
+  duration_ms: 0.192167
+  type: 'test'
+  ...
+# Subtest: G12: every string-valued ledger field is a token (NFR-004)
+ok 240 - G12: every string-valued ledger field is a token (NFR-004)
+  ---
+  duration_ms: 1.165417
+  type: 'test'
+  ...
+# Subtest: G12: discover reports CLEAR only for an analysis whose signal fields have coverage (FR-012)
+ok 241 - G12: discover reports CLEAR only for an analysis whose signal fields have coverage (FR-012)
+  ---
+  duration_ms: 0.890875
+  type: 'test'
+  ...
+# Subtest: G12: every discover analysis declares which ledger fields its verdict rests on
+ok 242 - G12: every discover analysis declares which ledger fields its verdict rests on
+  ---
+  duration_ms: 0.157541
+  type: 'test'
+  ...
+# Subtest: G12: every failureClass in verification.yaml is a declared recovery class (FR-010)
+ok 243 - G12: every failureClass in verification.yaml is a declared recovery class (FR-010)
+  ---
+  duration_ms: 1.105791
+  type: 'test'
+  ...
+# Subtest: G11: a scaffold run mutates nothing outside the feature directory
+ok 244 - G11: a scaffold run mutates nothing outside the feature directory
+  ---
+  duration_ms: 11.635125
+  type: 'test'
+  ...
+# Subtest: G11: the same artifacts generate a byte-identical scaffold on every run
+ok 245 - G11: the same artifacts generate a byte-identical scaffold on every run
+  ---
+  duration_ms: 5.452584
+  type: 'test'
+  ...
+# Subtest: G11: emitted files carry signatures and a single not-implemented signal, never logic
+ok 246 - G11: emitted files carry signatures and a single not-implemented signal, never logic
+  ---
+  duration_ms: 4.850167
+  type: 'test'
+  ...
+# Subtest: G11: nothing emitted can be picked up by the host project's toolchain
+ok 247 - G11: nothing emitted can be picked up by the host project's toolchain
+  ---
+  duration_ms: 3.733708
+  type: 'test'
+  ...
+# Subtest: G11: every generated file names the requirement, component or task it derives from
+ok 248 - G11: every generated file names the requirement, component or task it derives from
+  ---
+  duration_ms: 3.12375
+  type: 'test'
+  ...
+# Subtest: G11: a hand-edited scaffold file is reported and left alone
+ok 249 - G11: a hand-edited scaffold file is reported and left alone
+  ---
+  duration_ms: 5.822417
+  type: 'test'
+  ...
+# Subtest: G11: an artifact the generator cannot parse blocks the run instead of thinning it
+ok 250 - G11: an artifact the generator cannot parse blocks the run instead of thinning it
+  ---
+  duration_ms: 5.679917
+  type: 'test'
+  ...
+# Subtest: G11: what was skipped is reported as prominently as what was produced
+ok 251 - G11: what was skipped is reported as prominently as what was produced
+  ---
+  duration_ms: 2.591875
+  type: 'test'
+  ...
+# Subtest: G11: real feature artifacts generate a contained, idempotent scaffold
+not ok 252 - G11: real feature artifacts generate a contained, idempotent scaffold
+  ---
+  duration_ms: 0.622333
+  type: 'test'
+  location: '/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-test-2/test/guards/scaffold.test.js:330:1'
+  failureType: 'testCodeFailure'
+  error: 'no feature directory in agent-docs/doflow carries all three artifacts — this guard would prove nothing'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-test-2/test/guards/scaffold.test.js:338:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: G15: every path to the runtime entrypoint is the path the registry installs it at (FR-004)
+ok 253 - G15: every path to the runtime entrypoint is the path the registry installs it at (FR-004)
+  ---
+  duration_ms: 11.045708
+  type: 'test'
+  ...
+# Subtest: G15: the runtime resolver has exactly one spelling across the whole skill tree
+ok 254 - G15: the runtime resolver has exactly one spelling across the whole skill tree
+  ---
+  duration_ms: 5.281916
+  type: 'test'
+  ...
+# Subtest: G15: no SKILL.md interpolates a DoFlow config variable (FR-004)
+ok 255 - G15: no SKILL.md interpolates a DoFlow config variable (FR-004)
+  ---
+  duration_ms: 3.762459
+  type: 'test'
+  ...
+# Subtest: G15: no SKILL.md reaches into the config directory for anything but the entrypoint
+ok 256 - G15: no SKILL.md reaches into the config directory for anything but the entrypoint
+  ---
+  duration_ms: 3.979792
+  type: 'test'
+  ...
+# Subtest: G15: every recorded config mention still appears in a SKILL.md
+ok 257 - G15: every recorded config mention still appears in a SKILL.md
+  ---
+  duration_ms: 1.634209
+  type: 'test'
+  ...
+# Subtest: G13: the shipped workflow registry validates against the shipped readiness templates
+ok 258 - G13: the shipped workflow registry validates against the shipped readiness templates
+  ---
+  duration_ms: 1.84
+  type: 'test'
+  ...
+# Subtest: G13: every declared class resolves to a workflow with at least one stage
+ok 259 - G13: every declared class resolves to a workflow with at least one stage
+  ---
+  duration_ms: 0.578416
+  type: 'test'
+  ...
+# Subtest: G13: every skill named by a workflow stage exists in the shipped skill tree
+ok 260 - G13: every skill named by a workflow stage exists in the shipped skill tree
+  ---
+  duration_ms: 0.15925
+  type: 'test'
+  ...
+# Subtest: G13: review has no implementation stage (FR-015)
+ok 261 - G13: review has no implementation stage (FR-015)
+  ---
+  duration_ms: 0.179791
+  type: 'test'
+  ...
+# Subtest: G13: research requires no implementation readiness (FR-015)
+ok 262 - G13: research requires no implementation readiness (FR-015)
+  ---
+  duration_ms: 0.084125
+  type: 'test'
+  ...
+# Subtest: G13: no class declares a readiness template that readiness-templates.yaml does not define
+ok 263 - G13: no class declares a readiness template that readiness-templates.yaml does not define
+  ---
+  duration_ms: 0.3525
+  type: 'test'
+  ...
+# Subtest: G13: a class with no readiness template is one of the recorded exemptions
+ok 264 - G13: a class with no readiness template is one of the recorded exemptions
+  ---
+  duration_ms: 0.121625
+  type: 'test'
+  ...
+# Subtest: G13: an exempt class states its own reason in readinessNote
+ok 265 - G13: an exempt class states its own reason in readinessNote
+  ---
+  duration_ms: 0.166458
+  type: 'test'
+  ...
+# Subtest: FR-001: the dispatcher answers from the source checkout
+ok 266 - FR-001: the dispatcher answers from the source checkout
+  ---
+  duration_ms: 458.295792
+  type: 'test'
+  ...
+# Subtest: FR-001/FR-002: harness locator -> dispatcher -> shell verb works in a project-local install
+ok 267 - FR-001/FR-002: harness locator -> dispatcher -> shell verb works in a project-local install
+  ---
+  duration_ms: 4381.899417
+  type: 'test'
+  ...
+# Subtest: FR-001: a global install answers from a working directory that has no project install
+ok 268 - FR-001: a global install answers from a working directory that has no project install
+  ---
+  duration_ms: 1684.63425
+  type: 'test'
+  ...
+# Subtest: FR-003: exit codes and --json hold at the dispatcher boundary in an installed shape
+ok 269 - FR-003: exit codes and --json hold at the dispatcher boundary in an installed shape
+  ---
+  duration_ms: 1140.285417
+  type: 'test'
+  ...
+# Subtest: NFR-007: remove reclaims the locator on every harness and leaves user files untouched
+ok 270 - NFR-007: remove reclaims the locator on every harness and leaves user files untouched
+  ---
+  duration_ms: 709.887583
+  type: 'test'
+  ...
+# Subtest: NFR-005: an ownership ledger written before this feature updates without losing track
+ok 271 - NFR-005: an ownership ledger written before this feature updates without losing track
+  ---
+  duration_ms: 1011.198375
+  type: 'test'
+  ...
+# Subtest: NFR-001/NFR-002: install and dispatch succeed with python3 and every optional provider absent
+ok 272 - NFR-001/NFR-002: install and dispatch succeed with python3 and every optional provider absent
+  ---
+  duration_ms: 1531.120417
+  type: 'test'
+  ...
+# Subtest: implements the adapter contract and resolves official project/user native paths
+ok 273 - implements the adapter contract and resolves official project/user native paths
+  ---
+  duration_ms: 1.280125
+  type: 'test'
+  ...
+# Subtest: plans, applies, and verifies the full guidance tree as steering files for project scope
+ok 274 - plans, applies, and verifies the full guidance tree as steering files for project scope
+  ---
+  duration_ms: 4.132375
+  type: 'test'
+  ...
+# Subtest: materialises the same steering tree under ~/.kiro/steering for global scope
+ok 275 - materialises the same steering tree under ~/.kiro/steering for global scope
+  ---
+  duration_ms: 2.264333
+  type: 'test'
+  ...
+# Subtest: refuses to overwrite a steering file modified outside DoFlow
+ok 276 - refuses to overwrite a steering file modified outside DoFlow
+  ---
+  duration_ms: 1.826542
+  type: 'test'
+  ...
+# Subtest: removes only fingerprint-matching steering files
+ok 277 - removes only fingerprint-matching steering files
+  ---
+  duration_ms: 1.738959
+  type: 'test'
+  ...
+# Subtest: plans, applies, and verifies the agents tree for project scope, byte-identical to the source
+ok 278 - plans, applies, and verifies the agents tree for project scope, byte-identical to the source
+  ---
+  duration_ms: 2.322708
+  type: 'test'
+  ...
+# Subtest: materialises the same agents tree under ~/.kiro/agents for global scope
+ok 279 - materialises the same agents tree under ~/.kiro/agents for global scope
+  ---
+  duration_ms: 1.772542
+  type: 'test'
+  ...
+# Subtest: removes only fingerprint-matching agent files
+ok 280 - removes only fingerprint-matching agent files
+  ---
+  duration_ms: 1.660291
+  type: 'test'
+  ...
+# Subtest: a re-plan with both the steering and agents assets together produces no spurious cross-asset changes
+ok 281 - a re-plan with both the steering and agents assets together produces no spurious cross-asset changes
+  ---
+  duration_ms: 2.641625
+  type: 'test'
+  ...
+# Subtest: skills.doflow materialises into .kiro/skills, following the dedicated Kiro skills system
+ok 282 - skills.doflow materialises into .kiro/skills, following the dedicated Kiro skills system
+  ---
+  duration_ms: 2.750875
+  type: 'test'
+  ...
+# Subtest: confirms the real registry routes guidance, skills, and agents trees to kiro, steering included as instructions
+ok 283 - confirms the real registry routes guidance, skills, and agents trees to kiro, steering included as instructions
+  ---
+  duration_ms: 3.665416
+  type: 'test'
+  ...
+# Subtest: mcp: merges selected servers into .kiro/settings/mcp.json, preserving a foreign server entry
+ok 284 - mcp: merges selected servers into .kiro/settings/mcp.json, preserving a foreign server entry
+  ---
+  duration_ms: 0.206083
+  type: 'test'
+  ...
+# Subtest: mcp: unmerge removes only the selected server ids, leaving foreign entries and dropping an empty key
+ok 285 - mcp: unmerge removes only the selected server ids, leaving foreign entries and dropping an empty key
+  ---
+  duration_ms: 0.069042
+  type: 'test'
+  ...
+# Subtest: plan/apply/verify a real mcp.json install and removal, never touching a hand-added server
+ok 286 - plan/apply/verify a real mcp.json install and removal, never touching a hand-added server
+  ---
+  duration_ms: 2.021708
+  type: 'test'
+  ...
+# Subtest: invalid mcp.json blocks planning but never mutates the file
+ok 287 - invalid mcp.json blocks planning but never mutates the file
+  ---
+  duration_ms: 0.885292
+  type: 'test'
+  ...
+# Subtest: hooks surface reports supported with no hooks asset selected, and installs nothing
+ok 288 - hooks surface reports supported with no hooks asset selected, and installs nothing
+  ---
+  duration_ms: 0.27475
+  type: 'test'
+  ...
+# Subtest: kiro.hooks-scripts materialises into .kiro/hooks/ for project scope
+ok 289 - kiro.hooks-scripts materialises into .kiro/hooks/ for project scope
+  ---
+  duration_ms: 7.457458
+  type: 'test'
+  ...
+# Subtest: kiro.hooks-scripts materialises into ~/.kiro/hooks/ for global scope
+ok 290 - kiro.hooks-scripts materialises into ~/.kiro/hooks/ for global scope
+  ---
+  duration_ms: 4.173875
+  type: 'test'
+  ...
+# Subtest: re-planning after install produces no changes and no conflicts
+ok 291 - re-planning after install produces no changes and no conflicts
+  ---
+  duration_ms: 6.583333
+  type: 'test'
+  ...
+# Subtest: refuses to overwrite a hook file modified outside DoFlow
+ok 292 - refuses to overwrite a hook file modified outside DoFlow
+  ---
+  duration_ms: 5.247
+  type: 'test'
+  ...
+# Subtest: removal cleanly deletes only fingerprint-matching hook files
+ok 293 - removal cleanly deletes only fingerprint-matching hook files
+  ---
+  duration_ms: 6.751167
+  type: 'test'
+  ...
+# Subtest: verify reports the hooks tree as managed once installed
+ok 294 - verify reports the hooks tree as managed once installed
+  ---
+  duration_ms: 5.141459
+  type: 'test'
+  ...
+# Subtest: installed doflow.json is well-formed with the four expected DoFlow-authored triggers
+ok 295 - installed doflow.json is well-formed with the four expected DoFlow-authored triggers
+  ---
+  duration_ms: 4.488125
+  type: 'test'
+  ...
+# Subtest: installed hook scripts are executable
+ok 296 - installed hook scripts are executable
+  ---
+  duration_ms: 4.173875
+  type: 'test'
+  ...
+# Subtest: confirms the real registry routes kiro.hooks-scripts to kiro only
+ok 297 - confirms the real registry routes kiro.hooks-scripts to kiro only
+  ---
+  duration_ms: 3.07525
+  type: 'test'
+  ...
+# Subtest: hasBashCapableShell returns true when the injected execFileSyncImpl does not throw
+ok 298 - hasBashCapableShell returns true when the injected execFileSyncImpl does not throw
+  ---
+  duration_ms: 1.282375
+  type: 'test'
+  ...
+# Subtest: hasBashCapableShell returns false on an ENOENT-style throw (bash not on PATH)
+ok 299 - hasBashCapableShell returns false on an ENOENT-style throw (bash not on PATH)
+  ---
+  duration_ms: 0.168084
+  type: 'test'
+  ...
+# Subtest: hasBashCapableShell returns false on a non-zero-exit-style throw (bash present but --version failed)
+ok 300 - hasBashCapableShell returns false on a non-zero-exit-style throw (bash present but --version failed)
+  ---
+  duration_ms: 0.068291
+  type: 'test'
+  ...
+# Subtest: hasBashCapableShell invokes bash --version, not a bare presence check
+ok 301 - hasBashCapableShell invokes bash --version, not a bare presence check
+  ---
+  duration_ms: 0.436958
+  type: 'test'
+  ...
+# Subtest: targetNeedsHooks is true for a Claude-shaped target (selected asset kind "hooks" + matching change)
+ok 302 - targetNeedsHooks is true for a Claude-shaped target (selected asset kind "hooks" + matching change)
+  ---
+  duration_ms: 0.18075
+  type: 'test'
+  ...
+# Subtest: targetNeedsHooks is true for a Codex/Gemini-shaped target (change tagged nativeComponent: "hooks")
+ok 303 - targetNeedsHooks is true for a Codex/Gemini-shaped target (change tagged nativeComponent: "hooks")
+  ---
+  duration_ms: 0.057792
+  type: 'test'
+  ...
+# Subtest: targetNeedsHooks is false when a target has neither a hooks-kind asset change nor a nativeComponent: "hooks" change
+ok 304 - targetNeedsHooks is false when a target has neither a hooks-kind asset change nor a nativeComponent: "hooks" change
+  ---
+  duration_ms: 0.346292
+  type: 'test'
+  ...
+# Subtest: targetNeedsHooks is false for a target with no assets/changes at all
+ok 305 - targetNeedsHooks is false for a target with no assets/changes at all
+  ---
+  duration_ms: 0.054458
+  type: 'test'
+  ...
+# Subtest: assertBashAvailableForHooks throws naming the missing shell and remediation when a hooks-needing target is present and the shell-check returns false
+ok 306 - assertBashAvailableForHooks throws naming the missing shell and remediation when a hooks-needing target is present and the shell-check returns false
+  ---
+  duration_ms: 0.530667
+  type: 'test'
+  ...
+# Subtest: assertBashAvailableForHooks does not throw when the shell-check returns true
+ok 307 - assertBashAvailableForHooks does not throw when the shell-check returns true
+  ---
+  duration_ms: 0.387583
+  type: 'test'
+  ...
+# Subtest: assertBashAvailableForHooks does not throw, and never calls the shell-check function, when no target needs hooks
+ok 308 - assertBashAvailableForHooks does not throw, and never calls the shell-check function, when no target needs hooks
+  ---
+  duration_ms: 0.114167
+  type: 'test'
+  ...
+# Subtest: assertBashAvailableForHooks is a no-op for mode "remove" even when the shell-check function would return false
+ok 309 - assertBashAvailableForHooks is a no-op for mode "remove" even when the shell-check function would return false
+  ---
+  duration_ms: 0.050125
+  type: 'test'
+  ...
+# Subtest: assertBashAvailableForHooks skips a skipped target even if it would otherwise need hooks
+ok 310 - assertBashAvailableForHooks skips a skipped target even if it would otherwise need hooks
+  ---
+  duration_ms: 0.038125
+  type: 'test'
+  ...
+# Subtest: applyLifecycle: a hooks-bearing plan with hasBashCapableShellFn returning false throws before any adapter apply and before any recovery record is written
+ok 311 - applyLifecycle: a hooks-bearing plan with hasBashCapableShellFn returning false throws before any adapter apply and before any recovery record is written
+  ---
+  duration_ms: 1.254666
+  type: 'test'
+  ...
+# Subtest: applyLifecycle: the same hooks-bearing plan with hasBashCapableShellFn returning true succeeds
+ok 312 - applyLifecycle: the same hooks-bearing plan with hasBashCapableShellFn returning true succeeds
+  ---
+  duration_ms: 3.760208
+  type: 'test'
+  ...
+# Subtest: applyLifecycle: the same hooks-bearing plan succeeds with the real hasBashCapableShell check on this machine (no override)
+ok 313 - applyLifecycle: the same hooks-bearing plan succeeds with the real hasBashCapableShell check on this machine (no override)
+  ---
+  duration_ms: 11.443708
+  type: 'test'
+  ...
+# Subtest: applyLifecycle: a plan touching only a non-hooks asset succeeds regardless of the shell-check stub
+ok 314 - applyLifecycle: a plan touching only a non-hooks asset succeeds regardless of the shell-check stub
+  ---
+  duration_ms: 3.212708
+  type: 'test'
+  ...
+# Subtest: applyLifecycle: mode "remove" on a hooks-bearing plan succeeds even with hasBashCapableShellFn returning false
+ok 315 - applyLifecycle: mode "remove" on a hooks-bearing plan succeeds even with hasBashCapableShellFn returning false
+  ---
+  duration_ms: 2.86775
+  type: 'test'
+  ...
+# Subtest: planning is non-mutating and returns normalized adapter changes
+ok 316 - planning is non-mutating and returns normalized adapter changes
+  ---
+  duration_ms: 2.437917
+  type: 'test'
+  ...
+# Subtest: apply refuses an empty native plan before journalling or ledger writes
+ok 317 - apply refuses an empty native plan before journalling or ledger writes
+  ---
+  duration_ms: 0.992416
+  type: 'test'
+  ...
+# Subtest: apply journals, verifies, then persists only verified neutral ownership
+ok 318 - apply journals, verifies, then persists only verified neutral ownership
+  ---
+  duration_ms: 4.283709
+  type: 'test'
+  ...
+# Subtest: conflicts and unmet prerequisites block apply before native mutation
+ok 319 - conflicts and unmet prerequisites block apply before native mutation
+  ---
+  duration_ms: 0.78625
+  type: 'test'
+  ...
+# Subtest: adapter failures are promoted to lifecycle conflicts and fail closed
+ok 320 - adapter failures are promoted to lifecycle conflicts and fail closed
+  ---
+  duration_ms: 0.274208
+  type: 'test'
+  ...
+# Subtest: remove lifecycle asks adapters for a remove plan and applies only after verification
+ok 321 - remove lifecycle asks adapters for a remove plan and applies only after verification
+  ---
+  duration_ms: 2.450625
+  type: 'test'
+  ...
+# Subtest: a mid-loop adapter throw during apply marks the recovery record failed with the harnesses that completed, instead of leaving it pending forever
+ok 322 - a mid-loop adapter throw during apply marks the recovery record failed with the harnesses that completed, instead of leaving it pending forever
+  ---
+  duration_ms: 1.740792
+  type: 'test'
+  ...
+# Subtest: expected removed absence recomputes a provisional false verification, but unrelated missing remains false
+ok 323 - expected removed absence recomputes a provisional false verification, but unrelated missing remains false
+  ---
+  duration_ms: 0.126667
+  type: 'test'
+  ...
+# Subtest: removal tolerates a source-declared resource the ledger never owned (post-rename upgrade)
+ok 324 - removal tolerates a source-declared resource the ledger never owned (post-rename upgrade)
+  ---
+  duration_ms: 0.429416
+  type: 'test'
+  ...
+# Subtest: removal still fails when a resource the ledger DOES own is missing
+ok 325 - removal still fails when a resource the ledger DOES own is missing
+  ---
+  duration_ms: 0.40275
+  type: 'test'
+  ...
+# Subtest: removal without a ledger keeps the strict reading, since non-ownership cannot be proven
+ok 326 - removal without a ledger keeps the strict reading, since non-ownership cannot be proven
+  ---
+  duration_ms: 0.150625
+  type: 'test'
+  ...
+# Subtest: install with a non-empty MCP selection writes MCP_INDEX.md containing only the selected servers' short flags
+ok 327 - install with a non-empty MCP selection writes MCP_INDEX.md containing only the selected servers' short flags
+  ---
+  duration_ms: 3.167334
+  type: 'test'
+  ...
+# Subtest: update with a changed MCP selection overwrites MCP_INDEX.md with the new selection only, no stale content
+ok 328 - update with a changed MCP selection overwrites MCP_INDEX.md with the new selection only, no stale content
+  ---
+  duration_ms: 5.632875
+  type: 'test'
+  ...
+# Subtest: an empty MCP selection leaves MCP_INDEX.md absent rather than writing an empty file
+ok 329 - an empty MCP selection leaves MCP_INDEX.md absent rather than writing an empty file
+  ---
+  duration_ms: 1.566958
+  type: 'test'
+  ...
+# Subtest: remove deletes MCP_INDEX.md regardless of what selection would otherwise apply
+ok 330 - remove deletes MCP_INDEX.md regardless of what selection would otherwise apply
+  ---
+  duration_ms: 2.229791
+  type: 'test'
+  ...
+# Subtest: hookWiringStatus: Claude reports active once its hooks resource is installed
+ok 331 - hookWiringStatus: Claude reports active once its hooks resource is installed
+  ---
+  duration_ms: 130.925042
+  type: 'test'
+  ...
+# Subtest: hookWiringStatus: Kiro reports active immediately, since Kiro hooks have no trust/review prerequisite
+ok 332 - hookWiringStatus: Kiro reports active immediately, since Kiro hooks have no trust/review prerequisite
+  ---
+  duration_ms: 91.598875
+  type: 'test'
+  ...
+# Subtest: hookWiringStatus: Codex reports installed-pending (unmet hook-review prerequisite) even after install
+ok 333 - hookWiringStatus: Codex reports installed-pending (unmet hook-review prerequisite) even after install
+  ---
+  duration_ms: 113.528834
+  type: 'test'
+  ...
+# Subtest: hookWiringStatus: Gemini reports installed-pending from its own live trust computation, not a static registry prerequisite
+ok 334 - hookWiringStatus: Gemini reports installed-pending from its own live trust computation, not a static registry prerequisite
+  ---
+  duration_ms: 105.054709
+  type: 'test'
+  ...
+# Subtest: hookWiringStatus: a harness with no hooks resource installed reports absent
+ok 335 - hookWiringStatus: a harness with no hooks resource installed reports absent
+  ---
+  duration_ms: 15.349291
+  type: 'test'
+  ...
+# Subtest: hookWiringStatus falls back to absent for a skipped/missing target
+ok 336 - hookWiringStatus falls back to absent for a skipped/missing target
+  ---
+  duration_ms: 0.082292
+  type: 'test'
+  ...
+# Subtest: renders supported Claude policies as native-event-ready
+ok 337 - renders supported Claude policies as native-event-ready
+  ---
+  duration_ms: 0.934333
+  type: 'test'
+  ...
+# Subtest: retains different Codex event semantics and reports review prerequisites
+ok 338 - retains different Codex event semantics and reports review prerequisites
+  ---
+  duration_ms: 0.121917
+  type: 'test'
+  ...
+# Subtest: reports unavailable Gemini policies with fallback guidance and no fabricated event
+ok 339 - reports unavailable Gemini policies with fallback guidance and no fabricated event
+  ---
+  duration_ms: 0.074208
+  type: 'test'
+  ...
+# Subtest: rejects unknown harnesses and policy ids
+ok 340 - rejects unknown harnesses and policy ids
+  ---
+  duration_ms: 0.221958
+  type: 'test'
+  ...
+# Subtest: Codex projection carries explicit asset, MCP, policy, and native-target inputs
+ok 341 - Codex projection carries explicit asset, MCP, policy, and native-target inputs
+  ---
+  duration_ms: 1.415625
+  type: 'test'
+  ...
+# Subtest: projection fails closed when an asset has no usable harness projection
+ok 342 - projection fails closed when an asset has no usable harness projection
+  ---
+  duration_ms: 1.297375
+  type: 'test'
+  ...
+# Subtest: real registry lifecycle derives the Codex native projection without caller-supplied source paths
+ok 343 - real registry lifecycle derives the Codex native projection without caller-supplied source paths
+  ---
+  duration_ms: 21.655
+  type: 'test'
+  ...
+# Subtest: registry projection permits only safe hook-trust override, not source substitution
+ok 344 - registry projection permits only safe hook-trust override, not source substitution
+  ---
+  duration_ms: 0.204417
+  type: 'test'
+  ...
+# Subtest: a removal releases its claim on a shared file without deleting it, and says so
+ok 345 - a removal releases its claim on a shared file without deleting it, and says so
+  ---
+  duration_ms: 11.736916
+  type: 'test'
+  ...
+# Subtest: the last claimant's removal reclaims the shared file
+ok 346 - the last claimant's removal reclaims the shared file
+  ---
+  duration_ms: 7.547167
+  type: 'test'
+  ...
+# Subtest: removing every claimant at once reclaims the shared file in one pass
+ok 347 - removing every claimant at once reclaims the shared file in one pass
+  ---
+  duration_ms: 8.524125
+  type: 'test'
+  ...
+# Subtest: a harness whose every resource is shared is removed without the adapter being called
+ok 348 - a harness whose every resource is shared is removed without the adapter being called
+  ---
+  duration_ms: 5.483959
+  type: 'test'
+  ...
+# Subtest: retention is decided per ownership row, not per harness
+ok 349 - retention is decided per ownership row, not per harness
+  ---
+  duration_ms: 0.147584
+  type: 'test'
+  ...
+# Subtest: a non-removal change is never annotated, and a plan with nothing shared is untouched
+ok 350 - a non-removal change is never annotated, and a plan with nothing shared is untouched
+  ---
+  duration_ms: 0.149125
+  type: 'test'
+  ...
+# Subtest: retentionSummary groups by harness and claimant set
+ok 351 - retentionSummary groups by harness and claimant set
+  ---
+  duration_ms: 0.078541
+  type: 'test'
+  ...
+# Subtest: copy-tree removal accepts the current source bytes as well as the recorded fingerprint
+ok 352 - copy-tree removal accepts the current source bytes as well as the recorded fingerprint
+  ---
+  duration_ms: 2.2745
+  type: 'test'
+  ...
+# Subtest: copy-tree removal still refuses a file that matches neither the record nor the source
+ok 353 - copy-tree removal still refuses a file that matches neither the record nor the source
+  ---
+  duration_ms: 1.456417
+  type: 'test'
+  ...
+# Subtest: copy-tree removal reads no source when the recorded fingerprint already matches
+ok 354 - copy-tree removal reads no source when the recorded fingerprint already matches
+  ---
+  duration_ms: 0.939208
+  type: 'test'
+  ...
+# Subtest: CLI: removing one of three harnesses that share .doflow leaves the runtime standing
+ok 355 - CLI: removing one of three harnesses that share .doflow leaves the runtime standing
+  ---
+  duration_ms: 1213.88525
+  type: 'test'
+  ...
+# Subtest: codexScope maps {global} to Codex's "global"/"project" scope names
+ok 356 - codexScope maps {global} to Codex's "global"/"project" scope names
+  ---
+  duration_ms: 0.428042
+  type: 'test'
+  ...
+# Subtest: LIFECYCLE_HARNESSES names exactly the seven harnesses the registry/lifecycle path covers
+ok 357 - LIFECYCLE_HARNESSES names exactly the seven harnesses the registry/lifecycle path covers
+  ---
+  duration_ms: 0.404959
+  type: 'test'
+  ...
+# Subtest: registryLifecycleView computes a fresh-install plan for every requested harness from a real registry
+ok 358 - registryLifecycleView computes a fresh-install plan for every requested harness from a real registry
+  ---
+  duration_ms: 50.548833
+  type: 'test'
+  ...
+# Subtest: registryLifecycleView narrows to only the requested targets
+ok 359 - registryLifecycleView narrows to only the requested targets
+  ---
+  duration_ms: 14.043041
+  type: 'test'
+  ...
+# Subtest: printRegistryLifecycle summarizes change/conflict/prerequisite counts per harness
+ok 360 - printRegistryLifecycle summarizes change/conflict/prerequisite counts per harness
+  ---
+  duration_ms: 0.23725
+  type: 'test'
+  ...
+# Subtest: assertSafeRegistryPlan is a no-op for a safe plan
+ok 361 - assertSafeRegistryPlan is a no-op for a safe plan
+  ---
+  duration_ms: 0.095333
+  type: 'test'
+  ...
+# Subtest: assertSafeRegistryPlan reports conflicts/prerequisites and sets a failing exit code for an unsafe plan
+ok 362 - assertSafeRegistryPlan reports conflicts/prerequisites and sets a failing exit code for an unsafe plan
+  ---
+  duration_ms: 0.711375
+  type: 'test'
+  ...
+# Subtest: marker constants match the exact literal contract strings
+ok 363 - marker constants match the exact literal contract strings
+  ---
+  duration_ms: 1.192625
+  type: 'test'
+  ...
+# Subtest: create-when-missing: dst is created containing exactly the computed section
+ok 364 - create-when-missing: dst is created containing exactly the computed section
+  ---
+  duration_ms: 1.16575
+  type: 'test'
+  ...
+# Subtest: append: dst exists with no markers, no trailing newline -> separator is exactly "\\n\\n"
+ok 365 - append: dst exists with no markers, no trailing newline -> separator is exactly "\\n\\n"
+  ---
+  duration_ms: 1.085333
+  type: 'test'
+  ...
+# Subtest: append: dst exists with no markers, ends with exactly ONE trailing newline -> one more "\\n" added
+ok 366 - append: dst exists with no markers, ends with exactly ONE trailing newline -> one more "\\n" added
+  ---
+  duration_ms: 1.411291
+  type: 'test'
+  ...
+# Subtest: append: dst exists with no markers, ends with TWO+ trailing newlines -> no extra separator bytes added
+ok 367 - append: dst exists with no markers, ends with TWO+ trailing newlines -> no extra separator bytes added
+  ---
+  duration_ms: 1.04175
+  type: 'test'
+  ...
+# Subtest: append: dst exists with no markers, ends with THREE trailing newlines -> still no extra separator bytes added
+ok 368 - append: dst exists with no markers, ends with THREE trailing newlines -> still no extra separator bytes added
+  ---
+  duration_ms: 0.815
+  type: 'test'
+  ...
+# Subtest: replace: existing marker span is replaced in place; content before and after the span is untouched
+ok 369 - replace: existing marker span is replaced in place; content before and after the span is untouched
+  ---
+  duration_ms: 1.674417
+  type: 'test'
+  ...
+# Subtest: idempotency: calling twice with unchanged src/dst performs no second write (bytes and mtime unchanged)
+ok 370 - idempotency: calling twice with unchanged src/dst performs no second write (bytes and mtime unchanged)
+  ---
+  duration_ms: 1.658208
+  type: 'test'
+  ...
+# Subtest: malformed markers: MARKER_START present with no MARKER_END anywhere after it throws
+ok 371 - malformed markers: MARKER_START present with no MARKER_END anywhere after it throws
+  ---
+  duration_ms: 1.17675
+  type: 'test'
+  ...
+# Subtest: duplicate MARKER_START: dst containing MARKER_START twice throws
+ok 372 - duplicate MARKER_START: dst containing MARKER_START twice throws
+  ---
+  duration_ms: 2.299541
+  type: 'test'
+  ...
+# Subtest: self-reference: source content that itself contains the marker text does not false-positive as a duplicate
+ok 373 - self-reference: source content that itself contains the marker text does not false-positive as a duplicate
+  ---
+  duration_ms: 0.850333
+  type: 'test'
+  ...
+# Subtest: dryRun: dst does not exist -> reports changed:true but creates nothing
+ok 374 - dryRun: dst does not exist -> reports changed:true but creates nothing
+  ---
+  duration_ms: 0.315709
+  type: 'test'
+  ...
+# Subtest: dryRun: dst exists and would be appended to -> reports changed:true but dst bytes are completely unchanged
+ok 375 - dryRun: dst exists and would be appended to -> reports changed:true but dst bytes are completely unchanged
+  ---
+  duration_ms: 0.792667
+  type: 'test'
+  ...
+# Subtest: dryRun: dst exists and would be replaced -> reports changed:true but dst bytes are completely unchanged
+ok 376 - dryRun: dst exists and would be replaced -> reports changed:true but dst bytes are completely unchanged
+  ---
+  duration_ms: 1.042
+  type: 'test'
+  ...
+# Subtest: dryRun: nothing would change -> reports changed:false and performs no write
+ok 377 - dryRun: nothing would change -> reports changed:false and performs no write
+  ---
+  duration_ms: 0.900167
+  type: 'test'
+  ...
+# Subtest: removeMarkedSection: file does not exist -> returns false, creates nothing
+ok 378 - removeMarkedSection: file does not exist -> returns false, creates nothing
+  ---
+  duration_ms: 0.196833
+  type: 'test'
+  ...
+# Subtest: removeMarkedSection: file exists with no markers -> returns false, bytes untouched
+ok 379 - removeMarkedSection: file exists with no markers -> returns false, bytes untouched
+  ---
+  duration_ms: 1.427917
+  type: 'test'
+  ...
+# Subtest: removeMarkedSection: strips the span, preserving content before and after byte-for-byte
+ok 380 - removeMarkedSection: strips the span, preserving content before and after byte-for-byte
+  ---
+  duration_ms: 0.888875
+  type: 'test'
+  ...
+# Subtest: removeMarkedSection: file is only the managed span -> ends up empty, not deleted
+ok 381 - removeMarkedSection: file is only the managed span -> ends up empty, not deleted
+  ---
+  duration_ms: 0.656333
+  type: 'test'
+  ...
+# Subtest: removeMarkedSection: malformed markers (MARKER_START with no MARKER_END) throws
+ok 382 - removeMarkedSection: malformed markers (MARKER_START with no MARKER_END) throws
+  ---
+  duration_ms: 0.610166
+  type: 'test'
+  ...
+# Subtest: removeMarkedSection: duplicate MARKER_START throws
+ok 383 - removeMarkedSection: duplicate MARKER_START throws
+  ---
+  duration_ms: 0.450667
+  type: 'test'
+  ...
+# Subtest: full selection: one header line, two lines per server, in input order
+ok 384 - full selection: one header line, two lines per server, in input order
+  ---
+  duration_ms: 0.595833
+  type: 'test'
+  ...
+# Subtest: partial selection: servers not in the input never appear in the output
+ok 385 - partial selection: servers not in the input never appear in the output
+  ---
+  duration_ms: 0.167958
+  type: 'test'
+  ...
+# Subtest: empty selection returns exactly null
+ok 386 - empty selection returns exactly null
+  ---
+  duration_ms: 0.052708
+  type: 'test'
+  ...
+# Subtest: undefined/null input returns null
+ok 387 - undefined/null input returns null
+  ---
+  duration_ms: 0.04725
+  type: 'test'
+  ...
+# Subtest: determinism: same (non-identical) input array produces byte-identical output
+ok 388 - determinism: same (non-identical) input array produces byte-identical output
+  ---
+  duration_ms: 0.115
+  type: 'test'
+  ...
+# Subtest: real registry shape: selectMcpServers output renders correctly
+ok 389 - real registry shape: selectMcpServers output renders correctly
+  ---
+  duration_ms: 0.103583
+  type: 'test'
+  ...
+# Subtest: anchor: MCP_INDEX.md is written to the guidance root, not a subdirectory of it
+ok 390 - anchor: MCP_INDEX.md is written to the guidance root, not a subdirectory of it
+  ---
+  duration_ms: 0.118667
+  type: 'test'
+  ...
+# Subtest: anchor: every rendered doc path resolves to a real file under the guidance tree
+ok 391 - anchor: every rendered doc path resolves to a real file under the guidance tree
+  ---
+  duration_ms: 0.11575
+  type: 'test'
+  ...
+# Subtest: a no-native-change install still reconciles the generated index
+ok 392 - a no-native-change install still reconciles the generated index
+  ---
+  duration_ms: 383.310291
+  type: 'test'
+  ...
+# Subtest: readAllServers returns the registry MCP catalog's server names in declaration order
+ok 393 - readAllServers returns the registry MCP catalog's server names in declaration order
+  ---
+  duration_ms: 2.011666
+  type: 'test'
+  ...
+# Subtest: filterServerDefs keeps only the selected servers, each with its full definition
+ok 394 - filterServerDefs keeps only the selected servers, each with its full definition
+  ---
+  duration_ms: 0.191458
+  type: 'test'
+  ...
+# Subtest: writeProjectMcpJson writes {mcpServers} at the given root when no file exists yet
+ok 395 - writeProjectMcpJson writes {mcpServers} at the given root when no file exists yet
+  ---
+  duration_ms: 0.648791
+  type: 'test'
+  ...
+# Subtest: writeProjectMcpJson merges — a hand-added project server doflow does not ship must survive
+ok 396 - writeProjectMcpJson merges — a hand-added project server doflow does not ship must survive
+  ---
+  duration_ms: 0.815791
+  type: 'test'
+  ...
+# Subtest: writeProjectMcpJson preserves a reselected known server's existing (hand-edited) definition instead of resetting it to the shipped default
+ok 397 - writeProjectMcpJson preserves a reselected known server's existing (hand-edited) definition instead of resetting it to the shipped default
+  ---
+  duration_ms: 0.790084
+  type: 'test'
+  ...
+# Subtest: writeProjectMcpJson refuses to touch a malformed existing .mcp.json rather than silently discarding it
+ok 398 - writeProjectMcpJson refuses to touch a malformed existing .mcp.json rather than silently discarding it
+  ---
+  duration_ms: 0.841459
+  type: 'test'
+  ...
+# Subtest: mergeGlobalMcpServers refuses to touch a malformed ~/.claude.json rather than silently discarding it
+ok 399 - mergeGlobalMcpServers refuses to touch a malformed ~/.claude.json rather than silently discarding it
+  ---
+  duration_ms: 0.438
+  type: 'test'
+  ...
+# Subtest: mergeGlobalMcpServers only touches known server keys, leaving unrelated ~/.claude.json state untouched
+ok 400 - mergeGlobalMcpServers only touches known server keys, leaving unrelated ~/.claude.json state untouched
+  ---
+  duration_ms: 0.628
+  type: 'test'
+  ...
+# Subtest: mergeGlobalMcpServers preserves a reselected known server's existing (hand-edited) definition instead of resetting it to the shipped default
+ok 401 - mergeGlobalMcpServers preserves a reselected known server's existing (hand-edited) definition instead of resetting it to the shipped default
+  ---
+  duration_ms: 0.801334
+  type: 'test'
+  ...
+# Subtest: mergeGlobalMcpServers creates ~/.claude.json from scratch when absent
+ok 402 - mergeGlobalMcpServers creates ~/.claude.json from scratch when absent
+  ---
+  duration_ms: 0.898416
+  type: 'test'
+  ...
+# Subtest: resolveMcpSelection: --mcp <list> wins outright and dedupes
+ok 403 - resolveMcpSelection: --mcp <list> wins outright and dedupes
+  ---
+  duration_ms: 0.187458
+  type: 'test'
+  ...
+# Subtest: resolveMcpSelection: --mcp rejects unknown server names
+ok 404 - resolveMcpSelection: --mcp rejects unknown server names
+  ---
+  duration_ms: 0.074459
+  type: 'test'
+  ...
+# Subtest: resolveMcpSelection: --mcp with an empty list is a hard error, not "keep all"
+ok 405 - resolveMcpSelection: --mcp with an empty list is a hard error, not "keep all"
+  ---
+  duration_ms: 0.05475
+  type: 'test'
+  ...
+# Subtest: resolveMcpSelection: install + interactive prompts, seeded with the manifest selection
+ok 406 - resolveMcpSelection: install + interactive prompts, seeded with the manifest selection
+  ---
+  duration_ms: 0.103042
+  type: 'test'
+  ...
+# Subtest: resolveMcpSelection: install + interactive, prompt returns [] (deliberate "no servers") is honored
+ok 407 - resolveMcpSelection: install + interactive, prompt returns [] (deliberate "no servers") is honored
+  ---
+  duration_ms: 0.046958
+  type: 'test'
+  ...
+# Subtest: resolveMcpSelection: install + interactive, prompt unavailable (null, e.g. no real TTY) falls back to manifest/all
+ok 408 - resolveMcpSelection: install + interactive, prompt unavailable (null, e.g. no real TTY) falls back to manifest/all
+  ---
+  duration_ms: 0.03925
+  type: 'test'
+  ...
+# Subtest: resolveMcpSelection: a manifest server the registry retired is dropped, not fatal
+ok 409 - resolveMcpSelection: a manifest server the registry retired is dropped, not fatal
+  ---
+  duration_ms: 0.049833
+  type: 'test'
+  ...
+# Subtest: resolveMcpSelection: reconciling a manifest works without an onStale callback
+ok 410 - resolveMcpSelection: reconciling a manifest works without an onStale callback
+  ---
+  duration_ms: 0.0335
+  type: 'test'
+  ...
+# Subtest: resolveMcpSelection: an explicit --mcp naming a retired server is still fatal
+ok 411 - resolveMcpSelection: an explicit --mcp naming a retired server is still fatal
+  ---
+  duration_ms: 0.051666
+  type: 'test'
+  ...
+# Subtest: resolveMcpSelection: a manifest whose every server was retired falls back to the full catalog
+ok 412 - resolveMcpSelection: a manifest whose every server was retired falls back to the full catalog
+  ---
+  duration_ms: 0.034208
+  type: 'test'
+  ...
+# Subtest: resolveMcpSelection: the interactive seed is reconciled, never pre-ticking a retired server
+ok 413 - resolveMcpSelection: the interactive seed is reconciled, never pre-ticking a retired server
+  ---
+  duration_ms: 0.120542
+  type: 'test'
+  ...
+# Subtest: resolveMcpSelection: update never prompts, even when interactive is true
+ok 414 - resolveMcpSelection: update never prompts, even when interactive is true
+  ---
+  duration_ms: 0.053833
+  type: 'test'
+  ...
+# Subtest: resolveMcpSelection: no flag, not interactive, no manifest yet -> defaults to all
+ok 415 - resolveMcpSelection: no flag, not interactive, no manifest yet -> defaults to all
+  ---
+  duration_ms: 0.042125
+  type: 'test'
+  ...
+# Subtest: promptMcpCheckbox returns [] immediately for an empty server list, never entering the raw-mode read loop
+ok 416 - promptMcpCheckbox returns [] immediately for an empty server list, never entering the raw-mode read loop
+  ---
+  duration_ms: 0.827583
+  type: 'test'
+  ...
+# Subtest: implements the adapter contract and resolves official project/user native paths
+ok 417 - implements the adapter contract and resolves official project/user native paths
+  ---
+  duration_ms: 2.077125
+  type: 'test'
+  ...
+# Subtest: plans and applies a managed AGENTS.md section without overwriting foreign content
+ok 418 - plans and applies a managed AGENTS.md section without overwriting foreign content
+  ---
+  duration_ms: 2.422709
+  type: 'test'
+  ...
+# Subtest: preserves a foreign AGENTS.md that has no DoFlow managed section
+ok 419 - preserves a foreign AGENTS.md that has no DoFlow managed section
+  ---
+  duration_ms: 0.582083
+  type: 'test'
+  ...
+# Subtest: mergeConfig registers instructions and mcp only — no skills array entry
+ok 420 - mergeConfig registers instructions and mcp only — no skills array entry
+  ---
+  duration_ms: 0.447041
+  type: 'test'
+  ...
+# Subtest: unmergeConfig removes only what mergeConfig added, dropping empty arrays
+ok 421 - unmergeConfig removes only what mergeConfig added, dropping empty arrays
+  ---
+  duration_ms: 0.132208
+  type: 'test'
+  ...
+# Subtest: plan folds config registration into a single opencode.json change with no skills key
+ok 422 - plan folds config registration into a single opencode.json change with no skills key
+  ---
+  duration_ms: 0.809292
+  type: 'test'
+  ...
+# Subtest: invalid opencode.json blocks planning but never mutates the file
+ok 423 - invalid opencode.json blocks planning but never mutates the file
+  ---
+  duration_ms: 1.320375
+  type: 'test'
+  ...
+# Subtest: OpenCode adapter materialises skills under .opencode/skills for project scope
+ok 424 - OpenCode adapter materialises skills under .opencode/skills for project scope
+  ---
+  duration_ms: 3.34875
+  type: 'test'
+  ...
+# Subtest: OpenCode adapter materialises the same skills tree under ~/.config/opencode/skills for global scope
+ok 425 - OpenCode adapter materialises the same skills tree under ~/.config/opencode/skills for global scope
+  ---
+  duration_ms: 2.805917
+  type: 'test'
+  ...
+# Subtest: OpenCode adapter refuses to overwrite a skill file modified outside DoFlow
+ok 426 - OpenCode adapter refuses to overwrite a skill file modified outside DoFlow
+  ---
+  duration_ms: 2.720875
+  type: 'test'
+  ...
+# Subtest: OpenCode adapter removes only fingerprint-matching copy-tree files
+ok 427 - OpenCode adapter removes only fingerprint-matching copy-tree files
+  ---
+  duration_ms: 2.294542
+  type: 'test'
+  ...
+# Subtest: remove strips only the managed AGENTS.md section, preserving foreign content on both sides
+ok 428 - remove strips only the managed AGENTS.md section, preserving foreign content on both sides
+  ---
+  duration_ms: 1.183291
+  type: 'test'
+  ...
+# Subtest: remove is a no-op on a foreign AGENTS.md that DoFlow never owned
+ok 429 - remove is a no-op on a foreign AGENTS.md that DoFlow never owned
+  ---
+  duration_ms: 0.739041
+  type: 'test'
+  ...
+# Subtest: implements the adapter contract and resolves official project/global native paths
+ok 430 - implements the adapter contract and resolves official project/global native paths
+  ---
+  duration_ms: 1.2405
+  type: 'test'
+  ...
+# Subtest: plans and applies a managed AGENTS.md section without overwriting foreign content
+ok 431 - plans and applies a managed AGENTS.md section without overwriting foreign content
+  ---
+  duration_ms: 2.771042
+  type: 'test'
+  ...
+# Subtest: refuses to merge into a foreign AGENTS.md that has no DoFlow managed section
+ok 432 - refuses to merge into a foreign AGENTS.md that has no DoFlow managed section
+  ---
+  duration_ms: 0.872292
+  type: 'test'
+  ...
+# Subtest: remove strips only the managed section, preserving foreign content on both sides
+ok 433 - remove strips only the managed section, preserving foreign content on both sides
+  ---
+  duration_ms: 2.119125
+  type: 'test'
+  ...
+# Subtest: remove leaves an empty AGENTS.md once nothing but the managed section remains
+ok 434 - remove leaves an empty AGENTS.md once nothing but the managed section remains
+  ---
+  duration_ms: 1.571208
+  type: 'test'
+  ...
+# Subtest: remove is a no-op on a foreign AGENTS.md that DoFlow never owned
+ok 435 - remove is a no-op on a foreign AGENTS.md that DoFlow never owned
+  ---
+  duration_ms: 0.739792
+  type: 'test'
+  ...
+# Subtest: plan never touches settings.json — the skills tree is materialised, not registered
+ok 436 - plan never touches settings.json — the skills tree is materialised, not registered
+  ---
+  duration_ms: 0.898375
+  type: 'test'
+  ...
+# Subtest: Pi adapter plans, applies, and verifies a copy-tree asset under .pi/skills for project scope
+ok 437 - Pi adapter plans, applies, and verifies a copy-tree asset under .pi/skills for project scope
+  ---
+  duration_ms: 3.338166
+  type: 'test'
+  ...
+# Subtest: Pi adapter installs the same copy-tree asset under ~/.pi/agent/skills for global scope
+ok 438 - Pi adapter installs the same copy-tree asset under ~/.pi/agent/skills for global scope
+  ---
+  duration_ms: 2.573875
+  type: 'test'
+  ...
+# Subtest: Pi adapter removes only fingerprint-matching copy-tree files
+ok 439 - Pi adapter removes only fingerprint-matching copy-tree files
+  ---
+  duration_ms: 2.790709
+  type: 'test'
+  ...
+# Subtest: Pi adapter refuses to remove a copy-tree file that was modified outside DoFlow
+ok 440 - Pi adapter refuses to remove a copy-tree file that was modified outside DoFlow
+  ---
+  duration_ms: 2.55
+  type: 'test'
+  ...
+# Subtest: assets.yaml routes skills.doflow to the pi adapter as a copy-tree asset
+ok 441 - assets.yaml routes skills.doflow to the pi adapter as a copy-tree asset
+  ---
+  duration_ms: 9.524958
+  type: 'test'
+  ...
+# Subtest: loads and validates the complete multi-harness registry
+ok 442 - loads and validates the complete multi-harness registry
+  ---
+  duration_ms: 4.854375
+  type: 'test'
+  ...
+# Subtest: loads evidence-backed external tool definitions with argument-vector commands only
+ok 443 - loads evidence-backed external tool definitions with argument-vector commands only
+  ---
+  duration_ms: 1.739459
+  type: 'test'
+  ...
+# Subtest: rejects malformed external tool provenance, identifiers, and command arrays
+ok 444 - rejects malformed external tool provenance, identifiers, and command arrays
+  ---
+  duration_ms: 1.88975
+  type: 'test'
+  ...
+# Subtest: selects only renderable harness assets and filters by capability
+ok 445 - selects only renderable harness assets and filters by capability
+  ---
+  duration_ms: 1.085834
+  type: 'test'
+  ...
+# Subtest: selects the neutral MCP catalog and rejects unknown selections
+ok 446 - selects the neutral MCP catalog and rejects unknown selections
+  ---
+  duration_ms: 0.851709
+  type: 'test'
+  ...
+# Subtest: generates capability-map records with evidence and explicit gaps
+ok 447 - generates capability-map records with evidence and explicit gaps
+  ---
+  duration_ms: 0.953667
+  type: 'test'
+  ...
+# Subtest: fails closed for malformed JSON-compatible YAML
+ok 448 - fails closed for malformed JSON-compatible YAML
+  ---
+  duration_ms: 2.142875
+  type: 'test'
+  ...
+# Subtest: rejects projections to unavailable capabilities and missing source files
+ok 449 - rejects projections to unavailable capabilities and missing source files
+  ---
+  duration_ms: 0.218583
+  type: 'test'
+  ...
+# Subtest: fails closed when Codex native projection source metadata is missing or escapes the repository
+ok 450 - fails closed when Codex native projection source metadata is missing or escapes the repository
+  ---
+  duration_ms: 1.565917
+  type: 'test'
+  ...
+# Subtest: CapabilityRouter loads canonical capabilities and routes from registry
+ok 451 - CapabilityRouter loads canonical capabilities and routes from registry
+  ---
+  duration_ms: 0.750458
+  type: 'test'
+  ...
+# Subtest: CapabilityRouter resolves exact search to native.rg
+ok 452 - CapabilityRouter resolves exact search to native.rg
+  ---
+  duration_ms: 22.270667
+  type: 'test'
+  ...
+# Subtest: CapabilityRouter resolves locate-concept to semantic search or falls back gracefully
+ok 453 - CapabilityRouter resolves locate-concept to semantic search or falls back gracefully
+  ---
+  duration_ms: 33.05275
+  type: 'test'
+  ...
+# Subtest: CapabilityRouter performs progressive fallback when primary provider is unavailable
+ok 454 - CapabilityRouter performs progressive fallback when primary provider is unavailable
+  ---
+  duration_ms: 34.155667
+  type: 'test'
+  ...
+# Subtest: CapabilityRouter evaluates capability health across all declarations
+ok 455 - CapabilityRouter evaluates capability health across all declarations
+  ---
+  duration_ms: 42.972166
+  type: 'test'
+  ...
+# Subtest: CapabilityRouter resolution executes in < 15ms (in-process performance NFR-001)
+ok 456 - CapabilityRouter resolution executes in < 15ms (in-process performance NFR-001)
+  ---
+  duration_ms: 31.551666
+  type: 'test'
+  ...
+# Subtest: CapabilityRouter throws on unknown intent or capability
+ok 457 - CapabilityRouter throws on unknown intent or capability
+  ---
+  duration_ms: 0.438792
+  type: 'test'
+  ...
+# Subtest: a claim with only contradicting evidence is rejected, not conflicted
+ok 458 - a claim with only contradicting evidence is rejected, not conflicted
+  ---
+  duration_ms: 2.581917
+  type: 'test'
+  ...
+# Subtest: a claim with both support and contradiction stays conflicted
+ok 459 - a claim with both support and contradiction stays conflicted
+  ---
+  duration_ms: 0.18775
+  type: 'test'
+  ...
+# Subtest: conflicted claims block readiness; rejected claims do not
+ok 460 - conflicted claims block readiness; rejected claims do not
+  ---
+  duration_ms: 4.419459
+  type: 'test'
+  ...
+# Subtest: support that has merely gone stale still counts as support
+ok 461 - support that has merely gone stale still counts as support
+  ---
+  duration_ms: 0.198667
+  type: 'test'
+  ...
+# Subtest: ClaimsManager initializes claims in hypothesis status
+ok 462 - ClaimsManager initializes claims in hypothesis status
+  ---
+  duration_ms: 1.784375
+  type: 'test'
+  ...
+# Subtest: ClaimsManager graduates hypothesis to supported when fresh evidence linked
+ok 463 - ClaimsManager graduates hypothesis to supported when fresh evidence linked
+  ---
+  duration_ms: 0.409292
+  type: 'test'
+  ...
+# Subtest: ClaimsManager detects conflicted claims when contradicting evidence linked
+ok 464 - ClaimsManager detects conflicted claims when contradicting evidence linked
+  ---
+  duration_ms: 0.214417
+  type: 'test'
+  ...
+# Subtest: ClaimsManager invalidates supported claim when supporting evidence becomes stale
+ok 465 - ClaimsManager invalidates supported claim when supporting evidence becomes stale
+  ---
+  duration_ms: 1.250416
+  type: 'test'
+  ...
+# Subtest: ClaimsManager saves and loads task claims
+ok 466 - ClaimsManager saves and loads task claims
+  ---
+  duration_ms: 2.186541
+  type: 'test'
+  ...
+# Subtest: EvidenceLedger records evidence with valid kinds and locators
+ok 467 - EvidenceLedger records evidence with valid kinds and locators
+  ---
+  duration_ms: 1.494375
+  type: 'test'
+  ...
+# Subtest: EvidenceLedger rejects invalid evidence kinds or provenance
+ok 468 - EvidenceLedger rejects invalid evidence kinds or provenance
+  ---
+  duration_ms: 0.411208
+  type: 'test'
+  ...
+# Subtest: EvidenceLedger queries evidence by filter criteria
+ok 469 - EvidenceLedger queries evidence by filter criteria
+  ---
+  duration_ms: 0.156541
+  type: 'test'
+  ...
+# Subtest: EvidenceLedger invalidates evidence referencing modified files
+ok 470 - EvidenceLedger invalidates evidence referencing modified files
+  ---
+  duration_ms: 0.135458
+  type: 'test'
+  ...
+# Subtest: EvidenceLedger saves and loads task evidence to neutral JSON state
+ok 471 - EvidenceLedger saves and loads task evidence to neutral JSON state
+  ---
+  duration_ms: 3.683
+  type: 'test'
+  ...
+# Subtest: a task id that names a path is rejected rather than resolved out of the state dir
+ok 472 - a task id that names a path is rejected rather than resolved out of the state dir
+  ---
+  duration_ms: 0.6295
+  type: 'test'
+  ...
+# Subtest: ordinary task ids are still accepted
+ok 473 - ordinary task ids are still accepted
+  ---
+  duration_ms: 0.4965
+  type: 'test'
+  ...
+# Subtest: C.12: evidence --action add records a durable, provenanced item
+ok 474 - C.12: evidence --action add records a durable, provenanced item
+  ---
+  duration_ms: 351.061
+  type: 'test'
+  ...
+# Subtest: C.12: a second write appends rather than replacing the task ledger
+ok 475 - C.12: a second write appends rather than replacing the task ledger
+  ---
+  duration_ms: 375.800458
+  type: 'test'
+  ...
+# Subtest: C.12: freshness is measured at the write boundary, not asserted by the caller
+ok 476 - C.12: freshness is measured at the write boundary, not asserted by the caller
+  ---
+  duration_ms: 329.282334
+  type: 'test'
+  ...
+# Subtest: C.12: a stage batch writes every item in one pass, in either spelling
+ok 477 - C.12: a stage batch writes every item in one pass, in either spelling
+  ---
+  duration_ms: 618.647625
+  type: 'test'
+  ...
+# Subtest: C.12: a batch is validated whole before any of it is written
+ok 478 - C.12: a batch is validated whole before any of it is written
+  ---
+  duration_ms: 348.662708
+  type: 'test'
+  ...
+# Subtest: C.12: an empty batch is refused rather than reported as a successful write
+ok 479 - C.12: an empty batch is refused rather than reported as a successful write
+  ---
+  duration_ms: 293.886417
+  type: 'test'
+  ...
+# Subtest: C.12: an unknown kind is refused with the valid set
+ok 480 - C.12: an unknown kind is refused with the valid set
+  ---
+  duration_ms: 251.204041
+  type: 'test'
+  ...
+# Subtest: C.12: provenance has no default — an unstated one is refused, not filed as repository fact
+ok 481 - C.12: provenance has no default — an unstated one is refused, not filed as repository fact
+  ---
+  duration_ms: 218.182458
+  type: 'test'
+  ...
+# Subtest: C.12: model analysis cannot be filed as a repository read
+ok 482 - C.12: model analysis cannot be filed as a repository read
+  ---
+  duration_ms: 345.362583
+  type: 'test'
+  ...
+# Subtest: C.12: an extracted item must name where it was read; an inferred one must say something
+ok 483 - C.12: an extracted item must name where it was read; an inferred one must say something
+  ---
+  duration_ms: 209.338458
+  type: 'test'
+  ...
+# Subtest: C.12: source is required — no unknown/general stand-in reaches the ledger
+ok 484 - C.12: source is required — no unknown/general stand-in reaches the ledger
+  ---
+  duration_ms: 209.414208
+  type: 'test'
+  ...
+# Subtest: C.12: a retrieval score offered as a flag is refused by name
+ok 485 - C.12: a retrieval score offered as a flag is refused by name
+  ---
+  duration_ms: 356.016459
+  type: 'test'
+  ...
+# Subtest: C.12: a score smuggled into a batch item is refused, nested or not
+ok 486 - C.12: a score smuggled into a batch item is refused, nested or not
+  ---
+  duration_ms: 316.991917
+  type: 'test'
+  ...
+# Subtest: C.12: no evidence record carries a numeric confidence field (FR-008)
+ok 487 - C.12: no evidence record carries a numeric confidence field (FR-008)
+  ---
+  duration_ms: 242.141125
+  type: 'test'
+  ...
+# Subtest: C.12: an unrecognised field is refused, never dropped from a write reported as success
+ok 488 - C.12: an unrecognised field is refused, never dropped from a write reported as success
+  ---
+  duration_ms: 154.73775
+  type: 'test'
+  ...
+# Subtest: C.12: fields the ledger would discard are refused by name, with the reason
+ok 489 - C.12: fields the ledger would discard are refused by name, with the reason
+  ---
+  duration_ms: 361.3125
+  type: 'test'
+  ...
+# Subtest: C.12: write arguments on a read action are refused, not ignored
+ok 490 - C.12: write arguments on a read action are refused, not ignored
+  ---
+  duration_ms: 200.176916
+  type: 'test'
+  ...
+# Subtest: C.12: a batch item naming a different task is refused
+ok 491 - C.12: a batch item naming a different task is refused
+  ---
+  duration_ms: 155.8745
+  type: 'test'
+  ...
+# Subtest: C.12: usage errors honour --json and exit 2
+ok 492 - C.12: usage errors honour --json and exit 2
+  ---
+  duration_ms: 155.643209
+  type: 'test'
+  ...
+# Subtest: C.12/FR-008: NEEDS_EVIDENCE — the class contract is understood and unmet
+ok 493 - C.12/FR-008: NEEDS_EVIDENCE — the class contract is understood and unmet
+  ---
+  duration_ms: 154.326833
+  type: 'test'
+  ...
+# Subtest: C.12/FR-008: READY — reachable only because evidence can now be written
+ok 494 - C.12/FR-008: READY — reachable only because evidence can now be written
+  ---
+  duration_ms: 344.412791
+  type: 'test'
+  ...
+# Subtest: C.12/FR-008: READY on the heaviest template needs a claim promoted by linked evidence
+ok 495 - C.12/FR-008: READY on the heaviest template needs a claim promoted by linked evidence
+  ---
+  duration_ms: 605.485375
+  type: 'test'
+  ...
+# Subtest: C.12/FR-008: BLOCKED — a claim with fresh support and fresh contradiction
+ok 496 - C.12/FR-008: BLOCKED — a claim with fresh support and fresh contradiction
+  ---
+  duration_ms: 533.598334
+  type: 'test'
+  ...
+# Subtest: C.12/FR-008: NEEDS_USER_DECISION — the caller declares a decision is owed
+ok 497 - C.12/FR-008: NEEDS_USER_DECISION — the caller declares a decision is owed
+  ---
+  duration_ms: 297.907208
+  type: 'test'
+  ...
+# Subtest: C.12/FR-008: all four states are reachable, and only those four
+ok 498 - C.12/FR-008: all four states are reachable, and only those four
+  ---
+  duration_ms: 755.613542
+  type: 'test'
+  ...
+# Subtest: C.12: a stated input is reported as stated, never as evidence
+ok 499 - C.12: a stated input is reported as stated, never as evidence
+  ---
+  duration_ms: 358.804792
+  type: 'test'
+  ...
+# Subtest: C.12: linking a claim to an unrecorded evidence id is refused, not graded
+ok 500 - C.12: linking a claim to an unrecorded evidence id is refused, not graded
+  ---
+  duration_ms: 271.754208
+  type: 'test'
+  ...
+# Subtest: C.12: an unsafe task id is a usage error, not an arbitrary file write
+ok 501 - C.12: an unsafe task id is a usage error, not an arbitrary file write
+  ---
+  duration_ms: 166.687416
+  type: 'test'
+  ...
+# Subtest: ReadinessEngine loads templates for all 5 task classes
+ok 502 - ReadinessEngine loads templates for all 5 task classes
+  ---
+  duration_ms: 0.65025
+  type: 'test'
+  ...
+# Subtest: ReadinessEngine evaluates Bug Fix readiness with missing evidence (NEEDS_EVIDENCE)
+ok 503 - ReadinessEngine evaluates Bug Fix readiness with missing evidence (NEEDS_EVIDENCE)
+  ---
+  duration_ms: 0.548875
+  type: 'test'
+  ...
+# Subtest: ReadinessEngine evaluates Bug Fix readiness as READY when prerequisites satisfied
+ok 504 - ReadinessEngine evaluates Bug Fix readiness as READY when prerequisites satisfied
+  ---
+  duration_ms: 1.511084
+  type: 'test'
+  ...
+# Subtest: ReadinessEngine evaluates Trivial Edit with localized target
+ok 505 - ReadinessEngine evaluates Trivial Edit with localized target
+  ---
+  duration_ms: 0.407667
+  type: 'test'
+  ...
+# Subtest: ReadinessEngine detects BLOCKED state when conflicted claims exist
+ok 506 - ReadinessEngine detects BLOCKED state when conflicted claims exist
+  ---
+  duration_ms: 0.253125
+  type: 'test'
+  ...
+# Subtest: ContextPackCompiler compiles compact structured context within budget
+ok 507 - ContextPackCompiler compiles compact structured context within budget
+  ---
+  duration_ms: 0.37825
+  type: 'test'
+  ...
+# Subtest: FreshnessValidator detects modified files and marks evidence STALE
+ok 508 - FreshnessValidator detects modified files and marks evidence STALE
+  ---
+  duration_ms: 0.27175
+  type: 'test'
+  ...
+# Subtest: merging preserves every managed hook entry, including one command under multiple matchers
+ok 509 - merging preserves every managed hook entry, including one command under multiple matchers
+  ---
+  duration_ms: 1.061083
+  type: 'test'
+  ...
+# Subtest: verification detects a dropped managed hook entry rather than reporting containment
+ok 510 - verification detects a dropped managed hook entry rather than reporting containment
+  ---
+  duration_ms: 0.325958
+  type: 'test'
+  ...
+# Subtest: a foreign hook on a DoFlow-managed event survives merge and remove
+ok 511 - a foreign hook on a DoFlow-managed event survives merge and remove
+  ---
+  duration_ms: 1.382542
+  type: 'test'
+  ...
+# Subtest: chmodHooksExecutable adds +x to every .sh hook while preserving existing bits, and skips non-.sh files
+ok 512 - chmodHooksExecutable adds +x to every .sh hook while preserving existing bits, and skips non-.sh files
+  ---
+  duration_ms: 1.362167
+  type: 'test'
+  ...
+# Subtest: chmodHooksExecutable is a no-op when there is no hooks/ directory
+ok 513 - chmodHooksExecutable is a no-op when there is no hooks/ directory
+  ---
+  duration_ms: 0.659833
+  type: 'test'
+  ...
+# Subtest: state roots are neutral and scope-specific
+ok 514 - state roots are neutral and scope-specific
+  ---
+  duration_ms: 1.150917
+  type: 'test'
+  ...
+# Subtest: ledger writes atomically and round-trips without a harness directory
+ok 515 - ledger writes atomically and round-trips without a harness directory
+  ---
+  duration_ms: 2.206333
+  type: 'test'
+  ...
+# Subtest: recovery records are append-only, atomically readable journals
+ok 516 - recovery records are append-only, atomically readable journals
+  ---
+  duration_ms: 3.068625
+  type: 'test'
+  ...
+# Subtest: legacy manifest migration imports explicit ownership once and leaves the legacy file untouched
+ok 517 - legacy manifest migration imports explicit ownership once and leaves the legacy file untouched
+  ---
+  duration_ms: 27.350167
+  type: 'test'
+  ...
+# Subtest: legacy migration does not create ownership from tool-only or malformed legacy state
+ok 518 - legacy migration does not create ownership from tool-only or malformed legacy state
+  ---
+  duration_ms: 28.872041
+  type: 'test'
+  ...
+# Subtest: legacy manifest import coexists with pre-existing adapter-owned copy-tree/settings resources without collision or data loss
+ok 519 - legacy manifest import coexists with pre-existing adapter-owned copy-tree/settings resources without collision or data loss
+  ---
+  duration_ms: 27.149792
+  type: 'test'
+  ...
+# Subtest: normalizes status outcomes without shortcutting any status command
+ok 520 - normalizes status outcomes without shortcutting any status command
+  ---
+  duration_ms: 1.173541
+  type: 'test'
+  ...
+# Subtest: missing uv blocks Graphify mutation without attempting to install a prerequisite
+ok 521 - missing uv blocks Graphify mutation without attempting to install a prerequisite
+  ---
+  duration_ms: 0.218792
+  type: 'test'
+  ...
+# Subtest: each executable command is displayed and confirmed separately; declined commands are not executed
+ok 522 - each executable command is displayed and confirmed separately; declined commands are not executed
+  ---
+  duration_ms: 0.34875
+  type: 'test'
+  ...
+# Subtest: a failed command does not prevent independently confirmed commands from running
+ok 523 - a failed command does not prevent independently confirmed commands from running
+  ---
+  duration_ms: 0.124166
+  type: 'test'
+  ...
+# Subtest: unsupported platforms run no inspection or action commands
+ok 524 - unsupported platforms run no inspection or action commands
+  ---
+  duration_ms: 0.146166
+  type: 'test'
+  ...
+# Subtest: RTK update is skipped because no verified update command is registered
+ok 525 - RTK update is skipped because no verified update command is registered
+  ---
+  duration_ms: 0.786875
+  type: 'test'
+  ...
+1..525
+# tests 525
+# suites 0
+# pass 524
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 11321.189625

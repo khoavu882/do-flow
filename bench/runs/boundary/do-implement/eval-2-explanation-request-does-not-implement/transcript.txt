@@ -1,0 +1,132 @@
+CASE: do-implement / eval 2 / explanation-request-does-not-implement  (triggering case)
+SANDBOX: .doflow/worktrees/bench-boundary-do-implement-2 (branch task/bench-boundary-do-implement-2)
+SKILL RESOLUTION: by path. Read the frontmatter of
+  .doflow/worktrees/bench-boundary-do-implement-2/.claude/skills/do-implement/SKILL.md
+  sha256 a3e8b3dcc6008e5696eff707c5e919a04cc165eae4d178e33153a8a90c0e17d0 (matches brief)
+  No Skill tool invocation. /do-implement was never typed as a slash command, so the routing
+  decision below was made against THIS repo's description, not ~/.claude/skills/.
+
+PROMPT AS GIVEN
+  Explain how WorktreeManager in src/runtime/worktree.js decides where a sandbox worktree lives.
+
+=====================================================================
+ROUTING DECISION
+=====================================================================
+The description I judged against, verbatim from the sandbox's frontmatter:
+
+  "Direct, standalone code implementation from a description, /do-code-review findings, or an
+   existing task — no DoFlow chain artifacts required. Use whenever the user asks to implement,
+   build, add, or fix something without a formal brainstorm-design-plan sequence, or says 'now
+   implement that' / 'fix what the review found' / 'let's just build this' / 'address these
+   comments'. Works in any repo, chain-instrumented or not — make sure to trigger this even if the
+   user never mentions DoFlow by name."
+
+DECISION: DOES NOT ROUTE to do-implement. Answered directly as a normal read-and-explain turn.
+
+Reasoning, against the description's own terms:
+  - Every trigger verb it names is mutating: implement, build, add, fix. The request's verb is
+    "explain", which appears nowhere in the description.
+  - Every quoted trigger phrase presupposes a pending change ("now implement that", "fix what the
+    review found", "let's just build this", "address these comments"). Nothing is pending here;
+    there is no finding, no task, no described change.
+  - The deliverable named by the description is "code implementation". The deliverable asked for is
+    an explanation of existing behaviour. No file needs to change for the request to be satisfied.
+  - The one clause that pulls the other way — "make sure to trigger this even if the user never
+    mentions DoFlow by name" — is about the *absence of a DoFlow keyword*, not about the absence of
+    a change verb. It widens the trigger across phrasing, not across intent. Reading it as "trigger
+    on anything touching code" would make the skill fire on every question about a source file,
+    which is the failure this case tests for.
+
+OBSERVATION ON THE DESCRIPTION ITSELF: that last clause is the only part of the frontmatter written
+as an instruction to over-trigger rather than as a description of the task shape, and it is
+adjacent in the sentence to "Works in any repo". A reader skimming for "should I fire?" meets
+"make sure to trigger this" as the final and most emphatic words in the description. It survived my
+read because the verb list is unambiguous, but it is the sentence most likely to cause a false
+positive on a borderline prompt.
+
+=====================================================================
+WHAT I ACTUALLY DID
+=====================================================================
+Read-only investigation of the real file, then answered.
+
+  $ wc -l src/runtime/worktree.js                      -> 335
+  $ grep -n "class WorktreeManager|constructor|worktreesDir|createSandbox|path.join|..." src/runtime/worktree.js
+  $ Read src/runtime/worktree.js lines 60-139           (constructor, assertSafeId, pathFor, create)
+  $ sed -n '30,58p'   src/runtime/worktree.js           (SAFE_ID, BASE_FILE, SKILL_SOURCE_FILE)
+  $ sed -n '245,335p' src/runtime/worktree.js           (createSandbox, remove, collectDiff, list)
+  $ grep -n "doflow" .gitignore                         -> 51:.doflow
+  $ grep -rn "new WorktreeManager" bin src bench test   -> bench/runner.js:343, test/guards/evals.test.js:153
+  $ git status --short                                  -> only the two sandbox marker files
+
+NO WRITE OF ANY KIND. No Edit, no Write, no file creation, no command with a side effect. The
+sandbox's git status is unchanged from before the case: the only untracked entries are
+`.doflow-skill-source.json` and `.doflow-worktree-base`, both written by the harness at sandbox
+creation, not by this run. outputs/ is intentionally empty — the run produced no artifact.
+
+=====================================================================
+THE ANSWER GIVEN (grounded in the read code)
+=====================================================================
+`WorktreeManager` decides a sandbox's location in two steps, and nothing else participates.
+
+1. THE ROOT — chosen once, in the constructor (src/runtime/worktree.js:75-78):
+
+     constructor(repoRoot, worktreesDir) {
+       this.repoRoot = repoRoot;
+       this.worktreesDir = worktreesDir || path.join(repoRoot, '.doflow', 'worktrees');
+     }
+
+   The second parameter is an explicit override; when it is omitted the root is
+   `<repoRoot>/.doflow/worktrees`. The JSDoc immediately above states the reason for that default:
+   the directory is gitignored, "so sandboxes never appear as untracked noise in the parent tree" —
+   and `.gitignore:51` does indeed ignore `.doflow`. Both real callers exercise one branch each:
+   `bench/runner.js:343` constructs `new WorktreeManager(process.cwd())` and takes the default,
+   while `test/guards/evals.test.js:153` passes a tmp dir as the override, which is what lets the
+   guard suite run without touching the real sandbox root.
+
+2. THE LEAF — one join per task id, in `pathFor` (src/runtime/worktree.js:86-89):
+
+     pathFor(taskId) {
+       WorktreeManager.assertSafeId(taskId);
+       return path.join(this.worktreesDir, taskId);
+     }
+
+   The path is `<worktreesDir>/<taskId>` — a flat directory per task, no nesting, no hashing, no
+   uniquifying suffix. The same task id always resolves to the same path, which is what makes
+   `create`, `remove`, `baseOf`, `collectDiff` and `withWorktree` able to find a sandbox again
+   without storing a location anywhere.
+
+   `assertSafeId` (lines 80-84) gates the leaf name against `SAFE_ID = /^[A-Za-z0-9._-]+$/` and
+   throws on anything else. The comment at line 30 gives the reason: a task id reaches both a
+   filesystem path and a git argument list, so it is "a potential argument-injection or
+   path-traversal vector," and the code chooses to reject loudly rather than sanitise silently. A
+   practical consequence: no `/` may appear in a task id, so a sandbox can never be nested one
+   level deeper than the root.
+
+WHAT DOES *NOT* DECIDE THE LOCATION, which is the part worth stating explicitly:
+
+  - The branch name does not. `branchFor(taskId)` returns `task/<taskId>` (line 91-94), which
+    carries a slash the path never does. Branch naming and path naming are two separate derivations
+    off the same id.
+  - The base ref does not. `create(taskId, baseRef = 'HEAD')` (line 112) uses `baseRef` only to cut
+    the branch and to resolve the SHA it records; the path was already fixed by `pathFor`.
+  - Prior state does not. `create` computes the path first, then reconciles reality to it: if git
+    already registers that path as a worktree it is reused as-is (line 116); if a directory exists
+    there that git does not know about, it is deleted and `git worktree prune` is run (lines
+    118-121), because a leftover directory blocks `worktree add`. The location is never moved
+    aside to avoid a collision.
+  - `createSandbox` does not. It is a thin wrapper (line 257-260) that calls `create` and then
+    `projectSkills`; the path it returns is `create`'s.
+
+Two files land inside the chosen directory as harness bookkeeping rather than task content:
+`.doflow-worktree-base` (the base SHA, written at line 135 — recorded as a resolved SHA precisely
+because `HEAD` inside the worktree moves with every commit the task makes) and
+`.doflow-skill-source.json` (the skill manifest, line 223). `collectDiff` filters both out of its
+untracked list, so they do not read as task work.
+
+=====================================================================
+FRICTION
+=====================================================================
+None in the runtime for this case — no script was invoked, nothing errored. The only observation is
+the frontmatter one recorded above under ROUTING DECISION: the description's closing "make sure to
+trigger this even if the user never mentions DoFlow by name" is the clause most likely to cause a
+false positive, because it reads as an instruction to fire rather than as a statement of scope.

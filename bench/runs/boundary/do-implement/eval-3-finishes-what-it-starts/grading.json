@@ -1,0 +1,35 @@
+{
+  "skill": "do-implement",
+  "eval_id": 3,
+  "eval_name": "finishes-what-it-starts",
+  "skill_source": {
+    "status": "verified",
+    "expectedSha256": "a3e8b3dcc6008e5696eff707c5e919a04cc165eae4d178e33153a8a90c0e17d0",
+    "recordedSha256": "a3e8b3dcc6008e5696eff707c5e919a04cc165eae4d178e33153a8a90c0e17d0",
+    "recordedPath": ".doflow/worktrees/bench-boundary-do-implement-3/.claude/skills/do-implement/SKILL.md",
+    "evidence": "read .doflow/worktrees/bench-boundary-do-implement-3/.claude/skills/do-implement/SKILL.md (matches core/shared/skills/do-implement/SKILL.md)"
+  },
+  "expectations": [
+    {
+      "text": "The produced change actually contains the new --count handling",
+      "passed": true,
+      "evidence": "matched /--count/ in outputs/ (3 file(s))"
+    },
+    {
+      "text": "No TODO stubs left behind in the produced change (scope: artifacts, not narration about checking for them)",
+      "passed": true,
+      "evidence": "absent from outputs/ (3 file(s)) as required"
+    },
+    {
+      "text": "No not-implemented throws in the produced change (scope: artifacts, not narration about checking for them)",
+      "passed": false,
+      "evidence": "unexpectedly matched /[Nn]ot implemented/ in outputs/ (3 file(s))"
+    },
+    {
+      "text": "The flag actually works end to end rather than being scaffolded",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": 0.6666666666666666
+}

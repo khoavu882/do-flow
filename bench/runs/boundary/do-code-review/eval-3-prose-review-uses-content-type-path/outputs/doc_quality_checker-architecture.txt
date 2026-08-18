@@ -1,0 +1,11 @@
+============================================================
+DOC QUALITY REPORT
+============================================================
+
+Target: docs/architecture.md
+Findings: 1
+
+docs/architecture.md
+  [LOW] line 63 (staleness_marker): Possible staleness marker 'legacy' — confirm this prose actually asserts the surrounding content is outdated, not a rule/instruction quoting the word as a detection target.
+
+============================================================

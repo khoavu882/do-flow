@@ -1,0 +1,30 @@
+{
+  "skill": "do-test",
+  "eval_id": 1,
+  "eval_name": "test-request-invokes-test",
+  "skill_source": {
+    "status": "verified",
+    "expectedSha256": "ae17550df4348ece0f2b16f9e9c3a81d8a0ec9e68acd47d451999393d5d3c771",
+    "recordedSha256": "ae17550df4348ece0f2b16f9e9c3a81d8a0ec9e68acd47d451999393d5d3c771",
+    "recordedPath": ".doflow/worktrees/bench-boundary-do-test-1/.claude/skills/do-test/SKILL.md",
+    "evidence": "read .doflow/worktrees/bench-boundary-do-test-1/.claude/skills/do-test/SKILL.md (matches core/shared/skills/do-test/SKILL.md)"
+  },
+  "expectations": [
+    {
+      "text": "do-test was invoked",
+      "passed": false,
+      "evidence": "invoked: [none]"
+    },
+    {
+      "text": "The runner's own pass/fail counters are reported, not a description of what a run would do",
+      "passed": true,
+      "evidence": "matched /# (pass|fail) \\d+/ in transcript"
+    },
+    {
+      "text": "Anything reported as broken is traceable to the actual output",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": 0.5
+}

@@ -1,0 +1,155 @@
+PROMPT
+======
+/do --estimate Add an eighth harness adapter to this repo: a registry entry in
+harnesses.yaml/contracts.yaml/assets.yaml, a src/adapters/<id>/index.js implementing the
+six-function contract, dispatch wiring, and the guard updates that keeps.
+
+RESPONSE
+========
+
+## Estimate: Add an 8th DoFlow harness adapter
+
+**Range: 1-3 days of focused, solo engineering time; typically 1-2 days.**
+
+No numeric or percentage confidence is attached to this range — the assumptions below are the
+honest expression of what is not yet known (per this repo's own estimation rule: point estimates
+without a confidence interval are prohibited).
+
+### Grounding evidence (from this sandbox, not invented)
+
+1. **Direct precedent, one commit away.** `git log --diff-filter=A -- 'src/adapters/*/index.js'`
+   shows the adapter set was built in three waves, most recently commit `96006da`
+   ("feat(adapters): add copilot and kiro, dispatch all seven harnesses", dated 2026-08-17 —
+   the day before today). That commit added **two** new harnesses in one shot:
+   `src/adapters/copilot/index.js` (385 lines) and `src/adapters/kiro/index.js` (320 lines),
+   plus their dedicated test files `test/copilot-adapter.test.js` (323 lines) and
+   `test/kiro-adapter.test.js` (270 lines), plus wiring edits to `bin/doflow.js` (+13/-x),
+   `core/registry/harnesses.yaml` (34 lines changed), `src/lifecycle-view.js` (9 lines), and
+   small fixes to `opencode`/`pi` adapters and their tests surfaced only by real (non-mocked)
+   installs. Total: **1374 insertions across 12 files for 2 adapters** — roughly 687
+   insertions/adapter, but that average includes discovery overhead (three latent bugs the
+   commit message says were only caught by "real installs into scratch directories," not by
+   mocks).
+
+2. **Current adapter size range.** The 7 existing adapters (`src/adapters/{claude,codex,
+   copilot,gemini,kiro,opencode,pi}/index.js`) run 228-578 lines each (pi smallest, codex
+   largest; sum 2486). A new adapter following the established copy-tree + marker-merge pattern
+   (which the commit message explicitly says copilot/kiro did: "following the copy-tree +
+   marker-merge pattern gemini/opencode/pi already established") would plausibly land in the
+   250-400 line band, not the 578-line high end, since that high end (codex) reflects
+   codex-specific complexity (bespoke `AGENTS.md` + MCP config handling), not a floor.
+
+3. **Registry surface is wider than one file each.** `core/registry/assets.yaml` has 11 asset
+   ids, and each one carries a *per-harness* projection block keyed by harness id (69 total
+   harness-key occurrences across those 11 assets currently). Adding an 8th harness means
+   touching up to 11 scattered locations in that one file, not a single insertion point.
+   `core/registry/contracts.yaml` has one contract block per harness (7 blocks, lines 5-172,
+   ranging ~11 to ~80 lines depending on how many fields that harness declares) — a new block is
+   likely 15-30 lines for a harness of typical richness.
+
+4. **The guard suite is registry-data-driven, not harness-count-hardcoded.** Reading
+   `test/guards/registry.test.js` (G5) and `test/guards/dispatch.test.js` (G9) shows both
+   iterate `registry.harnesses` / `agentSpecFiles()` generically rather than enumerating harness
+   ids or asserting a count of 7. This means the "guard updates that keep [it green]" the prompt
+   asks for are very likely satisfied by **correct registry data**, not new guard logic — a
+   meaningfully smaller task than writing a new guard.
+
+5. **Docs do hardcode the count, though.** `grep -rn seven docs/*.md` finds hardcoded
+   "seven harnesses" language in `docs/overview.md:41`, `docs/setup.md:21`, and
+   `docs/capability-map.md:119-120` (the latter also describes "a uniform 10-row taxonomy across
+   all seven harnesses" — implying a capability-matrix table with one column per harness that
+   would need an 8th column, not just a word swap). This is real scope the prompt's "guard
+   updates" framing doesn't explicitly name but the repo's own G6 doc-inventory guard would
+   catch if left stale.
+
+### What sets the width of the range
+
+- **Low end (~1 day):** the target harness closely resembles an existing shape — CLI tool with a
+  file-based config, a skills-like extension mechanism, and either native MCP support or a clean
+  "not applicable" (as `pi/index.js`'s own header comments show precedent for: it deliberately
+  leaves MCP and hooks unimplemented because Pi's extension model doesn't fit DoFlow's shape,
+  and that's an accepted, working design, not a gap to fill). Adapter code, one contract block,
+  the up-to-11 assets.yaml edits, dispatch wiring, one new test file, and the 3-4 doc fixes fit
+  in a single focused day.
+- **High end (~2-3 days):** the target harness has no clean analog among the 7 (e.g., a
+  fundamentally different trust/execution model like Pi's `pi.on()`-registered TypeScript
+  handlers vs. DoFlow's shell-script hooks), forcing real research into that tool's actual
+  on-disk format before any code is written, and/or the task includes the same "verify with real
+  installs into scratch directories" step the copilot/kiro commit did — which is how 3 of the
+  bugs in that precedent were found, not by writing mocks alone.
+
+### Assumptions this estimate rests on
+
+- **No target harness was named** in the prompt ("an eighth harness adapter" is abstract). The
+  estimate assumes a harness of "typical" shape — comparable in surface area to the 7 that
+  exist — not a best case or worst case. See "ASSUMPTION SUBSTITUTED FOR QUESTION" below.
+- Solo engineer, uninterrupted, already has this repo's context loaded (excludes onboarding
+  time).
+- "The guard updates that keeps [it green]" is read as: the existing guard suite must still pass
+  after the change, not that new guard *code* must be written — supported by G5/G9 both being
+  data-driven over the registry rather than hardcoded to a harness list.
+- Test-writing scope assumed to match precedent depth: one new `test/<harness>-adapter.test.js`
+  in the 250-325 line band (matching `copilot-adapter.test.js`/`kiro-adapter.test.js`), not a
+  broader integration-test buildout.
+
+### Unknowns that would narrow this range
+
+- Which harness is actually being targeted, and whether it has a documented, stable on-disk
+  config format DoFlow can read without exploratory testing.
+- Whether that harness has anything resembling MCP config and hook execution, or whether (like
+  Pi) large parts of the six-function contract are legitimately no-ops for it.
+- Whether "real installs into scratch directories" verification (as the copilot/kiro commit did)
+  is in scope for this task or considered a follow-up.
+- Whether `docs/capability-map.md`'s matrix needs a structural new column (larger doc edit) or
+  the "seven" mentions are just prose that needs a word change.
+
+## Tools and skills used
+1. Read — `.claude/skills/do/SKILL.md` at the exact sandbox path (read by path, never invoked
+   via the Skill tool by name).
+2. Bash — `ls src/adapters/`, `wc -l src/adapters/*/index.js`, `wc -l core/registry/*.yaml`,
+   `ls test/guards/`, `wc -l test/guards/*.test.js` (structural inventory of the 7 existing
+   adapters, the registry files, and the guard suite).
+3. Read — `.claude/skills/do/references/estimation.md` (the skill's own estimation-mode
+   reference: ranged, confidence-banded, no point estimates).
+4. Read — `src/adapters/pi/index.js` in full (smallest adapter, to see the six-function contract
+   shape and how one adapter legitimately no-ops parts of it).
+5. Bash — `git log --oneline --diff-filter=A -- 'src/adapters/*/index.js'`, grep over
+   `harnesses.yaml`/`contracts.yaml`/`assets.yaml` for harness/asset structure.
+6. Bash — `git show --stat 96006da` and `git show -s --format=%ci 96006da` (the direct
+   two-adapters-in-one-commit precedent that anchors the range).
+7. Bash — counted asset ids and per-harness projection-key occurrences in `assets.yaml`, harness
+   contract blocks in `contracts.yaml`.
+8. Bash — read `test/guards/_shared.js`, grepped `test/guards/registry.test.js`, read
+   `test/guards/dispatch.test.js` in full (confirmed the guard suite is registry-data-driven,
+   not harness-count-hardcoded).
+9. Bash — grepped `docs/*.md` and `CLAUDE.md` for hardcoded "seven"/harness-count language
+   (found 4 files needing doc updates the prompt didn't explicitly name).
+10. Bash — resolved and confirmed the sandbox's `doflow-run` runtime binary exists and is
+    executable.
+11. Bash — `doflow-run paths --json` (skill's step 1, session/runtime resolution — read-only).
+12. Write — `estimate-batch.json` scratch file (6 evidence items: the historical commit, 3
+    structural registry/adapter facts, 1 documentation fact, 1 inferred generated-analysis
+    conclusion about the guard suite).
+13. Bash — `doflow-run evidence --task-id bench-boundary-do-2-estimate --action add --batch
+    estimate-batch.json --json` (skill's step 5, batched once for the whole estimate — first
+    attempt with a slash-containing task id was rejected with a usage error, corrected to a
+    valid id and retried successfully; 6 items written).
+14. Bash — `doflow-run claim --task-id bench-boundary-do-2-estimate --action add --statement
+    "..." --json` (skill's step 5, recorded the ranged-estimate conclusion as a hypothesis
+    claim).
+15. Bash — `shasum -a 256` on the skill file for `skill_source.json`.
+16. Bash — copied the runtime-produced evidence/claims state files and the (since-deleted per
+    skill instructions) scratch batch file into this case's `outputs/` directory.
+
+## Assumptions substituted for questions
+- ASSUMPTION SUBSTITUTED FOR QUESTION: The prompt names no target harness for the 8th adapter,
+  which normally would be a genuine user-owned decision worth asking about (it materially
+  changes both the estimate's width and, in a real implementation, the entire shape of the
+  work) -> Assumed a harness of "typical" shape comparable in surface area to the 7 that already
+  exist, and widened the range (1-3 days, centering 1-2) rather than picking a single harness or
+  narrowing to a false-precision point. This is stated explicitly in the response above rather
+  than silently guessed, per the non-interactive instruction to substitute a reasonable
+  assumption instead of calling AskUserQuestion.
+- No other clarifying questions were needed — `--estimate` mode's own rule ("stops after
+  producing the estimate; never begins edits") meant no scope-of-execution questions arose,
+  since no edits were attempted.
