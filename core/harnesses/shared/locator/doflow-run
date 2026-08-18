@@ -2,8 +2,9 @@
 # DoFlow locator shim — projected to all seven harnesses by the `locator.doflow` asset in
 # core/registry/assets.yaml (design.md §3 C2, §4.1).
 #
-# Its ONLY job is to find the single dispatcher at `<config>/bin/doflow-run` and exec it with every
-# argument passed through unmodified. It deliberately holds NO verb table and NO verb knowledge:
+# Its ONLY job is to find the single dispatcher (at $REL below, under the config dir) and exec it
+# with every argument passed through unmodified. It deliberately holds NO verb table and NO verb
+# knowledge:
 # the verb namespace lives in exactly one place — the dispatcher — so adding a verb never edits
 # seven projected copies of this file. Its content is byte-identical on every harness; only the
 # harness-native path it is written to differs.
@@ -12,11 +13,11 @@
 # with the installer CLI (`bin/doflow.js`, published as the `doflow` command) — a different program
 # with a different verb surface.
 #
-# Resolution order (design.md §4.1), first hit wins:
-#   1. $DOFLOW_CONFIG_DIR/bin/doflow-run  — explicit override, and what harness session hooks export
-#   2. nearest .doflow/bin/doflow-run walking up from the working directory — project-local install
-#      wins over global
-#   3. $HOME/.doflow/bin/doflow-run       — global install
+# Resolution order (design.md §4.1), first hit wins. $REL is defined once below and interpolated
+# into every step, so no step can drift onto a different path than the others:
+#   1. $DOFLOW_CONFIG_DIR/$REL  — explicit override, and what harness session hooks export
+#   2. nearest .doflow/$REL walking up from the working directory — project-local wins over global
+#   3. $HOME/.doflow/$REL       — global install
 # None found: exit 2 — a resolution error under the dispatcher's uniform exit codes (0 success,
 # 1 actionable finding, 2 usage/resolution error) — with one message naming all three places
 # searched. design.md R3 accepts this outcome deliberately: a harness install with no `.doflow/`
