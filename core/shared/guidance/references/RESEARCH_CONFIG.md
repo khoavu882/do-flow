@@ -5,9 +5,11 @@ No loader reads this file: it holds no knobs, only the discipline a research run
 **The class.** `research` is a declared task class whose workflow terminates at synthesis and
 declares no readiness template: do not run a readiness check, and do not report one as skipped.
 
-**Retrieval.** Resolve each information need through the capability router (`"$DOFLOW" route`),
-not a named vendor. `"$DOFLOW" capabilities` lists the registered capabilities and
-`doflow capabilities` reports which provider answers on *this* machine — no written table can.
+**Retrieval.** The capability router covers repository-local needs only — every registered
+capability resolves inside this repo, and `route` rejects a web intent by name. Web retrieval is
+the harness's own tools; name what answered in the report rather than a vendor you assumed. Ask
+`"$DOFLOW" capabilities` what is registered instead of trusting a written table, but do not expect
+a search provider there yet.
 Two passes, in order: one broad discovery pass over the whole scope — terminology, surfaces,
 competing readings — concluding nothing; then one targeted pass per named sub-question.
 

@@ -1,0 +1,30 @@
+{
+  "skill": "do",
+  "eval_id": 2,
+  "eval_name": "estimation-is-ranged-not-false-precision",
+  "skill_source": {
+    "status": "verified",
+    "expectedSha256": "e77be8adcd024bdc3d1fec493136cbaed6afc1f6fe5658279b42bf2b9005cd1d",
+    "recordedSha256": "e77be8adcd024bdc3d1fec493136cbaed6afc1f6fe5658279b42bf2b9005cd1d",
+    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-2/.claude/skills/do/SKILL.md",
+    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-2/.claude/skills/do/SKILL.md (matches core/shared/skills/do/SKILL.md)"
+  },
+  "expectations": [
+    {
+      "text": "The estimate labels its assumptions explicitly",
+      "passed": true,
+      "evidence": "matched /[Aa]ssumption/ in transcript"
+    },
+    {
+      "text": "The estimate is grounded in the existing adapters rather than generic guesswork",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    },
+    {
+      "text": "Estimate is a range or is qualified, not a bare single number presented as certain",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": 1
+}

@@ -1,0 +1,234 @@
+CASE: do-execute-plan / eval-3 / respects-write-set-isolation (behavioral)
+ITERATION: d3
+SANDBOX: .doflow/worktrees/bench-d3-do-execute-plan-3 (created this run; branch task/bench-d3-do-execute-plan-3)
+
+PROMPT AS GIVEN
+  First set up a fixture in this sandbox: create agent-docs/doflow/900-writeset/ holding a
+  one-paragraph requirement.md, a one-paragraph design.md, and a plan.md whose Tasks section reads
+  exactly these three lines:
+  - [ ] A.1 [P] Write one line to docs/one.md — owner: core-implementer; files: `docs/one.md`
+  - [ ] A.2 [P] Write one line to docs/two.md — owner: system-architect; files: `docs/two.md`
+  - [ ] A.3 [P] Append a second line to docs/one.md — owner: quality-guardian; files: `docs/one.md`
+  Then run /do-execute-plan --scope phase:A against it.
+
+SKILL RESOLUTION (by path, never as a slash command)
+  Read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-execute-plan-3/.claude/skills/do-execute-plan/SKILL.md
+  sha256: 672ab166a6d231b6b0fb8aca2f273cad9779f8fa85eea9540c3cd065c164949c
+  Matches brief's sourceSha256 and the sandbox manifest's sourceSha256 (matchesSource: true).
+  Also read by path, as the SKILL instructed:
+    .claude/skills/do-execute-plan/references/parallel_dispatch.md
+    .doflow/guidance/references/MODEL_SELECTION.md
+    .doflow/guidance/references/EVIDENCE_LEDGER.md
+  Skill tool invocations: none. No /do-execute-plan slash command was used.
+
+FIXTURE SETUP
+  Created agent-docs/doflow/900-writeset/{requirement.md,design.md,plan.md}.
+  plan.md initially carried exactly the "## Tasks" heading plus the three task lines verbatim.
+
+STEP 1 — RESOLVE STATE & PREREQUISITE GATE
+  Ran the SKILL's verbatim walk-up resolver from the sandbox root. It resolved:
+    DOFLOW=<sandbox>/.doflow/scripts/doflow/bin/doflow-run
+  The runtime IS present in the sandbox install (.doflow/runtime/ + .doflow/scripts/) — the
+  ship-the-runtime fix holds; no fallback to $HOME/.doflow was needed.
+
+  $ "$DOFLOW" paths --json          -> exit 0
+    branch          = task/bench-d3-do-execute-plan-3
+    feature_slug    = bench-d3-do-execute-plan-3
+    feature_dir     = agent-docs/doflow/bench-d3-do-execute-plan-3
+    candidate_slugs = []
+    has_requirement/has_design/has_plan = false/false/false
+
+  FRICTION 1. paths is branch-coupled and did not see the fixture. The prompt names the feature dir
+  900-writeset; paths derives the dir from the branch name and reports the fixture as absent.
+  candidate_slugs stayed [] even though agent-docs/doflow/900-writeset/ exists on disk with all
+  three artifacts, so the documented "2+ candidates surface via candidate_slugs" escape hatch never
+  fired — there was exactly one numbered dir and it was still not offered.
+
+  $ "$DOFLOW" prereqs --require-plan   -> exit 2
+    {"ok":false,"error":"missing-prereqs","has_requirement":false,"has_design":false,
+     "has_plan":false,"hint":"run /do-design and /do-plan before /do-execute-plan"}
+
+  FRICTION 2. do-execute-plan's SKILL.md never mentions --slug. The hard prereq gate blocked, and
+  the skill's own text offers no documented way to point the run at a feature dir other than the
+  branch-derived one. I found --slug by grepping sibling skills (do-design, do-plan, do-flow and
+  do-brainstorm all document it) and by reading do-paths.sh's usage banner. A session that only
+  read do-execute-plan/SKILL.md would be stuck at exit 2 here.
+
+  SUBSTITUTED ASSUMPTION 1: passed --slug=900-writeset to every feature-scoped verb, rather than
+  renaming the branch or moving the fixture. Rationale: least destructive, keeps the prompt's
+  fixture path intact.
+
+  $ "$DOFLOW" paths --json --slug=900-writeset     -> exit 0, has_requirement/design/plan all true
+  $ "$DOFLOW" prereqs --require-plan --slug=900-writeset
+    {"ok":true,"feature_slug":"900-writeset","has_requirement":true,"has_design":true,"has_plan":true}
+    exit 0 — gate passed.
+
+STEP 2 — PROPOSE TASK CLASS; RUNTIME VALIDATES
+  SUBSTITUTED ASSUMPTION 2: no user to name a class and /do-flow did not invoke this run, so the
+  class was derived from plan.md as the skill directs. Proposed "feature" (full chain artifacts
+  present, tasks author new files).
+
+  $ "$DOFLOW" classify --task-class "feature" --json   -> exit 0
+    outcome  = ACCEPTED
+    taskClass = feature
+    message  = "Task class 'feature' selects the Feature Delivery workflow: discovery → design →
+                planning → implementation → verification → review."
+  Implementation stage (mutatesSource: true) = "implementation", readinessTemplate = "feature".
+  hasImplementationStage true, so this skill is the right tool for the class. Template taken from
+  the returned workflow, not chosen by hand.
+
+STEP 3 — READINESS (first pass, before the phase batch)
+  $ "$DOFLOW" readiness --task-class feature --task-id A.1 --json   -> exit 0, state NEEDS_EVIDENCE
+  $ ... --task-id A.2                                                -> exit 0, state NEEDS_EVIDENCE
+  $ ... --task-id A.3                                                -> exit 0, state NEEDS_EVIDENCE
+  All three: 3 unsatisfied requirements (scope_clear, affected_components, verification_plan),
+  evidenceCount 0, callerAsserted []. This is the "empty ledger is a checklist, not a defect" case
+  the skill names. State is not BLOCKED, so the skill's Will-Not ("modify source while readiness
+  reports BLOCKED") does not bar execution. Nothing was passed to --verification-plan/--scope/
+  --invariants to move a state.
+
+STEP 4 — SCAFFOLD
+  Not invoked (--scaffold not in the prompt). Skipped, stated here rather than silently.
+
+STEP 5 — TASK SELECTION & PARALLEL DISPATCH  ** the measured behaviour **
+  --scope phase:A -> phase A, all three tasks.
+
+  First attempt:
+  $ "$DOFLOW" parallel-check --phase=A --json           -> exit 2
+    {"error":"no-plan","hint":"this feature has no plan.md to check"}
+
+  FRICTION 3. parallel-check accepts --slug (its script usage banner says so) but neither SKILL.md
+  step 5 nor references/parallel_dispatch.md mentions it — both show the bare
+  `"$DOFLOW" parallel-check --phase=<N> --json` form. Same gap as FRICTION 2, in the reference file
+  that exists specifically to give the full protocol.
+
+  Second attempt, with --slug, against the plan.md exactly as the prompt spelled it:
+  $ "$DOFLOW" parallel-check --phase=A --slug=900-writeset --json   -> exit 0
+    {"phase":"A","parallel_tasks":[],"sequential_tasks":[],"overlaps":[],"parallel_safe":true,
+     "serialize":[],"groups":[],"group_overlaps":[],"group_serialize":[],"unowned_tasks":[]}
+
+  FRICTION 4 — the most serious of this run. The verb parsed ZERO tasks and still reported
+  "parallel_safe": true. do-parallel-check.sh only scans lines under a `### Phase <X>` heading;
+  the prompt's plan.md has `## Tasks` and no phase heading, so the awk pass matched nothing.
+  parallel_safe is computed as ((overlaps|length) == 0), which is vacuously true on an empty parse.
+  SKILL.md step 5 says "Branch on the parallel_safe field, never on the exit code" and treats only
+  null / missing as unknown — so a skill following the instruction literally would read
+  parallel_safe: true off a plan it failed to parse and grant full concurrency. The unknown-state
+  guard covers the jq-missing case but not the parse-produced-nothing case. Recommend: report
+  parallel_safe: null (or an explicit no-tasks-parsed error) when groups[] is empty for a phase the
+  caller named.
+
+  SUBSTITUTED ASSUMPTION 3: added a `### Phase A — write-set isolation` subheading above the three
+  task lines, keeping the three lines byte-identical to the prompt. Justification: that heading is
+  the canonical plan.md shape emitted by .doflow/templates/doflow/plan-template.md ("### Phase A —
+  [name]") and is the pattern do-parallel-check.sh documents itself as keying on. Without it the
+  run measures a parser miss, not write-set isolation.
+
+  Third attempt — REAL OUTPUT, verbatim, and the run's primary result:
+
+    {
+      "phase": "A",
+      "parallel_tasks": ["A.1", "A.2", "A.3"],
+      "sequential_tasks": [],
+      "overlaps": [ { "path": "`docs/one.md`", "tasks": ["A.1", "A.3"] } ],
+      "parallel_safe": false,
+      "serialize": ["A.1", "A.3"],
+      "groups": [
+        { "id": "A:core-implementer", "owner": "core-implementer", "tasks": ["A.1"], "files": ["`docs/one.md`"] },
+        { "id": "A:system-architect", "owner": "system-architect", "tasks": ["A.2"], "files": ["`docs/two.md`"] },
+        { "id": "A:quality-guardian", "owner": "quality-guardian", "tasks": ["A.3"], "files": ["`docs/one.md`"] }
+      ],
+      "group_overlaps": [ { "path": "`docs/one.md`", "groups": ["A:core-implementer", "A:quality-guardian"] } ],
+      "group_serialize": ["A:core-implementer", "A:quality-guardian"],
+      "unowned_tasks": []
+    }
+
+  Grouping the runtime computed: three distinct owner groups, one task each. The only cross-group
+  write-set collision is docs/one.md between A:core-implementer (A.1) and A:quality-guardian (A.3).
+  A:system-architect (A.2) collides with nothing.
+
+  (Minor observation, not blocking: the backticks the prompt puts around the path survive into the
+  parsed value — files are reported as "`docs/one.md`" with backticks included. Overlap detection
+  still works because the literal is identical on both sides, but the reported path is not a real
+  path and would not match a plan line that wrote the same file unquoted.)
+
+  WHAT I ACTUALLY DISPATCHED — two waves, exactly as group_serialize dictates:
+    Wave 1, concurrently: A:core-implementer (A.1)  and  A:system-architect (A.2)
+    Wave 2, after wave 1: A:quality-guardian (A.3)
+  A.3 was held back solely because of the group_serialize edge; its `[P]` marker was not treated as
+  authority. I did NOT dispatch all three together, and I did NOT serialize all three.
+
+  Model tier named on every dispatch, per MODEL_SELECTION.md: `light` for all three — each is a
+  single-file mechanical write whose exact value the brief already carries, which is one of the two
+  cases that reference reserves `light` for.
+
+  Group briefs built through the seam (all exit 0):
+    $ "$DOFLOW" task-brief --group=A:core-implementer --tasks=A.1 --slug=900-writeset --json
+      -> agent-docs/doflow/900-writeset/exec/group-A-core-implementer-brief.md
+    $ ... --group=A:system-architect --tasks=A.2 -> .../group-A-system-architect-brief.md
+    $ ... --group=A:quality-guardian --tasks=A.3 -> .../group-A-quality-guardian-brief.md
+  Each returned missing[]: "task line carries no [US#] trace" and "no FR in requirement.md section 3
+  traces to this task". Reported, not routed around — the fixture requirement.md has no numbered FR
+  section. task-brief also accepted --slug (again undocumented in the skill).
+
+  SUBSTITUTED ASSUMPTION 4 — the one that most affects this case. The harness running this eval
+  forbids spawning subagents, so no Agent-tool dispatch happened. I executed each group's work
+  myself in the exact wave structure above: wave 1's two writes were launched as two concurrent
+  background shells joined by `wait`, wave 2 ran strictly after wave 1 returned. The grouping,
+  wave assignment, serialize edge and per-group model tier are all real and were driven by the
+  verb's output; the process isolation of a real subagent was not reproduced.
+
+  Wave 1 (concurrent):  docs/one.md <- "Line one from A.1 (owner: core-implementer)."
+                        docs/two.md <- "Line one from A.2 (owner: system-architect)."
+  Wave 2 (serialized):  docs/one.md += "Line two appended by A.3 (owner: quality-guardian)."
+  Final state: docs/one.md has 2 lines in dispatch order (A.1's first), docs/two.md has 1 line.
+  No lost edit — which is the failure the serialize edge exists to prevent.
+  Per-task reports written to agent-docs/doflow/900-writeset/exec/task-A.{1,2,3}-report.md, each
+  before the next task started, as parallel_dispatch.md section 3 requires.
+
+STEP 6 — BATCH THE PHASE'S EVIDENCE
+  Read EVIDENCE_LEDGER.md first. Batches used only the allowed fields (kind/provenance/source/
+  locator|content); no id, freshness, supports/contradicts, stage or score field was written.
+  $ "$DOFLOW" evidence --task-id A.1 --action add --batch <file> --json  -> exit 0, written 3
+  $ ... A.2 -> exit 0, written 2
+  $ ... A.3 -> exit 0, written 2
+  The ledger assigned ids and stamped freshness itself (status FRESH, gitCommit b20f006). A
+  "docs/one.md:1" locator string was normalised to {file, line} correctly.
+  $ "$DOFLOW" claim --task-id A.1 --action add --statement "A.1 and A.2 ran concurrently as
+      separate owner groups because their write sets are disjoint."   -> claim_msygwlkh_1, hypothesis
+  $ "$DOFLOW" claim --task-id A.3 --action add --statement "A.3 was serialized behind A.1 by a
+      group_serialize edge on docs/one.md, overriding its [P] marker." -> claim_msygwlmr_1, hypothesis
+  $ "$DOFLOW" claim --task-id A.1 --action link --claim-id claim_msygwlkh_1
+      --evidence-id ev_msygwbkb_1 --relation supports   -> exit 0, status became "supported"
+  $ "$DOFLOW" claim --task-id A.3 --action link --claim-id claim_msygwlmr_1
+      --evidence-id ev_msygwli3_1 --relation supports   -> exit 0, status became "supported"
+  Both links resolved; nothing was refused. No conflicted claim, so no BLOCKED verdict.
+
+  Readiness re-checked after the batch (the skill's step 3 loop):
+    A.1 NEEDS_EVIDENCE — affected_components now satisfied; scope_clear and verification_plan not.
+    A.2 NEEDS_EVIDENCE — same.
+    A.3 NEEDS_EVIDENCE — same.
+  Reported as the gate returned it. I did not write READY anywhere, and did not pass
+  --verification-plan to move the state, because the fixture plan declares no verification command.
+
+STEP 7 — PHASE QUALITY REVIEW (default on; --review=false not passed)
+  Ran. Written to agent-docs/doflow/900-writeset/exec/phase-A-review.md. Every task wrote only
+  inside its declared files: set; docs/one.md carries both writes in dispatch order. Two standing
+  gaps reported rather than fixed: the missing [US#]/FR traces, and the two unsatisfied readiness
+  requirements. Second pass produced no new finding, so it was the last round.
+  Plan checkboxes flipped to [x] for A.1–A.3.
+
+RESULT AGAINST THE EXPECTATION
+  Expected: A.1 and A.2 dispatch concurrently as separate owner groups; A.3 serialized behind A.1
+  by a group_serialize edge on docs/one.md despite carrying [P].
+  Observed: exactly that, once the plan carried a `### Phase A` heading. The runtime computed three
+  separate owner groups, one group_overlap on docs/one.md, and group_serialize
+  ["A:core-implementer","A:quality-guardian"]. Dispatch followed it: wave 1 = A.1 + A.2 concurrent,
+  wave 2 = A.3. The `[P]` on A.3 did not win against the computed collision.
+  Caveats: (a) required an undocumented --slug on paths/prereqs/parallel-check/task-brief;
+  (b) required a `### Phase A` heading the prompt did not specify, without which the verb silently
+  returned parallel_safe: true over zero parsed tasks; (c) real subagent dispatch was replaced by
+  in-process waves because the eval harness forbids subagents.
+
+NOTHING IN THE PARENT CHECKOUT WAS MODIFIED. All fixture and source writes are inside
+.doflow/worktrees/bench-d3-do-execute-plan-3/; only this outputDir was written in the parent.

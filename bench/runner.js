@@ -111,6 +111,20 @@ function workingTreeClean() {
 function scopeFor(assertion, ctx) {
   if (assertion.in !== 'outputs') return { text: ctx.transcript, where: 'transcript' };
   if (!ctx.outputsText) return { text: '', where: 'outputs/ (empty — no artifacts produced)' };
+
+  // `file` narrows an absence check to the one artifact under test.
+  //
+  // Concatenating all of outputs/ was right when a run produced a single artifact and wrong as soon
+  // as it produced evidence beside it. do-design/2 asserts the design does not use C4Context; the
+  // run wrote a correct design.md with zero occurrences AND an evidence ledger recording the claim
+  // "does not use the C4Context or C4Container diagram type" — so the record of compliance failed
+  // the compliance check. The better the provenance discipline gets, the more often that fires,
+  // because evidence about not doing X necessarily contains X.
+  if (assertion.file) {
+    const match = ctx.outputFiles.find((f) => f.endsWith(assertion.file));
+    if (!match) return { text: '', where: `outputs/${assertion.file} (not produced)` };
+    return { text: safeRead(match), where: `outputs/${assertion.file}` };
+  }
   return { text: ctx.outputsText, where: `outputs/ (${ctx.outputFiles.length} file(s))` };
 }
 

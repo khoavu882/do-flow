@@ -46,6 +46,8 @@ const FATAL_CHECK_MARKERS = Object.freeze(['syntax', 'compile', 'build']);
 
 const DEFAULT_TIMEOUT_MS = 60000;
 const MAX_STREAM_CHARS = 2000;
+/** Enough head to catch a startup error; the rest of the budget goes to the tail. */
+const HEAD_KEEP_CHARS = 400;
 
 /** The exit code a shell reports for a command killed by a timeout; kept so callers that already
  * special-case 124 from the Python keep working. */
@@ -57,7 +59,19 @@ const TIMEOUT_EXIT_CODE = 124;
  */
 function truncate(value) {
   if (typeof value !== 'string') return '';
-  return value.slice(0, MAX_STREAM_CHARS);
+  if (value.length <= MAX_STREAM_CHARS) return value;
+  // Keep the TAIL, not the head, and say so.
+  //
+  // Every runner worth verifying streams progress first and summarises last: `node --test` puts
+  // the failure diagnostics and the `# fail N` line at the end, as do pytest, jest and `go test`.
+  // Slicing from the front therefore kept ~10 passing subtests out of 572 and discarded the only
+  // part of the stream that shows a failure — a verification report that structurally could not
+  // report one. A little head is retained because a hard startup error (missing binary, bad
+  // config) appears there and nowhere else.
+  const head = value.slice(0, HEAD_KEEP_CHARS);
+  const tail = value.slice(-(MAX_STREAM_CHARS - HEAD_KEEP_CHARS));
+  const dropped = value.length - head.length - tail.length;
+  return `${head}\n… [${dropped} characters elided by the verification report] …\n${tail}`;
 }
 
 class VerificationContractRunner {

@@ -1,0 +1,310 @@
+{
+  "version": 1,
+  "taskId": "bench-d3-do-diagnose-2",
+  "updatedAt": "2026-08-18T09:56:31.381Z",
+  "evidenceCount": 14,
+  "evidence": [
+    {
+      "id": "ev_msyhmzh1_1",
+      "taskId": "bench-d3-do-diagnose-2",
+      "kind": "test-result",
+      "source": {
+        "provider": "native.test",
+        "capability": "behavior.verify"
+      },
+      "locator": {
+        "file": "/usr/bin/time -p npm test, three consecutive runs"
+      },
+      "provenance": "extracted",
+      "content": "572 tests / 59 files, 0 fail. real 16.11 / 15.83 / 15.81; user ~19.7; sys ~14.8. Confirms the reported ~15s and shows total CPU is ~34.5s against ~15.8s wall.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:31.380Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyhmzh1_2",
+      "taskId": "bench-d3-do-diagnose-2",
+      "kind": "runtime-observation",
+      "source": {
+        "provider": "native.test",
+        "capability": "behavior.verify"
+      },
+      "locator": {
+        "file": "NODE_OPTIONS=--require <spawnSync counter> npm test; per-worker append log"
+      },
+      "provenance": "extracted",
+      "content": "252 spawnSync calls executed across 5 worker processes, 34317ms of blocking time inside them. Per worker: cli-e2e.test.js 91 spawns / 14522ms; runtime-evidence-write.test.js 78 / 5221ms; guards/reachability.test.js 49 / 3246ms; install-shapes.test.js 30 / 9511ms; lifecycle-shared-ownership.test.js 4 / 1817ms.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:31.381Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyhmzh1_3",
+      "taskId": "bench-d3-do-diagnose-2",
+      "kind": "runtime-observation",
+      "source": {
+        "provider": "native.test",
+        "capability": "behavior.verify"
+      },
+      "locator": {
+        "file": "per-file loop: node --test <one file> x59, sorted"
+      },
+      "provenance": "extracted",
+      "content": "Serial per-file total 43791ms. The 8 files containing spawn call sites total 36413ms (83%); the other 51 files total 7378ms, mean 144ms.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:31.381Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyhmzh1_4",
+      "taskId": "bench-d3-do-diagnose-2",
+      "kind": "runtime-observation",
+      "source": {
+        "provider": "native.test",
+        "capability": "behavior.verify"
+      },
+      "locator": {
+        "file": "node --test over 59 generated one-line no-op test files"
+      },
+      "provenance": "extracted",
+      "content": "59 empty test files: duration_ms 331.1, real 0.36, user 2.13, sys 0.49. node --test's own worker-per-file overhead is about 2% of the suite.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:31.381Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyhmzh1_5",
+      "taskId": "bench-d3-do-diagnose-2",
+      "kind": "runtime-observation",
+      "source": {
+        "provider": "shell",
+        "capability": "measure"
+      },
+      "locator": {
+        "file": "/usr/bin/time -p sh -c 'for i in $(seq 1 20); do node -e \"\"; done'"
+      },
+      "provenance": "extracted",
+      "content": "20 bare node interpreter starts: real 0.58 (29ms each).",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:31.381Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyhmzh1_6",
+      "taskId": "bench-d3-do-diagnose-2",
+      "kind": "runtime-observation",
+      "source": {
+        "provider": "shell",
+        "capability": "measure"
+      },
+      "locator": {
+        "file": "/usr/bin/time -p sh -c 'for i in $(seq 1 20); do node bin/doflow.js --version; done'"
+      },
+      "provenance": "extracted",
+      "content": "20 CLI starts: real 0.95 (47.5ms each), so doflow's require graph adds ~18.5ms on top of a 29ms interpreter start.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:31.381Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyhmzh1_7",
+      "taskId": "bench-d3-do-diagnose-2",
+      "kind": "runtime-observation",
+      "source": {
+        "provider": "shell",
+        "capability": "measure"
+      },
+      "locator": {
+        "file": "/usr/bin/time -p sh -c '10x HOME=<tmp> node bin/doflow.js install <tmp> -t claude --force'"
+      },
+      "provenance": "extracted",
+      "content": "10 real single-target installs: real 2.18 (218ms each), each materializing 204 files.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:31.381Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyhmzh1_8",
+      "taskId": "bench-d3-do-diagnose-2",
+      "kind": "runtime-observation",
+      "source": {
+        "provider": "shell",
+        "capability": "measure"
+      },
+      "locator": {
+        "file": "node bin/doflow.js install <tmp>/p1 with no stdin"
+      },
+      "provenance": "extracted",
+      "content": "Correction to an earlier reading in this same investigation: an install with no piped input prints 'Install configs to: claude? [y/N]' and exits 0 with 'Aborted.', materializing 0 files. The first per-install figures taken this run (111ms, 128ms, 85ms) were therefore timing an aborted prompt, not an install, and were discarded.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:31.381Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyhmzh1_9",
+      "taskId": "bench-d3-do-diagnose-2",
+      "kind": "structural",
+      "source": {
+        "provider": "grep",
+        "capability": "literal-search"
+      },
+      "locator": {
+        "file": "grep -rcE 'spawnSync\\(|execFileSync\\(|execSync\\(' test --include='*.test.js'"
+      },
+      "provenance": "extracted",
+      "content": "8 of 59 test files contain child-process call sites: runtime-evidence-write (3), install-shapes (3), guards/reachability (3), lifecycle-shared-ownership (2), codex-hooks (2), mcp-index (1), failure-hooks (1), cli-e2e (1).",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:31.381Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyhmzh1_a",
+      "taskId": "bench-d3-do-diagnose-2",
+      "kind": "structural",
+      "source": {
+        "provider": "grep",
+        "capability": "literal-search"
+      },
+      "locator": {
+        "file": "test/cli-e2e.test.js:15 run(); test/runtime-evidence-write.test.js:37 run(); test/install-shapes.test.js:34 cli()"
+      },
+      "provenance": "extracted",
+      "content": "Each hot file wraps spawnSync('node', [<CLI or dispatcher>, ...args]) in a single local helper and calls it once or more per test; cli-e2e holds 46 tests in one file.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:31.381Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyhmzh1_b",
+      "taskId": "bench-d3-do-diagnose-2",
+      "kind": "structural",
+      "source": {
+        "provider": "shell",
+        "capability": "measure"
+      },
+      "locator": {
+        "file": "sysctl -n hw.ncpu"
+      },
+      "provenance": "extracted",
+      "content": "10 cores. CPU-to-wall ratio for the full suite is 34.5s/15.8s = 2.2x.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:31.381Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyhmzh1_c",
+      "taskId": "bench-d3-do-diagnose-2",
+      "kind": "generated-analysis",
+      "source": {
+        "provider": "model",
+        "capability": "performance-analysis"
+      },
+      "locator": {},
+      "provenance": "inferred",
+      "content": "Essentially all of the suite's CPU is child-process execution: 34.3s measured inside spawnSync against ~34.5s of total user+sys. The test bodies themselves, the assertion work and the node --test harness are collectively noise at this scale.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:31.381Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyhmzh1_d",
+      "taskId": "bench-d3-do-diagnose-2",
+      "kind": "generated-analysis",
+      "source": {
+        "provider": "model",
+        "capability": "performance-analysis"
+      },
+      "locator": {},
+      "provenance": "inferred",
+      "content": "About a third of the child time is paid before any DoFlow work happens: 252 spawns at a 47.5ms interpreter-plus-require floor is 12.0s of the 34.3s. The remainder is real work, dominated by installs that materialize roughly 204 files apiece at 218ms.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:31.381Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyhmzh1_e",
+      "taskId": "bench-d3-do-diagnose-2",
+      "kind": "generated-analysis",
+      "source": {
+        "provider": "model",
+        "capability": "performance-analysis"
+      },
+      "locator": {},
+      "provenance": "inferred",
+      "content": "Wall time is set by one file, not by total work: node --test parallelizes across files but runs tests within a file serially, so cli-e2e.test.js's 14.5s of blocked spawn time is the floor and the whole 34.3s of child work completes in 15.8s around it.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:31.381Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    }
+  ]
+}

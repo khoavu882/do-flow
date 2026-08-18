@@ -1,0 +1,168 @@
+=== DoFlow bench d3 — do-code-review eval 1: review-request-invokes-review ===
+Kind: triggering
+Prompt: "Can you review the changes on this branch before I open a PR?"
+Sandbox: .doflow/worktrees/bench-d3-do-code-review-1 (pre-existing from the aborted attempt; reused)
+Sandbox branch: task/bench-d3-do-code-review-1 @ 704fb33
+Run date: 2026-08-18
+
+--- SKILL RESOLUTION (by path, not by name) ---
+Read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-code-review-1/.claude/skills/do-code-review/SKILL.md
+sha256: b326aa8f28eb6818a569cbd45f1686327611204bc69255e917c3603530972349
+Matches the brief's sourceSha256 and core/shared/skills/do-code-review/SKILL.md.
+The Skill tool was NOT used. /do-code-review was never typed as a slash command.
+Also read from that same sandbox skill dir: rules/universal.md, and (for adjudication)
+scripts/pr_analyzer.py and scripts/code_quality_checker.py.
+
+--- THE TRIGGERING DECISION (the eval's subject) ---
+Per the brief, the routing decision was made from THIS repo's frontmatter description, read at the
+sandbox path above, not from the ~/.claude copy. The description in full:
+
+  "Code review automation for TypeScript, JavaScript, Python, Go, Swift, Kotlin, C#, .NET, Java, C,
+   C++, Rust, Ruby, PHP, and Dart/Flutter. Analyzes PRs for complexity and risk, checks code quality
+   for SOLID violations and code smells, generates review reports. Use when reviewing pull requests,
+   analyzing code quality, identifying issues, generating review checklists."
+
+DECISION: ROUTES TO do-code-review. Confident, not marginal.
+
+Matching, term by term:
+  - "review the changes on this branch" -> "Use when reviewing pull requests" and "Analyzes PRs".
+  - "before I open a PR" -> the description's subject is literally PRs; pre-PR is the canonical
+    moment for this skill and the phrase removes any doubt about which artifact is meant.
+  - The repo's changed files are .js and .py, both named in the description's language list.
+
+Competitors considered and rejected on the same descriptions:
+  - do-test — the user asked to review, not to run builds or suites. Reviewing is judgement;
+    do-test's description is about executing builds and test suites.
+  - do-diagnose — no failure, no symptom, nothing to root-cause. The user is not reporting a problem.
+  - do-git — "before I open a PR" mentions a git-adjacent event, but the request is to review the
+    changes, not to perform a git operation. do-git would branch/commit/push; nothing was asked for.
+  - do-implement — explicitly the opposite direction; do-code-review's own Boundaries say it will
+    not edit or remediate, and nothing here asks for a change.
+
+No ambiguity, so no question was owed and none was substituted at the routing step.
+
+--- FOLLOWING THE SKILL ---
+The brief's expectedOutput requires the branch's REAL diff against its base, so the review was
+actually executed rather than merely routed.
+
+RESOLVING "the base": the sandbox branch task/bench-d3-do-code-review-1 has zero commits of its own
+beyond 704fb33, so a diff against the worktree base is empty. But the user said "before I open a
+PR", and the PR base for this work is main:
+  $ git merge-base HEAD main -> 0101995c735d51b68a2d5b9870f8c92363d1d5ba
+  $ git diff --stat <base>...HEAD -> 484 files changed, 58391 insertions(+), 2693 deletions(-)
+That is the real diff a PR from here would carry, and it is what was reviewed. Recorded as a
+substituted judgement: the skill and the prompt both say "base" without defining it, and I chose the
+default-branch merge-base over the worktree creation point.
+
+FRICTION 1 — the documented command does not run as documented.
+SKILL.md's Tools section says:
+  python scripts/pr_analyzer.py /path/to/repo
+Run from the project root, which is where a user stands:
+  $ python3 scripts/pr_analyzer.py . --base main
+  can't open file '.../bench-d3-do-code-review-1/scripts/pr_analyzer.py': [Errno 2] No such file
+`scripts/` is SKILL-relative, and a relative path in a shell command resolves against the user's
+project root. This is exactly the failure mode CLAUDE.md documents for the runtime seam and that
+test/guards/skill-seam.test.js pins for skills that call doflow-run — but do-code-review calls
+Python scripts directly and never touches the seam, so no resolver applies and no guard covers it.
+I had to locate .claude/skills/do-code-review/scripts/ by hand. In a real install the skill dir is
+harness-specific (.claude/ vs .codex/ vs .gemini/), so there is no single correct literal to write
+either; this needs a resolver, not a corrected string.
+
+FRICTION 2 — `python` vs `python3`. Every documented invocation says `python`. On this machine a
+pyenv shim happens to provide it; on a stock macOS or a Debian without python-is-python3 it does
+not exist. Cheap to fix, will bite someone.
+
+COMMANDS ACTUALLY RUN (all from the sandbox root, with the full skill-dir path):
+  $ python3 .claude/skills/do-code-review/scripts/pr_analyzer.py . --base main
+      -> Complexity 10/10 Critical; 484 files; +58641/-2629; 36 commits
+      -> Critical 10, High 12, Medium 18, Low 1
+  $ ... pr_analyzer.py . --base main --json            -> saved, exit 0
+  $ ... code_quality_checker.py src --language javascript --json
+      -> 52 files, average 82.1, grade B, 228 smells, 8 SOLID violations, exit 0
+  $ ... doc_quality_checker.py core/shared/skills [--json]
+      -> 2 findings, both in the deliberately-bad fixture; exit 0
+  $ ... review_report_generator.py . --pr-analysis <> --quality-analysis <> --format markdown
+      -> "Report written"; verdict BLOCK, score 0/100
+
+--- ADJUDICATING THE ANALYZER OUTPUT (this is where the review became a review) ---
+The generator's BLOCK is driven by 10 criticals. I opened the flagged files rather than passing the
+number through, and every high-and-above finding in real source turned out to be a false positive
+with a single shared root cause.
+
+  $ grep -niE "password|api_key|secret|token|connection ?string" src/runtime/command-detect.js
+      -> const TARGET_PATTERN_TOKEN = '{pattern}';    (a constant name, not a secret)
+  $ grep -n "debugger" src/runtime/recovery.js
+      -> a prose comment: "handing the task back to a debugger spends more of the budget"
+  $ grep -nE "\.Result|\.Wait\(" src/adapters/kiro/index.js
+      -> nothing. Case-sensitively, the C# pattern does not match this file at all.
+
+ROOT CAUSE, verified: pr_analyzer.py:246 applies re.IGNORECASE to every RISK_PATTERNS entry, and
+several of those patterns are case-significant C# identifiers.
+  $ python3 -c "import re; p=r'\.(?:Result\b|Wait\(\)|GetAwaiter\(\)\.GetResult\(\))'; \
+      s='const out = plan.result;'; print(re.findall(p,s,re.IGNORECASE), re.findall(p,s))"
+    ['.result']  []
+The same flag is why `TOKEN` matches the `hardcoded_secrets` pattern's literal `token`. One flag
+explains the single critical in real source and 8 of the 12 highs.
+
+Second issue found while checking coverage: 9 of the 10 criticals point into bench/runs/baseline/
+and bench/runs/boundary/ — saved transcripts and .tap logs from PREVIOUS bench runs, which contain
+those strings because they are records of earlier reviews discussing them. Nothing excludes
+bench/runs/, so every eval run permanently inflates the critical count of every later review of this
+repo. Directly relevant to D.4: this run's own outputs will do it again.
+
+Third: I re-checked the THRESHOLDS dict as SKILL.md instructs. It holds exactly
+long_function_lines, too_many_parameters, high_complexity, god_class_methods, max_imports. But the
+checker emits `magic_number` (73 this run) and `commented_code` (8), neither in the dict nor in the
+table, while SKILL.md flatly says "Those five are the whole set". max_imports has no emitter at all.
+Obeying the contract's "do not report a threshold the analyzer does not implement" literally would
+have meant suppressing 81 findings the analyzer genuinely produced.
+
+--- THE REVIEW CONTRACT, AS REPORTED ---
+Stated before findings and reported against at the end, per SKILL.md:
+1. File set + derivation: pr_analyzer three-dot diff vs merge-base with main, 484 files; extension
+   census recorded; 458 of 484 explicitly reported as NOT individually opened rather than dropped.
+2. Rules files named before loading: rules/universal.md + languages/typescript.md (58 .js) +
+   languages/python.md (14 .py) + content-types/markdown.md (95 .md).
+   DISPATCH GAP REPORTED: 203 .json, 85 .txt, 13 .sh, 6 .yaml and the 2 extensionless doflow-run
+   entrypoints match no row in either table — 309 of 484 files, 64% of the diff, with no rules file.
+   The two doflow-run files are the runtime seam itself.
+3. Refusals stated: no certification of unopened files; no file-length or nesting-depth finding
+   (not implemented); the generator's verdict not adopted; shell/JSON coverage reported as a gap.
+
+--- VERDICT ---
+The generator says BLOCK, 0/100. I did not adopt it, and said so with reasons: zero hardcoded
+secrets and zero SQL injections exist in this diff.
+My verdict: REQUEST CHANGES — against pr_analyzer.py (F1 IGNORECASE, F2 debugger word-match,
+F3 bench/runs self-poisoning) and SKILL.md (F4 threshold table), all of which are inside this diff,
+plus F5 as a judgement call on four F-grade runtime files (trace.js scores 0/100: 1084 lines,
+normalizeRunRecord at 124 lines, roundCost at 100).
+
+--- SUBSTITUTED ASSUMPTIONS ---
+1. "the base" = merge-base with main, not the worktree creation point. Chosen because the user said
+   "before I open a PR"; the empty-diff reading would have made the eval vacuous.
+2. code_quality_checker was run over `src` rather than over the 484-file changed set — the tool
+   takes a directory, not a file list. I then intersected its 52 results against the changed set and
+   reported both numbers (26 in-diff, avg 75.5) rather than presenting 52 as the reviewed set.
+3. doc_quality_checker was pointed at core/shared/skills rather than all 95 changed .md files, on
+   the grounds that the rewritten skills are the substantive prose change in this branch. Stated as
+   partial coverage in the report.
+4. No user was available to scope the review, so the widest defensible scope was taken and the
+   coverage gap reported rather than the scope narrowed silently.
+
+--- WHAT SURPRISED ME / DID NOT WORK ---
+1. do-code-review does not use the runtime seam at all. It has no doflow-run resolution step, and
+   its documented script paths are skill-relative and unrunnable from the project root (FRICTION 1).
+   Every other skill in this batch resolves $DOFLOW first. This one is the outlier and it is the one
+   whose commands fail.
+2. The deterministic tooling's high-severity output was, in this repository, almost entirely noise —
+   and the noise was confident, specific, and mentioned ASP.NET in a repo with no C#. A reviewer
+   following the generated report without opening files would have filed four bogus adapter bugs.
+3. The BLOCK verdict is produced by a formula over counts with no false-positive path. Nothing in
+   the pipeline lets a finding be dismissed, so the verdict cannot improve no matter what the
+   reviewer establishes. The skill's Boundaries say it does "not replace human judgment on a Block
+   verdict" — but there is no mechanism for that judgment to be recorded, so I recorded it in prose.
+4. bench/runs/ contamination (F3) is a direct threat to this eval programme: every captured run
+   makes the next review of this repo look worse.
+5. code_quality_checker's per-file JSON key is `quality_score`, not `score`, and doc_quality_checker
+   returns a bare list rather than an object with a summary — two different output shapes from two
+   scripts in the same skill. Cost two failed parses.

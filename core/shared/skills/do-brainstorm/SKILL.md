@@ -85,11 +85,12 @@ workflow never reads.
    single non-git candidate, or resolved via step 1's disambiguation), use it. If still null
    (genuinely no active feature: trunk branch, or a non-git root with zero existing feature dirs),
    ask the user for a slug using the RULE_04 question format, default
-   `<next_number>-<kebab-of-description>`, then create the dir: `mkdir -p
-   agent-docs/doflow/<slug>`. **Branch creation delegated to `/do-git`:** if `is_git_repo` is true,
+   `<next_number>-<kebab-of-description>`. **Branch creation delegated to `/do-git`:** if `is_git_repo` is true,
    call `"$DOFLOW" git-state --branch-name --class=feature --slug=<slug>` and use the
    returned branch name with `git checkout -b`; if false (non-git root), skip branch creation
    entirely.
+   Then, on **every** path: `mkdir -p agent-docs/doflow/<slug>`. A branch-derived slug names a
+   directory that usually does not exist yet, so this is not only the new-feature case.
 5. **Write `requirement.md`** — copy the requirement template into the feature dir and fill the
    tokens from the dialogue.
 The template is `templates/doflow/requirement-template.md` in the install step 1 resolved: take `constitution_base` from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.

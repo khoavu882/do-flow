@@ -38,12 +38,14 @@
           "text": "The produced design does not use the experimental C4Context diagram type (scope: artifacts, not narration about avoiding it)",
           "type": "output_not_matches",
           "pattern": "C4Context",
+          "file": "design.md",
           "in": "outputs"
         },
         {
           "text": "The produced design does not use the experimental C4Container diagram type (scope: artifacts, not narration about avoiding it)",
           "type": "output_not_matches",
           "pattern": "C4Container",
+          "file": "design.md",
           "in": "outputs"
         },
         {

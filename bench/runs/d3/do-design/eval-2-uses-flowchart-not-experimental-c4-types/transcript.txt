@@ -1,0 +1,179 @@
+=== DoFlow bench run d3 — do-design eval 2 "uses-flowchart-not-experimental-c4-types" ===
+Kind: behavioral
+Prompt: /do-design Design the ingestion pipeline for our analytics events
+Sandbox: .doflow/worktrees/bench-d3-do-design-2 (created this run; worktree branch task/bench-d3-do-design-2)
+Model acting as: normal Claude Code session, no human available for questions.
+
+--- Skill resolution (by path, NOT by slash command) ---
+Read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-design-2/.claude/skills/do-design/SKILL.md
+shasum -a 256 -> e55938dde7c83a89317da91d05682a05bc52cf8cbe66663f7d132e67cb90b965
+Matches brief.skills.sourceSha256: YES
+Sandbox manifest .doflow-skill-source.json: skillCount=13, mismatches=[], do-design matchesSource=true,
+sourceCommit=b20f006f338a6327923b5febd562fe4521959cca.
+The Skill tool was never used. invoked_skills.json is [].
+
+--- Sandbox creation ---
+$ node -e "...createSandbox('bench-d3-do-design-2')..."
+-> /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-design-2 skills=13
+Clean, no warnings.
+
+=== Step 1 — Resolve the runtime seam ===
+Ran the SKILL.md walk-up resolver verbatim from the sandbox root:
+  D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+-> RESOLVED=/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-design-2/.doflow/scripts/doflow/bin/doflow-run
+The sandbox carries its own .doflow/scripts, so the walk-up stopped at the sandbox and never reached
+the parent checkout. The $HOME fallback was not needed. Exit 2 path not taken.
+
+$ "$DOFLOW" paths --json        (exit 0)
+{
+  "repo_root": ".../bench-d3-do-design-2",
+  "branch": "task/bench-d3-do-design-2",
+  "feature_slug": "bench-d3-do-design-2",
+  "feature_dir": "agent-docs/doflow/bench-d3-do-design-2",
+  "candidate_slugs": [],
+  "has_requirement": false, "has_design": false, "has_plan": false,
+  "constitution_base": ".../bench-d3-do-design-2/.doflow/guidance/references/CONSTITUTION_BASE.md",
+  "has_constitution_local": false, "branch_class": "other"
+}
+feature_slug resolved from the branch and candidate_slugs was empty, so the skill's "unresolved
+choice" prompt did not apply. No question needed here.
+
+=== Step 2 — Propose one task class; runtime validates ===
+No requirement.md to derive from and no /do-flow caller, so the class was derived from the request
+itself: "design the ingestion pipeline" is new capability -> proposed `feature`.
+
+$ "$DOFLOW" classify --task-class "feature" --json     (exit 0)
+outcome: ACCEPTED
+taskClass: feature
+message: "Task class 'feature' selects the Feature Delivery workflow: discovery -> design ->
+          planning -> implementation -> verification -> review."
+stageIds: [discovery, design, planning, implementation, verification, review]
+gateIds: [gate-0, gate-a, gate-b]
+requiresImplementationReadiness: true, readinessTemplates: ["feature"]
+
+Class stated in one line, per the skill: class = feature; signal = the request asks for a new
+ingestion capability, not a repair or a rename. The accepted stageIds DO contain a `design` stage
+(index 1, readinessTemplate null), so this skill is the stage of record and does not hand off.
+Because that stage's readinessTemplate is null, no `readiness` call was made — per the skill's
+Will-Not list and EVIDENCE_LEDGER.md's "readiness belongs to the stage that edits source".
+
+=== Step 3 — Advisory precondition ===
+has_requirement=false. The skill says warn and OFFER to run /do-brainstorm first, and that the gate
+is advisory/skippable.
+NO USER AVAILABLE -> substituted assumption #1: took the "Decide for me" equivalent and PROCEEDED
+without requirement.md rather than halting. Recorded in design.md §8 as assumption A0, including
+what would change if the missing NFRs (volume, latency, retention) turn out to contradict the
+shape chosen.
+
+=== Step 4 — Read inputs ===
+No requirement.md exists, so there were no user stories/FRs/NFRs to read. Read instead:
+  .doflow/guidance/references/ARTIFACT_FORMAT.md   (the §4 diagram contract)
+  .doflow/templates/doflow/design-template.md      (the artifact shape)
+Template path derivation worked exactly as the skill describes: take constitution_base from step 1's
+JSON and swap the trailing guidance/references/CONSTITUTION_BASE.md for templates/doflow/
+design-template.md. The resulting path existed.
+
+ARTIFACT_FORMAT §4 is explicit and is the thing this eval checks:
+  "C4 is kept as the conceptual zoom model ... and rendered with Mermaid `flowchart` plus `subgraph`
+   blocks marking C4 boundaries."
+  "> Do not use the `C4Context` / `C4Container` diagram types. They are experimental in Mermaid..."
+The design template repeats the same prohibition in its §2 HTML comment. So the instruction is
+carried in three places: SKILL.md step 6, ARTIFACT_FORMAT §4, and the template comment.
+
+=== Step 5 — Design + clarification loop ===
+Four design-level ambiguities surfaced while shaping the pipeline. All four are independent (none
+depends on another's answer), so under the skill they would go in ONE AskUserQuestion batch of 4:
+  Q1 ingest transport: first-party HTTP collector | client SDK writes direct to broker | both
+  Q2 delivery semantics: at-least-once + dedupe | exactly-once | best-effort
+  Q3 buffering: durable append-only log between collector and storage | collector writes storage direct
+  Q4 schema handling: registry-enforced at ingest | schema-on-read in the warehouse
+
+NO USER AVAILABLE -> substituted assumption #2 through #5: every one of the four was resolved via
+the skill's explicit "Decide for me" option, not by re-prompting. Chosen:
+  Q1 -> HTTP collector      Q2 -> at-least-once with a 24h dedupe window
+  Q3 -> durable log         Q4 -> registry-enforced, made non-lossy by a DLQ
+Per SKILL.md step 6 these four are recorded in design.md §8 Assumptions as A1-A4 with basis
+"user deferred" and a one-line rationale each, exactly as the defer escape hatch requires.
+
+Stop condition: the second pass over the design surfaced no new design-level ambiguity (only
+restatements of A1-A4's consequences), so the loop terminated there per the skill's stop rule.
+
+=== Step 6 — Write design.md ===
+$ cp .doflow/templates/doflow/design-template.md agent-docs/doflow/bench-d3-do-design-2/design.md
+then filled it. Wrote 9 sections, index-then-detail at §3 / §7 / §8 per ARTIFACT_FORMAT §1, Status
+values only "Live", §9 History "None — initial version."
+
+Diagram audit (the eval's actual subject):
+$ grep -c 'C4Context\|C4Container' design.md      -> 0
+$ grep -n '```mermaid' design.md                  -> 4 blocks at lines 29, 55, 83, 226
+  line 29  C1 System Context  -> `flowchart TB` with subgraph actors / subgraph system
+  line 55  C2 Container       -> `flowchart LR` with subgraph boundary
+  line 83  C3 Component       -> `flowchart TB` with subgraph container
+  line 226 §6 Sequence        -> `sequenceDiagram`
+All three C4 levels rendered as flowchart+subgraph. Zero use of the experimental types. Arrow
+labels carry the interaction (-->|"reads"|) and secondary/async relations use -.-> per §4.
+C3 was drawn rather than N/A'd because the Collector API carries six components, over §4's
+"3+ components in a single container" threshold.
+
+=== Step 7 — Validate ===
+$ "$DOFLOW" validate "agent-docs/doflow/bench-d3-do-design-2/design.md"
+validate-artifacts: 1 artifact(s) checked, no violations
+EXIT=0
+Surfaced verbatim above. Nothing to reconcile.
+
+=== Step 8 — Batch the stage's evidence and claims ===
+$ "$DOFLOW" evidence --task-id "bench-d3-do-design-2" --action add --batch <batch>.json --json
+EXIT=0, written=6, stateFile .doflow/state/evidence/bench-d3-do-design-2.json
+Task id used: the feature slug, since no plan.md exists — per the skill's rule. The same id was used
+for every evidence and claim call.
+The 6 items: 3 runtime-observation/extracted (paths, classify, validate outputs with their command
+locators), 2 documentation/extracted (ARTIFACT_FORMAT §4, the template), 1 generated-analysis/
+inferred (the deferred-choice analysis). No id / freshness / supports / stage / score fields were
+sent — the ledger assigned ids (ev_msygv0l5_1 .. ev_msygv0l6_6) and stamped freshness itself
+(status FRESH, gitCommit b20f006f...). The generated-analysis item was correctly filed as `inferred`
+with `content` and no locator; the extracted items each carry a locator. Nothing was rejected, so
+the all-or-nothing batch rule was never exercised.
+
+$ "$DOFLOW" claim --task-id "bench-d3-do-design-2" --action add --statement "..."   x5, all EXIT=0
+claim_msygvawx_1  pipeline shape (collector -> log -> processor -> storage)
+claim_msygvaza_1  ownership split between collector and processor
+claim_msygvb1r_1  at-least-once with idempotent collapse
+claim_msygvb4d_1  registry enforcement made non-lossy by the DLQ
+claim_msygvb6x_1  all C4 levels are flowchart, no C4Context/C4Container
+All five stored as `hypothesis`, as EVIDENCE_LEDGER.md says they must be.
+
+Linking (EVIDENCE_LEDGER: "Record the batch first, link afterwards"):
+$ ... --action link --claim-id claim_msygvb6x_1 --evidence-id ev_msygv0l5_3 --relation support
+doflow claim: Invalid evidence relation 'support'. Allowed: supports, contradicts
+EXIT=2
+  ^ FRICTION. EVIDENCE_LEDGER.md phrases it as "whether the relation is support or contradiction",
+    the runtime demands the plural verb forms. The error names the allowed set, so it self-corrects
+    in one retry, but the prose and the flag disagree.
+Retried with --relation supports:
+  claim_msygvb6x_1 -> supported (linked ev_msygv0l5_3 and ev_msygv0l6_6)   EXIT=0
+  claim_msygvawx_1 -> supported (linked ev_msygv0l6_5)                      EXIT=0
+Claim store: .doflow/state/evidence/bench-d3-do-design-2_claims.json
+
+=== Step 9 — Stop ===
+Design path reported: agent-docs/doflow/bench-d3-do-design-2/design.md
+No plan.md, no task decomposition, no code was written — the CRITICAL BOUNDARIES stop was honoured.
+
+--- Assumptions substituted for a missing user (5) ---
+1. Proceeded past the advisory no-requirement.md gate instead of stopping to offer /do-brainstorm.
+   Recorded as A0.
+2. Ingest transport = first-party HTTP collector.        (A1, "Decide for me")
+3. Delivery = at-least-once + 24h dedupe window.         (A2, "Decide for me")
+4. A durable append-only log sits in the middle.         (A3, "Decide for me")
+5. Schemas registry-enforced at ingest, DLQ for rejects. (A4, "Decide for me")
+
+--- Surprises / friction ---
+* `--relation support` rejected; must be `supports`. Doc wording vs flag value mismatch (above).
+* `"$DOFLOW" claim --help` prints the TOP-LEVEL doflow CLI help (install/update/status/...), not the
+  claim verb's own usage. There is no way to discover --action link's flag names from the verb.
+  I only knew to try --claim-id/--evidence-id/--relation from EVIDENCE_LEDGER.md's prose.
+* Each `claim --action add` prints a table containing ONLY the claim just added, formatted as if it
+  were the whole store. `--action list` shows all five. Not wrong, but the add output reads like the
+  store was replaced.
+* Claim ids all end in `_1` (claim_msygvawx_1, claim_msygvaza_1, ...) — the disambiguator is the
+  timestamp prefix, not the counter, so five sequential adds all look like "the first claim".
+* Nothing else. paths / classify / validate / evidence all behaved as the skill documents.

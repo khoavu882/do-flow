@@ -24,17 +24,20 @@ Pairing rules: `extracted` needs a `locator`; `inferred` and `asserted` need `co
 `generated-analysis` and `user-statement` can never be `extracted` — that pairing is how a reading
 of the evidence stops being distinguishable from the evidence.
 
-## Refused by name
+## The accepted set is closed
 
-`id`, `freshness`, `supports`/`contradicts`, `stage`, and any score field. Freshness is measured at
-the write, not declared by the writer; the ledger assigns the id; and evidence attaches to a claim
-by linking (below), not by a field on the item.
+An item carries exactly `kind`, `provenance`, `source`, `locator`, `content`, `taskId` — nothing
+else. Any other key is refused and the whole batch writes nothing, so a field you invent costs the
+batch, not just the field. The list below is what people reach for most, and why each is absent:
+`id`, `freshness`, `supports`/`contradicts`, `stage`, any score field. Freshness is measured at the
+write, not declared by the writer; the ledger assigns the id; and evidence attaches to a claim by
+linking (below), not by a field on the item.
 
 ## Claims
 
 Each conclusion is added as a claim in the same pass and is stored as a `hypothesis`. It becomes
 supported only through linked evidence — the `claim` verb's link action, naming the claim id, the
-evidence id, and whether the relation is support or contradiction. An earlier stage, a subagent, or
+evidence id, and the relation, spelled exactly `supports` or `contradicts`. An earlier stage, a subagent, or
 an artifact from a previous session having asserted something is not support.
 
 The link refuses an evidence id the ledger does not hold: exit 2, naming the id, not a low grade.

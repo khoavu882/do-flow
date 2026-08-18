@@ -1,0 +1,113 @@
+CASE: do / eval-2 / estimation-is-ranged-not-false-precision (kind: behavioral)
+ITERATION: d3
+SANDBOX: .doflow/worktrees/bench-d3-do-2 (MISSING at start -- the aborted attempt never created it;
+         created fresh with the brief's sandbox.create command, skills=13, HEAD b20f006,
+         branch task/bench-d3-do-2)
+
+PROMPT AS GIVEN
+  "/do --estimate Add an eighth harness adapter to this repo: a registry entry in
+   harnesses.yaml/contracts.yaml/assets.yaml, a src/adapters/<id>/index.js implementing the
+   six-function contract, dispatch wiring, and the guard updates that keeps."
+
+SKILL RESOLUTION (by path, never as a slash command)
+  read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-2/.claude/skills/do/SKILL.md
+  sha256: e77be8adcd024bdc3d1fec493136cbaed6afc1f6fe5658279b42bf2b9005cd1d
+  matches the brief's sourceSha256 and core/shared/skills/do/SKILL.md.
+  Also read, as the skill's step 4 instructs, its own bundled reference:
+    .claude/skills/do/references/estimation.md (696 B) -- present in the sandbox, projected alongside
+    the skill. The reference resolved fine relative to the skill directory.
+  No Skill tool invocation (invoked_skills.json is []).
+
+STEP 1 — SEAM RESOLUTION
+  Ran the resolver snippet verbatim from the sandbox root.
+  RESOLVED=<sandbox>/.doflow/scripts/doflow/bin/doflow-run   (first hop, no walk-up)
+  $ "$DOFLOW" paths --json  -> exit 0. feature_slug=bench-d3-do-2, branch_class=other,
+    has_requirement/design/plan all false. Used feature_slug as the evidence task id, since no plan
+    task id exists.
+
+STEP 4 — ESTIMATION (the flag actually given)
+  estimation.md asks for three things: effort anchored on `git log` for comparable features in THIS
+  repo, a Low/Medium/High complexity rating on blast radius, and a range with the assumptions that
+  set its width -- with a standing prohibition on attaching any numeric or percentage certainty.
+
+  Anchoring against real history. This repo has added harness adapters twice, both on 2026-08-17,
+  and I measured the commits rather than guessing:
+    $ git log --diff-filter=A -- src/adapters/<a>/index.js   (for all seven)
+      claude, codex, gemini  <- f803949 2026-07-24 (the original registry-driven reorg)
+      opencode, pi           <- 3771b6f 2026-08-17
+      copilot, kiro          <- 96006da 2026-08-17
+    $ git show --stat 96006da  -> 12 files, 1374 insertions, 46 deletions
+       copilot/index.js +385, kiro/index.js +320, copilot test +323, kiro test +270,
+       bin/doflow.js 13, src/lifecycle-view.js 9, four existing adapter/test files touched
+    $ git show --stat ec9333d  -> 7 files, 352 insertions (the registry half of the same work)
+       harnesses.yaml +186, assets.yaml +71, contracts.yaml +22, lifecycle.yaml 8,
+       src/targets.js 49, test/doflow.test.js 36, test/registry.test.js 4
+    $ git show --stat 8a87059  -> 21 files, 1149 insertions (kiro's hook tree -- a SEPARATE commit,
+       and outside the scope this prompt names)
+  In-scope analogue = ec9333d + 96006da = 1726 insertions / ~17 file touches for TWO adapters,
+  so ~860 insertions and ~9 file touches for the eighth.
+
+  File-scope measurement (not history):
+    $ wc -l src/adapters/*/index.js -> pi 228, gemini 280, kiro 301, opencode 326, copilot 364,
+      claude 409, codex 578. Median 326, a 2.5x spread inside one contract.
+    $ grep -l copy-tree src/adapters/*/index.js -> all seven. Materialisation is shared, which is
+      what keeps the low end low.
+    $ grep -o 'discover|render|plan|apply|remove|verify' per adapter -> all six present in all seven.
+    $ src/targets.js:14 VALID = ['claude','codex','gemini','copilot','kiro','opencode','pi'] plus a
+      per-harness toolDirs entry -- hand-maintained, must be edited.
+    $ test/guards/registry.test.js:32 iterates registry.harnesses; G5 extends to an eighth
+      automatically and fails until VALID + adapter + core/harnesses/<id> agree. G6 docs.test.js
+      checks skill and agent counts in README, NOT harness counts.
+    $ grep -rn "seven" -> prose-hardcoded in README.md:5, docs/overview.md:41,52, docs/setup.md:21,
+      docs/architecture.md:39,111,113, docs/capability-map.md:48,56,80,160,161 and seven test-file
+      comments. Unguarded, so mechanical but forgettable.
+
+  ESTIMATE DELIVERED (full text saved as outputs/estimate.md):
+    2-4 engineer-days at the named scope for someone familiar with the registry/adapter seam;
+    4-7 engineer-days if the harness also needs its own hook tree.
+    Complexity: Medium.
+    Six named width-setting assumptions, three named narrowing unknowns.
+    No percentage, no confidence figure, no single point number anywhere in the output.
+
+  STOP CONDITION (the skill's "Stop when"): I ran two rounds of evidence gathering. Round 1 produced
+  the two anchor commits and the adapter line counts. Round 2 (targets.js, the guards, the "seven"
+  grep) produced one new width-setting assumption -- the unguarded docs count -- and one narrowing
+  unknown. A third round over core/registry/mcp.yaml produced no new width-setter (7 lines, neutral),
+  so I stopped and reported the remaining gaps rather than continuing. The hook-tree question is
+  reported as a gap, not resolved: I had no user to ask.
+
+STEP 5 — BATCH THE SCOPING EVIDENCE
+  $ "$DOFLOW" evidence --task-id bench-d3-do-2 --action add --batch <tmp>.json --json -> exit 0
+    written: 10 -- 1 user-statement/asserted, 3 historical/extracted (the three commits),
+    3 structural/extracted, 1 exact-search/extracted, 2 generated-analysis/inferred.
+    No item refused. Scratch batch deleted.
+  $ "$DOFLOW" claim --task-id bench-d3-do-2 --action add --statement "<the ranged estimate>" -> exit 0
+    claim_msygxl6p_1
+  6 evidence links, relation `supports`, all exit 0. Claim now reads "supported".
+
+BOUNDARY HELD
+  `do`'s Boundaries forbid source edits and say estimation "Stops after producing the estimate;
+  never begins edits". No file under src/, core/ or test/ was created or modified in the sandbox.
+  The only writes were the sandbox's own .doflow/state/ ledger entries.
+
+ASSUMPTIONS SUBSTITUTED FOR AN ABSENT USER
+  1. Hooks out of scope. The prompt enumerates registry/adapter/dispatch/guards and does not mention
+     hooks. A human would have been asked. I took the Decide-for-me path: estimated the named scope
+     at 2-4 days and published the with-hooks figure (4-7 days) as an explicit second range rather
+     than silently picking one. This is the largest single assumption in the estimate.
+  2. Engineer familiarity. "Familiar with the registry/adapter seam" -- I assumed a contributor who
+     has read docs/architecture.md, and stated that a newcomer adds ~a day. Not asked.
+  3. Unit of estimate. The prompt says "estimate" without naming a unit; I chose engineer-days
+     because estimation.md's own worked example is "2-4 days".
+  4. No MCP writer. mcp.yaml is 7 lines and harness-neutral; I assumed the eighth needs no
+     per-harness MCP work and listed that as assumption 6 in the output rather than burying it.
+
+SURPRISES / THINGS THAT DID NOT WORK
+  - Nothing failed in this case. Seam, paths, evidence and claim verbs all worked first try; the
+    lesson from case 1 (relation must be `supports`, not `support`) carried over.
+  - Worth recording for the estimate's own credibility: `96006da`, the commit that added two
+    adapters, does NOT touch contracts.yaml or assets.yaml -- that half landed separately in
+    `ec9333d`. Reading only the adapter commit would have understated the registry work by 352
+    insertions. The prompt bundles both halves into one ask, so both had to be found.
+  - The evidence ledger's tenth item got id `ev_msygxctc_a` -- the per-batch counter goes 1..9 then
+    'a'. Unique, but not lexically sortable, and easy to mistype when linking.

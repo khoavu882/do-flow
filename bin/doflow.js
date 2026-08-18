@@ -140,7 +140,15 @@ function parseArgs(argv) {
       case '--prune': {
         const val = argv[i + 1];
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a number`); process.exit(1); }
-        o.prune = parseInt(val, 10) || 0; i++; break;
+        // Validated like the adjacent --days arm rather than `parseInt(val,10) || 0`, which
+        // turned `--prune notanumber` into "no pruning" and reported success.
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a number`); process.exit(2); }
+        {
+          const parsed = parseInt(val, 10);
+          if (!Number.isFinite(parsed) || parsed < 1) { console.error(`doflow: ${a} requires a positive integer, got '${val}'`); process.exit(2); }
+          o.prune = parsed;
+        }
+        i++; break;
       }
       default: {
         // Value-taking arguments of the runtime verbs. Table-driven rather than fifteen more
@@ -881,7 +889,7 @@ Options:
   -n, --dry-run        Preview without writing
   -f, --force          Skip confirmation prompts
       --no-backup      Skip backup (requires --force; ignored by rollback's safety snapshot)
-      --prune <N>      Keep only N most recent backups
+      --prune <N>      Keep only N most recent backups (install, update)
       --days <N>       Run-ledger window in calendar days (trace, stats, discover)
       --slug <name>    Scaffold this feature instead of the branch-resolved active one
 
@@ -982,8 +990,12 @@ function cmdInstall(o) {
   }
 
   if (!confirm(`Install configs to: ${targets.join(' ')}?`, o.force)) {
+    // Exit 1, not 0: a declined prompt is a decision, and it must not share an exit code with a
+    // completed run. With no stdin the prompt auto-declines, so `doflow install <path>` in a script
+    // or CI step printed "Aborted.", wrote zero files, and reported success. It also silently
+    // corrupted a set of install-timing measurements during the D.4 sweep, which is how it surfaced.
     console.error('[INFO]  Aborted.');
-    return;
+    process.exit(1);
   }
 
   let bid = '';
@@ -1076,8 +1088,12 @@ function cmdUpdate(o) {
   }
 
   if (!confirm(`Update${mcpChanged ? ' MCP server selection' : ''}${mcpChanged && lifecycleChanged ? ' +' : ''}${lifecycleChanged ? ' native resources' : ''} in: ${targets.join(' ')}?`, o.force)) {
+    // Exit 1, not 0: a declined prompt is a decision, and it must not share an exit code with a
+    // completed run. With no stdin the prompt auto-declines, so `doflow install <path>` in a script
+    // or CI step printed "Aborted.", wrote zero files, and reported success. It also silently
+    // corrupted a set of install-timing measurements during the D.4 sweep, which is how it surfaced.
     console.error('[INFO]  Aborted.');
-    return;
+    process.exit(1);
   }
 
   let bid = '';
@@ -1135,8 +1151,12 @@ function cmdRemove(o) {
     return;
   }
   if (!confirm(`Remove DoFlow-owned native resources for: ${lifecycleTargets.join(', ')}? User-owned files are preserved.`, o.force)) {
+    // Exit 1, not 0: a declined prompt is a decision, and it must not share an exit code with a
+    // completed run. With no stdin the prompt auto-declines, so `doflow install <path>` in a script
+    // or CI step printed "Aborted.", wrote zero files, and reported success. It also silently
+    // corrupted a set of install-timing measurements during the D.4 sweep, which is how it surfaced.
     console.error('[INFO]  Aborted.');
-    return;
+    process.exit(1);
   }
   const result = removeLifecycle({ registry: view.registry,
     adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter(),
@@ -1362,7 +1382,7 @@ function cmdRollback(o) {
   if (!bid) {
     printBackupTable(listBackups(backupRoot), backupRoot);
     bid = promptLine('Enter backup ID to restore (or press Enter to cancel): ');
-    if (!bid) { console.error('[INFO]  Aborted.'); return; }
+    if (!bid) { console.error('[INFO]  Aborted.'); process.exit(1); }
   }
 
   // PARITY-with-UX: install/update skip the confirm prompt entirely under --dry-run (nothing
@@ -1370,8 +1390,12 @@ function cmdRollback(o) {
   // --dry-run, which meant a non-interactive `doflow rollback <id> --dry-run` (no --force) would
   // block on stdin instead of just previewing. Match install/update's convention here.
   if (!o.dryRun && !confirm(`Restore from '${bid}'? This overwrites your current config.`, o.force)) {
+    // Exit 1, not 0: a declined prompt is a decision, and it must not share an exit code with a
+    // completed run. With no stdin the prompt auto-declines, so `doflow install <path>` in a script
+    // or CI step printed "Aborted.", wrote zero files, and reported success. It also silently
+    // corrupted a set of install-timing measurements during the D.4 sweep, which is how it surfaced.
     console.error('[INFO]  Aborted.');
-    return;
+    process.exit(1);
   }
 
   // sync.sh always takes a pre-rollback safety snapshot, regardless of --no-backup — rollback is

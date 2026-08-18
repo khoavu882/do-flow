@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "taskId": "bench-d3-do-1",
+  "updatedAt": "2026-08-18T09:32:08.675Z",
+  "evidenceCount": 7,
+  "evidence": [
+    {
+      "id": "ev_msygrmua_1",
+      "taskId": "bench-d3-do-1",
+      "kind": "user-statement",
+      "source": {
+        "provider": "user",
+        "capability": "user.statement"
+      },
+      "locator": {},
+      "provenance": "asserted",
+      "content": "Request bundles three asks: add a --quiet flag to `doflow doctor`, document it in docs/reference.md, then get the whole thing reviewed.",
+      "freshness": {
+        "gitCommit": "704fb3315890afef5f0808213b02b3f4250600d2",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:32:08.673Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msygrmub_2",
+      "taskId": "bench-d3-do-1",
+      "kind": "structural",
+      "source": {
+        "provider": "native.rg",
+        "capability": "code.exact-search"
+      },
+      "locator": {
+        "file": "bin/doflow.js",
+        "line": 1440
+      },
+      "provenance": "extracted",
+      "content": null,
+      "freshness": {
+        "gitCommit": "704fb3315890afef5f0808213b02b3f4250600d2",
+        "fileHash": "sha256:4cd4e96aea25aef3d221bc8683e4e36a3364417ff45bb17ca27669a3fcb0d1a9",
+        "observedAt": "2026-08-18T09:32:08.675Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msygrmub_3",
+      "taskId": "bench-d3-do-1",
+      "kind": "structural",
+      "source": {
+        "provider": "native.rg",
+        "capability": "code.exact-search"
+      },
+      "locator": {
+        "file": "src/runtime/health.js",
+        "line": 560
+      },
+      "provenance": "extracted",
+      "content": null,
+      "freshness": {
+        "gitCommit": "704fb3315890afef5f0808213b02b3f4250600d2",
+        "fileHash": "sha256:1880fc964c17050134d085aa3a2a657442bbfc2d505d64fce94b29e3985d7f41",
+        "observedAt": "2026-08-18T09:32:08.675Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msygrmub_4",
+      "taskId": "bench-d3-do-1",
+      "kind": "documentation",
+      "source": {
+        "provider": "native.rg",
+        "capability": "code.exact-search"
+      },
+      "locator": {
+        "file": "docs/reference.md",
+        "line": 42
+      },
+      "provenance": "extracted",
+      "content": null,
+      "freshness": {
+        "gitCommit": "704fb3315890afef5f0808213b02b3f4250600d2",
+        "fileHash": "sha256:a3078404cb224c38377fed0e33a6648644cbb768b78179f6571ccc2091c320fd",
+        "observedAt": "2026-08-18T09:32:08.675Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msygrmub_5",
+      "taskId": "bench-d3-do-1",
+      "kind": "exact-search",
+      "source": {
+        "provider": "native.rg",
+        "capability": "code.exact-search"
+      },
+      "locator": {
+        "file": "bin/doflow.js,docs/reference.md"
+      },
+      "provenance": "extracted",
+      "content": "grep for '--quiet' returns no matches in either file; the flag does not exist yet.",
+      "freshness": {
+        "gitCommit": "704fb3315890afef5f0808213b02b3f4250600d2",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:32:08.675Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msygrmub_6",
+      "taskId": "bench-d3-do-1",
+      "kind": "runtime-observation",
+      "source": {
+        "provider": "doflow.runtime",
+        "capability": "workflow.classify"
+      },
+      "locator": {
+        "file": "doflow-run classify --task-class feature|trivial-edit|review --json"
+      },
+      "provenance": "extracted",
+      "content": "All three proposed classes returned outcome=ACCEPTED; workflows are Feature Delivery (6 stages), Trivial Edit (implementation -> verification), Review (verification -> review).",
+      "freshness": {
+        "gitCommit": "704fb3315890afef5f0808213b02b3f4250600d2",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:32:08.675Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msygrmub_7",
+      "taskId": "bench-d3-do-1",
+      "kind": "generated-analysis",
+      "source": {
+        "provider": "claude",
+        "capability": "analysis"
+      },
+      "locator": {},
+      "provenance": "inferred",
+      "content": "Package A (the --quiet flag) is not single-file: it touches bin/doflow.js dispatch and src/runtime/health.js output, so trivial-edit's single-file readiness would not hold; feature is the fitting class.",
+      "freshness": {
+        "gitCommit": "704fb3315890afef5f0808213b02b3f4250600d2",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:32:08.675Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    }
+  ]
+}

@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "taskId": "bench-d3-do-brainstorm-1",
+  "updatedAt": "2026-08-18T09:43:08.716Z",
+  "evidenceCount": 7,
+  "evidence": [
+    {
+      "id": "ev_msyh5s4s_1",
+      "taskId": "bench-d3-do-brainstorm-1",
+      "kind": "user-statement",
+      "source": {
+        "provider": "user",
+        "capability": "user.statement"
+      },
+      "locator": {},
+      "provenance": "asserted",
+      "content": "\"I'm thinking about building something to help me keep track of what I read.\" -- the whole of what the user said. Vague on medium, motive, capture method, scale, and audience.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:43:08.716Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyh5s4s_2",
+      "taskId": "bench-d3-do-brainstorm-1",
+      "kind": "generated-analysis",
+      "source": {
+        "provider": "claude",
+        "capability": "analysis"
+      },
+      "locator": {},
+      "provenance": "inferred",
+      "content": "Round 1 surfaced four independent ambiguities: (Q1) which media count as 'what I read'; (Q2) whether the motive is recall, habit-tracking, or a shareable library; (Q3) whether capture is manual or automatic; (Q4) single reader or shared. All four were resolved by the assistant on the user's behalf; recorded as A1-A4.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:43:08.716Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyh5s4s_3",
+      "taskId": "bench-d3-do-brainstorm-1",
+      "kind": "generated-analysis",
+      "source": {
+        "provider": "claude",
+        "capability": "analysis"
+      },
+      "locator": {},
+      "provenance": "inferred",
+      "content": "Round 2 asked three ambiguities dependent on Q2's answer: (Q5) whether notes and quotes are the payload or a link list suffices; (Q6) what status vocabulary fits; (Q7) what personal scale means for search. Resolved as A6, A7, A5.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:43:08.716Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyh5s4s_4",
+      "taskId": "bench-d3-do-brainstorm-1",
+      "kind": "generated-analysis",
+      "source": {
+        "provider": "claude",
+        "capability": "analysis"
+      },
+      "locator": {},
+      "provenance": "inferred",
+      "content": "Round 3 produced one new ambiguity (Q8, whether export matters) and otherwise restated round 2. Per the saturation test in MODE_Brainstorming.md and the skill's Stop-when clause, round 3 was the last round: it added one item, and a fourth round over the same ground produced no further unknown.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:43:08.716Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyh5s4s_5",
+      "taskId": "bench-d3-do-brainstorm-1",
+      "kind": "generated-analysis",
+      "source": {
+        "provider": "claude",
+        "capability": "analysis"
+      },
+      "locator": {},
+      "provenance": "inferred",
+      "content": "Motive was chosen as recall rather than habit-tracking on one linguistic signal: 'keep track of what I read' is past-tense and possessive, describing a record of things already read rather than a target for things to read. This is the load-bearing inference in the artifact -- if it is wrong, US5/FR-008 become P1 and the document reorders.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:43:08.716Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyh5s4s_6",
+      "taskId": "bench-d3-do-brainstorm-1",
+      "kind": "runtime-observation",
+      "source": {
+        "provider": "doflow.runtime",
+        "capability": "workflow.classify"
+      },
+      "locator": {},
+      "provenance": "inferred",
+      "content": "classify --task-class feature returned ACCEPTED; the Feature Delivery workflow's stageIds include a discovery stage whose skill is do-brainstorm, so writing requirement.md is in contract for this run.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:43:08.716Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyh5s4s_7",
+      "taskId": "bench-d3-do-brainstorm-1",
+      "kind": "test-result",
+      "source": {
+        "provider": "doflow.runtime",
+        "capability": "artifact.validate"
+      },
+      "locator": {},
+      "provenance": "inferred",
+      "content": "doflow-run validate on the written requirement.md: exit 0, '1 artifact(s) checked, no violations'. Index/detail parity, Status vocabulary, and History are consistent.",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:43:08.716Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    }
+  ]
+}

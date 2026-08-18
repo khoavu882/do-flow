@@ -18,12 +18,12 @@
     {
       "text": "The produced design does not use the experimental C4Context diagram type (scope: artifacts, not narration about avoiding it)",
       "passed": true,
-      "evidence": "absent from outputs/ (1 file(s)) as required"
+      "evidence": "absent from outputs/design.md as required"
     },
     {
       "text": "The produced design does not use the experimental C4Container diagram type (scope: artifacts, not narration about avoiding it)",
       "passed": true,
-      "evidence": "absent from outputs/ (1 file(s)) as required"
+      "evidence": "absent from outputs/design.md as required"
     },
     {
       "text": "C1 Context and C2 Container sections are both present or explicitly N/A with a reason",

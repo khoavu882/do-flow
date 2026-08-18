@@ -181,7 +181,18 @@ awk -v want="$phase" '
     parallel_tasks: $par,
     sequential_tasks: $seq,
     overlaps: $overlaps,
-    parallel_safe: (($overlaps | length) == 0),
+    # `null` when the caller named a phase and nothing parsed, true only when BOTH the task-level
+    # and the group-level collision sets are empty.
+    #
+    # This field was `(($overlaps|length) == 0)`, which was wrong twice. A plan whose tasks are not
+    # under a `### Phase <X>` heading parses to zero tasks, so zero overlaps, so "safe" — the flag
+    # said a collision-free phase where it had read no phase at all. And `$overlaps` counts only
+    # `[P]`-to-`[P]` collisions, so a plan could report `parallel_safe: true` in the same object as
+    # a non-empty `group_overlaps` naming the very file two groups both write. `do-execute-plan`
+    # tells the reader to branch on this field and never on the exit code, so either shape
+    # authorises concurrent writes to one file.
+    parallel_safe: (if (($par | length) == 0 and ($seq | length) == 0) then null
+                    else (($overlaps | length) == 0 and ($final_group_overlaps | length) == 0) end),
     serialize: ([$overlaps[] | .tasks[]] | unique),
     groups: $final_groups,
     group_overlaps: $final_group_overlaps,

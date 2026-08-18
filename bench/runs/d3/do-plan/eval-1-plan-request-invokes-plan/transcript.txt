@@ -1,0 +1,205 @@
+=== CASE: do-plan / eval 1 — plan-request-invokes-plan (triggering) ===
+Iteration: d3
+Prompt: "Turn the design into an implementation plan I can hand to someone."
+Sandbox: .doflow/worktrees/bench-d3-do-plan-1 (branch task/bench-d3-do-plan-1)
+Sandbox created this run via the brief's sandbox.create; WorktreeManager reported skills=13.
+
+--- SKILL SOURCE ---
+Read by path (never as /do-plan):
+  /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-plan-1/.claude/skills/do-plan/SKILL.md
+shasum -a 256 -> fb9fa71842b080326a238645d2cfcb87078d4d570bf6dfbdc5e009933eae637a
+Matches the brief's sourceSha256 exactly. .doflow-skill-source.json reports all 13 skills
+matchesSource: true, sourceCommit b20f006f338a6327923b5febd562fe4521959cca, mismatches: [].
+Skill tool invocations this case: none. invoked_skills.json is [].
+
+--- TRIGGERING DECISION (the thing this eval measures) ---
+Frontmatter description read from the sandbox copy:
+  "Generate the implementation plan (HOW) and dependency-ordered task checklist from
+   requirement.md + design.md, with a Constitution Check gate, as Phase 3 of the doflow chain.
+   Use when requirement.md and design.md already exist and the next need is a concrete,
+   owner-and-file-scoped task breakdown before implementation starts, or the user says
+   'turn this design into a plan' rather than asking to design the system or write code."
+
+DECISION: ROUTE TO do-plan. The description contains a near-verbatim example of this prompt
+("the user says 'turn this design into a plan'"), and the request asks for a breakdown to hand
+to an implementer, not for a design and not for code. The competing candidates were ruled out
+from their own descriptions: do-design writes design.md (the user says the design already
+exists), do-implement writes code directly, do-execute-plan needs a plan.md that does not exist.
+Confidence in the routing is high and it came from this description, not from the skill name.
+
+Note on the description's precondition clause: it says "Use when requirement.md and design.md
+already exist". Neither exists here. The clause reads as guidance on *when* the skill is the right
+one, and the second half of the sentence ("or the user says 'turn this design into a plan'") is an
+independent trigger, so routing still fires. This ambiguity is worth flagging: a stricter reader
+could have declined to route because the stated precondition is unmet.
+
+--- FLOW AS EXECUTED ---
+
+STEP 1 — Resolve the runtime seam.
+Ran the SKILL.md resolver verbatim with CWD at the sandbox root. It resolved on the first
+walk-up iteration:
+  DOFLOW=/Users/kai/.../worktrees/bench-d3-do-plan-1/.doflow/scripts/doflow/bin/doflow-run
+No fallback to $HOME needed; no exit 2. The runtime ships into the sandbox correctly.
+
+  $ "$DOFLOW" paths --json          -> exit 0
+  repo_root       .../worktrees/bench-d3-do-plan-1
+  branch          task/bench-d3-do-plan-1
+  feature_slug    bench-d3-do-plan-1     (candidate_slugs: [] — no unresolved choice, no prompt)
+  feature_dir     agent-docs/doflow/bench-d3-do-plan-1
+  has_requirement false
+  has_design      false
+  has_plan        false
+  has_constitution_local false
+  constitution_base  .doflow/guidance/references/CONSTITUTION_BASE.md
+  branch_class    other
+
+  So: the sandbox has NO requirement.md and NO design.md. The prompt's premise ("the design")
+  is false in this repo. Everything below is shaped by that.
+
+STEP 2 — Propose one task class; runtime validates.
+  $ "$DOFLOW" classify --task-class "feature" --json    -> exit 0, outcome ACCEPTED
+  workflow "Feature Delivery": discovery -> design -> planning -> implementation ->
+  verification -> review; gates gate-0, gate-a, gate-b; implementation stage
+  readinessTemplate "feature"; the planning stage (this skill) has readinessTemplate null.
+
+  ASSUMPTION SUBSTITUTED (#1): SKILL.md says to derive the class from requirement.md and
+  design.md, "not from their mere existence". Neither file exists, so there was nothing to
+  derive from and no user to ask. Per the standing instruction I took the "decide for me" path
+  and proposed `feature`, on the reasoning that (a) the request is for a plan handed to an
+  implementer and (b) `feature` is the only class in workflows.yaml that has a `planning` stage
+  at all — under any other class this skill would have had to hand off instead of plan. This
+  assumption is recorded in plan.md §1 and as claim D5, not silently absorbed.
+
+STEP 3 — Precondition (advisory).
+  has_requirement false and has_design false both trip the warning. The step says to warn and
+  offer /do-brainstorm and /do-design first, and marks the gate advisory/skippable.
+  ASSUMPTION SUBSTITUTED (#2): no user to accept the offer. Took the "decide for me" path:
+  continued (the gate is explicitly skippable) but wrote the plan as a gap-recovery plan whose
+  entire Phase A is that offer, made executable. The absence is stated in the plan's title,
+  header, a dedicated §0, §1, §2's Result line, and §8's [US-none] markers.
+
+STEP 4 — Read inputs.
+  requirement.md — absent, nothing to read.
+  design.md — absent, nothing to read.
+  constitution_base — read: CONSTITUTION_BASE.md v1.0.0, principles P1..P6.
+  constitution_local — has_constitution_local is false, so per the step I did NOT stat the
+  filesystem myself and did not read it. Tier reconciliation is therefore trivial: tier-1
+  stands unmodified, tier-2 contributes no overrides.
+  Also read .doflow/guidance/references/ARTIFACT_FORMAT.md (step 5 requires it before filling
+  the template) and .doflow/guidance/references/EVIDENCE_LEDGER.md (step 10 requires it before
+  writing the batch). Both resolved inside the sandbox's .doflow/guidance tree.
+
+STEP 5 — Write plan.md §§1-7.
+  Template path derivation worked as written: take constitution_base
+  ".../.doflow/guidance/references/CONSTITUTION_BASE.md", swap the trailing
+  "guidance/references/CONSTITUTION_BASE.md" for "templates/doflow/plan-template.md" ->
+  ".../.doflow/templates/doflow/plan-template.md". That file exists (4.9K) and was copied and
+  filled. Wrote to agent-docs/doflow/bench-d3-do-plan-1/plan.md (201 lines).
+  Followed ARTIFACT_FORMAT.md: §4 and §6 are index-then-detail with literal `ID`/`Status`
+  headers and one detail entry per row; Status values are only `Live`; §9 History reads
+  "None — initial version."; the §8 rollup heading is `### Task Summary`.
+  Content is scoped to recovering the two missing artifacts. No feature, no component, no
+  schema, no user story was invented. §5 Data/Contracts is "N/A" rather than a fabricated
+  schema, and §8 tasks carry `[US-none]` rather than a made-up `[US1]`.
+  Every [NEEDS CLARIFICATION] in the requirement: vacuously none, because there is no
+  requirement. Stated as a gap in §0 rather than reported as "all resolved".
+
+STEP 6 — Constitution Check (advisory gate).
+  Evaluated against BOTH tiers as reconciled in step 4:
+    tier-1 CONSTITUTION_BASE.md v1.0.0 — P1..P6 each checked individually in §2.
+    tier-2 agent-docs/constitution.md — absent (has_constitution_local false); recorded as
+    "absent, no overrides in force", explicitly not as "skipped".
+  Recorded verdict: PASS (tier-1 PASS, tier-2 not present), with the note that the plan would
+  FAIL P2 (evidence over assumptions) and P4 (scope discipline) if it claimed to be the
+  implementation plan for a feature. No violation, so no STOP-and-revise was triggered.
+
+STEP 7 — Decompose into tasks (§8).
+  --depth not supplied by the prompt -> default `normal`. Five tasks over two phases:
+  A.0/A.1/A.2 recover requirement.md and design.md; B.1/B.2 re-resolve and re-plan.
+  [P] markers: the SKILL.md rule is "[P] by default, unmarked owes a reason". No task here is
+  marked [P] and every one of them owes a reason: A.1 reads the requirement.md A.0 produces,
+  A.2 reads the requirement.md A.1 produces, B.1 depends on A.2's file existing, B.2 rewrites
+  the plan B.1 validated — a strict chain, and A.0/A.1 additionally write the same file. The
+  §2 P5 line records this so the absence of [P] is justified rather than sloppy.
+  depends-on: none set — no task references an external service.
+  external-contract: none — no non-local dependency exists.
+
+STEP 8 — Derive branch plan.
+  requirement.md's **Ticket:** field cannot be read (no requirement.md) -> ticket treated as
+  absent -> `feat/<slug>` = `feat/bench-d3-do-plan-1` (slug carries no leading NNN- to strip).
+  Every task's files: path walks up to the single .git at the sandbox root; no depends-on:
+  values to resolve -> single-repo -> wrote "N/A: single-repo feature" instead of the table,
+  as the template directs. No branch created (derivation only).
+
+STEP 9 — Validate.
+  $ "$DOFLOW" validate "agent-docs/doflow/bench-d3-do-plan-1/plan.md"
+  -> "validate-artifacts: 1 artifact(s) checked, no violations"   exit 0
+  Surfaced verbatim. No findings.
+
+STEP 10 — Batch this stage's evidence (one pass at the boundary).
+  Read EVIDENCE_LEDGER.md first, as step 10 directs. Wrote a 6-item batch to a scratch JSON
+  file; each item carries kind, provenance (never defaulted), and source {provider, capability};
+  extracted items carry a locator, inferred items carry content; no id/freshness/supports/
+  stage/score field was written.
+  $ "$DOFLOW" evidence --task-id "bench-d3-do-plan-1" --action add --batch <f> --json
+  -> exit 0, written: 6, ids ev_msyhdbi7_1..6, all freshness.status FRESH, gitCommit b20f006.
+  State file: .doflow/state/evidence/bench-d3-do-plan-1.json
+  Then five claims, one per §3 decision D1..D5:
+  $ "$DOFLOW" claim --task-id "bench-d3-do-plan-1" --action add --statement "<D#>"
+  -> exit 0 each; claim ids claim_msyhdj9k_1, _msyhdjc1_1, _msyhdjef_1, _msyhdjgr_1,
+     _msyhdjiz_1; every one stored with status `hypothesis`.
+  Task id used: the feature slug `bench-d3-do-plan-1` (nothing here is scoped to a single
+  `- [ ]` task), the same id for every call, per step 10.
+
+  Then, because EVIDENCE_LEDGER.md says a claim "becomes supported only through linked
+  evidence", I tried the link action (see FRICTION #1 and #2 below) and linked D1 to
+  ev_msyhdbi7_1; that claim flipped hypothesis -> supported. The other four were left as
+  hypothesis, which is what SKILL.md step 10 alone would have produced.
+
+READINESS — not called. The planning stage's readinessTemplate is null in the accepted
+workflow, and the skill's Will Not forbids calling readiness for such a stage. Also not
+reported as "skipped", per EVIDENCE_LEDGER.md.
+
+STEP 11 — Stop and report.
+  Plan path: agent-docs/doflow/bench-d3-do-plan-1/plan.md
+  Constitution Check: PASS (tier-1 PASS; tier-2 absent)
+  Tasks: 5 total — 0 [P], 5 sequential (each with a stated dependency reason)
+  Branch: feat/bench-d3-do-plan-1, 1 repo (Repo Branch Plan is N/A: single-repo)
+  Stopped after plan creation. No code written, no branch created, no /do-execute-plan run.
+
+--- ASSUMPTIONS SUBSTITUTED FOR USER INPUT (summary) ---
+#1 Task class `feature` — no requirement/design to derive from, no user to ask. Recorded in
+   plan.md §1 and §3 D5 and as a claim.
+#2 Continue past the advisory missing-input gate instead of accepting the /do-brainstorm offer
+   — the gate is explicitly skippable; the offer was instead written into the plan as Phase A.
+#3 --depth defaulted to `normal` (the prompt carried no flag; SKILL.md names normal as default).
+Nothing else was assumed. In particular no feature name, scope, user story, component, schema
+or ticket was invented to fill a template slot.
+
+--- RUNTIME FRICTION OBSERVED ---
+F1. Documentation/CLI mismatch on the claim link relation. EVIDENCE_LEDGER.md says to name
+    "whether the relation is support or contradiction". The CLI rejects `--relation support`:
+      "doflow claim: Invalid evidence relation 'support'. Allowed: supports, contradicts"
+    A reader following the reference's own wording gets an error on the first try. `supports`
+    works. Low severity, trivially fixable in either direction.
+F2. That same rejection exits 0. The error text goes to output and the command reports success,
+    so a script chaining `&& ` after a failed link would proceed as if it had linked. Contrast
+    the ledger's own stated contract for a bad evidence id: "exit 2, naming the id".
+F3. SKILL.md step 10 never mentions linking. Following the skill literally leaves every claim
+    at status `hypothesis` forever, while EVIDENCE_LEDGER.md — which step 10 tells you to read —
+    says a claim "becomes supported only through linked evidence". The skill's own two commands
+    cannot produce a supported claim. This is a real gap between the skill and the reference it
+    points at, not a misreading: five claims were added and all five came back `hypothesis`.
+F4. `claim --action add` prints only the claim just added under a full table header, so the
+    output looks like the complete claim set for the task when it is one row of five. Cosmetic.
+F5. Claim ids restart at `_1` on each invocation (claim_msyhdj9k_1, claim_msyhdjc1_1, ...) —
+    uniqueness comes from the timestamp prefix, so ids are unique but the `_1` suffix carries
+    no ordinal meaning. Cosmetic, but it reads as if each add started a fresh store.
+Nothing else failed. paths, classify, validate and evidence all behaved exactly as SKILL.md
+describes, and the seam resolver found the runtime inside the sandbox on the first try.
+
+--- OUTPUTS SAVED ---
+outputs/plan.md             the artifact this run produced (copied from the sandbox)
+outputs/evidence-batch.json the batch file submitted to the evidence verb
+outputs/evidence-ledger.json the resulting ledger state for this task id
+outputs/claims.json         the resulting claim store for this task id
