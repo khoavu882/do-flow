@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "taskId": "bench-d3-do-1",
+  "updatedAt": "2026-08-18T09:32:58.279Z",
+  "claimsCount": 2,
+  "claims": [
+    {
+      "id": "claim_msygrwld_1",
+      "taskId": "bench-d3-do-1",
+      "statement": "The request decomposes into three packages: (A) add --quiet to doflow doctor across bin/doflow.js and src/runtime/health.js, class feature, first stage do-brainstorm; (B) document the flag in docs/reference.md row 42, class trivial-edit, stage do-implement; (C) review the combined change, class review, stage do-code-review.",
+      "status": "supported",
+      "supportingEvidence": [
+        "ev_msygrmub_2",
+        "ev_msygrmub_3",
+        "ev_msygrmub_4",
+        "ev_msygrmub_5",
+        "ev_msygrmub_6",
+        "ev_msygrmub_7"
+      ],
+      "contradictingEvidence": [],
+      "createdAt": "2026-08-18T09:32:21.313Z",
+      "updatedAt": "2026-08-18T09:32:58.194Z"
+    },
+    {
+      "id": "claim_msygrwnl_1",
+      "taskId": "bench-d3-do-1",
+      "statement": "Package B is sequenced after package A and package C after both: the doc row cannot describe a flag that does not exist, and the review needs both to be present.",
+      "status": "supported",
+      "supportingEvidence": [
+        "ev_msygrmua_1"
+      ],
+      "contradictingEvidence": [],
+      "createdAt": "2026-08-18T09:32:21.393Z",
+      "updatedAt": "2026-08-18T09:32:58.279Z"
+    }
+  ]
+}

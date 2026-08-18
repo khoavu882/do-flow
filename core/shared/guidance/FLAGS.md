@@ -1,25 +1,25 @@
-# DoFlow Framework Flags
+# Runtime Behavior and Flags
 
-Behavioral flags that change how a request is handled. This file is loaded into **every** session
-on every harness, so it documents only flags that route somewhere real — a flag with no consumer
-is removed rather than kept as aspiration.
+Loaded into **every** session on every harness. What a flag used to request is now mostly
+unconditional, so this states the behavior once rather than listing knobs.
 
-**MCP short flags are not listed here.** They vary per install and are generated into
-`MCP_INDEX.md` from the servers actually selected, so this file never names a server you may not
-have installed.
+## Always on
 
-## Execution Control
+**Readiness gating** — a stage that edits source is graded against its class contract first;
+the verdict is one of four states, never a number.
+**Recovery bounds** — a failed verification is classified and retried under a bound the runtime
+sets. You do not pick a cycle count.
+**Run tracing** — every runtime call is recorded as it happens and read back; where a run
+stopped is read from that record, never reconstructed.
+**Capability routing** — an information need resolves to a provider healthy on this machine, not to
+a habitual tool.
 
-**--iterations [n]** — improvement cycles to run (1–10). Consumed by `do-diagnose` and `do-execute-plan`.
+## Flags
 
-**--focus [performance|security|quality|architecture|accessibility|testing]** — narrows analysis to one domain. Consumed by `do-diagnose`.
+What the user typed beats auto-detection. Every flag belongs to one skill and is declared in that
+skill's `argument-hint`, except this one, which crosses them:
 
-<important if="operating in production, on shared infrastructure, or performing risky operations">
-**--validate** — pre-execution risk assessment and validation gates before acting. Consumed by `do-diagnose` and `do-execute-plan`.
-</important>
+**--focus [quality|security|performance|architecture]** — narrows analysis to one domain. Consumed
+by `do-diagnose`.
 
-## Priority Rules
-
-**Safety first** — `--validate` outranks any optimization flag.
-**Explicit over inferred** — a flag the user typed beats auto-detection.
-**Parallel execution** is the default.
+MCP short flags are generated per install into `MCP_INDEX.md`; this file names no server.

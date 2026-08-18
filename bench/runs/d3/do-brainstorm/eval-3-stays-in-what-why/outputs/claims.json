@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "taskId": "bench-d3-do-brainstorm-3",
+  "updatedAt": "2026-08-18T09:39:08.279Z",
+  "claimsCount": 2,
+  "claims": [
+    {
+      "id": "claim_msyh0gmf_1",
+      "taskId": "bench-d3-do-brainstorm-3",
+      "statement": "The request named a mechanism, not a requirement; discovery recorded the outcome and its correctness constraints and deferred the mechanism to design.",
+      "status": "supported",
+      "supportingEvidence": [
+        "ev_msyh0965_2"
+      ],
+      "contradictingEvidence": [],
+      "createdAt": "2026-08-18T09:39:00.519Z",
+      "updatedAt": "2026-08-18T09:39:08.189Z"
+    },
+    {
+      "id": "claim_msyh0gow_1",
+      "taskId": "bench-d3-do-brainstorm-3",
+      "statement": "Any load-time optimisation here must be paid for with a stated, visible and refusable staleness bound, and may never leak one user's figures to another.",
+      "status": "supported",
+      "supportingEvidence": [
+        "ev_msyh0965_3"
+      ],
+      "contradictingEvidence": [],
+      "createdAt": "2026-08-18T09:39:00.608Z",
+      "updatedAt": "2026-08-18T09:39:08.279Z"
+    }
+  ]
+}

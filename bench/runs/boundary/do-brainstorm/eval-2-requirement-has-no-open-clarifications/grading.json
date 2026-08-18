@@ -1,0 +1,40 @@
+{
+  "skill": "do-brainstorm",
+  "eval_id": 2,
+  "eval_name": "requirement-has-no-open-clarifications",
+  "skill_source": {
+    "status": "verified",
+    "expectedSha256": "a6838b7013eb4d32b70b3b0b964a23b07ed75f80222a2461134092ab8dc71345",
+    "recordedSha256": "a6838b7013eb4d32b70b3b0b964a23b07ed75f80222a2461134092ab8dc71345",
+    "recordedPath": ".doflow/worktrees/bench-boundary-do-brainstorm-2/.claude/skills/do-brainstorm/SKILL.md",
+    "evidence": "read .doflow/worktrees/bench-boundary-do-brainstorm-2/.claude/skills/do-brainstorm/SKILL.md (matches core/shared/skills/do-brainstorm/SKILL.md)"
+  },
+  "expectations": [
+    {
+      "text": "A requirement artifact carrying FR-### ids was produced",
+      "passed": true,
+      "evidence": "matched /FR-\\d{3}/ in outputs/ (1 file(s))"
+    },
+    {
+      "text": "No [NEEDS CLARIFICATION] marker survives in the written requirement",
+      "passed": false,
+      "evidence": "unexpectedly matched /\\[NEEDS CLARIFICATION/ in outputs/ (1 file(s))"
+    },
+    {
+      "text": "requirement.md was created in the feature directory",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    },
+    {
+      "text": "Every deferred ambiguity appears in section 8 Assumptions with a rationale",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    },
+    {
+      "text": "The functional requirements carry an index table above the detail",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": 0.5
+}

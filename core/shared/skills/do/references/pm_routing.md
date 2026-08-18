@@ -14,9 +14,10 @@ Decomposition depth guidelines when `/do` processes multi-part, cross-domain req
 - Feature discovery $\rightarrow$ `/do-brainstorm`
 - Architectural decisions $\rightarrow$ `/do-design`
 - Task orchestration $\rightarrow$ `/do-plan` / `/do-execute-plan`
-- Error/Bug diagnosis $\rightarrow$ `/do-diagnose --root-cause`
+- Error/Bug diagnosis $\rightarrow$ `/do-diagnose`
 - Code quality review $\rightarrow$ `/do-code-review`
 - Git lifecycle $\rightarrow$ `/do-git`
 
 ## Behavioral Posture
-For complex multi-tool routing and orchestration, consult `modes/MODE_Orchestration.md`.
+For complex multi-tool routing and orchestration, consult the guidance tree's
+`modes/MODE_Orchestration.md`.

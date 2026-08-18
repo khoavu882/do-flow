@@ -1,13 +1,15 @@
 # Hotfix Procedure: /do-git
 
 This procedure is executed when `/do-git hotfix` is invoked. It patches production and
-propagates to every live line (.FR-004).
+propagates to every live line.
 
 ## Sequence
 
-1. **Dry-run fingerprint** → Call `do-git-state.sh --fingerprint`, record F1
-2. **Propagate targets** → Call `do-git-state.sh --propagation-targets`
-3. **Preview full command sequence**:
+Runs inside `SKILL.md`'s Per Intent Processing sequence. This file supplies only the
+intent-specific preview content (its steps 2–3).
+
+1. **Propagation targets** → `"$DOFLOW" git-state --propagation-targets`
+2. **Preview full command sequence**:
    - Create hotfix branch from production: `git checkout -b hotfix/<slug> production-branch`
    - Cherry-pick or merge the fix commit(s)
    - Tag with patch version: `git tag v<major>.<minor>.<patch>` (annotated)
@@ -15,10 +17,6 @@ propagates to every live line (.FR-004).
    - For each target in propagation targets:
      - If target is integration: merge hotfix branch into it
      - If target is active release branch: cherry-pick the fix commit
-4. **User confirmation** → If confirmed, proceed to step 5
-5. **Re-fingerprint** → Call `do-git-state.sh --fingerprint`, compare F2 to F1
-6. **If fingerprint differs** → Abort, state changed; return to step 1 with updated state
-7. **Execute commands** → Run each command from the previewed sequence
 
 ## Propagation Rules
 
@@ -33,7 +31,7 @@ A target is "outstanding" if:
 - It requires manual intervention
 
 ### Halt-and-Report Behavior
-On a conflicting cherry-pick (FR-004):
+On a conflicting cherry-pick:
 1. Stop propagation immediately
 2. Report all outstanding targets with conflict details
 3. Do NOT report hotfix as complete

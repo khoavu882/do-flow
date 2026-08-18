@@ -10,6 +10,8 @@ flowchart LR
     D --> G[Gemini / Antigravity]
     D --> O[OpenCode]
     D --> P[Pi Coding Agent]
+    D --> CP[Copilot CLI]
+    D --> K[Kiro]
     C --> H[Hooks & MCP]
     X --> S[AGENTS.md & skills]
     G --> R[GEMINI.md & skills]

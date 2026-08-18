@@ -1,0 +1,23 @@
+{
+  "skill": "do-plan",
+  "eval_id": 2,
+  "eval_name": "constitution-check-recorded",
+  "expectations": [
+    {
+      "text": "A Constitution Check result is recorded",
+      "passed": true,
+      "evidence": "matched /Constitution Check/"
+    },
+    {
+      "text": "The verdict is PASS or FAIL with reasoning per principle",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    },
+    {
+      "text": "Tier-2 is consulted only when it exists, per the resolver flag",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": 1
+}

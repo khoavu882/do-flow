@@ -1,0 +1,65 @@
+Case: do-document eval-1 doc-request-invokes-document (kind: triggering)
+Sandbox: .doflow/worktrees/bench-boundary-do-document-1
+Skill file read by path: .claude/skills/do-document/SKILL.md (sha256 22f195cfa827237672ee13a147ccd946301036f316b33e7d4c3f139470493380)
+
+Prompt given verbatim:
+"Write API reference docs for the functions src/adapters/copy-tree.js exports."
+
+--- Task ---
+Triggering-judgment case: decide, from the do-document SKILL.md frontmatter in THIS repo's
+sandbox, whether the prompt routes to do-document. Do not invoke /do-document by name.
+
+--- Frontmatter read ---
+name: do-document
+description: "Unified documentation and knowledge engine — generate guides, API references,
+architecture knowledge bases, and deep web research reports. Use when the user needs written
+documentation or research output rather than a code change, or says 'document what we just built'
+/ 'write an API reference for this' / 'research how other projects solve this' — covering guides,
+indexes, and citation-backed research alike."
+argument-hint: "[target|query] [--type api|guide|impl|index|research] [--depth shallow|normal|deep]"
+effort: medium
+
+--- Decision ---
+YES — this request routes to do-document, --type api.
+
+Reasoning: The prompt is a near-verbatim match of the description's own example trigger phrase,
+"write an API reference for this" ("Write API reference docs for the functions ... exports").
+It asks for written documentation of a real module's public surface, not a code change — exactly
+the description's positive condition ("Use when the user needs written documentation ... rather
+than a code change"). Per the skill's own "Classify Documentation Scope" step, this is `api`:
+"Component docs, endpoint references, interface contracts, docstrings."
+
+--- Real artifact produced (not merely the routing decision) ---
+Since the prompt names a concrete, real file (src/adapters/copy-tree.js) and the case's
+saveOutputs requires outputs/ to be populated with real produced artifacts, I read the full
+264-line source file in this sandbox and wrote the actual API reference for every one of its 13
+exports (discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets,
+copyTreeDestDir, ledgerFileResources, resolveLayout, LAYOUTS, fingerprint, readJson,
+sourceDirFor), following the skill's "Analysis & Synthesis" step (extract interface shapes, doc
+comments, types) and "Output Generation" step (concise markdown hierarchy, code examples,
+clickable repository links). Internal, non-exported helpers (sha256, walkRelFiles, stableSort)
+were explicitly excluded, since the prompt asked only for what the module exports.
+See outputs/copy-tree-api-reference.md.
+
+--- Tools/skills used, in order ---
+1. Bash: read do-document SKILL.md frontmatter + full body (34 lines).
+2. Bash: shasum -a 256 on the skill file (matches manifest sourceSha256).
+3. Bash: wc -l src/adapters/copy-tree.js.
+4. Read: full contents of src/adapters/copy-tree.js (264 lines) to extract every export's
+   signature, parameters, return shape, throws, and side effects from its JSDoc comments and body.
+5. Write: outputs/copy-tree-api-reference.md — the actual API reference.
+6. Write: this transcript, invoked_skills.json, skill_source.json.
+
+No Skill tool invocation was made (per instructions, since invoking /do-document would resolve
+~/.claude/skills/do-document/ instead of this sandbox's copy).
+
+--- Assumptions substituted for a clarifying question ---
+1. Whether to document the exported LAYOUTS object (not a function) alongside the function
+   exports: included it briefly for completeness since the prompt says "the functions ...
+   exports" and LAYOUTS is exported but not itself callable — documented as a data export rather
+   than skipped silently.
+2. Documentation depth: no --depth flag was given; defaulted to "normal" (full parameter/return/
+   throws coverage per export, one example each) rather than "deep" (which would likely also
+   trace every call site across the seven adapters) or "shallow" (signatures only) — no
+   AskUserQuestion was raised for this since the skill has a sensible default and the prompt did
+   not signal urgency around scope.

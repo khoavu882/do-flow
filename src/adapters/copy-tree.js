@@ -78,6 +78,20 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
   const changes = [];
   const conflicts = [];
 
+  // Fingerprints the CURRENT source would write, keyed by destination. Resolved lazily and only
+  // when a recorded fingerprint has already failed to match, so the common removal path still
+  // never reads the source tree. A missing source directory is not an error here — an asset can be
+  // removed after its source moved — it simply leaves the recorded fingerprint as the only signal.
+  let sourceByDest;
+  const sourceFingerprint = (destAbs) => {
+    if (sourceByDest === undefined) {
+      sourceByDest = sourceDir && fsImpl.existsSync(sourceDir)
+        ? new Map(discoverTree({ sourceDir, destDir, fsImpl, layout }).files.map((file) => [file.destAbs, file.fingerprint]))
+        : new Map();
+    }
+    return sourceByDest.get(destAbs);
+  };
+
   const proposeRemoval = (prev) => {
     // prev's OWN recorded location, not the current destDir — an asset whose nativeDir changed
     // since prev was recorded must be removed from where it actually is, not from where it would
@@ -86,8 +100,20 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
     const destAbs = prev.target ?? path.join(destDir, prev.relPath);
     if (!fsImpl.existsSync(destAbs)) return;
     const current = sha256(fsImpl.readFileSync(destAbs));
-    if (current !== prev.fingerprint) { conflicts.push(`${prev.relPath} was modified outside DoFlow`); return; }
-    changes.push({ relPath: prev.relPath, target: destAbs, operation: 'remove', fingerprint: prev.fingerprint });
+    // Untampered on removal means the same two signals the apply path below already accepts: the
+    // bytes this harness last recorded, or the bytes the current source would write. The second
+    // one matters because a destination tree can be claimed by several harnesses (scripts.doflow
+    // is one `<project>/.doflow/scripts` for claude, codex and gemini), so a sibling's update
+    // legitimately rewrites files this harness's rows still describe — the same "a sibling
+    // changed bytes my row still describes" case the apply path had to be taught, arriving here
+    // as an un-releasable claim instead of a refused install. A hand edit matches neither and is
+    // still refused. The OBSERVED fingerprint travels with the change so removeTree's own
+    // pre-delete re-check agrees with the decision taken here rather than throwing mid-apply.
+    if (current !== prev.fingerprint && current !== sourceFingerprint(destAbs)) {
+      conflicts.push(`${prev.relPath} was modified outside DoFlow`);
+      return;
+    }
+    changes.push({ relPath: prev.relPath, target: destAbs, operation: 'remove', fingerprint: current });
   };
 
   if (operation === 'remove') {
@@ -187,6 +213,42 @@ function copyTreeAssets(assets) {
   return (assets || []).filter((asset) => asset?.renderer === 'copy-tree');
 }
 
+/** Recursively sort object keys before serializing, so two logically-equal objects with
+ * differently-ordered keys (e.g. after a settings file is merged and re-merged) fingerprint
+ * identically instead of spuriously registering as changed. */
+function stableSort(value) {
+  if (Array.isArray(value)) return value.map(stableSort);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableSort(value[key])]));
+}
+
+/** Content fingerprint every adapter uses to track what it owns: sha256 of a string as-is, or of
+ * a stably key-sorted JSON serialization of anything else. */
+function fingerprint(value) {
+  return sha256(typeof value === 'string' ? value : JSON.stringify(stableSort(value)));
+}
+
+/** Read and parse a native JSON file an adapter merges into. Distinguishes "absent" (safe to
+ * create) from "present but unparseable" (a conflict to report, never silently overwritten) —
+ * every adapter that merges into a native JSON settings/config file needs exactly this. */
+function readJson(file, { fsImpl = fs } = {}) {
+  if (!fsImpl.existsSync(file)) return { exists: false, value: {}, error: null };
+  try { return { exists: true, value: JSON.parse(fsImpl.readFileSync(file, 'utf8')), error: null }; }
+  catch (error) { return { exists: true, value: null, error: `Invalid JSON in ${file}: ${error.message}` }; }
+}
+
+/** Resolve an asset's source directory against the repo root, refusing a path that escapes the
+ * repository or does not exist. `harnessName` only shapes the thrown error message. */
+function sourceDirFor(asset, context = {}, fsImpl = fs, harnessName = 'Adapter') {
+  if (!asset || typeof asset.source !== 'string') throw new Error(`${harnessName} asset requires a source path`);
+  const repoRoot = context.repoRoot ? path.resolve(context.repoRoot) : process.cwd();
+  const source = path.resolve(repoRoot, asset.source);
+  if (!source.startsWith(`${repoRoot}${path.sep}`) || !fsImpl.existsSync(source)) {
+    throw new Error(`${harnessName} asset source is unavailable: ${asset.source}`);
+  }
+  return source;
+}
+
 /** Resolve an asset's native destination directory under the harness's already-resolved config dir. */
 function copyTreeDestDir(configDir, asset) {
   return path.join(configDir, asset.nativeDir || '');
@@ -199,4 +261,4 @@ function ledgerFileResources(resources, harness, assetId) {
     .map((resource) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
-module.exports = { discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, resolveLayout, LAYOUTS };
+module.exports = { discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, resolveLayout, LAYOUTS, fingerprint, readJson, sourceDirFor };

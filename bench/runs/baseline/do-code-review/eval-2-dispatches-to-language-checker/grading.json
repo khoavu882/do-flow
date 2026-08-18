@@ -1,0 +1,18 @@
+{
+  "skill": "do-code-review",
+  "eval_id": 2,
+  "eval_name": "dispatches-to-language-checker",
+  "expectations": [
+    {
+      "text": "Review applies Python-specific criteria, not generic advice",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    },
+    {
+      "text": "Findings are concrete and actionable rather than stylistic platitudes",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": null
+}

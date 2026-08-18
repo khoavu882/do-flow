@@ -1,0 +1,454 @@
+{
+  "version": 1,
+  "description": "Task-class workflows. Each class declares an ordered stage list; every stage names a skill that already exists in core/shared/skills/, the readiness template that gates it (null when the stage gates on nothing), and whether it is optional. There is deliberately no default class: an unclassified or unrecognized task is rejected by the classifier rather than resolved to the feature pipeline. `callers` declares, for every shipped skill, whether it occupies stages (`stage`), classifies on behalf of others (`router`), or runs outside class routing entirely (`standalone`); the classifier uses it to judge whether a proposed class has a stage the calling skill can occupy, and the two non-default roles must state why they are exempt.",
+  "stageKinds": {
+    "discovery": {
+      "description": "Elicit and record what is actually being asked for.",
+      "mutatesSource": false
+    },
+    "reproduction": {
+      "description": "Establish the reported behavior as an observed fact before explaining it.",
+      "mutatesSource": false
+    },
+    "analysis": {
+      "description": "Map existing structure, behavior, root cause, or blast radius from the repository as it stands.",
+      "mutatesSource": false
+    },
+    "retrieval": {
+      "description": "Gather authoritative external evidence — release notes, upstream documentation, prior art.",
+      "mutatesSource": false
+    },
+    "design": {
+      "description": "Decide system shape, interfaces, and data contracts.",
+      "mutatesSource": false
+    },
+    "planning": {
+      "description": "Break decided work into a dependency-ordered, owner-scoped task list.",
+      "mutatesSource": false
+    },
+    "implementation": {
+      "description": "Author or modify source. The only kind that mutates the tree, and therefore the only kind a readiness template can gate.",
+      "mutatesSource": true
+    },
+    "verification": {
+      "description": "Run builds, test suites, and coverage against the tree as it stands.",
+      "mutatesSource": false
+    },
+    "review": {
+      "description": "Assess a change or a body of code and report findings; produces judgement, not edits.",
+      "mutatesSource": false
+    },
+    "synthesis": {
+      "description": "Produce a written deliverable — a report, reference, or record — as the terminal output of the work.",
+      "mutatesSource": false
+    },
+    "operation": {
+      "description": "Execute a repository-lifecycle action such as a branch, release, or merge. Changes repository state without authoring source.",
+      "mutatesSource": false
+    }
+  },
+  "callers": {
+    "do": {
+      "role": "router",
+      "reason": "The universal dispatcher. It decomposes a request and classifies on behalf of the skill it will hand each package to, so it occupies no stage in its own right. Fit is judged one hop later, when that skill classifies under its own identity."
+    },
+    "do-flow": {
+      "role": "router",
+      "reason": "Sequences a whole workflow stage by stage. It selects the class rather than performing any stage of it, so stage membership is not a property it can have. Each stage it enters classifies for itself."
+    },
+    "do-brainstorm": { "role": "stage" },
+    "do-design": { "role": "stage" },
+    "do-plan": { "role": "stage" },
+    "do-execute-plan": { "role": "stage" },
+    "do-implement": { "role": "stage" },
+    "do-test": { "role": "stage" },
+    "do-code-review": { "role": "stage" },
+    "do-diagnose": { "role": "stage" },
+    "do-document": { "role": "stage" },
+    "do-git": { "role": "stage" },
+    "do-constitution": {
+      "role": "standalone",
+      "reason": "Repository governance. No workflow declares a governance stage and none should: the constitution is what workflows are checked against, not a step inside one. A classify call from here is a routing mistake rather than a class mistake, and is rejected as such."
+    }
+  },
+  "classes": {
+    "feature": {
+      "name": "Feature Delivery",
+      "description": "New capability delivered through the full spec-driven chain, retaining the three approval gates do-flow stops at today.",
+      "handoff": "After the final gate, commit and merge through do-git, which is outside this workflow.",
+      "readinessNote": "Gated by the 'feature' readiness template at the implementation stage.",
+      "stages": [
+        {
+          "id": "discovery",
+          "skill": "do-brainstorm",
+          "kind": "discovery",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Resolve the idea into requirement.md with zero unresolved clarification markers."
+        },
+        {
+          "id": "design",
+          "skill": "do-design",
+          "kind": "design",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Turn requirement.md into architecture, interface, and data-contract decisions in design.md."
+        },
+        {
+          "id": "planning",
+          "skill": "do-plan",
+          "kind": "planning",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Produce plan.md: the constitution check and the dependency-ordered task checklist."
+        },
+        {
+          "id": "implementation",
+          "skill": "do-execute-plan",
+          "kind": "implementation",
+          "readinessTemplate": "feature",
+          "optional": false,
+          "purpose": "Execute plan.md's checklist through the specialist archetypes."
+        },
+        {
+          "id": "verification",
+          "skill": "do-test",
+          "kind": "verification",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Run the project's builds and test suites over the delivered change."
+        },
+        {
+          "id": "review",
+          "skill": "do-code-review",
+          "kind": "review",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Review the delivered change and report an approval status."
+        }
+      ],
+      "gates": [
+        {
+          "id": "gate-0",
+          "name": "Unresolved clarifications",
+          "afterStage": "discovery",
+          "kind": "clarification",
+          "trigger": "unresolved-clarifications",
+          "prompt": "requirement.md still carries unresolved [NEEDS CLARIFICATION] markers. Resolve each one before design starts."
+        },
+        {
+          "id": "gate-a",
+          "name": "Before implementation",
+          "afterStage": "planning",
+          "kind": "approval",
+          "trigger": "always",
+          "prompt": "requirement.md, design.md, and plan.md are ready. Proceed to implementation?"
+        },
+        {
+          "id": "gate-b",
+          "name": "Before commit or merge",
+          "afterStage": "review",
+          "kind": "approval",
+          "trigger": "always",
+          "prompt": "Review is complete. Proceed to commit and merge?"
+        }
+      ]
+    },
+    "bug": {
+      "name": "Bug Fix",
+      "description": "Defect repair that starts from an observed reproduction and an evidenced root cause, never from a proposed fix.",
+      "handoff": "Fixes verified here are committed through do-git, which is outside this workflow.",
+      "readinessNote": "Gated by the 'bug' readiness template, which requires reproduction, affected code, a supported root-cause claim, blast radius, and a regression check.",
+      "stages": [
+        {
+          "id": "reproduction",
+          "skill": "do-test",
+          "kind": "reproduction",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Run the failing case and record the observed failure as evidence before explaining it."
+        },
+        {
+          "id": "root-cause",
+          "skill": "do-diagnose",
+          "kind": "analysis",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Establish the root cause and its blast radius from repository evidence, not from the first plausible explanation."
+        },
+        {
+          "id": "implementation",
+          "skill": "do-implement",
+          "kind": "implementation",
+          "readinessTemplate": "bug",
+          "optional": false,
+          "purpose": "Apply the targeted fix for the established root cause."
+        },
+        {
+          "id": "regression-verification",
+          "skill": "do-test",
+          "kind": "verification",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Re-run the reproduction and the surrounding suite to show the defect is gone and nothing else broke."
+        },
+        {
+          "id": "review",
+          "skill": "do-code-review",
+          "kind": "review",
+          "readinessTemplate": null,
+          "optional": true,
+          "purpose": "Review the fix when its blast radius reaches beyond the reproduction."
+        }
+      ],
+      "gates": []
+    },
+    "refactor": {
+      "name": "Refactor",
+      "description": "Behavior-preserving restructuring that starts from the current architecture, its invariants, and a green baseline.",
+      "handoff": "Verified restructuring is committed through do-git, which is outside this workflow.",
+      "readinessNote": "Gated by the 'refactor' readiness template, which requires mapped architecture, captured invariants, passing baseline tests, and blast radius.",
+      "stages": [
+        {
+          "id": "architecture-mapping",
+          "skill": "do-diagnose",
+          "kind": "analysis",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Map the current architecture and call graphs, state the invariants that must survive, and bound the blast radius."
+        },
+        {
+          "id": "baseline-verification",
+          "skill": "do-test",
+          "kind": "verification",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Record a green baseline before any edit, so a post-refactor failure is attributable."
+        },
+        {
+          "id": "implementation",
+          "skill": "do-implement",
+          "kind": "implementation",
+          "readinessTemplate": "refactor",
+          "optional": false,
+          "purpose": "Restructure within the mapped blast radius while holding the captured invariants."
+        },
+        {
+          "id": "verification",
+          "skill": "do-test",
+          "kind": "verification",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Re-run the baseline suite and compare against the recorded baseline."
+        },
+        {
+          "id": "review",
+          "skill": "do-code-review",
+          "kind": "review",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Confirm the restructuring preserved behavior and did not widen its own scope."
+        }
+      ],
+      "gates": []
+    },
+    "review": {
+      "name": "Review",
+      "description": "Assessment of an existing change or body of code. Contains no implementation stage by construction: findings leave this workflow as a separate task.",
+      "handoff": "Findings are addressed as their own task — a bug, refactor, or trivial-edit workflow, or do-implement working from the review. This workflow never edits source.",
+      "readinessNote": "No readiness template applies: implementation readiness gates edits, and this workflow makes none.",
+      "stages": [
+        {
+          "id": "verification",
+          "skill": "do-test",
+          "kind": "verification",
+          "readinessTemplate": null,
+          "optional": true,
+          "purpose": "Establish the change's build and test state as review evidence before judging it."
+        },
+        {
+          "id": "review",
+          "skill": "do-code-review",
+          "kind": "review",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Analyze the diff and its neighbourhood, check quality against the language checkers, and report findings with an approval status."
+        }
+      ],
+      "gates": []
+    },
+    "research": {
+      "name": "Research",
+      "description": "Investigation that terminates at a written synthesis. No implementation, and therefore no implementation-readiness gate.",
+      "handoff": "If the synthesis motivates a change, that change is a separate task and starts its own workflow.",
+      "readinessNote": "No readiness template applies: this workflow terminates at synthesis and never reaches an edit.",
+      "stages": [
+        {
+          "id": "scoping",
+          "skill": "do",
+          "kind": "discovery",
+          "readinessTemplate": null,
+          "optional": true,
+          "purpose": "Decompose the question and route each part to the capability that can actually answer it."
+        },
+        {
+          "id": "synthesis",
+          "skill": "do-document",
+          "kind": "synthesis",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Investigate broad-to-narrow and produce the citation-backed report, stating unresolved gaps rather than closing over them."
+        }
+      ],
+      "gates": []
+    },
+    "documentation": {
+      "name": "Documentation",
+      "description": "Authoring or updating documentation that ships with the repository — a reference page, a guide, an API description, an architecture note, a README section. The deliverable is prose in the tree; no source is authored, and nothing here is a report filed elsewhere.",
+      "handoff": "A code change the documentation reveals is a separate task under its own class. Committing is done through do-git, which is outside this workflow.",
+      "readinessNote": "No readiness template applies: readiness gates edits to source, and every stage here is synthesis, verification or review. The failure this class actually has is asserting something nobody checked, and the safeguards against it are the authoring stage's grounding requirement and the verification stage — not a gate borrowed from a class that writes code.",
+      "stages": [
+        {
+          "id": "authoring",
+          "skill": "do-document",
+          "kind": "synthesis",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Write or update the documentation against the code, artifact or command it describes, carrying a locator for every factual claim. Never from memory, and never a figure nobody measured."
+        },
+        {
+          "id": "verification",
+          "skill": "do-test",
+          "kind": "verification",
+          "readinessTemplate": null,
+          "optional": true,
+          "purpose": "Run whatever the documentation can break — guards that read docs, link and example checks, or the suite when a documented command or snippet is executable. Skip only when the repository has no such check, and say that is why."
+        },
+        {
+          "id": "review",
+          "skill": "do-code-review",
+          "kind": "review",
+          "readinessTemplate": null,
+          "optional": true,
+          "purpose": "Review the prose through the content-type path rather than the language checkers, when the change is large enough that a second read is worth its cost."
+        }
+      ],
+      "gates": []
+    },
+    "dependency-change": {
+      "name": "Dependency Change",
+      "description": "Upgrade, addition, or removal of a dependency, starting from authoritative release evidence rather than from the version number alone.",
+      "handoff": "Verified dependency changes are committed through do-git, which is outside this workflow.",
+      "readinessNote": "Gated by the 'dependency-change' readiness template, which requires reviewed release notes, mapped repository usage, and a verification command.",
+      "stages": [
+        {
+          "id": "release-evidence",
+          "skill": "do-document",
+          "kind": "retrieval",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Retrieve the upstream release notes, changelog, and migration guide for the exact version range, and record them with their sources."
+        },
+        {
+          "id": "usage-impact",
+          "skill": "do-diagnose",
+          "kind": "analysis",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Map every repository usage of the dependency against the documented breaking changes."
+        },
+        {
+          "id": "implementation",
+          "skill": "do-implement",
+          "kind": "implementation",
+          "readinessTemplate": "dependency-change",
+          "optional": false,
+          "purpose": "Apply the version change and the call-site migrations the evidence identified."
+        },
+        {
+          "id": "verification",
+          "skill": "do-test",
+          "kind": "verification",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Run the build and full suite: a dependency change's blast radius is not bounded by the diff."
+        },
+        {
+          "id": "review",
+          "skill": "do-code-review",
+          "kind": "review",
+          "readinessTemplate": null,
+          "optional": true,
+          "purpose": "Review the migrated call sites when the upgrade crossed a breaking change."
+        }
+      ],
+      "gates": []
+    },
+    "operations": {
+      "name": "Operations",
+      "description": "Repository-lifecycle work — branch, release, merge, hotfix, backport — executed against a verified state rather than authored as source.",
+      "handoff": "Source changes discovered while running an operation are a separate task and start their own workflow.",
+      "readinessNote": "No readiness template exists for this class in readiness-templates.yaml, and none is claimed here. This workflow authors no source, so implementation readiness does not apply; its equivalent safeguard is the preflight verification stage.",
+      "stages": [
+        {
+          "id": "state-check",
+          "skill": "do-git",
+          "kind": "analysis",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Establish current branch, working-tree cleanliness, and lifecycle position before acting."
+        },
+        {
+          "id": "preflight",
+          "skill": "do-test",
+          "kind": "verification",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Confirm the build and suite are green on the state being shipped."
+        },
+        {
+          "id": "execution",
+          "skill": "do-git",
+          "kind": "operation",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Perform the lifecycle intent with its confirmation and safety checks."
+        },
+        {
+          "id": "record",
+          "skill": "do-document",
+          "kind": "synthesis",
+          "readinessTemplate": null,
+          "optional": true,
+          "purpose": "Write the release note or operational record when the operation produced something worth citing later."
+        }
+      ],
+      "gates": []
+    },
+    "trivial-edit": {
+      "name": "Trivial Edit",
+      "description": "A single-file, non-cascading change. Deliberately the shortest workflow: it must not be blocked by checks that exist for larger work.",
+      "handoff": "Committed through do-git, which is outside this workflow.",
+      "readinessNote": "Gated by the 'trivial-edit' readiness template, which requires only an identified target and a verified single-file scope.",
+      "stages": [
+        {
+          "id": "implementation",
+          "skill": "do-implement",
+          "kind": "implementation",
+          "readinessTemplate": "trivial-edit",
+          "optional": false,
+          "purpose": "Make the identified edit at the identified locator."
+        },
+        {
+          "id": "verification",
+          "skill": "do-test",
+          "kind": "verification",
+          "readinessTemplate": null,
+          "optional": true,
+          "purpose": "Run the suite when the edited file is reachable from executable code."
+        }
+      ],
+      "gates": []
+    }
+  }
+}

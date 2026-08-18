@@ -1,0 +1,35 @@
+{
+  "skill": "do-constitution",
+  "eval_id": 2,
+  "eval_name": "amend-bumps-semver-and-reports-impact",
+  "skill_source": {
+    "status": "verified",
+    "expectedSha256": "3e924ef2629dc1b486b245d1bbdea4f4556f015c22a834d57f8bf09219d73d38",
+    "recordedSha256": "3e924ef2629dc1b486b245d1bbdea4f4556f015c22a834d57f8bf09219d73d38",
+    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-constitution-2/.claude/skills/do-constitution/SKILL.md",
+    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-constitution-2/.claude/skills/do-constitution/SKILL.md (matches core/shared/skills/do-constitution/SKILL.md)"
+  },
+  "expectations": [
+    {
+      "text": "A Sync Impact Report is produced under that name",
+      "passed": false,
+      "evidence": "no match for /Sync Impact Report/ in transcript"
+    },
+    {
+      "text": "Version is bumped following semver rather than replaced arbitrarily",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    },
+    {
+      "text": "The Sync Impact Report records what changed and what it affects",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    },
+    {
+      "text": "The base tier-1 principles are overlaid, not silently discarded",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": 0
+}

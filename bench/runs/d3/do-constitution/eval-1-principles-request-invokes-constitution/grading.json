@@ -1,0 +1,30 @@
+{
+  "skill": "do-constitution",
+  "eval_id": 1,
+  "eval_name": "principles-request-invokes-constitution",
+  "skill_source": {
+    "status": "verified",
+    "expectedSha256": "de979411201f80975b4ef8f5372bc460c13fb747f39997c344c47c0891e622db",
+    "recordedSha256": "de979411201f80975b4ef8f5372bc460c13fb747f39997c344c47c0891e622db",
+    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-constitution-1/.claude/skills/do-constitution/SKILL.md",
+    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-constitution-1/.claude/skills/do-constitution/SKILL.md (matches core/shared/skills/do-constitution/SKILL.md)"
+  },
+  "expectations": [
+    {
+      "text": "do-constitution was invoked",
+      "passed": true,
+      "evidence": "do-constitution: verified — read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-constitution-1/.claude/skills/do-constitution/SKILL.md (matches core/shared/skills/do-constitution/SKILL.md)"
+    },
+    {
+      "text": "The tier-2 constitution is written to agent-docs/constitution.md, the path the resolver reports on",
+      "passed": true,
+      "evidence": "matched /agent-docs/constitution\\.md/ in transcript"
+    },
+    {
+      "text": "The principles are specific to this repo rather than a generic template",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": 1
+}

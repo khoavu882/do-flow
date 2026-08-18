@@ -1,0 +1,176 @@
+CASE: do-constitution / eval 1 / principles-request-invokes-constitution (triggering)
+ITERATION: d3
+PROMPT: "Set up the engineering principles this repo should hold itself to."
+  (note: no slash command, no skill named — this eval tests whether the DESCRIPTION routes)
+SANDBOX: .doflow/worktrees/bench-d3-do-constitution-1 (pre-existing; REUSED, not recreated)
+  branch task/bench-d3-do-constitution-1, base commit 704fb3315890afef5f0808213b02b3f4250600d2
+  manifest: skillCount 13, mismatches []
+SKILL RESOLUTION: by absolute path via cat. No Skill tool call, no /do-constitution.
+  path:   /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-constitution-1/.claude/skills/do-constitution/SKILL.md
+  sha256: de979411201f80975b4ef8f5372bc460c13fb747f39997c344c47c0891e622db  (matches brief)
+
+--------------------------------------------------------------------
+STEP 0 — Routing decision from the sandbox frontmatter alone
+--------------------------------------------------------------------
+description (verbatim): "Create or amend the per-repo constitution (tier-2), overlaying the
+base; bumps semver, writes a Sync Impact Report, and propagates a pointer into the agent
+context file. Use when the user wants to establish or change repo-specific governing
+principles that every later phase and agent must inherit, or says 'let's set some ground
+rules for this repo' or 'amend our constitution to require X' rather than asking for a
+feature."
+
+DECISION: route to do-constitution. YES, on the description alone.
+Match is direct and does not need the word "constitution" from the user: the prompt is
+"establish ... repo-specific governing principles" almost verbatim ("Set up the engineering
+principles this repo should hold itself to"), and the description's negative clause
+("rather than asking for a feature") correctly excludes do-brainstorm, which was the only
+plausible competitor. No ambiguity encountered.
+
+--------------------------------------------------------------------
+STEP 1 — Resolve (runtime seam) — RAN, real output
+--------------------------------------------------------------------
+Ran the resolver snippet from SKILL.md verbatim, with CWD at the sandbox project root:
+
+  D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+  DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
+  [ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
+  [ -x "$DOFLOW" ] || { echo "doflow: no runtime found ..." >&2; exit 2; }
+
+RESOLVED on the FIRST loop iteration (the sandbox's own .doflow/), no $HOME fallback, no exit 2:
+  DOFLOW=/Users/kai/.../worktrees/bench-d3-do-constitution-1/.doflow/scripts/doflow/bin/doflow-run
+
+$ "$DOFLOW" paths --json      -> exit 0
+{
+  "repo_root": ".../worktrees/bench-d3-do-constitution-1",
+  "is_git_repo": true,
+  "branch": "task/bench-d3-do-constitution-1",
+  "feature_slug": "bench-d3-do-constitution-1",
+  "feature_dir": "agent-docs/doflow/bench-d3-do-constitution-1",
+  "candidate_slugs": [],
+  "requirement"/"design"/"plan"/"state": (paths under that feature dir)
+  "has_requirement": false, "has_design": false, "has_plan": false,
+  "next_number": "009",
+  "constitution_base": ".../bench-d3-do-constitution-1/.doflow/guidance/references/CONSTITUTION_BASE.md",
+  "constitution_local": "agent-docs/constitution.md",
+  "has_constitution_local": false,
+  "branch_class": "other"
+}
+
+The seam worked in a real install: .doflow/runtime/ is present in the sandbox and the
+Node-backed verb executed. No friction here.
+
+--------------------------------------------------------------------
+STEP 2 — Read both tiers
+--------------------------------------------------------------------
+Read constitution_base (tier-1, read-only): CONSTITUTION_BASE.md v1.0.0, principles
+P1 Safety over speed, P2 Evidence over assumptions, P3 Finish what you start,
+P4 Scope discipline (YAGNI), P5 Parallel by default, P6 Professional honesty.
+has_constitution_local is false, so there is no tier-2 file to read. Nothing to reconcile.
+Noted the governance rule that tier-2 may add or override but may not weaken P1, and that
+nothing validates that constraint.
+
+--------------------------------------------------------------------
+STEP 3 — Create (branch taken on has_constitution_local, per SKILL.md)
+--------------------------------------------------------------------
+Branched on has_constitution_local == false from step 1's JSON, NOT on a filesystem check
+of my own — as SKILL.md instructs. => CREATE path.
+
+Template path derivation, exactly as SKILL.md describes it: take constitution_base and swap
+its trailing "guidance/references/CONSTITUTION_BASE.md" for "templates/doflow/constitution-template.md":
+  .../bench-d3-do-constitution-1/.doflow/templates/doflow/constitution-template.md
+Confirmed that file exists (1.1K) and read it. The derivation rule worked as written.
+
+Wrote agent-docs/constitution.md (created agent-docs/, which did not exist in the worktree).
+Filled with FIVE repo-specific principles, deliberately none of them a restatement of base
+P1-P6, per SKILL.md's "repo-specific rules only; don't restate base principles":
+  P-R1 One source, many projections (core/shared/ is the single physical home; differences
+       are the adapter's job)
+  P-R2 A capability is declared in core/registry/*.yaml before src/ implements it
+  P-R3 Guards state the contract; staleness is the defect — never weaken a guard to land a change
+  P-R4 Skills reach the runtime through exactly one seam (walk-up resolver, one dispatcher,
+       one locator)
+  P-R5 Plain Node, no build step, npm test stays scoped to test/
+plus four Constraints (Node >=18 floor; Python only for do-code-review's analyzers; neutral
+state ledger at .doflow/state/; bench never in a default test command).
+
+--------------------------------------------------------------------
+STEP 4 — Version + Sync Impact
+--------------------------------------------------------------------
+Version set to 0.1.0, Ratified/Last amended 2026-08-18 (today, taken from the session <env>).
+SYNC IMPACT REPORT comment filled in place of the template's placeholder:
+  version: (none) -> 0.1.0 · changed: initial ratification, five repo-specific principles and
+  four constraints, none weakening or restating base P1-P6 · propagated to: CLAUDE.md pointer
+  block, and advisory at /do-plan's Constitution Check for every later feature.
+
+--------------------------------------------------------------------
+STEP 5 — Propagate via the sync-context verb — RAN, real output
+--------------------------------------------------------------------
+$ printf 'doflow: active constitution = agent-docs/constitution.md (v0.1.0), overlaying CONSTITUTION_BASE.md.\n' \
+    | "$DOFLOW" sync-context --file CLAUDE.md
+sync-context: created CLAUDE.md
+exit 0
+
+Resulting CLAUDE.md in the sandbox (the whole file — it did not previously exist):
+  <!-- DOFLOW START -->
+  doflow: active constitution = agent-docs/constitution.md (v0.1.0), overlaying CONSTITUTION_BASE.md.
+  <!-- DOFLOW END -->
+
+Exit was 0, so the pointer landed and is reported as such. The verb acknowledged in plain
+text exactly as SKILL.md says it would.
+
+--------------------------------------------------------------------
+STEP 6 — Stop / report
+--------------------------------------------------------------------
+Version: 0.1.0 (initial ratification).
+Sync Impact: five repo-specific principles + four constraints added at tier-2, overlaying
+CONSTITUTION_BASE.md v1.0.0; no base principle weakened; propagates to /do-plan's advisory
+Constitution Check and to any agent reading CLAUDE.md.
+Propagated context file: CLAUDE.md (created, DOFLOW block written, exit 0).
+Post-check: re-ran "$DOFLOW" paths --json — has_constitution_local is now true.
+Next step per the skill: /do-brainstorm.
+
+--------------------------------------------------------------------
+ASSUMPTIONS SUBSTITUTED FOR A USER
+--------------------------------------------------------------------
+A1. THE BIG ONE. The prompt supplied no principle inputs — the invocation contract is
+    "/do-constitution [principle inputs]" and the user gave none. A real session would ask
+    which principles to enshrine. Per the no-user rule I took the "Decide for me" path and
+    DERIVED the five principles from evidence in the repo itself rather than inventing
+    generic ones: README.md (one source projected to seven harnesses), package.json
+    (test script literally scoped to test/**, engines node >=18, bench is a separate
+    script), test/guards/ (the 18 guard files listed on disk), and the runtime-seam and
+    registry structure visible under core/ and src/. Every principle is traceable to one of
+    those. Recorded as a substitution, not as user intent.
+A2. Version on a CREATE: SKILL.md step 4 says "bump the semver version line", which presumes
+    an existing version. There is none on the create path. I kept the template's shipped
+    0.1.0 as the initial ratified version and wrote the Sync Impact as "(none) -> 0.1.0"
+    rather than inventing a bump to 1.0.0. See FRICTION F2.
+A3. Context file target: SKILL.md offers "CLAUDE.md # or AGENTS.md for Codex". The sandbox
+    had neither. Assumed CLAUDE.md (the harness this run is executing under, and the harness
+    the sandbox manifest records as projected). Recorded.
+A4. Ratification date taken from the session's stated current date, 2026-08-18.
+
+--------------------------------------------------------------------
+SANDBOX MUTATION
+--------------------------------------------------------------------
+Created inside the sandbox only: agent-docs/constitution.md, CLAUDE.md.
+Both copied to outputs/. Sandbox `git status --short` shows only the two pre-existing
+untracked bench markers — agent-docs/ and CLAUDE.md are gitignored in this repo, which is
+also why the worktree started with no CLAUDE.md at all. Parent checkout untouched.
+
+--------------------------------------------------------------------
+FRICTION / SURPRISES
+--------------------------------------------------------------------
+F1. The worktree has no CLAUDE.md and no agent-docs/ because both are gitignored in this
+    repo, so a sandbox is always the "cold start" case for this skill. Not a defect, but it
+    means step 5 always exercises the create-the-context-file branch of sync-context and
+    never the merge-into-an-existing-file branch. Worth a separate case if that branch
+    matters.
+F2. Step 4 is written for the amend case only: "bump the semver version line" has no defined
+    behaviour when the file was just created from a template that already carries 0.1.0, and
+    the Sync Impact Report's "old -> new" has no old. Two defensible readings (keep 0.1.0 /
+    bump to 1.0.0) and the skill does not choose. Minor, but it is exactly the kind of
+    unspecified branch the do-constitution/2 amend bug also lived in.
+F3. No runtime errors. Both seam verbs (paths, sync-context) resolved through the walk-up on
+    the first iteration and exited 0. The .doflow/runtime/ ship-into-the-install fix is
+    working in a sandbox install.

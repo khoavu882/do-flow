@@ -1,0 +1,188 @@
+CASE: do-brainstorm / eval-1 / vague-idea-starts-discovery (kind: triggering)
+ITERATION: d3
+SANDBOX: .doflow/worktrees/bench-d3-do-brainstorm-1 (MISSING at start; created fresh with the brief's
+         sandbox.create command, skills=13, HEAD b20f006, branch task/bench-d3-do-brainstorm-1)
+
+PROMPT AS GIVEN
+  "I'm thinking about building something to help me keep track of what I read."
+
+SKILL RESOLUTION (by path, never as a slash command)
+  read: /Users/kai/.../worktrees/bench-d3-do-brainstorm-1/.claude/skills/do-brainstorm/SKILL.md
+  sha256: 0c84d6d4722d2a993b3a5a632eef6b1db695d32d3dc4656fa14f5c9aceb7e41f
+  matches the brief's sourceSha256 and core/shared/skills/do-brainstorm/SKILL.md. 145 lines, read in
+  full. Also read, because the skill requires it by name:
+    .doflow/guidance/modes/MODE_Brainstorming.md      (Behavioral Posture -- has no other trigger)
+    .doflow/guidance/references/ARTIFACT_FORMAT.md    (index-then-detail, Status vocabulary)
+    .doflow/guidance/references/EVIDENCE_LEDGER.md    (item schema; already read in case 1)
+    .doflow/templates/doflow/requirement-template.md  (resolved per step 5, see below)
+  No Skill tool invocation (invoked_skills.json is []).
+
+ROUTING DECISION: INVOKE do-brainstorm.
+  Description under test: "Use when an idea is still vague and needs discovery questions before any
+  design or planning work starts, or when the user says something like 'I have an idea for a new
+  feature' or 'help me figure out what we actually need to build' rather than describing a concrete,
+  already-scoped task."
+  "I'm thinking about building something..." is a direct hit on all three signals -- vague ("something"),
+  pre-design, and explicitly not a scoped task. MODE_Brainstorming.md's own Activation Triggers list
+  "Thinking about creating..." nearly verbatim. Nothing had to be stretched, and no competing skill
+  fits: there is nothing to implement, design, or review yet. This description is well targeted.
+
+STEP 1 — RESOLVE
+  Ran the resolver snippet verbatim from the sandbox root.
+  RESOLVED=<sandbox>/.doflow/scripts/doflow/bin/doflow-run (first hop)
+  $ "$DOFLOW" paths --json -> exit 0
+    is_git_repo=true, branch=task/bench-d3-do-brainstorm-1, feature_slug=bench-d3-do-brainstorm-1,
+    candidate_slugs=[], has_requirement=false, next_number=009, branch_class=other.
+  feature_slug is non-null and candidate_slugs is empty, so step 1's disambiguation branch does not
+  apply and no AskUserQuestion was owed here.
+
+STEP 2 — PROPOSE ONE TASK CLASS; RUNTIME VALIDATES
+  Proposed: feature. The one signal it rests on: a new capability that does not exist yet, described
+  at idea level with nothing to repair or refactor.
+  $ "$DOFLOW" classify --task-class feature --json -> exit 0, outcome ACCEPTED
+    stageIds = [discovery, design, planning, implementation, verification, review]
+    the discovery stage's skill is do-brainstorm, so this skill IS the accepted workflow's discovery
+    stage and writing requirement.md is in contract. Stated as one line before eliciting, per the
+    skill. No REJECTED branch exercised.
+
+BEHAVIORAL POSTURE (read before step 3, as instructed)
+  MODE_Brainstorming.md sets: Socratic dialogue, non-presumptive, collaborative rather than
+  directive, and -- load-bearing for this run -- "'Decide for me' ends elicitation on that topic --
+  record the decision as yours, and say so, rather than treating it as the user's answer." That
+  sentence is precisely the situation this harness puts me in, and it is what §8's basis column
+  ("assistant decided, user absent") is written against.
+
+STEP 3 — SOCRATIC LOOP (three rounds; every question resolved via "Decide for me")
+  There is no user in this harness. Per the run constraints I did not call AskUserQuestion; I
+  composed each round's questions, took the "Decide for me" option on every one, and recorded each
+  as an assumption. The questions as composed:
+
+  Round 1 -- four independent ambiguities, which the skill says are batched into ONE AskUserQuestion
+  call (the tool's 4-question maximum), each carrying an explicit "Decide for me" option:
+    Q1. Which media count as "what I read"?
+        A) Web articles and links  B) Books  C) Academic papers  D) All of them  E) Decide for me
+        -> Decide for me -> D. Recorded as A1. Consequence: FR-001 must accept a non-URL source.
+    Q2. What is the tracking for?
+        A) Recall it later  B) See progress and habits  C) Build a shareable library  D) Decide for me
+        -> Decide for me -> A. Recorded as A2. This is the load-bearing choice; see below.
+    Q3. How does an item get in?
+        A) You type it  B) Paste a link and it fills itself  C) Captured automatically as you browse
+        D) Decide for me
+        -> Decide for me -> A (manual), with C deferred into §5 as explicitly-not-rejected.
+        Recorded as A3.
+    Q4. Just you, or shared?
+        A) Only you  B) Shared with others  C) Decide for me
+        -> Decide for me -> A. Recorded as A4. This is what makes NFR-002's local-storage
+        constraint affordable.
+
+  Round 2 -- three ambiguities DEPENDENT on Q2's answer, so correctly not batched with round 1; each
+  asked in its own call in dependency order once "recall" was settled:
+    Q5. Is the payload your own notes and quotes, or is a list of links enough?
+        -> Decide for me -> notes and quotes are the payload. A6. Makes FR-002 P1.
+    Q6. What status vocabulary? (to-read/reading/read, or richer with abandoned/skimmed/reference)
+        -> Decide for me -> the three-value set, because a status needing thought at capture time
+        violates NFR-001. A7.
+    Q7. What is "personal scale" for search?
+        -> Decide for me -> low thousands over years. A5. Gives NFR-003 something to mean.
+
+  Round 3 -- saturation check. Produced exactly one new ambiguity:
+    Q8. Does getting the data back out matter?
+        -> Decide for me -> yes, at P2. A8, and FR-007. Reasoning: NFR-002 says the data is the
+        reader's, and data you cannot export is not yours.
+  A notional fourth round over the same ground restated round 3 without surfacing anything new.
+  Per MODE_Brainstorming.md's saturation test and the skill's Stop-when clause, round 3 was the last
+  round. I stopped and reported the gaps rather than continuing.
+
+  Discovery mode was held throughout: no storage format, no language, no framework, no schema
+  appears anywhere in the artifact. The closest call was Q3, which reads like an implementation
+  question -- I kept it because "how does an item get in" is a capability the user experiences, and
+  I phrased FR-001 in terms of what must be accepted, not how.
+
+STEP 4 — PICK THE FEATURE
+  feature_slug was non-null (branch-derived), so per the skill it is used as-is and step 4's
+  slug-prompt and branch-creation path do not run. `mkdir -p agent-docs/doflow/bench-d3-do-brainstorm-1`.
+  No `git-state --branch-name` call and no `git checkout -b`: the branch already exists, and the
+  skill only creates one when the slug was null.
+  NOTE: the requirement template's header line hardcodes ``**Branch:** `feat/[NNN-slug]` ``, but the
+  actual branch here is `task/bench-d3-do-brainstorm-1`. I wrote the real branch rather than the
+  template's assumed shape. The template presumes a feat/ branch that the branch-derived path does
+  not necessarily produce.
+
+STEP 5 — WRITE requirement.md
+  Template path resolved exactly as the skill specifies: take `constitution_base` from step 1's JSON
+    /Users/kai/.../bench-d3-do-brainstorm-1/.doflow/guidance/references/CONSTITUTION_BASE.md
+  and swap the trailing `guidance/references/CONSTITUTION_BASE.md` for `templates/doflow/requirement-template.md`
+    -> /Users/kai/.../bench-d3-do-brainstorm-1/.doflow/templates/doflow/requirement-template.md
+  The file existed (3.4K). The string-surgery instruction worked, though it is a fragile way to
+  express "the install root".
+  Written: agent-docs/doflow/bench-d3-do-brainstorm-1/requirement.md, 217 lines.
+    §1 summary + mermaid scope-boundary flowchart with IN/OUT subgraphs (per ARTIFACT_FORMAT §4)
+    §2 five user stories, P1/P1/P2/P2/P3
+    §3 eight FRs, index-then-detail, all Status Live
+    §4 five NFRs, index-then-detail
+    §5 five out-of-scope entries, each with its reason
+    §6 eleven acceptance criteria, each naming the FR/NFR it tests
+    §7 "None." -- zero [NEEDS CLARIFICATION] markers, with the honest caveat that §8's premises are
+       unconfirmed
+    §8 eight assumptions, index-then-detail, every basis reading "assistant decided, user absent",
+       each detail entry saying what would change if the assumption is wrong
+    §9 "None — initial version."
+  WHAT/WHY only. No technology, no architecture, no schema, no code.
+
+STEP 6 — VALIDATE
+  $ "$DOFLOW" validate "agent-docs/doflow/bench-d3-do-brainstorm-1/requirement.md"
+    exit 0 -> "validate-artifacts: 1 artifact(s) checked, no violations"
+  Index/detail parity in §3, §4 and §8, the Status vocabulary, and the History section all passed on
+  the first run. Surfaced verbatim above.
+
+STEP 7 — BATCH THIS STAGE'S EVIDENCE
+  $ "$DOFLOW" evidence --task-id bench-d3-do-brainstorm-1 --action add --batch <tmp>.json --json
+    exit 0, written: 7 -- 1 user-statement/asserted, 4 generated-analysis/inferred (one per dialogue
+    round plus the motive inference), 1 runtime-observation/inferred, 1 test-result/inferred.
+    None marked `extracted`, per the skill's explicit warning that user-statement and
+    generated-analysis may never carry that provenance. Scratch batch deleted.
+  Three claims added, all exit 0, then 6 evidence links at relation `supports`, all exit 0:
+    claim_msyh645x_1 -- the idea resolves to a recall-oriented personal reading tracker
+    claim_msyh648r_1 -- all eight assumptions are assistant-decided with no user present
+    claim_msyh64bg_1 -- notes and quotes, not the link list, are the payload
+  No `readiness` call: the discovery stage's readinessTemplate is null and the skill's Boundaries
+  forbid calling readiness for such a stage.
+
+STEP 8 — STOP
+  Reported: agent-docs/doflow/bench-d3-do-brainstorm-1/requirement.md, §7 carries zero
+  [NEEDS CLARIFICATION] markers. Stopped. No design, no plan, no code -- the CRITICAL BOUNDARIES
+  section's stop-after-requirement rule held.
+
+ASSUMPTIONS SUBSTITUTED FOR AN ABSENT USER
+  All eight of §8, since every dialogue question resolved via "Decide for me". The three that carry
+  the most weight:
+  1. A2, the motive. I chose "recall it later" over habit-tracking or a shareable library on one
+     linguistic signal -- "keep track of what I read" is past-tense and possessive. If that reading
+     is wrong the entire document reorders: habit-tracking would make US5/FR-008 P1, and a shareable
+     library would invalidate the sharing exclusion in §5. This is the single most consequential
+     substitution in the run and it is recorded as such in the artifact, not buried.
+  2. A3, manual capture. Automatic capture is the most-wanted and most-expensive feature in this
+     space. I excluded it from v1 but recorded it in §5 as deferred-not-rejected, and said in A3's
+     detail that if the reader's real pain is "I forget to record things", A3 is the wrong call and
+     automatic capture IS the product.
+  3. A8, export. Nobody asked for it; I raised it to a P2 requirement as a consequence of NFR-002,
+     and flagged it in A8 as the easiest thing in the document to cut. Inventing a requirement the
+     user never mentioned is the kind of scope creep RULE_02 warns about, so it is labelled.
+  Beyond §8: the Owner field was written "unassigned" (no user to name), and Ticket "none" (the
+  skill says not to add a forced question just to fill it).
+
+SURPRISES / THINGS THAT DID NOT WORK
+  - Nothing failed. Every runtime call -- paths, classify, validate, evidence, claim x3, link x6 --
+    returned exit 0 on the first attempt. The validator passed a 217-line hand-written artifact
+    first time, which says the ARTIFACT_FORMAT rules are followable from the reference alone.
+  - The template resolution in step 5 is a string-surgery instruction: "take constitution_base and
+    swap its trailing guidance/references/CONSTITUTION_BASE.md for templates/doflow/requirement-template.md".
+    It works, but it derives the install root by suffix-stripping a path to an unrelated file. There
+    is no `paths` field naming the templates dir, so nothing simpler is available.
+  - The template hardcodes ``**Branch:** `feat/[NNN-slug]` `` while the branch-derived slug path can
+    legitimately yield a non-feat/ branch (here task/...). Minor, but a filled template will
+    routinely disagree with the real branch.
+  - The skill demands an explicit "Decide for me" option on every question ON TOP of the tool's
+    automatic "Other" escape. In this harness that is exactly the path taken, and it worked as a
+    design: it gave me a defined place to record eight substituted answers instead of silently
+    inventing them. Worth noting the rewrite got this right.

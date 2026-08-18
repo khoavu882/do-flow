@@ -30,7 +30,12 @@ do-code-review/
     ruby.md                       ← Ruby -specific rules + idioms
     php.md                        ← PHP-specific rules + idioms
     dart.md                       ← Dart / Flutter-specific rules + idioms
+  content-types/
+    markdown.md                   ← Markdown / prose review notes (checked by doc_quality_checker.py)
 ```
+
+`content-types/` is a sibling of `languages/`, not a subdirectory of it — it dispatches by content
+type (prose vs. code) rather than by programming language; see `content-types/markdown.md`.
 
 ### Loading order for every review
 
@@ -38,7 +43,8 @@ do-code-review/
 2. `rules/universal.md` — always, for every language
 3. The matching `languages/*.md` — one file based on the extension table below
 
-That is always exactly **2 additional files**, regardless of scope.
+Two additional files for code (`rules/universal.md` + one `languages/*.md`); one for prose
+(`content-types/markdown.md`, which has no universal counterpart).
 
 | Extension(s) | Load |
 |---|---|
@@ -55,6 +61,38 @@ That is always exactly **2 additional files**, regardless of scope.
 | `.rb`, `.rake`, `.gemspec`, `.ru` | `languages/ruby.md` |
 | `.php`, `.phtml` | `languages/php.md` |
 | `.dart` | `languages/dart.md` |
+
+---
+
+### Content-type dispatch
+
+For non-code content, a second axis applies alongside (or instead of) the language table above:
+
+| Content type | Extension(s) | Load |
+|---|---|---|
+| Markdown / prose | `.md` | `content-types/markdown.md` |
+
+This dispatch runs `scripts/doc_quality_checker.py` instead of `code_quality_checker.py` — see
+`content-types/markdown.md` for the checks it performs.
+
+---
+
+## The Review Contract
+
+State this before producing a single finding, and report against it when the review ends.
+
+1. **The file set, and how it was derived** — the `pr_analyzer.py` diff between base and head, the
+   paths the user named, or the working tree. Name the derivation, not just the count. A file the
+   derivation includes but the review never opened is reported as not reviewed; it is never dropped
+   from the list.
+2. **The rules files that will load** — from the dispatch tables above: `rules/universal.md` plus
+   one `languages/*.md` per code file, `content-types/markdown.md` per prose file. Name them before
+   loading them, so a file reviewed under the wrong rules is visible rather than plausible.
+3. **What this review refuses to conclude** — it does not certify a file it did not open, does not
+   report a threshold the analyzer does not implement, and does not convert a score into a verdict
+   the table below does not define. A check that could not run is reported as not run.
+
+**Stop when** every file in the reviewed set the contract names has an answer or a stated gap, **and** the last round produced no new file in the reviewed set. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 
 ---
 
@@ -75,7 +113,8 @@ python scripts/pr_analyzer.py . --base main --head feature-branch
 python scripts/pr_analyzer.py /path/to/repo --json
 ```
 
-**What it detects (universal — see also language file for language-specific signals):**
+**Extracted — what the analyzer detects** (universal; see also the language file for
+language-specific signals):
 - Hardcoded secrets (passwords, API keys, tokens, connection strings)
 - SQL / query injection patterns
 - Debug statements left in production code
@@ -84,11 +123,14 @@ python scripts/pr_analyzer.py /path/to/repo --json
 
 **Language-specific detections** are defined in each `languages/*.md` file.
 
-**Output includes:**
+**Inferred — what the report concludes from those detections:**
 - Complexity score (1-10)
 - Risk categorization (critical, high, medium, low)
 - File prioritization for review order
 - Commit message validation
+
+Report the two halves apart. A detection is a locator in a file; a conclusion is your reading of
+several of them, and merging them into one line is how a reading stops being falsifiable.
 
 ---
 
@@ -113,11 +155,15 @@ python scripts/code_quality_checker.py /path/to/code --json
 | Issue | Threshold |
 |-------|-----------|
 | Long function | >50 lines |
-| Large file | >500 lines |
-| God class | >20 methods |
 | Too many params | >5 |
-| Deep nesting | >4 levels |
 | High complexity | >10 branches |
+| God class | >20 methods |
+| Too many imports | >15 |
+
+Transcribed from the `THRESHOLDS` dict in `scripts/code_quality_checker.py`, in its order — that
+dict is the source of truth, so re-check it there rather than trusting this table. Those five are
+the whole set: the checker implements no file-length and no nesting-depth check, so do not report a
+finding against one.
 
 Language-specific checks are defined in each `languages/*.md` file.
 
@@ -190,6 +236,16 @@ and is how they are normally run. Regenerate a fixture after an intentional anal
 change with `… --json > expected_outputs/<name>_quality.json`, from this directory so
 the recorded path stays relative.
 
+## Boundaries
+
+**Will:** Analyze source and prose for complexity, risk, SOLID violations, and code/doc smells;
+generate structured review reports with a verdict (Approve / Approve with suggestions / Request
+changes / Block); dispatch by language or content type to the matching rules file.
+
+**Will Not:** Edit files, apply fixes, or otherwise remediate the findings it reports — that is
+`/do-implement`'s job once a review has run. It also does not orchestrate a multi-task checklist
+through specialist subagents (`/do-execute-plan`'s job) or replace human judgment on a Block verdict.
+
 ## Next Step
-After review, use `/do-implement` or `/do-improve` to address requested changes, then rerun `/do-code-review`.
+After review, use `/do-implement` to address requested changes, then rerun `/do-code-review`.
 On a clean review with nothing left to fix, consider `/do-document --type impl` to record what was built — optional, and does not gate or pause completion.

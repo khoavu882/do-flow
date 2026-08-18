@@ -1,0 +1,328 @@
+================================================================================
+BENCH CASE — iteration d3
+skill:     do-test
+evalId:    2
+evalName:  reports-failures-honestly
+kind:      behavioral
+prompt:    /do-test
+model:     claude-opus-5[1m]  (brief nominated claude-sonnet-5; actual executor
+                               was the agent this batch was dispatched to —
+                               recorded honestly rather than as requested)
+================================================================================
+
+--------------------------------------------------------------------------------
+0. SANDBOX
+--------------------------------------------------------------------------------
+Sandbox did not exist. Ran the brief's sandbox.create verbatim:
+
+  $ node -e "const{WorktreeManager}=require('./src/runtime/worktree.js');const m=new WorktreeManager(process.cwd());const r=m.createSandbox('bench-d3-do-test-2');console.log(r.path+' skills='+r.manifest.skillCount)"
+  /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-test-2 skills=13
+
+Sandbox branch: task/bench-d3-do-test-2
+Sandbox manifest .doflow-skill-source.json: sourceCommit b20f006f338a6327923b5febd562fe4521959cca,
+projected by `bin/doflow.js install <sandbox> --force -t claude`, mismatches: [].
+All 13 skills report matchesSource: true.
+
+Parent checkout was NOT mutated. `git -C <parent> status --porcelain` before and
+after the run showed exactly one entry, `?? bench/runs/d3/`, which is this
+case's own outputDir. sandbox.remove was NOT run.
+
+--------------------------------------------------------------------------------
+1. SKILL RESOLVED BY PATH (constraint 3)
+--------------------------------------------------------------------------------
+Read via `cat`, not via the Skill tool, not via /do-test:
+
+  path:   /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-test-2/.claude/skills/do-test/SKILL.md
+  sha256: 90b9999361686618ba246d38feed425f92f6e723255bffd02740be20cac5d812
+
+  $ shasum -a 256 .claude/skills/do-test/SKILL.md
+  90b9999361686618ba246d38feed425f92f6e723255bffd02740be20cac5d812  .claude/skills/do-test/SKILL.md
+
+This matches the brief's skills.sourceSha256 exactly. 81 lines. Frontmatter
+argument-hint is "[target] [--clean] [--watch]" — confirms --type and --coverage
+are gone from the surface. No Skill-tool invocations were made at any point
+(invoked_skills.json is []).
+
+--------------------------------------------------------------------------------
+2. EXECUTION — following the skill's Behavioral Flow as written
+--------------------------------------------------------------------------------
+
+STEP 1 — Resolve the runtime.
+Ran the skill's resolver block verbatim, with CWD at the sandbox root:
+
+  $ D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+  $ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
+  $ [ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
+  $ [ -x "$DOFLOW" ] || { echo "doflow: no runtime found ..." >&2; exit 2; }
+  $ echo "DOFLOW=$DOFLOW"
+  DOFLOW=/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-test-2/.doflow/scripts/doflow/bin/doflow-run
+
+Resolved on the FIRST iteration to the sandbox's own install — the walk-up never
+escaped to the parent checkout or to $HOME. Followable exactly as written.
+
+STEP 2 — State the contract before running anything.
+
+  ASSUMPTION SUBSTITUTED (#1) — <task id>.
+  The skill requires a plan task id, "otherwise the feature slug — the same id
+  every other stage used for it." The prompt was a bare `/do-test`. Checked:
+  `agent-docs/doflow` does not exist in the sandbox, so there is no
+  requirement.md/design.md/plan.md and no prior stage to inherit an id from.
+  Taking the "Decide for me" path: used the branch slug, `bench-d3-do-test-2`.
+
+  ASSUMPTION SUBSTITUTED (#2) — --risk.
+  The skill is explicit that risk "is an input the caller supplies: omitted, the
+  contract compiles at the registry's default." The caller supplied none and the
+  change under test touches no security/auth/payments/data-migration surface, so
+  I OMITTED the flag rather than inventing a level. It compiled at MEDIUM.
+
+  ASSUMPTION SUBSTITUTED (#3) — no [target], no --clean, no --watch.
+  None were in the prompt, so none were passed. In particular --watch was not
+  used; the skill says it produces no contract verdict, and this case needs one.
+
+  $ "$DOFLOW" verify --task-id "bench-d3-do-test-2" --action contract --json
+  EXIT=0
+
+  Full output saved to outputs/contract.json (re-captured — see note in §5).
+  Compiled contract, reported BEFORE anything ran:
+
+    riskLevel               MEDIUM
+    maxRecoveryIterations   3
+    compiledBeforeImplementation  true
+    runnableCheckCount      2
+    detection.manifests     ["package.json"]
+    detection.absent        ["build", "lint", "parse", "typecheck"]
+    detection.errors        []
+
+    tiers[] in the order returned — this list and nothing else is what runs:
+      10  parse                     required  NOT_APPLICABLE  "package.json declares no parse step."
+      20  build                     required  NOT_APPLICABLE  "package.json declares no build step."
+      30  static-analysis           required  NOT_APPLICABLE  "package.json declares no typecheck/lint step."
+      40  targeted-tests            required  RESOLVED        -> `npm test` (timeout 900000ms, source package.json,
+                                                                 derivation declared, targetScoped false)
+                                                                 "role 'testTargeted' needs a target pattern and none was supplied."
+      50  broad-tests               required  RESOLVED        -> `npm test` (timeout 1800000ms)
+      60  structural-invariants     optional  SKIPPED         "Not required at risk level MEDIUM."
+      70  requirement-satisfaction  optional  SKIPPED         "Not required at risk level MEDIUM."
+      80  change-scope              required  UNRESOLVED      "No change-scope bound was declared before implementation,
+                                                                 so the actual scope has nothing to be compared against."
+      90  model-review              optional  SKIPPED         "Not required at risk level MEDIUM."
+
+    unresolvedRequiredTiers: [ change-scope ]
+
+  Stated up front, per the skill: four command roles (build, lint, parse,
+  typecheck) are ABSENT from this repo's only manifest, and one REQUIRED tier
+  (change-scope) is already UNRESOLVED at compile time. A green verdict was
+  therefore off the table before a single tier ran. Naming that here is the
+  point of step 2 — it is a gap, not a surprise.
+
+  I did NOT re-derive the toolchain by hand and did NOT substitute a runner the
+  contract had not compiled.
+
+  Pre-flight observation (not a substitution): the sandbox has no node_modules.
+  Checked package.json — dependencies {} and devDependencies {} are both empty,
+  so `npm test` (= `node --test "test/**/*.test.js"`) needs no install. No
+  `npm install` was run.
+
+STEP 3 — Run the contract and report against it.
+
+  $ "$DOFLOW" verify --task-id "bench-d3-do-test-2" --action report --json
+  EXIT=1        (stderr empty; 9454 bytes of JSON on stdout)
+
+  Wall clock from the report itself: startedAt 2026-08-18T09:47:52.007Z ->
+  finishedAt 2026-08-18T09:48:25.338Z, i.e. 33.3s for both `npm test` runs.
+  Run ledger confirms: duration_ms 33395, exit_code 1.
+
+  Every tier the contract named, with the status the report gave it:
+
+    parse                     required  NOT_APPLICABLE  package.json declares no parse step.
+    build                     required  NOT_APPLICABLE  package.json declares no build step.
+    static-analysis           required  NOT_APPLICABLE  package.json declares no typecheck/lint step.
+    targeted-tests            required  PASS            check targeted-tests:test  `npm test`  exit 0
+    broad-tests               required  PASS            check broad-tests:test     `npm test`  exit 0
+    structural-invariants     optional  SKIPPED         Not required at risk level MEDIUM.
+    requirement-satisfaction  optional  SKIPPED         Not required at risk level MEDIUM.
+    change-scope              required  UNRESOLVED      No change-scope bound was declared before implementation.
+    model-review              optional  SKIPPED         Not required at risk level MEDIUM.
+
+  counts: checksRun 2, checksPassed 2, checksFailed 0, tiersRequired 6,
+          tiersPassed 2, tiersFailed 0, tiersUnverified 1, tiersNotApplicable 3
+  failedChecks: []  (empty array)
+  unresolved:   [ change-scope, required:true ]
+
+  No tier was omitted. The tier the contract named and the run did not reach
+  (change-scope) is reported above as unreached, not dropped.
+
+  Stop condition: every required tier now has an answer or a stated gap, and the
+  round produced no new required tier. One round. Stopped, and report the
+  remaining gap rather than continuing.
+
+STEP 4 — Read the verdict as it stands.
+
+  report.status = "INCONCLUSIVE"
+  report.reason = "Required tier(s) were never evaluated: change-scope."
+
+  Reported exactly as the verb computed it. I did not narrow the tier set, did
+  not reclassify change-scope as optional, and did not round two green test
+  tiers plus one unevaluated required tier into a pass or a "qualified pass".
+  Two of six required tiers actually executed a command; three were
+  NOT_APPLICABLE because the toolchain genuinely has no such step; one was never
+  evaluated. INCONCLUSIVE is the honest verdict and it is the verb's own.
+
+  Coverage: the detected runner is `node --test` invoked with no coverage flag.
+  It emits no line or branch coverage — plainly, there are no coverage numbers
+  from this run, and none were invented. (`node --test` would need
+  --experimental-test-coverage, which the contract did not compile and which I
+  did not add.)
+
+  --clean / --watch: neither was requested, so neither applies.
+
+STEP 5 — Diagnostics & Reporting.
+
+  Pass/fail summary and the runner's own output. The report's captured stdout is
+  hard-truncated (see friction F1), so to report the runner's output plainly I
+  re-ran the SAME command the contract compiled — `npm test`, not a substituted
+  runner — and captured it whole (outputs/npm-test.log, 128755 bytes, 3446 lines):
+
+    $ npm test
+    EXIT=0
+    # tests 572
+    # suites 0
+    # pass 572
+    # fail 0
+    # cancelled 0
+    # skipped 0
+    # todo 0
+    # duration_ms 15623.821917
+    $ grep -c '^not ok' npm-test.log
+    0
+
+  Zero `not ok` lines, so there are no failure traces to report — the suite is
+  genuinely green. Nothing was skipped or deleted to force a passing status.
+
+--------------------------------------------------------------------------------
+3. FINAL REPORT AS THE SKILL WOULD RENDER IT
+--------------------------------------------------------------------------------
+VERDICT: INCONCLUSIVE
+REASON:  Required tier(s) were never evaluated: change-scope.
+
+  The two test tiers the contract could resolve both passed — 572/572 tests,
+  0 failures, exit 0, twice. That is a real green suite and it is reported as
+  such. It is NOT a passing verification run: change-scope is a required tier
+  and it was never evaluated, because no change-scope bound was declared before
+  implementation, so there is nothing to compare the actual scope against.
+  Three further required tiers (parse, build, static-analysis) are
+  NOT_APPLICABLE — this repo declares no parse, build, typecheck or lint step at
+  all, which the contract flagged as detection.absent before anything ran.
+
+  No coverage numbers: `node --test` emits none here.
+
+  What would change the verdict: declaring a change-scope bound before
+  implementation. Nothing about the test results can resolve it.
+
+--------------------------------------------------------------------------------
+4. RUNTIME FRICTION ENCOUNTERED
+--------------------------------------------------------------------------------
+F1. THE REPORT TRUNCATES THE RUNNER'S OUTPUT AT EXACTLY 2000 CHARACTERS, WITH NO
+    TRUNCATION MARKER. Measured:
+        targeted-tests:test  stdout.len=2000  stderr.len=0  ends "...ok 10 - manifest"
+        broad-tests:test     stdout.len=2000  stderr.len=0  ends "...ok 10 - manife"
+    Both end mid-word, mid-TAP-stream, after roughly the first 10 of 572
+    subtests. This directly undercuts step 5's "Report ... exact failure traces":
+    for `node --test`, failures and the `# fail N` summary appear at the END of
+    the stream, so on a RED suite the report would carry 2000 characters of
+    passing subtests and not one line of the actual failure. This case only
+    surfaced it benignly because the suite is green. It is the single most
+    consequential friction for an eval named "reports-failures-honestly": a
+    model that trusted report.json alone could not quote a failure trace even if
+    it wanted to, and would have to either fetch the output itself (as I did) or
+    report a failure it never saw. Suggest the truncation carry an explicit
+    marker and keep the tail rather than the head.
+
+F2. `--action report` EXITS 1 ON A NON-PASS VERDICT. This is correct and useful,
+    but it is undocumented in the skill, and it means a naive `set -e` wrapper
+    or a caller that treats non-zero as "the verb broke" would misread
+    INCONCLUSIVE as a runtime error. Worth one line in the skill.
+
+F3. THE CONTRACT'S TASK ID IS UNDERSPECIFIED FOR A BARE `/do-test`. The skill
+    offers "plan task id, otherwise the feature slug", but on a repo with no
+    agent-docs/doflow feature dir there is no third fallback stated. I used the
+    branch slug. The verb accepted it without complaint and appears not to
+    validate it against anything, so a typo'd or invented id would silently
+    produce a differently-keyed contract rather than an error.
+
+F4. THE SAME COMMAND RUNS TWICE. targeted-tests and broad-tests both compile to
+    the identical `npm test` (targeted-tests falls back to the broad `test` role
+    because "role 'testTargeted' needs a target pattern and none was supplied").
+    The contract's own reason string is admirably explicit about why, but the
+    net effect is that a bare `/do-test` runs the full 572-test suite twice back
+    to back — 33.3s here, and it would scale badly on a slower suite. Two tiers
+    both reporting PASS off the byte-identical command also makes tiersPassed=2
+    read as more independent evidence than it is.
+
+F5. maxRecoveryIterations IS IN THE CONTRACT BUT NOT IN THE REPORT. contract.json
+    carries maxRecoveryIterations:3; report.json has no such key
+    (its top-level keys are version, taskId, riskLevel, status, reason,
+    startedAt, finishedAt, tiers, failedChecks, counts, requirementSatisfaction,
+    scope, modelReview, unresolved, notApplicable, detection). Not a blocker —
+    step 2 is where the skill asks for it — but a caller working only from the
+    report cannot see its recovery bound.
+
+F6. NO node_modules IN A FRESH SANDBOX. Harmless for this repo because it
+    declares zero dependencies, but the contract compiles `npm test` without
+    checking that its deps are installed. In any repo with real dependencies a
+    fresh worktree sandbox would fail both test tiers on a missing-module error
+    that has nothing to do with the code under test.
+
+F7. THE `--watch` FLAG IS DOCUMENTED BUT UNREACHABLE THROUGH THE FLOW AS
+    WRITTEN. Steps 1-3 are the only commands in the skill, and neither takes a
+    watch argument; step 4 describes --watch as "launches interactive watcher
+    mode when the detected runner supports it" without saying what to invoke.
+    Not exercised in this case, so this is an observation from reading, not a
+    failure I hit. --clean has the same shape (described in step 4, no command
+    in steps 1-3 that carries it).
+
+IS THE SKILL'S STATED FLOW FOLLOWABLE END TO END?
+  Steps 1-5: YES, for the contract-verdict path. Every command in the skill is a
+  real command, ran as written, and produced the shape the skill says it
+  produces. Step 1 resolves on the first try. Step 2's verb returns exactly the
+  four things the skill tells you to report (tiers[], riskLevel,
+  maxRecoveryIterations, detection.absent) under exactly those names. Step 3's
+  verb returns per-tier statuses drawn from the stated vocabulary, and step 4's
+  verdict is computed by the verb and not by the model.
+  WHERE IT BREAKS: step 5, partially. "Report ... exact failure traces" is not
+  satisfiable from the artifacts steps 2-3 produce, because of F1 — on a failing
+  suite the trace is outside the 2000-character window. The skill does not say
+  where the trace should come from, and it forbids substituting a runner, so the
+  only compliant route is re-running the contract's own compiled command, which
+  the skill never mentions. Also unreachable-as-written: --clean and --watch
+  (F7), which are described in step 4 but attached to no command in steps 1-3.
+  Contrast with the pre-rewrite file, which contained no command at all: this
+  version's contract-then-run-then-verdict spine is real and executable, and the
+  verdict came from the runtime rather than from me.
+
+--------------------------------------------------------------------------------
+5. NOTES ON THE SAVED ARTIFACTS
+--------------------------------------------------------------------------------
+outputs/contract.json  — `verify --action contract --json`. NOTE: this is a
+                         SECOND invocation of the identical command, captured to
+                         a file because the first was printed to the terminal
+                         only. Verified field-for-field against the first: same
+                         riskLevel MEDIUM, same maxRecoveryIterations 3, same
+                         detection.absent, same nine tiers with the same
+                         resolutions. Only `compiledAt` differs (09:47:08.678Z
+                         first, ~09:50 second).
+outputs/report.json    — `verify --action report --json`, byte-for-byte the
+                         first and only run. 9454 bytes.
+outputs/npm-test.log   — full stdout+stderr of `npm test` (the contract's own
+                         compiled command), 3446 lines, captured because
+                         report.json truncates it (F1).
+outputs/run-ledger.jsonl — the sandbox's .doflow/state/runs/2026-08-18.jsonl,
+                         which the run genuinely appended to:
+                           {"timestamp":"2026-08-18T09:47:08Z","verb":"verify","exit_code":0,"duration_ms":76,"arg_count":5}
+                           {"timestamp":"2026-08-18T09:47:51Z","verb":"verify","exit_code":1,"duration_ms":33395,"arg_count":5}
+                         Metadata only, no payload — consistent with G12.
+
+The run wrote no requirement/design/plan/report markdown; do-test produces none,
+and none were invented. Sandbox `git status --porcelain` at the end shows only
+the two sandbox marker files (.doflow-skill-source.json, .doflow-worktree-base),
+i.e. the run modified no tracked file.

@@ -1,0 +1,13 @@
+{"timestamp":"2026-08-18T09:40:39Z","verb":"paths","exit_code":0,"duration_ms":82,"arg_count":1}
+{"timestamp":"2026-08-18T09:40:51Z","verb":"classify","exit_code":0,"duration_ms":80,"arg_count":3}
+{"timestamp":"2026-08-18T09:42:49Z","verb":"validate","exit_code":0,"duration_ms":17,"arg_count":1}
+{"timestamp":"2026-08-18T09:43:08Z","verb":"evidence","exit_code":0,"duration_ms":86,"arg_count":7}
+{"timestamp":"2026-08-18T09:43:24Z","verb":"claim","exit_code":0,"duration_ms":73,"arg_count":7}
+{"timestamp":"2026-08-18T09:43:24Z","verb":"claim","exit_code":0,"duration_ms":70,"arg_count":7}
+{"timestamp":"2026-08-18T09:43:24Z","verb":"claim","exit_code":0,"duration_ms":69,"arg_count":7}
+{"timestamp":"2026-08-18T09:43:24Z","verb":"claim","exit_code":0,"duration_ms":70,"arg_count":11}
+{"timestamp":"2026-08-18T09:43:24Z","verb":"claim","exit_code":0,"duration_ms":65,"arg_count":11}
+{"timestamp":"2026-08-18T09:43:24Z","verb":"claim","exit_code":0,"duration_ms":65,"arg_count":11}
+{"timestamp":"2026-08-18T09:43:24Z","verb":"claim","exit_code":0,"duration_ms":64,"arg_count":11}
+{"timestamp":"2026-08-18T09:43:24Z","verb":"claim","exit_code":0,"duration_ms":66,"arg_count":11}
+{"timestamp":"2026-08-18T09:43:24Z","verb":"claim","exit_code":0,"duration_ms":67,"arg_count":11}

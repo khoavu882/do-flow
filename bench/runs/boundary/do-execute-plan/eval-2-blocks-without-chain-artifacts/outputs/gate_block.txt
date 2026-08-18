@@ -1,0 +1,33 @@
+$ ./.doflow/scripts/doflow/bin/doflow-run paths --json
+{
+  "repo_root": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-execute-plan-2",
+  "is_git_repo": true,
+  "branch": "task/bench-boundary-do-execute-plan-2",
+  "feature_slug": "task/bench-boundary-do-execute-plan-2",
+  "feature_dir": "agent-docs/doflow/task/bench-boundary-do-execute-plan-2",
+  "candidate_slugs": [],
+  "requirement": "agent-docs/doflow/task/bench-boundary-do-execute-plan-2/requirement.md",
+  "design": "agent-docs/doflow/task/bench-boundary-do-execute-plan-2/design.md",
+  "plan": "agent-docs/doflow/task/bench-boundary-do-execute-plan-2/plan.md",
+  "state": "agent-docs/doflow/task/bench-boundary-do-execute-plan-2/state.md",
+  "has_requirement": false,
+  "has_design": false,
+  "has_plan": false,
+  "next_number": "009",
+  "constitution_base": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-execute-plan-2/.doflow/guidance/references/CONSTITUTION_BASE.md",
+  "constitution_local": "agent-docs/constitution.md",
+  "has_constitution_local": false,
+  "branch_class": "other"
+}
+
+$ ./.doflow/scripts/doflow/bin/doflow-run prereqs --require-plan
+{
+  "ok": false,
+  "error": "missing-prereqs",
+  "has_requirement": false,
+  "has_design": false,
+  "has_plan": false,
+  "hint": "run /do-design and /do-plan before /do-execute-plan"
+}
+
+Exit code: 2

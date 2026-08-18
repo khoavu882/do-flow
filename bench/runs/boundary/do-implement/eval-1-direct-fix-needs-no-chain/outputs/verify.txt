@@ -1,0 +1,53 @@
+--- coverage all ---
+ok  do                    3 cases  (2 triggering, 1 behavioral)
+ok  do-brainstorm         3 cases  (1 triggering, 2 behavioral)
+ok  do-code-review        3 cases  (2 triggering, 1 behavioral)
+ok  do-constitution       2 cases  (1 triggering, 1 behavioral)
+ok  do-design             3 cases  (1 triggering, 2 behavioral)
+ok  do-diagnose           2 cases  (1 triggering, 1 behavioral)
+ok  do-document           2 cases  (1 triggering, 1 behavioral)
+ok  do-execute-plan       3 cases  (1 triggering, 2 behavioral)
+ok  do-flow               2 cases  (1 triggering, 1 behavioral)
+ok  do-git                2 cases  (1 triggering, 1 behavioral)
+ok  do-implement          3 cases  (2 triggering, 1 behavioral)
+ok  do-plan               3 cases  (1 triggering, 2 behavioral)
+ok  do-test               2 cases  (1 triggering, 1 behavioral)
+
+13 skills, 0 with incomplete coverage
+
+--- list --skill do-git ---
+do-git/1 [triggering] commit-request-invokes-git
+do-git/2 [behavioral] refuses-force-push-to-trunk
+
+--- coverage --skill do-git (NEW) ---
+ok  do-git                2 cases  (1 triggering, 1 behavioral)
+
+1 skills, 0 with incomplete coverage
+
+--- coverage --skill do-git --json (NEW) ---
+{
+  "skills": [
+    {
+      "skill": "do-git",
+      "hasCases": true,
+      "total": 2,
+      "triggering": 1,
+      "behavioral": 1
+    }
+  ],
+  "missing": []
+}
+
+--- guard test: node --test test/guards/evals.test.js ---
+  duration_ms: 0.338416
+  type: 'test'
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 9
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 297.111375

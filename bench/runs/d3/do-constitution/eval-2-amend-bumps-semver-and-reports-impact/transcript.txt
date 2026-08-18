@@ -1,0 +1,165 @@
+CASE: do-constitution / eval 2 / amend-bumps-semver-and-reports-impact (behavioral)
+ITERATION: d3
+PROMPT: "/do-constitution --amend Add a principle requiring structured logging on all services"
+SANDBOX: .doflow/worktrees/bench-d3-do-constitution-2 (pre-existing; REUSED, not recreated)
+  branch task/bench-d3-do-constitution-2, base commit 704fb3315890afef5f0808213b02b3f4250600d2
+  manifest: skillCount 13, mismatches []
+SKILL RESOLUTION: by absolute path via cat. No Skill tool call, no /do-constitution.
+  path:   /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-constitution-2/.claude/skills/do-constitution/SKILL.md
+  sha256: de979411201f80975b4ef8f5372bc460c13fb747f39997c344c47c0891e622db  (matches brief)
+
+HEADLINE RESULT (stated up front because it is the point of this case):
+  The --amend flag did NOT change the branch. With no tier-2 constitution present, the skill's
+  step 3 routed to the CREATE arm and a brand-new agent-docs/constitution.md was written at
+  version 0.1.0. No version was bumped (there was none to bump). The Sync Impact Report has no
+  old->new pair. The run did NOT stop and report "there is nothing to amend".
+  The one thing that differs from the earlier sweep's finding: it is no longer *silent*. I
+  recorded the mismatch in the Sync Impact Report and in the closing report. But the file was
+  still created, so the behaviour the eval asks for did not occur.
+
+--------------------------------------------------------------------
+STEP 1 — Resolve (runtime seam) — RAN
+--------------------------------------------------------------------
+Ran SKILL.md's resolver snippet verbatim with CWD at the sandbox project root. Resolved on the
+first walk-up iteration to the sandbox's own install; no $HOME fallback, no exit 2:
+  DOFLOW=.../worktrees/bench-d3-do-constitution-2/.doflow/scripts/doflow/bin/doflow-run
+
+$ "$DOFLOW" paths --json     -> exit 0
+  repo_root:              .../worktrees/bench-d3-do-constitution-2
+  branch:                 task/bench-d3-do-constitution-2   (branch_class "other")
+  constitution_base:      .../.doflow/guidance/references/CONSTITUTION_BASE.md
+  constitution_local:     agent-docs/constitution.md
+  has_constitution_local: FALSE      <-- the deciding field
+  (has_requirement/design/plan all false; next_number 009)
+
+Also ran `"$DOFLOW" --help` to check whether the dispatcher exposes any amend-aware or
+constitution-aware verb that step 3 could have delegated the decision to. It does not: the
+verb list is paths, validate, git-state, prereqs, parallel-check, task-brief, review-package,
+sync-context, classify, workflow, route, evidence, claim, readiness, context-pack, scaffold,
+verify, recover, trace, stats, discover, capabilities, doctor. Nothing owns "does an amend
+have a target". The whole decision is prose in SKILL.md.
+
+--------------------------------------------------------------------
+STEP 2 — Read both tiers
+--------------------------------------------------------------------
+Read the base (tier-1) CONSTITUTION_BASE.md v1.0.0: P1 Safety, P2 Evidence, P3 Finish what you
+start, P4 Scope discipline, P5 Parallel by default, P6 Professional honesty.
+has_constitution_local is false => there is no tier-2 file. Nothing to read, nothing to
+reconcile, and — the salient point for an --amend — nothing to amend.
+
+--------------------------------------------------------------------
+STEP 3 — Create or amend: the branch, quoted and traced
+--------------------------------------------------------------------
+SKILL.md step 3, verbatim:
+
+  "3. Create or amend — branch on `has_constitution_local` from step 1, not a filesystem check
+   of your own (path math belongs to the resolver; `constitution_local` is still emitted when
+   the file is absent, which is exactly the create case):
+     - `has_constitution_local` false: copy the installed constitution template to
+       `constitution_local` and fill it from the user's principle inputs (repo-specific rules
+       only; don't restate base principles).
+     - true, and `--amend`: apply the requested change."
+
+Trace of that as written, with has_constitution_local == false and --amend present:
+  - Arm 1's condition is "has_constitution_local false". It is false. Arm 1 MATCHES.
+  - Arm 1's condition does not mention --amend at all, so the flag cannot deselect it.
+  - Arm 2's condition is "true, and --amend". has_constitution_local is not true, so arm 2 is
+    unreachable here.
+  - There is no third arm for (false, --amend), and no instruction anywhere in the skill to
+    stop, warn, or refuse when an amend has no target.
+  => The skill, followed literally and in the order it is written, routes an --amend against a
+     repo with no constitution to the CREATE path. This is exactly the earlier sweep's finding
+     and it is UNCHANGED after the D.2/D.3 rewrite. The rewrite did not add the missing arm.
+
+I followed it. Note also that SKILL.md's own emphasis works against catching this: it tells the
+agent to branch on the resolver field "not a filesystem check of your own", which pushes the
+reader toward treating has_constitution_local as the whole decision and away from noticing that
+the user's explicit flag has been dropped on the floor.
+
+Template path derived as SKILL.md describes (constitution_base with its trailing
+"guidance/references/CONSTITUTION_BASE.md" swapped for "templates/doflow/constitution-template.md")
+-> .doflow/templates/doflow/constitution-template.md — confirmed present, read, filled.
+
+Wrote agent-docs/constitution.md with one principle, P-R1 "Structured logging on all services",
+from the invocation's principle input.
+
+--------------------------------------------------------------------
+STEP 4 — Version + Sync Impact: what actually got written
+--------------------------------------------------------------------
+Version: 0.1.0. NOT a bump — the template ships 0.1.0 and there was no prior version.
+The eval's "version bumped by semver rules" therefore cannot be satisfied on this path; there
+is no old version, so no rule applies.
+Sync Impact Report: filled, but its old->new field reads "(none) -> 0.1.0" and its "changed"
+field records the mismatch explicitly: file did not exist, invoked as --amend, create arm taken
+because has_constitution_local was false, nothing to bump and nothing to amend.
+
+--------------------------------------------------------------------
+STEP 5 — Propagate — RAN
+--------------------------------------------------------------------
+$ printf 'doflow: active constitution = agent-docs/constitution.md (v0.1.0), overlaying CONSTITUTION_BASE.md.\n' \
+    | "$DOFLOW" sync-context --file CLAUDE.md
+sync-context: created CLAUDE.md
+exit 0
+
+CLAUDE.md (whole file, did not previously exist in this worktree):
+  <!-- DOFLOW START -->
+  doflow: active constitution = agent-docs/constitution.md (v0.1.0), overlaying CONSTITUTION_BASE.md.
+  <!-- DOFLOW END -->
+
+Note the second-order consequence of the step-3 bug: because the create arm ran, step 5 then
+propagated a pointer announcing an "active constitution v0.1.0" that the user never asked to
+create. The wrong branch does not stay contained in step 3; it advertises itself downstream.
+
+--------------------------------------------------------------------
+STEP 6 — Closing report (what I would have told the user)
+--------------------------------------------------------------------
+"There was no tier-2 constitution in this repo, so there was nothing to amend. Following the
+skill's step-3 branch I created agent-docs/constitution.md at v0.1.0 containing the structured
+logging principle, and propagated the pointer into CLAUDE.md. No version was bumped because
+there was no previous version. If you wanted the run to stop instead of creating a file, that
+is not what happened here."
+
+--------------------------------------------------------------------
+ASSUMPTIONS SUBSTITUTED FOR A USER
+--------------------------------------------------------------------
+A1. No user was available to answer "you asked to amend but nothing exists — create instead, or
+    stop?". Per the no-user rule I took the "Decide for me" path, and "decide" here meant
+    "follow the skill's written branch", which is the create arm. I deliberately did NOT
+    substitute the behaviour the eval describes; capturing what the skill actually does is the
+    point of the case.
+A2. Wording of the structured-logging principle: the prompt gave the intent
+    ("requiring structured logging on all services") but no specifics. Assumed a testable
+    formulation — one object per event, explicit level, timestamp, correlation/request id, no
+    interpolated message strings — and said so in the principle text.
+A3. Context file target CLAUDE.md (not AGENTS.md); this run executes under the claude harness.
+A4. Ratification/amend date 2026-08-18 from the session <env>.
+
+--------------------------------------------------------------------
+SANDBOX MUTATION
+--------------------------------------------------------------------
+Created inside the sandbox only: agent-docs/constitution.md, CLAUDE.md. Both copied to
+outputs/ verbatim. Parent checkout untouched apart from this output dir.
+
+--------------------------------------------------------------------
+FRICTION / SURPRISES
+--------------------------------------------------------------------
+F1 (the case's finding, unchanged after the rewrite). Step 3 has no arm for
+   (has_constitution_local false AND --amend). The flag is inert on that path. Following the
+   skill as written creates a 0.1.0 file rather than reporting that there is nothing to amend.
+   The D.3 prose rewrite did not close this; if anything, "branch on has_constitution_local ...
+   not a filesystem check of your own" makes the flag easier to overlook.
+F2 (new, and a direct consequence). Step 4 is written only for the amend case. "Bump the semver
+   version line" and a Sync Impact Report shaped as "old -> new" are both undefined when the
+   create arm ran. The artifact ends up carrying a Sync Impact Report with a null old version —
+   structurally valid, semantically empty.
+F3 (new). Filling the template from a single principle input leaves the template's Constraints
+   placeholder unresolved. The created file still contains the literal line
+   "- [stack / tooling / process constraint specific to this repo]." because the invocation
+   supplied a principle and no constraint, and the skill gives no instruction to drop or
+   fill an unused template section. That placeholder is present verbatim in
+   outputs/constitution.md — left in on purpose, not cleaned up, so the capture is faithful.
+F4 (not a defect). The runtime seam itself was clean: both `paths` and `sync-context` resolved
+   on the first walk-up iteration against the sandbox's own .doflow/ and exited 0. The verb
+   list from `doflow-run --help` confirms no verb owns the amend-target decision, so this is a
+   skill-prose gap, not a runtime gap — a runtime check could not have caught it as things
+   stand.

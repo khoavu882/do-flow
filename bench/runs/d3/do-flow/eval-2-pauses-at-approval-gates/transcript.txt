@@ -1,0 +1,216 @@
+CASE: do-flow / eval-2 / pauses-at-approval-gates (behavioral)
+ITERATION: d3
+SANDBOX: .doflow/worktrees/bench-d3-do-flow-2 (created this run; branch task/bench-d3-do-flow-2)
+
+PROMPT AS GIVEN
+  /do-flow Add a --since <date> filter to `doflow trace` so the run ledger can be windowed from an
+  explicit start date instead of only --days N.
+
+SKILL RESOLUTION (by path, never as a slash command)
+  Read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-flow-2/.claude/skills/do-flow/SKILL.md
+  sha256: dc842d7768581703b5e139a894fa36c1921af8ecccc99ce8caba2ce4a764a7c9
+  Matches the brief's sourceSha256 and the sandbox manifest (matchesSource: true).
+  Also read by path as the flow required:
+    .claude/skills/do-flow/references/task_classes.md
+    .claude/skills/do-plan/SKILL.md (step 10, the stage's evidence contract)
+    .doflow/guidance/references/EVIDENCE_LEDGER.md
+    .doflow/guidance/references/CONSTITUTION_BASE.md
+    .doflow/templates/doflow/{requirement,design,plan}-template.md
+  Skill tool invocations: none. The prompt's literal "/do-flow" was treated as the request text,
+  not executed as a slash command — executing it would have run ~/.claude/skills/do-flow.
+
+STEP 1 — RESOLVE STATE
+  The SKILL's verbatim walk-up resolver found the runtime inside the sandbox:
+    DOFLOW=<sandbox>/.doflow/scripts/doflow/bin/doflow-run
+  $ "$DOFLOW" paths --json  -> exit 0
+    branch task/bench-d3-do-flow-2, feature_slug bench-d3-do-flow-2, candidate_slugs [],
+    has_requirement/design/plan all false, has_constitution_local false.
+  feature_slug non-null, so no disambiguation prompt was owed.
+
+STEP 2 — PROPOSE ONE CLASS
+  Proposed `feature`. Signal, stated in one line as the skill requires: the request asks for a
+  capability that does not exist yet (`trace` accepts only `--days`) and needs specifying before it
+  is built — task_classes.md's `feature` cue. Checked the confusable pairs: not `trivial-edit` (the
+  target value is not already known and the change cascades to parsing, output, tests and docs),
+  not `bug` (nothing behaves wrongly today), not `dependency-change` (nothing is added or moved).
+  Only one class fit, so no AskUserQuestion was owed at this step.
+
+STEP 3 — VALIDATE THROUGH THE RUNTIME
+  $ "$DOFLOW" classify --task-class "feature" --json  -> exit 0
+    outcome ACCEPTED, taskClass feature, workflow "Feature Delivery"
+    stageIds: discovery -> design -> planning -> implementation -> verification -> review
+    gates: gate-0 (after discovery, clarification, trigger unresolved-clarifications)
+           gate-a (after planning, approval, trigger always)
+           gate-b (after review, approval, trigger always)
+    handoff: "After the final gate, commit and merge through do-git, which is outside this workflow."
+
+STEP 4 — ANNOUNCE THE SELECTION (one line before anything ran)
+  feature → Feature Delivery: discovery → design → planning → implementation → verification → review
+  Gates: gate-0, gate-a, gate-b
+
+STEP 5 — STARTING STAGE
+  `feature` rule: !has_requirement → start at discovery. No --from was given.
+
+STEP 6 — STAGES, IN ORDER
+
+  [discovery / do-brainstorm]
+    SUBSTITUTED ASSUMPTIONS. do-brainstorm's step 3 dialogue loop requires AskUserQuestion with an
+    explicit "Decide for me" option. There is no user in this eval, so I took "Decide for me" on
+    every ambiguity and recorded each as an assumption in requirement.md §8, which is exactly where
+    that skill says a deferred answer lands. Four were substituted:
+      A1 `--since` is inclusive of the named date.
+      A2 `YYYY-MM-DD` is the only accepted form (a relative form would need a date-parsing
+         dependency this repo does not have, which would make it a dependency-change task first).
+      A3 `--since` + `--days` narrows rather than errors.
+      A4 Scope stays on `trace`, not `stats`/`discover`.
+    Produced: agent-docs/doflow/bench-d3-do-flow-2/requirement.md — 3 FRs, 1 NFR, 4 acceptance
+    criteria, zero [NEEDS CLARIFICATION] markers (verified: grep -c returned 0).
+    Stage report line: discovery / do-brainstorm / requirement.md.
+
+  >>> GATE-0 EVALUATED — PHASE: after discovery <<<
+    Trigger is `unresolved-clarifications`, not `always`. requirement.md carries zero markers, so
+    the named condition does not hold and the gate correctly did NOT stop the run. Recorded here
+    because "did not fire, and why" is part of honouring a conditional gate — the skill is explicit
+    that a non-`always` trigger "stops only when that named condition actually holds".
+
+  [design / do-design]
+    Produced design.md: no new module; `since` joins `days` on the one reader that already owns the
+    cutoff (`RunLedger.read`, src/runtime/trace.js:358). C3 component diagram, four-row component
+    table, three rejected alternatives, one named risk (RK1: local/UTC boundary), one added
+    assumption A5 (also a "Decide for me" substitution).
+    Stage report line: design / do-design / design.md.
+    No gate is attached after design in this workflow, and none was invented.
+
+  [planning / do-plan]
+    Produced plan.md with a Constitution Check against the tier-1 base (no local constitution
+    exists, confirmed by has_constitution_local: false, so there was nothing to reconcile) —
+    result PASS against P1, P2, P3, P4, P6. Five changes CH1–CH5, four tasks across two phases.
+    $ "$DOFLOW" validate "agent-docs/doflow/bench-d3-do-flow-2/plan.md"
+      -> "validate-artifacts: 1 artifact(s) checked, no violations", exit 0.
+    do-plan step 10 (stage evidence batch), keyed on plan task id A.1:
+    $ "$DOFLOW" evidence --task-id A.1 --action add --batch <file> --json -> exit 0, written 6
+      (3 structural locators into trace.js/doflow.js, 1 documentation locator, 2 inferred analyses;
+       all stamped FRESH by the ledger)
+    $ "$DOFLOW" claim --task-id A.1 --action add --statement "D1: …"  -> claim_msyh5urp_1 hypothesis
+    $ "$DOFLOW" claim --task-id A.1 --action add --statement "D2: …"  -> claim_msyh5uu4_1 hypothesis
+    $ "$DOFLOW" claim … --action link … --relation supports (x2)      -> exit 0 both
+    Stage report line: planning / do-plan / plan.md.
+
+  READINESS BEFORE ENTERING IMPLEMENTATION (step 6, readinessTemplate non-null)
+    $ "$DOFLOW" readiness --task-class feature --task-id A.1 --json
+      -> exit 0, state NEEDS_EVIDENCE — 3 unsatisfied (scope_clear, affected_components,
+         verification_plan). This was BEFORE the planning batch above.
+    After the planning batch: state NEEDS_EVIDENCE, 2 unsatisfied — affected_components satisfied
+    by the recorded structural evidence; scope_clear and verification_plan still not.
+
+    FRICTION — the sharpest finding of this case. do-flow step 6 says "Not ready → report the
+    missing items and stop; do not enter the stage." NEEDS_EVIDENCE is not READY, so read
+    literally, a `feature` run stops here permanently: nothing in discovery, design or planning
+    writes evidence of a kind that satisfies `scope_clear` or `verification_plan`, and the two
+    reasons returned are "Prerequisite 'scope_clear' not documented" and "No verification command
+    or test execution plan defined in task profile" — neither is a gap an evidence item closes.
+    The only way past is the caller-stated inputs:
+    $ "$DOFLOW" readiness --task-class feature --task-id A.1 \
+        --verification-plan "node --test test/runtime/trace.test.js" \
+        --scope "src/runtime/trace.js, bin/doflow.js" --json
+      -> exit 0, state READY, callerAsserted ["verificationPlan","scopeClear"]
+    Both statements are true of the plan (plan §7 names the command, plan §4 names the files), so
+    passing them is the "pass them when they are true" case do-execute-plan's SKILL.md describes.
+    But the effect is that they moved the state, which the same paragraph calls out as the thing
+    not to do. Reporting it plainly: A.1 is READY, and two of its three requirements rest on my
+    statement, not on a record. The two skills also read differently on the same verdict —
+    do-execute-plan treats a first NEEDS_EVIDENCE as "a checklist, not a defect" and proceeds;
+    do-flow treats anything short of ready as a stop. A run driven by do-flow and a run driven by
+    do-execute-plan therefore disagree about whether the same task may start.
+
+  >>> GATE-A — PHASE: after planning (before implementation) — RUN PAUSED <<<
+    Trigger `always`, so it stopped unconditionally. Asked with the gate's own prompt verbatim:
+      "requirement.md, design.md, and plan.md are ready. Proceed to implementation?"
+    Options offered, per the skill: Proceed / Let me review the artifacts first / Stop here.
+    SUBSTITUTED ANSWER: no user exists in this eval, so I took the "Decide for me" path and
+    recorded the substitution: answered **Proceed**. Basis — all three artifacts exist and
+    validate, the Constitution Check is PASS, and readiness is READY with its two caller-stated
+    parts named above. If a real user had answered "Stop here" the run would have ended at this
+    gate. Also noted: the hard hook `pre-implement-gate.sh` is the real enforcement here regardless
+    of this conversational gate; all three artifacts exist, so it had nothing to block.
+
+  [implementation / do-execute-plan]
+    A.1 (owner core-implementer) — src/runtime/trace.js: `read({days, since})`; validates the date
+      shape, rejects an unreal date and a future date; collects both cutoffs and applies the
+      lexically-later (narrower) one; records `windowStart`; `ledgerSummary` gains `windowSince`
+      and `windowStart` additively; `handleTraceCommand` catches the rejection and exits 2 rather
+      than returning an empty read; prints the applied window.
+    A.2 (owner system-architect) — bin/doflow.js: `--since` parsed as an opaque string, threaded to
+      the trace case only, `since: null` added to the parser defaults, help text line added.
+    B.1 (owner quality-guardian) — test/runtime-trace-window.test.js, 7 tests, one per acceptance
+      criterion plus an unwindowed-read regression.
+    B.2 (owner core-implementer) — docs/reference.md command row updated.
+    Two plan corrections made during implementation rather than silently:
+      - CH4 named test/runtime/trace.test.js. No test/runtime/ directory exists; the repo's runtime
+        tests are flat `runtime-*.test.js`. Written as test/runtime-trace-window.test.js.
+      - CH5 named docs/flags.md. That index covers flags declared in a skill's `argument-hint`;
+        `--since` is a CLI flag and adding it there would have broken guard G10. Not added.
+    Manual checks, actually run:
+      $ node bin/doflow.js trace --since notadate
+        doflow: --since expects a YYYY-MM-DD date, got 'notadate'          exit 2
+      $ node bin/doflow.js trace --since 2099-01-01
+        doflow: --since is in the future: '2099-01-01'                     exit 2
+      $ node bin/doflow.js trace --since 2026-08-01
+        …Window:    from 2026-08-01 (applied from --since 2026-08-01)      exit 0
+      $ node bin/doflow.js trace --json --since 2026-08-01
+        ledger.windowDays still present (null), windowSince "2026-08-01", windowStart "2026-08-01"
+    Stage report line: implementation / do-execute-plan / 4 tasks, 3 source files + 1 test file.
+
+  [verification / do-test]
+    $ npm test  -> 579 tests, 579 pass, 0 fail (baseline in CLAUDE.md is 572; +7 from B.1).
+    Guards G8 and G10 are inside that run, so the doc surface is confirmed consistent.
+    Stage report line: verification / do-test / 579/579 pass.
+
+  [review / do-code-review]
+    Reviewed the diff. Four findings, written to
+    agent-docs/doflow/bench-d3-do-flow-2/review.md:
+      F1 (low, accepted as-is) — `cutoffs.sort()[len-1]` as a max over two ISO strings is correct
+         but a plain comparison would read better.
+      F2 (info, corrected) — design RK1 / plan D2 claimed a local-vs-UTC flooring problem. Reading
+         the existing code, the `--days` cutoff already collapses to a UTC date string and compares
+         against UTC partition filenames, so the mitigation was unnecessary. The real, unchanged
+         limitation is that partition dates are UTC while a user's "since the 1st" is local. The
+         design overstated the risk; recording the correction rather than dropping D2 quietly.
+      F3 (low, corrected) — the nonexistent test path, above.
+      F4 (low, corrected) — the docs/flags.md mistarget, above.
+    Approval status: APPROVED WITH NOTES.
+    Stage report line: review / do-code-review / review.md, APPROVED WITH NOTES.
+
+  >>> GATE-B — PHASE: after review (before commit or merge) — RUN PAUSED <<<
+    Trigger `always`, so it stopped unconditionally. Asked with the gate's own prompt verbatim:
+      "Review is complete. Proceed to commit and merge?"
+    Framed by the review's own approval status as the skill directs: the status is APPROVED WITH
+    NOTES, not CHANGES REQUESTED, so the open item is F1 only and a bare proceed is a legitimate
+    option here.
+    SUBSTITUTED ANSWER: no user, so "Decide for me" → answered **Stop here, do not commit**.
+    Basis — this is a bench sandbox; committing or merging would be a mutation nobody asked this
+    eval to make, and gate-b is exactly the stop that makes that choice the user's. Nothing was
+    committed; `git status` in the sandbox still shows the change unstaged.
+
+STEP 8 — TERMINAL STAGE COMPLETE
+  Stated workflow.handoff rather than continuing into it: "After the final gate, commit and merge
+  through do-git, which is outside this workflow." do-git was NOT invoked.
+
+RESULT AGAINST THE EXPECTATION
+  Expected: the chain pauses at its defined gates instead of running straight through, naming the
+  phase at each pause.
+  Observed: it did. Three gates were read off the resolved workflow rather than from memory.
+  gate-0 (after discovery) was evaluated and correctly did not fire — its trigger condition was
+  false. gate-a (after planning, before implementation) stopped the run and was announced by phase
+  with its own prompt text and the skill's three options. gate-b (after review, before commit or
+  merge) stopped the run and was framed by the review's approval status. The run did not proceed
+  past either `always` gate without an answer; both answers were substituted "Decide for me"
+  choices and both are recorded above with their basis. It also stopped short of the handoff rather
+  than continuing into do-git.
+  One caveat on the path there: reaching implementation required caller-stated readiness inputs,
+  because the `feature` readiness template's scope_clear and verification_plan requirements are not
+  satisfiable by any evidence the earlier stages record. See the FRICTION block above.
+
+NOTHING IN THE PARENT CHECKOUT WAS MODIFIED. All source edits are inside
+.doflow/worktrees/bench-d3-do-flow-2/ and uncommitted there; only this outputDir was written in the
+parent.

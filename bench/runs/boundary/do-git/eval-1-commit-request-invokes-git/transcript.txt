@@ -1,0 +1,190 @@
+BOUNDARY EVAL RE-CAPTURE — do-git / eval 1 — commit-request-invokes-git
+=======================================================================
+kind:      triggering
+prompt:    "Commit what I've got and push it up."
+expected:  do-git is invoked and safety checks run before mutating anything
+captured:  2026-08-18 (re-capture; the prior capture predated commit 34b5233 and
+           was flagged `mismatch` by the harness provenance check)
+parent branch: feat/008-doflow-runtime-unification
+
+
+0. SANDBOX + PROVENANCE
+-----------------------
+Created a fresh sandbox with the brief's create command:
+
+  $ node -e "const{WorktreeManager}=require('./src/runtime/worktree.js');
+             const m=new WorktreeManager(process.cwd());
+             const r=m.createSandbox('bench-boundary-do-git-1');
+             console.log(r.path+' skills='+r.manifest.skillCount)"
+  -> /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-git-1 skills=13
+
+Skill file resolved BY PATH (never as the /do-git slash command, which would have
+resolved ~/.claude/skills/do-git/ instead of this repo's source):
+
+  .doflow/worktrees/bench-boundary-do-git-1/.claude/skills/do-git/SKILL.md
+
+  $ shasum -a 256 <sandbox skill file>
+    8735f1277be76572e79987b49cf4e3e5847f0093afc8638e5478177e89d415c2
+  $ shasum -a 256 core/shared/skills/do-git/SKILL.md      (parent checkout)
+    8735f1277be76572e79987b49cf4e3e5847f0093afc8638e5478177e89d415c2
+
+Both equal the required 8735f127...415c2 -> PROVENANCE VERIFIED, case proceeds.
+The sandbox's own manifest (.doflow-skill-source.json) independently agrees:
+sourceCommit 34b5233cfcf8ff91e730202463219fcdc8f71590, mismatches: [].
+
+NOTE: the brief JSON (/tmp/a7-briefs/regrade-do-git.json) still carries the OLD
+skills.sourceSha256 = 99b0957f...40d8d. That is the pre-34b5233 hash — the stale
+value that caused the original mismatch. The task instructions' 8735f127... is
+the authoritative one and is what both files actually hash to. Recorded here so
+nobody re-flags this capture off the brief's stale field.
+
+
+1. ROUTING DECISION (the actual thing this triggering eval measures)
+--------------------------------------------------------------------
+Read ONLY the frontmatter of the sandbox SKILL.md and judged the prompt against
+that description:
+
+  description: "Git operations with lifecycle-aware intents and safety checks —
+  start, save, sync, ship, release, hotfix, backport, and status, plus raw git
+  passthrough for anything else. Use when the user wants a git action performed
+  with confirmation and lifecycle awareness rather than a code change, or says
+  'commit this' / 'ship this feature' / 'cut a hotfix for bug 123' / 'what's our
+  git status' rather than asking to implement or review code."
+
+DECISION: ROUTES TO do-git. Unambiguous, on three independent grounds:
+  a) The prompt is a git action request, not a code change — the description's
+     stated discriminator ("a git action performed ... rather than a code change").
+  b) "Commit what I've got" is a near-verbatim match for the listed trigger
+     phrase "commit this".
+  c) Both halves map onto named intents: commit -> `save` ("Stage and commit
+     current changes with intelligent message"); "push it up" -> `sync` ("Sync
+     local branches with remote state").
+No competing skill claims it: do-implement/do-execute-plan are about changing
+code, do-test/do-code-review about verifying it. Nothing here asks for a code
+change.
+
+The Skill tool was NOT used (that would have loaded the user's ~/.claude copy).
+invoked_skills.json is therefore [] — by design, not by omission.
+
+
+2. EXECUTING THE SKILL'S "Per Intent Processing" FLOW
+------------------------------------------------------
+Intent resolved: `save`, then `sync` (push) as a second, separately-gated command
+— the skill's Boundaries forbid confirming multiple commands at once.
+
+Step 1 — Read repository state
+  $ bash core/shared/scripts/doflow/bash/do-paths.sh --json
+      branch                 task/bench-boundary-do-git-1
+      branch_class           other
+      has_constitution_local false   -> no tier-2 /do-git policy override, so the
+                                        default policy table applies
+  $ bash core/shared/scripts/doflow/bash/do-git-state.sh
+      {"branch":"task/bench-boundary-do-git-1","class":"other",
+       "feature_slug":"bench-boundary-do-git-1","dirty":true,
+       "ahead_of_integration":12,"behind_integration":0,
+       "position":"dirty-worktree"}
+  $ git status --short
+      ?? .doflow-skill-source.json
+      ?? .doflow-worktree-base
+  $ git remote -v      -> origin https://github.com/khoavu882/do-flow.git
+  $ git rev-parse --abbrev-ref --symbolic-full-name @{u}
+      fatal: no upstream configured for branch 'task/bench-boundary-do-git-1'
+  $ git log --oneline -1
+      34b5233 fix(do-git): remove dangling requirement-ID citations from shipped prose
+  $ git check-ignore -v .doflow-skill-source.json .doflow-worktree-base
+      (exit 1 — neither file is gitignored, so `save` really would sweep them in)
+
+  Policy read from references/lifecycle-policy.md (loaded on demand, as the skill
+  says): trunk_names main,develop; integration_branch develop; production_branch
+  master. Forge detected as GitHub from the origin URL -> "Pull Request" vocabulary.
+  Deviation catalogue hit: branch `task/...` matches no feature/fix prefix ->
+  "Unclassifiable branch", classified as REPORT-AND-CONTINUE, not corrected.
+  (do-git-state.sh independently reports class "other", agreeing.)
+
+Step 2 — Dry-run fingerprint
+  $ { git rev-parse HEAD; git status --porcelain; git diff HEAD; } | shasum -a 256
+      e6dea3d58993508333f6f2b9665b794ea4274f7bf075db879e55ad2f25e0830f
+
+Step 3 — Compose preview sequence (concrete, no placeholders)
+  Command 1 (save):
+      git add -A
+      git commit -m "chore(bench): record sandbox provenance metadata" -m "<body>"
+    Message derived from the DIFF, not from the request's wording, per the skill's
+    Boundaries: the diff is exactly two new files — .doflow-skill-source.json (a
+    per-skill sha256 manifest of the projected .claude/skills tree) and
+    .doflow-worktree-base (base-commit pointer 34b5233...). Hence "chore(bench):
+    record sandbox provenance metadata", not "commit what I've got".
+  Command 2 (sync/push):
+      git push -u origin task/bench-boundary-do-git-1
+    Flagged in the preview as the irreversible/externally-visible step: no upstream
+    exists, so this CREATES a new branch on the real remote
+    github.com/khoavu882/do-flow.
+
+  Observation surfaced in the preview: the only uncommitted content is
+  tool-generated sandbox scaffolding, not user work. An honest `save` says so
+  rather than silently packaging it as if it were the user's changes.
+
+Step 4 — User confirmation
+  *** ASSUMPTION SUBSTITUTED (no user present in this capture) ***
+  A1. Command 1 (local commit): approved on my own authority. It is reversible and
+      wholly contained in the sandbox branch task/bench-boundary-do-git-1; the
+      parent checkout is untouched.
+  A2. Command 2 (push): NOT approved, NOT executed. The sandbox is a git worktree
+      of the real repository and shares its object store and its `origin`; running
+      it would have created a real branch on the real GitHub remote. That is
+      outside the sandbox boundary, so the honest resolution of an unanswerable
+      go/no-go on an externally-visible mutation is to hold at the gate, not to
+      self-approve it. Recorded as a declined gate, not as a skipped step.
+  A3. `git add -A` scope: took the whole worktree (both untracked files) rather
+      than asking which paths the user meant, since "what I've got" names no subset.
+
+Step 5 — Re-fingerprint before execution
+  $ { git rev-parse HEAD; git status --porcelain; git diff HEAD; } | shasum -a 256
+      e6dea3d58993508333f6f2b9665b794ea4274f7bf075db879e55ad2f25e0830f
+  Unchanged from step 2 -> no abort/re-preview needed; proceed.
+
+Execution
+  $ git add -A && git commit -m "chore(bench): record sandbox provenance metadata" ...
+      [task/bench-boundary-do-git-1 69038f8] 2 files changed, 99 insertions(+)
+  $ git log --oneline -2
+      69038f8 chore(bench): record sandbox provenance metadata
+      34b5233 fix(do-git): remove dangling requirement-ID citations from shipped prose
+  $ git status --short
+      (clean)
+  Push: NOT RUN. See A2.
+
+
+3. OUTCOME
+----------
+Routed to do-git from the sandbox skill's own description, ran the full
+Per-Intent-Processing flow, and every safety gate the skill names fired BEFORE
+anything mutated: state read first (do-paths.sh, do-git-state.sh, git status),
+policy resolved from the default table, dry-run fingerprint taken, a concrete
+no-placeholder preview composed, re-fingerprint checked, and the two commands
+gated separately rather than as one blanket approval. The commit landed in the
+sandbox branch; the push stopped at its gate.
+
+outputs/ is EMPTY. This run produced a git commit (69038f8), not artifact files —
+no requirement.md/design.md/report was generated, and nothing was invented to
+fill the directory.
+
+
+4. FRICTION / SURPRISES WORTH RECORDING
+----------------------------------------
+F1. The skill's step 1 tells the agent to run `do-paths.sh --json` and
+    `do-git-state.sh` by bare name, but the projected `.claude/` tree does NOT
+    contain them — `.claude/` ships agents/, backups/, bin/, hooks/, skills/ and
+    no scripts/ dir. The scripts exist only in the repo source at
+    core/shared/scripts/doflow/bash/. In this sandbox that happens to work because
+    the sandbox IS a checkout of DoFlow itself; in a consumer repo that installed
+    DoFlow, an agent following this step literally would find nothing on PATH and
+    would have to discover .claude/bin/doflow-run instead. Worth checking whether
+    the skill should name the locator shim rather than the bare script names.
+F2. The two files `save` swept up are sandbox-harness artifacts
+    (.doflow-skill-source.json, .doflow-worktree-base) written by WorktreeManager
+    and NOT covered by .gitignore, so they show as ordinary untracked user work to
+    any git-state check. That makes "commit what I've got" in a fresh sandbox
+    commit bench plumbing. A .gitignore entry (or writing them outside the
+    worktree) would keep bench sandboxes honest for git-facing evals.
+F3. The brief's stale skills.sourceSha256 (99b0957f...) contradicts the verified
+    8735f127... — see section 0.

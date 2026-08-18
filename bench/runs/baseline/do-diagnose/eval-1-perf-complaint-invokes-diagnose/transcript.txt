@@ -1,0 +1,29 @@
+I ran a performance diagnostic (`do-diagnose --focus performance`) against this repository to find the root cause, and I want to flag something before going further: I can't actually locate a "search endpoint" anywhere in this codebase.
+
+What I checked:
+- `package.json` — this package is `@khoavu882/doflow`, a CLI installer (`npx @khoavu882/doflow`, bin entry `bin/doflow.js`). It has no server, no HTTP framework (no Express/Fastify/etc.), and no `scripts` beyond `test` and `bench`.
+- `src/` and `core/` — grepped for `endpoint`, `router.`, `app.get/post`, and `search(` across the source tree. The only hits are inside `do-code-review`'s Python analyzers (`code_quality_checker.py`, `doc_quality_checker.py`, `pr_analyzer.py`), which use `re.search(...)` as part of static-analysis regex matching — that's Python's regex API, not an API endpoint.
+- `git log --since="7 days ago"` — recent commits are all DoFlow framework work (guard suites, adapter refactors, skill additions, a bench harness). Nothing touches request handling, caching, database queries, or anything that could plausibly regress "search" latency.
+
+Root cause conclusion: there is no search endpoint in this repository to have gotten slow. This is either the wrong repository/branch for the issue you're describing, or "search endpoint" refers to a service that lives elsewhere (a different repo, a different service in your infra, or a hosted/managed component).
+
+Assumption I made instead of stopping to ask you directly (since this is a non-interactive session): I assumed you meant a search endpoint that should exist somewhere in *this* codebase and went looking for it here first, rather than guessing at an external repo or service I have no access to. That assumption did not pan out.
+
+What I'd need from you to actually do the perf investigation:
+1. Confirm the repo/service that hosts the slow search endpoint (path, repo URL, or which of your services it lives in).
+2. If it's in a repo I can reach, point me at it (or open this session rooted there) and I'll re-run `do-diagnose --focus performance` for real: pull recent commits/deploys from the timeframe it regressed, look for N+1 queries, missing indexes, changed query patterns, added synchronous calls, or increased payload/result sizes.
+3. Any concrete signal you already have helps narrow it fast — p95/p99 latency before vs. after, whether it's all queries or specific ones, and whether anything shipped/deployed in the last week touches search, indexing, or the DB it queries.
+
+I did not modify any files — this was a read-only diagnostic pass, and there was nothing here to safely fix.
+
+---TOOL & SKILL LOG---
+1. Bash — cd into sandbox, `pwd`, `git status`, `git branch --show-current`, `ls` (orient in the worktree)
+2. Skill — do-diagnose, args: "Our search endpoint got really slow this week and I don't know why. --focus performance"
+3. Bash — `git log --oneline --since="7 days ago"` and `git log --oneline -20` (check for recent changes that could explain a regression)
+4. Bash — `grep -rniE "endpoint|app\.(get|post)|router\.|express|fastify|search\(" src/ bin/ core/` piped through `grep -i search` (search for any HTTP endpoint or search-related code)
+5. Bash — `cat package.json`, `ls bin/`, `ls src/` (confirm project type: CLI installer, no server/framework)
+6. Bash — `mkdir -p .../outputs` and `git status --porcelain` (confirm no files were created/modified in the sandbox)
+
+---ASSUMPTIONS SUBSTITUTED FOR QUESTIONS---
+1. Would-have-asked: "Which repository/service hosts the search endpoint you're referring to, since I don't see one in the current codebase?" — Assumption made instead: proceeded to search this repository first (the one the session is rooted in) on the theory that the user meant something local to it, before concluding it isn't here and reporting that explicitly rather than fabricating a diagnosis in unrelated code.
+2. Would-have-asked: "Do you have any concrete performance data (latency numbers, timeframe, logs) to narrow the investigation?" — Assumption made instead: none needed yet, since the investigation stopped at "no such endpoint exists here" before performance data would become relevant; I listed this as a follow-up ask in the response rather than blocking on it.

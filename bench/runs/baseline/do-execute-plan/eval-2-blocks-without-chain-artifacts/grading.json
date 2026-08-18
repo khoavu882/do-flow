@@ -1,0 +1,23 @@
+{
+  "skill": "do-execute-plan",
+  "eval_id": 2,
+  "eval_name": "blocks-without-chain-artifacts",
+  "expectations": [
+    {
+      "text": "Execution is refused or blocked when chain artifacts are missing",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    },
+    {
+      "text": "The specific missing artifact is named",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    },
+    {
+      "text": "No source files are modified while blocked",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": null
+}

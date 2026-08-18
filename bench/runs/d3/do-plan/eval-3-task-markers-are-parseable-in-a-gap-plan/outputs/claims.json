@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "taskId": "bench-d3-do-plan-3",
+  "updatedAt": "2026-08-18T09:56:57.946Z",
+  "claimsCount": 5,
+  "claims": [
+    {
+      "id": "claim_msyhnjov_1",
+      "taskId": "bench-d3-do-plan-3",
+      "statement": "D1: No feature is invented — no requirement.md, design.md or candidate slug exists in this sandbox",
+      "status": "hypothesis",
+      "supportingEvidence": [],
+      "contradictingEvidence": [],
+      "createdAt": "2026-08-18T09:56:57.583Z",
+      "updatedAt": "2026-08-18T09:56:57.584Z"
+    },
+    {
+      "id": "claim_msyhnjra_1",
+      "taskId": "bench-d3-do-plan-3",
+      "statement": "D2: The task checklist is emitted in the executor's marker syntax even with nothing to implement, so the plan parses rather than reading as an empty phase",
+      "status": "hypothesis",
+      "supportingEvidence": [],
+      "contradictingEvidence": [],
+      "createdAt": "2026-08-18T09:56:57.670Z",
+      "updatedAt": "2026-08-18T09:56:57.671Z"
+    },
+    {
+      "id": "claim_msyhnjtu_1",
+      "taskId": "bench-d3-do-plan-3",
+      "statement": "D3: Recovery runs through /do-brainstorm then /do-design; do-plan does not backfill either artifact",
+      "status": "hypothesis",
+      "supportingEvidence": [],
+      "contradictingEvidence": [],
+      "createdAt": "2026-08-18T09:56:57.762Z",
+      "updatedAt": "2026-08-18T09:56:57.763Z"
+    },
+    {
+      "id": "claim_msyhnjwg_1",
+      "taskId": "bench-d3-do-plan-3",
+      "statement": "D4: Task class feature is an assumption declared as such, because the artifacts step 2 derives from are the missing ones",
+      "status": "hypothesis",
+      "supportingEvidence": [],
+      "contradictingEvidence": [],
+      "createdAt": "2026-08-18T09:56:57.856Z",
+      "updatedAt": "2026-08-18T09:56:57.857Z"
+    },
+    {
+      "id": "claim_msyhnjyx_1",
+      "taskId": "bench-d3-do-plan-3",
+      "statement": "D5: Marker parseability was verified empirically with doflow parallel-check and doflow task-brief, not asserted",
+      "status": "hypothesis",
+      "supportingEvidence": [],
+      "contradictingEvidence": [],
+      "createdAt": "2026-08-18T09:56:57.945Z",
+      "updatedAt": "2026-08-18T09:56:57.946Z"
+    }
+  ]
+}

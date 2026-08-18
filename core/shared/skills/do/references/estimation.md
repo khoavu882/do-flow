@@ -1,13 +1,13 @@
 # Development Estimation Reference
 
-Guidelines for generating scoped, confidence-banded estimates:
+Guidelines for generating scoped estimates:
 
 ## Sizing Dimensions
-1. **Time/Effort (`--type time`)**:
+1. **Time/Effort**:
    - Anchor against historical commits (`git log`) for comparable features in this repo.
    - Account for cross-module boundaries, third-party integrations, and testing scope.
-2. **Complexity (`--type complexity`)**:
+2. **Complexity**:
    - Rate Low, Medium, or High based on blast radius, concurrency/state management, and schema changes.
-3. **Confidence Banding**:
-   - Always provide a range (e.g. `2-4 days`), stating assumptions and what unknowns would narrow the band.
-   - Point estimates without confidence intervals are prohibited.
+3. **Range and assumptions**: give a range (`2-4 days`), state the assumptions that set its width
+   and the unknowns that would narrow it. The assumptions are the honest expression of what is not
+   yet known — never attach a numeric or percentage certainty to the range.

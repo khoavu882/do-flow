@@ -1,0 +1,5065 @@
+{
+  "status": "analyzed",
+  "summary": {
+    "files_changed": 484,
+    "total_additions": 58641,
+    "total_deletions": 2629,
+    "complexity_score": 10,
+    "complexity_label": "Critical",
+    "commits": 36
+  },
+  "risks": {
+    "critical": [
+      {
+        "name": "sql_concatenation",
+        "severity": "critical",
+        "message": "Potential SQL injection (string concatenation or interpolation in query)",
+        "file": "bench/runs/baseline/do-test/eval-1-test-request-invokes-test/outputs/test-output.txt",
+        "count": 2
+      },
+      {
+        "name": "sql_concatenation",
+        "severity": "critical",
+        "message": "Potential SQL injection (string concatenation or interpolation in query)",
+        "file": "bench/runs/baseline/do-test/eval-2-reports-failures-honestly/outputs/npm-test.log",
+        "count": 2
+      },
+      {
+        "name": "hardcoded_secrets",
+        "severity": "critical",
+        "message": "Potential hardcoded secret or connection string detected",
+        "file": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/outputs/review-report.md",
+        "count": 2
+      },
+      {
+        "name": "hardcoded_secrets",
+        "severity": "critical",
+        "message": "Potential hardcoded secret or connection string detected",
+        "file": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/transcript.txt",
+        "count": 1
+      },
+      {
+        "name": "sql_concatenation",
+        "severity": "critical",
+        "message": "Potential SQL injection (string concatenation or interpolation in query)",
+        "file": "bench/runs/boundary/do-code-review/eval-2-dispatches-to-language-checker/outputs/pr_analyzer.py.reviewed",
+        "count": 1
+      },
+      {
+        "name": "sql_concatenation",
+        "severity": "critical",
+        "message": "Potential SQL injection (string concatenation or interpolation in query)",
+        "file": "bench/runs/boundary/do-code-review/eval-2-dispatches-to-language-checker/outputs/review-report.md",
+        "count": 1
+      },
+      {
+        "name": "sql_concatenation",
+        "severity": "critical",
+        "message": "Potential SQL injection (string concatenation or interpolation in query)",
+        "file": "bench/runs/boundary/do-test/eval-1-test-request-invokes-test/outputs/npm-test-full-output.tap",
+        "count": 2
+      },
+      {
+        "name": "sql_concatenation",
+        "severity": "critical",
+        "message": "Potential SQL injection (string concatenation or interpolation in query)",
+        "file": "bench/runs/boundary/do-test/eval-2-reports-failures-honestly/outputs/node-test-unit-full-output.tap",
+        "count": 2
+      },
+      {
+        "name": "sql_concatenation",
+        "severity": "critical",
+        "message": "Potential SQL injection (string concatenation or interpolation in query)",
+        "file": "bench/runs/boundary/do/eval-2-estimation-is-ranged-not-false-precision/outputs/claims.json",
+        "count": 1
+      },
+      {
+        "name": "hardcoded_secrets",
+        "severity": "critical",
+        "message": "Potential hardcoded secret or connection string detected",
+        "file": "src/runtime/command-detect.js",
+        "count": 1
+      }
+    ],
+    "high": [
+      {
+        "name": "debugger",
+        "severity": "high",
+        "message": "Debugger statement found",
+        "file": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/outputs/pr_analysis.json",
+        "count": 4
+      },
+      {
+        "name": "debugger",
+        "severity": "high",
+        "message": "Debugger statement found",
+        "file": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/outputs/review-report.md",
+        "count": 4
+      },
+      {
+        "name": "csharp_blocking_async",
+        "severity": "high",
+        "message": "Blocking call on async operation \u2014 can deadlock in ASP.NET contexts",
+        "file": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/outputs/review-report.md",
+        "count": 4
+      },
+      {
+        "name": "debugger",
+        "severity": "high",
+        "message": "Debugger statement found",
+        "file": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/outputs/review_report_raw.md",
+        "count": 3
+      },
+      {
+        "name": "debugger",
+        "severity": "high",
+        "message": "Debugger statement found",
+        "file": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/transcript.txt",
+        "count": 3
+      },
+      {
+        "name": "csharp_blocking_async",
+        "severity": "high",
+        "message": "Blocking call on async operation \u2014 can deadlock in ASP.NET contexts",
+        "file": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/transcript.txt",
+        "count": 1
+      },
+      {
+        "name": "debugger",
+        "severity": "high",
+        "message": "Debugger statement found",
+        "file": "bench/runs/boundary/do-code-review/eval-2-dispatches-to-language-checker/outputs/pr_analyzer.py.reviewed",
+        "count": 2
+      },
+      {
+        "name": "csharp_blocking_async",
+        "severity": "high",
+        "message": "Blocking call on async operation \u2014 can deadlock in ASP.NET contexts",
+        "file": "src/adapters/copilot/index.js",
+        "count": 2
+      },
+      {
+        "name": "csharp_blocking_async",
+        "severity": "high",
+        "message": "Blocking call on async operation \u2014 can deadlock in ASP.NET contexts",
+        "file": "src/adapters/kiro/index.js",
+        "count": 2
+      },
+      {
+        "name": "csharp_blocking_async",
+        "severity": "high",
+        "message": "Blocking call on async operation \u2014 can deadlock in ASP.NET contexts",
+        "file": "src/adapters/opencode/index.js",
+        "count": 2
+      },
+      {
+        "name": "csharp_blocking_async",
+        "severity": "high",
+        "message": "Blocking call on async operation \u2014 can deadlock in ASP.NET contexts",
+        "file": "src/adapters/pi/index.js",
+        "count": 2
+      },
+      {
+        "name": "debugger",
+        "severity": "high",
+        "message": "Debugger statement found",
+        "file": "src/runtime/recovery.js",
+        "count": 4
+      }
+    ],
+    "medium": [
+      {
+        "name": "console_log",
+        "severity": "medium",
+        "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+        "file": "bench/runner.js",
+        "count": 32
+      },
+      {
+        "name": "console_log",
+        "severity": "medium",
+        "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+        "file": "bench/runs/baseline/do-implement/eval-3-finishes-what-it-starts/outputs/git-diff.txt",
+        "count": 7
+      },
+      {
+        "name": "analyzer_disable",
+        "severity": "medium",
+        "message": "Static-analyzer rule disabled (ESLint / Roslyn / SuppressMessage / @SuppressWarnings)",
+        "file": "bench/runs/boundary/do-code-review/eval-2-dispatches-to-language-checker/outputs/pr_analyzer.py.reviewed",
+        "count": 4
+      },
+      {
+        "name": "console_log",
+        "severity": "medium",
+        "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+        "file": "bench/runs/boundary/do-git/eval-1-commit-request-invokes-git/transcript.txt",
+        "count": 1
+      },
+      {
+        "name": "console_log",
+        "severity": "medium",
+        "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+        "file": "bench/runs/boundary/do-git/eval-2-refuses-force-push-to-trunk/transcript.txt",
+        "count": 1
+      },
+      {
+        "name": "console_log",
+        "severity": "medium",
+        "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+        "file": "bench/runs/boundary/do-implement/eval-1-direct-fix-needs-no-chain/outputs/cmdCoverage-after.js.txt",
+        "count": 3
+      },
+      {
+        "name": "console_log",
+        "severity": "medium",
+        "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+        "file": "bench/runs/boundary/do-implement/eval-3-finishes-what-it-starts/outputs/bench/runner.js",
+        "count": 32
+      },
+      {
+        "name": "console_log",
+        "severity": "medium",
+        "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+        "file": "bench/runs/boundary/do-implement/eval-3-finishes-what-it-starts/outputs/change.diff",
+        "count": 4
+      },
+      {
+        "name": "console_log",
+        "severity": "medium",
+        "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+        "file": "bench/runs/boundary/do-implement/eval-3-finishes-what-it-starts/transcript.txt",
+        "count": 2
+      },
+      {
+        "name": "loose_type",
+        "severity": "medium",
+        "message": "Loose type used (TypeScript 'any' or C# 'dynamic')",
+        "file": "bench/runs/boundary/do-implement/eval-3-finishes-what-it-starts/transcript.txt",
+        "count": 1
+      },
+      {
+        "name": "loose_type",
+        "severity": "medium",
+        "message": "Loose type used (TypeScript 'any' or C# 'dynamic')",
+        "file": "bench/runs/boundary/do-plan/eval-2-constitution-check-recorded-with-no-upstream-design/transcript.txt",
+        "count": 1
+      },
+      {
+        "name": "loose_type",
+        "severity": "medium",
+        "message": "Loose type used (TypeScript 'any' or C# 'dynamic')",
+        "file": "bench/runs/boundary/do-test/eval-1-test-request-invokes-test/transcript.txt",
+        "count": 1
+      },
+      {
+        "name": "console_log",
+        "severity": "medium",
+        "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+        "file": "bench/runs/boundary/do/eval-1-multi-part-request-routes/transcript.txt",
+        "count": 1
+      },
+      {
+        "name": "console_log",
+        "severity": "medium",
+        "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+        "file": "bin/doflow.js",
+        "count": 96
+      },
+      {
+        "name": "loose_type",
+        "severity": "medium",
+        "message": "Loose type used (TypeScript 'any' or C# 'dynamic')",
+        "file": "core/harnesses/kiro/hooks/pre-implement-gate.sh",
+        "count": 1
+      },
+      {
+        "name": "console_log",
+        "severity": "medium",
+        "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+        "file": "src/runtime/cli.js",
+        "count": 14
+      },
+      {
+        "name": "console_log",
+        "severity": "medium",
+        "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+        "file": "src/runtime/health.js",
+        "count": 23
+      },
+      {
+        "name": "console_log",
+        "severity": "medium",
+        "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+        "file": "src/runtime/trace.js",
+        "count": 55
+      }
+    ],
+    "low": [
+      {
+        "name": "todo_fixme",
+        "severity": "low",
+        "message": "TODO/FIXME comment found",
+        "file": "bench/do-implement/evals.json",
+        "count": 1
+      }
+    ]
+  },
+  "files": [
+    {
+      "path": "bench/runs/boundary/do-document/eval-2-research-mode-separates-source-from-inference/outputs/idempotency-keys-payment-apis_20260818T072117Z.md",
+      "status": "added",
+      "category": "critical",
+      "priority_weight": 5,
+      "additions": 147,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/config.json",
+      "status": "added",
+      "category": "high",
+      "priority_weight": 4,
+      "additions": 9,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-document/eval-1-doc-request-invokes-document/outputs/copy-tree-api-reference.md",
+      "status": "added",
+      "category": "high",
+      "priority_weight": 4,
+      "additions": 242,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/shared/guidance/references/MODEL_SELECTION.md",
+      "status": "added",
+      "category": "high",
+      "priority_weight": 4,
+      "additions": 66,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/shared/guidance/references/RESEARCH_CONFIG.md",
+      "status": "modified",
+      "category": "high",
+      "priority_weight": 4,
+      "additions": 14,
+      "deletions": 441,
+      "risks": []
+    },
+    {
+      "path": "bench/baseline/baseline.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 803,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/do-brainstorm/evals.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 87,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/do-code-review/evals.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 71,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/do-constitution/evals.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 56,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/do-design/evals.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 82,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/do-diagnose/evals.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 57,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/do-document/evals.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 56,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/do-execute-plan/evals.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 81,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/do-flow/evals.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 47,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/do-git/evals.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 52,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/do-implement/evals.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 87,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "todo_fixme",
+          "severity": "low",
+          "message": "TODO/FIXME comment found",
+          "file": "bench/do-implement/evals.json",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "path": "bench/do-plan/evals.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 88,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/do/evals.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 76,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runner.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 807,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "console_log",
+          "severity": "medium",
+          "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+          "file": "bench/runner.js",
+          "count": 32
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/baseline/do-brainstorm/eval-1-vague-idea-starts-discovery/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 23,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-brainstorm/eval-1-vague-idea-starts-discovery/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-brainstorm/eval-1-vague-idea-starts-discovery/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 81,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-brainstorm/eval-2-requirement-has-no-open-clarifications/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 28,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-brainstorm/eval-2-requirement-has-no-open-clarifications/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-brainstorm/eval-2-requirement-has-no-open-clarifications/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 196,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-brainstorm/eval-3-stays-in-what-why/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-brainstorm/eval-3-stays-in-what-why/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-brainstorm/eval-3-stays-in-what-why/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 139,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-code-review/eval-1-review-request-invokes-review/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-code-review/eval-1-review-request-invokes-review/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-code-review/eval-1-review-request-invokes-review/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 50,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-code-review/eval-2-dispatches-to-language-checker/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-code-review/eval-2-dispatches-to-language-checker/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-code-review/eval-2-dispatches-to-language-checker/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 60,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-code-review/eval-3-prose-review-uses-content-type-path/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 13,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-code-review/eval-3-prose-review-uses-content-type-path/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-code-review/eval-3-prose-review-uses-content-type-path/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 107,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-constitution/eval-1-principles-request-invokes-constitution/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-constitution/eval-1-principles-request-invokes-constitution/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-constitution/eval-1-principles-request-invokes-constitution/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 98,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-constitution/eval-2-amend-bumps-semver-and-reports-impact/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 23,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-constitution/eval-2-amend-bumps-semver-and-reports-impact/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-constitution/eval-2-amend-bumps-semver-and-reports-impact/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 97,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-design/eval-1-architecture-request-invokes-design/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-design/eval-1-architecture-request-invokes-design/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-design/eval-1-architecture-request-invokes-design/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 111,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-design/eval-2-uses-flowchart-not-experimental-c4-types/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 28,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-design/eval-2-uses-flowchart-not-experimental-c4-types/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-design/eval-2-uses-flowchart-not-experimental-c4-types/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 124,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-design/eval-3-does-not-write-the-plan/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-design/eval-3-does-not-write-the-plan/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-design/eval-3-does-not-write-the-plan/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 125,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-diagnose/eval-1-perf-complaint-invokes-diagnose/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-diagnose/eval-1-perf-complaint-invokes-diagnose/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-diagnose/eval-1-perf-complaint-invokes-diagnose/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 29,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-diagnose/eval-2-root-cause-before-fix/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 23,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-diagnose/eval-2-root-cause-before-fix/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-diagnose/eval-2-root-cause-before-fix/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 107,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-document/eval-1-doc-request-invokes-document/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-document/eval-1-doc-request-invokes-document/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-document/eval-1-doc-request-invokes-document/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 43,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-document/eval-2-research-mode-separates-source-from-inference/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 23,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-document/eval-2-research-mode-separates-source-from-inference/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-document/eval-2-research-mode-separates-source-from-inference/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 159,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-execute-plan/eval-1-execute-request-invokes-executor/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-execute-plan/eval-1-execute-request-invokes-executor/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-execute-plan/eval-1-execute-request-invokes-executor/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 45,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-execute-plan/eval-2-blocks-without-chain-artifacts/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 23,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-execute-plan/eval-2-blocks-without-chain-artifacts/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-execute-plan/eval-2-blocks-without-chain-artifacts/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 39,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-flow/eval-1-end-to-end-request-invokes-flow/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-flow/eval-1-end-to-end-request-invokes-flow/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-flow/eval-1-end-to-end-request-invokes-flow/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 124,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-flow/eval-2-pauses-at-approval-gates/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-flow/eval-2-pauses-at-approval-gates/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-flow/eval-2-pauses-at-approval-gates/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 161,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-git/eval-1-commit-request-invokes-git/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-git/eval-1-commit-request-invokes-git/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-git/eval-1-commit-request-invokes-git/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 46,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-git/eval-2-refuses-force-push-to-trunk/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-git/eval-2-refuses-force-push-to-trunk/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-git/eval-2-refuses-force-push-to-trunk/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 55,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-implement/eval-1-direct-fix-needs-no-chain/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-implement/eval-1-direct-fix-needs-no-chain/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-implement/eval-1-direct-fix-needs-no-chain/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 84,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-implement/eval-2-explanation-request-does-not-implement/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-implement/eval-2-explanation-request-does-not-implement/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-implement/eval-2-explanation-request-does-not-implement/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 23,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-implement/eval-3-finishes-what-it-starts/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 23,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-implement/eval-3-finishes-what-it-starts/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-implement/eval-3-finishes-what-it-starts/outputs/git-diff.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 154,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "console_log",
+          "severity": "medium",
+          "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+          "file": "bench/runs/baseline/do-implement/eval-3-finishes-what-it-starts/outputs/git-diff.txt",
+          "count": 7
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/baseline/do-implement/eval-3-finishes-what-it-starts/outputs/git-status.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 12,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-implement/eval-3-finishes-what-it-starts/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 141,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-plan/eval-1-plan-request-invokes-plan/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-plan/eval-1-plan-request-invokes-plan/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-plan/eval-1-plan-request-invokes-plan/outputs/git-status.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 6,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-plan/eval-1-plan-request-invokes-plan/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 63,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-plan/eval-2-constitution-check-recorded/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 23,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-plan/eval-2-constitution-check-recorded/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-plan/eval-2-constitution-check-recorded/outputs/constitution-check.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 16,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-plan/eval-2-constitution-check-recorded/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 106,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-plan/eval-3-task-markers-are-parseable/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 23,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-plan/eval-3-task-markers-are-parseable/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-plan/eval-3-task-markers-are-parseable/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 97,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do/eval-1-multi-part-request-routes/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 23,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do/eval-1-multi-part-request-routes/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do/eval-1-multi-part-request-routes/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do/eval-2-estimation-is-ranged-not-false-precision/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do/eval-2-estimation-is-ranged-not-false-precision/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do/eval-2-estimation-is-ranged-not-false-precision/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 54,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do/eval-3-simple-question-does-not-over-route/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 13,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do/eval-3-simple-question-does-not-over-route/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do/eval-3-simple-question-does-not-over-route/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 35,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-brainstorm/eval-1-vague-idea-starts-discovery/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-brainstorm/eval-1-vague-idea-starts-discovery/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-brainstorm/eval-1-vague-idea-starts-discovery/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-brainstorm/eval-1-vague-idea-starts-discovery/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 202,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-brainstorm/eval-2-requirement-has-no-open-clarifications/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 40,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-brainstorm/eval-2-requirement-has-no-open-clarifications/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-brainstorm/eval-2-requirement-has-no-open-clarifications/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-brainstorm/eval-2-requirement-has-no-open-clarifications/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 100,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-brainstorm/eval-3-stays-in-what-why/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-brainstorm/eval-3-stays-in-what-why/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-brainstorm/eval-3-stays-in-what-why/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-brainstorm/eval-3-stays-in-what-why/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 107,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/outputs/diff-stat.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 261,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/outputs/pr_analysis.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 2665,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "debugger",
+          "severity": "high",
+          "message": "Debugger statement found",
+          "file": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/outputs/pr_analysis.json",
+          "count": 4
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/outputs/quality_analysis.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 4736,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 140,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "hardcoded_secrets",
+          "severity": "critical",
+          "message": "Potential hardcoded secret or connection string detected",
+          "file": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/transcript.txt",
+          "count": 1
+        },
+        {
+          "name": "debugger",
+          "severity": "high",
+          "message": "Debugger statement found",
+          "file": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/transcript.txt",
+          "count": 3
+        },
+        {
+          "name": "csharp_blocking_async",
+          "severity": "high",
+          "message": "Blocking call on async operation \u2014 can deadlock in ASP.NET contexts",
+          "file": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/transcript.txt",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-2-dispatches-to-language-checker/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-2-dispatches-to-language-checker/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-2-dispatches-to-language-checker/outputs/code_quality_checker.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 137,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-2-dispatches-to-language-checker/outputs/dispatch-log.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-2-dispatches-to-language-checker/outputs/pr_analyzer.py.reviewed",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 535,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "debugger",
+          "severity": "high",
+          "message": "Debugger statement found",
+          "file": "bench/runs/boundary/do-code-review/eval-2-dispatches-to-language-checker/outputs/pr_analyzer.py.reviewed",
+          "count": 2
+        },
+        {
+          "name": "analyzer_disable",
+          "severity": "medium",
+          "message": "Static-analyzer rule disabled (ESLint / Roslyn / SuppressMessage / @SuppressWarnings)",
+          "file": "bench/runs/boundary/do-code-review/eval-2-dispatches-to-language-checker/outputs/pr_analyzer.py.reviewed",
+          "count": 4
+        },
+        {
+          "name": "sql_concatenation",
+          "severity": "critical",
+          "message": "Potential SQL injection (string concatenation or interpolation in query)",
+          "file": "bench/runs/boundary/do-code-review/eval-2-dispatches-to-language-checker/outputs/pr_analyzer.py.reviewed",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-2-dispatches-to-language-checker/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-2-dispatches-to-language-checker/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 134,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-3-prose-review-uses-content-type-path/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 25,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-3-prose-review-uses-content-type-path/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-3-prose-review-uses-content-type-path/outputs/dispatch-decision.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 27,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-3-prose-review-uses-content-type-path/outputs/doc_quality_checker-architecture.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 9,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-3-prose-review-uses-content-type-path/outputs/doc_quality_checker-architecture.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 11,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-3-prose-review-uses-content-type-path/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-3-prose-review-uses-content-type-path/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 135,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-constitution/eval-1-principles-request-invokes-constitution/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-constitution/eval-1-principles-request-invokes-constitution/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-constitution/eval-1-principles-request-invokes-constitution/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-constitution/eval-1-principles-request-invokes-constitution/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 152,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-constitution/eval-2-amend-bumps-semver-and-reports-impact/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 35,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-constitution/eval-2-amend-bumps-semver-and-reports-impact/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-constitution/eval-2-amend-bumps-semver-and-reports-impact/outputs/no-op-report.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 64,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-constitution/eval-2-amend-bumps-semver-and-reports-impact/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-constitution/eval-2-amend-bumps-semver-and-reports-impact/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 107,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-design/eval-1-architecture-request-invokes-design/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 25,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-design/eval-1-architecture-request-invokes-design/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-design/eval-1-architecture-request-invokes-design/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-design/eval-1-architecture-request-invokes-design/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 126,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-design/eval-2-uses-flowchart-not-experimental-c4-types/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 35,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-design/eval-2-uses-flowchart-not-experimental-c4-types/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-design/eval-2-uses-flowchart-not-experimental-c4-types/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-design/eval-2-uses-flowchart-not-experimental-c4-types/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 189,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-design/eval-3-does-not-write-the-plan/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-design/eval-3-does-not-write-the-plan/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-design/eval-3-does-not-write-the-plan/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-design/eval-3-does-not-write-the-plan/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 112,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-diagnose/eval-1-perf-complaint-invokes-diagnose/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-diagnose/eval-1-perf-complaint-invokes-diagnose/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-diagnose/eval-1-perf-complaint-invokes-diagnose/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-diagnose/eval-1-perf-complaint-invokes-diagnose/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 45,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-diagnose/eval-2-root-cause-before-fix/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 35,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-diagnose/eval-2-root-cause-before-fix/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-diagnose/eval-2-root-cause-before-fix/outputs/claims-ledger.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 27,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-diagnose/eval-2-root-cause-before-fix/outputs/evidence-ledger.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 204,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-diagnose/eval-2-root-cause-before-fix/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-diagnose/eval-2-root-cause-before-fix/timing.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 12,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-diagnose/eval-2-root-cause-before-fix/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 111,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-document/eval-1-doc-request-invokes-document/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-document/eval-1-doc-request-invokes-document/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-document/eval-1-doc-request-invokes-document/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-document/eval-1-doc-request-invokes-document/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 65,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-document/eval-2-research-mode-separates-source-from-inference/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 35,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-document/eval-2-research-mode-separates-source-from-inference/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-document/eval-2-research-mode-separates-source-from-inference/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-document/eval-2-research-mode-separates-source-from-inference/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 112,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-execute-plan/eval-1-execute-request-invokes-executor/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-execute-plan/eval-1-execute-request-invokes-executor/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-execute-plan/eval-1-execute-request-invokes-executor/outputs/NOTE.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-execute-plan/eval-1-execute-request-invokes-executor/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-execute-plan/eval-1-execute-request-invokes-executor/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 81,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-execute-plan/eval-2-blocks-without-chain-artifacts/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-execute-plan/eval-2-blocks-without-chain-artifacts/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-execute-plan/eval-2-blocks-without-chain-artifacts/outputs/gate_block.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 33,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-execute-plan/eval-2-blocks-without-chain-artifacts/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-execute-plan/eval-2-blocks-without-chain-artifacts/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 97,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-flow/eval-1-end-to-end-request-invokes-flow/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 25,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-flow/eval-1-end-to-end-request-invokes-flow/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-flow/eval-1-end-to-end-request-invokes-flow/outputs/note.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-flow/eval-1-end-to-end-request-invokes-flow/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-flow/eval-1-end-to-end-request-invokes-flow/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 87,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-flow/eval-2-pauses-at-approval-gates/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-flow/eval-2-pauses-at-approval-gates/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-flow/eval-2-pauses-at-approval-gates/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-flow/eval-2-pauses-at-approval-gates/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 303,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-git/eval-1-commit-request-invokes-git/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-git/eval-1-commit-request-invokes-git/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-git/eval-1-commit-request-invokes-git/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-git/eval-1-commit-request-invokes-git/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 190,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "console_log",
+          "severity": "medium",
+          "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+          "file": "bench/runs/boundary/do-git/eval-1-commit-request-invokes-git/transcript.txt",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/boundary/do-git/eval-2-refuses-force-push-to-trunk/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-git/eval-2-refuses-force-push-to-trunk/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-git/eval-2-refuses-force-push-to-trunk/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-git/eval-2-refuses-force-push-to-trunk/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 194,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "console_log",
+          "severity": "medium",
+          "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+          "file": "bench/runs/boundary/do-git/eval-2-refuses-force-push-to-trunk/transcript.txt",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/boundary/do-implement/eval-1-direct-fix-needs-no-chain/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-implement/eval-1-direct-fix-needs-no-chain/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-implement/eval-1-direct-fix-needs-no-chain/outputs/change.diff",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 21,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-implement/eval-1-direct-fix-needs-no-chain/outputs/cmdCoverage-after.js.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 27,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "console_log",
+          "severity": "medium",
+          "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+          "file": "bench/runs/boundary/do-implement/eval-1-direct-fix-needs-no-chain/outputs/cmdCoverage-after.js.txt",
+          "count": 3
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/boundary/do-implement/eval-1-direct-fix-needs-no-chain/outputs/verify.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 53,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-implement/eval-1-direct-fix-needs-no-chain/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-implement/eval-1-direct-fix-needs-no-chain/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 116,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-implement/eval-2-explanation-request-does-not-implement/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-implement/eval-2-explanation-request-does-not-implement/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-implement/eval-2-explanation-request-does-not-implement/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-implement/eval-2-explanation-request-does-not-implement/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 132,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-implement/eval-3-finishes-what-it-starts/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 35,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-implement/eval-3-finishes-what-it-starts/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-implement/eval-3-finishes-what-it-starts/outputs/bench/runner.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 736,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "console_log",
+          "severity": "medium",
+          "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+          "file": "bench/runs/boundary/do-implement/eval-3-finishes-what-it-starts/outputs/bench/runner.js",
+          "count": 32
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/boundary/do-implement/eval-3-finishes-what-it-starts/outputs/change.diff",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 83,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "console_log",
+          "severity": "medium",
+          "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+          "file": "bench/runs/boundary/do-implement/eval-3-finishes-what-it-starts/outputs/change.diff",
+          "count": 4
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/boundary/do-implement/eval-3-finishes-what-it-starts/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-implement/eval-3-finishes-what-it-starts/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 161,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "console_log",
+          "severity": "medium",
+          "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+          "file": "bench/runs/boundary/do-implement/eval-3-finishes-what-it-starts/transcript.txt",
+          "count": 2
+        },
+        {
+          "name": "loose_type",
+          "severity": "medium",
+          "message": "Loose type used (TypeScript 'any' or C# 'dynamic')",
+          "file": "bench/runs/boundary/do-implement/eval-3-finishes-what-it-starts/transcript.txt",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-1-plan-request-invokes-plan/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-1-plan-request-invokes-plan/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-1-plan-request-invokes-plan/outputs/NOTES.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 55,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-1-plan-request-invokes-plan/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-1-plan-request-invokes-plan/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 164,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-2-constitution-check-recorded-with-no-upstream-design/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 35,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-2-constitution-check-recorded-with-no-upstream-design/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-2-constitution-check-recorded-with-no-upstream-design/outputs/doflow-state/claims-task-bench-boundary-do-plan-2.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-2-constitution-check-recorded-with-no-upstream-design/outputs/doflow-state/evidence-task-bench-boundary-do-plan-2.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 94,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-2-constitution-check-recorded-with-no-upstream-design/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-2-constitution-check-recorded-with-no-upstream-design/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 382,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "loose_type",
+          "severity": "medium",
+          "message": "Loose type used (TypeScript 'any' or C# 'dynamic')",
+          "file": "bench/runs/boundary/do-plan/eval-2-constitution-check-recorded-with-no-upstream-design/transcript.txt",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-3-task-markers-are-parseable-in-a-gap-plan/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 35,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-3-task-markers-are-parseable-in-a-gap-plan/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-3-task-markers-are-parseable-in-a-gap-plan/outputs/claims.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-3-task-markers-are-parseable-in-a-gap-plan/outputs/classify.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 209,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-3-task-markers-are-parseable-in-a-gap-plan/outputs/doflow-paths.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 20,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-3-task-markers-are-parseable-in-a-gap-plan/outputs/evidence.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 72,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-3-task-markers-are-parseable-in-a-gap-plan/outputs/validate-output.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-3-task-markers-are-parseable-in-a-gap-plan/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-3-task-markers-are-parseable-in-a-gap-plan/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 144,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do/eval-1-multi-part-request-routes/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 35,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do/eval-1-multi-part-request-routes/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do/eval-1-multi-part-request-routes/outputs/task-bench-boundary-do-1.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 118,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do/eval-1-multi-part-request-routes/outputs/task-bench-boundary-do-1_claims.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 38,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do/eval-1-multi-part-request-routes/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do/eval-1-multi-part-request-routes/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 162,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "console_log",
+          "severity": "medium",
+          "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+          "file": "bench/runs/boundary/do/eval-1-multi-part-request-routes/transcript.txt",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/boundary/do/eval-2-estimation-is-ranged-not-false-precision/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do/eval-2-estimation-is-ranged-not-false-precision/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do/eval-2-estimation-is-ranged-not-false-precision/outputs/claims.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 18,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "sql_concatenation",
+          "severity": "critical",
+          "message": "Potential SQL injection (string concatenation or interpolation in query)",
+          "file": "bench/runs/boundary/do/eval-2-estimation-is-ranged-not-false-precision/outputs/claims.json",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/boundary/do/eval-2-estimation-is-ranged-not-false-precision/outputs/estimate-batch.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 38,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do/eval-2-estimation-is-ranged-not-false-precision/outputs/evidence.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 138,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do/eval-2-estimation-is-ranged-not-false-precision/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do/eval-2-estimation-is-ranged-not-false-precision/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 155,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do/eval-3-simple-question-does-not-over-route/grading.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 25,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do/eval-3-simple-question-does-not-over-route/invoked_skills.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do/eval-3-simple-question-does-not-over-route/skill_source.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do/eval-3-simple-question-does-not-over-route/transcript.txt",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 69,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/iteration.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 3,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bin/doflow.js",
+      "status": "modified",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 848,
+      "deletions": 39,
+      "risks": [
+        {
+          "name": "console_log",
+          "severity": "medium",
+          "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+          "file": "bin/doflow.js",
+          "count": 96
+        }
+      ]
+    },
+    {
+      "path": "core/harnesses/kiro/hooks/doflow.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 43,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/harnesses/kiro/hooks/lib.sh",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 283,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/harnesses/kiro/hooks/mcp-policy.conf",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 21,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/harnesses/kiro/hooks/mcp-tool-guard.sh",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 60,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/harnesses/kiro/hooks/pre-implement-gate.sh",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 75,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "loose_type",
+          "severity": "medium",
+          "message": "Loose type used (TypeScript 'any' or C# 'dynamic')",
+          "file": "core/harnesses/kiro/hooks/pre-implement-gate.sh",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "path": "core/harnesses/kiro/hooks/session-start.impl.sh",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 120,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/harnesses/kiro/hooks/session-start.sh",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/harnesses/kiro/hooks/stop-check.impl.sh",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 113,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/harnesses/kiro/hooks/stop-check.sh",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 11,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/harnesses/shared/locator/doflow-run",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 89,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/registry/assets.yaml",
+      "status": "modified",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 226,
+      "deletions": 7,
+      "risks": []
+    },
+    {
+      "path": "core/registry/contracts.yaml",
+      "status": "modified",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 27,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/registry/harnesses.yaml",
+      "status": "modified",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 189,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/registry/lifecycle.yaml",
+      "status": "modified",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 4,
+      "deletions": 4,
+      "risks": []
+    },
+    {
+      "path": "core/registry/verification.yaml",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 234,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/registry/workflows.yaml",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 397,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/bash/do-paths.sh",
+      "status": "modified",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 13,
+      "deletions": 1,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/bash/sync-context.sh",
+      "status": "modified",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 19,
+      "deletions": 6,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/bin/doflow-run",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 373,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/check-sync.sh",
+      "status": "deleted",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 0,
+      "deletions": 16,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/compiler.py",
+      "status": "deleted",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 0,
+      "deletions": 186,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/doctor.py",
+      "status": "deleted",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 0,
+      "deletions": 41,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/doflow.sh",
+      "status": "deleted",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 0,
+      "deletions": 30,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/evaluation/benchmark_runner.py",
+      "status": "deleted",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 0,
+      "deletions": 47,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/evaluation/telemetry.py",
+      "status": "deleted",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 0,
+      "deletions": 41,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/evidence/claim_builder.py",
+      "status": "deleted",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 0,
+      "deletions": 31,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/evidence/context_pack.py",
+      "status": "deleted",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 0,
+      "deletions": 27,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/evidence/normalizer.py",
+      "status": "deleted",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 0,
+      "deletions": 42,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/evidence/provenance.py",
+      "status": "deleted",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 0,
+      "deletions": 15,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/recovery/recovery_manager.py",
+      "status": "deleted",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 0,
+      "deletions": 116,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/router/context_router.py",
+      "status": "deleted",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 0,
+      "deletions": 69,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/sandbox/worktree_manager.py",
+      "status": "deleted",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 0,
+      "deletions": 46,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/sync.sh",
+      "status": "deleted",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 0,
+      "deletions": 16,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/tools/retrieval_bridge.py",
+      "status": "deleted",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 0,
+      "deletions": 163,
+      "risks": []
+    },
+    {
+      "path": "core/shared/scripts/doflow/verification/contract_runner.py",
+      "status": "deleted",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 0,
+      "deletions": 93,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-code-review/expected_outputs/sample_markdown_clean_quality.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-code-review/expected_outputs/sample_markdown_smells_quality.json",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 16,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-code-review/scripts/doc_quality_checker.py",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 526,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "package.json",
+      "status": "modified",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 2,
+      "deletions": 1,
+      "risks": []
+    },
+    {
+      "path": "src/adapters/copilot/index.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 364,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "csharp_blocking_async",
+          "severity": "high",
+          "message": "Blocking call on async operation \u2014 can deadlock in ASP.NET contexts",
+          "file": "src/adapters/copilot/index.js",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "path": "src/adapters/copy-tree.js",
+      "status": "modified",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 65,
+      "deletions": 3,
+      "risks": []
+    },
+    {
+      "path": "src/adapters/gemini/index.js",
+      "status": "modified",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 3,
+      "deletions": 26,
+      "risks": []
+    },
+    {
+      "path": "src/adapters/kiro/index.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 301,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "csharp_blocking_async",
+          "severity": "high",
+          "message": "Blocking call on async operation \u2014 can deadlock in ASP.NET contexts",
+          "file": "src/adapters/kiro/index.js",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "path": "src/adapters/opencode/index.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 326,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "csharp_blocking_async",
+          "severity": "high",
+          "message": "Blocking call on async operation \u2014 can deadlock in ASP.NET contexts",
+          "file": "src/adapters/opencode/index.js",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "path": "src/adapters/pi/index.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 228,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "csharp_blocking_async",
+          "severity": "high",
+          "message": "Blocking call on async operation \u2014 can deadlock in ASP.NET contexts",
+          "file": "src/adapters/pi/index.js",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "path": "src/lifecycle-view.js",
+      "status": "modified",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 16,
+      "deletions": 4,
+      "risks": []
+    },
+    {
+      "path": "src/lifecycle/index.js",
+      "status": "modified",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 204,
+      "deletions": 19,
+      "risks": []
+    },
+    {
+      "path": "src/runtime/benchmark.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 125,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "src/runtime/claims.js",
+      "status": "modified",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 10,
+      "deletions": 1,
+      "risks": []
+    },
+    {
+      "path": "src/runtime/cli.js",
+      "status": "modified",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 437,
+      "deletions": 75,
+      "risks": [
+        {
+          "name": "console_log",
+          "severity": "medium",
+          "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+          "file": "src/runtime/cli.js",
+          "count": 14
+        }
+      ]
+    },
+    {
+      "path": "src/runtime/command-detect.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 457,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "hardcoded_secrets",
+          "severity": "critical",
+          "message": "Potential hardcoded secret or connection string detected",
+          "file": "src/runtime/command-detect.js",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "path": "src/runtime/context-pack.js",
+      "status": "modified",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 7,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "src/runtime/context-router.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 0,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "src/runtime/evidence-normalizer.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 161,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "src/runtime/health.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 633,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "console_log",
+          "severity": "medium",
+          "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+          "file": "src/runtime/health.js",
+          "count": 23
+        }
+      ]
+    },
+    {
+      "path": "src/runtime/readiness.js",
+      "status": "modified",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 22,
+      "deletions": 2,
+      "risks": []
+    },
+    {
+      "path": "src/runtime/recovery.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 234,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "debugger",
+          "severity": "high",
+          "message": "Debugger statement found",
+          "file": "src/runtime/recovery.js",
+          "count": 4
+        }
+      ]
+    },
+    {
+      "path": "src/runtime/retrieval-bridge.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 397,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "src/runtime/scaffold.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1097,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "src/runtime/task-classifier.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 191,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "src/runtime/trace.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1083,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "console_log",
+          "severity": "medium",
+          "message": "Debug output statement found (console.* / Debug.WriteLine / System.out / printStackTrace)",
+          "file": "src/runtime/trace.js",
+          "count": 55
+        }
+      ]
+    },
+    {
+      "path": "src/runtime/verification.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 1160,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "src/runtime/workflow-engine.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 423,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "src/runtime/worktree.js",
+      "status": "added",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 335,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "src/targets.js",
+      "status": "modified",
+      "category": "medium",
+      "priority_weight": 2,
+      "additions": 40,
+      "deletions": 9,
+      "risks": []
+    },
+    {
+      "path": "CHANGELOG.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 84,
+      "deletions": 1,
+      "risks": []
+    },
+    {
+      "path": "README.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 17,
+      "deletions": 9,
+      "risks": []
+    },
+    {
+      "path": "bench/README.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 190,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/do-test/evals.json",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 57,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-constitution/eval-1-principles-request-invokes-constitution/outputs/CLAUDE.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 3,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-constitution/eval-2-amend-bumps-semver-and-reports-impact/outputs/CLAUDE.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 3,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-execute-plan/eval-3-respects-write-set-isolation/grading.json",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-execute-plan/eval-3-respects-write-set-isolation/invoked_skills.json",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-execute-plan/eval-3-respects-write-set-isolation/transcript.txt",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 80,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-plan/eval-1-plan-request-invokes-plan/outputs/plan.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 128,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-plan/eval-2-constitution-check-recorded/outputs/plan.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 112,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-plan/eval-3-task-markers-are-parseable/outputs/plan.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 149,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-test/eval-1-test-request-invokes-test/grading.json",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 18,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-test/eval-1-test-request-invokes-test/invoked_skills.json",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-test/eval-1-test-request-invokes-test/outputs/test-output.txt",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 2816,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "sql_concatenation",
+          "severity": "critical",
+          "message": "Potential SQL injection (string concatenation or interpolation in query)",
+          "file": "bench/runs/baseline/do-test/eval-1-test-request-invokes-test/outputs/test-output.txt",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/baseline/do-test/eval-1-test-request-invokes-test/transcript.txt",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-test/eval-2-reports-failures-honestly/grading.json",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 23,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-test/eval-2-reports-failures-honestly/invoked_skills.json",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/baseline/do-test/eval-2-reports-failures-honestly/outputs/npm-test.log",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 2816,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "sql_concatenation",
+          "severity": "critical",
+          "message": "Potential SQL injection (string concatenation or interpolation in query)",
+          "file": "bench/runs/baseline/do-test/eval-2-reports-failures-honestly/outputs/npm-test.log",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/baseline/do-test/eval-2-reports-failures-honestly/transcript.txt",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 47,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-brainstorm/eval-2-requirement-has-no-open-clarifications/outputs/requirement.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 168,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-brainstorm/eval-3-stays-in-what-why/outputs/requirement.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 146,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/outputs/review-report.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 90,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "hardcoded_secrets",
+          "severity": "critical",
+          "message": "Potential hardcoded secret or connection string detected",
+          "file": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/outputs/review-report.md",
+          "count": 2
+        },
+        {
+          "name": "debugger",
+          "severity": "high",
+          "message": "Debugger statement found",
+          "file": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/outputs/review-report.md",
+          "count": 4
+        },
+        {
+          "name": "csharp_blocking_async",
+          "severity": "high",
+          "message": "Blocking call on async operation \u2014 can deadlock in ASP.NET contexts",
+          "file": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/outputs/review-report.md",
+          "count": 4
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/outputs/review_report_raw.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 89,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "debugger",
+          "severity": "high",
+          "message": "Debugger statement found",
+          "file": "bench/runs/boundary/do-code-review/eval-1-review-request-invokes-review/outputs/review_report_raw.md",
+          "count": 3
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-2-dispatches-to-language-checker/outputs/python.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 94,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-2-dispatches-to-language-checker/outputs/review-report.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 99,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "sql_concatenation",
+          "severity": "critical",
+          "message": "Potential SQL injection (string concatenation or interpolation in query)",
+          "file": "bench/runs/boundary/do-code-review/eval-2-dispatches-to-language-checker/outputs/review-report.md",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/boundary/do-code-review/eval-2-dispatches-to-language-checker/outputs/universal.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 49,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-constitution/eval-1-principles-request-invokes-constitution/outputs/CLAUDE.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 3,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-constitution/eval-1-principles-request-invokes-constitution/outputs/constitution.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 61,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-design/eval-1-architecture-request-invokes-design/outputs/design.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 213,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-design/eval-2-uses-flowchart-not-experimental-c4-types/outputs/design.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 246,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-design/eval-3-does-not-write-the-plan/outputs/design.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 264,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-diagnose/eval-1-perf-complaint-invokes-diagnose/outputs/decision.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 20,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-diagnose/eval-2-root-cause-before-fix/outputs/diagnosis.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 91,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-execute-plan/eval-3-respects-write-set-isolation/grading.json",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 35,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-execute-plan/eval-3-respects-write-set-isolation/invoked_skills.json",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-execute-plan/eval-3-respects-write-set-isolation/outputs/docs/one.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 2,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-execute-plan/eval-3-respects-write-set-isolation/outputs/docs/two.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-execute-plan/eval-3-respects-write-set-isolation/skill_source.json",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-execute-plan/eval-3-respects-write-set-isolation/transcript.txt",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 269,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-implement/eval-3-finishes-what-it-starts/outputs/test/guards/evals.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 247,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-1-plan-request-invokes-plan/outputs/plan.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 85,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-2-constitution-check-recorded-with-no-upstream-design/outputs/plan.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 125,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-plan/eval-3-task-markers-are-parseable-in-a-gap-plan/outputs/plan.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 148,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-test/eval-1-test-request-invokes-test/grading.json",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-test/eval-1-test-request-invokes-test/invoked_skills.json",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-test/eval-1-test-request-invokes-test/outputs/failure-summary.txt",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 36,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-test/eval-1-test-request-invokes-test/outputs/npm-test-full-output.tap",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 3468,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "sql_concatenation",
+          "severity": "critical",
+          "message": "Potential SQL injection (string concatenation or interpolation in query)",
+          "file": "bench/runs/boundary/do-test/eval-1-test-request-invokes-test/outputs/npm-test-full-output.tap",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/boundary/do-test/eval-1-test-request-invokes-test/skill_source.json",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-test/eval-1-test-request-invokes-test/transcript.txt",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 250,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "loose_type",
+          "severity": "medium",
+          "message": "Loose type used (TypeScript 'any' or C# 'dynamic')",
+          "file": "bench/runs/boundary/do-test/eval-1-test-request-invokes-test/transcript.txt",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/boundary/do-test/eval-2-reports-failures-honestly/grading.json",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 35,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-test/eval-2-reports-failures-honestly/invoked_skills.json",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-test/eval-2-reports-failures-honestly/outputs/failure-summary.txt",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 37,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-test/eval-2-reports-failures-honestly/outputs/node-test-unit-full-output.tap",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 3176,
+      "deletions": 0,
+      "risks": [
+        {
+          "name": "sql_concatenation",
+          "severity": "critical",
+          "message": "Potential SQL injection (string concatenation or interpolation in query)",
+          "file": "bench/runs/boundary/do-test/eval-2-reports-failures-honestly/outputs/node-test-unit-full-output.tap",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "path": "bench/runs/boundary/do-test/eval-2-reports-failures-honestly/skill_source.json",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 5,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "bench/runs/boundary/do-test/eval-2-reports-failures-honestly/transcript.txt",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 221,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/shared/agent-specs/core-implementer.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 13,
+      "deletions": 4,
+      "risks": []
+    },
+    {
+      "path": "core/shared/agent-specs/quality-guardian.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 7,
+      "deletions": 3,
+      "risks": []
+    },
+    {
+      "path": "core/shared/agent-specs/research-writer.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 10,
+      "deletions": 3,
+      "risks": []
+    },
+    {
+      "path": "core/shared/agent-specs/spec-analyst.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 12,
+      "deletions": 3,
+      "risks": []
+    },
+    {
+      "path": "core/shared/agent-specs/system-architect.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 8,
+      "deletions": 3,
+      "risks": []
+    },
+    {
+      "path": "core/shared/guidance/FLAGS.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 18,
+      "deletions": 18,
+      "risks": []
+    },
+    {
+      "path": "core/shared/guidance/PRINCIPLES.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 52,
+      "deletions": 56,
+      "risks": []
+    },
+    {
+      "path": "core/shared/guidance/mcp/MCP_Sequential.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 1,
+      "deletions": 2,
+      "risks": []
+    },
+    {
+      "path": "core/shared/guidance/modes/MODE_Brainstorming.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 19,
+      "deletions": 16,
+      "risks": []
+    },
+    {
+      "path": "core/shared/guidance/modes/MODE_DeepResearch.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 14,
+      "deletions": 16,
+      "risks": []
+    },
+    {
+      "path": "core/shared/guidance/modes/MODE_Introspection.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 7,
+      "deletions": 12,
+      "risks": []
+    },
+    {
+      "path": "core/shared/guidance/modes/MODE_Orchestration.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 7,
+      "deletions": 30,
+      "risks": []
+    },
+    {
+      "path": "core/shared/guidance/modes/MODE_Task_Management.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 2,
+      "deletions": 24,
+      "risks": []
+    },
+    {
+      "path": "core/shared/guidance/references/CONSTITUTION_BASE.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 14,
+      "deletions": 11,
+      "risks": []
+    },
+    {
+      "path": "core/shared/guidance/references/DOFLOW_CHAIN.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 14,
+      "deletions": 9,
+      "risks": []
+    },
+    {
+      "path": "core/shared/guidance/references/EVIDENCE_LEDGER.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 59,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/shared/guidance/rules/RULE_01_SAFETY.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 6,
+      "deletions": 11,
+      "risks": []
+    },
+    {
+      "path": "core/shared/guidance/rules/RULE_02_WORKFLOW.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 5,
+      "deletions": 17,
+      "risks": []
+    },
+    {
+      "path": "core/shared/guidance/rules/RULE_03_QUALITY.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 0,
+      "deletions": 13,
+      "risks": []
+    },
+    {
+      "path": "core/shared/guidance/rules/RULE_04_QUESTIONS.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 13,
+      "deletions": 24,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-brainstorm/SKILL.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 85,
+      "deletions": 61,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-code-review/README.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 8,
+      "deletions": 86,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-code-review/SKILL.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 63,
+      "deletions": 7,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-code-review/assets/sample_markdown_clean.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 30,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-code-review/assets/sample_markdown_smells.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 29,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-code-review/content-types/markdown.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 130,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-constitution/SKILL.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 35,
+      "deletions": 34,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-design/SKILL.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 77,
+      "deletions": 47,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-diagnose/SKILL.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 127,
+      "deletions": 13,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-diagnose/references/root_cause.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 2,
+      "deletions": 1,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-document/SKILL.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 19,
+      "deletions": 6,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-document/references/deep_research.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 9,
+      "deletions": 3,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-document/references/implementation-flow.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 1,
+      "deletions": 1,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-execute-plan/SKILL.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 132,
+      "deletions": 38,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-execute-plan/references/parallel_dispatch.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 32,
+      "deletions": 31,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-execute-plan/references/readiness_gate.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 85,
+      "deletions": 26,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-execute-plan/references/scaffold.md",
+      "status": "renamed",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 441,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-flow/SKILL.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 117,
+      "deletions": 76,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-flow/references/task_classes.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 98,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-git/SKILL.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 24,
+      "deletions": 11,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-git/references/hotfix-ritual.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 7,
+      "deletions": 9,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-git/references/lifecycle-policy.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 9,
+      "deletions": 9,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-git/references/release-ritual.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 12,
+      "deletions": 13,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-implement/SKILL.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 106,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-plan/SKILL.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 85,
+      "deletions": 51,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do-test/SKILL.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 60,
+      "deletions": 13,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do/SKILL.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 65,
+      "deletions": 17,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do/references/estimation.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 6,
+      "deletions": 6,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do/references/pm_routing.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 3,
+      "deletions": 2,
+      "risks": []
+    },
+    {
+      "path": "core/shared/skills/do/references/tool_matrix.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 6,
+      "deletions": 5,
+      "risks": []
+    },
+    {
+      "path": "core/shared/templates/doflow/contract-doc-template.md",
+      "status": "deleted",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 0,
+      "deletions": 33,
+      "risks": []
+    },
+    {
+      "path": "core/shared/templates/doflow/external-contract-template.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 35,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "core/shared/templates/doflow/plan-template.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 8,
+      "deletions": 8,
+      "risks": []
+    },
+    {
+      "path": "docs/capability-map.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 58,
+      "deletions": 42,
+      "risks": []
+    },
+    {
+      "path": "docs/flags.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 43,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "docs/guide.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 9,
+      "deletions": 9,
+      "risks": []
+    },
+    {
+      "path": "docs/index.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 2,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "docs/overview.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 22,
+      "deletions": 12,
+      "risks": []
+    },
+    {
+      "path": "docs/quickstart.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 1,
+      "deletions": 1,
+      "risks": []
+    },
+    {
+      "path": "docs/reference.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 61,
+      "deletions": 18,
+      "risks": []
+    },
+    {
+      "path": "docs/setup.md",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 47,
+      "deletions": 17,
+      "risks": []
+    },
+    {
+      "path": "mkdocs.yml",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 1,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/cli-e2e.test.js",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 21,
+      "deletions": 1,
+      "risks": []
+    },
+    {
+      "path": "test/code-review-fixtures.sh",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 10,
+      "deletions": 3,
+      "risks": []
+    },
+    {
+      "path": "test/copilot-adapter.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 323,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/doflow.test.js",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 34,
+      "deletions": 2,
+      "risks": []
+    },
+    {
+      "path": "test/fixtures/scaffold/005-evidence-ledger-readiness/design.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 490,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/fixtures/scaffold/005-evidence-ledger-readiness/plan.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 165,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/fixtures/scaffold/005-evidence-ledger-readiness/requirement.md",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 141,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/gemini-adapter.test.js",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 47,
+      "deletions": 3,
+      "risks": []
+    },
+    {
+      "path": "test/guards/agent-specs.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 100,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/guards/consumers.test.js",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 6,
+      "deletions": 2,
+      "risks": []
+    },
+    {
+      "path": "test/guards/context-budget.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 117,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/guards/dispatch.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 26,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/guards/evals.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 234,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/guards/flag-index.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 60,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/guards/flags.test.js",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 1,
+      "deletions": 1,
+      "risks": []
+    },
+    {
+      "path": "test/guards/reachability.test.js",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 236,
+      "deletions": 5,
+      "risks": []
+    },
+    {
+      "path": "test/guards/registry.test.js",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 55,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/guards/runtime-unification.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 575,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/guards/scaffold.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 381,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/guards/skill-seam.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 186,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/guards/workflows.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 190,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/install-shapes.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 286,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/kiro-adapter.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 270,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/kiro-hooks.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 152,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/lifecycle-orchestrator.test.js",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 98,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/lifecycle-shared-ownership.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 308,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/lifecycle-view.test.js",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 2,
+      "deletions": 2,
+      "risks": []
+    },
+    {
+      "path": "test/opencode-adapter.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 188,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/pi-adapter.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 193,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/registry.test.js",
+      "status": "modified",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 2,
+      "deletions": 2,
+      "risks": []
+    },
+    {
+      "path": "test/runtime-claim-status.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 112,
+      "deletions": 0,
+      "risks": []
+    },
+    {
+      "path": "test/runtime-evidence-write.test.js",
+      "status": "added",
+      "category": "low",
+      "priority_weight": 1,
+      "additions": 474,
+      "deletions": 0,
+      "risks": []
+    }
+  ],
+  "commit_issues": [
+    {
+      "commit": "704fb33",
+      "issue": "Commit message exceeds 72 characters"
+    },
+    {
+      "commit": "66a5473",
+      "issue": "Commit message exceeds 72 characters"
+    },
+    {
+      "commit": "b8d1348",
+      "issue": "Commit message exceeds 72 characters"
+    },
+    {
+      "commit": "194d5d3",
+      "issue": "Commit message exceeds 72 characters"
+    },
+    {
+      "commit": "f5fa836",
+      "issue": "Commit message exceeds 72 characters"
+    },
+    {
+      "commit": "50feec2",
+      "issue": "Commit message exceeds 72 characters"
+    },
+    {
+      "commit": "a3c15cd",
+      "issue": "Commit message exceeds 72 characters"
+    },
+    {
+      "commit": "8f4d63c",
+      "issue": "Commit message exceeds 72 characters"
+    },
+    {
+      "commit": "e575b25",
+      "issue": "Commit message exceeds 72 characters"
+    },
+    {
+      "commit": "d7d51ad",
+      "issue": "Commit message exceeds 72 characters"
+    },
+    {
+      "commit": "85d50e6",
+      "issue": "Does not follow conventional commit format"
+    },
+    {
+      "commit": "c2a74b2",
+      "issue": "Commit message exceeds 72 characters"
+    },
+    {
+      "commit": "ff44b8f",
+      "issue": "Does not follow conventional commit format"
+    },
+    {
+      "commit": "45367ea",
+      "issue": "Commit message exceeds 72 characters"
+    },
+    {
+      "commit": "0f6a13c",
+      "issue": "Does not follow conventional commit format"
+    },
+    {
+      "commit": "3771b6f",
+      "issue": "Commit message exceeds 72 characters"
+    }
+  ],
+  "review_order": [
+    "bench/runs/boundary/do-document/eval-2-research-mode-separates-source-from-inference/outputs/idempotency-keys-payment-apis_20260818T072117Z.md",
+    "bench/config.json",
+    "bench/runs/boundary/do-document/eval-1-doc-request-invokes-document/outputs/copy-tree-api-reference.md",
+    "core/shared/guidance/references/MODEL_SELECTION.md",
+    "core/shared/guidance/references/RESEARCH_CONFIG.md",
+    "bench/baseline/baseline.json",
+    "bench/do-brainstorm/evals.json",
+    "bench/do-code-review/evals.json",
+    "bench/do-constitution/evals.json",
+    "bench/do-design/evals.json"
+  ]
+}

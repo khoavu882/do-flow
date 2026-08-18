@@ -42,10 +42,33 @@ test('Claude marketplace exposes the single-source core plugin', () => {
   assert.ok(fs.existsSync(path.join(REPO, 'core', 'shared', 'agent-specs', 'system-architect.md')));
 });
 
-test('resolveTargets defaults to all and validates', () => {
-  assert.deepStrictEqual(resolveTargets([]), VALID);
+test('resolveTargets defaults to claude alone and validates', () => {
+  // Deliberately not all of VALID: an install with no --target should configure the one harness the
+  // user almost certainly has, rather than writing into every harness DoFlow knows about. That was
+  // defensible at three entries and stops being so as VALID grows.
+  assert.deepStrictEqual(resolveTargets([]), ['claude']);
+  assert.deepStrictEqual(resolveTargets(undefined), ['claude']);
   assert.deepStrictEqual(resolveTargets(['claude']), ['claude']);
+  assert.deepStrictEqual(resolveTargets([...VALID]), VALID, 'every valid target is still selectable');
   assert.throws(() => resolveTargets(['bogus']), /Unknown target/);
+});
+
+test('VALID lists all seven harnesses', () => {
+  assert.deepStrictEqual(VALID, ['claude', 'codex', 'gemini', 'copilot', 'kiro', 'opencode', 'pi']);
+});
+
+for (const target of ['copilot', 'kiro', 'opencode', 'pi']) {
+  test(`resolveTargets accepts the new '${target}' target`, () => {
+    assert.deepStrictEqual(resolveTargets([target]), [target]);
+  });
+}
+
+test('resolveTargets rejects an unknown target and names all seven valid ones', () => {
+  assert.throws(() => resolveTargets(['bogus']), (err) => {
+    assert.match(err.message, /Unknown target/);
+    for (const target of VALID) assert.match(err.message, new RegExp(target));
+    return true;
+  });
 });
 
 test('toolDirs defaults to project scope rooted at projectRoot', () => {
@@ -53,6 +76,10 @@ test('toolDirs defaults to project scope rooted at projectRoot', () => {
   assert.strictEqual(dirs.claude, '/tmp/some-project/.claude');
   assert.strictEqual(dirs.codex, '/tmp/some-project/.codex');
   assert.strictEqual(dirs.gemini, '/tmp/some-project/.agents');
+  assert.strictEqual(dirs.copilot, '/tmp/some-project/.github');
+  assert.strictEqual(dirs.kiro, '/tmp/some-project/.kiro');
+  assert.strictEqual(dirs.opencode, '/tmp/some-project/.opencode');
+  assert.strictEqual(dirs.pi, '/tmp/some-project/.pi');
 });
 
 test('toolDirs defaults projectRoot to cwd when omitted', () => {
@@ -64,6 +91,11 @@ test('toolDirs global:true resolves under $HOME', () => {
   const dirs = toolDirs({ global: true });
   assert.strictEqual(dirs.claude, path.join(os.homedir(), '.claude'));
   assert.strictEqual(dirs.codex, path.join(os.homedir(), '.codex'));
+  assert.strictEqual(dirs.gemini, path.join(os.homedir(), '.gemini'));
+  assert.strictEqual(dirs.copilot, path.join(os.homedir(), '.copilot'));
+  assert.strictEqual(dirs.kiro, path.join(os.homedir(), '.kiro'));
+  assert.strictEqual(dirs.opencode, path.join(os.homedir(), '.config', 'opencode'));
+  assert.strictEqual(dirs.pi, path.join(os.homedir(), '.pi', 'agent'));
 });
 
 test('manifest keeps legacy state readable without a managed-resource ledger', () => {

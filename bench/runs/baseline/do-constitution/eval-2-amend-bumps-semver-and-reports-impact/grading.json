@@ -1,0 +1,23 @@
+{
+  "skill": "do-constitution",
+  "eval_id": 2,
+  "eval_name": "amend-bumps-semver-and-reports-impact",
+  "expectations": [
+    {
+      "text": "Version is bumped following semver rather than replaced arbitrarily",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    },
+    {
+      "text": "A Sync Impact Report records what changed and what it affects",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    },
+    {
+      "text": "The base tier-1 principles are overlaid, not silently discarded",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": null
+}

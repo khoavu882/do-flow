@@ -11,9 +11,20 @@ const { createAdapterRegistry } = require('./adapters');
 const claudeAdapter = require('./adapters/claude');
 const codexAdapter = require('./adapters/codex');
 const { createGeminiAdapter } = require('./adapters/gemini');
+const { createOpenCodeAdapter } = require('./adapters/opencode');
+const { createPiAdapter } = require('./adapters/pi');
+const { createCopilotAdapter } = require('./adapters/copilot');
+const { createKiroAdapter } = require('./adapters/kiro');
 const { planLifecycle } = require('./lifecycle');
 const { stateRoot, readLedger, defaultLedger } = require('./state');
-const pkg = require('../package.json');
+// Tolerant because the projected runtime under `.doflow/runtime/` ships bin/, src/ and
+// core/registry/ but no package.json — see the `runtime.*` assets in core/registry/assets.yaml.
+// A hard require here would make every Node-backed verb fail in an install, which is the exact
+// defect that projection exists to fix. Only version reporting depends on this.
+function loadPkg() {
+  try { return require('../package.json'); } catch { return { version: '0.0.0-installed', name: '@khoavu882/doflow' }; }
+}
+const pkg = loadPkg();
 
 function codexScope(scope) { return scope.global ? 'global' : 'project'; }
 
@@ -36,7 +47,8 @@ function registryLifecycleView({ registry, scope, targets, mcpIds, operation, re
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   const neutralStateRoot = stateRoot({ scope: lifecycleScope, projectRoot: scopeRoot, homeDir: scopeRoot });
   const ledger = readLedger(neutralStateRoot) ?? defaultLedger({ scope: lifecycleScope, scopeRoot });
-  const adapters = createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter() });
+  const adapters = createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter(),
+    opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter() });
   const plan = planLifecycle({ registry, adapters, scope: lifecycleScope, scopeRoot, targets, mcpIds, ledger, context: {
     repoRoot, projectRoot: scopeRoot, homeDir: os.homedir(), sourceVersion: pkg.version,
     codexConfigResources: codexConfigResources(repoRoot, fsImpl),
@@ -47,7 +59,7 @@ function registryLifecycleView({ registry, scope, targets, mcpIds, operation, re
     geminiHooksSourceDir: path.join(repoRoot, 'core', 'harnesses', 'gemini', 'hooks'),
     operation,
   } });
-  return { registry, stateRoot: neutralStateRoot, ledger, plan };
+  return { registry, stateRoot: neutralStateRoot, ledger, plan, adapters };
 }
 
 function printRegistryLifecycle(view, prefix = '[PLAN]') {
@@ -65,7 +77,7 @@ function printRegistryLifecycle(view, prefix = '[PLAN]') {
 /** Harnesses whose native resources are reconciled through the registry/lifecycle path (all of
  * them, as of this wiring). Kept as an explicit list — rather than reusing VALID from
  * src/targets.js — so a future non-lifecycle target doesn't silently gain lifecycle behavior. */
-const LIFECYCLE_HARNESSES = ['claude', 'codex', 'gemini'];
+const LIFECYCLE_HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro'];
 
 function assertSafeRegistryPlan(view) {
   if (view.plan.safe) return;

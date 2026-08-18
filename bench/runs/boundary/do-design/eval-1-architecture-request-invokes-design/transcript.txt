@@ -1,0 +1,126 @@
+CASE: do-design eval-1 "architecture-request-invokes-design" (kind: triggering)
+PROMPT: How should we structure the notification service so email and SMS share a queue?
+SANDBOX: .doflow/worktrees/bench-boundary-do-design-1 (branch: task/bench-boundary-do-design-1)
+
+TRIGGERING JUDGMENT
+--------------------
+Read the frontmatter of .claude/skills/do-design/SKILL.md by path (did not invoke /do-design by
+name):
+
+  description: "Design system architecture, APIs, and component interfaces (HOW at the
+  system-shape level); writes design.md as Phase 2 of the doflow chain, turning requirement.md
+  into concrete architecture and interface decisions. Use when requirement.md already exists and
+  the next need is system-shape decisions — diagrams, API contracts, data models — or the user
+  says 'design the architecture for this' rather than asking for an implementation plan or task
+  list."
+
+Decision: YES, this request routes to do-design.
+Reasoning: "How should we structure the notification service so email and SMS share a queue?" is a
+system-shape question in the exact sense the description names — it asks for component boundaries
+and a data-flow decision (one shared queue vs. two, and how two channel-specific consumers relate
+to it), not an implementation plan or task list. It is functionally equivalent to "design the
+architecture for this," just phrased as a question rather than an imperative. The description's
+"Use when requirement.md already exists" clause is a *precondition*, not a trigger gate — Step 3 of
+the skill's own Behavioral Flow classifies the missing-requirement.md case as "advisory (skippable),
+not the hard hook gate," so its absence here (checked via `doflow-run paths --json` →
+has_requirement: false) does not block triggering, only prompts a warning inside the produced
+artifact. Nothing about the prompt matches a different skill's trigger (it's not "write the plan,"
+not "implement this," not a vague pre-scoping idea for do-brainstorm) — do-design is the correct
+route.
+
+RESPONSE (since it fires, followed through and produced the artifact)
+-----------------------------------------------------------------------
+1. Resolve — `doflow-run paths --json`: feature_slug="task/bench-boundary-do-design-1"
+   (branch-derived), has_requirement=false, has_design=false, next_number=009.
+
+2. Task class — proposed "feature" (a new architectural capability, not bugfix/refactor/trivial
+   edit). `doflow-run classify --task-class feature --json` → outcome=ACCEPTED, workflow=
+   "Feature Delivery", design stage readinessTemplate: null.
+
+3. Precondition (advisory) — has_requirement is false. Per the skill, warned about the missing
+   requirement.md and recorded that gap explicitly as design.md §0 "Precondition Note" (offering
+   /do-brainstorm as the recommended follow-up) rather than silently proceeding or blocking.
+
+4. Read inputs — no requirement.md to read; designed directly from the prompt, with the gap noted
+   in §0.
+
+5. Design — produced the system shape: one Notification Service with a single shared
+   Notification Queue (messages tagged by a `channel` field), fed by one Notification API and
+   drained by two independent per-channel dispatcher workers (Email, SMS), plus a Dead Letter
+   Queue for exhausted retries. Ran the same clarification loop do-brainstorm uses for four
+   design-level ambiguities, batched as one round, each with an explicit "Decide for me" option:
+     - Q1 cross-channel ordering needed? → Decide for me → A1: no guarantee required, channels
+       dispatch independently.
+     - Q2 delivery priority between channels? → Decide for me → A2: equal priority, no VIP lane.
+     - Q3 how to handle exhausted retries? → Decide for me → A3: bounded retry + backoff, then
+       move to a Dead Letter Queue rather than dropping.
+     - Q4 which specific queue technology/product? → Decide for me → A4: modeled as an abstract
+       shared-broker component here; the specific product is left to /do-plan (keeps this artifact
+       at system-shape only, per the skill's own HOW-it's-shaped vs. HOW-to-implement split).
+
+6. Wrote design.md — agent-docs/doflow/task/bench-boundary-do-design-1/design.md, from
+   templates/doflow/design-template.md, structured per references/ARTIFACT_FORMAT.md:
+     §2 C4 System Overview — C1 Context and C2 Container both rendered as Mermaid `flowchart`
+     (TB and LR respectively) with `subgraph` boundaries; C3 written "N/A: covered by §3" per the
+     template's own skip rule. Confirmed by grep: zero occurrences of `C4Context`/`C4Container` in
+     the file; two `flowchart` blocks present.
+     §3 Components & Boundaries — 5-row index+detail: Notification API, Shared Notification Queue,
+     Email Dispatcher Worker, SMS Dispatcher Worker, Dead Letter Queue.
+     §4 API/Interface Contracts — POST /notifications request/response shape.
+     §5 Data Model — the queue message envelope (id, channel, recipient, payload, attempt,
+     createdAt).
+     §6 Sequence/Data Flow — a Mermaid sequenceDiagram showing the enqueue → per-channel-dispatch →
+     ack-or-DLQ flow for both channels.
+     §7 Design Risks & Alternatives — R1 (two separate queues, rejected — contradicts the explicit
+     "share a queue" ask), R2 (head-of-line blocking risk, mitigated via independent per-channel
+     consumers), R3 (uniform retry policy risk, mitigated via per-message channel-keyed policy
+     lookup).
+     §8 Assumptions A1-A4 with rationale (see above).
+     §9 History — "None — initial version."
+
+7. Validate — `doflow-run validate agent-docs/doflow/task/bench-boundary-do-design-1/design.md` →
+   "1 artifact(s) checked, no violations", exit 0.
+
+8. Batch this stage's evidence — task id sanitized to "task-bench-boundary-do-design-1" (feature
+   slug's "/" rejected by the evidence/claim CLI's task-id validator; substituted "-" as the
+   closest valid token, same rationale as the do-brainstorm cases). Recorded via:
+     `doflow-run evidence --task-id task-bench-boundary-do-design-1 --action add --batch <tmp>.json --json`
+   3 items: one user-statement (asserted, the verbatim prompt) and two generated-analysis
+   (inferred: the shared-queue-vs-separate-queues shape decision, and the four-ambiguity
+   resolution-via-assumptions). Wrote 3/3; scratch file deleted after the write.
+     `doflow-run claim --task-id task-bench-boundary-do-design-1 --action add --statement
+     "Notification service structured around one shared queue tagged by channel, with independent
+     per-channel dispatcher workers; four design-level ambiguities resolved as assumptions A1-A4."`
+   No `readiness` call — design stage declares readinessTemplate: null.
+
+9. Stop — reported the design path:
+   agent-docs/doflow/task/bench-boundary-do-design-1/design.md
+
+TOOLS AND SKILLS USED (in order)
+---------------------------------
+1. Read — .claude/skills/do-design/SKILL.md (skill file, by path) — frontmatter used for the
+   triggering judgment, full body followed for the response
+2. Bash — git status / git branch / find agent-docs (sandbox state check)
+3. Bash — doflow-run paths --json (resolve)
+4. Bash — doflow-run classify --task-class feature --json (task-class validation)
+5. Read — templates/doflow/design-template.md, guidance/references/ARTIFACT_FORMAT.md (structure
+   inputs for §5 skill step)
+6. Write — agent-docs/doflow/task/bench-boundary-do-design-1/design.md
+7. Bash — grep for C4Context/C4Container (confirm absence) and flowchart count
+8. Bash — doflow-run validate agent-docs/doflow/.../design.md
+9. Write — scratch evidence batch JSON (deleted after use)
+10. Bash — doflow-run evidence --task-id task-bench-boundary-do-design-1 --action add --batch ... --json
+11. Bash — doflow-run claim --task-id task-bench-boundary-do-design-1 --action add --statement ...
+12. Bash — rm scratch batch file
+No Skill-tool invocations (/do-design was never invoked by name — read and followed by path,
+per the task's boundary instruction and the triggering case's own judgment requirement).
+
+ASSUMPTIONS SUBSTITUTED FOR QUESTIONS (all via the skill's "Decide for me" defer path)
+----------------------------------------------------------------------------------------
+- A1: no cross-channel (email vs. SMS) delivery-ordering guarantee is required.
+- A2: both channels have equal delivery priority; no priority lane.
+- A3: failed messages get bounded retry + backoff, then move to a Dead Letter Queue rather than
+  being dropped.
+- A4: the queue is modeled as an abstract shared-broker component; the specific queue
+  product/technology is left to /do-plan.
+All four are recorded with one-line rationale in design.md §8.

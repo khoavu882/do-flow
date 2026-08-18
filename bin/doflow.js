@@ -23,15 +23,49 @@ const { createAdapterRegistry } = require('../src/adapters');
 const claudeAdapter = require('../src/adapters/claude');
 const codexAdapter = require('../src/adapters/codex');
 const { createGeminiAdapter } = require('../src/adapters/gemini');
-const { applyLifecycle, removeLifecycle, applyMcpIndex } = require('../src/lifecycle');
+const { createOpenCodeAdapter } = require('../src/adapters/opencode');
+const { createPiAdapter } = require('../src/adapters/pi');
+const { createCopilotAdapter } = require('../src/adapters/copilot');
+const { createKiroAdapter } = require('../src/adapters/kiro');
+const { applyLifecycle, removeLifecycle, applyMcpIndex, verifyLifecycle, retentionSummary } = require('../src/lifecycle');
 const { readLedger } = require('../src/state');
 const { codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan } = require('../src/lifecycle-view');
 const { commandText, planToolLifecycle, executeToolLifecycle } = require('../src/tool-lifecycle');
-const { handleCapabilitiesCommand, handleDoctorCommand, handleReadinessCommand, handleEvidenceCommand } = require('../src/runtime/cli');
+const {
+  handleCapabilitiesCommand, handleReadinessCommand, handleEvidenceCommand,
+  EVIDENCE_SCORE_FIELDS, scoreFieldRefusal,
+} = require('../src/runtime/cli');
+// `doctor` comes from the health module rather than src/runtime/cli.js: the health-probe report
+// (FR-013) supersedes the presence-check version, and one verb must have one implementation.
+const { handleDoctorCommand } = require('../src/runtime/health');
+const { handleTraceCommand, handleStatsCommand, handleDiscoverCommand } = require('../src/runtime/trace');
+const { generateScaffold } = require('../src/runtime/scaffold');
+// The rest of the verb surface design §4.2 declares. Each of these libraries was built by an
+// earlier task with its own tests and then left unreachable: `doflow-run` advertised fifteen
+// Node-backed verbs and this switch answered eight, so `classify`, `workflow`, `route`, `claim`,
+// `context-pack`, `verify` and `recover` all exited with "unknown command" the moment a skill
+// called them. Wiring is all that is added here — no handler below decides anything a library has
+// already decided, because a second opinion about a verdict is how the two-runtime split started.
+const { ReadinessEngine } = require('../src/runtime/readiness');
+const { EvidenceLedger } = require('../src/runtime/evidence-ledger');
+const { ClaimsManager } = require('../src/runtime/claims');
+const { TaskClassifier, CLASSIFICATION_OUTCOMES, REJECTION_REASONS } = require('../src/runtime/task-classifier');
+const { WorkflowEngine } = require('../src/runtime/workflow-engine');
+const { CapabilityRouter } = require('../src/runtime/capability-router');
+const { ContextPackCompiler } = require('../src/runtime/context-pack');
+const { VerificationEngine } = require('../src/runtime/verification');
+const { RecoveryManager } = require('../src/runtime/recovery');
 
 const SCRIPT_DIR = __dirname; // bin/
 const REPO_ROOT = path.dirname(SCRIPT_DIR);
-const pkg = require('../package.json');
+// Tolerant because the projected runtime under `.doflow/runtime/` ships bin/, src/ and
+// core/registry/ but no package.json — see the `runtime.*` assets in core/registry/assets.yaml.
+// A hard require here would make every Node-backed verb fail in an install, which is the exact
+// defect that projection exists to fix. Only version reporting depends on this.
+function loadPkg() {
+  try { return require('../package.json'); } catch { return { version: '0.0.0-installed', name: '@khoavu882/doflow' }; }
+}
+const pkg = loadPkg();
 
 /** "skip all backup protection" must be an explicit, deliberate choice, never a default combo. */
 function assertNoBackupRequiresForce(o) {
@@ -44,7 +78,11 @@ function assertNoBackupRequiresForce(o) {
 function parseArgs(argv) {
   const o = { cmd: null, positional: [], targets: [], mcp: null, dryRun: false, force: false,
     noBackup: false, prune: 0, global: false, json: false, help: false, version: false,
-    tools: null, action: 'status' };
+    tools: null, action: 'status', days: null, slug: null,
+    // Explicitly null, not absent. `handleReadinessCommand` declares defaults of `'feature'` and
+    // `'default'`, and a JavaScript default parameter fires on `undefined` — so an *absent* key
+    // silently reinstated exactly the identity defect readiness.js fixed by failing closed.
+    taskClass: null, taskId: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
@@ -56,6 +94,10 @@ function parseArgs(argv) {
       case '--no-backup': o.noBackup = true; break;
       case '--json': o.json = true; break;
       case '--check': o.check = true; break;
+      // readiness: the caller declares a decision is owed by the user. A flag rather than an
+      // inference, because nothing the runtime can see distinguishes "a decision is pending"
+      // from "nobody has looked yet", and guessing would be the gate answering unasked.
+      case '--user-decision-pending': o.userDecisionPending = true; break;
       case '-t': case '--target': {
         const val = argv[i + 1];
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
@@ -86,18 +128,156 @@ function parseArgs(argv) {
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
         o.taskId = val; i++; break;
       }
+      case '--days': {
+        const val = argv[i + 1];
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a number`); process.exit(2); }
+        const parsed = parseInt(val, 10);
+        // Run-ledger windows are calendar days; a zero or negative window is a typo, not "all
+        // history", and silently reading everything would answer a question nobody asked.
+        if (!Number.isFinite(parsed) || parsed < 1) { console.error(`doflow: ${a} expects a positive number of days, got '${val}'`); process.exit(2); }
+        o.days = parsed; i++; break;
+      }
       case '--prune': {
         const val = argv[i + 1];
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a number`); process.exit(1); }
-        o.prune = parseInt(val, 10) || 0; i++; break;
+        // Validated like the adjacent --days arm rather than `parseInt(val,10) || 0`, which
+        // turned `--prune notanumber` into "no pruning" and reported success.
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a number`); process.exit(2); }
+        {
+          const parsed = parseInt(val, 10);
+          if (!Number.isFinite(parsed) || parsed < 1) { console.error(`doflow: ${a} requires a positive integer, got '${val}'`); process.exit(2); }
+          o.prune = parsed;
+        }
+        i++; break;
       }
-      default:
+      default: {
+        // Value-taking arguments of the runtime verbs. Table-driven rather than fifteen more
+        // near-identical `case` blocks: the blocks above differ from one another only in the key
+        // they write, and copying that shape once per new verb is how one of them eventually gets
+        // its validation subtly wrong.
+        const runtime = parseRuntimeFlag(a, argv, i, o);
+        if (runtime !== null) { i = runtime; break; }
         if (a.startsWith('-')) { console.error(`doflow: unknown flag '${a}'`); process.exit(1); }
         else if (!o.cmd) o.cmd = a;
         else o.positional.push(a);
+      }
     }
   }
   return o;
+}
+
+/** Single-value arguments of the runtime verbs → the option key each one writes. */
+const RUNTIME_STRING_FLAGS = new Map([
+  // `scaffold`. The resolver's own ambiguous-feature error tells the caller to "re-run with
+  // --slug=<chosen>"; without this flag that hint would name an argument this CLI rejects.
+  ['--slug', 'slug'],
+  ['--rationale', 'rationale'],        // classify: why this class was proposed
+  ['--proposed-by', 'proposedBy'],     // classify: which worker proposed it
+  ['--calling-skill', 'callingSkill'],  // classify: which skill is asking, for the fit check
+  ['--intent', 'intent'],              // route: the information need being resolved
+  ['--query', 'query'],                // route: what the resolved provider would be asked
+  ['--statement', 'statement'],        // claim --action add
+  ['--claim-id', 'claimId'],           // claim --action link
+  ['--evidence-id', 'evidenceId'],     // claim --action link
+  ['--relation', 'relation'],          // claim --action link: supports | contradicts
+  ['--kind', 'kind'],                  // evidence --action add: one of VALID_EVIDENCE_KINDS
+  ['--provenance', 'provenance'],      // evidence --action add: extracted | inferred | asserted
+  ['--provider', 'provider'],          // evidence --action add: source.provider
+  ['--capability', 'capability'],      // evidence --action add: source.capability
+  ['--locator', 'locator'],            // evidence --action add: 'path/file[:line]' or a URI
+  ['--content', 'content'],            // evidence --action add: the fact or the analysis itself
+  ['--batch', 'batchPath'],            // evidence --action add: a stage's batch file, or '-'
+  ['--verification-plan', 'verificationPlan'], // readiness: how success will be established
+  ['--scope', 'scope'],                // readiness: the stated scope boundary
+  ['--invariants', 'invariants'],      // readiness: the invariants a refactor must preserve
+  ['--objective', 'objective'],        // context-pack
+  ['--risk', 'risk'],                  // verify: risk level selecting the required tiers
+  ['--error', 'errorMessage'],         // recover: the failure text to classify
+  ['--agent', 'agent'],                // recover: which agent produced the failure
+]);
+
+/** Repeatable arguments — each occurrence appends rather than replaces. */
+const RUNTIME_LIST_FLAGS = new Map([
+  ['--failed-check', 'failedChecks'],  // recover: check names outrank the error prose (see recovery.js)
+]);
+
+/** Non-negative integer arguments. */
+const RUNTIME_INT_FLAGS = new Map([
+  ['--iteration', 'iteration'],        // recover: retries already spent, bounding the retry budget
+]);
+
+/**
+ * Reads one runtime-verb argument, in either `--flag value` or `--flag=value` spelling.
+ *
+ * Both spellings are accepted because the messages users copy from are not consistent about it:
+ * `do-paths.sh`'s own hint says `--slug=<chosen>` while the rest of this CLI is space-separated,
+ * and rejecting either would punish following the instructions.
+ *
+ * @param {string} arg the current argv entry
+ * @param {Array<string>} argv
+ * @param {number} i index of `arg` in argv
+ * @param {Object} o option object mutated in place
+ * @returns {number|null} the new loop index, or null when `arg` is not a runtime flag
+ */
+function parseRuntimeFlag(arg, argv, i, o) {
+  const eq = arg.indexOf('=');
+  const name = eq === -1 ? arg : arg.slice(0, eq);
+  // A score-shaped flag is refused by name rather than falling through to "unknown flag", which
+  // reads as "not built yet" and invites someone to build it. The name set and the reason both
+  // come from the evidence write boundary (src/runtime/cli.js), so argv and a --batch JSON file
+  // are refused by one rule with two enforcement points rather than two rules.
+  const camel = name.replace(/^--/, '').replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  if (EVIDENCE_SCORE_FIELDS.has(camel)) { console.error(`doflow: ${scoreFieldRefusal(name)}`); process.exit(2); }
+  const inline = eq === -1 ? null : arg.slice(eq + 1);
+  const key = RUNTIME_STRING_FLAGS.get(name) || RUNTIME_LIST_FLAGS.get(name) || RUNTIME_INT_FLAGS.get(name);
+  if (!key) return null;
+
+  let value = inline;
+  let next = i;
+  if (value === null) {
+    value = argv[i + 1];
+    // A value that itself starts with `-` is far more likely the next flag than a deliberate
+    // argument, and consuming it would silently drop that flag.
+    // A bare `-` is the conventional name for stdin, not a flag, and the help advertises
+    // `--batch <file|->`. Rejecting it made the documented spelling exit 2 while only `--batch=-`
+    // worked — a help text endorsing a form the parser refuses.
+    const isStdin = value === '-';
+    if (value === undefined || (value.startsWith('-') && !isStdin)) { console.error(`doflow: ${name} requires a value`); process.exit(2); }
+    next = i + 1;
+  }
+  if (value === '') { console.error(`doflow: ${name} requires a value`); process.exit(2); }
+
+  if (RUNTIME_INT_FLAGS.has(name)) {
+    const parsed = parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) { console.error(`doflow: ${name} expects a non-negative integer, got '${value}'`); process.exit(2); }
+    o[key] = parsed;
+  } else if (RUNTIME_LIST_FLAGS.has(name)) {
+    (o[key] = o[key] || []).push(value);
+  } else {
+    o[key] = value;
+  }
+  return next;
+}
+
+/**
+ * The single-item spelling of an evidence write, assembled from exactly the flags the caller gave.
+ *
+ * Absent flags stay absent. Filling a gap here with 'unknown'/'general' would move the omission out
+ * of the caller's error message and into the stored record, where it reads as a measurement.
+ * @param {Object} o parsed arguments
+ * @returns {Object} a raw item for the write boundary to validate
+ */
+function evidenceItemFromFlags(o) {
+  const item = {};
+  if (o.kind !== undefined) item.kind = o.kind;
+  if (o.provenance !== undefined) item.provenance = o.provenance;
+  if (o.locator !== undefined) item.locator = o.locator;
+  if (o.content !== undefined) item.content = o.content;
+  const source = {};
+  if (o.provider !== undefined) source.provider = o.provider;
+  if (o.capability !== undefined) source.capability = o.capability;
+  if (Object.keys(source).length > 0) item.source = source;
+  return item;
 }
 
 /** Resolve {global, projectRoot} scope options for src/targets.js#toolDirs from parsed args. */
@@ -110,6 +290,568 @@ function scopeOf(o) {
  * directory — which for an npm install is inside node_modules/. */
 function evidenceRoot(o) {
   return o.global ? os.homedir() : path.resolve(o.positional[0] || '.');
+}
+
+// ── scaffold (FR-023, plan task C.11) ────────────────────────────────────────────────────────
+//
+// `src/runtime/scaffold.js` is a library that takes an already-resolved feature directory. This
+// command is the only thing between it and the seam: it answers "which feature" and turns the
+// library's result into the uniform report contract (design §4.2). It deliberately owns no
+// generation logic of its own — a second opinion about what a scaffold contains is exactly the
+// duplication FR-005 exists to prevent.
+
+/** The one resolver. Ships inside the package (`files: ["bin/","src/","core/"]`), so it is beside
+ *  this CLI in a checkout, a project `node_modules/`, and a global npm install alike. */
+const PATHS_HELPER = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-paths.sh');
+
+/**
+ * Which feature is active, answered by `do-paths.sh` rather than by walking `agent-docs/` here.
+ *
+ * Every other consumer of "the active feature" — every chain skill, the prerequisite gate, the
+ * artifact validator — asks this script. A second implementation would disagree with them the
+ * first time branch naming, the non-git directory-scan fallback or `--slug` disambiguation came
+ * up, and it would disagree silently, because a scaffold generated for the wrong feature still
+ * looks like a scaffold.
+ *
+ * @param {Object} options
+ * @param {string} options.projectRoot working directory the resolution is relative to
+ * @param {string|null} [options.slug] explicit feature override, passed straight through
+ * @returns {{repoRoot:string, featureDir:string}|{error:string, message:string}}
+ */
+function resolveActiveFeature({ projectRoot, slug = null }) {
+  if (!fs.existsSync(PATHS_HELPER)) {
+    return { error: 'resolver-missing', message: `the feature resolver is missing from this install: ${PATHS_HELPER}` };
+  }
+  const args = [PATHS_HELPER, '--json', '--require', 'feature'];
+  if (slug) args.push(`--slug=${slug}`);
+
+  let stdout;
+  try {
+    stdout = execFileSync('bash', args, { cwd: projectRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (error) {
+    // Exit 2 is the resolver's one non-zero path (no active feature, or an ambiguous one) and it
+    // still prints its error object on stdout — that object carries the hint the user needs, so
+    // it is read rather than replaced with a generic message. Anything else (no bash, NFR-003)
+    // has no stdout to read and reports the spawn failure instead.
+    stdout = typeof error.stdout === 'string' ? error.stdout : '';
+    if (!stdout.trim()) {
+      const detail = error.code === 'ENOENT'
+        ? 'bash is required to resolve the active feature and was not found on PATH'
+        : (error.stderr || error.message || '').toString().trim();
+      return { error: 'resolver-failed', message: `could not run the feature resolver: ${detail}` };
+    }
+  }
+
+  let paths;
+  try {
+    paths = JSON.parse(stdout);
+  } catch {
+    return { error: 'resolver-unparseable', message: `the feature resolver returned output that is not JSON: ${stdout.trim().slice(0, 200)}` };
+  }
+
+  if (paths.error) {
+    const hint = paths.hint ? ` — ${paths.hint}` : '';
+    const candidates = Array.isArray(paths.candidate_slugs) && paths.candidate_slugs.length
+      ? ` (candidates: ${paths.candidate_slugs.join(', ')})`
+      : '';
+    return { error: paths.error, message: `${paths.error}${candidates}${hint}` };
+  }
+  if (!paths.repo_root || !paths.feature_dir) {
+    return { error: 'no-active-feature', message: 'the resolver named no active feature directory to scaffold' };
+  }
+  return { repoRoot: paths.repo_root, featureDir: path.resolve(paths.repo_root, paths.feature_dir) };
+}
+
+/** Uniform contract, set rather than thrown so stdout flushes before the process ends. */
+function finishScaffold(code) {
+  process.exitCode = code;
+  return code;
+}
+
+/**
+ * Handles `doflow scaffold` — turn the active feature's `requirement.md`, `design.md` and
+ * `plan.md` into a reviewable scaffold under that feature's own directory (FR-023).
+ *
+ * Exit codes come from the generator and are surfaced, never reinterpreted: `BLOCKED` and
+ * `INCOMPLETE` are findings the caller must act on, so they exit 1 even though a run that reports
+ * what it could not read has done its job. Reporting a partial scaffold as success is the precise
+ * failure this feature keeps correcting.
+ *
+ * @param {Object} options
+ * @param {boolean} [options.json=false]
+ * @param {string} [options.projectRoot] project whose active feature is scaffolded
+ * @param {string|null} [options.slug] explicit feature override
+ * @returns {number} process exit code
+ */
+function handleScaffoldCommand({ json = false, projectRoot, slug = null } = {}) {
+  const root = projectRoot || process.cwd();
+  const feature = resolveActiveFeature({ projectRoot: root, slug });
+  if (feature.error) {
+    if (json) console.log(JSON.stringify({ ok: false, status: 'USAGE', exitCode: 2, error: feature.error, summary: feature.message }, null, 2));
+    else console.error(`doflow scaffold: ${feature.message}`);
+    return finishScaffold(2);
+  }
+
+  const result = generateScaffold({ featureDir: feature.featureDir, repoRoot: feature.repoRoot, fsImpl: fs });
+
+  if (json) {
+    console.log(JSON.stringify(result, null, 2));
+    return finishScaffold(result.exitCode);
+  }
+
+  console.log(`\nDoFlow Scaffold [${result.status}]:`);
+  console.log('═'.repeat(78));
+  console.log(`Feature:  ${result.featureDir || feature.featureDir}`);
+  if (result.scaffoldDir) console.log(`Output:   ${result.scaffoldDir}`);
+  console.log(`Summary:  ${result.summary}`);
+
+  // A reader who cannot see the gaps reads the tree as the whole shape of the plan, so the
+  // negative space is printed at the same level as the counts rather than left to the manifest.
+  const sections = [
+    ['Skipped', (result.skipped || []).map((s) => `${s.item}${s.benign ? '' : '  [GAP]'} — ${s.why}`)],
+    ['Not evaluated', (result.notEvaluated || []).map((n) => `${n.what} — ${n.why}`)],
+    ['Preserved (hand-edited, not overwritten)', (result.preserved || []).map((p) => `${p.path} — ${p.why}`)],
+    ['Orphaned (no longer implied by the plan)', result.orphans || []],
+  ];
+  for (const [title, lines] of sections) {
+    if (!lines.length) continue;
+    console.log('─'.repeat(78));
+    console.log(`${title}:`);
+    for (const line of lines) console.log(`  ${line}`);
+  }
+  console.log('═'.repeat(78) + '\n');
+
+  return finishScaffold(result.exitCode);
+}
+
+// ── the remaining runtime verbs (design §4.2) ────────────────────────────────────────────────
+//
+// Uniform contract for everything below: `--json` prints the library's own object, unmodified;
+// exit 0 = answered, 1 = a finding the caller must act on, 2 = the CLI could not do what was
+// asked (a missing or unusable argument, or input the library cannot resolve).
+//
+// The 1-versus-2 line is worth stating once because every handler applies it: a library that ran
+// and returned a verdict produces 0 or 1 and the verdict decides which. A library that could not
+// run at all — no class given, unknown intent, no such risk level — produces 2. No handler ever
+// converts a library's own status into a different one, and none of them substitutes a default
+// for an identity the library refuses to guess.
+
+/** @see finishScaffold — same reason: set the code, let stdout flush. */
+function finishRuntime(code) {
+  process.exitCode = code;
+  return code;
+}
+
+/** Reports an argument the CLI cannot proceed without, in the caller's requested shape. */
+function usageError(verb, message, json) {
+  if (json) console.log(JSON.stringify({ ok: false, status: 'USAGE', exitCode: 2, error: 'usage', summary: message }, null, 2));
+  else console.error(`doflow ${verb}: ${message}`);
+  return finishRuntime(2);
+}
+
+/**
+ * The task class the caller named, or exit 2 naming the valid set.
+ *
+ * `readiness` previously read `o.taskClass || 'feature'`. That is the identity defect readiness.js
+ * fixed this morning, reinstated one layer up: omitting `--task-class` produced a confident
+ * READY/NEEDS_EVIDENCE verdict computed from the wrong contract, and nothing in the output said so.
+ * The valid set comes from the readiness registry rather than a list written here, so it cannot
+ * drift from the templates that actually exist.
+ * @param {Object} o parsed arguments
+ * @returns {string}
+ */
+function requireTaskClass(o) {
+  if (typeof o.taskClass === 'string' && o.taskClass.trim() !== '') return o.taskClass;
+  let valid = '';
+  try {
+    valid = ` Valid: ${Object.keys(new ReadinessEngine({ repoRoot: REPO_ROOT }).templates).join(', ')}.`;
+  } catch { /* the registry is unreadable; the missing argument is still the thing to report */ }
+  usageError(o.cmd, `--task-class is required — the contract is per class, so guessing one would grade the wrong task.${valid}`, o.json);
+  process.exit(2);
+}
+
+/** The task id the caller named, or exit 2. Same reasoning as requireTaskClass. */
+function requireTaskId(o) {
+  if (typeof o.taskId === 'string' && o.taskId.trim() !== '') return o.taskId;
+  usageError(o.cmd, '--task-id is required — evidence and claims belong to one task, so guessing an id would report on a different one.', o.json);
+  process.exit(2);
+}
+
+/**
+ * Handles `doflow classify` — validate a proposed task class against the workflow registry.
+ *
+ * Prints the classifier's decision object verbatim: `outcome`, `taskClass`, `message`,
+ * `validClasses`, `suggestions`, `fit`, `workflow`. A REJECTED decision keeps `taskClass: null` and
+ * exits non-zero; it is never coerced to `feature`, which is the whole reason this verb exists
+ * rather than callers reading a class out of a string themselves.
+ *
+ * @param {Object} options
+ * @param {string|null} options.taskClass the proposed class
+ * @param {string} [options.rationale]
+ * @param {string} [options.proposedBy]
+ * @param {string} [options.callingSkill] the skill asking, against which fit is judged
+ * @param {boolean} [options.json=false]
+ * @returns {number} exit code
+ */
+function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill, json = false } = {}) {
+  const classifier = new TaskClassifier({ repoRoot: REPO_ROOT });
+  const decision = classifier.classify({ taskClass, rationale, proposedBy, callingSkill });
+
+  if (json) console.log(JSON.stringify(decision, null, 2));
+  else {
+    console.log(`\nDoFlow Task Classification [${decision.outcome}]:`);
+    console.log('═'.repeat(78));
+    console.log(decision.message);
+    // Printed unconditionally, including when it says NOT_EVALUATED: an operator has to be able to
+    // see that fit was never checked without reading --json.
+    console.log(`Fit: ${decision.fit.state}${decision.fit.reason ? ` (${decision.fit.reason})` : ''}`);
+    if (decision.fit.state === 'NOT_HOSTED' && decision.fit.hostingClasses.length > 0) {
+      console.log(`Classes that host ${decision.fit.callingSkill}: `
+        + decision.fit.hostingClasses.map((h) => `${h.taskClass} (${h.stageIds.join(', ')})`).join(', '));
+    }
+    if (decision.workflow) {
+      console.log('─'.repeat(78));
+      console.log(`Workflow: ${decision.workflow.name} (${decision.workflow.stageIds.length} stage(s))`);
+      console.log(`Stages:   ${decision.workflow.stageIds.join(' → ')}`);
+      console.log(`Implementation stages: ${decision.workflow.hasImplementationStage ? decision.workflow.implementationStageIds.join(', ') : 'none'}`);
+    } else {
+      console.log(`Valid classes: ${decision.validClasses.join(', ')}`);
+    }
+    console.log('═'.repeat(78) + '\n');
+  }
+
+  if (decision.outcome === CLASSIFICATION_OUTCOMES.ACCEPTED) return finishRuntime(0);
+  // No class supplied is the CLI's caller failing to say what to classify; a class supplied and
+  // rejected is the classifier having done its job and found something the caller must fix.
+  return finishRuntime(decision.reason === REJECTION_REASONS.MISSING_CLASS ? 2 : 1);
+}
+
+/**
+ * Handles `doflow workflow` — resolve a task class to its ordered stages, gates and readiness
+ * templates. Prints `WorkflowEngine.resolveWorkflow`'s object verbatim.
+ *
+ * Unlike `classify`, this verb does not validate: an unknown class is something it cannot resolve,
+ * so it reports the valid set and exits 2 rather than returning an empty workflow.
+ *
+ * @param {Object} options
+ * @param {string|null} options.taskClass
+ * @param {boolean} [options.json=false]
+ * @returns {number} exit code
+ */
+function handleWorkflowCommand({ taskClass, json = false } = {}) {
+  const engine = new WorkflowEngine({ repoRoot: REPO_ROOT });
+  let workflow;
+  try {
+    workflow = engine.resolveWorkflow(taskClass);
+  } catch (error) {
+    // The engine's own message already names every valid class; restating it here would be a
+    // second inventory to keep in step with the registry.
+    return usageError('workflow', error.message, json);
+  }
+
+  if (json) { console.log(JSON.stringify(workflow, null, 2)); return finishRuntime(0); }
+
+  console.log(`\nDoFlow Workflow [${workflow.taskClass}] — ${workflow.name}:`);
+  console.log('═'.repeat(78));
+  console.log(workflow.description);
+  console.log('─'.repeat(78));
+  for (const stage of workflow.stages) {
+    const marks = [
+      stage.optional ? 'optional' : 'required',
+      stage.mutatesSource ? 'mutates source' : null,
+      stage.readinessTemplate ? `gated by ${stage.readinessTemplate}` : null,
+    ].filter(Boolean).join(', ');
+    console.log(`  ${String(stage.index + 1).padStart(2)}. ${stage.id.padEnd(20)} ${stage.skill || stage.kind}`);
+    console.log(`      ${marks}`);
+    for (const gate of stage.gatesAfter) console.log(`      ↳ gate: ${gate.id} — ${gate.description || gate.kind || ''}`);
+  }
+  console.log('─'.repeat(78));
+  console.log(`Implementation stages:  ${workflow.hasImplementationStage ? workflow.implementationStageIds.join(', ') : 'none'}`);
+  console.log(`Readiness required:     ${workflow.requiresImplementationReadiness ? workflow.readinessTemplates.join(', ') : 'no'}`);
+  if (workflow.readinessNote) console.log(`Note:                   ${workflow.readinessNote}`);
+  console.log('═'.repeat(78) + '\n');
+  return finishRuntime(0);
+}
+
+/**
+ * Handles `doflow route` — resolve an information need to a provider that is actually healthy.
+ *
+ * Exits 1 when no provider can serve the intent: that is a finding the caller must act on (the
+ * work still has to be done, by hand or by a different route), not an error in the request.
+ *
+ * @param {Object} options
+ * @param {string|null} options.intent
+ * @param {string} [options.query]
+ * @param {boolean} [options.check=false] deep smoke check instead of a presence check
+ * @param {boolean} [options.json=false]
+ * @param {string} [options.projectRoot]
+ * @returns {number} exit code
+ */
+function handleRouteCommand({ intent, query, check = false, json = false, projectRoot } = {}) {
+  const router = new CapabilityRouter({ repoRoot: REPO_ROOT });
+  if (typeof intent !== 'string' || intent.trim() === '') {
+    return usageError('route', `--intent is required. Declared intents: ${Object.keys(router.routes).join(', ')}`, json);
+  }
+
+  let resolution;
+  try {
+    resolution = router.resolveIntent(intent, { query, path: projectRoot || '.' }, { deepCheck: check });
+  } catch (error) {
+    return usageError('route', `${error.message}. Declared intents: ${Object.keys(router.routes).join(', ')}`, json);
+  }
+
+  if (json) console.log(JSON.stringify(resolution, null, 2));
+  else {
+    console.log(`\nDoFlow Route [${resolution.intent}] — ${resolution.status}:`);
+    console.log('═'.repeat(78));
+    console.log(`Need:       ${resolution.description}`);
+    console.log(`Capability: ${resolution.capability}`);
+    console.log(`Provider:   ${resolution.selectedProvider ? resolution.selectedProvider.name : 'none — no provider on this machine can answer'}`);
+    if (resolution.execution) {
+      console.log('─'.repeat(78));
+      for (const [key, value] of Object.entries(resolution.execution)) console.log(`  ${key.padEnd(12)} ${value}`);
+    }
+    console.log('═'.repeat(78) + '\n');
+  }
+  return finishRuntime(resolution.selectedProvider ? 0 : 1);
+}
+
+/**
+ * Handles `doflow claim` — record a proposition, link evidence to it, or list what is recorded.
+ *
+ * A claim added here starts as a hypothesis and can only become `supported` through linked
+ * evidence (FR-007); this handler exposes no way to declare one supported directly, because a
+ * conclusion that becomes fact by assertion is the thing the claims ledger exists to prevent.
+ *
+ * @param {Object} options
+ * @param {string} options.taskId
+ * @param {'list'|'add'|'link'} [options.action='list']
+ * @param {string} [options.statement] `add`
+ * @param {string} [options.claimId] `link`
+ * @param {string} [options.evidenceId] `link`
+ * @param {string} [options.relation='supports'] `link`
+ * @param {boolean} [options.json=false]
+ * @param {string} [options.stateRoot]
+ * @returns {number} exit code
+ */
+function handleClaimCommand({ taskId, action = 'list', statement, claimId, evidenceId, relation = 'supports', json = false, stateRoot } = {}) {
+  const root = stateRoot || process.cwd();
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  ledger.load(taskId);
+  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root });
+  claims.load(taskId);
+
+  let result;
+  try {
+    if (action === 'add') {
+      if (typeof statement !== 'string' || statement.trim() === '') {
+        return usageError('claim', '--statement is required for --action add', json);
+      }
+      const id = claims.addClaim({ statement, taskId });
+      claims.save(taskId);
+      result = { action, taskId, claim: claims.getClaim(id) };
+    } else if (action === 'link') {
+      if (!claimId || !evidenceId) {
+        return usageError('claim', '--claim-id and --evidence-id are both required for --action link', json);
+      }
+      // Linking an id the ledger does not hold used to succeed. `evaluateClaim` reads a missing
+      // evidence item as *stale* support and returns `invalidated` — a verdict about evidence
+      // that was never recorded, and the reading that made C.5 conclude `conflicted` (and so
+      // `BLOCKED`) was unreachable through the seam. Refuse instead of grading.
+      if (!ledger.getEvidence(evidenceId)) {
+        return usageError('claim', `no evidence '${evidenceId}' is recorded for task '${taskId}' — linking it would `
+          + 'mark the claim `invalidated` on the strength of an item that does not exist. Record it first: '
+          + `doflow evidence --task-id ${taskId} --action add ...`, json);
+      }
+      const status = claims.linkEvidence(claimId, evidenceId, relation);
+      claims.save(taskId);
+      result = { action, taskId, claim: claims.getClaim(claimId), status };
+    } else if (action === 'list' || action === 'status') {
+      claims.evaluateAll();
+      result = { action: 'list', taskId, claims: claims.getClaims(taskId) };
+    } else {
+      return usageError('claim', `unknown --action '${action}'. Valid: list, add, link`, json);
+    }
+  } catch (error) {
+    return usageError('claim', error.message, json);
+  }
+
+  if (json) { console.log(JSON.stringify(result, null, 2)); }
+  else {
+    const rows = result.claims || [result.claim];
+    console.log(`\nDoFlow Claims [Task: ${taskId}]:`);
+    console.log('═'.repeat(78));
+    if (rows.length === 0) console.log('No claims recorded for this task.');
+    else {
+      console.log('ID'.padEnd(24) + 'Status'.padEnd(14) + 'Statement');
+      console.log('─'.repeat(78));
+      for (const claim of rows) console.log(claim.id.padEnd(24) + claim.status.padEnd(14) + claim.statement);
+    }
+    console.log('═'.repeat(78) + '\n');
+  }
+  return finishRuntime(0);
+}
+
+/**
+ * Handles `doflow context-pack` — compile the evidence and claims recorded for a task into the
+ * context block a stage is handed.
+ *
+ * Exits 1 on a pack with nothing in it. An empty pack is not evidence that a task needs no
+ * context; it is evidence that nothing was recorded, and reporting it as success is the
+ * empty-contract defect in another costume.
+ *
+ * @param {Object} options
+ * @param {string} options.taskId
+ * @param {string} [options.taskClass]
+ * @param {string} [options.objective]
+ * @param {boolean} [options.json=false]
+ * @param {string} [options.stateRoot]
+ * @returns {number} exit code
+ */
+function handleContextPackCommand({ taskId, taskClass, objective, json = false, stateRoot } = {}) {
+  const root = stateRoot || process.cwd();
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  ledger.load(taskId);
+  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root });
+  claims.load(taskId);
+  claims.evaluateAll();
+
+  const compiler = new ContextPackCompiler();
+  const pack = compiler.compileContextPack({
+    taskId,
+    // The library's own default. Passed through rather than substituted here so there is one
+    // place that decides what an unstated class means for a *label* — which is all it is in a
+    // pack, unlike readiness where it selects the contract.
+    ...(taskClass ? { taskClass } : {}),
+    objective: objective || '',
+    evidenceLedger: ledger,
+    claimsManager: claims,
+  });
+
+  const empty = pack.evidenceCount === 0
+    && pack.claims.supported.length === 0
+    && pack.claims.hypotheses.length === 0
+    && pack.claims.conflicts.length === 0;
+
+  if (json) console.log(JSON.stringify({ ...pack, empty }, null, 2));
+  else {
+    console.log(compiler.formatMarkdown(pack));
+    if (empty) console.log(`_No evidence or claims are recorded for task '${taskId}'; this pack states nothing._\n`);
+  }
+  return finishRuntime(empty ? 1 : 0);
+}
+
+/**
+ * Handles `doflow verify` — compile the verification contract (FR-009) and, by default, run it and
+ * report against it.
+ *
+ * `--action contract` stops after compiling, which is the before-implementation half: it states
+ * how success will be established without establishing anything. The default runs the checks and
+ * emits the report. The contract is recompiled rather than read back from a state file, so the two
+ * halves cannot describe different contracts.
+ *
+ * @param {Object} options
+ * @param {string} options.taskId
+ * @param {'report'|'contract'|'status'} [options.action='report']
+ * @param {string} [options.risk] risk level; the registry's default when omitted
+ * @param {string} [options.planPath] a `plan.md` whose command override beats detection
+ * @param {boolean} [options.json=false]
+ * @param {string} [options.projectRoot]
+ * @returns {number} exit code
+ */
+function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot } = {}) {
+  const cwd = projectRoot || process.cwd();
+  let engine;
+  let contract;
+  try {
+    engine = new VerificationEngine({ cwd, repoRoot: REPO_ROOT });
+    contract = engine.compileContract({ taskId, riskLevel: risk, projectRoot: cwd, planPath });
+  } catch (error) {
+    return usageError('verify', error.message, json);
+  }
+
+  if (action === 'contract') {
+    if (json) console.log(JSON.stringify(contract, null, 2));
+    else {
+      console.log(`\nDoFlow Verification Contract [${contract.taskId}] — risk ${contract.riskLevel}:`);
+      console.log('═'.repeat(78));
+      for (const tier of contract.tiers) {
+        console.log(`  ${tier.id.padEnd(22)} ${tier.resolution.padEnd(12)} ${tier.required ? 'required' : 'advisory'}`);
+        if (tier.reason) console.log(`      ${tier.reason}`);
+      }
+      console.log('═'.repeat(78) + '\n');
+    }
+    // A contract is a plan, not a verdict — compiling one always answers, even when a tier could
+    // not be resolved, because the unresolved tier is itself part of what the contract states.
+    return finishRuntime(0);
+  }
+  if (action !== 'report' && action !== 'status') {
+    return usageError('verify', `unknown --action '${action}'. Valid: report (default), contract`, json);
+  }
+
+  const report = engine.runContract(contract);
+  if (json) console.log(JSON.stringify(report, null, 2));
+  else {
+    console.log(`\nDoFlow Verification Report [${report.taskId}] — ${report.status}:`);
+    console.log('═'.repeat(78));
+    console.log(report.reason);
+    console.log('─'.repeat(78));
+    for (const tier of report.tiers) {
+      console.log(`  ${tier.id.padEnd(22)} ${tier.status.padEnd(16)} ${tier.required ? 'required' : 'advisory'}`);
+      if (tier.reason) console.log(`      ${tier.reason}`);
+    }
+    console.log('─'.repeat(78));
+    console.log(`Checks: ${report.counts.checksPassed}/${report.counts.checksRun} passed`);
+    if (report.unresolved.length) {
+      console.log('Never evaluated (not a pass):');
+      for (const u of report.unresolved) console.log(`  ${u.tier}${u.required ? ' [required]' : ''} — ${u.reason}`);
+    }
+    console.log('═'.repeat(78) + '\n');
+  }
+  // PASS is the only status that answers "verified". FAIL and INCONCLUSIVE are both findings, and
+  // collapsing INCONCLUSIVE into success would report a verdict over zero evidence as a pass.
+  return finishRuntime(report.status === 'PASS' ? 0 : 1);
+}
+
+/**
+ * Handles `doflow recover` — classify a verification failure and return the targeted action for
+ * that class (FR-010).
+ *
+ * Exit 0 means a bounded retry is available and the plan says what to change; exit 1 means the
+ * loop must stop — the retry budget is spent, or the class is one where retrying is guaranteed to
+ * reproduce the failure. That is the distinction a caller has to branch on, so it is the one the
+ * exit code carries.
+ *
+ * @param {Object} options
+ * @param {string} options.errorMessage
+ * @param {Array<string>} [options.failedChecks]
+ * @param {number} [options.iteration=0] retries already spent
+ * @param {string} [options.agent]
+ * @param {boolean} [options.json=false]
+ * @returns {number} exit code
+ */
+function handleRecoverCommand({ errorMessage, failedChecks = [], iteration = 0, agent, json = false } = {}) {
+  // Handed nothing, the classifier answers UNKNOWN_FAILURE — a confident-looking verdict about a
+  // failure it never saw. Refuse instead.
+  if ((typeof errorMessage !== 'string' || errorMessage.trim() === '') && failedChecks.length === 0) {
+    return usageError('recover', '--error (and/or one or more --failed-check) is required — classifying a failure nobody described would name a class over no evidence.', json);
+  }
+  const manager = new RecoveryManager();
+  const failureClass = manager.classifyFailure(errorMessage, failedChecks);
+  const plan = manager.planRecovery(failureClass, iteration, agent || undefined);
+
+  if (json) console.log(JSON.stringify({ failureClass, failedChecks, ...plan }, null, 2));
+  else {
+    console.log(`\nDoFlow Recovery [${plan.failureClass}]:`);
+    console.log('═'.repeat(78));
+    console.log(`Action:     ${plan.action}`);
+    console.log(`Target:     ${plan.targetRole || 'unchanged'}`);
+    console.log(`Agent:      ${plan.agent}`);
+    console.log(`Retry:      ${plan.canRetry ? `yes — iteration ${plan.iteration}` : 'no'}`);
+    if (plan.reason) console.log(`Reason:     ${plan.reason}`);
+    console.log('═'.repeat(78) + '\n');
+  }
+  return finishRuntime(plan.canRetry ? 0 : 1);
 }
 
 const HELP = `doflow — DoFlow config installer
@@ -127,8 +869,19 @@ Commands:
   tools                Inspect or manage registered external tools
   capabilities         Show registered abstract capabilities and resolved providers
   doctor               System health and capability smoke check diagnostics
-  readiness            Evaluate task readiness contract (--task-class, --task-id)
-  evidence             Inspect recorded task evidence items (--task-id)
+  readiness            Evaluate task readiness contract (--task-class, --task-id, both required)
+  evidence             Record a stage's evidence batch, or inspect what is recorded (--task-id)
+  claim                Record a claim, link evidence to it, or list them (--task-id, --action)
+  context-pack         Compile a task's evidence and claims into a context block (--task-id)
+  classify             Validate a proposed task class and return its workflow (--task-class)
+  workflow             Resolve a task class to its stages, gates and readiness templates
+  route                Resolve an information need to a healthy provider (--intent)
+  verify               Compile the verification contract and report against it (--task-id)
+  recover              Classify a verification failure and plan the bounded retry (--error)
+  trace                Trajectory of the current or most recent workflow (run ledger)
+  stats                Aggregate local run-ledger usage
+  discover             Missed capability opportunities in recorded runs
+  scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
 
 Scope (mutually exclusive — global wins if both given):
   -g, --global         Install to \$HOME/.{claude,codex,gemini}
@@ -145,7 +898,30 @@ Options:
   -n, --dry-run        Preview without writing
   -f, --force          Skip confirmation prompts
       --no-backup      Skip backup (requires --force; ignored by rollback's safety snapshot)
-      --prune <N>      Keep only N most recent backups
+      --prune <N>      Keep only N most recent backups (install, update)
+      --days <N>       Run-ledger window in calendar days (trace, stats, discover)
+      --slug <name>    Scaffold this feature instead of the branch-resolved active one
+
+Runtime verb arguments (accept --flag value or --flag=value):
+      --task-class     classify, workflow, readiness, context-pack
+      --task-id        readiness, evidence, claim, context-pack, verify
+      --action         claim: list|add|link · evidence: list|add · verify: report|contract
+                       tools: see above
+      --rationale, --proposed-by, --calling-skill    classify
+      --intent, --query, --check            route
+      --statement, --claim-id,
+      --evidence-id, --relation             claim
+      --kind, --provenance, --provider,
+      --capability, --locator, --content    evidence --action add (one item)
+      --batch <file|->                      evidence --action add (a stage's JSON batch)
+      --verification-plan, --scope,
+      --invariants,
+      --user-decision-pending               readiness: inputs the caller states rather than
+                                            evidence establishes; reported back as such
+      --objective                           context-pack
+      --risk                                verify
+      --error, --failed-check,
+      --iteration, --agent                  recover
       --json           Machine-readable output (status)
 
 External tools:
@@ -223,8 +999,12 @@ function cmdInstall(o) {
   }
 
   if (!confirm(`Install configs to: ${targets.join(' ')}?`, o.force)) {
+    // Exit 1, not 0: a declined prompt is a decision, and it must not share an exit code with a
+    // completed run. With no stdin the prompt auto-declines, so `doflow install <path>` in a script
+    // or CI step printed "Aborted.", wrote zero files, and reported success. It also silently
+    // corrupted a set of install-timing measurements during the D.4 sweep, which is how it surfaced.
     console.error('[INFO]  Aborted.');
-    return;
+    process.exit(1);
   }
 
   let bid = '';
@@ -237,7 +1017,8 @@ function cmdInstall(o) {
 
   if (lifecycleView.plan.changes.length) {
     const result = applyLifecycle({ plan: lifecycleView.plan, registry: lifecycleView.registry,
-      adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter() }),
+      adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter(),
+        opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter() }),
       stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
     for (const target of lifecycleView.plan.targets) {
       if (target.skipped || !target.changes.length) continue;
@@ -316,8 +1097,12 @@ function cmdUpdate(o) {
   }
 
   if (!confirm(`Update${mcpChanged ? ' MCP server selection' : ''}${mcpChanged && lifecycleChanged ? ' +' : ''}${lifecycleChanged ? ' native resources' : ''} in: ${targets.join(' ')}?`, o.force)) {
+    // Exit 1, not 0: a declined prompt is a decision, and it must not share an exit code with a
+    // completed run. With no stdin the prompt auto-declines, so `doflow install <path>` in a script
+    // or CI step printed "Aborted.", wrote zero files, and reported success. It also silently
+    // corrupted a set of install-timing measurements during the D.4 sweep, which is how it surfaced.
     console.error('[INFO]  Aborted.');
-    return;
+    process.exit(1);
   }
 
   let bid = '';
@@ -336,7 +1121,8 @@ function cmdUpdate(o) {
   }
   if (lifecycleView.plan.changes.length) {
     const result = applyLifecycle({ plan: lifecycleView.plan, registry: lifecycleView.registry,
-      adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter() }),
+      adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter(),
+        opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter() }),
       stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
     for (const target of lifecycleView.plan.targets) {
       if (target.skipped || !target.changes.length) continue;
@@ -374,14 +1160,23 @@ function cmdRemove(o) {
     return;
   }
   if (!confirm(`Remove DoFlow-owned native resources for: ${lifecycleTargets.join(', ')}? User-owned files are preserved.`, o.force)) {
+    // Exit 1, not 0: a declined prompt is a decision, and it must not share an exit code with a
+    // completed run. With no stdin the prompt auto-declines, so `doflow install <path>` in a script
+    // or CI step printed "Aborted.", wrote zero files, and reported success. It also silently
+    // corrupted a set of install-timing measurements during the D.4 sweep, which is how it surfaced.
     console.error('[INFO]  Aborted.');
-    return;
+    process.exit(1);
   }
   const result = removeLifecycle({ registry: view.registry,
-    adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter() }),
+    adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter(),
+      opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter() }),
     scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot),
     targets: lifecycleTargets, mcpIds: [], stateRoot: view.stateRoot, ledger: view.ledger,
     context: view.plan.targets[0].adapterInput.context });
+  // Shared destinations (one .doflow/scripts tree for claude/codex/gemini, one .agents for
+  // gemini/copilot) mean a removal can legitimately leave files standing. Saying only "removed"
+  // would be half the truth, so what was kept and who still claims it is printed, not implied.
+  for (const line of retentionSummary(result.retained)) console.log(`[INFO] ${line}`);
   console.log(`[OK] Removed ${result.ledger.resources.length === 0 ? 'all' : 'eligible'} native resource(s) for ${lifecycleTargets.join(', ')}; ${result.ledger.resources.length} owned record(s) remain.`);
 }
 
@@ -408,23 +1203,27 @@ function cmdStatus(o) {
     // pending changes when it isn't installed yet would make Claude's line falsely report
     // 'drift-or-pending-change' even though Claude itself has nothing pending.
     const harnessPlan = (harness) => registryView.plan.targets.find((target) => target.harness === harness);
+    // Hook-wiring status needs the same general per-harness verification every install/update run
+    // already flows through (src/lifecycle's verifyLifecycle) rather than a Codex-only hardcode:
+    // it is the one place that can tell 'installed and active' apart from 'installed but pending a
+    // prerequisite' (Codex's unreviewed trust, Gemini's live hook-trust check) from 'absent'.
+    const verification = verifyLifecycle({ plan: registryView.plan, adapters: registryView.adapters, context: { registry } });
+    const hooksFor = (harness) => verification.verifications.find((item) => item.harness === harness)?.hookWiring ?? null;
     const harnessStatus = (harness) => {
       const target = harnessPlan(harness);
-      if (!target) return { status: 'verified', resources: [], errors: [] };
+      if (!target) return { status: 'verified', resources: [], errors: [], hooks: hooksFor(harness) };
       return {
         status: target.conflicts.length ? 'conflict-or-invalid' : (target.changes.length ? 'drift-or-pending-change' : 'verified'),
         resources: registryView.ledger.resources.filter((resource) => resource.harness === harness),
         errors: target.conflicts,
+        hooks: hooksFor(harness),
       };
     };
-    if (targets.includes('codex')) {
-      ctx.codex = { ...harnessStatus('codex'), hooksTrust: { required: true, trusted: false, status: 'review-required' } };
-    }
-    if (targets.includes('claude')) {
-      ctx.claude = harnessStatus('claude');
-    }
-    if (targets.includes('gemini')) {
-      ctx.gemini = harnessStatus('gemini');
+    // Every lifecycle-wired harness gets the same per-harness status treatment — not just the
+    // four that historically had it — so 'doflow status --target copilot/opencode/pi --json'
+    // reports 'verified'/'conflict-or-invalid' instead of silently omitting the harness.
+    for (const harness of LIFECYCLE_HARNESSES) {
+      if (targets.includes(harness)) ctx[harness] = harnessStatus(harness);
     }
   } catch (error) {
     // Status must remain usable for an existing installation even if a local registry is invalid.
@@ -435,6 +1234,12 @@ function cmdStatus(o) {
     console.log(JSON.stringify({ context: ctx, manifest, codex: ctx.codex ?? null }, null, 2));
     return;
   }
+
+  const hookLine = (label, hooks) => {
+    if (!hooks || hooks.status === 'absent') return null;
+    const prereqSuffix = hooks.prerequisites.length ? ` (unmet: ${hooks.prerequisites.join(', ')})` : '';
+    return `  ${label} hooks: ${hooks.status}${prereqSuffix}`;
+  };
 
   printContext(ctx);
   if (!manifest) {
@@ -449,29 +1254,28 @@ function cmdStatus(o) {
   console.log(`  Last backup ID:       ${manifest.backupId}`);
   console.log(`  Script version:       ${manifest.scriptVersion}`);
   console.log(`  MCP servers:          ${manifest.mcpServers ? manifest.mcpServers.join(', ') || 'none' : 'all (default)'}`);
-  if (ctx.codex) {
-    console.log(`  Codex verification:   ${ctx.codex.status}`);
-    console.log(`  Codex resources:      ${ctx.codex.resources.length} manifest-owned`);
-    console.log(`  Codex hook trust:     ${ctx.codex.hooksTrust?.status ?? 'not configured'}${ctx.codex.hooksTrust?.required ? ' (review required)' : ''}`);
-    if (ctx.codex.errors.length) console.log(`  Codex issues:         ${ctx.codex.errors.join('; ')}`);
-    console.log('  Codex capability gaps: no Claude-only event emulation is installed; review docs/capability-map.md#codex-capability-detail');
-  }
-  if (ctx.claude) {
-    console.log(`  Claude verification:  ${ctx.claude.status}`);
-    console.log(`  Claude resources:     ${ctx.claude.resources.length} manifest-owned`);
-    if (ctx.claude.errors.length) console.log(`  Claude issues:        ${ctx.claude.errors.join('; ')}`);
-  }
-  if (ctx.gemini) {
-    console.log(`  Gemini verification:  ${ctx.gemini.status}`);
-    console.log(`  Gemini resources:     ${ctx.gemini.resources.length} manifest-owned`);
-    if (ctx.gemini.errors.length) console.log(`  Gemini issues:        ${ctx.gemini.errors.join('; ')}`);
+  // Printed in the same order LIFECYCLE_HARNESSES declares, so every wired harness gets a line —
+  // not just the four that historically had a hand-written block — with Codex keeping its extra
+  // capability-gap line since that note is Codex-specific, not a general per-harness property.
+  for (const harness of LIFECYCLE_HARNESSES) {
+    const status = ctx[harness];
+    if (!status) continue;
+    const label = `${harness.charAt(0).toUpperCase()}${harness.slice(1)}`;
+    console.log(`  ${`${label} verification:`.padEnd(24)}${status.status}`);
+    console.log(`  ${`${label} resources:`.padEnd(24)}${status.resources.length} manifest-owned`);
+    const line = hookLine(label, status.hooks);
+    if (line) console.log(line);
+    if (status.errors.length) console.log(`  ${`${label} issues:`.padEnd(24)}${status.errors.join('; ')}`);
+    if (harness === 'codex') {
+      console.log('  Codex capability gaps: no Claude-only event emulation is installed; review docs/capability-map.md#codex-capability-detail');
+    }
   }
   if (ctx.registry) {
     console.log(`  Registry lifecycle:   ${ctx.registry.status === 'invalid' ? ctx.registry.error : `${ctx.registry.plan.changes} pending, ${ctx.registry.plan.conflicts.length} conflict(s)`}`);
     if (ctx.registry.status !== 'invalid') console.log(`  Neutral state:         ${ctx.registry.stateRoot}${ctx.registry.ledgerPresent ? ' (ledger present)' : ' (not yet created)'}`);
   }
   console.log('\n  TOOL         STATUS         LAST UPDATED');
-  for (const tool of ['claude', 'codex', 'gemini']) {
+  for (const tool of LIFECYCLE_HARNESSES) {
     const t = manifest.tools[tool];
     const status = t?.installed ? 'installed' : 'not installed';
     console.log(`  ${tool.padEnd(12)} ${status.padEnd(14)} ${t?.last_updated ?? 'never'}`);
@@ -587,7 +1391,7 @@ function cmdRollback(o) {
   if (!bid) {
     printBackupTable(listBackups(backupRoot), backupRoot);
     bid = promptLine('Enter backup ID to restore (or press Enter to cancel): ');
-    if (!bid) { console.error('[INFO]  Aborted.'); return; }
+    if (!bid) { console.error('[INFO]  Aborted.'); process.exit(1); }
   }
 
   // PARITY-with-UX: install/update skip the confirm prompt entirely under --dry-run (nothing
@@ -595,8 +1399,12 @@ function cmdRollback(o) {
   // --dry-run, which meant a non-interactive `doflow rollback <id> --dry-run` (no --force) would
   // block on stdin instead of just previewing. Match install/update's convention here.
   if (!o.dryRun && !confirm(`Restore from '${bid}'? This overwrites your current config.`, o.force)) {
+    // Exit 1, not 0: a declined prompt is a decision, and it must not share an exit code with a
+    // completed run. With no stdin the prompt auto-declines, so `doflow install <path>` in a script
+    // or CI step printed "Aborted.", wrote zero files, and reported success. It also silently
+    // corrupted a set of install-timing measurements during the D.4 sweep, which is how it surfaced.
     console.error('[INFO]  Aborted.');
-    return;
+    process.exit(1);
   }
 
   // sync.sh always takes a pre-rollback safety snapshot, regardless of --no-backup — rollback is
@@ -660,12 +1468,46 @@ function main() {
       case 'self-update': return cmdSelfUpdate(o);
       case 'tools': return cmdTools(o);
       case 'capabilities': return handleCapabilitiesCommand({ json: o.json, check: o.check, repoRoot: REPO_ROOT });
-      case 'doctor': return handleDoctorCommand({ json: o.json, repoRoot: REPO_ROOT });
+      // REPO_ROOT locates the capability registry; projectRoot is the tree whose index freshness
+      // and build/test commands are being reported on, which follows the usual scope rules.
+      case 'doctor': return handleDoctorCommand({ json: o.json, repoRoot: REPO_ROOT, projectRoot: evidenceRoot(o) });
       // REPO_ROOT locates the registry (templates ship with the package); stateRoot locates the
       // caller's evidence, which follows the same scope rules as every other command: -g means
       // $HOME, otherwise the positional project root (default cwd).
-      case 'readiness': return handleReadinessCommand({ taskClass: o.taskClass || 'feature', taskId: o.taskId || 'default', json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
-      case 'evidence': return handleEvidenceCommand({ taskId: o.taskId || 'default', json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
+      // `o.taskClass || 'feature'` and `o.taskId || 'default'` used to sit here. Both re-created
+      // the identity defect readiness.js fails closed on: omitting either argument produced a
+      // confident verdict about a task or a contract the caller never named. Required now, and the
+      // valid class set is named in the refusal.
+      // The task-profile arguments are the caller's own statements and are forwarded only when
+      // given. They exist because without them no readiness template can ever reach READY —
+      // every one of the five has at least one requirement satisfied from the profile rather
+      // than from evidence, so the gate had one reachable answer for every task. Forwarding is
+      // all this does: the handler names them back under `callerAsserted` so a stated input is
+      // never mistaken for a measured one.
+      case 'readiness': return handleReadinessCommand({ taskClass: requireTaskClass(o), taskId: requireTaskId(o), verificationPlan: o.verificationPlan, scopeClear: o.scope, invariants: o.invariants, userDecisionPending: o.userDecisionPending, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
+      case 'evidence': return handleEvidenceCommand({ taskId: requireTaskId(o), action: o.action, item: evidenceItemFromFlags(o), batchPath: o.batchPath, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
+      // Run-ledger views. They resolve their own ledger the way the dispatcher does (nearest
+      // `.doflow` walking up, or the global one) rather than assuming cwd is the project root, so
+      // a view invoked from a subdirectory reads the runs that were actually recorded.
+      // Exit codes follow design §4.2 and are set by the handler itself: 0 = answered, 1 = a
+      // finding the caller must act on.
+      case 'trace': return handleTraceCommand({ json: o.json, days: o.days, global: o.global, projectRoot: evidenceRoot(o) });
+      case 'stats': return handleStatsCommand({ json: o.json, days: o.days, global: o.global, projectRoot: evidenceRoot(o) });
+      case 'discover': return handleDiscoverCommand({ json: o.json, days: o.days, global: o.global, projectRoot: evidenceRoot(o) });
+      // No REPO_ROOT: the scaffold's repo root is the *caller's* repo, reported by the resolver,
+      // because the plan's `files:` paths are relative to it. Passing the DoFlow install here
+      // would detect the wrong language and mirror the wrong tree.
+      case 'scaffold': return handleScaffoldCommand({ json: o.json, projectRoot: evidenceRoot(o), slug: o.slug });
+      // The rest of design §4.2's Node arm. REPO_ROOT locates the registries that ship with the
+      // package (workflows, capabilities, verification); evidenceRoot(o) locates the caller's own
+      // state and source tree, following the same scope rules as every other command.
+      case 'classify': return handleClassifyCommand({ taskClass: o.taskClass, rationale: o.rationale, proposedBy: o.proposedBy, callingSkill: o.callingSkill, json: o.json });
+      case 'workflow': return handleWorkflowCommand({ taskClass: o.taskClass, json: o.json });
+      case 'route': return handleRouteCommand({ intent: o.intent, query: o.query, check: o.check, json: o.json, projectRoot: evidenceRoot(o) });
+      case 'claim': return handleClaimCommand({ taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, relation: o.relation, json: o.json, stateRoot: evidenceRoot(o) });
+      case 'context-pack': return handleContextPackCommand({ taskId: requireTaskId(o), taskClass: o.taskClass, objective: o.objective, json: o.json, stateRoot: evidenceRoot(o) });
+      case 'verify': return handleVerifyCommand({ taskId: requireTaskId(o), action: o.action, risk: o.risk, json: o.json, projectRoot: evidenceRoot(o) });
+      case 'recover': return handleRecoverCommand({ errorMessage: o.errorMessage, failedChecks: o.failedChecks, iteration: o.iteration, agent: o.agent, json: o.json });
       default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
     }
   } catch (error) {

@@ -1,0 +1,159 @@
+USER MESSAGE:
+"/do-document --type research What are the current approaches to idempotency keys in payment APIs?"
+
+===== ASSISTANT RESPONSE =====
+
+I invoked the do-document skill in research mode. Per its deep-research process (references/deep_research.md), I decomposed the query into independent search vectors, ran parallel retrieval, cross-checked secondary sources against each vendor's own primary documentation, and wrote a cited report with an explicit citation table and confidence/inference notes to:
+
+agent-docs/research/idempotency-keys-in-payment-apis_20260817-105840.md
+
+Full report content:
+
+# Research Report: Current Approaches to Idempotency Keys in Payment APIs
+
+**Query**: What are the current approaches to idempotency keys in payment APIs?
+**Date**: 2026-08-17
+**Depth**: standard (multi-hop web retrieval, primary sources fetched and cross-checked against secondary summaries)
+**Method**: Query decomposed into five independent search vectors (Stripe, Adyen, PayPal, IETF standardization effort, general distributed-systems pattern literature), executed as parallel searches, then followed up with direct fetches of each vendor's own documentation page to verify claims against primary sources rather than relying on blog secondary sources alone.
+
+---
+
+## Executive Summary
+
+Idempotency keys are a client-generated, unique token attached to a state-changing API request (almost always `POST`) so that a server can recognize retries of "the same" logical operation and return the original result instead of re-executing it — the mechanism payment APIs use to prevent double-charging a card when a client retries after a timeout or connection failure.
+
+Every major payment processor examined (Stripe, Adyen, PayPal) implements this with the same core shape — client sends a unique key in a request header, server persists the key alongside the first response, later requests with that key short-circuit to the stored response — but they diverge on three concrete parameters: **header name**, **key TTL/storage duration**, and **scoping** (account-wide vs. per-region vs. per-call-type). There is an IETF standardization effort (`draft-ietf-httpapi-idempotency-key-header`) that would unify the header name and error-status conventions, but as of this research it has **expired without becoming an RFC**, so "current approaches" in production remain vendor-specific rather than standardized.
+
+Beyond the vendor-specific header mechanics, the broader distributed-systems literature converges on a shared implementation pattern for the *server side* of idempotency: an idempotency-key store (table) that records key → operation fingerprint → result, written in the **same transaction** as the business operation, with a defined TTL and a documented conflict behavior for concurrent retries of an in-flight request.
+
+**Confidence note**: Vendor-specific claims below (header names, TTL values, status codes) are sourced directly from each vendor's own current documentation and are high-confidence as of the fetch date. The "IETF draft is expired" claim is sourced from the IETF datatracker page directly, also high-confidence, though standards documents can be superseded by new draft numbers I did not additionally search for. The synthesis connecting these vendor behaviors into a shared "why this pattern" narrative, and the closing "what this means in practice" section, is my own analytical synthesis rather than a claim attributable to a single source — flagged inline as **[inference]** throughout.
+
+---
+
+## Findings by Vector
+
+### 1. Stripe
+
+**[Sourced — docs.stripe.com, fetched directly]**
+
+- Header: `Idempotency-Key` (set via request options, e.g. `IdempotencyKey` element in SDKs).
+- Key generation: client-supplied; Stripe recommends V4 UUIDs or another random string with enough entropy to avoid collisions. Keys may be up to 255 characters. Stripe explicitly warns against using sensitive data (emails, personal identifiers) as the key value.
+- Storage/TTL: keys can be pruned after **24 hours**; a reused key after pruning is treated as a brand-new request.
+- Retry semantics: Stripe saves the **status code and response body of the first request**, success or failure (including `500`s), and returns that saved response verbatim on retry with the same key.
+- Payload-mismatch handling: if a retried key arrives with **different parameters** than the original request, Stripe errors rather than silently accepting the new payload — protecting against accidental key reuse across different logical operations.
+- Concurrency: idempotent results are only saved once endpoint execution *begins*. If parameters fail validation, or the request conflicts with another request executing concurrently under the same key, no result is cached, and the caller is expected to retry.
+- Scope: applies to `POST` requests only; `GET`/`DELETE` are idempotent by definition and the header has no effect there.
+
+### 2. Adyen
+
+**[Sourced — docs.adyen.com, fetched directly]**
+
+- Header: `idempotency-key:<key>`, max 64 characters.
+- Key generation: version-4 (random) UUID recommended, explicitly to prevent one API credential's response from being retrievable by a different credential under the same account.
+- Storage/TTL: keys remain valid for a **minimum of 7 days** after first submission — notably longer than Stripe's 24-hour window.
+- Scope: keys are checked for uniqueness at the **company-account level**, but — a documented gap — if a client targets **multiple regional endpoints simultaneously**, the same key is **not** checked for duplication across those regions. This is a real cross-region double-processing risk that a naive implementation could miss.
+- Concurrency/conflict handling: simultaneous duplicate requests using the same key can return HTTP `422` or `409` with Adyen-specific error code `704` ("request already processed or in progress"). If Adyen's backing data store is unavailable, it returns HTTP `503` / error code `703`, documented as a transient, retriable condition.
+- Access-control caveat: lowering an API credential's permission level does **not** retroactively prevent that credential from retrieving a previously-idempotent response if it still holds the key — a security-relevant footgun worth flagging to anyone designing key-storage/rotation policy.
+
+### 3. PayPal
+
+**[Sourced — developer.paypal.com, fetched directly]**
+
+- Header: `PayPal-Request-Id` (not `Idempotency-Key` — PayPal predates and diverges from the emerging convention).
+- Key generation: UUID recommended, specifically because it fits within PayPal's 38-single-byte-character limit for the header value.
+- Storage/TTL: documentation states the ID is stored "for a period of time" without a universal number — the actual duration is **per-API**, and PayPal explicitly tells integrators to check the reference page for the specific endpoint they're calling rather than assume a global constant. (One secondary/non-primary source surfaced a "45 days" figure in initial search results, but PayPal's own current idempotency reference page did not restate that number when fetched directly, so I'm treating 45 days as **unverified** rather than including it as fact — worth a follow-up check against the specific endpoint's own reference page if a precise number is needed for design.)
+- Scope: the key must be unique **per request and per API call type** — e.g., an authorize-payment call and a subsequent capture-authorized-payment call require distinct keys even within the same logical order, which is a materially different scoping model from Stripe's "one key per logical operation" framing.
+- Concurrency: two simultaneous requests with the same key — PayPal processes the first and "might fail" the second, phrased as a soft guarantee rather than a hard-defined status code contract in the material fetched.
+- Important divergence from Stripe: PayPal states it returns "the status of a request at the current time and not the status of the original request" — i.e., retried calls may reflect the resource's *current* state rather than a frozen snapshot of the original response, unlike Stripe's approach of replaying the exact original response body.
+- Coverage caveat: **not all PayPal APIs support this header** — idempotency is opt-in per endpoint, not a platform-wide guarantee.
+
+### 4. IETF Standardization Effort
+
+**[Sourced — datatracker.ietf.org, fetched directly, cross-checked across two datatracker pages]**
+
+- Effort: `draft-ietf-httpapi-idempotency-key-header`, developed under the IETF HTTPAPI working group, proposing a standardized `Idempotency-Key` header (RFC 8941 Structured-Field String value).
+- Normative shape proposed: key MUST be unique and MUST NOT be reused across requests with a different payload; UUID or similar random identifier recommended.
+- Proposed conflict semantics: `409 Conflict` when a request with the same key is still being processed; `422 Unprocessable Content` when the same key is reused with a different payload than the original.
+- **Current status**: the latest revision (`-07`, last updated October 2025) is now shown by the IETF datatracker as **expired and no longer under active development**, and it was **never submitted to the IESG** for RFC publication. This means, as of this research (August 2026), there is no ratified IETF standard governing idempotency-key headers — Stripe's `Idempotency-Key`, Adyen's `idempotency-key`, and PayPal's `PayPal-Request-Id` remain three separate vendor conventions rather than implementations of a common spec.
+- **[inference]**: The practical implication for anyone building a multi-PSP (payment service provider) integration is that idempotency cannot be handled with one generic header-injection layer — the header name, scoping unit, and TTL all have to be looked up per vendor. I did not find a source stating this implication explicitly; it follows directly from the three vendor comparisons above.
+
+### 5. General Distributed-Systems Pattern (Server-Side Implementation)
+
+**[Sourced from secondary/synthesis sources — multiple blog and system-design write-ups converged on the same shape; no single primary "spec" exists here because this is implementation practice, not a vendor API]**
+
+Recurring elements across the pattern-literature sources retrieved:
+- An idempotency-key **store** (typically a database table) mapping `key → operation fingerprint (request payload hash) → stored result → status (in-progress/completed) → expiry`.
+- The store write and the actual business-operation write are recommended to happen in the **same database transaction**, so that a crash between "record the key" and "execute the charge" can't leave the two out of sync.
+- TTL-based cleanup of expired keys is treated as routine hygiene rather than optional; one source suggested 24 hours as a commonly-cited default for many designs (this matches Stripe's actual production value above, though the general-pattern source and Stripe's own docs are independent claims that happen to agree, not the same citation).
+- Responsibility for key generation is described as belonging to the **client**, not the server, because only the client can distinguish "this is a retry of an operation I already intended" from "this is a genuinely new operation" — the server has no way to infer intent from the payload alone.
+
+**[inference]**: This "store the fingerprint, not just the key" detail is what makes Stripe's and the IETF draft's "different payload with same key → error" behavior possible; it is a design consequence of the pattern rather than an arbitrary rule each vendor invented independently. This connective reasoning is mine, not something a single source stated outright.
+
+---
+
+## Citation Table
+
+| # | Claim | Source | Type |
+|---|-------|--------|------|
+| 1 | Stripe header is `Idempotency-Key`; saves first response (incl. 500s) and replays it; errors on payload mismatch; 24h prune window; POST-only | Idempotent requests — Stripe Docs (https://docs.stripe.com/api/idempotent_requests) | Primary source, fetched directly |
+| 2 | Adyen header is `idempotency-key:<key>`, 64 char max, min 7-day validity, account-level scope, cross-region gap, 409/422/703/704 codes | API idempotency — Adyen Docs (https://docs.adyen.com/development-resources/api-idempotency) | Primary source, fetched directly |
+| 3 | PayPal header is `PayPal-Request-Id`, 38-byte limit, per-call-type uniqueness, not all APIs support it, returns current not original state | Idempotency — PayPal Developer (https://developer.paypal.com/api/rest/reference/idempotency/) | Primary source, fetched directly |
+| 4 | IETF `Idempotency-Key` draft normative content (uniqueness, 409/422 semantics) | draft-ietf-httpapi-idempotency-key-header-07 — IETF Datatracker (https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-idempotency-key-header-07) | Primary source, fetched directly |
+| 5 | Draft status is expired, never submitted to IESG, no RFC issued | draft-ietf-httpapi-idempotency-key-header — IETF Datatracker overview page (https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/) | Primary source, fetched directly |
+| 6 | General pattern: client-generated key, server-side key+fingerprint store, same-transaction write, TTL cleanup | Designing robust and predictable APIs with idempotency — Stripe Engineering Blog (https://stripe.com/blog/idempotency); Implementing Stripe-like Idempotency Keys in Postgres — brandur.org (https://brandur.org/idempotency-keys); The Idempotency Key Pattern — Medium (https://medium.com/@coders.stop/the-idempotency-key-pattern-the-single-concept-that-makes-payment-systems-job-queues-and-api-b1cc20c19245); Idempotency — System Design — algomaster.io (https://algomaster.io/learn/system-design/idempotency) | Secondary sources, converging pattern, not independently primary-verified per claim |
+| 7 | Vendor comparison across Stripe/PayPal/Adyen | Preventing Duplicate Payments with Idempotency Keys by Stripe, PayPal and Adyen — Medium (https://medium.com/@sahintalha1/the-way-psps-such-as-paypal-stripe-and-adyen-prevent-duplicate-payment-idempotency-keys-615845c185bf) | Secondary source, used only as a cross-check against the primary vendor docs, not cited as a standalone fact above |
+| — | 45-day PayPal TTL figure | Surfaced in search snippets, **not confirmed** on PayPal's current primary reference page when fetched directly | Explicitly marked unverified in the body above, not asserted as fact |
+
+---
+
+## Open Questions / Flagged for Follow-up
+
+1. **PayPal's precise TTL** is per-endpoint and was not resolved to a single number from the primary idempotency reference page — would need to check the specific PayPal API endpoint's own reference page (e.g., Orders API vs. Payouts API) rather than assume a platform-wide constant.
+2. **Whether a successor IETF draft exists** beyond `-07` was not checked — the datatracker overview page did not surface a newer revision number, but I did not run a dedicated search for a distinct successor document title.
+3. This report did not cover Square, Braintree, or other PSPs beyond the three explicitly implied by the general "payment APIs" framing of the question — flagged as scope-limiting rather than a gap in the sources that were checked.
+
+---
+
+## Assumption Log (non-interactive session)
+
+This research ran in a non-interactive session with no user available to answer clarifying questions. One point would normally have been worth a quick clarifying question before starting:
+
+- **Question that would have been asked**: "Do you want this scoped to a specific payment provider / language ecosystem, or a general cross-vendor survey of current approaches?"
+- **Assumption made**: Interpreted the query as a general, vendor-agnostic survey — covering the three payment processors most commonly cited in this space (Stripe, Adyen, PayPal) plus the relevant standardization effort (IETF) and the underlying distributed-systems pattern, rather than deep-diving one vendor. This is the more useful default for a "what are the current approaches" framing, and is stated here explicitly rather than silently assumed.
+
+===== END OF REPORT CONTENT =====
+
+Report saved to: agent-docs/research/idempotency-keys-in-payment-apis_20260817-105840.md (inside the sandbox worktree).
+
+---TOOL & SKILL LOG---
+
+1. Skill: do-document (args: "--type research What are the current approaches to idempotency keys in payment APIs?")
+2. Read: /Users/kai/.claude/skills/do-document/references/deep_research.md
+3. Bash: cd sandbox && pwd && ls -la (confirm sandbox location/contents)
+4. Bash: find /Users/kai/.claude/skills/do-document -iname "*DeepResearch*" -o -iname "*RESEARCH_CONFIG*" (check for referenced but possibly-missing supplementary files — none found)
+5. Bash: find /Users/kai/.claude/skills/do-document -type f (confirm actual skill directory contents; modes/MODE_DeepResearch.md and references/RESEARCH_CONFIG.md referenced in deep_research.md do not exist)
+6. ToolSearch: "select:WebSearch,WebFetch" (load deferred tool schemas)
+7. WebSearch: "Stripe idempotency key API documentation how it works"
+8. WebSearch: "IETF idempotency key HTTP header draft standard"
+9. WebSearch: "Adyen idempotency key payment API implementation"
+10. WebSearch: "PayPal idempotency key PayPal-Request-Id documentation"
+11. WebSearch: "idempotency key design pattern distributed systems payment API best practices 2025"
+    (7-11 executed as one parallel batch)
+12. WebFetch: https://docs.stripe.com/api/idempotent_requests
+13. WebFetch: https://docs.adyen.com/development-resources/api-idempotency
+14. WebFetch: https://developer.paypal.com/api/rest/reference/idempotency/
+15. WebFetch: https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-idempotency-key-header-07
+    (12-15 executed as one parallel batch)
+16. WebFetch: https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/ (follow-up to resolve a status discrepancy between search result 8 and fetch 15)
+17. Bash: mkdir -p agent-docs/research && date -u +%Y%m%d-%H%M%S (prepare output location/timestamp)
+18. Write: agent-docs/research/idempotency-keys-in-payment-apis_20260817-105840.md (the research report)
+19. Bash: mkdir -p bench outputs dir + cp report into bench outputs directory
+20. Write: bench .../invoked_skills.json
+21. Write: bench .../transcript.txt (this file)
+
+---ASSUMPTIONS SUBSTITUTED FOR QUESTIONS---
+
+1. Question that would have been asked: "Do you want this scoped to a specific payment provider / language ecosystem, or a general cross-vendor survey of current approaches?"
+   Assumption made: Treated the query as a general, vendor-agnostic survey and covered the three most commonly cited payment processors (Stripe, Adyen, PayPal), the relevant IETF standardization effort, and the underlying distributed-systems implementation pattern, rather than deep-diving a single vendor. This assumption is stated explicitly in the report's own "Assumption Log" section as well, not just here.
+
+No other clarifying-question points arose — the skill's own process (query decomposition → parallel retrieval → primary-source verification → cited report with confidence/inference labeling) was followed directly without further ambiguity requiring a stop.

@@ -186,7 +186,11 @@ test("rollback only restores --target's tools, even when the chosen backup also 
 
 test('install without --force waits on confirm and aborts when stdin is empty', () => {
   const r = run(['install', '-g', '--target', 'claude'], { input: '' });
-  assert.strictEqual(r.status, 0);
+  // Exit 1: a declined prompt is a decision, not a completed run. This asserted 0 until the D.4
+  // sweep found that `doflow install <path>` in a script printed "Aborted.", wrote nothing, and
+  // reported success — the assertion had pinned the observed value rather than the stated intent,
+  // which is "waits on confirm and aborts".
+  assert.strictEqual(r.status, 1, r.stderr);
   assert.match(r.stderr, /Aborted/);
 });
 
@@ -396,8 +400,28 @@ test('Codex-native lifecycle supports isolated project dry-run, selected MCP upd
   assert.strictEqual(r.status, 0, r.stderr);
   const status = JSON.parse(r.stdout);
   assert.strictEqual(status.codex.status, 'verified');
-  assert.strictEqual(status.codex.hooksTrust.status, 'review-required');
+  assert.strictEqual(status.codex.hooks.status, 'installed-pending');
+  assert.deepStrictEqual(status.codex.hooks.prerequisites, ['trusted-project', 'hook-review']);
   assert.ok(status.codex.resources.some((resource) => resource.kind === 'mcp-server' && resource.identity === 'sequential-thinking'));
+});
+
+test('status --json reports the general per-harness hook-wiring status for claude, codex, gemini, and kiro', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+
+  let r = run(['install', project, '--force', '--target', 'claude,codex,gemini,kiro', '--mcp', 'context7'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+
+  r = run(['status', project, '--target', 'claude,codex,gemini,kiro', '--json'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const status = JSON.parse(r.stdout);
+
+  assert.deepStrictEqual(status.context.claude.hooks, { status: 'active', prerequisites: [] });
+  assert.deepStrictEqual(status.context.kiro.hooks, { status: 'active', prerequisites: [] });
+  assert.strictEqual(status.codex.hooks.status, 'installed-pending');
+  assert.deepStrictEqual(status.codex.hooks.prerequisites, ['trusted-project', 'hook-review']);
+  assert.strictEqual(status.context.gemini.hooks.status, 'installed-pending');
+  assert.ok(status.context.gemini.hooks.prerequisites.length > 0);
 });
 
 test('Codex reconciliation preserves foreign config and fails closed on a conflicting managed key', () => {
@@ -467,7 +491,11 @@ test('rollback with no id argument and empty stdin aborts instead of restoring',
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   run(['install', '-g', '--force', '--target', 'claude'], { home });
   const r = run(['rollback', '-g', '--force'], { home, input: '' });
-  assert.strictEqual(r.status, 0, r.stderr);
+  // Exit 1: a declined prompt is a decision, not a completed run. This asserted 0 until the D.4
+  // sweep found that `doflow install <path>` in a script printed "Aborted.", wrote nothing, and
+  // reported success — the assertion had pinned the observed value rather than the stated intent,
+  // which is "waits on confirm and aborts".
+  assert.strictEqual(r.status, 1, r.stderr);
   assert.match(r.stderr, /Aborted/);
 });
 
@@ -479,7 +507,11 @@ test('update without --force waits on confirm and aborts when stdin is empty', (
   fs.utimesSync(claudeMd, new Date('2000-01-01T00:00:00Z'), new Date('2000-01-01T00:00:00Z'));
 
   const r = run(['update', '-g', '--target', 'claude'], { home, input: '' });
-  assert.strictEqual(r.status, 0, r.stderr);
+  // Exit 1: a declined prompt is a decision, not a completed run. This asserted 0 until the D.4
+  // sweep found that `doflow install <path>` in a script printed "Aborted.", wrote nothing, and
+  // reported success — the assertion had pinned the observed value rather than the stated intent,
+  // which is "waits on confirm and aborts".
+  assert.strictEqual(r.status, 1, r.stderr);
   assert.match(r.stderr, /Aborted/);
   assert.strictEqual(fs.readFileSync(claudeMd, 'utf8'), 'mutated\n', 'aborted update must not touch the file');
 });
@@ -495,7 +527,11 @@ test('rollback with an explicit id but no --force aborts on an empty confirm ans
   fs.writeFileSync(claudeMd, 'should survive an aborted rollback\n');
 
   const r = run(['rollback', bid, '-g'], { home, input: '' });
-  assert.strictEqual(r.status, 0, r.stderr);
+  // Exit 1: a declined prompt is a decision, not a completed run. This asserted 0 until the D.4
+  // sweep found that `doflow install <path>` in a script printed "Aborted.", wrote nothing, and
+  // reported success — the assertion had pinned the observed value rather than the stated intent,
+  // which is "waits on confirm and aborts".
+  assert.strictEqual(r.status, 1, r.stderr);
   assert.match(r.stderr, /Aborted/);
   assert.strictEqual(fs.readFileSync(claudeMd, 'utf8'), 'should survive an aborted rollback\n');
 });

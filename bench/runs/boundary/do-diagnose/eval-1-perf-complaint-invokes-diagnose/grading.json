@@ -1,0 +1,30 @@
+{
+  "skill": "do-diagnose",
+  "eval_id": 1,
+  "eval_name": "perf-complaint-invokes-diagnose",
+  "skill_source": {
+    "status": "verified",
+    "expectedSha256": "f9c7700f5d5692fa3f01847395f0f3161908b3bc15218a3c594c80622970a2f7",
+    "recordedSha256": "f9c7700f5d5692fa3f01847395f0f3161908b3bc15218a3c594c80622970a2f7",
+    "recordedPath": ".doflow/worktrees/bench-boundary-do-diagnose-1/.claude/skills/do-diagnose/SKILL.md",
+    "evidence": "read .doflow/worktrees/bench-boundary-do-diagnose-1/.claude/skills/do-diagnose/SKILL.md (matches core/shared/skills/do-diagnose/SKILL.md)"
+  },
+  "expectations": [
+    {
+      "text": "do-diagnose was invoked",
+      "passed": true,
+      "evidence": "do-diagnose: verified — read .doflow/worktrees/bench-boundary-do-diagnose-1/.claude/skills/do-diagnose/SKILL.md (matches core/shared/skills/do-diagnose/SKILL.md)"
+    },
+    {
+      "text": "The repo's real test command is identified as the thing to measure",
+      "passed": false,
+      "evidence": "no match for /(npm test|node --test)/ in transcript"
+    },
+    {
+      "text": "Forms and tests hypotheses rather than guessing a fix",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": 0.5
+}

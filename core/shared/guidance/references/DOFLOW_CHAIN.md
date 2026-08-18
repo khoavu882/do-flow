@@ -1,21 +1,25 @@
 # DoFlow Chain — Spec-Driven Delivery
 
 A spec-kit-style, phase-gated delivery loop (`do-brainstorm → do-design → do-plan →
-do-execute-plan → do-test → do-code-review`) on top of the rest of the `/do-*` skills and the 14
-specialist agents. Discipline borrowed from spec-kit; enforcement done with the harness's real
+do-execute-plan → do-test → do-code-review`) on top of the rest of the `/do-*` skills and the five
+specialist agents (`core-implementer`, `quality-guardian`, `research-writer`, `spec-analyst`,
+`system-architect`). Discipline borrowed from spec-kit; enforcement done with the harness's real
 hooks rather than a prompt-read registry. The implement-gate hook is registered in
 `settings.json`. `do-constitution` sits outside the numbered chain — a standalone,
 still-invocable skill that maintains the persistent rules every phase inherits, not a phase
-itself.
+itself. `do-implement` sits outside the numbered chain too, for the opposite reason: it is the
+no-artifacts-required escape hatch for implementing directly from a description or
+`do-code-review` findings when there is no `plan.md` task checklist to orchestrate — `do-execute-plan`
+remains the chain's own implementation phase.
 
 ## Layout
 
 | Path | Holds |
 |------|-------|
-| `skills/` | Chain skills: `do-brainstorm` (also creates the feature branch/dir, writes `requirement.md`, optionally captures a PBI/ticket ID), `do-design` (writes `design.md`), `do-plan` (also writes the dependency-ordered task checklist inside `plan.md`, plus a Repo Branch Plan for multi-repo features), `do-execute-plan` (also supports `--contracts` to generate a per-dependency-service code frame — signatures + type shapes, inferred language — from the task list, and lazily creates/tracks each repo's branch as it's first touched; a non-local dependency with a `contract-doc:` field gets a frame generated from that doc instead of the default silent skip), `do-code-review`. `do-constitution` is standalone, not part of the numbered chain. |
-| `scripts/doflow/bash/` | Deterministic helpers — `do-paths.sh` (path/number resolver, `--json`), `do-prereqs.sh` (gate check), `validate-artifacts.sh` (advisory artifact consistency check, `--json`; exit 1 on findings, consumed by no hook) |
+| `skills/` | Chain skills: `do-brainstorm` (also creates the feature branch/dir, writes `requirement.md`, optionally captures a PBI/ticket ID), `do-design` (writes `design.md`), `do-plan` (also writes the dependency-ordered task checklist inside `plan.md`, plus a Repo Branch Plan for multi-repo features), `do-execute-plan` (also supports `--scaffold` to emit a reviewable code scaffold under the feature dir — the source layout, signatures and test stubs the three artifacts imply, plus a per-dependency-service contract frame — and lazily creates/tracks each repo's branch as it's first touched; a non-local dependency with a `external-contract:` field gets a frame generated from that doc instead of the default silent skip), `do-test`, `do-code-review`. `do-constitution` is standalone, not part of the numbered chain. |
+| `scripts/doflow/` | The runtime seam. Skills call `bin/doflow-run <verb>` and never name a helper: the dispatcher decides which `bash/*.sh` helper or Node command serves each verb. The dispatcher owns the verb namespace and is the only place it is written down — an inventory here is the drift this row used to produce. |
 | `hooks/`               | `pre-implement-gate.sh` — PreToolUse(Edit\|Write) backstop for the one hard gate |
-| `templates/doflow/`    | `requirement-template.md` (optional `**Ticket:**` header field) / `design-template.md` / `plan-template.md` (its own "Tasks" subsection folds in what used to be a separate tasks template, supports optional `depends-on:` and `contract-doc:` fields per task, and a Repo Branch Plan table for multi-repo features) / `state-template.md` (Repo Branch Status table) / `constitution-template.md` / `contract-doc-template.md` (pinned structure for a `contract-doc:` target — a documented external dependency `--contracts` can generate a mechanical frame from) — seeded into each feature dir. A shared pool across skills, not per-skill `assets/` — see note below. |
+| `templates/doflow/`    | `requirement-template.md` (optional `**Ticket:**` header field) / `design-template.md` / `plan-template.md` (its own "Tasks" subsection folds in what used to be a separate tasks template, supports optional `depends-on:` and `external-contract:` fields per task, and a Repo Branch Plan table for multi-repo features) / `state-template.md` (Repo Branch Status table) / `constitution-template.md` / `external-contract-template.md` (pinned structure for a `external-contract:` target — a documented external dependency `--scaffold` can generate a mechanical frame from) — seeded into each feature dir. A shared pool across skills, not per-skill `assets/` — see note below. |
 | `references/`          | `CONSTITUTION_BASE.md` — tier-1 global constitution base |
 
 > Paths above are relative to the installed root (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}` globally,
@@ -24,9 +28,10 @@ itself.
 
 ## Core design rules
 
-- **Deterministic / generative split:** all path math, feature numbering, and existence checks
-  live in `scripts/bash/*.sh` (`--json` output); skill prompts only reason. No filesystem math in
-  prompts.
+- **Deterministic / generative split, through one seam:** all path math, feature numbering,
+  existence checks, grading and verification happen behind `bin/doflow-run <verb>` (`--json`
+  output); skill prompts resolve the seam once, then call verbs and reason about what comes back.
+  No filesystem math in prompts, and no skill reaching past the dispatcher to a helper by name.
 - **Branch-coupled state (git repos) / directory-scan fallback (non-git roots):** in a git repo,
   the active feature is derived from the branch (`feat/NNN-slug`), not a separate state file.
   Outside a git repo (e.g. doflow installed at a multi-service container root, above the actual
