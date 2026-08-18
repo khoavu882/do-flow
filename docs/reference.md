@@ -7,8 +7,8 @@
 | Development cycles | `/do-flow "topic"`, `/do-brainstorm "topic"` |
 | Design & architecture | `/do-design "feature"`, `/do-constitution` |
 | Planning & implementation | `/do-plan`, `/do-execute-plan` |
-| Testing & code review | `/do-test --type all`, `/do-code-review` |
-| Analysis & diagnostics | `/do-diagnose path --type bug\|perf\|security\|refactor` |
+| Testing & code review | `/do-test`, `/do-code-review` |
+| Analysis & diagnostics | `/do-diagnose path --focus quality\|security\|performance\|architecture` |
 | Documentation & research | `/do-document path --type api\|guide\|impl\|index\|research` |
 
 ## Full Skill Reference
@@ -18,18 +18,18 @@ stay in sync, so a flag documented here always exists.
 
 | Skill | Description |
 |---|---|
-| `/do [command\|request] [--depth shallow\|normal\|deep] [--estimate] [--tools]` | Universal dispatcher, intent routing, tool capability selection, and estimation |
+| `/do [command\|request] [--depth shallow\|normal\|deep] [--estimate]` | Universal dispatcher, intent routing, tool capability selection, and estimation |
 | `/do-flow [feature description] [--from brainstorm\|design\|plan\|implement\|test\|review]` | Full-cycle development: brainstorm → design → plan → execute → test → code-review |
-| `/do-brainstorm [topic/idea] [--strategy systematic\|agile\|enterprise] [--depth shallow\|normal\|deep]` | Discover requirements through Socratic dialogue; seeds requirement.md in a branch-coupled feature dir |
-| `/do-design [target] [--type architecture\|api\|component\|database] [--format diagram\|spec\|code]` | Design system architecture, APIs, and component interfaces; writes design.md |
-| `/do-plan [--strategy systematic\|agile\|enterprise] [--depth normal\|deep]` | Generate implementation plan and dependency-ordered task checklist; writes plan.md |
-| `/do-execute-plan [--next\|--phase N\|--all\|--resume\|--scaffold] [--sync] [--review\|--no-review]` | Execute plan.md task checklist with specialist subagents and readiness gates |
-| `/do-test [target] [--type unit\|integration\|e2e\|build\|all] [--coverage] [--watch] [--clean]` | Execute project builds, automated test suites, and coverage verification |
+| `/do-brainstorm [topic/idea] [--depth shallow\|normal\|deep]` | Discover requirements through Socratic dialogue; seeds requirement.md in a branch-coupled feature dir |
+| `/do-design [target] [--type architecture\|api\|component\|database]` | Design system architecture, APIs, and component interfaces; writes design.md |
+| `/do-plan [--depth shallow\|normal\|deep]` | Generate implementation plan and dependency-ordered task checklist; writes plan.md |
+| `/do-execute-plan [--scope next\|phase:N\|all\|resume] [--review[=false]] [--scaffold]` | Execute plan.md task checklist with specialist subagents and readiness gates |
+| `/do-test [target] [--clean] [--watch]` | Execute project builds, automated test suites, and coverage verification |
 | `/do-code-review [target]` | Code review automation: analyze complexity, risk, SOLID compliance, and code smells |
 | `/do-implement [description of the change] [--from-review]` | Direct, standalone implementation from a description or `/do-code-review` findings — no chain artifacts required |
 | `/do-git [intent] [args...] [--confirm]` | Cycle-aware git operations via named intents: start, save, sync, ship, release, hotfix, backport, status |
 | `/do-constitution [principle inputs] [--amend]` | Create or amend the per-repo tier-2 constitution overlay and sync impact reports |
-| `/do-diagnose [target\|issue] [--type bug\|perf\|security\|refactor] [--focus quality\|security\|performance\|architecture] [--iterations n] [--validate] [--trace] [--fix]` | Unified diagnostics, root-cause investigation, and targeted code remediation |
+| `/do-diagnose [target\|issue] [--focus quality\|security\|performance\|architecture] [--fix]` | Unified diagnostics, root-cause investigation, and targeted code remediation |
 | `/do-document [target\|query] [--type api\|guide\|impl\|index\|research] [--depth shallow\|normal\|deep]` | Unified technical documentation, architecture indexing, and deep web research |
 
 ## Runtime & Diagnostics Commands

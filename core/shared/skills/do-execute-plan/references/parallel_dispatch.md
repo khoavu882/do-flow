@@ -4,8 +4,8 @@ Protocol for safe concurrent task execution by specialist subagents.
 
 **Write-set isolation is decided by the `parallel-check` verb, not by judgement.** The commands
 below compute the grouping and the overlap set deterministically from `plan.md`. Read their output;
-do not re-derive it by eye. If a verb is unavailable, say so and fall back to `--sync` (one task at
-a time) rather than guessing at which tasks are safe to run together.
+do not re-derive it by eye. If a verb is unavailable, say so and run the tasks serially (one at a
+time) rather than guessing at which tasks are safe to run together.
 
 ## Resolving the runtime
 
@@ -50,8 +50,10 @@ one that governs dispatch).
 - Launch **one subagent per group**, concurrently, except that any two groups both listed in
   `group_serialize[]` must be run one after the other.
 - Never split a group across subagents: its tasks are ordered and may share files.
-- `--sync` suppresses fan-out entirely — every task runs serially in dependency order.
-- `--no-group` falls back to per-task dispatch, using the legacy `overlaps`/`serialize` fields.
+- When the grouping cannot be computed, suppress fan-out entirely — every task runs serially in
+  dependency order. Say that fan-out was suppressed and why.
+- When groups are unavailable but per-task data is not, fall back to per-task dispatch using the
+  legacy `overlaps`/`serialize` fields.
 
 ## 3. Build each group's brief
 

@@ -1,7 +1,7 @@
 ---
 name: do-diagnose
 description: "Unified diagnostic and code remediation engine — root cause analysis, performance profiling, security auditing, and targeted refactoring. Use when something is broken, slow, insecure, or needs cleanup and the user wants root-cause evidence before any fix, or says 'why is this crashing' / 'this endpoint feels slow' / 'audit this for security issues' rather than asking for a brand-new feature."
-argument-hint: "[target|issue] [--type bug|perf|security|refactor] [--focus quality|security|performance|architecture] [--iterations n] [--validate] [--trace] [--fix]"
+argument-hint: "[target|issue] [--focus quality|security|performance|architecture] [--fix]"
 effort: medium
 ---
 
@@ -11,7 +11,7 @@ Unified diagnostic and code improvement engine. Replaces separate analyze/troubl
 
 ## Invocation
 ```text
-/do-diagnose [target|issue] [--type bug|perf|security|refactor] [--focus quality|security|performance|architecture] [--iterations n] [--validate] [--trace] [--fix]
+/do-diagnose [target|issue] [--focus quality|security|performance|architecture] [--fix]
 ```
 
 ## Behavioral Flow
@@ -32,8 +32,8 @@ Unified diagnostic and code improvement engine. Replaces separate analyze/troubl
      surface it verbatim and stop, do not go looking yourself.
 
 2. **Propose the Task Class; the Runtime Validates It**:
-   - `--type` names the *investigation mode* below, not the task class. Propose the class
-     separately, as exactly one id:
+   - The investigation mode is not a flag — it *is* the task class, so settle the class first.
+     Propose exactly one id:
      ```bash
      "$DOFLOW" classify --task-class "<proposed>" --json
      ```
@@ -43,18 +43,25 @@ Unified diagnostic and code improvement engine. Replaces separate analyze/troubl
      `dependency-change`). **`REJECTED`** → **stop**, print `message` verbatim, ask the user to
      choose from `validClasses`, and re-validate. Never substitute `feature`, never retry with a
      guess. **Exit 2** → surface the message verbatim and stop.
-   - `perf` and `security` are `--type` values, **not** declared classes: proposing either gets a
-     `REJECTED` outcome, correctly. A performance or security investigation is classed by what the
-     work is — `bug` when behavior is wrong now, `refactor` when structure changes with behavior
-     held fixed, `research` when the deliverable is a written answer.
+   - A performance or security investigation is not its own class: it is classed by what the work
+     is — `bug` when behavior is wrong now, `refactor` when structure changes with behavior held
+     fixed, `research` when the deliverable is a written answer. `--focus` is what narrows such a
+     run to one domain; it never changes the class.
    - Every stage this skill serves declares `readinessTemplate: null`. Do **not** call `readiness`
      while diagnosing, and do not report one as skipped.
 
-3. **Classify Intent & Scope (`--type`)**:
-   - `bug` (default if reproducing error): Reproduce issue, isolate cause via stack traces/diffs, formulate hypothesis. Consult `references/root_cause.md`.
-   - `perf`: Profile execution, detect hot paths, identify algorithmic complexity ($O(n^2)$) or N+1 queries.
-   - `security`: Static scan for secrets, unsanitized inputs, auth gaps, or vulnerability signatures. Consult `references/code_audit.md`.
-   - `refactor`: Identify dead code, code smells, god functions, and structure cleanups. Consult `references/refactoring.md`.
+3. **Derive Intent & Scope from the Accepted Class**:
+   - `bug` → reproduce the issue, isolate the cause via stack traces/diffs, formulate a hypothesis.
+     Consult `references/root_cause.md`.
+   - `refactor` → identify dead code, code smells, god functions, and structure cleanups. Consult
+     `references/refactoring.md`.
+   - `dependency-change` → map who uses the dependency and what the change reaches.
+   - `--focus performance` → profile execution, detect hot paths, identify algorithmic complexity
+     ($O(n^2)$) or N+1 queries, within whichever class was accepted.
+   - `--focus security` → static scan for secrets, unsanitized inputs, auth gaps, or vulnerability
+     signatures. Consult `references/code_audit.md`.
+   - `--focus quality|architecture` → narrow to maintainability or to boundary/structure concerns.
+   - With no `--focus`, investigate the whole reported symptom rather than picking a domain.
 
 4. **Evidence-First Diagnosis**:
    - Confirm root cause with concrete evidence before proposing any changes.
@@ -118,9 +125,16 @@ Unified diagnostic and code improvement engine. Replaces separate analyze/troubl
      is its own task under its own class. Say that and stop.
    - Verify fixes immediately by re-running tests.
 
-7. **Iteration & Validation (`--iterations`, `--validate`)**:
-   - `--iterations [n]`: repeat steps 3–5 for the given cycle count, re-diagnosing after each remediation pass.
-   - `--validate`: run a pre-execution risk assessment and require explicit confirmation before remediating production or shared infrastructure.
+7. **Iteration is Bounded by the Runtime, Not by You**:
+   - After a remediation pass that does not hold, classify the failure and take the action it
+     returns rather than choosing your own retry count:
+     `"$DOFLOW" recover --error "<message>" --failed-check "<name>" --iteration <n> --json`.
+     Exit 0 means a bounded retry is available — repeat steps 3–5 under it. Exit 1 means the loop
+     must stop; report where it stopped instead of trying again.
+   - Risk assessment before remediating production or shared infrastructure is step 6's readiness
+     call, which always runs. There is no separate opt-in for it.
+   - Every runtime call above is recorded in the run ledger as it happens; `"$DOFLOW" trace` reads it
+     back. Nothing needs to be switched on for that.
 
 ## Boundaries
 **Will:** Propose a task class and have the runtime validate it, reproduce active issues, perform

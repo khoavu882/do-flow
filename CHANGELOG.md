@@ -42,6 +42,30 @@ All notable changes to DoFlow are documented here. Format follows
   disk. Both guards were confirmed to actually fail by deliberately breaking the contract and
   reverting.
 
+### Removed
+
+- **The skill flag surface drops from 33 flag/skill pairs across 20 names to 18 across 14.**
+  **This is a breaking change** to every skill's invocation surface. The removed flags are
+  absorbed, not dropped — the behaviour each one requested now applies unconditionally or is
+  derived:
+  - `--validate`, `--trace`, `--iterations`, `--tools` and `--sync` are gone because readiness
+    gating, run-ledger tracing, recovery bounds, capability routing and ledger-backed state are
+    always on. There is nothing left to opt into.
+  - `--type` on `/do-diagnose` is gone: the investigation mode *is* the task class, and the
+    classifier settles it. `--focus` remains for narrowing to a domain within that class.
+  - `--type` and `--coverage` on `/do-test` are gone: which tiers run, and whether coverage runs
+    with them, follows from the risk-scaled verification contract rather than from the caller.
+  - `--format` on `/do-design` is gone: `ARTIFACT_FORMAT.md` §4 already fixes the diagram and
+    section shape of `design.md`.
+  - `--strategy` on `/do-brainstorm` and `/do-plan` folded into `--depth`, which is now
+    `shallow|normal|deep` on both — two overlapping breadth knobs on one skill.
+  - `--next`, `--phase N`, `--all` and `--resume` on `/do-execute-plan` collapse into
+    `--scope next|phase:N|all|resume`, and `--review`/`--no-review` collapse into `--review`,
+    on by default, with `--review=false` to skip.
+- **`core/shared/guidance/FLAGS.md` is no longer a flag list.** It is the always-loaded statement
+  of what the runtime does unconditionally; `--focus` is the one flag it still documents, because
+  it is the only surviving flag that is not local to a single skill.
+
 ### Changed
 
 - **`doflow install`/`update` with no `--target` now installs Claude only, not all valid

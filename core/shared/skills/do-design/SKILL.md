@@ -1,7 +1,7 @@
 ---
 name: do-design
 description: "Design system architecture, APIs, and component interfaces (HOW at the system-shape level); writes design.md as Phase 2 of the doflow chain, turning requirement.md into concrete architecture and interface decisions. Use when requirement.md already exists and the next need is system-shape decisions — diagrams, API contracts, data models — or the user says 'design the architecture for this' rather than asking for an implementation plan or task list."
-argument-hint: "[target] [--type architecture|api|component|database] [--format diagram|spec|code]"
+argument-hint: "[target] [--type architecture|api|component|database]"
 effort: high
 ---
 
@@ -13,7 +13,7 @@ implementation approach and task decomposition, not system-shape decisions.
 
 ## Invocation
 ```text
-/do-design [target] [--type architecture|api|component|database] [--format diagram|spec|code]
+/do-design [target] [--type architecture|api|component|database]
 ```
 
 ## Behavioral Flow
@@ -64,9 +64,9 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
 5. **Design** — per `--type` (architecture/api/component/database), produce the system-shape
    decisions: a C4 System Context diagram (actors + external systems this feature touches) and,
    when the feature spans more than one deployable unit, a C4 Container diagram; component
-   boundaries, API/interface contracts, data model, sequence/data-flow where useful. `--format`
-   controls output shape (diagram/spec/code-sketch) within `design.md`, not whether it gets
-   written. For a trivial, single-file change with no new external interaction, write
+   boundaries, API/interface contracts, data model, sequence/data-flow where useful. Output shape
+   inside `design.md` is not a choice: `references/ARTIFACT_FORMAT.md` §4 fixes which diagrams and
+   sections the artifact carries. For a trivial, single-file change with no new external interaction, write
    "N/A: [why]" in the System Overview section instead of forcing a diagram. Before finalizing
    system-shape decisions, run the same clarification loop `do-brainstorm` uses for any
    design-level ambiguity encountered while shaping architecture/API/data-model choices (e.g.

@@ -43,7 +43,7 @@ skill such as `do-execute-plan` or `do-diagnose`.
 /do-brainstorm "add an audit export"
 /do-design
 /do-plan
-/do-execute-plan --next --safe
+/do-execute-plan --scope next
 /do-test
 /do-code-review
 ```

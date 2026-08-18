@@ -1,7 +1,7 @@
 ---
 name: do
 description: "DoFlow universal dispatcher and request router — session announcement, multi-part task decomposition, capability routing, and development estimation. Use when a request doesn't clearly name one of the other /do-* skills, bundles multiple unrelated asks across files or domains, or needs a tool recommendation or effort estimate before any work begins — for example 'what should I use to search this repo' or 'give me a rough estimate for this change'."
-argument-hint: "[command|request] [--depth shallow|normal|deep] [--estimate] [--tools]"
+argument-hint: "[command|request] [--depth shallow|normal|deep] [--estimate]"
 effort: low
 ---
 
@@ -11,7 +11,7 @@ Universal command dispatcher, task decomposer, capability router, and developmen
 
 ## Invocation
 ```text
-/do [command|request] [--depth shallow|normal|deep] [--estimate] [--tools]
+/do [command|request] [--depth shallow|normal|deep] [--estimate]
 ```
 
 ## Behavioral Flow
@@ -45,9 +45,9 @@ Universal command dispatcher, task decomposer, capability router, and developmen
      Do **not** call `readiness` here and do not report one as skipped — research terminates at
      synthesis and has no implementation to be ready for.
 
-3. **Capability & Tool Selection (`--tools`)**:
-   - When determining the optimal search, graph, or testing tool for an information need, query the
-     Capability Router — run `"$DOFLOW" capabilities` (add `--json` to parse, `--check` for a deep
+3. **Capability & Tool Selection**:
+   - Routing an information need to a tool is unconditional, not a mode this skill can be asked
+     for: whenever a search, graph, or testing need arises, query the Capability Router — run `"$DOFLOW" capabilities` (add `--json` to parse, `--check` for a deep
      smoke check), or `"$DOFLOW" route --intent <intent> --json` to resolve one need end to end. It
      reports which provider is actually available on *this* machine; Semble and Graphify degrade to
      Ripgrep when absent, and a static table cannot know that.

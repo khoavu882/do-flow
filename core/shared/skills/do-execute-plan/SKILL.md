@@ -1,7 +1,7 @@
 ---
 name: do-execute-plan
 description: "Execute plan.md's task checklist: subagent-driven orchestration over named specialist archetypes (system-architect, core-implementer, quality-guardian) with prerequisite gates, readiness contracts, and parallel execution. Use when requirement.md, design.md, and plan.md already exist and the next step is running the plan's tasks through those subagents, or the user says 'let's start building the plan' rather than describing a one-off fix outside any plan."
-argument-hint: "[--next|--phase N|--all|--resume|--scaffold] [--sync] [--review|--no-review]"
+argument-hint: "[--scope next|phase:N|all|resume] [--review[=false]] [--scaffold]"
 effort: high
 ---
 
@@ -11,7 +11,7 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
 
 ## Invocation
 ```text
-/do-execute-plan [--next|--phase N|--all|--resume|--scaffold] [--sync] [--review|--no-review]
+/do-execute-plan [--scope next|phase:N|all|resume] [--review[=false]] [--scaffold]
 ```
 
 ## Behavioral Flow
@@ -72,7 +72,8 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
      inputs you state cover the contract, `BLOCKED` on a claim whose evidence contradicts itself,
      and `NEEDS_USER_DECISION` when you pass `--user-decision-pending`. A first call on a task with
      nothing recorded grades an empty ledger — that is a checklist, not a defect.
-   - `readiness` also accepts `--verification-plan`, `--scope` and `--invariants`. Those are inputs
+   - `readiness` also accepts `--verification-plan`, `--scope` and `--invariants` — the verb's own
+     arguments, unrelated to this skill's `--scope`. Those are inputs
      you **state**, not evidence the gate measured: the report lists them back as `callerAsserted`
      in JSON and `Caller-stated:` in the human report, and a requirement satisfied that way links
      no evidence. Pass them when they are true, and when you report the verdict say which part of
@@ -95,17 +96,20 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
      complete is worse than none.
 
 5. **Task Selection & Parallel Dispatch**:
-   - Select next pending task(s) (`--next`, `--phase N`, `--all`, `--resume`).
+   - `--scope` selects what this run executes, and takes exactly one value: `next` (the next
+     pending task, the default), `phase:N` (one phase), `all` (every pending task), or `resume`
+     (pick up where an interrupted run stopped). Where an interrupted run stopped is read from the
+     recorded state, never reconstructed from the transcript.
    - Compute dispatch groups with `"$DOFLOW" parallel-check --phase=<N> --json` — it
      groups by phase and `owner:`, and returns the cross-group write-set collisions
      (`group_overlaps[]`, `group_serialize[]`) that decide what may run concurrently. Do not derive
      write-set isolation by inspection; it is computed.
      **Branch on the `parallel_safe` field, never on the exit code.** With `jq` unavailable this
      verb exits 0 and reports `"parallel_safe": null` — a zero exit is not a grant of concurrency.
-     `null`, or a missing field, means unknown: fall back to `--sync` and say why.
+     `null`, or a missing field, means unknown: run the tasks serially and say why.
      Build each group's brief with
      `"$DOFLOW" task-brief --group=<phase>:<owner> --tasks=<csv>`. Full protocol, field
-     meanings, and the `--sync` / `--no-group` fallbacks: `references/parallel_dispatch.md`.
+     meanings, and the serial and per-task fallbacks: `references/parallel_dispatch.md`.
    - Dispatch tasks to appropriate specialist archetypes:
      - Architecture & Schema $\rightarrow$ `system-architect`
      - Code Implementation & Refactoring $\rightarrow$ `core-implementer`
@@ -147,8 +151,10 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
    - Relevance is not confidence. A match count, a ranking, a "best hit" is a property of the query,
      not of the fact — record the locator, never a score, a percentage, or a confidence.
 
-7. **Phase Quality Review**:
-   - Review each phase upon completion for spec compliance before advancing.
+7. **Phase Quality Review** (`--review`):
+   - Review each phase upon completion for spec compliance before advancing. This runs by default;
+     `--review=false` is the only way to skip it, and skipping it is reported in the phase's
+     completion summary rather than passing silently.
 
 ## Boundaries
 **Will:** Propose a task class and have the runtime validate it, execute planned tasks with

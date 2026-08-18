@@ -1,7 +1,7 @@
 ---
 name: do-brainstorm
 description: "Interactive requirements discovery through Socratic dialogue; seeds requirement.md in a branch-coupled feature dir as Phase 1 of the doflow chain. Use when an idea is still vague and needs discovery questions before any design or planning work starts, or when the user says something like 'I have an idea for a new feature' or 'help me figure out what we actually need to build' rather than describing a concrete, already-scoped task."
-argument-hint: "[topic/idea] [--strategy systematic|agile|enterprise] [--depth shallow|normal|deep]"
+argument-hint: "[topic/idea] [--depth shallow|normal|deep]"
 effort: high
 ---
 
@@ -14,7 +14,7 @@ continuity gap: brainstorm output survives a compact/session-end without a separ
 
 ## Invocation
 ```text
-/do-brainstorm [topic/idea] [--strategy systematic|agile|enterprise] [--depth shallow|normal|deep]
+/do-brainstorm [topic/idea] [--depth shallow|normal|deep]
 ```
 
 ## Behavioral Flow
@@ -64,8 +64,8 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    and hand off to the first stage they do name rather than writing a `requirement.md` that
    workflow never reads.
 3. **Explore** — Socratic dialogue: transform the idea through systematic questioning.
-   `--depth shallow|normal|deep` and `--strategy systematic|agile|enterprise` shape how many
-   rounds and how wide the exploration goes. Coordinate architecture/analysis/frontend/backend/
+   `--depth shallow|normal|deep` is the single breadth knob: it sets both how many dialogue
+   rounds run and how wide each one reaches. Coordinate architecture/analysis/frontend/backend/
    security domain framing as needed, but stay in discovery mode — no implementation decisions
    here. After each dialogue round, before moving to the next round, partition any ambiguities
    surfaced that round into: *independent* ones (answerable without knowing another's answer) —

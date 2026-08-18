@@ -1,7 +1,7 @@
 ---
 name: do-plan
 description: "Generate the implementation plan (HOW) and dependency-ordered task checklist from requirement.md + design.md, with a Constitution Check gate, as Phase 3 of the doflow chain. Use when requirement.md and design.md already exist and the next need is a concrete, owner-and-file-scoped task breakdown before implementation starts, or the user says 'turn this design into a plan' rather than asking to design the system or write code."
-argument-hint: "[--strategy systematic|agile|enterprise] [--depth normal|deep]"
+argument-hint: "[--depth shallow|normal|deep]"
 effort: high
 ---
 
@@ -12,7 +12,7 @@ Phase 3 of the doflow chain. Turns `requirement.md` (WHAT/WHY) + `design.md` (sy
 
 ## Invocation
 ```text
-/do-plan [--strategy systematic|agile|enterprise] [--depth normal|deep]
+/do-plan [--depth shallow|normal|deep]
 ```
 
 ## Behavioral Flow
@@ -85,6 +85,8 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    is a discipline this skill observes, not something a hook enforces.
 7. **Decompose into Tasks (section 8)** — dependency-ordered, `[US#]`-traced to the requirement's
    user stories, owner+files named per task, with checkpoints and completion criteria.
+   `--depth shallow|normal|deep` is the single granularity knob: it sets how finely a phase is
+   split into tasks and how much detail each task carries. Default `normal`.
    **Mark `[P]` by default:** parallel execution is the framework default, so apply `[P]` to every
    task whose `files:` set is disjoint from its phase siblings' and leave it off only where a real
    dependency forces the order — an unmarked task is the exception that owes a reason, not the norm.

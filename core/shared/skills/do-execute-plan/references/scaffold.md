@@ -2,8 +2,8 @@
 
 Read this file only when `/do-execute-plan --scaffold` is the active invocation. It is step 3 of
 `do-execute-plan`'s Behavioral Flow, factored out here per Anthropic's progressive-disclosure
-guidance so the other invocation modes (`--next`/`--phase`/`--all`/`--resume`, and the `--sync` and
-`--review`/`--no-review` modifiers) don't pay the token cost of this algorithm on every invocation.
+guidance so the other invocation modes (`--scope next|phase:N|all|resume`, and the `--review`
+modifier) don't pay the token cost of this algorithm on every invocation.
 
 It answers one question: *what shape does my plan imply, before any of it reaches my code?* The
 cross-service frames in Part 2 are one case of that, not the headline.
