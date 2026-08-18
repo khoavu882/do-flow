@@ -17,13 +17,19 @@ Maintains the **tier-2** per-repo constitution that overlays the tier-1 `CONSTIT
 
 ## Behavioral Flow
 1. **Resolve** — run the resolver and note `constitution_base`, `constitution_local`, and
-   `repo_root`. Every DoFlow runtime call in this skill goes through `../../bin/doflow-run`,
-   resolved relative to this skill's own directory:
+   `repo_root`. Every DoFlow runtime call in this skill goes through the runtime seam. Resolve it
+   **once** here and reuse `$DOFLOW` for every later call in this skill:
    ```bash
-   ../../bin/doflow-run paths --json
+   # Resolve the DoFlow runtime: nearest project install wins, then the global one.
+   D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+   DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
+   [ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
+   [ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
+   "$DOFLOW" paths --json
    ```
-   Exit 2 means no DoFlow runtime was found; the message names every place searched — surface it
-   verbatim and stop, do not search for the runtime yourself.
+   The walk-up starts at the working directory, so run every command in this skill from the repo
+   root. Exit 2 means no DoFlow runtime was found; the message names every place searched — surface
+   it verbatim and stop, do not search for the runtime yourself.
 2. **Read both tiers** — the base (read-only), and the local file when `has_constitution_local` is
    true. You reconcile them yourself, tier-2 taking precedence — nothing merges them for you — and
    tier-2 may not weaken base P1 (Safety), a rule stated here rather than validated by any check.
@@ -45,7 +51,7 @@ Maintains the **tier-2** per-repo constitution that overlays the tier-1 `CONSTIT
    in the agent context file without rewriting it:
    ```bash
    printf 'doflow: active constitution = agent-docs/constitution.md (v<version>), overlaying CONSTITUTION_BASE.md.\n' \
-     | ../../bin/doflow-run sync-context --file CLAUDE.md   # or AGENTS.md for Codex
+     | "$DOFLOW" sync-context --file CLAUDE.md   # or AGENTS.md for Codex
    ```
    The verb acknowledges in plain text on success. **Any non-zero exit means the pointer did not
    land** — 1 the write failed, 2 the call was malformed. Report it in step 6 as a failed

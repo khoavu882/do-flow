@@ -2,12 +2,12 @@
 
 Read this file only when `/do-execute-plan --contracts` is the active invocation. It is step 4 of
 `do-execute-plan`'s Behavioral Flow, factored out here per Anthropic's progressive-disclosure
-guidance so the other five flag modes (`--next`/`--phase`/`--all`/`--resume`/`--dry-run`) don't pay
-the token cost of this algorithm on every invocation.
+guidance so the other invocation modes (`--next`/`--phase`/`--all`/`--resume`, and the `--sync` and
+`--review`/`--no-review` modifiers) don't pay the token cost of this algorithm on every invocation.
 
-`plan.md`'s task list is already loaded (step 3). This produces a distinct deliverable from the
-task-execution loop in steps 5-9 — runs standalone (no task-selection mode required), to
-completion, then stops. Idempotent — safe to re-run.
+`plan.md`'s task list is already resolved by the time this runs. This produces a distinct
+deliverable from the task-execution loop in step 4 — runs standalone (no task-selection mode
+required), to completion, then stops. Idempotent — safe to re-run.
 
 ## Algorithm
 
@@ -39,8 +39,8 @@ completion, then stops. Idempotent — safe to re-run.
    fixed-root-list version gave paths outside its known roots. Not every path needs to resolve to
    a service, and silently naming the whole consuming repo "the service" would collapse every such
    path into one colliding identity. A `depends-on:` value that degenerates this way simply
-   produces no contract for that dependency — surfaced through the existing advisory notice
-   (`do-execute-plan/SKILL.md` step 5), not an error. This works in any consuming repo's directory
+   produces no contract for that dependency — reported to the user as an advisory notice naming
+   the skipped dependency, not an error. This works in any consuming repo's directory
    layout, not only one shaped like a specific multi-service container workspace.
 
    This entire derivation — walk-up *and* the no-signal fallback — only ever applies to a

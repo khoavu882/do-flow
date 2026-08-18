@@ -17,11 +17,14 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared');
 
 const BASH_DIR = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash');
 const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
+const SKILLS_DIR = path.join(REPO, 'core', 'shared', 'skills');
 
 /** Everything that ships and could plausibly name an executable: skills, guidance, and user docs. */
 function consumerTexts() {
@@ -74,11 +77,20 @@ function verbTable() {
   return table;
 }
 
-/** Verbs a consumer actually invokes — `doflow-run <verb>`, however the locator path is spelled. */
+/**
+ * Every way a consumer can spell an invocation of the seam:
+ *   - `doflow-run <verb>`      — the dispatcher or a locator named by path
+ *   - `"$DOFLOW" <verb>`       — the resolved-once handle a skill reuses for its later verbs
+ * The second form exists because a skill resolves the runtime once in step 1 and keeps the result;
+ * without it, every verb a chain skill calls after the first would read as uninvoked here.
+ */
+const INVOCATION = /(?:doflow-run|\$\{?DOFLOW\}?"?)\s+([a-z][a-z-]*)/g;
+
+/** Verbs a consumer actually invokes — `doflow-run <verb>`, however the seam is spelled. */
 function verbsNamedBy(consumers) {
   const named = new Set();
   for (const { text } of consumers) {
-    for (const [, verb] of text.matchAll(/doflow-run\s+([a-z][a-z-]*)/g)) named.add(verb);
+    for (const [, verb] of text.matchAll(INVOCATION)) named.add(verb);
   }
   return named;
 }
@@ -132,7 +144,7 @@ test('G8: every verb a skill or doc invokes is a verb the dispatcher actually di
   const dispatched = new Set([...verbTable().keys(), ...alternation.split('|'), 'help']);
   const unknown = [];
   for (const { rel, text: consumer } of consumerTexts()) {
-    for (const [, verb] of consumer.matchAll(/doflow-run\s+([a-z][a-z-]*)/g)) {
+    for (const [, verb] of consumer.matchAll(INVOCATION)) {
       if (!dispatched.has(verb)) unknown.push(`${rel} -> doflow-run ${verb}`);
     }
   }
@@ -294,4 +306,136 @@ test('G8: a `references/…` pointer resolves against one of the two roots that 
     }
   }(skillsRoot));
   assert.deepEqual(broken, [], `these references resolve against neither root:\n  ${broken.join('\n  ')}`);
+});
+
+// ---------------------------------------------------------------------------------------------
+// The resolution snippets skills tell the model to run.
+//
+// C.4 (08bddf6) replaced six inlined resolvers with `../../bin/doflow-run <verb>` and claimed the
+// path resolved "relative to this skill's own directory". It does not: a relative path in a shell
+// command resolves against the *working directory*, and a skill runs with CWD at the user's project
+// root — so every one of those 27 call-sites resolved to <grandparent-of-project>/bin/doflow-run and
+// died with "No such file or directory". The task's own verification passed because it `cd`'d into
+// the skill directory first, which is the one place the caller never stands.
+//
+// So the guard's whole point is the working directory: it performs a real install and executes each
+// documented snippet with CWD at the project root and at a nested subdirectory, never in the skill
+// directory. A check that only read the text could not have caught this — the text was plausible.
+// ---------------------------------------------------------------------------------------------
+
+// Any bash block naming the seam by path. Deliberately wider than "blocks containing the *correct*
+// installed path": the broken relative form is `../../bin/doflow-run`, and a predicate that only
+// recognised the correct path would stop collecting a snippet at the moment it regressed — the
+// regression would read as "one fewer snippet" instead of "this snippet does not run".
+const SEAM_MARK = 'doflow-run';
+const INSTALLED_DISPATCHER = '.doflow/scripts/doflow/bin/doflow-run';
+
+/** Strip the list-item indentation a fenced block carries inside a numbered step. */
+function dedent(code) {
+  const lines = code.split('\n');
+  const indents = lines.filter((l) => l.trim()).map((l) => l.match(/^ */)[0].length);
+  const cut = indents.length ? Math.min(...indents) : 0;
+  return lines.map((l) => l.slice(cut)).join('\n');
+}
+
+/**
+ * Every fenced bash block in the skill tree that reaches the runtime by path. Discovered rather than
+ * listed, so a snippet added to a new skill tomorrow is executed by this guard without editing it.
+ * Blocks that only use an already-resolved `"$DOFLOW"` are out of scope here — they carry no path of
+ * their own, and their handle is set up by a block this does collect.
+ */
+function resolutionSnippets() {
+  const out = [];
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { walk(full); continue; }
+      if (!entry.name.endsWith('.md')) continue;
+      const text = fs.readFileSync(full, 'utf8');
+      for (const [, block] of text.matchAll(/```bash\n([\s\S]*?)```/g)) {
+        if (block.includes(SEAM_MARK)) out.push({ rel: path.relative(REPO, full), code: dedent(block) });
+      }
+    }
+  }(SKILLS_DIR));
+  return out;
+}
+
+test('G8: every documented runtime-resolution snippet resolves with CWD at the project root', () => {
+  const snippets = resolutionSnippets();
+  // The six chain skills plus parallel_dispatch.md. A floor, not an equality: the point is that the
+  // set is non-trivial, so an accidental change to RESOLVER_MARK cannot quietly test nothing.
+  assert.ok(snippets.length >= 7,
+    `expected the chain skills to document a resolution snippet each, found ${snippets.length}`);
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-resolve-'));
+  try {
+    // $HOME is scratch too: a global install of the developer's own must not be what makes this
+    // pass, and the not-installed branch must be reachable.
+    const home = path.join(root, 'home');
+    fs.mkdirSync(home);
+    const install = spawnSync(
+      'node',
+      [path.join(REPO, 'bin', 'doflow.js'), 'install', root, '-f', '--no-backup', '-t', 'claude'],
+      { encoding: 'utf8', input: '\n', env: { ...process.env, HOME: home } },
+    );
+    assert.equal(install.status, 0, `installer failed: ${install.stderr}`);
+    assert.ok(fs.existsSync(path.join(root, INSTALLED_DISPATCHER)), 'install did not place the dispatcher');
+
+    // Project root is where a skill actually runs; the subdirectory pins the walk-up, which is the
+    // second way the broken form failed.
+    const deep = path.join(root, 'src', 'a', 'b');
+    fs.mkdirSync(deep, { recursive: true });
+
+    const failures = [];
+    for (const { rel, code } of snippets) {
+      for (const cwd of [root, deep]) {
+        const where = path.relative(root, cwd) || '<project root>';
+        const run = spawnSync('bash', ['-c', code], {
+          cwd,
+          encoding: 'utf8',
+          // A developer's exported override would resolve the runtime for reasons the snippet does
+          // not own, hiding exactly the defect under test.
+          env: { ...process.env, HOME: home, DOFLOW_CONFIG_DIR: undefined },
+        });
+        if (run.status !== 0) {
+          failures.push(`${rel} (cwd=${where}): exit ${run.status} — ${(run.stderr || '').trim().split('\n')[0]}`);
+          continue;
+        }
+        if (code.includes('paths --json')) {
+          let parsed;
+          try { parsed = JSON.parse(run.stdout); } catch {
+            failures.push(`${rel} (cwd=${where}): resolved but 'paths --json' emitted non-JSON`);
+            continue;
+          }
+          if (!parsed.repo_root) failures.push(`${rel} (cwd=${where}): 'paths --json' returned no repo_root`);
+        }
+      }
+    }
+    assert.deepEqual(failures, [],
+      'these documented snippets do not work from the directory a skill actually runs in:\n  '
+      + `${failures.join('\n  ')}`);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('G8: no skill documents the known-broken `../../bin/doflow-run` relative call', () => {
+  // Belt to the execution test's braces, and a far better error message: this one names the file and
+  // line rather than reporting a bash exit code. The form is not merely discouraged, it cannot work
+  // from any directory a skill is invoked from, so its presence is always a defect.
+  const offenders = [];
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { walk(full); continue; }
+      if (!entry.name.endsWith('.md')) continue;
+      fs.readFileSync(full, 'utf8').split('\n').forEach((line, i) => {
+        if (line.includes('../../bin/doflow-run')) offenders.push(`${path.relative(REPO, full)}:${i + 1}`);
+      });
+    }
+  }(SKILLS_DIR));
+  assert.deepEqual(offenders, [],
+    'a relative path resolves against the working directory (the project root), not the skill '
+    + 'directory, so this call always fails. Inline the walk-up resolver instead:\n  '
+    + `${offenders.join('\n  ')}`);
 });

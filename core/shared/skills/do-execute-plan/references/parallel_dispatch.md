@@ -9,14 +9,25 @@ a time) rather than guessing at which tasks are safe to run together.
 
 ## Resolving the runtime
 
-Same call `SKILL.md` step 1 uses. `../../bin/doflow-run` resolves against the **skill** directory
-(`do-execute-plan/`), not against this `references/` file. Leave the working directory at the repo
-root — every path a verb takes or returns is relative to it.
+`SKILL.md` step 1 already resolved `$DOFLOW`; reuse it. Resolving is a search of the filesystem, not
+of this file's location — a relative path would resolve against the working directory, which is the
+project root, not the skill. If `$DOFLOW` is unset (this file read on its own), resolve it first:
+
+```bash
+# Resolve the DoFlow runtime: nearest project install wins, then the global one.
+D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
+[ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
+[ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
+```
+
+Leave the working directory at the repo root — the walk-up starts there, and every path a verb takes
+or returns is relative to it.
 
 ## 1. Compute the dispatch groups
 
 ```bash
-../../bin/doflow-run parallel-check --phase=<PHASE> --json
+"$DOFLOW" parallel-check --phase=<PHASE> --json
 ```
 
 Returns, alongside the legacy per-task fields (`parallel_tasks`, `sequential_tasks`, `overlaps`,
@@ -45,7 +56,7 @@ one that governs dispatch).
 ## 3. Build each group's brief
 
 ```bash
-../../bin/doflow-run task-brief --group=<PHASE>:<OWNER> --tasks=<id,id,...> --json
+"$DOFLOW" task-brief --group=<PHASE>:<OWNER> --tasks=<id,id,...> --json
 ```
 
 Writes the group brief and returns its path in `path`. The brief carries the shared preamble

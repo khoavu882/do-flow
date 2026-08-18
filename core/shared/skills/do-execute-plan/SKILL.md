@@ -17,14 +17,20 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
 ## Behavioral Flow
 
 1. **Resolve State & Prerequisite Gate**:
-   - Every DoFlow runtime call in this skill goes through `../../bin/doflow-run`, resolved relative
-     to this skill's own directory:
+   - Every DoFlow runtime call in this skill — `paths`, `prereqs`, `parallel-check`, `task-brief` —
+     goes through the runtime seam. Resolve it **once** here and reuse `$DOFLOW` for all four:
      ```bash
-     ../../bin/doflow-run paths --json
+     # Resolve the DoFlow runtime: nearest project install wins, then the global one.
+     D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+     DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
+     [ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
+     [ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
+     "$DOFLOW" paths --json
      ```
-     Exit 2 means no DoFlow runtime was found; the message names every place searched — surface it
-     verbatim and stop, do not search for the runtime yourself.
-   - Enforce hard prerequisite gate: `../../bin/doflow-run prereqs --require-plan` (requires
+     The walk-up starts at the working directory, so run every command in this skill from the
+     project root. Exit 2 means no DoFlow runtime was found; the message names every place searched
+     — surface it verbatim and stop, do not search for the runtime yourself.
+   - Enforce hard prerequisite gate: `"$DOFLOW" prereqs --require-plan` (requires
      `requirement.md`, `design.md`, `plan.md`).
 
 2. **Readiness Evaluation (Confidence Check)**:
@@ -40,7 +46,7 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
 
 4. **Task Selection & Parallel Dispatch**:
    - Select next pending task(s) (`--next`, `--phase N`, `--all`, `--resume`).
-   - Compute dispatch groups with `../../bin/doflow-run parallel-check --phase=<N> --json` — it
+   - Compute dispatch groups with `"$DOFLOW" parallel-check --phase=<N> --json` — it
      groups by phase and `owner:`, and returns the cross-group write-set collisions
      (`group_overlaps[]`, `group_serialize[]`) that decide what may run concurrently. Do not derive
      write-set isolation by inspection; it is computed.
@@ -48,7 +54,7 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
      verb exits 0 and reports `"parallel_safe": null` — a zero exit is not a grant of concurrency.
      `null`, or a missing field, means unknown: fall back to `--sync` and say why.
      Build each group's brief with
-     `../../bin/doflow-run task-brief --group=<phase>:<owner> --tasks=<csv>`. Full protocol, field
+     `"$DOFLOW" task-brief --group=<phase>:<owner> --tasks=<csv>`. Full protocol, field
      meanings, and the `--sync` / `--no-group` fallbacks: `references/parallel_dispatch.md`.
    - Dispatch tasks to appropriate specialist archetypes:
      - Architecture & Schema $\rightarrow$ `system-architect`

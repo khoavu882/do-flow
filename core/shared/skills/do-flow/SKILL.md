@@ -23,13 +23,19 @@ not part of this chain; invoke it directly when you need to set or amend repo-le
 `RULE_04_QUESTIONS.md`: use that tool in Claude Code; in Codex or Gemini, write the stage question
 file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a question file.
 
-1. **Resolve state** — run the resolver. Every DoFlow runtime call in this skill goes through
-   `../../bin/doflow-run`, resolved relative to this skill's own directory:
+1. **Resolve state** — run the resolver. Every DoFlow runtime call in this skill goes through the
+   runtime seam. Resolve it **once** here and reuse `$DOFLOW` for every later call in this skill:
    ```bash
-   ../../bin/doflow-run paths --json
+   # Resolve the DoFlow runtime: nearest project install wins, then the global one.
+   D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+   DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
+   [ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
+   [ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
+   "$DOFLOW" paths --json
    ```
-   Exit 2 means no DoFlow runtime was found; the message names every place searched — surface it
-   verbatim and stop, do not search for the runtime yourself.
+   The walk-up starts at the working directory, so run every command in this skill from the project
+   root. Exit 2 means no DoFlow runtime was found; the message names every place searched — surface
+   it verbatim and stop, do not search for the runtime yourself.
    Determine the starting phase:
    - `feature_slug` is `null` **and** `candidate_slugs` is empty (trunk branch, or a non-git root
      with zero `agent-docs/doflow/` dirs): no active feature — start at `do-brainstorm`.
@@ -38,7 +44,7 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
      disambiguate): this is NOT "no active feature," it's an unresolved choice. Ask via
      `AskUserQuestion`, one option per `candidate_slugs` entry, before doing anything else — never
      default to `do-brainstorm` here, that would create a duplicate feature dir alongside an
-     existing one. Re-resolve with `../../bin/doflow-run paths --json --slug="<chosen>"` and carry
+     existing one. Re-resolve with `"$DOFLOW" paths --json --slug="<chosen>"` and carry
      that slug through every remaining phase invocation and gate.
    - `feature_slug` is set (branch-derived, or auto-selected/disambiguated above): resume from the
      first missing artifact — `!has_requirement` → `do-brainstorm`; `has_requirement &&

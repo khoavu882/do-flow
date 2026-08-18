@@ -22,16 +22,22 @@ implementation approach and task decomposition, not system-shape decisions.
 file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a question file.
 
 1. **Resolve** — run the resolver, parse JSON. Every DoFlow runtime call in this skill goes through
-   `../../bin/doflow-run`, resolved relative to this skill's own directory:
+   the runtime seam. Resolve it **once** here and reuse `$DOFLOW` for every later call in this skill:
    ```bash
-   ../../bin/doflow-run paths --json
+   # Resolve the DoFlow runtime: nearest project install wins, then the global one.
+   D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+   DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
+   [ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
+   [ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
+   "$DOFLOW" paths --json
    ```
-   Exit 2 means no DoFlow runtime was found; the message names every place searched — surface it
-   verbatim and stop, do not search for the runtime yourself.
+   The walk-up starts at the working directory, so run every command in this skill from the project
+   root. Exit 2 means no DoFlow runtime was found; the message names every place searched — surface
+   it verbatim and stop, do not search for the runtime yourself.
    If `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root with 2+
    `agent-docs/doflow/` feature dirs and no branch to disambiguate), ask via `AskUserQuestion`, one
    option per `candidate_slugs` entry, before continuing. Re-resolve with
-   `../../bin/doflow-run paths --json --slug="<chosen>"` and use that slug for the rest of this flow. If `/do-flow` already
+   `"$DOFLOW" paths --json --slug="<chosen>"` and use that slug for the rest of this flow. If `/do-flow` already
    disambiguated and is invoking this skill directly, it passes `--slug="<chosen>"` itself — skip
    the prompt in that case (resolver output already has a non-null `feature_slug`).
 2. **Precondition (advisory)** — if `has_requirement` is false, warn that there's no
@@ -69,7 +75,7 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    experimental `C4Context` / `C4Container` types must not be used.
 6. **Validate** — run the advisory consistency check and surface any findings verbatim:
    ```bash
-   ../../bin/doflow-run validate "<design path>"
+   "$DOFLOW" validate "<design path>"
    ```
    Findings are reported to the user, never repaired automatically. A non-zero exit is advisory
    and does not halt the chain.

@@ -15,9 +15,21 @@
 #
 # Resolution order (design.md §4.1), first hit wins. $REL is defined once below and interpolated
 # into every step, so no step can drift onto a different path than the others:
-#   1. $DOFLOW_CONFIG_DIR/$REL  — explicit override, and what harness session hooks export
-#   2. nearest .doflow/$REL walking up from the working directory — project-local wins over global
+#   1. $DOFLOW_CONFIG_DIR/$REL  — explicit override; a documented extension point, not an active
+#      path. design.md §4.1 justified it as "what harness session hooks already export", which is
+#      false: nothing under core/harnesses/*/hooks/ exports DOFLOW_CONFIG_DIR, so step 1 never
+#      fires unless a caller sets the variable itself. Kept because that override is the only way
+#      to point at a non-standard install; do not restate the hook claim.
+#   2. nearest .doflow/$REL walking up from the working directory — project-local wins over global.
+#      In practice this is the step that resolves, and it is the one a skill's own inline resolver
+#      reproduces.
 #   3. $HOME/.doflow/$REL       — global install
+#
+# Reaching this file is the caller's problem, not this file's. It resolves the dispatcher correctly
+# whenever it is invoked by a path correct for the caller — but a skill cannot name it by a literal
+# relative path: a relative path in a shell command resolves against the working directory, which is
+# the user's project root, not the skill's directory. Skills therefore inline the step 2/3 walk-up
+# directly (see any chain SKILL.md step 1) rather than calling this shim.
 # None found: exit 2 — a resolution error under the dispatcher's uniform exit codes (0 success,
 # 1 actionable finding, 2 usage/resolution error) — with one message naming all three places
 # searched. design.md R3 accepts this outcome deliberately: a harness install with no `.doflow/`
