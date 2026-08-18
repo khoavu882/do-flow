@@ -20,6 +20,13 @@ const GATE_STRING_FIELDS = ['id', 'name', 'afterStage', 'kind', 'trigger', 'prom
 
 const READINESS_REGISTRY_FILE = 'readiness-templates.yaml';
 
+/** What a shipped skill is, as far as class routing is concerned. `stage` is the default and the
+ * only role the fit check can answer for; the other two are exemptions, and the registry makes each
+ * of them state why — an exemption nobody wrote a reason for is indistinguishable from an omission,
+ * and rots into a skill that quietly cannot be fit-checked. */
+const CALLER_ROLES = Object.freeze({ ROUTER: 'router', STAGE: 'stage', STANDALONE: 'standalone' });
+const CALLER_ROLE_VALUES = Object.freeze(Object.values(CALLER_ROLES));
+
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -94,6 +101,7 @@ class WorkflowEngine {
     this.version = document.version;
     this.stageKinds = document.stageKinds;
     this.classes = document.classes;
+    this.callers = document.callers;
     this.resolvedCache = new Map();
   }
 
@@ -130,7 +138,30 @@ class WorkflowEngine {
     if (!isPlainObject(document.classes) || Object.keys(document.classes).length === 0) {
       problems.push('`classes` must be a non-empty object');
     }
+    if (!isPlainObject(document.callers) || Object.keys(document.callers).length === 0) {
+      problems.push('`callers` must be a non-empty object mapping every shipped skill to a role; '
+        + 'without it the classifier cannot tell which skills a class can host');
+    }
     if (problems.length > 0) return problems;
+
+    for (const [callerId, caller] of Object.entries(document.callers)) {
+      if (!isPlainObject(caller)) {
+        problems.push(`caller '${callerId}' must be an object`);
+        continue;
+      }
+      if (!CALLER_ROLE_VALUES.includes(caller.role)) {
+        problems.push(
+          `caller '${callerId}' must declare a role of ${CALLER_ROLE_VALUES.join(', ')} `
+          + `(received ${JSON.stringify(caller.role)})`,
+        );
+      }
+      if (caller.role !== CALLER_ROLES.STAGE && !isNonEmptyString(caller.reason)) {
+        problems.push(
+          `caller '${callerId}' has role '${caller.role}' and must state why in \`reason\`: `
+          + 'an exemption from the fit check is a decision, not an omission',
+        );
+      }
+    }
 
     // A class must never be resolvable by default. If the registry ever grows a default-class key,
     // fail here rather than let it silently absorb every unclassified task.
@@ -271,6 +302,66 @@ class WorkflowEngine {
       && Object.prototype.hasOwnProperty.call(this.classes, taskClass);
   }
 
+  /** @returns {Array<string>} declared caller ids, in declaration order. */
+  listCallers() {
+    return Object.keys(this.callers);
+  }
+
+  /**
+   * @param {*} skillId
+   * @returns {boolean} true only for an exactly-matching declared caller id.
+   */
+  hasCaller(skillId) {
+    return typeof skillId === 'string'
+      && Object.prototype.hasOwnProperty.call(this.callers, skillId);
+  }
+
+  /**
+   * @param {string} skillId
+   * @returns {'router'|'stage'|'standalone'|null} null when the id is not a declared caller.
+   */
+  callerRole(skillId) {
+    return this.hasCaller(skillId) ? this.callers[skillId].role : null;
+  }
+
+  /**
+   * @param {string} skillId
+   * @returns {string|null} the declared exemption reason, or null.
+   */
+  callerReason(skillId) {
+    if (!this.hasCaller(skillId)) return null;
+    const { reason } = this.callers[skillId];
+    return isNonEmptyString(reason) ? reason : null;
+  }
+
+  /**
+   * Stage ids of one class whose `skill` is this id. Empty when the class does not name it.
+   * @param {string} taskClass
+   * @param {string} skillId
+   * @returns {Array<string>}
+   */
+  stagesHosting(taskClass, skillId) {
+    if (typeof skillId !== 'string' || !this.hasClass(taskClass)) return [];
+    return this.resolveWorkflow(taskClass).stages
+      .filter((stage) => stage.skill === skillId)
+      .map((stage) => stage.id);
+  }
+
+  /**
+   * Every class that names this skill at any stage, optional or not. Derived from the stage lists,
+   * never declared, so it cannot drift from them.
+   * @param {string} skillId
+   * @returns {Array<{taskClass: string, stageIds: Array<string>}>}
+   */
+  classesHosting(skillId) {
+    const hosting = [];
+    for (const taskClass of this.listClasses()) {
+      const stageIds = this.stagesHosting(taskClass, skillId);
+      if (stageIds.length > 0) hosting.push({ taskClass, stageIds });
+    }
+    return hosting;
+  }
+
   /** @param {string} kind @returns {boolean} */
   isImplementationKind(kind) {
     const declared = this.stageKinds[kind];
@@ -349,6 +440,7 @@ class WorkflowEngine {
       readinessNote: definition.readinessNote,
       stages,
       stageIds: stages.map((stage) => stage.id),
+      stageSkills: [...new Set(stages.map((stage) => stage.skill))],
       requiredStageIds: stages.filter((stage) => !stage.optional).map((stage) => stage.id),
       optionalStageIds: stages.filter((stage) => stage.optional).map((stage) => stage.id),
       gates,
@@ -420,4 +512,5 @@ class WorkflowEngine {
 
 module.exports = {
   WorkflowEngine,
+  CALLER_ROLES,
 };

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Task-class workflows. Each class declares an ordered stage list; every stage names a skill that already exists in core/shared/skills/, the readiness template that gates it (null when the stage gates on nothing), and whether it is optional. There is deliberately no default class: an unclassified or unrecognized task is rejected by the classifier rather than resolved to the feature pipeline.",
+  "description": "Task-class workflows. Each class declares an ordered stage list; every stage names a skill that already exists in core/shared/skills/, the readiness template that gates it (null when the stage gates on nothing), and whether it is optional. There is deliberately no default class: an unclassified or unrecognized task is rejected by the classifier rather than resolved to the feature pipeline. `callers` declares, for every shipped skill, whether it occupies stages (`stage`), classifies on behalf of others (`router`), or runs outside class routing entirely (`standalone`); the classifier uses it to judge whether a proposed class has a stage the calling skill can occupy, and the two non-default roles must state why they are exempt.",
   "stageKinds": {
     "discovery": {
       "description": "Elicit and record what is actually being asked for.",
@@ -45,6 +45,30 @@
     "operation": {
       "description": "Execute a repository-lifecycle action such as a branch, release, or merge. Changes repository state without authoring source.",
       "mutatesSource": false
+    }
+  },
+  "callers": {
+    "do": {
+      "role": "router",
+      "reason": "The universal dispatcher. It decomposes a request and classifies on behalf of the skill it will hand each package to, so it occupies no stage in its own right. Fit is judged one hop later, when that skill classifies under its own identity."
+    },
+    "do-flow": {
+      "role": "router",
+      "reason": "Sequences a whole workflow stage by stage. It selects the class rather than performing any stage of it, so stage membership is not a property it can have. Each stage it enters classifies for itself."
+    },
+    "do-brainstorm": { "role": "stage" },
+    "do-design": { "role": "stage" },
+    "do-plan": { "role": "stage" },
+    "do-execute-plan": { "role": "stage" },
+    "do-implement": { "role": "stage" },
+    "do-test": { "role": "stage" },
+    "do-code-review": { "role": "stage" },
+    "do-diagnose": { "role": "stage" },
+    "do-document": { "role": "stage" },
+    "do-git": { "role": "stage" },
+    "do-constitution": {
+      "role": "standalone",
+      "reason": "Repository governance. No workflow declares a governance stage and none should: the constitution is what workflows are checked against, not a step inside one. A classify call from here is a routing mistake rather than a class mistake, and is rejected as such."
     }
   },
   "classes": {
@@ -274,6 +298,39 @@
           "readinessTemplate": null,
           "optional": false,
           "purpose": "Investigate broad-to-narrow and produce the citation-backed report, stating unresolved gaps rather than closing over them."
+        }
+      ],
+      "gates": []
+    },
+    "documentation": {
+      "name": "Documentation",
+      "description": "Authoring or updating documentation that ships with the repository — a reference page, a guide, an API description, an architecture note, a README section. The deliverable is prose in the tree; no source is authored, and nothing here is a report filed elsewhere.",
+      "handoff": "A code change the documentation reveals is a separate task under its own class. Committing is done through do-git, which is outside this workflow.",
+      "readinessNote": "No readiness template applies: readiness gates edits to source, and every stage here is synthesis, verification or review. The failure this class actually has is asserting something nobody checked, and the safeguards against it are the authoring stage's grounding requirement and the verification stage — not a gate borrowed from a class that writes code.",
+      "stages": [
+        {
+          "id": "authoring",
+          "skill": "do-document",
+          "kind": "synthesis",
+          "readinessTemplate": null,
+          "optional": false,
+          "purpose": "Write or update the documentation against the code, artifact or command it describes, carrying a locator for every factual claim. Never from memory, and never a figure nobody measured."
+        },
+        {
+          "id": "verification",
+          "skill": "do-test",
+          "kind": "verification",
+          "readinessTemplate": null,
+          "optional": true,
+          "purpose": "Run whatever the documentation can break — guards that read docs, link and example checks, or the suite when a documented command or snippet is executable. Skip only when the repository has no such check, and say that is why."
+        },
+        {
+          "id": "review",
+          "skill": "do-code-review",
+          "kind": "review",
+          "readinessTemplate": null,
+          "optional": true,
+          "purpose": "Review the prose through the content-type path rather than the language checkers, when the change is large enough that a second read is worth its cost."
         }
       ],
       "gates": []

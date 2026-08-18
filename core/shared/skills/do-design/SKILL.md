@@ -42,11 +42,12 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    it; otherwise derive it from `requirement.md`'s scope, not from the fact that a `requirement.md`
    exists.
    ```bash
-   "$DOFLOW" classify --task-class "<proposed>" --json
+   "$DOFLOW" classify --task-class "<proposed>" --calling-skill do-design --json
    ```
 Branch on the returned `outcome` field, not the exit code.
 - **`ACCEPTED`** — the returned `workflow` is this run's plan of record; read `stages`, `gates` and `handoff` off it rather than from memory.
 - **`REJECTED`** — **stop.** Print `message` verbatim (it already names `validClasses` and any `suggestions`), ask the user to choose from `validClasses`, then re-validate. Never substitute `feature`.
+  A rejection may be about **you** rather than the class (`reason: caller-not-a-stage`). Then the fix is to propose one of the classes in `fit.hostingClasses`, or to hand the work to the skill this class names for the stage you meant — not to re-propose the same class.
 - **Exit 2** — surface the message verbatim and stop.
 
 This skill is the accepted workflow's `design` stage: state the class and the signal it rests on in

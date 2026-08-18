@@ -36,11 +36,12 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    *is* the task class, so settle the class first. Propose exactly one id:
 
 ```bash
-"$DOFLOW" classify --task-class "<proposed>" --json
+"$DOFLOW" classify --task-class "<proposed>" --calling-skill do-diagnose --json
 ```
 Branch on the returned `outcome` field, not the exit code.
 - **`ACCEPTED`** — the returned `workflow` is this run's plan of record; read `stages`, `gates` and `handoff` off it rather than from memory.
 - **`REJECTED`** — **stop.** Print `message` verbatim (it already names `validClasses` and any `suggestions`), ask the user to choose from `validClasses`, then re-validate. Never substitute `feature`.
+  A rejection may be about **you** rather than the class (`reason: caller-not-a-stage`). Then the fix is to propose one of the classes in `fit.hostingClasses`, or to hand the work to the skill this class names for the stage you meant — not to re-propose the same class.
 - **Exit 2** — surface the message verbatim and stop.
 
 This skill is one of the accepted workflow's analysis stages — `root-cause` for `bug`,
@@ -124,9 +125,9 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
      are inputs you *state*, not evidence the gate measured: the report echoes them back as
      `callerAsserted`, so pass them when true and say which requirements rest on a statement rather
      than on a record. Never write `READY` the gate did not give.
-   - If the validated class has no readiness template — `review`, `research` and `operations` have
-     none, and the verb exits 1 saying so — do not invent one and do not proceed anyway: the change
-     is its own task under its own class. Say that and stop.
+   - If the validated class declares no readiness template — the resolved workflow's
+     `requiresImplementationReadiness` is `false` and the verb exits 1 saying so — do not invent one
+     and do not proceed anyway: the change is its own task under its own class. Say that and stop.
    - Verify fixes immediately by re-running tests.
 
 7. **Iteration is Bounded by the Runtime, Not by You**:

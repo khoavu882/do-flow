@@ -13,9 +13,55 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
-## [Unreleased]
+## [1.0.0-beta.4] - 2026-08-18
 
 ### Added
+
+- **One runtime seam between skills and the runtime.** Every runtime call a skill can make now goes
+  through a single dispatcher, `.doflow/scripts/doflow/bin/doflow-run`, which owns the whole verb
+  namespace and decides per verb whether a shell helper or the Node CLI serves it. Skills never name
+  a helper. A verb-free locator shim is projected into every harness's own `bin/`, so adding a verb
+  never edits seven files.
+  Skills reach the dispatcher by **walking up from the working directory** to the nearest
+  `.doflow/`, then `$HOME/.doflow`, then exiting 2 with a message naming both. Not by a
+  repo-relative path: a relative path in a shell command resolves against the user's project root,
+  not the skill's directory, and an earlier attempt that assumed otherwise broke all 27 call sites.
+- **The Node runtime is projected into `.doflow/runtime/`.** `bin/`, `src/` and `core/registry/` are
+  installed alongside the dispatcher, mirroring the repository layout so the modules' own root
+  resolution finds the registries unchanged. Without this, eleven verbs — `readiness`, `evidence`,
+  `claim`, `verify`, `classify`, `workflow`, `scaffold`, `route`, `trace`, `capabilities`,
+  `discover` — answered `cli-not-found` after `npx @khoavu882/doflow install`, because npx leaves no
+  package behind and the install directory is not inside a checkout. Zero runtime dependencies;
+  ~1 MB.
+- **Task-class workflows with caller fit-checking.** `core/registry/workflows.yaml` declares nine
+  classes — `feature`, `bug`, `refactor`, `review`, `research`, `documentation`,
+  `dependency-change`, `operations`, `trivial-edit` — each resolving to ordered stages naming skills
+  that already exist. A class is proposed by the model and validated against the registry; an
+  unrecognised one is rejected with the valid set rather than coerced into a default. `/do-flow` is
+  class-aware: a review enters no implementation stage, research requires no implementation
+  readiness, and `documentation` sequences repo documentation authoring (`do-document` → `do-test`
+  → `do-code-review`) without forcing code-editing pipelines.
+- **Caller fit-checking on `doflow classify`.** `doflow classify --task-class <class> --calling-skill <id>`
+  validates that the proposed workflow contains a stage for the calling skill, preventing silent
+  workflow misalignments (e.g. `do-diagnose` running under `research` which lacks an analysis stage).
+  Rejections report actionable hosting classes that *can* accommodate the caller. Calls omitting
+  `--calling-skill` accept for backward compatibility while honestly reporting `fit.state: NOT_EVALUATED`.
+- **A risk-scaled verification contract.** `core/registry/verification.yaml` declares nine check
+  tiers selected by one of four risk levels, which also sets the recovery-retry bound. The contract
+  is compiled and reported *before* anything runs; the verdict is produced after. A required tier
+  that was never evaluated yields `INCONCLUSIVE` rather than a verdict invented over missing
+  evidence.
+- **An evidence ledger with a write path, and four reachable readiness states.** Evidence is
+  appended in validated batches, claims are supported only through linked evidence, and readiness
+  reports one of `READY`, `NEEDS_EVIDENCE`, `NEEDS_USER_DECISION`, `BLOCKED`.
+- **`/do-execute-plan --scaffold`** turns requirement + design + plan into signatures, types and test
+  stubs under `agent-docs/doflow/<slug>/scaffold/`, never touching the source tree. Idempotent,
+  refuses to overwrite a hand-edited file, and reports what it skipped as prominently as what it
+  produced.
+- **A committed evaluation harness** under `bench/`: 33 cases across all thirteen skills, run in
+  isolated git worktrees. Each run records the sha256 of the skill file it actually read, so a run
+  that resolved the globally installed copy — which differs from source in 12 of 13 skills — is
+  rejected rather than silently averaged in.
 
 - **Four new install targets — GitHub Copilot CLI, Kiro, OpenCode, and Pi Coding Agent —
   reaching CLI-level parity with the existing Claude/Codex/Gemini targets.** `--target` now
@@ -44,6 +90,15 @@ All notable changes to DoFlow are documented here. Format follows
 
 ### Removed
 
+- **The parallel Python runtime is deleted.** `compiler.py`, `doctor.py`, `doflow.sh`, and the seven
+  runtime modules behind them are gone; JavaScript under `src/runtime/` is the only runtime. The two
+  implementations were compared by executing both before anything was removed. `do-code-review`'s
+  own analyzers are Python and are untouched.
+- **`--contracts` is replaced outright by `--scaffold`** — no alias, no deprecation window. The old
+  flag named a narrow cross-service behaviour; the new one is driven by the chain artifacts and
+  writes only under the feature directory. `templates/doflow/contract-doc-template.md` is renamed
+  `external-contract-template.md`, and its `contract-doc:` field to `external-contract:`.
+
 - **The skill flag surface drops from 33 flag/skill pairs across 20 names to 18 across 14.**
   **This is a breaking change** to every skill's invocation surface. The removed flags are
   absorbed, not dropped — the behaviour each one requested now applies unconditionally or is
@@ -68,6 +123,17 @@ All notable changes to DoFlow are documented here. Format follows
 
 ### Changed
 
+- **Readiness is a four-state contract, not a numeric confidence.** Every numeric-confidence output
+  path is removed. A gate reports which prerequisites are unmet and why, rather than a score.
+- **Guidance and skill prose were rewritten against a prompting guide** — contract before findings,
+  planning separated from execution, broad-to-narrow retrieval, source separated from inference,
+  retrieved content treated as untrusted, and an explicit stopping rule on every eliciting or
+  retrieving stage. The rewrite removed 14 duplicated blocks and 22 contradictions; shared runtime
+  facts now have one owner in `guidance/references/EVIDENCE_LEDGER.md` instead of six drifting
+  near-copies. The always-loaded set went from 10,240 to 8,894 bytes against an unchanged ceiling —
+  most of the saving was content that was wrong rather than merely verbose, including a rule
+  recommending a tool that does not exist.
+
 - **`doflow install`/`update` with no `--target` now installs Claude only, not all valid
   targets.** Previously the default expanded to every target `VALID` declared, which meant an
   install with no flag silently wrote configuration into harnesses the user may not even have
@@ -82,6 +148,35 @@ All notable changes to DoFlow are documented here. Format follows
   OpenCode and Pi "have no entry in the registry."
 
 ### Fixed
+
+- **`doflow install` aborted with exit 0 having written nothing.** With no stdin the confirmation
+  prompt auto-declines, so a script or CI step believed the install had succeeded. All four abort
+  sites now exit 1 — a declined prompt is a decision, not a completed run.
+- **`parallel-check` reported `parallel_safe: true` over collisions it had found or never looked
+  for.** A plan whose tasks were not under a `### Phase` heading parsed to zero tasks and was
+  therefore "safe"; separately, the flag ignored group-level collisions, so it could report safe in
+  the same object that named the file two groups both write. Since callers are told to branch on
+  that field and never on the exit code, either shape authorised concurrent writes to one file. It
+  is now `null` when nothing parsed and `false` when either collision set is non-empty.
+- **The verification report could not contain a failure.** Captured output was truncated to the
+  first 2000 characters, and every runner worth verifying summarises at the end — a red suite
+  produced a report holding 2000 characters of passing subtests and no failure trace. The tail is
+  kept now, with a marked elision.
+- **`--prune` silently accepted a bad value** (`parseInt(val, 10) || 0`, so `--prune notanumber`
+  meant "no pruning") and is read only by `install` and `update`, though `--help` advertised it
+  generally. It now validates like its neighbour `--days`, and the help says where it applies.
+- **`do-paths.sh` kept the branch prefix for any branch outside six known names.** The arm meant to
+  strip it matched only a name ending in `/`, which git refuses to create, so it never once ran —
+  `task/x` yielded a slug containing a path separator, which nests the feature directory a level
+  deeper than every other and is rejected outright by the evidence ledger.
+- **`/do-brainstorm` never created the feature directory on the path it normally takes** — the
+  `mkdir` sat inside the branch for a slug the user had just invented, so a branch-derived slug
+  wrote into a directory that did not exist.
+- **`remove --target <one>` reclaimed a shared tree another harness still owned**, leaving the
+  others with dangling ledger records and, where a global install existed, a silent fallback to a
+  different runtime.
+- **`requirement-template.md` spelled the clarification marker inside its own text for the
+  zero-questions case**, so a correct artifact matched the check that forbids the marker.
 
 - `doflow status --json` silently omitted Copilot, OpenCode, and Pi from its output; every
   harness now reports.

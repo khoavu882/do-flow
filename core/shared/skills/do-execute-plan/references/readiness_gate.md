@@ -34,9 +34,10 @@ Pass the **key**, not the display name — `--task-class feature`, not `"New Fea
 | `trivial-edit` | Trivial Edit Readiness | `target_identified`, `scope_verified` |
 | `dependency-change` | Dependency Change Readiness | `compatibility_checked`, `usage_impact`, `verification_command` |
 
-These five are the only templates that exist. `review`, `research` and `operations` are declared
-task classes with **no** readiness template, by design: their workflows author no source, so there
-is nothing for an implementation contract to gate. The verb exits 1 on them and lists the valid
+These five are the only templates that exist. Every other declared task class has **no** readiness
+template, by design: those workflows author no source, so there is nothing for an implementation
+contract to gate. Which classes those are is a property of the resolved workflow —
+`requiresImplementationReadiness: false` — not a list to carry here. The verb exits 1 on them and lists the valid
 keys — that is the right answer, not a gap. Any other unknown class fails the same way, so a typo
 is loud rather than silently evaluating the wrong contract.
 

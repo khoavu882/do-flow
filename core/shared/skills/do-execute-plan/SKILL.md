@@ -41,19 +41,21 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    - Name exactly one class id for the work this run executes. `/do-flow` passes one when it
      invoked this skill; a user who named one settles it; otherwise derive it from `plan.md`.
      ```bash
-     "$DOFLOW" classify --task-class "<proposed>" --json
+     "$DOFLOW" classify --task-class "<proposed>" --calling-skill do-execute-plan --json
      ```
 Branch on the returned `outcome` field, not the exit code.
 - **`ACCEPTED`** — the returned `workflow` is this run's plan of record; read `stages`, `gates` and `handoff` off it rather than from memory.
 - **`REJECTED`** — **stop.** Print `message` verbatim (it already names `validClasses` and any `suggestions`), ask the user to choose from `validClasses`, then re-validate. Never substitute `feature`.
+  A rejection may be about **you** rather than the class (`reason: caller-not-a-stage`). Then the fix is to propose one of the classes in `fit.hostingClasses`, or to hand the work to the skill this class names for the stage you meant — not to re-propose the same class.
 - **Exit 2** — surface the message verbatim and stop.
 
    - Take the readiness template from the returned workflow's implementation stage: the entry in
      `stages[]` with `mutatesSource: true`, whose `readinessTemplate` names the contract step 3
      grades against. Do not pick a template by hand.
-   - If the accepted workflow has no stage with `mutatesSource: true` — `review`, `research` and
-     `operations` have none — this skill is the wrong tool for that class. Say so and stop rather
-     than executing tasks the workflow never declared.
+   - If the accepted workflow has no stage with `mutatesSource: true` — read
+     `hasImplementationStage` off the returned object rather than recalling which classes those are
+     — this skill is the wrong tool for that class. Say so and stop rather than executing tasks the
+     workflow never declared.
 
 3. **Readiness Evaluation (Contract State)**:
    - Evaluate a task's contract before dispatching it, run from the project the task belongs to:

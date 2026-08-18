@@ -25,6 +25,7 @@ The runtime's workflow registry is authoritative for **what runs**; this file is
 | `refactor` | Changing structure while holding behavior fixed — extract, rename, split, de-duplicate. |
 | `review` | Judging code or a diff that already exists. The deliverable is findings. |
 | `research` | Answering a question. The deliverable is a written report, not a change. |
+| `documentation` | Writing or updating docs that ship with the repo — a reference page, a guide, a README section, an architecture note. |
 | `dependency-change` | Adding, removing, or moving the version of something the project depends on. |
 | `operations` | Repository lifecycle — branch, release, merge, hotfix, backport, tag. |
 | `trivial-edit` | One file, no cascade: a typo, a constant, a string, a comment. |
@@ -43,6 +44,12 @@ The runtime's workflow registry is authoritative for **what runs**; this file is
   feature. The feature is the next task.
 - **operations vs trivial-edit** — changing a version *string* in a manifest as part of cutting a
   release is `operations`; changing it because it is wrong is `trivial-edit` or `bug`.
+- **documentation vs trivial-edit** — a one-line doc fix with a known target and a known correct
+  value is `trivial-edit`; anything that has to be written, or that spans the files a doc set
+  cross-references, is `documentation`.
+- **documentation vs research** — `research` answers a question and files a report; `documentation`
+  writes prose that ships in the tree. If the deliverable is committed alongside the code, it is
+  `documentation`.
 
 ## Properties each class guarantees
 
@@ -55,6 +62,11 @@ object rather than assuming them.
 - **`research`** — terminates at synthesis. `requiresImplementationReadiness: false`: do not run a
   readiness check, do not report one as skipped, and do not ask for the evidence a readiness
   template would want. If the synthesis motivates a change, that change is a new task.
+- **`documentation`** — no readiness template, by the same rule as `review` and `research`: the
+  workflow authors no source, so implementation readiness has nothing to gate. Every claim the prose
+  makes carries a locator — a figure nobody measured is the failure this class actually has. The
+  verification stage is optional, and a skip must be stated with the reason the repository has no
+  check the documentation can break.
 - **`bug`** — starts from reproduction and root cause. Do not propose or apply a fix before the
   reproduction stage has recorded the failure and the analysis stage has supported a cause. A fix
   proposed at intake is the thing this ordering exists to prevent.
@@ -82,12 +94,36 @@ object rather than assuming them.
 - `message` — the sentence to show the user. On a rejection it already names the valid set and any
   near-match suggestions, so surface it verbatim rather than paraphrasing it.
 - `validClasses`, `suggestions` — present on a rejection; the option set for the follow-up question.
+- `fit` — whether the class's workflow has a stage for the skill that called `classify`. See below.
+- `callerSuggestions` — present only on an `unknown-calling-skill` rejection. Skill ids, never class
+  ids: do not offer them as an answer to "which class?".
 - `workflow` — present only on `ACCEPTED`; `null` on a rejection. The run's plan of record.
 
 Within `workflow`: `stages[]` (each with `id`, `skill`, `kind`, `purpose`, `optional`,
 `readinessTemplate`, `mutatesSource`, `gatesAfter`), `stageIds`, `gates[]` (`id`, `name`,
 `afterStage`, `trigger`, `prompt`), `hasImplementationStage`,
 `requiresImplementationReadiness`, and `handoff`.
+
+## Fit: does this class have a stage for the skill asking?
+
+Pass `--calling-skill <this skill's own id>` with every `classify` call. Membership — "is this a
+real class?" — is not the same question as fit — "does this class's workflow have a stage I can
+occupy?" — and a class can pass the first while having nowhere to put your work.
+
+`fit.state` is one of four:
+
+- `HOSTED` — the class names your skill at `fit.hostedStageIds`. Proceed.
+- `NOT_APPLICABLE` — you are a router (`do`, `do-flow`): you select stages rather than occupying
+  one, so fit is judged one hop later by the skill you hand the work to.
+- `NOT_HOSTED` — a rejection. See below.
+- `NOT_EVALUATED` — **nothing was checked.** Either no calling skill was named, or it was named
+  under the wrong key. This is not a pass: the decision establishes that the class exists and
+  nothing more. Re-run with `--calling-skill`.
+
+A `caller-not-a-stage` rejection is about **you**, not about the class. Answer it from
+`fit.hostingClasses`, which lists every class that does have a stage for your skill and names the
+stage — propose one of those, or hand the work to the skill this class names for the stage you
+meant. Re-proposing the same class will be rejected the same way.
 
 ## The hard hook does not know about classes
 

@@ -133,7 +133,7 @@ JSON-under-a-`.yaml`-extension convention the installation registries use.
 
 | File | Declares |
 |---|---|
-| `core/registry/workflows.yaml` | Eight task classes, each an ordered stage list naming skills that already exist, with its readiness template and gates. There is no default class: an unrecognized proposal is rejected with the valid set rather than coerced into one |
+| `core/registry/workflows.yaml` | Nine task classes, each an ordered stage list naming skills that already exist, with its readiness template and gates, plus the `callers` map giving every shipped skill a role (`stage`, `router`, `standalone`) so the classifier can judge whether a class has a stage for the skill asking. There is no default class: an unrecognized proposal is rejected with the valid set rather than coerced into one |
 | `core/registry/verification.yaml` | Nine check tiers and four risk levels; a level selects its required and advisory tiers and sets the recovery-retry bound |
 | `core/registry/readiness-templates.yaml` | Per-class readiness requirements and the evidence kinds that satisfy each one |
 | `core/registry/capabilities.yaml` | The capabilities an information need can resolve to, and their providers |

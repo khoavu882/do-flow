@@ -173,6 +173,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--slug', 'slug'],
   ['--rationale', 'rationale'],        // classify: why this class was proposed
   ['--proposed-by', 'proposedBy'],     // classify: which worker proposed it
+  ['--calling-skill', 'callingSkill'],  // classify: which skill is asking, for the fit check
   ['--intent', 'intent'],              // route: the information need being resolved
   ['--query', 'query'],                // route: what the resolved provider would be asked
   ['--statement', 'statement'],        // claim --action add
@@ -480,26 +481,34 @@ function requireTaskId(o) {
  * Handles `doflow classify` — validate a proposed task class against the workflow registry.
  *
  * Prints the classifier's decision object verbatim: `outcome`, `taskClass`, `message`,
- * `validClasses`, `suggestions`, `workflow`. A REJECTED decision keeps `taskClass: null` and exits
- * non-zero; it is never coerced to `feature`, which is the whole reason this verb exists rather
- * than callers reading a class out of a string themselves.
+ * `validClasses`, `suggestions`, `fit`, `workflow`. A REJECTED decision keeps `taskClass: null` and
+ * exits non-zero; it is never coerced to `feature`, which is the whole reason this verb exists
+ * rather than callers reading a class out of a string themselves.
  *
  * @param {Object} options
  * @param {string|null} options.taskClass the proposed class
  * @param {string} [options.rationale]
  * @param {string} [options.proposedBy]
+ * @param {string} [options.callingSkill] the skill asking, against which fit is judged
  * @param {boolean} [options.json=false]
  * @returns {number} exit code
  */
-function handleClassifyCommand({ taskClass, rationale, proposedBy, json = false } = {}) {
+function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill, json = false } = {}) {
   const classifier = new TaskClassifier({ repoRoot: REPO_ROOT });
-  const decision = classifier.classify({ taskClass, rationale, proposedBy });
+  const decision = classifier.classify({ taskClass, rationale, proposedBy, callingSkill });
 
   if (json) console.log(JSON.stringify(decision, null, 2));
   else {
     console.log(`\nDoFlow Task Classification [${decision.outcome}]:`);
     console.log('═'.repeat(78));
     console.log(decision.message);
+    // Printed unconditionally, including when it says NOT_EVALUATED: an operator has to be able to
+    // see that fit was never checked without reading --json.
+    console.log(`Fit: ${decision.fit.state}${decision.fit.reason ? ` (${decision.fit.reason})` : ''}`);
+    if (decision.fit.state === 'NOT_HOSTED' && decision.fit.hostingClasses.length > 0) {
+      console.log(`Classes that host ${decision.fit.callingSkill}: `
+        + decision.fit.hostingClasses.map((h) => `${h.taskClass} (${h.stageIds.join(', ')})`).join(', '));
+    }
     if (decision.workflow) {
       console.log('─'.repeat(78));
       console.log(`Workflow: ${decision.workflow.name} (${decision.workflow.stageIds.length} stage(s))`);
@@ -898,7 +907,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --task-id        readiness, evidence, claim, context-pack, verify
       --action         claim: list|add|link · evidence: list|add · verify: report|contract
                        tools: see above
-      --rationale, --proposed-by            classify
+      --rationale, --proposed-by, --calling-skill    classify
       --intent, --query, --check            route
       --statement, --claim-id,
       --evidence-id, --relation             claim
@@ -1492,7 +1501,7 @@ function main() {
       // The rest of design §4.2's Node arm. REPO_ROOT locates the registries that ship with the
       // package (workflows, capabilities, verification); evidenceRoot(o) locates the caller's own
       // state and source tree, following the same scope rules as every other command.
-      case 'classify': return handleClassifyCommand({ taskClass: o.taskClass, rationale: o.rationale, proposedBy: o.proposedBy, json: o.json });
+      case 'classify': return handleClassifyCommand({ taskClass: o.taskClass, rationale: o.rationale, proposedBy: o.proposedBy, callingSkill: o.callingSkill, json: o.json });
       case 'workflow': return handleWorkflowCommand({ taskClass: o.taskClass, json: o.json });
       case 'route': return handleRouteCommand({ intent: o.intent, query: o.query, check: o.check, json: o.json, projectRoot: evidenceRoot(o) });
       case 'claim': return handleClaimCommand({ taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, relation: o.relation, json: o.json, stateRoot: evidenceRoot(o) });

@@ -184,3 +184,35 @@ test('G15: every recorded config mention still appears in a SKILL.md', () => {
     'an allowance that outlives the text it allowed pre-approves the next occurrence of the same '
     + `string, which will not be the same thing:\n  ${stale.join('\n  ')}`);
 });
+
+// ------------------------------------------------------- 4. a classify call carries its identity
+
+// `classify` judges two separate things: that the proposed class exists, and that the class's
+// workflow has a stage the *calling skill* can occupy. Only the first is answerable without
+// `--calling-skill`, and a call that omits it gets an ACCEPTED that establishes membership alone —
+// correctly reported as `fit.state: NOT_EVALUATED`, and just as correctly read by a model as
+// "validated". That back-compat path exists for skills installed before the flag did; it must not
+// become the path this repo's own skills take. D.4 is what it looks like when it does: a diagnosis
+// accepted under `research`, whose stages are `do` and `do-document`.
+test('G15: every classify call names the skill making it, and names itself (FR-004)', () => {
+  const wrong = [];
+  let calls = 0;
+  for (const { rel, text } of skillTreeFiles()) {
+    const owner = rel.split(path.sep)[3];   // core/shared/skills/<owner>/...
+    for (const [line] of text.matchAll(/^.*\bclassify\b.*$/gm)) {
+      if (!/--task-class/.test(line)) continue;   // prose about the verb, not an invocation
+      calls += 1;
+      const match = line.match(/--calling-skill\s+(\S+)/);
+      if (!match) wrong.push(`${rel} -> no --calling-skill: ${line.trim()}`);
+      else if (match[1] !== owner) wrong.push(`${rel} -> --calling-skill ${match[1]} (owner is ${owner})`);
+    }
+  }
+  assert.ok(calls > 0,
+    'no classify invocation was found in the skill tree at all. Either the skills stopped '
+    + 'classifying, or this scan stopped recognising the call — the second leaves the guard passing '
+    + 'while checking nothing');
+  assert.deepEqual(wrong.sort(), [],
+    'a classify call without the caller\'s own id gets a membership-only pass and reads as '
+    + 'validation, and a call naming a *different* skill has the runtime judge fit for someone '
+    + `else:\n  ${wrong.sort().join('\n  ')}`);
+});

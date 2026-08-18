@@ -57,7 +57,27 @@ const NO_READINESS_TEMPLATE = new Map([
   ['operations', 'authors no source — it acts on repository state. `readiness-templates.yaml` has no '
     + 'template for it and the class claims none; its equivalent safeguard is the preflight '
     + 'verification stage. Recorded in the class\'s own readinessNote rather than left implicit.'],
+  ['documentation', 'authors no source — it produces prose. Readiness gates edits to source, so there '
+    + 'is nothing here for it to gate; the equivalent safeguards are the authoring stage\'s grounding '
+    + 'requirement and the optional verification stage.'],
 ]);
+
+// The proposal guide the model actually reads. A class the registry declares and this file omits is
+// a class nothing ever proposes — the registry can be complete while routing is not, which is
+// exactly how `documentation` came to be missing.
+const CUES_FILE = path.join(REPO, 'core', 'shared', 'skills', 'do-flow', 'references', 'task_classes.md');
+
+/** Class ids named in the first column of the `## Cues` table. */
+function cueRowClasses() {
+  const text = fs.readFileSync(CUES_FILE, 'utf8');
+  const section = text.split(/^## /m).find((block) => block.startsWith('Cues'));
+  assert.ok(section,
+    `${path.relative(REPO, CUES_FILE)} no longer has a '## Cues' section, so this guard would pass `
+    + 'while reading nothing');
+  const ids = [];
+  for (const [, id] of section.matchAll(/^\|\s*`([^`]+)`\s*\|/gm)) ids.push(id);
+  return ids;
+}
 
 // ------------------------------------------------------------------ 1. the registry is coherent
 
@@ -187,4 +207,93 @@ test('G13: an exempt class states its own reason in readinessNote', () => {
   assert.deepEqual(silent, [],
     'a class exempt from readiness must say so in its own `readinessNote`, so the absence reads as a '
     + `decision rather than a gap:\n  ${silent.join('\n  ')}`);
+});
+
+// ------------------------------------------------------- 5. the caller list the fit check reads
+
+// `callers` is what lets `classify` answer "does this class have a stage for the skill asking?".
+// It is a second inventory of the skill tree, so it rots the way every second inventory rots — and
+// each way it can rot has a distinct runtime cost, named per assertion below.
+
+test('G13: `callers` covers exactly the shipped skill tree, in both directions', () => {
+  const declared = new Set(engine().listCallers());
+
+  const unlisted = [...shippedSkills].filter((skill) => !declared.has(skill)).sort();
+  assert.deepEqual(unlisted, [],
+    'these skills ship but declare no caller role. The first time one of them calls `classify` it '
+    + 'is rejected as an unknown caller — a new skill that cannot run under any class, failing at '
+    + `use rather than here:\n  ${unlisted.join('\n  ')}`);
+
+  const dead = [...declared].filter((caller) => !shippedSkills.has(caller)).sort();
+  assert.deepEqual(dead, [],
+    'these caller entries name no shipped skill. A dead entry keeps a removed skill\'s id '
+    + `validating, so a stale call site is accepted instead of caught:\n  ${dead.join('\n  ')}`);
+});
+
+test('G13: every `stage`-role caller is named by at least one class stage', () => {
+  const orphaned = engine().listCallers()
+    .filter((caller) => engine().callerRole(caller) === 'stage')
+    .filter((caller) => engine().classesHosting(caller).length === 0);
+  assert.deepEqual(orphaned, [],
+    'a stage-role skill no class names can never pass the fit check: it may call `classify` and '
+    + 'will be rejected for every declared class. Either a stage should name it, or its role is '
+    + `wrong:\n  ${orphaned.join('\n  ')}`);
+});
+
+test('G13: no `standalone` caller is named by any class stage', () => {
+  const contradicted = engine().listCallers()
+    .filter((caller) => engine().callerRole(caller) === 'standalone')
+    .map((caller) => ({ caller, hosting: engine().classesHosting(caller) }))
+    .filter(({ hosting }) => hosting.length > 0)
+    .map(({ caller, hosting }) => `${caller} -> ${hosting.map((h) => h.taskClass).join(', ')}`);
+  assert.deepEqual(contradicted, [],
+    'a skill declared to run outside class routing, that a class now names, makes its own rejection '
+    + 'message a lie — the runtime tells the caller no class can host it while one does. Drop the '
+    + `exemption in the same change that adds the stage:\n  ${contradicted.join('\n  ')}`);
+});
+
+test('G13: every non-`stage` caller role states why it is exempt', () => {
+  // `validateRegistry` enforces this too, so the first test in this file already covers it. Asserted
+  // again by name so the failure reads as the rule it protects rather than as a schema violation.
+  const silent = engine().listCallers()
+    .filter((caller) => engine().callerRole(caller) !== 'stage')
+    .filter((caller) => !engine().callerReason(caller));
+  assert.deepEqual(silent, [],
+    'an exemption from the fit check is a decision, not an omission: a router or standalone caller '
+    + `must say why no class hosts it:\n  ${silent.join('\n  ')}`);
+});
+
+// ------------------------------------------------- 6. the class set the model proposes from
+
+test('G13: every declared class has a cue row, and every cue row names a declared class', () => {
+  const cues = cueRowClasses();
+  const declared = engine().listClasses();
+  const rel = path.relative(REPO, CUES_FILE);
+
+  const uncued = declared.filter((taskClass) => !cues.includes(taskClass));
+  assert.deepEqual(uncued, [],
+    `these classes are declared in the registry and absent from ${rel}, which is the file the model `
+    + 'proposes from. A class nothing proposes is unreachable however complete the registry is — '
+    + `that is precisely how documentation requests had no route:\n  ${uncued.join('\n  ')}`);
+
+  const phantom = cues.filter((taskClass) => !declared.includes(taskClass));
+  assert.deepEqual(phantom, [],
+    `these cue rows name a class the registry does not declare, so ${rel} is telling the model to `
+    + `propose ids \`classify\` will reject:\n  ${phantom.join('\n  ')}`);
+});
+
+// -------------------------------------------- 7. FR-015's shape, generalised past the two names
+
+test('G13: a class whose stages never mutate source declares no readiness template', () => {
+  // The by-name assertions above are deliberate and stay. This is the general rule they are two
+  // instances of: readiness is *implementation* readiness, so claiming a template while authoring
+  // no source gates a workflow behind evidence only an edit needs.
+  const incoherent = engine().listClasses()
+    .map((taskClass) => engine().resolveWorkflow(taskClass))
+    .filter((workflow) => !workflow.hasImplementationStage && workflow.requiresImplementationReadiness)
+    .map((workflow) => `${workflow.taskClass} -> ${workflow.readinessTemplates.join(', ')}`);
+  assert.deepEqual(incoherent, [],
+    'these classes demand implementation readiness and have no implementation stage. The field is '
+    + 'named for what it gates: with nothing to gate, the template can only block work that was '
+    + `never going to edit anything:\n  ${incoherent.join('\n  ')}`);
 });
