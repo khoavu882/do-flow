@@ -5,8 +5,8 @@
       "id": 1,
       "kind": "triggering",
       "name": "doc-request-invokes-document",
-      "prompt": "Write API reference docs for the endpoints in src/api/orders.ts",
-      "expected_output": "do-document is invoked and produces an API reference",
+      "prompt": "Write API reference docs for the functions src/adapters/copy-tree.js exports.",
+      "expected_output": "do-document is invoked and documents the real exported functions of a real module",
       "files": [],
       "assertions": [
         {
@@ -15,7 +15,12 @@
           "skill": "do-document"
         },
         {
-          "text": "Every documented endpoint corresponds to real code",
+          "text": "Real exported names from copy-tree.js are documented (planTree / applyTree / verifyTree)",
+          "type": "output_matches",
+          "pattern": "(planTree|applyTree|verifyTree)"
+        },
+        {
+          "text": "Every documented function corresponds to a real export rather than an invented one",
           "type": "manual"
         }
       ]
@@ -28,6 +33,11 @@
       "expected_output": "Claims are sourced, and the model's own inference is distinguishable from cited fact",
       "files": [],
       "assertions": [
+        {
+          "text": "Cited sources carry resolvable URLs rather than bare attributions",
+          "type": "output_matches",
+          "pattern": "https?://"
+        },
         {
           "text": "Sourced claims are distinguishable from the model's own analysis",
           "type": "manual"

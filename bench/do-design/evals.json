@@ -29,19 +29,22 @@
       "files": [],
       "assertions": [
         {
-          "text": "Does not use the experimental C4Context diagram type",
-          "type": "output_not_matches",
-          "pattern": "C4Context"
-        },
-        {
-          "text": "Does not use the experimental C4Container diagram type",
-          "type": "output_not_matches",
-          "pattern": "C4Container"
-        },
-        {
-          "text": "Uses a Mermaid flowchart for the C4 levels",
+          "text": "Uses a Mermaid flowchart for the C4 levels in the produced design",
           "type": "output_matches",
-          "pattern": "flowchart\\s+(TB|LR|TD|RL)"
+          "pattern": "flowchart\\s+(TB|LR|TD|RL)",
+          "in": "outputs"
+        },
+        {
+          "text": "The produced design does not use the experimental C4Context diagram type (scope: artifacts, not narration about avoiding it)",
+          "type": "output_not_matches",
+          "pattern": "C4Context",
+          "in": "outputs"
+        },
+        {
+          "text": "The produced design does not use the experimental C4Container diagram type (scope: artifacts, not narration about avoiding it)",
+          "type": "output_not_matches",
+          "pattern": "C4Container",
+          "in": "outputs"
         },
         {
           "text": "C1 Context and C2 Container sections are both present or explicitly N/A with a reason",
@@ -58,11 +61,19 @@
       "files": [],
       "assertions": [
         {
-          "text": "No plan.md is written",
-          "type": "manual"
+          "text": "A design artifact was produced (the template's own section headings are present)",
+          "type": "output_matches",
+          "pattern": "(Architecture Approach|System Overview)",
+          "in": "outputs"
         },
         {
-          "text": "No implementation task checklist appears in the output",
+          "text": "No plan-style task checklist appears in the produced artifacts (scope: artifacts, not narration about not writing one)",
+          "type": "output_not_matches",
+          "pattern": "- \\[ \\] [A-Z]\\.\\d",
+          "in": "outputs"
+        },
+        {
+          "text": "No plan.md is written",
           "type": "manual"
         }
       ]

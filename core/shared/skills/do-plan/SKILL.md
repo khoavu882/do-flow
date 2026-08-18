@@ -20,23 +20,17 @@ Phase 3 of the doflow chain. Turns `requirement.md` (WHAT/WHY) + `design.md` (sy
 `RULE_04_QUESTIONS.md`: use that tool in Claude Code; in Codex or Gemini, write the stage question
 file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a question file.
 
-1. **Resolve** — run the resolver, parse JSON:
+1. **Resolve** — run the resolver, parse JSON. Every DoFlow runtime call in this skill goes through
+   `../../bin/doflow-run`, resolved relative to this skill's own directory:
    ```bash
-   RESOLVER="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh}"
-   if [ -z "$RESOLVER" ] || [ ! -f "$RESOLVER" ]; then
-     d="$PWD"
-     while [ "$d" != / ]; do
-       [ -f "$d/.doflow/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/.doflow/scripts/doflow/bash/do-paths.sh" && break
-       d="$(dirname "$d")"
-     done
-   fi
-   DOFLOW_CONFIG_DIR="$(dirname "$(dirname "$(dirname "$(dirname "$RESOLVER")")")")"
-   bash "$RESOLVER" --json
+   ../../bin/doflow-run paths --json
    ```
+   Exit 2 means no DoFlow runtime was found; the message names every place searched — surface it
+   verbatim and stop, do not search for the runtime yourself.
    If `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root with 2+
    `agent-docs/doflow/` feature dirs and no branch to disambiguate), ask via `AskUserQuestion`, one
-   option per `candidate_slugs` entry, before continuing. Re-resolve with `bash "$RESOLVER" --json
-   --slug="<chosen>"` and use that slug for the rest of this flow. If `/do-flow` already
+   option per `candidate_slugs` entry, before continuing. Re-resolve with
+   `../../bin/doflow-run paths --json --slug="<chosen>"` and use that slug for the rest of this flow. If `/do-flow` already
    disambiguated and is invoking this skill directly, it passes `--slug="<chosen>"` itself — skip
    the prompt in that case (resolver output already has a non-null `feature_slug`).
 2. **Precondition (advisory)** — if `has_requirement` or `has_design` is false, warn and offer to
@@ -48,9 +42,11 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    two tiers yourself, tier-2 taking precedence: nothing hands you a merged set. See
    `references/DOFLOW_CHAIN.md` → "Two-tier constitution" for what is computed and what is
    convention.
-4. **Write `plan.md`, sections 1–7** — copy `$DOFLOW_CONFIG_DIR/templates/doflow/plan-template.md`
-   into the feature
-   dir, fill it: approach, research/decisions that resolve every `[NEEDS CLARIFICATION]` from the
+4. **Write `plan.md`, sections 1–7** — copy the plan template into the feature dir. The template is
+   `templates/doflow/plan-template.md` inside the same install step 1 resolved: take
+   `constitution_base` from that JSON and replace its trailing
+   `guidance/references/CONSTITUTION_BASE.md` with that path.
+   Fill it: approach, research/decisions that resolve every `[NEEDS CLARIFICATION]` from the
    requirement, components, data/contracts, risks, validation strategy.
    Structure the artifact per `references/ARTIFACT_FORMAT.md` — read it before filling the
    template: index-then-detail for §4/§6, the closed `Live` / `Superseded → <ref>` status
@@ -90,7 +86,7 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    created here (`/do-execute-plan`'s job, lazily, per repo).
 8. **Validate** — run the advisory consistency check and surface any findings verbatim:
    ```bash
-   bash "$DOFLOW_CONFIG_DIR/scripts/doflow/bash/validate-artifacts.sh" "<plan path>"
+   ../../bin/doflow-run validate "<plan path>"
    ```
    This also verifies each `### Task Summary` rollup row against the `- [ ]` lines under its
    `### Phase <X>` heading. Findings are reported to the user, never repaired automatically. A

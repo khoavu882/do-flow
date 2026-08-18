@@ -2,31 +2,21 @@
 
 Protocol for safe concurrent task execution by specialist subagents.
 
-**Write-set isolation is decided by `do-parallel-check.sh`, not by judgement.** The scripts below
-compute the grouping and the overlap set deterministically from `plan.md`. Read their output; do
-not re-derive it by eye. If a script is unavailable, say so and fall back to `--sync` (one task at
+**Write-set isolation is decided by the `parallel-check` verb, not by judgement.** The commands
+below compute the grouping and the overlap set deterministically from `plan.md`. Read their output;
+do not re-derive it by eye. If a verb is unavailable, say so and fall back to `--sync` (one task at
 a time) rather than guessing at which tasks are safe to run together.
 
-## Resolving the scripts
+## Resolving the runtime
 
-Same resolver `SKILL.md` step 1 uses. Every command below assumes `$BASH_DIR` is set:
-
-```bash
-RESOLVER="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh}"
-if [ -z "$RESOLVER" ] || [ ! -f "$RESOLVER" ]; then
-  d="$PWD"
-  while [ "$d" != / ]; do
-    [ -f "$d/.doflow/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/.doflow/scripts/doflow/bash/do-paths.sh" && break
-    d="$(dirname "$d")"
-  done
-fi
-BASH_DIR="$(dirname "$RESOLVER")"
-```
+Same call `SKILL.md` step 1 uses. `../../bin/doflow-run` resolves against the **skill** directory
+(`do-execute-plan/`), not against this `references/` file. Leave the working directory at the repo
+root — every path a verb takes or returns is relative to it.
 
 ## 1. Compute the dispatch groups
 
 ```bash
-bash "$BASH_DIR/do-parallel-check.sh" --phase=<PHASE> --json
+../../bin/doflow-run parallel-check --phase=<PHASE> --json
 ```
 
 Returns, alongside the legacy per-task fields (`parallel_tasks`, `sequential_tasks`, `overlaps`,
@@ -55,27 +45,22 @@ one that governs dispatch).
 ## 3. Build each group's brief
 
 ```bash
-bash "$BASH_DIR/do-task-brief.sh" --group=<PHASE>:<OWNER> --tasks=<id,id,...> --json
+../../bin/doflow-run task-brief --group=<PHASE>:<OWNER> --tasks=<id,id,...> --json
 ```
 
-Writes the group brief and returns its path in `group_brief`. The brief carries the shared preamble
+Writes the group brief and returns its path in `path`. The brief carries the shared preamble
 once (where this fits, global constraints, component boundary), then a per-task block for each id in
 the order given. Pass this file to the subagent — it is the whole contract for that dispatch.
 
 For a single-task group the brief is byte-identical to `--task=<id>` output, so a one-task group and
 an ungrouped task are the same dispatch.
 
-Report paths for a group come from:
+Report paths come from the brief path the same call returned — the workspace is the directory
+holding it, and each task's report is `<workspace>/task-<ID>-report.md`. Each task writes its own
+report before the next one starts.
 
-```bash
-bash "$BASH_DIR/do-exec-paths.sh" --group=<PHASE>:<OWNER> --tasks=<id,id,...>
-```
-
-which returns `group_id`, `group_brief`, and `reports[]` ordered to match the task CSV. Each task
-writes its own report before the next one starts.
-
-All three scripts reject path traversal in group and task ids with exit 2. On any non-zero exit,
-stop and surface the error — do not proceed with a partial grouping.
+Both verbs reject path traversal in group and task ids with exit 2. On any non-zero exit, stop and
+surface the error — do not proceed with a partial grouping.
 
 ## 4. Phase-level quality review
 

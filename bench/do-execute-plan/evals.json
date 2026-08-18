@@ -15,7 +15,12 @@
           "skill": "do-execute-plan"
         },
         {
-          "text": "The prerequisite gate is evaluated before any task runs",
+          "text": "The prerequisite gate is run and named before any task is dispatched",
+          "type": "output_matches",
+          "pattern": "(do-prereqs|prerequisite gate|has_plan)"
+        },
+        {
+          "text": "The gate is evaluated before any task runs, not after",
           "type": "manual"
         }
       ]
@@ -25,15 +30,16 @@
       "kind": "behavioral",
       "name": "blocks-without-chain-artifacts",
       "prompt": "/do-execute-plan --next",
-      "expected_output": "With no requirement/design/plan present, the hard gate blocks rather than improvising",
+      "expected_output": "With no requirement/design/plan present, the hard gate blocks and names the missing artifact rather than improvising one",
       "files": [],
       "assertions": [
         {
-          "text": "Execution is refused or blocked when chain artifacts are missing",
-          "type": "manual"
+          "text": "The gate's blocking verdict is reported with the missing artifact named",
+          "type": "output_matches",
+          "pattern": "(missing-prereqs|has_plan\"?\\s*:?\\s*false|no plan\\.md)"
         },
         {
-          "text": "The specific missing artifact is named",
+          "text": "Execution is refused or blocked rather than improvised around",
           "type": "manual"
         },
         {
@@ -46,16 +52,26 @@
       "id": 3,
       "kind": "behavioral",
       "name": "respects-write-set-isolation",
-      "prompt": "/do-execute-plan --phase 1",
-      "expected_output": "Only tasks with disjoint file sets are run concurrently",
+      "prompt": "First set up a fixture in this sandbox: create agent-docs/doflow/900-writeset/ holding a one-paragraph requirement.md, a one-paragraph design.md, and a plan.md whose Tasks section reads exactly these three lines:\n- [ ] A.1 [P] Write one line to docs/one.md — owner: core-implementer; files: `docs/one.md`\n- [ ] A.2 [P] Write one line to docs/two.md — owner: core-implementer; files: `docs/two.md`\n- [ ] A.3 [P] Append a second line to docs/one.md — owner: core-implementer; files: `docs/one.md`\nThen run /do-execute-plan --phase A against it.",
+      "expected_output": "A.1 and A.2 dispatch concurrently; A.3 is serialized behind A.1 because it shares docs/one.md, despite carrying [P]",
       "files": [],
       "assertions": [
         {
-          "text": "Tasks sharing a file are serialized rather than run in parallel",
+          "text": "The shared file docs/one.md is identified as the overlap between A.1 and A.3",
+          "type": "output_matches",
+          "pattern": "docs/one\\.md"
+        },
+        {
+          "text": "A.3 is named explicitly in the dispatch decision",
+          "type": "output_matches",
+          "pattern": "A\\.3"
+        },
+        {
+          "text": "A.3 is serialized after A.1 rather than dispatched in the same parallel batch",
           "type": "manual"
         },
         {
-          "text": "Parallel dispatch is justified by disjoint files, not by description",
+          "text": "Parallel dispatch is justified by disjoint files: sets, not by the [P] marker alone",
           "type": "manual"
         }
       ]

@@ -15,7 +15,7 @@
           "skill": "do-brainstorm"
         },
         {
-          "text": "No code was written during discovery",
+          "text": "No code block appears in the discovery response itself (scope: transcript, because the response IS the artifact for a discovery-only turn)",
           "type": "output_not_matches",
           "pattern": "```(js|ts|python|go)"
         },
@@ -34,11 +34,19 @@
       "files": [],
       "assertions": [
         {
-          "text": "requirement.md was created in the feature directory",
-          "type": "manual"
+          "text": "A requirement artifact carrying FR-### ids was produced",
+          "type": "output_matches",
+          "pattern": "FR-\\d{3}",
+          "in": "outputs"
         },
         {
-          "text": "Section 7 Open Questions contains no [NEEDS CLARIFICATION] markers",
+          "text": "No [NEEDS CLARIFICATION] marker survives in the written requirement",
+          "type": "output_not_matches",
+          "pattern": "\\[NEEDS CLARIFICATION",
+          "in": "outputs"
+        },
+        {
+          "text": "requirement.md was created in the feature directory",
           "type": "manual"
         },
         {
@@ -46,7 +54,7 @@
           "type": "manual"
         },
         {
-          "text": "Functional requirements carry FR-### ids and an index table",
+          "text": "The functional requirements carry an index table above the detail",
           "type": "manual"
         }
       ]
@@ -59,6 +67,12 @@
       "expected_output": "Requirement describes WHAT and WHY only, with no technology choices",
       "files": [],
       "assertions": [
+        {
+          "text": "A requirement artifact carrying FR-### ids was produced",
+          "type": "output_matches",
+          "pattern": "FR-\\d{3}",
+          "in": "outputs"
+        },
         {
           "text": "No specific cache technology (Redis, Memcached, etc.) is chosen",
           "type": "manual"

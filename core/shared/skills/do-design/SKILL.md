@@ -21,23 +21,17 @@ implementation approach and task decomposition, not system-shape decisions.
 `RULE_04_QUESTIONS.md`: use that tool in Claude Code; in Codex or Gemini, write the stage question
 file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a question file.
 
-1. **Resolve** — run the resolver, parse JSON:
+1. **Resolve** — run the resolver, parse JSON. Every DoFlow runtime call in this skill goes through
+   `../../bin/doflow-run`, resolved relative to this skill's own directory:
    ```bash
-   RESOLVER="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh}"
-   if [ -z "$RESOLVER" ] || [ ! -f "$RESOLVER" ]; then
-     d="$PWD"
-     while [ "$d" != / ]; do
-       [ -f "$d/.doflow/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/.doflow/scripts/doflow/bash/do-paths.sh" && break
-       d="$(dirname "$d")"
-     done
-   fi
-   DOFLOW_CONFIG_DIR="$(dirname "$(dirname "$(dirname "$(dirname "$RESOLVER")")")")"
-   bash "$RESOLVER" --json
+   ../../bin/doflow-run paths --json
    ```
+   Exit 2 means no DoFlow runtime was found; the message names every place searched — surface it
+   verbatim and stop, do not search for the runtime yourself.
    If `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root with 2+
    `agent-docs/doflow/` feature dirs and no branch to disambiguate), ask via `AskUserQuestion`, one
-   option per `candidate_slugs` entry, before continuing. Re-resolve with `bash "$RESOLVER" --json
-   --slug="<chosen>"` and use that slug for the rest of this flow. If `/do-flow` already
+   option per `candidate_slugs` entry, before continuing. Re-resolve with
+   `../../bin/doflow-run paths --json --slug="<chosen>"` and use that slug for the rest of this flow. If `/do-flow` already
    disambiguated and is invoking this skill directly, it passes `--slug="<chosen>"` itself — skip
    the prompt in that case (resolver output already has a non-null `feature_slug`).
 2. **Precondition (advisory)** — if `has_requirement` is false, warn that there's no
@@ -62,9 +56,10 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    selectable. A question where the user picks that "Decide for me" option (distinct from the
    general "Other" free-text escape) resolves via a recorded assumption, not by re-prompting —
    see Step 5 below for where that's recorded.
-5. **Write `design.md`** — copy `$DOFLOW_CONFIG_DIR/templates/doflow/design-template.md` into the
-   feature dir, fill
-   it from step 4. `design-template.md`'s §8 "Assumptions" section must read "None" unless a
+5. **Write `design.md`** — copy the design template into the feature dir and fill it from step 4.
+   The template is `templates/doflow/design-template.md` inside the same install step 1 resolved:
+   take `constitution_base` from that JSON and replace its trailing
+   `guidance/references/CONSTITUTION_BASE.md` with that path. `design-template.md`'s §8 "Assumptions" section must read "None" unless a
    design-level clarification question was resolved via the defer escape hatch in Step 4, in
    which case record it there with a one-line rationale.
    Structure the artifact per `references/ARTIFACT_FORMAT.md` — read it before filling the
@@ -74,7 +69,7 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    experimental `C4Context` / `C4Container` types must not be used.
 6. **Validate** — run the advisory consistency check and surface any findings verbatim:
    ```bash
-   bash "$DOFLOW_CONFIG_DIR/scripts/doflow/bash/validate-artifacts.sh" "<design path>"
+   ../../bin/doflow-run validate "<design path>"
    ```
    Findings are reported to the user, never repaired automatically. A non-zero exit is advisory
    and does not halt the chain.

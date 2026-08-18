@@ -23,18 +23,13 @@ not part of this chain; invoke it directly when you need to set or amend repo-le
 `RULE_04_QUESTIONS.md`: use that tool in Claude Code; in Codex or Gemini, write the stage question
 file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a question file.
 
-1. **Resolve state** — resolve and run `do-paths.sh --json` from the installed DoFlow config:
+1. **Resolve state** — run the resolver. Every DoFlow runtime call in this skill goes through
+   `../../bin/doflow-run`, resolved relative to this skill's own directory:
    ```bash
-   RESOLVER="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh}"
-   if [ -z "$RESOLVER" ] || [ ! -f "$RESOLVER" ]; then
-     d="$PWD"
-     while [ "$d" != / ]; do
-       [ -f "$d/.doflow/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/.doflow/scripts/doflow/bash/do-paths.sh" && break
-       d="$(dirname "$d")"
-     done
-   fi
-   bash "$RESOLVER" --json
+   ../../bin/doflow-run paths --json
    ```
+   Exit 2 means no DoFlow runtime was found; the message names every place searched — surface it
+   verbatim and stop, do not search for the runtime yourself.
    Determine the starting phase:
    - `feature_slug` is `null` **and** `candidate_slugs` is empty (trunk branch, or a non-git root
      with zero `agent-docs/doflow/` dirs): no active feature — start at `do-brainstorm`.
@@ -43,8 +38,8 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
      disambiguate): this is NOT "no active feature," it's an unresolved choice. Ask via
      `AskUserQuestion`, one option per `candidate_slugs` entry, before doing anything else — never
      default to `do-brainstorm` here, that would create a duplicate feature dir alongside an
-     existing one. Re-resolve with `do-paths.sh --json --slug="<chosen>"` and carry that slug
-     through every remaining phase invocation and gate.
+     existing one. Re-resolve with `../../bin/doflow-run paths --json --slug="<chosen>"` and carry
+     that slug through every remaining phase invocation and gate.
    - `feature_slug` is set (branch-derived, or auto-selected/disambiguated above): resume from the
      first missing artifact — `!has_requirement` → `do-brainstorm`; `has_requirement &&
      !has_design` → `do-design`; `has_design && !has_plan` → `do-plan`; all three present →

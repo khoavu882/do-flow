@@ -24,10 +24,15 @@
       "id": 2,
       "kind": "behavioral",
       "name": "pauses-at-approval-gates",
-      "prompt": "/do-flow Add CSV export to the reports page",
-      "expected_output": "The chain pauses at its defined gates instead of running straight through",
+      "prompt": "/do-flow Add a --since <date> filter to `doflow trace` so the run ledger can be windowed from an explicit start date instead of only --days N.",
+      "expected_output": "The chain pauses at its defined gates instead of running straight through, naming the phase at each pause",
       "files": [],
       "assertions": [
+        {
+          "text": "The chain names its phases in order (do-brainstorm, then do-design, then do-plan)",
+          "type": "output_matches",
+          "pattern": "do-brainstorm[\\s\\S]*do-design[\\s\\S]*do-plan"
+        },
         {
           "text": "The run pauses for approval at least once rather than completing silently",
           "type": "manual"

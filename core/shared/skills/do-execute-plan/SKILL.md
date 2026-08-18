@@ -17,19 +17,15 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
 ## Behavioral Flow
 
 1. **Resolve State & Prerequisite Gate**:
-   - Resolve and run `do-paths.sh --json`:
+   - Every DoFlow runtime call in this skill goes through `../../bin/doflow-run`, resolved relative
+     to this skill's own directory:
      ```bash
-     RESOLVER="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh}"
-     if [ -z "$RESOLVER" ] || [ ! -f "$RESOLVER" ]; then
-       d="$PWD"
-       while [ "$d" != / ]; do
-         [ -f "$d/.doflow/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/.doflow/scripts/doflow/bash/do-paths.sh" && break
-         d="$(dirname "$d")"
-       done
-     fi
-     bash "$RESOLVER" --json
+     ../../bin/doflow-run paths --json
      ```
-   - Enforce hard prerequisite gate: `bash "$(dirname "$RESOLVER")/do-prereqs.sh" --require-plan` (requires `requirement.md`, `design.md`, `plan.md`).
+     Exit 2 means no DoFlow runtime was found; the message names every place searched — surface it
+     verbatim and stop, do not search for the runtime yourself.
+   - Enforce hard prerequisite gate: `../../bin/doflow-run prereqs --require-plan` (requires
+     `requirement.md`, `design.md`, `plan.md`).
 
 2. **Readiness Evaluation (Confidence Check)**:
    - Evaluate the task's contract with `doflow readiness --task-class <bug|feature|refactor|trivial-edit|dependency-change> --task-id <id>`,
@@ -44,12 +40,16 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
 
 4. **Task Selection & Parallel Dispatch**:
    - Select next pending task(s) (`--next`, `--phase N`, `--all`, `--resume`).
-   - Compute dispatch groups with `do-parallel-check.sh --phase=<N> --json` — it groups by phase and
-     `owner:`, and returns the cross-group write-set collisions (`group_overlaps[]`,
-     `group_serialize[]`) that decide what may run concurrently. Do not derive write-set isolation
-     by inspection; it is computed. Build each group's brief with
-     `do-task-brief.sh --group=<phase>:<owner> --tasks=<csv>`. Full protocol, field meanings, and
-     the `--sync` / `--no-group` fallbacks: `references/parallel_dispatch.md`.
+   - Compute dispatch groups with `../../bin/doflow-run parallel-check --phase=<N> --json` — it
+     groups by phase and `owner:`, and returns the cross-group write-set collisions
+     (`group_overlaps[]`, `group_serialize[]`) that decide what may run concurrently. Do not derive
+     write-set isolation by inspection; it is computed.
+     **Branch on the `parallel_safe` field, never on the exit code.** With `jq` unavailable this
+     verb exits 0 and reports `"parallel_safe": null` — a zero exit is not a grant of concurrency.
+     `null`, or a missing field, means unknown: fall back to `--sync` and say why.
+     Build each group's brief with
+     `../../bin/doflow-run task-brief --group=<phase>:<owner> --tasks=<csv>`. Full protocol, field
+     meanings, and the `--sync` / `--no-group` fallbacks: `references/parallel_dispatch.md`.
    - Dispatch tasks to appropriate specialist archetypes:
      - Architecture & Schema $\rightarrow$ `system-architect`
      - Code Implementation & Refactoring $\rightarrow$ `core-implementer`

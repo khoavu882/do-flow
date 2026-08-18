@@ -6,7 +6,7 @@
       "kind": "triggering",
       "name": "review-request-invokes-review",
       "prompt": "Can you review the changes on this branch before I open a PR?",
-      "expected_output": "do-code-review is invoked and analyses the diff",
+      "expected_output": "do-code-review is invoked and analyses the branch's real diff against its base",
       "files": [],
       "assertions": [
         {
@@ -15,7 +15,12 @@
           "skill": "do-code-review"
         },
         {
-          "text": "Findings reference specific files and lines",
+          "text": "Findings name real source paths in this repo (src/, bench/, core/, test/ or bin/)",
+          "type": "output_matches",
+          "pattern": "(src|bench|core|test|bin)/[A-Za-z0-9_./-]+\\.(js|py|md|json|ya?ml)"
+        },
+        {
+          "text": "Findings are specific to the changed code rather than generic advice",
           "type": "manual"
         }
       ]
@@ -24,10 +29,15 @@
       "id": 2,
       "kind": "behavioral",
       "name": "dispatches-to-language-checker",
-      "prompt": "/do-code-review Review src/payment/retry.py for quality issues",
-      "expected_output": "The Python language checker is used rather than generic prose review",
+      "prompt": "/do-code-review Review core/shared/skills/do-code-review/scripts/pr_analyzer.py for quality issues",
+      "expected_output": "The Python language checker is dispatched against a real 535-line file rather than a generic prose review",
       "files": [],
       "assertions": [
+        {
+          "text": "The Python dispatch target is named (languages/python.md or the Python analyzer script)",
+          "type": "output_matches",
+          "pattern": "(languages/python\\.md|code_quality_checker\\.py)"
+        },
         {
           "text": "Review applies Python-specific criteria, not generic advice",
           "type": "manual"
@@ -46,6 +56,11 @@
       "expected_output": "The markdown content-type reviewer is used, not a language checker",
       "files": [],
       "assertions": [
+        {
+          "text": "The markdown content-type dispatch target is named (content-types/markdown.md or the doc analyzer script)",
+          "type": "output_matches",
+          "pattern": "(content-types/markdown\\.md|doc_quality_checker\\.py)"
+        },
         {
           "text": "Review treats the target as prose, not code",
           "type": "manual"

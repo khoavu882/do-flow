@@ -6,7 +6,7 @@
       "kind": "triggering",
       "name": "plan-request-invokes-plan",
       "prompt": "Turn the design into an implementation plan I can hand to someone.",
-      "expected_output": "do-plan is invoked and produces plan.md with a task checklist",
+      "expected_output": "do-plan is invoked and produces plan.md with a task checklist, disclosing that no design.md exists here rather than inventing one",
       "files": [],
       "assertions": [
         {
@@ -15,7 +15,13 @@
           "skill": "do-plan"
         },
         {
-          "text": "plan.md contains a dependency-ordered task checklist",
+          "text": "The produced plan carries task markers in the form the executor parses",
+          "type": "output_matches",
+          "pattern": "- \\[ \\] [A-Z]\\.\\d",
+          "in": "outputs"
+        },
+        {
+          "text": "The task checklist is dependency-ordered",
           "type": "manual"
         }
       ]
@@ -23,15 +29,21 @@
     {
       "id": 2,
       "kind": "behavioral",
-      "name": "constitution-check-recorded",
+      "name": "constitution-check-recorded-with-no-upstream-design",
       "prompt": "/do-plan --strategy systematic",
-      "expected_output": "A Constitution Check verdict is recorded against both tiers",
+      "expected_output": "With no requirement.md or design.md in the sandbox, do-plan states that absence rather than inventing a feature, and still records a Constitution Check verdict against both tiers",
       "files": [],
       "assertions": [
         {
-          "text": "A Constitution Check result is recorded",
+          "text": "A Constitution Check result is recorded in the produced plan",
           "type": "output_matches",
-          "pattern": "Constitution Check"
+          "pattern": "Constitution Check",
+          "in": "outputs"
+        },
+        {
+          "text": "The absence of upstream artifacts is stated explicitly rather than papered over",
+          "type": "output_matches",
+          "pattern": "(has_requirement|has_design|no requirement\\.md|no design\\.md|does not exist)"
         },
         {
           "text": "The verdict is PASS or FAIL with reasoning per principle",
@@ -46,15 +58,21 @@
     {
       "id": 3,
       "kind": "behavioral",
-      "name": "task-markers-are-parseable",
+      "name": "task-markers-are-parseable-in-a-gap-plan",
       "prompt": "/do-plan",
-      "expected_output": "Task checklist uses the exact marker syntax the executor parses",
+      "expected_output": "With no upstream artifacts, do-plan still emits a task checklist in the exact marker syntax the executor parses, scoped to recovering the gap rather than to an invented feature",
       "files": [],
       "assertions": [
         {
-          "text": "Tasks use the - [ ] checkbox marker",
+          "text": "Tasks in the produced plan use the - [ ] checkbox marker with a phase-letter id",
           "type": "output_matches",
-          "pattern": "- \\[ \\] [A-Z]\\.\\d"
+          "pattern": "- \\[ \\] [A-Z]\\.\\d",
+          "in": "outputs"
+        },
+        {
+          "text": "The missing requirement/design is disclosed rather than a feature being invented to plan",
+          "type": "output_matches",
+          "pattern": "(has_requirement|has_design|no requirement\\.md|no design\\.md|does not exist)"
         },
         {
           "text": "[P] markers only appear on tasks with disjoint files: sets",

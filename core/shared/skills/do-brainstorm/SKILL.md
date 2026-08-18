@@ -22,26 +22,21 @@ continuity gap: brainstorm output survives a compact/session-end without a separ
 `RULE_04_QUESTIONS.md`: use that tool in Claude Code; in Codex or Gemini, write the stage question
 file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a question file.
 
-1. **Resolve** — run the deterministic resolver and parse its JSON (never compute paths yourself):
+1. **Resolve** — run the deterministic resolver and parse its JSON (never compute paths yourself).
+   Every DoFlow runtime call in this skill goes through `../../bin/doflow-run`, resolved relative
+   to this skill's own directory:
    ```bash
-   RESOLVER="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh}"
-   if [ -z "$RESOLVER" ] || [ ! -f "$RESOLVER" ]; then
-     d="$PWD"
-     while [ "$d" != / ]; do
-       [ -f "$d/.doflow/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/.doflow/scripts/doflow/bash/do-paths.sh" && break
-       d="$(dirname "$d")"
-     done
-   fi
-   DOFLOW_CONFIG_DIR="$(dirname "$(dirname "$(dirname "$(dirname "$RESOLVER")")")")"
-   bash "$RESOLVER" --json
+   ../../bin/doflow-run paths --json
    ```
+   Exit 2 means no DoFlow runtime was found; the message names every place searched — surface it
+   verbatim and stop, do not search for the runtime yourself.
    If `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root — e.g.
    doflow installed at a multi-service container root — with 2+ `agent-docs/doflow/` feature dirs
    and no branch to disambiguate), this is NOT "no active feature" — it's an unresolved choice.
    Ask via `AskUserQuestion`, one option per `candidate_slugs` entry, before continuing to step 2;
    never fall through to step 3's fresh-feature path on an ambiguous result, that would create a
-   duplicate feature dir. Re-resolve with `bash "$RESOLVER" --json --slug="<chosen>"` and use that
-   slug for the rest of this flow. If `/do-flow` already disambiguated and is invoking this skill
+   duplicate feature dir. Re-resolve with `../../bin/doflow-run paths --json --slug="<chosen>"` and
+   use that slug for the rest of this flow. If `/do-flow` already disambiguated and is invoking this skill
    directly, it passes `--slug="<chosen>"` itself — the resolver output already has a non-null
    `feature_slug` in that case, so no prompt is needed here.
 2. **Explore** — Socratic dialogue: transform the idea through systematic questioning.
@@ -63,24 +58,14 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    (genuinely no active feature: trunk branch, or a non-git root with zero existing feature dirs),
    ask the user for a slug using the RULE_04 question format, default
    `<next_number>-<kebab-of-description>`, then create the dir: `mkdir -p
-   agent-docs/doflow/<slug>`. **Branch creation delegated to `/do-git`:**
-   
-   Resolve do-git-state.sh path (similar to do-paths.sh resolution):
-   ```bash
-   STATE="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-git-state.sh}"
-   if [ -z "$STATE" ] || [ ! -f "$STATE" ]; then
-     d="$PWD"
-     while [ "$d" != / ]; do
-       [ -f "$d/.doflow/scripts/doflow/bash/do-git-state.sh" ] && STATE="$d/.doflow/scripts/doflow/bash/do-git-state.sh" && break
-       d="$(dirname "$d")"
-     done
-   fi
-   ```
-   
-   If `is_git_repo` is true, call `bash "$STATE" --branch-name --class=feature --slug=<slug>` and use the returned branch name with `git checkout -b`; if false (non-git root), skip branch creation entirely.
-4. **Write `requirement.md`** — copy
-   `$DOFLOW_CONFIG_DIR/templates/doflow/requirement-template.md` into the feature
-   dir, fill the tokens from the dialogue. WHAT/WHY only: user stories (P1/P2/P3 → US#), `FR-###`,
+   agent-docs/doflow/<slug>`. **Branch creation delegated to `/do-git`:** if `is_git_repo` is true,
+   call `../../bin/doflow-run git-state --branch-name --class=feature --slug=<slug>` and use the
+   returned branch name with `git checkout -b`; if false (non-git root), skip branch creation
+   entirely.
+4. **Write `requirement.md`** — copy the requirement template into the feature dir and fill the
+   tokens from the dialogue. The template is `templates/doflow/requirement-template.md` inside the
+   same install step 1 resolved: take `constitution_base` from that JSON and replace its trailing
+   `guidance/references/CONSTITUTION_BASE.md` with that path. WHAT/WHY only: user stories (P1/P2/P3 → US#), `FR-###`,
    NFRs, out-of-scope, acceptance criteria. Zero `[NEEDS CLARIFICATION]` markers remain in §7 at
    hand-off — every ambiguity from Step 2 is either a resolved answer folded into the relevant
    US/FR/NFR, or an assumption recorded in `requirement-template.md`'s §8 "Assumptions" section
@@ -95,7 +80,7 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    vocabulary, the §1 scope-boundary diagram (or `N/A: <why>`), and §9 History.
 5. **Validate** — run the advisory consistency check and surface any findings verbatim:
    ```bash
-   bash "$DOFLOW_CONFIG_DIR/scripts/doflow/bash/validate-artifacts.sh" "<requirement path>"
+   ../../bin/doflow-run validate "<requirement path>"
    ```
    Findings are reported to the user, never repaired automatically — when an index and its detail
    disagree, which one is wrong is authoring judgement. A non-zero exit is advisory and does not

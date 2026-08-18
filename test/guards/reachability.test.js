@@ -10,9 +10,10 @@
 // passing, because unit tests exercise engines directly and never through the skill layer that is
 // supposed to invoke them. The features were simply unreachable by any documented interface.
 //
-// Reachability here means: named by a skill or by shipped guidance/docs, or called by another
-// script that is itself reachable. A script invoked only by another script is fine — that is
-// composition, not orphaning — so the transitive closure is what matters, not direct mention.
+// Reachability here means: named by a skill or by shipped guidance/docs, named *through the
+// dispatcher's verb table* by one of those, or called by another script that is itself reachable.
+// A script invoked only by another script is fine — that is composition, not orphaning — so the
+// transitive closure is what matters, not direct mention.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -20,6 +21,7 @@ const path = require('node:path');
 const { REPO } = require('./_shared');
 
 const BASH_DIR = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash');
+const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 
 /** Everything that ships and could plausibly name an executable: skills, guidance, and user docs. */
 function consumerTexts() {
@@ -50,12 +52,50 @@ function scriptTexts() {
     .map((n) => ({ name: n, text: fs.readFileSync(path.join(BASH_DIR, n), 'utf8') }));
 }
 
+/**
+ * verb -> helper, parsed out of the dispatcher's own `shell_helper_for()` case block.
+ *
+ * Since feature 008 a skill no longer names a helper: it calls `../../bin/doflow-run <verb>` and
+ * the dispatcher decides which helper serves that verb (design.md §4.2, FR-003/FR-004). Naming the
+ * helper is now the wrong thing for a skill to do, so requiring a direct mention would have turned
+ * this guard into pressure to re-inline the very paths that change removed. The indirection is
+ * real reachability and is modelled as such — but only as an *edge*, not as an amnesty: a helper
+ * still has to be reached, now by a consumer naming the verb that serves it.
+ *
+ * Parsed rather than restated so a verb added tomorrow is covered without editing this file.
+ */
+function verbTable() {
+  const text = fs.readFileSync(DISPATCHER, 'utf8');
+  const block = text.match(/shell_helper_for\(\)\s*\{([\s\S]*?)\n\}/);
+  assert.ok(block, 'shell_helper_for() is the dispatcher verb table and must be parseable');
+  const table = new Map([...block[1].matchAll(/^\s*([a-z][a-z-]*)\)\s*printf '([^']+)'/gm)]
+    .map(([, verb, helper]) => [verb, helper]));
+  assert.ok(table.size > 0, 'expected to parse at least one shell-backed verb from the dispatcher');
+  return table;
+}
+
+/** Verbs a consumer actually invokes — `doflow-run <verb>`, however the locator path is spelled. */
+function verbsNamedBy(consumers) {
+  const named = new Set();
+  for (const { text } of consumers) {
+    for (const [, verb] of text.matchAll(/doflow-run\s+([a-z][a-z-]*)/g)) named.add(verb);
+  }
+  return named;
+}
+
 test('G8: every shipped shell script is reachable from a skill, doc, or another reachable script', () => {
   const scripts = scriptTexts();
   const consumers = consumerTexts();
+  const table = verbTable();
+  const invokedVerbs = verbsNamedBy(consumers);
+
   const namedByDocs = new Set(
     scripts.filter((s) => consumers.some((c) => c.text.includes(s.name))).map((s) => s.name),
   );
+  // A helper whose verb a consumer invokes is named by that consumer, one indirection removed.
+  for (const [verb, helper] of table) {
+    if (invokedVerbs.has(verb)) namedByDocs.add(helper);
+  }
 
   // Transitive closure: a script called by an already-reachable script is reachable too.
   const reachable = new Set(namedByDocs);
@@ -72,7 +112,33 @@ test('G8: every shipped shell script is reachable from a skill, doc, or another 
   }
 
   const orphaned = scripts.map((s) => s.name).filter((n) => !reachable.has(n)).sort();
-  assert.deepEqual(orphaned, [], `these scripts ship but nothing invokes them:\n  ${orphaned.join('\n  ')}`);
+  assert.deepEqual(orphaned, [],
+    'these scripts ship but nothing invokes them — directly, through a dispatcher verb a skill or '
+    + `doc calls, or from another reachable script:\n  ${orphaned.join('\n  ')}`);
+});
+
+test('G8: every verb a skill or doc invokes is a verb the dispatcher actually dispatches', () => {
+  // The other half of the indirection. Once reachability can be earned by naming a verb, a
+  // misspelled verb stops being a broken command a guard catches and becomes an unreachable helper
+  // instead — the failure surfaces as an unrelated orphan, or not at all if something else happens
+  // to reach the same helper. Checking the call side directly keeps the diagnosis at the typo.
+  const text = fs.readFileSync(DISPATCHER, 'utf8');
+  const nodeBlock = text.match(/is_node_verb\(\)\s*\{([\s\S]*?)\n\}/);
+  assert.ok(nodeBlock, 'is_node_verb() is the node arm of the verb table and must be parseable');
+  const [, alternation] = nodeBlock[1].replace(/\\\n/g, '').match(/^\s*([a-z|-]+)\)\s*return 0/m) || [];
+  assert.ok(alternation, 'the node verb alternation must be parseable');
+
+  // `--help`/`help` are the dispatcher's own arguments, not verbs, and answer before the table.
+  const dispatched = new Set([...verbTable().keys(), ...alternation.split('|'), 'help']);
+  const unknown = [];
+  for (const { rel, text: consumer } of consumerTexts()) {
+    for (const [, verb] of consumer.matchAll(/doflow-run\s+([a-z][a-z-]*)/g)) {
+      if (!dispatched.has(verb)) unknown.push(`${rel} -> doflow-run ${verb}`);
+    }
+  }
+  const unique = [...new Set(unknown)].sort();
+  assert.deepEqual(unique, [],
+    `these calls would exit 2 with "unknown verb":\n  ${unique.join('\n  ')}`);
 });
 
 test('G8: every runtime CLI command is named by a skill or doc', () => {
