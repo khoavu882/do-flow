@@ -9,8 +9,9 @@ effort: high
 
 Phase 1 of the doflow chain (`do-brainstorm → do-design → do-plan → do-execute-plan → do-test →
 do-code-review`). Transforms an ambiguous idea into a concrete requirement through Socratic dialogue,
-then **always** persists the result as `requirement.md` — this is what closes the cross-session
-continuity gap: brainstorm output survives a compact/session-end without a separate save step.
+then persists the result as `requirement.md` whenever the accepted workflow has a discovery stage —
+this is what closes the cross-session continuity gap: brainstorm output survives a compact or
+session-end without a separate save step.
 
 ## Invocation
 ```text
@@ -18,24 +19,25 @@ continuity gap: brainstorm output survives a compact/session-end without a separ
 ```
 
 ## Behavioral Flow
-**Cross-client clarification:** Every `AskUserQuestion` reference below means the mechanism in
-`RULE_04_QUESTIONS.md`: use that tool in Claude Code; in Codex or Gemini, write the stage question
-file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a question file.
 
 1. **Resolve** — run the deterministic resolver and parse its JSON (never compute paths yourself).
    Every DoFlow runtime call in this skill goes through the runtime seam. Resolve it **once** here
    and reuse `$DOFLOW` for every later call in this skill:
-   ```bash
-   # Resolve the DoFlow runtime: nearest project install wins, then the global one.
-   D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
-   DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
-   [ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
-   [ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
-   "$DOFLOW" paths --json
-   ```
-   The walk-up starts at the working directory, so run every command in this skill from the project
-   root. Exit 2 means no DoFlow runtime was found; the message names every place searched — surface
-   it verbatim and stop, do not search for the runtime yourself.
+
+```bash
+# Resolve the DoFlow runtime: nearest project install wins, then the global one.
+D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
+[ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
+[ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
+```
+
+Run every command below from the project root — the walk-up starts at `$PWD`. On exit 2, print the message verbatim and stop; it names every path searched.
+
+```bash
+"$DOFLOW" paths --json
+```
+
    If `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root — e.g.
    doflow installed at a multi-service container root — with 2+ `agent-docs/doflow/` feature dirs
    and no branch to disambiguate), this is NOT "no active feature" — it's an unresolved choice.
@@ -51,18 +53,17 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    ```bash
    "$DOFLOW" classify --task-class "<proposed>" --json
    ```
-   Branch on the returned `outcome` field, not on the exit code.
-   - **`ACCEPTED`** — the returned `workflow` is this run's plan of record and this skill is its
-     `discovery` stage. State the class and the one signal it rests on in a single line.
-   - **`REJECTED`** — **stop.** Print `message` verbatim; it already names `validClasses` and any
-     near-match `suggestions`. Ask the user to choose from `validClasses` via `AskUserQuestion`,
-     then re-validate that choice. Never substitute `feature`, never retry with a guess, and never
-     start eliciting under a class the runtime did not accept.
-   - **Exit 2** — the runtime could not answer at all. Surface its message verbatim and stop.
-   `feature` is not the safe default; it is the longest workflow and the only one that demands
-   three artifacts before an edit. If the accepted `stageIds` contain no `discovery` stage, say so
-   and hand off to the first stage they do name rather than writing a `requirement.md` that
-   workflow never reads.
+Branch on the returned `outcome` field, not the exit code.
+- **`ACCEPTED`** — the returned `workflow` is this run's plan of record; read `stages`, `gates` and `handoff` off it rather than from memory.
+- **`REJECTED`** — **stop.** Print `message` verbatim (it already names `validClasses` and any `suggestions`), ask the user to choose from `validClasses`, then re-validate. Never substitute `feature`.
+- **Exit 2** — surface the message verbatim and stop.
+
+This skill is the accepted workflow's `discovery` stage: state the class and the one signal it rests
+on in a single line. `feature` is not the safe default; it is the longest workflow and the only one
+that demands three artifacts before an edit. If the accepted `stageIds` contain no `discovery` stage,
+say so and hand off to the first stage they do name rather than writing a `requirement.md` that
+workflow never reads.
+
 3. **Explore** — Socratic dialogue: transform the idea through systematic questioning.
    `--depth shallow|normal|deep` is the single breadth knob: it sets both how many dialogue
    rounds run and how wide each one reaches. Coordinate architecture/analysis/frontend/backend/
@@ -77,6 +78,9 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    defer path below is actually selectable. Any question where the user picks that "Decide for
    me" option (distinct from the general "Other" free-text escape) resolves via a recorded
    assumption rather than by re-prompting — see Step 5 for where that assumption is recorded.
+**Stop when** every ambiguity the contract names has an answer or a stated gap, **and** the last round produced no new ambiguity. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
+   The loop's posture — how deep to question, what a round is for — is the Behavioral Posture read
+   below, not a second rule stated here.
 4. **Pick the feature** — if `feature_slug` is non-null (branch-derived, auto-selected from a
    single non-git candidate, or resolved via step 1's disambiguation), use it. If still null
    (genuinely no active feature: trunk branch, or a non-git root with zero existing feature dirs),
@@ -87,10 +91,9 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    returned branch name with `git checkout -b`; if false (non-git root), skip branch creation
    entirely.
 5. **Write `requirement.md`** — copy the requirement template into the feature dir and fill the
-   tokens from the dialogue. The template is `templates/doflow/requirement-template.md` inside the
-   same install step 1 resolved: take `constitution_base` from that JSON and replace its trailing
-   `guidance/references/CONSTITUTION_BASE.md` with that path. WHAT/WHY only: user stories (P1/P2/P3 → US#), `FR-###`,
-   NFRs, out-of-scope, acceptance criteria. Zero `[NEEDS CLARIFICATION]` markers remain in §7 at
+   tokens from the dialogue.
+The template is `templates/doflow/requirement-template.md` in the install step 1 resolved: take `constitution_base` from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
+   WHAT/WHY only: user stories (P1/P2/P3 → US#), `FR-###`, NFRs, out-of-scope, acceptance criteria. Zero `[NEEDS CLARIFICATION]` markers remain in §7 at
    hand-off — every ambiguity from Step 2 is either a resolved answer folded into the relevant
    US/FR/NFR, or an assumption recorded in `requirement-template.md`'s §8 "Assumptions" section
    with a one-line rationale.
@@ -99,16 +102,13 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    referenced a PBI/epic/ticket ID during the dialogue (confirm the exact ID via `AskUserQuestion`
    if it was ambiguous) — otherwise write `none`; do not add a new forced question to every
    brainstorm session just to fill this field.
-   Structure the artifact per `references/ARTIFACT_FORMAT.md` — read it before filling the
-   template: index-then-detail for §3/§4/§8, the closed `Live` / `Superseded → <ref>` status
-   vocabulary, the §1 scope-boundary diagram (or `N/A: <why>`), and §9 History.
+Structure the artifact per the guidance tree's `references/ARTIFACT_FORMAT.md` — read it before filling the template; it names which of this artifact's sections take an index-then-detail table.
+
 6. **Validate** — run the advisory consistency check and surface any findings verbatim:
    ```bash
    "$DOFLOW" validate "<requirement path>"
    ```
-   Findings are reported to the user, never repaired automatically — when an index and its detail
-   disagree, which one is wrong is authoring judgement. A non-zero exit is advisory and does not
-   halt the chain.
+   Surface findings verbatim; a non-zero exit is advisory and does not halt the chain.
 7. **Batch this stage's evidence** — one pass here at the stage boundary, never one call per fact.
    `<task id>` is the unit these stores key on: the plan task id once `plan.md` exists, otherwise
    the feature slug. Use the same id for every `evidence`, `claim` and `readiness` call in the run —
@@ -117,28 +117,11 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    "$DOFLOW" evidence --task-id "<task id>" --action add --batch <batch>.json --json
    "$DOFLOW" claim --task-id "<task id>" --action add --statement "<one conclusion>"
    ```
-   The batch file is a JSON array, one object per item (scratch input — delete it after the write),
-   validated whole: one rejected item writes nothing, so a half-written stage never reads as
-   complete. Per item: `kind` (`exact-search`, `semantic-retrieval`, `structural`, `historical`,
-   `documentation`, `test-result`, `runtime-observation`, `user-statement`, `diff`,
-   `generated-analysis`), `provenance` (`extracted` | `inferred` | `asserted`, with **no default**
-   — an unstated one is refused rather than filed as repository fact), and `source` (`provider` +
-   `capability`, no `unknown` stand-in). `extracted` needs a `locator`; `inferred` and `asserted`
-   need `content`. A discovery stage's output is mostly `user-statement` and `generated-analysis`,
-   and **neither may ever be `extracted`** — that pairing is refused, because it is exactly how the
-   user's words and your reading of them stop being distinguishable. `id`, `freshness`,
-   `supports`/`contradicts`, `stage` and any score field are refused by name.
-   The same items are the block you just wrote into `requirement.md`: what was found, where it came
-   from (the user's own words, or a provider + capability), its locator, and whether it is
-   **extracted** (recorded verbatim) or **inferred** (your reading of it). Never merge those two
-   provenances into one line.
-   Add every conclusion this stage reached as a claim, in this same pass. Each is stored as a
-   `hypothesis` and becomes supported only through linked evidence; an earlier worker having
-   asserted it is not support.
-   Relevance is not confidence. A match count, a ranking, a "best hit" is a property of the query,
-   not of the fact — record the locator, never a score, a percentage, or a confidence.
-   The `discovery` stage declares `readinessTemplate: null`. Do **not** call `readiness` here and
-   do not report one as skipped: readiness belongs to the stage that edits source.
+Item schema, provenance rules, and the refused-field list: the guidance tree's `references/EVIDENCE_LEDGER.md`. Read it before writing the batch.
+   This stage's items are the block you just wrote into `requirement.md` — mostly `user-statement`
+   and `generated-analysis`, neither of which may ever be `extracted`, because that pairing is
+   exactly how the user's words and your reading of them stop being distinguishable. Add every
+   conclusion this stage reached as a claim in the same pass.
 8. **Stop** — report the requirement path and confirmation that §7 has zero remaining
    `[NEEDS CLARIFICATION]` markers (or, in the rare aborted-session case, whatever markers remain).
 
@@ -154,8 +137,7 @@ feature branch+dir (if needed), seed and fill `requirement.md`, and batch the st
 claims at the boundary.
 **Will Not:** include tech/implementation detail, design architecture (`/do-design`'s job), write
 code, run `/do-plan`'s job, elicit under a class the runtime rejected or replaced with `feature`,
-call `readiness` for a stage that declares no template, or express evidence or readiness as a
-number, a percentage or a confidence.
+call `readiness` for a stage that declares no template; or express evidence, an estimate or readiness as a number, a percentage or a confidence.
 
 ## CRITICAL BOUNDARIES
 **STOP AFTER REQUIREMENT CREATION.** Output: `agent-docs/doflow/<slug>/requirement.md` (WHAT/WHY).

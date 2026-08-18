@@ -13,4 +13,5 @@ Evidence-first investigation protocol for bugs and failing tests:
    - Never apply code changes until root cause mechanism is proven.
 
 ## Behavioral Posture
-For systematic debugging and meta-cognitive introspection, consult `modes/MODE_Introspection.md`.
+For systematic debugging and meta-cognitive introspection, consult the guidance tree's
+`modes/MODE_Introspection.md`.

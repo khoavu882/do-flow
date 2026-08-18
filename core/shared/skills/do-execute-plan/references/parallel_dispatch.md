@@ -21,8 +21,7 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
 [ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
 ```
 
-Leave the working directory at the repo root — the walk-up starts there, and every path a verb takes
-or returns is relative to it.
+Run every command below from the project root — the walk-up starts at `$PWD`. On exit 2, print the message verbatim and stop; it names every path searched.
 
 ## 1. Compute the dispatch groups
 
@@ -78,7 +77,11 @@ surface the error — do not proceed with a partial grouping.
 ## 4. Phase-level quality review
 
 Once every group in a phase reports complete, run an integrated phase quality review before
-advancing. Max 2 fix iterations per review finding.
+advancing. A finding that does not clear on the first fix goes to
+`"$DOFLOW" recover --error "<what failed>" --failed-check "<check id>" --iteration <n> --json`.
+Exit 0 means a bounded retry is available (`canRetry: true`); exit 1 means the loop must stop —
+report where it stopped and why, quoting the returned `reason`. The bound is the runtime's
+(`maxRecoveryIterations` in `verify --action contract`); you do not choose the count.
 
 ## Behavioral posture
 

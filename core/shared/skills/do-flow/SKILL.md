@@ -23,49 +23,43 @@ wrong task.
 ```
 
 ## Behavioral Flow
-**Cross-client clarification:** Every `AskUserQuestion` reference below means the mechanism in
-`RULE_04_QUESTIONS.md`: use that tool in Claude Code; in Codex or Gemini, write the stage question
-file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a question file.
 
 1. **Resolve state** — run the resolver. Every DoFlow runtime call in this skill goes through the
    runtime seam. Resolve it **once** here and reuse `$DOFLOW` for every later call in this skill:
-   ```bash
-   # Resolve the DoFlow runtime: nearest project install wins, then the global one.
-   D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
-   DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
-   [ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
-   [ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
-   "$DOFLOW" paths --json
-   ```
-   The walk-up starts at the working directory, so run every command in this skill from the project
-   root. Exit 2 means no DoFlow runtime was found; the message names every place searched — surface
-   it verbatim and stop, do not search for the runtime yourself.
-   If `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root — e.g. doflow
-   installed at a multi-service container root — with 2+ feature dirs and no branch to
-   disambiguate), this is NOT "no active feature," it's an unresolved choice. Ask via
-   `AskUserQuestion`, one option per `candidate_slugs` entry, before doing anything else — never
-   default past it, that would create a duplicate feature dir alongside an existing one. Re-resolve
-   with `"$DOFLOW" paths --json --slug="<chosen>"` and carry that slug through every later stage
-   invocation and gate.
+
+```bash
+# Resolve the DoFlow runtime: nearest project install wins, then the global one.
+D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
+[ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
+[ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
+```
+Run every command below from the project root — the walk-up starts at `$PWD`. On exit 2, print the message verbatim and stop; it names every path searched.
+
+```bash
+"$DOFLOW" paths --json
+```
+`feature_slug` `null` with a non-empty `candidate_slugs` is an unresolved choice, not "no active feature": ask one option per entry, re-resolve with `"$DOFLOW" paths --json --slug="<chosen>"`, and use that slug for the rest of this flow. `/do-flow` passing `--slug` already resolves it — no prompt then.
 
 2. **Propose one class** — read the request and name exactly one class id, using the cues and the
-   confusable pairs in `references/task_classes.md`. State the class and the signal it rests on in
-   one line. If two classes fit equally, do **not** take the longer one: show what each would run —
+   confusable pairs in this skill's own `references/task_classes.md`. State the class and the
+   signal it rests on in one line. If two classes fit equally, do **not** take the longer one: show
+   what each would run —
    `"$DOFLOW" workflow --task-class "<candidate>" --json`, quote its `stageIds` — and ask via
    `AskUserQuestion`, one option per candidate.
 
 3. **Validate the class through the runtime** — a proposal is not a selection until this returns:
-   ```bash
-   "$DOFLOW" classify --task-class "<proposed>" --json
-   ```
-   Branch on the returned `outcome` field, not on the exit code.
-   - **`ACCEPTED`** — the returned `workflow` is this run's plan of record. Its `stages`, `gates`
-     and `handoff` are the only source for what happens next; do not supplement them from memory.
-   - **`REJECTED`** — **stop.** Print `message` verbatim: it already names `validClasses` and any
-     near-match `suggestions`. Ask the user to choose from `validClasses` via `AskUserQuestion`,
-     then re-validate that choice. Never substitute `feature`, never retry with a guess, and never
-     run a stage on a class the runtime did not accept.
-   - **Exit 2** — the runtime could not answer at all. Surface its message verbatim and stop.
+
+```bash
+"$DOFLOW" classify --task-class "<proposed>" --json
+```
+Branch on the returned `outcome` field, not the exit code.
+- **`ACCEPTED`** — the returned `workflow` is this run's plan of record; read `stages`, `gates` and `handoff` off it rather than from memory.
+- **`REJECTED`** — **stop.** Print `message` verbatim (it already names `validClasses` and any `suggestions`), ask the user to choose from `validClasses`, then re-validate. Never substitute `feature`.
+- **Exit 2** — surface the message verbatim and stop.
+
+Every stage this run enters comes from the accepted `workflow`'s `stages`; a phase the workflow does
+not declare is not run here, however familiar it is from the `feature` chain.
 
 4. **Announce the selection** — one line before anything runs:
    `<taskClass> → <workflow.name>: <stageIds joined by →>`, plus the gate ids if `gates` is
@@ -87,10 +81,9 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    - `optional: true` — decide from that stage's own `purpose`, then say which way you went and
      why. Never drop an optional stage silently.
    - `readinessTemplate` is non-null — consult readiness before entering the stage:
-     `"$DOFLOW" readiness --task-class "<taskClass>" --task-id "<task id>" --json`. Pass
-     `--task-class` explicitly every time: the verb defaults to `feature`, and a readiness verdict
-     computed for the wrong class is worse than none. Not ready → report the missing items and
-     stop; do not enter the stage.
+     `"$DOFLOW" readiness --task-class "<taskClass>" --task-id "<task id>" --json`. Both
+     `--task-class` and `--task-id` are required; omitting either exits 2 and names the valid set.
+     Not ready → report the missing items and stop; do not enter the stage.
    - `readinessTemplate` is `null` — enter the stage. Do not consult readiness "to be safe": a
      `review` or `research` workflow has no implementation to be ready for, and `operations` has no
      template by design (`references/task_classes.md`). Calling it anyway invents a gate the

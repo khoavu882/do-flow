@@ -19,31 +19,34 @@ Maintains the **tier-2** per-repo constitution that overlays the tier-1 `CONSTIT
 1. **Resolve** — run the resolver and note `constitution_base`, `constitution_local`, and
    `repo_root`. Every DoFlow runtime call in this skill goes through the runtime seam. Resolve it
    **once** here and reuse `$DOFLOW` for every later call in this skill:
-   ```bash
-   # Resolve the DoFlow runtime: nearest project install wins, then the global one.
-   D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
-   DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
-   [ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
-   [ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
-   "$DOFLOW" paths --json
-   ```
-   The walk-up starts at the working directory, so run every command in this skill from the repo
-   root. Exit 2 means no DoFlow runtime was found; the message names every place searched — surface
-   it verbatim and stop, do not search for the runtime yourself.
+
+```bash
+# Resolve the DoFlow runtime: nearest project install wins, then the global one.
+D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
+[ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
+[ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
+```
+Run every command below from the project root — the walk-up starts at `$PWD`. On exit 2, print the message verbatim and stop; it names every path searched.
+
+```bash
+"$DOFLOW" paths --json
+```
+
 2. **Read both tiers** — the base (read-only), and the local file when `has_constitution_local` is
-   true. You reconcile them yourself, tier-2 taking precedence — nothing merges them for you — and
-   tier-2 may not weaken base P1 (Safety), a rule stated here rather than validated by any check.
-   See `references/DOFLOW_CHAIN.md` → "Two-tier constitution" for what is computed and what is
-   convention.
+   true. You reconcile them yourself, tier-2 taking precedence — nothing merges them for you.
+   See the guidance tree's `references/DOFLOW_CHAIN.md` → "Two-tier constitution" for what is
+   computed and what is convention, and for the rule the two tiers are governed by.
 3. **Create or amend** — branch on `has_constitution_local` from step 1, not a filesystem check of
    your own (path math belongs to the resolver; `constitution_local` is still emitted when the file
    is absent, which is exactly the create case):
    - `has_constitution_local` false: copy the installed constitution template to
      `constitution_local` and fill it from the user's principle inputs (repo-specific rules only;
-     don't restate base principles). The template is `templates/doflow/constitution-template.md`
-     inside the same install step 1 resolved: take `constitution_base` and replace its trailing
-     `guidance/references/CONSTITUTION_BASE.md` with that path.
+     don't restate base principles).
    - true, and `--amend`: apply the requested change.
+
+The template is `templates/doflow/constitution-template.md` in the install step 1 resolved: take `constitution_base` from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
+
 4. **Version + Sync Impact** — bump the semver version line and fill the `SYNC IMPACT REPORT` comment
    (old→new version, what changed, what it propagates to). If a change clarifies/renames a principle that
    templates reference, note it.

@@ -17,29 +17,26 @@ implementation approach and task decomposition, not system-shape decisions.
 ```
 
 ## Behavioral Flow
-**Cross-client clarification:** Every `AskUserQuestion` reference below means the mechanism in
-`RULE_04_QUESTIONS.md`: use that tool in Claude Code; in Codex or Gemini, write the stage question
-file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a question file.
 
 1. **Resolve** — run the resolver, parse JSON. Every DoFlow runtime call in this skill goes through
    the runtime seam. Resolve it **once** here and reuse `$DOFLOW` for every later call in this skill:
-   ```bash
-   # Resolve the DoFlow runtime: nearest project install wins, then the global one.
-   D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
-   DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
-   [ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
-   [ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
-   "$DOFLOW" paths --json
-   ```
-   The walk-up starts at the working directory, so run every command in this skill from the project
-   root. Exit 2 means no DoFlow runtime was found; the message names every place searched — surface
-   it verbatim and stop, do not search for the runtime yourself.
-   If `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root with 2+
-   `agent-docs/doflow/` feature dirs and no branch to disambiguate), ask via `AskUserQuestion`, one
-   option per `candidate_slugs` entry, before continuing. Re-resolve with
-   `"$DOFLOW" paths --json --slug="<chosen>"` and use that slug for the rest of this flow. If `/do-flow` already
-   disambiguated and is invoking this skill directly, it passes `--slug="<chosen>"` itself — skip
-   the prompt in that case (resolver output already has a non-null `feature_slug`).
+
+```bash
+# Resolve the DoFlow runtime: nearest project install wins, then the global one.
+D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
+[ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
+[ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
+```
+
+Run every command below from the project root — the walk-up starts at `$PWD`. On exit 2, print the message verbatim and stop; it names every path searched.
+
+```bash
+"$DOFLOW" paths --json
+```
+
+`feature_slug` `null` with a non-empty `candidate_slugs` is an unresolved choice, not "no active feature": ask one option per entry, re-resolve with `"$DOFLOW" paths --json --slug="<chosen>"`, and use that slug for the rest of this flow. `/do-flow` passing `--slug` already resolves it — no prompt then.
+
 2. **Propose one task class; the runtime validates it** — name exactly one class id for the work
    being designed. `/do-flow` passes one when it invoked this skill; a user who named one settles
    it; otherwise derive it from `requirement.md`'s scope, not from the fact that a `requirement.md`
@@ -47,26 +44,27 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    ```bash
    "$DOFLOW" classify --task-class "<proposed>" --json
    ```
-   Branch on the returned `outcome` field, not on the exit code.
-   - **`ACCEPTED`** — the returned `workflow` is this run's plan of record; this skill is its
-     `design` stage. State the class and the signal it rests on in one line.
-   - **`REJECTED`** — **stop.** Print `message` verbatim; it names `validClasses` and any
-     `suggestions`. Ask the user to choose from `validClasses` via `AskUserQuestion`, then
-     re-validate. Never substitute `feature` and never design under a class the runtime refused.
-   - **Exit 2** — the runtime could not answer. Surface its message verbatim and stop.
-   If the accepted `stageIds` contain no `design` stage, say so and hand off to the first stage
-   they do name. A `bug` or `trivial-edit` run has no design stage by construction, and producing
-   a `design.md` for it invents an artifact its workflow never reads.
+Branch on the returned `outcome` field, not the exit code.
+- **`ACCEPTED`** — the returned `workflow` is this run's plan of record; read `stages`, `gates` and `handoff` off it rather than from memory.
+- **`REJECTED`** — **stop.** Print `message` verbatim (it already names `validClasses` and any `suggestions`), ask the user to choose from `validClasses`, then re-validate. Never substitute `feature`.
+- **Exit 2** — surface the message verbatim and stop.
+
+This skill is the accepted workflow's `design` stage: state the class and the signal it rests on in
+one line. If the accepted `stageIds` contain no `design` stage, say so and hand off to the first
+stage they do name. A `bug` or `trivial-edit` run has no design stage by construction, and producing
+a `design.md` for it invents an artifact its workflow never reads.
+
 3. **Precondition (advisory)** — if `has_requirement` is false, warn that there's no
    `requirement.md` and offer to run `/do-brainstorm` first. This gate is **advisory**
    (skippable), not the hard hook gate.
 4. **Read inputs** — `requirement.md` for the user stories, FRs, and NFRs the design must serve.
+
 5. **Design** — per `--type` (architecture/api/component/database), produce the system-shape
    decisions: a C4 System Context diagram (actors + external systems this feature touches) and,
    when the feature spans more than one deployable unit, a C4 Container diagram; component
    boundaries, API/interface contracts, data model, sequence/data-flow where useful. Output shape
-   inside `design.md` is not a choice: `references/ARTIFACT_FORMAT.md` §4 fixes which diagrams and
-   sections the artifact carries. For a trivial, single-file change with no new external interaction, write
+   inside `design.md` is not a choice: the guidance tree's `references/ARTIFACT_FORMAT.md` §4 fixes
+   which diagrams and sections the artifact carries. For a trivial, single-file change with no new external interaction, write
    "N/A: [why]" in the System Overview section instead of forcing a diagram. Before finalizing
    system-shape decisions, run the same clarification loop `do-brainstorm` uses for any
    design-level ambiguity encountered while shaping architecture/API/data-model choices (e.g.
@@ -79,23 +77,22 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    selectable. A question where the user picks that "Decide for me" option (distinct from the
    general "Other" free-text escape) resolves via a recorded assumption, not by re-prompting —
    see Step 6 below for where that's recorded.
+**Stop when** every design-level ambiguity the contract names has an answer or a stated gap, **and** the last round produced no new design-level ambiguity. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
+
 6. **Write `design.md`** — copy the design template into the feature dir and fill it from step 5.
-   The template is `templates/doflow/design-template.md` inside the same install step 1 resolved:
-   take `constitution_base` from that JSON and replace its trailing
-   `guidance/references/CONSTITUTION_BASE.md` with that path. `design-template.md`'s §8 "Assumptions" section must read "None" unless a
-   design-level clarification question was resolved via the defer escape hatch in Step 5, in
-   which case record it there with a one-line rationale.
-   Structure the artifact per `references/ARTIFACT_FORMAT.md` — read it before filling the
-   template: index-then-detail for §3/§7/§8, the closed `Live` / `Superseded → <ref>` status
-   vocabulary, and §9 History. Its §4 also governs the C4 diagrams — keep C4 as the conceptual
-   zoom model but render every level with Mermaid `flowchart` plus `subgraph` boundaries; the
-   experimental `C4Context` / `C4Container` types must not be used.
+The template is `templates/doflow/design-template.md` in the install step 1 resolved: take `constitution_base` from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
+   `design-template.md`'s §8 "Assumptions" section must read "None" unless a design-level
+   clarification question was resolved via the defer escape hatch in Step 5, in which case record it
+   there with a one-line rationale.
+Structure the artifact per the guidance tree's `references/ARTIFACT_FORMAT.md` — read it before filling the template; it names which of this artifact's sections take an index-then-detail table.
+   Its §4 also governs the C4 diagrams — keep C4 as the conceptual zoom model but render every level
+   with Mermaid `flowchart` plus `subgraph` boundaries; the experimental `C4Context` / `C4Container`
+   types must not be used.
 7. **Validate** — run the advisory consistency check and surface any findings verbatim:
    ```bash
    "$DOFLOW" validate "<design path>"
    ```
-   Findings are reported to the user, never repaired automatically. A non-zero exit is advisory
-   and does not halt the chain.
+   Surface findings verbatim; a non-zero exit is advisory and does not halt the chain.
 8. **Batch this stage's evidence** — one pass here at the stage boundary, never one call per fact.
    `<task id>` is the unit these stores key on: the plan task id once `plan.md` exists, otherwise
    the feature slug. Use the same id for every `evidence`, `claim` and `readiness` call in the run —
@@ -104,27 +101,10 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    "$DOFLOW" evidence --task-id "<task id>" --action add --batch <batch>.json --json
    "$DOFLOW" claim --task-id "<task id>" --action add --statement "<one conclusion>"
    ```
-   The batch file is a JSON array, one object per item (scratch input — delete it after the write),
-   validated whole: one rejected item writes nothing, so a half-written stage never reads as
-   complete. Per item: `kind` (`exact-search`, `semantic-retrieval`, `structural`, `historical`,
-   `documentation`, `test-result`, `runtime-observation`, `user-statement`, `diff`,
-   `generated-analysis`), `provenance` (`extracted` | `inferred` | `asserted`, with **no default**
-   — an unstated one is refused rather than filed as repository fact), and `source` (`provider` +
-   `capability`, no `unknown` stand-in). `extracted` needs a `locator`; `inferred` and `asserted`
-   need `content`; `generated-analysis` and `user-statement` can never be `extracted`. `id`,
-   `freshness`, `supports`/`contradicts`, `stage` and any score field are refused by name.
-   The same items are the block you just wrote into `design.md`: what was found, where it came from
-   (a provider + capability, an existing artifact, or the user), its locator, and whether it is
-   **extracted** (read verbatim out of the repository or the user's words) or **inferred** (your
-   analysis). Never merge those two provenances into one line — a design that cannot be told apart
-   from the code it describes is what makes a wrong assumption unfalsifiable later.
-   Add every system-shape conclusion as a claim in this same pass. Each is stored as a `hypothesis`
-   and becomes supported only through linked evidence; the previous stage having asserted it is not
-   support.
-   Relevance is not confidence. A match count, a ranking, a "best hit" is a property of the query,
-   not of the fact — record the locator, never a score, a percentage, or a confidence.
-   The `design` stage declares `readinessTemplate: null`. Do **not** call `readiness` here and do
-   not report one as skipped: readiness belongs to the stage that edits source.
+Item schema, provenance rules, and the refused-field list: the guidance tree's `references/EVIDENCE_LEDGER.md`. Read it before writing the batch.
+   This stage's items are the block you just wrote into `design.md`: what the system shape rests on,
+   where each part came from, and its locator. Add every system-shape conclusion as a claim in the
+   same pass.
 9. **Stop** — report the design path.
 
 ## Boundaries
@@ -133,8 +113,7 @@ system-shape design decisions, write `design.md`, and batch the stage's evidence
 boundary.
 **Will Not:** write `plan.md` (implementation approach/task decomposition — that's `/do-plan`),
 write code, execute anything, design under a class the runtime rejected or replaced with `feature`,
-call `readiness` for a stage that declares no template, or express evidence or readiness as a
-number, a percentage or a confidence.
+call `readiness` for a stage that declares no template; or express evidence, an estimate or readiness as a number, a percentage or a confidence.
 
 ## CRITICAL BOUNDARIES
 **STOP AFTER DESIGN CREATION.** Output: `agent-docs/doflow/<slug>/design.md`.

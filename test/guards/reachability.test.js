@@ -401,14 +401,31 @@ test('G8: every documented runtime-resolution snippet resolves with CWD at the p
           failures.push(`${rel} (cwd=${where}): exit ${run.status} — ${(run.stderr || '').trim().split('\n')[0]}`);
           continue;
         }
-        if (code.includes('paths --json')) {
-          let parsed;
-          try { parsed = JSON.parse(run.stdout); } catch {
-            failures.push(`${rel} (cwd=${where}): resolved but 'paths --json' emitted non-JSON`);
-            continue;
-          }
-          if (!parsed.repo_root) failures.push(`${rel} (cwd=${where}): 'paths --json' returned no repo_root`);
+        // Resolving is not the same as reaching a runtime that answers: a snippet can exit 0
+        // having set $DOFLOW to a path that is present but broken. So drive one real verb through
+        // whatever the snippet resolved.
+        //
+        // This used to run only `if (code.includes('paths --json'))` — conditional on the skill's
+        // own prose happening to contain that string. D.3 moved the first verb call out of the
+        // canonical resolver block, and the condition silently stopped matching: 11 collected
+        // snippets, 0 containing it, assertion never fires, guard still green. Coverage that a
+        // prose edit can switch off is not coverage. The verb is appended here instead, so this
+        // check is a property of the guard rather than of what a skill happens to say.
+        const probe = spawnSync('bash', ['-c', `{\n${code}\n} >/dev/null 2>&1\n"$DOFLOW" paths --json\n`], {
+          cwd,
+          encoding: 'utf8',
+          env: { ...process.env, HOME: home, DOFLOW_CONFIG_DIR: undefined },
+        });
+        if (probe.status !== 0) {
+          failures.push(`${rel} (cwd=${where}): resolved, but the dispatcher it found exited ${probe.status} on 'paths --json'`);
+          continue;
         }
+        let parsed;
+        try { parsed = JSON.parse(probe.stdout); } catch {
+          failures.push(`${rel} (cwd=${where}): resolved, but 'paths --json' through it emitted non-JSON`);
+          continue;
+        }
+        if (!parsed.repo_root) failures.push(`${rel} (cwd=${where}): 'paths --json' through it returned no repo_root`);
       }
     }
     assert.deepEqual(failures, [],

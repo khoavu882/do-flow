@@ -1,6 +1,6 @@
 # Task classes — proposal guide
 
-`core/registry/workflows.yaml` is authoritative for **what runs**. This file is authoritative for
+The runtime's workflow registry is authoritative for **what runs**; this file is authoritative for
 **which class to propose**. Never quote a stage list from here: get stages from `classify` or
 `workflow`, so a registry edit reaches the run without a prose edit.
 
@@ -63,8 +63,8 @@ object rather than assuming them.
 - **`dependency-change`** — starts from the upstream release evidence for the exact version range,
   not from the version number. Its verification stage runs the full suite: the blast radius is not
   bounded by the diff.
-- **`operations`** — **ungated, deliberately.** No `operations` template exists in
-  `readiness-templates.yaml`, and the class claims none: the workflow authors no source, so
+- **`operations`** — **ungated, deliberately.** The readiness registry holds no `operations`
+  template, and the class claims none: the workflow authors no source, so
   implementation readiness has nothing to gate. Its equivalent safeguard is the preflight
   verification stage. Do not invent a template, and do not call `readiness --task-class operations`
   — the verb rejects it, and rightly.

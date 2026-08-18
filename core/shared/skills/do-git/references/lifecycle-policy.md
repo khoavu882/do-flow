@@ -11,6 +11,10 @@
 | `production_branch` | `master` |
 | `tag_format` | `vX.Y.Z` (semver) |
 
+These are transcribed defaults, not the live ones. `"$DOFLOW" git-state` computes the branch class
+and lifecycle position from the values it actually holds — when the two disagree, the verb is right
+and this table is stale.
+
 ## Tier-2 Constitution Override Shape
 
 A repo may override the default policy by adding a block under `agent-docs/constitution.md`:
@@ -32,14 +36,10 @@ Where absent, defaults apply.
 
 ## Forge Adaptation
 
-The skill detects the forge from the configured remote URL and adapts vocabulary:
-
-| Remote Pattern | Forge | PR/MR Vocabulary |
-|---|---|---|
-| `/[^/]+/[^/]+\.git$` (GitHub pattern) | GitHub | Pull Request |
-| `/[^/]+/[^/]+\.git$` (GitLab pattern) | GitLab | Merge Request |
-
-Detection failure or unknown remote degrades to plain git with ambiguity stated.
+Nothing in this repo runs forge detection today, so this file describes no mechanism for it. Read
+the forge off the remote's host when the vocabulary matters (`Pull Request` on GitHub, `Merge
+Request` on GitLab); detection failure or an unknown remote degrades to plain git with the ambiguity
+stated rather than guessed.
 
 ## Deviation Catalogue
 

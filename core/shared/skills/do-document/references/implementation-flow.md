@@ -10,7 +10,7 @@
 > `requirement.md`/`design.md`/`plan.md` — do not introduce a second one).
 >
 > Every section below is narrative except **Changed Surfaces**, which is a table — comparative,
-> evidentiary data (a set of paths each paired with what changed) falls under
+> evidentiary data (a set of paths each paired with what changed) falls under the guidance tree's
 > `references/ARTIFACT_FORMAT.md` §6's rule to lay that out column-wise rather than as prose or
 > nested bullets.
 >

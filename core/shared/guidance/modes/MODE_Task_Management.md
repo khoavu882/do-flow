@@ -64,33 +64,11 @@ native tracking mechanisms — no external memory-server dependency.
 6. **Complete**: final TodoWrite pass with everything `completed`; final `state.md` update if
    applicable
 
-## Tool Selection
-
-| Task Type | Primary Tool | Cross-Session Record |
-|-----------|-------------|-----------------------|
-| Analysis | Sequential MCP | `state.md` note |
-| Implementation | MultiEdit | `plan.md` task checkbox |
-| Testing | Playwright MCP | `plan.md` task checkbox |
-| Frontend Debug | Chrome DevTools MCP | `state.md` note |
-| Documentation | Context7 MCP | `state.md` note |
-
 ## Examples
 
-### Session 1: Start Authentication Task
-```
-TodoWrite: [{content: "Review existing auth patterns", status: "in_progress"}, ...4 more]
-Execute → TodoWrite: mark "Review existing auth patterns" completed
-```
-
-### Session 2: Resume After Interruption (inside a doflow-chain feature)
+### Resume after an interruption (inside a doflow-chain feature)
 ```
 Read agent-docs/doflow/<slug>/state.md → "In Progress: middleware and endpoints (Phase 2)"
 TodoWrite: seed the task list from state.md's In Progress + Next Action
-Continue with implementation tasks...
-```
-
-### Session 3: Completion Check
-```
-Review TodoWrite: any item not "completed"? → finish it, don't mark the phase done early
-Update state.md: move the phase into Completed, clear Next Action or point at the next phase
+Work → mark each item completed as it finishes → update state.md at the phase checkpoint
 ```

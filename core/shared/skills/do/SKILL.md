@@ -18,32 +18,38 @@ Universal command dispatcher, task decomposer, capability router, and developmen
 
 1. **Session & Command Dispatch**:
    - If invoked with no arguments or `--help`, announce DoFlow session status and display the core command reference.
-   - If `$1` matches a known `/do-*` skill (`do-flow`, `do-brainstorm`, `do-design`, `do-plan`, `do-execute-plan`, `do-test`, `do-code-review`, `do-git`, `do-constitution`, `do-diagnose`, `do-document`), forward to that skill directly.
+   - If `$1` matches a known `/do-*` skill (`do-flow`, `do-brainstorm`, `do-design`, `do-plan`, `do-execute-plan`, `do-test`, `do-code-review`, `do-git`, `do-constitution`, `do-diagnose`, `do-document`, `do-implement`), forward to that skill directly.
    - Otherwise, resolve the runtime seam **once** and reuse `$DOFLOW` for every later call here:
-     ```bash
-     # Resolve the DoFlow runtime: nearest project install wins, then the global one.
-     D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
-     DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
-     [ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
-     [ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
-     "$DOFLOW" paths --json
-     ```
-     The walk-up starts at the working directory, so run every command here from the project root.
-     Exit 2 means no runtime was found; surface the message verbatim and stop.
+
+```bash
+# Resolve the DoFlow runtime: nearest project install wins, then the global one.
+D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
+[ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
+[ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
+```
+Run every command below from the project root — the walk-up starts at `$PWD`. On exit 2, print the message verbatim and stop; it names every path searched.
+
+```bash
+"$DOFLOW" paths --json
+```
 
 2. **Multi-Part / Ambiguous Request Routing (`--depth`)**:
    - When a request bundles 2+ unrelated asks across different files or domains, verify referenced files exist first.
    - Decompose into independent or sequenced work packages, then propose **one task class per
      package** and let the runtime validate each: `"$DOFLOW" classify --task-class "<proposed>" --json`.
-     Branch on the returned `outcome` field, not on the exit code. **`ACCEPTED`** → route the
-     package to the first skill in the returned `stageIds`. **`REJECTED`** → **stop** for that
-     package, print `message` verbatim, and ask the user to choose from `validClasses` before
-     re-validating. Never substitute `feature`, and never route a package under a class the runtime
-     refused. **Exit 2** → surface the message verbatim and stop.
-   - For detailed decomposition and dependency graph formatting, consult `references/pm_routing.md`.
-   - As the `research` workflow's `scoping` stage, this skill declares `readinessTemplate: null`.
-     Do **not** call `readiness` here and do not report one as skipped — research terminates at
-     synthesis and has no implementation to be ready for.
+
+Branch on the returned `outcome` field, not the exit code.
+- **`ACCEPTED`** — the returned `workflow` is this run's plan of record; read `stages`, `gates` and `handoff` off it rather than from memory.
+- **`REJECTED`** — **stop.** Print `message` verbatim (it already names `validClasses` and any `suggestions`), ask the user to choose from `validClasses`, then re-validate. Never substitute `feature`.
+- **Exit 2** — surface the message verbatim and stop.
+
+Route the package to the accepted workflow's first stage. A workflow whose `stages` contain nothing
+that does the package's work is a misclassification — re-propose the class rather than routing the
+package under one the runtime accepted for a different kind of task.
+
+   - For detailed decomposition and dependency graph formatting, consult this skill's own
+     `references/pm_routing.md`.
 
 3. **Capability & Tool Selection**:
    - Routing an information need to a tool is unconditional, not a mode this skill can be asked
@@ -51,37 +57,28 @@ Universal command dispatcher, task decomposer, capability router, and developmen
      smoke check), or `"$DOFLOW" route --intent <intent> --json` to resolve one need end to end. It
      reports which provider is actually available on *this* machine; Semble and Graphify degrade to
      Ripgrep when absent, and a static table cannot know that.
-   - Consult `references/tool_matrix.md` for the intent→capability map and the two fallback layers.
-     Treat the router's output as authoritative when the two disagree.
+   - Consult this skill's own `references/tool_matrix.md` for the intent→capability map and the two
+     fallback layers. Treat the router's output as authoritative when the two disagree.
 
 4. **Scope & Effort Estimation (`--estimate`)**:
    - When asked for sizing, complexity, or timeline estimates, produce a range anchored against git history and file scope, stating the assumptions that set its width and the unknowns that would narrow it. Never attach a numeric or percentage certainty to the range — the assumptions are the honest expression of what is not yet known.
-   - Consult `references/estimation.md` for sizing breakdowns. Stops after producing the estimate; never begins edits.
+   - Consult this skill's own `references/estimation.md` for sizing breakdowns. Stops after
+     producing the estimate; never begins edits.
 
-5. **Batch the Scoping Evidence**:
-   - Once, when the routing or estimate is delivered — not once per finding. Use one `<task id>` for
-     the request: the plan task id when one exists, otherwise the feature slug.
-     ```bash
-     "$DOFLOW" evidence --task-id "<task id>" --action add --batch <batch>.json --json
-     "$DOFLOW" claim --task-id "<task id>" --action add --statement "<one conclusion>"
-     ```
-   - The batch file is a JSON array, one object per item (scratch input — delete it after the
-     write), validated whole: one rejected item writes nothing. Per item: `kind` (`exact-search`,
-     `semantic-retrieval`, `structural`, `historical`, `documentation`, `test-result`,
-     `runtime-observation`, `user-statement`, `diff`, `generated-analysis`), `provenance`
-     (`extracted` | `inferred` | `asserted`, with **no default** — an unstated one is refused rather
-     than filed as repository fact), and `source` (`provider` + `capability`, no `unknown`
-     stand-in). `extracted` needs a `locator`; `inferred` and `asserted` need `content`;
-     `generated-analysis` and `user-statement` can never be `extracted`. `id`, `freshness`,
-     `supports`/`contradicts`, `stage` and any score field are refused by name.
-   - The same items are the block you report: what was found, its source (the provider + capability
-     the router selected, or the user's own words), its locator, and whether it is **extracted**
-     (read verbatim) or **inferred** (your analysis). Never merge those two provenances into one
-     line.
-   - Each routing or sizing conclusion enters as a claim and is stored as a `hypothesis`; it becomes
-     supported only through linked evidence. Relevance is not confidence — a match count or a
-     ranking is a property of the query, so record the locator, never a score, a percentage, or a
-     confidence.
+**Stop when** every width-setting assumption the contract names has an answer or a stated gap, **and** the last round produced no new width-setting assumption. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
+
+5. **Batch the Scoping Evidence** — once, when the routing or estimate is delivered, not once per
+   finding. Use one `<task id>` for the request: the plan task id when one exists, otherwise the
+   feature slug.
+
+```bash
+"$DOFLOW" evidence --task-id "<task id>" --action add --batch <batch>.json --json
+"$DOFLOW" claim --task-id "<task id>" --action add --statement "<one conclusion>"
+```
+This stage's items are the scoping inputs: what the router reported, what git history and file scope
+showed, and the user's own words. Each routing or sizing conclusion enters as a claim.
+
+Item schema, provenance rules, and the refused-field list: the guidance tree's `references/EVIDENCE_LEDGER.md`. Read it before writing the batch.
 
 ## Core Command Reference
 | Command | Purpose | Lifecycle Role |
@@ -104,6 +101,5 @@ Universal command dispatcher, task decomposer, capability router, and developmen
 package and have the runtime validate it, select optimal retrieval tools, generate scoped
 estimates, and batch the scoping evidence and claims.
 **Will Not:** Directly perform code edits or modify source files (delegates to specialist skills);
-route a package under a class the runtime rejected or replaced with `feature`; call `readiness` for
-a stage that declares no template; or express an estimate, evidence or readiness as a numeric or
-percentage confidence.
+route a package under a class the runtime rejected or replaced with `feature`;
+call `readiness` for a stage that declares no template; or express evidence, an estimate or readiness as a number, a percentage or a confidence.

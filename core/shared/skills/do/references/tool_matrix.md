@@ -36,16 +36,17 @@ Two distinct fallback layers, easy to conflate:
   `code.impact-analysis` entirely and re-asks the question as `code.relationships`, then as
   `code.exact-search`.
 
-## Progressive escalation
+## Discovery, then targeted
 
-1. Exact symbol or path known → `locate-known-symbol`. Do not reach for a graph or semantic index.
-2. Concept or behavior, name unknown → `locate-concept`.
-3. Structural question (callers, blast radius) → `trace-dependency` or `estimate-blast-radius`.
+1. Discovery — you do not yet know the name: `locate-concept`, and do not conclude from the first
+   hit.
+2. Targeted — the symbol or path is now known: `locate-known-symbol`.
+3. Structural — callers or blast radius: `trace-dependency` or `estimate-blast-radius`.
 
 ## Not router capabilities
 
 `context7` and `sequential-thinking` are **MCP servers**, not entries in the capability registry —
-they are selected with the `--c7` and `--seq` flags documented in `FLAGS.md` and `MCP_INDEX.md`, and
+they are selected with the `--c7` and `--seq` flags documented in `MCP_INDEX.md`, and
 `doflow capabilities` will not list them. Asking the router to resolve `docs.lookup` or
 `reasoning.structured` raises `Unknown capability`; those two names appeared in an earlier revision
 of this table and never existed in the registry.
