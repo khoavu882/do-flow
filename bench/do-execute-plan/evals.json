@@ -29,7 +29,7 @@
       "id": 2,
       "kind": "behavioral",
       "name": "blocks-without-chain-artifacts",
-      "prompt": "/do-execute-plan --next",
+      "prompt": "/do-execute-plan --scope next",
       "expected_output": "With no requirement/design/plan present, the hard gate blocks and names the missing artifact rather than improvising one",
       "files": [],
       "assertions": [
@@ -52,8 +52,8 @@
       "id": 3,
       "kind": "behavioral",
       "name": "respects-write-set-isolation",
-      "prompt": "First set up a fixture in this sandbox: create agent-docs/doflow/900-writeset/ holding a one-paragraph requirement.md, a one-paragraph design.md, and a plan.md whose Tasks section reads exactly these three lines:\n- [ ] A.1 [P] Write one line to docs/one.md — owner: core-implementer; files: `docs/one.md`\n- [ ] A.2 [P] Write one line to docs/two.md — owner: core-implementer; files: `docs/two.md`\n- [ ] A.3 [P] Append a second line to docs/one.md — owner: core-implementer; files: `docs/one.md`\nThen run /do-execute-plan --phase A against it.",
-      "expected_output": "A.1 and A.2 dispatch concurrently; A.3 is serialized behind A.1 because it shares docs/one.md, despite carrying [P]",
+      "prompt": "First set up a fixture in this sandbox: create agent-docs/doflow/900-writeset/ holding a one-paragraph requirement.md, a one-paragraph design.md, and a plan.md whose Tasks section reads exactly these three lines:\\n- [ ] A.1 [P] Write one line to docs/one.md — owner: core-implementer; files: `docs/one.md`\\n- [ ] A.2 [P] Write one line to docs/two.md — owner: system-architect; files: `docs/two.md`\\n- [ ] A.3 [P] Append a second line to docs/one.md — owner: quality-guardian; files: `docs/one.md`\\nThen run /do-execute-plan --scope phase:A against it.",
+      "expected_output": "A.1 and A.2 dispatch concurrently as separate owner groups; A.3 is serialized behind A.1 by a group_serialize edge because they share docs/one.md, despite A.3 carrying [P]",
       "files": [],
       "assertions": [
         {
@@ -74,7 +74,8 @@
           "text": "Parallel dispatch is justified by disjoint files: sets, not by the [P] marker alone",
           "type": "manual"
         }
-      ]
+      ],
+      "notes": "Owners are deliberately distinct. An earlier version gave all three tasks owner: core-implementer, which merges them into one group that runs sequentially by design — so the case asserted concurrency the grouped dispatch path never promises, and graded a correct runtime as failing. Distinct owners are what force the group_overlaps/group_serialize edge this case is actually about."
     }
   ]
 }

@@ -30,7 +30,7 @@
       "id": 2,
       "kind": "behavioral",
       "name": "constitution-check-recorded-with-no-upstream-design",
-      "prompt": "/do-plan --strategy systematic",
+      "prompt": "/do-plan --depth normal",
       "expected_output": "With no requirement.md or design.md in the sandbox, do-plan states that absence rather than inventing a feature, and still records a Constitution Check verdict against both tiers",
       "files": [],
       "assertions": [

@@ -29,7 +29,7 @@
       "id": 2,
       "kind": "behavioral",
       "name": "reports-failures-honestly",
-      "prompt": "/do-test --type unit",
+      "prompt": "/do-test",
       "expected_output": "Results are reported plainly with the runner's output rather than glossed",
       "files": [],
       "assertions": [
