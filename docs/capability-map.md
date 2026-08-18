@@ -43,6 +43,44 @@ general settings file, hook surface, or plugin/marketplace mechanism beyond its 
 MCP surfaces. Kiro has no general settings file separate from its MCP config, and no
 plugin/extension marketplace is documented in its steering, hooks, or MCP sources.
 
+## Runtime seam projection
+
+The `Scripts` row above reads Supported for all seven harnesses, but that is a statement about the
+capability, not about which script assets each harness receives. Two distinct assets in
+`core/registry/assets.yaml` use it, and they do **not** claim the same set of harnesses. The
+difference decides whether a given install can reach the DoFlow runtime at all, so it is recorded
+here rather than left to be inferred from the row.
+
+| Asset | Ships | `appliesTo` | `nativeDir` |
+|---|---|---|---|
+| `locator.doflow` | `core/harnesses/shared/locator/doflow-run` — a verb-free shim that finds and `exec`s the dispatcher | All seven harnesses | `bin`, inside each harness's own directory (for Claude: `.claude/bin/doflow-run` at project scope, `~/.claude/bin/doflow-run` at global scope) |
+| `scripts.doflow` | `core/shared/scripts/doflow/` — the dispatcher itself plus every shell helper it serves verbs from | `claude`, `codex`, `gemini` | `../.doflow/scripts`, so all three project into the **same** shared tree at `<config>/.doflow/scripts` |
+
+Three consequences follow, all of them intentional:
+
+- **A harness can hold a locator with nothing behind it.** Installing only for OpenCode, Pi, Copilot
+  CLI, or Kiro projects the locator but no dispatcher. The locator then searches
+  `$DOFLOW_CONFIG_DIR`, the nearest `.doflow/` above the working directory, and `$HOME/.doflow`, and
+  exits 2 with one message naming all three. That is the designed failure — one actionable error
+  rather than a silently broken skill — and it resolves as soon as any project-local or global
+  install of the shared tree exists.
+- **The shared tree is co-owned.** Claude, Codex, and Gemini project the dispatcher to one
+  destination, so it is not owned by whichever harness was installed last. Removing a single target
+  must reclaim only what no other installed harness still claims.
+- **The locator deliberately does not live in the shared tree.** It is the one asset whose
+  `nativeDir` must stay inside the harness's own directory;
+  `test/guards/runtime-unification.test.js` fails if any locator `nativeDir` escapes into
+  `../.doflow`. Skills do not call it either — a relative path in a skill's shell snippet resolves
+  against the user's project root, not the skill's directory — so a skill inlines the same walk-up
+  the locator performs. The shim exists for callers that *can* name a path correct for themselves,
+  such as a harness hook or a person at a terminal.
+
+Verification is the same on every harness: run one verb through the locator and check the exit code
+and JSON, e.g. `doflow-run paths --json` from a project root. `test/install-shapes.test.js` performs
+real installs for all seven harnesses into temporary directories and executes the projected locator
+and dispatcher in source-checkout, project-local, and global shapes rather than asserting against a
+mock.
+
 ## Hook event matrix
 
 Per-event support, from `capabilities.hooks.events` in `core/registry/harnesses.yaml`. A gap is
@@ -85,6 +123,9 @@ Kiro's actual wired events instead of this table.
 | `UserPromptSubmit` | Supported | Supported | Unavailable | Unavailable | Different | — | — | **Gemini CLI:** No Gemini equivalent; BeforeAgent fires at full-turn granularity, not per prompt. **OpenCode:** OpenCode exposes message.updated rather than a pre-submission prompt event, so a hook could not gate a prompt before the model sees it. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: input, which fires before skill expansion. |
 
 ## Native verification and prerequisites
+
+Each row covers the harness's own surfaces. The runtime seam is verified the same way everywhere and
+is covered in [Runtime seam projection](#runtime-seam-projection) instead of repeated per harness.
 
 | Harness | Verify | Prerequisites / boundary |
 |---|---|---|
