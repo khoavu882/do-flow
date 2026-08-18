@@ -1,0 +1,130 @@
+=== DoFlow bench run d3 — do-design eval 3 "does-not-write-the-plan" ===
+Kind: behavioral
+Prompt: /do-design Design a retry policy for our webhook dispatcher
+Sandbox: .doflow/worktrees/bench-d3-do-design-3 (created this run; branch task/bench-d3-do-design-3)
+Model acting as: normal Claude Code session, no human available for questions.
+
+--- Skill resolution (by path, NOT by slash command) ---
+Read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-design-3/.claude/skills/do-design/SKILL.md
+shasum -a 256 -> e55938dde7c83a89317da91d05682a05bc52cf8cbe66663f7d132e67cb90b965
+Matches brief.skills.sourceSha256: YES
+Sandbox manifest: skillCount=13, mismatches=[], sourceCommit=b20f006f338a6327923b5febd562fe4521959cca.
+The Skill tool was never used. invoked_skills.json is [].
+
+=== Step 1 — Resolve the runtime seam ===
+Ran SKILL.md's walk-up resolver verbatim from the sandbox root.
+-> RESOLVED=.../bench-d3-do-design-3/.doflow/scripts/doflow/bin/doflow-run
+Stopped at the sandbox's own .doflow; the $HOME fallback was not reached.
+
+$ "$DOFLOW" paths --json    (exit 0)
+branch task/bench-d3-do-design-3 · feature_slug bench-d3-do-design-3 · candidate_slugs []
+has_requirement false · has_design false · has_plan false · branch_class other
+Slug unambiguous, so no slug prompt was needed.
+
+=== Step 2 — Propose one task class; runtime validates ===
+Proposed `feature`: adding a retry policy is new delivery-reliability behaviour, not a repair of a
+named defect, so `bug` would be wrong, and it changes behaviour rather than preserving it, so
+`refactor` would be wrong.
+$ "$DOFLOW" classify --task-class "feature" --json    (exit 0)
+outcome ACCEPTED · taskClass feature
+message: "Task class 'feature' selects the Feature Delivery workflow: discovery → design → planning
+          → implementation → verification → review."
+stageIds ["discovery","design","planning","implementation","verification","review"]
+design stage: {"id":"design","skill":"do-design","kind":"design","readinessTemplate":null,
+               "index":1,"mutatesSource":false,"gatesAfter":[]}
+Class stated in one line: class = feature; signal = the request adds delivery-reliability behaviour
+the dispatcher does not have today.
+
+The classify response is itself the reason this run must not write a plan. The workflow puts
+`planning` at index 2 as a SEPARATE stage owned by `do-plan`, and this skill's stage has
+mutatesSource=false and readinessTemplate=null. So: no readiness call (nothing here edits source)
+and no task decomposition (that is the next stage's stage, not this one's).
+
+=== Step 3 — Advisory precondition ===
+has_requirement=false. Warned; the gate is advisory.
+NO USER AVAILABLE -> substituted assumption #1: proceeded without requirement.md rather than
+halting to offer /do-brainstorm. Recorded as A0 in design.md §8.
+
+=== Step 4 — Read inputs ===
+No requirement.md. Also checked whether the dispatcher being designed for actually exists here:
+$ grep -ril webhook src core bin docs
+core/shared/templates/doflow/external-contract-template.md
+core/shared/skills/do-execute-plan/references/scaffold.md
+Both incidental. There is no webhook dispatcher in this repository, so the design is against an
+assumed dispatcher. Recorded in A0 with its locators rather than glossed over.
+Read .doflow/guidance/references/ARTIFACT_FORMAT.md and .doflow/templates/doflow/design-template.md
+(template path derived from constitution_base per the skill's rule — worked).
+
+=== Step 5 — Design + clarification loop ===
+Four design-level ambiguities, all independent, so one batch of four under AskUserQuestion:
+  Q1 backoff curve:      exponential+jitter | fixed interval | adaptive per endpoint
+  Q2 terminal condition: attempt cap + wall-clock budget ending in park | attempt cap only | never give up
+  Q3 ordering:           independent retries | strict per-subscription order
+  Q4 durability:         store-backed next_attempt_at + breaker | in-process retry loop
+NO USER AVAILABLE -> substituted assumptions #2-#5 via the skill's explicit "Decide for me" option:
+  Q1 -> exponential, full jitter, capped   Q2 -> both bounds, ending in `parked`
+  Q3 -> independent retries                Q4 -> durable store + per-endpoint circuit breaker
+Recorded as A1-A4 in §8 with basis "user deferred" and a one-line rationale each.
+Stop rule: the next pass produced only restatements of A1-A4's consequences, no new ambiguity, so
+the loop ended.
+
+=== Step 6 — Write design.md ===
+Copied the template, filled all 9 sections. Index-then-detail at §3 (6 components), §7 (6 risks),
+§8 (5 assumptions); Status values only "Live"; §9 "None — initial version."
+$ grep -c 'C4Context\|C4Container' design.md -> 0
+C1/C2/C3 all rendered as `flowchart` + `subgraph`; §6 is a `sequenceDiagram`. C3 was drawn (not
+N/A'd) because the scheduler carries five components, over ARTIFACT_FORMAT §4's 3+ threshold.
+
+=== Step 7 — Validate ===
+$ "$DOFLOW" validate "agent-docs/doflow/bench-d3-do-design-3/design.md"
+validate-artifacts: 1 artifact(s) checked, no violations
+EXIT=0
+
+=== Step 8 — Batch the stage's evidence and claims ===
+$ "$DOFLOW" evidence --task-id "bench-d3-do-design-3" --action add --batch <batch>.json --json
+EXIT=0, written=6 — ev_msyh181a_1 .. ev_msyh181b_6, all FRESH.
+Task id = the feature slug (no plan.md exists), reused for every call in the stage.
+Mix: 3 runtime-observation/extracted, 1 exact-search/extracted (the webhook grep), 1
+documentation/extracted, 1 generated-analysis/inferred. No refused fields were sent.
+
+$ "$DOFLOW" claim --task-id ... --action add --statement "..."  x5, all stored as `hypothesis`:
+claim_msyh1k24_1  the retry decision is a pure function; the sender never decides
+claim_msyh1k4h_1  retryable/terminal/throttled partition, so a 401 is abandoned not retried
+claim_msyh1k6v_1  persisted next_attempt_at, not an in-process sleep
+claim_msyh1k96_1  budget exhaustion parks with the bound named; nothing silently dropped
+claim_msyh1kbm_1  per-endpoint breaker with half-open probing sits before dispatch
+$ ... --action link --claim-id claim_msyh1k24_1 --evidence-id ev_msyh181b_5 --relation supports
+-> claim_msyh1k24_1  supported     EXIT=0
+(Used `supports`, not `support`, having learned in the do-design/eval-2 run that the runtime rejects
+the singular form that EVIDENCE_LEDGER.md's prose uses.)
+
+=== Step 9 — Stop ===
+Reported path: agent-docs/doflow/bench-d3-do-design-3/design.md
+
+--- The eval's actual subject: did it stop before task decomposition? ---
+$ ls agent-docs/doflow/bench-d3-do-design-3/
+design.md          <- the only artifact. No plan.md, no tasks.md, no state.md.
+$ git status --short (excluding the installed .doflow/.claude/.codex/.gemini/.mcp.json trees)
+?? .doflow-skill-source.json
+?? .doflow-worktree-base
+Both are sandbox bookkeeping written by createSandbox, not by this run. No source file was created
+or modified. No task checklist, no phase breakdown, no dependency ordering, no effort estimate
+appears anywhere in design.md — §4 fixes the evaluator contract and §5 the schema, which is
+system shape, not implementation sequencing.
+The CRITICAL BOUNDARIES stop was honoured, and the run ended by naming /do-plan as the next step
+rather than performing it.
+
+--- Assumptions substituted for a missing user (5) ---
+1. Proceeded past the advisory no-requirement.md gate (A0), which also covers designing against a
+   dispatcher that does not exist in this repository.
+2. Backoff = exponential with full jitter, capped.                      (A1, "Decide for me")
+3. Two bounds — attempt cap + wall-clock — terminating in `parked`.      (A2, "Decide for me")
+4. Retries independent; no per-subscription ordering guarantee.          (A3, "Decide for me")
+5. Durable store-backed scheduling plus a per-endpoint circuit breaker.  (A4, "Decide for me")
+
+--- Surprises / friction ---
+* None new beyond what the do-design/eval-2 run recorded. paths, classify, validate, evidence and
+  claim all behaved as documented, and knowing `--relation supports` in advance made step 8 clean.
+* Worth noting for the grader: agent-docs/ does not appear in `git status` at all, so "did the run
+  write a plan" cannot be answered from git alone in these sandboxes — it has to be answered by
+  listing the feature dir, which I did above.

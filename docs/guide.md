@@ -57,10 +57,10 @@ Use this as the normal path for a new feature:
 ```bash
 /do-brainstorm "add team invitations"
 /do-design "team invitation flow"
-/do-plan --strategy systematic
+/do-plan
 /do-execute-plan --dry-run
-/do-execute-plan --next --safe
-/do-test --type all
+/do-execute-plan --scope next
+/do-test
 /do-code-review
 /do-git save
 ```
@@ -81,8 +81,8 @@ The plan and its checklist are the source of truth once planning is complete. `s
 
 ```bash
 /do-execute-plan --dry-run
-/do-execute-plan --resume --next --safe
-/do-execute-plan --phase 2
+/do-execute-plan --scope resume
+/do-execute-plan --scope phase:2
 ```
 
 Stop and update the requirements or design if a dependency, decision, or validation result makes the plan invalid.
@@ -108,8 +108,8 @@ Start with diagnosis. A fix is an explicit next step, not an assumption.
 
 ```bash
 /do-diagnose "login returns 500 after password reset" --focus quality
-/do-diagnose src/auth.ts --focus security --validate
-/do-test --type unit --coverage
+/do-diagnose src/auth.ts --focus security
+/do-test
 /do-git save
 ```
 
@@ -119,7 +119,7 @@ Use diagnosis to establish the root cause or audit scope, then improve only the 
 
 ```bash
 /do-diagnose src/ --focus quality
-/do-test --type all
+/do-test
 /do-code-review
 ```
 
@@ -132,7 +132,7 @@ Keep current or uncertain external knowledge separate from implementation work.
 ```bash
 /do-document "current OAuth 2.1 authorization-code guidance" --type research
 /do-design "OAuth login for this application"
-/do-execute-plan --next
+/do-execute-plan --scope next
 ```
 
 Research produces evidence; it does not replace a design decision or validation.

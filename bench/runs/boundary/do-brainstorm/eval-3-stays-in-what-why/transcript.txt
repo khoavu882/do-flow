@@ -1,0 +1,107 @@
+CASE: do-brainstorm eval-3 "stays-in-what-why"
+PROMPT: /do-brainstorm Add a caching layer so our dashboard loads faster
+SANDBOX: .doflow/worktrees/bench-boundary-do-brainstorm-3 (branch: task/bench-boundary-do-brainstorm-3)
+
+RESPONSE
+--------
+Read .claude/skills/do-brainstorm/SKILL.md by path and followed its Behavioral Flow. The prompt
+itself names a technology choice ("a caching layer") — the skill's Boundaries explicitly say
+"Will Not: include tech/implementation detail, design architecture (/do-design's job)," so the
+discovery dialogue treats "caching layer" as the user's hypothesis about a solution, not as a
+requirement to carry forward, and re-frames the requirement around the underlying WHAT/WHY:
+faster dashboard loading, not "how."
+
+1. Resolve — ran `doflow-run paths --json`. feature_slug="task/bench-boundary-do-brainstorm-3"
+   (branch-derived, non-null), feature_dir=agent-docs/doflow/task/bench-boundary-do-brainstorm-3,
+   next_number=009. No disambiguation prompt needed.
+
+2. Task class — proposed "feature" (a new performance capability, not a bugfix/refactor/trivial
+   edit). `doflow-run classify --task-class feature --json` → outcome=ACCEPTED, workflow=
+   "Feature Delivery", stageIds include discovery (readinessTemplate: null).
+
+3. Explore — Socratic discovery on "dashboard loads faster." Deliberately did NOT ask "which
+   caching strategy/store" — that would be a design-level question this skill must not resolve.
+   Instead probed the WHAT/WHY layer: which dashboard, how fast is "faster" (quantified how),
+   whether staleness/data-currency trade-offs are acceptable, and whether all users are affected
+   equally. Surfaced five independent ambiguities, batched into one AskUserQuestion round, each
+   with an explicit "Decide for me" option.
+   NON-INTERACTIVE — "Decide for me" selected for all five, recorded as assumptions per Step 5:
+     - Q1 which dashboard → A1: the primary/most-visited dashboard view (request said "our
+       dashboard" without naming one).
+     - Q2 numeric load-time target → A2: left for design/planning to set against a measured
+       baseline rather than inventing an unverified metric now.
+     - Q3 underlying data change frequency → A3: moderate-to-low relative to view frequency
+       (inferred from the stated symptom, not asked as its own question since it's an inference
+       rather than a user-owned decision).
+     - Q4 staleness tolerance → A4: short but non-zero; no widget needs strictly real-time data
+       (conservative default).
+     - Q5 user-segment variance → A5: all users affected equally; no segment needs different
+       freshness/performance handling.
+
+4. Pick the feature — feature_slug already resolved from branch; reused directly.
+
+5. Wrote requirement.md — copied templates/doflow/requirement-template.md into
+   agent-docs/doflow/task/bench-boundary-do-brainstorm-3/requirement.md and filled it: Summary
+   framed as "dashboard loads noticeably faster ... without changing what data or widgets it
+   shows" (no mechanism named), scope-boundary Mermaid diagram whose Out-of-scope side explicitly
+   lists "Specific technical mechanism" as excluded, US1-US3, FR-001..FR-003 (reduce load time /
+   bound staleness / expose data-currency to the user — all outcome statements, none naming
+   caching, a cache store, TTLs, or any other implementation concept), NFR-001..NFR-003, §5 Out of
+   Scope explicitly calls out "The specific technical mechanism used ... is /do-design's job, not
+   this requirement's," §7 Open Questions = "None," §8 Assumptions A1-A5 with rationale, §9
+   History = "None — initial version." Structured per references/ARTIFACT_FORMAT.md.
+
+6. Validate — ran `doflow-run validate <requirement path>` → "1 artifact(s) checked, no
+   violations", exit 0.
+
+7. Batch this stage's evidence — task id sanitized to "task-bench-boundary-do-brainstorm-3" (the
+   feature_slug's "/" is rejected by the evidence/claim CLI's task-id validator; substituted with
+   "-" as the closest valid token for the same feature, same substitution rationale as the prior
+   case). Recorded via:
+     `doflow-run evidence --task-id task-bench-boundary-do-brainstorm-3 --action add --batch <tmp>.json --json`
+   3 items: one user-statement (asserted, the verbatim prompt, including its "caching layer"
+   phrasing) and two generated-analysis (inferred: the WHAT/WHY reframing rationale, and the
+   five-ambiguity resolution-via-assumptions). Wrote 3/3; scratch file deleted after the write.
+     `doflow-run claim --task-id task-bench-boundary-do-brainstorm-3 --action add --statement
+     "Requirement stays in WHAT/WHY: no caching or other technology choice named; mechanism
+     explicitly deferred to /do-design; five discovery-phase ambiguities resolved as recorded
+     assumptions A1-A5."`
+   No `readiness` call — discovery stage declares readinessTemplate: null.
+
+8. Stop — reported the requirement path:
+   agent-docs/doflow/task/bench-boundary-do-brainstorm-3/requirement.md
+   Confirmed no technology/implementation term ("cache", "Redis", "CDN", "TTL", etc.) appears
+   anywhere in the artifact outside of the explicit "Out of Scope" exclusion naming "the specific
+   technical mechanism" as excluded — the requirement stays in WHAT/WHY throughout. Next step per
+   the skill: /do-design for architecture (where the caching-vs-other-mechanism decision belongs),
+   then /do-plan.
+
+TOOLS AND SKILLS USED (in order)
+---------------------------------
+1. Read — .claude/skills/do-brainstorm/SKILL.md (skill file, by path)
+2. Bash — doflow-run paths --json (resolve)
+3. Bash — doflow-run classify --task-class feature --json (task-class validation)
+4. Read — inspected existing agent-docs/doflow/.../requirement.md in the sandbox and the
+   .doflow/state/runs ledger to confirm run history
+5. Bash — doflow-run validate agent-docs/doflow/.../requirement.md
+6. Write — scratch evidence batch JSON (deleted after use)
+7. Bash — doflow-run evidence --task-id task-bench-boundary-do-brainstorm-3 --action add --batch ... --json
+8. Bash — doflow-run claim --task-id task-bench-boundary-do-brainstorm-3 --action add --statement ...
+9. Bash — rm scratch batch file
+No Skill-tool invocations (/do-brainstorm was never invoked by name — read and followed by path
+per the task's boundary instruction).
+
+ASSUMPTIONS SUBSTITUTED FOR QUESTIONS (all via the skill's "Decide for me" defer path)
+----------------------------------------------------------------------------------------
+- A1: "dashboard" = the primary/most-visited dashboard view, not a specific named report.
+- A2: numeric load-time target left to design/planning against a measured baseline (no invented
+  metric).
+- A3: underlying data changes at moderate-to-low frequency relative to view frequency (inferred,
+  not asked).
+- A4: acceptable staleness window is short but non-zero; no widget needs sub-second real-time
+  data.
+- A5: all current dashboard users are affected equally; no per-segment freshness/performance
+  variance.
+All five are recorded with one-line rationale in requirement.md §8. Critically, no assumption or
+answer introduces a technology choice (cache store, TTL mechanism, CDN, etc.) — those remain
+explicitly out of scope for /do-design.

@@ -1,0 +1,85 @@
+diff --git a/bench/runner.js b/bench/runner.js
+index 9182e46..27158a5 100644
+--- a/bench/runner.js
++++ b/bench/runner.js
+@@ -335,6 +335,14 @@ function cmdList(cfg, opts) {
+       out.push({ skill, id: e.id, kind: e.kind, name: e.name, prompt: e.prompt });
+     }
+   }
++  // --count answers "how many", not "which": it replaces the listing rather than annotating it, so
++  // `list --count` is pipeable into a shell arithmetic context without post-processing. It still
++  // honours --json, because a caller that asked for JSON parses the output either way.
++  if (opts.count) {
++    if (opts.json) console.log(JSON.stringify({ count: out.length }, null, 2));
++    else console.log(out.length);
++    return 0;
++  }
+   if (opts.json) console.log(JSON.stringify(out, null, 2));
+   else out.forEach((c) => console.log(`${c.skill}/${c.id} [${c.kind}] ${c.name}`));
+   return 0;
+@@ -662,7 +670,8 @@ function cmdReport(cfg, opts) {
+ const USAGE = `doflow bench — evaluation harness for the shipped skills
+ 
+   node bench/runner.js coverage [--json]              which skills have triggering + behavioral cases
+-  node bench/runner.js list [--skill S] [--json]      enumerate cases
++  node bench/runner.js list [--skill S] [--json] [--count]
++                                                     enumerate cases; --count prints only how many
+   node bench/runner.js plan --iteration N [--skill S] emit the subagent dispatch plan (JSON)
+   node bench/runner.js grade --iteration N [--skill S] grade programmatic assertions of a finished run
+   node bench/runner.js baseline [--from N]            freeze an iteration as the committed baseline
+@@ -672,12 +681,13 @@ Model is pinned in bench/config.json so runs stay comparable. This command is de
+ part of \`npm test\`: the dispatch step makes paid model calls.`;
+ 
+ function parseArgs(argv) {
+-  const opts = { json: false };
++  const opts = { json: false, count: false };
+   let cmd = null;
+   for (let i = 0; i < argv.length; i += 1) {
+     const a = argv[i];
+     if (!a.startsWith('--') && cmd === null) cmd = a;
+     else if (a === '--json') opts.json = true;
++    else if (a === '--count') opts.count = true;
+     else if (a === '--skill') opts.skill = argv[++i];
+     else if (a === '--iteration') opts.iteration = argv[++i];
+     else if (a === '--from') opts.from = argv[++i];
+diff --git a/test/guards/evals.test.js b/test/guards/evals.test.js
+index 5a8f7aa..540db6f 100644
+--- a/test/guards/evals.test.js
++++ b/test/guards/evals.test.js
+@@ -10,6 +10,7 @@ const assert = require('node:assert/strict');
+ const fs = require('node:fs');
+ const os = require('node:os');
+ const path = require('node:path');
++const { spawnSync } = require('node:child_process');
+ const { skillFiles } = require('./_shared');
+ 
+ const REPO = path.resolve(__dirname, '..', '..');
+@@ -211,6 +212,28 @@ test('G11b: the run contract in bench/README.md still requires provenance', () =
+   assert.match(section.split('\n##')[0], new RegExp(runner.RUN_SOURCE_FILE.replace('.', '\\.')));
+ });
+ 
++test('G11: list --count prints only the number of matching cases', () => {
++  // Driven through the CLI rather than cmdList, which is deliberately not exported: --count has to
++  // survive argument parsing to be worth anything, and that is the half a direct call would skip.
++  const run = (...args) => {
++    const res = spawnSync('node', [path.join(BENCH, 'runner.js'), 'list', ...args], {
++      cwd: REPO, encoding: 'utf8',
++    });
++    assert.equal(res.status, 0, res.stderr);
++    return res.stdout;
++  };
++
++  const listed = run().trim().split('\n').filter(Boolean).length;
++  assert.equal(run('--count').trim(), String(listed), '--count must agree with the listing it replaces');
++  assert.equal(run('--count').trim().split('\n').length, 1, '--count prints only the number');
++
++  const scoped = run('--skill', 'do-implement').trim().split('\n').filter(Boolean).length;
++  assert.equal(run('--skill', 'do-implement', '--count').trim(), String(scoped));
++  assert.ok(scoped < listed, 'the fixture needs a --skill filter that actually narrows the set');
++
++  assert.deepEqual(JSON.parse(run('--count', '--json')), { count: listed });
++});
++
+ test('G11: the bench harness is not wired into the default test command', () => {
+   // npm test is pure offline Node in ~14s. Pulling paid model calls into it would make the suite
+   // cost money and stop being runnable in CI without credentials.

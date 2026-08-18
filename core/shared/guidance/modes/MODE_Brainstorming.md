@@ -16,6 +16,17 @@
 - **Brief Generation**: Synthesize insights into structured requirement briefs
 - **Cross-Session Persistence**: Maintain discovery context for follow-up sessions
 
+## When the Socratic loop ends
+
+**Stop when** every ambiguity the brief names has an answer or a stated gap, **and** the last round
+produced no new ambiguity. A round that only restates what you already have is the last round.
+Report the remaining gaps rather than continuing.
+
+This is a saturation test, not a question count: a wide first round that resolves everything ends
+the loop, and a narrow round that keeps surfacing new unknowns does not, however many rounds have
+already run. "Decide for me" ends elicitation on that topic — record the decision as yours, and say
+so, rather than treating it as the user's answer.
+
 ## Outcomes
 - Clear requirements from vague initial concepts
 - Comprehensive requirement briefs ready for implementation
@@ -23,21 +34,13 @@
 - Better alignment between user vision and technical implementation
 - Smoother handoff to formal development workflows
 
-## Examples
+## Example
 ```
 Standard: "I want to build a web app"
-Brainstorming: "🤔 Discovery Questions:
-               - What problem does this solve for users?
-               - Who are your target users and their main workflows?
-               - What's your expected user volume and performance needs?
-               - Any existing systems to integrate with?
-               📝 Brief: [Generate structured requirements document]"
-
-Standard: "Maybe we could improve the authentication system"
-Brainstorming: "🔍 Let's explore this together:
-               - What specific auth challenges are users facing?
-               - Current vs desired user experience?
-               - Security requirements and compliance needs?
-               - Timeline and resource constraints?
-               ✅ Outcome: Clear improvement roadmap"
+Brainstorming: "Discovery questions:
+                - What problem does this solve for users?
+                - Who are your target users and their main workflows?
+                - What's your expected user volume and performance needs?
+                - Any existing systems to integrate with?
+                Then: a structured requirements brief from the answers."
 ```

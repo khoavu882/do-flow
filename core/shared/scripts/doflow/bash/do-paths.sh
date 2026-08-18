@@ -106,9 +106,21 @@ if [ "$is_git_repo" = true ]; then
     hotfix/*)                     feature_slug=""; branch_class="hotfix" ;;
     feat/*|feature/*)             feature_slug="${branch#*/}"; branch_class="feature" ;;
     fix/*|bugfix/*)               feature_slug="${branch#*/}"; branch_class="fix" ;;
-    */)                           feature_slug="${branch#*/}"; branch_class="other" ;;
+    */*)                          feature_slug="${branch#*/}"; branch_class="other" ;;
     *)                            feature_slug="$branch"; branch_class="other" ;;
   esac
+  # Flatten any separator the strip above left behind. Two reasons this is not cosmetic:
+  # `feature_dir` is `agent-docs/doflow/<slug>`, and a slug with a `/` nests it a level deeper than
+  # every other feature — deep enough that the non-git directory scan above can never find it,
+  # since that scan globs one level and then drops names without a numeric prefix. And
+  # `assertSafeTaskId` in src/runtime/evidence-ledger.js rejects path separators outright, so
+  # `doflow evidence` and `doflow claim` throw for the whole session.
+  #
+  # The arm above used to read `*/)`, which matches only a name ending in `/` — something git
+  # refuses to create — so it never once fired, and every prefix outside the six named here fell
+  # to `*)` and kept it. `feat/`, `feature/`, `fix/` and `bugfix/` were unaffected because they
+  # have their own arms; `task/`, `chore/`, `refactor/` and the rest were not.
+  feature_slug="$(printf '%s' "$feature_slug" | tr '/' '-')"
 else
   case "${#numbered_dirs[@]}" in
     0) : ;;

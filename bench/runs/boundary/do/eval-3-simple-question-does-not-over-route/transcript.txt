@@ -1,0 +1,69 @@
+PROMPT: "What does the `--prune` flag do in doflow remove?"
+
+## Triggering judgment
+
+`do`'s frontmatter description: "DoFlow universal dispatcher and request router — session
+announcement, multi-part task decomposition, capability routing, and development estimation. Use
+when a request doesn't clearly name one of the other /do-* skills, bundles multiple unrelated asks
+across files or domains, or needs a tool recommendation or effort estimate before any work begins
+— for example 'what should I use to search this repo' or 'give me a rough estimate for this
+change'."
+
+Judgment: `do` would NOT fire on this request. The four Behavioral Flow branches in `do`'s own
+SKILL.md are (1) session announcement / forwarding to a named /do-* skill, (2) multi-part/ambiguous
+request decomposition for 2+ unrelated asks across files or domains, (3) capability/tool-matrix
+routing for "what should I use to search/test/etc.", and (4) scope/effort estimation. This prompt
+is none of those: it is a single, already-scoped, already-answerable factual question about one
+CLI flag's behavior in one command. It doesn't bundle unrelated asks, doesn't need a tool
+recommendation, and doesn't need an effort estimate. The example in `do`'s own description ("what
+should I use to search this repo") is a *capability-selection* question, categorically different
+from "what does flag X do" — the latter has a single grounded answer sitting in the source, not a
+choice between providers/approaches. Routing this through `do`'s decomposition/classify/estimate
+machinery would be pure overhead: no work package to validate, no task class to classify, nothing
+to decompose. The correct behavior is to read the source and answer directly, which is what this
+transcript does.
+
+## Answer
+
+`--prune <N>` has NO effect on `doflow remove`. It is parsed as a global CLI option (default value
+0, in bin/doflow.js's option defaults), but only two commands actually consume it:
+
+- `cmdInstall` (bin/doflow.js, around line 1023): after writing the install manifest, if
+  `o.prune > 0` it calls `pruneBackups(backupRoot, o.prune)`.
+- `cmdUpdate` (bin/doflow.js, around line 1105): same pattern, after an update run.
+
+`cmdRemove` (bin/doflow.js lines 1113-1145) never reads `o.prune` and never calls `pruneBackups` —
+`remove` doesn't create a backup in the first place (it only removes DoFlow-owned lifecycle
+resources via `removeLifecycle`, printing a retention summary of what user-owned/shared files were
+kept). So `doflow remove --prune 5` parses without error but the flag is silently a no-op for that
+command.
+
+Where `--prune` *does* apply (install/update), its behavior (src/backup.js, `pruneBackups`,
+lines 156-173): it lists the backup directories under `backupRoot`, sorts them newest-first by
+mtime, and deletes all but the `keepN` most recent — i.e. "keep only the N most recent backups,
+delete the rest." The help text's one-line summary `--prune <N>  Keep only N most recent backups`
+(bin/doflow.js ~line 877) describes this correctly, but is listed in the shared global "Options"
+block of the help output, which makes it easy to assume (incorrectly) that it applies uniformly to
+every command including `remove`. It does not.
+
+## Assumptions substituted for questions
+
+None — no clarifying questions were needed. This is a single factual question with a single
+grounded answer found directly in source; there was no user-owned decision to elicit.
+
+## Outputs
+
+This is a Q&A case. No files were created, modified, or needed as artifacts of answering the
+question. `outputs/` was created and left empty.
+
+## Tools and skills used
+
+1. Read — /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-3/.claude/skills/do/SKILL.md (frontmatter + Behavioral Flow, read by path, NOT invoked via the Skill tool)
+2. Bash — `grep -rn "prune" bin/doflow.js src/lifecycle/ src/` in the sandbox, to locate every reference to the --prune flag and pruneBackups
+3. Read — bin/doflow.js lines 860-889 (help text / Options block, including the `--prune <N>` line)
+4. Read — bin/doflow.js lines 1000-1029 (cmdInstall, showing o.prune consumed there)
+5. Read — src/backup.js lines 150-173 (pruneBackups implementation)
+6. Bash — `grep -n "^function cmd..."` in bin/doflow.js to find command function boundaries (cmdInstall, cmdUpdate, cmdRemove, etc.)
+7. Read — bin/doflow.js lines 1113-1146 (cmdRemove full body — confirms o.prune is never read here)
+8. Read — bin/doflow.js lines 820-864 (help text command list, confirms --prune sits in the shared/global Options block, not a remove-specific option)
+9. Bash — `shasum -a 256` on the SKILL.md path, and `mkdir -p` for the OUTPUT DIR / outputs/ subdirectory

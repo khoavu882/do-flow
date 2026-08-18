@@ -4,7 +4,6 @@
 
 ## Activation Triggers
 - Multi-tool operations requiring coordination
-- Performance constraints (>75% resource usage)
 - Parallel execution opportunities (>3 files)
 - Complex routing decisions with multiple valid approaches
 
@@ -14,18 +13,13 @@
 - **Parallel Thinking**: Identify independent operations for concurrent execution
 - **Efficiency Focus**: Optimize tool usage for speed and effectiveness
 
-## Tool Selection Matrix
+## Tool Selection
 
-| Task Type | Best Tool | Alternative |
-|-----------|-----------|-------------|
-| Deep analysis | Sequential MCP | Native reasoning |
-| Symbol / code navigation | Grep + Glob + Read (native) | Manual trace |
-| Documentation | Context7 MCP | Web search |
-| Browser testing | Playwright MCP | Unit tests |
-| Frontend debugging | Chrome DevTools MCP | Console logging |
-| Multi-file edits | MultiEdit | Sequential Edits |
-| UI components | Manual coding | WebSearch for patterns |
-| Infrastructure config | WebFetch (official docs) | Assumption-based (forbidden) |
+Resolve an information need through the capability router, not from a remembered habit — the
+intent-to-capability list lives in the `do` skill (`do/references/tool_matrix.md`).
+
+The router reports which provider is healthy on *this* machine. A written table cannot know that,
+which is why this mode no longer carries one.
 
 ## Infrastructure Configuration Validation
 
@@ -42,23 +36,6 @@
 **Rationale**: Infrastructure misconfiguration can cause production outages. Always verify against official documentation (e.g., Traefik docs for port configuration, nginx docs for proxy settings).
 
 **Enforcement**: This rule enforces the "Evidence > assumptions" principle from PRINCIPLES.md for infrastructure operations.
-
-## Resource Management
-
-**🟢 Green Zone (0-75%)**
-- Full capabilities available
-- Use all tools and features
-- Normal verbosity
-
-**🟡 Yellow Zone (75-85%)**
-- Activate efficiency mode
-- Reduce verbosity
-- Defer non-critical operations
-
-**🔴 Red Zone (85%+)**
-- Essential operations only
-- Minimal output
-- Fail fast on complex requests
 
 ## Parallel Execution Triggers
 - **3+ files**: Auto-suggest parallel processing

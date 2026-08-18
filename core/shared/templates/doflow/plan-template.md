@@ -64,12 +64,12 @@
 > user story in requirement.md. The `- [ ]` checkboxes are the execution contract parsed by
 > `/do-execute-plan` — keep the markers intact. `depends-on:` is optional — set it when a task
 > depends on an external service that has no owning task in this same plan (not a service also
-> touched by another task here); `/do-execute-plan --contracts` reads it to know which services
-> need a code frame generated. `contract-doc:` is also optional — set it alongside `depends-on:`
+> touched by another task here); `/do-execute-plan --scaffold` reads it to know which services
+> need a code frame generated. `external-contract:` is also optional — set it alongside `depends-on:`
 > only when that dependency has no local repo (a vendor API, a SaaS integration) but *does* have a
-> documented contract; points to a doc built from `templates/doflow/contract-doc-template.md`, and
-> tells `--contracts` to generate a real frame from it instead of silently skipping a non-local
-> dependency (the default when no `contract-doc:` is set — not every dependency needs one).
+> documented contract; points to a doc built from `templates/doflow/external-contract-template.md`, and
+> tells `--scaffold` to generate a real frame from it instead of silently skipping a non-local
+> dependency (the default when no `external-contract:` is set — not every dependency needs one).
 
 ### Repo Branch Plan
 
@@ -102,12 +102,12 @@
 
 ### Phase A — [name]
 
-- [ ] A.1 [P] [US1] [task] — owner: [agent]; files: [paths]; depends-on: [service, optional]; contract-doc: [doc path, optional]
-- [ ] A.2 [US1] [task, depends A.1] — owner: [agent]; files: [paths]; depends-on: [service, optional]; contract-doc: [doc path, optional]
+- [ ] A.1 [P] [US1] [task] — owner: [agent]; files: [paths]; depends-on: [service, optional]; external-contract: [doc path, optional]
+- [ ] A.2 [US1] [task, depends A.1] — owner: [agent]; files: [paths]; depends-on: [service, optional]; external-contract: [doc path, optional]
 
 ### Phase B — [name]
 
-- [ ] B.1 [P] [US2] [task] — owner: [agent]; files: [paths]; depends-on: [service, optional]; contract-doc: [doc path, optional]
+- [ ] B.1 [P] [US2] [task] — owner: [agent]; files: [paths]; depends-on: [service, optional]; external-contract: [doc path, optional]
 
 ### Checkpoints
 

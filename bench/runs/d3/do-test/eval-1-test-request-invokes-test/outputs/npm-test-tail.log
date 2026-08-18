@@ -1,0 +1,400 @@
+  ...
+# Subtest: support that has merely gone stale still counts as support
+ok 508 - support that has merely gone stale still counts as support
+  ---
+  duration_ms: 0.1475
+  type: 'test'
+  ...
+# Subtest: ClaimsManager initializes claims in hypothesis status
+ok 509 - ClaimsManager initializes claims in hypothesis status
+  ---
+  duration_ms: 1.919042
+  type: 'test'
+  ...
+# Subtest: ClaimsManager graduates hypothesis to supported when fresh evidence linked
+ok 510 - ClaimsManager graduates hypothesis to supported when fresh evidence linked
+  ---
+  duration_ms: 0.291417
+  type: 'test'
+  ...
+# Subtest: ClaimsManager detects conflicted claims when contradicting evidence linked
+ok 511 - ClaimsManager detects conflicted claims when contradicting evidence linked
+  ---
+  duration_ms: 0.184
+  type: 'test'
+  ...
+# Subtest: ClaimsManager invalidates supported claim when supporting evidence becomes stale
+ok 512 - ClaimsManager invalidates supported claim when supporting evidence becomes stale
+  ---
+  duration_ms: 0.80425
+  type: 'test'
+  ...
+# Subtest: ClaimsManager saves and loads task claims
+ok 513 - ClaimsManager saves and loads task claims
+  ---
+  duration_ms: 1.90025
+  type: 'test'
+  ...
+# Subtest: EvidenceLedger records evidence with valid kinds and locators
+ok 514 - EvidenceLedger records evidence with valid kinds and locators
+  ---
+  duration_ms: 1.174667
+  type: 'test'
+  ...
+# Subtest: EvidenceLedger rejects invalid evidence kinds or provenance
+ok 515 - EvidenceLedger rejects invalid evidence kinds or provenance
+  ---
+  duration_ms: 0.262625
+  type: 'test'
+  ...
+# Subtest: EvidenceLedger queries evidence by filter criteria
+ok 516 - EvidenceLedger queries evidence by filter criteria
+  ---
+  duration_ms: 0.125416
+  type: 'test'
+  ...
+# Subtest: EvidenceLedger invalidates evidence referencing modified files
+ok 517 - EvidenceLedger invalidates evidence referencing modified files
+  ---
+  duration_ms: 0.110417
+  type: 'test'
+  ...
+# Subtest: EvidenceLedger saves and loads task evidence to neutral JSON state
+ok 518 - EvidenceLedger saves and loads task evidence to neutral JSON state
+  ---
+  duration_ms: 5.764167
+  type: 'test'
+  ...
+# Subtest: a task id that names a path is rejected rather than resolved out of the state dir
+ok 519 - a task id that names a path is rejected rather than resolved out of the state dir
+  ---
+  duration_ms: 0.60275
+  type: 'test'
+  ...
+# Subtest: ordinary task ids are still accepted
+ok 520 - ordinary task ids are still accepted
+  ---
+  duration_ms: 0.911208
+  type: 'test'
+  ...
+# Subtest: C.12: evidence --action add records a durable, provenanced item
+ok 521 - C.12: evidence --action add records a durable, provenanced item
+  ---
+  duration_ms: 370.648625
+  type: 'test'
+  ...
+# Subtest: C.12: a second write appends rather than replacing the task ledger
+ok 522 - C.12: a second write appends rather than replacing the task ledger
+  ---
+  duration_ms: 354.327417
+  type: 'test'
+  ...
+# Subtest: C.12: freshness is measured at the write boundary, not asserted by the caller
+ok 523 - C.12: freshness is measured at the write boundary, not asserted by the caller
+  ---
+  duration_ms: 325.769333
+  type: 'test'
+  ...
+# Subtest: C.12: a stage batch writes every item in one pass, in either spelling
+ok 524 - C.12: a stage batch writes every item in one pass, in either spelling
+  ---
+  duration_ms: 355.580958
+  type: 'test'
+  ...
+# Subtest: C.12: a batch is validated whole before any of it is written
+ok 525 - C.12: a batch is validated whole before any of it is written
+  ---
+  duration_ms: 213.148709
+  type: 'test'
+  ...
+# Subtest: C.12: an empty batch is refused rather than reported as a successful write
+ok 526 - C.12: an empty batch is refused rather than reported as a successful write
+  ---
+  duration_ms: 165.365917
+  type: 'test'
+  ...
+# Subtest: C.12: an unknown kind is refused with the valid set
+ok 527 - C.12: an unknown kind is refused with the valid set
+  ---
+  duration_ms: 158.379542
+  type: 'test'
+  ...
+# Subtest: C.12: provenance has no default — an unstated one is refused, not filed as repository fact
+ok 528 - C.12: provenance has no default — an unstated one is refused, not filed as repository fact
+  ---
+  duration_ms: 207.961625
+  type: 'test'
+  ...
+# Subtest: C.12: model analysis cannot be filed as a repository read
+ok 529 - C.12: model analysis cannot be filed as a repository read
+  ---
+  duration_ms: 336.273417
+  type: 'test'
+  ...
+# Subtest: C.12: an extracted item must name where it was read; an inferred one must say something
+ok 530 - C.12: an extracted item must name where it was read; an inferred one must say something
+  ---
+  duration_ms: 209.46
+  type: 'test'
+  ...
+# Subtest: C.12: source is required — no unknown/general stand-in reaches the ledger
+ok 531 - C.12: source is required — no unknown/general stand-in reaches the ledger
+  ---
+  duration_ms: 229.321958
+  type: 'test'
+  ...
+# Subtest: C.12: a retrieval score offered as a flag is refused by name
+ok 532 - C.12: a retrieval score offered as a flag is refused by name
+  ---
+  duration_ms: 349.197417
+  type: 'test'
+  ...
+# Subtest: C.12: a score smuggled into a batch item is refused, nested or not
+ok 533 - C.12: a score smuggled into a batch item is refused, nested or not
+  ---
+  duration_ms: 308.388458
+  type: 'test'
+  ...
+# Subtest: C.12: no evidence record carries a numeric confidence field (FR-008)
+ok 534 - C.12: no evidence record carries a numeric confidence field (FR-008)
+  ---
+  duration_ms: 231.829708
+  type: 'test'
+  ...
+# Subtest: C.12: an unrecognised field is refused, never dropped from a write reported as success
+ok 535 - C.12: an unrecognised field is refused, never dropped from a write reported as success
+  ---
+  duration_ms: 164.199917
+  type: 'test'
+  ...
+# Subtest: C.12: fields the ledger would discard are refused by name, with the reason
+ok 536 - C.12: fields the ledger would discard are refused by name, with the reason
+  ---
+  duration_ms: 363.838041
+  type: 'test'
+  ...
+# Subtest: C.12: write arguments on a read action are refused, not ignored
+ok 537 - C.12: write arguments on a read action are refused, not ignored
+  ---
+  duration_ms: 221.175292
+  type: 'test'
+  ...
+# Subtest: C.12: a batch item naming a different task is refused
+ok 538 - C.12: a batch item naming a different task is refused
+  ---
+  duration_ms: 160.662708
+  type: 'test'
+  ...
+# Subtest: C.12: usage errors honour --json and exit 2
+ok 539 - C.12: usage errors honour --json and exit 2
+  ---
+  duration_ms: 172.319709
+  type: 'test'
+  ...
+# Subtest: C.12/FR-008: NEEDS_EVIDENCE — the class contract is understood and unmet
+ok 540 - C.12/FR-008: NEEDS_EVIDENCE — the class contract is understood and unmet
+  ---
+  duration_ms: 182.242666
+  type: 'test'
+  ...
+# Subtest: C.12/FR-008: READY — reachable only because evidence can now be written
+ok 541 - C.12/FR-008: READY — reachable only because evidence can now be written
+  ---
+  duration_ms: 346.52975
+  type: 'test'
+  ...
+# Subtest: C.12/FR-008: READY on the heaviest template needs a claim promoted by linked evidence
+ok 542 - C.12/FR-008: READY on the heaviest template needs a claim promoted by linked evidence
+  ---
+  duration_ms: 530.856209
+  type: 'test'
+  ...
+# Subtest: C.12/FR-008: BLOCKED — a claim with fresh support and fresh contradiction
+ok 543 - C.12/FR-008: BLOCKED — a claim with fresh support and fresh contradiction
+  ---
+  duration_ms: 591.923791
+  type: 'test'
+  ...
+# Subtest: C.12/FR-008: NEEDS_USER_DECISION — the caller declares a decision is owed
+ok 544 - C.12/FR-008: NEEDS_USER_DECISION — the caller declares a decision is owed
+  ---
+  duration_ms: 294.479959
+  type: 'test'
+  ...
+# Subtest: C.12/FR-008: all four states are reachable, and only those four
+ok 545 - C.12/FR-008: all four states are reachable, and only those four
+  ---
+  duration_ms: 758.153458
+  type: 'test'
+  ...
+# Subtest: C.12: a stated input is reported as stated, never as evidence
+ok 546 - C.12: a stated input is reported as stated, never as evidence
+  ---
+  duration_ms: 342.330041
+  type: 'test'
+  ...
+# Subtest: C.12: linking a claim to an unrecorded evidence id is refused, not graded
+ok 547 - C.12: linking a claim to an unrecorded evidence id is refused, not graded
+  ---
+  duration_ms: 266.753
+  type: 'test'
+  ...
+# Subtest: C.12: an unsafe task id is a usage error, not an arbitrary file write
+ok 548 - C.12: an unsafe task id is a usage error, not an arbitrary file write
+  ---
+  duration_ms: 171.483417
+  type: 'test'
+  ...
+# Subtest: ReadinessEngine loads templates for all 5 task classes
+ok 549 - ReadinessEngine loads templates for all 5 task classes
+  ---
+  duration_ms: 0.580042
+  type: 'test'
+  ...
+# Subtest: ReadinessEngine evaluates Bug Fix readiness with missing evidence (NEEDS_EVIDENCE)
+ok 550 - ReadinessEngine evaluates Bug Fix readiness with missing evidence (NEEDS_EVIDENCE)
+  ---
+  duration_ms: 0.541625
+  type: 'test'
+  ...
+# Subtest: ReadinessEngine evaluates Bug Fix readiness as READY when prerequisites satisfied
+ok 551 - ReadinessEngine evaluates Bug Fix readiness as READY when prerequisites satisfied
+  ---
+  duration_ms: 1.552959
+  type: 'test'
+  ...
+# Subtest: ReadinessEngine evaluates Trivial Edit with localized target
+ok 552 - ReadinessEngine evaluates Trivial Edit with localized target
+  ---
+  duration_ms: 0.428417
+  type: 'test'
+  ...
+# Subtest: ReadinessEngine detects BLOCKED state when conflicted claims exist
+ok 553 - ReadinessEngine detects BLOCKED state when conflicted claims exist
+  ---
+  duration_ms: 0.310167
+  type: 'test'
+  ...
+# Subtest: ContextPackCompiler compiles compact structured context within budget
+ok 554 - ContextPackCompiler compiles compact structured context within budget
+  ---
+  duration_ms: 0.471959
+  type: 'test'
+  ...
+# Subtest: FreshnessValidator detects modified files and marks evidence STALE
+ok 555 - FreshnessValidator detects modified files and marks evidence STALE
+  ---
+  duration_ms: 0.363666
+  type: 'test'
+  ...
+# Subtest: merging preserves every managed hook entry, including one command under multiple matchers
+ok 556 - merging preserves every managed hook entry, including one command under multiple matchers
+  ---
+  duration_ms: 1.05575
+  type: 'test'
+  ...
+# Subtest: verification detects a dropped managed hook entry rather than reporting containment
+ok 557 - verification detects a dropped managed hook entry rather than reporting containment
+  ---
+  duration_ms: 0.33375
+  type: 'test'
+  ...
+# Subtest: a foreign hook on a DoFlow-managed event survives merge and remove
+ok 558 - a foreign hook on a DoFlow-managed event survives merge and remove
+  ---
+  duration_ms: 1.453333
+  type: 'test'
+  ...
+# Subtest: chmodHooksExecutable adds +x to every .sh hook while preserving existing bits, and skips non-.sh files
+ok 559 - chmodHooksExecutable adds +x to every .sh hook while preserving existing bits, and skips non-.sh files
+  ---
+  duration_ms: 1.516
+  type: 'test'
+  ...
+# Subtest: chmodHooksExecutable is a no-op when there is no hooks/ directory
+ok 560 - chmodHooksExecutable is a no-op when there is no hooks/ directory
+  ---
+  duration_ms: 0.324667
+  type: 'test'
+  ...
+# Subtest: state roots are neutral and scope-specific
+ok 561 - state roots are neutral and scope-specific
+  ---
+  duration_ms: 0.837042
+  type: 'test'
+  ...
+# Subtest: ledger writes atomically and round-trips without a harness directory
+ok 562 - ledger writes atomically and round-trips without a harness directory
+  ---
+  duration_ms: 1.970959
+  type: 'test'
+  ...
+# Subtest: recovery records are append-only, atomically readable journals
+ok 563 - recovery records are append-only, atomically readable journals
+  ---
+  duration_ms: 2.511584
+  type: 'test'
+  ...
+# Subtest: legacy manifest migration imports explicit ownership once and leaves the legacy file untouched
+ok 564 - legacy manifest migration imports explicit ownership once and leaves the legacy file untouched
+  ---
+  duration_ms: 26.017792
+  type: 'test'
+  ...
+# Subtest: legacy migration does not create ownership from tool-only or malformed legacy state
+ok 565 - legacy migration does not create ownership from tool-only or malformed legacy state
+  ---
+  duration_ms: 26.04425
+  type: 'test'
+  ...
+# Subtest: legacy manifest import coexists with pre-existing adapter-owned copy-tree/settings resources without collision or data loss
+ok 566 - legacy manifest import coexists with pre-existing adapter-owned copy-tree/settings resources without collision or data loss
+  ---
+  duration_ms: 30.679042
+  type: 'test'
+  ...
+# Subtest: normalizes status outcomes without shortcutting any status command
+ok 567 - normalizes status outcomes without shortcutting any status command
+  ---
+  duration_ms: 1.011542
+  type: 'test'
+  ...
+# Subtest: missing uv blocks Graphify mutation without attempting to install a prerequisite
+ok 568 - missing uv blocks Graphify mutation without attempting to install a prerequisite
+  ---
+  duration_ms: 0.183042
+  type: 'test'
+  ...
+# Subtest: each executable command is displayed and confirmed separately; declined commands are not executed
+ok 569 - each executable command is displayed and confirmed separately; declined commands are not executed
+  ---
+  duration_ms: 0.331792
+  type: 'test'
+  ...
+# Subtest: a failed command does not prevent independently confirmed commands from running
+ok 570 - a failed command does not prevent independently confirmed commands from running
+  ---
+  duration_ms: 0.119042
+  type: 'test'
+  ...
+# Subtest: unsupported platforms run no inspection or action commands
+ok 571 - unsupported platforms run no inspection or action commands
+  ---
+  duration_ms: 0.139292
+  type: 'test'
+  ...
+# Subtest: RTK update is skipped because no verified update command is registered
+ok 572 - RTK update is skipped because no verified update command is registered
+  ---
+  duration_ms: 0.729
+  type: 'test'
+  ...
+1..572
+# tests 572
+# suites 0
+# pass 572
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 17164.660583

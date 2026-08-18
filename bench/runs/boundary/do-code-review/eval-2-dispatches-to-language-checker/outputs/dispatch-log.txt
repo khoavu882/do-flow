@@ -1,0 +1,30 @@
+Dispatch log for do-code-review on core/shared/skills/do-code-review/scripts/pr_analyzer.py
+
+Target file extension: .py
+
+Per SKILL.md "Loading order for every review" and the extension dispatch table:
+1. SKILL.md itself (tools + thresholds) — read directly by absolute path.
+2. rules/universal.md — loaded (always, all languages).
+   Path used (relative to sandbox worktree root):
+   core/shared/skills/do-code-review/rules/universal.md
+3. languages/python.md — loaded (matches .py extension row in dispatch table).
+   Path used (relative to sandbox worktree root):
+   core/shared/skills/do-code-review/languages/python.md
+
+Deterministic analyzer dispatched (per SKILL.md "Code Quality Checker" section, since the user
+asked to review the file "for quality issues", i.e. structural/SOLID/code-smell review, not a PR
+diff/risk scan):
+   core/shared/skills/do-code-review/scripts/code_quality_checker.py
+
+Command run (from core/shared/skills/do-code-review/ inside the sandbox worktree):
+   python3 scripts/code_quality_checker.py scripts/pr_analyzer.py --language python --json
+
+Result: real JSON output computed against the actual 536-line file (12 functions, 0 classes,
+quality_score 61, grade D) — see outputs/code_quality_checker.json for the full raw output.
+This confirms dispatch to the Python-specific deterministic checker rather than a generic prose
+review: findings reference real function names from the file (analyze_pr, print_report, main,
+calculate_complexity_score, etc.) with real line-derived metrics.
+
+Not dispatched: scripts/pr_analyzer.py itself was NOT run as a tool (that would analyze some
+*other* repo's PR diff) — it is the review *target*, not the reviewing tool, for this eval.
+content-types/markdown.md was not loaded (target is .py, not .md).

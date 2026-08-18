@@ -78,6 +78,20 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
   const changes = [];
   const conflicts = [];
 
+  // Fingerprints the CURRENT source would write, keyed by destination. Resolved lazily and only
+  // when a recorded fingerprint has already failed to match, so the common removal path still
+  // never reads the source tree. A missing source directory is not an error here — an asset can be
+  // removed after its source moved — it simply leaves the recorded fingerprint as the only signal.
+  let sourceByDest;
+  const sourceFingerprint = (destAbs) => {
+    if (sourceByDest === undefined) {
+      sourceByDest = sourceDir && fsImpl.existsSync(sourceDir)
+        ? new Map(discoverTree({ sourceDir, destDir, fsImpl, layout }).files.map((file) => [file.destAbs, file.fingerprint]))
+        : new Map();
+    }
+    return sourceByDest.get(destAbs);
+  };
+
   const proposeRemoval = (prev) => {
     // prev's OWN recorded location, not the current destDir — an asset whose nativeDir changed
     // since prev was recorded must be removed from where it actually is, not from where it would
@@ -86,8 +100,20 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
     const destAbs = prev.target ?? path.join(destDir, prev.relPath);
     if (!fsImpl.existsSync(destAbs)) return;
     const current = sha256(fsImpl.readFileSync(destAbs));
-    if (current !== prev.fingerprint) { conflicts.push(`${prev.relPath} was modified outside DoFlow`); return; }
-    changes.push({ relPath: prev.relPath, target: destAbs, operation: 'remove', fingerprint: prev.fingerprint });
+    // Untampered on removal means the same two signals the apply path below already accepts: the
+    // bytes this harness last recorded, or the bytes the current source would write. The second
+    // one matters because a destination tree can be claimed by several harnesses (scripts.doflow
+    // is one `<project>/.doflow/scripts` for claude, codex and gemini), so a sibling's update
+    // legitimately rewrites files this harness's rows still describe — the same "a sibling
+    // changed bytes my row still describes" case the apply path had to be taught, arriving here
+    // as an un-releasable claim instead of a refused install. A hand edit matches neither and is
+    // still refused. The OBSERVED fingerprint travels with the change so removeTree's own
+    // pre-delete re-check agrees with the decision taken here rather than throwing mid-apply.
+    if (current !== prev.fingerprint && current !== sourceFingerprint(destAbs)) {
+      conflicts.push(`${prev.relPath} was modified outside DoFlow`);
+      return;
+    }
+    changes.push({ relPath: prev.relPath, target: destAbs, operation: 'remove', fingerprint: current });
   };
 
   if (operation === 'remove') {

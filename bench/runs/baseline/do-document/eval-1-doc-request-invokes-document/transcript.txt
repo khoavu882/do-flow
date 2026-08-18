@@ -1,0 +1,43 @@
+I checked for `src/api/orders.ts` in this repository and it doesn't exist.
+
+This checkout is `do-flow` itself — a Node.js CLI installer project (registry-driven, projects
+guidance/skills/agents into seven AI coding tools). There is no `src/api/` directory at all; `src/`
+contains `adapters/`, `lifecycle/`, `registry/`, `runtime/`, and `state/` (plus a handful of
+top-level helper files like `backup.js`, `mcp.js`, `manifest.js`, etc.). I also grepped the whole
+tree for "orders" (case-insensitive, `.ts`/`.js`) and got zero matches — there's no orders-related
+API, route, or module anywhere in this codebase.
+
+So there's nothing at that path to write reference docs for, and I'm not going to fabricate
+endpoint documentation for a file that doesn't exist.
+
+Two likely explanations, in case one of these is what happened:
+- Wrong repo/directory — `src/api/orders.ts` sounds like it belongs to a different project (an
+  e-commerce or orders-management backend), and this session may have been rooted in the wrong
+  checkout.
+- Wrong path within this repo — if you meant an existing DoFlow module (e.g. something under
+  `src/adapters/` or `src/lifecycle/`), let me know which one and I can write reference docs for
+  that instead.
+
+I didn't run the documentation skill (do-document) since there's no real source to generate
+accurate docs from — pointing it at a non-existent file would just produce invented content. Let
+me know the correct path or repo and I'll pick it back up.
+
+---TOOL & SKILL LOG---
+1. Bash — `pwd && git status && ls src && find ... -iname "*orders*" ...` (initial sandbox/repo orientation; find failed due to rtk hook intercepting compound predicates)
+2. Bash — `ls -la src && ls -la src/api && rtk proxy find ...` (confirmed src/ has no api/ subdirectory; src/api/orders.ts does not exist)
+3. Bash — `grep -ril "orders" --include="*.ts" --include="*.js" . | grep -v node_modules` (repo-wide search for any "orders" reference; zero matches)
+4. Bash — `git status --short && git diff --stat` (verified no files were created/modified during investigation, aside from a pre-existing untracked sandbox marker file `.doflow-worktree-base`)
+5. Bash — `mkdir -p .../outputs` (prepare output directory for this bench case)
+
+No Skill tool invocations were made (no DoFlow skill genuinely fit, since the target file to
+document does not exist).
+
+---ASSUMPTIONS SUBSTITUTED FOR QUESTIONS---
+1. Would normally ask (via AskUserQuestion): "The file src/api/orders.ts doesn't exist here — did
+   you mean a different repo, a different path in this repo, or should I inspect something else
+   before writing API reference docs?" Since this is non-interactive, I did not pause. Instead I
+   treated the explicit sandbox instruction ("do not fabricate content for a file that doesn't
+   exist") as authoritative: I assumed the safest and most honest completion point is to report
+   the discrepancy and stop, rather than guessing a replacement file/path and inventing endpoint
+   documentation for it. I did not invoke do-document on any substitute target, since guessing
+   wrong would produce fabricated/misleading docs — worse than surfacing the blocker.

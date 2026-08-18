@@ -9,6 +9,10 @@ const CLAIM_STATUSES = new Set([
   'hypothesis',
   'supported',
   'conflicted',
+  // Contradicted with nothing on the other side — a disproven claim, not a disputed one. Ported
+  // from `evidence/claim_builder.py`'s REJECTED (plan task B.3): the Python distinguished these
+  // and this file did not, folding both into 'conflicted'.
+  'rejected',
   'invalidated',
   'unknown',
 ]);
@@ -155,7 +159,12 @@ class ClaimsManager {
     }
 
     if (hasFreshContradiction) {
-      claim.status = 'conflicted';
+      // 'conflicted' means evidence disagrees and a human must reconcile it; 'rejected' means the
+      // evidence agrees and the claim is false. Collapsing the second into the first reported a
+      // dispute where none existed, and made the readiness gate block on a question already
+      // settled. Support that has merely gone stale still counts as support, so a claim that once
+      // had backing stays 'conflicted' rather than being declared false on a technicality.
+      claim.status = claim.supportingEvidence.length === 0 ? 'rejected' : 'conflicted';
     } else if (hasFreshSupport) {
       claim.status = 'supported';
     } else if (hasStaleSupport && !hasFreshSupport) {

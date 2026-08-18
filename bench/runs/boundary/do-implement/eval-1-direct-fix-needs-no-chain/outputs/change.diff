@@ -1,0 +1,22 @@
+diff --git a/bench/runner.js b/bench/runner.js
+index 9182e46..380d25f 100644
+--- a/bench/runner.js
++++ b/bench/runner.js
+@@ -300,7 +300,7 @@ function gradeAssertion(assertion, ctx) {
+ // ---------------------------------------------------------------------------
+ 
+ function cmdCoverage(cfg, opts) {
+-  const skills = discoverSkills(cfg);
++  const skills = opts.skill ? [opts.skill] : discoverSkills(cfg);
+   const rows = skills.map((skill) => {
+     const cases = loadCases(cfg, skill);
+     const evals = cases ? cases.evals : [];
+@@ -661,7 +661,7 @@ function cmdReport(cfg, opts) {
+ 
+ const USAGE = `doflow bench — evaluation harness for the shipped skills
+ 
+-  node bench/runner.js coverage [--json]              which skills have triggering + behavioral cases
++  node bench/runner.js coverage [--skill S] [--json]  which skills have triggering + behavioral cases
+   node bench/runner.js list [--skill S] [--json]      enumerate cases
+   node bench/runner.js plan --iteration N [--skill S] emit the subagent dispatch plan (JSON)
+   node bench/runner.js grade --iteration N [--skill S] grade programmatic assertions of a finished run

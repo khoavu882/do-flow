@@ -1,0 +1,5 @@
+This is a "triggering" kind bench case. Per the task instructions, the agent judges/records a
+routing decision only — it does not execute do-flow's internal phases (brainstorm, design, plan,
+implement, test, review). No feature artifacts (requirement.md, design.md, plan.md, code, tests,
+or review report) were produced, by design. The full reasoning and decision are recorded in
+transcript.txt and skill_source.json in the parent directory.

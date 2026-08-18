@@ -1,0 +1,30 @@
+{
+  "skill": "do-brainstorm",
+  "eval_id": 3,
+  "eval_name": "stays-in-what-why",
+  "skill_source": {
+    "status": "verified",
+    "expectedSha256": "0c84d6d4722d2a993b3a5a632eef6b1db695d32d3dc4656fa14f5c9aceb7e41f",
+    "recordedSha256": "0c84d6d4722d2a993b3a5a632eef6b1db695d32d3dc4656fa14f5c9aceb7e41f",
+    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-brainstorm-3/.claude/skills/do-brainstorm/SKILL.md",
+    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-brainstorm-3/.claude/skills/do-brainstorm/SKILL.md (matches core/shared/skills/do-brainstorm/SKILL.md)"
+  },
+  "expectations": [
+    {
+      "text": "A requirement artifact carrying FR-### ids was produced",
+      "passed": true,
+      "evidence": "matched /FR-\\d{3}/ in outputs/ (3 file(s))"
+    },
+    {
+      "text": "No specific cache technology (Redis, Memcached, etc.) is chosen",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    },
+    {
+      "text": "Acceptance criteria are observable outcomes, not implementation steps",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": 1
+}

@@ -2,31 +2,31 @@
 
 Protocol for safe concurrent task execution by specialist subagents.
 
-**Write-set isolation is decided by `do-parallel-check.sh`, not by judgement.** The scripts below
-compute the grouping and the overlap set deterministically from `plan.md`. Read their output; do
-not re-derive it by eye. If a script is unavailable, say so and fall back to `--sync` (one task at
-a time) rather than guessing at which tasks are safe to run together.
+**Write-set isolation is decided by the `parallel-check` verb, not by judgement.** The commands
+below compute the grouping and the overlap set deterministically from `plan.md`. Read their output;
+do not re-derive it by eye. If a verb is unavailable, say so and run the tasks serially (one at a
+time) rather than guessing at which tasks are safe to run together.
 
-## Resolving the scripts
+## Resolving the runtime
 
-Same resolver `SKILL.md` step 1 uses. Every command below assumes `$BASH_DIR` is set:
+`SKILL.md` step 1 already resolved `$DOFLOW`; reuse it. Resolving is a search of the filesystem, not
+of this file's location — a relative path would resolve against the working directory, which is the
+project root, not the skill. If `$DOFLOW` is unset (this file read on its own), resolve it first:
 
 ```bash
-RESOLVER="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh}"
-if [ -z "$RESOLVER" ] || [ ! -f "$RESOLVER" ]; then
-  d="$PWD"
-  while [ "$d" != / ]; do
-    [ -f "$d/.doflow/scripts/doflow/bash/do-paths.sh" ] && RESOLVER="$d/.doflow/scripts/doflow/bash/do-paths.sh" && break
-    d="$(dirname "$d")"
-  done
-fi
-BASH_DIR="$(dirname "$RESOLVER")"
+# Resolve the DoFlow runtime: nearest project install wins, then the global one.
+D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
+[ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
+[ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
 ```
+
+Run every command below from the project root — the walk-up starts at `$PWD`. On exit 2, print the message verbatim and stop; it names every path searched.
 
 ## 1. Compute the dispatch groups
 
 ```bash
-bash "$BASH_DIR/do-parallel-check.sh" --phase=<PHASE> --json
+"$DOFLOW" parallel-check --phase=<PHASE> --json
 ```
 
 Returns, alongside the legacy per-task fields (`parallel_tasks`, `sequential_tasks`, `overlaps`,
@@ -49,38 +49,39 @@ one that governs dispatch).
 - Launch **one subagent per group**, concurrently, except that any two groups both listed in
   `group_serialize[]` must be run one after the other.
 - Never split a group across subagents: its tasks are ordered and may share files.
-- `--sync` suppresses fan-out entirely — every task runs serially in dependency order.
-- `--no-group` falls back to per-task dispatch, using the legacy `overlaps`/`serialize` fields.
+- When the grouping cannot be computed, suppress fan-out entirely — every task runs serially in
+  dependency order. Say that fan-out was suppressed and why.
+- When groups are unavailable but per-task data is not, fall back to per-task dispatch using the
+  legacy `overlaps`/`serialize` fields.
 
 ## 3. Build each group's brief
 
 ```bash
-bash "$BASH_DIR/do-task-brief.sh" --group=<PHASE>:<OWNER> --tasks=<id,id,...> --json
+"$DOFLOW" task-brief --group=<PHASE>:<OWNER> --tasks=<id,id,...> --json
 ```
 
-Writes the group brief and returns its path in `group_brief`. The brief carries the shared preamble
+Writes the group brief and returns its path in `path`. The brief carries the shared preamble
 once (where this fits, global constraints, component boundary), then a per-task block for each id in
 the order given. Pass this file to the subagent — it is the whole contract for that dispatch.
 
 For a single-task group the brief is byte-identical to `--task=<id>` output, so a one-task group and
 an ungrouped task are the same dispatch.
 
-Report paths for a group come from:
+Report paths come from the brief path the same call returned — the workspace is the directory
+holding it, and each task's report is `<workspace>/task-<ID>-report.md`. Each task writes its own
+report before the next one starts.
 
-```bash
-bash "$BASH_DIR/do-exec-paths.sh" --group=<PHASE>:<OWNER> --tasks=<id,id,...>
-```
-
-which returns `group_id`, `group_brief`, and `reports[]` ordered to match the task CSV. Each task
-writes its own report before the next one starts.
-
-All three scripts reject path traversal in group and task ids with exit 2. On any non-zero exit,
-stop and surface the error — do not proceed with a partial grouping.
+Both verbs reject path traversal in group and task ids with exit 2. On any non-zero exit, stop and
+surface the error — do not proceed with a partial grouping.
 
 ## 4. Phase-level quality review
 
 Once every group in a phase reports complete, run an integrated phase quality review before
-advancing. Max 2 fix iterations per review finding.
+advancing. A finding that does not clear on the first fix goes to
+`"$DOFLOW" recover --error "<what failed>" --failed-check "<check id>" --iteration <n> --json`.
+Exit 0 means a bounded retry is available (`canRetry: true`); exit 1 means the loop must stop —
+report where it stopped and why, quoting the returned `reason`. The bound is the runtime's
+(`maxRecoveryIterations` in `verify --action contract`); you do not choose the count.
 
 ## Behavioral posture
 

@@ -1,0 +1,83 @@
+CASE: do-git / eval-1 / commit-request-invokes-git (triggering)
+ITERATION: d3
+SANDBOX: .doflow/worktrees/bench-d3-do-git-1 (created this run)
+
+PROMPT AS GIVEN
+  "Commit what I've got and push it up."
+
+SKILL RESOLUTION (by path, never as a slash command)
+  Read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-git-1/.claude/skills/do-git/SKILL.md
+  sha256: 53439d306368f69423a0e347df111f0dc726f30300cf61635663ee4b02adf52c
+  Matches the brief's sourceSha256 and the sandbox manifest (matchesSource: true).
+  Skill tool invocations: none. /do-git was never typed — that would have judged
+  ~/.claude/skills/do-git's description instead of this repo's.
+
+METHOD
+  Per the brief, the routing judgement had to come from THIS repo's frontmatter. I read the
+  `description:` line of all 13 skills projected into the sandbox and matched the prompt against
+  the set, then read do-git's body only to state accurately what it would do next.
+
+ROUTING DECISION: do-git.
+
+  Deciding text, quoted from the sandbox frontmatter:
+    "Git operations with lifecycle-aware intents and safety checks — start, save, sync, ship,
+     release, hotfix, backport, and status… Use when the user wants a git action performed with
+     confirmation and lifecycle awareness rather than a code change, or says 'commit this' /
+     'ship this feature' / … rather than asking to implement or review code."
+
+  Signals:
+  1. "Commit what I've got" is a near-verbatim hit on the description's own example trigger,
+     "commit this". The description does not require the word DoFlow or a named intent.
+  2. "and push it up" is a second git action in the same breath. The description's intent list
+     names `save` (stage and commit) and `sync` (sync local branches with remote state), so the
+     request is two intents inside one skill, not two skills.
+  3. The exclusion clause decides the near misses: "rather than asking to implement or review
+     code". The prompt asks for neither.
+  Rejected alternatives:
+    do-implement — its description is for building or fixing something; nothing is being built.
+    do-flow / do-execute-plan — the prompt names no feature and no plan; do-flow's own body says
+      /do-git is "a separate, always-manually-invoked skill" outside every workflow, and its
+      handoff line for a completed chain is exactly "commit and merge through do-git".
+    do-code-review, do-test, do-document, do-diagnose, do-constitution — none matches a git action.
+    do (the dispatcher) — its trigger is a request that "doesn't clearly name one of the other
+      /do-* skills". This one clearly does, so the dispatcher is not the right hop.
+  No ambiguity worth a clarifying question.
+
+WHICH INTENT, AND THE SAFETY CHECKS THAT WOULD PRECEDE ANY MUTATION
+  Read from the skill body in the sandbox. The prompt is two mutating intents, `save` then `sync`,
+  and the skill's "Per Intent Processing" makes the ordering of checks explicit:
+    1. Read repository state — `"$DOFLOW" paths --json`, `"$DOFLOW" git-state`
+    2. Dry-run fingerprint before anything mutates — `"$DOFLOW" git-state --fingerprint`, recorded
+    3. Compose the preview sequence — exact commands, concrete values, no placeholders; the
+       preview is the contract, and a command not in it does not run
+    4. Explicit user confirmation, go/no-go
+    5. Re-fingerprint and abort + re-preview if the tree moved since step 2
+    6. Execute, then report every previewed command's result, including any not reached
+  "Safety Gates" adds: `git status` before anything that could discard uncommitted work, explicit
+  confirmation before force-pushes, before pushes to `master`/`main`, and before history rewrites,
+  and "no implicit approvals — confirmation is per-command sequence, not broad permission".
+  So "push it up" cannot execute on the strength of this prompt alone: the push is a mutating step
+  inside a previewed sequence that needs its own go/no-go, and a push to a protected branch needs a
+  second, named confirmation. The skill also states it would generate the commit message from the
+  actual diff, never from the request's wording — so "what I've got" would be read from the diff.
+
+WHAT I DID NOT DO
+  I did not execute any intent. This is the triggering case; the measured behaviour is the routing
+  decision, and the prompt's own next step under this skill is a confirmation gate that no user
+  exists to answer. Nothing was staged, committed, or pushed in the sandbox or anywhere else. Had
+  the case been behavioural, the honest path at step 4 would have been to present the preview and
+  stop, since "Decide for me" cannot stand in for the explicit go/no-go the skill requires before a
+  push.
+
+SUBSTITUTED ASSUMPTIONS
+  None. The routing decision needed no assumption, and no runtime verb had to be called to reach it.
+
+FRICTION
+  None in this case. One observation, not a failure: the description enumerates all eight intents
+  by name, which is what makes the two-verb prompt ("commit … and push") resolve to one skill
+  rather than reading as two separate asks.
+
+OUTPUTS
+  outputs/ is intentionally empty: a triggering case produces a routing decision, not an artifact.
+  Nothing in the sandbox was modified and nothing in the parent checkout was written except this
+  outputDir.

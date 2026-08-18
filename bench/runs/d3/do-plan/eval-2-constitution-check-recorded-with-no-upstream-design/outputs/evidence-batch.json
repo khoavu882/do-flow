@@ -1,0 +1,43 @@
+[
+  {
+    "kind": "structural",
+    "provenance": "extracted",
+    "source": { "provider": "doflow-runtime", "capability": "paths" },
+    "locator": "doflow paths --json @ branch task/bench-d3-do-plan-2",
+    "content": "has_requirement false, has_design false, has_plan false, candidate_slugs []; agent-docs/ did not exist on disk"
+  },
+  {
+    "kind": "structural",
+    "provenance": "extracted",
+    "source": { "provider": "doflow-runtime", "capability": "paths" },
+    "locator": "doflow paths --json -> has_constitution_local",
+    "content": "has_constitution_local false; tier-2 agent-docs/constitution.md absent, tier-1 CONSTITUTION_BASE.md v1.0.0 stands unmodified"
+  },
+  {
+    "kind": "documentation",
+    "provenance": "extracted",
+    "source": { "provider": "filesystem", "capability": "read" },
+    "locator": ".doflow/guidance/references/CONSTITUTION_BASE.md Governance",
+    "content": "do-plan MUST evaluate the Constitution Check against both tiers together and record PASS/FAIL; the verdict is advisory"
+  },
+  {
+    "kind": "structural",
+    "provenance": "extracted",
+    "source": { "provider": "doflow-runtime", "capability": "classify" },
+    "locator": "doflow classify --task-class feature --json",
+    "content": "outcome ACCEPTED; Feature Delivery workflow; planning stage readinessTemplate null; implementation stage readinessTemplate feature"
+  },
+  {
+    "kind": "generated-analysis",
+    "provenance": "inferred",
+    "source": { "provider": "claude-opus-5", "capability": "analysis" },
+    "content": "feature is the only task class in workflows.yaml carrying a planning stage, so any other class would have required a handoff rather than a plan; the class choice is an assumption, not a derivation"
+  },
+  {
+    "kind": "test-result",
+    "provenance": "extracted",
+    "source": { "provider": "doflow-runtime", "capability": "validate" },
+    "locator": "doflow validate agent-docs/doflow/bench-d3-do-plan-2/plan.md",
+    "content": "1 artifact(s) checked, no violations; exit 0"
+  }
+]

@@ -5,7 +5,7 @@
 ## Triggers
 - Complex debugging scenarios with multiple layers
 - Architectural analysis and system design questions
-- Elevated reasoning effort for the task at hand (`effort: high` or above)
+- A stage the caller asked to run at its deepest breadth setting. A skill's `effort:` frontmatter is a fixed declaration, not a signal raised per task
 - Problems requiring hypothesis testing and validation
 - Multi-component failure investigation
 - Performance bottleneck identification requiring methodical approach
@@ -19,7 +19,6 @@
 
 ## Works Best With
 - **Context7**: Sequential coordinates analysis → Context7 provides official patterns
-- **Playwright**: Sequential identifies testing strategy → Playwright executes validation
 
 ## Examples
 ```

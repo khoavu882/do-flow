@@ -1,0 +1,18 @@
+{
+  "skill": "do-git",
+  "eval_id": 1,
+  "eval_name": "commit-request-invokes-git",
+  "expectations": [
+    {
+      "text": "do-git was invoked",
+      "passed": true,
+      "evidence": "invoked: [do-git]"
+    },
+    {
+      "text": "Working tree state is inspected before committing",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": 1
+}

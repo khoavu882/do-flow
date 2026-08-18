@@ -1,0 +1,28 @@
+{
+  "skill": "do-design",
+  "eval_id": 2,
+  "eval_name": "uses-flowchart-not-experimental-c4-types",
+  "expectations": [
+    {
+      "text": "Does not use the experimental C4Context diagram type",
+      "passed": false,
+      "evidence": "unexpectedly matched /C4Context/"
+    },
+    {
+      "text": "Does not use the experimental C4Container diagram type",
+      "passed": false,
+      "evidence": "unexpectedly matched /C4Container/"
+    },
+    {
+      "text": "Uses a Mermaid flowchart for the C4 levels",
+      "passed": false,
+      "evidence": "no match for /flowchart\\s+(TB|LR|TD|RL)/"
+    },
+    {
+      "text": "C1 Context and C2 Container sections are both present or explicitly N/A with a reason",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": 0
+}

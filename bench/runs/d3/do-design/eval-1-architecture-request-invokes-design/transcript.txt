@@ -1,0 +1,268 @@
+CASE: do-design / eval 1 / architecture-request-invokes-design (triggering)
+ITERATION: d3
+PROMPT: "How should we structure the notification service so email and SMS share a queue?"
+  (no slash command, no skill named — this eval tests whether the DESCRIPTION routes)
+SANDBOX: .doflow/worktrees/bench-d3-do-design-1 (pre-existing; REUSED, not recreated)
+  branch task/bench-d3-do-design-1, base commit 704fb3315890afef5f0808213b02b3f4250600d2
+  manifest: skillCount 13, mismatches []
+SKILL RESOLUTION: by absolute path via cat. No Skill tool call, no /do-design.
+  path:   /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-design-1/.claude/skills/do-design/SKILL.md
+  sha256: e55938dde7c83a89317da91d05682a05bc52cf8cbe66663f7d132e67cb90b965  (matches brief)
+
+--------------------------------------------------------------------
+STEP 0 — Routing decision from the sandbox frontmatter alone
+--------------------------------------------------------------------
+description (verbatim): "Design system architecture, APIs, and component interfaces (HOW at
+the system-shape level); writes design.md as Phase 2 of the doflow chain, turning
+requirement.md into concrete architecture and interface decisions. Use when requirement.md
+already exists and the next need is system-shape decisions — diagrams, API contracts, data
+models — or the user says 'design the architecture for this' rather than asking for an
+implementation plan or task list."
+
+DECISION: route to do-design. YES, but with one reservation recorded below.
+
+For:  "How should we structure the notification service so email and SMS share a queue?" is a
+      system-shape question in the description's own vocabulary — component boundaries,
+      transport shape, interface contract. It is not a task list (excludes do-plan), not a
+      request to write code (excludes do-implement), and not requirements elicitation
+      (excludes do-brainstorm: the WHAT is already given, only the HOW-it-is-shaped is open).
+Against / reservation: the description's trigger clause is conditioned — "Use when
+      requirement.md already exists". No requirement.md exists here (confirmed in step 1:
+      has_requirement false). Read strictly, the stated trigger condition is unmet, and a
+      dispatcher weighting that clause could decline and send the user to do-brainstorm
+      instead. I routed here anyway because SKILL.md's own step 3 makes the requirement.md
+      precondition ADVISORY and skippable, i.e. the body contradicts the strictness the
+      description implies. Recorded as FRICTION F1, not smoothed over.
+
+--------------------------------------------------------------------
+STEP 1 — Resolve (runtime seam) — RAN
+--------------------------------------------------------------------
+Ran SKILL.md's resolver snippet verbatim with CWD at the sandbox project root. Resolved on the
+first walk-up iteration; no $HOME fallback, no exit 2.
+  DOFLOW=.../worktrees/bench-d3-do-design-1/.doflow/scripts/doflow/bin/doflow-run
+
+$ "$DOFLOW" paths --json    -> exit 0
+  repo_root .../bench-d3-do-design-1 · branch task/bench-d3-do-design-1 · branch_class "other"
+  feature_slug "bench-d3-do-design-1" (NOT null) · candidate_slugs [] -> no slug prompt needed
+  design: agent-docs/doflow/bench-d3-do-design-1/design.md
+  has_requirement FALSE · has_design FALSE · has_plan FALSE
+  has_constitution_local FALSE
+
+--------------------------------------------------------------------
+STEP 2 — Propose one task class; runtime validates — RAN
+--------------------------------------------------------------------
+Proposed class: `feature`. Signal it rests on, in one line as SKILL.md requires: a notification
+service that does not yet exist here, spanning an API, a queue, two workers and a store — new
+capability, not a defect fix, not a refactor of existing code.
+NOTE on how I derived it: SKILL.md says derive it from requirement.md's scope "not from the
+fact that a requirement.md exists". There is no requirement.md at all, so I derived it from the
+prompt's own scope instead. That is a third case the instruction does not cover.
+
+$ "$DOFLOW" classify --task-class "feature" --json    -> exit 0
+  outcome: ACCEPTED
+  message: "Task class 'feature' selects the Feature Delivery workflow: discovery → design →
+            planning → implementation → verification → review."
+  stageIds: [discovery, design, planning, implementation, verification, review]
+  gateIds:  [gate-0 (unresolved clarifications, after discovery),
+             gate-a (before implementation, after planning),
+             gate-b (before commit/merge, after review)]
+  The `design` stage exists at index 1, skill do-design, readinessTemplate NULL,
+  mutatesSource false, gatesAfter [].
+=> This skill IS the accepted workflow's design stage. Producing design.md is correct here and
+   is not an invented artifact (which it would have been under `bug` or `trivial-edit`).
+=> readinessTemplate null => per SKILL.md's Boundaries and EVIDENCE_LEDGER.md's "Readiness
+   belongs to the stage that edits source", I did NOT call `readiness` and do NOT report it as
+   skipped. Confirmed deliberately, not overlooked.
+
+--------------------------------------------------------------------
+STEP 3 — Precondition (advisory)
+--------------------------------------------------------------------
+has_requirement is false. The skill says warn and offer /do-brainstorm first; the gate is
+advisory and skippable. There is no user to accept the offer.
+SUBSTITUTION: took the "Decide for me" path — proceeded with the design and carried the gap
+forward explicitly rather than silently. The written design.md opens with an "Input gap,
+stated up front" paragraph naming has_requirement:false and declaring that every FR-xxx id it
+uses is a provisional identifier coined for internal traceability, to be reconciled when
+/do-brainstorm produces requirement.md. This was recorded as evidence item 1 and claim 4.
+
+--------------------------------------------------------------------
+STEP 4 — Read inputs
+--------------------------------------------------------------------
+requirement.md does not exist; nothing to read. No user stories, FRs or NFRs available.
+Read instead, as the skill directs: .doflow/guidance/references/ARTIFACT_FORMAT.md (index-then-
+detail rules, Status vocabulary, §4 C4/diagram rules) and
+.doflow/templates/doflow/design-template.md (derived via constitution_base with its trailing
+"guidance/references/CONSTITUTION_BASE.md" swapped for "templates/doflow/design-template.md" —
+that derivation rule worked as written).
+
+--------------------------------------------------------------------
+STEP 5 — Design + clarification loop
+--------------------------------------------------------------------
+No --type was given; treated as --type architecture (the default shape the question asks for).
+Design-level ambiguities surfaced while shaping the system. Partitioned as the skill directs:
+
+INDEPENDENT (would have been one batched AskUserQuestion of 4):
+  Q1 One physical queue with a channel attribute filter, or one topic with per-channel
+     subscriber queues?
+  Q2 One envelope per selected channel, or one multi-channel envelope consumed twice?
+  Q3 Retry policy and DLQ per channel, or shared?
+  Q4 Is any cross-channel ordering / "first channel to succeed wins" semantics required?
+DEPENDENT (asked after their dependency resolves, never batched with it):
+  Q5 (depends on Q1) Are contact details and opt-outs resolved before enqueue or in the worker?
+  Q6 (depends on Q1) Is the broker an at-least-once queue with message attributes, or a
+     partitioned log? — asked second because a log invalidates Q1's answer shape.
+
+NO USER AVAILABLE. Every one of Q1-Q6 was resolved via the "Decide for me" option, which
+SKILL.md requires each question to carry. Per step 6's rule, each is recorded in design.md §8
+Assumptions as A1-A6 with basis "user deferred" and a one-line rationale plus what changes if
+it is wrong. §8 therefore does NOT read "None" — correctly, because the defer path was taken.
+
+Stop condition: the second pass over the design produced no new design-level ambiguity, only
+restatements of Q1-Q6. Stopped there and reported the gaps rather than continuing.
+
+Decisions produced (the system-shape content the eval asks for):
+  - one shared, channel-tagged queue; isolation moved to separate consumer deployables
+  - envelope carries intent + channel tag, never a rendered body (this is the property that
+    makes one queue serve both channels)
+  - rendering extracted into a shared template-service, formatted per medium at send time
+  - state keyed per (intent_id, channel, attempt_no) so channels succeed/fail independently
+  - per-channel retry policy, one shared channel-tagged DLQ with a replay path
+  - synchronous 202 on durable enqueue; delivery outcome only via webhook into the attempt log
+
+--------------------------------------------------------------------
+STEP 6 — Write design.md
+--------------------------------------------------------------------
+Wrote agent-docs/doflow/bench-d3-do-design-1/design.md (336 lines) from the template, following
+ARTIFACT_FORMAT.md:
+  §2 C4 rendered as Mermaid `flowchart` + `subgraph` at all three levels. C4Context/C4Container
+     types NOT used. C3 included rather than "N/A" because the worker container holds five
+     components (QueueConsumer, IdempotencyGuard, RenderPort, ChannelSender, RetryPolicy),
+     which is the 3+ condition §4 names.
+  §3 Components & Boundaries — index table (ID/Component/Kind/Serves/Status) + **Detail**,
+     7 rows, 7 detail entries, each detail stating what the component deliberately does NOT own.
+  §7 Risks & Alternatives — index + **Detail**, 6 rows/6 entries, including the two rejected
+     alternatives (per-channel queues; render-in-API) with why.
+  §8 Assumptions — index + **Detail**, A1-A6, all basis "user deferred".
+  §9 History — "None — initial version."
+  Status column values are only `Live`. No TBD/Draft/WIP anywhere.
+
+--------------------------------------------------------------------
+STEP 7 — Validate — RAN
+--------------------------------------------------------------------
+$ "$DOFLOW" validate "agent-docs/doflow/bench-d3-do-design-1/design.md"
+validate-artifacts: 1 artifact(s) checked, no violations
+exit 0
+Surfaced verbatim above. Nothing to report.
+
+--------------------------------------------------------------------
+STEP 8 — Batch this stage's evidence — RAN, with two failures worth reading
+--------------------------------------------------------------------
+Task id chosen per the rule: plan.md does not exist, so the FEATURE SLUG is the id ->
+"bench-d3-do-design-1". Same id used for every evidence and claim call.
+Read .doflow/guidance/references/EVIDENCE_LEDGER.md first, as instructed.
+
+FIRST ATTEMPT — REJECTED (exit 2):
+  $ "$DOFLOW" evidence --task-id bench-d3-do-design-1 --action add --batch <batch>.json --json
+  {"ok":false,"status":"USAGE","exitCode":2,"error":"usage",
+   "summary":"batch item 1 of 7: unknown evidence field 'summary'.
+              Accepted: kind, provenance, source, locator, content, taskId"}
+  Why I hit it: EVIDENCE_LEDGER.md's "Per item" section names kind/provenance/source and the
+  locator/content pairing rules, then has a "Refused by name" list (id, freshness,
+  supports/contradicts, stage, score fields). Reading those two together, the natural inference
+  is that the refused list is the closed part and other descriptive fields are tolerated. It is
+  the opposite: the ACCEPTED list is closed and anything else is a usage error. See F2.
+  The batch-is-validated-whole rule worked exactly as documented — nothing was written.
+
+SECOND ATTEMPT — accepted: renamed `summary` -> `content` on all 7 items. exit 0, written 7,
+stateFile .doflow/state/evidence/bench-d3-do-design-1.json (copied to outputs/).
+  ev_..._1 structural/extracted  — paths output: has_requirement false
+  ev_..._2 structural/extracted  — classify output: ACCEPTED, design stage at index 1
+  ev_..._3 documentation/extracted — ARTIFACT_FORMAT.md §4 C4 rules
+  ev_..._4 user-statement/asserted — the shared queue is a given constraint, not an open option
+  ev_..._5 generated-analysis/inferred — why shared queue + split consumers isolates what matters
+  ev_..._6 generated-analysis/inferred — why the envelope must not carry a rendered body
+  ev_..._7 test-result/extracted — validate exit 0
+  The ledger assigned ids and stamped freshness itself (gitCommit 704fb33…, status FRESH),
+  confirming "freshness is measured at the write, not declared by the writer".
+  The two generated-analysis items were written as `inferred`, never `extracted` — the pairing
+  rule the reference calls out explicitly.
+
+CLAIMS — 4 added, all stored as `hypothesis` with empty support, as documented.
+
+LINKING — FIRST ATTEMPT REJECTED (exit 2), all three calls:
+  {"summary":"Invalid evidence relation 'support'. Allowed: supports, contradicts"}
+  Why I hit it: EVIDENCE_LEDGER.md says the link names "whether the relation is support or
+  contradiction". The verb accepts "supports"/"contradicts". The prose uses the noun forms, the
+  API wants the verb forms. Straight doc-vs-implementation mismatch. See F3.
+  Retried with --relation supports: all 4 links exit 0, each claim flipped hypothesis ->
+  supported. Copied to outputs/claims.json.
+
+--------------------------------------------------------------------
+STEP 9 — Stop
+--------------------------------------------------------------------
+Design path reported: agent-docs/doflow/bench-d3-do-design-1/design.md
+Stopped after design creation. Did not write plan.md, did not write code, did not run anything
+else. Next step per the skill: /do-plan.
+
+--------------------------------------------------------------------
+ASSUMPTIONS SUBSTITUTED FOR A USER
+--------------------------------------------------------------------
+A-sub-1..6 = design.md §8 A1-A6, all six resolved via the "Decide for me" path because no user
+  was available: (A1) one physical queue + channel attribute filter; (A2) one envelope per
+  channel; (A3) per-channel retry, shared channel-tagged DLQ; (A4) no cross-channel ordering or
+  first-wins semantics; (A5) contacts/opt-outs resolved before enqueue; (A6) at-least-once
+  broker with message attributes, not a partitioned log. Each carries in §8 Detail what changes
+  if it turns out wrong.
+A-sub-7. Advisory precondition (no requirement.md): proceeded rather than stopping to run
+  /do-brainstorm, and carried the gap explicitly into the artifact.
+A-sub-8. --type not supplied; assumed `architecture`.
+A-sub-9. Task class `feature` derived from the prompt's scope, since there was no
+  requirement.md to derive it from.
+A-sub-10. Created date 2026-08-18 from the session <env>.
+
+--------------------------------------------------------------------
+SANDBOX MUTATION
+--------------------------------------------------------------------
+Created inside the sandbox only: agent-docs/doflow/bench-d3-do-design-1/design.md, and the
+runtime's own .doflow/state/evidence/{bench-d3-do-design-1.json, ..._claims.json}. The scratch
+batch file was written to /tmp, not into the repo. Parent checkout untouched apart from this
+output dir. Sandbox `git status --short` shows only the two pre-existing bench markers
+(agent-docs/ and .doflow/ are gitignored here).
+
+--------------------------------------------------------------------
+FRICTION / SURPRISES
+--------------------------------------------------------------------
+F1. Description/body contradiction on the requirement.md precondition. The frontmatter says
+    "Use when requirement.md already exists", which reads as a routing condition; SKILL.md
+    step 3 makes the same precondition advisory and skippable. A dispatcher trusting the
+    description would decline exactly the request this eval sends. The two should agree.
+F2. EVIDENCE_LEDGER.md does not say the per-item field set is CLOSED. It names the required
+    fields and then a "Refused by name" list, which implies anything not on that list is fine.
+    The runtime refuses any field outside {kind, provenance, source, locator, content, taskId}.
+    Cost me one full rejected batch. The error message itself is excellent — it named the item
+    index, the offending field, and the accepted set — but the reference should state the
+    closed set rather than only the refused one.
+F3. Doc-vs-implementation mismatch on the link relation. EVIDENCE_LEDGER.md: "whether the
+    relation is support or contradiction". The verb: "Allowed: supports, contradicts". Three
+    calls failed on the noun form. One-word fix on either side.
+F4. `doflow-run <verb> --help` does not print verb usage — it falls through to the installer's
+    global `doflow` help (Usage: doflow <command> [path] [options], install/update/status/...).
+    Combined with F2 and F3, there was no way to discover a verb's exact argument spelling
+    except by triggering its usage error. `doflow-run --help` (no verb) does give a good verb
+    list; the per-verb level is the gap.
+F5. The claim store performs NO relevance check on a link. I linked claim 3 (the
+    per-(intent_id, channel, attempt_no) keying claim) to ev_..._3, which is the ARTIFACT_FORMAT
+    C4-diagram documentation item — genuinely unrelated. The ledger accepted it and flipped the
+    claim from `hypothesis` to `supported`. Recording this against myself deliberately: the
+    mis-link is in outputs/claims.json and I did not quietly repair it, because the finding is
+    that "supported" is a link-count property, not a relevance property, and there is no
+    `unlink` action to undo it (actions are add / link / list).
+F6 (minor, environment). The Bash tool's shell is zsh, where `set -- $var` does not word-split.
+    A loop I wrote to batch the link calls silently passed empty --evidence-id values; the verb
+    caught it cleanly ("doflow: --evidence-id requires a value") but exited 0 through a pipe to
+    head, so the failure was easy to miss. Not a DoFlow defect — noted because a skill that
+    ships a shell loop over verb calls could hit the same thing.
+F7 (positive). The runtime seam itself was solid: every verb (paths, classify, validate,
+    evidence, claim) resolved through the walk-up on the first iteration against the sandbox's
+    own .doflow/ and ran. The ship-runtime-into-.doflow fix is holding for Node-backed verbs in
+    a real install.

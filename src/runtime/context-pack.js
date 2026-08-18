@@ -22,6 +22,7 @@ class ContextPackCompiler {
    * @param {string} [params.taskClass='feature']
    * @param {string} [params.objective='']
    * @param {Array<string>} [params.constraints=[]]
+   * @param {Array<string>} [params.acceptanceCriteria=[]]
    * @param {Object} params.evidenceLedger
    * @param {Object} params.claimsManager
    * @param {Object} [budgetOverrides={}]
@@ -33,6 +34,7 @@ class ContextPackCompiler {
       taskClass = 'feature',
       objective = '',
       constraints = [],
+      acceptanceCriteria = [],
       evidenceLedger,
       claimsManager,
     } = params;
@@ -104,6 +106,11 @@ class ContextPackCompiler {
       compiledAt: new Date().toISOString(),
       objective,
       constraints: [...constraints],
+      // Ported from `evidence/context_pack.py` (plan task B.3): the only field the Python pack
+      // carried that this one did not. What the task must satisfy belongs beside the evidence
+      // gathered to satisfy it, otherwise the verification engine has to re-read the requirement
+      // to find out what it is verifying against.
+      verificationRequirements: [...acceptanceCriteria],
       claims: {
         supported: supportedClaims,
         hypotheses: activeHypotheses,

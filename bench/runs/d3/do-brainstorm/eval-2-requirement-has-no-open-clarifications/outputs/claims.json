@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "taskId": "bench-d3-do-brainstorm-2",
+  "updatedAt": "2026-08-18T09:34:41.094Z",
+  "claimsCount": 2,
+  "claims": [
+    {
+      "id": "claim_msygujeb_1",
+      "taskId": "bench-d3-do-brainstorm-2",
+      "statement": "The weekly-standup CLI requirement is fully specified at the WHAT/WHY level: six FRs, four NFRs, and nine recorded assumptions, with no clarification left open.",
+      "status": "supported",
+      "supportingEvidence": [
+        "ev_msyguc1x_3"
+      ],
+      "contradictingEvidence": [],
+      "createdAt": "2026-08-18T09:34:24.179Z",
+      "updatedAt": "2026-08-18T09:34:41.012Z"
+    },
+    {
+      "id": "claim_msygujgp_1",
+      "taskId": "bench-d3-do-brainstorm-2",
+      "statement": "Blockers cannot be derived from commit history, so the note emits an empty Blockers section rather than an inferred one.",
+      "status": "supported",
+      "supportingEvidence": [
+        "ev_msyguc1x_2"
+      ],
+      "contradictingEvidence": [],
+      "createdAt": "2026-08-18T09:34:24.265Z",
+      "updatedAt": "2026-08-18T09:34:41.094Z"
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "taskId": "bench-d3-do-brainstorm-2",
+  "updatedAt": "2026-08-18T09:34:14.661Z",
+  "evidenceCount": 4,
+  "evidence": [
+    {
+      "id": "ev_msyguc1x_1",
+      "taskId": "bench-d3-do-brainstorm-2",
+      "kind": "user-statement",
+      "source": {
+        "provider": "user",
+        "capability": "conversation"
+      },
+      "locator": {},
+      "provenance": "asserted",
+      "content": "Requested a CLI that summarises the user's git history into a weekly standup note.",
+      "freshness": {
+        "gitCommit": "704fb3315890afef5f0808213b02b3f4250600d2",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:34:14.660Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyguc1x_2",
+      "taskId": "bench-d3-do-brainstorm-2",
+      "kind": "generated-analysis",
+      "source": {
+        "provider": "claude",
+        "capability": "requirements-analysis"
+      },
+      "locator": {},
+      "provenance": "inferred",
+      "content": "Six functional requirements (FR-001..FR-006) and four non-functional requirements (NFR-001..NFR-004) were derived from the request: author-scoped single-repo history, configurable seven-day default window, subject-grouped output, Done/In progress/Blockers sections, stdout-by-default emission, and an empty-window path that still succeeds.",
+      "freshness": {
+        "gitCommit": "704fb3315890afef5f0808213b02b3f4250600d2",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:34:14.661Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyguc1x_3",
+      "taskId": "bench-d3-do-brainstorm-2",
+      "kind": "generated-analysis",
+      "source": {
+        "provider": "claude",
+        "capability": "requirements-analysis"
+      },
+      "locator": {},
+      "provenance": "inferred",
+      "content": "Nine ambiguities surfaced during discovery were all resolved on the 'Decide for me' path and recorded as assumptions A1-A9 in requirement.md section 8, each with a rationale and a stated consequence if wrong. No [NEEDS CLARIFICATION] marker was left open.",
+      "freshness": {
+        "gitCommit": "704fb3315890afef5f0808213b02b3f4250600d2",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:34:14.661Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyguc1x_4",
+      "taskId": "bench-d3-do-brainstorm-2",
+      "kind": "structural",
+      "source": {
+        "provider": "native.rg",
+        "capability": "code.exact-search"
+      },
+      "locator": {
+        "file": "agent-docs/doflow/bench-d3-do-brainstorm-2/requirement.md"
+      },
+      "provenance": "extracted",
+      "content": null,
+      "freshness": {
+        "gitCommit": "704fb3315890afef5f0808213b02b3f4250600d2",
+        "fileHash": "sha256:2681c706a76fedee882cd707c8a3a6bda1cb6065f88d5412814c171e20a5ae99",
+        "observedAt": "2026-08-18T09:34:14.661Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    }
+  ]
+}

@@ -96,7 +96,7 @@ flowchart LR
 /do-brainstorm "add a customer export"
 /do-design
 /do-plan
-/do-execute-plan --next --safe
+/do-execute-plan --scope next
 /do-test
 /do-code-review
 ```

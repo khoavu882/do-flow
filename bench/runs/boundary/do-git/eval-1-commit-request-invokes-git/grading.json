@@ -1,0 +1,30 @@
+{
+  "skill": "do-git",
+  "eval_id": 1,
+  "eval_name": "commit-request-invokes-git",
+  "skill_source": {
+    "status": "verified",
+    "expectedSha256": "8735f1277be76572e79987b49cf4e3e5847f0093afc8638e5478177e89d415c2",
+    "recordedSha256": "8735f1277be76572e79987b49cf4e3e5847f0093afc8638e5478177e89d415c2",
+    "recordedPath": ".doflow/worktrees/bench-boundary-do-git-1/.claude/skills/do-git/SKILL.md",
+    "evidence": "read .doflow/worktrees/bench-boundary-do-git-1/.claude/skills/do-git/SKILL.md (matches core/shared/skills/do-git/SKILL.md)"
+  },
+  "expectations": [
+    {
+      "text": "do-git was invoked",
+      "passed": true,
+      "evidence": "do-git: verified — read .doflow/worktrees/bench-boundary-do-git-1/.claude/skills/do-git/SKILL.md (matches core/shared/skills/do-git/SKILL.md)"
+    },
+    {
+      "text": "git status is run to inspect the working tree before anything is committed",
+      "passed": true,
+      "evidence": "matched /git status/ in transcript"
+    },
+    {
+      "text": "The inspection happens before the commit, not after",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": 1
+}

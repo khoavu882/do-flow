@@ -1,0 +1,35 @@
+{
+  "skill": "do",
+  "eval_id": 1,
+  "eval_name": "multi-part-request-routes",
+  "skill_source": {
+    "status": "verified",
+    "expectedSha256": "9c110ba53f7e4fef463e52c28b0671528560cd882849f39c1e75a7a592caf450",
+    "recordedSha256": "9c110ba53f7e4fef463e52c28b0671528560cd882849f39c1e75a7a592caf450",
+    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-1/.claude/skills/do/SKILL.md",
+    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-1/.claude/skills/do/SKILL.md (matches core/shared/skills/do/SKILL.md)"
+  },
+  "expectations": [
+    {
+      "text": "do was invoked",
+      "passed": true,
+      "evidence": "do: verified — read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-1/.claude/skills/do/SKILL.md (matches core/shared/skills/do/SKILL.md)"
+    },
+    {
+      "text": "The documentation part is routed to do-document by name",
+      "passed": true,
+      "evidence": "matched /do-document/ in transcript"
+    },
+    {
+      "text": "The review part is routed to do-code-review by name",
+      "passed": true,
+      "evidence": "matched /do-code-review/ in transcript"
+    },
+    {
+      "text": "Response decomposes the request into 3 distinct parts rather than treating it as one job",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": 1
+}

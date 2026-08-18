@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "taskId": "bench-d3-do-plan-3",
+  "updatedAt": "2026-08-18T09:56:57.494Z",
+  "evidenceCount": 6,
+  "evidence": [
+    {
+      "id": "ev_msyhnjmd_1",
+      "taskId": "bench-d3-do-plan-3",
+      "kind": "structural",
+      "source": {
+        "provider": "doflow-runtime",
+        "capability": "paths"
+      },
+      "locator": {
+        "file": "doflow paths --json @ branch task/bench-d3-do-plan-3"
+      },
+      "provenance": "extracted",
+      "content": "has_requirement false, has_design false, has_plan false, candidate_slugs []; no upstream artifacts exist",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:57.493Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyhnjmd_2",
+      "taskId": "bench-d3-do-plan-3",
+      "kind": "structural",
+      "source": {
+        "provider": "doflow-runtime",
+        "capability": "classify"
+      },
+      "locator": {
+        "file": "doflow classify --task-class feature --json"
+      },
+      "provenance": "extracted",
+      "content": "outcome ACCEPTED; Feature Delivery workflow; planning stage readinessTemplate null",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:57.493Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyhnjmd_3",
+      "taskId": "bench-d3-do-plan-3",
+      "kind": "test-result",
+      "source": {
+        "provider": "doflow-runtime",
+        "capability": "validate"
+      },
+      "locator": {
+        "file": "doflow validate agent-docs/doflow/bench-d3-do-plan-3/plan.md"
+      },
+      "provenance": "extracted",
+      "content": "1 artifact(s) checked, no violations; exit 0",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:57.493Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyhnjmd_4",
+      "taskId": "bench-d3-do-plan-3",
+      "kind": "test-result",
+      "source": {
+        "provider": "doflow-runtime",
+        "capability": "parallel-check"
+      },
+      "locator": {
+        "file": "doflow parallel-check --phase=A"
+      },
+      "provenance": "extracted",
+      "content": "parallel_tasks [A.1,A.2], sequential_tasks [A.0,A.3], overlaps [], parallel_safe true, unowned_tasks []; group_overlaps names state.md shared by A:spec-analyst and A:research-writer",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:57.493Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyhnjmd_5",
+      "taskId": "bench-d3-do-plan-3",
+      "kind": "test-result",
+      "source": {
+        "provider": "doflow-runtime",
+        "capability": "task-brief"
+      },
+      "locator": {
+        "file": "doflow task-brief --task=A.1"
+      },
+      "provenance": "extracted",
+      "content": "brief written to agent-docs/doflow/bench-d3-do-plan-3/exec/task-A.1-brief.md, 28 lines; missing lists 'requirement.md not readable' and 'design.md not readable'",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:57.493Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    },
+    {
+      "id": "ev_msyhnjmd_6",
+      "taskId": "bench-d3-do-plan-3",
+      "kind": "generated-analysis",
+      "source": {
+        "provider": "claude-opus-5",
+        "capability": "analysis"
+      },
+      "locator": {},
+      "provenance": "inferred",
+      "content": "The checklist markers are parseable by the runtime's own readers even though no feature exists; the executor sees six real tasks scoped to gap recovery rather than an empty phase",
+      "freshness": {
+        "gitCommit": "b20f006f338a6327923b5febd562fe4521959cca",
+        "fileHash": null,
+        "observedAt": "2026-08-18T09:56:57.493Z",
+        "status": "FRESH"
+      },
+      "supports": [],
+      "contradicts": []
+    }
+  ]
+}

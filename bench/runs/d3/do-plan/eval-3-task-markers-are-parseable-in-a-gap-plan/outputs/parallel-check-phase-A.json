@@ -1,0 +1,62 @@
+{
+  "phase": "A",
+  "parallel_tasks": [
+    "A.1",
+    "A.2"
+  ],
+  "sequential_tasks": [
+    "A.0",
+    "A.3"
+  ],
+  "overlaps": [],
+  "parallel_safe": true,
+  "serialize": [],
+  "groups": [
+    {
+      "id": "A:spec-analyst",
+      "owner": "spec-analyst",
+      "tasks": [
+        "A.0",
+        "A.1"
+      ],
+      "files": [
+        "agent-docs/doflow/bench-d3-do-plan-3/requirement.md",
+        "agent-docs/doflow/bench-d3-do-plan-3/state.md"
+      ]
+    },
+    {
+      "id": "A:research-writer",
+      "owner": "research-writer",
+      "tasks": [
+        "A.2"
+      ],
+      "files": [
+        "agent-docs/doflow/bench-d3-do-plan-3/state.md"
+      ]
+    },
+    {
+      "id": "A:system-architect",
+      "owner": "system-architect",
+      "tasks": [
+        "A.3"
+      ],
+      "files": [
+        "agent-docs/doflow/bench-d3-do-plan-3/design.md"
+      ]
+    }
+  ],
+  "group_overlaps": [
+    {
+      "path": "agent-docs/doflow/bench-d3-do-plan-3/state.md",
+      "groups": [
+        "A:research-writer",
+        "A:spec-analyst"
+      ]
+    }
+  ],
+  "group_serialize": [
+    "A:research-writer",
+    "A:spec-analyst"
+  ],
+  "unowned_tasks": []
+}

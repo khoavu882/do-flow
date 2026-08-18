@@ -1,0 +1,9 @@
+{"timestamp":"2026-08-18T09:34:39Z","verb":"paths","exit_code":0,"duration_ms":85,"arg_count":1}
+{"timestamp":"2026-08-18T09:36:35Z","verb":"evidence","exit_code":0,"duration_ms":87,"arg_count":7}
+{"timestamp":"2026-08-18T09:36:46Z","verb":"claim","exit_code":0,"duration_ms":69,"arg_count":7}
+{"timestamp":"2026-08-18T09:36:46Z","verb":"claim","exit_code":0,"duration_ms":62,"arg_count":11}
+{"timestamp":"2026-08-18T09:36:46Z","verb":"claim","exit_code":0,"duration_ms":58,"arg_count":11}
+{"timestamp":"2026-08-18T09:36:46Z","verb":"claim","exit_code":0,"duration_ms":61,"arg_count":11}
+{"timestamp":"2026-08-18T09:36:46Z","verb":"claim","exit_code":0,"duration_ms":62,"arg_count":11}
+{"timestamp":"2026-08-18T09:36:46Z","verb":"claim","exit_code":0,"duration_ms":64,"arg_count":11}
+{"timestamp":"2026-08-18T09:36:46Z","verb":"claim","exit_code":0,"duration_ms":62,"arg_count":11}

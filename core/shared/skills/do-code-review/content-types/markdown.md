@@ -8,8 +8,8 @@ extensions: [".md"]
 Markdown is not treated as a `languages/*.md` entry. The language files' required sections
 (Security, Async, Resource Management, Exception Handling, Performance) describe code-execution
 concerns that do not translate to prose — forcing markdown through that template would produce
-empty or fabricated sections, which is exactly the "invented metrics" problem
-`PRINCIPLES.md`'s Professional Honesty principle warns against. This file documents a
+empty or fabricated sections, which is exactly the "invented metrics" problem that
+the guidance tree's `rules/RULE_03_QUALITY.md` warns against under "Professional Honesty". This file documents a
 content-type-specific set of checks instead, run by `scripts/doc_quality_checker.py`.
 
 Load this file when the reviewed path is a `.md` file. There is no `rules/universal.md`
@@ -29,8 +29,8 @@ python scripts/doc_quality_checker.py <path> --json
 ```
 
 Every check below is deterministic and cite-the-match: a finding names the exact line, phrase,
-or reference that triggered it. There is no aggregate "quality score" — per this repo's
-`PRINCIPLES.md` Professional Honesty principle, an invented single-number score would claim more
+or reference that triggered it. There is no aggregate "quality score" — per "Professional Honesty"
+in the guidance tree's `rules/RULE_03_QUALITY.md`, an invented single-number score would claim more
 precision than a pattern match can support. Treat every finding as "here is the specific thing to
 look at," not as a verdict; confirm it against the actual file before editing (the same
 manual-verification discipline this feature's own audit applies to its own tooling).

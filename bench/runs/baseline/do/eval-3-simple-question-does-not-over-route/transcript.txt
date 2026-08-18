@@ -1,0 +1,35 @@
+USER PROMPT:
+What does the `--prune` flag do in doflow remove?
+
+RESPONSE:
+
+Short answer: nothing — `--prune` has no effect on `doflow remove`.
+
+Looking at `bin/doflow.js`:
+
+- `--prune <N>` is parsed as a global CLI option (`o.prune`, default `0`) and documented in the
+  help text as "Keep only N most recent backups" (line ~152).
+- It is only *consumed* in two places: `cmdInstall` (line ~275-278) and `cmdUpdate` (line ~357-360).
+  In both, after a backup is created and the manifest is written, if `o.prune > 0` the code calls
+  `pruneBackups(backupRoot, o.prune)` to trim old backups down to the N most recent.
+- `cmdRemove` (line ~365-393) never reads `o.prune` at all. `remove` doesn't create a backup in the
+  first place — it just resolves the lifecycle plan for the targeted harnesses and calls
+  `removeLifecycle(...)` to delete DoFlow-owned native resources (preserving anything user-owned),
+  then prints how many owned records remain. There's no backup-pruning step for it to hook into.
+
+So if you pass `doflow remove --prune 5`, the flag is silently accepted (it's a recognized global
+option) but has no observable effect — `--prune` only does something on `doflow install` and
+`doflow update`, where it caps how many old backup snapshots are retained after a new one is made.
+
+---
+TOOLS AND SKILLS USED (in order):
+1. Bash — grep for "prune" across bin/doflow.js and src/lifecycle/
+2. Read — bin/doflow.js lines 130-170 (help text / options)
+3. Read — bin/doflow.js lines 260-370 (cmdInstall / cmdUpdate prune usage)
+4. Bash — attempted awk extraction of cmdRemove (no output)
+5. Read — bin/doflow.js lines 365-424 (cmdRemove implementation, confirming no --prune usage)
+6. Bash — mkdir -p for output directory
+7. Write — transcript.txt (this file)
+8. Write — invoked_skills.json
+
+No skills were invoked via the Skill tool for this response.

@@ -1,0 +1,152 @@
+EVAL: boundary/do-constitution / eval-1-principles-request-invokes-constitution
+PROMPT: "Set up the engineering principles this repo should hold itself to."
+
+=== TRIGGERING JUDGMENT ===
+
+Skill frontmatter read directly from SKILL.md (not via the Skill tool):
+
+  name: do-constitution
+  description: "Create or amend the per-repo constitution (tier-2), overlaying the base;
+  bumps semver, writes a Sync Impact Report, and propagates a pointer into the agent context
+  file. Use when the user wants to establish or change repo-specific governing principles that
+  every later phase and agent must inherit, or says 'let's set some ground rules for this
+  repo' or 'amend our constitution to require X' rather than asking for a feature."
+
+Decision: YES, do-constitution would fire.
+
+Reasoning: The description's explicit trigger clause is "the user wants to establish ...
+repo-specific governing principles that every later phase and agent must inherit." The prompt
+"Set up the engineering principles this repo should hold itself to" is a near-paraphrase of
+that clause ("set up" = "establish", "engineering principles this repo should hold itself to"
+= "repo-specific governing principles"). It names no concrete feature to build, which the
+description explicitly distinguishes from ("rather than asking for a feature"), reinforcing
+that this is a constitution-authoring request, not e.g. a do-brainstorm/do-design trigger.
+
+=== EXECUTION (following SKILL.md's Behavioral Flow as if triggered) ===
+
+Working directory: sandbox worktree
+/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-constitution-1
+
+Step 1 — Resolve runtime and paths.
+Resolved DOFLOW to:
+  .doflow/scripts/doflow/bin/doflow-run (found at sandbox root, no walk-up needed; DOFLOW_CLI
+  override was not needed since the shell resolver found this directly)
+Ran: "$DOFLOW" paths --json
+Result (key fields):
+  repo_root: .../bench-boundary-do-constitution-1
+  branch: task/bench-boundary-do-constitution-1
+  constitution_base: .../.doflow/guidance/references/CONSTITUTION_BASE.md
+  constitution_local: agent-docs/constitution.md
+  has_constitution_local: false
+
+Step 2 — Read both tiers.
+Read CONSTITUTION_BASE.md (tier-1, read-only): 6 base principles P1-P6 (Safety over speed,
+Evidence over assumptions, Finish what you start, Scope discipline/YAGNI, Parallel by default,
+Professional honesty) plus a Governance section noting tier-2 may not weaken P1.
+has_constitution_local was false, so no local file to read yet — this is the create case.
+
+Step 3 — Create.
+has_constitution_local = false -> copy the installed constitution template and fill it.
+Template path computed per the skill's own rule: take constitution_base
+(".../.doflow/guidance/references/CONSTITUTION_BASE.md") and replace the trailing
+"guidance/references/CONSTITUTION_BASE.md" with "templates/doflow/constitution-template.md",
+giving ".../.doflow/templates/doflow/constitution-template.md". Verified this file exists and
+read it — it is the [PLACEHOLDER] tier-2 skeleton (title, version/ratified/amended line, Sync
+Impact Report comment, Principles/Constraints/Governance sections).
+
+ASSUMPTION SUBSTITUTED FOR AskUserQuestion (see Assumptions section below): the skill's process
+implies principle inputs normally come from the user interactively. None were given verbatim in
+the prompt beyond "engineering principles this repo should hold itself to," so I selected
+repo-specific principles by reading /Users/kai/Workspace/learning/do-flow/CLAUDE.md (the
+project's own architecture description: registry-driven installer projecting into 7 harnesses,
+core/shared as single source, guard suite G1-G10, neutral state ledger, no build/lint step).
+
+Filled the template at agent-docs/constitution.md (inside the sandbox) with 5 repo-specific
+principles that do not restate the base P1-P6:
+  P1 Single source of truth (core/shared/ is canonical; adapters project, never duplicate)
+  P2 Registry-adapter parity (registry claims must be backed by real adapter code; guard suite
+     G1-G10 is the enforcement mechanism)
+  P3 Neutral state ledger is authoritative (.doflow/state/ tracks ownership, nothing else does)
+  P4 No build step, plain Node (Node >=18, no bundler, no TypeScript)
+  P5 Cross-harness equivalence (a behavior change to one adapter must be evaluated against the
+     other six; silent divergence is a defect)
+Plus a Constraints section (Node >=18, npm test via node --test, registry files are JSON despite
+.yaml extension, adding a harness requires registry+adapter+dispatch together) and the template's
+standard Governance section (unchanged, semver amendment process + advisory Constitution Check).
+
+Step 4 — Version + Sync Impact.
+This is an initial ratification (not --amend), so version was set to 0.1.0 (Ratified /
+Last amended: 2026-08-18, per <env> current date). Filled the SYNC IMPACT REPORT comment:
+  version: (none) -> 0.1.0
+  changed: initial ratification - added 5 repo-specific principles (Single Source of Truth,
+    Registry-Adapter Parity, Neutral State Ledger, No Build Step, Cross-Harness Equivalence)
+    and repo constraints
+  propagated to: CLAUDE.md (DOFLOW pointer block)
+
+Step 5 — Propagate (deterministic).
+Ran:
+  printf 'doflow: active constitution = agent-docs/constitution.md (v0.1.0), overlaying
+  CONSTITUTION_BASE.md.\n' | "$DOFLOW" sync-context --file CLAUDE.md
+Output: "sync-context: created CLAUDE.md"
+Exit code: 0 (success — no CLAUDE.md existed yet in the sandbox root, so sync-context created
+it fresh with a marker-delimited DOFLOW block).
+Resulting CLAUDE.md content (verified by cat):
+  <!-- DOFLOW START -->
+  doflow: active constitution = agent-docs/constitution.md (v0.1.0), overlaying
+  CONSTITUTION_BASE.md.
+  <!-- DOFLOW END -->
+
+Step 6 — Report.
+Version: 0.1.0 (initial ratification)
+Sync Impact: added 5 repo-specific principles + constraints section; propagated to CLAUDE.md
+Propagation: succeeded (exit 0), CLAUDE.md created with the DOFLOW marker block
+Constitution file: agent-docs/constitution.md (sandbox), 5 principles + Constraints +
+  Governance, does not restate or weaken base P1 (Safety)
+Next step per skill's CRITICAL BOUNDARIES: /do-brainstorm to start a feature under this
+  constitution.
+
+=== TOOL & SKILL LOG ===
+- Read: SKILL.md at the exact sandbox path given in the case (absolute path, not the Skill tool,
+  not "/do-constitution").
+- Bash: shasum -a 256 on SKILL.md.
+- Bash: explored sandbox structure (git status, find for doflow-run / CONSTITUTION_BASE.md /
+  constitution-template.md / DOFLOW_CHAIN.md).
+- Bash: ran "$DOFLOW" paths --json (resolver walk-up found .doflow/scripts/doflow/bin/doflow-run
+  directly under the sandbox root; DOFLOW_CLI override was not needed).
+- Read: CONSTITUTION_BASE.md, constitution-template.md, relevant section of DOFLOW_CHAIN.md
+  ("Two-tier constitution").
+- Write: agent-docs/constitution.md inside the sandbox (the tier-2 constitution).
+- Bash: ran "$DOFLOW" sync-context --file CLAUDE.md, piping the pointer block via stdin;
+  confirmed exit 0 and inspected the resulting CLAUDE.md.
+- The Skill tool was NOT invoked at any point. No skill was dispatched via the harness's own
+  skill-invocation mechanism — the SKILL.md instructions were read and carried out manually, as
+  instructed by the case.
+
+=== ASSUMPTIONS (substituted for AskUserQuestion) ===
+1. The prompt gave no concrete list of principles, only the general intent "engineering
+   principles this repo should hold itself to." The skill's Behavioral Flow step 3 says to fill
+   the template "from the user's principle inputs" — normally this is where an interactive
+   session would ask the user to enumerate or choose principles (structured multiple-choice per
+   RULE_04_QUESTIONS). Since this is a non-interactive bench run, I did not call
+   AskUserQuestion. Instead I derived 5 repo-specific principles directly from this repo's own
+   documented architecture (/Users/kai/Workspace/learning/do-flow/CLAUDE.md): single source of
+   truth in core/shared/, registry-adapter parity enforced by the guard suite, the neutral state
+   ledger as the sole ownership authority, no build/lint step (plain Node), and cross-harness
+   equivalence across the seven adapters. I recorded this substitution here rather than asking.
+   If asked, the structured question would have been:
+     "Which engineering principles should this repo's tier-2 constitution encode?"
+       A) Principles derived from the repo's own architecture doc (single source of truth,
+          registry-adapter parity, state-ledger authority, no-build-step, cross-harness
+          equivalence) — chosen default
+       B) A minimal placeholder set the user will fill in later
+       C) Principles focused on a specific concern (e.g., security, testing) only
+       D) Other (describe)
+   I chose (A) as the most useful, evidence-grounded default for a repo with no prior
+   constitution and a prompt requesting general "engineering principles."
+2. Version number: since no constitution existed yet (has_constitution_local: false), this is an
+   initial ratification rather than an amendment. I assumed semver 0.1.0 as the starting version
+   (consistent with the template's own placeholder default of 0.1.0), rather than 1.0.0, since
+   the repo has not yet validated these principles in practice.
+3. Context file target: the skill's step 5 example targets "CLAUDE.md (or AGENTS.md for
+   Codex)." Since this sandbox is a Claude Code projection (`.claude/skills/...`), I assumed
+   CLAUDE.md was correct without asking, consistent with the skill's own inline comment.

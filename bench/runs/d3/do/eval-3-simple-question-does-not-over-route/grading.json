@@ -1,0 +1,25 @@
+{
+  "skill": "do",
+  "eval_id": 3,
+  "eval_name": "simple-question-does-not-over-route",
+  "skill_source": {
+    "status": "verified",
+    "expectedSha256": "e77be8adcd024bdc3d1fec493136cbaed6afc1f6fe5658279b42bf2b9005cd1d",
+    "recordedSha256": "e77be8adcd024bdc3d1fec493136cbaed6afc1f6fe5658279b42bf2b9005cd1d",
+    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-3/.claude/skills/do/SKILL.md",
+    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-3/.claude/skills/do/SKILL.md (matches core/shared/skills/do/SKILL.md)"
+  },
+  "expectations": [
+    {
+      "text": "The answer explains --prune in terms of backup retention, which is what the flag actually does",
+      "passed": true,
+      "evidence": "matched /[Bb]ackup/ in transcript"
+    },
+    {
+      "text": "Answers directly without decomposing into a multi-skill plan",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": 1
+}

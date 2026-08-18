@@ -1,0 +1,193 @@
+CASE: do-document / eval-2 / research-mode-separates-source-from-inference (behavioral)
+ITERATION: d3
+PROMPT: "/do-document --type research What are the current approaches to idempotency keys in payment APIs?"
+SANDBOX: .doflow/worktrees/bench-d3-do-document-2 (created this run, skills=13)
+
+--- STEP 0: skill resolution (by path) ---
+Read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-document-2/.claude/skills/do-document/SKILL.md
+shasum -a 256 -> 66624cb8d8f1985f70b95dbbc6c1885af110d3a1ef0ef5727175d1efeefe90e0  (matches brief)
+Skill tool NOT used. /do-document never typed.
+
+Chain of files the skill sent me to, each read in full, in this order:
+  1. .claude/skills/do-document/SKILL.md                        (47 lines)
+  2. .claude/skills/do-document/references/deep_research.md     (step 1's `research` arm)
+  3. .doflow/guidance/modes/MODE_DeepResearch.md                (deep_research.md "Behavioral Posture")
+  4. .doflow/guidance/references/RESEARCH_CONFIG.md             (same)
+  5. .doflow/guidance/references/EVIDENCE_LEDGER.md             (RESEARCH_CONFIG's "Schema and refused fields")
+Located 3-5 with: find . -name MODE_DeepResearch.md -o -name RESEARCH_CONFIG.md
+  -> present at BOTH .doflow/guidance/ (installed) and core/shared/guidance/ (source). Read the
+     installed copies, since that is what a real install exposes.
+
+--- STEP 1: classification ---
+--type research given explicitly. No --depth -> assumed `normal` (assumption A1).
+RESEARCH_CONFIG.md: "`research` is a declared task class whose workflow terminates at synthesis and
+declares no readiness template: do not run a readiness check, and do not report one as skipped."
+=> I did NOT call `readiness` and do not report it as skipped. Complied.
+
+--- STEP 2: retrieval routing THROUGH THE SEAM (the instructed part) ---
+RESEARCH_CONFIG.md, verbatim: "Resolve each information need through the capability router
+(`"$DOFLOW" route`), not a named vendor. `"$DOFLOW" capabilities` lists the registered capabilities
+and `doflow capabilities` reports which provider answers on *this* machine — no written table can."
+
+>>> FRICTION #1: do-document/SKILL.md never defines $DOFLOW and contains no seam resolver. Confirmed
+>>> by grep over the whole skill dir: no "doflow-run", no ".doflow/scripts". The instruction to run
+>>> `"$DOFLOW" route` arrives two files away, in guidance, with the variable undefined at the point
+>>> of use. I borrowed the canonical spelling from a sibling skill (do-git/SKILL.md:50-52,
+>>> do-implement/SKILL.md:37-38) to proceed:
+>>>   D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+>>>   DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
+>>>   [ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
+>>> A reader with only do-document in front of them cannot follow the instruction as written.
+
+COMMANDS ACTUALLY RUN AND THEIR REAL OUTPUT:
+
+$ echo "$DOFLOW"
+/Users/kai/.../worktrees/bench-d3-do-document-2/.doflow/scripts/doflow/bin/doflow-run
+  Resolved to the SANDBOX copy on the first upward hop. -rwxr-xr-x, 14772 bytes. The runtime ships
+  into .doflow/ as intended; the fix from commit 66a5473 holds inside a worktree sandbox.
+
+$ "$DOFLOW" capabilities            [exit 0]
+  DoFlow Abstract Capabilities & Resolved Providers:
+  code.exact-search       Ripgrep Native Search    HEALTHY
+  code.semantic-search    Semble Semantic Search   HEALTHY
+  code.relationships      Graphify Knowledge Graph HEALTHY
+  code.impact-analysis    Graphify Blast Radius    HEALTHY
+  history.search          Git CLI                  HEALTHY
+  behavior.verify         Project Test Runner      HEALTHY
+  command.compress        Rust Token Killer        HEALTHY
+  Mode: Fast Presence Check · Total Capabilities: 7
+
+$ "$DOFLOW" route                   [exit 2]
+  doflow route: --intent is required. Declared intents: locate-known-symbol, locate-concept,
+  trace-dependency, estimate-blast-radius, inspect-history, verify-runtime-behavior, compress-command
+
+$ "$DOFLOW" route --intent web-search --query "x"
+  doflow route: Unknown route/intent 'web-search'. Declared intents: <same seven>
+
+$ "$DOFLOW" route --intent locate-concept --query "idempotency keys"   [exit 0]
+  DoFlow Route [locate-concept] — HEALTHY:
+  Need:       Find implementation of an abstract feature or business logic.
+  Capability: code.semantic-search
+  Provider:   Semble Semantic Search
+    mcpTool      mcp__semble__search
+    cliCommand   semble search "idempotency keys" <sandbox> --content code
+    args         [object Object]
+
+>>> FRICTION #2 — THE HEADLINE FINDING. The capability router HAS NO EXTERNAL-RETRIEVAL CAPABILITY
+>>> AND NO EXTERNAL-RETRIEVAL INTENT. All 7 capabilities and all 7 intents are repository-local
+>>> (code search, call graphs, git history, test runner, stdout compression). RESEARCH_CONFIG.md
+>>> instructs a research run to "resolve each information need through the capability router… not a
+>>> named vendor" — but for a web research question the router has nothing to resolve to. It is not
+>>> that Tavily is unhealthy; there is no `web.search`/`web.fetch`/`external.retrieval` capability
+>>> registered AT ALL, so the router cannot even report a degraded provider. The instruction is
+>>> unfollowable for the exact task class it was written for.
+>>> The router behaved correctly and legibly given its registry — it named its seven intents and
+>>> refused an unknown one with exit 2. The gap is in the registry's coverage, not the router.
+
+>>> FRICTION #3 (minor, cosmetic): route output renders `args  [object Object]` — an unstringified
+>>> object in the provider block.
+
+WHAT ACTUALLY ANSWERED THE QUESTION: the harness-native WebSearch and WebFetch tools. Both were
+DEFERRED tools in this session, so before I could use either I had to run
+`ToolSearch select:WebSearch,WebFetch` to load their schemas. Neither is registered as a DoFlow
+capability, so `capabilities` cannot report on them and `doctor` would not see them either. The
+honest description of this run's retrieval path is: the router was consulted as instructed, could
+not serve the need, and I fell back to the harness's own tools — i.e. to a named vendor-equivalent,
+which is precisely what RESEARCH_CONFIG.md tells a run not to do.
+
+--- STEP 3: the two-pass spine (SKILL.md step 2 + deep_research.md + MODE_DeepResearch) ---
+"One broad discovery pass over the whole scope… concluding nothing. Then one targeted pass per named
+sub-question." Followed literally:
+
+DISCOVERY PASS (1 broad search, concluded nothing):
+  WebSearch "idempotency keys payment APIs approaches"
+  Terminology/surfaces surfaced: Idempotency-Key header; client-side key generation; request
+  fingerprint / payload mismatch; in-flight concurrency; retention window; replay-signalling
+  response header; per-provider divergence; an IETF effort.
+  Sub-questions named FROM the discovery output (not from the prompt as it arrived, per
+  deep_research.md step 1):
+    Q1 Is there a standard, and what does it prescribe?
+    Q2 What do major providers actually specify (primary docs)?
+    Q3 How is an in-flight duplicate handled, and with what status code?
+    Q4 Retention window and payload-mismatch semantics.
+    Q5 Server-side implementation pattern; and what non-key approaches exist?
+
+TARGETED PASSES (independent ones batched in parallel, per "Default to parallel operations"):
+  round 1 (parallel): WebSearch IETF draft  |  WebSearch Stripe idempotency 409/24h
+  round 2 (parallel): WebFetch docs.stripe.com/api/idempotent_requests  |  WebSearch alternatives
+  round 3 (parallel): WebFetch docs.adyen.com/development-resources/api-idempotency  |  WebFetch brandur.org/idempotency-keys
+  round 4:            WebFetch ietf.org draft-07 .txt  (to close Q3's exact status codes)
+STOP: round 4 produced no new sub-question and no new source beyond the one fetched. Per the
+stopping rule ("A round that only restates what you already have is the last round. Report the
+remaining gaps rather than continuing") I stopped and wrote 5 explicit gaps instead of searching on.
+
+--- STEP 4: report ---
+Written to <sandbox>/agent-docs/research/idempotency-keys-payment-apis_20260818T093819Z.md
+(16.5 KB) — the path deep_research.md step 4 names, `agent-docs/research/[topic]_[timestamp].md`,
+with an Executive Summary and a Citation Table as it requires.
+
+SOURCE/INFERENCE SEPARATION — what the report actually does (this is what the eval checks):
+- A provenance convention is stated up front and applied per claim, not per section: [E] extracted
+  (read off the cited source) vs [I] inferred (my reading, which the source does not state). This is
+  EVIDENCE_LEDGER.md's `extracted` | `inferred` distinction and its closing rule "Never merge those
+  two provenances into one reported line."
+- Every [E] carries a locator URL. No claim carries a score, a percentage, a credibility rating or a
+  confidence — MODE_DeepResearch ("a locator, never a score or a rating") and EVIDENCE_LEDGER
+  ("Relevance is not confidence") both forbid it, and I checked the finished report for leakage.
+- Sourcing STRENGTH is separated too, not just provenance: the Citation Table marks each source
+  primary/secondary and a closing note says which four were actually fetched vs which four arrived
+  only as search-result summaries. The PayPal/Square/Modern Treasury block is explicitly labelled
+  second-hand and "leads, not specifications" rather than being laundered into the comparison table.
+- The cross-provider table is flagged as MY synthesis even though every cell is extracted — "the act
+  of aligning them is not [extracted]".
+- CONTRADICTION HANDLED, not smoothed (MODE_DeepResearch: "Contradiction resolution required",
+  "Present conflicting views fairly"): a secondary source says Stripe returns 422 on payload
+  mismatch; Stripe's own page names no code. §3 states both, resolves in favour of the primary,
+  offers a mechanism for the discrepancy (the 422 is the IETF draft's value, likely read back onto
+  Stripe), and records the code as NOT established.
+- 5 explicit gaps are listed, including one where I deliberately did NOT fill Adyen's undocumented
+  payload-mismatch behaviour from Stripe's rule.
+
+--- ASSUMPTIONS SUBSTITUTED (no user to ask) ---
+A1. --depth not given -> `normal`. Concretely: 4 primary/secondary pages fetched + 4 searches;
+    stopped at 2 vendors verified against primary docs rather than all named vendors.
+A2. $DOFLOW undefined in do-document -> borrowed the canonical resolver from do-git/do-implement.
+    See FRICTION #1.
+A3. Router cannot serve web retrieval -> fell back to harness WebSearch/WebFetch and recorded the
+    fallback in the transcript rather than silently substituting. See FRICTION #2.
+A4. Topic slug for the filename: `idempotency-keys-payment-apis`. Timestamp format: UTC
+    %Y%m%dT%H%M%SZ. deep_research.md specifies `[topic]_[timestamp]` but neither slug rule nor
+    timestamp format, so both were chosen.
+A5. NO EVIDENCE LEDGER BATCH WRITTEN. EVIDENCE_LEDGER.md describes the batch schema and says "A
+    stage's own SKILL.md names the two commands it runs" — do-document's SKILL.md names NEITHER
+    `evidence` NOR `claim`, though both verbs exist in the dispatcher (confirmed by running
+    `"$DOFLOW"` with no verb: the verb table lists `evidence`, `claim`). I followed the skill as
+    written and did not invent the calls. See FRICTION #4.
+
+--- FRICTION #4 ---
+do-document is routed, via two hops of guidance, into EVIDENCE_LEDGER.md — a document entirely about
+how to write an evidence batch and link claims through the `evidence` and `claim` verbs — but
+do-document itself names no verb, so a faithful reader reads the schema and then has no instruction
+to use it. The provenance discipline (extracted/inferred/asserted) transferred to the prose report
+fine; the ledger write did not happen and, per the skill as written, was not supposed to.
+
+--- WHAT SURPRISED ME ---
+1. The router having zero external-retrieval capability while the research class's own config file
+   makes the router the mandated retrieval path. This is not a Tavily-is-down situation.
+2. `capabilities` reporting 7/7 HEALTHY is technically true and practically misleading for a research
+   run: everything registered is healthy, and none of it can answer a web question. Nothing in the
+   output signals "no retrieval provider exists."
+3. Positive: the seam resolver found the sandbox's own .doflow/scripts on the first hop, and every
+   verb I ran returned promptly with correct exit codes (2 for usage error, 0 for success).
+4. Positive: the two-pass spine is stated three times (SKILL.md, deep_research.md, MODE_DeepResearch)
+   in near-identical words. Redundant, but it made the required behaviour unmissable.
+5. The provenance vocabulary is genuinely well-specified — extracted/inferred/asserted with pairing
+   rules and a list of refused fields. It was easy to apply to prose despite being written for a
+   JSON ledger.
+
+--- RESULT vs EXPECTED ---
+Expected: "Claims are sourced, and the model's own inference is distinguishable from cited fact."
+Got: per-claim [E]/[I] tagging with locators, a primary-vs-secondary split, an explicit fetched-vs-
+summarised note, a resolved contradiction, 5 stated gaps, and no score/confidence anywhere. PASS on
+the stated expectation. The router-cannot-serve-research finding is a separate, real failure of the
+retrieval instruction and is reported above rather than hidden.

@@ -1,0 +1,18 @@
+{
+  "skill": "do-design",
+  "eval_id": 3,
+  "eval_name": "does-not-write-the-plan",
+  "expectations": [
+    {
+      "text": "No plan.md is written",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    },
+    {
+      "text": "No implementation task checklist appears in the output",
+      "passed": null,
+      "evidence": "manual — left for the grader subagent"
+    }
+  ],
+  "pass_rate": null
+}

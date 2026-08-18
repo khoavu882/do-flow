@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "taskId": "bench-d3-do-design-3",
+  "updatedAt": "2026-08-18T09:39:52.138Z",
+  "claimsCount": 5,
+  "claims": [
+    {
+      "id": "claim_msyh1k24_1",
+      "taskId": "bench-d3-do-design-3",
+      "statement": "The retry decision is a pure function of failure class, attempt history, subscription policy and an injected clock — the HTTP sender reports outcomes and never decides whether to try again.",
+      "status": "supported",
+      "supportingEvidence": [
+        "ev_msyh181b_5"
+      ],
+      "contradictingEvidence": [],
+      "createdAt": "2026-08-18T09:39:51.628Z",
+      "updatedAt": "2026-08-18T09:39:52.137Z"
+    },
+    {
+      "id": "claim_msyh1k4h_1",
+      "taskId": "bench-d3-do-design-3",
+      "statement": "Non-2xx responses are partitioned into retryable, terminal and throttled classes, so a 401 is abandoned rather than retried to exhaustion.",
+      "status": "hypothesis",
+      "supportingEvidence": [],
+      "contradictingEvidence": [],
+      "createdAt": "2026-08-18T09:39:51.713Z",
+      "updatedAt": "2026-08-18T09:39:51.713Z"
+    },
+    {
+      "id": "claim_msyh1k6v_1",
+      "taskId": "bench-d3-do-design-3",
+      "statement": "Retry scheduling is persisted as next_attempt_at in the delivery store rather than held in an in-process sleep, so retries survive deploys and crashes.",
+      "status": "hypothesis",
+      "supportingEvidence": [],
+      "contradictingEvidence": [],
+      "createdAt": "2026-08-18T09:39:51.799Z",
+      "updatedAt": "2026-08-18T09:39:51.799Z"
+    },
+    {
+      "id": "claim_msyh1k96_1",
+      "taskId": "bench-d3-do-design-3",
+      "statement": "Budget exhaustion parks a delivery with the bound that was hit named in terminal_reason, and operator replay is the only path out — nothing is silently dropped.",
+      "status": "hypothesis",
+      "supportingEvidence": [],
+      "contradictingEvidence": [],
+      "createdAt": "2026-08-18T09:39:51.882Z",
+      "updatedAt": "2026-08-18T09:39:51.882Z"
+    },
+    {
+      "id": "claim_msyh1kbm_1",
+      "taskId": "bench-d3-do-design-3",
+      "statement": "A per-endpoint circuit breaker with half-open probing sits before dispatch so a hard-down endpoint costs a store write instead of a connection timeout.",
+      "status": "hypothesis",
+      "supportingEvidence": [],
+      "contradictingEvidence": [],
+      "createdAt": "2026-08-18T09:39:51.970Z",
+      "updatedAt": "2026-08-18T09:39:51.971Z"
+    }
+  ]
+}

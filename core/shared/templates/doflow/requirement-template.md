@@ -3,9 +3,9 @@
 **Feature:** [NNN-slug] · **Branch:** `feat/[NNN-slug]` · **Status:** Draft
 **Created:** [DATE] · **Owner:** [OWNER] · **Ticket:** [PBI/ticket ID, or "none"]
 
-> WHAT and WHY only — no tech or implementation detail. Zero unresolved
-> `[NEEDS CLARIFICATION]` markers at hand-off — every ambiguity is resolved via
-> `AskUserQuestion` before this file is written; deferred answers become assumptions in §8.
+> WHAT and WHY only — no tech or implementation detail. Zero unresolved clarification markers at
+> hand-off — every ambiguity is resolved via `AskUserQuestion` before this file is written;
+> deferred answers become assumptions in §8.
 >
 > Structure follows `references/ARTIFACT_FORMAT.md`: indexed sections carry a table above full
 > `**Detail**`, `Status` is only `Live` or `Superseded → <ref>`, and superseded prose moves to §9.
@@ -76,8 +76,9 @@ flowchart LR
 
 ## 7. Open Questions
 
-None. (The `[NEEDS CLARIFICATION: question]` marker syntax is reserved for a session
-aborted mid-loop — a completed artifact carries zero of these.)
+None. (The clarification-marker syntax is reserved for a session aborted mid-loop; a completed
+artifact carries none. The marker itself is deliberately not spelled here — a filled template is
+checked for its absence, and a template that quotes it makes every correct artifact look wrong.)
 
 ## 8. Assumptions
 

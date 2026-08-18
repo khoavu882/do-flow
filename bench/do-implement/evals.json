@@ -1,0 +1,87 @@
+{
+  "skill_name": "do-implement",
+  "evals": [
+    {
+      "id": 1,
+      "kind": "triggering",
+      "name": "direct-fix-needs-no-chain",
+      "prompt": "Just make `node bench/runner.js coverage` honour --skill <name> the way its `list` command already does, no ceremony.",
+      "expected_output": "do-implement is invoked on a real one-function gap without demanding chain artifacts",
+      "files": [],
+      "assertions": [
+        {
+          "text": "do-implement was invoked",
+          "type": "skill_resolved",
+          "skill": "do-implement"
+        },
+        {
+          "text": "The real target is located (cmdCoverage in bench/runner.js)",
+          "type": "output_matches",
+          "pattern": "(cmdCoverage|bench/runner\\.js)"
+        },
+        {
+          "text": "Does not demand a requirement.md before proceeding",
+          "type": "output_not_matches",
+          "pattern": "requirement\\.md.*(required|must exist)"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "kind": "triggering",
+      "name": "explanation-request-does-not-implement",
+      "prompt": "Explain how WorktreeManager in src/runtime/worktree.js decides where a sandbox worktree lives.",
+      "expected_output": "An explanation grounded in the real code; no files are modified",
+      "files": [],
+      "assertions": [
+        {
+          "text": "the run produced no artifacts — an explanation, not an edit",
+          "type": "output_not_matches",
+          "in": "outputs",
+          "pattern": "\\S"
+        },
+        {
+          "text": "The explanation names the real code path (pathFor / the worktrees directory)",
+          "type": "output_matches",
+          "pattern": "(pathFor|worktrees)"
+        },
+        {
+          "text": "No files are edited",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "kind": "behavioral",
+      "name": "finishes-what-it-starts",
+      "prompt": "/do-implement Add a --count flag to `node bench/runner.js list` that prints only the number of matching cases.",
+      "expected_output": "A complete working implementation in the real file, with no stubs",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The produced change actually contains the new --count handling",
+          "type": "output_matches",
+          "pattern": "--count",
+          "in": "outputs"
+        },
+        {
+          "text": "No TODO stubs left behind in the produced change (scope: artifacts, not narration about checking for them)",
+          "type": "output_not_matches",
+          "pattern": "TODO:?\\s*implement",
+          "in": "outputs"
+        },
+        {
+          "text": "No not-implemented throws in the produced change (scope: artifacts, not narration about checking for them)",
+          "type": "output_not_matches",
+          "pattern": "[Nn]ot implemented",
+          "in": "outputs"
+        },
+        {
+          "text": "The flag actually works end to end rather than being scaffolded",
+          "type": "manual"
+        }
+      ]
+    }
+  ]
+}

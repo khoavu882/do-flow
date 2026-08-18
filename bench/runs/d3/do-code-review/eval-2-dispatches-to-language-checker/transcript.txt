@@ -1,0 +1,138 @@
+=== DoFlow bench d3 — do-code-review eval 2: dispatches-to-language-checker ===
+Kind: behavioral
+Prompt: /do-code-review Review core/shared/skills/do-code-review/scripts/pr_analyzer.py for quality issues
+Sandbox: .doflow/worktrees/bench-d3-do-code-review-2 (pre-existing from the aborted attempt; reused)
+Sandbox branch: task/bench-d3-do-code-review-2 @ 704fb33
+Run date: 2026-08-18
+
+--- SKILL RESOLUTION (by path, not by name) ---
+Read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-code-review-2/.claude/skills/do-code-review/SKILL.md
+sha256: b326aa8f28eb6818a569cbd45f1686327611204bc69255e917c3603530972349
+Matches the brief's sourceSha256 and core/shared/skills/do-code-review/SKILL.md.
+The Skill tool was NOT used. /do-code-review was never typed as a slash command.
+Also read from the same sandbox skill dir, per the skill's stated loading order:
+  rules/universal.md        (49 lines) — loaded for every code file
+  languages/python.md       (94 lines) — the .py dispatch target
+
+--- DISPATCH DECISION (the eval's subject) ---
+The user named one path ending in `.py`. SKILL.md's "Loading order for every review" is:
+  1. SKILL.md  2. rules/universal.md  3. the matching languages/*.md
+and the extension table's first row is `.py -> languages/python.md`.
+
+So: rules/universal.md + languages/python.md. Two files for code, which is what SKILL.md says
+("Two additional files for code... one for prose").
+
+content-types/markdown.md was NOT loaded and doc_quality_checker.py was NOT run. The
+content-type axis dispatches on `.md`, and this target is Python source. The eval's phrase "rather
+than a generic prose review" names exactly this fork, and the fork is unambiguous from the tables —
+the extension decides it and there is nothing to weigh.
+
+--- THE FILE SET ---
+One file: core/shared/skills/do-code-review/scripts/pr_analyzer.py
+  $ wc -l -> 535
+  checker metrics -> 536 total / 421 code / 82 blank / 33 comment (it counts the trailing line)
+The brief calls it "a real 535-line file"; both numbers are recorded above rather than picking one.
+Derivation is "the paths the user named", the second of the three the review contract allows.
+Every file in the set was opened. Nothing reported as unreviewed.
+
+--- COMMANDS RUN ---
+Same FRICTION as the sibling case: SKILL.md documents `python scripts/code_quality_checker.py`,
+which is skill-relative and does not resolve from the project root, and says `python` where only
+`python3` is portable. Path located by hand again.
+
+  $ python3 .claude/skills/do-code-review/scripts/code_quality_checker.py \
+      core/shared/skills/do-code-review/scripts/pr_analyzer.py --language python --json
+  exit 0
+  -> "language": "python"   <- the checker confirms the dispatch independently
+  -> quality_score 61, grade D
+  -> metrics: 536 lines / 421 code / 12 functions / 0 classes / avg_complexity 8.6
+  -> 9 smells, 0 solid_violations
+     3x long_function   (analyze_pr 71, main 55, print_report 52; max 50)
+     4x high_complexity (analyze_pr 15, calculate_complexity_score 12, print_report 12, main 11)
+     2x magic_number    (500 @288, 200 @290)
+
+OUTPUT-SHAPE SURPRISE: given a single FILE the checker returns a bare file object
+(file/language/metrics/quality_score/grade/smells/solid_violations/function_details/class_details);
+given a DIRECTORY it returns a summary object with a `files` array. Third distinct JSON shape from
+this skill's scripts (doc_quality_checker returns a bare list). Cost one failed parse.
+
+Then the agent-driven half — targeted greps for every rule in languages/python.md and
+rules/universal.md, and reading the flagged functions:
+  $ grep -c '^\s*print(' <target>                      -> 25
+  $ grep -n 'except' <target>                          -> 2, both in run_git_command
+  $ grep -nE 'def .*=\s*(\[\]|\{\})' <target>          -> none (no mutable defaults)
+  $ grep -n 'import \*|eval\(|exec\(|pickle' <target>  -> none
+  $ grep -n 'subprocess|shell=True' <target>           -> subprocess.run x1, no shell=True
+  $ grep -n 'open(' <target>                           -> 1, and it is a `with` block
+  $ grep -n '^\s*assert ' <target>                     -> none
+  $ grep -n '^def ' <target>                           -> 12, of which 11 are fully annotated
+  $ sed -n '140,180p;283,300p;482,536p' <target>       -> read the error path, the score bands, main
+
+--- FINDINGS (report at outputs/review-report.md) ---
+Extracted (the checker's 9 smells) and Inferred (my reading) are reported in separate sections, as
+SKILL.md's PR Analyzer section requires.
+
+P1 HIGH correctness — line 246 applies re.IGNORECASE to all 12 RISK_PATTERNS, four of which are
+  case-significant C# identifiers. Verified by isolating the regex:
+    pattern \.(?:Result\b|Wait\(\)|GetAwaiter\(\)\.GetResult\(\)) vs "const out = plan.result;"
+    with IGNORECASE -> ['.result']   without -> []
+  Same flag makes the hardcoded_secrets pattern's literal `token` match the identifier `TOKEN`.
+  Consequence: high/critical findings on any non-C# codebase, feeding a BLOCK verdict.
+P2 HIGH correctness — get_changed_files cascades three git strategies silently, and its second
+  guard is `not success or not output`, so a legitimately empty diff is treated as a failure and a
+  mistyped --base silently degrades to reviewing staged changes under the requested base's name.
+P3 MEDIUM — `except Exception as e` collapses FileNotFoundError, PermissionError and a real
+  non-zero exit into one opaque tuple, which P2 then swallows. Cited against universal.md's
+  broad-exception rule and python.md's too-broad-except rule.
+  Reported as satisfied, because the rules were checked: timeout=30 IS set on subprocess.run, the
+  command IS a list, shell=True is NOT used, open() IS a context manager.
+P4 MEDIUM — analyze_pr (71 lines, complexity 15) does four jobs; the two checker findings share one
+  cause. It is also the function P1 lives in, which is the practical argument for splitting it.
+P5 LOW — main() is the only unannotated function of the twelve.
+P6 LOW — the two magic numbers are review-policy thresholds and belong beside RISK_PATTERNS.
+P7 LOW — only added diff lines are scanned, so a risk introduced by a DELETION is invisible.
+  Design choice, but undocumented in the docstring and in SKILL.md's detection list.
+
+RULES CHECKED THAT PRODUCED NOTHING — reported rather than dropped, so coverage is visible:
+  - The 25 print() calls were deliberately NOT reported. python.md lists "print() left in
+    production code" as a risk signal, but all 25 are in print_report/main of a report-printing
+    CLI. Applying the rule's letter against its intent would be a false finding. Recorded as a
+    judgement rather than omitted silently.
+  - re.findall inside a nested loop was considered against python.md's "repeated re.compile() in a
+    loop" and NOT reported: re maintains an internal compiled-pattern cache and 12 patterns is far
+    under its limit. Named because the grep hit.
+  - Async rules N/A: the file is entirely synchronous.
+
+VERDICT: Request changes. The 61/100 D score understates it — P1 and P2 are correctness defects the
+structural checker cannot see, and they change what this tool reports about other people's code.
+
+--- SUBSTITUTED ASSUMPTIONS ---
+1. "for quality issues" was read as the full review contract (universal + python rules + the
+   deterministic checker), not as "run the checker and print its output". No user was available to
+   narrow it; the wider reading is the one the skill describes.
+2. review_report_generator.py was NOT run for this case. Its inputs are a pr-analysis and a
+   quality-analysis pair over a diff, and this review has no diff — the target is one file at HEAD.
+   Forcing it would have produced a verdict computed from an empty PR analysis. The verdict was
+   written by hand against SKILL.md's verdict table instead, and that substitution is recorded here
+   rather than presented as tool output.
+3. I did not fix anything. do-code-review's Boundaries are explicit that remediation is
+   /do-implement's job, so P1 — a real bug I could have fixed in one line — was left in place.
+
+--- WHAT SURPRISED ME / DID NOT WORK ---
+1. The dispatch itself was frictionless and correct: the extension table is unambiguous, and the
+   checker independently reported "language": "python", so the dispatch is verifiable from the
+   output rather than only from my say-so. This is the part of the skill that works well.
+2. The three different JSON output shapes across this skill's three scripts (bare file object /
+   directory summary with `files` / flat list) are undocumented and cost a parse failure.
+3. The deterministic checker missed both of the two genuinely serious defects in the file. It scored
+   the file D on function length and branch count while P1 — a wrong regex flag that manufactures
+   critical findings in every downstream review — is invisible to it. That is not a criticism of
+   the checker's design, but it does mean the "Extracted vs Inferred" split SKILL.md insists on is
+   load-bearing: the score is not the review, and a run that stopped at the score would have missed
+   everything that matters here.
+4. Reviewing pr_analyzer.py while the sibling case was simultaneously being misled BY pr_analyzer.py
+   is how P1 was found. A single-file review of it in isolation would plausibly have stopped at the
+   nine structural smells.
+5. Same skill-relative script path and `python` vs `python3` friction as eval 1. This skill needs a
+   resolver like the runtime seam's; it is the only skill in this batch whose documented commands
+   cannot be pasted.
