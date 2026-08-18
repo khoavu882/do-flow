@@ -1,15 +1,140 @@
-# `--contracts` — cross-service code frame generation
+# `--scaffold` — turning the plan into a reviewable code scaffold
 
-Read this file only when `/do-execute-plan --contracts` is the active invocation. It is step 4 of
+Read this file only when `/do-execute-plan --scaffold` is the active invocation. It is step 3 of
 `do-execute-plan`'s Behavioral Flow, factored out here per Anthropic's progressive-disclosure
 guidance so the other invocation modes (`--next`/`--phase`/`--all`/`--resume`, and the `--sync` and
 `--review`/`--no-review` modifiers) don't pay the token cost of this algorithm on every invocation.
 
-`plan.md`'s task list is already resolved by the time this runs. This produces a distinct
-deliverable from the task-execution loop in step 4 — runs standalone (no task-selection mode
-required), to completion, then stops. Idempotent — safe to re-run.
+It answers one question: *what shape does my plan imply, before any of it reaches my code?* The
+cross-service frames in Part 2 are one case of that, not the headline.
 
-## Algorithm
+`plan.md`'s task list is already resolved by the time this runs. This produces a distinct deliverable
+from the task-execution loop in step 4 — it runs standalone (no task-selection mode required), to
+completion, then stops. Idempotent: safe to re-run, and re-running an unchanged plan produces no
+diff at all.
+
+## What it produces
+
+```text
+agent-docs/doflow/<slug>/scaffold/
+├── MANIFEST.md                       # what was generated, from which artifact, and what was SKIPPED
+├── src/<path>.<ext>.stub             # mirrors the intended source layout — signatures only
+├── test/<FR-id>.test.<ext>.stub      # test stubs derived from acceptance criteria
+└── contracts/<service>/…             # external-dependency frames (Part 2)
+```
+
+Part 1's files all carry a `.stub` suffix, and that is load-bearing rather than decorative:
+`node --test` collects *any* `.js` under a directory named `test`, and pytest and `go test ./...`
+sweep just as broadly, so a stub emitted as plain `FR-001.test.js` under that directory would
+silently join the host project's own test run and fail it. One suffix on everything is a stronger
+guarantee than a per-toolchain exclusion list — nothing in Part 1's output is loadable by anything
+until someone deliberately drops the suffix. Part 2's `contracts/` frames do not carry it: `default/` exists to be compiled against,
+and its tree holds no directory a runner sweeps.
+
+| Property | Rule |
+|---|---|
+| Source tree | Never written to. `git status` outside the feature directory is unchanged by a run, and the host project's test run is unaffected |
+| Content | Signatures, types, stubs. **No implementation logic** |
+| Traceability | Every file header names its originating FR / component / task |
+| Idempotency | Re-running produces no diff |
+| Human edits | Detected by fingerprint and reported, never overwritten |
+| Invocation | Explicit only — never inferred from plan contents |
+
+Two rules deserve their reasoning, because both are easy to "improve" into a defect:
+
+- **No implementation logic, ever.** The artifact exists so an engineer can judge the shape a plan
+  implies. Generated logic nobody has verified is exactly the false confidence this scaffold is
+  supposed to remove — a body that looks finished stops being reviewed. Every emitted body is one
+  fixed "not implemented" signal from the Default-Implementation Grammar in Part 2, and nothing else.
+- **What was skipped matters as much as what was produced.** A reader who cannot see the gaps reads
+  the tree as the whole shape of the plan. So a scaffold built from an artifact the generator could
+  not read or parse says so in `MANIFEST.md` and exits non-zero — it never degrades into a thin tree
+  that reads as complete.
+
+## Two cases, one output tree
+
+| | Part 1 — in-scope | Part 2 — external dependency |
+|---|---|---|
+| Input | `requirement.md`, `design.md`, `plan.md` | a `depends-on:` value with no owning task |
+| Produced by | `src/runtime/scaffold.js`, deterministically | this file's algorithm, executed by you |
+| Lands in | `scaffold/src/`, `scaffold/test/`, `scaffold/MANIFEST.md` | `scaffold/contracts/<service>/` |
+| Answers | what shape does my own plan imply | what shape must I code against at the boundary |
+
+They meet in one place: the generator partitions every `depends-on:` value and reports the result in
+`MANIFEST.md`'s **External dependencies** table. It deliberately does *not* derive service
+boundaries itself — the walk-up rules in Part 2 handle nested `.git` boundaries, non-local vendors
+and `external-contract:` targets, and a second implementation of that walk would be one more thing to
+keep in sync. Read the table, then run Part 2 for every row whose disposition is `external`.
+
+## Part 1 — in-scope scaffold from the three artifacts
+
+Deterministic, so it is executed rather than reasoned through. Run it, then report what it returns —
+do not restate its counts from memory or re-derive them by reading the tree.
+
+```bash
+# `$DOFLOW` and `feature_dir` are already resolved by step 1. The generator is a library in the
+# DoFlow package, reached through the CLI's own location.
+node --input-type=commonjs -e '
+  const fs = require("node:fs"), path = require("node:path");
+  const cli = fs.realpathSync(process.argv[1]);
+  const { generateScaffold } = require(path.join(path.dirname(path.dirname(cli)), "src", "runtime", "scaffold.js"));
+  const result = generateScaffold({ featureDir: process.argv[2], repoRoot: process.argv[3] });
+  console.log(JSON.stringify(result, null, 2));
+  process.exit(result.exitCode);
+' "${DOFLOW_CLI:-$(command -v doflow)}" "<feature_dir>" "<repo_root>"
+```
+
+Exit codes follow the runtime's uniform contract: `0` complete, `1` a finding you must report to the
+user, `2` a usage or resolution error. **Branch on `status`, not on the presence of output** — a
+`BLOCKED` run still writes `MANIFEST.md`, because a report naming what it could not read is more
+useful than no report at all.
+
+What the generator does, so you can read its output rather than guess at it:
+
+1. **Reads all three artifacts** and records each one's SHA-256 in `MANIFEST.md`. A missing one, or
+   a `plan.md` with no parseable task list, is `BLOCKED`: no source files are written.
+2. **Builds the traceability chain** — a task's `[US#]` resolves through `requirement.md`'s FR index
+   to its requirements, and through `design.md` §3 to the components serving them. That chain is
+   what puts a real FR / component / task in every file header instead of a generic banner.
+3. **Mirrors the intended source layout** from every task's `files:` value into `scaffold/src/`,
+   keeping each path exactly as the plan wrote it and appending `.stub`. In a repository whose code
+   already lives in `src/`, that reads as `scaffold/src/src/runtime/thing.js.stub`; the doubling is
+   deliberate, so a path can never collide with `MANIFEST.md` or `contracts/`.
+4. **Emits per-file frames** in the language of the file's own extension — the plan already stated
+   it, so nothing is inferred. Where `design.md` §4 declares an interface for the file's component,
+   that block is carried through verbatim as a quoted comment; where it does not, the file gets one
+   clearly labelled placeholder signature and is listed under **Emitted without a declared shape**.
+   No API nobody wrote down is ever invented.
+5. **Emits test stubs** from `requirement.md`'s acceptance criteria, one file per requirement. Each
+   stub fails until implemented, deliberately: a stub that passes asserts nothing and reads as
+   coverage. The stub language comes from the repository's own manifest, detected by
+   `command-detect.js` — the same detector the verification engine uses, not a second one.
+6. **Protects hand edits.** Every generated file carries a fingerprint of its own body. A body that
+   no longer matches, or a file with no fingerprint at all, is treated as hand-authored: reported
+   under **Preserved**, never rewritten. This includes `MANIFEST.md` — delete it to refresh it.
+   Files from an earlier run that the plan no longer implies are reported as **Orphaned** and left
+   in place; deleting work someone may have started is the worse failure.
+
+### What Part 1 does not cover
+
+Named here rather than discovered later, because each one appears in `MANIFEST.md` as a skip and a
+reader is entitled to know whether it is a gap or a decision:
+
+- **Content files.** Markdown, YAML, JSON and the rest have no signature to emit. Skipped benignly;
+  they do not affect the exit code.
+- **Directories.** A `files:` value naming a directory has no single signature behind it.
+- **Languages with no emitter.** The generator emits JavaScript, TypeScript, Python, Go and Rust.
+  Java, Kotlin, C#, Swift and Objective-C are covered by Part 2's Default-Implementation Grammar,
+  which you execute, but not by the generator; shell and everything else are covered by neither.
+  Each case is skipped with its own wording and pushes the run to a non-zero exit, because a plan
+  whose main language the generator cannot emit has not been scaffolded in any useful sense.
+- **Applying the scaffold.** Moving anything into the source tree stays a deliberate human act, or
+  `/do-execute-plan`'s ordinary job. Nothing here promotes itself.
+
+## Part 2 — external dependencies (cross-service contract frames)
+
+For every `depends-on:` value `MANIFEST.md` dispositions as `external`. Steps are numbered within
+this Part; `scaffold/contracts/<service>/` is the only place any of it may write.
 
 1. **Derive service identity** — applies identically to two kinds of input: a task's `files:`
    value (finds what it *owns* — step 2's in-scope side) and a `depends-on:` value that has no
@@ -61,23 +186,24 @@ required), to completion, then stops. Idempotent — safe to re-run.
      disk at all, or because it degenerated to the consuming repo's own root (step 1's exclusion
      case). Both sub-cases collapse into the same outcome here, since either way there is no local
      boundary to generate from:
-     - has a `contract-doc:` field on the same task → **documented dependency**, routed to step
-       5's contract-doc generation path (below) instead of local language inference, which has
-       nothing to scan.
-     - no `contract-doc:` → excluded entirely, same as today — no contract generated, surfaced via
-       the existing advisory notice, not an error.
+     - has an `external-contract:` field on the same task → **documented dependency**, routed to
+       step 5's external-contract generation path (below) instead of local language inference,
+       which has nothing to scan. That is what the field name states: no local repo exists, so the
+       document is the only contract there is.
+     - no `external-contract:` → excluded entirely, same as today — no contract generated, surfaced
+       via the existing advisory notice, not an error.
 
    A non-local dependency name can be referenced by more than one task, same as a local one
    (`manifest.yaml`'s `source_task_ids` already supports multiple contributing tasks) — treat every
-   task naming the same non-local value as one entity, not one per task. Their `contract-doc:`
+   task naming the same non-local value as one entity, not one per task. Their `external-contract:`
    fields MUST agree: either all of them set to the same target, or none of them set at all. If
    they disagree (some set, some not; or set to different targets), surface an explicit warning
-   naming the conflicting tasks and their differing `contract-doc:` values — never silently pick
-   one, same "don't guess" posture as everywhere else in this algorithm.
+   naming the conflicting tasks and their differing `external-contract:` values — never silently
+   pick one, same "don't guess" posture as everywhere else in this algorithm.
 
-   A `contract-doc:` field set on a task whose `depends-on:` value *does* resolve to a local
+   An `external-contract:` field set on a task whose `depends-on:` value *does* resolve to a local
    identity (a "dependency (local)" case, not non-local) is simply unused — local dependencies are
-   generated from the local repo, never from a doc, regardless of whether `contract-doc:` is
+   generated from the local repo, never from a doc, regardless of whether `external-contract:` is
    present. Not an error and not warned about; the field only has an effect in the non-local case.
 
 3. **Classify each local dependency's integration style**, derived from *how* step 1 found its
@@ -110,7 +236,7 @@ required), to completion, then stops. Idempotent — safe to re-run.
    never write into the dependency service's own repo.
 
 5. **Per local dependency, three outcomes** based on
-   `agent-docs/doflow/<slug>/contracts/<service>/manifest.yaml` (always under the active feature's
+   `agent-docs/doflow/<slug>/scaffold/contracts/<service>/manifest.yaml` (always under the active feature's
    own dir — never elsewhere). `generation_hash` covers source task text *and* the inferred
    language *and* which signal produced it (manifest file vs. extension-frequency) *and*
    `default/`'s generated content — a change in any of the four counts as stale, not just a
@@ -185,7 +311,7 @@ required), to completion, then stops. Idempotent — safe to re-run.
      inferred language. Also write `manifest.yaml`:
      ```yaml
      service: sources/otp-service          # derived service identity
-     source: local-inference               # local-inference | contract-doc (documented dependencies, below)
+     source: local-inference               # local-inference | external-contract (documented dependencies, below)
      integration_style: network            # network | in-process
      inferred_language: java               # or "unresolved" if inference failed
      inference_signal: build.gradle        # which manifest file, "extension-frequency", or "none" if unresolved
@@ -202,21 +328,22 @@ required), to completion, then stops. Idempotent — safe to re-run.
      `code`/`data`/`mock`/`default` content may hold manual edits that a silent regeneration would
      destroy.
 
-   **Documented dependencies** (a `contract-doc:` field is present — step 2's non-local case) are
+   **Documented dependencies** (an `external-contract:` field is present — step 2's non-local case)
+   are
    generated the same way, in the same `manifest.yaml`-driven three-outcome shape, but from a
-   different source — the `contract-doc:` target, not local repo scanning (there is none to scan):
-   - **Doesn't exist** → first validate the `contract-doc:` target: does it contain a `## Methods`
+   different source — the `external-contract:` target, not local repo scanning (there is none to scan):
+   - **Doesn't exist** → first validate the `external-contract:` target: does it contain a `## Methods`
      section with at least one grammar-conformant `interface` block (the same grammar as the
      pseudocode example above)? `## Types` must also be present.
      - **Not compliant** (missing `## Methods`, missing `## Types`, or `## Methods` has no valid
-       `interface` block) → surface an explicit warning naming the dependency, the `contract-doc:`
+       `interface` block) → surface an explicit warning naming the dependency, the `external-contract:`
        path, and what's missing — no frame generated. Never silently skip without saying why, and
        never generate a frame from a doc that doesn't meet the bar.
      - **Compliant** → parse `## Methods` (→ `code/`) and `## Types` (→ `data/`); if `## Webhook`
        is present, its type block is also written into `data/`, alongside (not merged with) the
        `## Types` blocks — a webhook payload is still just a data shape, not a new artifact
        category, but its declaration stays textually separate from `## Types`' own blocks. A
-       `## Webhook` type sharing a name with a `## Types` block is a `contract-doc:` authoring
+       `## Webhook` type sharing a name with a `## Types` block is an `external-contract:` authoring
        error (a naming collision the doc author must avoid); this algorithm does not attempt to
        detect or rename it. Infer the *rendering* language from the **consuming task's own repo**
        — reuse step 4's manifest-detection logic starting from the consumer's `files:` path,
@@ -235,18 +362,18 @@ required), to completion, then stops. Idempotent — safe to re-run.
        has no recognizable manifest. Also write `manifest.yaml`:
        ```yaml
        service: notification-vendor              # the literal depends-on: value; no local path to derive from
-       source: contract-doc
-       contract_doc_path: agent-docs/doflow/<slug>/notification-vendor-api.md
+       source: external-contract
+       external_contract_path: agent-docs/doflow/<slug>/notification-vendor-api.md
        integration_style: network                 # always, per step 3 — no local repo, never in-process
        inferred_language: java                     # the CONSUMING task's inferred language, not the dependency's
        inference_signal: build.gradle              # same step-4 signal, applied to the consumer's repo
        generated_from_plan: agent-docs/doflow/<slug>/plan.md
        source_task_ids: ["T-004"]
-       generation_hash: <sha256 of source_task_ids full task text plus the contract-doc target's full file content plus inferred_language plus default/'s generated content>
+       generation_hash: <sha256 of source_task_ids full task text plus the external-contract target's full file content plus inferred_language plus default/'s generated content>
        generated_at: <ISO-8601 timestamp>
        ```
    - **Exists, `generation_hash` matches** → skip (already current) — same rule as above.
-   - **Exists, `generation_hash` mismatches** (source tasks, the `contract-doc:` target's content,
+   - **Exists, `generation_hash` mismatches** (source tasks, the `external-contract:` target's content,
      the consumer's inferred language, or `default/`'s generated content changed since last
      generation — including a manifest generated before `default/` existed at all) → do NOT
      auto-overwrite; same warn-don't-clobber rule as above — a doc edit is real drift and must be
@@ -254,7 +381,7 @@ required), to completion, then stops. Idempotent — safe to re-run.
 
 6. **Report** — N services generated, M skipped (already current), K flagged stale (mismatch, not
    overwritten), the in-scope services with no contract generated (expected outcome, not an error),
-   and, separately, J documented-dependency frames generated from `contract-doc:` (step 5's
+   and, separately, J documented-dependency frames generated from `external-contract:` (step 5's
    "Documented dependencies" case) — state this breakdown explicitly so a documented-dependency
    frame doesn't read as an ordinary local-inference one, or vice versa. Also state, separately
    again, how many of the generated/current services got a `default/` artifact vs. how many were
@@ -263,8 +390,16 @@ required), to completion, then stops. Idempotent — safe to re-run.
    but must be named so it doesn't read as an omission.
 
 ## Constraints (carried from the design — do not relax these)
-- Never write outside `agent-docs/doflow/<slug>/contracts/` — never into a target service's own
-  repo (including the dependency service scanned for language inference — read-only, step 4).
+
+The first applies to both Parts. Every other constraint here is Part 2's, and its bare step numbers
+are Part 2's steps — Part 1's equivalents are enforced by `src/runtime/scaffold.js` and its guard
+rather than restated as prose.
+
+- Never write outside `agent-docs/doflow/<slug>/scaffold/` — not into the source tree, and not
+  into a target service's own repo (including the dependency service scanned for language
+  inference in Part 2 step 4 — read-only). This is the one property the whole artifact rests on, and
+  `test/guards/scaffold.test.js` enforces it by running the generator against a filesystem that can
+  only reach the feature directory.
 - `code/`/`data/`/`mock/` content is pinned, not freeform: signatures and type/data shapes only,
   zero implementation logic — in the inferred language, or the pinned generic-pseudocode grammar
   (`.pseudo` files, step 5) when language inference fails. `mock/` mirrors `code/`'s interface
@@ -274,31 +409,34 @@ required), to completion, then stops. Idempotent — safe to re-run.
   language-family-specific "not implemented" signal (the Default-Implementation Grammar table,
   step 5), never freeform, never a guessed behavior, and never generated at all for the
   pseudocode-fallback case (no `.pseudo` equivalent — step 5 states this explicitly).
-- Service-boundary detection (step 1) is walk-up-based (nearest `.git` or manifest ancestor, or
+- Service-boundary detection (Part 2 step 1) is walk-up-based (nearest `.git` or manifest ancestor, or
   the starting directory itself — from a `files:` path or a `depends-on:` value alike — as a
-  last-resort fallback) — never a fixed list of named root directories, so this algorithm works
-  in any consuming repo's layout. Known accepted
+  last-resort fallback) — never a fixed list of named root directories, so Part 2 works in any
+  consuming repo's layout. Known accepted
   limitation: two dependencies that both lack any `.git`/manifest signal can fall back to distinct
   but nested directories (e.g. `legacy/mod` and `legacy/mod/util`), generating two separate
   `contracts/` entries for what may be one logical service — no automatic consolidation; this is
-  the same class of ambiguity NFR-002 already accepts elsewhere in this algorithm rather than
+  the same class of ambiguity NFR-002 already accepts elsewhere in Part 2 rather than
   guessing. Sharper case of the same limitation: if a nested fallback identity's final path
   segment is literally `code`, `data`, `mock`, or `default` (e.g. `legacy/mod` and
   `legacy/mod/code`), the inner service's `manifest.yaml` lands inside the outer service's own
   generated `code/`/`data/`/`mock/`/`default/` output directory — still not a write outside
-  `agent-docs/doflow/<slug>/contracts/` (the first Constraint above still holds), but visually
+  `agent-docs/doflow/<slug>/scaffold/` (the first Constraint above still holds), but visually
   confusing; not auto-detected or renamed.
-- The one hard gate is step 2 (`do-prereqs.sh --require-plan`) — this algorithm does not add a new
-  gate; the advisory notice in step 5 ("Select work") is non-blocking.
+- The one hard gate is `do-execute-plan` step 1 (`"$DOFLOW" prereqs --require-plan`) — neither Part
+  of this file adds a gate of its own. The advisory notice Part 2 raises for a dependency it cannot
+  resolve is non-blocking, and Part 1's non-zero exit is a finding to report, not a stop.
 - A `depends-on:` value whose starting directory does not exist on disk at all is excluded from
-  service-identity derivation *entirely* (step 1) — it never reaches step 5's local generation
-  path. It gets a frame only if the same task also carries a `contract-doc:` field (step 2's
+  service-identity derivation *entirely* (Part 2 step 1) — it never reaches Part 2 step 5's local
+  generation path. It gets a frame only if the same task also carries an `external-contract:` field
+  (step 2's
   "documented dependency" case); with neither, it stays silently skipped, same as today's default.
-- `contract-doc:` targets MUST follow the pinned structure in
-  `templates/doflow/contract-doc-template.md` — a `## Methods` section with at least one
+- `external-contract:` targets MUST follow the pinned structure in
+  `templates/doflow/external-contract-template.md` — a `## Methods` section with at least one
   grammar-conformant `interface` block, plus a `## Types` section (`## Webhook` is optional). A
-  non-compliant target gets an explicit warning, never a silently-empty or guessed frame — this
-  algorithm does not attempt free-form prose extraction anywhere.
-- A documented dependency's frame renders in the *consuming* task's own inferred language (step 4,
+  non-compliant target gets an explicit warning, never a silently-empty or guessed frame — Part 2
+  does not attempt free-form prose extraction anywhere.
+- A documented dependency's frame renders in the *consuming* task's own inferred language (Part 2
+  step 4,
   reused unchanged, applied to the consumer's repo) — never a language inferred from the
   dependency itself, which has no local repo to infer one from.

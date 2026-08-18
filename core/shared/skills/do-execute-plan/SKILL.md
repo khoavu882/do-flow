@@ -1,7 +1,7 @@
 ---
 name: do-execute-plan
 description: "Execute plan.md's task checklist: subagent-driven orchestration over named specialist archetypes (system-architect, core-implementer, quality-guardian) with prerequisite gates, readiness contracts, and parallel execution. Use when requirement.md, design.md, and plan.md already exist and the next step is running the plan's tasks through those subagents, or the user says 'let's start building the plan' rather than describing a one-off fix outside any plan."
-argument-hint: "[--next|--phase N|--all|--resume|--contracts] [--sync] [--review|--no-review]"
+argument-hint: "[--next|--phase N|--all|--resume|--scaffold] [--sync] [--review|--no-review]"
 effort: high
 ---
 
@@ -11,7 +11,7 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
 
 ## Invocation
 ```text
-/do-execute-plan [--next|--phase N|--all|--resume|--contracts] [--sync] [--review|--no-review]
+/do-execute-plan [--next|--phase N|--all|--resume|--scaffold] [--sync] [--review|--no-review]
 ```
 
 ## Behavioral Flow
@@ -41,8 +41,15 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
      reads them. Consult `references/readiness_gate.md` for the class keys, how to read each state,
      and the current evidence-capture limitation.
 
-3. **Contracts Frame Generation (`--contracts`)**:
-   - When invoked with `--contracts`, parse cross-service interfaces and generate code frames. Consult `references/contracts.md` (or `contracts.md`).
+3. **Scaffold Generation (`--scaffold`)**:
+   - When invoked with `--scaffold`, emit a reviewable code scaffold under `<feature_dir>/scaffold/`
+     instead of executing tasks: the source layout, signatures and test stubs that `requirement.md`,
+     `design.md` and `plan.md` imply, plus a contract frame per external `depends-on:` service.
+     Signatures only, never implementation logic, and never a write into the project's source tree.
+   - The in-scope half is deterministic and is **run**, not reasoned through; the
+     external-dependency half is an algorithm you execute. Both, with the exact command, live in
+     `references/scaffold.md` (or `scaffold.md`). Report its `status` and, specifically, whatever it
+     lists as skipped or not evaluated — a partial scaffold read as complete is worse than none.
 
 4. **Task Selection & Parallel Dispatch**:
    - Select next pending task(s) (`--next`, `--phase N`, `--all`, `--resume`).

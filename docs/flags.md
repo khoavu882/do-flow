@@ -25,7 +25,7 @@ phase, not a guard failure by itself.
 | --amend | do-constitution | (boolean flag) | amend existing constitution vs create |
 | --clean | do-test | (boolean flag) | clean before build/test run |
 | --confirm | do-git | (boolean flag) | explicit go-ahead for mutating op |
-| --contracts | do-execute-plan | (boolean flag) | generate cross-service contract code frames |
+| --scaffold | do-execute-plan | (boolean flag) | emit a reviewable code scaffold under the feature dir instead of executing |
 | --coverage | do-test | (boolean flag) | measure line and branch coverage |
 | --depth | do | shallow \| normal \| deep | multi-part request decomposition depth |
 | --depth | do-brainstorm | shallow \| normal \| deep | exploration breadth |

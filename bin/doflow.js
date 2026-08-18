@@ -27,7 +27,7 @@ const { createOpenCodeAdapter } = require('../src/adapters/opencode');
 const { createPiAdapter } = require('../src/adapters/pi');
 const { createCopilotAdapter } = require('../src/adapters/copilot');
 const { createKiroAdapter } = require('../src/adapters/kiro');
-const { applyLifecycle, removeLifecycle, applyMcpIndex, verifyLifecycle } = require('../src/lifecycle');
+const { applyLifecycle, removeLifecycle, applyMcpIndex, verifyLifecycle, retentionSummary } = require('../src/lifecycle');
 const { readLedger } = require('../src/state');
 const { codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan } = require('../src/lifecycle-view');
 const { commandText, planToolLifecycle, executeToolLifecycle } = require('../src/tool-lifecycle');
@@ -406,6 +406,10 @@ function cmdRemove(o) {
     scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot),
     targets: lifecycleTargets, mcpIds: [], stateRoot: view.stateRoot, ledger: view.ledger,
     context: view.plan.targets[0].adapterInput.context });
+  // Shared destinations (one .doflow/scripts tree for claude/codex/gemini, one .agents for
+  // gemini/copilot) mean a removal can legitimately leave files standing. Saying only "removed"
+  // would be half the truth, so what was kept and who still claims it is printed, not implied.
+  for (const line of retentionSummary(result.retained)) console.log(`[INFO] ${line}`);
   console.log(`[OK] Removed ${result.ledger.resources.length === 0 ? 'all' : 'eligible'} native resource(s) for ${lifecycleTargets.join(', ')}; ${result.ledger.resources.length} owned record(s) remain.`);
 }
 

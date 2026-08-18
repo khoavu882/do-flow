@@ -75,9 +75,9 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    Set `depends-on:` on a task when it references a service (via its
    `files:` or description) that has no owning task in this plan and is external to what the plan
    builds. When such a dependency has no local repo at all (a vendor API, a SaaS integration) but
-   *does* have a documented contract, also set `contract-doc:` pointing to a doc built from
-   `templates/doflow/contract-doc-template.md` — `/do-execute-plan --contracts` generates a real
-   frame from it instead of silently skipping the dependency (its default when `contract-doc:` is
+   *does* have a documented contract, also set `external-contract:` pointing to a doc built from
+   `templates/doflow/external-contract-template.md` — `/do-execute-plan --scaffold` generates a real
+   frame from it instead of silently skipping the dependency (its default when `external-contract:` is
    absent). The `- [ ]` checkboxes are the execution contract `/do-execute-plan`
    parses — keep the marker syntax intact, don't reflow it into prose.
 7. **Derive branch plan** — read `requirement.md`'s `**Ticket:**` field (absent/`none` → no
@@ -85,7 +85,7 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    `NNN-` stripped) or `feat/<slug>` (no ticket). Resolve a repo for each task's `files:` path
    *and* each task's `depends-on:` value the same way — walk up to the nearest `.git`; if a
    `depends-on:` value doesn't resolve to a `.git` (not a real local path), skip that row rather
-   than guessing. `contract-doc:` never participates in this derivation — it names a doc in this
+   than guessing. `external-contract:` never participates in this derivation — it names a doc in this
    same repo, not an external service repo. Write one row per repo to `plan.md`'s Repo Branch Plan
    table: `primary` if it owns a task via `files:`, `dependency-only` if it's only ever reached via
    `depends-on:`. A single-repo result → `N/A: single-repo feature`. Derivation only — no branch is

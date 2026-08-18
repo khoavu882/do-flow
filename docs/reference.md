@@ -23,7 +23,7 @@ stay in sync, so a flag documented here always exists.
 | `/do-brainstorm [topic/idea] [--strategy systematic\|agile\|enterprise] [--depth shallow\|normal\|deep]` | Discover requirements through Socratic dialogue; seeds requirement.md in a branch-coupled feature dir |
 | `/do-design [target] [--type architecture\|api\|component\|database] [--format diagram\|spec\|code]` | Design system architecture, APIs, and component interfaces; writes design.md |
 | `/do-plan [--strategy systematic\|agile\|enterprise] [--depth normal\|deep]` | Generate implementation plan and dependency-ordered task checklist; writes plan.md |
-| `/do-execute-plan [--next\|--phase N\|--all\|--resume\|--contracts] [--sync] [--review\|--no-review]` | Execute plan.md task checklist with specialist subagents and readiness gates |
+| `/do-execute-plan [--next\|--phase N\|--all\|--resume\|--scaffold] [--sync] [--review\|--no-review]` | Execute plan.md task checklist with specialist subagents and readiness gates |
 | `/do-test [target] [--type unit\|integration\|e2e\|build\|all] [--coverage] [--watch] [--clean]` | Execute project builds, automated test suites, and coverage verification |
 | `/do-code-review [target]` | Code review automation: analyze complexity, risk, SOLID compliance, and code smells |
 | `/do-implement [description of the change] [--from-review]` | Direct, standalone implementation from a description or `/do-code-review` findings — no chain artifacts required |

@@ -21,7 +21,7 @@ const BEHAVIOURAL_ONLY = new Map([]);
 // neither documents nor owns them. Each entry needs a reason, like BEHAVIOURAL_ONLY above.
 const NOT_FRAMEWORK_FLAGS = new Map([
   ['--json', 'output mode of do-paths.sh / do-prereqs.sh / validate-artifacts.sh, quoted in DOFLOW_CHAIN.md'],
-  ['--contracts', "do-execute-plan's own argument, described in DOFLOW_CHAIN.md"],
+  ['--scaffold', "do-execute-plan's own argument, described in DOFLOW_CHAIN.md"],
   ['--slug', 'feature-override argument of do-paths.sh / do-prereqs.sh / validate-artifacts.sh, quoted in ARTIFACT_FORMAT.md'],
 ]);
 

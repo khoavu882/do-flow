@@ -108,8 +108,14 @@ function markUnownedAbsences(statuses, ledger, harness) {
 }
 
 function normalizeRemovalVerification(verification, changes, ledger) {
-  const removed = changes.filter((change) => change.operation === 'remove' && change.harness === verification.harness);
-  if (!removed.length) return verification;
+  const removals = changes.filter((change) => change.operation === 'remove' && change.harness === verification.harness);
+  if (!removals.length) return verification;
+  // A retained removal released this harness's ownership row without deleting the file, because
+  // another harness still claims it (see markRetainedRemovals). The file is therefore *expected*
+  // to still be on disk, so asking "is it gone?" of it would turn the correct outcome into a
+  // verification conflict. Everything the plan actually deleted is still checked as strictly as
+  // before.
+  const removed = removals.filter((change) => !change.retained);
   let statuses = [...verification.statuses];
   const conflicts = [...(verification.conflicts || [])];
   for (const change of removed) {
@@ -166,6 +172,99 @@ function adapterConflicts(result, harness) {
   return [...new Set(reasons)];
 }
 
+/** Every ownership row this plan is about to give up, keyed exactly as the neutral ledger keys it.
+ * A removal change always releases its harness's claim; whether it also deletes the file is a
+ * separate question, answered by markRetainedRemovals below. */
+function releasedOwnershipKeys(harnessPlans, scope) {
+  const keys = new Set();
+  for (const target of harnessPlans) {
+    for (const change of target.changes || []) {
+      if (change.operation !== 'remove') continue;
+      keys.add(ownershipKey({ harness: change.harness, scope, assetId: change.assetId, target: change.target, ownershipIdentity: change.ownershipIdentity }));
+    }
+  }
+  return keys;
+}
+
+/** Which harnesses still hold a ledger row for each destination once this plan's releases are
+ * applied. Membership is decided per ROW, not per harness: a harness that is releasing its claim
+ * on this file is not a claimant even if it is releasing nothing else, and a harness in the same
+ * batch that keeps its row (an install that relocates one asset while a sibling's projection is
+ * unchanged) still is. */
+function survivingClaimantsByTarget(ledger, releasedKeys) {
+  const byTarget = new Map();
+  for (const resource of ledger?.resources || []) {
+    if (typeof resource?.target !== 'string' || typeof resource?.harness !== 'string') continue;
+    if (releasedKeys.has(ownershipKey(resource))) continue;
+    if (!byTarget.has(resource.target)) byTarget.set(resource.target, new Set());
+    byTarget.get(resource.target).add(resource.harness);
+  }
+  return byTarget;
+}
+
+/** NFR-007: a removal reclaims only what no other harness still claims.
+ *
+ * Several assets project to ONE destination for several harnesses — `scripts.doflow` is a single
+ * `<project>/.doflow/scripts` tree for claude, codex and gemini, and gemini and copilot both
+ * resolve to `<root>/.agents` at project scope — while ownership is recorded per harness. A
+ * removal that deleted every file its own rows named therefore took the shared runtime out from
+ * under the harnesses that are still installed, leaving them with rows pointing at files that no
+ * longer exist and, when a global install happens to be present, a locator that silently answers
+ * from a different install's registries and state.
+ *
+ * So a removal change whose destination another surviving row still claims is *released* rather
+ * than executed: this harness's ownership row is dropped (it really is uninstalled), the file
+ * stays, and the last claimant's removal is the one that reclaims it. The neutral ledger is the
+ * only thing consulted — it is already the record of who owns what, and a second ownership
+ * registry would be one more thing to keep in sync. */
+function markRetainedRemovals(harnessPlans, ledger, scope) {
+  const claimants = survivingClaimantsByTarget(ledger, releasedOwnershipKeys(harnessPlans, scope));
+  if (!claimants.size) return harnessPlans;
+  return harnessPlans.map((target) => {
+    if (target.skipped) return target;
+    let retainedAny = false;
+    const changes = target.changes.map((change) => {
+      if (change.operation !== 'remove') return change;
+      const retainedFor = [...(claimants.get(change.target) ?? [])].filter((harness) => harness !== change.harness).sort();
+      if (!retainedFor.length) return change;
+      retainedAny = true;
+      return Object.freeze({ ...change, retained: true, retainedFor });
+    });
+    if (!retainedAny) return target;
+    // requiredNativeResources defaults to the very array just replaced; keep the two in step so a
+    // caller reading either one sees the same annotated changes.
+    const requiredNativeResources = target.requiredNativeResources === target.changes ? changes : target.requiredNativeResources;
+    return { ...target, changes, requiredNativeResources };
+  });
+}
+
+/** Whether this plan leaves no ownership row standing anywhere — the only case in which a shared,
+ * install-wide artifact that no single harness owns is genuinely unclaimed. */
+function removalIsTotal(plan) {
+  const released = releasedOwnershipKeys(plan.targets || [], plan.scope);
+  return (plan.ledger?.resources || []).every((resource) => released.has(ownershipKey(resource)));
+}
+
+/** What a removal kept and why, ready to print. A command that says "removed" while silently
+ * leaving files behind is answering confidently about something it did not do, so the retained
+ * count and the harnesses responsible for it are reported, never inferred by the caller. */
+function retentionSummary(retained = []) {
+  const groups = new Map();
+  for (const item of retained) {
+    const key = `${item.harness} | ${item.retainedFor.join(', ')}`;
+    groups.set(key, (groups.get(key) ?? 0) + 1);
+  }
+  return [...groups.entries()].map(([key, count]) => {
+    const [harness, claimants] = key.split(' | ');
+    return `${harness}: retained ${count} shared resource(s) still claimed by ${claimants}`;
+  });
+}
+
+function retainedChanges(changes) {
+  return changes.filter((change) => change.retained)
+    .map((change) => ({ harness: change.harness, assetId: change.assetId, target: change.target, retainedFor: change.retainedFor }));
+}
+
 function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpIds, ledger, context = {} }) {
   assertScope(scope);
   if (!registry) throw new Error('registry is required');
@@ -190,12 +289,15 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpIds, 
     if (!Array.isArray(requiredNativeResources)) throw new Error(`Adapter '${harness.id}' returned invalid requiredNativeResources`);
     return { harness: harness.id, adapter: harness.adapter, assets, mcp: selectedMcp, policies, adapterInput, discovery, changes, requiredNativeResources, conflicts, prerequisites, skipped: false };
   });
-  const changes = harnessPlans.flatMap((item) => item.changes);
-  const conflicts = harnessPlans.flatMap((item) => item.conflicts.map((reason) => ({ harness: item.harness, reason })));
-  const prerequisites = harnessPlans.flatMap((item) => item.prerequisites.map((prerequisite) => ({ harness: item.harness, prerequisite })));
-  const requiredNativeResources = harnessPlans.flatMap((item) => item.requiredNativeResources || []);
-  return Object.freeze({ scope, scopeRoot, mcp: selectedMcp, ledger: baseLedger, targets: harnessPlans, changes, requiredNativeResources, conflicts, prerequisites,
-    safe: conflicts.length === 0 && prerequisites.length === 0 });
+  // Only once every harness's plan is known: whether a file may be deleted depends on the rows
+  // the WHOLE plan leaves standing, which no single harness's plan can see.
+  const annotated = markRetainedRemovals(harnessPlans, baseLedger, scope);
+  const changes = annotated.flatMap((item) => item.changes);
+  const conflicts = annotated.flatMap((item) => item.conflicts.map((reason) => ({ harness: item.harness, reason })));
+  const prerequisites = annotated.flatMap((item) => item.prerequisites.map((prerequisite) => ({ harness: item.harness, prerequisite })));
+  const requiredNativeResources = annotated.flatMap((item) => item.requiredNativeResources || []);
+  return Object.freeze({ scope, scopeRoot, mcp: selectedMcp, ledger: baseLedger, targets: annotated, changes, requiredNativeResources, conflicts, prerequisites,
+    retained: retainedChanges(changes), safe: conflicts.length === 0 && prerequisites.length === 0 });
 }
 
 function verificationResources(verification, changes, scope, recoveryRef) {
@@ -231,12 +333,21 @@ function mcpIndexPath(scopeRoot) {
 }
 
 /** apply + non-empty selection -> write; apply + empty selection -> delete if present (an agent
- * must never see a stale entry for a server that's no longer selected); remove -> always delete
- * regardless of selection, since the whole install is going away. */
-function applyMcpIndex({ scopeRoot, selectedMcp, mode, fsImpl = fs }) {
+ * must never see a stale entry for a server that's no longer selected); remove -> delete, unless
+ * `retain` says another harness is still installed.
+ *
+ * `retain` exists because "remove means the whole install is going away" is only true of a removal
+ * that names every harness. This file sits in the shared guidance tree and is @-imported by
+ * DOFLOW_CORE.md, so deleting it on a single-harness removal strips a line of always-loaded
+ * context out from under every harness that is staying — the same NFR-007 mistake as deleting the
+ * shared runtime, in the one asset that is generated rather than ledger-tracked and so cannot be
+ * protected by ownership counting. The remaining harnesses' MCP selection has not changed, so the
+ * file is left exactly as it is rather than re-rendered from this removal's empty selection. */
+function applyMcpIndex({ scopeRoot, selectedMcp, mode, retain = false, fsImpl = fs }) {
   const file = mcpIndexPath(scopeRoot);
   const content = mode === 'remove' ? null : renderMcpIndex(selectedMcp);
   if (content === null) {
+    if (mode === 'remove' && retain) return;
     if (fsImpl.existsSync(file)) fsImpl.unlinkSync(file);
     return;
   }
@@ -253,6 +364,10 @@ function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recove
     next.resources = next.resources.filter((resource) => !removeKeys.has(ownershipKey(resource)));
     for (const resource of verificationResources(verification, related, scope, recoveryRef)) {
       const key = ownershipKey(resource);
+      // A verifier enumerates what is on disk, and a released-but-retained file is deliberately
+      // still there (markRetainedRemovals). Re-adding it would resurrect the exact claim this run
+      // gave up, so a key this run removed is never written back by the same run.
+      if (removeKeys.has(key)) continue;
       const index = next.resources.findIndex((item) => ownershipKey(item) === key);
       if (index >= 0) next.resources[index] = resource;
       else next.resources.push(resource);
@@ -381,9 +496,15 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
   try {
     for (const target of plan.targets) {
       if (target.skipped || target.changes.length === 0) continue;
+      // A retained change is a ledger release, not a native mutation: the adapter must never see
+      // it, because every adapter's job with a removal change is to delete the thing. Filtered
+      // here rather than in planLifecycle so the change still reaches updateLedger, which is what
+      // actually drops this harness's ownership row.
+      const applicable = target.changes.filter((change) => !change.retained);
+      if (!applicable.length) continue;
       const harness = harnessFor(registry, target.harness);
       const adapter = resolveAdapter(adapters, harness);
-      adapter[mode === 'remove' ? 'remove' : 'apply']({ ...target.adapterInput, registry, changes: target.changes, ledger, recoveryRef: recovery.id });
+      adapter[mode === 'remove' ? 'remove' : 'apply']({ ...target.adapterInput, registry, changes: applicable, ledger, recoveryRef: recovery.id });
       completedHarnesses.push(target.harness);
     }
   } catch (error) {
@@ -401,7 +522,7 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
     throw new Error('Lifecycle verification failed; ledger was not updated');
   }
   try {
-    applyMcpIndex({ scopeRoot: plan.scopeRoot, selectedMcp: plan.mcp, mode });
+    applyMcpIndex({ scopeRoot: plan.scopeRoot, selectedMcp: plan.mcp, mode, retain: !removalIsTotal(plan) });
   } catch (error) {
     // Same reasoning as the harness-loop catch above: every native resource already applied and
     // verified successfully by this point, so leaving the record at 'pending' on a failure here
@@ -412,7 +533,7 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
   const nextLedger = updateLedger({ ledger, scope: plan.scope, scopeRoot: plan.scopeRoot, verifications: verification.verifications, changes: plan.changes, recoveryRef: recovery.id });
   writeLedgerFn(stateRoot, nextLedger);
   writeRecoveryRecordFn(stateRoot, { ...recovery.record, status: 'verified', verification });
-  return { recovery, verification, ledger: nextLedger };
+  return { recovery, verification, ledger: nextLedger, retained: plan.retained ?? [] };
 }
 
 function removeLifecycle(options) {
@@ -420,4 +541,4 @@ function removeLifecycle(options) {
   return applyLifecycle({ ...options, plan, mode: 'remove', acceptPrerequisites: options.acceptPrerequisites });
 }
 
-module.exports = { OPERATIONS, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus };
+module.exports = { OPERATIONS, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus, markRetainedRemovals, retentionSummary };
