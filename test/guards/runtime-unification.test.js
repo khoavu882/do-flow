@@ -179,9 +179,10 @@ test('G12: every shell-backed verb resolves to a helper that exists', () => {
 const UNEXPOSED_HELPERS = new Map([
   ['do-exec-paths.sh',
     'no skill invokes it: do-task-brief.sh and do-review-package.sh shell out to it directly, so it '
-    + 'is already behind the task-brief and review-package verbs. parallel_dispatch.md names it only '
-    + 'to explain where a brief\'s paths come from — prose about a helper is not a runtime call, and '
-    + 'a verb here would widen the public surface without removing an inlined resolver'],
+    + 'is already behind the task-brief and review-package verbs. Nothing in the skill tree names it '
+    + 'at all any more — parallel_dispatch.md used to mention it while explaining where a brief\'s '
+    + 'paths come from, and no longer does — so a verb here would widen the public surface without '
+    + 'removing a single inlined resolver'],
 ]);
 
 test('G12: every shell helper is either a verb target or a recorded non-verb helper', () => {
@@ -214,9 +215,10 @@ test('G12: the dispatcher documents exactly the verbs it dispatches', () => {
 
 // ------------------------------------------------------ 5. the CLI has no surface off the seam
 
-// FR-003 in the direction the verb table cannot check on its own. `is_node_verb()` deliberately
-// lists verbs the CLI has not built yet, so "a verb with no command" is a legitimate state and is
-// not an error. The reverse never is: a runtime command the CLI implements that the dispatcher
+// FR-003 in the direction the verb table cannot check on its own — one of the two halves. This is
+// the "no command off the seam" half; the "no verb without a command" half is section 5c, added by
+// C.7 once the CLI had caught up with the advertised namespace. A runtime command the CLI implements
+// that the dispatcher
 // does not dispatch is reachable *only* by going around the seam, which is precisely the state
 // C.11 found `scaffold` in — a working generator whose only caller was an inline `node -e` that
 // resolved the package from the CLI's own location. It worked, and it meant the entrypoint did
@@ -248,8 +250,8 @@ test('G12: every runtime command the CLI implements is dispatched by a verb (FR-
 // guards do not go red, they go *quiet*: the command stops being checked at all and nobody is
 // told. A guard that can be silently disabled by a refactor is not a guard.
 //
-// This does not require every advertised verb to have a command; an unbuilt verb is a legitimate
-// state and belongs to C.7. It requires only that a verb which *is* wired is wired visibly.
+// This test asks only that a verb which *is* wired is wired visibly. Whether every advertised verb
+// is wired at all is section 5c's question.
 test('G12: a wired runtime verb uses the case form the guards can parse', () => {
   const cli = fs.readFileSync(path.join(REPO, 'bin', 'doflow.js'), 'utf8');
   const nodeArm = new Set(nodeVerbs());
@@ -261,6 +263,31 @@ test('G12: a wired runtime verb uses the case form the guards can parse', () => 
   assert.deepEqual(invisible.sort(), [],
     "a runtime verb wired in any form other than `case 'x': return handleXCommand(...)` disappears "
     + 'from this guard and from G8 without either of them failing:\n  ' + invisible.join('\n  '));
+});
+
+// --------------------------------------------- 5c. the seam has no verb without an implementation
+
+// The other half of section 5, and the half whose absence let eight verbs ship advertised and
+// unbuilt. The shell arm has been checked in both directions since B.6 — 'every shell-backed verb
+// resolves to a helper that exists' is exactly this question asked of `shell_helper_for()`. The Node
+// arm never was, because `is_node_verb()` was written as a namespace declaration rather than a
+// routing table, and its own comment licensed the gap ("an unbuilt verb is dispatched and the CLI
+// answers for itself"). That is the asymmetry: a missing helper fails loudly at exit 2 naming the
+// file it wanted, while a missing command falls through to the CLI's unknown-command handler, which
+// talks about `doflow` and not about the verb the skill actually called — and the dispatcher writes
+// a run-ledger entry either way, so `stats` counts the verb as having run.
+//
+// Both arms are now checked in both directions. An advertised verb is a promise to every skill that
+// reads the verb table, and this is the guard that makes the promise mean something.
+test('G12: every verb the dispatcher advertises on the Node arm has a CLI command (FR-003)', () => {
+  const cli = fs.readFileSync(path.join(REPO, 'bin', 'doflow.js'), 'utf8');
+  const commands = new Set([...cli.matchAll(/case '([a-z-]+)': return handle[A-Za-z]+Command/g)].map((m) => m[1]));
+  const unimplemented = nodeVerbs().filter((verb) => !commands.has(verb)).sort();
+  assert.deepEqual(unimplemented, [],
+    'these verbs are advertised by is_node_verb() and by --help, dispatched by the entrypoint, and '
+    + 'recorded in the run ledger as having run — but the CLI implements no command for them, so a '
+    + "skill calling one gets the CLI's generic unknown-command message instead of an answer. "
+    + `Implement the command, or remove the verb from the table:\n  ${unimplemented.join('\n  ')}`);
 });
 
 // ------------------------------------------------------------ 6. no skill goes around the seam
@@ -296,4 +323,253 @@ test('G12: no skill reaches the JavaScript runtime except through the dispatcher
   assert.deepEqual(findings.sort(), [],
     'a skill that reaches the runtime by any route other than a verb is a second entrypoint with its '
     + 'own resolution rules, its own failure message and no run-ledger record:\n  ' + findings.join('\n  '));
+});
+
+// ---------------------------------------------------------- 7. the run ledger stays metadata-only
+
+// NFR-004. The ledger is the one thing this feature writes to disk on every single runtime call, so
+// it is also the one place a leak would be both continuous and invisible: nobody reads
+// `state/runs/2026-08-18.jsonl` until something else goes wrong. `sanitizeRunEvent` is the whole
+// defence — a closed field list plus a token pattern that cannot express a path, a URL, a quote or
+// a space. A writer that goes around it does not fail; it just writes.
+const TRACE_FILE = path.join(REPO, 'src', 'runtime', 'trace.js');
+const traceText = fs.readFileSync(TRACE_FILE, 'utf8');
+const trace = require('../../src/runtime/trace');
+
+/** Every .js under src/ and bin/, the two trees that could plausibly hold a second writer. */
+function runtimeJsFiles() {
+  return [path.join(REPO, 'src'), path.join(REPO, 'bin')]
+    .flatMap((root) => walk(root))
+    .filter((file) => file.endsWith('.js'))
+    .map((file) => ({ rel: path.relative(REPO, file), text: fs.readFileSync(file, 'utf8') }));
+}
+
+const LEDGER_LOCATION = /state[\\/]+runs|runsDir\(|RUNS_DIRNAME|new RunLedger/;
+const FS_WRITE_SOURCE = String.raw`appendFileSync|writeFileSync|createWriteStream|promises\.appendFile|\bopenSync\(`;
+const FS_WRITE = new RegExp(FS_WRITE_SOURCE);
+
+test('G12: trace.js is the only module that writes the run ledger (NFR-004)', () => {
+  const writers = runtimeJsFiles()
+    .filter(({ rel }) => rel !== path.relative(REPO, TRACE_FILE))
+    .filter(({ text }) => LEDGER_LOCATION.test(text) && FS_WRITE.test(text))
+    .map(({ rel }) => rel);
+  assert.deepEqual(writers, [],
+    'a second writer into state/runs/ is a second privacy policy. sanitizeRunEvent is what keeps a '
+    + 'query string, a file path or an API token out of a file nobody reads until later — a raw '
+    + `append does not consult it. Route the write through RunLedger#append:\n  ${writers.join('\n  ')}`);
+});
+
+test('G12: the ledger write in trace.js is the one guarded by sanitizeRunEvent (NFR-004)', () => {
+  const writes = [...traceText.matchAll(new RegExp(FS_WRITE_SOURCE, "g"))].map((m) => m[0]);
+  assert.deepEqual(writes, ['appendFileSync'],
+    `trace.js should perform exactly one filesystem write. Found: ${writes.join(', ') || '(none)'}. `
+    + 'More than one means a path into the ledger that this guard has not read.');
+
+  const method = traceText.match(/\n {2}append\(event\) \{([\s\S]*?)\n {2}\}/);
+  assert.ok(method, 'RunLedger#append must be parseable — it is the ledger write path');
+  const body = method[1];
+  assert.ok(body.includes('appendFileSync'),
+    'the single write is no longer inside RunLedger#append; whatever now performs it is unguarded');
+  assert.ok(body.indexOf('sanitizeRunEvent') >= 0
+    && body.indexOf('sanitizeRunEvent') < body.indexOf('appendFileSync'),
+    'append() must sanitize before it writes. Sanitizing after the write, or not at all, means the '
+    + `raw event reaches disk:\n${body}`);
+});
+
+test('G12: the shell dispatcher records only fields the sanitizer would have allowed (NFR-004)', () => {
+  // The dispatcher writes its own line rather than calling into Node — it has to, since the run
+  // being recorded may be a shell verb that never loads the CLI. It is therefore the one writer
+  // sanitizeRunEvent cannot police, so its record is policed here instead: a fixed format string,
+  // only declared wire keys, and no expansion that could carry an argument value.
+  const body = dispatcherText.match(/trace_run\(\)\s*\{([\s\S]*?)\n\}/);
+  assert.ok(body, 'trace_run() is the dispatcher-side ledger writer and must be parseable');
+
+  const format = body[1].match(/printf '([^']*)'/);
+  assert.ok(format, 'trace_run must write one fixed format string, not an assembled one');
+
+  const wire = new Set(trace.RUN_FIELDS.map((field) => field.wire));
+  wire.add('timestamp'); // written by sanitizeRunEvent itself, not a declared field
+  const undeclared = [...format[1].matchAll(/"([a-z_]+)":/g)].map((m) => m[1]).filter((key) => !wire.has(key));
+  assert.deepEqual(undeclared, [],
+    'the dispatcher writes keys that RUN_FIELDS does not declare, so the reading side drops them and '
+    + `the privacy review never sees them:\n  ${undeclared.join('\n  ')}`);
+
+  // `$*`/`$@` is the leak: it is the verb's arguments, which are file paths, queries and
+  // occasionally credentials. The dispatcher deliberately records `arg_count` instead.
+  const leaks = [...body[1].matchAll(/\$\{?[*@]\}?/g)].map((m) => m[0]);
+  assert.deepEqual(leaks, [],
+    'trace_run expands the argument list into the ledger. NFR-004 allows the *count* and not the '
+    + `values — that is why arg_count exists:\n  ${leaks.join('\n  ')}`);
+});
+
+test('G12: every string-valued ledger field is a token (NFR-004)', () => {
+  // The mechanical half of NFR-004 is that a string field can only hold an identifier. A field
+  // declared `type: 'text'` would be accepted by the same sanitizer, pass the same review, and
+  // carry whatever the caller put in it. Nothing else in the module would change.
+  const KNOWN_TYPES = new Set(['token', 'int', 'uint']);
+  const foreign = trace.RUN_FIELDS
+    .filter((field) => !KNOWN_TYPES.has(field.type))
+    .map((field) => `${field.key}: type '${field.type}'`);
+  assert.deepEqual(foreign, [],
+    `RUN_FIELDS may only declare ${[...KNOWN_TYPES].join(', ')}. A free-text type reopens NFR-004 `
+    + `without touching a line of sanitizeRunEvent:\n  ${foreign.join('\n  ')}`);
+
+  // Asserted behaviourally as well as structurally: the type name only matters because of what the
+  // sanitizer does with it, so prove it still drops content for every token field there is.
+  const CONTENT = 'src/auth.js?token=sk-live-abc def';
+  const leaked = trace.RUN_FIELDS
+    .filter((field) => field.type === 'token')
+    .filter((field) => {
+      const { record } = trace.sanitizeRunEvent({ verb: 'paths', [field.key]: CONTENT });
+      return record && record[field.wire] !== undefined;
+    })
+    .map((field) => field.key);
+  assert.deepEqual(leaked, [],
+    `these token fields accepted a value containing a path, a query string and a space:\n  ${leaked.join('\n  ')}`);
+});
+
+// ------------------------------------------------- 8. discover never claims CLEAR over no evidence
+
+// FR-012's failure mode, and the one this feature keeps rediscovering: an analysis that finds
+// nothing in data that could never have shown anything, reported as "no missed opportunities". It
+// is worse than silence, because a user who reads CLEAR stops looking. `buildDiscover` has the
+// right vocabulary for this — NOT_DETERMINED exists precisely to say "the ledger lacks the field
+// this analysis needs" — so the guard is that every analysis actually reaches for it.
+//
+// Each analysis is mapped to the ledger fields its verdict rests on. An analysis added later with
+// no entry fails the completeness check below rather than going unchecked.
+const DISCOVER_SIGNAL_FIELDS = new Map([
+  ['search-was-a-question', ['capability', 'resultCount']],
+  ['manual-relationship-walk', ['capability']],
+  ['uncompressed-output', ['outputBytes']],
+  ['retries-without-readiness', ['exitCode']],
+]);
+
+// A live defect, pinned rather than accepted. Recorded so the guard covers the other three fully
+// instead of being weakened to a warning, and so the fix is detected: the reverse check below fails
+// the moment the analysis stops reproducing it.
+// Empty by design. `retries-without-readiness` was pinned here when this guard was written: it
+// reported CLEAR over a window whose `verify` records carried no exit code, unable to tell a clean
+// run from nothing but failures. That was fixed in src/runtime/trace.js the same day, and the
+// reverse check below is what detected the fix — a stale exemption fails rather than quietly
+// granting cover the code no longer needs. Add an entry only with the reason a false CLEAR is
+// currently unavoidable, never to silence a fixable one.
+const KNOWN_FALSE_CLEAR = new Map([]);
+
+const HEALTHY_PROVIDERS = Object.freeze({
+  'semble.search': { status: 'HEALTHY' },
+  'graphify.query': { status: 'HEALTHY' },
+  rtk: { status: 'HEALTHY' },
+});
+
+/** A ledger read whose records are exactly what the caller described — nothing inferred. */
+function ledgerRead(rows) {
+  const records = rows.map((row) => trace.normalizeRunRecord(row)).filter(Boolean);
+  return {
+    dir: '/nonexistent/state/runs',
+    exists: true,
+    files: ['2026-08-18.jsonl'],
+    records,
+    malformedLines: 0,
+    unreadableFiles: [],
+    days: null,
+  };
+}
+
+const at = (minute) => `2026-08-18T10:${String(minute).padStart(2, '0')}:00Z`;
+
+// Each scenario starves one signal field while leaving the others healthy, so an analysis that
+// answers anyway is answering from data it does not have.
+const STARVED_LEDGERS = [
+  ['verb-only records, the shape the shell dispatcher writes on its own', [
+    { timestamp: at(0), verb: 'verify' },
+    { timestamp: at(1), verb: 'verify' },
+    { timestamp: at(2), verb: 'paths' },
+  ]],
+  ['capability records with no result counts and no byte volumes', [
+    { timestamp: at(0), verb: 'route', capability: 'code.exact-search', provider: 'ripgrep', exit_code: 0 },
+    { timestamp: at(1), verb: 'route', capability: 'code.exact-search', provider: 'ripgrep', exit_code: 0 },
+    { timestamp: at(2), verb: 'route', capability: 'code.exact-search', provider: 'ripgrep', exit_code: 0 },
+  ]],
+  ['result counts present, byte volumes absent', [
+    { timestamp: at(0), verb: 'route', capability: 'code.exact-search', provider: 'ripgrep', result_count: 2, exit_code: 0 },
+    { timestamp: at(1), verb: 'route', capability: 'code.relationships', provider: 'graphify.query', result_count: 1, exit_code: 0 },
+  ]],
+  ['byte volumes present, capability absent', [
+    { timestamp: at(0), verb: 'paths', output_bytes: 120, exit_code: 0 },
+    { timestamp: at(1), verb: 'paths', output_bytes: 90, exit_code: 0 },
+  ]],
+];
+
+test('G12: discover reports CLEAR only for an analysis whose signal fields have coverage (FR-012)', () => {
+  const unsupported = [];
+  const exemptedHits = new Set();
+
+  for (const [label, rows] of STARVED_LEDGERS) {
+    const view = trace.buildDiscover(ledgerRead(rows), { providerHealth: HEALTHY_PROVIDERS });
+    for (const analysis of view.analyses) {
+      if (analysis.status !== 'CLEAR') continue;
+      const fields = DISCOVER_SIGNAL_FIELDS.get(analysis.id) || [];
+      const starved = fields.filter((field) => view.coverage[field] === 0);
+      if (!starved.length) continue;
+      if (KNOWN_FALSE_CLEAR.has(analysis.id)) { exemptedHits.add(analysis.id); continue; }
+      unsupported.push(`${analysis.id}: CLEAR with zero coverage of ${starved.join(', ')} — ${label}`);
+    }
+  }
+
+  assert.deepEqual(unsupported.sort(), [],
+    'CLEAR means "the analysis ran against data that could have shown the pattern and did not". '
+    + 'Reporting it over a field with zero coverage tells the user there is nothing to find when the '
+    + 'truth is that nothing could have been found. Return NOT_DETERMINED instead:\n  '
+    + unsupported.sort().join('\n  '));
+
+  // Reverse direction: an exemption for a defect that has since been fixed would silently
+  // pre-approve the next one to appear under the same analysis id.
+  const stale = [...KNOWN_FALSE_CLEAR.keys()].filter((id) => !exemptedHits.has(id));
+  assert.deepEqual(stale, [],
+    'these analyses no longer produce the false CLEAR they are exempted for. Delete the '
+    + `KNOWN_FALSE_CLEAR entry — the guard now covers them for real:\n  ${stale.join('\n  ')}`);
+});
+
+test('G12: every discover analysis declares which ledger fields its verdict rests on', () => {
+  const view = trace.buildDiscover(ledgerRead([{ timestamp: at(0), verb: 'paths', exit_code: 0 }]), {
+    providerHealth: HEALTHY_PROVIDERS,
+  });
+  const produced = view.analyses.map((analysis) => analysis.id).sort();
+  const declared = [...DISCOVER_SIGNAL_FIELDS.keys()].sort();
+  assert.deepEqual(produced, declared,
+    'DISCOVER_SIGNAL_FIELDS must name every analysis buildDiscover produces and no others. A new '
+    + 'analysis with no entry would be exempt from the coverage check above by omission, which is '
+    + `the quiet form of not having a guard.\n  produced: ${produced.join(', ')}\n  declared: ${declared.join(', ')}`);
+});
+
+// --------------------------------------- 9. the verification registry names real failure classes
+
+// verification.yaml declares, per tier, which recovery class that tier's failure means — structural
+// evidence that outranks the keyword classifier reading an error string. The registry loader
+// deliberately does not import recovery.js (the registry is data; importing the classifier to
+// validate the data would invert the dependency), so nothing at load time notices a tier naming a
+// class that does not exist. It surfaces later, in the recovery path, as an unrouted failure —
+// which is the moment the system is least able to absorb a second problem.
+test('G12: every failureClass in verification.yaml is a declared recovery class (FR-010)', () => {
+  const { parseYamlFile } = require('../../src/runtime/capability-router');
+  const { FAILURE_CLASSES } = require('../../src/runtime/recovery');
+  const doc = parseYamlFile(path.join(REPO, 'core', 'registry', 'verification.yaml'), fs);
+
+  assert.ok(Array.isArray(doc.tiers) && doc.tiers.length > 0, 'verification.yaml must declare tiers');
+  const known = new Set(FAILURE_CLASSES);
+
+  const problems = doc.tiers.flatMap((tier) => {
+    if (!tier.failureClass) {
+      return [`tier '${tier.id}' declares no failureClass, so its failure routes to the keyword classifier`];
+    }
+    if (!known.has(tier.failureClass)) {
+      return [`tier '${tier.id}' -> '${tier.failureClass}'`];
+    }
+    return [];
+  });
+  assert.deepEqual(problems, [],
+    'a tier naming a class recovery.js does not know produces no targeted recovery action — the '
+    + `strategy table has no entry for it. Declared classes: ${FAILURE_CLASSES.join(', ')}.\n  `
+    + problems.join('\n  '));
 });

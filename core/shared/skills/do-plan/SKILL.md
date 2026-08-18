@@ -39,16 +39,36 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    `"$DOFLOW" paths --json --slug="<chosen>"` and use that slug for the rest of this flow. If `/do-flow` already
    disambiguated and is invoking this skill directly, it passes `--slug="<chosen>"` itself — skip
    the prompt in that case (resolver output already has a non-null `feature_slug`).
-2. **Precondition (advisory)** — if `has_requirement` or `has_design` is false, warn and offer to
+2. **Propose one task class; the runtime validates it** — name exactly one class id for the work
+   being planned. `/do-flow` passes one when it invoked this skill; a user who named one settles it;
+   otherwise derive it from `requirement.md` and `design.md`, not from their mere existence.
+   ```bash
+   "$DOFLOW" classify --task-class "<proposed>" --json
+   ```
+   Branch on the returned `outcome` field, not on the exit code.
+   - **`ACCEPTED`** — the returned `workflow` is this run's plan of record; this skill is its
+     `planning` stage. State the class and the signal it rests on in one line. Its `stageIds` are
+     also what §8's phases must decompose toward, and its implementation stage's
+     `readinessTemplate` names the contract `/do-execute-plan` will be graded against — read them
+     off the returned object rather than assuming the six-stage feature chain.
+   - **`REJECTED`** — **stop.** Print `message` verbatim; it names `validClasses` and any
+     `suggestions`. Ask the user to choose from `validClasses` via `AskUserQuestion`, then
+     re-validate. Never substitute `feature` and never plan under a class the runtime refused.
+   - **Exit 2** — the runtime could not answer. Surface its message verbatim and stop.
+   If the accepted `stageIds` contain no `planning` stage, say so and hand off to the first stage
+   they do name. Only `feature` plans; `bug`, `refactor`, `dependency-change` and `trivial-edit` go
+   straight from their analysis stages to implementation, and writing them a `plan.md` adds a gate
+   their workflow deliberately does not have.
+3. **Precondition (advisory)** — if `has_requirement` or `has_design` is false, warn and offer to
    run `/do-brainstorm` / `/do-design` first. This gate is **advisory** (skippable), not the hard
    hook gate.
-3. **Read inputs** — `requirement.md`, `design.md`, and the constitution. Read `constitution_base`,
+4. **Read inputs** — `requirement.md`, `design.md`, and the constitution. Read `constitution_base`,
    then read `constitution_local` **only when `has_constitution_local` is true** — use that flag,
    never a filesystem check of your own (path math belongs to the resolver). You then reconcile the
    two tiers yourself, tier-2 taking precedence: nothing hands you a merged set. See
    `references/DOFLOW_CHAIN.md` → "Two-tier constitution" for what is computed and what is
    convention.
-4. **Write `plan.md`, sections 1–7** — copy the plan template into the feature dir. The template is
+5. **Write `plan.md`, sections 1–7** — copy the plan template into the feature dir. The template is
    `templates/doflow/plan-template.md` inside the same install step 1 resolved: take
    `constitution_base` from that JSON and replace its trailing
    `guidance/references/CONSTITUTION_BASE.md` with that path.
@@ -58,12 +78,12 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    template: index-then-detail for §4/§6, the closed `Live` / `Superseded → <ref>` status
    vocabulary, and §9 History. Its §5 governs §8's `### Task Summary` rollup — the per-task
    `- [ ]` checklist stays the single source of truth and is never mirrored into a per-task index.
-5. **Constitution Check (advisory gate)** — evaluate the plan against both tiers as reconciled in
-   step 3. On a violation, STOP and revise the approach before continuing, then record PASS/FAIL in
+6. **Constitution Check (advisory gate)** — evaluate the plan against both tiers as reconciled in
+   step 4. On a violation, STOP and revise the approach before continuing, then record PASS/FAIL in
    the plan. The verdict is **advisory**: it is recorded in `plan.md` §2 "Constitution Check" and nothing downstream
    blocks on it — the chain's one hard gate covers artifact existence only. Stopping on a violation
    is a discipline this skill observes, not something a hook enforces.
-6. **Decompose into Tasks (section 8)** — dependency-ordered, `[US#]`-traced to the requirement's
+7. **Decompose into Tasks (section 8)** — dependency-ordered, `[US#]`-traced to the requirement's
    user stories, owner+files named per task, with checkpoints and completion criteria.
    **Mark `[P]` by default:** parallel execution is the framework default, so apply `[P]` to every
    task whose `files:` set is disjoint from its phase siblings' and leave it off only where a real
@@ -80,7 +100,7 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    frame from it instead of silently skipping the dependency (its default when `external-contract:` is
    absent). The `- [ ]` checkboxes are the execution contract `/do-execute-plan`
    parses — keep the marker syntax intact, don't reflow it into prose.
-7. **Derive branch plan** — read `requirement.md`'s `**Ticket:**` field (absent/`none` → no
+8. **Derive branch plan** — read `requirement.md`'s `**Ticket:**` field (absent/`none` → no
    ticket). Branch name: `feat/<TICKET>-<slug-description>` (ticket present, slug's leading
    `NNN-` stripped) or `feat/<slug>` (no ticket). Resolve a repo for each task's `files:` path
    *and* each task's `depends-on:` value the same way — walk up to the nearest `.git`; if a
@@ -90,21 +110,46 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    table: `primary` if it owns a task via `files:`, `dependency-only` if it's only ever reached via
    `depends-on:`. A single-repo result → `N/A: single-repo feature`. Derivation only — no branch is
    created here (`/do-execute-plan`'s job, lazily, per repo).
-8. **Validate** — run the advisory consistency check and surface any findings verbatim:
+9. **Validate** — run the advisory consistency check and surface any findings verbatim:
    ```bash
    "$DOFLOW" validate "<plan path>"
    ```
    This also verifies each `### Task Summary` rollup row against the `- [ ]` lines under its
    `### Phase <X>` heading. Findings are reported to the user, never repaired automatically. A
    non-zero exit is advisory and does not halt the chain.
-9. **Stop** — report the plan path, Constitution Check result, the task count (`[P]`/sequential),
+10. **Batch this stage's evidence** — one pass here at the stage boundary, never one call per fact.
+    `<task id>` is the unit these stores key on: the plan task id for anything scoped to a single
+    `- [ ]` task, otherwise the feature slug. Use the same id for every `evidence`, `claim` and
+    `readiness` call that concerns it — a different id reads a different task's record.
+    ```bash
+    "$DOFLOW" evidence --task-id "<task id>" --json
+    "$DOFLOW" claim --task-id "<task id>" --action add --statement "<one conclusion>"
+    ```
+    `evidence` only reads. It has no append form and silently ignores flags that look like one, so
+    the batch itself is §3 "Research & Decisions" of the `plan.md` you just wrote: per decision,
+    what was found, where it came from (a provider + capability, an artifact, or the user), its
+    locator, and whether it is **extracted** (read verbatim out of the repository or the user's
+    words) or **inferred** (your analysis). Never merge those two provenances into one line — a
+    decision recorded as fact is the one a later phase will not re-check.
+    Add each `D#` decision as a claim in this same pass. Each is stored as a `hypothesis` and
+    becomes supported only through linked evidence; `design.md` having asserted it is not support.
+    Relevance is not confidence. A match count, a ranking, a "best hit" is a property of the query,
+    not of the fact — record the locator, never a score, a percentage, or a confidence.
+    The `planning` stage declares `readinessTemplate: null`. Do **not** call `readiness` here and do
+    not report one as skipped: readiness belongs to the implementation stage, which is
+    `/do-execute-plan`'s to consult per task.
+11. **Stop** — report the plan path, Constitution Check result, the task count (`[P]`/sequential),
    and the derived branch name/repo count when the Repo Branch Plan is populated.
 
 ## Boundaries
-**Will:** read requirement + design + constitution, write `plan.md` including its embedded task
-checklist and Repo Branch Plan, run the Constitution Check, resolve clarifications.
-**Will Not:** write `design.md` (that's `/do-design`), write code, execute the plan, or create any
-git branch (derivation only).
+**Will:** propose a task class and have the runtime validate it, read requirement + design +
+constitution, write `plan.md` including its embedded task checklist and Repo Branch Plan, run the
+Constitution Check, resolve clarifications, and batch the stage's evidence and claims at the
+boundary.
+**Will Not:** write `design.md` (that's `/do-design`), write code, execute the plan, create any
+git branch (derivation only), plan under a class the runtime rejected or replaced with `feature`,
+call `readiness` for a stage that declares no template, or express evidence or readiness as a
+number, a percentage or a confidence.
 
 ## CRITICAL BOUNDARIES
 **STOP AFTER PLAN CREATION.** Output: `agent-docs/doflow/<slug>/plan.md` (HOW + tasks).

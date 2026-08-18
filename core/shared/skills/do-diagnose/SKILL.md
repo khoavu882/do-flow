@@ -16,24 +16,99 @@ Unified diagnostic and code improvement engine. Replaces separate analyze/troubl
 
 ## Behavioral Flow
 
-1. **Classify Intent & Scope**:
+1. **Resolve the Runtime Seam**:
+   - Every DoFlow runtime call in this skill goes through the seam. Resolve it **once** here and
+     reuse `$DOFLOW` for every later call in this skill:
+     ```bash
+     # Resolve the DoFlow runtime: nearest project install wins, then the global one.
+     D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+     DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
+     [ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
+     [ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
+     "$DOFLOW" paths --json
+     ```
+     The walk-up starts at the working directory, so run every command in this skill from the
+     project root. Exit 2 means no runtime was found; the message names every place searched —
+     surface it verbatim and stop, do not go looking yourself.
+
+2. **Propose the Task Class; the Runtime Validates It**:
+   - `--type` names the *investigation mode* below, not the task class. Propose the class
+     separately, as exactly one id:
+     ```bash
+     "$DOFLOW" classify --task-class "<proposed>" --json
+     ```
+   - Branch on the returned `outcome` field, not on the exit code. **`ACCEPTED`** → the returned
+     `workflow` is this run's plan of record, and this skill is one of its analysis stages
+     (`root-cause` for `bug`, `architecture-mapping` for `refactor`, `usage-impact` for
+     `dependency-change`). **`REJECTED`** → **stop**, print `message` verbatim, ask the user to
+     choose from `validClasses`, and re-validate. Never substitute `feature`, never retry with a
+     guess. **Exit 2** → surface the message verbatim and stop.
+   - `perf` and `security` are `--type` values, **not** declared classes: proposing either gets a
+     `REJECTED` outcome, correctly. A performance or security investigation is classed by what the
+     work is — `bug` when behavior is wrong now, `refactor` when structure changes with behavior
+     held fixed, `research` when the deliverable is a written answer.
+   - Every stage this skill serves declares `readinessTemplate: null`. Do **not** call `readiness`
+     while diagnosing, and do not report one as skipped.
+
+3. **Classify Intent & Scope (`--type`)**:
    - `bug` (default if reproducing error): Reproduce issue, isolate cause via stack traces/diffs, formulate hypothesis. Consult `references/root_cause.md`.
    - `perf`: Profile execution, detect hot paths, identify algorithmic complexity ($O(n^2)$) or N+1 queries.
    - `security`: Static scan for secrets, unsanitized inputs, auth gaps, or vulnerability signatures. Consult `references/code_audit.md`.
    - `refactor`: Identify dead code, code smells, god functions, and structure cleanups. Consult `references/refactoring.md`.
 
-2. **Evidence-First Diagnosis**:
+4. **Evidence-First Diagnosis**:
    - Confirm root cause with concrete evidence before proposing any changes.
    - Propose ranked fix options with blast-radius ratings (Low / Medium / High).
+   - Resolve each retrieval need through the router rather than reaching for a habitual tool:
+     `"$DOFLOW" route --intent <locate-known-symbol|locate-concept|trace-dependency|estimate-blast-radius|inspect-history|verify-runtime-behavior> --json`.
 
-3. **Remediation (`--fix`)**:
+5. **Batch This Stage's Evidence**:
+   - One pass at the end of the diagnosis, never one call per finding. `<task id>` is the unit these
+     stores key on: the plan task id when one exists, otherwise the feature slug or the issue id you
+     are diagnosing. Use the same id for every `evidence`, `claim` and `readiness` call in the run.
+     ```bash
+     "$DOFLOW" evidence --task-id "<task id>" --json
+     "$DOFLOW" claim --task-id "<task id>" --action add --statement "<the root cause, in one sentence>"
+     ```
+   - `evidence` only reads. It has no append form and silently ignores flags that look like one, so
+     the batch itself is the diagnosis you report: per item, what was observed, its source (the
+     provider + capability the router selected, or the exact command run), its locator, and whether
+     it is **extracted** (a stack frame, a log line, a test result, a diff hunk) or **inferred**
+     (your reading of them). Never merge those two provenances into one line — a diagnosis is where
+     inference most easily passes for observation.
+   - The root cause enters as a claim and is stored as a `hypothesis`. It becomes supported only
+     through linked evidence; a plausible story that explains the symptom is not support, and a
+     symptom reproducing is evidence of the symptom, not of the cause.
+   - Relevance is not confidence. A match count, a profiler's ranking, a "top hot path" is a
+     property of the query, not of the fact — record the locator and the measurement, never a score,
+     a percentage, or a confidence.
+
+6. **Remediation (`--fix`)**:
    - Only apply modifications when `--fix` is passed and after the user approves the remediation plan.
+   - `--fix` performs the edit that the validated class's workflow places behind its implementation
+     stage, so consult that same contract first — never a new one:
+     `"$DOFLOW" readiness --task-class "<validated class>" --task-id "<task id>" --json`. Both flags
+     are required; omitting either exits 2 and names the valid set. Branch on the `state` field
+     (`READY`, `NEEDS_EVIDENCE`, `NEEDS_USER_DECISION`, `BLOCKED`) — the verb exits 0 for every
+     state it computes, so a zero exit is not a green light, and none of the four is ever expressed
+     as a number or a percentage. `BLOCKED` means stop. No verb writes evidence yet, so
+     `NEEDS_EVIDENCE` is currently the only state it can return — treat it as the checklist it is,
+     satisfy the named requirements from your own diagnosis, and say which ones you established.
+     Do not wait for a `READY` that cannot arrive, and do not report one the gate never gave.
+   - If the validated class has no readiness template — `review`, `research` and `operations` have
+     none, and the verb exits 1 saying so — do not invent one and do not proceed anyway: the change
+     is its own task under its own class. Say that and stop.
    - Verify fixes immediately by re-running tests.
 
-4. **Iteration & Validation (`--iterations`, `--validate`)**:
-   - `--iterations [n]`: repeat steps 1–2 for the given cycle count, re-diagnosing after each remediation pass.
+7. **Iteration & Validation (`--iterations`, `--validate`)**:
+   - `--iterations [n]`: repeat steps 3–5 for the given cycle count, re-diagnosing after each remediation pass.
    - `--validate`: run a pre-execution risk assessment and require explicit confirmation before remediating production or shared infrastructure.
 
 ## Boundaries
-**Will:** Reproduce active issues, perform multi-domain static/runtime audits, and rank remediation strategies.
-**Will Not:** Apply edits without `--fix` and explicit confirmation; bypass or disable tests to force passing status.
+**Will:** Propose a task class and have the runtime validate it, reproduce active issues, perform
+multi-domain static/runtime audits, batch the stage's evidence and claims, and rank remediation
+strategies.
+**Will Not:** Apply edits without `--fix` and explicit confirmation; bypass or disable tests to
+force passing status; diagnose under a class the runtime rejected or replaced with `feature`; call
+`readiness` for an analysis stage that declares no template, or for a class that has none; report a
+root cause, evidence or readiness as a number, a percentage or a confidence.

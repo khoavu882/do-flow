@@ -177,7 +177,7 @@ Workflow and evidence:
   classify         validate a proposed task class, return its workflow
   workflow         resolve stages, dependencies and gates for a class
   route            resolve an information need to a healthy provider
-  evidence         append a stage's evidence batch; query the ledger
+  evidence         query the recorded evidence ledger (read-only; see C.12 for the write path)
   claim            record or update a claim and its support state
   readiness        evaluate readiness; return state and missing items
   context-pack     emit the compiled context pack for a stage

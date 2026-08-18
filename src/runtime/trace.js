@@ -784,13 +784,24 @@ function buildDiscover(read, { providerHealth = null, gapMs = SESSION_GAP_MS } =
       }))
       .filter((session) => session.failedVerifications >= RETRY_THRESHOLD || session.recoveries >= 1);
     if (!retrying.length) {
-      const observedRetrySignals = records.filter((r) => r.verb === 'verify' || r.verb === 'recover').length;
+      // The retry signal is a `verify` that FAILED (non-zero exit_code) or a `recover` run. A
+      // `verify` record with no exit_code carries neither, and that is the shape the shell
+      // dispatcher writes on its own — so counting bare `verify` records as coverage let this
+      // report CLEAR over a window it could not read, unable to tell a clean run from nothing but
+      // failures. CLEAR must mean "the analysis ran against data that could have shown the pattern
+      // and did not"; without a readable exit_code it could not have. Found by C.7's coverage
+      // guard, which pinned the wrong behaviour and fails once it is corrected.
+      const readableVerifications = records.filter(
+        (r) => r.verb === 'verify' && Number.isInteger(r.exit_code),
+      ).length;
+      const recoveries = records.filter((r) => r.verb === 'recover').length;
+      const observedRetrySignals = readableVerifications + recoveries;
       return {
         ...base,
         status: observedRetrySignals ? CLEAR : NOT_DETERMINED,
         detail: observedRetrySignals
           ? 'verification ran in this window and no session hit the retry threshold.'
-          : 'no `verify` or `recover` run appears in this window, so there is no retry behaviour to judge.',
+          : 'no `verify` with a recorded exit code and no `recover` run appears in this window, so there is no retry behaviour to judge.',
       };
     }
     const unguarded = retrying.filter((session) => session.readinessCalls === 0);

@@ -19,23 +19,61 @@ Universal command dispatcher, task decomposer, capability router, and developmen
 1. **Session & Command Dispatch**:
    - If invoked with no arguments or `--help`, announce DoFlow session status and display the core command reference.
    - If `$1` matches a known `/do-*` skill (`do-flow`, `do-brainstorm`, `do-design`, `do-plan`, `do-execute-plan`, `do-test`, `do-code-review`, `do-git`, `do-constitution`, `do-diagnose`, `do-document`), forward to that skill directly.
+   - Otherwise, resolve the runtime seam **once** and reuse `$DOFLOW` for every later call here:
+     ```bash
+     # Resolve the DoFlow runtime: nearest project install wins, then the global one.
+     D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+     DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
+     [ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
+     [ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
+     "$DOFLOW" paths --json
+     ```
+     The walk-up starts at the working directory, so run every command here from the project root.
+     Exit 2 means no runtime was found; surface the message verbatim and stop.
 
 2. **Multi-Part / Ambiguous Request Routing (`--depth`)**:
    - When a request bundles 2+ unrelated asks across different files or domains, verify referenced files exist first.
-   - Classify and decompose into independent or sequenced work packages.
+   - Decompose into independent or sequenced work packages, then propose **one task class per
+     package** and let the runtime validate each: `"$DOFLOW" classify --task-class "<proposed>" --json`.
+     Branch on the returned `outcome` field, not on the exit code. **`ACCEPTED`** → route the
+     package to the first skill in the returned `stageIds`. **`REJECTED`** → **stop** for that
+     package, print `message` verbatim, and ask the user to choose from `validClasses` before
+     re-validating. Never substitute `feature`, and never route a package under a class the runtime
+     refused. **Exit 2** → surface the message verbatim and stop.
    - For detailed decomposition and dependency graph formatting, consult `references/pm_routing.md`.
+   - As the `research` workflow's `scoping` stage, this skill declares `readinessTemplate: null`.
+     Do **not** call `readiness` here and do not report one as skipped — research terminates at
+     synthesis and has no implementation to be ready for.
 
 3. **Capability & Tool Selection (`--tools`)**:
    - When determining the optimal search, graph, or testing tool for an information need, query the
-     Capability Router — run `doflow capabilities` (add `--json` to parse, `--check` for a deep smoke
-     check). It reports which provider is actually available on *this* machine; Semble and Graphify
-     degrade to Ripgrep when absent, and a static table cannot know that.
+     Capability Router — run `"$DOFLOW" capabilities` (add `--json` to parse, `--check` for a deep
+     smoke check), or `"$DOFLOW" route --intent <intent> --json` to resolve one need end to end. It
+     reports which provider is actually available on *this* machine; Semble and Graphify degrade to
+     Ripgrep when absent, and a static table cannot know that.
    - Consult `references/tool_matrix.md` for the intent→capability map and the two fallback layers.
      Treat the router's output as authoritative when the two disagree.
 
 4. **Scope & Effort Estimation (`--estimate`)**:
-   - When asked for sizing, complexity, or timeline estimates, produce confidence-banded ranges anchored against git history and file scope.
+   - When asked for sizing, complexity, or timeline estimates, produce a range anchored against git history and file scope, stating the assumptions that set its width and the unknowns that would narrow it. Never attach a numeric or percentage certainty to the range — the assumptions are the honest expression of what is not yet known.
    - Consult `references/estimation.md` for sizing breakdowns. Stops after producing the estimate; never begins edits.
+
+5. **Batch the Scoping Evidence**:
+   - Once, when the routing or estimate is delivered — not once per finding. Use one `<task id>` for
+     the request: the plan task id when one exists, otherwise the feature slug.
+     ```bash
+     "$DOFLOW" evidence --task-id "<task id>" --json
+     "$DOFLOW" claim --task-id "<task id>" --action add --statement "<one conclusion>"
+     ```
+   - `evidence` only reads. It has no append form and silently ignores flags that look like one, so
+     the batch itself is the block you report: per item, what was found, its source (the provider +
+     capability the router selected, or the user's own words), its locator, and whether it is
+     **extracted** (read verbatim) or **inferred** (your analysis). Never merge those two
+     provenances into one line.
+   - Each routing or sizing conclusion enters as a claim and is stored as a `hypothesis`; it becomes
+     supported only through linked evidence. Relevance is not confidence — a match count or a
+     ranking is a property of the query, so record the locator, never a score, a percentage, or a
+     confidence.
 
 ## Core Command Reference
 | Command | Purpose | Lifecycle Role |
@@ -54,5 +92,10 @@ Universal command dispatcher, task decomposer, capability router, and developmen
 | `/do-implement` | Direct, standalone implementation from a description or review findings — no chain artifacts required | Extension |
 
 ## Boundaries
-**Will:** Announce session status, route single and multi-part requests, select optimal retrieval tools, and generate scoped estimates.
-**Will Not:** Directly perform code edits or modify source files (delegates to specialist skills).
+**Will:** Announce session status, route single and multi-part requests, propose a task class per
+package and have the runtime validate it, select optimal retrieval tools, generate scoped
+estimates, and batch the scoping evidence and claims.
+**Will Not:** Directly perform code edits or modify source files (delegates to specialist skills);
+route a package under a class the runtime rejected or replaced with `feature`; call `readiness` for
+a stage that declares no template; or express an estimate, evidence or readiness as a numeric or
+percentage confidence.
