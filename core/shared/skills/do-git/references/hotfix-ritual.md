@@ -1,7 +1,7 @@
 # Hotfix Procedure: /do-git
 
 This procedure is executed when `/do-git hotfix` is invoked. It patches production and
-propagates to every live line (.FR-004).
+propagates to every live line.
 
 ## Sequence
 
@@ -33,7 +33,7 @@ A target is "outstanding" if:
 - It requires manual intervention
 
 ### Halt-and-Report Behavior
-On a conflicting cherry-pick (FR-004):
+On a conflicting cherry-pick:
 1. Stop propagation immediately
 2. Report all outstanding targets with conflict details
 3. Do NOT report hotfix as complete

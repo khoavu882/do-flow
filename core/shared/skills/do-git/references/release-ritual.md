@@ -1,7 +1,7 @@
 # Release Procedure: /do-git
 
 This procedure is executed when `/do-git release` is invoked. It runs as one previewed,
-confirmed sequence (FR-005).
+confirmed sequence.
 
 ## Sequence
 
@@ -53,4 +53,4 @@ Example:
 
 - **Never write the version manifests until after user confirmation** (step 3 shows preview only)
 - **Fingerprint mismatch aborts execution** - state must be exactly as when previewed
-- **All push operations require confirmation** per FR-010 safety gates
+- **All push operations require confirmation** — see `SKILL.md`'s Safety Gates

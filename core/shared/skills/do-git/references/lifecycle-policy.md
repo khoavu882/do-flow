@@ -41,7 +41,7 @@ The skill detects the forge from the configured remote URL and adapts vocabulary
 
 Detection failure or unknown remote degrades to plain git with ambiguity stated.
 
-## Deviation Catalogue (FR-011)
+## Deviation Catalogue
 
 What counts as a policy deviation and how it's reported:
 

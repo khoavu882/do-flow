@@ -9,7 +9,7 @@ effort: medium
 
 Cycle-aware git operations via named lifecycle intents. Reads policy from the repository's
 constitution or falls back to opinionated defaults. All mutating operations require explicit
-confirmation per FR-010.
+confirmation.
 
 ## Invocation
 ```text
@@ -38,14 +38,14 @@ Any unrecognized first token falls through to today's raw git operation behavior
 /do-git diff HEAD~10
 ```
 
-This satisfies NFR-002: existing `/do-git [operation]` invocations keep working.
+Existing `/do-git [operation]` invocations keep working.
 
 ## Behavioral Flow
 
 ### Per Intent Processing
 
 1. **Read repository state** → `do-paths.sh --json`, `do-git-state.sh` as needed
-2. **Dry-run fingerprint** (for mutable intents) → record for FR-005 change detection
+2. **Dry-run fingerprint** (for mutable intents) → record it, so a later step can tell whether the working tree moved underneath the plan
 3. **Compose preview sequence** → exact commands with concrete values, no placeholders
 4. **User confirmation** → explicit go/no-go before execution
 5. **Re-fingerprint** → if changed since step 2, abort and re-preview
@@ -57,7 +57,7 @@ This satisfies NFR-002: existing `/do-git [operation]` invocations keep working.
 3. **Execute** the raw git command
 4. **Report** result, next-Step suggestion if applicable
 
-## Safety Gates (FR-010 preserved)
+## Safety Gates
 
 The following behaviors from today's skill are carried over unchanged:
 
@@ -73,8 +73,8 @@ The following behaviors from today's skill are carried over unchanged:
 **Will:**
 - Run named lifecycle intents with full preview and confirmation
 - Fall through to raw git operations for unrecognized first tokens
-- Generate commit messages from actual diff content (FR-009)
-- Derive branch names purely from policy + do-git-state.sh (FR-002)
+- Generate commit messages from actual diff content, never from the request's wording
+- Derive branch names purely from policy plus `do-git-state.sh` — never invent one
 
 **Will Not:**
 - Forge API calls (PR/MR creation, pipeline watching) - excluded per scope boundary
@@ -98,5 +98,5 @@ This skill loads the following reference files on demand (not parsed at runtime)
 /do-git ship                      # Merge feature to integration
 /do-git release                   # Run full release ritual
 /do-git hotfix 12345              # Create hotfix from fix #12345
-/do-git log --oneline             # Raw git passthrough (NFR-002)
+/do-git log --oneline             # Raw git passthrough
 ```
