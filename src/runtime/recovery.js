@@ -41,24 +41,47 @@ const BUILD_CHECK_MARKERS = Object.freeze(['syntax', 'compile', 'build']);
 const TEST_CHECK_MARKERS = Object.freeze(['test', 'unit']);
 
 /**
- * Per-class recovery strategy. A class absent from this table — CONTEXT_MISSING aside, that is
- * WRONG_IMPLEMENTATION, TOOL_FAILURE, AGENT_FAILURE, BUDGET_EXCEEDED and UNKNOWN_FAILURE — falls
- * through to the generic debugger strategy. That fallthrough is deliberate and preserved from the
- * Python: the bound on iterations, not a per-class rule, is what stops those loops.
+ * Per-class recovery strategy — **one entry per class, all eleven** (plan task C.2).
+ *
+ * The B.3 port preserved the Python's six-entry table, under which WRONG_IMPLEMENTATION,
+ * TOOL_FAILURE, AGENT_FAILURE, BUDGET_EXCEEDED and UNKNOWN_FAILURE all fell through to
+ * `GENERIC_DEBUGGER_FIX`. C.2 completes the table, because that fallthrough directly contradicts
+ * FR-010 — "the response MUST be the targeted action for that class" — and in two cases the generic
+ * action is not merely untargeted but wrong:
+ *
+ *   - BUDGET_EXCEEDED: handing the task back to a debugger spends more of the budget that is
+ *     already gone. It is the one class where the targeted action is to stop, so it is `terminal`.
+ *   - TOOL_FAILURE: an unreachable MCP server or a missing provider is not fixed by rewriting code,
+ *     and swapping the agent changes nothing about the tool. The action routes to a fallback
+ *     provider instead (the capability router already declares those fallbacks).
+ *
+ * Classifying eleven ways and then acting six ways discarded most of what the classifier
+ * established. `GENERIC_STRATEGY` is retained and still reachable — a caller may pass a class
+ * string that is not one of the eleven — but no declared class relies on it any more.
  *
  * `switchAtIteration` encodes the Python's three agent-switch behaviours: `null` never switches,
  * `0` always switches (its unconditional `True`), and `2` switches only once two attempts have
- * already been spent (its `current_iteration >= 2`).
+ * already been spent (its `current_iteration >= 2`). `terminal` is new and means the class is not
+ * retryable at any iteration.
  */
 const STRATEGY_MAP = Object.freeze({
   CONTEXT_MISSING: { action: 'RETRIEVE_MORE_CONTEXT', targetRole: 'SCOUT', switchAtIteration: null },
-  BUILD_FAILURE: { action: 'TARGETED_COMPILER_FIX', targetRole: 'DEBUGGER', switchAtIteration: 2 },
+  WRONG_IMPLEMENTATION: { action: 'REVISE_IMPLEMENTATION', targetRole: 'IMPLEMENTER', switchAtIteration: 2 },
   TEST_FAILURE: { action: 'TARGETED_DEBUGGER_FIX', targetRole: 'DEBUGGER', switchAtIteration: 2 },
+  BUILD_FAILURE: { action: 'TARGETED_COMPILER_FIX', targetRole: 'DEBUGGER', switchAtIteration: 2 },
   ARCHITECTURE_FAILURE: { action: 'GRAPH_RE_EVALUATION', targetRole: 'PLANNER', switchAtIteration: 0 },
   REQUIREMENT_FAILURE: { action: 'SPEC_RECONCILIATION', targetRole: 'PLANNER', switchAtIteration: 0 },
   ENVIRONMENT_FAILURE: { action: 'ENVIRONMENT_DIAGNOSTIC', targetRole: 'VERIFIER', switchAtIteration: null },
+  TOOL_FAILURE: { action: 'ROUTE_TO_FALLBACK_PROVIDER', targetRole: 'VERIFIER', switchAtIteration: null },
+  // The agent itself is the failure, so the switch is the action rather than a later escalation.
+  AGENT_FAILURE: { action: 'SWITCH_AGENT_AND_RESTATE_TASK', targetRole: 'IMPLEMENTER', switchAtIteration: 0 },
+  BUDGET_EXCEEDED: { action: 'ESCALATE_TO_USER', targetRole: null, switchAtIteration: null, terminal: true },
+  // Diagnose before acting: an unclassified failure is the one case where a targeted fix cannot be
+  // chosen, and guessing one is how a recovery loop burns its whole bound on the wrong repair.
+  UNKNOWN_FAILURE: { action: 'DIAGNOSTIC_TRIAGE', targetRole: 'VERIFIER', switchAtIteration: null },
 });
 
+/** Reachable only for a class string outside the eleven — see the note on STRATEGY_MAP. */
 const GENERIC_STRATEGY = Object.freeze({
   action: 'GENERIC_DEBUGGER_FIX',
   targetRole: 'DEBUGGER',
@@ -169,6 +192,21 @@ class RecoveryManager {
     }
 
     const strategy = STRATEGY_MAP[failureClass] || GENERIC_STRATEGY;
+
+    // A terminal class stops the loop regardless of how much of the bound is left. Today that is
+    // BUDGET_EXCEEDED only: retrying is the one response guaranteed to make the failure worse.
+    if (strategy.terminal) {
+      return {
+        iteration,
+        failureClass,
+        action: strategy.action,
+        targetRole: strategy.targetRole,
+        agent,
+        canRetry: false,
+        reason: `Failure class '${failureClass}' is not retryable; a retry would repeat the condition that caused it.`,
+      };
+    }
+
     const switchAgent =
       strategy.switchAtIteration !== null && iteration >= strategy.switchAtIteration;
 
@@ -191,5 +229,6 @@ module.exports = {
   RecoveryManager,
   FAILURE_CLASSES,
   STRATEGY_MAP,
+  GENERIC_STRATEGY,
   DEFAULT_MAX_ITERATIONS,
 };

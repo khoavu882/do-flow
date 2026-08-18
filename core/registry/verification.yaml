@@ -1,0 +1,234 @@
+{
+  "version": 1,
+  "description": "Verification check tiers, their fixed ordering, and which tiers each risk level requires. JSON content under a .yaml extension, matching capabilities.yaml and routes.yaml (design 4.4). Consumed by src/runtime/verification.js.",
+  "policy": {
+    "defaultRiskLevel": "MEDIUM",
+    "emptyContractStatus": "INCONCLUSIVE",
+    "unresolvedRequiredTierStatus": "INCONCLUSIVE",
+    "modelReviewIsPrimaryProof": false,
+    "commandRoles": ["parse", "build", "lint", "typecheck", "test", "testTargeted"],
+    "planOverrideBlock": "doflow-verification",
+    "completion": {
+      "requires": "all-required-tiers-pass",
+      "override": "explicit-user-acceptance",
+      "overrideRequiresAccepter": true
+    },
+    "unresolvedDetectionFailureClass": "CONTEXT_MISSING",
+    "notes": [
+      "A tier whose command could not be detected and was not explicitly declared absent resolves to UNRESOLVED, and an UNRESOLVED required tier forces the whole report to INCONCLUSIVE. A gate never answers PASS about a check it did not run.",
+      "modelReviewIsPrimaryProof is false and is validated as false at load: a model-based tier may lower a verdict to FAIL but can never establish PASS on its own.",
+      "Each tier declares the recovery failureClass its failure means. A tier declaration is structural evidence and outranks the keyword classifier reading an error string, the same precedence recovery.js already applies between check names and error prose.",
+      "unresolvedDetectionFailureClass is CONTEXT_MISSING rather than ENVIRONMENT_FAILURE: what is missing is knowledge of the command, and the targeted action is to find it or declare it in plan.md, not to diagnose the machine."
+    ]
+  },
+  "tierStatuses": [
+    "PASS",
+    "FAIL",
+    "UNRESOLVED",
+    "SUBSUMED",
+    "NOT_APPLICABLE",
+    "SKIPPED",
+    "NOT_RUN"
+  ],
+  "tiers": [
+    {
+      "id": "parse",
+      "order": 10,
+      "name": "Parse",
+      "kind": "deterministic",
+      "description": "Syntax-only check of the changed sources. Cheapest possible evidence that the edit is even well-formed.",
+      "source": "detected-command",
+      "commandRoles": ["parse"],
+      "commandRoleSelection": "first",
+      "failureClass": "BUILD_FAILURE",
+      "subsumedBy": ["build", "static-analysis"],
+      "absenceIsEvidence": true,
+      "fatal": true,
+      "modelBased": false,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "build",
+      "order": 20,
+      "name": "Build",
+      "kind": "deterministic",
+      "description": "Compile or bundle the project. A broken build makes every later result a description of the broken build rather than of the change, which is why it is fatal.",
+      "source": "detected-command",
+      "commandRoles": ["build"],
+      "commandRoleSelection": "first",
+      "failureClass": "BUILD_FAILURE",
+      "subsumedBy": [],
+      "absenceIsEvidence": true,
+      "fatal": true,
+      "modelBased": false,
+      "timeoutMs": 600000
+    },
+    {
+      "id": "static-analysis",
+      "order": 30,
+      "name": "Static analysis",
+      "kind": "deterministic",
+      "description": "Type checking and linting. Deterministic, no test fixtures required, and finds whole classes of defect before a single test runs.",
+      "source": "detected-command",
+      "commandRoles": ["typecheck", "lint"],
+      "commandRoleSelection": "all",
+      "failureClass": "WRONG_IMPLEMENTATION",
+      "subsumedBy": [],
+      "absenceIsEvidence": true,
+      "fatal": false,
+      "modelBased": false,
+      "timeoutMs": 300000
+    },
+    {
+      "id": "targeted-tests",
+      "order": 40,
+      "name": "Targeted tests",
+      "kind": "behavioral",
+      "description": "Tests scoped to the change. Falls back to the broad test command when no target pattern is available, and the report records that it did.",
+      "source": "detected-command",
+      "commandRoles": ["testTargeted", "test"],
+      "commandRoleSelection": "first",
+      "failureClass": "TEST_FAILURE",
+      "subsumedBy": [],
+      "absenceIsEvidence": false,
+      "fatal": false,
+      "modelBased": false,
+      "timeoutMs": 900000
+    },
+    {
+      "id": "broad-tests",
+      "order": 50,
+      "name": "Broad tests",
+      "kind": "behavioral",
+      "description": "The full suite. Required from MEDIUM risk upward — this is the tier the risk scaling actually turns on.",
+      "source": "detected-command",
+      "commandRoles": ["test"],
+      "commandRoleSelection": "first",
+      "failureClass": "TEST_FAILURE",
+      "subsumedBy": [],
+      "absenceIsEvidence": false,
+      "fatal": false,
+      "modelBased": false,
+      "timeoutMs": 1800000
+    },
+    {
+      "id": "structural-invariants",
+      "order": 60,
+      "name": "Structural invariants",
+      "kind": "structural",
+      "description": "Repository-shape checks the caller supplies — guard suites, architecture fitness functions, layering rules. Not derivable from a manifest, so the compiler asks for them.",
+      "source": "caller-supplied",
+      "commandRoles": [],
+      "failureClass": "ARCHITECTURE_FAILURE",
+      "subsumedBy": [],
+      "absenceIsEvidence": false,
+      "fatal": false,
+      "modelBased": false,
+      "timeoutMs": 900000
+    },
+    {
+      "id": "requirement-satisfaction",
+      "order": 70,
+      "name": "Requirement satisfaction",
+      "kind": "requirement",
+      "description": "One check per requirement the change claims to satisfy. A requirement with no executable check is reported unevaluated, never satisfied — an assertion is not a verification.",
+      "source": "caller-supplied",
+      "commandRoles": [],
+      "failureClass": "REQUIREMENT_FAILURE",
+      "subsumedBy": [],
+      "absenceIsEvidence": false,
+      "fatal": false,
+      "modelBased": false,
+      "timeoutMs": 900000
+    },
+    {
+      "id": "change-scope",
+      "order": 80,
+      "name": "Change scope",
+      "kind": "scope",
+      "description": "Compares the files actually touched against the bound the contract declared before implementation. Catches the change that passed every test by also rewriting things nobody asked for.",
+      "source": "scope-observation",
+      "commandRoles": [],
+      "failureClass": "WRONG_IMPLEMENTATION",
+      "subsumedBy": [],
+      "absenceIsEvidence": false,
+      "fatal": false,
+      "modelBased": false,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "model-review",
+      "order": 90,
+      "name": "Model-based review",
+      "kind": "advisory",
+      "description": "Runs last, after every deterministic tier has already produced its evidence. Advisory by construction: it can lower a verdict to FAIL but can never establish PASS (FR-009).",
+      "source": "model",
+      "commandRoles": [],
+      "failureClass": "WRONG_IMPLEMENTATION",
+      "subsumedBy": [],
+      "absenceIsEvidence": false,
+      "fatal": false,
+      "modelBased": true,
+      "canEstablishPass": false,
+      "timeoutMs": 0
+    }
+  ],
+  "riskLevels": {
+    "LOW": {
+      "description": "Isolated, reversible change. Deterministic tiers plus tests scoped to the edit.",
+      "requiredTiers": [
+        "parse",
+        "build",
+        "static-analysis",
+        "targeted-tests",
+        "change-scope"
+      ],
+      "advisoryTiers": [],
+      "maxRecoveryIterations": 3
+    },
+    "MEDIUM": {
+      "description": "Default. Adds the full suite, because a change of this size can break something it never mentions.",
+      "requiredTiers": [
+        "parse",
+        "build",
+        "static-analysis",
+        "targeted-tests",
+        "broad-tests",
+        "change-scope"
+      ],
+      "advisoryTiers": [],
+      "maxRecoveryIterations": 3
+    },
+    "HIGH": {
+      "description": "Security, auth, payments, data migration. Adds structural and requirement evidence, and tightens the retry bound because repeated blind attempts are themselves a risk.",
+      "requiredTiers": [
+        "parse",
+        "build",
+        "static-analysis",
+        "targeted-tests",
+        "broad-tests",
+        "structural-invariants",
+        "requirement-satisfaction",
+        "change-scope"
+      ],
+      "advisoryTiers": ["model-review"],
+      "maxRecoveryIterations": 2
+    },
+    "CRITICAL": {
+      "description": "Production outage, breaking change, data loss. Every tier including a recorded model review; one retry, then a human decides.",
+      "requiredTiers": [
+        "parse",
+        "build",
+        "static-analysis",
+        "targeted-tests",
+        "broad-tests",
+        "structural-invariants",
+        "requirement-satisfaction",
+        "change-scope",
+        "model-review"
+      ],
+      "advisoryTiers": [],
+      "maxRecoveryIterations": 1
+    }
+  }
+}

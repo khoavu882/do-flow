@@ -31,7 +31,11 @@ const { applyLifecycle, removeLifecycle, applyMcpIndex, verifyLifecycle } = requ
 const { readLedger } = require('../src/state');
 const { codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan } = require('../src/lifecycle-view');
 const { commandText, planToolLifecycle, executeToolLifecycle } = require('../src/tool-lifecycle');
-const { handleCapabilitiesCommand, handleDoctorCommand, handleReadinessCommand, handleEvidenceCommand } = require('../src/runtime/cli');
+const { handleCapabilitiesCommand, handleReadinessCommand, handleEvidenceCommand } = require('../src/runtime/cli');
+// `doctor` comes from the health module rather than src/runtime/cli.js: the health-probe report
+// (FR-013) supersedes the presence-check version, and one verb must have one implementation.
+const { handleDoctorCommand } = require('../src/runtime/health');
+const { handleTraceCommand, handleStatsCommand, handleDiscoverCommand } = require('../src/runtime/trace');
 
 const SCRIPT_DIR = __dirname; // bin/
 const REPO_ROOT = path.dirname(SCRIPT_DIR);
@@ -48,7 +52,7 @@ function assertNoBackupRequiresForce(o) {
 function parseArgs(argv) {
   const o = { cmd: null, positional: [], targets: [], mcp: null, dryRun: false, force: false,
     noBackup: false, prune: 0, global: false, json: false, help: false, version: false,
-    tools: null, action: 'status' };
+    tools: null, action: 'status', days: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
@@ -89,6 +93,15 @@ function parseArgs(argv) {
         const val = argv[i + 1];
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
         o.taskId = val; i++; break;
+      }
+      case '--days': {
+        const val = argv[i + 1];
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a number`); process.exit(2); }
+        const parsed = parseInt(val, 10);
+        // Run-ledger windows are calendar days; a zero or negative window is a typo, not "all
+        // history", and silently reading everything would answer a question nobody asked.
+        if (!Number.isFinite(parsed) || parsed < 1) { console.error(`doflow: ${a} expects a positive number of days, got '${val}'`); process.exit(2); }
+        o.days = parsed; i++; break;
       }
       case '--prune': {
         const val = argv[i + 1];
@@ -133,6 +146,9 @@ Commands:
   doctor               System health and capability smoke check diagnostics
   readiness            Evaluate task readiness contract (--task-class, --task-id)
   evidence             Inspect recorded task evidence items (--task-id)
+  trace                Trajectory of the current or most recent workflow (run ledger)
+  stats                Aggregate local run-ledger usage
+  discover             Missed capability opportunities in recorded runs
 
 Scope (mutually exclusive — global wins if both given):
   -g, --global         Install to \$HOME/.{claude,codex,gemini}
@@ -150,6 +166,7 @@ Options:
   -f, --force          Skip confirmation prompts
       --no-backup      Skip backup (requires --force; ignored by rollback's safety snapshot)
       --prune <N>      Keep only N most recent backups
+      --days <N>       Run-ledger window in calendar days (trace, stats, discover)
       --json           Machine-readable output (status)
 
 External tools:
@@ -676,12 +693,22 @@ function main() {
       case 'self-update': return cmdSelfUpdate(o);
       case 'tools': return cmdTools(o);
       case 'capabilities': return handleCapabilitiesCommand({ json: o.json, check: o.check, repoRoot: REPO_ROOT });
-      case 'doctor': return handleDoctorCommand({ json: o.json, repoRoot: REPO_ROOT });
+      // REPO_ROOT locates the capability registry; projectRoot is the tree whose index freshness
+      // and build/test commands are being reported on, which follows the usual scope rules.
+      case 'doctor': return handleDoctorCommand({ json: o.json, repoRoot: REPO_ROOT, projectRoot: evidenceRoot(o) });
       // REPO_ROOT locates the registry (templates ship with the package); stateRoot locates the
       // caller's evidence, which follows the same scope rules as every other command: -g means
       // $HOME, otherwise the positional project root (default cwd).
       case 'readiness': return handleReadinessCommand({ taskClass: o.taskClass || 'feature', taskId: o.taskId || 'default', json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
       case 'evidence': return handleEvidenceCommand({ taskId: o.taskId || 'default', json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
+      // Run-ledger views. They resolve their own ledger the way the dispatcher does (nearest
+      // `.doflow` walking up, or the global one) rather than assuming cwd is the project root, so
+      // a view invoked from a subdirectory reads the runs that were actually recorded.
+      // Exit codes follow design §4.2 and are set by the handler itself: 0 = answered, 1 = a
+      // finding the caller must act on.
+      case 'trace': return handleTraceCommand({ json: o.json, days: o.days, global: o.global, projectRoot: evidenceRoot(o) });
+      case 'stats': return handleStatsCommand({ json: o.json, days: o.days, global: o.global, projectRoot: evidenceRoot(o) });
+      case 'discover': return handleDiscoverCommand({ json: o.json, days: o.days, global: o.global, projectRoot: evidenceRoot(o) });
       default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
     }
   } catch (error) {

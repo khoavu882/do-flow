@@ -14,7 +14,9 @@
 #
 # Usage: doflow-run <verb> [args...]
 #   Every verb accepts --json. Exit 0 = success, 1 = an actionable finding, 2 = usage or
-#   resolution error.
+#   resolution error. Arguments, stdin and exit status pass through the dispatcher unmodified —
+#   `sync-context` reads its block body from stdin, so anything that buffered or consumed it here
+#   would break that verb rather than merely inconvenience it.
 
 set -euo pipefail
 
@@ -156,16 +158,20 @@ usage() {
   cat <<'EOF'
 doflow-run <verb> [args...] — the DoFlow runtime seam
 
-Every verb accepts --json. Exit 0 = success, 1 = an actionable finding,
-2 = a usage or resolution error.
+Every verb accepts --json and reports on stdout. Exit 0 = success,
+1 = an actionable finding, 2 = a usage or resolution error. sync-context is the
+one verb whose result is a file write rather than a report, so it acknowledges
+in plain text and --json changes nothing.
 
 Artifact and repository state:
   paths            resolve repo root, branch, feature slug, artifact paths
   validate         artifact index/detail consistency check
   git-state        branch class and derived branch names
   prereqs          stage prerequisite checks
+  parallel-check   dispatch groups and write-set collisions for one plan phase
   task-brief       task brief extraction for execution
   review-package   assemble a review payload
+  sync-context     write a marker-delimited block (stdin) into an agent context file
 
 Workflow and evidence:
   classify         validate a proposed task class, return its workflow
@@ -254,14 +260,22 @@ trace_run() {
 
 # The two arms of the verb table (design.md §4.2). Together they also answer "is this a verb at
 # all", so there is no third list to keep in step.
+#
+# Every helper a *skill* names has to appear here, or that skill has no way to reach it except by
+# inlining its own resolver — the exact pattern C.4 removes. `do-parallel-check.sh` and
+# `sync-context.sh` are here for that reason and no other. `do-exec-paths.sh` deliberately is not:
+# it is called by do-task-brief.sh and do-review-package.sh, never by a skill, so exposing it would
+# widen the public surface without removing a single resolver.
 shell_helper_for() {
   case "$1" in
     paths)          printf 'do-paths.sh' ;;
     validate)       printf 'validate-artifacts.sh' ;;
     git-state)      printf 'do-git-state.sh' ;;
     prereqs)        printf 'do-prereqs.sh' ;;
+    parallel-check) printf 'do-parallel-check.sh' ;;
     task-brief)     printf 'do-task-brief.sh' ;;
     review-package) printf 'do-review-package.sh' ;;
+    sync-context)   printf 'sync-context.sh' ;;
     *) return 1 ;;
   esac
 }

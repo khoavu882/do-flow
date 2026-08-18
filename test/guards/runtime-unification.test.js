@@ -169,20 +169,19 @@ test('G12: every shell-backed verb resolves to a helper that exists', () => {
 });
 
 // Helpers with no verb. Being unexposed is a legitimate state — but only deliberately, so each one
-// is listed with the reason it is not in the table. C.4 will route skills through the dispatcher;
-// the two skill-facing entries below are the gap that task has to close (either by adding a verb or
-// by absorbing the helper), and this list is what makes the gap visible instead of assumed.
+// is listed with the reason it is not in the table.
+//
+// The test of whether a helper needs a verb is FR-003: the seam must cover every runtime call a
+// skill can make. A helper only ever invoked by another helper is already behind the seam, because
+// the skill reached it through the verb serving its caller. `do-parallel-check.sh` and
+// `sync-context.sh` failed that test — both were named by skill prose — and gained verbs;
+// `do-exec-paths.sh` passes it and stays internal.
 const UNEXPOSED_HELPERS = new Map([
   ['do-exec-paths.sh',
-    'internal to do-task-brief.sh and do-review-package.sh, which shell out to it directly; also '
-    + 'still named by do-execute-plan/references/parallel_dispatch.md, so C.4 must give it a verb '
-    + 'or fold it into task-brief'],
-  ['do-parallel-check.sh',
-    'named directly by do-execute-plan (SKILL.md and parallel_dispatch.md) with no verb behind it — '
-    + 'a C.4 gap, recorded rather than silently tolerated'],
-  ['sync-context.sh',
-    'named directly by do-constitution, which still inlines its own resolver for it — the exact '
-    + 'pattern C.4 removes; no verb exists for it yet'],
+    'no skill invokes it: do-task-brief.sh and do-review-package.sh shell out to it directly, so it '
+    + 'is already behind the task-brief and review-package verbs. parallel_dispatch.md names it only '
+    + 'to explain where a brief\'s paths come from — prose about a helper is not a runtime call, and '
+    + 'a verb here would widen the public surface without removing an inlined resolver'],
 ]);
 
 test('G12: every shell helper is either a verb target or a recorded non-verb helper', () => {

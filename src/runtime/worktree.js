@@ -23,6 +23,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 
 /** Worktree ids become branch names and directory names, so anything outside this set is a
@@ -33,6 +34,25 @@ const SAFE_ID = /^[A-Za-z0-9._-]+$/;
 /** Records the base commit a sandbox was cut from. Lives inside the worktree so it survives a
  * process boundary; excluded from collected diffs since it is harness bookkeeping, not task work. */
 const BASE_FILE = '.doflow-worktree-base';
+
+/**
+ * Records which skill source a sandbox carries (plan task A.5). Written inside the worktree for the
+ * same reason as BASE_FILE: grading may run in a different process from execution, and a run that
+ * cannot say which skills it measured is not evidence of anything.
+ */
+const SKILL_SOURCE_FILE = '.doflow-skill-source.json';
+
+/** Where the claude adapter lands skills inside an installed project. Not invented here — this is
+ * the adapter's own layout, which is the point: the sandbox holds a real projection, not a copy
+ * that can drift from one. */
+const SANDBOX_SKILLS_DIR = path.join('.claude', 'skills');
+
+/** Source of truth for skill content, relative to the repo root. */
+const SOURCE_SKILLS_DIR = path.join('core', 'shared', 'skills');
+
+function sha256File(file) {
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
 
 function git(args, cwd, { allowFailure = false } = {}) {
   try {
@@ -122,6 +142,123 @@ class WorktreeManager {
     return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim() : null;
   }
 
+  /**
+   * Materialise **this repo's** skills inside the sandbox and record exactly what landed there.
+   *
+   * Why this is not optional for an evaluation sandbox: Claude Code resolves a bare skill name from
+   * user scope (`~/.claude/skills/`) before project scope, and first match wins — so a run that
+   * invokes `/do-code-review` measures whatever is globally installed, not the tree under test.
+   * Verified against 2.1.226 (`lE()` is a first-match lookup over a list ordered policy → user →
+   * project) and observed live: a project-scope `do-git` shadow was ignored in favour of the
+   * installed copy. Twelve of the thirteen installed skills currently differ from this repo's
+   * source, so the difference is not hypothetical.
+   *
+   * Projecting here therefore does *not* win the name lookup — nothing can, in-process. What it
+   * buys is a known-good copy at a known path with recorded hashes, which is what makes the
+   * by-path dispatch contract (see `bench/README.md`) checkable rather than trusted.
+   *
+   * The real installer is used rather than a hand-copy so the sandbox exercises the actual
+   * projection, including the guidance, scripts and templates the skills reference — a SKILL.md
+   * copied alone would leave every `references/` path dangling and change the behaviour being
+   * measured. It costs ~0.15s per sandbox.
+   *
+   * Writes the manifest before validating, so a failed projection is still diagnosable, then throws
+   * if any skill is missing or does not match source.
+   *
+   * @returns {object} the manifest also written to `<worktree>/.doflow-skill-source.json`
+   */
+  projectSkills(taskId, { harness = 'claude', cli = path.join('bin', 'doflow.js'), skillsRoot = SOURCE_SKILLS_DIR } = {}) {
+    const wtPath = this.pathFor(taskId);
+    if (!fs.existsSync(wtPath)) {
+      throw new Error(`no worktree at ${wtPath} — create it before projecting skills`);
+    }
+    const sourceRoot = path.join(this.repoRoot, skillsRoot);
+    if (!fs.existsSync(sourceRoot)) {
+      throw new Error(`no skill source at ${sourceRoot}`);
+    }
+
+    let installOutput;
+    try {
+      installOutput = execFileSync(
+        process.execPath,
+        [path.join(this.repoRoot, cli), 'install', wtPath, '--force', '-t', harness],
+        { cwd: this.repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+    } catch (err) {
+      throw new Error(`projecting skills into ${wtPath} failed: ${err.stderr || err.message}`);
+    }
+
+    const names = fs
+      .readdirSync(sourceRoot, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && fs.existsSync(path.join(sourceRoot, e.name, 'SKILL.md')))
+      .map((e) => e.name)
+      .sort();
+
+    const skills = {};
+    const mismatches = [];
+    for (const name of names) {
+      const rel = path.join(SANDBOX_SKILLS_DIR, name, 'SKILL.md');
+      const dst = path.join(wtPath, rel);
+      const sourceSha256 = sha256File(path.join(sourceRoot, name, 'SKILL.md'));
+      const sha256 = fs.existsSync(dst) ? sha256File(dst) : null;
+      skills[name] = { path: rel, sha256, sourceSha256, matchesSource: sha256 === sourceSha256 };
+      if (sha256 !== sourceSha256) mismatches.push(name);
+    }
+
+    const manifest = {
+      generatedAt: new Date().toISOString(),
+      taskId,
+      repoRoot: this.repoRoot,
+      sourceRoot: skillsRoot,
+      sourceCommit: this.headCommit(),
+      harness,
+      projectedBy: `${cli} install <sandbox> --force -t ${harness}`,
+      skillsDir: path.join(wtPath, SANDBOX_SKILLS_DIR),
+      skillsDirRelative: SANDBOX_SKILLS_DIR,
+      skillCount: names.length,
+      mismatches,
+      skills,
+      installLog: (installOutput || '').trim().split('\n').slice(-3),
+    };
+    fs.writeFileSync(path.join(wtPath, SKILL_SOURCE_FILE), `${JSON.stringify(manifest, null, 2)}\n`);
+
+    if (mismatches.length) {
+      throw new Error(
+        `sandbox ${taskId} does not carry this repo's skills (${mismatches.join(', ')}) — ` +
+          `a run against it would measure something else. See ${path.join(wtPath, SKILL_SOURCE_FILE)}`,
+      );
+    }
+    return manifest;
+  }
+
+  /** The skill-source manifest a sandbox recorded, or null when it was never projected. */
+  skillSourceOf(taskId) {
+    const file = path.join(this.pathFor(taskId), SKILL_SOURCE_FILE);
+    if (!fs.existsSync(file)) return null;
+    try {
+      return JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch {
+      return null;
+    }
+  }
+
+  /** Repo HEAD, or null outside a repository. Recorded for readability; the per-skill hashes are
+   * the actual provenance, and they stay correct on a dirty tree where a commit id does not. */
+  headCommit() {
+    const res = git(['rev-parse', 'HEAD'], this.repoRoot, { allowFailure: true });
+    return res.ok ? res.stdout.trim() : null;
+  }
+
+  /**
+   * One call for the shape an evaluation run needs: an isolated worktree that carries this repo's
+   * skills. Split from `create()` because non-evaluation callers want a bare worktree and should
+   * not pay for a projection they will not read.
+   */
+  createSandbox(taskId, { baseRef = 'HEAD', ...opts } = {}) {
+    const wtPath = this.create(taskId, baseRef);
+    return { path: wtPath, manifest: this.projectSkills(taskId, opts) };
+  }
+
   /** Remove the worktree and its branch. Idempotent: removing something absent is success. */
   remove(taskId) {
     const wtPath = this.pathFor(taskId);
@@ -159,8 +296,10 @@ class WorktreeManager {
     }
     return {
       diff: `${committed.ok ? committed.stdout : ''}${working.ok ? working.stdout : ''}`,
+      // Harness bookkeeping is not task work: the base pointer and the skill-source manifest are
+      // written by this module, not by the skill under test.
       untracked: untracked.ok
-        ? untracked.stdout.split('\n').filter((f) => f && f !== BASE_FILE)
+        ? untracked.stdout.split('\n').filter((f) => f && f !== BASE_FILE && f !== SKILL_SOURCE_FILE)
         : [],
       error: null,
     };
@@ -186,4 +325,11 @@ class WorktreeManager {
   }
 }
 
-module.exports = { WorktreeManager };
+module.exports = {
+  WorktreeManager,
+  BASE_FILE,
+  SKILL_SOURCE_FILE,
+  SANDBOX_SKILLS_DIR,
+  SOURCE_SKILLS_DIR,
+  sha256File,
+};

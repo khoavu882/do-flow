@@ -10,6 +10,11 @@
  * the split here means the harness stays runnable offline (list/coverage/grade/report all work
  * with no API access) and only the dispatch step costs money.
  *
+ * Skill provenance (task A.5) is part of grading, not a side note: a run that cannot name the
+ * SKILL.md it followed cannot support a claim about this repo, because the Skill tool resolves
+ * `~/.claude/skills/` ahead of anything project-local. `plan` states the by-path contract, sandbox
+ * creation projects this repo's skills, and `grade` classifies every run's recorded source.
+ *
  * Output format deliberately matches skill-creator's: grading.json uses `text`/`passed`/`evidence`
  * because its aggregate_benchmark.py and eval-viewer/generate_review.py depend on those exact
  * field names. Reusing that machinery rather than reimplementing it is NFR-008 applied to our own
@@ -19,8 +24,16 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const {
+  SKILL_SOURCE_FILE,
+  SANDBOX_SKILLS_DIR,
+  sha256File,
+} = require('../src/runtime/worktree.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
+
+/** What a dispatched run must write to prove which SKILL.md it actually followed. */
+const RUN_SOURCE_FILE = 'skill_source.json';
 
 function loadConfig() {
   return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
@@ -139,13 +152,23 @@ const PROGRAMMATIC = {
 function loadRunContext(runDir) {
   const transcriptFile = path.join(runDir, 'transcript.txt');
   const invokedFile = path.join(runDir, 'invoked_skills.json');
+  const sourceFile = path.join(runDir, RUN_SOURCE_FILE);
   const outputsDir = path.join(runDir, 'outputs');
   const outputFiles = fs.existsSync(outputsDir) ? walkFiles(outputsDir) : [];
+  let skillSource = null;
+  if (fs.existsSync(sourceFile)) {
+    try {
+      skillSource = readJson(sourceFile);
+    } catch {
+      skillSource = { malformed: true };
+    }
+  }
   return {
     runDir,
     transcript: fs.existsSync(transcriptFile) ? fs.readFileSync(transcriptFile, 'utf8') : '',
     invokedSkills: fs.existsSync(invokedFile) ? readJson(invokedFile) : [],
     hasTranscript: fs.existsSync(transcriptFile),
+    skillSource,
     outputFiles,
     // Concatenated so one regex sweeps every artifact — an assertion about what a run produced
     // rarely cares which file it landed in, and naming the file would couple the case to a layout
@@ -173,6 +196,86 @@ function safeRead(file) {
   } catch {
     return '';
   }
+}
+
+// ---------------------------------------------------------------------------
+// Skill provenance (plan task A.5)
+// ---------------------------------------------------------------------------
+
+/**
+ * The hash a run must have read. `core/shared/skills/<skill>/SKILL.md` is the tree Phase D
+ * rewrites, so it is the only source whose measurement means anything.
+ */
+function skillSourceSha256(cfg, skill) {
+  const file = path.join(REPO_ROOT, cfg.skillsRoot, skill, 'SKILL.md');
+  return fs.existsSync(file) ? sha256File(file) : null;
+}
+
+/** A path is sandbox-resolved when it lives under a bench worktree. Anything else — most obviously
+ * `~/.claude/skills/` — is a copy this repo does not control. */
+function isSandboxPath(p) {
+  const norm = String(p).replace(/\\/g, '/');
+  // Tolerant of a repo-relative record even though the contract asks for an absolute one: a run
+  // that read the right file should not be reported as a global fallback over a leading slash.
+  return /(^|\/)\.doflow\/worktrees\//.test(norm) && norm.includes(`/${SANDBOX_SKILLS_DIR.replace(/\\/g, '/')}/`);
+}
+
+/**
+ * Decide, from what the run itself recorded, which SKILL.md it followed.
+ *
+ * This exists because the harness previously could not answer that question at all. Claude Code
+ * resolves a bare skill name from `~/.claude/skills/` before any project-scope copy and takes the
+ * first match, so an unverified run is not "probably fine" — it is the *expected* failure mode. A
+ * missing record is therefore reported as `unrecorded`, never as a pass: silence is what the defect
+ * looked like.
+ *
+ * Statuses: `verified` (sandbox path, hash matches source) · `global-fallback` (resolved outside
+ * the sandbox — this is the regression A.5 exists to catch) · `mismatch` (sandbox path, stale or
+ * edited content) · `unrecorded` (the run saved no `skill_source.json`).
+ */
+function verifySkillSource(cfg, skill, ctx) {
+  const expected = skillSourceSha256(cfg, skill);
+  const rec = ctx.skillSource;
+  if (!rec || rec.malformed) {
+    return {
+      status: 'unrecorded',
+      expectedSha256: expected,
+      recordedSha256: null,
+      recordedPath: null,
+      evidence: rec
+        ? `${RUN_SOURCE_FILE} is not valid JSON — cannot tell which skill this run measured`
+        : `no ${RUN_SOURCE_FILE} saved — cannot tell whether this run read the repo's skill or ~/.claude/skills/`,
+    };
+  }
+  const recordedPath = rec.path || null;
+  const recordedSha256 = rec.sha256 || null;
+  const sandboxed = recordedPath !== null && isSandboxPath(recordedPath);
+  const hashOk = expected !== null && recordedSha256 === expected;
+
+  if (sandboxed && hashOk) {
+    return { status: 'verified', expectedSha256: expected, recordedSha256, recordedPath, evidence: `read ${recordedPath} (matches ${cfg.skillsRoot}/${skill}/SKILL.md)` };
+  }
+  if (!sandboxed) {
+    // Two shapes, one status. Content that happens to match source is still not a sandboxed read:
+    // one of the thirteen installed skills is currently byte-identical to source, so hash alone
+    // would let exactly that skill pass while resolving globally.
+    return {
+      status: 'global-fallback',
+      expectedSha256: expected,
+      recordedSha256,
+      recordedPath,
+      evidence: hashOk
+        ? `${recordedPath} matches source but is outside the run's sandbox — the run did not use its own isolated copy`
+        : `${recordedPath || 'no path recorded'} is outside the run's sandbox — this run measured a copy this repo does not control`,
+    };
+  }
+  return {
+    status: 'mismatch',
+    expectedSha256: expected,
+    recordedSha256,
+    recordedPath,
+    evidence: `${recordedPath} is in the sandbox but hashes ${recordedSha256} against source ${expected} — the sandbox is stale or the file was edited mid-run`,
+  };
 }
 
 function gradeAssertion(assertion, ctx) {
@@ -237,16 +340,43 @@ function cmdList(cfg, opts) {
   return 0;
 }
 
+const WT_REQUIRE = "const{WorktreeManager}=require('./src/runtime/worktree.js');const m=new WorktreeManager(process.cwd());";
+
 /**
- * Emit the dispatch plan the orchestrator turns into subagent runs. Each entry carries everything
- * a run needs and where to save its outputs, so the orchestrator does no path arithmetic of its
- * own — the same reason skills call one resolver instead of computing paths inline.
+ * The rule every dispatched run has to follow, stated once at the top of the plan rather than
+ * duplicated across 33 entries.
+ *
+ * It says "read the file" rather than "invoke the skill" because invoking by name cannot be made to
+ * resolve this repo's copy. Claude Code merges skills in the order policy → user → project and the
+ * lookup takes the first match, so `~/.claude/skills/<name>/` always wins a name collision;
+ * verified against 2.1.226 and observed live. Nested project skills are worse than useless here:
+ * discovery skips gitignored directories, and `.doflow/` is gitignored, so the sandbox's own
+ * `.claude/skills/` is never even scanned. Path-based loading is not a workaround around a bug we
+ * could fix — it is the only resolution the harness controls.
  */
-function cmdPlan(cfg, opts) {
-  if (!opts.iteration) {
-    console.error('bench plan: --iteration <name> is required (e.g. --iteration baseline)');
-    return 2;
-  }
+const SKILL_RESOLUTION = {
+  rule: 'sandbox-path',
+  summary:
+    "Every run must read its skill from its own sandbox, by path, and record which file it read. " +
+    'Invoking the bare skill name resolves the globally installed copy instead.',
+  why:
+    'Claude Code resolves skills user-scope-first and takes the first name match, so ' +
+    '~/.claude/skills/<name>/SKILL.md shadows any project copy. 12 of the 13 installed skills ' +
+    "currently differ from this repo's source, so a name-resolved run measures the wrong tree.",
+  dispatchedAgentMustNot: 'invoke /<skill> by name, or rely on the Skill tool, to load the skill under test',
+  dispatchedAgentMust: [
+    'read <sandbox>/.claude/skills/<skill>/SKILL.md and follow it as the skill body',
+    `write ${RUN_SOURCE_FILE} into the run's outputDir recording the absolute path read and its sha256`,
+  ],
+  runRecordSchema: {
+    file: RUN_SOURCE_FILE,
+    fields: { skill: 'string', path: 'absolute path to the SKILL.md actually read', sha256: 'sha256 of that file' },
+    example: { skill: 'do-code-review', path: '/abs/.doflow/worktrees/<id>/.claude/skills/do-code-review/SKILL.md', sha256: '<64 hex>' },
+  },
+  gradedAs: 'bench grade classifies each run verified | global-fallback | mismatch | unrecorded; anything but verified is flagged, and an absent record is never treated as a pass',
+};
+
+function buildPlan(cfg, opts) {
   const skills = opts.skill ? [opts.skill] : discoverSkills(cfg);
   const runs = [];
   for (const skill of skills) {
@@ -257,6 +387,8 @@ function cmdPlan(cfg, opts) {
       // branches, or commit; without isolation a baseline capture would mutate the very tree
       // being measured. The id is the worktree name, so it must satisfy WorktreeManager's charset.
       const sandboxId = `bench-${opts.iteration}-${skill}-${e.id}`.replace(/[^A-Za-z0-9._-]/g, '-');
+      const workingDir = path.join('.doflow', 'worktrees', sandboxId);
+      const skillFile = path.join(workingDir, SANDBOX_SKILLS_DIR, skill, 'SKILL.md');
       runs.push({
         skill,
         evalId: e.id,
@@ -268,24 +400,56 @@ function cmdPlan(cfg, opts) {
         sandbox: {
           required: true,
           id: sandboxId,
-          create: `node -e "new (require('./src/runtime/worktree.js').WorktreeManager)(process.cwd()).create('${sandboxId}')"`,
-          remove: `node -e "new (require('./src/runtime/worktree.js').WorktreeManager)(process.cwd()).remove('${sandboxId}')"`,
-          workingDir: path.join('.doflow', 'worktrees', sandboxId),
+          // createSandbox = worktree + a real `doflow install` of this repo's skills into it, so
+          // the sandbox carries the tree under test rather than whatever is globally installed.
+          create: `node -e "${WT_REQUIRE}const r=m.createSandbox('${sandboxId}');console.log(r.path+' skills='+r.manifest.skillCount)"`,
+          remove: `node -e "${WT_REQUIRE}m.remove('${sandboxId}')"`,
+          workingDir,
+        },
+        // Restated per run because a dispatched subagent receives one entry, not the whole plan.
+        skills: {
+          resolution: SKILL_RESOLUTION.rule,
+          dir: path.join(workingDir, SANDBOX_SKILLS_DIR),
+          skillFile,
+          sourceSha256: skillSourceSha256(cfg, skill),
+          sandboxManifest: path.join(workingDir, SKILL_SOURCE_FILE),
+          instruction: e.kind === 'triggering'
+            // A triggering case asks whether the request should route here at all, which is a
+            // judgment about the skill's own description. Reading it from the sandbox measures this
+            // repo's wording; letting the Skill tool route would measure the installed description
+            // instead — the same substitution, one level up.
+            ? `Read the frontmatter of ${skillFile} and decide from THAT description whether this request routes to ${skill}. Record the decision. Do NOT invoke /${skill} by name — that would judge ~/.claude/skills/${skill}/'s description, not this repo's.`
+            : `Read ${skillFile} and follow it. Do NOT invoke /${skill} by name — that resolves ~/.claude/skills/${skill}/, not this repo.`,
+          mustRecord: RUN_SOURCE_FILE,
         },
         outputDir: path.join(cfg.benchRoot, 'runs', opts.iteration, skill, `eval-${e.id}-${e.name}`),
-        saveOutputs: ['transcript.txt', 'invoked_skills.json', 'outputs/'],
+        saveOutputs: ['transcript.txt', 'invoked_skills.json', RUN_SOURCE_FILE, 'outputs/'],
       });
     }
   }
-  const plan = {
+  return {
     iteration: opts.iteration,
     model: cfg.model,
     commit: currentCommit(),
     workingTreeClean: workingTreeClean(),
+    skillResolution: SKILL_RESOLUTION,
+    skillSourceRoot: cfg.skillsRoot,
     runCount: runs.length,
     runs,
   };
-  console.log(JSON.stringify(plan, null, 2));
+}
+
+/**
+ * Emit the dispatch plan the orchestrator turns into subagent runs. Each entry carries everything
+ * a run needs and where to save its outputs, so the orchestrator does no path arithmetic of its
+ * own — the same reason skills call one resolver instead of computing paths inline.
+ */
+function cmdPlan(cfg, opts) {
+  if (!opts.iteration) {
+    console.error('bench plan: --iteration <name> is required (e.g. --iteration baseline)');
+    return 2;
+  }
+  console.log(JSON.stringify(buildPlan(cfg, opts), null, 2));
   return 0;
 }
 
@@ -301,6 +465,7 @@ function cmdGrade(cfg, opts) {
   }
   let graded = 0;
   let manual = 0;
+  const unverified = [];
   const skills = opts.skill ? [opts.skill] : discoverSkills(cfg);
   for (const skill of skills) {
     const cases = loadCases(cfg, skill);
@@ -312,10 +477,16 @@ function cmdGrade(cfg, opts) {
       const expectations = (e.assertions || []).map((a) => gradeAssertion(a, ctx));
       manual += expectations.filter((x) => x.passed === null).length;
       const decided = expectations.filter((x) => x.passed !== null);
+      // Provenance is recorded beside the expectations rather than inside them: a run that measured
+      // the wrong skill has an invalid pass rate, not a lower one, and folding it into the rate
+      // would silently reprice every case in the committed baseline.
+      const skillSource = verifySkillSource(cfg, skill, ctx);
+      if (skillSource.status !== 'verified') unverified.push(`${skill}/${e.id}: ${skillSource.status} — ${skillSource.evidence}`);
       writeJson(path.join(runDir, 'grading.json'), {
         skill,
         eval_id: e.id,
         eval_name: e.name,
+        skill_source: skillSource,
         expectations,
         pass_rate: decided.length ? decided.filter((x) => x.passed).length / decided.length : null,
       });
@@ -323,6 +494,14 @@ function cmdGrade(cfg, opts) {
     }
   }
   console.log(`graded ${graded} run(s); ${manual} assertion(s) left for the grader subagent`);
+  if (unverified.length) {
+    console.warn(
+      `\nwarning: ${unverified.length} of ${graded} run(s) cannot prove they measured this repo's skills.\n` +
+        `A run with no verified ${RUN_SOURCE_FILE} may have resolved ~/.claude/skills/ instead, whose\n` +
+        'contents differ from this tree — its pass rate is not evidence about the source under test.',
+    );
+    for (const u of unverified) console.warn(`  ${u}`);
+  }
   return 0;
 }
 
@@ -337,17 +516,29 @@ function cmdBaseline(cfg, opts) {
   }
   const results = collectResults(cfg, iterRoot);
   const clean = workingTreeClean();
+  const unverified = results.filter((r) => r.sourceStatus !== 'verified');
   const baseline = {
     capturedFrom: from,
     model: cfg.model,
     commit: currentCommit(),
     workingTreeClean: clean,
     caseCount: results.length,
+    // FR-018 wants a baseline that predates the rewrite; it is only a usable reference if it also
+    // measured the tree being rewritten. Recording the count makes that checkable later instead of
+    // inferred from the capture date.
+    sourceVerifiedCount: results.length - unverified.length,
+    sourceUnverified: unverified.map((r) => `${r.key}: ${r.sourceStatus}`),
     results,
   };
   writeJson(path.join(REPO_ROOT, cfg.baselineDir, 'baseline.json'), baseline);
   if (clean === false) {
     console.warn('warning: working tree was dirty at capture; the recorded commit does not fully describe what ran');
+  }
+  if (unverified.length) {
+    console.warn(
+      `warning: ${unverified.length} of ${results.length} case(s) cannot prove they measured ${cfg.skillsRoot}.\n` +
+        'Such a baseline is a record of some run, but not a pre-rewrite reference for this tree.',
+    );
   }
   console.log(`baseline written: ${results.length} case(s) at commit ${baseline.commit || 'unknown'}`);
   return 0;
@@ -369,6 +560,9 @@ function collectResults(cfg, iterRoot) {
         evalName: e.name,
         kind: e.kind,
         passRate: g.pass_rate,
+        // Runs graded before A.5 carry no provenance at all, which is itself the finding — they are
+        // reported as `unrecorded` rather than quietly assumed good.
+        sourceStatus: g.skill_source ? g.skill_source.status : 'unrecorded',
         expectations: g.expectations.map((x) => ({ text: x.text, passed: x.passed })),
       });
     }
@@ -410,6 +604,11 @@ function cmdReport(cfg, opts) {
       current: c.passRate,
       delta: b && b.passRate !== null && c.passRate !== null ? c.passRate - b.passRate : null,
       status: !b ? 'new' : b.passRate === c.passRate ? 'unchanged' : c.passRate > b.passRate ? 'improved' : 'regressed',
+      baselineSource: b ? b.sourceStatus || 'unrecorded' : null,
+      currentSource: c.sourceStatus,
+      // A delta between two runs of unknown provenance is arithmetic, not evidence. Naming that on
+      // the row keeps a null delta from reading as "no regression" — the exact misreading A.5 fixes.
+      sourceComparable: Boolean(b) && c.sourceStatus === 'verified' && (b.sourceStatus || 'unrecorded') === 'verified',
     });
   }
   const dropped = baseline.results.filter((b) => !current.some((c) => c.key === b.key));
@@ -428,6 +627,7 @@ function cmdReport(cfg, opts) {
       unchanged: rows.filter((r) => r.status === 'unchanged').length,
       new: rows.filter((r) => r.status === 'new').length,
       dropped: dropped.length,
+      sourceIncomparable: rows.filter((r) => !r.sourceComparable).length,
     },
   };
   const outFile = path.join(REPO_ROOT, cfg.reportsDir, `${against}-vs-baseline.json`);
@@ -436,15 +636,22 @@ function cmdReport(cfg, opts) {
   if (!report.modelComparable) {
     console.warn(`warning: baseline ran on ${baseline.model}, this run on ${cfg.model} — the delta is not a clean comparison`);
   }
-  console.log(`| case | kind | baseline | current | delta | status |`);
-  console.log(`|---|---|---|---|---|---|`);
+  console.log(`| case | kind | baseline | current | delta | status | source |`);
+  console.log(`|---|---|---|---|---|---|---|`);
   for (const r of rows) {
     const fmt = (v) => (v === null ? '—' : v.toFixed(2));
     const d = r.delta === null ? '—' : (r.delta > 0 ? '+' : '') + r.delta.toFixed(2);
-    console.log(`| ${r.key} | ${r.kind} | ${fmt(r.baseline)} | ${fmt(r.current)} | ${d} | ${r.status} |`);
+    const src = r.sourceComparable ? 'verified' : `${r.baselineSource || '—'}→${r.currentSource}`;
+    console.log(`| ${r.key} | ${r.kind} | ${fmt(r.baseline)} | ${fmt(r.current)} | ${d} | ${r.status} | ${src} |`);
   }
   const s = report.summary;
   console.log(`\n${s.improved} improved, ${s.regressed} regressed, ${s.unchanged} unchanged, ${s.new} new, ${s.dropped} dropped`);
+  if (s.sourceIncomparable) {
+    console.warn(
+      `\nwarning: ${s.sourceIncomparable} of ${rows.length} row(s) compare runs that cannot both prove they read\n` +
+        `${cfg.skillsRoot}. Treat those deltas as unmeasured, not as "no change".`,
+    );
+  }
   console.log(`report: ${path.relative(REPO_ROOT, outFile)}`);
   // Drift is reported, never blocking (requirement A1) — a regression is information, not a gate.
   return 0;
@@ -504,4 +711,16 @@ if (require.main === module) {
   process.exit(main());
 }
 
-module.exports = { discoverSkills, loadCases, loadConfig, gradeAssertion, collectResults };
+module.exports = {
+  discoverSkills,
+  loadCases,
+  loadConfig,
+  gradeAssertion,
+  collectResults,
+  buildPlan,
+  loadRunContext,
+  verifySkillSource,
+  skillSourceSha256,
+  SKILL_RESOLUTION,
+  RUN_SOURCE_FILE,
+};

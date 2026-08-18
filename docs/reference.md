@@ -39,14 +39,26 @@ These are `doflow` CLI commands, not slash-command skills. Installation and life
 
 | Command | Description |
 |---|---|
-| `doflow doctor [--json]` | System health check: harness adapters, external tools, and a smoke check of every runtime capability's provider |
+| `doflow doctor [--json]` | Health check: harness adapters, capability providers, index freshness, and the project's detected build and test commands. Health means a provider **answered a probe**, not that its binary is on `PATH` — an installed provider that cannot answer reports `UNHEALTHY`, and one that declares no probe reports `UNVERIFIED`. Exits 1 when a provider is installed but does not answer |
 | `doflow capabilities [--json] [--check]` | Which provider currently backs each abstract capability on this machine. `--check` runs a deep smoke check instead of a presence check |
 | `doflow readiness --task-class <class> --task-id <id> [--json]` | Evaluate a task's readiness contract. Classes: `bug`, `feature`, `refactor`, `trivial-edit`, `dependency-change` |
 | `doflow evidence --task-id <id> [--json]` | Show evidence items recorded for a task |
+| `doflow trace [--days N] [--json]` | Trajectory of the current or most recent workflow, read from the run ledger |
+| `doflow stats [--days N] [--json]` | Aggregate local run-ledger usage: runs per verb, failures, duration percentiles |
+| `doflow discover [--days N] [--json]` | Missed capability opportunities in recorded runs. Exits 1 when there is a finding; an analysis it cannot settle from the recorded metadata reports `UNKNOWN` rather than "clear" |
 
 `readiness` and `evidence` read per-project state under the invoking repo's `.doflow/state/`; run
-them from the project the task belongs to, or pass `-g` for the global scope. `capabilities` and
-`doctor` report on the machine and are scope-independent.
+them from the project the task belongs to, or pass `-g` for the global scope. `capabilities`
+reports on the machine and is scope-independent; `doctor` reports on both, so index freshness and
+command detection follow the same project scope.
+
+`trace`, `stats` and `discover` read the run ledger at `<config>/state/runs/YYYY-MM-DD.jsonl`,
+which `doflow-run` appends to once per dispatched verb. They locate it the way the dispatcher does
+— nearest `.doflow` walking up from the working directory, or the global one — so they work from a
+subdirectory. Records are metadata only: a verb, a capability, a provider, an exit code, a
+duration, counts and byte volumes. No argument value, command output or file content is recorded.
+An empty ledger is a normal state and is reported as "no conclusion can be drawn", never as a
+clean bill of health.
 
 ## Git Lifecycle Intents
 
