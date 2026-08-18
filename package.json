@@ -29,7 +29,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test",
+    "test": "node --test \"test/**/*.test.js\"",
     "bench": "node bench/runner.js"
   },
   "files": [

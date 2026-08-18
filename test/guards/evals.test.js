@@ -215,10 +215,20 @@ test('G11: the bench harness is not wired into the default test command', () => 
   // npm test is pure offline Node in ~14s. Pulling paid model calls into it would make the suite
   // cost money and stop being runnable in CI without credentials.
   const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
-  assert.equal(pkg.scripts.test, 'node --test', 'npm test must stay the offline node runner');
+  assert.match(pkg.scripts.test, /^node --test\b/, 'npm test must stay the offline node runner');
   assert.ok(pkg.scripts.bench, 'the bench harness needs its own npm script');
   assert.ok(
     !pkg.scripts.test.includes('bench'),
     'npm test must not invoke the bench harness — it makes paid model calls',
+  );
+  // Discovery must be scoped, not bare. `node --test` with no argument walks the whole repo, and
+  // once bench/runs/ is committed that sweep picks up captured artifacts: a case whose deliverable
+  // was an edited `*.test.js` gets executed as part of the suite. That is not a hypothetical — it
+  // is how this assertion came to be written. Scoping to test/ is what keeps the suite's contents
+  // decided by this directory rather than by whatever a bench case last produced.
+  assert.match(
+    pkg.scripts.test, /(^|\s)"?test\//,
+    'npm test must scope discovery to test/ — an unscoped `node --test` also runs any *.test.js '
+    + 'captured under bench/runs/',
   );
 });

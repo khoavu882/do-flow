@@ -327,15 +327,33 @@ test('G11: what was skipped is reported as prominently as what was produced', ()
   assert.match(routed.disposition, /no local repo to scan/);
 });
 
+// Real artifacts, and specifically NOT the ones in `agent-docs/doflow/` alone. That tree is
+// gitignored (`.gitignore:56`), so sourcing fixtures from it made this guard pass here and fail in
+// every clean clone, worktree and CI run — a guard whose input only exists on the author's machine
+// proves nothing anywhere else, which is the very sentence its own failure message used to print.
+// The fix is a committed copy of one real feature's artifacts: a synthetic plan would not do,
+// because what this case adds over the ones above is the scale and messiness of content a human
+// actually wrote. Local feature dirs are still scanned when present, so a developer keeps getting
+// the generator exercised against whatever they are currently writing — but the committed fixture
+// is what makes the guard mean the same thing everywhere.
+const FIXTURE_FEATURES = path.join(REPO, 'test', 'fixtures', 'scaffold');
+
 test('G11: real feature artifacts generate a contained, idempotent scaffold', () => {
-  const doflowDocs = path.join(REPO, 'agent-docs', 'doflow');
-  const features = fs.existsSync(doflowDocs)
-    ? fs.readdirSync(doflowDocs, { withFileTypes: true })
+  const complete = (dir) => ARTIFACTS.every((a) => fs.existsSync(path.join(dir, a)));
+  const dirsIn = (root) => (fs.existsSync(root)
+    ? fs.readdirSync(root, { withFileTypes: true })
       .filter((e) => e.isDirectory())
-      .map((e) => path.join(doflowDocs, e.name))
-      .filter((dir) => ARTIFACTS.every((a) => fs.existsSync(path.join(dir, a))))
-    : [];
-  assert.ok(features.length > 0, 'no feature directory in agent-docs/doflow carries all three artifacts — this guard would prove nothing');
+      .map((e) => path.join(root, e.name))
+      .filter(complete)
+    : []);
+
+  const committed = dirsIn(FIXTURE_FEATURES);
+  assert.ok(committed.length > 0,
+    `no committed fixture in ${path.relative(REPO, FIXTURE_FEATURES)} carries all three artifacts — `
+    + 'this guard must not depend on gitignored local state, so restore the fixture rather than '
+    + 'relaxing this assertion');
+
+  const features = [...committed, ...dirsIn(path.join(REPO, 'agent-docs', 'doflow'))];
 
   for (const source of features) {
     // Copied, never generated in place: a test suite that writes into agent-docs/ is itself the
