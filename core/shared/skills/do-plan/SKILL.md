@@ -122,15 +122,23 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
     `- [ ]` task, otherwise the feature slug. Use the same id for every `evidence`, `claim` and
     `readiness` call that concerns it — a different id reads a different task's record.
     ```bash
-    "$DOFLOW" evidence --task-id "<task id>" --json
+    "$DOFLOW" evidence --task-id "<task id>" --action add --batch <batch>.json --json
     "$DOFLOW" claim --task-id "<task id>" --action add --statement "<one conclusion>"
     ```
-    `evidence` only reads. It has no append form and silently ignores flags that look like one, so
-    the batch itself is §3 "Research & Decisions" of the `plan.md` you just wrote: per decision,
-    what was found, where it came from (a provider + capability, an artifact, or the user), its
-    locator, and whether it is **extracted** (read verbatim out of the repository or the user's
-    words) or **inferred** (your analysis). Never merge those two provenances into one line — a
-    decision recorded as fact is the one a later phase will not re-check.
+    The batch file is a JSON array, one object per item (scratch input — delete it after the
+    write), validated whole: one rejected item writes nothing, so a half-written stage never reads
+    as complete. Per item: `kind` (`exact-search`, `semantic-retrieval`, `structural`,
+    `historical`, `documentation`, `test-result`, `runtime-observation`, `user-statement`, `diff`,
+    `generated-analysis`), `provenance` (`extracted` | `inferred` | `asserted`, with **no default**
+    — an unstated one is refused rather than filed as repository fact), and `source` (`provider` +
+    `capability`, no `unknown` stand-in). `extracted` needs a `locator`; `inferred` and `asserted`
+    need `content`; `generated-analysis` and `user-statement` can never be `extracted`. `id`,
+    `freshness`, `supports`/`contradicts`, `stage` and any score field are refused by name.
+    The same items are §3 "Research & Decisions" of the `plan.md` you just wrote: per decision, what
+    was found, where it came from (a provider + capability, an artifact, or the user), its locator,
+    and whether it is **extracted** (read verbatim out of the repository or the user's words) or
+    **inferred** (your analysis). Never merge those two provenances into one line — a decision
+    recorded as fact is the one a later phase will not re-check.
     Add each `D#` decision as a claim in this same pass. Each is stored as a `hypothesis` and
     becomes supported only through linked evidence; `design.md` having asserted it is not support.
     Relevance is not confidence. A match count, a ranking, a "best hit" is a property of the query,

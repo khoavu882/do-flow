@@ -1,14 +1,15 @@
 # Task Readiness Gate
 
-Pre-implementation contract gate. **The contract is defined by
-`core/registry/readiness-templates.yaml` and evaluated by the readiness engine — query it, don't
-recall it.** Requirement ids and class names below are reproduced for orientation only; when this
-page and the command disagree, the command is right.
+Pre-implementation contract gate. The contract is versioned and lives inside the runtime, not on
+this page and not in your repository: **query it through the verb, don't recall it.** The class
+names and requirement ids below are reproduced for orientation only — when this page and the
+command disagree, the command is right.
 
 ```bash
 "$DOFLOW" readiness --task-class <class> --task-id <id>          # human-readable report
 "$DOFLOW" readiness --task-class <class> --task-id <id> --json
 "$DOFLOW" evidence  --task-id <id>                               # what has been recorded so far
+"$DOFLOW" evidence  --task-id <id> --action add --batch <file>   # record this stage's batch
 "$DOFLOW" claim     --task-id <id> --action list                 # and what has been concluded
 ```
 
@@ -57,35 +58,59 @@ to go get it.
 
 These four are the whole vocabulary. There is no fifth state, no partial state, and no numeric or
 percentage rendering of any of them — a gate that emits a number invites the reader to round it up.
-Three of the four are not reachable through the seam yet; the next section says exactly why, and
-reading this table as the live behaviour without it is the mistake it warns about.
+All four are reachable through the seam; the next section says exactly which input produces each.
 
 The engine fails closed: a requirement it cannot evaluate reads as unmet, not satisfied. A gate that
 guesses in its own favour is worse than no gate, because it reports a verdict it never earned.
 
-## What the gate can and cannot establish today
+## What produces each state
 
-`readiness` is wired through the seam and computes a real verdict against the versioned templates.
-But it grades three inputs, and only one of them currently has a writer — so read the states knowing
-which is which.
+`readiness` grades three inputs. Knowing which one moved a verdict is the difference between a
+contract that was met and one that was described as met.
 
-| Input | Written by | Consequence for the verdict |
+| Input | Written by | What it can satisfy |
 | :--- | :--- | :--- |
-| Evidence | **nothing.** `EvidenceLedger.addEvidence()`/`.save()` exist and are tested, but no verb, hook or script calls them, and `evidence` is a read verb that silently ignores append-shaped flags | every `evidenceKinds` requirement reads unmet, and `evidence --task-id <id>` returns an empty ledger |
-| Claims | `claim --action add` and `claim --action link`, which do persist | a claim can be recorded and stays `hypothesis`; linking an evidence id the empty ledger does not hold marks it `invalidated`, never `supported` — so `root_cause`, which requires a `supported` claim, stays unmet, and `conflicted` (which needs *fresh contradicting* evidence) cannot arise either |
-| Task profile | **nothing.** The verb passes only `--task-class` and `--task-id`, deliberately: it used to assert `verificationPlan` and `scopeClear` unconditionally and reported checkmarks it had not measured | `scope_clear`, `scope_verified`, `invariants_captured`, `verification_plan`, `verification_command` and `regression_verification` all read unmet; `userDecisionPending` is never set, so `NEEDS_USER_DECISION` cannot arise |
+| Evidence | `evidence --task-id <id> --action add` — one item from `--kind/--provenance/--provider/--capability/--locator/--content`, or a whole stage from `--batch <file>` | every requirement declaring evidence kinds: `reproduction`, `affected_code`, `blast_radius`, `affected_components`, `architecture_mapped`, `baseline_tests`, `target_identified`, `compatibility_checked`, `usage_impact` |
+| Claims | `claim --action add`, promoted by `claim --action link` | `root_cause`, the one requirement that demands a `supported` claim. A `conflicted` claim additionally forces `BLOCKED` for the whole task |
+| Caller-stated profile | `readiness --verification-plan <text>` · `--scope <text>` · `--invariants <text>` · `--user-decision-pending` | `verification_plan`, `verification_command`, `regression_verification` (from `--verification-plan`); `scope_clear`, `scope_verified`, `invariants_captured` (from `--scope` or `--invariants`) |
 
-The consequence, stated plainly rather than left to be discovered: **`NEEDS_EVIDENCE` is the only
-state `readiness` can currently return through the seam.** `READY` needs an evidence writer,
-`BLOCKED` needs a conflicted claim that needs fresh contradicting evidence, and
-`NEEDS_USER_DECISION` needs a task-profile field the verb does not accept. Do not wait for a state
-that cannot arrive, and do not read the absence of `BLOCKED` as a clean bill of health — the gate
-did not evaluate that.
+So each state arrives as follows.
 
-What the gate *does* deliver is real and worth running: the exact per-class contract, which
+- **`NEEDS_EVIDENCE`** — the default answer for a task with nothing recorded. Every required
+  entry the batch has not covered and no stated input satisfies is listed with its
+  `recommendedAction`. This is the checklist, not a malfunction.
+- **`READY`** — recorded evidence plus stated inputs cover every required entry. Each satisfied
+  requirement names the evidence ids that satisfied it in `evidenceIds`; a requirement satisfied
+  by a *stated* input carries an empty `evidenceIds`, because nothing backs it but the statement.
+- **`BLOCKED`** — a claim on the task is `conflicted`: it carries both fresh supporting and fresh
+  contradicting evidence. Blocking is checked before requirements, so `BLOCKED` outranks
+  `NEEDS_EVIDENCE` — a blocked task is not "also missing things", it is stopped.
+- **`NEEDS_USER_DECISION`** — you passed `--user-decision-pending`. It returns before any
+  requirement is examined, so that report carries no requirements breakdown. It records that a
+  decision is owed; it is not a way to skip the gate.
+
+**Measured and stated are reported apart, and must stay apart when you repeat the verdict.** The
+JSON report lists every stated input under `callerAsserted`; the human report prints
+`Caller-stated: … (asserted on the command line, not established by evidence)`. Pass those flags
+when they are true — that is what they are for — but a `READY` that rests partly on them is only as
+good as the statement, and saying so is the difference between reporting a verdict and laundering
+one.
+
+Three limits still hold, and none of them is a reason to work around the gate:
+
+- Only evidence whose `freshness.status` is `FRESH` counts. The write measures freshness itself —
+  HEAD commit, sha256 of the located file, `observedAt` — and records `null` for anything it cannot
+  establish, rather than a value that happens to parse. But **no verb re-marks a record `STALE`
+  today**, so an old batch stays `FRESH` until something says otherwise: re-check a locator
+  yourself before leaning on evidence recorded in an earlier session.
+- `claim --action link` refuses an evidence id the ledger does not hold (exit 2). Record the batch
+  first, then link; a link is not a way to reference evidence you have not written.
+- The gate grades this task's ledger only. A different `--task-id` reads a different record, and
+  the verdict will look confident either way.
+
+What the gate delivers is worth running for its own sake: the exact per-class contract, which
 requirements are unmet, and the intent and capability that would satisfy each one. Act on it as the
-checklist it is. Satisfy each named requirement through your own investigation, record the findings
-as the phase's evidence batch in the task report, and state which requirements you established and
-how. Do not halt indefinitely on a persistent `NEEDS_EVIDENCE` — and do not write `READY` yourself.
-The gate did not say it, and saying it on the gate's behalf is precisely the failure this page
-exists to prevent.
+checklist it is. Do not halt indefinitely on a persistent `NEEDS_EVIDENCE` — record what you
+actually established, state which requirements it covers, and say what remains. And do not write
+`READY` yourself. The gate did not say it, and saying it on the gate's behalf is precisely the
+failure this page exists to prevent.

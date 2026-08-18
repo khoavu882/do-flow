@@ -67,18 +67,32 @@ Unified diagnostic and code improvement engine. Replaces separate analyze/troubl
      stores key on: the plan task id when one exists, otherwise the feature slug or the issue id you
      are diagnosing. Use the same id for every `evidence`, `claim` and `readiness` call in the run.
      ```bash
-     "$DOFLOW" evidence --task-id "<task id>" --json
+     "$DOFLOW" evidence --task-id "<task id>" --action add --batch <batch>.json --json
      "$DOFLOW" claim --task-id "<task id>" --action add --statement "<the root cause, in one sentence>"
      ```
-   - `evidence` only reads. It has no append form and silently ignores flags that look like one, so
-     the batch itself is the diagnosis you report: per item, what was observed, its source (the
-     provider + capability the router selected, or the exact command run), its locator, and whether
-     it is **extracted** (a stack frame, a log line, a test result, a diff hunk) or **inferred**
-     (your reading of them). Never merge those two provenances into one line — a diagnosis is where
+   - The batch file is a JSON array, one object per item (scratch input — delete it after the
+     write), validated whole: one rejected item writes nothing, so a half-written diagnosis never
+     reads as complete. Per item: `kind` (`exact-search`, `semantic-retrieval`, `structural`,
+     `historical`, `documentation`, `test-result`, `runtime-observation`, `user-statement`, `diff`,
+     `generated-analysis`), `provenance` (`extracted` | `inferred` | `asserted`, with **no
+     default** — an unstated one is refused rather than filed as repository fact), and `source`
+     (`provider` + `capability`, no `unknown` stand-in). `extracted` needs a `locator`; `inferred`
+     and `asserted` need `content`; `generated-analysis` and `user-statement` can never be
+     `extracted`. `id`, `freshness`, `supports`/`contradicts`, `stage` and any score field are
+     refused by name.
+   - The same items are the diagnosis you report: what was observed, its source (the provider +
+     capability the router selected, or the exact command run), its locator, and whether it is
+     **extracted** (a stack frame, a log line, a test result, a diff hunk) or **inferred** (your
+     reading of them). Never merge those two provenances into one line — a diagnosis is where
      inference most easily passes for observation.
    - The root cause enters as a claim and is stored as a `hypothesis`. It becomes supported only
-     through linked evidence; a plausible story that explains the symptom is not support, and a
-     symptom reproducing is evidence of the symptom, not of the cause.
+     through linked evidence, recorded after the batch lands:
+     ```bash
+     "$DOFLOW" claim --task-id "<task id>" --action link --claim-id "<claim id>" --evidence-id "<evidence id>" --relation supports
+     ```
+     An evidence id the ledger does not hold is refused (exit 2), not graded — so write the batch
+     first, then link. A plausible story that explains the symptom is not support, and a symptom
+     reproducing is evidence of the symptom, not of the cause.
    - Relevance is not confidence. A match count, a profiler's ranking, a "top hot path" is a
      property of the query, not of the fact — record the locator and the measurement, never a score,
      a percentage, or a confidence.
@@ -91,10 +105,14 @@ Unified diagnostic and code improvement engine. Replaces separate analyze/troubl
      are required; omitting either exits 2 and names the valid set. Branch on the `state` field
      (`READY`, `NEEDS_EVIDENCE`, `NEEDS_USER_DECISION`, `BLOCKED`) — the verb exits 0 for every
      state it computes, so a zero exit is not a green light, and none of the four is ever expressed
-     as a number or a percentage. `BLOCKED` means stop. No verb writes evidence yet, so
-     `NEEDS_EVIDENCE` is currently the only state it can return — treat it as the checklist it is,
-     satisfy the named requirements from your own diagnosis, and say which ones you established.
-     Do not wait for a `READY` that cannot arrive, and do not report one the gate never gave.
+     as a number or a percentage. `BLOCKED` means stop.
+   - All four states are reachable, so the verdict is about this task: `NEEDS_EVIDENCE` until step
+     5's batch is recorded, `READY` once it covers the contract, `BLOCKED` on a claim whose evidence
+     contradicts itself. **Run step 5's write before this call** — grading an empty ledger reports a
+     missing diagnosis you have already done. `--verification-plan`, `--scope` and `--invariants`
+     are inputs you *state*, not evidence the gate measured: the report echoes them back as
+     `callerAsserted`, so pass them when true and say which requirements rest on a statement rather
+     than on a record. Never write `READY` the gate did not give.
    - If the validated class has no readiness template — `review`, `research` and `operations` have
      none, and the verb exits 1 saying so — do not invent one and do not proceed anyway: the change
      is its own task under its own class. Say that and stop.

@@ -62,14 +62,22 @@ Universal command dispatcher, task decomposer, capability router, and developmen
    - Once, when the routing or estimate is delivered — not once per finding. Use one `<task id>` for
      the request: the plan task id when one exists, otherwise the feature slug.
      ```bash
-     "$DOFLOW" evidence --task-id "<task id>" --json
+     "$DOFLOW" evidence --task-id "<task id>" --action add --batch <batch>.json --json
      "$DOFLOW" claim --task-id "<task id>" --action add --statement "<one conclusion>"
      ```
-   - `evidence` only reads. It has no append form and silently ignores flags that look like one, so
-     the batch itself is the block you report: per item, what was found, its source (the provider +
-     capability the router selected, or the user's own words), its locator, and whether it is
-     **extracted** (read verbatim) or **inferred** (your analysis). Never merge those two
-     provenances into one line.
+   - The batch file is a JSON array, one object per item (scratch input — delete it after the
+     write), validated whole: one rejected item writes nothing. Per item: `kind` (`exact-search`,
+     `semantic-retrieval`, `structural`, `historical`, `documentation`, `test-result`,
+     `runtime-observation`, `user-statement`, `diff`, `generated-analysis`), `provenance`
+     (`extracted` | `inferred` | `asserted`, with **no default** — an unstated one is refused rather
+     than filed as repository fact), and `source` (`provider` + `capability`, no `unknown`
+     stand-in). `extracted` needs a `locator`; `inferred` and `asserted` need `content`;
+     `generated-analysis` and `user-statement` can never be `extracted`. `id`, `freshness`,
+     `supports`/`contradicts`, `stage` and any score field are refused by name.
+   - The same items are the block you report: what was found, its source (the provider + capability
+     the router selected, or the user's own words), its locator, and whether it is **extracted**
+     (read verbatim) or **inferred** (your analysis). Never merge those two provenances into one
+     line.
    - Each routing or sizing conclusion enters as a claim and is stored as a `hypothesis`; it becomes
      supported only through linked evidence. Relevance is not confidence — a match count or a
      ranking is a property of the query, so record the locator, never a score, a percentage, or a

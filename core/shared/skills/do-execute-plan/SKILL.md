@@ -67,13 +67,20 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
    - Only `bug`, `feature`, `refactor`, `trivial-edit` and `dependency-change` have templates. On
      any other class the verb exits 1 and lists the valid keys; that is the correct answer, not a
      gap to route around.
+   - All four states are reachable, so a verdict is about this task rather than about the runtime:
+     `NEEDS_EVIDENCE` until step 6's batch is recorded, `READY` once the recorded evidence and the
+     inputs you state cover the contract, `BLOCKED` on a claim whose evidence contradicts itself,
+     and `NEEDS_USER_DECISION` when you pass `--user-decision-pending`. A first call on a task with
+     nothing recorded grades an empty ledger — that is a checklist, not a defect.
+   - `readiness` also accepts `--verification-plan`, `--scope` and `--invariants`. Those are inputs
+     you **state**, not evidence the gate measured: the report lists them back as `callerAsserted`
+     in JSON and `Caller-stated:` in the human report, and a requirement satisfied that way links
+     no evidence. Pass them when they are true, and when you report the verdict say which part of
+     it rests on a statement rather than on a record. Never pass one to move a state.
    - Do not recall the contract from memory — the templates are versioned and the command reads
-     them. `references/readiness_gate.md` carries the per-class requirements, what to do in each
-     state, and exactly which of the gate's inputs the seam can and cannot establish today —
-     read it before acting on a verdict. In particular, no verb writes evidence yet, so
-     `NEEDS_EVIDENCE` is currently the only state this verb can return: treat it as the checklist
-     it is and satisfy the named requirements yourself. Do not wait for a `READY` that cannot
-     arrive, and do not report one the gate never gave.
+     them. `references/readiness_gate.md` carries the per-class requirements, what each state
+     means, and exactly which input produces it. Read it before acting on a verdict, and never
+     write `READY` yourself: the gate did not say it.
 
 4. **Scaffold Generation (`--scaffold`)**:
    - When invoked with `--scaffold`, emit a reviewable code scaffold under `<feature_dir>/scaffold/`
@@ -112,18 +119,31 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
      step 3 graded — for every `evidence`, `claim` and `readiness` call about that task; a
      different id reads a different task's record.
      ```bash
-     "$DOFLOW" evidence --task-id "<task id>" --json
+     "$DOFLOW" evidence --task-id "<task id>" --action add --batch <batch>.json --json
      "$DOFLOW" claim --task-id "<task id>" --action add --statement "<one conclusion>"
      ```
-   - `evidence` only reads. It has no append form and silently ignores flags that look like one, so
-     the batch itself lands in the phase's completion report: per item, what was found, its source
-     (a provider + capability, a command and its output, or a subagent's analysis), its locator, and
+   - The batch file is a JSON array, one object per item (scratch input — delete it after the
+     write). It is validated whole: one rejected item writes nothing, so a half-written phase never
+     reads as complete. Per item: `kind` (`exact-search`, `semantic-retrieval`, `structural`,
+     `historical`, `documentation`, `test-result`, `runtime-observation`, `user-statement`, `diff`,
+     `generated-analysis`), `provenance` (`extracted` | `inferred` | `asserted`, with **no
+     default** — an unstated one is refused rather than filed as repository fact), and `source`
+     (`provider` + `capability`, no `unknown` stand-in). `extracted` needs a `locator`; `inferred`
+     and `asserted` need `content`; `generated-analysis` and `user-statement` can never be
+     `extracted`. `id`, `freshness`, `supports`/`contradicts`, `stage` and any score field are
+     refused by name — freshness is measured at the write, and evidence is attached to a claim by
+     linking, below.
+   - The same items are the phase's completion report: per item, what was found, its source (a
+     provider + capability, a command and its output, or a subagent's analysis), its locator, and
      whether it is **extracted** (read verbatim from the repository or a command) or **inferred**
      (analysis). Never merge those two provenances into one line, and never promote a subagent's
      assertion to fact because a subagent made it.
    - Add each conclusion as a claim in this same pass. Each is stored as a `hypothesis` and becomes
-     supported only through linked evidence. Linking an evidence id the ledger does not hold marks
-     the claim `invalidated`, not `supported`.
+     supported only through linked evidence:
+     `"$DOFLOW" claim --task-id "<task id>" --action link --claim-id <claim id> --evidence-id <evidence id> --relation supports|contradicts`.
+     An evidence id the ledger does not hold is **refused** — exit 2, naming the id — not graded,
+     so record the batch first and link afterwards. A claim carrying both fresh support and fresh
+     contradiction becomes `conflicted`, which is what makes step 3 report `BLOCKED`.
    - Relevance is not confidence. A match count, a ranking, a "best hit" is a property of the query,
      not of the fact — record the locator, never a score, a percentage, or a confidence.
 

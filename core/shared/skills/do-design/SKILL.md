@@ -101,15 +101,23 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    the feature slug. Use the same id for every `evidence`, `claim` and `readiness` call in the run —
    a different id reads a different task's record.
    ```bash
-   "$DOFLOW" evidence --task-id "<task id>" --json
+   "$DOFLOW" evidence --task-id "<task id>" --action add --batch <batch>.json --json
    "$DOFLOW" claim --task-id "<task id>" --action add --statement "<one conclusion>"
    ```
-   `evidence` only reads. It has no append form and silently ignores flags that look like one, so
-   the batch itself is the block you just wrote into `design.md`: per item, what was found, where it
-   came from (a provider + capability, an existing artifact, or the user), its locator, and whether
-   it is **extracted** (read verbatim out of the repository or the user's words) or **inferred**
-   (your analysis). Never merge those two provenances into one line — a design that cannot be told
-   apart from the code it describes is what makes a wrong assumption unfalsifiable later.
+   The batch file is a JSON array, one object per item (scratch input — delete it after the write),
+   validated whole: one rejected item writes nothing, so a half-written stage never reads as
+   complete. Per item: `kind` (`exact-search`, `semantic-retrieval`, `structural`, `historical`,
+   `documentation`, `test-result`, `runtime-observation`, `user-statement`, `diff`,
+   `generated-analysis`), `provenance` (`extracted` | `inferred` | `asserted`, with **no default**
+   — an unstated one is refused rather than filed as repository fact), and `source` (`provider` +
+   `capability`, no `unknown` stand-in). `extracted` needs a `locator`; `inferred` and `asserted`
+   need `content`; `generated-analysis` and `user-statement` can never be `extracted`. `id`,
+   `freshness`, `supports`/`contradicts`, `stage` and any score field are refused by name.
+   The same items are the block you just wrote into `design.md`: what was found, where it came from
+   (a provider + capability, an existing artifact, or the user), its locator, and whether it is
+   **extracted** (read verbatim out of the repository or the user's words) or **inferred** (your
+   analysis). Never merge those two provenances into one line — a design that cannot be told apart
+   from the code it describes is what makes a wrong assumption unfalsifiable later.
    Add every system-shape conclusion as a claim in this same pass. Each is stored as a `hypothesis`
    and becomes supported only through linked evidence; the previous stage having asserted it is not
    support.

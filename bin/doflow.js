@@ -31,7 +31,10 @@ const { applyLifecycle, removeLifecycle, applyMcpIndex, verifyLifecycle, retenti
 const { readLedger } = require('../src/state');
 const { codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan } = require('../src/lifecycle-view');
 const { commandText, planToolLifecycle, executeToolLifecycle } = require('../src/tool-lifecycle');
-const { handleCapabilitiesCommand, handleReadinessCommand, handleEvidenceCommand } = require('../src/runtime/cli');
+const {
+  handleCapabilitiesCommand, handleReadinessCommand, handleEvidenceCommand,
+  EVIDENCE_SCORE_FIELDS, scoreFieldRefusal,
+} = require('../src/runtime/cli');
 // `doctor` comes from the health module rather than src/runtime/cli.js: the health-probe report
 // (FR-013) supersedes the presence-check version, and one verb must have one implementation.
 const { handleDoctorCommand } = require('../src/runtime/health');
@@ -84,6 +87,10 @@ function parseArgs(argv) {
       case '--no-backup': o.noBackup = true; break;
       case '--json': o.json = true; break;
       case '--check': o.check = true; break;
+      // readiness: the caller declares a decision is owed by the user. A flag rather than an
+      // inference, because nothing the runtime can see distinguishes "a decision is pending"
+      // from "nobody has looked yet", and guessing would be the gate answering unasked.
+      case '--user-decision-pending': o.userDecisionPending = true; break;
       case '-t': case '--target': {
         const val = argv[i + 1];
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
@@ -157,6 +164,16 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--claim-id', 'claimId'],           // claim --action link
   ['--evidence-id', 'evidenceId'],     // claim --action link
   ['--relation', 'relation'],          // claim --action link: supports | contradicts
+  ['--kind', 'kind'],                  // evidence --action add: one of VALID_EVIDENCE_KINDS
+  ['--provenance', 'provenance'],      // evidence --action add: extracted | inferred | asserted
+  ['--provider', 'provider'],          // evidence --action add: source.provider
+  ['--capability', 'capability'],      // evidence --action add: source.capability
+  ['--locator', 'locator'],            // evidence --action add: 'path/file[:line]' or a URI
+  ['--content', 'content'],            // evidence --action add: the fact or the analysis itself
+  ['--batch', 'batchPath'],            // evidence --action add: a stage's batch file, or '-'
+  ['--verification-plan', 'verificationPlan'], // readiness: how success will be established
+  ['--scope', 'scope'],                // readiness: the stated scope boundary
+  ['--invariants', 'invariants'],      // readiness: the invariants a refactor must preserve
   ['--objective', 'objective'],        // context-pack
   ['--risk', 'risk'],                  // verify: risk level selecting the required tiers
   ['--error', 'errorMessage'],         // recover: the failure text to classify
@@ -189,6 +206,12 @@ const RUNTIME_INT_FLAGS = new Map([
 function parseRuntimeFlag(arg, argv, i, o) {
   const eq = arg.indexOf('=');
   const name = eq === -1 ? arg : arg.slice(0, eq);
+  // A score-shaped flag is refused by name rather than falling through to "unknown flag", which
+  // reads as "not built yet" and invites someone to build it. The name set and the reason both
+  // come from the evidence write boundary (src/runtime/cli.js), so argv and a --batch JSON file
+  // are refused by one rule with two enforcement points rather than two rules.
+  const camel = name.replace(/^--/, '').replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  if (EVIDENCE_SCORE_FIELDS.has(camel)) { console.error(`doflow: ${scoreFieldRefusal(name)}`); process.exit(2); }
   const inline = eq === -1 ? null : arg.slice(eq + 1);
   const key = RUNTIME_STRING_FLAGS.get(name) || RUNTIME_LIST_FLAGS.get(name) || RUNTIME_INT_FLAGS.get(name);
   if (!key) return null;
@@ -199,7 +222,11 @@ function parseRuntimeFlag(arg, argv, i, o) {
     value = argv[i + 1];
     // A value that itself starts with `-` is far more likely the next flag than a deliberate
     // argument, and consuming it would silently drop that flag.
-    if (value === undefined || value.startsWith('-')) { console.error(`doflow: ${name} requires a value`); process.exit(2); }
+    // A bare `-` is the conventional name for stdin, not a flag, and the help advertises
+    // `--batch <file|->`. Rejecting it made the documented spelling exit 2 while only `--batch=-`
+    // worked — a help text endorsing a form the parser refuses.
+    const isStdin = value === '-';
+    if (value === undefined || (value.startsWith('-') && !isStdin)) { console.error(`doflow: ${name} requires a value`); process.exit(2); }
     next = i + 1;
   }
   if (value === '') { console.error(`doflow: ${name} requires a value`); process.exit(2); }
@@ -214,6 +241,27 @@ function parseRuntimeFlag(arg, argv, i, o) {
     o[key] = value;
   }
   return next;
+}
+
+/**
+ * The single-item spelling of an evidence write, assembled from exactly the flags the caller gave.
+ *
+ * Absent flags stay absent. Filling a gap here with 'unknown'/'general' would move the omission out
+ * of the caller's error message and into the stored record, where it reads as a measurement.
+ * @param {Object} o parsed arguments
+ * @returns {Object} a raw item for the write boundary to validate
+ */
+function evidenceItemFromFlags(o) {
+  const item = {};
+  if (o.kind !== undefined) item.kind = o.kind;
+  if (o.provenance !== undefined) item.provenance = o.provenance;
+  if (o.locator !== undefined) item.locator = o.locator;
+  if (o.content !== undefined) item.content = o.content;
+  const source = {};
+  if (o.provider !== undefined) source.provider = o.provider;
+  if (o.capability !== undefined) source.capability = o.capability;
+  if (Object.keys(source).length > 0) item.source = source;
+  return item;
 }
 
 /** Resolve {global, projectRoot} scope options for src/targets.js#toolDirs from parsed args. */
@@ -582,6 +630,15 @@ function handleClaimCommand({ taskId, action = 'list', statement, claimId, evide
       if (!claimId || !evidenceId) {
         return usageError('claim', '--claim-id and --evidence-id are both required for --action link', json);
       }
+      // Linking an id the ledger does not hold used to succeed. `evaluateClaim` reads a missing
+      // evidence item as *stale* support and returns `invalidated` — a verdict about evidence
+      // that was never recorded, and the reading that made C.5 conclude `conflicted` (and so
+      // `BLOCKED`) was unreachable through the seam. Refuse instead of grading.
+      if (!ledger.getEvidence(evidenceId)) {
+        return usageError('claim', `no evidence '${evidenceId}' is recorded for task '${taskId}' — linking it would `
+          + 'mark the claim `invalidated` on the strength of an item that does not exist. Record it first: '
+          + `doflow evidence --task-id ${taskId} --action add ...`, json);
+      }
       const status = claims.linkEvidence(claimId, evidenceId, relation);
       claims.save(taskId);
       result = { action, taskId, claim: claims.getClaim(claimId), status };
@@ -789,7 +846,7 @@ Commands:
   capabilities         Show registered abstract capabilities and resolved providers
   doctor               System health and capability smoke check diagnostics
   readiness            Evaluate task readiness contract (--task-class, --task-id, both required)
-  evidence             Inspect recorded task evidence items (--task-id)
+  evidence             Record a stage's evidence batch, or inspect what is recorded (--task-id)
   claim                Record a claim, link evidence to it, or list them (--task-id, --action)
   context-pack         Compile a task's evidence and claims into a context block (--task-id)
   classify             Validate a proposed task class and return its workflow (--task-class)
@@ -824,11 +881,19 @@ Options:
 Runtime verb arguments (accept --flag value or --flag=value):
       --task-class     classify, workflow, readiness, context-pack
       --task-id        readiness, evidence, claim, context-pack, verify
-      --action         claim: list|add|link · verify: report|contract · tools: see above
+      --action         claim: list|add|link · evidence: list|add · verify: report|contract
+                       tools: see above
       --rationale, --proposed-by            classify
       --intent, --query, --check            route
       --statement, --claim-id,
       --evidence-id, --relation             claim
+      --kind, --provenance, --provider,
+      --capability, --locator, --content    evidence --action add (one item)
+      --batch <file|->                      evidence --action add (a stage's JSON batch)
+      --verification-plan, --scope,
+      --invariants,
+      --user-decision-pending               readiness: inputs the caller states rather than
+                                            evidence establishes; reported back as such
       --objective                           context-pack
       --risk                                verify
       --error, --failed-check,
@@ -1373,8 +1438,14 @@ function main() {
       // the identity defect readiness.js fails closed on: omitting either argument produced a
       // confident verdict about a task or a contract the caller never named. Required now, and the
       // valid class set is named in the refusal.
-      case 'readiness': return handleReadinessCommand({ taskClass: requireTaskClass(o), taskId: requireTaskId(o), json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
-      case 'evidence': return handleEvidenceCommand({ taskId: requireTaskId(o), json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
+      // The task-profile arguments are the caller's own statements and are forwarded only when
+      // given. They exist because without them no readiness template can ever reach READY —
+      // every one of the five has at least one requirement satisfied from the profile rather
+      // than from evidence, so the gate had one reachable answer for every task. Forwarding is
+      // all this does: the handler names them back under `callerAsserted` so a stated input is
+      // never mistaken for a measured one.
+      case 'readiness': return handleReadinessCommand({ taskClass: requireTaskClass(o), taskId: requireTaskId(o), verificationPlan: o.verificationPlan, scopeClear: o.scope, invariants: o.invariants, userDecisionPending: o.userDecisionPending, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
+      case 'evidence': return handleEvidenceCommand({ taskId: requireTaskId(o), action: o.action, item: evidenceItemFromFlags(o), batchPath: o.batchPath, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
       // Run-ledger views. They resolve their own ledger the way the dispatcher does (nearest
       // `.doflow` walking up, or the global one) rather than assuming cwd is the project root, so
       // a view invoked from a subdirectory reads the runs that were actually recorded.
