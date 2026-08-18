@@ -211,3 +211,89 @@ test('G12: the dispatcher documents exactly the verbs it dispatches', () => {
   assert.deepEqual(phantom, [],
     `verbs --help advertises that fall through to "unknown verb": ${phantom.join(', ')}`);
 });
+
+// ------------------------------------------------------ 5. the CLI has no surface off the seam
+
+// FR-003 in the direction the verb table cannot check on its own. `is_node_verb()` deliberately
+// lists verbs the CLI has not built yet, so "a verb with no command" is a legitimate state and is
+// not an error. The reverse never is: a runtime command the CLI implements that the dispatcher
+// does not dispatch is reachable *only* by going around the seam, which is precisely the state
+// C.11 found `scaffold` in — a working generator whose only caller was an inline `node -e` that
+// resolved the package from the CLI's own location. It worked, and it meant the entrypoint did
+// not in fact cover every runtime call a skill can make.
+//
+// Both sides are parsed. The command list comes from the dispatch switch, so a command wired
+// tomorrow is guarded the moment it is wired rather than when someone remembers this file.
+test('G12: every runtime command the CLI implements is dispatched by a verb (FR-003)', () => {
+  const cli = fs.readFileSync(path.join(REPO, 'bin', 'doflow.js'), 'utf8');
+  const commands = [...cli.matchAll(/case '([a-z-]+)': return handle[A-Za-z]+Command/g)].map((m) => m[1]);
+  assert.ok(commands.length > 0,
+    "expected to parse runtime commands from bin/doflow.js's dispatch switch. A command written as a "
+    + "block — case 'x': { ...; return; } — is invisible to this pattern and to G8's, so it would be "
+    + 'silently unguarded rather than newly failing; keep the single-expression form');
+
+  const dispatched = new Set([...shellVerbs().keys(), ...nodeVerbs()]);
+  const offSeam = commands.filter((cmd) => !dispatched.has(cmd)).sort();
+  assert.deepEqual(offSeam, [],
+    'these runtime commands are reachable through `doflow <cmd>` but not through the dispatcher, so a '
+    + 'skill can only call them by resolving the package itself — the bypass FR-003 exists to close. '
+    + `Add each to the verb table:\n  ${offSeam.join('\n  ')}`);
+});
+
+// -------------------------------------------------- 5b. the wiring stays visible to the guards
+
+// The trap C.3 fell into, recorded so it cannot be fallen into twice. Both this file and G8 learn
+// what the CLI implements by matching `case 'x': return handleXCommand`. Written in the equally
+// valid block form — `case 'x': { ...; return; }` — a command becomes invisible to both, so the
+// guards do not go red, they go *quiet*: the command stops being checked at all and nobody is
+// told. A guard that can be silently disabled by a refactor is not a guard.
+//
+// This does not require every advertised verb to have a command; an unbuilt verb is a legitimate
+// state and belongs to C.7. It requires only that a verb which *is* wired is wired visibly.
+test('G12: a wired runtime verb uses the case form the guards can parse', () => {
+  const cli = fs.readFileSync(path.join(REPO, 'bin', 'doflow.js'), 'utf8');
+  const nodeArm = new Set(nodeVerbs());
+  const invisible = [];
+  for (const [, verb, tail] of cli.matchAll(/case '([a-z-]+)':(.{0,60})/g)) {
+    if (!nodeArm.has(verb)) continue;
+    if (!/^ return handle[A-Za-z]+Command\b/.test(tail)) invisible.push(`${verb} ->${tail.trimEnd()}`);
+  }
+  assert.deepEqual(invisible.sort(), [],
+    "a runtime verb wired in any form other than `case 'x': return handleXCommand(...)` disappears "
+    + 'from this guard and from G8 without either of them failing:\n  ' + invisible.join('\n  '));
+});
+
+// ------------------------------------------------------------ 6. no skill goes around the seam
+
+// FR-004's mechanical half for the *runtime library* case. C.4's guard covers inlined resolver
+// blocks and interpolated `$DOFLOW_CONFIG_DIR` paths; this covers the other shape the same mistake
+// takes — reaching a JavaScript module in `src/runtime/` directly, by inline evaluation or by
+// `require`, instead of asking the dispatcher for the verb that serves it.
+//
+// Deliberately matches invocation, not mention: `references/scaffold.md` names
+// `src/runtime/scaffold.js` several times to say which module produces Part 1, and prose about an
+// implementation is not a call to it.
+const SEAM_BYPASSES = [
+  [/node\s+(?:--input-type=\S+\s+)?--?e(?:val)?\b/, 'inline `node -e`: evaluates DoFlow code outside the verb table'],
+  [/require\([^)]*src[\\/]runtime/, 'direct `require()` of a runtime module: the seam decides which implementation serves a verb'],
+  [/node\s+\S*src[\\/]runtime[\\/]\S+\.js/, 'running a runtime module as a script: skips dispatch, tracing and the uniform exit contract'],
+];
+
+test('G12: no skill reaches the JavaScript runtime except through the dispatcher (FR-004)', () => {
+  const findings = [];
+  (function walkSkills(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { walkSkills(full); continue; }
+      if (!entry.name.endsWith('.md')) continue;
+      const text = fs.readFileSync(full, 'utf8');
+      for (const [pattern, why] of SEAM_BYPASSES) {
+        if (pattern.test(text)) findings.push(`${path.relative(REPO, full)} — ${why}`);
+      }
+    }
+  }(path.join(REPO, 'core', 'shared', 'skills')));
+
+  assert.deepEqual(findings.sort(), [],
+    'a skill that reaches the runtime by any route other than a verb is a second entrypoint with its '
+    + 'own resolution rules, its own failure message and no run-ledger record:\n  ' + findings.join('\n  '));
+});

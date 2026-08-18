@@ -7,11 +7,15 @@ effort: high
 
 # do-flow
 
-Runs the doflow spec-driven chain end-to-end without requiring a manual `/do-X` invocation for
-every phase. It does not replace or modify `do-brainstorm`, `do-design`, `do-plan`,
-`do-execute-plan`, `do-test`, or `do-code-review` — it runs their existing Behavioral Flows in
-sequence rather than reimplementing them. `do-constitution` is a separate, standalone skill —
-not part of this chain; invoke it directly when you need to set or amend repo-level rules.
+Runs a DoFlow workflow end-to-end without a manual `/do-X` at every stage. The task's **class**
+selects the workflow; the resolved workflow's stages name which existing skills run, in what order,
+and where the run stops. `do-flow` does not replace or modify those skills — it invokes their own
+Behavioral Flows in sequence. `do-constitution` belongs to no class; invoke it directly when you
+need to set or amend repo-level rules.
+
+**You propose the class; the runtime validates it.** Never the reverse. A class you assumed, or one
+the runtime rejected and you replaced with the familiar default, runs a confident workflow for the
+wrong task.
 
 ## Invocation
 ```text
@@ -36,66 +40,109 @@ file and wait for its answered `[Answer]:` tags. Include `Other` explicitly in a
    The walk-up starts at the working directory, so run every command in this skill from the project
    root. Exit 2 means no DoFlow runtime was found; the message names every place searched — surface
    it verbatim and stop, do not search for the runtime yourself.
-   Determine the starting phase:
-   - `feature_slug` is `null` **and** `candidate_slugs` is empty (trunk branch, or a non-git root
-     with zero `agent-docs/doflow/` dirs): no active feature — start at `do-brainstorm`.
-   - `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root — e.g. doflow
-     installed at a multi-service container root — with 2+ feature dirs and no branch to
-     disambiguate): this is NOT "no active feature," it's an unresolved choice. Ask via
-     `AskUserQuestion`, one option per `candidate_slugs` entry, before doing anything else — never
-     default to `do-brainstorm` here, that would create a duplicate feature dir alongside an
-     existing one. Re-resolve with `"$DOFLOW" paths --json --slug="<chosen>"` and carry
-     that slug through every remaining phase invocation and gate.
-   - `feature_slug` is set (branch-derived, or auto-selected/disambiguated above): resume from the
-     first missing artifact — `!has_requirement` → `do-brainstorm`; `has_requirement &&
-     !has_design` → `do-design`; `has_design && !has_plan` → `do-plan`; all three present →
-     Gate A (step 4).
-   - `--from <phase>` overrides auto-detection to deliberately re-run a specific phase.
-2. **Run phases in sequence**, invoking each phase skill's own Behavioral Flow directly:
-   `do-brainstorm` → [**Gate 0**] → `do-design` → `do-plan` → [**Gate A**] → `do-execute-plan` →
-   `do-test` → `do-code-review` → [**Gate B**].
-3. **Report progress after each auto-advanced phase** — one line: phase name + artifact path
-   (e.g. `requirement.md written → agent-docs/doflow/003-foo/requirement.md`) — so the user can
-   follow along without needing to intervene.
-4. **Stop at exactly three points; auto-advance everywhere else:**
+   If `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root — e.g. doflow
+   installed at a multi-service container root — with 2+ feature dirs and no branch to
+   disambiguate), this is NOT "no active feature," it's an unresolved choice. Ask via
+   `AskUserQuestion`, one option per `candidate_slugs` entry, before doing anything else — never
+   default past it, that would create a duplicate feature dir alongside an existing one. Re-resolve
+   with `"$DOFLOW" paths --json --slug="<chosen>"` and carry that slug through every later stage
+   invocation and gate.
 
-   - **Gate 0 — unresolved `[NEEDS CLARIFICATION]` markers** (after `do-brainstorm`):
-     `do-brainstorm` now resolves every ambiguity to zero via its own clarification loop before
-     writing `requirement.md`, so this gate is a safety net rather than the normal path — it only
-     fires if a marker survives from a session aborted mid-loop. If any remain unresolved, stop
-     and surface them via `AskUserQuestion` (one question per marker, or grouped if closely
-     related) before continuing to `do-design`. Patch resolved answers into `requirement.md`
-     directly; do not re-run `do-brainstorm`.
-   - **Gate A — before implementation** (after `do-plan`, before `do-execute-plan`): this is the
-     auto-chain's *conversational* checkpoint on top of the already-existing hard hook gate
-     (`pre-implement-gate.sh`, which blocks source edits until `requirement.md` + `design.md` +
-     `plan.md` exist and remains the real enforcement regardless of what happens here). Ask via
-     `AskUserQuestion`: "`requirement.md`, `design.md`, and `plan.md` are ready. Proceed to
-     implementation?" with options `Proceed` / `Let me review the artifacts first` / `Stop here`.
-   - **Gate B — before commit/merge** (after `do-code-review`): no enforcement hook exists for this
-     today — `/do-git` is a separate, always-manually-invoked skill. Ask via `AskUserQuestion`,
-     framed by the review's own approval status (e.g. if `CHANGES REQUESTED`, foreground
-     "address findings first" rather than offering a bare proceed option): "Review result:
-     `<status>`. Proceed to `/do-git` for commit/merge?"
+2. **Propose one class** — read the request and name exactly one class id, using the cues and the
+   confusable pairs in `references/task_classes.md`. State the class and the signal it rests on in
+   one line. If two classes fit equally, do **not** take the longer one: show what each would run —
+   `"$DOFLOW" workflow --task-class "<candidate>" --json`, quote its `stageIds` — and ask via
+   `AskUserQuestion`, one option per candidate.
 
-5. **Never skip a gate on an ambiguous answer** — an unanswered or unclear response to any
-   `AskUserQuestion` means stop and ask again, per this repo's `RULE_04_QUESTIONS`.
+3. **Validate the class through the runtime** — a proposal is not a selection until this returns:
+   ```bash
+   "$DOFLOW" classify --task-class "<proposed>" --json
+   ```
+   Branch on the returned `outcome` field, not on the exit code.
+   - **`ACCEPTED`** — the returned `workflow` is this run's plan of record. Its `stages`, `gates`
+     and `handoff` are the only source for what happens next; do not supplement them from memory.
+   - **`REJECTED`** — **stop.** Print `message` verbatim: it already names `validClasses` and any
+     near-match `suggestions`. Ask the user to choose from `validClasses` via `AskUserQuestion`,
+     then re-validate that choice. Never substitute `feature`, never retry with a guess, and never
+     run a stage on a class the runtime did not accept.
+   - **Exit 2** — the runtime could not answer at all. Surface its message verbatim and stop.
+
+4. **Announce the selection** — one line before anything runs:
+   `<taskClass> → <workflow.name>: <stageIds joined by →>`, plus the gate ids if `gates` is
+   non-empty. This is the user's chance to correct a misclassification cheaply.
+
+5. **Pick the starting stage.**
+   - `feature`: resume from the first missing chain artifact — `!has_requirement` → the discovery
+     stage; `has_requirement && !has_design` → design; `has_design && !has_plan` → planning; all
+     three present → go straight to the pre-implementation gate in step 7.
+   - Every other class: start at the first entry in `stages`.
+   - `--from <phase>` overrides the above to deliberately re-run a stage. Match the phase to the
+     stage whose `skill` is that phase's skill (`brainstorm` → `do-brainstorm`, `design` →
+     `do-design`, `plan` → `do-plan`, `implement` → the stage with `mutatesSource: true`, `test` →
+     `do-test`, `review` → `do-code-review`). No stage matches in this workflow → stop and list the
+     stage ids it does have. Two stages match — `bug` and `refactor` each run `do-test` twice — →
+     ask which one.
+
+6. **Run the stages in order**, invoking each stage's `skill` Behavioral Flow directly.
+   - `optional: true` — decide from that stage's own `purpose`, then say which way you went and
+     why. Never drop an optional stage silently.
+   - `readinessTemplate` is non-null — consult readiness before entering the stage:
+     `"$DOFLOW" readiness --task-class "<taskClass>" --task-id "<task id>" --json`. Pass
+     `--task-class` explicitly every time: the verb defaults to `feature`, and a readiness verdict
+     computed for the wrong class is worse than none. Not ready → report the missing items and
+     stop; do not enter the stage.
+   - `readinessTemplate` is `null` — enter the stage. Do not consult readiness "to be safe": a
+     `review` or `research` workflow has no implementation to be ready for, and `operations` has no
+     template by design (`references/task_classes.md`). Calling it anyway invents a gate the
+     registry does not declare.
+   - After each stage, report one line: stage id, skill, and the artifact path or result it
+     produced — so the user can follow without intervening.
+
+7. **Stop at the gates the resolved workflow declares** — read them from `workflow.gates`, each
+   attached to a stage by `afterStage`. `trigger: always` stops every time; any other trigger stops
+   only when that named condition actually holds. Ask with the gate's own `prompt` via
+   `AskUserQuestion`. For the `feature` workflow's three, which behave as they always have:
+   - **`gate-0`** (after discovery, trigger `unresolved-clarifications`) — a safety net, not the
+     normal path: `do-brainstorm` resolves ambiguities to zero via its own loop, so this fires only
+     if a `[NEEDS CLARIFICATION]` marker survived an aborted session. Ask one question per marker
+     (grouped if closely related), patch the answers into `requirement.md` directly, and do not
+     re-run `do-brainstorm`.
+   - **`gate-a`** (after planning) — the conversational checkpoint on top of the already-existing
+     hard hook (`pre-implement-gate.sh`, which blocks source edits until `requirement.md`,
+     `design.md` and `plan.md` exist and remains the real enforcement regardless of what happens
+     here). Options: `Proceed` / `Let me review the artifacts first` / `Stop here`.
+   - **`gate-b`** (after review) — no enforcement hook exists for this today; `/do-git` is a
+     separate, always-manually-invoked skill. Frame the question by the review's own approval
+     status: on `CHANGES REQUESTED`, foreground addressing the findings rather than offering a bare
+     proceed.
+   A workflow with an empty `gates` array stops at none of these. It still stops on a readiness
+   block, on an ambiguous answer, and on any stage skill's own stopping rule.
+
+8. **Never skip a gate on an ambiguous answer** — an unanswered or unclear response to any
+   `AskUserQuestion` means stop and ask again, per this repo's `RULE_04_QUESTIONS`. When the
+   terminal stage completes, state `workflow.handoff` as the next step rather than continuing into
+   it.
 
 ## Boundaries
 **Will:**
-- Auto-advance through brainstorm/design/plan/implement/test/review without requiring a manual
-  re-invocation at each phase boundary.
-- Stop at exactly three points: unresolved requirement clarifications, before implementation,
-  before commit/merge.
+- Propose a task class, validate it through the runtime, and run the resolved workflow's stages in
+  order without a manual re-invocation at each boundary.
+- Stop only where the resolved workflow says to: its declared gates, a readiness block, or an
+  ambiguous answer.
 - Compose with the existing `pre-implement-gate.sh` hard gate rather than bypass or duplicate it.
+  That hook keys on branch and artifact state, not on class, so it can deny a `bug` or
+  `trivial-edit` workflow's edits on a branch that already holds an incomplete feature dir —
+  surface its message as written.
 
 **Will Not:**
-- Modify `do-brainstorm`, `do-design`, `do-plan`, `do-execute-plan`, `do-test`, or `do-code-review`.
-- Invoke or modify `do-constitution` — it is a standalone skill outside this chain; run it
-  separately when you need to set or amend repo-level rules.
-- Add a new hook-level enforcement gate for commit/merge — Gate B is conversational only. A
+- Run any workflow for a class the runtime rejected, or replace a rejected class with `feature`.
+- Infer a class silently when two fit, or read a class the user stated as a suggestion.
+- Consult implementation readiness for a stage that declares no readiness template, or invent a
+  readiness template for a class that has none.
+- Modify any stage skill, or invoke `do-constitution` — it is standalone and in no class.
+- Add a hook-level enforcement gate for commit/merge — `gate-b` is conversational only. A
   hook-level version would be a separate, future proposal.
 - Silently proceed past a gate on an ambiguous or missing answer.
 
-**Next Step:** after `do-flow` completes (or pauses at a gate), `/do-git` to commit/merge once
-Gate B is cleared.
+**Next Step:** whatever the resolved `workflow.handoff` names — for every class that ends in a
+change, `/do-git` to commit/merge once the last gate is cleared.

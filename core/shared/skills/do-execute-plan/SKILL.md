@@ -46,10 +46,12 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
      instead of executing tasks: the source layout, signatures and test stubs that `requirement.md`,
      `design.md` and `plan.md` imply, plus a contract frame per external `depends-on:` service.
      Signatures only, never implementation logic, and never a write into the project's source tree.
-   - The in-scope half is deterministic and is **run**, not reasoned through; the
-     external-dependency half is an algorithm you execute. Both, with the exact command, live in
-     `references/scaffold.md` (or `scaffold.md`). Report its `status` and, specifically, whatever it
-     lists as skipped or not evaluated — a partial scaffold read as complete is worse than none.
+   - The in-scope half is deterministic and is **run**, not reasoned through — one verb through the
+     same seam as every other runtime call, `"$DOFLOW" scaffold --json`, which resolves the active
+     feature itself. The external-dependency half is an algorithm you execute. Both, with the exact
+     commands, live in `references/scaffold.md` (or `scaffold.md`). Report its `status` and,
+     specifically, whatever it lists as skipped or not evaluated — a partial scaffold read as
+     complete is worse than none.
 
 4. **Task Selection & Parallel Dispatch**:
    - Select next pending task(s) (`--next`, `--phase N`, `--all`, `--resume`).

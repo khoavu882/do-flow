@@ -46,11 +46,29 @@ These are `doflow` CLI commands, not slash-command skills. Installation and life
 | `doflow trace [--days N] [--json]` | Trajectory of the current or most recent workflow, read from the run ledger |
 | `doflow stats [--days N] [--json]` | Aggregate local run-ledger usage: runs per verb, failures, duration percentiles |
 | `doflow discover [--days N] [--json]` | Missed capability opportunities in recorded runs. Exits 1 when there is a finding; an analysis it cannot settle from the recorded metadata reports `UNKNOWN` rather than "clear" |
+| `doflow classify --task-class <id> [--rationale <text>] [--proposed-by <who>] [--json]` | Validate a proposed task class against the workflow registry and return its workflow. A class the registry does not declare is **rejected** with the valid set and a suggestion — never coerced to `feature`. Exits 1 on a rejection, 2 when no class was proposed |
+| `doflow workflow --task-class <id> [--json]` | Resolve a class to its ordered stages, their gates, which stages mutate source, and which readiness templates gate them. Exits 2 on an unknown class |
+| `doflow route --intent <id> [--query <text>] [--check] [--json]` | Resolve an information need to a provider that is healthy on this machine, with the concrete command or MCP tool to run. Exits 1 when no provider can answer |
+| `doflow claim --task-id <id> [--action list\|add\|link] [--statement <text>] [--claim-id <id>] [--evidence-id <id>] [--relation supports\|contradicts] [--json]` | Record a proposition, link evidence to it, or list what is recorded. A new claim starts as a `hypothesis` and can only become `supported` through linked evidence — there is deliberately no way to assert one supported |
+| `doflow context-pack --task-id <id> [--task-class <c>] [--objective <text>] [--json]` | Compile a task's recorded evidence and claims into the context block a stage is handed. Exits 1 on an empty pack: nothing recorded is not the same as nothing needed |
+| `doflow verify --task-id <id> [--action contract\|report] [--risk <level>] [--json]` | `--action contract` compiles the verification contract before implementation (FR-009); the default runs it and reports. Exits 1 on `FAIL` **and** on `INCONCLUSIVE` — a verdict over zero evidence is not a pass |
+| `doflow recover --error <message> [--failed-check <name>]… [--iteration N] [--agent <name>] [--json]` | Classify a verification failure into one of eleven classes and return the targeted action for it. Exits 0 when a bounded retry is available, 1 when the loop must stop |
+| `doflow scaffold [--slug <name>] [--json]` | Emit the reviewable code scaffold the active feature's `requirement.md`, `design.md` and `plan.md` imply, under that feature's own `scaffold/` directory. Signatures, types and stubs only — never a write into the source tree. Exits 1 when the scaffold is incomplete or blocked, so a partial result is never reported as success. This is what `/do-execute-plan --scaffold` runs |
 
-`readiness` and `evidence` read per-project state under the invoking repo's `.doflow/state/`; run
-them from the project the task belongs to, or pass `-g` for the global scope. `capabilities`
-reports on the machine and is scope-independent; `doctor` reports on both, so index freshness and
-command detection follow the same project scope.
+`readiness`, `evidence`, `claim` and `context-pack` read per-project state under the invoking
+repo's `.doflow/state/`; run them from the project the task belongs to, or pass `-g` for the global
+scope. `capabilities` reports on the machine and is scope-independent; `doctor` reports on both, so
+index freshness and command detection follow the same project scope.
+
+`--task-id` and `--task-class` are **required**, not defaulted. Readiness, evidence, claims and a
+context pack all belong to one named task under one named contract; substituting `default` or
+`feature` for an argument the caller omitted produces a confident verdict about a task or a
+contract nobody asked about, which is exactly the failure mode the runtime is being corrected for.
+Every refusal names the valid set.
+
+Every command in this table is also a verb on the runtime seam — `doflow-run <verb>` — which is how
+skills reach them. The two spellings run the same implementation; the seam additionally records a
+metadata line in the run ledger.
 
 `trace`, `stats` and `discover` read the run ledger at `<config>/state/runs/YYYY-MM-DD.jsonl`,
 which `doflow-run` appends to once per dispatched verb. They locate it the way the dispatcher does
@@ -59,6 +77,11 @@ subdirectory. Records are metadata only: a verb, a capability, a provider, an ex
 duration, counts and byte volumes. No argument value, command output or file content is recorded.
 An empty ledger is a normal state and is reported as "no conclusion can be drawn", never as a
 clean bill of health.
+
+`scaffold` resolves which feature is active the same way every chain skill does — from the working
+directory, branch-derived in a git repo — so run it from the project root. Where a non-git root
+holds more than one feature directory it cannot choose: it exits 2 naming every candidate, and
+`--slug <name>` re-runs against the one you pick.
 
 ## Git Lifecycle Intents
 

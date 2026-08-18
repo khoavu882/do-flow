@@ -72,17 +72,16 @@ Deterministic, so it is executed rather than reasoned through. Run it, then repo
 do not restate its counts from memory or re-derive them by reading the tree.
 
 ```bash
-# `$DOFLOW` and `feature_dir` are already resolved by step 1. The generator is a library in the
-# DoFlow package, reached through the CLI's own location.
-node --input-type=commonjs -e '
-  const fs = require("node:fs"), path = require("node:path");
-  const cli = fs.realpathSync(process.argv[1]);
-  const { generateScaffold } = require(path.join(path.dirname(path.dirname(cli)), "src", "runtime", "scaffold.js"));
-  const result = generateScaffold({ featureDir: process.argv[2], repoRoot: process.argv[3] });
-  console.log(JSON.stringify(result, null, 2));
-  process.exit(result.exitCode);
-' "${DOFLOW_CLI:-$(command -v doflow)}" "<feature_dir>" "<repo_root>"
+# `$DOFLOW` is already resolved by step 1. One verb, like every other runtime call — the seam
+# resolves the active feature itself, so nothing here interpolates a path or a slug.
+"$DOFLOW" scaffold --json
 ```
+
+Run it from the project root: the verb resolves which feature is active exactly the way `paths`
+does, from the working directory. The one case worth knowing about is a non-git root holding more
+than one feature directory — there the resolver cannot choose, and exits 2 naming every candidate.
+Ask the user which one via `AskUserQuestion` and re-run as `"$DOFLOW" scaffold --slug=<chosen>
+--json`; do not pick for them.
 
 Exit codes follow the runtime's uniform contract: `0` complete, `1` a finding you must report to the
 user, `2` a usage or resolution error. **Branch on `status`, not on the presence of output** — a
