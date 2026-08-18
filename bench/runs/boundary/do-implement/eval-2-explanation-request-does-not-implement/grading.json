@@ -11,9 +11,9 @@
   },
   "expectations": [
     {
-      "text": "do-implement was NOT invoked",
+      "text": "the run produced no artifacts — an explanation, not an edit",
       "passed": true,
-      "evidence": "invoked: [none]"
+      "evidence": "absent from outputs/ (empty — no artifacts produced) as required"
     },
     {
       "text": "The explanation names the real code path (pathFor / the worktrees directory)",

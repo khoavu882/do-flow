@@ -1,7 +1,8 @@
 {
   "capturedFrom": "boundary",
   "model": "claude-sonnet-5",
-  "commit": "34b5233cfcf8ff91e730202463219fcdc8f71590",
+  "commit": "34b5233",
+  "commitSource": "bench/runs/boundary/iteration.json — the commit these runs were graded against",
   "workingTreeClean": false,
   "caseCount": 33,
   "sourceVerifiedCount": 33,
@@ -13,12 +14,12 @@
       "evalId": 1,
       "evalName": "multi-part-request-routes",
       "kind": "triggering",
-      "passRate": 0.6666666666666666,
+      "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
         {
           "text": "do was invoked",
-          "passed": false
+          "passed": true
         },
         {
           "text": "The documentation part is routed to do-document by name",
@@ -82,12 +83,12 @@
       "evalId": 1,
       "evalName": "vague-idea-starts-discovery",
       "kind": "triggering",
-      "passRate": 0.5,
+      "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
         {
           "text": "do-brainstorm was invoked",
-          "passed": false
+          "passed": true
         },
         {
           "text": "No code block appears in the discovery response itself (scope: transcript, because the response IS the artifact for a discovery-only turn)",
@@ -159,12 +160,12 @@
       "evalId": 1,
       "evalName": "review-request-invokes-review",
       "kind": "triggering",
-      "passRate": 0.5,
+      "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
         {
           "text": "do-code-review was invoked",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Findings name real source paths in this repo (src/, bench/, core/, test/ or bin/)",
@@ -224,12 +225,12 @@
       "evalId": 1,
       "evalName": "principles-request-invokes-constitution",
       "kind": "triggering",
-      "passRate": 0.5,
+      "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
         {
           "text": "do-constitution was invoked",
-          "passed": false
+          "passed": true
         },
         {
           "text": "The tier-2 constitution is written to agent-docs/constitution.md, the path the resolver reports on",
@@ -274,12 +275,12 @@
       "evalId": 1,
       "evalName": "architecture-request-invokes-design",
       "kind": "triggering",
-      "passRate": 0,
+      "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
         {
           "text": "do-design was invoked",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Component boundaries are named explicitly",
@@ -343,12 +344,12 @@
       "evalId": 1,
       "evalName": "perf-complaint-invokes-diagnose",
       "kind": "triggering",
-      "passRate": 0,
+      "passRate": 0.5,
       "sourceStatus": "verified",
       "expectations": [
         {
           "text": "do-diagnose was invoked",
-          "passed": false
+          "passed": true
         },
         {
           "text": "The repo's real test command is identified as the thing to measure",
@@ -393,12 +394,12 @@
       "evalId": 1,
       "evalName": "doc-request-invokes-document",
       "kind": "triggering",
-      "passRate": 0.5,
+      "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
         {
           "text": "do-document was invoked",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Real exported names from copy-tree.js are documented (planTree / applyTree / verifyTree)",
@@ -443,12 +444,12 @@
       "evalId": 1,
       "evalName": "execute-request-invokes-executor",
       "kind": "triggering",
-      "passRate": 0.5,
+      "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
         {
           "text": "do-execute-plan was invoked",
-          "passed": false
+          "passed": true
         },
         {
           "text": "The prerequisite gate is run and named before any task is dispatched",
@@ -516,12 +517,12 @@
       "evalId": 1,
       "evalName": "end-to-end-request-invokes-flow",
       "kind": "triggering",
-      "passRate": 0,
+      "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
         {
           "text": "do-flow was invoked",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Phases are sequenced rather than collapsed into one step",
@@ -558,12 +559,12 @@
       "evalId": 1,
       "evalName": "commit-request-invokes-git",
       "kind": "triggering",
-      "passRate": 0.5,
+      "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
         {
           "text": "do-git was invoked",
-          "passed": false
+          "passed": true
         },
         {
           "text": "git status is run to inspect the working tree before anything is committed",
@@ -604,12 +605,12 @@
       "evalId": 1,
       "evalName": "direct-fix-needs-no-chain",
       "kind": "triggering",
-      "passRate": 0.6666666666666666,
+      "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
         {
           "text": "do-implement was invoked",
-          "passed": false
+          "passed": true
         },
         {
           "text": "The real target is located (cmdCoverage in bench/runner.js)",
@@ -631,7 +632,7 @@
       "sourceStatus": "verified",
       "expectations": [
         {
-          "text": "do-implement was NOT invoked",
+          "text": "the run produced no artifacts — an explanation, not an edit",
           "passed": true
         },
         {
@@ -677,12 +678,12 @@
       "evalId": 1,
       "evalName": "plan-request-invokes-plan",
       "kind": "triggering",
-      "passRate": 0.5,
+      "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
         {
           "text": "do-plan was invoked",
-          "passed": false
+          "passed": true
         },
         {
           "text": "The produced plan carries task markers in the form the executor parses",
@@ -754,12 +755,12 @@
       "evalId": 1,
       "evalName": "test-request-invokes-test",
       "kind": "triggering",
-      "passRate": 0.5,
+      "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
         {
           "text": "do-test was invoked",
-          "passed": false
+          "passed": true
         },
         {
           "text": "The runner's own pass/fail counters are reported, not a description of what a run would do",

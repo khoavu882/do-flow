@@ -12,8 +12,8 @@
   "expectations": [
     {
       "text": "do-execute-plan was invoked",
-      "passed": false,
-      "evidence": "invoked: [none]"
+      "passed": true,
+      "evidence": "do-execute-plan: verified — read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-execute-plan-1/.claude/skills/do-execute-plan/SKILL.md (matches core/shared/skills/do-execute-plan/SKILL.md)"
     },
     {
       "text": "The prerequisite gate is run and named before any task is dispatched",
@@ -26,5 +26,5 @@
       "evidence": "manual — left for the grader subagent"
     }
   ],
-  "pass_rate": 0.5
+  "pass_rate": 1
 }

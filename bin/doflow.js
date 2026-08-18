@@ -58,7 +58,14 @@ const { RecoveryManager } = require('../src/runtime/recovery');
 
 const SCRIPT_DIR = __dirname; // bin/
 const REPO_ROOT = path.dirname(SCRIPT_DIR);
-const pkg = require('../package.json');
+// Tolerant because the projected runtime under `.doflow/runtime/` ships bin/, src/ and
+// core/registry/ but no package.json — see the `runtime.*` assets in core/registry/assets.yaml.
+// A hard require here would make every Node-backed verb fail in an install, which is the exact
+// defect that projection exists to fix. Only version reporting depends on this.
+function loadPkg() {
+  try { return require('../package.json'); } catch { return { version: '0.0.0-installed', name: '@khoavu882/doflow' }; }
+}
+const pkg = loadPkg();
 
 /** "skip all backup protection" must be an explicit, deliberate choice, never a default combo. */
 function assertNoBackupRequiresForce(o) {

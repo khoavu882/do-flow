@@ -118,6 +118,17 @@ resolve_node_cli() {
     fi
     dir="$(dirname "$dir")"
   done
+  # The runtime projected alongside this dispatcher. This is the step that makes Node-backed verbs
+  # work for someone who ran `npx @khoavu882/doflow install` and nothing else: npx leaves no package
+  # behind, the install directory is not inside a checkout, and nothing lands on PATH — so before
+  # the `runtime.*` assets shipped, every Node-backed verb answered `cli-not-found` in every real
+  # install while passing in every test, because tests run inside a checkout. Layout under
+  # runtime/ mirrors the repo (bin/, src/, core/registry/) so the modules' own
+  # `path.resolve(__dirname, '..', '..')` finds the registries without any path rewriting.
+  if [ -f "$CONFIG_DIR/runtime/bin/doflow.js" ]; then
+    NODE_CLI_KIND="script"; NODE_CLI_PATH="$CONFIG_DIR/runtime/bin/doflow.js"
+    return 0
+  fi
   project_root="$(dirname "$CONFIG_DIR")"
   if [ -f "$project_root/node_modules/@khoavu882/doflow/bin/doflow.js" ]; then
     NODE_CLI_KIND="script"; NODE_CLI_PATH="$project_root/node_modules/@khoavu882/doflow/bin/doflow.js"

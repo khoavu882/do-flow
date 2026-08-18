@@ -11,7 +11,7 @@
       "assertions": [
         {
           "text": "do-implement was invoked",
-          "type": "skill_invoked",
+          "type": "skill_resolved",
           "skill": "do-implement"
         },
         {
@@ -35,9 +35,10 @@
       "files": [],
       "assertions": [
         {
-          "text": "do-implement was NOT invoked",
-          "type": "skill_not_invoked",
-          "skill": "do-implement"
+          "text": "the run produced no artifacts — an explanation, not an edit",
+          "type": "output_not_matches",
+          "in": "outputs",
+          "pattern": "\\S"
         },
         {
           "text": "The explanation names the real code path (pathFor / the worktrees directory)",

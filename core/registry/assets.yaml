@@ -245,6 +245,96 @@
       }
     },
     {
+      "id": "runtime.cli",
+      "kind": "script",
+      "source": "bin",
+      "appliesTo": [
+        "claude",
+        "codex",
+        "gemini"
+      ],
+      "projection": {
+        "claude": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        },
+        "codex": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        },
+        "gemini": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        }
+      },
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "claude": "../.doflow/runtime/bin",
+        "codex": "../.doflow/runtime/bin",
+        "gemini": "../.doflow/runtime/bin"
+      }
+    },
+    {
+      "id": "runtime.lib",
+      "kind": "script",
+      "source": "src",
+      "appliesTo": [
+        "claude",
+        "codex",
+        "gemini"
+      ],
+      "projection": {
+        "claude": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        },
+        "codex": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        },
+        "gemini": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        }
+      },
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "claude": "../.doflow/runtime/src",
+        "codex": "../.doflow/runtime/src",
+        "gemini": "../.doflow/runtime/src"
+      }
+    },
+    {
+      "id": "runtime.registry",
+      "kind": "script",
+      "source": "core/registry",
+      "appliesTo": [
+        "claude",
+        "codex",
+        "gemini"
+      ],
+      "projection": {
+        "claude": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        },
+        "codex": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        },
+        "gemini": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
+        }
+      },
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "claude": "../.doflow/runtime/core/registry",
+        "codex": "../.doflow/runtime/core/registry",
+        "gemini": "../.doflow/runtime/core/registry"
+      }
+    },
+    {
       "id": "locator.doflow",
       "kind": "script",
       "source": "core/harnesses/shared/locator",

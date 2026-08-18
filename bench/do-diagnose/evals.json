@@ -11,7 +11,7 @@
       "assertions": [
         {
           "text": "do-diagnose was invoked",
-          "type": "skill_invoked",
+          "type": "skill_resolved",
           "skill": "do-diagnose"
         },
         {

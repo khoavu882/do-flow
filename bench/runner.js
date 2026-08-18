@@ -23,7 +23,8 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
+const crypto = require('node:crypto');
 const {
   SKILL_SOURCE_FILE,
   SANDBOX_SKILLS_DIR,
@@ -134,11 +135,36 @@ const PROGRAMMATIC = {
     const hit = re.test(text);
     return { passed: !hit, evidence: hit ? `unexpectedly matched /${a.pattern}/ in ${where}` : `absent from ${where} as required` };
   },
+  // The by-path equivalent of "the skill was invoked".
+  //
+  // A.5 established that a case must read the skill file directly, because invoking it by name
+  // resolves ~/.claude/skills/, which differs from this tree in 12 of 13 skills. So
+  // `invoked_skills.json` is empty by contract, and asking whether a skill was *invoked* asks a
+  // question the harness forbids answering yes to. What a by-path run can prove — and proves with
+  // a hash rather than a self-report — is that it read this repo's copy of the named skill.
+  skill_resolved: (a, ctx) => {
+    if (!ctx.cfg) return { passed: null, evidence: 'grading context carries no config — cannot verify provenance' };
+    const v = verifySkillSource(ctx.cfg, a.skill, ctx);
+    return { passed: v.status === 'verified', evidence: `${a.skill}: ${v.status} — ${v.evidence}` };
+  },
+  // Kept, but they refuse to answer for a by-path run instead of inventing a verdict.
+  //
+  // Both were silently broken by A.5's contract, in opposite and equally bad directions:
+  // `skill_invoked` failed 13 of 13 times with identical evidence while the skills behaved
+  // correctly, and `skill_not_invoked` passed vacuously every time because an empty array trivially
+  // excludes everything. A negative assertion that cannot fail is worse than a missing one — it
+  // reads as coverage. `passed: null` routes both to the grader instead.
   skill_invoked: (a, ctx) => {
+    if (ctx.invokedSkills.length === 0 && ctx.skillSource) {
+      return { passed: null, evidence: `by-path run (skill_source.json present, invoked_skills empty) — use skill_resolved for '${a.skill}'` };
+    }
     const hit = ctx.invokedSkills.includes(a.skill);
     return { passed: hit, evidence: `invoked: [${ctx.invokedSkills.join(', ') || 'none'}]` };
   },
   skill_not_invoked: (a, ctx) => {
+    if (ctx.invokedSkills.length === 0 && ctx.skillSource) {
+      return { passed: null, evidence: `by-path run — an empty invoked_skills list excludes everything, so this would pass without checking anything` };
+    }
     const hit = ctx.invokedSkills.includes(a.skill);
     return { passed: !hit, evidence: `invoked: [${ctx.invokedSkills.join(', ') || 'none'}]` };
   },
@@ -206,8 +232,27 @@ function safeRead(file) {
  * The hash a run must have read. `core/shared/skills/<skill>/SKILL.md` is the tree Phase D
  * rewrites, so it is the only source whose measurement means anything.
  */
-function skillSourceSha256(cfg, skill) {
-  const file = path.join(REPO_ROOT, cfg.skillsRoot, skill, 'SKILL.md');
+/**
+ * The hash a run's recorded skill SHOULD have matched.
+ *
+ * `atCommit` is what makes a frozen iteration re-gradeable. Without it this compared against the
+ * working tree, so the moment the skills changed — which is the entire point of the Phase D
+ * rewrite — every case in the committed baseline flipped to `mismatch`. That verdict was wrong in
+ * a way worth naming: it conflates "this run measured the wrong thing" with "this run measured the
+ * previous thing, deliberately, which is what a baseline IS". A baseline that cannot survive the
+ * change it exists to measure is not a baseline.
+ *
+ * Falls back to the working tree when no commit is recorded, which is correct for a fresh
+ * iteration graded against the tree that produced it.
+ */
+function skillSourceSha256(cfg, skill, atCommit = null) {
+  const rel = path.posix.join(cfg.skillsRoot, skill, 'SKILL.md');
+  if (atCommit) {
+    const show = spawnSync('git', ['show', `${atCommit}:${rel}`], { cwd: REPO_ROOT, encoding: 'buffer' });
+    if (show.status !== 0) return null;
+    return crypto.createHash('sha256').update(show.stdout).digest('hex');
+  }
+  const file = path.join(REPO_ROOT, rel);
   return fs.existsSync(file) ? sha256File(file) : null;
 }
 
@@ -234,7 +279,7 @@ function isSandboxPath(p) {
  * edited content) · `unrecorded` (the run saved no `skill_source.json`).
  */
 function verifySkillSource(cfg, skill, ctx) {
-  const expected = skillSourceSha256(cfg, skill);
+  const expected = skillSourceSha256(cfg, skill, ctx.sourceAt || null);
   const rec = ctx.skillSource;
   if (!rec || rec.malformed) {
     return {
@@ -463,6 +508,21 @@ function cmdGrade(cfg, opts) {
     console.error(`bench grade: no runs found at ${path.relative(REPO_ROOT, iterRoot)}`);
     return 2;
   }
+  // Which commit's skills this iteration measured. Recorded on first grade and reused after, so a
+  // re-grade months later reproduces the same verdicts instead of silently re-basing on HEAD. An
+  // explicit --source-at overrides and re-records, which is how an iteration captured before this
+  // field existed gets its provenance back.
+  const stampFile = path.join(iterRoot, 'iteration.json');
+  let stamp = fs.existsSync(stampFile) ? readJson(stampFile) : null;
+  if (opts['source-at']) {
+    stamp = { ...(stamp || {}), sourceAt: opts['source-at'] };
+    fs.writeFileSync(stampFile, `${JSON.stringify(stamp, null, 2)}\n`);
+  }
+  const sourceAt = stamp && stamp.sourceAt ? stamp.sourceAt : null;
+  if (sourceAt) {
+    console.log(`grading against skills as of ${sourceAt} (recorded in ${path.relative(REPO_ROOT, stampFile)})`);
+  }
+
   let graded = 0;
   let manual = 0;
   const unverified = [];
@@ -474,6 +534,11 @@ function cmdGrade(cfg, opts) {
       const runDir = path.join(iterRoot, skill, `eval-${e.id}-${e.name}`);
       if (!fs.existsSync(runDir)) continue;
       const ctx = loadRunContext(runDir);
+      // skill_resolved needs both to reach verifySkillSource; attached here rather than threaded
+      // through loadRunContext, which is also used by callers that have no case in hand.
+      ctx.cfg = cfg;
+      ctx.skill = skill;
+      ctx.sourceAt = sourceAt;
       const expectations = (e.assertions || []).map((a) => gradeAssertion(a, ctx));
       manual += expectations.filter((x) => x.passed === null).length;
       const decided = expectations.filter((x) => x.passed !== null);
@@ -517,10 +582,18 @@ function cmdBaseline(cfg, opts) {
   const results = collectResults(cfg, iterRoot);
   const clean = workingTreeClean();
   const unverified = results.filter((r) => r.sourceStatus !== 'verified');
+  // The commit the runs MEASURED, not HEAD at freeze time. Those differ whenever a baseline is
+  // frozen or re-frozen after the tree moved on — which is exactly when a baseline matters. The
+  // first freeze of this iteration stamped the current HEAD onto runs captured two commits earlier,
+  // quietly claiming they measured skills they had never seen.
+  const stampFile = path.join(iterRoot, 'iteration.json');
+  const stamp = fs.existsSync(stampFile) ? readJson(stampFile) : null;
+  const measured = stamp && stamp.sourceAt ? stamp.sourceAt : null;
   const baseline = {
     capturedFrom: from,
     model: cfg.model,
-    commit: currentCommit(),
+    commit: measured || currentCommit(),
+    commitSource: measured ? `${path.relative(REPO_ROOT, stampFile)} — the commit these runs were graded against` : 'HEAD at freeze time',
     workingTreeClean: clean,
     caseCount: results.length,
     // FR-018 wants a baseline that predates the rewrite; it is only a usable reference if it also
@@ -681,7 +754,15 @@ function parseArgs(argv) {
     else if (a === '--skill') opts.skill = argv[++i];
     else if (a === '--iteration') opts.iteration = argv[++i];
     else if (a === '--from') opts.from = argv[++i];
+    else if (a === '--source-at') opts['source-at'] = argv[++i];
     else if (a === '--help' || a === '-h') opts.help = true;
+    // An unrecognised flag used to be dropped on the floor. That is how `--source-at` appeared to
+    // do nothing on its first run: grading re-based on HEAD, reported 33 mismatches, and exited 0
+    // as though the request had been honoured. A typo in a flag name must not look like a result.
+    else if (a.startsWith('--')) {
+      console.error(`bench: unknown option '${a}'`);
+      process.exit(2);
+    }
   }
   return { cmd, opts };
 }

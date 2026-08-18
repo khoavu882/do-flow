@@ -145,22 +145,41 @@ test('FR-003: exit codes and --json hold at the dispatcher boundary in an instal
   assert.equal(unknown.status, 2, 'an unknown verb is a resolution error, not a finding');
   assert.equal(JSON.parse(unknown.stderr).error, 'unknown-verb');
 
-  // A Node-backed verb in a global install with no package on PATH is the one case that cannot be
-  // served. It must still answer in the caller's shape with exit 2 and a message that says what to
-  // do — the failure mode being replaced is a raw "Cannot find module" from node.
-  const noCli = runtime(locator, ['capabilities', '--json'], {
-    home, cwd, env: { PATH: `/usr/bin:/bin:${path.dirname(process.execPath)}` },
-  });
-  assert.equal(noCli.status, 2);
-  const reported = JSON.parse(noCli.stderr);
-  assert.equal(reported.error, 'cli-not-found');
-  assert.match(reported.message, /DOFLOW_CLI/);
+  // A Node-backed verb must WORK here. This block previously asserted the opposite — that such a
+  // verb "is the one case that cannot be served" — and so encoded a defect as intended design:
+  // after `npx @khoavu882/doflow install`, npx leaves no package, the install is not inside a
+  // checkout, and nothing lands on PATH, so eleven verbs (readiness, evidence, claim, verify,
+  // classify, workflow, scaffold, route, trace, capabilities, discover) answered `cli-not-found`
+  // for every real user while every test passed. Tests run inside a checkout; users do not.
+  // The `runtime.*` assets project bin/, src/ and core/registry/ into `.doflow/runtime/`, and this
+  // is the assertion that keeps them projected.
+  const noPath = { PATH: `/usr/bin:/bin:${path.dirname(process.execPath)}` };
+  const served = runtime(locator, ['capabilities', '--json'], { home, cwd, env: noPath });
+  assert.equal(served.status, 0,
+    `a Node-backed verb must be served by the projected runtime with no package on PATH: ${served.stderr}`);
+  assert.ok(JSON.parse(served.stdout).capabilities, 'capabilities answered but returned no capability list');
 
-  // ...and the documented escape hatch actually works, so the exit 2 above is a resolution result
-  // rather than a broken verb.
-  const withCli = runtime(locator, ['capabilities', '--json'], { home, cwd, env: { DOFLOW_CLI: CLI } });
-  assert.equal(withCli.status, 0, withCli.stderr);
-  assert.ok(JSON.parse(withCli.stdout));
+  // The unservable case still has to answer in the caller's shape rather than emit a raw
+  // "Cannot find module" from node. Provoked by removing the projected runtime, which is now the
+  // only way to reach it — that is the point.
+  const projected = path.join(home, '.doflow', 'runtime');
+  assert.ok(fs.existsSync(projected), `install did not project the runtime to ${projected}`);
+  fs.renameSync(projected, `${projected}.moved`);
+  try {
+    const noCli = runtime(locator, ['capabilities', '--json'], { home, cwd, env: noPath });
+    assert.equal(noCli.status, 2);
+    const reported = JSON.parse(noCli.stderr);
+    assert.equal(reported.error, 'cli-not-found');
+    assert.match(reported.message, /DOFLOW_CLI/);
+
+    // ...and the documented escape hatch works, so the exit 2 above is a resolution result rather
+    // than a broken verb.
+    const withCli = runtime(locator, ['capabilities', '--json'], { home, cwd, env: { ...noPath, DOFLOW_CLI: CLI } });
+    assert.equal(withCli.status, 0, withCli.stderr);
+    assert.ok(JSON.parse(withCli.stdout));
+  } finally {
+    fs.renameSync(`${projected}.moved`, projected);
+  }
 });
 
 // -------------------------------------------------------------------- NFR-007: remove reclaims

@@ -12,8 +12,8 @@
   "expectations": [
     {
       "text": "do-brainstorm was invoked",
-      "passed": false,
-      "evidence": "invoked: [none]"
+      "passed": true,
+      "evidence": "do-brainstorm: verified — read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-brainstorm-1/.claude/skills/do-brainstorm/SKILL.md (matches core/shared/skills/do-brainstorm/SKILL.md)"
     },
     {
       "text": "No code block appears in the discovery response itself (scope: transcript, because the response IS the artifact for a discovery-only turn)",
@@ -26,5 +26,5 @@
       "evidence": "manual — left for the grader subagent"
     }
   ],
-  "pass_rate": 0.5
+  "pass_rate": 1
 }

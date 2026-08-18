@@ -11,7 +11,7 @@
       "assertions": [
         {
           "text": "do-code-review was invoked",
-          "type": "skill_invoked",
+          "type": "skill_resolved",
           "skill": "do-code-review"
         },
         {

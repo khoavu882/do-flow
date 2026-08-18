@@ -11,7 +11,7 @@
       "assertions": [
         {
           "text": "do-test was invoked",
-          "type": "skill_invoked",
+          "type": "skill_resolved",
           "skill": "do-test"
         },
         {
