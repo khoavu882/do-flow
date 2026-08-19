@@ -41,9 +41,21 @@ N/A: single-repo feature. Branch `feat/010-refactor-backend`, created before dis
 | H.2 | `082b8dd..1c391b1` | 0 | clean | complete |
 | H.3 | `082b8dd..1c391b1` | 0 | clean | complete |
 | H.4 | `082b8dd..1c391b1` | 0 | clean | complete |
+| E.1 | `1c391b1..b36759b` | 0 | clean | complete |
+| E.2 | `1c391b1..b36759b` | 0 | clean | complete |
+| E.3 | `1c391b1..b36759b` | 0 | clean | complete |
+| E.4 | `1c391b1..b36759b` | 0 | clean | complete |
+| E.5 | `1c391b1..b36759b` | 0 | clean | complete |
+| E.6 | `1c391b1..b36759b` | 0 | clean | complete |
+| I.1 | working tree | 0 | clean | complete |
 
 ## Findings
 
+- **[I.1 Test-Quality Assessment]** — Evaluated the full suite (598 tests across 60 files) against the brief's criteria:
+  - *Behavior vs Implementation*: Adapter and lifecycle tests exercise native file generation, planning, applying, and verification against isolated temp directories, avoiding assertions on private state.
+  - *Zero Mocking Libraries*: With zero production or dev dependencies in `package.json`, tests rely entirely on pure parameter injection (`repoRoot`, `fsImpl`, `scriptsDir`) rather than synthetic mock frameworks.
+  - *Structural Invariants vs Regressions*: Guard tests (`test/guards/`) act as executable architecture contracts (verifying reachability, zero-dependency constraints, byte budgets, dispatcher parity, and doc-path synchronization).
+  - *Test Tree Organization*: All 43 test files now mirror `src/` modules cleanly (`test/adapters/`, `test/lifecycle/`, `test/runtime/`, `test/registry/`, `test/state/`, `test/helper/`, `test/install/`, `test/e2e/`, `test/guards/`), eliminating root clutter while preserving 100% test passing parity (598/598).
 - **[artifacts] the chain artifacts were deleted mid-execution and were not recoverable from git** —
   `agent-docs/doflow/010-refactor-backend/` vanished between a passing `prereqs` check and the next
   command in the same turn. `agent-docs/` was listed in `.gitignore`, so nothing was in any commit
@@ -90,10 +102,12 @@ N/A: single-repo feature. Branch `feat/010-refactor-backend`, created before dis
 - [x] G.1–G.2 — `verifyHookCommands` and its two helpers extracted; the three divergent symbols
       verified byte-identical to their prior state
 - [x] H.1–H.4 — oversized runtime modules decomposed (`verification.js` 1256 → 955, `scaffold.js` 1239 → 980, `trace.js` 1083 → 609), helpers extracted into `verification-registry.js`, `verification-contract-runner.js`, `scaffold-artifacts.js`, `scaffold-fingerprint.js`, `scaffold-languages.js`, `trace-views.js`, `trace-render.js`. All verb comparisons verified identical/expected against pre-phase commit.
+- [x] E.1–E.6 — all 43 test files organised into module directories mirroring `src/` (`adapters/`, `lifecycle/`, `runtime/`, `registry/`, `state/`, `helper/`, `install/`, `e2e/`), full suite 598 tests / 0 failures verified.
+- [x] I.1 — test quality assessed against brief's criteria.
 
 ## In Progress
 
-- Phase E — Reorganise test tree by module
+None.
 
 ## Blocked
 
@@ -101,4 +115,4 @@ None.
 
 ## Next Action
 
-Phase E (43 test files into module directories mirroring `src/`), then Phase I (test-quality assessment).
+Gate B — Review and commit/merge preparation via `/do-git`.

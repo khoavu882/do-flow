@@ -221,16 +221,16 @@ N/A: single-repo feature. Branch `feat/010-refactor-backend`.
 
 ### Phase E — Test tree organised by module
 
-- [ ] E.1 [P] [US5] Move the adapter tests into per-harness directories under `test/adapters/` — owner: quality-guardian
-- [ ] E.2 [P] [US5] Move the lifecycle tests into `test/lifecycle/` — owner: quality-guardian
-- [ ] E.3 [P] [US5] Move the runtime tests into `test/runtime/` — owner: quality-guardian
-- [ ] E.4 [P] [US5] Move the registry, state and shared-module tests — owner: quality-guardian
-- [ ] E.5 [P] [US5] Move the whole-CLI and fixture-driven tests into `test/e2e/` — owner: quality-guardian
-- [ ] E.6 [US5] Verify the reorganised tree: same test count, still scoped to `test/`, no stale path [depends E.1–E.5] — owner: quality-guardian
+- [x] E.1 [P] [US5] Move the adapter tests into per-harness directories under `test/adapters/` — owner: quality-guardian
+- [x] E.2 [P] [US5] Move the lifecycle tests into `test/lifecycle/` — owner: quality-guardian
+- [x] E.3 [P] [US5] Move the runtime tests into `test/runtime/` — owner: quality-guardian
+- [x] E.4 [P] [US5] Move the registry, state and shared-module tests — owner: quality-guardian
+- [x] E.5 [P] [US5] Move the whole-CLI and fixture-driven tests into `test/e2e/` — owner: quality-guardian
+- [x] E.6 [US5] Verify the reorganised tree: same test count, still scoped to `test/`, no stale path [depends E.1–E.5] — owner: quality-guardian
 
 ### Phase I — Test-quality findings
 
-- [ ] I.1 [US5] Assess the suite against the brief's testing criteria and record findings without changing tests — owner: quality-guardian; files: agent-docs/doflow/010-refactor-backend/state.md
+- [x] I.1 [US5] Assess the suite against the brief's testing criteria and record findings without changing tests — owner: quality-guardian; files: agent-docs/doflow/010-refactor-backend/state.md
 
 ### Checkpoints
 
@@ -240,9 +240,9 @@ N/A: single-repo feature. Branch `feat/010-refactor-backend`.
 
 ### Completion criteria
 
-- [ ] All tasks checked
-- [ ] Validation gates pass
-- [ ] state.md updated
+- [x] All tasks checked
+- [x] Validation gates pass
+- [x] state.md updated
 
 ## 9. History
 
