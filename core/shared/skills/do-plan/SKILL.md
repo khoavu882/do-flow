@@ -60,7 +60,21 @@ not have.
 3. **Precondition (advisory)** — if `has_requirement` or `has_design` is false, warn and offer to
    run `/do-brainstorm` / `/do-design` first. This gate is **advisory** (skippable), not the hard
    hook gate.
-4. **Read inputs** — `requirement.md`, `design.md`, and the constitution. Read `constitution_base`,
+4. **Read inputs** — compile the recorded prior context first, using the same task id rule step 10
+   uses below (the plan task id for anything already scoped to a single `- [ ]` task, otherwise the
+   feature slug):
+   ```bash
+   "$DOFLOW" context-pack --task-id "<task id>" --json
+   ```
+   **Exit 1 means the pack came back empty.** By this point `do-design` should already have batched
+   its own stage-boundary evidence and claims (its step 8), so an empty pack here carries more
+   weight than it does at design time: either that batch never ran, or this task id doesn't match
+   the one design used. Treat it as advisory rather than blocking — plan's hard gate is artifact
+   existence only — but say so plainly in this stage's report, and in `plan.md`'s own §3 "Research &
+   Decisions": a decision written straight from `requirement.md`/`design.md` prose, with no compiled
+   pack behind it, must not be recorded as if it traced to prior evidence it doesn't have. When the
+   pack is non-empty, read it alongside `requirement.md`, `design.md`, and the constitution. Read
+   `constitution_base`,
    then read `constitution_local` **only when `has_constitution_local` is true** — use that flag,
    never a filesystem check of your own (path math belongs to the resolver). You then reconcile the
    two tiers yourself, tier-2 taking precedence: nothing hands you a merged set. See

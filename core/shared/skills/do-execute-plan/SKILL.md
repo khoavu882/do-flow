@@ -120,6 +120,20 @@ Branch on the returned `outcome` field, not the exit code.
      Build each group's brief with
      `"$DOFLOW" task-brief --group=<phase>:<owner> --tasks=<csv>`. Full protocol, field
      meanings, and the serial and per-task fallbacks: this skill's own `references/parallel_dispatch.md`.
+   - Before dispatching each task, compile its prior context — the same plan task id step 3 graded:
+     ```bash
+     "$DOFLOW" context-pack --task-id "<task id>" --json
+     ```
+     **Exit 1 means the pack came back empty.** Unlike design and plan, this call sits right at the
+     point a subagent is about to be handed the task and told to act — so proceeding as though
+     nothing happened is exactly the failure this feature exists to remove. An empty pack here can
+     still be legitimate: step 3 lets a task reach `READY` on `callerAsserted` inputs alone, which
+     link no evidence. Do not withhold dispatch on this alone — readiness already governs whether the
+     task may be worked. Instead, carry the empty result into the group's brief itself: state in the
+     dispatch, next to the task-brief output, that no prior evidence or claims were compiled for this
+     task, so the subagent works from the plan/design text `task-brief` already supplies without
+     assuming a grounding evidence base that isn't there. A non-empty pack is included in the brief
+     as the subagent's prior context, same handoff.
    - Dispatch tasks to appropriate specialist archetypes:
      - Architecture & Schema $\rightarrow$ `system-architect`
      - Code Implementation & Refactoring $\rightarrow$ `core-implementer`

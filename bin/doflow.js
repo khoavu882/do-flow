@@ -48,6 +48,8 @@ const { handleClassifyCommand } = require('../src/runtime/task-classifier');
 const { handleWorkflowCommand } = require('../src/runtime/workflow-engine');
 const { handleRouteCommand } = require('../src/runtime/capability-router');
 const { handleContextPackCommand } = require('../src/runtime/context-pack');
+const { handleRetrievalPlanCommand } = require('../src/runtime/retrieval-plan');
+const { handleOutcomeCommand } = require('../src/runtime/outcome');
 const { handleVerifyCommand } = require('../src/runtime/verification');
 const { handleRecoverCommand } = require('../src/runtime/recovery');
 const { handleScaffoldCommand } = require('../src/runtime/scaffold');
@@ -188,6 +190,14 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--scope', 'scope'],                // readiness: the stated scope boundary
   ['--invariants', 'invariants'],      // readiness: the invariants a refactor must preserve
   ['--objective', 'objective'],        // context-pack
+  ['--stage', 'stage'],                // retrieval-plan: the stage id declaring the plan;
+                                       // outcome: the stage writing it, refused unless terminal
+  ['--state', 'state'],                // outcome: the terminal state being recorded
+  // outcome: the verdicts the run saw, stated by it and validated against the vocabulary the
+  // owning module exports. Recording an outcome never re-evaluates readiness and never re-runs
+  // verification, so these arrive as statements rather than as measurements taken here.
+  ['--readiness', 'readiness'],
+  ['--verification', 'verification'],
   ['--risk', 'risk'],                  // verify: risk level selecting the required tiers
   ['--error', 'errorMessage'],         // recover: the failure text to classify
   ['--agent', 'agent'],                // recover: which agent produced the failure
@@ -196,6 +206,10 @@ const RUNTIME_STRING_FLAGS = new Map([
 /** Repeatable arguments — each occurrence appends rather than replaces. */
 const RUNTIME_LIST_FLAGS = new Map([
   ['--failed-check', 'failedChecks'],  // recover: check names outrank the error prose (see recovery.js)
+  // retrieval-plan: the intents a stage declares, or (on report) the ones it states it reached.
+  // Repeatable as well as comma-separated, because a plan assembled a need at a time should not
+  // have to be re-spelled as one string to be declared.
+  ['--need', 'need'],
 ]);
 
 /** Non-negative integer arguments. */
@@ -349,6 +363,8 @@ Commands:
   evidence             Record a stage's evidence batch, or inspect what is recorded (--task-id)
   claim                Record a claim, link evidence to it, or list them (--task-id, --action)
   context-pack         Compile a task's evidence and claims into a context block (--task-id)
+  retrieval-plan       Declare a stage's information needs, then report every declared item
+  outcome              Record a task's terminal state with its basis, or show it (--task-id)
   classify             Validate a proposed task class and return its workflow (--task-class)
   workflow             Resolve a task class to its stages, gates and readiness templates
   route                Resolve an information need to a healthy provider (--intent)
@@ -379,9 +395,10 @@ Options:
       --slug <name>    Scaffold this feature instead of the branch-resolved active one
 
 Runtime verb arguments (accept --flag value or --flag=value):
-      --task-class     classify, workflow, readiness, context-pack
-      --task-id        readiness, evidence, claim, context-pack, verify
+      --task-class     classify, workflow, readiness, context-pack, outcome --action record
+      --task-id        readiness, evidence, claim, context-pack, retrieval-plan, outcome, verify
       --action         claim: list|add|link · evidence: list|add · verify: report|contract
+                       retrieval-plan: declare|report · outcome: record|show
                        tools: see above
       --rationale, --proposed-by, --calling-skill    classify
       --intent, --query, --check            route
@@ -395,6 +412,11 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --user-decision-pending               readiness: inputs the caller states rather than
                                             evidence establishes; reported back as such
       --objective                           context-pack
+      --need <intent[,intent]>,
+      --stage                               retrieval-plan (--need is repeatable), outcome
+      --state <COMPLETED|BLOCKED|
+               ABANDONED|INCONCLUSIVE>,
+      --readiness, --verification           outcome --action record
       --risk                                verify
       --error, --failed-check,
       --iteration, --agent                  recover
@@ -982,6 +1004,8 @@ function main() {
       case 'route': return handleRouteCommand({ intent: o.intent, query: o.query, check: o.check, json: o.json, projectRoot: evidenceRoot(o) });
       case 'claim': return handleClaimCommand({ taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, relation: o.relation, json: o.json, stateRoot: evidenceRoot(o) });
       case 'context-pack': return handleContextPackCommand({ taskId: requireTaskId(o), taskClass: o.taskClass, objective: o.objective, json: o.json, stateRoot: evidenceRoot(o) });
+      case 'retrieval-plan': return handleRetrievalPlanCommand({ taskId: requireTaskId(o), action: o.action, need: o.need, stage: o.stage, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
+      case 'outcome': return handleOutcomeCommand({ taskId: requireTaskId(o), action: o.action, state: o.state, taskClass: o.taskClass, stage: o.stage, readiness: o.readiness, verification: o.verification, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
       case 'verify': return handleVerifyCommand({ taskId: requireTaskId(o), action: o.action, risk: o.risk, json: o.json, projectRoot: evidenceRoot(o) });
       case 'recover': return handleRecoverCommand({ errorMessage: o.errorMessage, failedChecks: o.failedChecks, iteration: o.iteration, agent: o.agent, json: o.json });
       default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);

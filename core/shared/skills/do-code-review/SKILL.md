@@ -236,6 +236,49 @@ and is how they are normally run. Regenerate a fixture after an intentional anal
 change with `… --json > expected_outputs/<name>_quality.json`, from this directory so
 the recorded path stays relative.
 
+## Recording the Review
+
+1. **Resolve the runtime seam** — every DoFlow runtime call in this skill goes through the runtime
+   seam. Resolve it **once** here and reuse `$DOFLOW` for every later call in this skill:
+
+```bash
+# Resolve the DoFlow runtime: nearest project install wins, then the global one.
+D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
+DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
+[ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
+[ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
+```
+
+   Run every command below from the project root — the walk-up starts at `$PWD`. On exit 2, print
+   the message verbatim and stop; it names every path searched.
+
+2. **Batch this stage's evidence** — one pass here at the stage boundary, never one call per fact.
+   `<task id>` is the unit these stores key on — the same id the chain's earlier stages recorded
+   against, or the feature slug when this review runs standalone. Use it for every `evidence` and
+   `claim` call this review makes:
+   ```bash
+   "$DOFLOW" evidence --task-id "<task id>" --action add --batch <batch>.json --json
+   "$DOFLOW" claim --task-id "<task id>" --action add --statement "<one conclusion>"
+   ```
+   Item schema, provenance rules, and the refused-field list: the guidance tree's
+   `references/EVIDENCE_LEDGER.md`. Read it before writing the batch.
+
+   This stage's items are its findings. A finding read from code — a detection surfaced by the PR
+   Analyzer, the Code Quality Checker, or your own reading of a diff line — is `extracted` and
+   carries a `locator`. A judgement the reviewer reached about that finding — severity, root cause,
+   whether it blocks — is `inferred` and carries `content`. Keep the two distinguishable in the
+   batch the way the Tools section above already keeps a detection distinguishable from a
+   conclusion in the report: never file a judgement as if it were something the code itself stated.
+   Add the review's verdict rationale and any other conclusion as a claim in the same pass.
+
+   A finding never carries `score`, `confidence`, `relevance` or a similarity field — the runtime
+   refuses those keys by name and the whole batch writes nothing. The Complexity score and Risk
+   categorization this skill's Tools compute are inputs to your `content`, never fields on the item.
+
+   This gains the review no gate: recording evidence and claims here is bookkeeping, not authority.
+   `do-code-review` still cannot block a merge or stop a downstream stage — only the Block verdict
+   in its own report, read by a human or by `/do-implement`, does that.
+
 ## Boundaries
 
 **Will:** Analyze source and prose for complexity, risk, SOLID violations, and code/doc smells;

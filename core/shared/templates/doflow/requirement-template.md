@@ -36,8 +36,16 @@ flowchart LR
 
 ## 2. User Stories
 
+<!-- Use hierarchical story headings (e.g. "### Story 1: [Story Title] (P1)" or "### Story 3.2: [Story Title] (P1)")
+     followed by the standard role/want/benefit formulation. -->
+
+### Story 1: [Story Title] (P1)
 - **US1 (P1):** As a [role], I want [capability], so that [benefit].
+
+### Story 2: [Story Title] (P2)
 - **US2 (P2):** As a [role], I want [capability], so that [benefit].
+
+### Story 3: [Story Title] (P3)
 - **US3 (P3):** As a [role], I want [capability], so that [benefit].
 
 ## 3. Functional Requirements
@@ -71,7 +79,19 @@ flowchart LR
 
 ## 6. Acceptance Criteria
 
-- [ ] [observable, testable outcome] (FR-001).
+<!-- Structured as Gherkin BDD scenario blocks with Given / When / Then clauses mapped to User Stories (US#)
+     and Functional Requirements (FR-###). Single-line criteria remain permissible for simple non-functional checks. -->
+
+- [ ] **Scenario: [Scenario Title]** (US1, FR-001)
+  - **Given** [precondition or initial context]
+  - **When** [action or trigger event occurs]
+  - **Then** [expected observable outcome]
+
+- [ ] **Scenario: [Scenario Title]** (US2, FR-002)
+  - **Given** [precondition]
+  - **When** [action]
+  - **Then** [expected outcome]
+
 - [ ] [observable, testable outcome] (NFR-001).
 
 ## 7. Open Questions

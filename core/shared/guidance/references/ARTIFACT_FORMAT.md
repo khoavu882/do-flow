@@ -127,13 +127,41 @@ syntax must not change.
 
 Each rollup row's task count must match the `- [ ]` lines under its `### Phase <X>` heading.
 
-## 6. Tables for comparison
+## 6. User Stories & Acceptance Criteria Conventions
+
+### User Story Hierarchy — `requirement.md` §2
+
+User Stories support hierarchical heading structures matching standard product backlog conventions:
+- Use `### Story X: [Story Title] (P#)` for top-level stories or `### Story X.Y: [Story Title] (P#)` for sub-stories.
+- Underneath each story heading, state the user requirement using standard role/want/benefit syntax:
+  `- **US1 (P1):** As a [role], I want [capability], so that [benefit].`
+
+### Behavioral Acceptance Criteria (BDD) — `requirement.md` §6
+
+Acceptance criteria are formatted as testable Gherkin BDD scenario blocks mapped to user story and functional requirement IDs:
+
+```markdown
+- [ ] **Scenario: [Scenario Title]** (US1, FR-001)
+  - **Given** [precondition or initial context]
+  - **When** [action or trigger event occurs]
+  - **Then** [expected observable outcome]
+```
+
+- **WHAT/WHY vs HOW Boundary:** `requirement.md` strictly describes user-facing behaviors and functional outcomes. Technical implementation anchors (such as database schemas, REST endpoints, repository patterns, and UX tokens) belong in `design.md` §4 and §5.
+
+## 7. Technical Scaffolding in design.md (§4 & §5)
+
+`design.md` provides dedicated homes for technical implementation anchors:
+- **API & Interface Contracts (§4):** HTTP endpoints (methods, routes, request/response shapes, status codes) and repository interfaces (`interface` → `concrete` → `mock`).
+- **Data Model & Specifications (§5):** Database table schemas (ORM/DDL definitions) and UX design tokens (color palettes, component states, layout cues).
+
+## 8. Tables for comparison
 
 Where an artifact presents comparative or evidentiary data — several items measured on the same
 axes, a before/after contrast, a list of changes — lay it out as a table rather than prose or
 nested bullets, so items compare column-wise at a glance.
 
-## 7. What the checker does and does not do
+## 9. What the checker does and does not do
 
 Run `validate-artifacts.sh [--json] [--slug=<slug>] [<path>...]` after writing. Exit `0` clean,
 `1` on findings, `0` plus a printed note when it cannot work out what to check (no active feature,
