@@ -13,7 +13,7 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
-## [Unreleased]
+## [1.0.0-beta.6] - 2026-08-19
 
 ### Refactored
 
