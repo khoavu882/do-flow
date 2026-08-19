@@ -58,4 +58,7 @@ skill table above and deliberately says nothing about this one.
 | Flag | Verb | Values | Purpose |
 |---|---|---|---|
 | `--need` | `retrieval-plan` | an intent id, comma-separated or repeated | on `declare`, the information needs the stage intends to resolve; on `report`, the ones it states it actually asked |
-| `--stage` | `retrieval-plan` | a stage id | which stage declared the plan, recorded for provenance |
+| `--stage` | `retrieval-plan`, `outcome` | a stage id | on `retrieval-plan`, which stage declared the plan; on `outcome`, which stage is writing it — refused unless it is the class's terminal stage |
+| `--state` | `outcome` | `COMPLETED` \| `BLOCKED` \| `ABANDONED` \| `INCONCLUSIVE` | the terminal state being recorded; anything outside the four is refused with the valid set |
+| `--readiness` | `outcome` | `READY` \| `NEEDS_EVIDENCE` \| `NEEDS_USER_DECISION` \| `BLOCKED` | the readiness state the run states it saw; validated against `readiness`'s own vocabulary and recorded as stated, not measured. Omitted records `NOT_RECORDED` |
+| `--verification` | `outcome` | `PASS` \| `FAIL` \| `INCONCLUSIVE` | the verification verdict the run states it saw; recording an outcome never re-runs the contract. Omitted records `NOT_RECORDED` |

@@ -239,6 +239,7 @@ Workflow and evidence:
   readiness        evaluate readiness; return state and missing items
   context-pack     emit the compiled context pack for a stage
   retrieval-plan   declare the needs a stage will resolve, then report every declared item
+  outcome          record a task's terminal state with its basis, or show what was recorded
   scaffold         emit the code scaffold the active feature's artifacts imply
 
 Verification and recovery:
@@ -344,7 +345,7 @@ shell_helper_for() {
 # command list; an unbuilt verb is dispatched and the CLI answers for itself.
 is_node_verb() {
   case "$1" in
-    classify|workflow|route|evidence|claim|readiness|context-pack|retrieval-plan|scaffold|verify|recover|\
+    classify|workflow|route|evidence|claim|readiness|context-pack|retrieval-plan|outcome|scaffold|verify|recover|\
 trace|stats|discover|capabilities|doctor) return 0 ;;
     *) return 1 ;;
   esac

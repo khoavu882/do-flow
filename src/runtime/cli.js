@@ -197,9 +197,10 @@ const EVIDENCE_REFUSED_FIELDS = new Map([
 
 /** The names a retrieval score arrives under, in camelCase (`--relevance-score` normalises here).
  *  Exported because `bin/doflow.js` refuses the same names on the command line, and because
- *  `retrieval-plan.js` refuses them on the option object a declared plan is built from: one
- *  definition, three input surfaces (argv, a `--batch` JSON file, and a verb's own options), each
- *  with exactly one enforcement point. A second copy of this list is how one of them drifts. */
+ *  `retrieval-plan.js` and `outcome.js` refuse them on the option object a declared plan and a
+ *  terminal record are built from: one definition, three input surfaces (argv, a `--batch` JSON
+ *  file, and a verb's own options), each with exactly one enforcement point. A second copy of
+ *  this list is how one of them drifts. */
 const EVIDENCE_SCORE_FIELDS = new Set([
   'confidence', 'score', 'relevance', 'relevanceScore', 'similarity',
   'certainty', 'probability', 'rank', 'distance', 'weight',
@@ -570,8 +571,9 @@ module.exports = {
   EVIDENCE_SCORE_FIELDS,
   scoreFieldRefusal,
   // The recursive refusal itself, not just the name set — `retrieval-plan.js` applies it to the
-  // option object a plan is built from, so both boundaries reject the same shapes by the same rule
-  // rather than by two implementations that agree today.
+  // option object a plan is built from and `outcome.js` to the one a terminal record is, so every
+  // boundary rejects the same shapes by the same rule rather than by implementations that agree
+  // today.
   assertNoScoreFields,
   validateEvidenceItem,
 };
