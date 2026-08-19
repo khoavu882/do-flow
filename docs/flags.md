@@ -1,8 +1,9 @@
 # Flag Index
 
 A flag-first index of every flag declared in a skill's `argument-hint`, one row per (skill, flag)
-pair, sorted by flag name so same-named flags cluster together. This complements, rather than
-duplicates, two other references:
+pair, sorted by flag name so same-named flags cluster together. A second, separate table at the
+bottom does the same for the `doflow` CLI's verb-local flags, which come from the CLI rather than
+from any skill's frontmatter. This complements, rather than duplicates, two other references:
 
 - [`reference.md`](./reference.md)'s "Full Skill Reference" table is organized **by skill** — one
   row per skill, its full `argument-hint` verbatim — and is kept in sync with each skill's
@@ -41,3 +42,20 @@ phase, not a guard failure by itself.
 | --watch | do-test | (boolean flag) | interactive watch mode |
 
 `do-code-review` declares no `argument-hint` and contributes no rows.
+
+## Runtime verb flags
+
+A separate index, because these flags belong to `doflow` CLI verbs rather than to a skill's
+`argument-hint`, and the table above is defined by that frontmatter. Only verbs whose flags are not
+already shared across the whole runtime surface (`--task-id`, `--task-class`, `--action`, `--json`)
+appear here; the full per-verb contracts are in [`reference.md`](./reference.md)'s "Runtime &
+Diagnostics Commands" table.
+
+The flag column is backticked and the verb column is not a skill name, which is what keeps
+`test/guards/flag-index.test.js` (G10) from reading these rows as stale skill rows — G10 owns the
+skill table above and deliberately says nothing about this one.
+
+| Flag | Verb | Values | Purpose |
+|---|---|---|---|
+| `--need` | `retrieval-plan` | an intent id, comma-separated or repeated | on `declare`, the information needs the stage intends to resolve; on `report`, the ones it states it actually asked |
+| `--stage` | `retrieval-plan` | a stage id | which stage declared the plan, recorded for provenance |
