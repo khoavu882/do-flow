@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const claude = require('../src/adapters/claude');
-const { MARKER_START, MARKER_END } = require('../src/marker-merge');
+const { MARKER_START, MARKER_END } = require('../src/helper/marker-merge');
 
 function fixture() {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-claude-adapter-repo-'));

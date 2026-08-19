@@ -6,7 +6,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { parseToml } = require('../toml');
+const { parseToml } = require('../helper/toml');
 const { createAdapterRegistry } = require('../adapters');
 const claudeAdapter = require('../adapters/claude');
 const codexAdapter = require('../adapters/codex');

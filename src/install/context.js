@@ -3,7 +3,7 @@
 // Purpose: once install targets can be $HOME (global) OR a project path, it stops being obvious
 // at a glance which one a given invocation resolves to — this makes that explicit for debugging.
 const path = require('node:path');
-const { sourceCommit: gitSourceCommit } = require('./git');
+const { sourceCommit: gitSourceCommit } = require('../helper/git');
 
 /**
  * @param {{repoRoot:string, global:boolean, projectRoot:string,

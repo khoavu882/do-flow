@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../src/marker-merge');
+const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../src/helper/marker-merge');
 
 function scratchDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-claudemd-'));

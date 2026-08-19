@@ -8,7 +8,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { sourceCommit: gitSourceCommit } = require('./git');
+const { sourceCommit: gitSourceCommit } = require('../helper/git');
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 

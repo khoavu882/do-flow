@@ -4,8 +4,8 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { backupId, createBackup, restoreBackup, listBackups, pruneBackups, assertSafeBackupId } = require('../src/backup');
-const { writeManifest, readManifest, manifestPath } = require('../src/manifest');
+const { backupId, createBackup, restoreBackup, listBackups, pruneBackups, assertSafeBackupId } = require('../src/install/backup');
+const { writeManifest, readManifest, manifestPath } = require('../src/install/manifest');
 
 const FIXED_DATE = new Date('2026-03-15T10:20:30');
 const REPO = path.resolve(__dirname, '..');

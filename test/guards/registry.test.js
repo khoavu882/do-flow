@@ -80,7 +80,7 @@ test('G5: every unavailable event carries a note explaining why no equivalent ex
 // declared in the registry for a time with no adapter module wired to dispatch, no contract entry,
 // and no --target id, i.e. present on paper but unreachable by any real command.
 test('G5: every declared harness has an adapter module, exactly one contract, and a valid --target id', () => {
-  const { VALID } = require('../../src/targets');
+  const { VALID } = require('../../src/install/targets');
   const offenders = [];
   for (const harness of registry.harnesses) {
     const dirAdapter = path.join(REPO, 'src', 'adapters', harness.adapter, 'index.js');

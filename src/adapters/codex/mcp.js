@@ -11,7 +11,7 @@ const {
   parseToml,
   atomicWrite,
 } = require('./config');
-const { resolveMcpSelection } = require('../../mcp');
+const { resolveMcpSelection } = require('../../install/mcp');
 const { selectMcpServers, nativeMcpCatalog } = require('../../registry');
 
 const MCP_KIND = 'mcp-server';

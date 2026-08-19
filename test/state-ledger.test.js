@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { writeManifest } = require('../src/manifest');
+const { writeManifest } = require('../src/install/manifest');
 const {
   STATE_VERSION, stateRoot, ledgerPath, defaultLedger, readLedger, writeLedger,
   writeRecoveryRecord, readRecoveryRecord, migrateLegacyManifest, ownershipKey,

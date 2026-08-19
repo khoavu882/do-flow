@@ -14,8 +14,8 @@
 // not clobber.
 const fs = require('node:fs');
 const path = require('node:path');
-const { readSyncBlocking } = require('./prompt');
-const { selectMcpServers, nativeMcpCatalog } = require('./registry');
+const { readSyncBlocking } = require('../helper/prompt');
+const { selectMcpServers, nativeMcpCatalog } = require('../registry');
 
 const ESC = String.fromCharCode(27);
 const CTRL_C = String.fromCharCode(3);

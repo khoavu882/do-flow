@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { manifestPath, readManifest } = require('../manifest');
+const { manifestPath, readManifest } = require('../install/manifest');
 
 const STATE_VERSION = 1;
 const LEDGER_FILE = 'ledger.json';

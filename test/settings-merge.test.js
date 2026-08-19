@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { mergeSettings, settingsContains, stripManagedSettings } = require('../src/settings-merge');
+const { mergeSettings, settingsContains, stripManagedSettings } = require('../src/helper/settings-merge');
 
 const managedSettings = () => JSON.parse(
   fs.readFileSync(path.join(__dirname, '..', 'core/harnesses/claude/settings/settings.json'), 'utf8'),

@@ -6,10 +6,10 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../marker-merge');
+const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../helper/marker-merge');
 const { selectMcpServers } = require('../../registry');
-const { GLOBAL_HOOK_PREFIX, PROJECT_HOOK_PREFIX } = require('../../settings-scope');
-const { mergeSettings, settingsContains, settingsContainsAny, stripManagedSettings } = require('../../settings-merge');
+const { GLOBAL_HOOK_PREFIX, PROJECT_HOOK_PREFIX } = require('../../helper/settings-scope');
+const { mergeSettings, settingsContains, settingsContainsAny, stripManagedSettings } = require('../../helper/settings-merge');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources } = require('../copy-tree');
 
 const INSTRUCTION_RENDERER = 'claude-instructions';

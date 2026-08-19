@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   normalizeToolState, planToolLifecycle, executeToolLifecycle,
-} = require('../src/tool-lifecycle');
+} = require('../src/install/tool-lifecycle');
 
 const registry = {
   externalTools: [

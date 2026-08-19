@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { chmodHooksExecutable } = require('../src/settings-scope');
+const { chmodHooksExecutable } = require('../src/helper/settings-scope');
 
 function scratchDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-settingsscope-'));

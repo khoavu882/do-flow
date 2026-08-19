@@ -5,7 +5,7 @@
 // the manifest, matching sync.sh's `mktemp` + `mv`).
 const fs = require('node:fs');
 const path = require('node:path');
-const { sourceCommit: gitSourceCommit } = require('./git');
+const { sourceCommit: gitSourceCommit } = require('../helper/git');
 
 // Compatibility bridge: the CLI and pre-registry installations still store
 // this record beneath .claude. Neutral state imports it read-only; do not move

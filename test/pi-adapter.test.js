@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { createPiAdapter, nativePaths } = require('../src/adapters/pi');
 const { assertAdapter } = require('../src/adapters');
-const { MARKER_START } = require('../src/marker-merge');
+const { MARKER_START } = require('../src/helper/marker-merge');
 
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-pi-')); }
 

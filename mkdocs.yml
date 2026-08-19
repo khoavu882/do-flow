@@ -43,6 +43,7 @@ plugins:
 nav:
   - Home: index.md
   - Overview: overview.md
+  - How DoFlow works: how-doflow-work.md
   - Quickstart: quickstart.md
   - Setup: setup.md
   - Guide: guide.md

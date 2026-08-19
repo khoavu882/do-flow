@@ -6,7 +6,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { parseToml, stripComment } = require('../../toml');
+const { parseToml, stripComment } = require('../../helper/toml');
 
 const CONFIG_NAME = 'config.toml';
 const CONFIG_KIND = 'configuration-entry';

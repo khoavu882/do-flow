@@ -12,7 +12,7 @@ const { renderServer, planCodexMcp, applyCodexMcp } = require('./mcp');
 const { agentDirectory, discoverCodexAgents, planCodexAgents, applyCodexAgents } = require('./agents');
 const { planCodexHooks, deployCodexHooks } = require('./hooks');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources } = require('../copy-tree');
-const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../marker-merge');
+const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../helper/marker-merge');
 const { nativeMcpCatalog } = require('../../registry');
 
 const HARNESS = 'codex';

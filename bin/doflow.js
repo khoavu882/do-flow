@@ -5,18 +5,18 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { resolveTargets, toolDirs } = require('../src/targets');
-const { resolveContext, printContext } = require('../src/context');
-const { createBackup, restoreBackup, listBackups, pruneBackups } = require('../src/backup');
-const { writeManifest, readManifest } = require('../src/manifest');
-const { confirm, promptLine } = require('../src/prompt');
-const { sourceCommit } = require('../src/git');
-const { chmodHooksExecutable } = require('../src/settings-scope');
+const { resolveTargets, toolDirs } = require('../src/install/targets');
+const { resolveContext, printContext } = require('../src/install/context');
+const { createBackup, restoreBackup, listBackups, pruneBackups } = require('../src/install/backup');
+const { writeManifest, readManifest } = require('../src/install/manifest');
+const { confirm, promptLine } = require('../src/helper/prompt');
+const { sourceCommit } = require('../src/helper/git');
+const { chmodHooksExecutable } = require('../src/helper/settings-scope');
 const { readCodexMcpCatalog, resolveCodexMcpSelection } = require('../src/adapters/codex/mcp');
 const {
   readAllServers, filterServerDefs, writeProjectMcpJson, mergeGlobalMcpServers,
   resolveMcpSelection, promptMcpCheckbox,
-} = require('../src/mcp');
+} = require('../src/install/mcp');
 const { execFileSync } = require('node:child_process');
 const { loadRegistry } = require('../src/registry');
 const { createAdapterRegistry } = require('../src/adapters');
@@ -30,7 +30,7 @@ const { createKiroAdapter } = require('../src/adapters/kiro');
 const { applyLifecycle, removeLifecycle, applyMcpIndex, verifyLifecycle, retentionSummary } = require('../src/lifecycle');
 const { readLedger } = require('../src/state');
 const { codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan } = require('../src/lifecycle/view');
-const { commandText, planToolLifecycle, executeToolLifecycle } = require('../src/tool-lifecycle');
+const { commandText, planToolLifecycle, executeToolLifecycle } = require('../src/install/tool-lifecycle');
 const {
   handleCapabilitiesCommand, handleReadinessCommand, handleEvidenceCommand,
   EVIDENCE_SCORE_FIELDS, scoreFieldRefusal,
