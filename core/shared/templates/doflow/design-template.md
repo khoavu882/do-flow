@@ -96,11 +96,26 @@ flowchart TB
 
 ## 4. API / Interface Contracts
 
-[Endpoints, method signatures, CLI contracts, or interface definitions — or "N/A".]
+<!-- Document endpoints, interface contracts, and repository patterns that anchor implementation. -->
 
-## 5. Data Model
+### Endpoints
+- `GET /api/v1/[resource]` — [description, query parameters, response payload]
+- `POST /api/v1/[resource]` — [description, request body schema, status codes]
+- `PATCH /api/v1/[resource]/:id` — [description, payload, status codes]
+- `DELETE /api/v1/[resource]/:id` — [description, status codes]
 
-[Schema, entities, relationships, or the parsing/grammar contract this feature depends on — or "N/A".]
+### Repository & Service Interfaces
+- **Repository Pattern:** `[resource].repository.ts` (interface) → `[resource].repository.[engine].ts` (concrete) → `[resource].repository.mock.ts` (mock/testing)
+- **Service Signatures:** `[serviceMethod](params): ReturnType`
+
+## 5. Data Model & Technical Specifications
+
+### Database Schemas (ORM / DDL)
+- **Table `[table_name]`:** [fields, primary/foreign keys, indexes, Drizzle/Prisma/SQL schema reference]
+
+### UX / UI Specifications
+- **Design Tokens & Cues:** [color tokens (e.g. Indigo for Work, Emerald for Personal), badge variants, typography]
+- **Component States:** [loading, empty, populated, error states]
 
 ## 6. Sequence / Data Flow
 
