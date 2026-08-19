@@ -58,7 +58,18 @@ a `design.md` for it invents an artifact its workflow never reads.
 3. **Precondition (advisory)** — if `has_requirement` is false, warn that there's no
    `requirement.md` and offer to run `/do-brainstorm` first. This gate is **advisory**
    (skippable), not the hard hook gate.
-4. **Read inputs** — `requirement.md` for the user stories, FRs, and NFRs the design must serve.
+4. **Read inputs** — compile the recorded prior context before reading artifacts directly, using
+   the same task id rule step 8 uses below (the plan task id once `plan.md` exists, otherwise the
+   feature slug):
+   ```bash
+   "$DOFLOW" context-pack --task-id "<task id>" --json
+   ```
+   **Exit 1 means the pack came back empty.** This early in the chain that is ordinary rather than a
+   problem — a feature reaching design for the first time has nothing recorded against it yet, and
+   `do-brainstorm` may not have batched evidence at all. Treat it the same way step 3's precondition
+   treats a missing `requirement.md`: note the gap in this stage's report and fall through to
+   reading `requirement.md` directly, which this step always did. When the pack is non-empty, read
+   it alongside `requirement.md` for the user stories, FRs, and NFRs the design must serve.
 
 5. **Design** — per `--type` (architecture/api/component/database), produce the system-shape
    decisions: a C4 System Context diagram (actors + external systems this feature touches) and,

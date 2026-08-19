@@ -69,3 +69,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 /CLAUDE.md
+
+# graphify: generated code-graph index, rebuilt on demand with `graphify update .`
+graphify-out/
