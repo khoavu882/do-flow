@@ -13,6 +13,22 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.0.0-beta.7] - 2026-08-19
+
+### Added
+
+- **Runtime flow completion (`011-runtime-flow-completion`).**
+  - Added `retrieval-plan` runtime verb (`--action declare|report`) supporting 4-state vocabulary (`RETRIEVED`, `EMPTY`, `UNREACHED`, `UNVERIFIED`) and cached per-provider freshness probing.
+  - Added `outcome` runtime verb (`--action record|show`) with closed terminal state records (`COMPLETED`, `BLOCKED`, `ABANDONED`, `INCONCLUSIVE`), zero-evidence completion refusal, and workflow-learned terminal stage gating.
+  - Wired readiness checks, standalone exemptions, and context-pack evidence compilation across all stage skills (`do-implement`, `do-design`, `do-plan`, `do-execute-plan`, `do-code-review`, `do-document`, `do`).
+  - Added Guard G17 (`test/guards/verb-reachability.test.js`) asserting all 25 dispatcher verbs have callers or allowlist rationales.
+  - Added capability router freeze and hook independence assertions (`test/guards/frozen-behaviour.test.js`).
+- **Enhanced requirement & design templates (`012-enhanced-requirement-template`).**
+  - Enhanced `requirement-template.md` with hierarchical user story headings (`### Story X.Y: Title (P#)`) in §2 and Gherkin BDD scenario checklist blocks (`Given` / `When` / `Then`) in §6.
+  - Enhanced `design-template.md` with dedicated technical scaffolding for REST Endpoints, Repository Patterns (`interface` → `concrete` → `mock`), Database Table Schemas, and UX Design Tokens.
+  - Updated `ARTIFACT_FORMAT.md` authoring rules with story hierarchy and technical anchor routing conventions.
+  - Added automated guard tests in `test/guards/docs.test.js` validating template structures.
+
 ## [1.0.0-beta.6] - 2026-08-19
 
 ### Refactored
