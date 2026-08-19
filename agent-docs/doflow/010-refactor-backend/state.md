@@ -37,9 +37,10 @@ N/A: single-repo feature. Branch `feat/010-refactor-backend`, created before dis
 | F.3 | `1ce0426..54ee93e` | 0 | clean | complete |
 | G.1 | `54ee93e..082b8dd` | 1 | clean | complete |
 | G.2 | `54ee93e..082b8dd` | 0 | clean | complete (satisfied without change) |
-| H.3 | uncommitted (working tree) | 0 | clean | complete |
-| H.1 | uncommitted (working tree) | — | n/a | in progress |
-| H.2 | uncommitted (working tree) | — | n/a | in progress |
+| H.1 | `082b8dd..1c391b1` | 0 | clean | complete |
+| H.2 | `082b8dd..1c391b1` | 0 | clean | complete |
+| H.3 | `082b8dd..1c391b1` | 0 | clean | complete |
+| H.4 | `082b8dd..1c391b1` | 0 | clean | complete |
 
 ## Findings
 
@@ -88,14 +89,11 @@ N/A: single-repo feature. Branch `feat/010-refactor-backend`, created before dis
       `docs/how-doflow-work.md` written and added to the mkdocs nav
 - [x] G.1–G.2 — `verifyHookCommands` and its two helpers extracted; the three divergent symbols
       verified byte-identical to their prior state
-- [x] H.3 — `trace.js` 1083 → 609, with `trace-views.js` (457) and `trace-render.js` (74). The
-      ledger writer, `sanitizeRunEvent` and the single `appendFileSync` stayed in `trace.js` per
-      D12. All four trace verbs verified IDENTICAL against the pre-phase commit.
+- [x] H.1–H.4 — oversized runtime modules decomposed (`verification.js` 1256 → 955, `scaffold.js` 1239 → 980, `trace.js` 1083 → 609), helpers extracted into `verification-registry.js`, `verification-contract-runner.js`, `scaffold-artifacts.js`, `scaffold-fingerprint.js`, `scaffold-languages.js`, `trace-views.js`, `trace-render.js`. All verb comparisons verified identical/expected against pre-phase commit.
 
 ## In Progress
 
-- H.1 — decomposing `src/runtime/verification.js` (1256 lines)
-- H.2 — decomposing `src/runtime/scaffold.js` (1239 lines) and its ~380-line `generateScaffold()`
+- Phase E — Reorganise test tree by module
 
 ## Blocked
 
@@ -103,8 +101,4 @@ None.
 
 ## Next Action
 
-H.4 once H.1 and H.2 land — verb-by-verb behavioural comparison of the whole phase against commit
-`082b8dd`, run under bash with argument arrays. Then commit Phase H.
-
-Then Phase E (43 test files into module directories mirroring `src/`), then Phase I (test-quality
-assessment against the brief's testing criteria).
+Phase E (43 test files into module directories mirroring `src/`), then Phase I (test-quality assessment).

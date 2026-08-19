@@ -214,10 +214,10 @@ N/A: single-repo feature. Branch `feat/010-refactor-backend`.
 
 ### Phase H — Oversized runtime modules decomposed
 
-- [ ] H.1 [P] [US8] Decompose `src/runtime/verification.js` — owner: core-implementer; files: src/runtime/verification.js
-- [ ] H.2 [P] [US8] Decompose `src/runtime/scaffold.js`, breaking up `generateScaffold()` — owner: core-implementer; files: src/runtime/scaffold.js
+- [x] H.1 [P] [US8] Decompose `src/runtime/verification.js` — owner: core-implementer; files: src/runtime/verification.js
+- [x] H.2 [P] [US8] Decompose `src/runtime/scaffold.js`, breaking up `generateScaffold()` — owner: core-implementer; files: src/runtime/scaffold.js
 - [x] H.3 [P] [US8] Decompose `src/runtime/trace.js`, keeping the ledger writer in place per D12 — owner: core-implementer; files: src/runtime/trace.js, src/runtime/trace-views.js, src/runtime/trace-render.js
-- [ ] H.4 [US8] Behavioural comparison of every verb against the pre-phase commit [depends H.1, H.2, H.3] — owner: quality-guardian; files: docs/architecture.md
+- [x] H.4 [US8] Behavioural comparison of every verb against the pre-phase commit [depends H.1, H.2, H.3] — owner: quality-guardian; files: docs/architecture.md
 
 ### Phase E — Test tree organised by module
 
