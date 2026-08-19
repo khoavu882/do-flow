@@ -575,4 +575,4 @@ function verify(options = {}) {
   return { ok: conflicts.length === 0 && statuses.every((status) => status.status !== 'missing' && status.status !== 'conflict'), resources, statuses, conflicts };
 }
 
-module.exports = { HARNESS, normalizeContext, nativeContext, projectedNativeOptions, nativeManagedResources, ownershipIdentity, discover, render, plan, apply, remove, verify };
+module.exports = { HARNESS, normalizeContext, nativeContext, projectedNativeOptions, nativeManagedResources, ownershipIdentity, discover, render, plan, apply, remove, verify, createCodexAdapter: () => ({ discover, render, plan, apply, remove, verify }) };

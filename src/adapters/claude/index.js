@@ -406,4 +406,4 @@ function verify({ assets, scope, scopeRoot, context = {} }) {
   return { ok: conflicts.length === 0, statuses, resources, conflicts };
 }
 
-module.exports = { nativePaths, discover, render, plan, apply, remove, verify };
+module.exports = { nativePaths, discover, render, plan, apply, remove, verify, createClaudeAdapter: () => ({ discover, render, plan, apply, remove, verify }) };

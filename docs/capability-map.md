@@ -161,9 +161,12 @@ The capability matrix above uses one uniform 10-row taxonomy across all seven ha
 All seven — Claude Code, Codex, Gemini CLI, OpenCode, Pi Coding Agent, GitHub Copilot CLI, and
 Kiro — are declared in `core/registry/harnesses.yaml` and driven by their own dedicated adapter
 (`src/adapters/claude/`, `src/adapters/codex/`, `src/adapters/gemini/`, `src/adapters/opencode/`,
-`src/adapters/pi/`, `src/adapters/copilot/`, `src/adapters/kiro/`). Codex alone has several
-additional native-workflow distinctions that don't collapse into that shared taxonomy without
-losing meaning — they're recorded here rather than folded into the matrix above.
+`src/adapters/pi/`, `src/adapters/copilot/`, `src/adapters/kiro/`). Each adapter exposes the same
+six-function contract (`discover`, `render`, `plan`, `apply`, `remove`, `verify`) through a uniform
+`create<Name>Adapter()` factory (e.g. `createClaudeAdapter`, `createCodexAdapter`,
+`createGeminiAdapter`). Codex alone has several additional native-workflow distinctions that don't
+collapse into that shared taxonomy without losing meaning — they're recorded here rather than
+folded into the matrix above.
 
 **Status key:** **Supported** means Codex documents a native surface DoFlow can use. **Different**
 means the outcome exists but configuration, ownership, or host behavior differs. **Unavailable**
