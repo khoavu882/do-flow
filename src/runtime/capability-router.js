@@ -3,6 +3,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { finishRuntime, usageError } = require('./cli-result');
+
+// Mirrors bin/doflow.js's own REPO_ROOT computation, relative to this file's location, so
+// handleRouteCommand resolves the same repo root it did before relocation. (D8)
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 function parseYamlFile(filePath, fsImpl = fs) {
   try {
@@ -354,7 +359,51 @@ class CapabilityRouter {
   }
 }
 
+/**
+ * Handles `doflow route` — resolve an information need to a provider that is actually healthy.
+ *
+ * Exits 1 when no provider can serve the intent: that is a finding the caller must act on (the
+ * work still has to be done, by hand or by a different route), not an error in the request.
+ *
+ * @param {Object} options
+ * @param {string|null} options.intent
+ * @param {string} [options.query]
+ * @param {boolean} [options.check=false] deep smoke check instead of a presence check
+ * @param {boolean} [options.json=false]
+ * @param {string} [options.projectRoot]
+ * @returns {number} exit code
+ */
+function handleRouteCommand({ intent, query, check = false, json = false, projectRoot } = {}) {
+  const router = new CapabilityRouter({ repoRoot: REPO_ROOT });
+  if (typeof intent !== 'string' || intent.trim() === '') {
+    return usageError('route', `--intent is required. Declared intents: ${Object.keys(router.routes).join(', ')}`, json);
+  }
+
+  let resolution;
+  try {
+    resolution = router.resolveIntent(intent, { query, path: projectRoot || '.' }, { deepCheck: check });
+  } catch (error) {
+    return usageError('route', `${error.message}. Declared intents: ${Object.keys(router.routes).join(', ')}`, json);
+  }
+
+  if (json) console.log(JSON.stringify(resolution, null, 2));
+  else {
+    console.log(`\nDoFlow Route [${resolution.intent}] — ${resolution.status}:`);
+    console.log('═'.repeat(78));
+    console.log(`Need:       ${resolution.description}`);
+    console.log(`Capability: ${resolution.capability}`);
+    console.log(`Provider:   ${resolution.selectedProvider ? resolution.selectedProvider.name : 'none — no provider on this machine can answer'}`);
+    if (resolution.execution) {
+      console.log('─'.repeat(78));
+      for (const [key, value] of Object.entries(resolution.execution)) console.log(`  ${key.padEnd(12)} ${value}`);
+    }
+    console.log('═'.repeat(78) + '\n');
+  }
+  return finishRuntime(resolution.selectedProvider ? 0 : 1);
+}
+
 module.exports = {
   CapabilityRouter,
   parseYamlFile,
+  handleRouteCommand,
 };

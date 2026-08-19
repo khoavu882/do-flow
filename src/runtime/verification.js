@@ -1,347 +1,55 @@
 'use strict';
 
 /**
- * Deterministic verification contract runner — the JavaScript port of
- * `core/shared/scripts/doflow/verification/contract_runner.py` (plan task B.3, component C7).
+ * Registry-driven verification layer (plan task C.2, design C7): `VerificationEngine` compiles a
+ * contract **before** implementation and a report **after**, scaling required tiers to risk,
+ * detecting commands from project manifests, and wiring the C8 recovery classifier into the
+ * failure path with its bounded retry.
  *
- * Runs an ordered list of shell checks, cheapest and most deterministic first
- * (syntax → compile → types → lint → unit → integration → architecture → scope), and compiles a
- * report. Ported from observed behaviour (plan decision D3): the check record shape, the PASS/FAIL
- * vocabulary, the 2,000-character output cap, exit code 124 for a timeout and the short-circuit on
- * a failing syntax/compile/build check are all reproduced exactly.
+ * Built on two modules split out alongside it:
+ *   - `verification-contract-runner.js` — `VerificationContractRunner`, the deterministic
+ *     check-execution primitive this engine compiles tiers of checks down to.
+ *   - `verification-registry.js` — `loadVerificationRegistry`, which reads and validates
+ *     `core/registry/verification.yaml` into the shape `compileContract` reads tiers from.
  *
- * Three defects are fixed rather than reproduced, each explained at its site:
- *   1. A check entry with no `command` silently ran `true` and reported PASS — a malformed
- *      contract produced a green check that verified nothing.
- *   2. A timed-out check threw away the output captured before the kill, which is the only
- *      diagnostic a hung check ever produces.
- *   3. A contract with no checks reported `status: "PASS"` — a verification verdict asserted over
- *      zero evidence.
- *
- * Plan task C.2 adds, below `VerificationContractRunner`, the registry-driven layer design C7
- * describes: `loadVerificationRegistry` reads `core/registry/verification.yaml`, and
- * `VerificationEngine` compiles a contract **before** implementation and a report **after**,
- * scaling required tiers to risk, detecting commands from project manifests, and wiring the C8
- * recovery classifier into the failure path with its bounded retry.
- *
- * The three defects above are the reason the new layer looks the way it does. Their shared shape is
- * a gate answering confidently about something it never evaluated, so the engine keeps
+ * Three defects in the runner this engine sits on (a check with no command reporting PASS, a
+ * timed-out check losing its output, an empty contract reporting PASS over zero evidence — see
+ * `verification-contract-runner.js`) are the reason this layer looks the way it does. Their shared
+ * shape is a gate answering confidently about something it never evaluated, so the engine keeps
  * "not evaluated" as a first-class outcome — UNRESOLVED — that can never become PASS.
  */
 
 const path = require('node:path');
 const nodeFs = require('node:fs');
 const { spawnSync } = require('node:child_process');
-const { parseYamlFile } = require('./capability-router');
 const { detectCommands, applyTargetPattern } = require('./command-detect');
 const { RecoveryManager } = require('./recovery');
+const { finishRuntime, usageError } = require('./cli-result');
+const {
+  VerificationContractRunner,
+  FATAL_CHECK_MARKERS,
+  TIMEOUT_EXIT_CODE,
+  MAX_STREAM_CHARS,
+} = require('./verification-contract-runner');
+const {
+  loadVerificationRegistry,
+  TIER_RESOLUTIONS,
+  TIER_STATUSES,
+  RECOVERY_OUTCOMES,
+  REGISTRY_FILENAME,
+} = require('./verification-registry');
+
+// `handleVerifyCommand` (moved from bin/doflow.js) used bin/doflow.js's own REPO_ROOT — that file's
+// SCRIPT_DIR is bin/, so REPO_ROOT = path.dirname(SCRIPT_DIR) = the repo root. This module lives at
+// src/runtime/, two levels deeper than bin/, so the equivalent repo root is two levels up from here.
+// bin/doflow.js:    path.dirname(__dirname)         with __dirname = <repo>/bin
+// src/runtime/*.js: path.resolve(__dirname,'..','..') with __dirname = <repo>/src/runtime
+// Both resolve to the same absolute repo root.
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 /** `PASS` and `FAIL` are the Python's vocabulary. `INCONCLUSIVE` is added for the empty-contract
  * case only — see `evaluateContract`. */
 const VERIFICATION_STATUSES = Object.freeze(['PASS', 'FAIL', 'INCONCLUSIVE']);
-
-/** A failing check whose name contains one of these aborts the remaining checks: once the build is
- * broken, every later result describes the broken build rather than the change. */
-const FATAL_CHECK_MARKERS = Object.freeze(['syntax', 'compile', 'build']);
-
-const DEFAULT_TIMEOUT_MS = 60000;
-const MAX_STREAM_CHARS = 2000;
-/** Enough head to catch a startup error; the rest of the budget goes to the tail. */
-const HEAD_KEEP_CHARS = 400;
-
-/** The exit code a shell reports for a command killed by a timeout; kept so callers that already
- * special-case 124 from the Python keep working. */
-const TIMEOUT_EXIT_CODE = 124;
-
-/**
- * @param {*} value
- * @returns {string}
- */
-function truncate(value) {
-  if (typeof value !== 'string') return '';
-  if (value.length <= MAX_STREAM_CHARS) return value;
-  // Keep the TAIL, not the head, and say so.
-  //
-  // Every runner worth verifying streams progress first and summarises last: `node --test` puts
-  // the failure diagnostics and the `# fail N` line at the end, as do pytest, jest and `go test`.
-  // Slicing from the front therefore kept ~10 passing subtests out of 572 and discarded the only
-  // part of the stream that shows a failure — a verification report that structurally could not
-  // report one. A little head is retained because a hard startup error (missing binary, bad
-  // config) appears there and nowhere else.
-  const head = value.slice(0, HEAD_KEEP_CHARS);
-  const tail = value.slice(-(MAX_STREAM_CHARS - HEAD_KEEP_CHARS));
-  const dropped = value.length - head.length - tail.length;
-  return `${head}\n… [${dropped} characters elided by the verification report] …\n${tail}`;
-}
-
-class VerificationContractRunner {
-  /**
-   * @param {Object|string} [options] a string is accepted for parity with the Python's positional
-   *   `cwd` argument
-   * @param {string} [options.cwd] directory the checks run in; defaults to the current one
-   * @param {number} [options.defaultTimeoutMs=60000]
-   * @param {Function} [options.exec] injection seam for tests; same contract as `spawnSync`
-   */
-  constructor(options = {}) {
-    const opts = typeof options === 'string' ? { cwd: options } : options;
-    this.cwd = opts.cwd || process.cwd();
-    this.defaultTimeoutMs = opts.defaultTimeoutMs || DEFAULT_TIMEOUT_MS;
-    this.exec = opts.exec || spawnSync;
-  }
-
-  /**
-   * Executes a single deterministic shell check.
-   * @param {string} name
-   * @param {string} command
-   * @param {number} [timeoutMs]
-   * @returns {Object} check result
-   */
-  runCheck(name, command, timeoutMs = this.defaultTimeoutMs) {
-    const checkName = name || 'unnamed_check';
-
-    // Defect fix (1): the Python defaulted a missing command to `true`, so a typo in a contract
-    // entry produced a check that always passed. A check that cannot be run has not passed.
-    if (typeof command !== 'string' || command.trim() === '') {
-      return {
-        name: checkName,
-        command: null,
-        status: 'FAIL',
-        exitCode: 1,
-        error: `Check '${checkName}' declares no command`,
-      };
-    }
-
-    let res;
-    try {
-      res = this.exec(command, {
-        shell: true,
-        cwd: this.cwd,
-        encoding: 'utf8',
-        timeout: timeoutMs,
-        killSignal: 'SIGKILL',
-        // The Python buffered without limit and truncated afterwards. Node's 1 MB default would
-        // kill a chatty-but-passing check and report it as a failure, so raise the ceiling well
-        // past anything a check legitimately prints. Only the first 2,000 chars are ever kept.
-        maxBuffer: 64 * 1024 * 1024,
-      });
-    } catch (error) {
-      // Mirrors the Python's bare `except Exception` arm: an unspawnable command is a FAIL, not a
-      // thrown error that aborts the whole contract.
-      return {
-        name: checkName,
-        command,
-        status: 'FAIL',
-        exitCode: 1,
-        error: error.message,
-      };
-    }
-
-    // Defect fix (2): the Python's TimeoutExpired arm returned neither stdout nor stderr, so a
-    // check that hung after printing its first failure told you only that it hung. Whatever the
-    // process produced before the kill is exactly what a reader needs.
-    if (res.error && res.error.code === 'ETIMEDOUT') {
-      return {
-        name: checkName,
-        command,
-        status: 'FAIL',
-        exitCode: TIMEOUT_EXIT_CODE,
-        error: 'TimeoutExpired',
-        stdout: truncate(res.stdout),
-        stderr: truncate(res.stderr),
-      };
-    }
-
-    if (res.error) {
-      return {
-        name: checkName,
-        command,
-        status: 'FAIL',
-        exitCode: 1,
-        error: res.error.message,
-        stdout: truncate(res.stdout),
-        stderr: truncate(res.stderr),
-      };
-    }
-
-    // A process killed by a signal reports `status: null`. Python surfaced this as a negative
-    // return code; either way it is a non-zero outcome, so record the signal rather than let a
-    // null exit code read as success.
-    const exitCode = res.status === null || res.status === undefined ? 1 : res.status;
-    const passed = res.status === 0;
-
-    const result = {
-      name: checkName,
-      command,
-      status: passed ? 'PASS' : 'FAIL',
-      exitCode,
-      stdout: truncate(res.stdout),
-      stderr: truncate(res.stderr),
-    };
-    if (res.signal) {
-      result.error = `Terminated by signal ${res.signal}`;
-    }
-    return result;
-  }
-
-  /**
-   * Runs ordered checks and compiles a VerificationReport.
-   * @param {Array<{name?: string, command?: string, timeoutMs?: number}>} checks
-   * @returns {{ status: string, checks: Array<Object>, failedChecks: Array<string>, timestamp: string, reason?: string }}
-   */
-  evaluateContract(checks) {
-    if (!Array.isArray(checks)) {
-      throw new Error('evaluateContract expects an array of checks');
-    }
-
-    // Defect fix (3): an empty contract reported PASS, which is a verdict over no evidence — the
-    // single failure mode a verification gate exists to prevent, and the same fail-closed reasoning
-    // `readiness.js` already applies to a requirement with no evaluator. It is not FAIL either,
-    // since nothing failed; the caller (task C.2 owns tier selection) decides what an empty
-    // contract means for its risk level.
-    if (checks.length === 0) {
-      return {
-        status: 'INCONCLUSIVE',
-        checks: [],
-        failedChecks: [],
-        reason: 'Contract declared no checks; nothing was verified',
-        timestamp: new Date().toISOString(),
-      };
-    }
-
-    const results = [];
-    const failedChecks = [];
-    let overallStatus = 'PASS';
-
-    for (const chk of checks) {
-      const name = (chk && chk.name) || 'unnamed_check';
-      const res = this.runCheck(name, chk && chk.command, chk && chk.timeoutMs);
-      results.push(res);
-
-      if (res.status === 'FAIL') {
-        overallStatus = 'FAIL';
-        failedChecks.push(name);
-        if (FATAL_CHECK_MARKERS.some((marker) => name.toLowerCase().includes(marker))) {
-          break;
-        }
-      }
-    }
-
-    return {
-      status: overallStatus,
-      checks: results,
-      failedChecks,
-      timestamp: new Date().toISOString(),
-    };
-  }
-}
-
-/* ------------------------------------------------------------------------------------------------
- * Registry-driven layer (plan task C.2, design C7)
- * --------------------------------------------------------------------------------------------- */
-
-const REGISTRY_FILENAME = 'verification.yaml';
-
-/** Tier-level outcomes. `UNRESOLVED` is the load-bearing one: it says "this tier was required and
- * nothing was evaluated for it", and it is what keeps a report off PASS. */
-const TIER_RESOLUTIONS = Object.freeze([
-  'RESOLVED',
-  'UNRESOLVED',
-  'SUBSUMED',
-  'NOT_APPLICABLE',
-  'SKIPPED',
-]);
-
-const TIER_STATUSES = Object.freeze([
-  'PASS',
-  'FAIL',
-  'UNRESOLVED',
-  'SUBSUMED',
-  'NOT_APPLICABLE',
-  'SKIPPED',
-  'NOT_RUN',
-]);
-
-/** Outcomes of a bounded recovery loop. */
-const RECOVERY_OUTCOMES = Object.freeze([
-  'PASS',
-  'ABORTED',
-  'NO_CHANGE',
-  'NO_PROGRESS',
-  'NO_REMEDIATION',
-]);
-
-function assert(condition, message) {
-  if (!condition) throw new Error(`verification.yaml is invalid: ${message}`);
-}
-
-/**
- * Loads and validates the verification registry.
- *
- * Validation is deliberately strict and throws rather than degrading: a registry that half-loads
- * produces a gate that verifies half of what it claims, which is the failure mode this whole module
- * exists to prevent.
- *
- * @param {Object} [options]
- * @param {string} [options.repoRoot]
- * @param {string} [options.registryDir]
- * @param {string} [options.registryPath]
- * @param {Object} [options.registry] pre-parsed registry, bypassing the filesystem (test seam)
- * @param {Object} [options.fsImpl]
- * @returns {Object} the validated registry
- */
-function loadVerificationRegistry(options = {}) {
-  let data = options.registry;
-  if (!data) {
-    const repoRoot = options.repoRoot || path.resolve(__dirname, '..', '..');
-    const registryDir = options.registryDir || path.join(repoRoot, 'core', 'registry');
-    const registryPath = options.registryPath || path.join(registryDir, REGISTRY_FILENAME);
-    data = parseYamlFile(registryPath, options.fsImpl || nodeFs);
-  }
-
-  assert(data && typeof data === 'object', 'root must be an object');
-  assert(Array.isArray(data.tiers) && data.tiers.length > 0, 'tiers must be a non-empty array');
-  assert(data.riskLevels && typeof data.riskLevels === 'object', 'riskLevels must be an object');
-
-  const policy = data.policy || {};
-  // FR-009 states this as a MUST, so it is enforced at load rather than trusted at call sites.
-  assert(policy.modelReviewIsPrimaryProof === false, 'policy.modelReviewIsPrimaryProof must be false');
-
-  const seen = new Set();
-  let previousOrder = -Infinity;
-  let lastNonModelOrder = -Infinity;
-  let firstModelOrder = Infinity;
-
-  for (const tier of data.tiers) {
-    assert(tier && typeof tier.id === 'string' && tier.id !== '', 'every tier needs an id');
-    assert(!seen.has(tier.id), `duplicate tier id '${tier.id}'`);
-    seen.add(tier.id);
-    assert(Number.isFinite(tier.order), `tier '${tier.id}' needs a numeric order`);
-    assert(tier.order > previousOrder, `tier '${tier.id}' is declared out of order; tiers must be listed cheapest-first`);
-    previousOrder = tier.order;
-    if (tier.modelBased) {
-      firstModelOrder = Math.min(firstModelOrder, tier.order);
-      assert(tier.canEstablishPass === false, `model-based tier '${tier.id}' must declare canEstablishPass: false`);
-    } else {
-      lastNonModelOrder = Math.max(lastNonModelOrder, tier.order);
-    }
-  }
-  // "Deterministic checks MUST run before any model-based review" (FR-009) is a structural property
-  // of the registry, so it is checkable here instead of being re-asserted in prose.
-  assert(firstModelOrder > lastNonModelOrder, 'every model-based tier must be ordered after every deterministic tier');
-
-  for (const [level, def] of Object.entries(data.riskLevels)) {
-    assert(def && Array.isArray(def.requiredTiers), `risk level '${level}' needs requiredTiers`);
-    for (const id of def.requiredTiers.concat(def.advisoryTiers || [])) {
-      assert(seen.has(id), `risk level '${level}' references unknown tier '${id}'`);
-    }
-    assert(
-      Number.isInteger(def.maxRecoveryIterations) && def.maxRecoveryIterations > 0,
-      `risk level '${level}' needs a positive integer maxRecoveryIterations`,
-    );
-  }
-
-  return data;
-}
 
 /**
  * @param {*} value
@@ -1159,6 +867,78 @@ class VerificationEngine {
   }
 }
 
+/**
+ * Handles `doflow verify` — compile the verification contract (FR-009) and, by default, run it and
+ * report against it.
+ *
+ * `--action contract` stops after compiling, which is the before-implementation half: it states
+ * how success will be established without establishing anything. The default runs the checks and
+ * emits the report. The contract is recompiled rather than read back from a state file, so the two
+ * halves cannot describe different contracts.
+ *
+ * @param {Object} options
+ * @param {string} options.taskId
+ * @param {'report'|'contract'|'status'} [options.action='report']
+ * @param {string} [options.risk] risk level; the registry's default when omitted
+ * @param {string} [options.planPath] a `plan.md` whose command override beats detection
+ * @param {boolean} [options.json=false]
+ * @param {string} [options.projectRoot]
+ * @returns {number} exit code
+ */
+function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot } = {}) {
+  const cwd = projectRoot || process.cwd();
+  let engine;
+  let contract;
+  try {
+    engine = new VerificationEngine({ cwd, repoRoot: REPO_ROOT });
+    contract = engine.compileContract({ taskId, riskLevel: risk, projectRoot: cwd, planPath });
+  } catch (error) {
+    return usageError('verify', error.message, json);
+  }
+
+  if (action === 'contract') {
+    if (json) console.log(JSON.stringify(contract, null, 2));
+    else {
+      console.log(`\nDoFlow Verification Contract [${contract.taskId}] — risk ${contract.riskLevel}:`);
+      console.log('═'.repeat(78));
+      for (const tier of contract.tiers) {
+        console.log(`  ${tier.id.padEnd(22)} ${tier.resolution.padEnd(12)} ${tier.required ? 'required' : 'advisory'}`);
+        if (tier.reason) console.log(`      ${tier.reason}`);
+      }
+      console.log('═'.repeat(78) + '\n');
+    }
+    // A contract is a plan, not a verdict — compiling one always answers, even when a tier could
+    // not be resolved, because the unresolved tier is itself part of what the contract states.
+    return finishRuntime(0);
+  }
+  if (action !== 'report' && action !== 'status') {
+    return usageError('verify', `unknown --action '${action}'. Valid: report (default), contract`, json);
+  }
+
+  const report = engine.runContract(contract);
+  if (json) console.log(JSON.stringify(report, null, 2));
+  else {
+    console.log(`\nDoFlow Verification Report [${report.taskId}] — ${report.status}:`);
+    console.log('═'.repeat(78));
+    console.log(report.reason);
+    console.log('─'.repeat(78));
+    for (const tier of report.tiers) {
+      console.log(`  ${tier.id.padEnd(22)} ${tier.status.padEnd(16)} ${tier.required ? 'required' : 'advisory'}`);
+      if (tier.reason) console.log(`      ${tier.reason}`);
+    }
+    console.log('─'.repeat(78));
+    console.log(`Checks: ${report.counts.checksPassed}/${report.counts.checksRun} passed`);
+    if (report.unresolved.length) {
+      console.log('Never evaluated (not a pass):');
+      for (const u of report.unresolved) console.log(`  ${u.tier}${u.required ? ' [required]' : ''} — ${u.reason}`);
+    }
+    console.log('═'.repeat(78) + '\n');
+  }
+  // PASS is the only status that answers "verified". FAIL and INCONCLUSIVE are both findings, and
+  // collapsing INCONCLUSIVE into success would report a verdict over zero evidence as a pass.
+  return finishRuntime(report.status === 'PASS' ? 0 : 1);
+}
+
 module.exports = {
   VerificationContractRunner,
   VerificationEngine,
@@ -1171,4 +951,5 @@ module.exports = {
   TIMEOUT_EXIT_CODE,
   MAX_STREAM_CHARS,
   REGISTRY_FILENAME,
+  handleVerifyCommand,
 };

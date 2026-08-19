@@ -13,6 +13,21 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.0.0-beta.6] - 2026-08-19
+
+### Refactored
+
+- **Backend modularization and subtractive cleanup (`010-refactor-backend`).**
+  - Deleted 4 unreachable runtime modules (`retrieval-bridge.js`, `context-router.js`, `evidence-normalizer.js`, `benchmark.js`; `-683` lines); added executable module reachability guard G16 (`test/guards/module-reachability.test.js`).
+  - Reduced `bin/doflow.js` (1528 → 1003 lines); delegated 8 runtime verb handlers to backing `src/runtime/*.js` modules with `src/runtime/cli-result.js` to eliminate cycles.
+  - Relocated Codex and Gemini harness modules behind `src/adapters/codex/` and `src/adapters/gemini/`; extracted generic TOML parser to `src/helper/toml.js`; moved `lifecycle-view.js` to `src/lifecycle/view.js`.
+  - Unified all 7 harness adapters with a uniform `create<Name>Adapter()` factory export.
+  - Partitioned `src/` top-level namespace into `src/helper/` (cross-layer primitives) and `src/install/` (installer domains); `src/` top level now contains only directories.
+  - Deduplicated hook verification into `src/adapters/hook-commands.js`.
+  - Decomposed oversized runtime modules (`verification.js`, `scaffold.js`, `trace.js`) while strictly keeping ledger write atomicity in `trace.js` per G12.
+  - Reorganized all 43 test files into domain module directories mirroring `src/` (`test/adapters/`, `test/lifecycle/`, `test/runtime/`, `test/registry/`, `test/state/`, `test/helper/`, `test/install/`, `test/e2e/`).
+  - Added `docs/how-doflow-work.md` and registered it into MkDocs navigation.
+
 ## [1.0.0-beta.5] - 2026-08-19
 
 ### Added

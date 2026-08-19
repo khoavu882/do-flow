@@ -7,12 +7,12 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { configPath, fingerprint: configFingerprint, parseToml, planCodexConfig, applyCodexConfig } = require('../../codex-config');
-const { renderServer, planCodexMcp, applyCodexMcp } = require('../../codex-mcp');
-const { agentDirectory, discoverCodexAgents, planCodexAgents, applyCodexAgents } = require('../../codex-agents');
-const { planCodexHooks, deployCodexHooks } = require('../../codex-hooks');
+const { configPath, fingerprint: configFingerprint, parseToml, planCodexConfig, applyCodexConfig } = require('./config');
+const { renderServer, planCodexMcp, applyCodexMcp } = require('./mcp');
+const { agentDirectory, discoverCodexAgents, planCodexAgents, applyCodexAgents } = require('./agents');
+const { planCodexHooks, deployCodexHooks } = require('./hooks');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources } = require('../copy-tree');
-const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../marker-merge');
+const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../helper/marker-merge');
 const { nativeMcpCatalog } = require('../../registry');
 
 const HARNESS = 'codex';
@@ -575,4 +575,4 @@ function verify(options = {}) {
   return { ok: conflicts.length === 0 && statuses.every((status) => status.status !== 'missing' && status.status !== 'conflict'), resources, statuses, conflicts };
 }
 
-module.exports = { HARNESS, normalizeContext, nativeContext, projectedNativeOptions, nativeManagedResources, ownershipIdentity, discover, render, plan, apply, remove, verify };
+module.exports = { HARNESS, normalizeContext, nativeContext, projectedNativeOptions, nativeManagedResources, ownershipIdentity, discover, render, plan, apply, remove, verify, createCodexAdapter: () => ({ discover, render, plan, apply, remove, verify }) };

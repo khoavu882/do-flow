@@ -33,7 +33,9 @@ flowchart LR
 | [Quickstart](quickstart.md) | First installation and first workflow |
 | [Setup](setup.md) | CLI, installation scope, updates, backup, rollback, and tool mapping |
 | [Overview](overview.md) | Diagrams of context, lifecycle, and component relationships |
+| [How DoFlow works](how-doflow-work.md) | Declared execution procedure, 9 task classes, gates, and readiness contracts |
 | [Guide](guide.md) | Feature, bug, quality, research, and documentation workflows |
 | [Reference](reference.md) | Skills, runtime commands, agents, and git lifecycle intents |
+| [Flags](flags.md) | Flag-first cross-index of all skill options and parameters |
 | [Capability Map](capability-map.md) | What each harness supports, and where it differs |
 | [Architecture](architecture.md) | Repository structure and contributor-facing deployment design |

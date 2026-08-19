@@ -19,7 +19,7 @@ const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDes
 // Only the marker constants: marker-merge.js reads and writes files itself, which cannot be used
 // from plan(), whose contract is to compute changes without touching disk. The gemini adapter
 // solves this the same way, with a pure managedInstruction() over strings.
-const { MARKER_START, MARKER_END } = require('../../marker-merge');
+const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
 
 const HARNESS = 'opencode';
 const CONFIG_FILE = 'opencode.json';

@@ -80,7 +80,7 @@ test('G5: every unavailable event carries a note explaining why no equivalent ex
 // declared in the registry for a time with no adapter module wired to dispatch, no contract entry,
 // and no --target id, i.e. present on paper but unreachable by any real command.
 test('G5: every declared harness has an adapter module, exactly one contract, and a valid --target id', () => {
-  const { VALID } = require('../../src/targets');
+  const { VALID } = require('../../src/install/targets');
   const offenders = [];
   for (const harness of registry.harnesses) {
     const dirAdapter = path.join(REPO, 'src', 'adapters', harness.adapter, 'index.js');
@@ -99,15 +99,15 @@ test('G5: every declared harness has an adapter module, exactly one contract, an
   assert.deepEqual(offenders, [], `harness declared without a full extension contract:\n  ${offenders.join('\n  ')}`);
 });
 
-// A module existing on disk is not the same as it being reachable: src/lifecycle-view.js once kept
+// A module existing on disk is not the same as it being reachable: src/lifecycle/view.js once kept
 // its own, separate adapter registry that silently fell behind the one in bin/doflow.js (fixed in
 // 96006da). Grep every createAdapterRegistry({...}) call site — install, update, and remove in
-// bin/doflow.js, plus the one shared by src/lifecycle-view.js — and confirm each declared harness's
+// bin/doflow.js, plus the one shared by src/lifecycle/view.js — and confirm each declared harness's
 // id is actually passed in as a key, not just that its file exists somewhere under src/adapters/.
 test('G5: every declared harness is wired into every createAdapterRegistry(...) dispatch call site', () => {
   const files = [
     path.join(REPO, 'bin', 'doflow.js'),
-    path.join(REPO, 'src', 'lifecycle-view.js'),
+    path.join(REPO, 'src', 'lifecycle', 'view.js'),
   ];
   const offenders = [];
   for (const file of files) {

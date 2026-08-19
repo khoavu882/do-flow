@@ -1,0 +1,254 @@
+'use strict';
+// mcp.js — selectable MCP server install, written to Claude Code's REAL config locations (not a
+// generic file-copy target — .mcp.json under .claude/ is never read by Claude Code):
+//   global (-g)   -> ~/.claude.json's top-level `mcpServers` key
+//   project scope -> <projectRoot>/.mcp.json (sibling to .claude/, the project-root convention
+//                    Claude Code actually auto-discovers)
+// Both are read-merge-write, never a wholesale overwrite, and scan-then-append: only the server
+// names doflow itself ships in core/registry/mcp.yaml are added/removed by selection, and a
+// selected name already present keeps its existing definition rather than being reset to doflow's
+// shipped default (a user's hand-edited arg/env survives). Any server under a name doflow doesn't know
+// about — in either file — is left completely untouched regardless of selection. This matters
+// more for ~/.claude.json (also holds history/projects/credentials-adjacent state), but a
+// project's own .mcp.json can just as easily carry a hand-added or hand-edited server doflow must
+// not clobber.
+const fs = require('node:fs');
+const path = require('node:path');
+const { readSyncBlocking } = require('../helper/prompt');
+const { selectMcpServers, nativeMcpCatalog } = require('../registry');
+
+const ESC = String.fromCharCode(27);
+const CTRL_C = String.fromCharCode(3);
+
+/** @param {object} registry a loaded registry (src/registry#loadRegistry)
+ *  @returns {string[]} server names in registry declaration order */
+function readAllServers(registry) {
+  return nativeMcpCatalog(selectMcpServers(registry)).allServers;
+}
+
+/** @param {object} registry a loaded registry (src/registry#loadRegistry)
+ *  @returns {{[name:string]: object}} only the selected server definitions, source key order */
+function filterServerDefs(registry, allServers, selected) {
+  const { serverDefs } = nativeMcpCatalog(selectMcpServers(registry));
+  const out = {};
+  for (const name of allServers) {
+    if (selected.includes(name)) out[name] = serverDefs[name];
+  }
+  return out;
+}
+
+/**
+ * Merge selected server defs into an existing mcpServers object, touching only the names doflow
+ * ships (`knownServerNames`). A known name not present in `serverDefs` (deselected) is removed.
+ * A known name that's selected AND already present is left as-is — scan-then-append, not
+ * overwrite — so a definition the user hand-edited (a different arg, an extra env var) survives
+ * an install/update instead of being silently reset to doflow's shipped default; doflow's default
+ * is only written the first time a name is newly selected. Every other key — including a server
+ * under a name doflow doesn't recognize — passes through untouched.
+ */
+function mergeKnownServers(existingMcpServers, knownServerNames, serverDefs) {
+  const merged = { ...existingMcpServers };
+  for (const name of knownServerNames) {
+    if (name in serverDefs) {
+      if (!(name in merged)) merged[name] = serverDefs[name];
+    } else {
+      delete merged[name];
+    }
+  }
+  return merged;
+}
+
+/**
+ * Read a JSON file doflow does not fully own, refusing to proceed if it exists but fails to
+ * parse — silently treating a malformed file as empty would mean the next write discards
+ * whatever unrelated content it held. Failing loudly costs the user one retry after fixing the
+ * file; failing silently costs them data with no recovery path (this path isn't backed up).
+ */
+function readJsonOrThrow(file) {
+  if (!fs.existsSync(file)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    throw new Error(`Refusing to touch malformed ${file} (${e.message}) — fix or remove it, then retry. doflow merges into this file and will not risk overwriting content it can't parse.`);
+  }
+}
+
+/**
+ * Project scope: read-merge-write <projectRoot>/.mcp.json, same "known keys only" semantics as
+ * mergeGlobalMcpServers — a hand-added project MCP server doflow doesn't ship must survive.
+ * @returns {string} the path written
+ */
+function writeProjectMcpJson(projectRoot, knownServerNames, serverDefs) {
+  const dest = path.join(projectRoot, '.mcp.json');
+  const data = readJsonOrThrow(dest);
+  data.mcpServers = mergeKnownServers(data.mcpServers || {}, knownServerNames, serverDefs);
+  fs.writeFileSync(dest, `${JSON.stringify(data, null, 2)}\n`);
+  return dest;
+}
+
+/**
+ * Global scope: ~/.claude.json is a shared, multi-purpose state file (history, projects,
+ * credentials-adjacent references) doflow does not own — read-merge-write, touching only the
+ * `mcpServers` keys that match a name doflow itself ships in core/registry/mcp.yaml. Every other key in
+ * the file, including any MCP server the user registered themselves via `claude mcp add`, is left
+ * untouched.
+ * @returns {string} the path written
+ */
+function mergeGlobalMcpServers(homeDir, knownServerNames, serverDefs) {
+  const file = path.join(homeDir, '.claude.json');
+  const data = readJsonOrThrow(file);
+  data.mcpServers = mergeKnownServers(data.mcpServers || {}, knownServerNames, serverDefs);
+
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = path.join(path.dirname(file), `.claude-${process.pid}-${Date.now()}.json.tmp`);
+  fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, { flag: 'wx' });
+  fs.renameSync(tmp, file);
+  return file;
+}
+
+/**
+ * Decide which MCP servers to install, in precedence order:
+ *   1. --mcp <list>          — explicit, always wins, always persisted
+ *   2. interactive checkbox  — install only, real TTY, no --force/--dry-run
+ *   3. remembered manifest   — update (or a forced/non-interactive install) reuses the last pick
+ *   4. all servers           — first-ever install, nothing else applies
+ * `promptFn` is injected so this stays unit-testable without a real TTY.
+ * @param {{cmd:string, requested:string[]|null, allServers:string[], manifestServers:string[]|null,
+ *           interactive:boolean, promptFn:(servers:string[], seed:string[])=>string[]|null}} p
+ * @returns {string[]}
+ */
+function resolveMcpSelection({ cmd, requested, allServers, manifestServers, interactive, promptFn, onStale }) {
+  if (requested) {
+    if (requested.length === 0) {
+      throw new Error('--mcp requires at least one server (omit the flag entirely to keep all)');
+    }
+    const invalid = requested.filter((s) => !allServers.includes(s));
+    if (invalid.length) {
+      throw new Error(`Unknown MCP server(s): ${invalid.join(', ')} (valid: ${allServers.join(', ')})`);
+    }
+    return [...new Set(requested)];
+  }
+
+  // `requested` is user intent, so an unknown name above is a typo and must be fatal. The manifest
+  // selection is *persisted resolved state* (see src/manifest.js), so an id the registry no longer
+  // declares means the project retired that server between installs — a normal upgrade, not user
+  // error. Passing it through unfiltered reached selectMcpServers() in src/registry/index.js,
+  // which throws, so removing chrome-devtools and playwright from core/registry/mcp.yaml (d1bf9e8)
+  // made `install` and `update` fatally fail for every install predating that commit, with no hint
+  // that `--mcp <survivors>` was the way out. cmdStatus already tolerated the same state because
+  // it happens to wrap the call in try/catch; reconcile here so every caller behaves that way.
+  const remembered = manifestServers ?? null;
+  const known = remembered?.filter((s) => allServers.includes(s)) ?? null;
+  const retired = remembered?.filter((s) => !allServers.includes(s)) ?? [];
+  if (retired.length && onStale) onStale(retired);
+
+  if (cmd === 'install' && interactive) {
+    // Seed the checkbox from reconciled state too — pre-ticking a server that no longer exists
+    // would offer the user a choice the registry cannot honor.
+    const seed = known ?? allServers;
+    const picked = promptFn(allServers, seed);
+    if (picked !== null) return picked; // [] is a deliberate "no servers" choice, honored as-is
+  }
+
+  // An install that had every one of its servers retired falls back to the full catalog rather
+  // than to [], which would silently uninstall MCP support the user never asked to remove.
+  if (known && known.length === 0) return [...allServers];
+  return known ?? allServers;
+}
+
+const KEY = {
+  UP: `${ESC}[A`,
+  DOWN: `${ESC}[B`,
+  SPACE: ' ',
+  ENTER_CR: '\r',
+  ENTER_LF: '\n',
+  CTRL_C,
+  ALL: 'a',
+};
+
+/**
+ * Block for one raw-mode keypress, via prompt.js's readSyncBlocking (retries the EAGAIN-while-TTY
+ * case, bounded by a deadline for a genuinely unusable fd).
+ * @returns {string|null} the decoded chunk, or null if the fd is unusable
+ */
+function readKeypress(buf) {
+  try {
+    const n = readSyncBlocking(0, buf);
+    return buf.toString('utf8', 0, n);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Synchronous raw-mode checkbox prompt (arrow keys / j-k to move, space to toggle, 'a' to
+ * toggle-all, enter to confirm). Matches src/prompt.js's synchronous-read style — this CLI has no
+ * async control flow to hang off, so a real TTY read loop is built directly on fs.readSync(0, ...),
+ * the same primitive confirm()/promptLine() already use.
+ * @returns {string[]|null} selected server names, or null if no usable TTY (caller falls back)
+ */
+function promptMcpCheckbox(servers, initialSelected, message = 'Select MCP servers to install:') {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return null;
+  if (servers.length === 0) return [];
+
+  const selected = new Set(initialSelected);
+  let cursor = 0;
+  const help = '  (up/down or j/k move, space toggle, a toggle-all, enter confirm)';
+
+  const render = (first) => {
+    if (!first) process.stdout.write(`${ESC}[${servers.length + 2}A`);
+    console.log(message);
+    console.log(help);
+    for (let i = 0; i < servers.length; i++) {
+      const mark = selected.has(servers[i]) ? '[x]' : '[ ]';
+      const pointer = i === cursor ? '>' : ' ';
+      console.log(`${pointer} ${mark} ${servers[i]}`);
+    }
+  };
+
+  let wasRaw = false;
+  let aborted = false;
+  try {
+    wasRaw = Boolean(process.stdin.isRaw);
+    process.stdin.setRawMode(true);
+    render(true);
+    const buf = Buffer.alloc(16);
+    for (;;) {
+      const chunk = readKeypress(buf);
+      if (chunk === null) {
+        aborted = true;
+        break;
+      }
+      if (chunk === KEY.ENTER_CR || chunk === KEY.ENTER_LF) break;
+      if (chunk === KEY.CTRL_C) {
+        console.log('\n[INFO]  Aborted.');
+        process.exit(130);
+      }
+      if (chunk === KEY.UP || chunk === 'k') cursor = (cursor - 1 + servers.length) % servers.length;
+      else if (chunk === KEY.DOWN || chunk === 'j') cursor = (cursor + 1) % servers.length;
+      else if (chunk === KEY.SPACE) {
+        const s = servers[cursor];
+        if (selected.has(s)) selected.delete(s);
+        else selected.add(s);
+      } else if (chunk === KEY.ALL) {
+        if (selected.size === servers.length) selected.clear();
+        else for (const s of servers) selected.add(s);
+      }
+      render(false);
+    }
+  } finally {
+    process.stdin.setRawMode(wasRaw);
+  }
+  console.log('');
+  if (aborted) return null; // fd went unusable mid-prompt — caller falls back to manifest/all
+  return servers.filter((s) => selected.has(s));
+}
+
+module.exports = {
+  readAllServers,
+  filterServerDefs,
+  writeProjectMcpJson,
+  mergeGlobalMcpServers,
+  resolveMcpSelection,
+  promptMcpCheckbox,
+};
