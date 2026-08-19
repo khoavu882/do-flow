@@ -153,9 +153,16 @@ do_next_version() {
     current_version="${base_tag#v}"
   fi
   
+  # Strip any semver pre-release/build-metadata suffix (e.g. "-beta.4", "+build.5") before
+  # splitting into numeric fields — the arithmetic below requires plain integers, and a suffix
+  # left in place (patch="0-beta.4") crashes $(( )) with "invalid arithmetic operator".
+  local version_core="${current_version%%-*}"
+  version_core="${version_core%%+*}"
+
   local major minor patch
   major="0"; minor="0"; patch="0"
-  IFS='.' read -r major minor patch <<< "${current_version#v}" 2>/dev/null || true
+  IFS='.' read -r major minor patch <<< "$version_core" 2>/dev/null || true
+  major="${major:-0}"; minor="${minor:-0}"; patch="${patch:-0}"
   
   local next_major="$major"
   local next_minor="$minor"
