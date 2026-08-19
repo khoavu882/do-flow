@@ -237,7 +237,7 @@ test('full lifecycle: install -> mutate -> update -> rollback restores the pre-u
   let r = run(['install', '-g', '--force', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   // A fresh install's CLAUDE.md is already exactly doflow's marked section, verbatim (no user
-  // content yet) — see src/marker-merge.js.
+  // content yet) — see src/helper/marker-merge.js.
   const cleanContent = fs.readFileSync(claudeMd, 'utf8');
 
   fs.writeFileSync(claudeMd, 'mutated by test\n');
@@ -250,7 +250,7 @@ test('full lifecycle: install -> mutate -> update -> rollback restores the pre-u
   // CLAUDE.md is merge-managed, not mirrored: mutatedContent has no doflow markers, so update
   // must treat it as foreign content and APPEND doflow's section after it (not overwrite it) —
   // that's the whole point of this feature. mutatedContent ends with exactly one "\n", so the
-  // separator-normalization rule (src/marker-merge.js) adds exactly one more before the
+  // separator-normalization rule (src/helper/marker-merge.js) adds exactly one more before the
   // section.
   const expectedAfterUpdate = `${mutatedContent}\n${cleanContent}`;
   assert.strictEqual(fs.readFileSync(claudeMd, 'utf8'), expectedAfterUpdate, 'update should append doflow\'s section after the foreign (unmarked) content, not overwrite it');
@@ -563,7 +563,7 @@ test('--prune keeps only the N most recent backups on both install and update', 
 // asset it copied became adapter-owned via the registry/lifecycle path. The safety properties they
 // covered — rejecting a traversing or missing asset source, and failing cleanly rather than with a
 // raw stack trace — are now enforced earlier and more strongly at registry load time; see
-// test/registry.test.js's "rejects projections to unavailable capabilities and missing source
+// test/registry/registry.test.js's "rejects projections to unavailable capabilities and missing source
 // files" test.
 
 test('--mcp <list> on global install merges only the selected servers into ~/.claude.json, not .claude/.mcp.json', () => {

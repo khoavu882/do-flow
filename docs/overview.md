@@ -96,6 +96,7 @@ This keeps the default context small while retaining a discoverable home for dee
 ## Where to go next
 
 - New installation: [Quickstart](quickstart.md) or [Setup](setup.md)
+- How execution works: [How DoFlow works](how-doflow-work.md)
 - Choosing a task flow: [Guide](guide.md)
 - Looking up a capability: [Reference](reference.md)
 - Changing DoFlow itself: read [Architecture](architecture.md)

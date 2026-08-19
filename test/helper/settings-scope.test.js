@@ -11,7 +11,7 @@ function scratchDir() {
 }
 
 // The project-scope hook path rewrite itself (${CLAUDE_PROJECT_DIR} substitution) now lives in
-// src/adapters/claude/index.js#settingsContent, covered by test/claude-adapter.test.js's
+// src/adapters/claude/index.js#settingsContent, covered by test/adapters/claude/claude-adapter.test.js's
 // project/global-scope settings tests — this file only covers chmodHooksExecutable, the one
 // piece of settings-scope.js still called from bin/doflow.js.
 

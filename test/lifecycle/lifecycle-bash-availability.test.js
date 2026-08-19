@@ -4,7 +4,7 @@
 // rather than installing hooks that will error silently at runtime. Covers the preflight in
 // isolation (hasBashCapableShell, targetNeedsHooks, assertBashAvailableForHooks) and its wiring
 // into applyLifecycle, using the same fake-adapter fixture pattern as
-// test/lifecycle-orchestrator.test.js.
+// test/lifecycle/lifecycle-orchestrator.test.js.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -132,7 +132,7 @@ test('assertBashAvailableForHooks skips a skipped target even if it would otherw
 });
 
 // --- Integration through applyLifecycle --------------------------------------------------------
-// Same fake-adapter fixture pattern as test/lifecycle-orchestrator.test.js: a minimal raw
+// Same fake-adapter fixture pattern as test/lifecycle/lifecycle-orchestrator.test.js: a minimal raw
 // registry object (bypassing loadRegistry's file-backed validation) plus a fake adapter that
 // records every call it receives.
 

@@ -286,7 +286,7 @@ test('009-unlinked-checkout: assertion 4 — a bare bin/doflow.js with no packag
 });
 
 test('009-unlinked-checkout: assertion 5 — the generic cli-not-found diagnosis is unchanged when no marker and no runtime resolve', () => {
-  // This is the exact case test/install-shapes.test.js's own `FR-003` block above already pins
+  // This is the exact case test/e2e/install-shapes.test.js's own `FR-003` block above already pins
   // (scratch cwd outside any checkout, projected runtime removed) — repeated here, independently,
   // under this feature's own name, specifically to confirm CH2's new marker check does not widen
   // `cli-not-found`'s firing conditions (design.md §4, FR-005). If this ever needs to change, that
@@ -343,7 +343,7 @@ test('NFR-005: an ownership ledger written before this feature updates without l
   // Rewind the install to its pre-008 shape: the locator asset did not exist, so neither its files
   // nor its ownership records did. Everything else — 675-odd resources across seven harnesses — is
   // exactly what a real pre-feature install carries, which is why this rewinds a real ledger rather
-  // than hand-building a fixture (test/state-ledger.test.js already covers hand-built legacy
+  // than hand-building a fixture (test/state/state-ledger.test.js already covers hand-built legacy
   // imports; the risk here is the opposite one, a large real ledger being reset).
   const ledgerFile = path.join(root, '.doflow', 'state', 'ledger.json');
   const before = JSON.parse(fs.readFileSync(ledgerFile, 'utf8'));

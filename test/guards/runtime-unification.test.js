@@ -12,7 +12,7 @@
 // compute the answer from the registry rather than trusting either side's prose.
 //
 // Scope note: the *behaviour* of the locator once projected (lands inside the harness's own
-// directory, executable bit intact) is already asserted by test/gemini-adapter.test.js — 'the
+// directory, executable bit intact) is already asserted by test/adapters/gemini/gemini-adapter.test.js — 'the
 // runtime locator is projected into every harness, inside that harness own directory' and 'the
 // locator source is executable'. Those run the real adapter projection, which is the right place
 // for them, so this file deliberately does NOT duplicate them. What it adds is the declaration

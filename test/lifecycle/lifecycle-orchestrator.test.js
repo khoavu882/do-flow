@@ -272,7 +272,7 @@ test('remove deletes MCP_INDEX.md regardless of what selection would otherwise a
 // --- hookWiringStatus: the general per-harness hook-wiring status (task 006-D.2) ---
 // Real registry + real adapters, installed into a scratch project, exercising the actual
 // prerequisite declarations in core/registry/harnesses.yaml (Codex) and the live trust
-// computation in src/gemini-hooks.js (Gemini) rather than a fake harness/adapter.
+// computation in src/adapters/gemini/hooks.js (Gemini) rather than a fake harness/adapter.
 {
   const { verifyLifecycle, hookWiringStatus } = require('../../src/lifecycle');
   const realClaude = require('../../src/adapters/claude');
@@ -337,7 +337,7 @@ test('remove deletes MCP_INDEX.md regardless of what selection would otherwise a
   test('hookWiringStatus: Gemini reports installed-pending from its own live trust computation, not a static registry prerequisite', () => {
     const fixture = hookFixture(['gemini']);
     // Gemini's registry capability declares no `prerequisites` field at all — confirms the
-    // installed-pending verdict below comes from src/gemini-hooks.js's live trust check, not a
+    // installed-pending verdict below comes from src/adapters/gemini/hooks.js's live trust check, not a
     // static registry list (unlike Codex).
     const geminiCapability = fixture.realRegistry.harnesses.find((h) => h.id === 'gemini').capabilities.hooks;
     assert.equal(geminiCapability.prerequisites, undefined);

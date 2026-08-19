@@ -103,7 +103,7 @@ class ReadinessEngine {
     // Fail closed on identity, for the same reason the unrecognized-requirement branch below does.
     // These previously defaulted to `'default'` and `'feature'`, which meant a caller passing `id`
     // instead of `taskId` — an easy slip, and one that actually happened while writing
-    // test/runtime-claim-status.test.js — got a confident READY/NEEDS_EVIDENCE verdict computed
+    // test/runtime/runtime-claim-status.test.js — got a confident READY/NEEDS_EVIDENCE verdict computed
     // from an unrelated task's evidence and claims. A gate must never answer about something it did
     // not evaluate; reported independently by three separate reviews of this runtime before being
     // fixed here.
