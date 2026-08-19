@@ -1,0 +1,47 @@
+{
+  "description": "DoFlow shared lifecycle hooks schema for Antigravity, Gemini, and Claude.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$DOFLOW_PROJECT_DIR/.gemini/hooks/session-start.sh\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(run_command|run_shell_command|replace_file_content|write_to_file|multi_replace_file_content|edit_file|Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$DOFLOW_PROJECT_DIR/.doflow/scripts/stream-hook-runner.js\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^(replace_file_content|write_to_file|multi_replace_file_content|edit_file|Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$DOFLOW_PROJECT_DIR/.gemini/hooks/post-edit-lint.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$DOFLOW_PROJECT_DIR/.gemini/hooks/stop-check.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

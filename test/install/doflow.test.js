@@ -49,6 +49,8 @@ test('resolveTargets defaults to claude alone and validates', () => {
   assert.deepStrictEqual(resolveTargets([]), ['claude']);
   assert.deepStrictEqual(resolveTargets(undefined), ['claude']);
   assert.deepStrictEqual(resolveTargets(['claude']), ['claude']);
+  assert.deepStrictEqual(resolveTargets(['antigravity']), ['gemini']);
+  assert.deepStrictEqual(resolveTargets(['agy']), ['gemini']);
   assert.deepStrictEqual(resolveTargets([...VALID]), VALID, 'every valid target is still selectable');
   assert.throws(() => resolveTargets(['bogus']), /Unknown target/);
 });

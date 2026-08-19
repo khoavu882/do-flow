@@ -60,6 +60,27 @@ test('plans and deploys hook config using an explicit project destination', () =
   assert.equal(fs.statSync(path.join(projectRoot, '.codex', 'hooks', 'session-start.sh')).mode & 0o111, 0o111);
 });
 
+test('merges into pre-existing hooks in .codex/hooks.json, preserving user custom hooks', () => {
+  const root = scratch(); const sourceHooksDir = wrapper(root); const projectRoot = path.join(root, 'project');
+  const hooksFile = path.join(projectRoot, '.codex', 'hooks.json');
+  fs.mkdirSync(path.dirname(hooksFile), { recursive: true });
+  fs.writeFileSync(hooksFile, JSON.stringify({
+    hooks: {
+      SessionStart: [{ matcher: 'custom-matcher', hooks: [{ type: 'command', command: 'echo user-custom-codex-hook' }] }],
+    },
+  }));
+
+  const plan = planCodexHooks({ config: hookConfig(), sourceHooksDir, trusted: false,
+    destinationContext: { scope: 'project', projectRoot } });
+  assert.equal(plan.ok, true);
+  deployCodexHooks(plan);
+
+  const written = JSON.parse(fs.readFileSync(hooksFile, 'utf8'));
+  assert.equal(written.hooks.SessionStart.length, 2, 'both custom and managed hook entries must be present');
+  assert.equal(written.hooks.SessionStart[0].hooks[0].command, 'echo user-custom-codex-hook', 'user custom hook must remain first');
+  assert.equal(written.hooks.SessionStart[1].hooks[0].command, 'bash "$(root)/hooks/session-start.sh"');
+});
+
 test('deploy copies every file in scriptsDir, not just ones named in a hooks.json command', () => {
   // Regression test: a sourced helper (lib.sh) or runtime-read config (*.conf) is never named
   // literally in a command string, so commandScriptNames() can't discover it — deployCodexHooks
