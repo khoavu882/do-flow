@@ -182,6 +182,129 @@ test('FR-003: exit codes and --json hold at the dispatcher boundary in an instal
   }
 });
 
+// ------------------------------- 009-unlinked-checkout: resolution fallbacks & diagnostics
+//
+// Feature 009 (agent-docs/doflow/009-unlinked-checkout-cli-resolution). CH3 in that feature's
+// plan.md names these five assertions exactly; the naming below is prefixed `009-unlinked-checkout`
+// rather than reusing this file's own `FR-00x` numbers, which already belong to a different,
+// unrelated feature's requirements. Every scenario here uses an *installed* locator whose own
+// $SCRIPT_DIR sits outside any checkout (as FR-001's global-install test above does) — the source
+// dispatcher would always resolve via its own $SCRIPT_DIR walk-up first and never exercise these
+// fallbacks (design.md R4).
+
+test('009-unlinked-checkout: assertion 1 — a partial local .doflow/ resolves a Node verb via the new $PWD walk-up', () => {
+  const cwd = scratch('pwd-walkup');
+  // A minimal but genuinely working checkout: the same bin/ + src/ + core/registry/ content the
+  // `runtime.*` assets project (copied directly, not produced by an install) plus a package.json
+  // naming doflow — together exactly what `is_package_root` requires.
+  fs.cpSync(path.join(REPO, 'bin'), path.join(cwd, 'bin'), { recursive: true });
+  fs.cpSync(path.join(REPO, 'src'), path.join(cwd, 'src'), { recursive: true });
+  fs.mkdirSync(path.join(cwd, 'core', 'registry'), { recursive: true });
+  fs.cpSync(path.join(REPO, 'core', 'registry'), path.join(cwd, 'core', 'registry'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, 'package.json'), JSON.stringify({ name: '@khoavu882/doflow' }));
+  // A partial local `.doflow/`: only state/ and worktrees/ — no scripts/, no runtime/ — proves the
+  // new $PWD walk-up resolves the checkout itself rather than depending on a runtime/ projection
+  // existing at this same location.
+  fs.mkdirSync(path.join(cwd, '.doflow', 'state'), { recursive: true });
+  fs.mkdirSync(path.join(cwd, '.doflow', 'worktrees'), { recursive: true });
+
+  const home = scratch('pwd-walkup-home');
+  assert.equal(cli(['install', '-g', '-f', '--no-backup', '-t', 'claude'], { home }).status, 0);
+  const locator = path.join(home, '.claude', 'bin', 'doflow-run');
+
+  const noPath = { PATH: `/usr/bin:/bin:${path.dirname(process.execPath)}` };
+  const r = runtime(locator, ['capabilities', '--json'], { home, cwd, env: noPath });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(JSON.parse(r.stdout).capabilities, 'capabilities answered but returned no capability list');
+});
+
+test('009-unlinked-checkout: assertion 2 — a partial local .doflow/ with no own checkout falls back to $HOME/.doflow/runtime', () => {
+  const cwd = scratch('global-fallback-cwd');
+  // No bin/doflow.js and no package.json anywhere in `cwd` — the $PWD walk-up cannot resolve — but
+  // a `.doflow/state/` exists, so CONFIG_DIR resolves to `cwd/.doflow`, which is NOT the same path
+  // as `$HOME/.doflow`. This is what forces resolution past the existing `$CONFIG_DIR/runtime`
+  // check (which has nothing to find here) into the new `$HOME/.doflow/runtime` fallback.
+  fs.mkdirSync(path.join(cwd, '.doflow', 'state'), { recursive: true });
+
+  const home = scratch('global-fallback-home');
+  assert.equal(cli(['install', '-g', '-f', '--no-backup', '-t', 'claude'], { home }).status, 0);
+  const locator = path.join(home, '.claude', 'bin', 'doflow-run');
+
+  const noPath = { PATH: `/usr/bin:/bin:${path.dirname(process.execPath)}` };
+  const r = runtime(locator, ['capabilities', '--json'], { home, cwd, env: noPath });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(JSON.parse(r.stdout).capabilities, 'capabilities answered but returned no capability list');
+
+  // Proves CONFIG_DIR really did resolve to `cwd/.doflow` (not `home/.doflow`), i.e. that the run
+  // above genuinely reached the new fallback rather than the pre-existing `$CONFIG_DIR/runtime`
+  // check happening to already point at the same place.
+  const runsUnderCwd = walk(path.join(cwd, '.doflow', 'state', 'runs'));
+  assert.ok(runsUnderCwd.length > 0, 'the run record must land under cwd/.doflow, proving CONFIG_DIR resolved there');
+});
+
+test('009-unlinked-checkout: assertion 3 — a runtime/-sourced Node verb that hits the registry validator reports stale-runtime', () => {
+  // `doctor` is the one Node-backed verb reachable through the dispatcher that calls the full,
+  // validated `loadRegistry` (src/runtime/health.js) rather than reading one or two registry files
+  // directly — so it is the one verb that can actually throw the registry loader's
+  // `Invalid DoFlow registry:` error. The projected `runtime/` tree carries only bin/, src/ and
+  // core/registry/ (not the full core/ tree assets.yaml's own entries point at), so running doctor
+  // straight against it is a real, unmodified reproduction of "this registry is mismatched relative
+  // to what validation expects" — nothing here is artificially corrupted.
+  const cwd = scratch('stale-runtime-cwd');
+  const home = scratch('stale-runtime-home');
+  assert.equal(cli(['install', '-g', '-f', '--no-backup', '-t', 'claude'], { home }).status, 0);
+  const locator = path.join(home, '.claude', 'bin', 'doflow-run');
+
+  const noPath = { PATH: `/usr/bin:/bin:${path.dirname(process.execPath)}` };
+  const r = runtime(locator, ['doctor', '--json'], { home, cwd, env: noPath });
+  assert.equal(r.status, 2, `expected a resolution-class failure, got stdout: ${r.stdout}`);
+  const reported = JSON.parse(r.stderr);
+  assert.equal(reported.error, 'stale-runtime');
+  assert.match(reported.message, /runtime[\\/]bin[\\/]doflow\.js/, 'message must name the resolved runtime path');
+  assert.doesNotMatch(reported.message, /^\[ERROR\]/, 'the raw CLI error text must be replaced, not merely echoed');
+});
+
+test('009-unlinked-checkout: assertion 4 — a bare bin/doflow.js with no package.json reports unlinked-checkout, naming npm link', () => {
+  const cwd = scratch('unlinked-checkout-cwd');
+  fs.mkdirSync(path.join(cwd, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, 'bin', 'doflow.js'), '// not a real package — no package.json anywhere near this file\n');
+
+  // A global install first (for a working locator), then its projected runtime/ is removed — the
+  // marker heuristic must be the ONLY thing that fires, not the `$HOME/.doflow/runtime` fallback.
+  const home = scratch('unlinked-checkout-home');
+  assert.equal(cli(['install', '-g', '-f', '--no-backup', '-t', 'claude'], { home }).status, 0);
+  const locator = path.join(home, '.claude', 'bin', 'doflow-run');
+  fs.rmSync(path.join(home, '.doflow', 'runtime'), { recursive: true, force: true });
+
+  const noPath = { PATH: `/usr/bin:/bin:${path.dirname(process.execPath)}` };
+  const r = runtime(locator, ['capabilities', '--json'], { home, cwd, env: noPath });
+  assert.equal(r.status, 2, `expected a resolution-class failure, got stdout: ${r.stdout}`);
+  const reported = JSON.parse(r.stderr);
+  assert.equal(reported.error, 'unlinked-checkout');
+  assert.match(reported.message, /npm link/);
+  assert.match(reported.message, /bin[\\/]doflow\.js/, 'message must name the detected marker path');
+});
+
+test('009-unlinked-checkout: assertion 5 — the generic cli-not-found diagnosis is unchanged when no marker and no runtime resolve', () => {
+  // This is the exact case test/install-shapes.test.js's own `FR-003` block above already pins
+  // (scratch cwd outside any checkout, projected runtime removed) — repeated here, independently,
+  // under this feature's own name, specifically to confirm CH2's new marker check does not widen
+  // `cli-not-found`'s firing conditions (design.md §4, FR-005). If this ever needs to change, that
+  // `FR-003` assertion needs to change with it.
+  const cwd = scratch('cli-not-found-cwd');
+  const home = scratch('cli-not-found-home');
+  assert.equal(cli(['install', '-g', '-f', '--no-backup', '-t', 'claude'], { home }).status, 0);
+  const locator = path.join(home, '.claude', 'bin', 'doflow-run');
+  fs.rmSync(path.join(home, '.doflow', 'runtime'), { recursive: true, force: true });
+
+  const noPath = { PATH: `/usr/bin:/bin:${path.dirname(process.execPath)}` };
+  const r = runtime(locator, ['capabilities', '--json'], { home, cwd, env: noPath });
+  assert.equal(r.status, 2, `expected a resolution-class failure, got stdout: ${r.stdout}`);
+  const reported = JSON.parse(r.stderr);
+  assert.equal(reported.error, 'cli-not-found');
+  assert.match(reported.message, /DOFLOW_CLI/);
+});
+
 // -------------------------------------------------------------------- NFR-007: remove reclaims
 
 test('NFR-007: remove reclaims the locator on every harness and leaves user files untouched', () => {

@@ -99,21 +99,58 @@ is_package_root() {
   grep -q '"name"[[:space:]]*:[[:space:]]*"[^"]*doflow"' "$1/package.json" 2>/dev/null
 }
 
+# Deliberately looser than is_package_root — no package.json check at all. Answers only "does a
+# file literally named bin/doflow.js exist above $PWD or $SCRIPT_DIR", used exclusively to shape
+# the exhaustion-time diagnostic in dispatch_node once every real resolution path in
+# resolve_node_cli has already failed (design.md R3). A strict check here would rarely fire in
+# that situation — after resolve_node_cli's own $PWD/$SCRIPT_DIR walk-ups, a directory that passes
+# the strict check would usually have already resolved successfully — so a false positive here
+# costs a slightly-off suggestion, never a wrong program behavior; the message is phrased as a
+# hedge for exactly that reason.
+has_doflow_marker_nearby() {
+  local dir start
+  for start in "$(pwd -P 2>/dev/null || pwd)" "$SCRIPT_DIR"; do
+    dir="$start"
+    while [ -n "$dir" ] && [ "$dir" != "/" ]; do
+      if [ -f "$dir/bin/doflow.js" ]; then
+        printf '%s' "$dir/bin/doflow.js"
+        return 0
+      fi
+      dir="$(dirname "$dir")"
+    done
+  done
+  return 1
+}
+
 # Order is most-specific-first: an explicit override, then the checkout this file lives in, then
+# the checkout the caller is standing in, then a project- or global-local projected runtime, then
 # a dependency pinned by the project, then whatever is on PATH. Answers through globals rather
 # than stdout, so a path containing whitespace needs no field separator to survive.
 NODE_CLI_KIND=""   # "script" = run with node, "bin" = an executable that runs itself
 NODE_CLI_PATH=""
+NODE_CLI_SOURCE=""  # which branch below resolved: override / checkout-script-dir /
+                     # checkout-pwd / project-runtime / global-runtime / node_modules / path
 resolve_node_cli() {
-  local dir project_root
+  local dir project_root global_runtime_cli
   if [ -n "${DOFLOW_CLI:-}" ] && [ -f "$DOFLOW_CLI" ]; then
-    NODE_CLI_KIND="script"; NODE_CLI_PATH="$DOFLOW_CLI"
+    NODE_CLI_KIND="script"; NODE_CLI_PATH="$DOFLOW_CLI"; NODE_CLI_SOURCE="override"
     return 0
   fi
   dir="$SCRIPT_DIR"
   while [ -n "$dir" ] && [ "$dir" != "/" ]; do
     if is_package_root "$dir"; then
-      NODE_CLI_KIND="script"; NODE_CLI_PATH="$dir/bin/doflow.js"
+      NODE_CLI_KIND="script"; NODE_CLI_PATH="$dir/bin/doflow.js"; NODE_CLI_SOURCE="checkout-script-dir"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  # Same walk-up, started from where the caller is standing rather than where this dispatcher
+  # lives — lets a verb resolve correctly when the dispatcher being run is the global one but the
+  # caller is standing inside the actual checkout (e.g. dogfooding without `npm link`).
+  dir="$(pwd -P 2>/dev/null || pwd)"
+  while [ -n "$dir" ] && [ "$dir" != "/" ]; do
+    if is_package_root "$dir"; then
+      NODE_CLI_KIND="script"; NODE_CLI_PATH="$dir/bin/doflow.js"; NODE_CLI_SOURCE="checkout-pwd"
       return 0
     fi
     dir="$(dirname "$dir")"
@@ -126,16 +163,25 @@ resolve_node_cli() {
   # runtime/ mirrors the repo (bin/, src/, core/registry/) so the modules' own
   # `path.resolve(__dirname, '..', '..')` finds the registries without any path rewriting.
   if [ -f "$CONFIG_DIR/runtime/bin/doflow.js" ]; then
-    NODE_CLI_KIND="script"; NODE_CLI_PATH="$CONFIG_DIR/runtime/bin/doflow.js"
+    NODE_CLI_KIND="script"; NODE_CLI_PATH="$CONFIG_DIR/runtime/bin/doflow.js"; NODE_CLI_SOURCE="project-runtime"
+    return 0
+  fi
+  # Same runtime layout, but under the global install — covers a project-local `.doflow/` that
+  # exists but is only partial (e.g. `state/`/`worktrees/` with no `runtime/` of its own), where
+  # CONFIG_DIR resolved to that project rather than to $HOME/.doflow. Skipped when it's the exact
+  # same path already tried above (CONFIG_DIR already IS $HOME/.doflow), to avoid a redundant stat.
+  global_runtime_cli="${HOME:-}/.doflow/runtime/bin/doflow.js"
+  if [ -n "${HOME:-}" ] && [ "$global_runtime_cli" != "$CONFIG_DIR/runtime/bin/doflow.js" ] && [ -f "$global_runtime_cli" ]; then
+    NODE_CLI_KIND="script"; NODE_CLI_PATH="$global_runtime_cli"; NODE_CLI_SOURCE="global-runtime"
     return 0
   fi
   project_root="$(dirname "$CONFIG_DIR")"
   if [ -f "$project_root/node_modules/@khoavu882/doflow/bin/doflow.js" ]; then
-    NODE_CLI_KIND="script"; NODE_CLI_PATH="$project_root/node_modules/@khoavu882/doflow/bin/doflow.js"
+    NODE_CLI_KIND="script"; NODE_CLI_PATH="$project_root/node_modules/@khoavu882/doflow/bin/doflow.js"; NODE_CLI_SOURCE="node_modules"
     return 0
   fi
   if command -v doflow >/dev/null 2>&1; then
-    NODE_CLI_KIND="bin"; NODE_CLI_PATH="$(command -v doflow)"
+    NODE_CLI_KIND="bin"; NODE_CLI_PATH="$(command -v doflow)"; NODE_CLI_SOURCE="path"
     return 0
   fi
   return 1
@@ -318,14 +364,51 @@ dispatch_shell() {
 
 dispatch_node() {
   local verb="$1"; shift
+  local marker tmpfile rc first_line
   if ! resolve_node_cli; then
+    if marker="$(has_doflow_marker_nearby)"; then
+      fail 2 "unlinked-checkout" \
+        "verb '$verb' is served by the Node CLI, which could not be located; a file named bin/doflow.js was found near here ($marker) — if this is a doflow checkout, running \`npm link\` may resolve this"
+    fi
     fail 2 "cli-not-found" \
       "verb '$verb' is served by the Node CLI, which could not be located; set DOFLOW_CLI to a doflow.js path, install the package (npm i -g @khoavu882/doflow), or run from a checkout"
   fi
   if [ "$NODE_CLI_KIND" = "script" ]; then
     command -v node >/dev/null 2>&1 || fail 2 "node-not-found" \
       "verb '$verb' needs node on PATH to run $NODE_CLI_PATH"
-    node "$NODE_CLI_PATH" "$verb" "$@"
+    case "$NODE_CLI_SOURCE" in
+      project-runtime|global-runtime)
+        # These two sources are a *projected copy* of the runtime, not the checkout itself, so
+        # they can drift out of sync with the working tree's registry. Stdout still streams
+        # directly; only stderr is captured, so a version-drift crash can be told apart from a
+        # verb legitimately reporting a finding (e.g. readiness's NEEDS_EVIDENCE) before either
+        # reaches the caller.
+        tmpfile="$(mktemp)"
+        trap 'rm -f "$tmpfile" 2>/dev/null || true' EXIT
+        rc=0
+        node "$NODE_CLI_PATH" "$verb" "$@" 2>"$tmpfile" || rc=$?
+        if [ "$rc" -ne 0 ]; then
+          first_line=""
+          IFS= read -r first_line <"$tmpfile" || true
+          # Matched loosely (not anchored to position 0): bin/doflow.js's own top-level catch
+          # prepends "[ERROR] " to every thrown message before it ever reaches stderr, so an
+          # anchored match against the registry loader's raw prefix never fires in practice.
+          case "$first_line" in
+            *"Invalid DoFlow registry:"*)
+              fail 2 "stale-runtime" \
+                "verb '$verb' failed against $NODE_CLI_PATH, which appears out of date relative to the working checkout; reinstall or re-run the doflow installer to refresh it"
+              ;;
+          esac
+        fi
+        cat "$tmpfile" >&2
+        rm -f "$tmpfile"
+        trap - EXIT
+        return "$rc"
+        ;;
+      *)
+        node "$NODE_CLI_PATH" "$verb" "$@"
+        ;;
+    esac
   else
     "$NODE_CLI_PATH" "$verb" "$@"
   fi
