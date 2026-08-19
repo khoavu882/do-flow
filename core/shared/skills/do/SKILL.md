@@ -53,6 +53,13 @@ package under one the runtime accepted for a different kind of task.
      `references/pm_routing.md`.
 
 3. **Capability & Tool Selection**:
+   - Before routing, check what recorded runs already show — run `"$DOFLOW" discover --json`
+     (reuse `$DOFLOW` resolved in step 1). **It exits 1 when there is a finding — that is signal,
+     not failure; never treat that exit code as an error.** When the analysis cannot be settled
+     from the recorded metadata, `discover` reports `UNKNOWN` rather than "clear"; surface `UNKNOWN`
+     as undetermined and never round it up to "no missed opportunities". `do` surfaces the finding
+     to the user — it takes no automatic action on it, and no finding is ever rendered as a number,
+     a percentage, or a confidence.
    - Routing an information need to a tool is unconditional, not a mode this skill can be asked
      for: whenever a search, graph, or testing need arises, query the Capability Router — run `"$DOFLOW" capabilities` (add `--json` to parse, `--check` for a deep
      smoke check), or `"$DOFLOW" route --intent <intent> --json` to resolve one need end to end. It
