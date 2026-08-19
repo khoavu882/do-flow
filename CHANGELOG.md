@@ -13,6 +13,28 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.0.0-beta.5] - 2026-08-19
+
+### Added
+
+- **`doflow-run`'s Node-CLI resolution now finds a working checkout without `npm link`.**
+  `resolve_node_cli` walks up from `$PWD` (not only from the dispatcher's own location) and falls
+  back to `$HOME/.doflow/runtime` when a project's local `.doflow/` exists but lacks a materialized
+  `runtime/`. Two new diagnostics distinguish the remaining failure modes: `unlinked-checkout` (a
+  `bin/doflow.js` found nearby, names `npm link` as the fix) and `stale-runtime` (a resolved
+  `runtime/` copy that's drifted from the working tree, caught via its stderr rather than surfaced
+  as a raw registry dump).
+
+### Fixed
+
+- **`/do-execute-plan` now actually writes `state.md`.** The cross-session execution record
+  `MODE_Task_Management.md` already described was never instructed in `do-execute-plan/SKILL.md`
+  itself — it read and wrote nothing. Step 1 now reads it on resume; a new step creates/updates it
+  at every phase checkpoint.
+- **`do-git-state.sh --next-version` no longer crashes on a semver pre-release tag.** A base tag
+  like `v1.0.0-beta.4` left an unstripped `-beta.4` suffix in the patch-bump arithmetic, crashing
+  with a bash `invalid arithmetic operator` error instead of returning JSON.
+
 ## [1.0.0-beta.4] - 2026-08-18
 
 ### Added

@@ -437,6 +437,17 @@ BASE_TAG="$($STATE --next-version | jq -r '.base_tag')"
 eq "--next-version base_tag is null without tags" "$BASE_TAG" "null"
 eq "--next-version bump_kind is INITIAL without tags" "$($STATE --next-version | jq -r '.bump_kind')" "INITIAL"
 
+# Regression: a semver pre-release tag (e.g. "v1.0.0-beta.1") used to crash the patch-bump
+# arithmetic on the unstripped suffix ("0-beta.1"), raising a bash "invalid arithmetic operator"
+# error instead of returning JSON.
+git tag v1.0.0-beta.1
+NEXT_PRERELEASE="$($STATE --next-version)"
+eq "--next-version does not crash on a pre-release base tag" \
+   "$(echo "$NEXT_PRERELEASE" | jq -r '.next_version')" "1.0.1"
+eq "--next-version base_tag reports the pre-release tag as-is" \
+   "$(echo "$NEXT_PRERELEASE" | jq -r '.base_tag')" "v1.0.0-beta.1"
+git tag -d v1.0.0-beta.1 >/dev/null
+
 # Test fingerprint mode (deterministic but unique per state)
 FINGERPRINT_1="$($STATE --fingerprint)"
 FINGERPRINT_2="$($STATE --fingerprint)"

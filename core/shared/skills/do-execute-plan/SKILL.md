@@ -36,6 +36,10 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 
    - Enforce hard prerequisite gate: `"$DOFLOW" prereqs --require-plan` (requires
      `requirement.md`, `design.md`, `plan.md`).
+   - Read `<feature_dir>/state.md` if it exists — the cross-session execution record, per
+     `MODE_Task_Management.md`'s "Session Start" sequence. A `complete` row in its Task Ledger means
+     that task is done: never re-dispatch it, resume at the first task without one. No `state.md`
+     yet is the normal first-run case, not a gap.
 
 2. **Propose the Task Class; the Runtime Validates It**:
    - Name exactly one class id for the work this run executes. `/do-flow` passes one when it
@@ -143,7 +147,23 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
      so record the batch first and link afterwards. A claim carrying both fresh support and fresh
      contradiction becomes `conflicted`, which is what makes step 3 report `BLOCKED`.
 
-7. **Phase Quality Review** (`--review`):
+7. **Update `state.md`**:
+   - One checkpoint per phase (or per task, on a `--scope next` run), immediately after step 6's
+     evidence/claim batch for that phase — same boundary, not a separate pass to remember later.
+   - No `<feature_dir>/state.md` yet: create it from the template. The template is
+     `templates/doflow/state-template.md` in the install step 1 resolved: take `constitution_base`
+     from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
+   - Every checkpoint: append the finished task(s) to the Task Ledger (`Commits` as the actual
+     `[base7]..[head7]` range once committed, or `uncommitted (working tree)` when this run doesn't
+     commit on its own), move them from **In Progress** to **Completed**, and rewrite **Next
+     Action** to name the next pending task — so a resumed session (or a different one) can pick up
+     from this file and `git log` alone, per `state-template.md`'s own header note, never from
+     conversation memory. A `Findings` entry records a review finding deliberately left unfixed
+     (rare); write "None." otherwise rather than omitting the section.
+   - This is bookkeeping, not a gate: a write failure here degrades resumability, not correctness —
+     report it and continue rather than treating it as a task failure.
+
+8. **Phase Quality Review** (`--review`):
    - Review each phase upon completion for spec compliance before advancing. This runs by default;
      `--review=false` is the only way to skip it, and skipping it is reported in the phase's
      completion summary rather than passing silently.
