@@ -76,7 +76,7 @@ Three consequences follow, all of them intentional:
   such as a harness hook or a person at a terminal.
 
 Verification is the same on every harness: run one verb through the locator and check the exit code
-and JSON, e.g. `doflow-run paths --json` from a project root. `test/install-shapes.test.js` performs
+and JSON, e.g. `doflow-run paths --json` from a project root. `test/e2e/install-shapes.test.js` performs
 real installs for all seven harnesses into temporary directories and executes the projected locator
 and dispatcher in source-checkout, project-local, and global shapes rather than asserting against a
 mock.
