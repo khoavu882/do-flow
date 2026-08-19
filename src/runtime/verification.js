@@ -35,6 +35,15 @@ const { spawnSync } = require('node:child_process');
 const { parseYamlFile } = require('./capability-router');
 const { detectCommands, applyTargetPattern } = require('./command-detect');
 const { RecoveryManager } = require('./recovery');
+const { finishRuntime, usageError } = require('./cli-result');
+
+// `handleVerifyCommand` (moved from bin/doflow.js) used bin/doflow.js's own REPO_ROOT — that file's
+// SCRIPT_DIR is bin/, so REPO_ROOT = path.dirname(SCRIPT_DIR) = the repo root. This module lives at
+// src/runtime/, two levels deeper than bin/, so the equivalent repo root is two levels up from here.
+// bin/doflow.js:    path.dirname(__dirname)         with __dirname = <repo>/bin
+// src/runtime/*.js: path.resolve(__dirname,'..','..') with __dirname = <repo>/src/runtime
+// Both resolve to the same absolute repo root.
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 /** `PASS` and `FAIL` are the Python's vocabulary. `INCONCLUSIVE` is added for the empty-contract
  * case only — see `evaluateContract`. */
@@ -1159,6 +1168,78 @@ class VerificationEngine {
   }
 }
 
+/**
+ * Handles `doflow verify` — compile the verification contract (FR-009) and, by default, run it and
+ * report against it.
+ *
+ * `--action contract` stops after compiling, which is the before-implementation half: it states
+ * how success will be established without establishing anything. The default runs the checks and
+ * emits the report. The contract is recompiled rather than read back from a state file, so the two
+ * halves cannot describe different contracts.
+ *
+ * @param {Object} options
+ * @param {string} options.taskId
+ * @param {'report'|'contract'|'status'} [options.action='report']
+ * @param {string} [options.risk] risk level; the registry's default when omitted
+ * @param {string} [options.planPath] a `plan.md` whose command override beats detection
+ * @param {boolean} [options.json=false]
+ * @param {string} [options.projectRoot]
+ * @returns {number} exit code
+ */
+function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot } = {}) {
+  const cwd = projectRoot || process.cwd();
+  let engine;
+  let contract;
+  try {
+    engine = new VerificationEngine({ cwd, repoRoot: REPO_ROOT });
+    contract = engine.compileContract({ taskId, riskLevel: risk, projectRoot: cwd, planPath });
+  } catch (error) {
+    return usageError('verify', error.message, json);
+  }
+
+  if (action === 'contract') {
+    if (json) console.log(JSON.stringify(contract, null, 2));
+    else {
+      console.log(`\nDoFlow Verification Contract [${contract.taskId}] — risk ${contract.riskLevel}:`);
+      console.log('═'.repeat(78));
+      for (const tier of contract.tiers) {
+        console.log(`  ${tier.id.padEnd(22)} ${tier.resolution.padEnd(12)} ${tier.required ? 'required' : 'advisory'}`);
+        if (tier.reason) console.log(`      ${tier.reason}`);
+      }
+      console.log('═'.repeat(78) + '\n');
+    }
+    // A contract is a plan, not a verdict — compiling one always answers, even when a tier could
+    // not be resolved, because the unresolved tier is itself part of what the contract states.
+    return finishRuntime(0);
+  }
+  if (action !== 'report' && action !== 'status') {
+    return usageError('verify', `unknown --action '${action}'. Valid: report (default), contract`, json);
+  }
+
+  const report = engine.runContract(contract);
+  if (json) console.log(JSON.stringify(report, null, 2));
+  else {
+    console.log(`\nDoFlow Verification Report [${report.taskId}] — ${report.status}:`);
+    console.log('═'.repeat(78));
+    console.log(report.reason);
+    console.log('─'.repeat(78));
+    for (const tier of report.tiers) {
+      console.log(`  ${tier.id.padEnd(22)} ${tier.status.padEnd(16)} ${tier.required ? 'required' : 'advisory'}`);
+      if (tier.reason) console.log(`      ${tier.reason}`);
+    }
+    console.log('─'.repeat(78));
+    console.log(`Checks: ${report.counts.checksPassed}/${report.counts.checksRun} passed`);
+    if (report.unresolved.length) {
+      console.log('Never evaluated (not a pass):');
+      for (const u of report.unresolved) console.log(`  ${u.tier}${u.required ? ' [required]' : ''} — ${u.reason}`);
+    }
+    console.log('═'.repeat(78) + '\n');
+  }
+  // PASS is the only status that answers "verified". FAIL and INCONCLUSIVE are both findings, and
+  // collapsing INCONCLUSIVE into success would report a verdict over zero evidence as a pass.
+  return finishRuntime(report.status === 'PASS' ? 0 : 1);
+}
+
 module.exports = {
   VerificationContractRunner,
   VerificationEngine,
@@ -1171,4 +1252,5 @@ module.exports = {
   TIMEOUT_EXIT_CODE,
   MAX_STREAM_CHARS,
   REGISTRY_FILENAME,
+  handleVerifyCommand,
 };

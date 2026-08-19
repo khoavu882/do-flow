@@ -1,5 +1,9 @@
 'use strict';
 
+const { EvidenceLedger } = require('./evidence-ledger');
+const { ClaimsManager } = require('./claims');
+const { finishRuntime, usageError } = require('./cli-result');
+
 class ContextPackCompiler {
   /**
    * @param {Object} [defaultOptions]
@@ -168,6 +172,56 @@ class ContextPackCompiler {
   }
 }
 
+/**
+ * Handles `doflow context-pack` — compile the evidence and claims recorded for a task into the
+ * context block a stage is handed.
+ *
+ * Exits 1 on a pack with nothing in it. An empty pack is not evidence that a task needs no
+ * context; it is evidence that nothing was recorded, and reporting it as success is the
+ * empty-contract defect in another costume.
+ *
+ * @param {Object} options
+ * @param {string} options.taskId
+ * @param {string} [options.taskClass]
+ * @param {string} [options.objective]
+ * @param {boolean} [options.json=false]
+ * @param {string} [options.stateRoot]
+ * @returns {number} exit code
+ */
+function handleContextPackCommand({ taskId, taskClass, objective, json = false, stateRoot } = {}) {
+  const root = stateRoot || process.cwd();
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  ledger.load(taskId);
+  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root });
+  claims.load(taskId);
+  claims.evaluateAll();
+
+  const compiler = new ContextPackCompiler();
+  const pack = compiler.compileContextPack({
+    taskId,
+    // The library's own default. Passed through rather than substituted here so there is one
+    // place that decides what an unstated class means for a *label* — which is all it is in a
+    // pack, unlike readiness where it selects the contract.
+    ...(taskClass ? { taskClass } : {}),
+    objective: objective || '',
+    evidenceLedger: ledger,
+    claimsManager: claims,
+  });
+
+  const empty = pack.evidenceCount === 0
+    && pack.claims.supported.length === 0
+    && pack.claims.hypotheses.length === 0
+    && pack.claims.conflicts.length === 0;
+
+  if (json) console.log(JSON.stringify({ ...pack, empty }, null, 2));
+  else {
+    console.log(compiler.formatMarkdown(pack));
+    if (empty) console.log(`_No evidence or claims are recorded for task '${taskId}'; this pack states nothing._\n`);
+  }
+  return finishRuntime(empty ? 1 : 0);
+}
+
 module.exports = {
   ContextPackCompiler,
+  handleContextPackCommand,
 };

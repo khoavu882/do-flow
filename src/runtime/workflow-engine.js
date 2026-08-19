@@ -3,6 +3,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { parseYamlFile } = require('./capability-router');
+const { finishRuntime, usageError } = require('./cli-result');
+
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 /**
  * Resolves a task class to the ordered stages that run for it.
@@ -510,7 +513,55 @@ class WorkflowEngine {
   }
 }
 
+/**
+ * Handles `doflow workflow` — resolve a task class to its ordered stages, gates and readiness
+ * templates. Prints `WorkflowEngine.resolveWorkflow`'s object verbatim.
+ *
+ * Unlike `classify`, this verb does not validate: an unknown class is something it cannot resolve,
+ * so it reports the valid set and exits 2 rather than returning an empty workflow.
+ *
+ * @param {Object} options
+ * @param {string|null} options.taskClass
+ * @param {boolean} [options.json=false]
+ * @returns {number} exit code
+ */
+function handleWorkflowCommand({ taskClass, json = false } = {}) {
+  const engine = new WorkflowEngine({ repoRoot: REPO_ROOT });
+  let workflow;
+  try {
+    workflow = engine.resolveWorkflow(taskClass);
+  } catch (error) {
+    // The engine's own message already names every valid class; restating it here would be a
+    // second inventory to keep in step with the registry.
+    return usageError('workflow', error.message, json);
+  }
+
+  if (json) { console.log(JSON.stringify(workflow, null, 2)); return finishRuntime(0); }
+
+  console.log(`\nDoFlow Workflow [${workflow.taskClass}] — ${workflow.name}:`);
+  console.log('═'.repeat(78));
+  console.log(workflow.description);
+  console.log('─'.repeat(78));
+  for (const stage of workflow.stages) {
+    const marks = [
+      stage.optional ? 'optional' : 'required',
+      stage.mutatesSource ? 'mutates source' : null,
+      stage.readinessTemplate ? `gated by ${stage.readinessTemplate}` : null,
+    ].filter(Boolean).join(', ');
+    console.log(`  ${String(stage.index + 1).padStart(2)}. ${stage.id.padEnd(20)} ${stage.skill || stage.kind}`);
+    console.log(`      ${marks}`);
+    for (const gate of stage.gatesAfter) console.log(`      ↳ gate: ${gate.id} — ${gate.description || gate.kind || ''}`);
+  }
+  console.log('─'.repeat(78));
+  console.log(`Implementation stages:  ${workflow.hasImplementationStage ? workflow.implementationStageIds.join(', ') : 'none'}`);
+  console.log(`Readiness required:     ${workflow.requiresImplementationReadiness ? workflow.readinessTemplates.join(', ') : 'no'}`);
+  if (workflow.readinessNote) console.log(`Note:                   ${workflow.readinessNote}`);
+  console.log('═'.repeat(78) + '\n');
+  return finishRuntime(0);
+}
+
 module.exports = {
   WorkflowEngine,
   CALLER_ROLES,
+  handleWorkflowCommand,
 };

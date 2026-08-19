@@ -48,7 +48,14 @@
 const nodeFs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { execFileSync } = require('node:child_process');
 const { detectCommands } = require('./command-detect');
+const { finishRuntime } = require('./cli-result');
+
+// `resolveActiveFeature` (moved from bin/doflow.js) reads through the plain `fs` binding bin/doflow.js
+// used; aliased here to the same `node:fs` module this file already imports as `nodeFs`, so the
+// moved body needs no renaming.
+const fs = nodeFs;
 
 /** Output root, relative to the feature directory. Fixed by design §4.5. */
 const SCAFFOLD_DIR_NAME = 'scaffold';
@@ -1074,6 +1081,140 @@ function renderManifest(result, planned) {
   return `<!-- ${FINGERPRINT_MARKER} sha256:${sha256(body)} -->\n${body}`;
 }
 
+// ── the `doflow scaffold` verb handler (moved from bin/doflow.js, FR-023, plan task C.11) ──────
+//
+// This library takes an already-resolved feature directory. The handler below is the only thing
+// between it and the seam: it answers "which feature" and turns the library's result into the
+// uniform report contract (design §4.2). It deliberately owns no generation logic of its own — a
+// second opinion about what a scaffold contains is exactly the duplication FR-005 exists to
+// prevent.
+
+// `resolveActiveFeature` (moved from bin/doflow.js) used bin/doflow.js's own REPO_ROOT — that
+// file's SCRIPT_DIR is bin/, so REPO_ROOT = path.dirname(SCRIPT_DIR) = the repo root. This module
+// lives at src/runtime/, two levels deeper than bin/, so the equivalent repo root is two levels up.
+// bin/doflow.js:    path.dirname(__dirname)         with __dirname = <repo>/bin
+// src/runtime/*.js: path.resolve(__dirname,'..','..') with __dirname = <repo>/src/runtime
+// Both resolve to the same absolute repo root.
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
+
+/** The one resolver. Ships inside the package (`files: ["bin/","src/","core/"]`), so it is beside
+ *  this module in a checkout, a project `node_modules/`, and a global npm install alike. */
+const PATHS_HELPER = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-paths.sh');
+
+/**
+ * Which feature is active, answered by `do-paths.sh` rather than by walking `agent-docs/` here.
+ *
+ * Every other consumer of "the active feature" — every chain skill, the prerequisite gate, the
+ * artifact validator — asks this script. A second implementation would disagree with them the
+ * first time branch naming, the non-git directory-scan fallback or `--slug` disambiguation came
+ * up, and it would disagree silently, because a scaffold generated for the wrong feature still
+ * looks like a scaffold.
+ *
+ * @param {Object} options
+ * @param {string} options.projectRoot working directory the resolution is relative to
+ * @param {string|null} [options.slug] explicit feature override, passed straight through
+ * @returns {{repoRoot:string, featureDir:string}|{error:string, message:string}}
+ */
+function resolveActiveFeature({ projectRoot, slug = null }) {
+  if (!fs.existsSync(PATHS_HELPER)) {
+    return { error: 'resolver-missing', message: `the feature resolver is missing from this install: ${PATHS_HELPER}` };
+  }
+  const args = [PATHS_HELPER, '--json', '--require', 'feature'];
+  if (slug) args.push(`--slug=${slug}`);
+
+  let stdout;
+  try {
+    stdout = execFileSync('bash', args, { cwd: projectRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (error) {
+    // Exit 2 is the resolver's one non-zero path (no active feature, or an ambiguous one) and it
+    // still prints its error object on stdout — that object carries the hint the user needs, so
+    // it is read rather than replaced with a generic message. Anything else (no bash, NFR-003)
+    // has no stdout to read and reports the spawn failure instead.
+    stdout = typeof error.stdout === 'string' ? error.stdout : '';
+    if (!stdout.trim()) {
+      const detail = error.code === 'ENOENT'
+        ? 'bash is required to resolve the active feature and was not found on PATH'
+        : (error.stderr || error.message || '').toString().trim();
+      return { error: 'resolver-failed', message: `could not run the feature resolver: ${detail}` };
+    }
+  }
+
+  let paths;
+  try {
+    paths = JSON.parse(stdout);
+  } catch {
+    return { error: 'resolver-unparseable', message: `the feature resolver returned output that is not JSON: ${stdout.trim().slice(0, 200)}` };
+  }
+
+  if (paths.error) {
+    const hint = paths.hint ? ` — ${paths.hint}` : '';
+    const candidates = Array.isArray(paths.candidate_slugs) && paths.candidate_slugs.length
+      ? ` (candidates: ${paths.candidate_slugs.join(', ')})`
+      : '';
+    return { error: paths.error, message: `${paths.error}${candidates}${hint}` };
+  }
+  if (!paths.repo_root || !paths.feature_dir) {
+    return { error: 'no-active-feature', message: 'the resolver named no active feature directory to scaffold' };
+  }
+  return { repoRoot: paths.repo_root, featureDir: path.resolve(paths.repo_root, paths.feature_dir) };
+}
+
+/**
+ * Handles `doflow scaffold` — turn the active feature's `requirement.md`, `design.md` and
+ * `plan.md` into a reviewable scaffold under that feature's own directory (FR-023).
+ *
+ * Exit codes come from the generator and are surfaced, never reinterpreted: `BLOCKED` and
+ * `INCOMPLETE` are findings the caller must act on, so they exit 1 even though a run that reports
+ * what it could not read has done its job. Reporting a partial scaffold as success is the precise
+ * failure this feature keeps correcting.
+ *
+ * @param {Object} options
+ * @param {boolean} [options.json=false]
+ * @param {string} [options.projectRoot] project whose active feature is scaffolded
+ * @param {string|null} [options.slug] explicit feature override
+ * @returns {number} process exit code
+ */
+function handleScaffoldCommand({ json = false, projectRoot, slug = null } = {}) {
+  const root = projectRoot || process.cwd();
+  const feature = resolveActiveFeature({ projectRoot: root, slug });
+  if (feature.error) {
+    if (json) console.log(JSON.stringify({ ok: false, status: 'USAGE', exitCode: 2, error: feature.error, summary: feature.message }, null, 2));
+    else console.error(`doflow scaffold: ${feature.message}`);
+    return finishRuntime(2);
+  }
+
+  const result = generateScaffold({ featureDir: feature.featureDir, repoRoot: feature.repoRoot, fsImpl: fs });
+
+  if (json) {
+    console.log(JSON.stringify(result, null, 2));
+    return finishRuntime(result.exitCode);
+  }
+
+  console.log(`\nDoFlow Scaffold [${result.status}]:`);
+  console.log('═'.repeat(78));
+  console.log(`Feature:  ${result.featureDir || feature.featureDir}`);
+  if (result.scaffoldDir) console.log(`Output:   ${result.scaffoldDir}`);
+  console.log(`Summary:  ${result.summary}`);
+
+  // A reader who cannot see the gaps reads the tree as the whole shape of the plan, so the
+  // negative space is printed at the same level as the counts rather than left to the manifest.
+  const sections = [
+    ['Skipped', (result.skipped || []).map((s) => `${s.item}${s.benign ? '' : '  [GAP]'} — ${s.why}`)],
+    ['Not evaluated', (result.notEvaluated || []).map((n) => `${n.what} — ${n.why}`)],
+    ['Preserved (hand-edited, not overwritten)', (result.preserved || []).map((p) => `${p.path} — ${p.why}`)],
+    ['Orphaned (no longer implied by the plan)', result.orphans || []],
+  ];
+  for (const [title, lines] of sections) {
+    if (!lines.length) continue;
+    console.log('─'.repeat(78));
+    console.log(`${title}:`);
+    for (const line of lines) console.log(`  ${line}`);
+  }
+  console.log('═'.repeat(78) + '\n');
+
+  return finishRuntime(result.exitCode);
+}
+
 module.exports = {
   generateScaffold,
   renderManifest,
@@ -1094,4 +1235,5 @@ module.exports = {
   EMITTERS,
   EXIT,
   STATUS,
+  handleScaffoldCommand,
 };

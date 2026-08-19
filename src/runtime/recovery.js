@@ -18,6 +18,8 @@
  *      names either raised or silently iterated characters.
  */
 
+const { finishRuntime, usageError } = require('./cli-result');
+
 /** The eleven classes, in the order the Python declared them. */
 const FAILURE_CLASSES = Object.freeze([
   'CONTEXT_MISSING',
@@ -225,10 +227,52 @@ class RecoveryManager {
   }
 }
 
+/**
+ * Handles `doflow recover` — classify a verification failure and return the targeted action for
+ * that class (FR-010).
+ *
+ * Exit 0 means a bounded retry is available and the plan says what to change; exit 1 means the
+ * loop must stop — the retry budget is spent, or the class is one where retrying is guaranteed to
+ * reproduce the failure. That is the distinction a caller has to branch on, so it is the one the
+ * exit code carries.
+ *
+ * @param {Object} options
+ * @param {string} options.errorMessage
+ * @param {Array<string>} [options.failedChecks]
+ * @param {number} [options.iteration=0] retries already spent
+ * @param {string} [options.agent]
+ * @param {boolean} [options.json=false]
+ * @returns {number} exit code
+ */
+function handleRecoverCommand({ errorMessage, failedChecks = [], iteration = 0, agent, json = false } = {}) {
+  // Handed nothing, the classifier answers UNKNOWN_FAILURE — a confident-looking verdict about a
+  // failure it never saw. Refuse instead.
+  if ((typeof errorMessage !== 'string' || errorMessage.trim() === '') && failedChecks.length === 0) {
+    return usageError('recover', '--error (and/or one or more --failed-check) is required — classifying a failure nobody described would name a class over no evidence.', json);
+  }
+  const manager = new RecoveryManager();
+  const failureClass = manager.classifyFailure(errorMessage, failedChecks);
+  const plan = manager.planRecovery(failureClass, iteration, agent || undefined);
+
+  if (json) console.log(JSON.stringify({ failureClass, failedChecks, ...plan }, null, 2));
+  else {
+    console.log(`\nDoFlow Recovery [${plan.failureClass}]:`);
+    console.log('═'.repeat(78));
+    console.log(`Action:     ${plan.action}`);
+    console.log(`Target:     ${plan.targetRole || 'unchanged'}`);
+    console.log(`Agent:      ${plan.agent}`);
+    console.log(`Retry:      ${plan.canRetry ? `yes — iteration ${plan.iteration}` : 'no'}`);
+    if (plan.reason) console.log(`Reason:     ${plan.reason}`);
+    console.log('═'.repeat(78) + '\n');
+  }
+  return finishRuntime(plan.canRetry ? 0 : 1);
+}
+
 module.exports = {
   RecoveryManager,
   FAILURE_CLASSES,
   STRATEGY_MAP,
   GENERIC_STRATEGY,
   DEFAULT_MAX_ITERATIONS,
+  handleRecoverCommand,
 };

@@ -39,11 +39,11 @@ are reported rather than imitated.
 | `core/harnesses/` | Native per-harness sources that have no cross-harness equivalent — hooks, settings, and native agent definitions for `claude`, `codex`, `gemini`, and `kiro` — plus `core/harnesses/shared/locator`, the one file projected into all seven |
 | `core/.claude-plugin/` | Claude Code marketplace registry and plugin manifest; `core/` is the plugin root |
 | `core/.codex-plugin/` | Codex plugin manifest for plugin-based distribution |
-| `bin/doflow.js` | CLI entry point (exposed as the `doflow` command) — both installer commands and runtime commands |
+| `bin/doflow.js` | CLI entry point (exposed as the `doflow` command) — implements the installer commands directly and dispatches every runtime verb to its `src/runtime/` engine module, so each verb has exactly one implementation |
 | `core/shared/scripts/doflow/bin/doflow-run` | The runtime seam: one dispatcher owning the whole verb namespace |
 | `src/adapters/` | Native file formats and verification boundaries, one directory per harness; `src/adapters/copy-tree.js` is the shared tree-materializing engine |
 | `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification |
-| `src/runtime/` | Everything a skill asks for at use time: classification, workflows, routing, evidence, claims, readiness, verification, recovery, tracing, scaffolding, health |
+| `src/runtime/` | Everything a skill asks for at use time: classification, workflows, routing, evidence, claims, readiness, verification, recovery, tracing, scaffolding, health — and, per verb, the CLI handler `bin/doflow.js` dispatches to |
 | `src/state/` | Harness-neutral ledger and recovery records |
 | `src/` | Backup, restore, status, and MCP-selection implementation |
 | `test/` | Installer, mapping, and runtime behavior tests, plus `test/guards/` for structural truths about this repo's own content |
