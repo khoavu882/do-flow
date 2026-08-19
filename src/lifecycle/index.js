@@ -11,7 +11,7 @@ const { resolveAdapter, projectAdapterInput } = require('../adapters');
 const { renderPolicies } = require('./policies');
 const { renderMcpIndex } = require('./mcp-index');
 const { hasBashCapableShell } = require('./bash-availability');
-const { planGeminiHooks } = require('../gemini-hooks');
+const { planGeminiHooks } = require('../adapters/gemini');
 
 const OPERATIONS = new Set(['create', 'merge', 'update', 'remove']);
 
@@ -435,7 +435,7 @@ function verificationOwnsHooks(verification, hookIds) {
 /** Gemini's hooks trust is not a static registry prerequisite the way Codex's `trusted-project`/
  * `hook-review` are (see core/registry/harnesses.yaml's gemini.capabilities.hooks, which declares
  * no `prerequisites`); Gemini fingerprints hook name/command and warns before running one that
- * changed (geminicli.com/docs/hooks/), computed live by src/gemini-hooks.js's planGeminiHooks
+ * changed (geminicli.com/docs/hooks/), computed live by src/adapters/gemini/hooks.js's planGeminiHooks
  * against the current hooks.json source and the harness's current settings.json. Re-deriving that
  * plan here (rather than reading it off the adapter's own verify() output, which does not surface
  * `trust` on the resources/statuses it returns) is the only way to observe it without adapter

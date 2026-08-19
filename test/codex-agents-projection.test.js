@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const {
   agentDirectory, destinationFor, discoverCodexAgents, planCodexAgents, reconcileCodexAgents,
-} = require('../src/codex-agents');
+} = require('../src/adapters/codex/agents');
 
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-codex-agents-')); }
 function agent(name = 'backend-architect', sandbox = 'sandbox_mode = "read-only"') {

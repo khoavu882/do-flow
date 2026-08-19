@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { validateHooksConfig, classifyClaudeGuardrails, verifyHookCommands, planCodexHooks, deployCodexHooks } = require('../src/codex-hooks');
+const { validateHooksConfig, classifyClaudeGuardrails, verifyHookCommands, planCodexHooks, deployCodexHooks } = require('../src/adapters/codex/hooks');
 
 const CODEX_HOOKS_DIR = path.resolve(__dirname, '..', 'core', 'harnesses', 'codex', 'hooks');
 

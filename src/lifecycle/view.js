@@ -6,23 +6,23 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { parseToml } = require('./codex-config');
-const { createAdapterRegistry } = require('./adapters');
-const claudeAdapter = require('./adapters/claude');
-const codexAdapter = require('./adapters/codex');
-const { createGeminiAdapter } = require('./adapters/gemini');
-const { createOpenCodeAdapter } = require('./adapters/opencode');
-const { createPiAdapter } = require('./adapters/pi');
-const { createCopilotAdapter } = require('./adapters/copilot');
-const { createKiroAdapter } = require('./adapters/kiro');
-const { planLifecycle } = require('./lifecycle');
-const { stateRoot, readLedger, defaultLedger } = require('./state');
+const { parseToml } = require('../toml');
+const { createAdapterRegistry } = require('../adapters');
+const claudeAdapter = require('../adapters/claude');
+const codexAdapter = require('../adapters/codex');
+const { createGeminiAdapter } = require('../adapters/gemini');
+const { createOpenCodeAdapter } = require('../adapters/opencode');
+const { createPiAdapter } = require('../adapters/pi');
+const { createCopilotAdapter } = require('../adapters/copilot');
+const { createKiroAdapter } = require('../adapters/kiro');
+const { planLifecycle } = require('./index');
+const { stateRoot, readLedger, defaultLedger } = require('../state');
 // Tolerant because the projected runtime under `.doflow/runtime/` ships bin/, src/ and
 // core/registry/ but no package.json — see the `runtime.*` assets in core/registry/assets.yaml.
 // A hard require here would make every Node-backed verb fail in an install, which is the exact
 // defect that projection exists to fix. Only version reporting depends on this.
 function loadPkg() {
-  try { return require('../package.json'); } catch { return { version: '0.0.0-installed', name: '@khoavu882/doflow' }; }
+  try { return require('../../package.json'); } catch { return { version: '0.0.0-installed', name: '@khoavu882/doflow' }; }
 }
 const pkg = loadPkg();
 

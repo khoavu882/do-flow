@@ -6,7 +6,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
-const { planGeminiHooks, deployGeminiHooks, planRemoveGeminiHooks, deployRemoveGeminiHooks } = require('../../gemini-hooks');
+const { planGeminiHooks, deployGeminiHooks, planRemoveGeminiHooks, deployRemoveGeminiHooks } = require('./hooks');
 
 const MARKER_START = '<!-- doflow:start -->';
 const MARKER_END = '<!-- doflow:end -->';
@@ -277,4 +277,4 @@ function verify({ scope, scopeRoot, assets = [], context = {}, fsImpl = fs }) {
     conflicts };
 }
 
-module.exports = { MARKER_START, MARKER_END, nativePaths, discover, render, managedInstruction, plan, apply, remove, verify, createGeminiAdapter: () => ({ discover, render, plan, apply, remove, verify }) };
+module.exports = { MARKER_START, MARKER_END, nativePaths, discover, render, managedInstruction, plan, apply, remove, verify, planGeminiHooks, createGeminiAdapter: () => ({ discover, render, plan, apply, remove, verify }) };

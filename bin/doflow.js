@@ -12,7 +12,7 @@ const { writeManifest, readManifest } = require('../src/manifest');
 const { confirm, promptLine } = require('../src/prompt');
 const { sourceCommit } = require('../src/git');
 const { chmodHooksExecutable } = require('../src/settings-scope');
-const { readCodexMcpCatalog, resolveCodexMcpSelection } = require('../src/codex-mcp');
+const { readCodexMcpCatalog, resolveCodexMcpSelection } = require('../src/adapters/codex/mcp');
 const {
   readAllServers, filterServerDefs, writeProjectMcpJson, mergeGlobalMcpServers,
   resolveMcpSelection, promptMcpCheckbox,
@@ -29,7 +29,7 @@ const { createCopilotAdapter } = require('../src/adapters/copilot');
 const { createKiroAdapter } = require('../src/adapters/kiro');
 const { applyLifecycle, removeLifecycle, applyMcpIndex, verifyLifecycle, retentionSummary } = require('../src/lifecycle');
 const { readLedger } = require('../src/state');
-const { codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan } = require('../src/lifecycle-view');
+const { codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan } = require('../src/lifecycle/view');
 const { commandText, planToolLifecycle, executeToolLifecycle } = require('../src/tool-lifecycle');
 const {
   handleCapabilitiesCommand, handleReadinessCommand, handleEvidenceCommand,

@@ -10,9 +10,9 @@ const {
   fingerprint,
   parseToml,
   atomicWrite,
-} = require('./codex-config');
-const { resolveMcpSelection } = require('./mcp');
-const { selectMcpServers, nativeMcpCatalog } = require('./registry');
+} = require('./config');
+const { resolveMcpSelection } = require('../../mcp');
+const { selectMcpServers, nativeMcpCatalog } = require('../../registry');
 
 const MCP_KIND = 'mcp-server';
 const MCP_PREFIX = 'mcp_servers.';

@@ -7,7 +7,7 @@ const path = require('node:path');
 const { loadRegistry } = require('../src/registry');
 const {
   codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan,
-} = require('../src/lifecycle-view');
+} = require('../src/lifecycle/view');
 
 const REPO = path.resolve(__dirname, '..');
 

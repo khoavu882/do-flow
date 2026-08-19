@@ -6,7 +6,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { atomicWrite } = require('./codex-config');
+const { atomicWrite } = require('./config');
 
 const AGENT_DIRECTORY = 'agents';
 const AGENT_KIND = 'custom-agent';

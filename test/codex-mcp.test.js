@@ -7,7 +7,7 @@ const path = require('node:path');
 const {
   MCP_KIND, readCodexMcpCatalog, resolveCodexMcpSelection, renderServer, resourceFor,
   reconcileCodexMcp,
-} = require('../src/codex-mcp');
+} = require('../src/adapters/codex/mcp');
 const { loadRegistry } = require('../src/registry');
 
 const REPO = path.resolve(__dirname, '..');

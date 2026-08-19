@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { configPath, fingerprint, planCodexConfig, applyCodexConfig, reconcileCodexConfig } = require('../src/codex-config');
+const { configPath, fingerprint, planCodexConfig, applyCodexConfig, reconcileCodexConfig } = require('../src/adapters/codex/config');
 
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-codex-config-')); }
 function resource(value = true) { return { target: 'codex', scope: 'project', kind: 'configuration-entry', identity: 'features.hooks', value, sourceVersion: '2.4.4' }; }
@@ -93,7 +93,7 @@ test('an atomic-write failure leaves the original file unchanged and cleans its 
 // Quoted keys are ordinary TOML. The scanner previously matched bare keys only and threw on the
 // whole file, so a single `[mcp_servers."my-server"]` made the entire config unreadable and
 // blocked every Codex operation.
-const { parseToml } = require('../src/codex-config');
+const { parseToml } = require('../src/toml');
 
 test('parses quoted table headers and quoted assignment keys', () => {
   for (const toml of [

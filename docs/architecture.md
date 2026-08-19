@@ -18,11 +18,12 @@ flowchart LR
     Tests[test/] --> Logic
 ```
 
-The architecture has a deliberately simple boundary: **shared content is described once; adapters
-own native paths and formats; lifecycle code owns planning, ownership, and recovery; and one
-runtime, reached through one seam, owns everything a skill decides at use time.** Do not duplicate
-a skill, rule, or template simply because clients place it in different directories, and do not add
-a second implementation of a runtime verb.
+The architecture has a deliberately simple boundary: **shared content is described once; the
+registry declares what each harness can do, how each shared asset projects onto it, and what the
+runtime is allowed to decide; adapters own native paths and formats; lifecycle code owns planning,
+ownership, and recovery; and one runtime, reached through one seam, owns everything a skill decides
+at use time.** Do not duplicate a skill, rule, or template simply because clients place it in
+different directories, and do not add a second implementation of a runtime verb.
 
 Each target is a native projection, not a copy of another target's settings. Its supported
 surfaces, prerequisites, verification steps, and intentional gaps are the contract in the
@@ -39,13 +40,14 @@ are reported rather than imitated.
 | `core/harnesses/` | Native per-harness sources that have no cross-harness equivalent — hooks, settings, and native agent definitions for `claude`, `codex`, `gemini`, and `kiro` — plus `core/harnesses/shared/locator`, the one file projected into all seven |
 | `core/.claude-plugin/` | Claude Code marketplace registry and plugin manifest; `core/` is the plugin root |
 | `core/.codex-plugin/` | Codex plugin manifest for plugin-based distribution |
-| `bin/doflow.js` | CLI entry point (exposed as the `doflow` command) — implements the installer commands directly and dispatches every runtime verb to its `src/runtime/` engine module, so each verb has exactly one implementation |
+| `bin/doflow.js` | CLI entry point (exposed as the `doflow` command) — parses arguments, implements the installer commands (`cmdInstall`, `cmdUpdate`, `cmdStatus`, and siblings) directly against `src/lifecycle`, `src/adapters`, and `src/state`, and dispatches every runtime verb to the `src/runtime/` engine module that backs it (for example `handleClassifyCommand` in `task-classifier.js`), so each verb has exactly one implementation |
 | `core/shared/scripts/doflow/bin/doflow-run` | The runtime seam: one dispatcher owning the whole verb namespace |
-| `src/adapters/` | Native file formats and verification boundaries, one directory per harness; `src/adapters/copy-tree.js` is the shared tree-materializing engine |
-| `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification |
-| `src/runtime/` | Everything a skill asks for at use time: classification, workflows, routing, evidence, claims, readiness, verification, recovery, tracing, scaffolding, health — and, per verb, the CLI handler `bin/doflow.js` dispatches to |
-| `src/state/` | Harness-neutral ledger and recovery records |
-| `src/` | Backup, restore, status, and MCP-selection implementation |
+| `src/adapters/` | Native file formats and verification boundaries, one directory per harness (`claude`, `codex`, `gemini`, `opencode`, `pi`, `copilot`, `kiro`), each implementing the same six-function contract (`discover, render, plan, apply, remove, verify`) that `src/adapters/index.js` validates; `src/adapters/copy-tree.js` is the shared tree-materializing engine most adapters call into rather than reimplementing file-copy logic |
+| `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification against the neutral state ledger; obtains `planGeminiHooks` from the gemini adapter's public export (`src/adapters/gemini/index.js`) rather than reaching into a file inside it, and shares the generic parser in `src/toml.js` with `src/adapters/codex/config.js` instead of depending on that adapter |
+| `src/runtime/` | Everything a skill asks for at use time: classification, workflow resolution, capability routing, evidence and claims, readiness, verification and command detection, recovery, tracing, scaffold generation, provider health, and worktree support; `src/runtime/cli-result.js` holds the exit/error-reporting helpers (`finishRuntime`, `usageError`) shared by the verb handlers `bin/doflow.js` dispatches to, and deliberately depends on nothing else in the tree |
+| `src/state/` | Harness-neutral ledger, recovery records, and legacy-manifest migration |
+| `src/registry/` | Loads and validates `core/registry/*.yaml` into the in-memory registry object every adapter and lifecycle call consumes — the same data `test/guards/registry.test.js` checks implementation claims against |
+| `src/` | Cross-cutting utilities with no harness-, install-, or runtime-specific home: backup/restore/prune (`backup.js`), scope and target resolution (`context.js`, `targets.js`), git commit lookup (`git.js`), manifest read/write (`manifest.js`), managed-section merging (`marker-merge.js`), interactive prompts (`prompt.js`), `settings.json` merging (`settings-merge.js`, `settings-scope.js`), external-tool detection and install (`tool-lifecycle.js`), MCP server selection (`mcp.js`), and the generic TOML parser (`toml.js`) shared by `src/adapters/codex/config.js` and `src/lifecycle/` |
 | `test/` | Installer, mapping, and runtime behavior tests, plus `test/guards/` for structural truths about this repo's own content |
 | `bench/` | Skill-evaluation harness (`npm run bench`) — deliberately outside `npm test` because its dispatched runs make paid model calls |
 | `docs/` | User-facing and contributor documentation site |
@@ -70,6 +72,20 @@ sequenceDiagram
 
 New behavior should ask the registry and adapter rather than infer a target from a copy path. An
 adapter is the only component that knows a client-specific destination or serialization format.
+
+### Installation registries
+
+Despite the `.yaml` extension, every file under `core/registry/` is plain JSON — a convention the
+runtime registries below also follow. The installation family declares what each harness can do and
+how a shared asset projects onto it:
+
+| File | Declares |
+|---|---|
+| `core/registry/harnesses.yaml` | Each target's adapter id, supported scopes, native target files, and per-surface capability status with verification evidence |
+| `core/registry/assets.yaml` | Each shared asset's `source` path and per-harness `projection`/`nativeDir` |
+| `core/registry/contracts.yaml` | Per-harness recognized frontmatter fields and hook events — what `test/guards/fields.test.js` (G1) checks every asset against |
+| `core/registry/lifecycle.yaml` | Hook-based lifecycle policies (session-context capture, pre-implementation gate, MCP tool guard, stop check) and each harness's support status or fallback |
+| `core/registry/mcp.yaml` | The neutral MCP server catalog every harness's adapter selects from |
 
 ## The runtime seam
 
@@ -128,8 +144,8 @@ analyzer set, which belongs to a skill rather than to the runtime and is fixture
 
 ### Runtime registries
 
-The runtime reads its policy from the registry rather than hardcoding it, on the same
-JSON-under-a-`.yaml`-extension convention the installation registries use.
+The runtime reads its policy from the registry rather than hardcoding it — see [Installation
+registries](#installation-registries) for the same JSON-under-a-`.yaml`-extension convention.
 
 | File | Declares |
 |---|---|
@@ -227,6 +243,7 @@ Examples:
 
 - Add or revise a workflow: edit its `core/shared/skills/<name>/SKILL.md`; keep the public description compact in [Reference](reference.md).
 - Change a client destination or add a supported asset: edit `core/registry/assets.yaml`, then cover it in tests.
+- Add a harness: declare it in `core/registry/harnesses.yaml`, `contracts.yaml`, and `assets.yaml`; implement `src/adapters/<id>/index.js`'s six-function contract (`discover, render, plan, apply, remove, verify`); and register the adapter with `createAdapterRegistry` in `bin/doflow.js`. `test/guards/registry.test.js` checks the three registry files and the implementation against each other.
 - Change managed instruction behavior: edit the merge/copy implementation in `src/`, then test both fresh install and update paths.
 - Add or change a runtime verb: edit the dispatcher's own table alongside the implementation — it is the single place the verb namespace is written down — then run the guards, which cross-check that table against the shell helpers and the CLI commands in both directions.
 - Change a skill's flags: land the skill's `argument-hint`, `docs/reference.md`, and `docs/flags.md` in the same commit. Three guards cross-check them, so a partial change turns the suite red.
