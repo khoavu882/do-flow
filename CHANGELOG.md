@@ -13,6 +13,18 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.0.0-beta.8] - 2026-08-19
+
+### Added
+
+- **Universal harness integration (`013-universal-harness-integration`).**
+  - Added official Google Antigravity plugin bundle (`core/.antigravity-plugin/`) packaging `plugin.json`, `hooks.json`, and `mcp_config.json`.
+  - Built JSON stdin/stdout streaming lifecycle hook runner (`core/harnesses/shared/hooks/stream-hook-runner.js`) supporting `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, and `Stop` hooks with sub-20ms latency and fail-safe fallback.
+  - Added target aliases `antigravity` and `agy` in `src/install/targets.js` mapping to Gemini / Antigravity project-scoped root `.agents/` projection.
+  - Unified `mergeHooks` in `src/helper/settings-merge.js` across Claude Code, OpenAI Codex, and Google Gemini / Antigravity to preserve custom user hooks on install.
+  - Added full 4-role specialist agent persona matrix (`system-architect`, `core-implementer`, `quality-guardian`, `research-writer`) in `core/shared/agent-specs/`.
+  - Added cross-harness test suite (`test/install/universal-harness.test.js`, `test/hooks/stream-hook-runner.test.js`) with 646 passing tests.
+
 ## [1.0.0-beta.7] - 2026-08-19
 
 ### Added
