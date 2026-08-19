@@ -41,3 +41,21 @@ test('G6: no doc references a skill or agent that does not exist', () => {
   }
   assert.deepEqual(dangling, [], `docs reference skills that do not exist:\n  ${dangling.join('\n  ')}`);
 });
+
+test('G6: requirement-template.md provides hierarchical stories and BDD scenario scaffolding', () => {
+  const reqTmpl = fs.readFileSync(path.join(REPO, 'core/shared/templates/doflow/requirement-template.md'), 'utf8');
+  assert.ok(reqTmpl.includes('### Story 1: [Story Title] (P1)'), 'requirement template must scaffold story headings');
+  assert.ok(reqTmpl.includes('**Scenario: [Scenario Title]**'), 'requirement template must scaffold BDD scenario headers');
+  assert.ok(reqTmpl.includes('- **Given**'), 'requirement template must scaffold Given clause');
+  assert.ok(reqTmpl.includes('- **When**'), 'requirement template must scaffold When clause');
+  assert.ok(reqTmpl.includes('- **Then**'), 'requirement template must scaffold Then clause');
+});
+
+test('G6: design-template.md provides technical scaffolding for endpoints, repositories, schemas, and UX', () => {
+  const dsgTmpl = fs.readFileSync(path.join(REPO, 'core/shared/templates/doflow/design-template.md'), 'utf8');
+  assert.ok(dsgTmpl.includes('### Endpoints'), 'design template must scaffold API Endpoints');
+  assert.ok(dsgTmpl.includes('### Repository & Service Interfaces'), 'design template must scaffold Repository interfaces');
+  assert.ok(dsgTmpl.includes('### Database Schemas'), 'design template must scaffold Database Schemas');
+  assert.ok(dsgTmpl.includes('### UX / UI Specifications'), 'design template must scaffold UX/UI specifications');
+});
+
