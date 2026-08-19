@@ -5,6 +5,7 @@
 // that are not executable.  Trust is reported as a prerequisite rather than being bypassed.
 const fs = require('node:fs');
 const path = require('node:path');
+const { verifyHookCommands } = require('../hook-commands');
 
 const SUPPORTED_EVENTS = new Set([
   'PreToolUse', 'PermissionRequest', 'PostToolUse', 'PreCompact', 'PostCompact',
@@ -77,39 +78,6 @@ function classifyClaudeGuardrails(claudeHooks = {}) {
     else unsupported.push({ ...item, targetEvent: null, reason: `Codex does not support the Claude '${event}' lifecycle event` });
   }
   return { supported, unsupported };
-}
-
-function commandScriptNames(command) {
-  // DoFlow's wrappers are shell scripts selected from a project or CODEX_HOME hooks directory.
-  // Extracting the basename works for both literal and command-substitution based paths.
-  return [...new Set((command.match(/[A-Za-z0-9][A-Za-z0-9_-]*\.sh\b/g) || []))];
-}
-
-function hookHandlers(config) {
-  return Object.entries(config.hooks || {}).flatMap(([event, groups]) =>
-    (Array.isArray(groups) ? groups : []).flatMap((group) =>
-      (Array.isArray(group?.hooks) ? group.hooks : []).map((handler) => ({ event, handler }))));
-}
-
-function verifyHookCommands(config, { scriptsDir, trusted = false, fsImpl = fs } = {}) {
-  const checks = [];
-  for (const { event, handler } of hookHandlers(config)) {
-    if (!handler || handler.type !== 'command' || typeof handler.command !== 'string' || !handler.command.trim()) continue;
-    const names = commandScriptNames(handler.command);
-    if (names.length === 0) {
-      checks.push({ event, command: handler.command, ok: false, reason: 'Command does not identify a hook script', requiresTrust: true, trusted });
-      continue;
-    }
-    for (const name of names) {
-      const file = scriptsDir ? path.join(scriptsDir, name) : null;
-      const exists = Boolean(file && fsImpl.existsSync(file));
-      const executable = exists && Boolean(fsImpl.statSync(file).mode & 0o111);
-      checks.push({ event, command: handler.command, script: name, file, exists, executable,
-        ok: exists && executable, reason: !exists ? 'Hook script is missing' : (!executable ? 'Hook script is not executable' : null),
-        requiresTrust: true, trusted });
-    }
-  }
-  return { ok: checks.every((check) => check.ok), checks, trust: { required: checks.length > 0, trusted: Boolean(trusted), status: trusted ? 'trusted' : 'review-required' } };
 }
 
 function destinationFor(context = {}) {
