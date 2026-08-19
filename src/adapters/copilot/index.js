@@ -23,7 +23,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { MARKER_START, MARKER_END } = require('../../marker-merge');
+const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeDestDir, ledgerFileResources, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
 
 const HARNESS = 'copilot';

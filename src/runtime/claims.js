@@ -3,7 +3,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 // Shared with EvidenceLedger so both stores enforce one definition of a safe task id.
-const { assertSafeTaskId } = require('./evidence-ledger');
+const { assertSafeTaskId, EvidenceLedger } = require('./evidence-ledger');
+const { finishRuntime, usageError } = require('./cli-result');
 
 const CLAIM_STATUSES = new Set([
   'hypothesis',
@@ -253,7 +254,84 @@ class ClaimsManager {
   }
 }
 
+/**
+ * Handles `doflow claim` — record a proposition, link evidence to it, or list what is recorded.
+ *
+ * A claim added here starts as a hypothesis and can only become `supported` through linked
+ * evidence (FR-007); this handler exposes no way to declare one supported directly, because a
+ * conclusion that becomes fact by assertion is the thing the claims ledger exists to prevent.
+ *
+ * @param {Object} options
+ * @param {string} options.taskId
+ * @param {'list'|'add'|'link'} [options.action='list']
+ * @param {string} [options.statement] `add`
+ * @param {string} [options.claimId] `link`
+ * @param {string} [options.evidenceId] `link`
+ * @param {string} [options.relation='supports'] `link`
+ * @param {boolean} [options.json=false]
+ * @param {string} [options.stateRoot]
+ * @returns {number} exit code
+ */
+function handleClaimCommand({ taskId, action = 'list', statement, claimId, evidenceId, relation = 'supports', json = false, stateRoot } = {}) {
+  const root = stateRoot || process.cwd();
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  ledger.load(taskId);
+  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root });
+  claims.load(taskId);
+
+  let result;
+  try {
+    if (action === 'add') {
+      if (typeof statement !== 'string' || statement.trim() === '') {
+        return usageError('claim', '--statement is required for --action add', json);
+      }
+      const id = claims.addClaim({ statement, taskId });
+      claims.save(taskId);
+      result = { action, taskId, claim: claims.getClaim(id) };
+    } else if (action === 'link') {
+      if (!claimId || !evidenceId) {
+        return usageError('claim', '--claim-id and --evidence-id are both required for --action link', json);
+      }
+      // Linking an id the ledger does not hold used to succeed. `evaluateClaim` reads a missing
+      // evidence item as *stale* support and returns `invalidated` — a verdict about evidence
+      // that was never recorded, and the reading that made C.5 conclude `conflicted` (and so
+      // `BLOCKED`) was unreachable through the seam. Refuse instead of grading.
+      if (!ledger.getEvidence(evidenceId)) {
+        return usageError('claim', `no evidence '${evidenceId}' is recorded for task '${taskId}' — linking it would `
+          + 'mark the claim `invalidated` on the strength of an item that does not exist. Record it first: '
+          + `doflow evidence --task-id ${taskId} --action add ...`, json);
+      }
+      const status = claims.linkEvidence(claimId, evidenceId, relation);
+      claims.save(taskId);
+      result = { action, taskId, claim: claims.getClaim(claimId), status };
+    } else if (action === 'list' || action === 'status') {
+      claims.evaluateAll();
+      result = { action: 'list', taskId, claims: claims.getClaims(taskId) };
+    } else {
+      return usageError('claim', `unknown --action '${action}'. Valid: list, add, link`, json);
+    }
+  } catch (error) {
+    return usageError('claim', error.message, json);
+  }
+
+  if (json) { console.log(JSON.stringify(result, null, 2)); }
+  else {
+    const rows = result.claims || [result.claim];
+    console.log(`\nDoFlow Claims [Task: ${taskId}]:`);
+    console.log('═'.repeat(78));
+    if (rows.length === 0) console.log('No claims recorded for this task.');
+    else {
+      console.log('ID'.padEnd(24) + 'Status'.padEnd(14) + 'Statement');
+      console.log('─'.repeat(78));
+      for (const claim of rows) console.log(claim.id.padEnd(24) + claim.status.padEnd(14) + claim.statement);
+    }
+    console.log('═'.repeat(78) + '\n');
+  }
+  return finishRuntime(0);
+}
+
 module.exports = {
   ClaimsManager,
   CLAIM_STATUSES,
+  handleClaimCommand,
 };

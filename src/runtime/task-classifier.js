@@ -1,6 +1,10 @@
 'use strict';
 
+const path = require('node:path');
 const { WorkflowEngine, CALLER_ROLES } = require('./workflow-engine');
+const { finishRuntime } = require('./cli-result');
+
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 /**
  * Validates a task class proposed by the model against the classes the registry declares.
@@ -403,10 +407,60 @@ class TaskClassifier {
   }
 }
 
+/**
+ * Handles `doflow classify` — validate a proposed task class against the workflow registry.
+ *
+ * Prints the classifier's decision object verbatim: `outcome`, `taskClass`, `message`,
+ * `validClasses`, `suggestions`, `fit`, `workflow`. A REJECTED decision keeps `taskClass: null` and
+ * exits non-zero; it is never coerced to `feature`, which is the whole reason this verb exists
+ * rather than callers reading a class out of a string themselves.
+ *
+ * @param {Object} options
+ * @param {string|null} options.taskClass the proposed class
+ * @param {string} [options.rationale]
+ * @param {string} [options.proposedBy]
+ * @param {string} [options.callingSkill] the skill asking, against which fit is judged
+ * @param {boolean} [options.json=false]
+ * @returns {number} exit code
+ */
+function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill, json = false } = {}) {
+  const classifier = new TaskClassifier({ repoRoot: REPO_ROOT });
+  const decision = classifier.classify({ taskClass, rationale, proposedBy, callingSkill });
+
+  if (json) console.log(JSON.stringify(decision, null, 2));
+  else {
+    console.log(`\nDoFlow Task Classification [${decision.outcome}]:`);
+    console.log('═'.repeat(78));
+    console.log(decision.message);
+    // Printed unconditionally, including when it says NOT_EVALUATED: an operator has to be able to
+    // see that fit was never checked without reading --json.
+    console.log(`Fit: ${decision.fit.state}${decision.fit.reason ? ` (${decision.fit.reason})` : ''}`);
+    if (decision.fit.state === 'NOT_HOSTED' && decision.fit.hostingClasses.length > 0) {
+      console.log(`Classes that host ${decision.fit.callingSkill}: `
+        + decision.fit.hostingClasses.map((h) => `${h.taskClass} (${h.stageIds.join(', ')})`).join(', '));
+    }
+    if (decision.workflow) {
+      console.log('─'.repeat(78));
+      console.log(`Workflow: ${decision.workflow.name} (${decision.workflow.stageIds.length} stage(s))`);
+      console.log(`Stages:   ${decision.workflow.stageIds.join(' → ')}`);
+      console.log(`Implementation stages: ${decision.workflow.hasImplementationStage ? decision.workflow.implementationStageIds.join(', ') : 'none'}`);
+    } else {
+      console.log(`Valid classes: ${decision.validClasses.join(', ')}`);
+    }
+    console.log('═'.repeat(78) + '\n');
+  }
+
+  if (decision.outcome === CLASSIFICATION_OUTCOMES.ACCEPTED) return finishRuntime(0);
+  // No class supplied is the CLI's caller failing to say what to classify; a class supplied and
+  // rejected is the classifier having done its job and found something the caller must fix.
+  return finishRuntime(decision.reason === REJECTION_REASONS.MISSING_CLASS ? 2 : 1);
+}
+
 module.exports = {
   TaskClassifier,
   CLASSIFICATION_OUTCOMES,
   REJECTION_REASONS,
   FIT_STATES,
   FIT_REASONS,
+  handleClassifyCommand,
 };

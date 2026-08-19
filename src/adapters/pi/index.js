@@ -20,7 +20,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { MARKER_START, MARKER_END } = require('../../marker-merge');
+const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, fingerprint, sourceDirFor } = require('../copy-tree');
 
 const HARNESS = 'pi';
