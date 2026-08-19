@@ -483,7 +483,7 @@ function cmdInstall(o) {
   const mcpIds = mcp?.selected ?? (codexCatalog ? codexMcpSelection : undefined);
   // One lifecycle view across every requested target — computed unconditionally (not only under
   // --dry-run) so its safety gate and its plan are the exact same object the real apply below uses.
-  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds });
+  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds, force: o.force });
   if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
 
   if (o.dryRun) {
@@ -574,7 +574,7 @@ function cmdUpdate(o) {
   const mcpIds = mcp?.selected ?? (codexCatalog ? codexMcpSelection : undefined);
   // One lifecycle view across every requested target — computed unconditionally (not only under
   // --dry-run) so its safety gate and its plan are the exact same object the real apply below uses.
-  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds });
+  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds, force: o.force });
   if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
   const lifecycleChanged = Boolean(lifecycleView.plan.changes.length);
 

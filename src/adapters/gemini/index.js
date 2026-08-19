@@ -19,10 +19,9 @@ function nativePaths({ scope, scopeRoot, homeDir, fsImpl = fs }) {
   const config = defaults({ fsImpl });
   const root = scope === 'global' ? path.resolve(homeDir || scopeRoot) : path.resolve(scopeRoot);
   const geminiDir = path.join(root, '.gemini');
-  // Project-scope config deliberately lives under .agents/, not .gemini/ — src/targets.js's own
-  // Antigravity-customization convention (see its toolDirs()); only global scope uses .gemini/ for
-  // anything beyond the instruction file (which project scope already places at the repo root).
-  const configDir = scope === 'global' ? geminiDir : path.join(root, '.agents');
+  // Global Antigravity customizations live under ~/.gemini/config/, while project-scope
+  // config lives under .agents/
+  const configDir = scope === 'global' ? path.join(geminiDir, 'config') : path.join(root, '.agents');
   return {
     root,
     configDir,
@@ -62,10 +61,17 @@ function managedInstruction(existing, rendered) {
  * by scope rather than by harness, so it is computed here instead. Left unrewritten, the import
  * pointed above the install root and the whole guidance chain silently failed to load.
  */
+function geminiDestDir(paths, asset) {
+  if (asset.nativeDir && asset.nativeDir.startsWith('../.doflow')) {
+    return path.join(paths.root, asset.nativeDir.replace(/^\.\.\//, ''));
+  }
+  return copyTreeDestDir(paths.configDir, asset);
+}
+
 function rewriteGuidanceImport(content, assets, paths) {
   const guidance = assets.find((item) => item.id === 'guidance.context-layer');
   if (!guidance?.nativeDir || !paths?.instruction || !paths?.configDir) return content;
-  const guidanceDir = path.resolve(paths.configDir, guidance.nativeDir);
+  const guidanceDir = geminiDestDir(paths, guidance);
   const rel = path.relative(path.dirname(paths.instruction), guidanceDir).split(path.sep).join('/');
   if (!rel) return content;
   // `./` is added explicitly for a same-directory descent: the bare form starts with the dot of
@@ -94,10 +100,10 @@ function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removin
   const changes = [];
   const conflicts = [];
   for (const asset of copyTreeAssets(assets)) {
-    const destDir = copyTreeDestDir(paths.configDir, asset);
+    const destDir = geminiDestDir(paths, asset);
     const sourceDir = sourceDirFor(asset, context, fsImpl, 'Gemini');
     const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout });
+    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, force: context?.force });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const change of result.changes) {
       changes.push({
@@ -130,7 +136,7 @@ function verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl = fs }
   const resources = [];
   const conflicts = [];
   for (const asset of copyTreeAssets(assets)) {
-    const destDir = copyTreeDestDir(paths.configDir, asset);
+    const destDir = geminiDestDir(paths, asset);
     const sourceDir = sourceDirFor(asset, context, fsImpl, 'Gemini');
     const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
