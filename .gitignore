@@ -53,17 +53,7 @@ downloads/
 .pi
 GEMINI.md
 AGENTS.md
-# Ignore agent-docs CONTENTS rather than the directory itself: git will not descend into an
-# excluded directory, so a negation below it can never re-include anything.
-agent-docs/*
-# ...except the DoFlow chain artifacts. These carry the requirements, design decisions,
-# supersessions and execution record for a feature — the reasoning behind a branch, which is
-# exactly what a reviewer needs and what git is for. They were lost once to this ignore rule.
-!agent-docs/doflow/
-# Nested copies inside recorded bench eval outputs are artifacts of past runs, not this repo's
-# working documents. The original `agent-docs/` rule matched at any depth; `agent-docs/*` above is
-# root-anchored, so they need naming explicitly.
-bench/runs/**/agent-docs/
+agent-docs/
 .mcp.json
 
 # MkDocs build output
