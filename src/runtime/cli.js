@@ -8,6 +8,7 @@ const { CapabilityRouter } = require('./capability-router');
 const { EvidenceLedger, VALID_EVIDENCE_KINDS, VALID_PROVENANCE } = require('./evidence-ledger');
 const { resolveLocator, describeResolution } = require('./locator-resolve');
 const { ClaimsManager } = require('./claims');
+const { measureFreshness } = require('./freshness');
 const { ReadinessEngine } = require('./readiness');
 const { loadRegistry } = require('../registry');
 const { REPO_ROOT } = require('../helper/repo-root');
@@ -370,33 +371,6 @@ function headCommit(root) {
   }
 }
 
-/**
- * Freshness, measured at the write boundary.
- *
- * `FreshnessValidator` invalidates by diffing a recorded commit against the working tree, so the
- * commit is what makes an evidence record expirable at all; a record written without one can never
- * be shown to have gone stale. Both fields are null when they cannot be established — an
- * unmeasurable commit is recorded as unmeasured, not as a value that happens to parse.
- *
- * @param {string} root project root the locator is relative to
- * @param {Object} locator
- * @param {string|null} gitCommit resolved once per invocation
- * @returns {Object}
- */
-function measureFreshness(root, locator, gitCommit) {
-  let fileHash = null;
-  if (locator && locator.file) {
-    try {
-      const abs = path.resolve(root, locator.file);
-      if (fs.existsSync(abs) && fs.statSync(abs).isFile()) {
-        fileHash = `sha256:${crypto.createHash('sha256').update(fs.readFileSync(abs)).digest('hex')}`;
-      }
-    } catch {
-      fileHash = null;
-    }
-  }
-  return { gitCommit, fileHash, observedAt: new Date().toISOString(), status: 'FRESH' };
-}
 
 /**
  * Reads a stage's evidence batch: a JSON array, or `{ "evidence": [...] }`.
