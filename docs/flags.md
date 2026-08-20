@@ -62,3 +62,6 @@ skill table above and deliberately says nothing about this one.
 | `--state` | `outcome` | `COMPLETED` \| `BLOCKED` \| `ABANDONED` \| `INCONCLUSIVE` | the terminal state being recorded; anything outside the four is refused with the valid set |
 | `--readiness` | `outcome` | `READY` \| `NEEDS_EVIDENCE` \| `NEEDS_USER_DECISION` \| `BLOCKED` | the readiness state the run states it saw; validated against `readiness`'s own vocabulary and recorded as stated, not measured. Omitted records `NOT_RECORDED` |
 | `--verification` | `outcome` | `PASS` \| `FAIL` \| `INCONCLUSIVE` | the verification verdict the run states it saw; recording an outcome never re-runs the contract. Omitted records `NOT_RECORDED` |
+| `--replaced-by` | `claim` | a claim id the store already holds | on `--action supersede`, the claim that replaces this one. Refused when it names a claim that is not recorded — a forward pointer to nothing is worse than no pointer |
+| `--plan-path` | `verify` | a path to a feature's `plan.md` | the plan whose `doflow-verification` block overrides manifest detection, for a repository with no build or test manifest to detect |
+| `--path` | `leak-scan` | a file path, repeatable | the files to scan for DoFlow-internal identifiers; each occurrence appends |
