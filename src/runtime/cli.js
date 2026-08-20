@@ -10,6 +10,7 @@ const { resolveLocator, describeResolution } = require('./locator-resolve');
 const { ClaimsManager } = require('./claims');
 const { ReadinessEngine } = require('./readiness');
 const { loadRegistry } = require('../registry');
+const { REPO_ROOT } = require('../helper/repo-root');
 
 /**
  * Handles `doflow capabilities` command execution.
@@ -19,7 +20,7 @@ const { loadRegistry } = require('../registry');
  * @param {string} [options.repoRoot]
  */
 function handleCapabilitiesCommand({ json = false, check = false, repoRoot } = {}) {
-  const root = repoRoot || path.resolve(__dirname, '..', '..');
+  const root = repoRoot || REPO_ROOT;
   const router = new CapabilityRouter({ repoRoot: root });
   const report = router.getAllCapabilitiesHealth(check);
 
@@ -107,7 +108,7 @@ function handleReadinessCommand({
   // evidence, which belongs to the caller's repo — not to wherever DoFlow happens to be installed.
   // Sharing one root put every project's per-task evidence inside the DoFlow install directory,
   // which under an npm install is node_modules/ — shared across all projects and often read-only.
-  const root = repoRoot || path.resolve(__dirname, '..', '..');
+  const root = repoRoot || REPO_ROOT;
   const state = stateRoot || process.cwd();
   const ledger = new EvidenceLedger({ repoRoot: state });
   try {

@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { REPO_ROOT } = require('../helper/repo-root');
 
 class FreshnessValidator {
   /**
@@ -11,7 +12,7 @@ class FreshnessValidator {
    * @param {Function} [options.gitRunner]
    */
   constructor(options = {}) {
-    this.repoRoot = options.repoRoot || path.resolve(__dirname, '..', '..');
+    this.repoRoot = options.repoRoot || REPO_ROOT;
     this.gitRunner = options.gitRunner || this.defaultGitRunner.bind(this);
     this.commitCache = null;
   }

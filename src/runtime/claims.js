@@ -5,6 +5,7 @@ const path = require('node:path');
 // Shared with EvidenceLedger so both stores enforce one definition of a safe task id.
 const { assertSafeTaskId, EvidenceLedger } = require('./evidence-ledger');
 const { finishRuntime, usageError } = require('./cli-result');
+const { REPO_ROOT } = require('../helper/repo-root');
 
 const CLAIM_STATUSES = new Set([
   'hypothesis',
@@ -42,7 +43,7 @@ class ClaimsManager {
   constructor(options = {}) {
     this.fsImpl = options.fsImpl || fs;
     this.evidenceLedger = options.evidenceLedger || null;
-    this.repoRoot = options.repoRoot || path.resolve(__dirname, '..', '..');
+    this.repoRoot = options.repoRoot || REPO_ROOT;
     this.stateDir = options.stateDir || path.join(this.repoRoot, '.doflow', 'state', 'evidence');
     this.claimsMap = new Map();
     this.seq = 0;

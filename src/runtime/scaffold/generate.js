@@ -58,6 +58,7 @@ const nodeFs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { finishRuntime } = require('../cli-result');
+const { REPO_ROOT } = require('../../helper/repo-root');
 const { parseRequirement, parseDesign, parsePlan } = require('./artifacts');
 const {
   EXTENSION_LANGUAGE,
@@ -831,12 +832,9 @@ function renderManifest(result, planned) {
 // prevent.
 
 // `resolveActiveFeature` (moved from bin/doflow.js) used bin/doflow.js's own REPO_ROOT — that
-// file's SCRIPT_DIR is bin/, so REPO_ROOT = path.dirname(SCRIPT_DIR) = the repo root. This module
-// lives at src/runtime/, two levels deeper than bin/, so the equivalent repo root is two levels up.
-// bin/doflow.js:    path.dirname(__dirname)         with __dirname = <repo>/bin
-// src/runtime/scaffold/*.js: path.resolve(__dirname,'..','..','..') with __dirname = <repo>/src/runtime/scaffold
-// Both resolve to the same absolute repo root.
-const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
+// file's SCRIPT_DIR is bin/, so its repo root is path.dirname(SCRIPT_DIR). This module takes the
+// same root from src/helper/repo-root.js rather than counting its own depth: this file has already
+// moved once, and the old expression would have kept resolving — to the wrong directory.
 
 /** The one resolver. Ships inside the package (`files: ["bin/","src/","core/"]`), so it is beside
  *  this module in a checkout, a project `node_modules/`, and a global npm install alike. */

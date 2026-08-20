@@ -149,6 +149,31 @@ test('G16: every relative require() literal resolves to a file that exists', () 
     + `${dangling.join('\n  ')}`);
 });
 
+/** Line and block comments blanked, so prose describing an expression is not read as the expression.
+ *  The third instance of this defect in one session: an analyser counted keywords in comments, a
+ *  guard matched a require inside a string, and this rule matched its own explanatory comment. */
+function withoutComments(text) {
+  return text.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+}
+
+test('G16: the repository root is computed in exactly one place', () => {
+  // Eighteen modules each computed `path.resolve(__dirname, '..', '..')`, which encodes how deep
+  // the computing file sits. Grouping scaffold, trace and verification into directories moved three
+  // of them a level down and split that into two spellings of the same intent — and every wrong
+  // pick resolves to a real directory (`<repo>/src`), so it fails by reading the wrong tree rather
+  // than by throwing. src/helper/repo-root.js owns it now; this keeps it owned.
+  const offenders = jsFilesUnder(SRC_DIR)
+    .filter((f) => path.relative(REPO, f) !== path.join('src', 'helper', 'repo-root.js'))
+    .filter((f) => /path\.resolve\(\s*__dirname\s*,\s*'\.\.'/.test(withoutComments(fs.readFileSync(f, 'utf8'))))
+    .map((f) => path.relative(REPO, f))
+    .sort();
+
+  assert.deepEqual(offenders, [],
+    'these modules walk up from __dirname to reach the repository root. That expression encodes the '
+    + "file's own depth, so moving it into a directory silently changes what it resolves to. Require "
+    + `{ REPO_ROOT } from src/helper/repo-root.js instead:\n  ${offenders.join('\n  ')}`);
+});
+
 test('G16: every ALLOWLIST entry names a module that actually exists', () => {
   // An allowlist entry for a module that has since been deleted is dead weight nobody will notice —
   // this keeps the list honest if it is ever populated.

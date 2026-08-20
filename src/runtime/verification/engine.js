@@ -25,6 +25,7 @@ const { spawnSync } = require('node:child_process');
 const { detectCommands, applyTargetPattern } = require('../command-detect');
 const { RecoveryManager } = require('../recovery');
 const { finishRuntime, usageError } = require('../cli-result');
+const { REPO_ROOT } = require('../../helper/repo-root');
 const {
   VerificationContractRunner,
   FATAL_CHECK_MARKERS,
@@ -40,12 +41,8 @@ const {
 } = require('./registry');
 
 // `handleVerifyCommand` (moved from bin/doflow.js) used bin/doflow.js's own REPO_ROOT — that file's
-// SCRIPT_DIR is bin/, so REPO_ROOT = path.dirname(SCRIPT_DIR) = the repo root. This module lives at
-// src/runtime/, two levels deeper than bin/, so the equivalent repo root is two levels up from here.
-// bin/doflow.js:    path.dirname(__dirname)         with __dirname = <repo>/bin
-// src/runtime/verification/*.js: path.resolve(__dirname,'..','..','..') with __dirname = <repo>/src/runtime/verification
-// Both resolve to the same absolute repo root.
-const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
+// SCRIPT_DIR is bin/, so its repo root is path.dirname(SCRIPT_DIR). This module takes the same root
+// from src/helper/repo-root.js rather than counting its own depth.
 
 /** `PASS` and `FAIL` are the Python's vocabulary. `INCONCLUSIVE` is added for the empty-contract
  * case only — see `evaluateContract`. */

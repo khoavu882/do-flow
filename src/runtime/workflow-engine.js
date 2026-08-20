@@ -4,8 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { parseYamlFile } = require('./capability-router');
 const { finishRuntime, usageError } = require('./cli-result');
+const { REPO_ROOT } = require('../helper/repo-root');
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 /**
  * Resolves a task class to the ordered stages that run for it.
@@ -74,7 +74,7 @@ class WorkflowEngine {
    */
   constructor(options = {}) {
     this.fsImpl = options.fsImpl || fs;
-    this.repoRoot = options.repoRoot || path.resolve(__dirname, '..', '..');
+    this.repoRoot = options.repoRoot || REPO_ROOT;
     this.registryPath = options.registryPath
       || path.join(this.repoRoot, 'core', 'registry', 'workflows.yaml');
 

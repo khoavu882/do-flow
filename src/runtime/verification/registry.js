@@ -13,6 +13,7 @@
 const path = require('node:path');
 const nodeFs = require('node:fs');
 const { parseYamlFile } = require('../capability-router');
+const { REPO_ROOT } = require('../../helper/repo-root');
 
 const REGISTRY_FILENAME = 'verification.yaml';
 
@@ -67,7 +68,7 @@ function assert(condition, message) {
 function loadVerificationRegistry(options = {}) {
   let data = options.registry;
   if (!data) {
-    const repoRoot = options.repoRoot || path.resolve(__dirname, '..', '..', '..');
+    const repoRoot = options.repoRoot || REPO_ROOT;
     const registryDir = options.registryDir || path.join(repoRoot, 'core', 'registry');
     const registryPath = options.registryPath || path.join(registryDir, REGISTRY_FILENAME);
     data = parseYamlFile(registryPath, options.fsImpl || nodeFs);

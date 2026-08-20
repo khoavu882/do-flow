@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { parseYamlFile } = require('./capability-router');
 const { resolveLocator, describeResolution } = require('./locator-resolve');
+const { REPO_ROOT } = require('../helper/repo-root');
 
 const READINESS_STATES = new Set([
   'READY',
@@ -25,7 +26,7 @@ class ReadinessEngine {
    */
   constructor(options = {}) {
     this.fsImpl = options.fsImpl || fs;
-    this.repoRoot = options.repoRoot || path.resolve(__dirname, '..', '..');
+    this.repoRoot = options.repoRoot || REPO_ROOT;
     this.projectRoot = options.projectRoot || process.cwd();
     this.templatePath = options.templatePath || path.join(this.repoRoot, 'core', 'registry', 'readiness-templates.yaml');
 
