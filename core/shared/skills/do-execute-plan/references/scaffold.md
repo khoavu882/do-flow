@@ -56,7 +56,7 @@ Two rules deserve their reasoning, because both are easy to "improve" into a def
 | | Part 1 — in-scope | Part 2 — external dependency |
 |---|---|---|
 | Input | `requirement.md`, `design.md`, `plan.md` | a `depends-on:` value with no owning task |
-| Produced by | `src/runtime/scaffold.js`, deterministically | this file's algorithm, executed by you |
+| Produced by | `src/runtime/scaffold/generate.js`, deterministically | this file's algorithm, executed by you |
 | Lands in | `scaffold/src/`, `scaffold/test/`, `scaffold/MANIFEST.md` | `scaffold/contracts/<service>/` |
 | Answers | what shape does my own plan imply | what shape must I code against at the boundary |
 
@@ -391,7 +391,7 @@ this Part; `scaffold/contracts/<service>/` is the only place any of it may write
 ## Constraints (carried from the design — do not relax these)
 
 The first applies to both Parts. Every other constraint here is Part 2's, and its bare step numbers
-are Part 2's steps — Part 1's equivalents are enforced by `src/runtime/scaffold.js` and its guard
+are Part 2's steps — Part 1's equivalents are enforced by `src/runtime/scaffold/generate.js` and its guard
 rather than restated as prose.
 
 - Never write outside `agent-docs/doflow/<slug>/scaffold/` — not into the source tree, and not

@@ -8,11 +8,11 @@
  * repository itself uses (for test stubs, which have no file extension of their own to read).
  */
 
-const { detectCommands } = require('./command-detect');
+const { detectCommands } = require('../command-detect');
 
 /**
  * Per-file language comes from the file's own extension, because `plan.md` already states it:
- * `files: src/runtime/scaffold.js` is not ambiguous about being JavaScript, and asking a
+ * `files: src/runtime/scaffold/generate.js` is not ambiguous about being JavaScript, and asking a
  * repository-wide detector would be a worse answer than the one the plan wrote down.
  *
  * Repository-wide detection is still needed for the test stubs, which derive from acceptance
