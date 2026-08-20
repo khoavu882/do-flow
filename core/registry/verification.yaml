@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Verification check tiers, their fixed ordering, and which tiers each risk level requires. JSON content under a .yaml extension, matching capabilities.yaml and routes.yaml (design 4.4). Consumed by src/runtime/verification.js.",
+  "description": "Verification check tiers, their fixed ordering, and which tiers each risk level requires. JSON content under a .yaml extension, matching capabilities.yaml and routes.yaml (design 4.4). Consumed by src/runtime/verification/engine.js.",
   "policy": {
     "defaultRiskLevel": "MEDIUM",
     "emptyContractStatus": "INCONCLUSIVE",

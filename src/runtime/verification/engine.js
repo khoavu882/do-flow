@@ -22,30 +22,30 @@
 const path = require('node:path');
 const nodeFs = require('node:fs');
 const { spawnSync } = require('node:child_process');
-const { detectCommands, applyTargetPattern } = require('./command-detect');
-const { RecoveryManager } = require('./recovery');
-const { finishRuntime, usageError } = require('./cli-result');
+const { detectCommands, applyTargetPattern } = require('../command-detect');
+const { RecoveryManager } = require('../recovery');
+const { finishRuntime, usageError } = require('../cli-result');
 const {
   VerificationContractRunner,
   FATAL_CHECK_MARKERS,
   TIMEOUT_EXIT_CODE,
   MAX_STREAM_CHARS,
-} = require('./verification-contract-runner');
+} = require('./contract-runner');
 const {
   loadVerificationRegistry,
   TIER_RESOLUTIONS,
   TIER_STATUSES,
   RECOVERY_OUTCOMES,
   REGISTRY_FILENAME,
-} = require('./verification-registry');
+} = require('./registry');
 
 // `handleVerifyCommand` (moved from bin/doflow.js) used bin/doflow.js's own REPO_ROOT — that file's
 // SCRIPT_DIR is bin/, so REPO_ROOT = path.dirname(SCRIPT_DIR) = the repo root. This module lives at
 // src/runtime/, two levels deeper than bin/, so the equivalent repo root is two levels up from here.
 // bin/doflow.js:    path.dirname(__dirname)         with __dirname = <repo>/bin
-// src/runtime/*.js: path.resolve(__dirname,'..','..') with __dirname = <repo>/src/runtime
+// src/runtime/verification/*.js: path.resolve(__dirname,'..','..','..') with __dirname = <repo>/src/runtime/verification
 // Both resolve to the same absolute repo root.
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 
 /** `PASS` and `FAIL` are the Python's vocabulary. `INCONCLUSIVE` is added for the empty-contract
  * case only — see `evaluateContract`. */
