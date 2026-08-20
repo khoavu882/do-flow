@@ -107,6 +107,62 @@ def strip_comments(content: str) -> str:
     return "\n".join(out)
 
 
+def strip_string_literals(content: str) -> str:
+    """
+    Blank the contents of string literals so text inside them is not measured as code.
+
+    `strip_comments` fixed prose in comments being counted as control flow. The same defect exists
+    for strings: `const msg = "error or warning";` contributes a branch for the word `or`.
+
+    **This cannot be made fully correct without a tokenizer**, and none is available — the repository
+    has zero runtime dependencies and Python's `tokenize` only understands Python. Regex literals in
+    JS, heredocs in Ruby and shell, PHP's `<?php` boundary and Python triple-quotes all need parse
+    context this does not have.
+
+    So the rule is bounded rather than complete: scanning is **line-scoped**, and a quote that does
+    not close on its own line is retroactively treated as not a string, leaving the rest of that line
+    untouched. That direction is deliberate. The failure that matters is not under-counting a branch;
+    it is a phantom unterminated string blanking the remainder of a file and turning a forty-branch
+    function into a clean one. Under-blanking loses a little accuracy. Over-blanking manufactures a
+    false pass, which is the whole defect class this analyser work exists to remove.
+
+    Length and newlines are preserved, so any line number derived from the result still lines up
+    with the original file.
+
+    Known and accepted misses: multi-line strings of every kind (Python triple-quoted, JS template
+    literals spanning lines, heredocs) are left intact and their contents still counted.
+    """
+    out = []
+    for line in content.split("\n"):
+        i, n, buf = 0, len(line), []
+        while i < n:
+            ch = line[i]
+            if ch in "\"'`":
+                # Look for the matching close on this line, honouring backslash escapes.
+                j, closed = i + 1, False
+                while j < n:
+                    if line[j] == "\\":
+                        j += 2
+                        continue
+                    if line[j] == ch:
+                        closed = True
+                        break
+                    j += 1
+                if closed:
+                    buf.append(ch + " " * (j - i - 1) + ch)
+                    i = j + 1
+                    continue
+                # Unclosed on this line: bounded failure. Treat it as not a string and stop
+                # scanning this line rather than blanking to end-of-file.
+                buf.append(line[i:])
+                i = n
+                continue
+            buf.append(ch)
+            i += 1
+        out.append("".join(buf))
+    return "\n".join(out)
+
+
 def trim_trailing_comment_block(body: str) -> str:
     """
     Drop a documentation comment sitting at the end of a sliced function body.
@@ -134,9 +190,10 @@ def calculate_cyclomatic_complexity(content: str) -> int:
     """
     Estimate cyclomatic complexity based on control flow keywords.
 
-    Comments are stripped first: counting keywords in prose made documentation a penalty.
+    Comments and string literals are stripped first: counting keywords in either made prose a
+    penalty. String stripping is bounded, not complete — see `strip_string_literals`.
     """
-    content = strip_comments(content)
+    content = strip_string_literals(strip_comments(content))
     complexity = 1  # Base complexity
 
     # Control flow patterns that increase complexity

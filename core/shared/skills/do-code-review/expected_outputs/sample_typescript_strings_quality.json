@@ -1,0 +1,34 @@
+{
+  "file": "assets/sample_typescript_strings.ts",
+  "language": "typescript",
+  "metrics": {
+    "lines": {
+      "total": 23,
+      "code": 14,
+      "blank": 4,
+      "comment": 5
+    },
+    "functions": 2,
+    "classes": 0,
+    "avg_complexity": 1.5
+  },
+  "quality_score": 100,
+  "grade": "A",
+  "smells": [],
+  "solid_violations": [],
+  "function_details": [
+    {
+      "name": "has",
+      "parameters": 0,
+      "lines": 4,
+      "complexity": 1
+    },
+    {
+      "name": "describeOutcome",
+      "parameters": 0,
+      "lines": 16,
+      "complexity": 2
+    }
+  ],
+  "class_details": []
+}
