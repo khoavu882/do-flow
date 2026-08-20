@@ -29,7 +29,7 @@ const { OUTCOME_STATES, NOT_RECORDED, outcomePath } = require('../../src/runtime
 function project(label) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `doflow-outcome-${label}-`));
   const real = fs.realpathSync(dir);
-  fs.writeFileSync(path.join(real, 'a.js'), 'module.exports = { x: 1 };\n');
+  fs.writeFileSync(path.join(real, 'a.js'), 'const x = 1;\nmodule.exports = { x };\n');
   return real;
 }
 

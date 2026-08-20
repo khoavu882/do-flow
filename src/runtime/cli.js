@@ -6,6 +6,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { CapabilityRouter } = require('./capability-router');
 const { EvidenceLedger, VALID_EVIDENCE_KINDS, VALID_PROVENANCE } = require('./evidence-ledger');
+const { resolveLocator, describeResolution } = require('./locator-resolve');
 const { ClaimsManager } = require('./claims');
 const { ReadinessEngine } = require('./readiness');
 const { loadRegistry } = require('../registry');
@@ -118,7 +119,7 @@ function handleReadinessCommand({
   const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: state });
   claims.load(taskId);
 
-  const engine = new ReadinessEngine({ repoRoot: root });
+  const engine = new ReadinessEngine({ repoRoot: root, projectRoot: state });
   // Only what the caller actually told us. An absent key must stay absent rather than become a
   // falsy default, because the engine reads presence, not truth.
   const profile = { taskId, taskClass };
@@ -270,9 +271,10 @@ function parseLocator(raw) {
  *
  * @param {Object} raw
  * @param {string} taskId the task the batch is being written to
+ * @param {string} [repoRoot] root a relative locator resolves against; defaults to cwd
  * @returns {{kind:string, provenance:string, source:Object, locator:Object, content:(string|null)}}
  */
-function validateEvidenceItem(raw, taskId) {
+function validateEvidenceItem(raw, taskId, repoRoot) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('an evidence item must be a JSON object');
   assertNoScoreFields(raw, '');
 
@@ -325,6 +327,19 @@ function validateEvidenceItem(raw, taskId) {
   if (raw.provenance === 'extracted' && !locator) {
     throw new Error("provenance 'extracted' requires a locator — a fact read from the repository "
       + 'must name where it was read, or the next worker cannot check it and cannot tell when it goes stale');
+  }
+
+  // A locator that parses is not a locator that resolves (FR-004). Shape validation alone let an
+  // item naming line 799 of a 28-line file be recorded as support and counted by the readiness
+  // gate. The refusal names what the file actually offers, so the writer can correct it here rather
+  // than discover it at the gate.
+  if (raw.provenance === 'extracted' && locator) {
+    const resolution = resolveLocator({ locator, repoRoot });
+    if (!resolution.resolved) {
+      throw new Error(`the locator does not resolve: ${describeResolution(locator, resolution)}. `
+        + "An 'extracted' item asserts a read of the repository, so a locator that points at nothing "
+        + 'records a fact nobody can check');
+    }
   }
 
   if (raw.content !== undefined && typeof raw.content !== 'string') throw new Error('content must be a string');
@@ -444,7 +459,7 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json }) {
   const validated = [];
   for (const [index, raw] of raws.entries()) {
     try {
-      validated.push(validateEvidenceItem(raw, taskId));
+      validated.push(validateEvidenceItem(raw, taskId, root));
     } catch (error) {
       const where = raws.length > 1 ? `batch item ${index + 1} of ${raws.length}: ` : '';
       return usageError('evidence', `${where}${error.message}`, json);

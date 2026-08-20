@@ -245,6 +245,7 @@ Workflow and evidence:
 Verification and recovery:
   verify           compile the contract, run checks, emit the report
   recover          classify a failure, return the targeted action
+  leak-scan        report DoFlow-internal identifiers in shipped files
 
 Observability:
   trace            current run trajectory
@@ -345,7 +346,7 @@ shell_helper_for() {
 # command list; an unbuilt verb is dispatched and the CLI answers for itself.
 is_node_verb() {
   case "$1" in
-    classify|workflow|route|evidence|claim|readiness|context-pack|retrieval-plan|outcome|scaffold|verify|recover|\
+    classify|workflow|route|evidence|claim|readiness|context-pack|retrieval-plan|outcome|scaffold|verify|recover|leak-scan|\
 trace|stats|discover|capabilities|doctor) return 0 ;;
     *) return 1 ;;
   esac

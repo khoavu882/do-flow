@@ -51,6 +51,7 @@ const { handleContextPackCommand } = require('../src/runtime/context-pack');
 const { handleRetrievalPlanCommand } = require('../src/runtime/retrieval-plan');
 const { handleOutcomeCommand } = require('../src/runtime/outcome');
 const { handleVerifyCommand } = require('../src/runtime/verification');
+const { handleLeakScanCommand } = require('../src/runtime/leak-scan');
 const { handleRecoverCommand } = require('../src/runtime/recovery');
 const { handleScaffoldCommand } = require('../src/runtime/scaffold');
 const { finishRuntime, usageError } = require('../src/runtime/cli-result');
@@ -179,6 +180,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--claim-id', 'claimId'],           // claim --action link
   ['--evidence-id', 'evidenceId'],     // claim --action link
   ['--relation', 'relation'],          // claim --action link: supports | contradicts
+  ['--replaced-by', 'replacedBy'],     // claim --action supersede: the claim replacing this one
   ['--kind', 'kind'],                  // evidence --action add: one of VALID_EVIDENCE_KINDS
   ['--provenance', 'provenance'],      // evidence --action add: extracted | inferred | asserted
   ['--provider', 'provider'],          // evidence --action add: source.provider
@@ -199,6 +201,9 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--readiness', 'readiness'],
   ['--verification', 'verification'],
   ['--risk', 'risk'],                  // verify: risk level selecting the required tiers
+  ['--plan-path', 'planPath'],         // verify: a feature plan.md whose doflow-verification
+                                       // block overrides manifest detection. Without this the
+                                       // override was implemented but unreachable (FR-011).
   ['--error', 'errorMessage'],         // recover: the failure text to classify
   ['--agent', 'agent'],                // recover: which agent produced the failure
 ]);
@@ -210,6 +215,7 @@ const RUNTIME_LIST_FLAGS = new Map([
   // Repeatable as well as comma-separated, because a plan assembled a need at a time should not
   // have to be re-spelled as one string to be declared.
   ['--need', 'need'],
+  ['--path', 'paths'],                 // leak-scan: the files to scan, one per occurrence
 ]);
 
 /** Non-negative integer arguments. */
@@ -374,6 +380,7 @@ Commands:
   stats                Aggregate local run-ledger usage
   discover             Missed capability opportunities in recorded runs
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
+  leak-scan            Report DoFlow-internal identifiers in shipped files (--path, repeatable)
 
 Scope (mutually exclusive — global wins if both given):
   -g, --global         Install to \$HOME/.{claude,codex,gemini}
@@ -397,7 +404,7 @@ Options:
 Runtime verb arguments (accept --flag value or --flag=value):
       --task-class     classify, workflow, readiness, context-pack, outcome --action record
       --task-id        readiness, evidence, claim, context-pack, retrieval-plan, outcome, verify
-      --action         claim: list|add|link · evidence: list|add · verify: report|contract
+      --action         claim: list|add|link|retract|supersede · evidence: list|add · verify: report|contract
                        retrieval-plan: declare|report · outcome: record|show
                        tools: see above
       --rationale, --proposed-by, --calling-skill    classify
@@ -417,7 +424,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --state <COMPLETED|BLOCKED|
                ABANDONED|INCONCLUSIVE>,
       --readiness, --verification           outcome --action record
-      --risk                                verify
+      --risk, --plan-path                   verify
+      --path (repeatable)                   leak-scan
       --error, --failed-check,
       --iteration, --agent                  recover
       --json           Machine-readable output (status)
@@ -1002,11 +1010,12 @@ function main() {
       case 'classify': return handleClassifyCommand({ taskClass: o.taskClass, rationale: o.rationale, proposedBy: o.proposedBy, callingSkill: o.callingSkill, json: o.json });
       case 'workflow': return handleWorkflowCommand({ taskClass: o.taskClass, json: o.json });
       case 'route': return handleRouteCommand({ intent: o.intent, query: o.query, check: o.check, json: o.json, projectRoot: evidenceRoot(o) });
-      case 'claim': return handleClaimCommand({ taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, relation: o.relation, json: o.json, stateRoot: evidenceRoot(o) });
+      case 'claim': return handleClaimCommand({ taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, replacedBy: o.replacedBy, relation: o.relation, json: o.json, stateRoot: evidenceRoot(o) });
       case 'context-pack': return handleContextPackCommand({ taskId: requireTaskId(o), taskClass: o.taskClass, objective: o.objective, json: o.json, stateRoot: evidenceRoot(o) });
       case 'retrieval-plan': return handleRetrievalPlanCommand({ taskId: requireTaskId(o), action: o.action, need: o.need, stage: o.stage, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
       case 'outcome': return handleOutcomeCommand({ taskId: requireTaskId(o), action: o.action, state: o.state, taskClass: o.taskClass, stage: o.stage, readiness: o.readiness, verification: o.verification, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
-      case 'verify': return handleVerifyCommand({ taskId: requireTaskId(o), action: o.action, risk: o.risk, json: o.json, projectRoot: evidenceRoot(o) });
+      case 'verify': return handleVerifyCommand({ taskId: requireTaskId(o), action: o.action, risk: o.risk, planPath: o.planPath, json: o.json, projectRoot: evidenceRoot(o) });
+      case 'leak-scan': return handleLeakScanCommand({ paths: o.paths, json: o.json, repoRoot: evidenceRoot(o) });
       case 'recover': return handleRecoverCommand({ errorMessage: o.errorMessage, failedChecks: o.failedChecks, iteration: o.iteration, agent: o.agent, json: o.json });
       default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
     }

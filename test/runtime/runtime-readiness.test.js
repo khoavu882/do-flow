@@ -55,7 +55,7 @@ test('ReadinessEngine evaluates Bug Fix readiness as READY when prerequisites sa
   const ev2 = ledger.addEvidence({
     taskId: 'task_bug_ready',
     kind: 'exact-search',
-    locator: { file: 'src/payment.js', lineRange: [45, 60] },
+    locator: { file: 'src/runtime/readiness.js', lineRange: [45, 60] },
     content: 'function processPayment()',
   });
 
@@ -63,7 +63,7 @@ test('ReadinessEngine evaluates Bug Fix readiness as READY when prerequisites sa
   const ev3 = ledger.addEvidence({
     taskId: 'task_bug_ready',
     kind: 'structural',
-    locator: { file: 'src/checkout.js' },
+    locator: { file: 'src/runtime/claims.js' },
     content: 'CheckoutController -> PaymentService',
   });
 
@@ -143,12 +143,12 @@ test('ContextPackCompiler compiles compact structured context within budget', ()
   const ev1 = ledger.addEvidence({
     taskId: 'task_cpack',
     kind: 'exact-search',
-    locator: { file: 'src/a.js' },
+    locator: { file: 'src/runtime/cli.js' },
   });
   const ev2 = ledger.addEvidence({
     taskId: 'task_cpack',
     kind: 'exact-search',
-    locator: { file: 'src/b.js' },
+    locator: { file: 'src/runtime/evidence-ledger.js' },
   });
 
   const claim1 = claims.addClaim({ taskId: 'task_cpack', statement: 'Claim 1' });
@@ -176,7 +176,7 @@ test('ContextPackCompiler compiles compact structured context within budget', ()
 });
 
 test('FreshnessValidator detects modified files and marks evidence STALE', () => {
-  let mockStatusOutput = ' M src/modified.js';
+  let mockStatusOutput = ' M src/runtime/locator-resolve.js';
   const mockGitRunner = (args) => {
     if (args[0] === 'status') return mockStatusOutput;
     if (args[0] === 'rev-parse') return 'commit_abc123';
@@ -189,13 +189,13 @@ test('FreshnessValidator detects modified files and marks evidence STALE', () =>
   const evFresh = ledger.addEvidence({
     taskId: 't_fresh',
     kind: 'exact-search',
-    locator: { file: 'src/unmodified.js' },
+    locator: { file: 'src/runtime/leak-scan.js' },
   });
 
   const evStale = ledger.addEvidence({
     taskId: 't_fresh',
     kind: 'exact-search',
-    locator: { file: 'src/modified.js' },
+    locator: { file: 'src/runtime/locator-resolve.js' },
   });
 
   assert.equal(ledger.getEvidence(evFresh).freshness.status, 'FRESH');
@@ -205,4 +205,107 @@ test('FreshnessValidator detects modified files and marks evidence STALE', () =>
   assert.equal(staleCount, 1);
   assert.equal(ledger.getEvidence(evFresh).freshness.status, 'FRESH');
   assert.equal(ledger.getEvidence(evStale).freshness.status, 'STALE');
+});
+
+// ── FR-005: a gate does not report READY on evidence whose locator no longer resolves ────────
+
+test('FR-005: an unresolvable supporting locator keeps the gate off READY and names the item', () => {
+  const engine = new ReadinessEngine({ repoRoot: REPO });
+  const ledger = new EvidenceLedger();
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+
+  // Recorded before FR-004 existed, or valid then and the file has since shrunk. Either way it is
+  // FRESH and points at nothing.
+  ledger.addEvidence({
+    taskId: 'task_unresolvable',
+    kind: 'exact-search',
+    provenance: 'extracted',
+    locator: { file: 'src/runtime/readiness.js', line: 99999 },
+    content: 'a line that is not there',
+  });
+
+  const report = engine.evaluateReadiness(
+    {
+      taskId: 'task_unresolvable',
+      taskClass: 'feature',
+      scopeClear: 'stated',
+      verificationPlan: 'npm test',
+    },
+    ledger,
+    claims
+  );
+
+  assert.notEqual(report.state, 'READY');
+  assert.equal(report.unresolvableEvidence.length, 1);
+  assert.equal(report.unresolvableEvidence[0].reason, 'line-beyond-eof');
+  assert.match(report.summary, /no longer\s+resolves/);
+});
+
+test('FR-005: unresolvable is distinct from BLOCKED — nothing contradicts anything', () => {
+  const engine = new ReadinessEngine({ repoRoot: REPO });
+  const ledger = new EvidenceLedger();
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+
+  ledger.addEvidence({
+    taskId: 'task_unresolvable_2',
+    kind: 'exact-search',
+    provenance: 'extracted',
+    locator: { file: 'src/runtime/gone-forever.js' },
+    content: 'x',
+  });
+
+  const report = engine.evaluateReadiness(
+    { taskId: 'task_unresolvable_2', taskClass: 'feature', scopeClear: 'stated', verificationPlan: 'npm test' },
+    ledger,
+    claims
+  );
+
+  assert.equal(report.state, 'NEEDS_EVIDENCE');
+  assert.equal(report.claimsSummary.conflicts, 0);
+  assert.equal(report.unresolvableEvidence[0].reason, 'file-missing');
+});
+
+test('FR-005: resolvable evidence leaves the verdict untouched', () => {
+  const engine = new ReadinessEngine({ repoRoot: REPO });
+  const ledger = new EvidenceLedger();
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+
+  ledger.addEvidence({
+    taskId: 'task_resolvable',
+    kind: 'structural',
+    provenance: 'extracted',
+    locator: { file: 'src/runtime/readiness.js', line: 1 },
+    content: 'use strict',
+  });
+
+  const report = engine.evaluateReadiness(
+    { taskId: 'task_resolvable', taskClass: 'feature', scopeClear: 'stated', verificationPlan: 'npm test' },
+    ledger,
+    claims
+  );
+
+  assert.deepEqual(report.unresolvableEvidence, []);
+  assert.equal(report.state, 'READY');
+});
+
+test('FR-005: an inferred item with an unreadable locator is not held to resolvability', () => {
+  const engine = new ReadinessEngine({ repoRoot: REPO });
+  const ledger = new EvidenceLedger();
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+
+  ledger.addEvidence({
+    taskId: 'task_inferred',
+    kind: 'generated-analysis',
+    provenance: 'inferred',
+    locator: { file: 'src/runtime/gone-forever.js' },
+    content: 'analysis, not a read of the repository',
+  });
+
+  const report = engine.evaluateReadiness(
+    { taskId: 'task_inferred', taskClass: 'feature', scopeClear: 'stated', verificationPlan: 'npm test' },
+    ledger,
+    claims
+  );
+
+  assert.deepEqual(report.unresolvableEvidence, []);
 });

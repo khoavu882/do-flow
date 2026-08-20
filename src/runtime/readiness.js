@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { parseYamlFile } = require('./capability-router');
+const { resolveLocator, describeResolution } = require('./locator-resolve');
 
 const READINESS_STATES = new Set([
   'READY',
@@ -14,7 +15,10 @@ const READINESS_STATES = new Set([
 class ReadinessEngine {
   /**
    * @param {Object} [options]
-   * @param {string} [options.repoRoot]
+   * @param {string} [options.repoRoot] the DoFlow install, where readiness-templates.yaml lives
+   * @param {string} [options.projectRoot] the repository under work, which evidence locators name.
+   *   Distinct from repoRoot on purpose: when the CLI runs inside another project, the templates
+   *   come from the install and the locators must be resolved against that project, not the install.
    * @param {string} [options.templatePath]
    * @param {Object} [options.templates]
    * @param {Object} [options.fsImpl]
@@ -22,6 +26,7 @@ class ReadinessEngine {
   constructor(options = {}) {
     this.fsImpl = options.fsImpl || fs;
     this.repoRoot = options.repoRoot || path.resolve(__dirname, '..', '..');
+    this.projectRoot = options.projectRoot || process.cwd();
     this.templatePath = options.templatePath || path.join(this.repoRoot, 'core', 'registry', 'readiness-templates.yaml');
 
     if (options.templates) {
@@ -156,6 +161,24 @@ class ReadinessEngine {
 
     const taskEvidence = evidenceLedger ? evidenceLedger.queryEvidence({ taskId, status: 'FRESH' }) : [];
 
+    // An item accepted before FR-004 existed, or one whose target file has since shrunk, can be
+    // FRESH and still point at nothing. *Stale* (the file changed at all) and *unresolvable* (the
+    // locator no longer names anything) are different verdicts and must not be collapsed: a stale
+    // item is still checkable by a human, an unresolvable one is not (FR-005).
+    const unresolvableEvidence = [];
+    for (const item of taskEvidence) {
+      if (item.provenance !== 'extracted' || !item.locator || !item.locator.file) continue;
+      const resolution = resolveLocator({ locator: item.locator, repoRoot: this.projectRoot });
+      if (!resolution.resolved) {
+        unresolvableEvidence.push({
+          evidenceId: item.id,
+          locator: item.locator,
+          reason: resolution.reason,
+          detail: describeResolution(item.locator, resolution),
+        });
+      }
+    }
+
     for (const [reqId, reqDef] of Object.entries(requirements)) {
       let isSatisfied = false;
       let reason = null;
@@ -234,6 +257,19 @@ class ReadinessEngine {
       summary = `Task requires ${missingCount} additional evidence item(s) before implementation.`;
     }
 
+    // FR-005. Applied after the base verdict so it can never be overwritten by it, and appended
+    // rather than replacing, so a task that is short of evidence *and* holding an unresolvable
+    // locator reports both. Not BLOCKED: nothing contradicts anything here — the record simply no
+    // longer points at the repository, which is a different failure from evidence that disagrees
+    // with itself. Naming the specific items is the requirement; a silent downgrade would leave the
+    // reader to hunt for which item moved.
+    if (unresolvableEvidence.length > 0) {
+      if (state === 'READY') state = 'NEEDS_EVIDENCE';
+      summary += ` ${unresolvableEvidence.length} evidence item(s) have a locator that no longer `
+        + `resolves: ${unresolvableEvidence.map((u) => u.detail).join('; ')}. `
+        + 'Re-record them against the tree as it stands.';
+    }
+
     return {
       taskId,
       taskClass,
@@ -248,6 +284,7 @@ class ReadinessEngine {
         conflicts: conflictedClaims.length,
       },
       evidenceCount: taskEvidence.length,
+      unresolvableEvidence,
     };
   }
 }

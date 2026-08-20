@@ -101,9 +101,53 @@ test('C.12: freshness is measured at the write boundary, not asserted by the cal
   assert.match(record.freshness.observedAt, /^\d{4}-\d{2}-\d{2}T/);
 
   // A locator naming a path that is not there records the hash as unmeasured, not as a value.
-  const [missing] = addExtracted(cwd, 'task-a', 'deleted.js:9').data.evidence;
+  // Exercised through an `inferred` item: FR-004 now refuses an `extracted` one outright (below),
+  // so this branch is only reachable via a provenance that permits an unresolvable locator.
+  const [missing] = json(cwd, ['evidence', '--task-id', 'task-a', '--action', 'add',
+    '--kind', 'generated-analysis', '--provenance', 'inferred', ...SOURCE,
+    '--locator', 'deleted.js:9', '--content', 'analysis about a file that is not there']).data.evidence;
   assert.equal(missing.freshness.fileHash, null);
   assert.equal(missing.freshness.gitCommit, head);
+});
+
+// ─────────────────────────────────────────── locators must resolve, not merely parse (FR-004)
+
+test('FR-004: an extracted locator naming a line beyond EOF is refused, naming the real length', () => {
+  const cwd = project();
+  const res = addExtracted(cwd, 'task-a', 'a.js:799');
+  assert.notEqual(res.status, 0);
+  assert.match(res.stdout + res.stderr, /does not resolve/);
+  assert.match(res.stdout + res.stderr, /has 1 line\(s\).*line 799/);
+});
+
+test('FR-004: an extracted locator naming a missing file is refused', () => {
+  const cwd = project();
+  const res = addExtracted(cwd, 'task-a', 'deleted.js:9');
+  assert.notEqual(res.status, 0);
+  assert.match(res.stdout + res.stderr, /cannot be read from this repository/);
+});
+
+test('FR-004: one unresolvable item discards the whole batch', () => {
+  const cwd = project();
+  const envelope = path.join(cwd, 'bad-batch.json');
+  fs.writeFileSync(envelope, JSON.stringify([
+    { kind: 'exact-search', provenance: 'extracted', source: { provider: 'p', capability: 'c' }, locator: { file: 'a.js', line: 1 } },
+    { kind: 'exact-search', provenance: 'extracted', source: { provider: 'p', capability: 'c' }, locator: { file: 'a.js', line: 799 } },
+  ]));
+  const res = run(cwd, ['evidence', '--task-id', 'task-b', '--action', 'add', '--batch', envelope]);
+  assert.notEqual(res.status, 0);
+  assert.match(res.stdout + res.stderr, /batch item 2 of 2/);
+  const listed = json(cwd, ['evidence', '--task-id', 'task-b']);
+  assert.equal(listed.data.evidenceCount, 0, 'the first item must not have landed');
+});
+
+test('FR-004: a resolvable locator is still accepted, and a uri locator is not second-guessed', () => {
+  const cwd = project();
+  assert.equal(addExtracted(cwd, 'task-a', 'a.js:1').status, 0);
+  const uri = json(cwd, ['evidence', '--task-id', 'task-a', '--action', 'add',
+    '--kind', 'documentation', '--provenance', 'extracted', ...SOURCE,
+    '--locator', 'https://example.com/spec']);
+  assert.equal(uri.status, 0, 'a uri cannot be read, so it is not-checkable rather than unresolved');
 });
 
 // ─────────────────────────────────────────────────────────── the stage batch (design C5, plan D6)
