@@ -20,3 +20,17 @@ export function describeOutcome(state: string, retries: number): string {
 }
 
 export const BANNER = `report generated for review — pass or fail, and every skipped file named`;
+
+// Multi-line template literal. Before the spanning pass, every keyword in this prose counted as a
+// branch on whichever function the slice attributed it to.
+export const REPORT_TEMPLATE = `
+  Coverage was partial and the verdict describes the analysed files only.
+  If a file could not be read it is named here, and if a check could not run
+  it is reported as not run — for every file in the set, or the report is
+  incomplete and the score means less than it appears to.
+`;
+
+export function pick(kind: string): number {
+  if (kind === "wide") { return 2; }
+  return 1;
+}

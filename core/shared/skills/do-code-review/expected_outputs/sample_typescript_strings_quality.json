@@ -3,12 +3,12 @@
   "language": "typescript",
   "metrics": {
     "lines": {
-      "total": 23,
-      "code": 14,
-      "blank": 4,
-      "comment": 5
+      "total": 37,
+      "code": 24,
+      "blank": 6,
+      "comment": 7
     },
-    "functions": 2,
+    "functions": 4,
     "classes": 0,
     "avg_complexity": 1.5
   },
@@ -27,6 +27,18 @@
       "name": "describeOutcome",
       "parameters": 0,
       "lines": 16,
+      "complexity": 2
+    },
+    {
+      "name": "the",
+      "parameters": 0,
+      "lines": 9,
+      "complexity": 1
+    },
+    {
+      "name": "pick",
+      "parameters": 0,
+      "lines": 4,
       "complexity": 2
     }
   ],

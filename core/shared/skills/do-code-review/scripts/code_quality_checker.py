@@ -97,6 +97,11 @@ def strip_comments(content: str) -> str:
     """
     # Block comments first, preserving newline count so line numbers survive.
     content = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), content, flags=re.DOTALL)
+    # Multi-line forms first, since a line-scoped pass cannot see them. Each is blanked in place with
+    # newlines preserved, so the line-scoped pass below then sees ordinary blank content.
+    for opener in ('\"\"\"', "'''", '`'):
+        content = _blank_spanning(content, opener)
+
     out = []
     for line in content.split("\n"):
         stripped = line.lstrip()
@@ -105,6 +110,32 @@ def strip_comments(content: str) -> str:
         else:
             out.append(re.sub(r"\s//.*$", "", line))
     return "\n".join(out)
+
+
+def _blank_spanning(content: str, delim: str) -> str:
+    """
+    Blank the interior of every `delim`-fenced block that actually closes, preserving newlines.
+
+    Bounded the same way as the line-scoped pass: an opener with no matching closer in the rest of
+    the text is left exactly as it is. Over-blanking is the failure that matters — one unterminated
+    delimiter silently erasing the remainder of a file would turn a branch-heavy function into a
+    clean one, which is the false pass this whole analyser thread exists to remove.
+    """
+    out, i, n = [], 0, len(content)
+    while i < n:
+        start = content.find(delim, i)
+        if start == -1:
+            out.append(content[i:])
+            break
+        end = content.find(delim, start + len(delim))
+        if end == -1:
+            # No closer anywhere: not a fenced block. Leave the rest untouched.
+            out.append(content[i:])
+            break
+        inner = content[start + len(delim):end]
+        out.append(content[i:start] + delim + re.sub(r"[^\n]", " ", inner) + delim)
+        i = end + len(delim)
+    return "".join(out)
 
 
 def strip_string_literals(content: str) -> str:
@@ -129,8 +160,11 @@ def strip_string_literals(content: str) -> str:
     Length and newlines are preserved, so any line number derived from the result still lines up
     with the original file.
 
-    Known and accepted misses: multi-line strings of every kind (Python triple-quoted, JS template
-    literals spanning lines, heredocs) are left intact and their contents still counted.
+    Two multi-line forms are handled by carrying state across lines: Python/JS triple-quoted blocks
+    and JS backtick templates. Both are bounded the same way — an opener with no closer anywhere in
+    the remaining text is treated as not an opener, so an odd quote can never blank the tail of a
+    file. Heredocs (shell, Ruby, PHP) are still not handled: their terminator is an arbitrary
+    caller-chosen word, which cannot be recognised without parsing the language.
     """
     out = []
     for line in content.split("\n"):
