@@ -59,10 +59,31 @@ function jsFilesUnder(root) {
 function requireSpecifiers(file) {
   const text = fs.readFileSync(file, 'utf8');
   const specs = [];
-  for (const [, spec] of text.matchAll(/require\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)) {
-    specs.push(spec);
+  for (const match of text.matchAll(/require\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g)) {
+    if (isInsideStringLiteral(text, match.index)) continue;
+    specs.push(match[1]);
   }
   return specs;
+}
+
+/**
+ * Is this `require(` occurrence itself inside a string literal?
+ *
+ * This repository writes real `require(...)` calls into strings: `bench/runner.js` builds a snippet
+ * to inject into a subprocess, and `runtime-evidence-write.test.js` writes fixture files whose
+ * contents are JavaScript. Those are data, not edges in this tree's module graph, and counting them
+ * makes the resolve check below report a broken require that is not broken and not ours.
+ *
+ * Line-scoped and deliberately bounded: count unescaped quotes before the match on its own line,
+ * and call it a string if either quote character is unbalanced. A string spanning multiple lines
+ * defeats it, which is the accepted failure — it would report a specifier that is genuinely data.
+ * The alternative, a real tokenizer, is far more machinery than a guard needs.
+ */
+function isInsideStringLiteral(text, index) {
+  const lineStart = text.lastIndexOf('\n', index) + 1;
+  const before = text.slice(lineStart, index);
+  const count = (ch) => (before.match(new RegExp(`(?<!\\\\)${ch}`, 'g')) || []).length;
+  return count("'") % 2 === 1 || count('"') % 2 === 1;
 }
 
 /** Resolve a relative require specifier against the requiring file's directory, the way Node
@@ -97,6 +118,35 @@ test('G16: every .js module under src/ is required by at least one relative requ
   assert.deepEqual(orphaned, [],
     'these modules ship under src/ but no require(\'...\') literal in bin/, src/, test/, or bench/ '
     + `(excluding bench/runs/) names them:\n  ${orphaned.join('\n  ')}`);
+});
+
+test('G16: every relative require() literal resolves to a file that exists', () => {
+  // The reachability test above answers "is this module named by someone", and to do that it drops
+  // a specifier it cannot resolve (`if (resolved) reached.add(resolved)`). So a require naming
+  // *nothing* is invisible to it — the module it should have named simply stays reached by some
+  // other requirer, and the suite is green.
+  //
+  // That gap is not theoretical. A lazy require inside a function body is only executed on the
+  // branch that needs it, so a stale specifier survives a full test run; and a defensive
+  // `try { require(...) } catch { fallback }` around one converts the eventual MODULE_NOT_FOUND
+  // into a silent, permanent degradation rather than a crash. Both patterns exist in this tree.
+  // Resolving every literal statically is the only check that sees them.
+  const requirerFiles = REQUIRER_ROOTS.flatMap((root) => jsFilesUnder(root));
+
+  const dangling = [];
+  for (const file of requirerFiles) {
+    for (const spec of requireSpecifiers(file)) {
+      if (!resolveSpecifier(file, spec)) {
+        dangling.push(`${path.relative(REPO, file)} -> ${spec}`);
+      }
+    }
+  }
+  dangling.sort();
+
+  assert.deepEqual(dangling, [],
+    'these relative require() specifiers name a file that does not exist. A lazy or try/caught '
+    + 'require will not fail a test run, so this is the only place it surfaces:\n  '
+    + `${dangling.join('\n  ')}`);
 });
 
 test('G16: every ALLOWLIST entry names a module that actually exists', () => {
