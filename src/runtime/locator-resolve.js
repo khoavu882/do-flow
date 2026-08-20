@@ -42,6 +42,52 @@ function findSymbolLines(lines, symbol) {
 }
 
 /**
+ * Reads the target file's lines, or reports that it could not be read.
+ *
+ * Split out of `resolveLocator` so that function is a flat sequence of verdicts rather than a
+ * verdict sequence with file I/O threaded through it. Everything about *getting at* the content
+ * lives here; everything about *judging* it lives in the caller.
+ *
+ * @returns {{lines: string[]}|{missing: true}}
+ */
+function readTargetLines(locator, root, impl) {
+  const target = path.isAbsolute(locator.file) ? locator.file : path.join(root, locator.file);
+
+  let content;
+  try {
+    if (!impl.existsSync(target)) return { missing: true };
+    content = impl.readFileSync(target, 'utf8');
+  } catch {
+    // Unreadable for any other reason — a directory, a permission error, a binary that will not
+    // decode. Report it as missing rather than inventing a third verdict the callers must handle.
+    return { missing: true };
+  }
+
+  // A trailing newline ends the last line; it does not begin another one.
+  const lines = content.split('\n');
+  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  return { lines };
+}
+
+/**
+ * The symbol arm of `resolveLocator`, returning that function's own result shape.
+ *
+ * A symbol present but not on the named line still resolves: the code moved, which freshness
+ * already reports. Only absence is unresolvable — that distinction is the whole of this function
+ * and is easier to see with nothing else around it.
+ */
+function checkSymbol(lines, symbol) {
+  const symbolLines = findSymbolLines(lines, symbol);
+  if (symbolLines.length === 0) {
+    return { resolved: false, reason: 'symbol-absent', actual: { lines: lines.length, symbolLines: [] } };
+  }
+  return { resolved: true, reason: null, actual: { lines: lines.length, symbolLines } };
+}
+
+/** Nothing here is readable, so no verdict about the repository can honestly be returned. */
+const NOT_CHECKABLE = { resolved: true, reason: 'not-checkable', actual: null };
+
+/**
  * Resolves one locator against the repository as it stands right now.
  *
  * A `uri` locator with no `file` resolves as `not-checkable`: this module cannot read a URI, and
@@ -58,46 +104,18 @@ function findSymbolLines(lines, symbol) {
  *   `{ lines }` for a line miss, `{ symbolLines }` for a symbol miss.
  */
 function resolveLocator({ locator, repoRoot, fsImpl } = {}) {
-  const impl = fsImpl || fs;
+  if (!locator || typeof locator !== 'object' || Array.isArray(locator)) return { ...NOT_CHECKABLE };
+  // A uri-only locator, or an empty locator on a non-extracted item. Nothing readable here.
+  if (!locator.file) return { ...NOT_CHECKABLE };
 
-  if (!locator || typeof locator !== 'object' || Array.isArray(locator)) {
-    return { resolved: true, reason: 'not-checkable', actual: null };
-  }
-  if (!locator.file) {
-    // A uri-only locator, or an empty locator on a non-extracted item. Nothing readable here.
-    return { resolved: true, reason: 'not-checkable', actual: null };
-  }
+  const read = readTargetLines(locator, repoRoot || process.cwd(), fsImpl || fs);
+  if (read.missing) return { resolved: false, reason: 'file-missing', actual: null };
 
-  const root = repoRoot || process.cwd();
-  const target = path.isAbsolute(locator.file) ? locator.file : path.join(root, locator.file);
-
-  let content;
-  try {
-    if (!impl.existsSync(target)) return { resolved: false, reason: 'file-missing', actual: null };
-    content = impl.readFileSync(target, 'utf8');
-  } catch {
-    // Unreadable for any other reason — a directory, a permission error, a binary that will not
-    // decode. Report it as missing rather than inventing a third verdict the callers must handle.
-    return { resolved: false, reason: 'file-missing', actual: null };
-  }
-
-  // A trailing newline ends the last line; it does not begin another one.
-  const lines = content.split('\n');
-  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
-
+  const { lines } = read;
   if (locator.line !== undefined && locator.line > lines.length) {
     return { resolved: false, reason: 'line-beyond-eof', actual: { lines: lines.length } };
   }
-
-  if (locator.symbol) {
-    const symbolLines = findSymbolLines(lines, locator.symbol);
-    if (symbolLines.length === 0) {
-      return { resolved: false, reason: 'symbol-absent', actual: { lines: lines.length, symbolLines: [] } };
-    }
-    // A symbol that is present but not on the named line is still a resolvable locator: the code
-    // moved, which freshness already reports. Only absence is unresolvable.
-    return { resolved: true, reason: null, actual: { lines: lines.length, symbolLines } };
-  }
+  if (locator.symbol) return checkSymbol(lines, locator.symbol);
 
   return { resolved: true, reason: null, actual: { lines: lines.length } };
 }

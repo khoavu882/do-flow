@@ -46,6 +46,47 @@ function isExcluded(relPath, excludedSegments) {
 }
 
 /**
+ * Resolves one requested path to readable content, or to the reason it was not read.
+ *
+ * Split out of `scanPaths` so that function is a loop over outcomes rather than a loop with path
+ * resolution, exclusion and error handling folded into it. Every return here is one of the two
+ * shapes `scanPaths` knows how to file.
+ *
+ * @returns {{relative: string, content: string}|{relative: string, reason: string}}
+ */
+function readScannable(target, root, excluded, impl) {
+  const absolute = path.isAbsolute(target) ? target : path.join(root, target);
+  const relative = path.relative(root, absolute);
+
+  if (isExcluded(relative, excluded)) return { relative, reason: 'excluded' };
+
+  try {
+    if (!impl.existsSync(absolute) || !impl.statSync(absolute).isFile()) {
+      return { relative, reason: 'not-a-file' };
+    }
+    return { relative, content: impl.readFileSync(absolute, 'utf8') };
+  } catch {
+    // An unreadable path is reported, never fatal: this runs from a hook that must not fail a
+    // turn, and from a review that must not lose the rest of its file set to one bad path.
+    return { relative, reason: 'unreadable' };
+  }
+}
+
+/** Every pattern match in one file's lines, as finding records. */
+function findLeaksInLines(lines, relative) {
+  const findings = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    for (const rule of LEAK_PATTERNS) {
+      const match = lines[i].match(rule.pattern);
+      if (match) {
+        findings.push({ file: relative, line: i + 1, pattern: rule.id, label: rule.label, text: match[0] });
+      }
+    }
+  }
+  return findings;
+}
+
+/**
  * Scans the named paths for internal-identifier occurrences.
  *
  * Every path given is accounted for in exactly one of `findings`' file set, `scanned`, or
@@ -70,44 +111,15 @@ function scanPaths({ paths: targets, repoRoot, excludedSegments, fsImpl } = {}) 
 
   for (const target of targets || []) {
     if (typeof target !== 'string' || target.trim() === '') continue;
-    const absolute = path.isAbsolute(target) ? target : path.join(root, target);
-    const relative = path.relative(root, absolute);
 
-    if (isExcluded(relative, excluded)) {
-      unscanned.push({ file: relative, reason: 'excluded' });
+    const read = readScannable(target, root, excluded, impl);
+    if (read.reason) {
+      unscanned.push({ file: read.relative, reason: read.reason });
       continue;
     }
 
-    let content;
-    try {
-      if (!impl.existsSync(absolute) || !impl.statSync(absolute).isFile()) {
-        unscanned.push({ file: relative, reason: 'not-a-file' });
-        continue;
-      }
-      content = impl.readFileSync(absolute, 'utf8');
-    } catch {
-      // An unreadable path is reported, never fatal: this runs from a hook that must not fail a
-      // turn, and from a review that must not lose the rest of its file set to one bad path.
-      unscanned.push({ file: relative, reason: 'unreadable' });
-      continue;
-    }
-
-    scanned.push(relative);
-    const lines = content.split('\n');
-    for (let i = 0; i < lines.length; i += 1) {
-      for (const rule of LEAK_PATTERNS) {
-        const match = lines[i].match(rule.pattern);
-        if (match) {
-          findings.push({
-            file: relative,
-            line: i + 1,
-            pattern: rule.id,
-            label: rule.label,
-            text: match[0],
-          });
-        }
-      }
-    }
+    scanned.push(read.relative);
+    findings.push(...findLeaksInLines(read.content.split('\n'), read.relative));
   }
 
   return { findings, scanned, unscanned };
