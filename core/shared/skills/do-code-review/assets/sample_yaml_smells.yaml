@@ -1,0 +1,6 @@
+service:
+  name: payments
+  name: payments-v2
+  database:
+    password: sup3rs3cr3tvalue
+    host: db.internal

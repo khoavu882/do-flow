@@ -1,0 +1,19 @@
+{
+  "file": "assets/sample_json_clean.json",
+  "language": "json",
+  "analysis_kind": "declarative",
+  "metrics": {
+    "lines": {
+      "total": 8,
+      "code": 7,
+      "blank": 1,
+      "comment": 0
+    },
+    "max_depth": 2,
+    "parses": true
+  },
+  "smells": [],
+  "solid_violations": [],
+  "quality_score": 100,
+  "grade": "A"
+}

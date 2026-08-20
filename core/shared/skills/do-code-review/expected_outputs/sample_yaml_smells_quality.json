@@ -1,0 +1,32 @@
+{
+  "file": "assets/sample_yaml_smells.yaml",
+  "language": "yaml",
+  "analysis_kind": "declarative",
+  "metrics": {
+    "lines": {
+      "total": 7,
+      "code": 6,
+      "blank": 1,
+      "comment": 0
+    },
+    "max_depth": 2,
+    "parses": true
+  },
+  "smells": [
+    {
+      "type": "duplicate_key",
+      "severity": "high",
+      "message": "Key 'name' is defined twice at the same level \u2014 the later value silently wins (first seen at line 2)",
+      "location": "line 3"
+    },
+    {
+      "type": "plaintext_secret",
+      "severity": "high",
+      "message": "A credential-shaped key carries a literal value \u2014 secrets belong in a secret store, not in a committed config file",
+      "location": "line 5"
+    }
+  ],
+  "solid_violations": [],
+  "quality_score": 70,
+  "grade": "C"
+}

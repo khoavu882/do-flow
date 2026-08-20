@@ -38,7 +38,15 @@ LANGUAGE_EXTENSIONS = {
     "ruby": [".rb", ".rake", ".gemspec", ".ru"],
     "php": [".php", ".phtml"],
     "dart": [".dart"],
+    "shell": [".sh", ".bash", ".zsh"],
+    "yaml": [".yaml", ".yml"],
+    "json": [".json"],
 }
+
+# Languages analysed as declarative structure rather than as code. Functions, classes, cyclomatic
+# complexity and SOLID have no meaning here, and reporting them anyway is how a fabricated score
+# gets attached to a file nobody analysed — the defect this coverage work exists to remove.
+DECLARATIVE_LANGUAGES = {"yaml", "json"}
 
 # Code smell thresholds
 THRESHOLDS = {
@@ -46,7 +54,8 @@ THRESHOLDS = {
     "too_many_parameters": 5,
     "high_complexity": 10,
     "god_class_methods": 20,
-    "max_imports": 15
+    "max_imports": 15,
+    "max_declarative_depth": 8,
 }
 
 
@@ -133,6 +142,8 @@ def find_functions(content: str, language: str) -> List[Dict]:
     # Language-specific function patterns
     patterns = {
         "python": r"def\s+(\w+)\s*\(([^)]*)\)",
+        # Both shell spellings: `name() {` and `function name {`.
+        "shell": r"(?:function\s+(\w+)\s*(?:\(\s*\))?|(\w+)\s*\(\s*\))\s*\{",
         "typescript": r"(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\([^)]*\)\s*=>)",
         "javascript": r"(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\([^)]*\)\s*=>)",
         "go": r"func\s+(?:\([^)]+\)\s+)?(\w+)\s*\(([^)]*)\)",
@@ -849,6 +860,123 @@ def display_path(path: Path) -> str:
     return os.path.relpath(str(path), os.getcwd())
 
 
+def check_shell_specific_smells(content: str) -> List[Dict]:
+    """Shell has real control flow, so it is analysed as code — but its failure modes are its own."""
+    smells = []
+    lines = content.split("\n")
+
+    first_code = next((ln for ln in lines if ln.strip() and not ln.strip().startswith("#")), "")
+    if lines and lines[0].startswith("#!") and "set -" not in content:
+        smells.append({
+            "type": "no_error_handling",
+            "severity": "high",
+            "message": "Script has no 'set -e'/'set -u'/'set -o pipefail' — a failing command is "
+                       "silently ignored and the script continues with bad state",
+            "location": "line 1",
+        })
+
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        # Unquoted expansion of a variable that may hold spaces or globs.
+        if re.search(r"(?<![\"'\w])\$\{?[A-Za-z_][A-Za-z0-9_]*\}?(?![\"'\w])", stripped) and re.search(
+            r"^\s*(?:rm|cp|mv|cat|source|\.|cd|mkdir|test|\[)\s", stripped
+        ):
+            if '"' not in stripped:
+                smells.append({
+                    "type": "unquoted_expansion",
+                    "severity": "high",
+                    "message": "Unquoted variable expansion in a command that acts on paths — a "
+                               "value containing spaces or globs will not do what it looks like",
+                    "location": f"line {i}",
+                })
+        if re.search(r"\bcd\s+[^&|;]+$", stripped) and "||" not in stripped and "set -e" not in content:
+            smells.append({
+                "type": "unchecked_cd",
+                "severity": "medium",
+                "message": "'cd' without '|| exit' or 'set -e' — the rest of the script runs in the "
+                           "wrong directory if it fails",
+                "location": f"line {i}",
+            })
+
+    return smells
+
+
+def analyze_declarative(content: str, language: str) -> Dict:
+    """
+    Structural analysis for YAML and JSON.
+
+    Reports parse validity, nesting depth, duplicate keys and plain-text secrets. Deliberately
+    reports no cyclomatic complexity, no SOLID verdict and no function count: those readings do not
+    exist for declarative data, and inventing them is exactly the false-confidence defect this
+    coverage work removes.
+    """
+    smells = []
+    lines = content.split("\n")
+
+    parse_error = None
+    if language == "json":
+        try:
+            json.loads(content)
+        except ValueError as exc:
+            parse_error = str(exc)
+    else:
+        seen_at_indent = {}
+        for i, line in enumerate(lines, 1):
+            match = re.match(r"^(\s*)([A-Za-z_][\w.-]*):", line)
+            if not match:
+                continue
+            indent, key = len(match.group(1)), match.group(2)
+            bucket = seen_at_indent.setdefault(indent, {})
+            if key in bucket:
+                smells.append({
+                    "type": "duplicate_key",
+                    "severity": "high",
+                    "message": f"Key '{key}' is defined twice at the same level — the later value "
+                               f"silently wins (first seen at line {bucket[key]})",
+                    "location": f"line {i}",
+                })
+            else:
+                bucket[key] = i
+
+    if parse_error:
+        smells.append({
+            "type": "parse_error",
+            "severity": "high",
+            "message": f"File does not parse as {language}: {parse_error}",
+            "location": "line 1",
+        })
+
+    max_depth = 0
+    for line in lines:
+        if not line.strip() or line.strip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        max_depth = max(max_depth, indent // 2)
+    if max_depth > THRESHOLDS["max_declarative_depth"]:
+        smells.append({
+            "type": "deep_nesting",
+            "severity": "medium",
+            "message": f"Nesting reaches depth {max_depth} (threshold "
+                       f"{THRESHOLDS['max_declarative_depth']}) — deeply nested config is hard to "
+                       f"review and easy to mis-indent",
+            "location": "file",
+        })
+
+    for i, line in enumerate(lines, 1):
+        if re.search(r"(?i)\b(password|secret|token|api[_-]?key|private[_-]?key)\b\s*[:=]\s*['\"]?[^\s'\"{}$]{8,}", line):
+            smells.append({
+                "type": "plaintext_secret",
+                "severity": "high",
+                "message": "A credential-shaped key carries a literal value — secrets belong in a "
+                           "secret store, not in a committed config file",
+                "location": f"line {i}",
+            })
+
+    return {"smells": smells, "max_depth": max_depth, "parses": parse_error is None}
+
+
 def analyze_file(filepath: Path) -> Dict:
     """Analyze a single file for code quality."""
     language = detect_language(filepath)
@@ -858,6 +986,31 @@ def analyze_file(filepath: Path) -> Dict:
     content = read_file_content(filepath)
     if not content:
         return {"error": f"Could not read file: {filepath}"}
+
+    if language in DECLARATIVE_LANGUAGES:
+        line_metrics = count_lines(content)
+        declarative = analyze_declarative(content, language)
+        smells = declarative["smells"]
+        # Scored on the same 100-point scale so a mixed change compares, but from structural
+        # findings only — there is no complexity or SOLID term to include here.
+        score = max(0, 100 - sum(
+            15 if sm["severity"] == "high" else 8 if sm["severity"] == "medium" else 3
+            for sm in smells
+        ))
+        return {
+            "file": display_path(filepath),
+            "language": language,
+            "analysis_kind": "declarative",
+            "metrics": {
+                "lines": line_metrics,
+                "max_depth": declarative["max_depth"],
+                "parses": declarative["parses"],
+            },
+            "smells": smells,
+            "solid_violations": [],
+            "quality_score": score,
+            "grade": get_grade(score),
+        }
 
     line_metrics = count_lines(content)
     functions = find_functions(content, language)
@@ -869,6 +1022,8 @@ def analyze_file(filepath: Path) -> Dict:
         smells.extend(check_java_specific_smells(content))
     if language == "c":
         smells.extend(check_c_specific_smells(content))
+    if language == "shell":
+        smells.extend(check_shell_specific_smells(content))
     violations = check_solid_violations(content)
     score = calculate_quality_score(line_metrics, functions, classes, smells, violations)
 
@@ -895,42 +1050,88 @@ def analyze_directory(
     recursive: bool = True,
     language: Optional[str] = None
 ) -> Dict:
-    """Analyze all files in a directory."""
-    results = []
-    extensions = []
+    """
+    Analyze all files in a directory, reporting what was NOT analysed as prominently as what was.
 
-    if language:
-        extensions = LANGUAGE_EXTENSIONS.get(language, [])
-    else:
-        for exts in LANGUAGE_EXTENSIONS.values():
-            extensions.extend(exts)
+    This function used to enumerate only the extensions it recognised and then drop any per-file
+    error before averaging (`if "error" not in result`). A change of nineteen OpenAPI files and two
+    TypeScript files therefore reported "Files Analyzed: 2" with a score computed from the two, and
+    the nineteen appeared nowhere. The skill's own Review Contract already forbids that — "a file
+    the derivation includes but the review never opened is reported as not reviewed; it is never
+    dropped from the list" — so this is the deterministic tool being made to obey a policy the
+    bundle already publishes, not a new policy.
+
+    Every file the walk sees ends up in exactly one of `files` or `skipped`. `coverage` is
+    "complete" only when nothing was skipped.
+    """
+    results = []
+    skipped = []
 
     pattern = "**/*" if recursive else "*"
+    selected_extensions = set(LANGUAGE_EXTENSIONS.get(language, [])) if language else None
 
-    for ext in extensions:
-        for filepath in dir_path.glob(f"{pattern}{ext}"):
-            if "node_modules" in str(filepath) or ".git" in str(filepath):
-                continue
-            result = analyze_file(filepath)
-            if "error" not in result:
-                results.append(result)
+    for filepath in sorted(dir_path.glob(pattern)):
+        if not filepath.is_file():
+            continue
+        parts = filepath.parts
+        if "node_modules" in parts or ".git" in parts:
+            continue
+
+        detected = detect_language(filepath)
+        if selected_extensions is not None and get_file_extension(filepath) not in selected_extensions:
+            # An explicit --language narrowed the scope. Still reported: the caller chose it, but a
+            # reader of the report did not, and a narrowed run that looks like a full one is the
+            # same false confidence in a different costume.
+            skipped.append({"file": display_path(filepath), "reason": f"excluded by --language {language}"})
+            continue
+        if not detected:
+            skipped.append({
+                "file": display_path(filepath),
+                "reason": f"no analyser for '{filepath.suffix or filepath.name}'",
+            })
+            continue
+
+        result = analyze_file(filepath)
+        if "error" in result:
+            skipped.append({"file": display_path(filepath), "reason": result["error"]})
+            continue
+        results.append(result)
+
+    skipped_by_reason: Dict[str, int] = {}
+    for item in skipped:
+        skipped_by_reason[item["reason"]] = skipped_by_reason.get(item["reason"], 0) + 1
+
+    base = {
+        "directory": display_path(dir_path),
+        "files_analyzed": len(results),
+        "files_skipped": len(skipped),
+        "coverage": "complete" if not skipped else "partial",
+        "skipped": skipped,
+        "skipped_by_reason": skipped_by_reason,
+    }
 
     if not results:
-        return {"error": "No supported files found"}
+        # Previously an error string, which discarded the skipped list with it — the caller was told
+        # "No supported files found" and could not see WHICH files those were.
+        return {
+            **base,
+            "average_score": None,
+            "overall_grade": None,
+            "total_code_smells": 0,
+            "total_solid_violations": 0,
+            "files": [],
+        }
 
     total_score = sum(r["quality_score"] for r in results)
     avg_score = total_score / len(results)
-    total_smells = sum(len(r["smells"]) for r in results)
-    total_violations = sum(len(r["solid_violations"]) for r in results)
 
     return {
-        "directory": display_path(dir_path),
-        "files_analyzed": len(results),
+        **base,
         "average_score": round(avg_score, 1),
         "overall_grade": get_grade(int(avg_score)),
-        "total_code_smells": total_smells,
-        "total_solid_violations": total_violations,
-        "files": sorted(results, key=lambda x: x["quality_score"])
+        "total_code_smells": sum(len(r["smells"]) for r in results),
+        "total_solid_violations": sum(len(r["solid_violations"]) for r in results),
+        "files": sorted(results, key=lambda x: x["quality_score"]),
     }
 
 
@@ -951,9 +1152,16 @@ def print_report(analysis: Dict) -> None:
 
         metrics = analysis["metrics"]
         print(f"\nLines: {metrics['lines']['total']} ({metrics['lines']['code']} code, {metrics['lines']['comment']} comments)")
-        print(f"Functions: {metrics['functions']}")
-        print(f"Classes: {metrics['classes']}")
-        print(f"Avg Complexity: {metrics['avg_complexity']}")
+        if analysis.get("analysis_kind") == "declarative":
+            # No function, class or complexity line here on purpose: those readings do not exist for
+            # declarative data, and printing a zero would read as "analysed and found none".
+            print(f"Max nesting depth: {metrics['max_depth']}")
+            print(f"Parses: {'yes' if metrics['parses'] else 'no'}")
+            print("Analysed as declarative structure — complexity and SOLID do not apply.")
+        else:
+            print(f"Functions: {metrics['functions']}")
+            print(f"Classes: {metrics['classes']}")
+            print(f"Avg Complexity: {metrics['avg_complexity']}")
 
         if analysis["smells"]:
             print("\n--- CODE SMELLS ---")
@@ -967,13 +1175,36 @@ def print_report(analysis: Dict) -> None:
     else:
         print(f"\nDirectory: {analysis['directory']}")
         print(f"Files Analyzed: {analysis['files_analyzed']}")
-        print(f"Average Score: {analysis['average_score']}/100 ({analysis['overall_grade']})")
+        print(f"Files Skipped:  {analysis['files_skipped']}")
+        if analysis["average_score"] is None:
+            print("Average Score: n/a — nothing in this directory was analysed")
+        else:
+            print(f"Average Score: {analysis['average_score']}/100 ({analysis['overall_grade']})"
+                  f" — over the {analysis['files_analyzed']} analysed file(s) only")
         print(f"Total Code Smells: {analysis['total_code_smells']}")
         print(f"Total SOLID Violations: {analysis['total_solid_violations']}")
 
-        print("\n--- FILES BY QUALITY ---")
-        for f in analysis["files"][:10]:
-            print(f"  {f['quality_score']:3d}/100 [{f['grade']}] {f['file']}")
+        # The coverage line comes before the findings, not after: a reader who stops at the score
+        # must already have been told what the score does not cover.
+        if analysis["coverage"] == "partial":
+            print(f"\n*** COVERAGE: PARTIAL — {analysis['files_skipped']} file(s) were not analysed. ***")
+            print("*** This verdict describes the analysed files only, not the whole change.   ***")
+        else:
+            print("\nCoverage: complete — every file in scope was analysed.")
+
+        if analysis["files"]:
+            print("\n--- FILES BY QUALITY ---")
+            for f in analysis["files"][:10]:
+                print(f"  {f['quality_score']:3d}/100 [{f['grade']}] {f['file']}")
+
+        if analysis["skipped"]:
+            print("\n--- SKIPPED (not analysed) ---")
+            for reason, count in sorted(analysis["skipped_by_reason"].items(), key=lambda kv: -kv[1]):
+                print(f"  {count:3d} x {reason}")
+            for item in analysis["skipped"][:20]:
+                print(f"      {item['file']} — {item['reason']}")
+            if len(analysis["skipped"]) > 20:
+                print(f"      ... and {len(analysis['skipped']) - 20} more (use --json for the full list)")
 
     print("\n" + "=" * 60)
 
