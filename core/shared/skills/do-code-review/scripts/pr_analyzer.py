@@ -60,18 +60,24 @@ FILE_CATEGORIES = {
 RISK_PATTERNS = [
     {
         "name": "hardcoded_secrets",
+        # pattern is written lowercase and must catch Password:, API_KEY, Token=.
+        "ignorecase": True,
         "pattern": r"(password|secret|api_key|token|connection_?string)\s*[=:]\s*['\"][^'\"]+['\"]",
         "severity": "critical",
         "message": "Potential hardcoded secret or connection string detected"
     },
     {
         "name": "todo_fixme",
+        # pattern is written uppercase and must catch todo:, Fixme:.
+        "ignorecase": True,
         "pattern": r"(TODO|FIXME|HACK|XXX):",
         "severity": "low",
         "message": "TODO/FIXME comment found"
     },
     {
         "name": "console_log",
+        # console.log, Debug.WriteLine, System.out.println are exact-case API names.
+        "ignorecase": False,
         "pattern": (
             r"console\.(log|debug|info|warn|error)\(|\bDebug\.WriteLine\(|"
             r"\bSystem\.out\.print(?:ln)?\(|\.printStackTrace\("
@@ -84,12 +90,16 @@ RISK_PATTERNS = [
     },
     {
         "name": "debugger",
+        # the JavaScript `debugger` keyword is lowercase.
+        "ignorecase": False,
         "pattern": r"\bdebugger\b",
         "severity": "high",
         "message": "Debugger statement found"
     },
     {
         "name": "analyzer_disable",
+        # eslint-disable, [SuppressMessage, @SuppressWarnings are exact-case tokens.
+        "ignorecase": False,
         "pattern": (
             r"eslint-disable|#pragma\s+warning\s+disable|\[SuppressMessage|"
             r"@SuppressWarnings"
@@ -102,18 +112,24 @@ RISK_PATTERNS = [
     },
     {
         "name": "loose_type",
+        # the TypeScript `any` and C# `dynamic` keywords are lowercase.
+        "ignorecase": False,
         "pattern": r":\s*any\b|\bdynamic\s+\w+\s*[=;]",
         "severity": "medium",
         "message": "Loose type used (TypeScript 'any' or C# 'dynamic')"
     },
     {
         "name": "sql_concatenation",
+        # SQL is written either case; the pattern spells the keywords uppercase.
+        "ignorecase": True,
         "pattern": r"(SELECT|INSERT|UPDATE|DELETE).*\+.*['\"]|(?:FromSql|ExecuteSql)\w*\([^)]*\$\"",
         "severity": "critical",
         "message": "Potential SQL injection (string concatenation or interpolation in query)"
     },
     {
         "name": "csharp_unsafe_block",
+        # C# keywords are lowercase and exact.
+        "ignorecase": False,
         "pattern": (
             r"\bunsafe\s+(?:\{|public|private|protected|internal|static|sealed|"
             r"partial|class|struct|void|int|string|long|short|byte|double|float|"
@@ -124,18 +140,24 @@ RISK_PATTERNS = [
     },
     {
         "name": "csharp_null_forgiving",
+        # punctuation only, so case cannot apply.
+        "ignorecase": False,
         "pattern": r"(?:\)\s*!\.|\w+!\.\w+)",
         "severity": "medium",
         "message": "Null-forgiving operator (!) used — verify the value is truly non-null"
     },
     {
         "name": "csharp_async_void",
+        # C# keywords are lowercase and exact.
+        "ignorecase": False,
         "pattern": r"\basync\s+void\s+\w+\s*\(",
         "severity": "high",
         "message": "'async void' method — use only for event handlers"
     },
     {
         "name": "csharp_blocking_async",
+        # `.Result`/`.Wait()`/`.GetAwaiter()` are PascalCase C# members; matching them case-insensitively made JavaScript's `...result` spread a high-severity ASP.NET deadlock finding.
+        "ignorecase": False,
         "pattern": r"\.(?:Result\b|Wait\(\)|GetAwaiter\(\)\.GetResult\(\))",
         "severity": "high",
         "message": "Blocking call on async operation — can deadlock in ASP.NET contexts"
@@ -230,6 +252,17 @@ def categorize_file(filepath: str) -> Tuple[str, int]:
     return "medium", 2  # Default category
 
 
+# Case sensitivity is per pattern and has no default: a language-specific pattern matched
+# case-insensitively reports findings it has not earned, and a prose-shaped one matched
+# case-sensitively misses findings it should have. Declaring it once per pattern is the only way
+# both stay right, so an undeclared pattern is refused here rather than silently taking a default.
+_undeclared = [r["name"] for r in RISK_PATTERNS if "ignorecase" not in r]
+if _undeclared:
+    raise ValueError(
+        "every RISK_PATTERNS entry must declare 'ignorecase'; missing on: " + ", ".join(_undeclared)
+    )
+
+
 def analyze_diff_for_risks(diff_content: str, filepath: str) -> List[Dict]:
     """Analyze diff content for risky patterns."""
     risks = []
@@ -243,7 +276,8 @@ def analyze_diff_for_risks(diff_content: str, filepath: str) -> List[Dict]:
     content = "\n".join(added_lines)
 
     for risk in RISK_PATTERNS:
-        matches = re.findall(risk["pattern"], content, re.IGNORECASE)
+        flags = re.IGNORECASE if risk["ignorecase"] else 0
+        matches = re.findall(risk["pattern"], content, flags)
         if matches:
             risks.append({
                 "name": risk["name"],

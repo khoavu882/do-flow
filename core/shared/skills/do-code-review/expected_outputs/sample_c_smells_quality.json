@@ -18,7 +18,7 @@
     {
       "type": "long_function",
       "severity": "medium",
-      "message": "Function 'unsafe_input' has 54 lines (max: 50)",
+      "message": "Function 'unsafe_input' has 53 lines (max: 50)",
       "location": "unsafe_input"
     },
     {
@@ -129,25 +129,25 @@
     {
       "name": "unsafe_input",
       "parameters": 1,
-      "lines": 54,
+      "lines": 53,
       "complexity": 2
     },
     {
       "name": "leaky_alloc",
       "parameters": 1,
-      "lines": 28,
+      "lines": 27,
       "complexity": 2
     },
     {
       "name": "run_user_cmd",
       "parameters": 1,
-      "lines": 15,
+      "lines": 14,
       "complexity": 2
     },
     {
       "name": "main",
       "parameters": 2,
-      "lines": 9,
+      "lines": 8,
       "complexity": 2
     }
   ],

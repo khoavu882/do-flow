@@ -63,13 +63,13 @@
     {
       "name": "deploy_release",
       "parameters": 1,
-      "lines": 7,
+      "lines": 5,
       "complexity": 1
     },
     {
       "name": "rollback",
       "parameters": 0,
-      "lines": 7,
+      "lines": 6,
       "complexity": 1
     }
   ],

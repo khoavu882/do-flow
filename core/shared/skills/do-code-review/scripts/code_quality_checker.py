@@ -82,10 +82,61 @@ def read_file_content(filepath: Path) -> str:
         return ""
 
 
+def strip_comments(content: str) -> str:
+    """
+    Remove comment text so prose is not measured as code.
+
+    The keyword scan below matches \\band\\b and \\bor\\b — Python operators — against raw text,
+    case-insensitively. A documented function was therefore charged for every "and" and "or" in its
+    own prose, so the better a function was commented the worse it scored. Blank lines replace the
+    removed text rather than deleting it, so any line number derived from this string still lines up
+    with the original file.
+
+    Deliberately not handled: an "and"/"or" inside a string literal still counts. That is a separate
+    defect from the reported one, and stripping strings correctly needs a real tokenizer.
+    """
+    # Block comments first, preserving newline count so line numbers survive.
+    content = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), content, flags=re.DOTALL)
+    out = []
+    for line in content.split("\n"):
+        stripped = line.lstrip()
+        if stripped.startswith("//") or stripped.startswith("*") or stripped.startswith("#"):
+            out.append("")
+        else:
+            out.append(re.sub(r"\s//.*$", "", line))
+    return "\n".join(out)
+
+
+def trim_trailing_comment_block(body: str) -> str:
+    """
+    Drop a documentation comment sitting at the end of a sliced function body.
+
+    `find_functions` slices a body from one function match to the *next* one, so whatever documents
+    the next function landed inside this one — inflating its line count and its complexity. The
+    comment belongs to what follows, not to what precedes it.
+    """
+    lines = body.split("\n")
+    end = len(lines)
+    while end > 0 and lines[end - 1].strip() == "":
+        end -= 1
+    # Walk back over a contiguous run of comment lines at the tail.
+    start = end
+    while start > 0:
+        candidate = lines[start - 1].strip()
+        if candidate.startswith(("//", "/*", "*", "#")) or candidate == "":
+            start -= 1
+        else:
+            break
+    return "\n".join(lines[:start]) if start < end else "\n".join(lines[:end])
+
+
 def calculate_cyclomatic_complexity(content: str) -> int:
     """
     Estimate cyclomatic complexity based on control flow keywords.
+
+    Comments are stripped first: counting keywords in prose made documentation a penalty.
     """
+    content = strip_comments(content)
     complexity = 1  # Base complexity
 
     # Control flow patterns that increase complexity
@@ -227,6 +278,10 @@ def find_functions(content: str, language: str) -> List[Dict]:
             func_body = remaining[:next_func.start()]
         else:
             func_body = remaining[:min(2000, len(remaining))]
+
+        # The slice runs to the next function's *declaration*, so it swallows that function's
+        # documentation comment. Give it back before measuring anything.
+        func_body = trim_trailing_comment_block(func_body)
 
         line_count = len(func_body.split("\n"))
         complexity = calculate_cyclomatic_complexity(func_body)

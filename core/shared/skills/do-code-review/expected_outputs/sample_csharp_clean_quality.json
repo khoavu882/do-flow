@@ -10,7 +10,7 @@
     },
     "functions": 13,
     "classes": 3,
-    "avg_complexity": 1.3
+    "avg_complexity": 1.2
   },
   "quality_score": 98,
   "grade": "A",
@@ -57,25 +57,25 @@
     {
       "name": "HttpClient",
       "parameters": 0,
-      "lines": 2,
+      "lines": 1,
       "complexity": 1
     },
     {
       "name": "UserService",
       "parameters": 3,
-      "lines": 8,
+      "lines": 6,
       "complexity": 1
     },
     {
       "name": "Task",
       "parameters": 1,
-      "lines": 2,
+      "lines": 1,
       "complexity": 2
     },
     {
       "name": "HandleClickAsync",
       "parameters": 0,
-      "lines": 8,
+      "lines": 6,
       "complexity": 1
     },
     {
@@ -87,13 +87,13 @@
     {
       "name": "InvalidOperationException",
       "parameters": 1,
-      "lines": 21,
-      "complexity": 3
+      "lines": 18,
+      "complexity": 2
     },
     {
       "name": "FirstValue",
       "parameters": 1,
-      "lines": 4,
+      "lines": 1,
       "complexity": 1
     },
     {
@@ -111,7 +111,7 @@
     {
       "name": "SqlCommand",
       "parameters": 2,
-      "lines": 7,
+      "lines": 5,
       "complexity": 1
     }
   ],

@@ -10,7 +10,7 @@
     },
     "functions": 3,
     "classes": 1,
-    "avg_complexity": 2.0
+    "avg_complexity": 1.7
   },
   "quality_score": 100,
   "grade": "A",
@@ -27,19 +27,19 @@
     {
       "name": "UserService",
       "parameters": 1,
-      "lines": 5,
+      "lines": 3,
       "complexity": 1
     },
     {
       "name": "getName",
       "parameters": 2,
-      "lines": 17,
-      "complexity": 3
+      "lines": 15,
+      "complexity": 2
     },
     {
       "name": "process",
       "parameters": 0,
-      "lines": 10,
+      "lines": 9,
       "complexity": 2
     }
   ],

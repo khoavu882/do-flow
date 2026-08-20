@@ -10,7 +10,7 @@
     },
     "functions": 7,
     "classes": 1,
-    "avg_complexity": 1.3
+    "avg_complexity": 1.1
   },
   "quality_score": 45,
   "grade": "F",
@@ -93,13 +93,13 @@
     {
       "name": "HandleClick",
       "parameters": 2,
-      "lines": 9,
+      "lines": 7,
       "complexity": 1
     },
     {
       "name": "FetchAsync",
       "parameters": 0,
-      "lines": 3,
+      "lines": 2,
       "complexity": 1
     },
     {
@@ -111,13 +111,13 @@
     {
       "name": "HttpClient",
       "parameters": 0,
-      "lines": 24,
-      "complexity": 3
+      "lines": 21,
+      "complexity": 2
     },
     {
       "name": "Pointers",
       "parameters": 0,
-      "lines": 11,
+      "lines": 10,
       "complexity": 1
     },
     {
@@ -129,7 +129,7 @@
     {
       "name": "SqlCommand",
       "parameters": 2,
-      "lines": 6,
+      "lines": 5,
       "complexity": 1
     }
   ],
