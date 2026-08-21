@@ -53,7 +53,17 @@ downloads/
 .pi
 GEMINI.md
 AGENTS.md
-agent-docs/
+# agent-docs/ was a single repo-wide segment match. It did one job correctly — keeping the
+# agent-docs/ trees that bench runs generate under bench/runs/ out of the index, since bench/runs
+# is otherwise tracked — and one by accident: it also excluded this repository's own chain
+# artifacts. Those are authored records, not build output. state-template.md tells a resuming
+# session to trust state.md and `git log` together, which a file git never sees cannot satisfy,
+# and DOFLOW_CHAIN.md puts a repository's tier-2 constitution at agent-docs/constitution.md.
+# Split so each rule states which of the two it is for.
+bench/runs/**/outputs/agent-docs/
+agent-docs/research/
+agent-docs/*.md
+!agent-docs/constitution.md
 .mcp.json
 
 # MkDocs build output
