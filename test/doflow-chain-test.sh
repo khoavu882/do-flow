@@ -495,6 +495,30 @@ eq "--next-version counts every commit in the range, not one fewer" \
    "$($STATE --next-version | jq -r '.commits_count')" "3"
 git tag -d v3.0.0 >/dev/null
 
+# Regression: ahead_of_integration measured against refs/heads/<integration>, the local branch, so
+# a develop that had not been pulled made every distance wrong by however stale it was — observed
+# live reporting 22 against an actual 32. The remote-tracking ref is preferred where it exists.
+git checkout -q -B develop
+git commit -q --allow-empty -m "integration work 1"
+git commit -q --allow-empty -m "integration work 2"
+# Fabricate a remote-tracking ref that is ahead of the local integration branch.
+git update-ref refs/remotes/origin/develop HEAD
+git branch -f develop HEAD~2 2>/dev/null || { git checkout -q -B tmp-holder; git branch -f develop HEAD~2; }
+git checkout -q -B feat/stale-probe origin/develop
+git commit -q --allow-empty -m "feature work"
+STALE_STATE="$($STATE --state)"
+eq "--state measures against the remote-tracking integration ref when present" \
+   "$(echo "$STALE_STATE" | jq -r '.ahead_of_integration')" "1"
+eq "--state names the ref it measured against" \
+   "$(echo "$STALE_STATE" | jq -r '.integration_ref_kind')" "remote-tracking"
+eq "--state reports how far the local integration branch trails the remote" \
+   "$(echo "$STALE_STATE" | jq -r '.integration_local_behind_remote')" "2"
+git update-ref -d refs/remotes/origin/develop
+NOREMOTE_STATE="$($STATE --state)"
+eq "--state falls back to the local integration branch with no remote-tracking ref" \
+   "$(echo "$NOREMOTE_STATE" | jq -r '.integration_ref_kind')" "local"
+git checkout -q -B main
+
 # Test fingerprint mode (deterministic but unique per state)
 FINGERPRINT_1="$($STATE --fingerprint)"
 FINGERPRINT_2="$($STATE --fingerprint)"

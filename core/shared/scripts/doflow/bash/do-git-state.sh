@@ -110,11 +110,34 @@ do_state() {
   local dirty="false"
   is_dirty && dirty="true"
   
+  # Which ref the integration branch resolves to decides whether this number means anything. The
+  # local branch was used unconditionally, so a develop that had not been pulled in a while made
+  # every distance wrong by however stale it was — observed live at 22 reported against 32 actual.
+  #
+  # The remote-tracking ref is preferred where it exists, and the local branch is the fallback for a
+  # repository with no remote or one never fetched. Preferring it does not make the answer *fresh*:
+  # origin/develop is only as current as the last fetch. So the ref actually used is reported, and
+  # so is any disagreement between the two, rather than leaving the basis of the number invisible.
+  local integration_ref="$integration_branch"
+  local integration_ref_kind="local"
+  if git rev-parse --verify --quiet "refs/remotes/origin/${integration_branch}" >/dev/null 2>&1; then
+    integration_ref="origin/${integration_branch}"
+    integration_ref_kind="remote-tracking"
+  fi
+
+  # How far the local integration branch trails the remote-tracking one. Non-zero means a `git
+  # fetch` would change the answer below, which is exactly when a caller should not trust it.
+  local integration_local_behind=0
+  if [ "$integration_ref_kind" = "remote-tracking" ] && \
+     git rev-parse --verify --quiet "refs/heads/${integration_branch}" >/dev/null 2>&1; then
+    integration_local_behind="$(git rev-list --count "${integration_branch}..origin/${integration_branch}" 2>/dev/null || echo 0)"
+  fi
+
   local ahead="0"
   local behind="0"
   if git rev-parse "refs/heads/${current_branch}" >/dev/null 2>&1 && \
-     git rev-parse "refs/heads/${integration_branch}" >/dev/null 2>&1; then
-    local counts="$(commits_between "$current_branch" "$integration_branch")"
+     git rev-parse --verify --quiet "$integration_ref" >/dev/null 2>&1; then
+    local counts="$(commits_between "$current_branch" "$integration_ref")"
     ahead="$(echo "$counts" | awk '{print $1}')"
     behind="$(echo "$counts" | awk '{print $2}')"
   fi
@@ -132,6 +155,9 @@ do_state() {
     --arg ahead "$ahead" \
     --arg behind "$behind" \
     --arg position "$position" \
+    --arg integration_ref "$integration_ref" \
+    --arg integration_ref_kind "$integration_ref_kind" \
+    --arg integration_local_behind "$integration_local_behind" \
     '{
       branch:        (if $branch=="" then null else $branch end),
       class:         $class_name,
@@ -139,6 +165,9 @@ do_state() {
       dirty:         $dirty,
       ahead_of_integration: ($ahead | tonumber),
       behind_integration: ($behind | tonumber),
+      integration_ref: $integration_ref,
+      integration_ref_kind: $integration_ref_kind,
+      integration_local_behind_remote: ($integration_local_behind | tonumber),
       position:      $position
     }'
 }
