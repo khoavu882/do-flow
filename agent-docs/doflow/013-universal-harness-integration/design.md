@@ -188,9 +188,9 @@ interface HarnessAdapter {
     },
     "stepIdx": 12,
     "conversationId": "f996d0d9-c7e0-43b2-8211-477c49cac132",
-    "workspacePaths": ["/Users/kai/Workspace/learning/do-flow"],
-    "transcriptPath": "/Users/kai/.gemini/antigravity-ide/brain/f996d0d9/transcript.jsonl",
-    "artifactDirectoryPath": "/Users/kai/.gemini/antigravity-ide/brain/f996d0d9"
+    "workspacePaths": ["<repo>"],
+    "transcriptPath": "<home>/.gemini/antigravity-ide/brain/f996d0d9/transcript.jsonl",
+    "artifactDirectoryPath": "<home>/.gemini/antigravity-ide/brain/f996d0d9"
   }
   ```
 - **Output (JSON on `stdout`):**
