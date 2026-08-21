@@ -460,6 +460,26 @@ eq "--next-version base_tag reports the pre-release tag as-is" \
    "$(echo "$NEXT_PRERELEASE" | jq -r '.base_tag')" "v1.0.0-beta.1"
 git tag -d v1.0.0-beta.1 >/dev/null
 
+# Regression: next_prerelease computed beta.N+1 arithmetically and offered it without checking
+# whether that tag existed, proposing v1.0.0-beta.8 while that tag was already on the remote.
+# `git describe` finds the nearest *reachable* tag, so a pre-release cut on an unmerged branch is
+# invisible to the base-tag lookup and collides here instead.
+git tag v1.0.0-beta.1
+git tag v1.0.0-beta.2          # the obvious candidate is taken
+TAKEN="$($STATE --next-version)"
+eq "--next-version skips a pre-release number whose tag already exists" \
+   "$(echo "$TAKEN" | jq -r '.next_prerelease')" "1.0.0-beta.3"
+eq "--next-version reports how many taken numbers it stepped over" \
+   "$(echo "$TAKEN" | jq -r '.next_prerelease_skipped')" "1"
+git tag v1.0.0-beta.3
+git tag v1.0.0-beta.4          # a run of taken numbers
+RUN="$($STATE --next-version)"
+eq "--next-version walks past a run of taken numbers" \
+   "$(echo "$RUN" | jq -r '.next_prerelease')" "1.0.0-beta.5"
+eq "--next-version counts every number it skipped" \
+   "$(echo "$RUN" | jq -r '.next_prerelease_skipped')" "3"
+git tag -d v1.0.0-beta.1 v1.0.0-beta.2 v1.0.0-beta.3 v1.0.0-beta.4 >/dev/null
+
 # A pre-release at a non-zero patch, with no feat commits behind it, is a PATCH bump: the patch
 # does not increment from a pre-release, so 1.2.3-rc.1 releases as 1.2.3.
 git tag v1.2.3-rc.1

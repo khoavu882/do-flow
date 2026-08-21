@@ -245,11 +245,32 @@ do_next_version() {
 
   # The other honest option for a pre-release base: continue the line rather than promote it.
   # Reported alongside so the release ritual can offer the choice instead of assuming one.
+  #
+  # The candidate is checked against the tags that exist before it is offered. Computing beta.N+1
+  # arithmetically proposed v1.0.0-beta.8 while that tag was already on origin — a well-formed
+  # value derived without consulting the thing it describes, which is the defect this field was
+  # added to help avoid. `git describe` finds the nearest *reachable* tag, so a pre-release cut on
+  # a branch that was never merged is invisible to the base-tag lookup and collides here instead.
+  #
+  # Advancing past a taken number rather than stopping at it: the caller wants a usable candidate,
+  # and the gap that leaves is a fact about the tag history, not something to hide. Bounded so a
+  # pathological tag set cannot spin.
   local next_prerelease=""
+  local next_prerelease_skipped=0
   if [ -n "$prerelease" ]; then
     local pre_label="${prerelease%.*}" pre_num="${prerelease##*.}"
     if printf '%s' "$pre_num" | grep -qE '^[0-9]+$'; then
-      next_prerelease="${version_core}-${pre_label}.$((pre_num + 1))"
+      local candidate_num=$((pre_num + 1))
+      local guard=0
+      while [ "$guard" -lt 100 ]; do
+        next_prerelease="${version_core}-${pre_label}.${candidate_num}"
+        if ! git rev-parse --verify --quiet "refs/tags/v${next_prerelease}" >/dev/null 2>&1; then
+          break
+        fi
+        candidate_num=$((candidate_num + 1))
+        next_prerelease_skipped=$((next_prerelease_skipped + 1))
+        guard=$((guard + 1))
+      done
     else
       next_prerelease="${version_core}-${prerelease}.1"
     fi
@@ -260,6 +281,7 @@ do_next_version() {
     --arg current_version "$current_version" \
     --arg next_version "$next_version" \
     --arg next_prerelease "$next_prerelease" \
+    --arg next_prerelease_skipped "${next_prerelease_skipped:-0}" \
     --arg prerelease "$prerelease" \
     --arg bump_kind "$bump_kind" \
     --argjson commit_count "$commit_count" \
@@ -269,6 +291,7 @@ do_next_version() {
       is_prerelease:    ($prerelease != ""),
       next_version:     $next_version,
       next_prerelease:  (if $next_prerelease=="" then null else $next_prerelease end),
+      next_prerelease_skipped: ($next_prerelease_skipped | tonumber),
       bump_kind:        $bump_kind,
       commits_count:    ($commit_count | tonumber)
     }'
