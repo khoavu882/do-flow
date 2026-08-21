@@ -4,10 +4,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { finishRuntime, usageError } = require('./cli-result');
+const { REPO_ROOT } = require('../helper/repo-root');
 
 // Mirrors bin/doflow.js's own REPO_ROOT computation, relative to this file's location, so
 // handleRouteCommand resolves the same repo root it did before relocation. (D8)
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 function parseYamlFile(filePath, fsImpl = fs) {
   try {
@@ -30,7 +30,7 @@ class CapabilityRouter {
    */
   constructor(options = {}) {
     this.fsImpl = options.fsImpl || fs;
-    this.repoRoot = options.repoRoot || path.resolve(__dirname, '..', '..');
+    this.repoRoot = options.repoRoot || REPO_ROOT;
     this.registryDir = options.registryDir || path.join(this.repoRoot, 'core', 'registry');
     this.binaryChecker = options.binaryChecker || null;
     this.binaryCache = new Map();

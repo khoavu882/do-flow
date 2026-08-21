@@ -6,7 +6,7 @@ SANDBOX: .doflow/worktrees/bench-d3-do-constitution-1 (pre-existing; REUSED, not
   branch task/bench-d3-do-constitution-1, base commit 704fb3315890afef5f0808213b02b3f4250600d2
   manifest: skillCount 13, mismatches []
 SKILL RESOLUTION: by absolute path via cat. No Skill tool call, no /do-constitution.
-  path:   /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-constitution-1/.claude/skills/do-constitution/SKILL.md
+  path:   <repo>/.doflow/worktrees/bench-d3-do-constitution-1/.claude/skills/do-constitution/SKILL.md
   sha256: de979411201f80975b4ef8f5372bc460c13fb747f39997c344c47c0891e622db  (matches brief)
 
 --------------------------------------------------------------------
@@ -37,7 +37,7 @@ Ran the resolver snippet from SKILL.md verbatim, with CWD at the sandbox project
   [ -x "$DOFLOW" ] || { echo "doflow: no runtime found ..." >&2; exit 2; }
 
 RESOLVED on the FIRST loop iteration (the sandbox's own .doflow/), no $HOME fallback, no exit 2:
-  DOFLOW=/Users/kai/.../worktrees/bench-d3-do-constitution-1/.doflow/scripts/doflow/bin/doflow-run
+  DOFLOW=<home>/.../worktrees/bench-d3-do-constitution-1/.doflow/scripts/doflow/bin/doflow-run
 
 $ "$DOFLOW" paths --json      -> exit 0
 {

@@ -1,0 +1,39 @@
+{
+  "description": "DoFlow lifecycle hooks for Google Antigravity (IDE & CLI). Uses stdin/stdout JSON protocol for real-time gating.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "bash \"$DOFLOW_PROJECT_DIR/.gemini/hooks/session-start.sh\""
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(run_command|replace_file_content|write_to_file|multi_replace_file_content)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$DOFLOW_PROJECT_DIR/.doflow/scripts/stream-hook-runner.js\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^(replace_file_content|write_to_file|multi_replace_file_content)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$DOFLOW_PROJECT_DIR/.gemini/hooks/post-edit-lint.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "bash \"$DOFLOW_PROJECT_DIR/.gemini/hooks/stop-check.sh\""
+      }
+    ]
+  }
+}

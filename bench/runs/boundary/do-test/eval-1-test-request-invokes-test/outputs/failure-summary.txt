@@ -5,7 +5,7 @@ not ok 299 - G11: real feature artifacts generate a contained, idempotent scaffo
   ---
   duration_ms: 0.638334
   type: 'test'
-  location: '/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-test-1/test/guards/scaffold.test.js:330:1'
+  location: '<repo>/.doflow/worktrees/bench-boundary-do-test-1/test/guards/scaffold.test.js:330:1'
   failureType: 'testCodeFailure'
   error: 'no feature directory in agent-docs/doflow carries all three artifacts — this guard would prove nothing'
   code: 'ERR_ASSERTION'
@@ -14,7 +14,7 @@ not ok 299 - G11: real feature artifacts generate a contained, idempotent scaffo
   actual: false
   operator: '=='
   stack: |-
-    TestContext.<anonymous> (/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-test-1/test/guards/scaffold.test.js:338:10)
+    TestContext.<anonymous> (<repo>/.doflow/worktrees/bench-boundary-do-test-1/test/guards/scaffold.test.js:338:10)
     Test.runInAsyncScope (node:async_hooks:214:14)
     Test.run (node:internal/test_runner/test:1047:25)
     Test.processPendingSubtests (node:internal/test_runner/test:744:18)

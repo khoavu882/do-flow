@@ -104,7 +104,7 @@ the skill explicitly forbids calling readiness for a stage that declares none.
 Step 9 — Stop. Reporting the design path per the skill's own closing instruction:
 
   Design written to: agent-docs/doflow/task/bench-boundary-do-design-2/design.md
-  (sandbox-absolute: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-design-2/agent-docs/doflow/task/bench-boundary-do-design-2/design.md)
+  (sandbox-absolute: <repo>/.doflow/worktrees/bench-boundary-do-design-2/agent-docs/doflow/task/bench-boundary-do-design-2/design.md)
 
 Next step per the skill's Boundaries: /do-plan, to turn this design into an implementation plan.
 This run did not write plan.md, did not write code, and did not execute anything beyond the

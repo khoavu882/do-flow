@@ -20,7 +20,7 @@ Ran the deterministic resolver:
   bash "$RESOLVER" --json
 
 Resolver output (from the worktree
-/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-baseline-do-brainstorm-2, on
+<repo>/.doflow/worktrees/bench-baseline-do-brainstorm-2, on
 branch task/bench-baseline-do-brainstorm-2):
 
   {
@@ -138,9 +138,9 @@ top blockquote note and in the literal "§7 Open Questions: None." sentence) —
 
 Requirement path: agent-docs/doflow/task/bench-baseline-do-brainstorm-2/requirement.md (relative
 to the worktree
-/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-baseline-do-brainstorm-2), full
+<repo>/.doflow/worktrees/bench-baseline-do-brainstorm-2), full
 absolute path:
-/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-baseline-do-brainstorm-2/agent-docs/doflow/task/bench-baseline-do-brainstorm-2/requirement.md
+<repo>/.doflow/worktrees/bench-baseline-do-brainstorm-2/agent-docs/doflow/task/bench-baseline-do-brainstorm-2/requirement.md
 
 Section 7 (Open Questions) confirms zero remaining [NEEDS CLARIFICATION] markers. Per the
 skill's CRITICAL BOUNDARIES, brainstorming stops here — next steps would be /do-design (system
@@ -155,10 +155,10 @@ own scope.
 3. Bash -> located and ran do-paths.sh resolver (--json)
 4. Bash -> find (locate MODE_Brainstorming.md, requirement-template.md, ARTIFACT_FORMAT.md)
 5. Bash -> ls -la (inspect ~/.doflow directory structure after initial find came up empty)
-6. Read -> /Users/kai/.doflow/guidance/modes/MODE_Brainstorming.md
-7. Read -> /Users/kai/.doflow/templates/doflow/requirement-template.md
+6. Read -> <home>/.doflow/guidance/modes/MODE_Brainstorming.md
+7. Read -> <home>/.doflow/templates/doflow/requirement-template.md
 8. Bash -> find (locate ARTIFACT_FORMAT.md and do-brainstorm skill dir)
-9. Read -> /Users/kai/.doflow/guidance/references/ARTIFACT_FORMAT.md
+9. Read -> <home>/.doflow/guidance/references/ARTIFACT_FORMAT.md
 10. Bash -> mkdir -p agent-docs/doflow/task/bench-baseline-do-brainstorm-2
 11. Write -> agent-docs/doflow/task/bench-baseline-do-brainstorm-2/requirement.md
 12. Bash -> validate-artifacts.sh against the new requirement.md

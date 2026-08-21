@@ -16,7 +16,7 @@ model:     claude-opus-5[1m]  (brief nominated claude-sonnet-5; actual executor
 Sandbox did not exist. Ran the brief's sandbox.create verbatim:
 
   $ node -e "const{WorktreeManager}=require('./src/runtime/worktree.js');const m=new WorktreeManager(process.cwd());const r=m.createSandbox('bench-d3-do-test-2');console.log(r.path+' skills='+r.manifest.skillCount)"
-  /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-test-2 skills=13
+  <repo>/.doflow/worktrees/bench-d3-do-test-2 skills=13
 
 Sandbox branch: task/bench-d3-do-test-2
 Sandbox manifest .doflow-skill-source.json: sourceCommit b20f006f338a6327923b5febd562fe4521959cca,
@@ -32,7 +32,7 @@ case's own outputDir. sandbox.remove was NOT run.
 --------------------------------------------------------------------------------
 Read via `cat`, not via the Skill tool, not via /do-test:
 
-  path:   /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-test-2/.claude/skills/do-test/SKILL.md
+  path:   <repo>/.doflow/worktrees/bench-d3-do-test-2/.claude/skills/do-test/SKILL.md
   sha256: 90b9999361686618ba246d38feed425f92f6e723255bffd02740be20cac5d812
 
   $ shasum -a 256 .claude/skills/do-test/SKILL.md
@@ -55,7 +55,7 @@ Ran the skill's resolver block verbatim, with CWD at the sandbox root:
   $ [ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
   $ [ -x "$DOFLOW" ] || { echo "doflow: no runtime found ..." >&2; exit 2; }
   $ echo "DOFLOW=$DOFLOW"
-  DOFLOW=/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-test-2/.doflow/scripts/doflow/bin/doflow-run
+  DOFLOW=<repo>/.doflow/worktrees/bench-d3-do-test-2/.doflow/scripts/doflow/bin/doflow-run
 
 Resolved on the FIRST iteration to the sandbox's own install — the walk-up never
 escaped to the parent checkout or to $HOME. Followable exactly as written.

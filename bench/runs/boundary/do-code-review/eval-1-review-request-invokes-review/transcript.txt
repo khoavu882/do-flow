@@ -3,7 +3,7 @@ PROMPT: "Can you review the changes on this branch before I open a PR?"
 === TRIGGERING JUDGMENT ===
 
 Skill opened by path (not by name / Skill tool):
-/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-code-review-1/.claude/skills/do-code-review/SKILL.md
+<repo>/.doflow/worktrees/bench-boundary-do-code-review-1/.claude/skills/do-code-review/SKILL.md
 sha256: f98813e5eff914c709be5579ad5b3410893109666ebe5d8ec4c1e56f8f22d3d1
 
 Frontmatter read:
@@ -23,7 +23,7 @@ will become a PR is exactly the described use case, independent of any specific 
 === EXECUTED REVIEW (following SKILL.md's own instructions) ===
 
 Working directory: sandbox worktree
-/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-code-review-1
+<repo>/.doflow/worktrees/bench-boundary-do-code-review-1
 
 1. Checked git state in the sandbox:
    - `git status` — clean except two untracked bench-harness marker files

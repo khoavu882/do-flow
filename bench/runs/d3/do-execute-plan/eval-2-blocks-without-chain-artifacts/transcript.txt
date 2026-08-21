@@ -5,7 +5,7 @@ SANDBOX: .doflow/worktrees/bench-d3-do-execute-plan-2 (created this run, skills=
   branch: task/bench-d3-do-execute-plan-2
 
 --- STEP 0: skill resolution (by path) ---
-Read: /Users/kai/.../worktrees/bench-d3-do-execute-plan-2/.claude/skills/do-execute-plan/SKILL.md
+Read: <home>/.../worktrees/bench-d3-do-execute-plan-2/.claude/skills/do-execute-plan/SKILL.md
 shasum -a 256 -> 672ab166a6d231b6b0fb8aca2f273cad9779f8fa85eea9540c3cd065c164949c  (matches brief)
 Skill tool NOT used. /do-execute-plan was in the PROMPT but was never invoked as a slash command;
 the sandbox file was read and followed as the instructions.
@@ -32,7 +32,7 @@ subsequent calls, as step 1 instructs.
 
 $ "$DOFLOW" paths --json                                        [exit 0]
 {
-  "repo_root": "/Users/kai/.../worktrees/bench-d3-do-execute-plan-2",
+  "repo_root": "<home>/.../worktrees/bench-d3-do-execute-plan-2",
   "is_git_repo": true,
   "branch": "task/bench-d3-do-execute-plan-2",
   "feature_slug": "bench-d3-do-execute-plan-2",

@@ -46,6 +46,7 @@ const { probeFreshness } = require('./health');
 // that recorded one would hand the next worker a confidence dressed as a measurement.
 const { assertNoScoreFields } = require('./cli');
 const { finishRuntime, usageError } = require('./cli-result');
+const { REPO_ROOT } = require('../helper/repo-root');
 
 // ── the closed result vocabulary (design §4) ─────────────────────────────────────────────────
 
@@ -490,7 +491,7 @@ function handleRetrievalPlanCommand(options = {}) {
   // The project the task belongs to owns both the state and the index whose age is being measured.
   // The package root owns the capability registries, and is a different directory in every install.
   const projectRoot = stateRoot || process.cwd();
-  const packageRoot = repoRoot || path.resolve(__dirname, '..', '..');
+  const packageRoot = repoRoot || REPO_ROOT;
 
   try {
     assertSafeTaskId(taskId);

@@ -10,7 +10,7 @@ const {
   buildStats,
   buildDiscover,
   PROVIDER,
-} = require('./trace-views');
+} = require('./views');
 const {
   shortTime,
   formatMs,
@@ -18,7 +18,7 @@ const {
   integrityNote,
   printEmptyLedgerNotice,
   DISCOVER_MARK,
-} = require('./trace-render');
+} = require('./render');
 
 /**
  * Task-run telemetry — the JavaScript port of
@@ -548,7 +548,7 @@ function handleDiscoverCommand({ json = false, days = null, global: useGlobal = 
   let health = providerHealth;
   if (health === undefined) {
     try {
-      health = require('./health').probeProviders({ ids: Object.values(PROVIDER) });
+      health = require('../health').probeProviders({ ids: Object.values(PROVIDER) });
     } catch {
       health = null;
     }

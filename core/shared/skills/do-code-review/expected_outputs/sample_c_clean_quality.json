@@ -18,7 +18,7 @@
     {
       "type": "long_function",
       "severity": "medium",
-      "message": "Function 'safe_input' has 61 lines (max: 50)",
+      "message": "Function 'safe_input' has 60 lines (max: 50)",
       "location": "safe_input"
     },
     {
@@ -39,25 +39,25 @@
     {
       "name": "safe_input",
       "parameters": 1,
-      "lines": 61,
+      "lines": 60,
       "complexity": 3
     },
     {
       "name": "checked_alloc",
       "parameters": 1,
-      "lines": 31,
+      "lines": 30,
       "complexity": 2
     },
     {
       "name": "run_safe_cmd",
       "parameters": 1,
-      "lines": 15,
+      "lines": 14,
       "complexity": 1
     },
     {
       "name": "main",
       "parameters": 2,
-      "lines": 9,
+      "lines": 8,
       "complexity": 1
     }
   ],

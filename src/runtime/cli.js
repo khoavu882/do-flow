@@ -6,9 +6,12 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { CapabilityRouter } = require('./capability-router');
 const { EvidenceLedger, VALID_EVIDENCE_KINDS, VALID_PROVENANCE } = require('./evidence-ledger');
+const { resolveLocator, describeResolution } = require('./locator-resolve');
 const { ClaimsManager } = require('./claims');
+const { measureFreshness, FreshnessValidator } = require('./freshness');
 const { ReadinessEngine } = require('./readiness');
 const { loadRegistry } = require('../registry');
+const { REPO_ROOT } = require('../helper/repo-root');
 
 /**
  * Handles `doflow capabilities` command execution.
@@ -18,7 +21,7 @@ const { loadRegistry } = require('../registry');
  * @param {string} [options.repoRoot]
  */
 function handleCapabilitiesCommand({ json = false, check = false, repoRoot } = {}) {
-  const root = repoRoot || path.resolve(__dirname, '..', '..');
+  const root = repoRoot || REPO_ROOT;
   const router = new CapabilityRouter({ repoRoot: root });
   const report = router.getAllCapabilitiesHealth(check);
 
@@ -106,7 +109,7 @@ function handleReadinessCommand({
   // evidence, which belongs to the caller's repo — not to wherever DoFlow happens to be installed.
   // Sharing one root put every project's per-task evidence inside the DoFlow install directory,
   // which under an npm install is node_modules/ — shared across all projects and often read-only.
-  const root = repoRoot || path.resolve(__dirname, '..', '..');
+  const root = repoRoot || REPO_ROOT;
   const state = stateRoot || process.cwd();
   const ledger = new EvidenceLedger({ repoRoot: state });
   try {
@@ -115,10 +118,19 @@ function handleReadinessCommand({
     return usageError('readiness', error.message, json);
   }
 
+  // Re-evaluate freshness before anything counts this evidence as support. measureFreshness stamps
+  // FRESH at write time and nothing used to revisit it, so the engine's `status: 'FRESH'` filter
+  // matched every item ever recorded and the claim status `invalidated` could not occur.
+  //
+  // In memory only — `ledger.save` is deliberately not called here. Freshness is a property of the
+  // moment it is asked, not a stored fact: persisting it would make a read operation write, and
+  // would freeze a verdict that should be recomputed on the next call.
+  const staleCount = new FreshnessValidator({ repoRoot: state }).validateLedgerFreshness(ledger);
+
   const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: state });
   claims.load(taskId);
 
-  const engine = new ReadinessEngine({ repoRoot: root });
+  const engine = new ReadinessEngine({ repoRoot: root, projectRoot: state });
   // Only what the caller actually told us. An absent key must stay absent rather than become a
   // falsy default, because the engine reads presence, not truth.
   const profile = { taskId, taskClass };
@@ -270,9 +282,10 @@ function parseLocator(raw) {
  *
  * @param {Object} raw
  * @param {string} taskId the task the batch is being written to
+ * @param {string} [repoRoot] root a relative locator resolves against; defaults to cwd
  * @returns {{kind:string, provenance:string, source:Object, locator:Object, content:(string|null)}}
  */
-function validateEvidenceItem(raw, taskId) {
+function validateEvidenceItem(raw, taskId, repoRoot) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('an evidence item must be a JSON object');
   assertNoScoreFields(raw, '');
 
@@ -327,6 +340,19 @@ function validateEvidenceItem(raw, taskId) {
       + 'must name where it was read, or the next worker cannot check it and cannot tell when it goes stale');
   }
 
+  // A locator that parses is not a locator that resolves (FR-004). Shape validation alone let an
+  // item naming line 799 of a 28-line file be recorded as support and counted by the readiness
+  // gate. The refusal names what the file actually offers, so the writer can correct it here rather
+  // than discover it at the gate.
+  if (raw.provenance === 'extracted' && locator) {
+    const resolution = resolveLocator({ locator, repoRoot });
+    if (!resolution.resolved) {
+      throw new Error(`the locator does not resolve: ${describeResolution(locator, resolution)}. `
+        + "An 'extracted' item asserts a read of the repository, so a locator that points at nothing "
+        + 'records a fact nobody can check');
+    }
+  }
+
   if (raw.content !== undefined && typeof raw.content !== 'string') throw new Error('content must be a string');
   const content = typeof raw.content === 'string' && raw.content.trim() !== '' ? raw.content : null;
   if (raw.provenance !== 'extracted' && !content) {
@@ -354,33 +380,6 @@ function headCommit(root) {
   }
 }
 
-/**
- * Freshness, measured at the write boundary.
- *
- * `FreshnessValidator` invalidates by diffing a recorded commit against the working tree, so the
- * commit is what makes an evidence record expirable at all; a record written without one can never
- * be shown to have gone stale. Both fields are null when they cannot be established — an
- * unmeasurable commit is recorded as unmeasured, not as a value that happens to parse.
- *
- * @param {string} root project root the locator is relative to
- * @param {Object} locator
- * @param {string|null} gitCommit resolved once per invocation
- * @returns {Object}
- */
-function measureFreshness(root, locator, gitCommit) {
-  let fileHash = null;
-  if (locator && locator.file) {
-    try {
-      const abs = path.resolve(root, locator.file);
-      if (fs.existsSync(abs) && fs.statSync(abs).isFile()) {
-        fileHash = `sha256:${crypto.createHash('sha256').update(fs.readFileSync(abs)).digest('hex')}`;
-      }
-    } catch {
-      fileHash = null;
-    }
-  }
-  return { gitCommit, fileHash, observedAt: new Date().toISOString(), status: 'FRESH' };
-}
 
 /**
  * Reads a stage's evidence batch: a JSON array, or `{ "evidence": [...] }`.
@@ -444,7 +443,7 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json }) {
   const validated = [];
   for (const [index, raw] of raws.entries()) {
     try {
-      validated.push(validateEvidenceItem(raw, taskId));
+      validated.push(validateEvidenceItem(raw, taskId, root));
     } catch (error) {
       const where = raws.length > 1 ? `batch item ${index + 1} of ${raws.length}: ` : '';
       return usageError('evidence', `${where}${error.message}`, json);

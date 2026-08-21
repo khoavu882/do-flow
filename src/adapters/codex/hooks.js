@@ -6,6 +6,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { verifyHookCommands } = require('../hook-commands');
+const { mergeHooks } = require('../../helper/settings-merge');
 
 const SUPPORTED_EVENTS = new Set([
   'PreToolUse', 'PermissionRequest', 'PostToolUse', 'PreCompact', 'PostCompact',
@@ -108,8 +109,19 @@ function planCodexHooks({ config, sourceFile, sourceHooksDir, destinationContext
   }
   const commands = verifyHookCommands(desired || {}, { scriptsDir: sourceHooksDir, trusted, fsImpl });
   const errors = [...schema.errors, ...commands.checks.filter((check) => !check.ok).map((check) => `${check.event}: ${check.reason}${check.script ? ` (${check.script})` : ''}`)];
-  const content = schema.ok ? `${JSON.stringify(desired, null, 2)}\n` : null;
+  let mergedDesired = desired;
   const original = fsImpl.existsSync(destination) ? fsImpl.readFileSync(destination, 'utf8') : '';
+  if (original.trim()) {
+    try {
+      const existing = JSON.parse(original);
+      if (existing?.hooks && desired?.hooks) {
+        mergedDesired = { ...existing, ...desired, hooks: mergeHooks(existing.hooks, desired.hooks) };
+      }
+    } catch {
+      // malformed existing will be flagged or left for schema validation
+    }
+  }
+  const content = schema.ok && mergedDesired ? `${JSON.stringify(mergedDesired, null, 2)}\n` : null;
   if (errors.length) return { ok: false, status: 'invalid-request', destination, original, changes: [], errors, commands };
   const changed = original !== content;
   return { ok: true, status: changed ? 'change' : 'unchanged', destination, original, content,

@@ -6,14 +6,14 @@
     "status": "verified",
     "expectedSha256": "9c110ba53f7e4fef463e52c28b0671528560cd882849f39c1e75a7a592caf450",
     "recordedSha256": "9c110ba53f7e4fef463e52c28b0671528560cd882849f39c1e75a7a592caf450",
-    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-1/.claude/skills/do/SKILL.md",
-    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-1/.claude/skills/do/SKILL.md (matches core/shared/skills/do/SKILL.md)"
+    "recordedPath": "<repo>/.doflow/worktrees/bench-boundary-do-1/.claude/skills/do/SKILL.md",
+    "evidence": "read <repo>/.doflow/worktrees/bench-boundary-do-1/.claude/skills/do/SKILL.md (matches core/shared/skills/do/SKILL.md)"
   },
   "expectations": [
     {
       "text": "do was invoked",
       "passed": true,
-      "evidence": "do: verified — read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-1/.claude/skills/do/SKILL.md (matches core/shared/skills/do/SKILL.md)"
+      "evidence": "do: verified — read <repo>/.doflow/worktrees/bench-boundary-do-1/.claude/skills/do/SKILL.md (matches core/shared/skills/do/SKILL.md)"
     },
     {
       "text": "The documentation part is routed to do-document by name",

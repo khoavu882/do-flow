@@ -6,14 +6,14 @@
     "status": "verified",
     "expectedSha256": "b326aa8f28eb6818a569cbd45f1686327611204bc69255e917c3603530972349",
     "recordedSha256": "b326aa8f28eb6818a569cbd45f1686327611204bc69255e917c3603530972349",
-    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-code-review-1/.claude/skills/do-code-review/SKILL.md",
-    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-code-review-1/.claude/skills/do-code-review/SKILL.md (matches core/shared/skills/do-code-review/SKILL.md)"
+    "recordedPath": "<repo>/.doflow/worktrees/bench-d3-do-code-review-1/.claude/skills/do-code-review/SKILL.md",
+    "evidence": "read <repo>/.doflow/worktrees/bench-d3-do-code-review-1/.claude/skills/do-code-review/SKILL.md (matches core/shared/skills/do-code-review/SKILL.md)"
   },
   "expectations": [
     {
       "text": "do-code-review was invoked",
       "passed": true,
-      "evidence": "do-code-review: verified — read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-code-review-1/.claude/skills/do-code-review/SKILL.md (matches core/shared/skills/do-code-review/SKILL.md)"
+      "evidence": "do-code-review: verified — read <repo>/.doflow/worktrees/bench-d3-do-code-review-1/.claude/skills/do-code-review/SKILL.md (matches core/shared/skills/do-code-review/SKILL.md)"
     },
     {
       "text": "Findings name real source paths in this repo (src/, bench/, core/, test/ or bin/)",

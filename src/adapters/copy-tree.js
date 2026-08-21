@@ -73,7 +73,7 @@ function discoverTree({ sourceDir, destDir, fsImpl = fs, layout }) {
  * `operation: 'remove'` skips the source tree entirely and only proposes removals for every
  * previously-owned file, mirroring Codex's `ownedRemovalPlan`.
  */
-function planTree({ sourceDir, destDir, previousResources = [], operation = 'apply', fsImpl = fs, layout }) {
+function planTree({ sourceDir, destDir, previousResources = [], operation = 'apply', fsImpl = fs, layout, force = false }) {
   const prevByPath = new Map(previousResources.map((resource) => [resource.relPath, resource]));
   const changes = [];
   const conflicts = [];
@@ -109,7 +109,7 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
     // as an un-releasable claim instead of a refused install. A hand edit matches neither and is
     // still refused. The OBSERVED fingerprint travels with the change so removeTree's own
     // pre-delete re-check agrees with the decision taken here rather than throwing mid-apply.
-    if (current !== prev.fingerprint && current !== sourceFingerprint(destAbs)) {
+    if (!force && current !== prev.fingerprint && current !== sourceFingerprint(destAbs)) {
       conflicts.push(`${prev.relPath} was modified outside DoFlow`);
       return;
     }
@@ -146,7 +146,7 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
       // than `prev !== undefined` alone, as before) is strictly more precise: a relocated asset's
       // old row describes different bytes at a different path, so it must not be consulted here.
       const current = sha256(fsImpl.readFileSync(file.destAbs));
-      const knownGood = current === file.fingerprint || (sameLocation && current === prev.fingerprint);
+      const knownGood = force || current === file.fingerprint || (sameLocation && current === prev.fingerprint);
       if (!knownGood) { conflicts.push(`${file.relPath} was modified outside DoFlow`); continue; }
     }
     if (sameLocation && prev.fingerprint === file.fingerprint && file.exists) continue; // unchanged, no-op

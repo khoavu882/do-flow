@@ -10,7 +10,7 @@ TRIGGERING JUDGMENT
 
 I read the skill's YAML frontmatter directly from the sandbox path (NOT via the Skill tool):
 
-  /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-brainstorm-1/.claude/skills/do-brainstorm/SKILL.md
+  <repo>/.doflow/worktrees/bench-boundary-do-brainstorm-1/.claude/skills/do-brainstorm/SKILL.md
 
   description: "Interactive requirements discovery through Socratic dialogue; seeds
   requirement.md in a branch-coupled feature dir as Phase 1 of the doflow chain. Use when an

@@ -3,12 +3,12 @@ Kind: triggering
 Prompt evaluated: "Go ahead and work through the tasks in the plan."
 
 === Setup ===
-Sandbox specified for this eval: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-execute-plan-1
+Sandbox specified for this eval: <repo>/.doflow/worktrees/bench-boundary-do-execute-plan-1
 File opened by absolute path (NOT via the Skill tool):
-  /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-execute-plan-1/.claude/skills/do-execute-plan/SKILL.md
+  <repo>/.doflow/worktrees/bench-boundary-do-execute-plan-1/.claude/skills/do-execute-plan/SKILL.md
 
 Note on output location: this agent itself executes isolated inside its own git worktree
-(/Users/kai/Workspace/learning/do-flow/.claude/worktrees/agent-a1a19b047d06a478d) and the Write
+(<repo>/.claude/worktrees/agent-a1a19b047d06a478d) and the Write
 tool refused writes to the main-repo bench path outside that worktree. Output files are therefore
 written to the equivalent bench/runs/... path inside this agent's own worktree, mirroring the
 requested layout exactly.
@@ -57,7 +57,7 @@ gate: prereqs --require-plan").
 
 === Tool/skill usage log (in order) ===
 1. Read — opened the SKILL.md file by absolute path:
-   /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-execute-plan-1/.claude/skills/do-execute-plan/SKILL.md
+   <repo>/.doflow/worktrees/bench-boundary-do-execute-plan-1/.claude/skills/do-execute-plan/SKILL.md
    (first 60 lines; sufficient to capture full YAML frontmatter and Behavioral Flow step 1)
 2. Bash — `shasum -a 256 <path>` to compute the sha256 of the exact file read
 3. Bash — `mkdir -p .../outputs && ls -la ...` to prepare the requested bench output directory

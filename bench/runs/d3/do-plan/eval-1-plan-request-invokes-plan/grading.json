@@ -6,14 +6,14 @@
     "status": "verified",
     "expectedSha256": "fb9fa71842b080326a238645d2cfcb87078d4d570bf6dfbdc5e009933eae637a",
     "recordedSha256": "fb9fa71842b080326a238645d2cfcb87078d4d570bf6dfbdc5e009933eae637a",
-    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-plan-1/.claude/skills/do-plan/SKILL.md",
-    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-plan-1/.claude/skills/do-plan/SKILL.md (matches core/shared/skills/do-plan/SKILL.md)"
+    "recordedPath": "<repo>/.doflow/worktrees/bench-d3-do-plan-1/.claude/skills/do-plan/SKILL.md",
+    "evidence": "read <repo>/.doflow/worktrees/bench-d3-do-plan-1/.claude/skills/do-plan/SKILL.md (matches core/shared/skills/do-plan/SKILL.md)"
   },
   "expectations": [
     {
       "text": "do-plan was invoked",
       "passed": true,
-      "evidence": "do-plan: verified — read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-plan-1/.claude/skills/do-plan/SKILL.md (matches core/shared/skills/do-plan/SKILL.md)"
+      "evidence": "do-plan: verified — read <repo>/.doflow/worktrees/bench-d3-do-plan-1/.claude/skills/do-plan/SKILL.md (matches core/shared/skills/do-plan/SKILL.md)"
     },
     {
       "text": "The produced plan carries task markers in the form the executor parses",

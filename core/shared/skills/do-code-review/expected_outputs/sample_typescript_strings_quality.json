@@ -1,0 +1,46 @@
+{
+  "file": "assets/sample_typescript_strings.ts",
+  "language": "typescript",
+  "metrics": {
+    "lines": {
+      "total": 37,
+      "code": 24,
+      "blank": 6,
+      "comment": 7
+    },
+    "functions": 4,
+    "classes": 0,
+    "avg_complexity": 1.5
+  },
+  "quality_score": 100,
+  "grade": "A",
+  "smells": [],
+  "solid_violations": [],
+  "function_details": [
+    {
+      "name": "has",
+      "parameters": 0,
+      "lines": 4,
+      "complexity": 1
+    },
+    {
+      "name": "describeOutcome",
+      "parameters": 0,
+      "lines": 16,
+      "complexity": 2
+    },
+    {
+      "name": "the",
+      "parameters": 0,
+      "lines": 9,
+      "complexity": 1
+    },
+    {
+      "name": "pick",
+      "parameters": 0,
+      "lines": 4,
+      "complexity": 2
+    }
+  ],
+  "class_details": []
+}

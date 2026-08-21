@@ -6,8 +6,8 @@
     "status": "verified",
     "expectedSha256": "f98813e5eff914c709be5579ad5b3410893109666ebe5d8ec4c1e56f8f22d3d1",
     "recordedSha256": "f98813e5eff914c709be5579ad5b3410893109666ebe5d8ec4c1e56f8f22d3d1",
-    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-code-review-2/.claude/skills/do-code-review/SKILL.md",
-    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-code-review-2/.claude/skills/do-code-review/SKILL.md (matches core/shared/skills/do-code-review/SKILL.md)"
+    "recordedPath": "<repo>/.doflow/worktrees/bench-boundary-do-code-review-2/.claude/skills/do-code-review/SKILL.md",
+    "evidence": "read <repo>/.doflow/worktrees/bench-boundary-do-code-review-2/.claude/skills/do-code-review/SKILL.md (matches core/shared/skills/do-code-review/SKILL.md)"
   },
   "expectations": [
     {

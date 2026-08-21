@@ -5,7 +5,7 @@ PROMPT: "/do-code-review Review the markdown in docs/architecture.md"
 The skill under test is `do-code-review`. I opened its SKILL.md directly by absolute path (not
 via the Skill tool, not by invoking "/do-code-review" as a slash command) from the sandbox worktree:
 
-  /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-code-review-3/.claude/skills/do-code-review/SKILL.md
+  <repo>/.doflow/worktrees/bench-boundary-do-code-review-3/.claude/skills/do-code-review/SKILL.md
 
 The request targets docs/architecture.md — a `.md` file. SKILL.md's own dispatch logic routes
 this to the markdown content-type path, not a per-language checker, for two independent reasons

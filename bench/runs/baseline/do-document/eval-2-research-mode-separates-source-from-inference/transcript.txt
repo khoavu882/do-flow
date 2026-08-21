@@ -128,10 +128,10 @@ Report saved to: agent-docs/research/idempotency-keys-in-payment-apis_20260817-1
 ---TOOL & SKILL LOG---
 
 1. Skill: do-document (args: "--type research What are the current approaches to idempotency keys in payment APIs?")
-2. Read: /Users/kai/.claude/skills/do-document/references/deep_research.md
+2. Read: <home>/.claude/skills/do-document/references/deep_research.md
 3. Bash: cd sandbox && pwd && ls -la (confirm sandbox location/contents)
-4. Bash: find /Users/kai/.claude/skills/do-document -iname "*DeepResearch*" -o -iname "*RESEARCH_CONFIG*" (check for referenced but possibly-missing supplementary files — none found)
-5. Bash: find /Users/kai/.claude/skills/do-document -type f (confirm actual skill directory contents; modes/MODE_DeepResearch.md and references/RESEARCH_CONFIG.md referenced in deep_research.md do not exist)
+4. Bash: find <home>/.claude/skills/do-document -iname "*DeepResearch*" -o -iname "*RESEARCH_CONFIG*" (check for referenced but possibly-missing supplementary files — none found)
+5. Bash: find <home>/.claude/skills/do-document -type f (confirm actual skill directory contents; modes/MODE_DeepResearch.md and references/RESEARCH_CONFIG.md referenced in deep_research.md do not exist)
 6. ToolSearch: "select:WebSearch,WebFetch" (load deferred tool schemas)
 7. WebSearch: "Stripe idempotency key API documentation how it works"
 8. WebSearch: "IETF idempotency key HTTP header draft standard"

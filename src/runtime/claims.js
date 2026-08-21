@@ -5,6 +5,7 @@ const path = require('node:path');
 // Shared with EvidenceLedger so both stores enforce one definition of a safe task id.
 const { assertSafeTaskId, EvidenceLedger } = require('./evidence-ledger');
 const { finishRuntime, usageError } = require('./cli-result');
+const { REPO_ROOT } = require('../helper/repo-root');
 
 const CLAIM_STATUSES = new Set([
   'hypothesis',
@@ -16,7 +17,20 @@ const CLAIM_STATUSES = new Set([
   'rejected',
   'invalidated',
   'unknown',
+  // Terminal states (FR-001, FR-002). A human decided this claim no longer stands; that decision
+  // outranks any later mechanical re-reading of its evidence, which is why `evaluateClaim` returns
+  // early for them rather than recomputing.
+  'retracted',
+  'superseded',
 ]);
+
+/**
+ * States no evidence walk may leave. `evaluateAll()` runs on every `list`/`status`, and
+ * `evaluateClaim` otherwise rewrites `status` from the evidence links — so without this set a
+ * retraction would be undone by the very next read and the verb would appear to work while doing
+ * nothing (design R1).
+ */
+const TERMINAL_CLAIM_STATUSES = new Set(['retracted', 'superseded']);
 
 class ClaimsManager {
   /**
@@ -29,7 +43,7 @@ class ClaimsManager {
   constructor(options = {}) {
     this.fsImpl = options.fsImpl || fs;
     this.evidenceLedger = options.evidenceLedger || null;
-    this.repoRoot = options.repoRoot || path.resolve(__dirname, '..', '..');
+    this.repoRoot = options.repoRoot || REPO_ROOT;
     this.stateDir = options.stateDir || path.join(this.repoRoot, '.doflow', 'state', 'evidence');
     this.claimsMap = new Map();
     this.seq = 0;
@@ -133,6 +147,12 @@ class ClaimsManager {
       throw new Error(`Unknown claim '${claimId}'`);
     }
 
+    // A terminal state is a recorded human decision, not a reading of evidence. Recomputing it here
+    // would silently resurrect a retracted claim on the next list (design R1).
+    if (TERMINAL_CLAIM_STATUSES.has(claim.status)) {
+      return claim.status;
+    }
+
     // If no evidence attached, remains a hypothesis
     if (claim.supportingEvidence.length === 0 && claim.contradictingEvidence.length === 0) {
       claim.status = 'hypothesis';
@@ -176,6 +196,68 @@ class ClaimsManager {
 
     claim.updatedAt = new Date().toISOString();
     return claim.status;
+  }
+
+  /**
+   * Moves a claim to a terminal state, leaving the record and its evidence links untouched.
+   * Shared by retract and supersede so the two cannot drift on what "terminal" means.
+   * @param {string} claimId
+   * @param {'retracted'|'superseded'} status
+   * @param {string} [supersededBy]
+   * @returns {string} the new status
+   */
+  finalizeClaim(claimId, status, supersededBy) {
+    const claim = this.claimsMap.get(claimId);
+    if (!claim) {
+      throw new Error(`Unknown claim '${claimId}'`);
+    }
+    if (TERMINAL_CLAIM_STATUSES.has(claim.status)) {
+      throw new Error(`Claim '${claimId}' is already '${claim.status}' and cannot be changed again`);
+    }
+    claim.status = status;
+    claim.terminalAt = new Date().toISOString();
+    if (supersededBy) claim.supersededBy = supersededBy;
+    claim.updatedAt = claim.terminalAt;
+    return claim.status;
+  }
+
+  /**
+   * Records that a claim no longer holds. Nothing is deleted (NFR-003): retraction records that a
+   * conclusion was withdrawn, not that it was never drawn.
+   * @param {string} claimId
+   * @returns {string} the new status
+   */
+  retractClaim(claimId) {
+    return this.finalizeClaim(claimId, 'retracted');
+  }
+
+  /**
+   * Records that a claim was replaced by another, with a forward pointer to it.
+   *
+   * The replacement must already exist. A pointer to an unrecorded id is worse than no pointer, and
+   * this refusal mirrors the one `link` already makes for unrecorded evidence.
+   * @param {string} claimId
+   * @param {string} replacedBy
+   * @returns {string} the new status
+   */
+  supersedeClaim(claimId, replacedBy) {
+    // The target is checked first: validating the replacement before the claim being superseded
+    // reported a missing replacement when the caller had actually mistyped the target, sending them
+    // to fix the wrong id.
+    if (!this.claimsMap.has(claimId)) {
+      throw new Error(`Unknown claim '${claimId}'`);
+    }
+    if (!replacedBy) {
+      throw new Error('supersede requires the id of the claim that replaces this one');
+    }
+    if (replacedBy === claimId) {
+      throw new Error(`Claim '${claimId}' cannot supersede itself`);
+    }
+    if (!this.claimsMap.has(replacedBy)) {
+      throw new Error(`No claim '${replacedBy}' is recorded — a forward pointer to nothing is worse `
+        + 'than no pointer. Record the replacing claim first: doflow claim --action add --statement ...');
+    }
+    return this.finalizeClaim(claimId, 'superseded', replacedBy);
   }
 
   /**
@@ -263,16 +345,17 @@ class ClaimsManager {
  *
  * @param {Object} options
  * @param {string} options.taskId
- * @param {'list'|'add'|'link'} [options.action='list']
+ * @param {'list'|'add'|'link'|'retract'|'supersede'} [options.action='list']
  * @param {string} [options.statement] `add`
  * @param {string} [options.claimId] `link`
  * @param {string} [options.evidenceId] `link`
+ * @param {string} [options.replacedBy] `supersede`: the claim that replaces this one
  * @param {string} [options.relation='supports'] `link`
  * @param {boolean} [options.json=false]
  * @param {string} [options.stateRoot]
  * @returns {number} exit code
  */
-function handleClaimCommand({ taskId, action = 'list', statement, claimId, evidenceId, relation = 'supports', json = false, stateRoot } = {}) {
+function handleClaimCommand({ taskId, action = 'list', statement, claimId, evidenceId, replacedBy, relation = 'supports', json = false, stateRoot } = {}) {
   const root = stateRoot || process.cwd();
   const ledger = new EvidenceLedger({ repoRoot: root });
   ledger.load(taskId);
@@ -304,11 +387,25 @@ function handleClaimCommand({ taskId, action = 'list', statement, claimId, evide
       const status = claims.linkEvidence(claimId, evidenceId, relation);
       claims.save(taskId);
       result = { action, taskId, claim: claims.getClaim(claimId), status };
+    } else if (action === 'retract') {
+      if (!claimId) {
+        return usageError('claim', '--claim-id is required for --action retract', json);
+      }
+      const status = claims.retractClaim(claimId);
+      claims.save(taskId);
+      result = { action, taskId, claim: claims.getClaim(claimId), status };
+    } else if (action === 'supersede') {
+      if (!claimId || !replacedBy) {
+        return usageError('claim', '--claim-id and --replaced-by are both required for --action supersede', json);
+      }
+      const status = claims.supersedeClaim(claimId, replacedBy);
+      claims.save(taskId);
+      result = { action, taskId, claim: claims.getClaim(claimId), status };
     } else if (action === 'list' || action === 'status') {
       claims.evaluateAll();
       result = { action: 'list', taskId, claims: claims.getClaims(taskId) };
     } else {
-      return usageError('claim', `unknown --action '${action}'. Valid: list, add, link`, json);
+      return usageError('claim', `unknown --action '${action}'. Valid: list, add, link, retract, supersede`, json);
     }
   } catch (error) {
     return usageError('claim', error.message, json);
@@ -323,7 +420,10 @@ function handleClaimCommand({ taskId, action = 'list', statement, claimId, evide
     else {
       console.log('ID'.padEnd(24) + 'Status'.padEnd(14) + 'Statement');
       console.log('─'.repeat(78));
-      for (const claim of rows) console.log(claim.id.padEnd(24) + claim.status.padEnd(14) + claim.statement);
+      for (const claim of rows) {
+        const suffix = claim.supersededBy ? ` → ${claim.supersededBy}` : '';
+        console.log(claim.id.padEnd(24) + (claim.status + suffix).padEnd(14) + claim.statement);
+      }
     }
     console.log('═'.repeat(78) + '\n');
   }
@@ -333,5 +433,6 @@ function handleClaimCommand({ taskId, action = 'list', statement, claimId, evide
 module.exports = {
   ClaimsManager,
   CLAIM_STATUSES,
+  TERMINAL_CLAIM_STATUSES,
   handleClaimCommand,
 };

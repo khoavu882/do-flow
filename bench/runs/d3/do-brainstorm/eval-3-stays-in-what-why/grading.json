@@ -6,8 +6,8 @@
     "status": "verified",
     "expectedSha256": "0c84d6d4722d2a993b3a5a632eef6b1db695d32d3dc4656fa14f5c9aceb7e41f",
     "recordedSha256": "0c84d6d4722d2a993b3a5a632eef6b1db695d32d3dc4656fa14f5c9aceb7e41f",
-    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-brainstorm-3/.claude/skills/do-brainstorm/SKILL.md",
-    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-brainstorm-3/.claude/skills/do-brainstorm/SKILL.md (matches core/shared/skills/do-brainstorm/SKILL.md)"
+    "recordedPath": "<repo>/.doflow/worktrees/bench-d3-do-brainstorm-3/.claude/skills/do-brainstorm/SKILL.md",
+    "evidence": "read <repo>/.doflow/worktrees/bench-d3-do-brainstorm-3/.claude/skills/do-brainstorm/SKILL.md (matches core/shared/skills/do-brainstorm/SKILL.md)"
   },
   "expectations": [
     {

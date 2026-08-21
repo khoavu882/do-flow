@@ -8,7 +8,7 @@ PROMPT AS GIVEN
    then get the whole thing reviewed."
 
 SKILL RESOLUTION (by path, never as a slash command)
-  read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-1/.claude/skills/do/SKILL.md
+  read: <repo>/.doflow/worktrees/bench-d3-do-1/.claude/skills/do/SKILL.md
   sha256: e77be8adcd024bdc3d1fec493136cbaed6afc1f6fe5658279b42bf2b9005cd1d
   matches brief's sourceSha256 and core/shared/skills/do/SKILL.md. 105 lines, read in full.
   Sandbox manifest .doflow-skill-source.json reports skillCount=13, mismatches=[].
@@ -32,7 +32,7 @@ STEP 1 — SESSION & COMMAND DISPATCH
     D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
     DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
   RESULT: resolved on the first hop, no walk-up needed --
-    /Users/kai/.../worktrees/bench-d3-do-1/.doflow/scripts/doflow/bin/doflow-run
+    <home>/.../worktrees/bench-d3-do-1/.doflow/scripts/doflow/bin/doflow-run
   The sandbox carries its own .doflow install, so the walk-up and the $HOME fallback were never
   exercised in this case. Worth noting for the eval: this case does not test the fallback legs.
 

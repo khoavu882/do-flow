@@ -5,7 +5,7 @@ SANDBOX: .doflow/worktrees/bench-d3-do-code-review-3 (pre-existing from the abor
   sandbox branch: task/bench-d3-do-code-review-3, sourceCommit 704fb3315890afef5f0808213b02b3f4250600d2
   manifest .doflow-skill-source.json: skillCount 13, mismatches []
 SKILL RESOLUTION: by absolute path, via Read/cat. No Skill tool call, no /do-code-review slash command.
-  path:   /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-code-review-3/.claude/skills/do-code-review/SKILL.md
+  path:   <repo>/.doflow/worktrees/bench-d3-do-code-review-3/.claude/skills/do-code-review/SKILL.md
   sha256: b326aa8f28eb6818a569cbd45f1686327611204bc69255e917c3603530972349
   matches brief sourceSha256: YES
 

@@ -13,6 +13,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { verifyHookCommands } = require('../hook-commands');
+const { mergeHooks } = require('../../helper/settings-merge');
 
 const SUPPORTED_EVENTS = new Set([
   'SessionStart', 'SessionEnd', 'BeforeAgent', 'AfterAgent', 'BeforeModel', 'AfterModel',
@@ -119,8 +120,9 @@ function planGeminiHooks({ config, sourceFile, sourceHooksDir, settingsFile, tru
   }
   if (errors.length) return { ok: false, status: 'invalid-request', settingsFile, existing, changes: [], errors, commands };
 
-  const merged = { ...existing, hooks: desired.hooks };
-  const changed = JSON.stringify(existing.hooks) !== JSON.stringify(desired.hooks);
+  const mergedHooks = existing.hooks ? mergeHooks(existing.hooks, desired.hooks) : desired.hooks;
+  const merged = { ...existing, hooks: mergedHooks };
+  const changed = JSON.stringify(existing.hooks) !== JSON.stringify(mergedHooks);
   return { ok: true, status: changed ? 'change' : 'unchanged', settingsFile, existing, merged,
     changes: changed ? [{ type: fsImpl.existsSync(settingsFile) ? 'update' : 'create', file: settingsFile, key: 'hooks' }] : [],
     errors: [], commands, trust: commands.trust, scriptsDir: sourceHooksDir,

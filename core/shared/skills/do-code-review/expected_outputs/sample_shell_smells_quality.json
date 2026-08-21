@@ -1,0 +1,77 @@
+{
+  "file": "assets/sample_shell_smells.sh",
+  "language": "shell",
+  "metrics": {
+    "lines": {
+      "total": 16,
+      "code": 10,
+      "blank": 4,
+      "comment": 2
+    },
+    "functions": 2,
+    "classes": 0,
+    "avg_complexity": 1.0
+  },
+  "quality_score": 50,
+  "grade": "F",
+  "smells": [
+    {
+      "type": "no_error_handling",
+      "severity": "high",
+      "message": "Script has no 'set -e'/'set -u'/'set -o pipefail' \u2014 a failing command is silently ignored and the script continues with bad state",
+      "location": "line 1"
+    },
+    {
+      "type": "unquoted_expansion",
+      "severity": "high",
+      "message": "Unquoted variable expansion in a command that acts on paths \u2014 a value containing spaces or globs will not do what it looks like",
+      "location": "line 5"
+    },
+    {
+      "type": "unchecked_cd",
+      "severity": "medium",
+      "message": "'cd' without '|| exit' or 'set -e' \u2014 the rest of the script runs in the wrong directory if it fails",
+      "location": "line 5"
+    },
+    {
+      "type": "unquoted_expansion",
+      "severity": "high",
+      "message": "Unquoted variable expansion in a command that acts on paths \u2014 a value containing spaces or globs will not do what it looks like",
+      "location": "line 6"
+    },
+    {
+      "type": "unquoted_expansion",
+      "severity": "high",
+      "message": "Unquoted variable expansion in a command that acts on paths \u2014 a value containing spaces or globs will not do what it looks like",
+      "location": "line 7"
+    },
+    {
+      "type": "unchecked_cd",
+      "severity": "medium",
+      "message": "'cd' without '|| exit' or 'set -e' \u2014 the rest of the script runs in the wrong directory if it fails",
+      "location": "line 11"
+    },
+    {
+      "type": "unquoted_expansion",
+      "severity": "high",
+      "message": "Unquoted variable expansion in a command that acts on paths \u2014 a value containing spaces or globs will not do what it looks like",
+      "location": "line 12"
+    }
+  ],
+  "solid_violations": [],
+  "function_details": [
+    {
+      "name": "deploy_release",
+      "parameters": 1,
+      "lines": 5,
+      "complexity": 1
+    },
+    {
+      "name": "rollback",
+      "parameters": 0,
+      "lines": 6,
+      "complexity": 1
+    }
+  ],
+  "class_details": []
+}

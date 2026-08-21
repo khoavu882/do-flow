@@ -16,7 +16,7 @@ Created a fresh sandbox with the brief's create command:
              const m=new WorktreeManager(process.cwd());
              const r=m.createSandbox('bench-boundary-do-git-1');
              console.log(r.path+' skills='+r.manifest.skillCount)"
-  -> /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-git-1 skills=13
+  -> <repo>/.doflow/worktrees/bench-boundary-do-git-1 skills=13
 
 Skill file resolved BY PATH (never as the /do-git slash command, which would have
 resolved ~/.claude/skills/do-git/ instead of this repo's source):

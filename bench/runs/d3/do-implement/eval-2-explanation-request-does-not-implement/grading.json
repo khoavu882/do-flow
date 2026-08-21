@@ -6,8 +6,8 @@
     "status": "verified",
     "expectedSha256": "42ef25583705b2a33c26615b467b3c19856747e342fd7fae712c60a8ac48f924",
     "recordedSha256": "42ef25583705b2a33c26615b467b3c19856747e342fd7fae712c60a8ac48f924",
-    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-implement-2/.claude/skills/do-implement/SKILL.md",
-    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-implement-2/.claude/skills/do-implement/SKILL.md (matches core/shared/skills/do-implement/SKILL.md)"
+    "recordedPath": "<repo>/.doflow/worktrees/bench-d3-do-implement-2/.claude/skills/do-implement/SKILL.md",
+    "evidence": "read <repo>/.doflow/worktrees/bench-d3-do-implement-2/.claude/skills/do-implement/SKILL.md (matches core/shared/skills/do-implement/SKILL.md)"
   },
   "expectations": [
     {

@@ -3,7 +3,7 @@ DoFlow bench eval — do-constitution — eval 2: amend-bumps-semver-and-reports
 
 Prompt under test: "/do-constitution --amend Add a principle requiring structured
 logging on all services"
-Sandbox: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-constitution-2
+Sandbox: <repo>/.doflow/worktrees/bench-boundary-do-constitution-2
 
 State found
 -----------

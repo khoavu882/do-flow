@@ -1,6 +1,6 @@
 ---
 name: do-code-review
-description: Code review automation for TypeScript, JavaScript, Python, Go, Swift, Kotlin, C#, .NET, Java, C, C++, Rust, Ruby, PHP, and Dart/Flutter. Analyzes PRs for complexity and risk, checks code quality for SOLID violations and code smells, generates review reports. Use when reviewing pull requests, analyzing code quality, identifying issues, generating review checklists.
+description: Code review automation for TypeScript, JavaScript, Python, Go, Swift, Kotlin, C#, .NET, Java, C, C++, Rust, Ruby, PHP, Dart/Flutter, and Shell, plus declarative YAML/JSON config and OpenAPI specs. Analyzes PRs for complexity and risk, checks code quality for SOLID violations and code smells, generates review reports. Use when reviewing pull requests, analyzing code quality, identifying issues, generating review checklists.
 ---
 
 # Code Reviewer
@@ -30,8 +30,10 @@ do-code-review/
     ruby.md                       ← Ruby -specific rules + idioms
     php.md                        ← PHP-specific rules + idioms
     dart.md                       ← Dart / Flutter-specific rules + idioms
+    shell.md                      ← Shell-specific rules + idioms
   content-types/
     markdown.md                   ← Markdown / prose review notes (checked by doc_quality_checker.py)
+    config.md                     ← YAML / JSON / OpenAPI declarative review notes
 ```
 
 `content-types/` is a sibling of `languages/`, not a subdirectory of it — it dispatches by content
@@ -61,6 +63,7 @@ Two additional files for code (`rules/universal.md` + one `languages/*.md`); one
 | `.rb`, `.rake`, `.gemspec`, `.ru` | `languages/ruby.md` |
 | `.php`, `.phtml` | `languages/php.md` |
 | `.dart` | `languages/dart.md` |
+| `.sh`, `.bash`, `.zsh` | `languages/shell.md` |
 
 ---
 
@@ -71,9 +74,12 @@ For non-code content, a second axis applies alongside (or instead of) the langua
 | Content type | Extension(s) | Load |
 |---|---|---|
 | Markdown / prose | `.md` | `content-types/markdown.md` |
+| Declarative config | `.yaml`, `.yml`, `.json` | `content-types/config.md` |
 
-This dispatch runs `scripts/doc_quality_checker.py` instead of `code_quality_checker.py` — see
-`content-types/markdown.md` for the checks it performs.
+Markdown dispatch runs `scripts/doc_quality_checker.py` instead of `code_quality_checker.py` — see
+`content-types/markdown.md` for the checks it performs. Declarative config stays with
+`code_quality_checker.py`, which routes those extensions to a structural path that reports no
+complexity, function count or SOLID verdict — see `content-types/config.md` for why.
 
 ---
 
@@ -91,6 +97,40 @@ State this before producing a single finding, and report against it when the rev
 3. **What this review refuses to conclude** — it does not certify a file it did not open, does not
    report a threshold the analyzer does not implement, and does not convert a score into a verdict
    the table below does not define. A check that could not run is reported as not run.
+4. **The coverage the analyzer actually achieved** — `code_quality_checker.py` reports
+   `files_analyzed`, `files_skipped` and a `coverage` of `complete` or `partial`. Report all three.
+   A `partial` coverage means the verdict describes the analysed subset, and saying so is not
+   optional: a score presented as if it covered the whole change is the defect this contract exists
+   to prevent.
+5. **Process-leak scan** — run
+   `doflow leak-scan --path <each reviewed file> --json` over the reviewed set. These are DoFlow's
+   own identifiers (`FR-###`, `agent-docs/`, chain artifact names) reaching files that ship to
+   people who never used DoFlow. Occurrences inside `agent-docs/` are correct usage and the verb
+   excludes them itself. The verb reports and never blocks.
+
+   **Say which kind of repository you are scanning before you list anything.** A repository that
+   *uses* DoFlow should contain none of this vocabulary outside `agent-docs/`, so every finding is
+   worth a line. A repository that *implements* it — DoFlow's own tree, or any project vendoring the
+   chain — contains it correctly and by the hundred: its scaffold generator writes `requirement.md`,
+   its guards assert on `FR-###`, its changelog describes the chain. Listing those individually
+   teaches a reviewer to skip this step, and a skipped check protects nothing.
+
+   So: in an implementing repository, narrow the scan with `--exclude <segment>` (repeatable, and it
+   extends the artifact-directory exclusion rather than replacing it), and report the count you
+   excluded alongside the findings you kept. Never silently drop a path — the verb reports an
+   excluded file as `unscanned` with its reason, and so should you.
+
+   **Derive the exclusion set, do not judge it by eye.** What a repository *implements* is what its
+   package manifest ships plus its tests — for DoFlow that is `package.json`'s
+   `files: ["bin/", "src/", "core/"]`, so the set is `--exclude bin --exclude src --exclude core
+   --exclude test`. Reading "the code that ships onward" as a matter of judgement is how this step
+   was first narrowed wrong: `bin/` was left in and its internal requirement references were
+   reported as leaks, when `bin/` is as much DoFlow's implementation as `src/` is.
+
+   What survives that exclusion in an implementing repository is documentation *about* the chain —
+   a changelog, a docs tree — which contains the vocabulary correctly and in volume. Report the
+   count and say so, rather than pasting it. In DoFlow's own repository this step therefore has no
+   applicable surface at all, and saying that plainly is the honest result, not a failure to look.
 
 **Stop when** every file in the reviewed set the contract names has an answer or a stated gap, **and** the last round produced no new file in the reviewed set. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 
@@ -288,6 +328,25 @@ changes / Block); dispatch by language or content type to the matching rules fil
 **Will Not:** Edit files, apply fixes, or otherwise remediate the findings it reports — that is
 `/do-implement`'s job once a review has run. It also does not orchestrate a multi-task checklist
 through specialist subagents (`/do-execute-plan`'s job) or replace human judgment on a Block verdict.
+
+## Running the review in a subagent
+
+A review over a large change can be dispatched whole to the `quality-guardian` archetype, which
+already declares code quality review among its capabilities, and which returns its report to the
+calling session. Use it when the analysis would otherwise consume context the caller still needs for
+the work itself.
+
+This changes **where** the review runs and nothing else: the dispatched review loads the same rules
+files by the same dispatch tables, states the same Review Contract, and returns the same verdict
+vocabulary. A dispatched review that reports differently from an in-session one is a defect, not a
+variant.
+
+Name the model tier explicitly on the dispatch — scale it to the diff's size and risk rather than
+inheriting the session's model. See the guidance tree's `references/MODEL_SELECTION.md`; a final
+whole-scope review sits at `frontier`, a re-review of one small fix diff at `light`–`standard`.
+
+This is not the multi-task orchestration the boundary above rules out: one review, one subagent, one
+report back.
 
 ## Next Step
 After review, use `/do-implement` to address requested changes, then rerun `/do-code-review`.

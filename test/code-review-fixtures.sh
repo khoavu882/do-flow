@@ -57,6 +57,57 @@ for f in assets/sample_*; do
   fi
 done
 
+# ── Coverage honesty (FR-006, FR-008) ────────────────────────────────────────────────────────
+#
+# A directory-level property, so the per-file fixture loop above structurally cannot express it:
+# the defect was that unanalysable files vanished from the average without appearing anywhere in
+# the report. Asserted on a scratch directory rather than a committed fixture, because what is being
+# checked is the accounting, not any particular file's score.
+
+cov_dir="$(mktemp -d)"
+trap 'rm -rf "$cov_dir"' EXIT
+printf 'export const a = 1;\n'                      > "$cov_dir/a.ts"
+printf 'openapi: 3.0.0\ninfo:\n  title: t\n'        > "$cov_dir/spec.yaml"
+printf '#!/usr/bin/env bash\nset -euo pipefail\n'    > "$cov_dir/run.sh"
+printf 'a,b\n1,2\n'                                 > "$cov_dir/data.csv"
+
+cov_json="$(python3 scripts/code_quality_checker.py "$cov_dir" --json 2>/dev/null)"
+cov_checks_failed=0
+cov_assert() {
+  if printf '%s' "$cov_json" | python3 -c "$2"; then
+    printf '  \033[32m✓\033[0m %s\n' "$1"
+  else
+    printf '  \033[31m✗\033[0m %s\n' "$1"
+    cov_checks_failed=$((cov_checks_failed + 1))
+  fi
+}
+
+echo ""
+echo "[Coverage] directory-level accounting:"
+cov_assert "yaml and shell are analysed, not dropped" \
+  'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d["files_analyzed"]==3 else 1)'
+cov_assert "the unanalysable file is named, not silently excluded" \
+  'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d["files_skipped"]==1 and any(".csv" in s["file"] for s in d["skipped"]) else 1)'
+cov_assert "coverage is reported as partial when anything was skipped" \
+  'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d["coverage"]=="partial" else 1)'
+cov_assert "every skipped entry carries a reason" \
+  'import json,sys; d=json.load(sys.stdin); sys.exit(0 if all(s.get("reason") for s in d["skipped"]) else 1)'
+
+# An all-unanalysable directory must still account for its files rather than collapsing to an error
+# string that discards them.
+none_dir="$(mktemp -d)"
+printf 'a,b\n' > "$none_dir/only.csv"
+none_json="$(python3 scripts/code_quality_checker.py "$none_dir" --json 2>/dev/null)"
+rm -rf "$none_dir"
+if printf '%s' "$none_json" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("files_skipped")==1 and d.get("average_score") is None and "error" not in d else 1)'; then
+  printf '  \033[32m✓\033[0m an all-unanalysable directory still names its files\n'
+else
+  printf '  \033[31m✗\033[0m an all-unanalysable directory still names its files\n'
+  cov_checks_failed=$((cov_checks_failed + 1))
+fi
+
+fail=$((fail + cov_checks_failed))
+
 # Zero fixtures found would otherwise report success while checking nothing — the failure mode a
 # guard is least able to notice about itself.
 if [ "$checked" -eq 0 ]; then

@@ -3,7 +3,7 @@ USER PROMPT: "/do-plan"
 RESPONSE:
 
 I invoked /do-plan in the sandbox at
-/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-baseline-do-plan-3 (branch
+<repo>/.doflow/worktrees/bench-baseline-do-plan-3 (branch
 task/bench-baseline-do-plan-3).
 
 Resolver check (do-paths.sh --json) confirmed:
@@ -63,8 +63,8 @@ Tool/Skill Usage Log (in order):
 4. Bash — ran do-paths.sh --json resolver in the sandbox to get feature_dir/has_requirement/
    has_design/has_plan/etc.
 5. Bash — ls/find on agent-docs/, templates/doflow/, and constitution files in the sandbox
-6. Read — /Users/kai/.doflow/templates/doflow/plan-template.md
-7. Read — /Users/kai/.doflow/guidance/references/CONSTITUTION_BASE.md
+6. Read — <home>/.doflow/templates/doflow/plan-template.md
+7. Read — <home>/.doflow/guidance/references/CONSTITUTION_BASE.md
 8. Bash — find for ARTIFACT_FORMAT.md (guidance reference for artifact structure)
 9. Bash — find to locate ARTIFACT_FORMAT.md's actual absolute path within the sandbox repo
 10. Read — sandbox's core/shared/guidance/references/ARTIFACT_FORMAT.md

@@ -3,8 +3,8 @@
 const path = require('node:path');
 const { WorkflowEngine, CALLER_ROLES } = require('./workflow-engine');
 const { finishRuntime } = require('./cli-result');
+const { REPO_ROOT } = require('../helper/repo-root');
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 /**
  * Validates a task class proposed by the model against the classes the registry declares.

@@ -2,7 +2,7 @@ I invoked /do-execute-plan, since "work through the tasks in the plan" is exactl
 
 Before dispatching any tasks, do-execute-plan runs its hard prerequisite gate. I resolved do-paths.sh and ran it against this worktree:
 
-  repo_root: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-baseline-do-execute-plan-1
+  repo_root: <repo>/.doflow/worktrees/bench-baseline-do-execute-plan-1
   branch: task/bench-baseline-do-execute-plan-1
   feature_dir: agent-docs/doflow/task/bench-baseline-do-execute-plan-1
   has_requirement: false
@@ -36,7 +36,7 @@ I'm stopping here rather than working around the gate. If you already have a pla
 2. Bash — retried with `/usr/bin/find` (rtk intercepted plain `find`) to search for requirement.md/design.md/plan.md, .doflow/ directory, feature dirs, git log, .doflow-worktree-base contents — none found
 3. Bash — `git show --stat` on latest commit + top-level directory listing to confirm no chain artifacts exist anywhere in the repo
 4. Skill — invoked `do-execute-plan`
-5. Bash — resolved do-paths.sh (found at /Users/kai/.doflow/scripts/doflow/bash/do-paths.sh) and ran it with --json; confirmed has_requirement/has_design/has_plan all false
+5. Bash — resolved do-paths.sh (found at <home>/.doflow/scripts/doflow/bash/do-paths.sh) and ran it with --json; confirmed has_requirement/has_design/has_plan all false
 6. Bash — ran do-prereqs.sh --require-plan; gate returned ok:false, error:"missing-prereqs", exit code 2
 7. Bash — mkdir -p outputs/ dir, ls to confirm
 8. Bash — git status --porcelain in sandbox to confirm no files were created/modified by this session

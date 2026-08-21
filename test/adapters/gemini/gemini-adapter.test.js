@@ -147,8 +147,7 @@ test('the guidance import resolves from wherever GEMINI.md lands, in either scop
     assert.ok(imported, `${scope}: rendered instruction has no @import`);
     // Resolve the emitted path the way the agent will: relative to the file's own directory.
     const resolved = path.resolve(path.dirname(instruction.target), imported.slice(1).trim());
-    const expected = path.resolve(nativePaths({ scope, scopeRoot: root, homeDir: root }).configDir,
-      '../.doflow/guidance/DOFLOW_CORE.md');
+    const expected = path.resolve(root, '.doflow', 'guidance', 'DOFLOW_CORE.md');
     assert.equal(resolved, expected,
       `${scope}: '${imported}' from ${instruction.target} resolves to ${resolved}, not the installed guidance tree`);
   }
@@ -202,7 +201,7 @@ test('invalid native settings block settings/MCP planning but never mutate the f
 test('project-scope config directory is .agents/, not .gemini/ (Antigravity convention)', () => {
   const root = scratch();
   assert.equal(nativePaths({ scope: 'project', scopeRoot: root }).configDir, path.join(root, '.agents'));
-  assert.equal(nativePaths({ scope: 'global', scopeRoot: root, homeDir: root }).configDir, path.join(root, '.gemini'));
+  assert.equal(nativePaths({ scope: 'global', scopeRoot: root, homeDir: root }).configDir, path.join(root, '.gemini', 'config'));
 });
 
 function copyTreeAsset(repoRoot) {
@@ -233,13 +232,13 @@ test('Gemini adapter plans, applies, and verifies a copy-tree asset under .agent
   assert.deepEqual(second.conflicts, []);
 });
 
-test('Gemini adapter installs the same copy-tree asset under .gemini/ for global scope', () => {
+test('Gemini adapter installs the same copy-tree asset under .gemini/config/ for global scope', () => {
   const repoRoot = scratch(); const root = scratch(); const adapter = createGeminiAdapter();
   const asset = copyTreeAsset(repoRoot);
   const context = { repoRoot, homeDir: root };
   const planned = adapter.plan({ scope: 'global', scopeRoot: root, assets: [asset], context, ledger: { resources: [] } });
   adapter.apply({ changes: planned.changes });
-  assert.equal(fs.readFileSync(path.join(root, '.gemini', 'skills', 'do-analyze', 'SKILL.md'), 'utf8'), '# do-analyze\n');
+  assert.equal(fs.readFileSync(path.join(root, '.gemini', 'config', 'skills', 'do-analyze', 'SKILL.md'), 'utf8'), '# do-analyze\n');
 });
 
 test('Gemini adapter removes only fingerprint-matching copy-tree files', () => {

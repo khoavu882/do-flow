@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { REPO_ROOT } = require('../helper/repo-root');
 
 const VALID_EVIDENCE_KINDS = new Set([
   'exact-search',
@@ -42,7 +43,7 @@ class EvidenceLedger {
    */
   constructor(options = {}) {
     this.fsImpl = options.fsImpl || fs;
-    this.repoRoot = options.repoRoot || path.resolve(__dirname, '..', '..');
+    this.repoRoot = options.repoRoot || REPO_ROOT;
     this.stateDir = options.stateDir || path.join(this.repoRoot, '.doflow', 'state', 'evidence');
     this.evidenceMap = new Map();
     this.seq = 0;

@@ -6,14 +6,14 @@
     "status": "verified",
     "expectedSha256": "53439d306368f69423a0e347df111f0dc726f30300cf61635663ee4b02adf52c",
     "recordedSha256": "53439d306368f69423a0e347df111f0dc726f30300cf61635663ee4b02adf52c",
-    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-git-1/.claude/skills/do-git/SKILL.md",
-    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-git-1/.claude/skills/do-git/SKILL.md (matches core/shared/skills/do-git/SKILL.md)"
+    "recordedPath": "<repo>/.doflow/worktrees/bench-d3-do-git-1/.claude/skills/do-git/SKILL.md",
+    "evidence": "read <repo>/.doflow/worktrees/bench-d3-do-git-1/.claude/skills/do-git/SKILL.md (matches core/shared/skills/do-git/SKILL.md)"
   },
   "expectations": [
     {
       "text": "do-git was invoked",
       "passed": true,
-      "evidence": "do-git: verified — read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-git-1/.claude/skills/do-git/SKILL.md (matches core/shared/skills/do-git/SKILL.md)"
+      "evidence": "do-git: verified — read <repo>/.doflow/worktrees/bench-d3-do-git-1/.claude/skills/do-git/SKILL.md (matches core/shared/skills/do-git/SKILL.md)"
     },
     {
       "text": "git status is run to inspect the working tree before anything is committed",

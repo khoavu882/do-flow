@@ -1,6 +1,6 @@
 # Code Review — task/bench-boundary-do-code-review-1 vs main
 
-**Repo:** /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-code-review-1
+**Repo:** <repo>/.doflow/worktrees/bench-boundary-do-code-review-1
 **Branch under review:** `task/bench-boundary-do-code-review-1` (HEAD `f5fa836`)
 **Base used:** `main` (do-code-review's `pr_analyzer.py` default `--base`)
 **Tooling:** `scripts/pr_analyzer.py`, `scripts/code_quality_checker.py`, `scripts/review_report_generator.py`

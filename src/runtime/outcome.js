@@ -44,7 +44,7 @@ const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger');
 // The two verdict vocabularies, imported from the modules that own them rather than respelled
 // here. A second copy would let this file accept a readiness state readiness itself has retired.
 const { READINESS_STATES } = require('./readiness');
-const { VERIFICATION_STATUSES } = require('./verification');
+const { VERIFICATION_STATUSES } = require('./verification/engine');
 const { WorkflowEngine } = require('./workflow-engine');
 // Read, not re-derived: the retrieval plan's location is `retrieval-plan.js`'s to define, and the
 // unreached items this record carries forward are the ones that record already holds.
@@ -54,6 +54,7 @@ const { planPath, UNREACHED } = require('./retrieval-plan');
 // number NFR-001 exists to keep out of the one record the next worker reads first.
 const { assertNoScoreFields } = require('./cli');
 const { finishRuntime, usageError } = require('./cli-result');
+const { REPO_ROOT } = require('../helper/repo-root');
 
 // ── the closed terminal vocabulary (design §4) ───────────────────────────────────────────────
 
@@ -433,7 +434,7 @@ function handleOutcomeCommand(options = {}) {
   // The project the task belongs to owns the state; the package root owns the workflow registry,
   // and is a different directory in every install.
   const projectRoot = stateRoot || process.cwd();
-  const packageRoot = repoRoot || path.resolve(__dirname, '..', '..');
+  const packageRoot = repoRoot || REPO_ROOT;
 
   try {
     assertSafeTaskId(taskId);

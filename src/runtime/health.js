@@ -21,6 +21,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { CapabilityRouter } = require('./capability-router');
 const { loadRegistry } = require('../registry');
+const { REPO_ROOT } = require('../helper/repo-root');
 
 /** Answered a probe. */
 const HEALTHY = 'HEALTHY';
@@ -321,7 +322,7 @@ function probeProvider(provider, { router, projectRoot = process.cwd(), execFile
  * @returns {Object} map of provider id -> probe result
  */
 function probeProviders({ repoRoot, projectRoot = process.cwd(), ids = null, router, execFileImpl, fsImpl = fs } = {}) {
-  const activeRouter = router || new CapabilityRouter({ repoRoot: repoRoot || path.resolve(__dirname, '..', '..') });
+  const activeRouter = router || new CapabilityRouter({ repoRoot: repoRoot || REPO_ROOT });
   const wanted = ids ? new Set(ids) : null;
   const results = {};
   for (const capability of Object.values(activeRouter.capabilities || {})) {
@@ -428,7 +429,7 @@ function capabilityStatus(probes) {
  * @returns {Object} report model
  */
 function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, execFileImpl, fsImpl = fs, detector } = {}) {
-  const root = repoRoot || path.resolve(__dirname, '..', '..');
+  const root = repoRoot || REPO_ROOT;
   const registry = loadRegistry({ repoRoot: root });
   const activeRouter = router || new CapabilityRouter({ repoRoot: root });
   const probes = probeProviders({ repoRoot: root, projectRoot, router: activeRouter, execFileImpl, fsImpl });

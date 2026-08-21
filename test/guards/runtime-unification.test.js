@@ -298,7 +298,7 @@ test('G12: every verb the dispatcher advertises on the Node arm has a CLI comman
 // `require`, instead of asking the dispatcher for the verb that serves it.
 //
 // Deliberately matches invocation, not mention: `references/scaffold.md` names
-// `src/runtime/scaffold.js` several times to say which module produces Part 1, and prose about an
+// `src/runtime/scaffold/generate.js` several times to say which module produces Part 1, and prose about an
 // implementation is not a call to it.
 const SEAM_BYPASSES = [
   [/node\s+(?:--input-type=\S+\s+)?--?e(?:val)?\b/, 'inline `node -e`: evaluates DoFlow code outside the verb table'],
@@ -332,9 +332,9 @@ test('G12: no skill reaches the JavaScript runtime except through the dispatcher
 // `state/runs/2026-08-18.jsonl` until something else goes wrong. `sanitizeRunEvent` is the whole
 // defence — a closed field list plus a token pattern that cannot express a path, a URL, a quote or
 // a space. A writer that goes around it does not fail; it just writes.
-const TRACE_FILE = path.join(REPO, 'src', 'runtime', 'trace.js');
+const TRACE_FILE = path.join(REPO, 'src', 'runtime', 'trace', 'ledger.js');
 const traceText = fs.readFileSync(TRACE_FILE, 'utf8');
-const trace = require('../../src/runtime/trace');
+const trace = require('../../src/runtime/trace/ledger');
 
 /** Every .js under src/ and bin/, the two trees that could plausibly hold a second writer. */
 function runtimeJsFiles() {
@@ -450,7 +450,7 @@ const DISCOVER_SIGNAL_FIELDS = new Map([
 // the moment the analysis stops reproducing it.
 // Empty by design. `retries-without-readiness` was pinned here when this guard was written: it
 // reported CLEAR over a window whose `verify` records carried no exit code, unable to tell a clean
-// run from nothing but failures. That was fixed in src/runtime/trace.js the same day, and the
+// run from nothing but failures. That was fixed in src/runtime/trace/ledger.js the same day, and the
 // reverse check below is what detected the fix — a stale exemption fails rather than quietly
 // granting cover the code no longer needs. Add an entry only with the reason a false CLEAR is
 // currently unavoidable, never to silence a fixable one.

@@ -1,7 +1,7 @@
 CASE: do-implement / eval-2 / explanation-request-does-not-implement  (triggering)
 ITERATION: d3
 PROMPT: Explain how WorktreeManager in src/runtime/worktree.js decides where a sandbox worktree lives.
-SANDBOX: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-implement-2
+SANDBOX: <repo>/.doflow/worktrees/bench-d3-do-implement-2
   (git worktree, branch task/bench-d3-do-implement-2, base b20f006, 13 skills projected)
 
 ================================================================

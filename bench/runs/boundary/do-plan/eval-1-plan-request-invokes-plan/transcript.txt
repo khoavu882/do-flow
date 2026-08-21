@@ -7,7 +7,7 @@ TRIGGERING VERDICT: YES — do-plan should fire on this request.
 ====================================================================
 
 Reasoning, grounded in the exact frontmatter description read from the skill file at
-/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-plan-1/.claude/skills/do-plan/SKILL.md
+<repo>/.doflow/worktrees/bench-boundary-do-plan-1/.claude/skills/do-plan/SKILL.md
 (sha256 a0ea336188a0271bc08dd5d49b9fe5d02d4f7d768da661b03d21723f90ffa0be):
 
   description: "Generate the implementation plan (HOW) and dependency-ordered task checklist from
@@ -33,7 +33,7 @@ Per the eval instructions, I did not invoke do-plan via the Skill tool. Instead 
 its documented Behavioral Flow as far as it can go given the sandbox's actual state.
 
 Step 1 — Resolve. Ran the resolver exactly as SKILL.md specifies, from the sandbox root
-(/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-plan-1):
+(<repo>/.doflow/worktrees/bench-boundary-do-plan-1):
 
   D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
   DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
@@ -139,13 +139,13 @@ no branch derived beyond "N/A: single-repo feature".
 Tool & Skill Log (in order)
 ====================================================================
 1. Bash — `pwd && git branch --show-current && git status` in the sandbox worktree.
-2. Read — /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-plan-1/.claude/skills/do-plan/SKILL.md
+2. Read — <repo>/.doflow/worktrees/bench-boundary-do-plan-1/.claude/skills/do-plan/SKILL.md
    (the only skill file opened this run; opened by literal path, not via the Skill tool).
 3. Bash — `shasum -a 256 .claude/skills/do-plan/SKILL.md` → a0ea336188a0271bc08dd5d49b9fe5d02d4f7d768da661b03d21723f90ffa0be (matches required hash).
 4. Bash — `find . -maxdepth 4 -iname requirement.md -o -iname design.md`; `ls agent-docs/doflow/`; `git branch --show-current` → no requirement.md/design.md anywhere, no agent-docs/doflow/ dir.
 5. Bash — ran the skill's own resolver: `"$DOFLOW" paths --json` (DOFLOW resolved from the sandbox's own .doflow/scripts/doflow/bin/doflow-run; DOFLOW_CLI fallback was not needed) → confirmed has_requirement=false, has_design=false, has_plan=false.
 6. Bash — `find . -iname "*plan-template*"` then `find .doflow -iname "plan-template.md"` → located .doflow/templates/doflow/plan-template.md.
-7. Read — /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-plan-1/.doflow/templates/doflow/plan-template.md (to structure the gap-disclosure stub faithfully to do-plan's own template).
+7. Read — <repo>/.doflow/worktrees/bench-boundary-do-plan-1/.doflow/templates/doflow/plan-template.md (to structure the gap-disclosure stub faithfully to do-plan's own template).
 8. Bash — `mkdir -p .../outputs` for the bench output directory.
 9. Write — skill_source.json, invoked_skills.json, outputs/plan.md, outputs/NOTES.txt, transcript.txt (this file).
 

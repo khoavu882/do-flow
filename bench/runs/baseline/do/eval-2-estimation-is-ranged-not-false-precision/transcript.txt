@@ -40,7 +40,7 @@ No code was written or modified — per `--estimate`, this stops at the estimate
 ## Tools and skills used
 
 1. Skill tool — invoked `do` skill with args `--estimate Add OAuth2 login with refresh tokens to our Express API`
-2. Read — read `/Users/kai/.claude/skills/do/references/estimation.md` (the sizing-breakdown reference the `do` skill's estimate flow points to)
+2. Read — read `<home>/.claude/skills/do/references/estimation.md` (the sizing-breakdown reference the `do` skill's estimate flow points to)
 3. Bash — `git status`, `ls`, `grep -ril "express" --include="*.json" .` in the worktree, to check whether an actual Express API / OAuth-related code exists in this repo
 4. Bash — `git log --oneline -i --grep="auth|oauth|token" -20` and `cat package.json | head -20`, to check for comparable historical commits to anchor the time estimate against, per `references/estimation.md`'s instruction to anchor against git history
 5. Write — drafted the estimate response to a scratchpad file before finalizing

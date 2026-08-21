@@ -155,7 +155,7 @@ and the `- [ ]` / `[P]` / `[US#]` / `owner:` / `files:` marker grammar in §8 th
 ### Repo Branch Plan
 
 N/A: single-repo feature. Every `files:` path below walks up to the same enclosing `.git` at
-`/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-plan-3`, and no task sets
+`<repo>/.doflow/worktrees/bench-d3-do-plan-3`, and no task sets
 `depends-on:`, so no second repo is reachable. Derived branch (derivation only — no branch is
 created by this skill): `requirement.md` is absent so no `**Ticket:**` can be read → ticket
 treated as absent → `feat/<slug>` → **`feat/bench-d3-do-plan-3`**.

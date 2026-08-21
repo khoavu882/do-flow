@@ -104,25 +104,66 @@ join_array() {
   echo "$*"
 }
 
+# Which ref the integration branch resolves to decides whether a distance measured against it
+# means anything. The local branch was used unconditionally, so a develop that had not been pulled
+# made every distance wrong by however stale it was — observed live at 22 reported against 32.
+#
+# The remote-tracking ref is preferred where it exists; the local branch is the fallback for a
+# repository with no remote or one never fetched. Preferring it does not make the answer *fresh* —
+# origin/develop is only as current as the last fetch — so the third field reports how far the
+# local branch trails, which is non-zero exactly when a `git fetch` would change the answer.
+#
+# Echoes: "<ref> <kind> <local-behind-remote>"
+resolve_integration_ref() {
+  local branch="$1"
+  local ref="$branch" kind="local" behind=0
+  if git rev-parse --verify --quiet "refs/remotes/origin/${branch}" >/dev/null 2>&1; then
+    ref="origin/${branch}"
+    kind="remote-tracking"
+    if git rev-parse --verify --quiet "refs/heads/${branch}" >/dev/null 2>&1; then
+      behind="$(git rev-list --count "${branch}..origin/${branch}" 2>/dev/null || echo 0)"
+    fi
+  fi
+  printf '%s %s %s\n' "$ref" "$kind" "$behind"
+}
+
+# Commits either side of a comparison, or "0 0" when either ref is missing.
+# Echoes: "<ahead> <behind>"
+distance_from() {
+  local branch="$1" against="$2"
+  if git rev-parse "refs/heads/${branch}" >/dev/null 2>&1 && \
+     git rev-parse --verify --quiet "$against" >/dev/null 2>&1; then
+    local counts; counts="$(commits_between "$branch" "$against")"
+    printf '%s %s\n' "$(echo "$counts" | awk '{print $1}')" "$(echo "$counts" | awk '{print $2}')"
+  else
+    printf '0 0\n'
+  fi
+}
+
+# The single lifecycle word for a branch's position. Ordered so the most actionable state wins:
+# an uncommitted change matters more than any distance, and being behind matters more than ahead.
+lifecycle_position() {
+  local ahead="$1" behind="$2" dirty="$3"
+  if [ "$dirty" = "true" ]; then printf 'dirty-worktree\n'
+  elif [ "$behind" -gt 0 ]; then printf 'behind-integration\n'
+  elif [ "$ahead" -gt 0 ]; then printf 'ahead-of-integration\n'
+  else printf 'in-sync\n'
+  fi
+}
+
 do_state() {
   local class="$(get_class "$current_branch")"
   local slugs="$(get_slug "$current_branch")"
   local dirty="false"
   is_dirty && dirty="true"
   
-  local ahead="0"
-  local behind="0"
-  if git rev-parse "refs/heads/${current_branch}" >/dev/null 2>&1 && \
-     git rev-parse "refs/heads/${integration_branch}" >/dev/null 2>&1; then
-    local counts="$(commits_between "$current_branch" "$integration_branch")"
-    ahead="$(echo "$counts" | awk '{print $1}')"
-    behind="$(echo "$counts" | awk '{print $2}')"
-  fi
-  
-  local position="in-sync"
-  [ "$ahead" -gt 0 ] && position="ahead-of-integration"
-  [ "$behind" -gt 0 ] && position="behind-integration"
-  [ "$dirty" = "true" ] && position="dirty-worktree"
+  local integration_ref integration_ref_kind integration_local_behind
+  read -r integration_ref integration_ref_kind integration_local_behind \
+    <<< "$(resolve_integration_ref "$integration_branch")"
+
+  local ahead behind position
+  read -r ahead behind <<< "$(distance_from "$current_branch" "$integration_ref")"
+  position="$(lifecycle_position "$ahead" "$behind" "$dirty")"
   
   jq -n \
     --arg branch "${current_branch:-null}" \
@@ -132,6 +173,9 @@ do_state() {
     --arg ahead "$ahead" \
     --arg behind "$behind" \
     --arg position "$position" \
+    --arg integration_ref "$integration_ref" \
+    --arg integration_ref_kind "$integration_ref_kind" \
+    --arg integration_local_behind "$integration_local_behind" \
     '{
       branch:        (if $branch=="" then null else $branch end),
       class:         $class_name,
@@ -139,92 +183,130 @@ do_state() {
       dirty:         $dirty,
       ahead_of_integration: ($ahead | tonumber),
       behind_integration: ($behind | tonumber),
+      integration_ref: $integration_ref,
+      integration_ref_kind: $integration_ref_kind,
+      integration_local_behind_remote: ($integration_local_behind | tonumber),
       position:      $position
     }'
 }
 
-do_next_version() {
-  local base_tag=""
-  local current_version="0.0.0"
-  
-  base_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
-  
-  if [ -n "$base_tag" ]; then
-    current_version="${base_tag#v}"
-  fi
-  
-  # Strip any semver pre-release/build-metadata suffix (e.g. "-beta.4", "+build.5") before
-  # splitting into numeric fields — the arithmetic below requires plain integers, and a suffix
-  # left in place (patch="0-beta.4") crashes $(( )) with "invalid arithmetic operator".
-  local version_core="${current_version%%-*}"
-  version_core="${version_core%%+*}"
-
+# Splits a semver string into its numeric core and its pre-release label.
+# Echoes: "<major> <minor> <patch> <prerelease-or-empty>"
+parse_semver() {
+  local version="$1"
+  local core="${version%%-*}"; core="${core%%+*}"
+  local pre=""
+  case "$version" in
+    *-*) pre="${version#*-}"; pre="${pre%%+*}" ;;
+  esac
   local major minor patch
-  major="0"; minor="0"; patch="0"
-  IFS='.' read -r major minor patch <<< "$version_core" 2>/dev/null || true
-  major="${major:-0}"; minor="${minor:-0}"; patch="${patch:-0}"
-  
-  local next_major="$major"
-  local next_minor="$minor"
-  local next_patch="$((patch + 1))"
-  
-  if [ -n "$base_tag" ]; then
-    local commits=""
-    commits="$(git log --oneline "${base_tag}..HEAD" 2>/dev/null || true)"
-    
-    if printf '%s' "$commits" | grep -qE 'BREAKING CHANGE|\!:'; then
-      next_major=$((major + 1))
-      next_minor=0
-      next_patch=0
-    elif printf '%s' "$commits" | grep -qE '^feat|^feature'; then
-      if [ "$major" -eq 0 ]; then
-        next_minor=$((minor + 1))
-        next_patch=0
-      else
-        next_minor=$((minor + 1))
-        next_patch=0
-      fi
-    fi
+  IFS='.' read -r major minor patch <<< "$core" 2>/dev/null || true
+  printf '%s %s %s %s\n' "${major:-0}" "${minor:-0}" "${patch:-0}" "$pre"
+}
+
+# Reads the commit subjects since a base tag and names the bump they imply.
+# Echoes: "<MAJOR|MINOR|PATCH|INITIAL> <commit-count>"
+classify_bump() {
+  local base_tag="$1"
+  if [ -z "$base_tag" ]; then
+    printf 'INITIAL 0\n'
+    return
   fi
-  
-  local next_version="${next_major}.${next_minor}.${next_patch}"
-  
-  local bump_kind="PATCH"
-  if [ -n "$base_tag" ]; then
-    local commits=""
-    commits="$(git log --oneline "${base_tag}..HEAD" 2>/dev/null || true)"
-    
-    if printf '%s' "$commits" | grep -qE 'BREAKING CHANGE|\!:'; then
-      bump_kind="MAJOR"
-    elif printf '%s' "$commits" | grep -qE '^feat|^feature'; then
-      bump_kind="MINOR"
+  local subjects count kind="PATCH"
+  subjects="$(git log --format=%s "${base_tag}..HEAD" 2>/dev/null || true)"
+  # `git rev-list --count`, not `printf | wc -l`: the latter sees no trailing newline and so
+  # undercounts every range by one.
+  count="$(git rev-list --count "${base_tag}..HEAD" 2>/dev/null || echo 0)"
+  if printf '%s' "$subjects" | grep -qE 'BREAKING CHANGE|\!:'; then
+    kind="MAJOR"
+  elif printf '%s' "$subjects" | grep -qE '^feat|^feature'; then
+    kind="MINOR"
+  fi
+  printf '%s %s\n' "$kind" "$count"
+}
+
+# The next free number on a pre-release line. Computing label.N+1 arithmetically once proposed a
+# tag that already existed — a well-formed value derived without consulting the thing it describes.
+# `git describe` finds the nearest *reachable* tag, so a pre-release cut on an unmerged branch is
+# invisible to the base-tag lookup and collides here instead. Taken numbers are stepped over rather
+# than stopped on, because the caller wants a usable candidate, and the count of them is reported
+# because the gap is a fact about the tag history. Bounded so a pathological tag set cannot spin.
+# Echoes: "<candidate> <skipped-count>"
+next_free_prerelease() {
+  local core="$1" pre="$2"
+  local label="${pre%.*}" num="${pre##*.}"
+  if ! printf '%s' "$num" | grep -qE '^[0-9]+$'; then
+    printf '%s-%s.1 0\n' "$core" "$pre"
+    return
+  fi
+  local candidate=$((num + 1)) skipped=0 guard=0
+  while [ "$guard" -lt 100 ]; do
+    if ! git rev-parse --verify --quiet "refs/tags/v${core}-${label}.${candidate}" >/dev/null 2>&1; then
+      break
     fi
+    candidate=$((candidate + 1)); skipped=$((skipped + 1)); guard=$((guard + 1))
+  done
+  printf '%s-%s.%s %s\n' "$core" "$label" "$candidate" "$skipped"
+}
+
+do_next_version() {
+  local base_tag current_version="0.0.0"
+  base_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+  [ -n "$base_tag" ] && current_version="${base_tag#v}"
+
+  local major minor patch prerelease
+  read -r major minor patch prerelease <<< "$(parse_semver "$current_version")"
+  local version_core="${major}.${minor}.${patch}"
+
+  local bump_kind commit_count
+  read -r bump_kind commit_count <<< "$(classify_bump "$base_tag")"
+
+  # Semver orders 1.0.0-beta.7 < 1.0.0 < 1.0.1, so a pre-release already sits *before* its own
+  # version number: promoting it IS the bump, not an increment on top of it. A bump promotes when
+  # the field it would raise is already zero, and otherwise increments with the suffix falling
+  # away. These are node-semver's inc() rules reproduced rather than invented.
+  local next_major="$major" next_minor="$minor" next_patch="$patch"
+  if [ "$bump_kind" = "INITIAL" ]; then
+    next_major=1; next_minor=0; next_patch=0
+  elif [ -n "$prerelease" ]; then
+    case "$bump_kind" in
+      MAJOR) [ "$minor" -eq 0 ] && [ "$patch" -eq 0 ] || { next_major=$((major + 1)); next_minor=0; next_patch=0; } ;;
+      MINOR) [ "$patch" -eq 0 ] || { next_minor=$((minor + 1)); next_patch=0; } ;;
+    esac
   else
-    bump_kind="INITIAL"
-    next_version="1.0.0"
+    case "$bump_kind" in
+      MAJOR) next_major=$((major + 1)); next_minor=0; next_patch=0 ;;
+      MINOR) next_minor=$((minor + 1)); next_patch=0 ;;
+      *)     next_patch=$((patch + 1)) ;;
+    esac
   fi
-  
-  local commit_count=0
-  if [ -n "$base_tag" ]; then
-    local commits=""
-    commits="$(git log --oneline "${base_tag}..HEAD" 2>/dev/null || true)"
-    if [ -n "$commits" ]; then
-      commit_count=$(printf '%s' "$commits" | wc -l | tr -d ' ')
-    fi
+  local next_version="${next_major}.${next_minor}.${next_patch}"
+
+  # The other honest option for a pre-release base: continue the line rather than promote it.
+  # Reported alongside so the release ritual can offer the choice instead of assuming one.
+  local next_prerelease="" next_prerelease_skipped=0
+  if [ -n "$prerelease" ]; then
+    read -r next_prerelease next_prerelease_skipped <<< "$(next_free_prerelease "$version_core" "$prerelease")"
   fi
-  
+
   jq -n \
     --arg base_tag "${base_tag:-null}" \
     --arg current_version "$current_version" \
     --arg next_version "$next_version" \
+    --arg next_prerelease "$next_prerelease" \
+    --arg next_prerelease_skipped "$next_prerelease_skipped" \
+    --arg prerelease "$prerelease" \
     --arg bump_kind "$bump_kind" \
     --argjson commit_count "$commit_count" \
     '{
-      base_tag:       (if $base_tag=="" then null else $base_tag end),
-      current_version:$current_version,
-      next_version:   $next_version,
-      bump_kind:      $bump_kind,
-      commits_count:  ($commit_count | tonumber)
+      base_tag:         (if $base_tag=="" then null else $base_tag end),
+      current_version:  $current_version,
+      is_prerelease:    ($prerelease != ""),
+      next_version:     $next_version,
+      next_prerelease:  (if $next_prerelease=="" then null else $next_prerelease end),
+      next_prerelease_skipped: ($next_prerelease_skipped | tonumber),
+      bump_kind:        $bump_kind,
+      commits_count:    ($commit_count | tonumber)
     }'
 }
 
@@ -285,8 +367,25 @@ do_branch_name() {
   [ -z "$class" ] && { printf '{"error":"missing-class"}\n'; exit 2; }
   [ -z "$slugs" ] && { printf '{"error":"missing-slug"}\n'; exit 2; }
   
-  local branch_name=""
+  # Two vocabularies meet here and only one of them is a branch prefix.
+  #
+  # The arms below are *branch* classes — the same set get_class emits — so --class=fix round-trips
+  # and --class=bug did not: it fell through to a catch-all that prepended whatever it was handed,
+  # producing bug/<slug>, which get_class then classified as "other". Every DoFlow skill holds a
+  # *task* class (bug, refactor, dependency-change, trivial-edit, feature), so the caller most
+  # likely to use this verb was the one guaranteed to get an unusable name.
+  #
+  # Task classes are mapped rather than passed through. In branch terms everything that is not a
+  # feature is a fix: the lifecycle policy declares exactly two working prefixes, feat and fix, and
+  # inventing refactor/ or trivial-edit/ would widen a vocabulary get_class does not recognise —
+  # trading one unclassifiable name for four.
+  local branch_class="$class"
   case "$class" in
+    bug|refactor|dependency-change|trivial-edit) branch_class="fix" ;;
+  esac
+
+  local branch_name=""
+  case "$branch_class" in
     feature)   branch_name="feat/${slugs}" ;;
     fix)       branch_name="fix/${slugs}" ;;
     release)   branch_name="release/${slugs}" ;;
@@ -295,7 +394,12 @@ do_branch_name() {
       printf '{"error":"cannot-create-branch-for-trunk-or-other-class"}\n'
       exit 2
       ;;
-    *)         branch_name="${class}/${slugs}" ;;
+    # An unrecognised class is refused rather than prepended. The catch-all that used to sit here
+    # is what let a task class through and produced a name no verb could classify.
+    *)
+      printf '{"error":"unknown-class","class":"%s","valid":"feature, fix, release, hotfix, bug, refactor, dependency-change, trivial-edit"}\n' "$class"
+      exit 2
+      ;;
   esac
   
   jq -n --arg name "$branch_name" '{name: $name}'

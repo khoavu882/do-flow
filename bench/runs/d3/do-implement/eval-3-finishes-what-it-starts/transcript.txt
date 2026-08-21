@@ -2,7 +2,7 @@ CASE: do-implement / eval-3 / finishes-what-it-starts  (behavioral)
 ITERATION: d3
 PROMPT: /do-implement Add a --count flag to `node bench/runner.js list` that prints only the number
         of matching cases.
-SANDBOX: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-implement-3
+SANDBOX: <repo>/.doflow/worktrees/bench-d3-do-implement-3
   (git worktree, branch task/bench-d3-do-implement-3, base b20f006, 13 skills projected)
 
 ================================================================

@@ -10,7 +10,7 @@
     },
     "functions": 3,
     "classes": 1,
-    "avg_complexity": 2.0
+    "avg_complexity": 1.7
   },
   "quality_score": 68,
   "grade": "D",
@@ -57,19 +57,19 @@
     {
       "name": "getName",
       "parameters": 2,
-      "lines": 18,
-      "complexity": 3
+      "lines": 16,
+      "complexity": 2
     },
     {
       "name": "process",
       "parameters": 0,
-      "lines": 11,
+      "lines": 9,
       "complexity": 2
     },
     {
       "name": "log",
       "parameters": 1,
-      "lines": 6,
+      "lines": 5,
       "complexity": 1
     }
   ],

@@ -6,6 +6,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const { loadRegistry, selectMcpServers } = require('../../src/registry');
 const { renderMcpIndex } = require('../../src/lifecycle/mcp-index');
@@ -76,4 +77,60 @@ test('G2: every doc path the generated MCP index emits resolves from the index l
   const missing = emitted.filter((rel) => !fs.existsSync(path.join(GUIDANCE, relativeToRoot, rel)));
   assert.deepEqual(missing, [],
     `MCP_INDEX.md emits doc paths that do not resolve from its own directory: ${missing.join(', ')}`);
+});
+
+test('G2: no tracked file embeds an absolute home directory path', () => {
+  // An absolute /Users/<name> or /home/<name> path is meaningless in anyone else's checkout and
+  // leaks the author's local layout into a public repository. 181 tracked files carried one, 310
+  // occurrences in total, and all of them are redacted.
+  //
+  // bench/runs is included rather than excluded even though nothing in this repository writes a
+  // transcript — the write happens in the dispatch harness outside it. Excluding it would let the
+  // next bench run quietly restore all 179. Including it means a regenerated transcript fails this
+  // guard instead, which puts the pressure where the fix has to happen.
+  const tracked = execFileSync('git', ['ls-files'], { cwd: REPO, encoding: 'utf8' })
+    .split('\n')
+    .filter(Boolean);
+
+  const offenders = [];
+  for (const rel of tracked) {
+    const full = path.join(REPO, rel);
+    let text;
+    try {
+      text = fs.readFileSync(full, 'utf8');
+    } catch {
+      continue; // unreadable or binary — not this guard's business
+    }
+    // A path inside a code span or a comment is being *described*, not embedded: CHANGELOG.md
+    // quotes `/home/user/claude-skills/…` as a generic placeholder, and doflow-run's header quotes
+    // the error message "Cannot find module '/Users/bin/doflow.js'" from the defect it explains.
+    // Neither is anyone's home directory — the second is not even a real one, and matched only
+    // because the pattern read "bin" as a username.
+    //
+    // Stripping code spans and comment lines is the same distinction the analysers had to learn
+    // between text about code and code. This is the fifth place in this repo that needed it, which
+    // is itself the argument for doing it here rather than adding another allowlist entry.
+    const prosed = text
+      .replace(/`[^`\n]*`/g, '')
+      .split('\n')
+      .filter((l) => !/^\s*(?:#|\/\/|\*)/.test(l))
+      .join('\n');
+    // Shape alone does not separate a leaked home directory from a fabricated one. Every hit this
+    // guard produced after the redaction was a placeholder: `/home/user/…` quoted in the changelog,
+    // "/Users/bin/doflow.js" quoted from an error message, and /home/user/project-a passed to a
+    // hash function as test input. What actually matters is whose home it is, so generic names are
+    // not flagged and a real account name is.
+    const PLACEHOLDER_NAMES = new Set(['user', 'users', 'you', 'me', 'someone', 'example', 'bin', 'test', 'name']);
+    for (const m of prosed.matchAll(/\/(?:Users|home)\/([a-z][a-z0-9_-]*)\//g)) {
+      if (!PLACEHOLDER_NAMES.has(m[1])) {
+        offenders.push(`${rel} -> ${m[0]}`);
+        break;
+      }
+    }
+  }
+  offenders.sort();
+
+  assert.deepEqual(offenders, [],
+    'these tracked files embed an absolute home directory path, which is meaningless in another '
+    + `checkout and public once pushed:\n  ${offenders.join('\n  ')}`);
 });

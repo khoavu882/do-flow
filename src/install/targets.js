@@ -20,15 +20,21 @@ const VALID = ['claude', 'codex', 'gemini', 'copilot', 'kiro', 'opencode', 'pi']
  * rest explicitly with `--target claude,codex,gemini`. */
 const DEFAULT_TARGETS = ['claude'];
 
+const TARGET_ALIASES = {
+  antigravity: 'gemini',
+  agy: 'gemini',
+};
+
 /** Default to DEFAULT_TARGETS; validate any explicitly requested. */
 function resolveTargets(requested) {
-  const targets = requested && requested.length ? requested : [...DEFAULT_TARGETS];
+  const rawTargets = requested && requested.length ? requested : [...DEFAULT_TARGETS];
+  const targets = rawTargets.map((t) => TARGET_ALIASES[t] || t);
   for (const t of targets) {
     if (!VALID.includes(t)) {
       throw new Error(`Unknown target: '${t}' (valid: ${VALID.join(', ')})`);
     }
   }
-  return targets;
+  return [...new Set(targets)];
 }
 
 /**

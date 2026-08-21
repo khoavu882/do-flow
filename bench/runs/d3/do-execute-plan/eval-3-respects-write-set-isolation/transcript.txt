@@ -12,7 +12,7 @@ PROMPT AS GIVEN
   Then run /do-execute-plan --scope phase:A against it.
 
 SKILL RESOLUTION (by path, never as a slash command)
-  Read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-execute-plan-3/.claude/skills/do-execute-plan/SKILL.md
+  Read: <repo>/.doflow/worktrees/bench-d3-do-execute-plan-3/.claude/skills/do-execute-plan/SKILL.md
   sha256: 672ab166a6d231b6b0fb8aca2f273cad9779f8fa85eea9540c3cd065c164949c
   Matches brief's sourceSha256 and the sandbox manifest's sourceSha256 (matchesSource: true).
   Also read by path, as the SKILL instructed:

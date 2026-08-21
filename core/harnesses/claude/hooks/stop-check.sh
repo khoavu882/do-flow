@@ -38,7 +38,14 @@ if [[ -f "$PROC_FILE" ]] && [[ -s "$PROC_FILE" ]]; then
   py_files=()
   js_files=()
   go_files=()
+  leak_files=()
   java_has_files=false
+
+  # The resolver for the leak-scan verb. Absent install -> the scan is skipped, like every other
+  # tool below: this hook has never required anything to be present.
+  DOFLOW_RUN="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bin/doflow-run"
+  [[ -x "$DOFLOW_RUN" ]] || DOFLOW_RUN="$HOME/.doflow/scripts/doflow/bin/doflow-run"
+  [[ -x "$DOFLOW_RUN" ]] || DOFLOW_RUN=""
 
   while IFS= read -r path; do
     [[ -z "$path" ]] && continue
@@ -47,6 +54,12 @@ if [[ -f "$PROC_FILE" ]] && [[ -s "$PROC_FILE" ]]; then
       *.ts|*.tsx|*.js|*.jsx)  js_files+=("$path") ;;
       *.go)                   go_files+=("$path") ;;
       *.java)                 java_has_files=true ;;
+    esac
+    # Every edited path is a leak-scan candidate regardless of language; the verb decides what it
+    # can read and reports the rest as unscanned.
+    case "$path" in
+      */agent-docs/*|agent-docs/*) ;;   # correct usage there; the verb excludes it too
+      *)                          leak_files+=("$path") ;;
     esac
   done < "$PROC_FILE"
 
@@ -76,6 +89,26 @@ if [[ -f "$PROC_FILE" ]] && [[ -s "$PROC_FILE" ]]; then
   if [[ "$java_has_files" == "true" ]]; then
     if [[ -x "./gradlew" ]]; then
       nohup ./gradlew spotlessApply </dev/null >/dev/null 2>&1 &
+    fi
+  fi
+
+  # Process-leak scan: DoFlow's own identifiers (FR-###, agent-docs/, chain artifact names)
+  # reaching files that ship. Warns, never blocks — a legitimate occurrence exists in docs *about*
+  # DoFlow, and a false positive that failed a turn would cost more than the leak it prevented.
+  #
+  # Here rather than in a new hook because this loop already holds the turn's edited paths, and
+  # here rather than only in /do-code-review because the sessions that produce leaks are the ones
+  # that never invoke the review. The rule itself lives in one place — the `leak-scan` verb — so the
+  # hook and the review cannot drift on what counts as a leak.
+  if [[ ${#leak_files[@]} -gt 0 ]]; then
+    leak_args=()
+    for p in "${leak_files[@]}"; do leak_args+=(--path "$p"); done
+    if [[ -n "$DOFLOW_RUN" ]]; then
+      leak_out="$(run_with_timeout 2 -- "$DOFLOW_RUN" leak-scan "${leak_args[@]}" 2>/dev/null || true)"
+      if [[ -n "$leak_out" ]] && printf '%s' "$leak_out" | grep -q ':[0-9]'; then
+        printf 'doflow: internal identifiers found in shipped files (warning, not a block):\n%s\n' \
+          "$leak_out" >&2
+      fi
     fi
   fi
 

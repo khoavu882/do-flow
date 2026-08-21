@@ -30,7 +30,7 @@ None.
 
 ## 5. Constitution Checklist
 
-- **Base Constitution:** [`core/shared/guidance/references/CONSTITUTION_BASE.md`](file:///Users/kai/Workspace/learning/do-flow/core/shared/guidance/references/CONSTITUTION_BASE.md) (All rules satisfied).
+- **Base Constitution:** [`core/shared/guidance/references/CONSTITUTION_BASE.md`](file://<repo>/core/shared/guidance/references/CONSTITUTION_BASE.md) (All rules satisfied).
 - **Per-repo Constitution:** N/A (single-repo).
 - **Invariants Verified:**
   - In-process evaluation executes in < 25ms (NFR-001).
@@ -42,46 +42,46 @@ None.
 
 ### Configuration & Declarative Templates
 
-#### [NEW] [readiness-templates.yaml](file:///Users/kai/Workspace/learning/do-flow/core/registry/readiness-templates.yaml)
+#### [NEW] [readiness-templates.yaml](file://<repo>/core/registry/readiness-templates.yaml)
 - Declarative template specifications for 5 task classes (`bug`, `feature`, `refactor`, `trivial-edit`, `dependency-change`).
 
 ### Runtime Subsystems (`src/runtime/`)
 
-#### [NEW] [evidence-ledger.js](file:///Users/kai/Workspace/learning/do-flow/src/runtime/evidence-ledger.js)
+#### [NEW] [evidence-ledger.js](file://<repo>/src/runtime/evidence-ledger.js)
 - `EvidenceLedger` class managing structured evidence lifecycle, locators, provenance, and `.doflow/state/evidence/` JSON persistence.
 
-#### [NEW] [claims.js](file:///Users/kai/Workspace/learning/do-flow/src/runtime/claims.js)
+#### [NEW] [claims.js](file://<repo>/src/runtime/claims.js)
 - `ClaimsManager` class governing the epistemic state machine (`hypothesis` → `supported` / `conflicted` / `invalidated`).
 
-#### [NEW] [freshness.js](file:///Users/kai/Workspace/learning/do-flow/src/runtime/freshness.js)
+#### [NEW] [freshness.js](file://<repo>/src/runtime/freshness.js)
 - `FreshnessValidator` checking recorded evidence commit hashes and file modifications against live Git state.
 
-#### [NEW] [context-pack.js](file:///Users/kai/Workspace/learning/do-flow/src/runtime/context-pack.js)
+#### [NEW] [context-pack.js](file://<repo>/src/runtime/context-pack.js)
 - `ContextPackCompiler` assembling budget-controlled structured context documents for coding agents.
 
-#### [NEW] [readiness.js](file:///Users/kai/Workspace/learning/do-flow/src/runtime/readiness.js)
+#### [NEW] [readiness.js](file://<repo>/src/runtime/readiness.js)
 - `ReadinessEngine` evaluating task profiles against templates and emitting categorical readiness reports with actionable diagnostic pointers.
 
-#### [MODIFY] [cli.js](file:///Users/kai/Workspace/learning/do-flow/src/runtime/cli.js)
+#### [MODIFY] [cli.js](file://<repo>/src/runtime/cli.js)
 - Add handlers for `doflow readiness` and `doflow evidence` CLI commands.
 
 ### CLI & Skills Integration
 
-#### [MODIFY] [doflow.js](file:///Users/kai/Workspace/learning/do-flow/bin/doflow.js)
+#### [MODIFY] [doflow.js](file://<repo>/bin/doflow.js)
 - Wire `readiness` and `evidence` commands into the CLI dispatch and `--help` text.
 
-#### [MODIFY] [SKILL.md (confidence-check)](file:///Users/kai/Workspace/learning/do-flow/core/shared/skills/confidence-check/SKILL.md)
+#### [MODIFY] [SKILL.md (confidence-check)](file://<repo>/core/shared/skills/confidence-check/SKILL.md)
 - Refactor skill to execute the `ReadinessEngine` and output structured readiness verdicts with missing-evidence locators.
 
 ### Test Suites (`test/`)
 
-#### [NEW] [runtime-evidence-ledger.test.js](file:///Users/kai/Workspace/learning/do-flow/test/runtime-evidence-ledger.test.js)
+#### [NEW] [runtime-evidence-ledger.test.js](file://<repo>/test/runtime-evidence-ledger.test.js)
 - Unit tests for evidence creation, schema validation, provenance tracking, and JSON persistence.
 
-#### [NEW] [runtime-claims.test.js](file:///Users/kai/Workspace/learning/do-flow/test/runtime-claims.test.js)
+#### [NEW] [runtime-claims.test.js](file://<repo>/test/runtime-claims.test.js)
 - Unit tests for claims lifecycle, evidence linking, contradiction detection, and state transitions.
 
-#### [NEW] [runtime-readiness.test.js](file:///Users/kai/Workspace/learning/do-flow/test/runtime-readiness.test.js)
+#### [NEW] [runtime-readiness.test.js](file://<repo>/test/runtime-readiness.test.js)
 - Unit tests for readiness evaluation across all 5 task classes, missing evidence actions, and ContextPack compilation.
 
 ## 7. Verification Plan

@@ -15,7 +15,7 @@ whether it actually exists in this working tree, since dispatch depends on there
 real content to review.
 
 Checked:
-  cd /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-baseline-do-code-review-2
+  cd <repo>/.doflow/worktrees/bench-baseline-do-code-review-2
   test -f src/payment/retry.py   -> not found
   find . -iname "retry.py"       -> no matches anywhere in the repo
   find . -path "*/payment/*"     -> no matches; there is no payment/ directory at all

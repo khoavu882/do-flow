@@ -5,7 +5,7 @@ Sandbox: .doflow/worktrees/bench-d3-do-design-3 (created this run; branch task/b
 Model acting as: normal Claude Code session, no human available for questions.
 
 --- Skill resolution (by path, NOT by slash command) ---
-Read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-design-3/.claude/skills/do-design/SKILL.md
+Read: <repo>/.doflow/worktrees/bench-d3-do-design-3/.claude/skills/do-design/SKILL.md
 shasum -a 256 -> e55938dde7c83a89317da91d05682a05bc52cf8cbe66663f7d132e67cb90b965
 Matches brief.skills.sourceSha256: YES
 Sandbox manifest: skillCount=13, mismatches=[], sourceCommit=b20f006f338a6327923b5febd562fe4521959cca.
