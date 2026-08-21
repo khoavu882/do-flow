@@ -166,6 +166,12 @@ class ReadinessEngine {
     // FRESH and still point at nothing. *Stale* (the file changed at all) and *unresolvable* (the
     // locator no longer names anything) are different verdicts and must not be collapsed: a stale
     // item is still checkable by a human, an unresolvable one is not (FR-005).
+    // Stale and unresolvable are different failures and are reported apart: an unresolvable
+    // locator points at nothing, a stale one points at something that changed since it was read.
+    const staleEvidence = (evidenceLedger ? evidenceLedger.getAllEvidence() : [])
+      .filter((item) => item.taskId === taskId && item.freshness?.status === 'STALE')
+      .map((item) => ({ evidenceId: item.id, locator: item.locator, reason: 'file-modified-since-recorded' }));
+
     const unresolvableEvidence = [];
     for (const item of taskEvidence) {
       if (item.provenance !== 'extracted' || !item.locator || !item.locator.file) continue;
@@ -264,6 +270,12 @@ class ReadinessEngine {
     // longer points at the repository, which is a different failure from evidence that disagrees
     // with itself. Naming the specific items is the requirement; a silent downgrade would leave the
     // reader to hunt for which item moved.
+    if (staleEvidence.length > 0) {
+      if (state === 'READY') state = 'NEEDS_EVIDENCE';
+      summary += ` ${staleEvidence.length} evidence item(s) went stale: the files they name have `
+        + 'changed since they were recorded. Re-record them against the tree as it stands.';
+    }
+
     if (unresolvableEvidence.length > 0) {
       if (state === 'READY') state = 'NEEDS_EVIDENCE';
       summary += ` ${unresolvableEvidence.length} evidence item(s) have a locator that no longer `
@@ -286,6 +298,7 @@ class ReadinessEngine {
       },
       evidenceCount: taskEvidence.length,
       unresolvableEvidence,
+      staleEvidence,
     };
   }
 }

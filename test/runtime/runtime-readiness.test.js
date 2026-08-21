@@ -309,3 +309,63 @@ test('FR-005: an inferred item with an unreadable locator is not held to resolva
 
   assert.deepEqual(report.unresolvableEvidence, []);
 });
+
+// ── FR-003: the per-commit diff is computed once, not once per evidence item ─────────────────
+
+test('FR-003: items sharing a recorded commit cost one diff, not one each', () => {
+  const calls = [];
+  const mockGit = (args) => {
+    calls.push(args.join(' '));
+    if (args[0] === 'status') return ' M src/runtime/cli.js';
+    if (args[0] === 'rev-parse') return 'commit_shared';
+    if (args[0] === 'diff') return 'src/runtime/cli.js';
+    return '';
+  };
+  const validator = new FreshnessValidator({ gitRunner: mockGit });
+  const ledger = new EvidenceLedger();
+
+  // Five items, one recorded commit — the shape a stage batch actually produces.
+  for (let i = 0; i < 5; i += 1) {
+    ledger.addEvidence({
+      taskId: 't_memo',
+      kind: 'exact-search',
+      provenance: 'extracted',
+      locator: { file: 'src/runtime/cli.js' },
+      content: `item ${i}`,
+    });
+  }
+  for (const item of ledger.getAllEvidence()) item.freshness.gitCommit = 'commit_shared';
+
+  validator.validateLedgerFreshness(ledger);
+
+  const diffCalls = calls.filter((c) => c.startsWith('diff'));
+  assert.equal(diffCalls.length, 1,
+    `five items on one commit should cost one diff, not ${diffCalls.length}`);
+});
+
+test('FR-003: distinct recorded commits each get their own diff', () => {
+  const calls = [];
+  const mockGit = (args) => {
+    calls.push(args.join(' '));
+    if (args[0] === 'status') return '';
+    if (args[0] === 'diff') return 'src/runtime/cli.js';
+    return '';
+  };
+  const validator = new FreshnessValidator({ gitRunner: mockGit });
+  const ledger = new EvidenceLedger();
+  for (const sha of ['sha_a', 'sha_b', 'sha_a']) {
+    const id = ledger.addEvidence({
+      taskId: 't_memo2',
+      kind: 'exact-search',
+      provenance: 'extracted',
+      locator: { file: 'src/runtime/cli.js' },
+      content: 'x',
+    });
+    ledger.getEvidence(id).freshness.gitCommit = sha;
+  }
+
+  validator.validateLedgerFreshness(ledger);
+
+  const diffCalls = calls.filter((c) => c.startsWith('diff'));
+  assert.equal(diffCalls.length, 2, 'two distinct commits, two diffs — the repeat is memoised');
+});

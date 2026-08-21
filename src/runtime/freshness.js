@@ -110,8 +110,19 @@ class FreshnessValidator {
    * @returns {Set<string>}
    */
   getModifiedFilesSince(refCommit) {
+    // `checkEvidenceFreshness` calls this once per evidence item, and a batch of evidence shares
+    // one recorded commit — so without a memo a task with ninety items ran ninety `git diff`s to
+    // answer the same question. Keyed on the commit because that is the axis the work collapses
+    // on. Instance-scoped, so it lives exactly as long as one invocation.
+    if (!this.diffCache) this.diffCache = new Map();
+    const key = refCommit || '';
+    if (this.diffCache.has(key)) return this.diffCache.get(key);
+
     const dirty = this.getDirtyFiles();
-    if (!refCommit) return dirty;
+    if (!refCommit) {
+      this.diffCache.set(key, dirty);
+      return dirty;
+    }
 
     const diffOutput = this.gitRunner(['diff', '--name-only', refCommit]);
     if (diffOutput) {
@@ -119,6 +130,7 @@ class FreshnessValidator {
         if (f.trim()) dirty.add(f.trim());
       }
     }
+    this.diffCache.set(key, dirty);
     return dirty;
   }
 

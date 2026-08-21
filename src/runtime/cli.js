@@ -8,7 +8,7 @@ const { CapabilityRouter } = require('./capability-router');
 const { EvidenceLedger, VALID_EVIDENCE_KINDS, VALID_PROVENANCE } = require('./evidence-ledger');
 const { resolveLocator, describeResolution } = require('./locator-resolve');
 const { ClaimsManager } = require('./claims');
-const { measureFreshness } = require('./freshness');
+const { measureFreshness, FreshnessValidator } = require('./freshness');
 const { ReadinessEngine } = require('./readiness');
 const { loadRegistry } = require('../registry');
 const { REPO_ROOT } = require('../helper/repo-root');
@@ -117,6 +117,15 @@ function handleReadinessCommand({
   } catch (error) {
     return usageError('readiness', error.message, json);
   }
+
+  // Re-evaluate freshness before anything counts this evidence as support. measureFreshness stamps
+  // FRESH at write time and nothing used to revisit it, so the engine's `status: 'FRESH'` filter
+  // matched every item ever recorded and the claim status `invalidated` could not occur.
+  //
+  // In memory only — `ledger.save` is deliberately not called here. Freshness is a property of the
+  // moment it is asked, not a stored fact: persisting it would make a read operation write, and
+  // would freeze a verdict that should be recomputed on the next call.
+  const staleCount = new FreshnessValidator({ repoRoot: state }).validateLedgerFreshness(ledger);
 
   const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: state });
   claims.load(taskId);
