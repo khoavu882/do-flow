@@ -13,7 +13,42 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
-## [Unreleased]
+## [1.0.0] - 2026-08-21
+
+First stable release. The beta line closes here: semver orders 1.0.0-beta.8 below 1.0.0, so this
+promotes that line rather than starting a new one.
+
+### Added
+- Shell, YAML/JSON and OpenAPI review dispatch in `do-code-review`, plus a `leak-scan` verb
+  reporting DoFlow's own vocabulary in files that ship.
+- Claim lifecycle verbs `retract` and `supersede`, so an obsolete conclusion stops blocking the
+  readiness gate without anyone editing state JSON.
+- `verify --plan-path`, making a feature plan's `doflow-verification` override reachable from the
+  CLI for repositories with no build manifest.
+
+### Changed
+- **Evidence freshness is now evaluated, not merely stamped.** The read half of the mechanism had
+  no production caller, so every recorded item stayed `FRESH` for ever and the claim status
+  `invalidated` could not occur. Gates that passed on evidence whose files had since changed will
+  now report it.
+- Evidence locators are checked for resolvability at write time, not just for shape.
+- `code_quality_checker.py` accounts for every file it walks and reports partial coverage rather
+  than averaging only what it recognised.
+- Analysers no longer count keywords inside comments or string literals, and `pr_analyzer`'s
+  case sensitivity is declared per rule rather than applied to all.
+- `git-state` promotes a pre-release instead of bumping past it, checks tag availability before
+  proposing one, measures integration distance against the remote-tracking ref, and maps task
+  classes onto branch prefixes it can classify.
+- The `scaffold`, `trace` and `verification` runtime modules are grouped into directories, and the
+  repository root is computed in one place.
+
+### Fixed
+- Absolute home-directory paths removed from all 181 tracked files that carried them, with a guard
+  covering the whole tree.
+- Chain artifacts under `agent-docs/doflow/` are versioned; they were excluded by a rule written for
+  bench output.
+
+
 
 ### Added
 - `doflow claim --action retract` and `--action supersede` (with `--replaced-by`). An obsolete claim

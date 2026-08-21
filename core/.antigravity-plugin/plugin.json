@@ -1,6 +1,6 @@
 {
   "name": "doflow",
-  "version": "1.0.0-beta.8",
+  "version": "1.0.0",
   "description": "Spec-driven engineering workflow engine, quality gates, and specialist agent personas for Google Antigravity and Gemini.",
   "author": {
     "name": "DoFlow",
