@@ -251,7 +251,16 @@ next_free_prerelease() {
 
 do_next_version() {
   local base_tag current_version="0.0.0"
-  base_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+  # `git describe --tags --abbrev=0` answers "nearest reachable tag by commit distance", and every
+  # version decision below needs "newest reachable tag by version". Those coincide only while
+  # history is linear — and a release ritual merges twice, so the newest tag routinely sits further
+  # from HEAD than an older one. On this repository after v1.0.0 shipped, beta.8 was reachable at 33
+  # commits and beta.7 at 31, so describe returned beta.7 and every later computation was based on a
+  # superseded release.
+  #
+  # Sorting by version instead. The `v*` filter keeps a non-version tag from winning the sort, and
+  # --merged keeps the answer to tags this branch can actually see.
+  base_tag="$(git tag --merged HEAD --list 'v*' --sort=-v:refname 2>/dev/null | head -1 || true)"
   [ -n "$base_tag" ] && current_version="${base_tag#v}"
 
   local major minor patch prerelease

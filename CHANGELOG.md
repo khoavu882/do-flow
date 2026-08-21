@@ -37,8 +37,9 @@ promotes that line rather than starting a new one.
 - Analysers no longer count keywords inside comments or string literals, and `pr_analyzer`'s
   case sensitivity is declared per rule rather than applied to all.
 - `git-state` promotes a pre-release instead of bumping past it, checks tag availability before
-  proposing one, measures integration distance against the remote-tracking ref, and maps task
-  classes onto branch prefixes it can classify.
+  proposing one, measures integration distance against the remote-tracking ref, maps task classes
+  onto branch prefixes it can classify, and chooses its base tag by version rather than by commit
+  distance — the two diverge after any merge, so a release ritual made the older tag win.
 - The `scaffold`, `trace` and `verification` runtime modules are grouped into directories, and the
   repository root is computed in one place.
 

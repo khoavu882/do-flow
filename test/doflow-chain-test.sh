@@ -464,21 +464,24 @@ git tag -d v1.0.0-beta.1 >/dev/null
 # whether that tag existed, proposing v1.0.0-beta.8 while that tag was already on the remote.
 # `git describe` finds the nearest *reachable* tag, so a pre-release cut on an unmerged branch is
 # invisible to the base-tag lookup and collides here instead.
+# The base is chosen by version order, so a *reachable* higher number becomes the base and the
+# next one is free. The skip matters for the case that motivated it: a pre-release tagged on a
+# branch that was never merged. It is unreachable, so it is never chosen as the base, but the tag
+# still occupies the number — which is exactly how v1.0.0-beta.8 collided in this repository.
 git tag v1.0.0-beta.1
-git tag v1.0.0-beta.2          # the obvious candidate is taken
+git checkout -q -b unmerged-line
+git commit -q --allow-empty -m "work that never merged"
+git tag v1.0.0-beta.2          # taken, but not reachable from the branch we release from
+git checkout -q main
 TAKEN="$($STATE --next-version)"
-eq "--next-version skips a pre-release number whose tag already exists" \
+eq "--next-version bases on the newest *reachable* tag, ignoring the unmerged one" \
+   "$(echo "$TAKEN" | jq -r '.base_tag')" "v1.0.0-beta.1"
+eq "--next-version still skips a number an unreachable tag has taken" \
    "$(echo "$TAKEN" | jq -r '.next_prerelease')" "1.0.0-beta.3"
 eq "--next-version reports how many taken numbers it stepped over" \
    "$(echo "$TAKEN" | jq -r '.next_prerelease_skipped')" "1"
-git tag v1.0.0-beta.3
-git tag v1.0.0-beta.4          # a run of taken numbers
-RUN="$($STATE --next-version)"
-eq "--next-version walks past a run of taken numbers" \
-   "$(echo "$RUN" | jq -r '.next_prerelease')" "1.0.0-beta.5"
-eq "--next-version counts every number it skipped" \
-   "$(echo "$RUN" | jq -r '.next_prerelease_skipped')" "3"
-git tag -d v1.0.0-beta.1 v1.0.0-beta.2 v1.0.0-beta.3 v1.0.0-beta.4 >/dev/null
+git tag -d v1.0.0-beta.1 v1.0.0-beta.2 >/dev/null
+git branch -q -D unmerged-line
 
 # A pre-release at a non-zero patch, with no feat commits behind it, is a PATCH bump: the patch
 # does not increment from a pre-release, so 1.2.3-rc.1 releases as 1.2.3.
@@ -538,6 +541,30 @@ NOREMOTE_STATE="$($STATE --state)"
 eq "--state falls back to the local integration branch with no remote-tracking ref" \
    "$(echo "$NOREMOTE_STATE" | jq -r '.integration_ref_kind')" "local"
 git checkout -q -B main
+
+# Regression: the base tag came from `git describe --tags --abbrev=0`, which answers "nearest
+# reachable tag by commit distance" where every version decision needs "newest reachable by
+# version". Those coincide only while history is linear, and a release ritual merges twice — after
+# v1.0.0 shipped, beta.8 sat 33 commits back and beta.7 sat 31, so describe returned the superseded
+# one and every later computation was based on it.
+git commit -q --allow-empty -m "older"
+git tag v2.0.0                       # newer version, further from HEAD
+git commit -q --allow-empty -m "mid"
+git commit -q --allow-empty -m "near"
+git tag v1.5.0                       # older version, nearer to HEAD
+eq "--next-version takes the newest reachable tag by version, not the nearest by distance" \
+   "$($STATE --next-version | jq -r '.base_tag')" "v2.0.0"
+git tag -d v2.0.0 v1.5.0 >/dev/null
+
+# A tag that is not a version must not win the sort.
+git tag nightly
+git tag v0.1.0
+eq "--next-version ignores a non-version tag when choosing a base" \
+   "$($STATE --next-version | jq -r '.base_tag')" "v0.1.0"
+git tag -d nightly v0.1.0 >/dev/null
+
+eq "--next-version reports no base in a repository with no version tags" \
+   "$($STATE --next-version | jq -r '.base_tag')" "null"
 
 # Test fingerprint mode (deterministic but unique per state)
 FINGERPRINT_1="$($STATE --fingerprint)"
