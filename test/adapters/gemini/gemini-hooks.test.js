@@ -63,6 +63,26 @@ test('plans a key-scoped merge into settings.json, preserving every unrelated ke
   assert.equal(fs.statSync(path.join(root, '.gemini', 'hooks', 'session-start.sh')).mode & 0o111, 0o111, 'script must be deployed and executable');
 });
 
+test('merges into pre-existing hooks in settings.json, preserving user custom hooks (FR-002)', () => {
+  const root = scratch(); const sourceHooksDir = wrapper(root);
+  const settingsFile = path.join(root, '.gemini', 'settings.json');
+  fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+  fs.writeFileSync(settingsFile, JSON.stringify({
+    hooks: {
+      SessionStart: [{ matcher: 'custom-matcher', hooks: [{ type: 'command', command: 'echo custom-hook' }] }],
+    },
+  }));
+
+  const plan = planGeminiHooks({ config: hookConfig(), sourceHooksDir, settingsFile });
+  assert.equal(plan.ok, true);
+  deployGeminiHooks(plan);
+
+  const written = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+  assert.equal(written.hooks.SessionStart.length, 2, 'both custom and managed hook entries must be present');
+  assert.equal(written.hooks.SessionStart[0].hooks[0].command, 'echo custom-hook', 'user custom hook must remain first');
+  assert.equal(written.hooks.SessionStart[1].hooks[0].command, 'bash "$GEMINI_PROJECT_DIR/.gemini/hooks/session-start.sh"');
+});
+
 test('creates settings.json from scratch when none exists yet', () => {
   const root = scratch(); const sourceHooksDir = wrapper(root);
   const settingsFile = path.join(root, '.gemini', 'settings.json');

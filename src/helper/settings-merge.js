@@ -140,4 +140,4 @@ function settingsContainsAny(current, managed) {
   return false;
 }
 
-module.exports = { mergeSettings, settingsContains, settingsContainsAny, stripManagedSettings, sameHookEntry };
+module.exports = { mergeSettings, mergeHooks, settingsContains, settingsContainsAny, stripManagedSettings, sameHookEntry };
