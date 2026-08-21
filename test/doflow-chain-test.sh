@@ -549,6 +549,21 @@ eq "--fingerprint returns valid JSON fingerprint (non-empty)" "${#FP1}" "64"
 eq "--fingerprint is deterministic on stable state" "$FP1" "$FP2"
 
 # Test branch-name mode
+# Regression: --class took *branch* classes (feature, fix, release, hotfix) while every DoFlow
+# skill holds a *task* class (bug, refactor, dependency-change, trivial-edit). A task class fell
+# through a catch-all that prepended it verbatim, so --class=bug produced bug/<slug>, which
+# get_class then classified as "other" — the verb suggested a name it could not itself recognise.
+for tc in bug refactor dependency-change trivial-edit; do
+  eq "--branch-name maps task class $tc onto a recognised prefix" \
+     "$($STATE --branch-name --class=$tc --slug=t | jq -r '.name')" "fix/t"
+done
+eq "--branch-name still maps the feature task class to feat/" \
+   "$($STATE --branch-name --class=feature --slug=t | jq -r '.name')" "feat/t"
+$STATE --branch-name --class=nonsense --slug=t >/dev/null 2>&1
+eq "--branch-name refuses an unknown class instead of prepending it" "$?" "2"
+eq "--branch-name names the valid set when it refuses" \
+   "$($STATE --branch-name --class=nonsense --slug=t 2>/dev/null | jq -r '.error')" "unknown-class"
+
 eq "--branch-name --class=feature --slug=test produces feat/test" "$($STATE --branch-name --class=feature --slug=test | jq -r '.name')" "feat/test"
 eq "--branch-name --class=release --slug=1.0.0 produces release/1.0.0" "$($STATE --branch-name --class=release --slug=1.0.0 | jq -r '.name')" "release/1.0.0"
 

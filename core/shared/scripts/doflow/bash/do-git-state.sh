@@ -353,8 +353,25 @@ do_branch_name() {
   [ -z "$class" ] && { printf '{"error":"missing-class"}\n'; exit 2; }
   [ -z "$slugs" ] && { printf '{"error":"missing-slug"}\n'; exit 2; }
   
-  local branch_name=""
+  # Two vocabularies meet here and only one of them is a branch prefix.
+  #
+  # The arms below are *branch* classes — the same set get_class emits — so --class=fix round-trips
+  # and --class=bug did not: it fell through to a catch-all that prepended whatever it was handed,
+  # producing bug/<slug>, which get_class then classified as "other". Every DoFlow skill holds a
+  # *task* class (bug, refactor, dependency-change, trivial-edit, feature), so the caller most
+  # likely to use this verb was the one guaranteed to get an unusable name.
+  #
+  # Task classes are mapped rather than passed through. In branch terms everything that is not a
+  # feature is a fix: the lifecycle policy declares exactly two working prefixes, feat and fix, and
+  # inventing refactor/ or trivial-edit/ would widen a vocabulary get_class does not recognise —
+  # trading one unclassifiable name for four.
+  local branch_class="$class"
   case "$class" in
+    bug|refactor|dependency-change|trivial-edit) branch_class="fix" ;;
+  esac
+
+  local branch_name=""
+  case "$branch_class" in
     feature)   branch_name="feat/${slugs}" ;;
     fix)       branch_name="fix/${slugs}" ;;
     release)   branch_name="release/${slugs}" ;;
@@ -363,7 +380,12 @@ do_branch_name() {
       printf '{"error":"cannot-create-branch-for-trunk-or-other-class"}\n'
       exit 2
       ;;
-    *)         branch_name="${class}/${slugs}" ;;
+    # An unrecognised class is refused rather than prepended. The catch-all that used to sit here
+    # is what let a task class through and produced a name no verb could classify.
+    *)
+      printf '{"error":"unknown-class","class":"%s","valid":"feature, fix, release, hotfix, bug, refactor, dependency-change, trivial-edit"}\n' "$class"
+      exit 2
+      ;;
   esac
   
   jq -n --arg name "$branch_name" '{name: $name}'
