@@ -131,16 +131,22 @@ function scanPaths({ paths: targets, repoRoot, excludedSegments, fsImpl } = {}) 
  *
  * @param {Object} options
  * @param {string[]} options.paths
+ * @param {string[]} [options.exclude] extra path segments to skip, on top of the artifact directory
  * @param {boolean} [options.json=false]
  * @param {string} [options.repoRoot]
  * @returns {number} exit code
  */
-function handleLeakScanCommand({ paths: targets, json = false, repoRoot } = {}) {
+function handleLeakScanCommand({ paths: targets, exclude, json = false, repoRoot } = {}) {
   if (!Array.isArray(targets) || targets.length === 0) {
     return usageError('leak-scan', '--path is required (repeatable): the files to scan', json);
   }
 
-  const result = scanPaths({ paths: targets, repoRoot });
+  // `--exclude` extends the built-in artifact-directory exclusion rather than replacing it: a
+  // caller narrowing the scan should not be able to accidentally widen it back over agent-docs/.
+  const extra = Array.isArray(exclude) ? exclude.filter((e) => typeof e === 'string' && e.trim() !== '') : [];
+  const excludedSegments = [...DEFAULT_EXCLUDED_SEGMENTS, ...extra];
+
+  const result = scanPaths({ paths: targets, repoRoot, excludedSegments });
 
   if (json) {
     console.log(JSON.stringify({ ...result, findingsCount: result.findings.length }, null, 2));

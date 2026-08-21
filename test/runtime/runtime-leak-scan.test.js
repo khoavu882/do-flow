@@ -94,3 +94,22 @@ test('no paths yields an empty result rather than an error', () => {
   const result = scanPaths({ paths: [], repoRoot: '/nonexistent' });
   assert.deepEqual(result, { findings: [], scanned: [], unscanned: [] });
 });
+
+test('extra excluded segments narrow the scan without replacing the artifact exclusion', () => {
+  const root = tmpRepo({
+    'ship/spec.yaml': 'FR-001\n',
+    'vendor/impl.js': 'FR-002\n',
+    'agent-docs/x.md': 'FR-003\n',
+  });
+  const result = scanPaths({
+    paths: ['ship/spec.yaml', 'vendor/impl.js', 'agent-docs/x.md'],
+    repoRoot: root,
+    excludedSegments: ['agent-docs', 'vendor'],
+  });
+  assert.deepEqual(result.findings.map((f) => f.text), ['FR-001']);
+  assert.deepEqual(
+    result.unscanned.map((u) => u.reason).sort(),
+    ['excluded', 'excluded'],
+    'an excluded path is reported as unscanned, never dropped',
+  );
+});

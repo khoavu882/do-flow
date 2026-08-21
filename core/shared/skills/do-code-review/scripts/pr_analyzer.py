@@ -60,6 +60,8 @@ FILE_CATEGORIES = {
 RISK_PATTERNS = [
     {
         "name": "hardcoded_secrets",
+        # comments: a committed secret is a secret wherever it sits, including commented-out code.
+        "comments": True,
         # pattern is written lowercase and must catch Password:, API_KEY, Token=.
         "ignorecase": True,
         "pattern": r"(password|secret|api_key|token|connection_?string)\s*[=:]\s*['\"][^'\"]+['\"]",
@@ -68,6 +70,8 @@ RISK_PATTERNS = [
     },
     {
         "name": "todo_fixme",
+        # comments: TODO/FIXME/HACK markers are written as comments; skipping comments would disable this rule entirely.
+        "comments": True,
         # pattern is written uppercase and must catch todo:, Fixme:.
         "ignorecase": True,
         "pattern": r"(TODO|FIXME|HACK|XXX):",
@@ -76,6 +80,8 @@ RISK_PATTERNS = [
     },
     {
         "name": "console_log",
+        # comments: a commented-out console.log is not debug output left in production.
+        "comments": False,
         # console.log, Debug.WriteLine, System.out.println are exact-case API names.
         "ignorecase": False,
         "pattern": (
@@ -90,6 +96,8 @@ RISK_PATTERNS = [
     },
     {
         "name": "debugger",
+        # comments: a commented-out debugger statement is inert.
+        "comments": False,
         # the JavaScript `debugger` keyword is lowercase.
         "ignorecase": False,
         "pattern": r"\bdebugger\b",
@@ -98,6 +106,8 @@ RISK_PATTERNS = [
     },
     {
         "name": "analyzer_disable",
+        # comments: eslint-disable and @SuppressWarnings are comment syntax.
+        "comments": True,
         # eslint-disable, [SuppressMessage, @SuppressWarnings are exact-case tokens.
         "ignorecase": False,
         "pattern": (
@@ -112,6 +122,8 @@ RISK_PATTERNS = [
     },
     {
         "name": "loose_type",
+        # comments: a type annotation inside a comment declares nothing.
+        "comments": False,
         # the TypeScript `any` and C# `dynamic` keywords are lowercase.
         "ignorecase": False,
         "pattern": r":\s*any\b|\bdynamic\s+\w+\s*[=;]",
@@ -120,6 +132,8 @@ RISK_PATTERNS = [
     },
     {
         "name": "sql_concatenation",
+        # comments: commented-out SQL executes nothing.
+        "comments": False,
         # SQL is written either case; the pattern spells the keywords uppercase.
         "ignorecase": True,
         "pattern": r"(SELECT|INSERT|UPDATE|DELETE).*\+.*['\"]|(?:FromSql|ExecuteSql)\w*\([^)]*\$\"",
@@ -128,6 +142,8 @@ RISK_PATTERNS = [
     },
     {
         "name": "csharp_unsafe_block",
+        # comments: commented-out code compiles nothing.
+        "comments": False,
         # C# keywords are lowercase and exact.
         "ignorecase": False,
         "pattern": (
@@ -140,6 +156,8 @@ RISK_PATTERNS = [
     },
     {
         "name": "csharp_null_forgiving",
+        # comments: commented-out code compiles nothing.
+        "comments": False,
         # punctuation only, so case cannot apply.
         "ignorecase": False,
         "pattern": r"(?:\)\s*!\.|\w+!\.\w+)",
@@ -148,6 +166,8 @@ RISK_PATTERNS = [
     },
     {
         "name": "csharp_async_void",
+        # comments: commented-out code compiles nothing.
+        "comments": False,
         # C# keywords are lowercase and exact.
         "ignorecase": False,
         "pattern": r"\basync\s+void\s+\w+\s*\(",
@@ -156,6 +176,8 @@ RISK_PATTERNS = [
     },
     {
         "name": "csharp_blocking_async",
+        # comments: commented-out code runs nothing — and the comments documenting this rule name .Result, which is how the rule flagged its own documentation.
+        "comments": False,
         # `.Result`/`.Wait()`/`.GetAwaiter()` are PascalCase C# members; matching them case-insensitively made JavaScript's `...result` spread a high-severity ASP.NET deadlock finding.
         "ignorecase": False,
         "pattern": r"\.(?:Result\b|Wait\(\)|GetAwaiter\(\)\.GetResult\(\))",
@@ -256,10 +278,31 @@ def categorize_file(filepath: str) -> Tuple[str, int]:
 # case-insensitively reports findings it has not earned, and a prose-shaped one matched
 # case-sensitively misses findings it should have. Declaring it once per pattern is the only way
 # both stay right, so an undeclared pattern is refused here rather than silently taking a default.
-_undeclared = [r["name"] for r in RISK_PATTERNS if "ignorecase" not in r]
+def strip_comments(content: str) -> str:
+    """
+    Blank comment text, preserving newlines so line-based reasoning still lines up.
+
+    Most rules here describe things a compiler or runtime acts on, and a commented-out one acts on
+    nothing. Scanning comments made this analyser report its own documentation: the comment
+    explaining that `.Result` is a PascalCase C# member matched the `.Result` rule, and the comment
+    naming the `debugger` keyword matched the `debugger` rule.
+
+    Which rules skip comments is declared per rule below, not decided here. Three of them must read
+    comments to work at all — TODO markers, eslint-disable and @SuppressWarnings are comment syntax,
+    and a secret is a secret wherever it sits. Stripping globally would have silently disabled them.
+    """
+    content = re.sub(r"/\*[\s\S]*?\*/", lambda m: "\n" * m.group(0).count("\n"), content)
+    out = []
+    for line in content.split("\n"):
+        stripped = line.lstrip()
+        out.append("" if stripped.startswith(("//", "#", "*")) else re.sub(r"\s(?://|#).*$", "", line))
+    return "\n".join(out)
+
+
+_undeclared = [r["name"] for r in RISK_PATTERNS if "ignorecase" not in r or "comments" not in r]
 if _undeclared:
     raise ValueError(
-        "every RISK_PATTERNS entry must declare 'ignorecase'; missing on: " + ", ".join(_undeclared)
+        "every RISK_PATTERNS entry must declare both 'ignorecase' and 'comments'; missing on: " + ", ".join(_undeclared)
     )
 
 
@@ -275,9 +318,12 @@ def analyze_diff_for_risks(diff_content: str, filepath: str) -> List[Dict]:
 
     content = "\n".join(added_lines)
 
+    code_only = strip_comments(content)
+
     for risk in RISK_PATTERNS:
         flags = re.IGNORECASE if risk["ignorecase"] else 0
-        matches = re.findall(risk["pattern"], content, flags)
+        haystack = content if risk["comments"] else code_only
+        matches = re.findall(risk["pattern"], haystack, flags)
         if matches:
             risks.append({
                 "name": risk["name"],

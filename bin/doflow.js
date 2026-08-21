@@ -216,6 +216,7 @@ const RUNTIME_LIST_FLAGS = new Map([
   // have to be re-spelled as one string to be declared.
   ['--need', 'need'],
   ['--path', 'paths'],                 // leak-scan: the files to scan, one per occurrence
+  ['--exclude', 'exclude'],            // leak-scan: extra path segments to skip, on top of agent-docs/
 ]);
 
 /** Non-negative integer arguments. */
@@ -425,7 +426,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                ABANDONED|INCONCLUSIVE>,
       --readiness, --verification           outcome --action record
       --risk, --plan-path                   verify
-      --path (repeatable)                   leak-scan
+      --path, --exclude (repeatable)        leak-scan
       --error, --failed-check,
       --iteration, --agent                  recover
       --json           Machine-readable output (status)
@@ -1015,7 +1016,7 @@ function main() {
       case 'retrieval-plan': return handleRetrievalPlanCommand({ taskId: requireTaskId(o), action: o.action, need: o.need, stage: o.stage, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
       case 'outcome': return handleOutcomeCommand({ taskId: requireTaskId(o), action: o.action, state: o.state, taskClass: o.taskClass, stage: o.stage, readiness: o.readiness, verification: o.verification, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
       case 'verify': return handleVerifyCommand({ taskId: requireTaskId(o), action: o.action, risk: o.risk, planPath: o.planPath, json: o.json, projectRoot: evidenceRoot(o) });
-      case 'leak-scan': return handleLeakScanCommand({ paths: o.paths, json: o.json, repoRoot: evidenceRoot(o) });
+      case 'leak-scan': return handleLeakScanCommand({ paths: o.paths, exclude: o.exclude, json: o.json, repoRoot: evidenceRoot(o) });
       case 'recover': return handleRecoverCommand({ errorMessage: o.errorMessage, failedChecks: o.failedChecks, iteration: o.iteration, agent: o.agent, json: o.json });
       default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
     }

@@ -103,12 +103,24 @@ State this before producing a single finding, and report against it when the rev
    optional: a score presented as if it covered the whole change is the defect this contract exists
    to prevent.
 5. **Process-leak scan** — run
-   `doflow leak-scan --path <each reviewed file> --json` over the reviewed set and report every
-   finding with its file and line. These are DoFlow's own identifiers (`FR-###`, `agent-docs/`,
-   chain artifact names) reaching files that ship to people who never used DoFlow. Occurrences
-   inside `agent-docs/` are correct usage and the verb excludes them itself. The verb reports and
-   never blocks; a legitimate occurrence exists in documentation *about* DoFlow, so a finding is
-   raised for judgement rather than auto-failed.
+   `doflow leak-scan --path <each reviewed file> --json` over the reviewed set. These are DoFlow's
+   own identifiers (`FR-###`, `agent-docs/`, chain artifact names) reaching files that ship to
+   people who never used DoFlow. Occurrences inside `agent-docs/` are correct usage and the verb
+   excludes them itself. The verb reports and never blocks.
+
+   **Say which kind of repository you are scanning before you list anything.** A repository that
+   *uses* DoFlow should contain none of this vocabulary outside `agent-docs/`, so every finding is
+   worth a line. A repository that *implements* it — DoFlow's own tree, or any project vendoring the
+   chain — contains it correctly and by the hundred: its scaffold generator writes `requirement.md`,
+   its guards assert on `FR-###`, its changelog describes the chain. Listing those individually
+   teaches a reviewer to skip this step, and a skipped check protects nothing.
+
+   So: in an implementing repository, narrow the scan with `--exclude <segment>` (repeatable, and it
+   extends the artifact-directory exclusion rather than replacing it) to the paths that actually
+   ship onward, and report the count you excluded alongside the findings you kept. Never silently
+   drop a path — the verb reports an excluded file as `unscanned` with its reason, and so should
+   you. Where narrowing is not possible, report the total and say plainly that the findings are
+   expected here, rather than pasting them.
 
 **Stop when** every file in the reviewed set the contract names has an answer or a stated gap, **and** the last round produced no new file in the reviewed set. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 
