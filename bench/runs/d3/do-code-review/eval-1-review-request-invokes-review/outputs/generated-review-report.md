@@ -1,7 +1,7 @@
 # Code Review Report
 
 **Generated:** 2026-08-18T16:43:42.400729
-**Repository:** /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-code-review-1
+**Repository:** <repo>/.doflow/worktrees/bench-d3-do-code-review-1
 
 ## Executive Summary
 

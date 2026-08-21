@@ -5,7 +5,7 @@ the whole thing reviewed."
 
 ROUTING DECISION
 ================
-Read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-1/.claude/skills/do/SKILL.md
+Read <repo>/.doflow/worktrees/bench-boundary-do-1/.claude/skills/do/SKILL.md
 directly (by path, not via the Skill tool). Its frontmatter description reads:
 
   "DoFlow universal dispatcher and request router — session announcement, multi-part task
@@ -22,7 +22,7 @@ Routing" behavior (SKILL.md step 2). DECISION: do, multi-part routing path.
 VERIFYING REAL TARGETS (per SKILL.md step 2: "verify referenced files exist first")
 =====================================================================================
 Ran inside the sandbox (cd'd to
-/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-1 first):
+<repo>/.doflow/worktrees/bench-boundary-do-1 first):
 
   grep -rn "doctor" bin/ src/
     -> bin/doflow.js:847   doctor   System health and capability smoke check diagnostics
@@ -121,7 +121,7 @@ Boundaries section it "Will Not: Directly perform code edits or modify source fi
 specialist skills)".
 
 ## Tools and skills used
-1. Read — /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-1/.claude/skills/do/SKILL.md (skill body, read by path, NOT invoked via the Skill tool)
+1. Read — <repo>/.doflow/worktrees/bench-boundary-do-1/.claude/skills/do/SKILL.md (skill body, read by path, NOT invoked via the Skill tool)
 2. Bash — `grep -rn "doctor" bin/ src/` and `ls -la docs/reference.md` (verify real targets exist)
 3. Bash — resolve $DOFLOW runtime seam and run `"$DOFLOW" paths --json`
 4. Bash — `"$DOFLOW" classify --help` (discover classify's valid task classes)

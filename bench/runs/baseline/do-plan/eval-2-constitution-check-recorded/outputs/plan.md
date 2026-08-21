@@ -29,7 +29,7 @@ N/A — no `requirement.md` or `design.md` exists to derive an approach from. No
 
 **Tiers evaluated:**
 
-- **Tier-1 (base):** `/Users/kai/.doflow/guidance/references/CONSTITUTION_BASE.md` — present, read in full (v1.0.0, principles P1–P6).
+- **Tier-1 (base):** `<home>/.doflow/guidance/references/CONSTITUTION_BASE.md` — present, read in full (v1.0.0, principles P1–P6).
 - **Tier-2 (per-repo):** `agent-docs/constitution.md` — **not present** in this repo/sandbox (resolver reports `has_constitution_local: false`). No overlay to reconcile; tier-1 stands alone for this evaluation. This is a factual absence, not a skipped check — the resolver's `constitution_local` path was computed and checked.
 
 - [ ] Complies with P2 (Evidence over assumptions): **NO** — this plan has no `requirement.md` or `design.md` to serve as evidence. Any task list written here would be invented, not derived.

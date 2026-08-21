@@ -6,7 +6,7 @@ WorktreeManager reported skills=13.
 
 --- SKILL SOURCE ---
 Read by path, never as a slash command:
-  /Users/kai/.../worktrees/bench-d3-do-test-1/.claude/skills/do-test/SKILL.md
+  <home>/.../worktrees/bench-d3-do-test-1/.claude/skills/do-test/SKILL.md
 shasum -a 256 -> 90b9999361686618ba246d38feed425f92f6e723255bffd02740be20cac5d812
 Matches the brief's sourceSha256 exactly.
 Skill tool invocations: none. invoked_skills.json is [].

@@ -96,7 +96,7 @@ Tool & Skill Log (in order)
    to confirm target file exists in sandbox (535/536-line file confirmed).
 2. Bash -- shasum -a 256 on the sandbox SKILL.md (opened by absolute path, not by skill name).
 3. Read -- opened
-   /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-code-review-2/.claude/skills/do-code-review/SKILL.md
+   <repo>/.doflow/worktrees/bench-boundary-do-code-review-2/.claude/skills/do-code-review/SKILL.md
    directly (absolute path Read tool call, not the Skill tool, not "/do-code-review" by name).
    Confirmed dispatch table: .py -> languages/python.md, loaded alongside rules/universal.md, and
    that "quality issues" maps to the Code Quality Checker section (scripts/code_quality_checker.py),

@@ -4,7 +4,7 @@
   "riskLevel": "MEDIUM",
   "compiledAt": "2026-08-18T09:50:51.520Z",
   "compiledBeforeImplementation": true,
-  "cwd": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-test-2",
+  "cwd": "<repo>/.doflow/worktrees/bench-d3-do-test-2",
   "maxRecoveryIterations": 3,
   "detection": {
     "usable": true,

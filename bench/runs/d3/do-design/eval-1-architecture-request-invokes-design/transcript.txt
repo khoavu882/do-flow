@@ -6,7 +6,7 @@ SANDBOX: .doflow/worktrees/bench-d3-do-design-1 (pre-existing; REUSED, not recre
   branch task/bench-d3-do-design-1, base commit 704fb3315890afef5f0808213b02b3f4250600d2
   manifest: skillCount 13, mismatches []
 SKILL RESOLUTION: by absolute path via cat. No Skill tool call, no /do-design.
-  path:   /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-design-1/.claude/skills/do-design/SKILL.md
+  path:   <repo>/.doflow/worktrees/bench-d3-do-design-1/.claude/skills/do-design/SKILL.md
   sha256: e55938dde7c83a89317da91d05682a05bc52cf8cbe66663f7d132e67cb90b965  (matches brief)
 
 --------------------------------------------------------------------

@@ -6,14 +6,14 @@
     "status": "verified",
     "expectedSha256": "f89fe7218f09c71a9ffa34a654770fa61a7c77a7c69475301ad8251c6348edc3",
     "recordedSha256": "f89fe7218f09c71a9ffa34a654770fa61a7c77a7c69475301ad8251c6348edc3",
-    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-flow-1/.claude/skills/do-flow/SKILL.md",
-    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-flow-1/.claude/skills/do-flow/SKILL.md (matches core/shared/skills/do-flow/SKILL.md)"
+    "recordedPath": "<repo>/.doflow/worktrees/bench-boundary-do-flow-1/.claude/skills/do-flow/SKILL.md",
+    "evidence": "read <repo>/.doflow/worktrees/bench-boundary-do-flow-1/.claude/skills/do-flow/SKILL.md (matches core/shared/skills/do-flow/SKILL.md)"
   },
   "expectations": [
     {
       "text": "do-flow was invoked",
       "passed": true,
-      "evidence": "do-flow: verified — read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-flow-1/.claude/skills/do-flow/SKILL.md (matches core/shared/skills/do-flow/SKILL.md)"
+      "evidence": "do-flow: verified — read <repo>/.doflow/worktrees/bench-boundary-do-flow-1/.claude/skills/do-flow/SKILL.md (matches core/shared/skills/do-flow/SKILL.md)"
     },
     {
       "text": "Phases are sequenced rather than collapsed into one step",

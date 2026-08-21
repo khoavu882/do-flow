@@ -6,14 +6,14 @@
     "status": "verified",
     "expectedSha256": "a6838b7013eb4d32b70b3b0b964a23b07ed75f80222a2461134092ab8dc71345",
     "recordedSha256": "a6838b7013eb4d32b70b3b0b964a23b07ed75f80222a2461134092ab8dc71345",
-    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-brainstorm-1/.claude/skills/do-brainstorm/SKILL.md",
-    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-brainstorm-1/.claude/skills/do-brainstorm/SKILL.md (matches core/shared/skills/do-brainstorm/SKILL.md)"
+    "recordedPath": "<repo>/.doflow/worktrees/bench-boundary-do-brainstorm-1/.claude/skills/do-brainstorm/SKILL.md",
+    "evidence": "read <repo>/.doflow/worktrees/bench-boundary-do-brainstorm-1/.claude/skills/do-brainstorm/SKILL.md (matches core/shared/skills/do-brainstorm/SKILL.md)"
   },
   "expectations": [
     {
       "text": "do-brainstorm was invoked",
       "passed": true,
-      "evidence": "do-brainstorm: verified — read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-brainstorm-1/.claude/skills/do-brainstorm/SKILL.md (matches core/shared/skills/do-brainstorm/SKILL.md)"
+      "evidence": "do-brainstorm: verified — read <repo>/.doflow/worktrees/bench-boundary-do-brainstorm-1/.claude/skills/do-brainstorm/SKILL.md (matches core/shared/skills/do-brainstorm/SKILL.md)"
     },
     {
       "text": "No code block appears in the discovery response itself (scope: transcript, because the response IS the artifact for a discovery-only turn)",

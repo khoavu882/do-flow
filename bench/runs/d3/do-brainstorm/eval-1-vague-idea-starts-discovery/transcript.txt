@@ -7,7 +7,7 @@ PROMPT AS GIVEN
   "I'm thinking about building something to help me keep track of what I read."
 
 SKILL RESOLUTION (by path, never as a slash command)
-  read: /Users/kai/.../worktrees/bench-d3-do-brainstorm-1/.claude/skills/do-brainstorm/SKILL.md
+  read: <home>/.../worktrees/bench-d3-do-brainstorm-1/.claude/skills/do-brainstorm/SKILL.md
   sha256: 0c84d6d4722d2a993b3a5a632eef6b1db695d32d3dc4656fa14f5c9aceb7e41f
   matches the brief's sourceSha256 and core/shared/skills/do-brainstorm/SKILL.md. 145 lines, read in
   full. Also read, because the skill requires it by name:
@@ -110,9 +110,9 @@ STEP 4 — PICK THE FEATURE
 
 STEP 5 — WRITE requirement.md
   Template path resolved exactly as the skill specifies: take `constitution_base` from step 1's JSON
-    /Users/kai/.../bench-d3-do-brainstorm-1/.doflow/guidance/references/CONSTITUTION_BASE.md
+    <home>/.../bench-d3-do-brainstorm-1/.doflow/guidance/references/CONSTITUTION_BASE.md
   and swap the trailing `guidance/references/CONSTITUTION_BASE.md` for `templates/doflow/requirement-template.md`
-    -> /Users/kai/.../bench-d3-do-brainstorm-1/.doflow/templates/doflow/requirement-template.md
+    -> <home>/.../bench-d3-do-brainstorm-1/.doflow/templates/doflow/requirement-template.md
   The file existed (3.4K). The string-surgery instruction worked, though it is a fragile way to
   express "the install root".
   Written: agent-docs/doflow/bench-d3-do-brainstorm-1/requirement.md, 217 lines.

@@ -12,7 +12,7 @@ I explored the sandbox first. State found:
   `has_requirement: false`, `has_design: false`, `has_plan: false`, feature_slug resolved to
   `task/bench-baseline-do-plan-2`, feature_dir `agent-docs/doflow/task/bench-baseline-do-plan-2`.
 - Constitution tiers: tier-1 base constitution exists at
-  `/Users/kai/.doflow/guidance/references/CONSTITUTION_BASE.md` (v1.0.0, principles P1–P6).
+  `<home>/.doflow/guidance/references/CONSTITUTION_BASE.md` (v1.0.0, principles P1–P6).
   Tier-2 per-repo constitution (`agent-docs/constitution.md`) does **not** exist in this sandbox
   — resolver reports `has_constitution_local: false`.
 

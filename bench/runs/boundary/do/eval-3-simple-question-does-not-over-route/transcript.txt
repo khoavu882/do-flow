@@ -58,7 +58,7 @@ question. `outputs/` was created and left empty.
 
 ## Tools and skills used
 
-1. Read — /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-3/.claude/skills/do/SKILL.md (frontmatter + Behavioral Flow, read by path, NOT invoked via the Skill tool)
+1. Read — <repo>/.doflow/worktrees/bench-boundary-do-3/.claude/skills/do/SKILL.md (frontmatter + Behavioral Flow, read by path, NOT invoked via the Skill tool)
 2. Bash — `grep -rn "prune" bin/doflow.js src/lifecycle/ src/` in the sandbox, to locate every reference to the --prune flag and pruneBackups
 3. Read — bin/doflow.js lines 860-889 (help text / Options block, including the `--prune <N>` line)
 4. Read — bin/doflow.js lines 1000-1029 (cmdInstall, showing o.prune consumed there)

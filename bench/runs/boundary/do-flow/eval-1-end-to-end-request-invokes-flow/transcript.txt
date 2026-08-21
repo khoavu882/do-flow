@@ -8,7 +8,7 @@ path inside the sandbox worktree, NOT via the Skill tool (which would have resol
 global ~/.claude/skills/do-flow/ tree instead of this sandbox's own file).
 
 File opened (absolute path):
-/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-flow-1/.claude/skills/do-flow/SKILL.md
+<repo>/.doflow/worktrees/bench-boundary-do-flow-1/.claude/skills/do-flow/SKILL.md
 
 === Frontmatter examined ===
 ---
@@ -63,7 +63,7 @@ description and body both imply approval gates are honored, not bypassed, during
 === Tool/skill usage log (in order) ===
 1. Bash — cd into sandbox working directory and `ls` to confirm the skill file's presence (read-only, no mutation).
 2. Read — opened the exact file by absolute path:
-   /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-flow-1/.claude/skills/do-flow/SKILL.md
+   <repo>/.doflow/worktrees/bench-boundary-do-flow-1/.claude/skills/do-flow/SKILL.md
 3. Bash — `shasum -a 256` on that same absolute path to compute its sha256.
 4. Bash — created the output directory tree (`mkdir -p .../outputs`) and listed it.
 5. Write — skill_source.json, invoked_skills.json, outputs/note.txt, transcript.txt (this file) in
@@ -76,7 +76,7 @@ Note on output location: the harness's isolation layer redirected all Write call
 to the worktree copy at
 .claude/worktrees/agent-a42b499e808ad6bd3/bench/runs/boundary/do-flow/eval-1-end-to-end-request-invokes-flow/
 rather than the literal path
-/Users/kai/Workspace/learning/do-flow/bench/runs/boundary/do-flow/eval-1-end-to-end-request-invokes-flow/
+<repo>/bench/runs/boundary/do-flow/eval-1-end-to-end-request-invokes-flow/
 given in the task. This is an artifact of the agent sandboxing (a *different* worktree than the
 .doflow/worktrees/bench-boundary-do-flow-1 sandbox named in the task), not a deviation from the
 Read-by-path instruction for the skill file itself.

@@ -6,7 +6,7 @@ PROMPT AS GIVEN
   "Take this from idea to reviewed code: a webhook receiver with signature verification."
 
 SKILL RESOLUTION (by path, never as a slash command)
-  Read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-flow-1/.claude/skills/do-flow/SKILL.md
+  Read: <repo>/.doflow/worktrees/bench-d3-do-flow-1/.claude/skills/do-flow/SKILL.md
   sha256: dc842d7768581703b5e139a894fa36c1921af8ecccc99ce8caba2ce4a764a7c9
   Matches the brief's sourceSha256 and the sandbox manifest (matchesSource: true).
   Skill tool invocations: none. /do-flow was never typed — that would have judged

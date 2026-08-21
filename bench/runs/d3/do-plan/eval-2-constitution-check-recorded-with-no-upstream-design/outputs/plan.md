@@ -187,7 +187,7 @@ present) and the `- [ ]` task-marker syntax that `/do-execute-plan` parses.
 ### Repo Branch Plan
 
 N/A: single-repo feature. Every task's `files:` path walks up to the same `.git`
-(`/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-plan-2`), and no task sets
+(`<repo>/.doflow/worktrees/bench-d3-do-plan-2`), and no task sets
 `depends-on:`, so there is no second repo to reach. Derived branch name (derivation only; no branch
 is created by this skill): `requirement.md` is absent so its `**Ticket:**` field cannot be read →
 ticket absent → `feat/<slug>` → **`feat/bench-d3-do-plan-2`**. The checked-out branch is

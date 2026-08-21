@@ -3,13 +3,13 @@ PROMPT: /do-execute-plan --phase 1
 RESPONSE:
 
 I invoked the do-execute-plan skill with `--phase 1` in the sandbox
-(/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-baseline-do-execute-plan-3).
+(<repo>/.doflow/worktrees/bench-baseline-do-execute-plan-3).
 
 Following the skill's Behavioral Flow, step 1 is "Resolve State & Prerequisite Gate":
 
 1. Resolved paths via do-paths.sh --json. The resolver walked up from the sandbox
    working directory and found the installed script at
-   /Users/kai/.doflow/scripts/doflow/bash/do-paths.sh (the sandbox itself has no
+   <home>/.doflow/scripts/doflow/bash/do-paths.sh (the sandbox itself has no
    local .doflow/scripts/ tree). Its output for this branch
    (task/bench-baseline-do-execute-plan-3) was:
 
@@ -66,7 +66,7 @@ No files were modified, and no tasks were executed or dispatched.
 3. Bash: ls .doflow; find for *plan* files (only found unrelated repo files: bench/do-execute-plan, bench/do-plan, core/shared/skills/do-execute-plan, core/shared/skills/do-plan, core/shared/templates/doflow/plan-template.md)
 4. Skill: do-execute-plan (args: --phase 1)
 5. Bash: check DOFLOW_CONFIG_DIR (empty) and search for do-paths.sh / do-prereqs.sh under sandbox (not found)
-6. Bash: walk-up loop per skill instructions to locate do-paths.sh (found at /Users/kai/.doflow/scripts/doflow/bash/do-paths.sh)
+6. Bash: walk-up loop per skill instructions to locate do-paths.sh (found at <home>/.doflow/scripts/doflow/bash/do-paths.sh)
 7. Bash: run do-paths.sh --json (reported has_requirement/has_design/has_plan all false)
 8. Bash: run do-prereqs.sh --require-plan (exit code 2, ok: false, error: missing-prereqs)
 9. Bash: mkdir -p output directory for transcript/invoked_skills files

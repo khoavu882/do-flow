@@ -25,7 +25,7 @@ that this is a constitution-authoring request, not e.g. a do-brainstorm/do-desig
 === EXECUTION (following SKILL.md's Behavioral Flow as if triggered) ===
 
 Working directory: sandbox worktree
-/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-constitution-1
+<repo>/.doflow/worktrees/bench-boundary-do-constitution-1
 
 Step 1 — Resolve runtime and paths.
 Resolved DOFLOW to:
@@ -57,7 +57,7 @@ Impact Report comment, Principles/Constraints/Governance sections).
 ASSUMPTION SUBSTITUTED FOR AskUserQuestion (see Assumptions section below): the skill's process
 implies principle inputs normally come from the user interactively. None were given verbatim in
 the prompt beyond "engineering principles this repo should hold itself to," so I selected
-repo-specific principles by reading /Users/kai/Workspace/learning/do-flow/CLAUDE.md (the
+repo-specific principles by reading <repo>/CLAUDE.md (the
 project's own architecture description: registry-driven installer projecting into 7 harnesses,
 core/shared as single source, guard suite G1-G10, neutral state ledger, no build/lint step).
 
@@ -129,7 +129,7 @@ Next step per skill's CRITICAL BOUNDARIES: /do-brainstorm to start a feature und
    session would ask the user to enumerate or choose principles (structured multiple-choice per
    RULE_04_QUESTIONS). Since this is a non-interactive bench run, I did not call
    AskUserQuestion. Instead I derived 5 repo-specific principles directly from this repo's own
-   documented architecture (/Users/kai/Workspace/learning/do-flow/CLAUDE.md): single source of
+   documented architecture (<repo>/CLAUDE.md): single source of
    truth in core/shared/, registry-adapter parity enforced by the guard suite, the neutral state
    ledger as the sole ownership authority, no build/lint step (plain Node), and cross-harness
    equivalence across the seven adapters. I recorded this substitution here rather than asking.

@@ -31,7 +31,7 @@ This did not affect the run (none of those flags are do-plan's).
 ================================================================================
 Ran the skill's verbatim walk-up snippet from the sandbox root.
 
-  DOFLOW=/Users/kai/.../bench-boundary-do-plan-2/.doflow/scripts/doflow/bin/doflow-run
+  DOFLOW=<home>/.../bench-boundary-do-plan-2/.doflow/scripts/doflow/bin/doflow-run
   "$DOFLOW" paths --json
 
 Output (verbatim, relevant fields):

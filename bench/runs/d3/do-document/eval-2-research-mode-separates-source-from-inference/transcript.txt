@@ -4,7 +4,7 @@ PROMPT: "/do-document --type research What are the current approaches to idempot
 SANDBOX: .doflow/worktrees/bench-d3-do-document-2 (created this run, skills=13)
 
 --- STEP 0: skill resolution (by path) ---
-Read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-document-2/.claude/skills/do-document/SKILL.md
+Read: <repo>/.doflow/worktrees/bench-d3-do-document-2/.claude/skills/do-document/SKILL.md
 shasum -a 256 -> 66624cb8d8f1985f70b95dbbc6c1885af110d3a1ef0ef5727175d1efeefe90e0  (matches brief)
 Skill tool NOT used. /do-document never typed.
 
@@ -42,7 +42,7 @@ and `doflow capabilities` reports which provider answers on *this* machine — n
 COMMANDS ACTUALLY RUN AND THEIR REAL OUTPUT:
 
 $ echo "$DOFLOW"
-/Users/kai/.../worktrees/bench-d3-do-document-2/.doflow/scripts/doflow/bin/doflow-run
+<home>/.../worktrees/bench-d3-do-document-2/.doflow/scripts/doflow/bin/doflow-run
   Resolved to the SANDBOX copy on the first upward hop. -rwxr-xr-x, 14772 bytes. The runtime ships
   into .doflow/ as intended; the fix from commit 66a5473 holds inside a worktree sandbox.
 

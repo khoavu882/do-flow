@@ -6,14 +6,14 @@
     "status": "verified",
     "expectedSha256": "a0a603856eec7c61aa79c933bb13641fa900cdfce4d1d7b1ad6e55292f009197",
     "recordedSha256": "a0a603856eec7c61aa79c933bb13641fa900cdfce4d1d7b1ad6e55292f009197",
-    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-execute-plan-1/.claude/skills/do-execute-plan/SKILL.md",
-    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-execute-plan-1/.claude/skills/do-execute-plan/SKILL.md (matches core/shared/skills/do-execute-plan/SKILL.md)"
+    "recordedPath": "<repo>/.doflow/worktrees/bench-boundary-do-execute-plan-1/.claude/skills/do-execute-plan/SKILL.md",
+    "evidence": "read <repo>/.doflow/worktrees/bench-boundary-do-execute-plan-1/.claude/skills/do-execute-plan/SKILL.md (matches core/shared/skills/do-execute-plan/SKILL.md)"
   },
   "expectations": [
     {
       "text": "do-execute-plan was invoked",
       "passed": true,
-      "evidence": "do-execute-plan: verified — read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-execute-plan-1/.claude/skills/do-execute-plan/SKILL.md (matches core/shared/skills/do-execute-plan/SKILL.md)"
+      "evidence": "do-execute-plan: verified — read <repo>/.doflow/worktrees/bench-boundary-do-execute-plan-1/.claude/skills/do-execute-plan/SKILL.md (matches core/shared/skills/do-execute-plan/SKILL.md)"
     },
     {
       "text": "The prerequisite gate is run and named before any task is dispatched",

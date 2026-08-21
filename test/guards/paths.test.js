@@ -79,16 +79,18 @@ test('G2: every doc path the generated MCP index emits resolves from the index l
     `MCP_INDEX.md emits doc paths that do not resolve from its own directory: ${missing.join(', ')}`);
 });
 
-test('G2: no tracked file outside bench/runs embeds an absolute home directory path', () => {
+test('G2: no tracked file embeds an absolute home directory path', () => {
   // An absolute /Users/<name> or /home/<name> path is meaningless in anyone else's checkout and
-  // leaks the author's local layout into a public repository. 181 tracked files carried one; 179
-  // are bench transcripts, whose write happens in the dispatch harness outside this repo — nothing
-  // here writes a transcript, so there is no generation-time fix available to make. bench/runs is
-  // therefore excluded and the remaining two files were redacted, which is what this keeps true.
+  // leaks the author's local layout into a public repository. 181 tracked files carried one, 310
+  // occurrences in total, and all of them are redacted.
+  //
+  // bench/runs is included rather than excluded even though nothing in this repository writes a
+  // transcript — the write happens in the dispatch harness outside it. Excluding it would let the
+  // next bench run quietly restore all 179. Including it means a regenerated transcript fails this
+  // guard instead, which puts the pressure where the fix has to happen.
   const tracked = execFileSync('git', ['ls-files'], { cwd: REPO, encoding: 'utf8' })
     .split('\n')
-    .filter(Boolean)
-    .filter((f) => !f.startsWith('bench/runs/'));
+    .filter(Boolean);
 
   const offenders = [];
   for (const rel of tracked) {

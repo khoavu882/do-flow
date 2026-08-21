@@ -6,11 +6,11 @@ PROMPT:
 Invoked the do-brainstorm skill via the Skill tool with args "Add a caching layer so our dashboard
 loads faster".
 
-Working directory: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-baseline-do-brainstorm-3
+Working directory: <repo>/.doflow/worktrees/bench-baseline-do-brainstorm-3
 
 Step 1 — Resolve:
 Ran the deterministic path resolver (do-paths.sh --json) from the worktree. Result:
-- repo_root: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-baseline-do-brainstorm-3
+- repo_root: <repo>/.doflow/worktrees/bench-baseline-do-brainstorm-3
 - is_git_repo: true
 - branch: task/bench-baseline-do-brainstorm-3
 - feature_slug: task/bench-baseline-do-brainstorm-3 (non-null — branch-derived)
@@ -96,7 +96,7 @@ database, in-memory) — zero matches. The two literal occurrences of the string
 
 Step 6 — Stop:
 Requirement path: agent-docs/doflow/task/bench-baseline-do-brainstorm-3/requirement.md (relative
-to worktree /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-baseline-do-brainstorm-3).
+to worktree <repo>/.doflow/worktrees/bench-baseline-do-brainstorm-3).
 Confirmed §7 Open Questions has zero remaining [NEEDS CLARIFICATION] markers. Per the skill's
 CRITICAL BOUNDARIES, stopped after requirement creation — did not proceed to /do-design or
 /do-plan. Next step surfaced to the user: /do-design for architecture, then /do-plan for the

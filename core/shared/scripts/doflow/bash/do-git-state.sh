@@ -127,6 +127,30 @@ resolve_integration_ref() {
   printf '%s %s %s\n' "$ref" "$kind" "$behind"
 }
 
+# Commits either side of a comparison, or "0 0" when either ref is missing.
+# Echoes: "<ahead> <behind>"
+distance_from() {
+  local branch="$1" against="$2"
+  if git rev-parse "refs/heads/${branch}" >/dev/null 2>&1 && \
+     git rev-parse --verify --quiet "$against" >/dev/null 2>&1; then
+    local counts; counts="$(commits_between "$branch" "$against")"
+    printf '%s %s\n' "$(echo "$counts" | awk '{print $1}')" "$(echo "$counts" | awk '{print $2}')"
+  else
+    printf '0 0\n'
+  fi
+}
+
+# The single lifecycle word for a branch's position. Ordered so the most actionable state wins:
+# an uncommitted change matters more than any distance, and being behind matters more than ahead.
+lifecycle_position() {
+  local ahead="$1" behind="$2" dirty="$3"
+  if [ "$dirty" = "true" ]; then printf 'dirty-worktree\n'
+  elif [ "$behind" -gt 0 ]; then printf 'behind-integration\n'
+  elif [ "$ahead" -gt 0 ]; then printf 'ahead-of-integration\n'
+  else printf 'in-sync\n'
+  fi
+}
+
 do_state() {
   local class="$(get_class "$current_branch")"
   local slugs="$(get_slug "$current_branch")"
@@ -137,19 +161,9 @@ do_state() {
   read -r integration_ref integration_ref_kind integration_local_behind \
     <<< "$(resolve_integration_ref "$integration_branch")"
 
-  local ahead="0"
-  local behind="0"
-  if git rev-parse "refs/heads/${current_branch}" >/dev/null 2>&1 && \
-     git rev-parse --verify --quiet "$integration_ref" >/dev/null 2>&1; then
-    local counts="$(commits_between "$current_branch" "$integration_ref")"
-    ahead="$(echo "$counts" | awk '{print $1}')"
-    behind="$(echo "$counts" | awk '{print $2}')"
-  fi
-  
-  local position="in-sync"
-  [ "$ahead" -gt 0 ] && position="ahead-of-integration"
-  [ "$behind" -gt 0 ] && position="behind-integration"
-  [ "$dirty" = "true" ] && position="dirty-worktree"
+  local ahead behind position
+  read -r ahead behind <<< "$(distance_from "$current_branch" "$integration_ref")"
+  position="$(lifecycle_position "$ahead" "$behind" "$dirty")"
   
   jq -n \
     --arg branch "${current_branch:-null}" \

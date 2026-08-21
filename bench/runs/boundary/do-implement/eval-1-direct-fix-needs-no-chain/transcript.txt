@@ -28,7 +28,7 @@ directly, as the skill instructs when "no such plan or matching task exists."
 
 === Step 2 (Understand before writing) ===
 Read bench/runner.js in the sandbox
-(/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-implement-1/bench/runner.js).
+(<repo>/.doflow/worktrees/bench-boundary-do-implement-1/bench/runner.js).
 Found:
 - cmdList (line 328-329): `const skills = opts.skill ? [opts.skill] : discoverSkills(cfg);` — this
   is the existing --skill honoring pattern the prompt points at.
@@ -84,7 +84,7 @@ was needed. Per the skill's own "Report and hand off" step, /do-code-review is t
 suggested next step for this change.
 
 === Tool & Skill Log (in order) ===
-1. Read — /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-implement-1/.claude/skills/do-implement/SKILL.md
+1. Read — <repo>/.doflow/worktrees/bench-boundary-do-implement-1/.claude/skills/do-implement/SKILL.md
 2. Bash — shasum -a 256 on the SKILL.md above (verified against expected a3e8b3dcc6...240df0be)
 3. Bash — wc -l / grep -n over bench/runner.js to locate coverage/list/case dispatch
 4. Read — bench/runner.js lines 280-400 (cmdCoverage, cmdList, buildPlan context)

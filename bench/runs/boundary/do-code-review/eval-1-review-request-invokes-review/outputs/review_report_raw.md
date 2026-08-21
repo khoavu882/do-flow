@@ -1,7 +1,7 @@
 # Code Review Report
 
 **Generated:** 2026-08-18T13:24:03.869267
-**Repository:** /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-code-review-1
+**Repository:** <repo>/.doflow/worktrees/bench-boundary-do-code-review-1
 
 ## Executive Summary
 

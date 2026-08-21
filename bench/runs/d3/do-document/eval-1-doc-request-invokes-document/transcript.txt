@@ -3,12 +3,12 @@ ITERATION: d3
 PROMPT: "Write API reference docs for the functions src/adapters/copy-tree.js exports."
 SANDBOX: .doflow/worktrees/bench-d3-do-document-1 (created this run)
   create cmd: node -e "...WorktreeManager...createSandbox('bench-d3-do-document-1')"
-  result: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-document-1 skills=13
+  result: <repo>/.doflow/worktrees/bench-d3-do-document-1 skills=13
   sandbox manifest .doflow-skill-source.json: 13 skills, all matchesSource:true, sourceCommit b20f006f338a6327923b5febd562fe4521959cca
   install log: "[INFO] claude: lifecycle verified (197 owned resource(s))", MCP -> .mcp.json (context7, sequential-thinking), "[OK] Installation complete!"
 
 --- STEP 0: skill resolution (by path, NOT by name) ---
-Read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-document-1/.claude/skills/do-document/SKILL.md
+Read: <repo>/.doflow/worktrees/bench-d3-do-document-1/.claude/skills/do-document/SKILL.md
 shasum -a 256 -> 66624cb8d8f1985f70b95dbbc6c1885af110d3a1ef0ef5727175d1efeefe90e0
 Matches brief's sourceSha256 exactly. The Skill tool was NOT used; /do-document was never typed.
 Also read (per the skill's own step-1 instruction): references/api-reference.md from the same sandbox dir.

@@ -3,11 +3,11 @@
 ## What was done
 
 1. Confirmed the sandbox working directory:
-   /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-execute-plan-2
+   <repo>/.doflow/worktrees/bench-boundary-do-execute-plan-2
    (branch: task/bench-boundary-do-execute-plan-2, a git worktree).
 
 2. Opened the skill file BY PATH (not via the Skill tool) at:
-   /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-execute-plan-2/.claude/skills/do-execute-plan/SKILL.md
+   <repo>/.doflow/worktrees/bench-boundary-do-execute-plan-2/.claude/skills/do-execute-plan/SKILL.md
    sha256: a0a603856eec7c61aa79c933bb13641fa900cdfce4d1d7b1ad6e55292f009197
 
 3. Checked the sandbox for chain artifacts before running anything:
@@ -69,7 +69,7 @@ plan.md, before /do-execute-plan can execute anything.
 
 1. Bash -- cd + pwd/ls (probe sandbox working directory, non-git)
 2. Read -- opened SKILL.md by absolute path:
-   /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-execute-plan-2/.claude/skills/do-execute-plan/SKILL.md
+   <repo>/.doflow/worktrees/bench-boundary-do-execute-plan-2/.claude/skills/do-execute-plan/SKILL.md
    (the Skill tool was NOT invoked for do-execute-plan; no skill was resolved via
    the harness's Skill-tool lookup)
 3. Bash -- find (searched sandbox for requirement.md / design.md / plan.md; none found)

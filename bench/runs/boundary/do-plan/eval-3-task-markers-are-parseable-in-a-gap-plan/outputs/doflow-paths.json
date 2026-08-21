@@ -1,5 +1,5 @@
 {
-  "repo_root": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-plan-3",
+  "repo_root": "<repo>/.doflow/worktrees/bench-boundary-do-plan-3",
   "is_git_repo": true,
   "branch": "task/bench-boundary-do-plan-3",
   "feature_slug": "task/bench-boundary-do-plan-3",
@@ -13,7 +13,7 @@
   "has_design": false,
   "has_plan": true,
   "next_number": "009",
-  "constitution_base": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-plan-3/.doflow/guidance/references/CONSTITUTION_BASE.md",
+  "constitution_base": "<repo>/.doflow/worktrees/bench-boundary-do-plan-3/.doflow/guidance/references/CONSTITUTION_BASE.md",
   "constitution_local": "agent-docs/constitution.md",
   "has_constitution_local": false,
   "branch_class": "other"

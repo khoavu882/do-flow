@@ -6,7 +6,7 @@ Sandbox branch: task/bench-d3-do-code-review-1 @ 704fb33
 Run date: 2026-08-18
 
 --- SKILL RESOLUTION (by path, not by name) ---
-Read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-code-review-1/.claude/skills/do-code-review/SKILL.md
+Read: <repo>/.doflow/worktrees/bench-d3-do-code-review-1/.claude/skills/do-code-review/SKILL.md
 sha256: b326aa8f28eb6818a569cbd45f1686327611204bc69255e917c3603530972349
 Matches the brief's sourceSha256 and core/shared/skills/do-code-review/SKILL.md.
 The Skill tool was NOT used. /do-code-review was never typed as a slash command.

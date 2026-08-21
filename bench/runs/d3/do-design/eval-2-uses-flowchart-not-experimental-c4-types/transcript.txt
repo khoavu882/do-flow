@@ -5,7 +5,7 @@ Sandbox: .doflow/worktrees/bench-d3-do-design-2 (created this run; worktree bran
 Model acting as: normal Claude Code session, no human available for questions.
 
 --- Skill resolution (by path, NOT by slash command) ---
-Read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-design-2/.claude/skills/do-design/SKILL.md
+Read: <repo>/.doflow/worktrees/bench-d3-do-design-2/.claude/skills/do-design/SKILL.md
 shasum -a 256 -> e55938dde7c83a89317da91d05682a05bc52cf8cbe66663f7d132e67cb90b965
 Matches brief.skills.sourceSha256: YES
 Sandbox manifest .doflow-skill-source.json: skillCount=13, mismatches=[], do-design matchesSource=true,
@@ -14,13 +14,13 @@ The Skill tool was never used. invoked_skills.json is [].
 
 --- Sandbox creation ---
 $ node -e "...createSandbox('bench-d3-do-design-2')..."
--> /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-design-2 skills=13
+-> <repo>/.doflow/worktrees/bench-d3-do-design-2 skills=13
 Clean, no warnings.
 
 === Step 1 — Resolve the runtime seam ===
 Ran the SKILL.md walk-up resolver verbatim from the sandbox root:
   D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
--> RESOLVED=/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-design-2/.doflow/scripts/doflow/bin/doflow-run
+-> RESOLVED=<repo>/.doflow/worktrees/bench-d3-do-design-2/.doflow/scripts/doflow/bin/doflow-run
 The sandbox carries its own .doflow/scripts, so the walk-up stopped at the sandbox and never reached
 the parent checkout. The $HOME fallback was not needed. Exit 2 path not taken.
 

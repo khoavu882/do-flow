@@ -6,14 +6,14 @@
     "status": "verified",
     "expectedSha256": "757c70e7bb7017be7cf007d186815f39024996f5a46ea36fbcac106b55f63ac9",
     "recordedSha256": "757c70e7bb7017be7cf007d186815f39024996f5a46ea36fbcac106b55f63ac9",
-    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-diagnose-1/.claude/skills/do-diagnose/SKILL.md",
-    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-diagnose-1/.claude/skills/do-diagnose/SKILL.md (matches core/shared/skills/do-diagnose/SKILL.md)"
+    "recordedPath": "<repo>/.doflow/worktrees/bench-d3-do-diagnose-1/.claude/skills/do-diagnose/SKILL.md",
+    "evidence": "read <repo>/.doflow/worktrees/bench-d3-do-diagnose-1/.claude/skills/do-diagnose/SKILL.md (matches core/shared/skills/do-diagnose/SKILL.md)"
   },
   "expectations": [
     {
       "text": "do-diagnose was invoked",
       "passed": true,
-      "evidence": "do-diagnose: verified — read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-diagnose-1/.claude/skills/do-diagnose/SKILL.md (matches core/shared/skills/do-diagnose/SKILL.md)"
+      "evidence": "do-diagnose: verified — read <repo>/.doflow/worktrees/bench-d3-do-diagnose-1/.claude/skills/do-diagnose/SKILL.md (matches core/shared/skills/do-diagnose/SKILL.md)"
     },
     {
       "text": "The repo's real test command is identified as the thing to measure",

@@ -6,8 +6,8 @@
     "status": "verified",
     "expectedSha256": "798907e2bab66ec0e639480c027434c7f3500e831aadad114da0667033d6c02b",
     "recordedSha256": "798907e2bab66ec0e639480c027434c7f3500e831aadad114da0667033d6c02b",
-    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-design-2/.claude/skills/do-design/SKILL.md",
-    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-boundary-do-design-2/.claude/skills/do-design/SKILL.md (matches core/shared/skills/do-design/SKILL.md)"
+    "recordedPath": "<repo>/.doflow/worktrees/bench-boundary-do-design-2/.claude/skills/do-design/SKILL.md",
+    "evidence": "read <repo>/.doflow/worktrees/bench-boundary-do-design-2/.claude/skills/do-design/SKILL.md (matches core/shared/skills/do-design/SKILL.md)"
   },
   "expectations": [
     {

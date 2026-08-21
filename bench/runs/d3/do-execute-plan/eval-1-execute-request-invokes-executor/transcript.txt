@@ -5,7 +5,7 @@ SANDBOX: .doflow/worktrees/bench-d3-do-execute-plan-1 (created this run, skills=
   branch: task/bench-d3-do-execute-plan-1
 
 --- STEP 0: skill resolution (by path) ---
-Read: /Users/kai/.../worktrees/bench-d3-do-execute-plan-1/.claude/skills/do-execute-plan/SKILL.md
+Read: <home>/.../worktrees/bench-d3-do-execute-plan-1/.claude/skills/do-execute-plan/SKILL.md
 shasum -a 256 -> 672ab166a6d231b6b0fb8aca2f273cad9779f8fa85eea9540c3cd065c164949c  (matches brief)
 Skill tool NOT used. /do-execute-plan never typed.
 references/ present: parallel_dispatch.md (4.7K), readiness_gate.md (8.1K), scaffold.md (33K).
@@ -52,7 +52,7 @@ The fallback branch was not taken; the not-found branch was not taken.
 
 $ "$DOFLOW" paths --json                                        [exit 0]
 {
-  "repo_root": "/Users/kai/.../worktrees/bench-d3-do-execute-plan-1",
+  "repo_root": "<home>/.../worktrees/bench-d3-do-execute-plan-1",
   "is_git_repo": true,
   "branch": "task/bench-d3-do-execute-plan-1",
   "feature_slug": "bench-d3-do-execute-plan-1",

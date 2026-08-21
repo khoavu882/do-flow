@@ -160,7 +160,7 @@ vocabulary, §9 History) and the `- [ ]` task-marker syntax `/do-execute-plan` p
 ### Repo Branch Plan
 
 N/A: single-repo feature. Every task's `files:` path resolves to the enclosing
-`.git` at `/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-plan-1`, and no task
+`.git` at `<repo>/.doflow/worktrees/bench-d3-do-plan-1`, and no task
 carries a `depends-on:`. Derived branch name (derivation only — no branch is created here): no
 `requirement.md` exists, so no `**Ticket:**` field can be read; ticket is treated as absent and the
 name is `feat/bench-d3-do-plan-1` (slug has no leading `NNN-` to strip). The branch actually checked

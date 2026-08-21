@@ -2,7 +2,7 @@ CASE: do-implement / eval-1 / direct-fix-needs-no-chain  (triggering)
 ITERATION: d3
 PROMPT: Just make `node bench/runner.js coverage` honour --skill <name> the way its `list` command
         already does, no ceremony.
-SANDBOX: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-implement-1
+SANDBOX: <repo>/.doflow/worktrees/bench-d3-do-implement-1
   (git worktree, branch task/bench-d3-do-implement-1, base b20f006, 13 skills projected)
 
 ================================================================

@@ -6,7 +6,7 @@ PROMPT AS GIVEN
   "Commit what I've got and push it up."
 
 SKILL RESOLUTION (by path, never as a slash command)
-  Read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-git-1/.claude/skills/do-git/SKILL.md
+  Read: <repo>/.doflow/worktrees/bench-d3-do-git-1/.claude/skills/do-git/SKILL.md
   sha256: 53439d306368f69423a0e347df111f0dc726f30300cf61635663ee4b02adf52c
   Matches the brief's sourceSha256 and the sandbox manifest (matchesSource: true).
   Skill tool invocations: none. /do-git was never typed — that would have judged

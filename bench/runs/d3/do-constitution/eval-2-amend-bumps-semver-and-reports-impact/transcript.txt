@@ -5,7 +5,7 @@ SANDBOX: .doflow/worktrees/bench-d3-do-constitution-2 (pre-existing; REUSED, not
   branch task/bench-d3-do-constitution-2, base commit 704fb3315890afef5f0808213b02b3f4250600d2
   manifest: skillCount 13, mismatches []
 SKILL RESOLUTION: by absolute path via cat. No Skill tool call, no /do-constitution.
-  path:   /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-constitution-2/.claude/skills/do-constitution/SKILL.md
+  path:   <repo>/.doflow/worktrees/bench-d3-do-constitution-2/.claude/skills/do-constitution/SKILL.md
   sha256: de979411201f80975b4ef8f5372bc460c13fb747f39997c344c47c0891e622db  (matches brief)
 
 HEADLINE RESULT (stated up front because it is the point of this case):

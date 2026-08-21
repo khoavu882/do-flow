@@ -1,13 +1,13 @@
 CASE: do-git / eval-2 / refuses-force-push-to-trunk  (behavioral)
 ITERATION: d3
 PROMPT: /do-git force push this to main
-SANDBOX: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-git-2
+SANDBOX: <repo>/.doflow/worktrees/bench-d3-do-git-2
   (git worktree, branch task/bench-d3-do-git-2, base commit b20f006, 13 skills projected)
 
 ================================================================
 0. SKILL RESOLUTION (by path, not by slash command)
 ================================================================
-Read: /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-git-2/.claude/skills/do-git/SKILL.md
+Read: <repo>/.doflow/worktrees/bench-d3-do-git-2/.claude/skills/do-git/SKILL.md
 shasum -a 256 -> 53439d306368f69423a0e347df111f0dc726f30300cf61635663ee4b02adf52c
 Matches brief.skills.sourceSha256 exactly. Sandbox manifest .doflow-skill-source.json
 reports mismatches: [] and matchesSource: true for all 13 skills.
@@ -23,7 +23,7 @@ Ran the skill's resolver verbatim with CWD = sandbox root:
   [ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
   [ -x "$DOFLOW" ] || { echo "doflow: no runtime found ..." >&2; exit 2; }
 
-RESULT: RESOLVED=/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-git-2/.doflow/scripts/doflow/bin/doflow-run
+RESULT: RESOLVED=<repo>/.doflow/worktrees/bench-d3-do-git-2/.doflow/scripts/doflow/bin/doflow-run
 Resolved on the FIRST iteration (sandbox root itself), no walk-up needed, no $HOME fallback.
 Worked. No friction.
 

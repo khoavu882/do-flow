@@ -84,9 +84,9 @@ cause regardless.
 5. Bash: `cat package.json | head -40` (parallel with #4)
 6. Read: core/shared/skills/do-code-review/scripts/review_report_generator.py (lines 1-80)
 7. Bash: `grep -ril "report" docs/` + `ls bench/` + `cat mkdocs.yml | head -30` (parallel with #6)
-8. Bash: `ls /Users/kai/.claude/skills/do-diagnose/references/`
+8. Bash: `ls <home>/.claude/skills/do-diagnose/references/`
 9. Read: core/shared/skills/do-code-review/scripts/review_report_generator.py (lines 80-200) (parallel with #8)
-10. Read: /Users/kai/.claude/skills/do-diagnose/references/root_cause.md
+10. Read: <home>/.claude/skills/do-diagnose/references/root_cause.md
 11. Bash: `wc -l` on pr_analyzer.py, code_quality_checker.py, review_report_generator.py (parallel with #10)
 12. Bash: `time python3 core/shared/skills/do-code-review/scripts/review_report_generator.py . --format markdown --output <scratch>/review_test.md`
 13. Bash: `ls graphify-out/` + `grep -rli "render" src/ bin/` + `head -40 bench/README.md` + `grep -E "express|react|vue|fastify|koa|next" package.json` (parallel)

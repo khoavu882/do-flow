@@ -16,7 +16,7 @@ State found
   path even though the file does not exist, per its own doc comment "still
   emitted when the file is absent, which is exactly the create case"):
 
-    DOFLOW=/Users/kai/Workspace/learning/do-flow/bin/doflow.js  (unused; ran
+    DOFLOW=<repo>/bin/doflow.js  (unused; ran
     do-paths.sh directly since doflow-run wraps the same bash script)
     .doflow/scripts/doflow/bash/do-paths.sh --json
     => has_constitution_local: false

@@ -6,14 +6,14 @@
     "status": "verified",
     "expectedSha256": "e55938dde7c83a89317da91d05682a05bc52cf8cbe66663f7d132e67cb90b965",
     "recordedSha256": "e55938dde7c83a89317da91d05682a05bc52cf8cbe66663f7d132e67cb90b965",
-    "recordedPath": "/Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-design-1/.claude/skills/do-design/SKILL.md",
-    "evidence": "read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-design-1/.claude/skills/do-design/SKILL.md (matches core/shared/skills/do-design/SKILL.md)"
+    "recordedPath": "<repo>/.doflow/worktrees/bench-d3-do-design-1/.claude/skills/do-design/SKILL.md",
+    "evidence": "read <repo>/.doflow/worktrees/bench-d3-do-design-1/.claude/skills/do-design/SKILL.md (matches core/shared/skills/do-design/SKILL.md)"
   },
   "expectations": [
     {
       "text": "do-design was invoked",
       "passed": true,
-      "evidence": "do-design: verified — read /Users/kai/Workspace/learning/do-flow/.doflow/worktrees/bench-d3-do-design-1/.claude/skills/do-design/SKILL.md (matches core/shared/skills/do-design/SKILL.md)"
+      "evidence": "do-design: verified — read <repo>/.doflow/worktrees/bench-d3-do-design-1/.claude/skills/do-design/SKILL.md (matches core/shared/skills/do-design/SKILL.md)"
     },
     {
       "text": "Component boundaries are named explicitly",
