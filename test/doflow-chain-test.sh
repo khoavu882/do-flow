@@ -440,13 +440,60 @@ eq "--next-version bump_kind is INITIAL without tags" "$($STATE --next-version |
 # Regression: a semver pre-release tag (e.g. "v1.0.0-beta.1") used to crash the patch-bump
 # arithmetic on the unstripped suffix ("0-beta.1"), raising a bash "invalid arithmetic operator"
 # error instead of returning JSON.
+#
+# That crash fix stripped the suffix and dropped its meaning with it, so a pre-release base was
+# bumped as though it were a release: 1.0.0-beta.1 proposed 1.0.1, and the 1.0.0 the beta line was
+# building toward could never exist. This block previously pinned "1.0.1" as expected — incidental
+# to the crash it was written for, never a decision. Semver orders 1.0.0-beta.1 < 1.0.0 < 1.0.1, so
+# promoting the pre-release IS the bump. The expectations below follow node-semver's inc() rules.
 git tag v1.0.0-beta.1
 NEXT_PRERELEASE="$($STATE --next-version)"
 eq "--next-version does not crash on a pre-release base tag" \
-   "$(echo "$NEXT_PRERELEASE" | jq -r '.next_version')" "1.0.1"
+   "$(echo "$NEXT_PRERELEASE" | jq -r '.next_version | type')" "string"
+eq "--next-version promotes a pre-release rather than incrementing past it" \
+   "$(echo "$NEXT_PRERELEASE" | jq -r '.next_version')" "1.0.0"
+eq "--next-version flags the base as a pre-release" \
+   "$(echo "$NEXT_PRERELEASE" | jq -r '.is_prerelease')" "true"
+eq "--next-version also offers continuing the pre-release line" \
+   "$(echo "$NEXT_PRERELEASE" | jq -r '.next_prerelease')" "1.0.0-beta.2"
 eq "--next-version base_tag reports the pre-release tag as-is" \
    "$(echo "$NEXT_PRERELEASE" | jq -r '.base_tag')" "v1.0.0-beta.1"
 git tag -d v1.0.0-beta.1 >/dev/null
+
+# A pre-release at a non-zero patch, with no feat commits behind it, is a PATCH bump: the patch
+# does not increment from a pre-release, so 1.2.3-rc.1 releases as 1.2.3.
+git tag v1.2.3-rc.1
+NEXT_RC="$($STATE --next-version)"
+eq "--next-version releases a pre-release at its own patch on a PATCH bump" \
+   "$(echo "$NEXT_RC" | jq -r '.next_version')" "1.2.3"
+eq "--next-version increments the pre-release label alongside it" \
+   "$(echo "$NEXT_RC" | jq -r '.next_prerelease')" "1.2.3-rc.2"
+
+# The same base with a feat commit behind it is a MINOR bump, and 1.2.0 is already spent — so the
+# minor increments rather than promoting, and the suffix falls away with it.
+git commit -q --allow-empty -m "feat: something new"
+eq "--next-version increments rather than promoting when the target field is spent" \
+   "$($STATE --next-version | jq -r '.next_version')" "1.3.0"
+git tag -d v1.2.3-rc.1 >/dev/null
+
+# A released base is unaffected by any of the above.
+git tag v2.0.0
+NEXT_REL="$($STATE --next-version)"
+eq "--next-version leaves a released base on the ordinary bump path" \
+   "$(echo "$NEXT_REL" | jq -r '.is_prerelease')" "false"
+eq "--next-version reports no pre-release alternative for a released base" \
+   "$(echo "$NEXT_REL" | jq -r '.next_prerelease')" "null"
+git tag -d v2.0.0 >/dev/null
+
+# commits_count counted lines with `printf | wc -l`, which sees no trailing newline and so
+# undercounted every range by one.
+git tag v3.0.0
+git commit -q --allow-empty -m "chore: one"
+git commit -q --allow-empty -m "chore: two"
+git commit -q --allow-empty -m "chore: three"
+eq "--next-version counts every commit in the range, not one fewer" \
+   "$($STATE --next-version | jq -r '.commits_count')" "3"
+git tag -d v3.0.0 >/dev/null
 
 # Test fingerprint mode (deterministic but unique per state)
 FINGERPRINT_1="$($STATE --fingerprint)"

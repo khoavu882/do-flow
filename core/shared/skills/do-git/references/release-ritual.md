@@ -9,6 +9,11 @@ Runs inside `SKILL.md`'s Per Intent Processing sequence. This file supplies only
 intent-specific preview content (its steps 2–3).
 
 1. **Next version** → `"$DOFLOW" git-state --next-version`
+   - When `is_prerelease` is true the verb returns **two** candidates and picks neither:
+     `next_version` promotes the line (`1.0.0-beta.7` → `1.0.0`, because semver orders a
+     pre-release *before* its own version, so promoting it is the bump) and `next_prerelease`
+     continues it (`1.0.0-beta.8`). Put both to the user rather than assuming one — which of the
+     two is right is a product decision, not a computation.
 2. **Preview full command sequence** with the proposed version:
    - `git checkout -b release/v<version> <integration-branch>`
    - Update all version manifests (per policy: package.json, etc.)

@@ -146,54 +146,44 @@ do_state() {
 do_next_version() {
   local base_tag=""
   local current_version="0.0.0"
-  
+
   base_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
-  
+
   if [ -n "$base_tag" ]; then
     current_version="${base_tag#v}"
   fi
-  
-  # Strip any semver pre-release/build-metadata suffix (e.g. "-beta.4", "+build.5") before
-  # splitting into numeric fields — the arithmetic below requires plain integers, and a suffix
-  # left in place (patch="0-beta.4") crashes $(( )) with "invalid arithmetic operator".
+
+  # The pre-release suffix is *detected*, not merely discarded. Stripping it was originally added
+  # so the arithmetic below would not crash on "0-beta.4", and that fix left the suffix's meaning
+  # out of the answer: a base of 1.0.0-beta.7 was bumped as though it were the released 1.0.0, so
+  # the verb proposed 1.0.1 and the 1.0.0 the beta line was building toward would never exist.
+  #
+  # Semver orders 1.0.0-beta.7 < 1.0.0 < 1.0.1, so a pre-release is already *before* its own
+  # version number. Promoting it is therefore the bump, not an increment on top of it. These are
+  # node-semver's documented rules for inc() from a pre-release, reproduced rather than invented.
   local version_core="${current_version%%-*}"
   version_core="${version_core%%+*}"
+  local prerelease=""
+  case "$current_version" in
+    *-*) prerelease="${current_version#*-}"; prerelease="${prerelease%%+*}" ;;
+  esac
 
   local major minor patch
   major="0"; minor="0"; patch="0"
   IFS='.' read -r major minor patch <<< "$version_core" 2>/dev/null || true
   major="${major:-0}"; minor="${minor:-0}"; patch="${patch:-0}"
-  
-  local next_major="$major"
-  local next_minor="$minor"
-  local next_patch="$((patch + 1))"
-  
+
+  # One read of the commit range, reused. It was previously computed three times.
+  local commits="" commit_count=0
   if [ -n "$base_tag" ]; then
-    local commits=""
-    commits="$(git log --oneline "${base_tag}..HEAD" 2>/dev/null || true)"
-    
-    if printf '%s' "$commits" | grep -qE 'BREAKING CHANGE|\!:'; then
-      next_major=$((major + 1))
-      next_minor=0
-      next_patch=0
-    elif printf '%s' "$commits" | grep -qE '^feat|^feature'; then
-      if [ "$major" -eq 0 ]; then
-        next_minor=$((minor + 1))
-        next_patch=0
-      else
-        next_minor=$((minor + 1))
-        next_patch=0
-      fi
-    fi
+    commits="$(git log --format=%s "${base_tag}..HEAD" 2>/dev/null || true)"
+    # `git rev-list --count`, not `printf | wc -l`: the latter sees no trailing newline and so
+    # undercounts every range by one.
+    commit_count="$(git rev-list --count "${base_tag}..HEAD" 2>/dev/null || echo 0)"
   fi
-  
-  local next_version="${next_major}.${next_minor}.${next_patch}"
-  
+
   local bump_kind="PATCH"
   if [ -n "$base_tag" ]; then
-    local commits=""
-    commits="$(git log --oneline "${base_tag}..HEAD" 2>/dev/null || true)"
-    
     if printf '%s' "$commits" | grep -qE 'BREAKING CHANGE|\!:'; then
       bump_kind="MAJOR"
     elif printf '%s' "$commits" | grep -qE '^feat|^feature'; then
@@ -201,30 +191,57 @@ do_next_version() {
     fi
   else
     bump_kind="INITIAL"
-    next_version="1.0.0"
   fi
-  
-  local commit_count=0
-  if [ -n "$base_tag" ]; then
-    local commits=""
-    commits="$(git log --oneline "${base_tag}..HEAD" 2>/dev/null || true)"
-    if [ -n "$commits" ]; then
-      commit_count=$(printf '%s' "$commits" | wc -l | tr -d ' ')
+
+  local next_major="$major" next_minor="$minor" next_patch="$patch"
+  if [ -z "$base_tag" ]; then
+    next_major=1; next_minor=0; next_patch=0
+  elif [ -n "$prerelease" ]; then
+    # Promotion: a pre-release is released by dropping the suffix, provided the fields the bump
+    # would raise are already zero. Otherwise the bump applies and the suffix falls away with it.
+    case "$bump_kind" in
+      MAJOR) if [ "$minor" -eq 0 ] && [ "$patch" -eq 0 ]; then :; else next_major=$((major + 1)); next_minor=0; next_patch=0; fi ;;
+      MINOR) if [ "$patch" -eq 0 ]; then :; else next_minor=$((minor + 1)); next_patch=0; fi ;;
+      *)     : ;;
+    esac
+  else
+    case "$bump_kind" in
+      MAJOR) next_major=$((major + 1)); next_minor=0; next_patch=0 ;;
+      MINOR) next_minor=$((minor + 1)); next_patch=0 ;;
+      *)     next_patch=$((patch + 1)) ;;
+    esac
+  fi
+
+  local next_version="${next_major}.${next_minor}.${next_patch}"
+
+  # The other honest option for a pre-release base: continue the line rather than promote it.
+  # Reported alongside so the release ritual can offer the choice instead of assuming one.
+  local next_prerelease=""
+  if [ -n "$prerelease" ]; then
+    local pre_label="${prerelease%.*}" pre_num="${prerelease##*.}"
+    if printf '%s' "$pre_num" | grep -qE '^[0-9]+$'; then
+      next_prerelease="${version_core}-${pre_label}.$((pre_num + 1))"
+    else
+      next_prerelease="${version_core}-${prerelease}.1"
     fi
   fi
-  
+
   jq -n \
     --arg base_tag "${base_tag:-null}" \
     --arg current_version "$current_version" \
     --arg next_version "$next_version" \
+    --arg next_prerelease "$next_prerelease" \
+    --arg prerelease "$prerelease" \
     --arg bump_kind "$bump_kind" \
     --argjson commit_count "$commit_count" \
     '{
-      base_tag:       (if $base_tag=="" then null else $base_tag end),
-      current_version:$current_version,
-      next_version:   $next_version,
-      bump_kind:      $bump_kind,
-      commits_count:  ($commit_count | tonumber)
+      base_tag:         (if $base_tag=="" then null else $base_tag end),
+      current_version:  $current_version,
+      is_prerelease:    ($prerelease != ""),
+      next_version:     $next_version,
+      next_prerelease:  (if $next_prerelease=="" then null else $next_prerelease end),
+      bump_kind:        $bump_kind,
+      commits_count:    ($commit_count | tonumber)
     }'
 }
 
