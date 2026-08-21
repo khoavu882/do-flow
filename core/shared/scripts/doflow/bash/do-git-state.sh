@@ -104,34 +104,38 @@ join_array() {
   echo "$*"
 }
 
+# Which ref the integration branch resolves to decides whether a distance measured against it
+# means anything. The local branch was used unconditionally, so a develop that had not been pulled
+# made every distance wrong by however stale it was — observed live at 22 reported against 32.
+#
+# The remote-tracking ref is preferred where it exists; the local branch is the fallback for a
+# repository with no remote or one never fetched. Preferring it does not make the answer *fresh* —
+# origin/develop is only as current as the last fetch — so the third field reports how far the
+# local branch trails, which is non-zero exactly when a `git fetch` would change the answer.
+#
+# Echoes: "<ref> <kind> <local-behind-remote>"
+resolve_integration_ref() {
+  local branch="$1"
+  local ref="$branch" kind="local" behind=0
+  if git rev-parse --verify --quiet "refs/remotes/origin/${branch}" >/dev/null 2>&1; then
+    ref="origin/${branch}"
+    kind="remote-tracking"
+    if git rev-parse --verify --quiet "refs/heads/${branch}" >/dev/null 2>&1; then
+      behind="$(git rev-list --count "${branch}..origin/${branch}" 2>/dev/null || echo 0)"
+    fi
+  fi
+  printf '%s %s %s\n' "$ref" "$kind" "$behind"
+}
+
 do_state() {
   local class="$(get_class "$current_branch")"
   local slugs="$(get_slug "$current_branch")"
   local dirty="false"
   is_dirty && dirty="true"
   
-  # Which ref the integration branch resolves to decides whether this number means anything. The
-  # local branch was used unconditionally, so a develop that had not been pulled in a while made
-  # every distance wrong by however stale it was — observed live at 22 reported against 32 actual.
-  #
-  # The remote-tracking ref is preferred where it exists, and the local branch is the fallback for a
-  # repository with no remote or one never fetched. Preferring it does not make the answer *fresh*:
-  # origin/develop is only as current as the last fetch. So the ref actually used is reported, and
-  # so is any disagreement between the two, rather than leaving the basis of the number invisible.
-  local integration_ref="$integration_branch"
-  local integration_ref_kind="local"
-  if git rev-parse --verify --quiet "refs/remotes/origin/${integration_branch}" >/dev/null 2>&1; then
-    integration_ref="origin/${integration_branch}"
-    integration_ref_kind="remote-tracking"
-  fi
-
-  # How far the local integration branch trails the remote-tracking one. Non-zero means a `git
-  # fetch` would change the answer below, which is exactly when a caller should not trust it.
-  local integration_local_behind=0
-  if [ "$integration_ref_kind" = "remote-tracking" ] && \
-     git rev-parse --verify --quiet "refs/heads/${integration_branch}" >/dev/null 2>&1; then
-    integration_local_behind="$(git rev-list --count "${integration_branch}..origin/${integration_branch}" 2>/dev/null || echo 0)"
-  fi
+  local integration_ref integration_ref_kind integration_local_behind
+  read -r integration_ref integration_ref_kind integration_local_behind \
+    <<< "$(resolve_integration_ref "$integration_branch")"
 
   local ahead="0"
   local behind="0"
@@ -172,66 +176,88 @@ do_state() {
     }'
 }
 
-do_next_version() {
-  local base_tag=""
-  local current_version="0.0.0"
-
-  base_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
-
-  if [ -n "$base_tag" ]; then
-    current_version="${base_tag#v}"
-  fi
-
-  # The pre-release suffix is *detected*, not merely discarded. Stripping it was originally added
-  # so the arithmetic below would not crash on "0-beta.4", and that fix left the suffix's meaning
-  # out of the answer: a base of 1.0.0-beta.7 was bumped as though it were the released 1.0.0, so
-  # the verb proposed 1.0.1 and the 1.0.0 the beta line was building toward would never exist.
-  #
-  # Semver orders 1.0.0-beta.7 < 1.0.0 < 1.0.1, so a pre-release is already *before* its own
-  # version number. Promoting it is therefore the bump, not an increment on top of it. These are
-  # node-semver's documented rules for inc() from a pre-release, reproduced rather than invented.
-  local version_core="${current_version%%-*}"
-  version_core="${version_core%%+*}"
-  local prerelease=""
-  case "$current_version" in
-    *-*) prerelease="${current_version#*-}"; prerelease="${prerelease%%+*}" ;;
+# Splits a semver string into its numeric core and its pre-release label.
+# Echoes: "<major> <minor> <patch> <prerelease-or-empty>"
+parse_semver() {
+  local version="$1"
+  local core="${version%%-*}"; core="${core%%+*}"
+  local pre=""
+  case "$version" in
+    *-*) pre="${version#*-}"; pre="${pre%%+*}" ;;
   esac
-
   local major minor patch
-  major="0"; minor="0"; patch="0"
-  IFS='.' read -r major minor patch <<< "$version_core" 2>/dev/null || true
-  major="${major:-0}"; minor="${minor:-0}"; patch="${patch:-0}"
+  IFS='.' read -r major minor patch <<< "$core" 2>/dev/null || true
+  printf '%s %s %s %s\n' "${major:-0}" "${minor:-0}" "${patch:-0}" "$pre"
+}
 
-  # One read of the commit range, reused. It was previously computed three times.
-  local commits="" commit_count=0
-  if [ -n "$base_tag" ]; then
-    commits="$(git log --format=%s "${base_tag}..HEAD" 2>/dev/null || true)"
-    # `git rev-list --count`, not `printf | wc -l`: the latter sees no trailing newline and so
-    # undercounts every range by one.
-    commit_count="$(git rev-list --count "${base_tag}..HEAD" 2>/dev/null || echo 0)"
-  fi
-
-  local bump_kind="PATCH"
-  if [ -n "$base_tag" ]; then
-    if printf '%s' "$commits" | grep -qE 'BREAKING CHANGE|\!:'; then
-      bump_kind="MAJOR"
-    elif printf '%s' "$commits" | grep -qE '^feat|^feature'; then
-      bump_kind="MINOR"
-    fi
-  else
-    bump_kind="INITIAL"
-  fi
-
-  local next_major="$major" next_minor="$minor" next_patch="$patch"
+# Reads the commit subjects since a base tag and names the bump they imply.
+# Echoes: "<MAJOR|MINOR|PATCH|INITIAL> <commit-count>"
+classify_bump() {
+  local base_tag="$1"
   if [ -z "$base_tag" ]; then
+    printf 'INITIAL 0\n'
+    return
+  fi
+  local subjects count kind="PATCH"
+  subjects="$(git log --format=%s "${base_tag}..HEAD" 2>/dev/null || true)"
+  # `git rev-list --count`, not `printf | wc -l`: the latter sees no trailing newline and so
+  # undercounts every range by one.
+  count="$(git rev-list --count "${base_tag}..HEAD" 2>/dev/null || echo 0)"
+  if printf '%s' "$subjects" | grep -qE 'BREAKING CHANGE|\!:'; then
+    kind="MAJOR"
+  elif printf '%s' "$subjects" | grep -qE '^feat|^feature'; then
+    kind="MINOR"
+  fi
+  printf '%s %s\n' "$kind" "$count"
+}
+
+# The next free number on a pre-release line. Computing label.N+1 arithmetically once proposed a
+# tag that already existed — a well-formed value derived without consulting the thing it describes.
+# `git describe` finds the nearest *reachable* tag, so a pre-release cut on an unmerged branch is
+# invisible to the base-tag lookup and collides here instead. Taken numbers are stepped over rather
+# than stopped on, because the caller wants a usable candidate, and the count of them is reported
+# because the gap is a fact about the tag history. Bounded so a pathological tag set cannot spin.
+# Echoes: "<candidate> <skipped-count>"
+next_free_prerelease() {
+  local core="$1" pre="$2"
+  local label="${pre%.*}" num="${pre##*.}"
+  if ! printf '%s' "$num" | grep -qE '^[0-9]+$'; then
+    printf '%s-%s.1 0\n' "$core" "$pre"
+    return
+  fi
+  local candidate=$((num + 1)) skipped=0 guard=0
+  while [ "$guard" -lt 100 ]; do
+    if ! git rev-parse --verify --quiet "refs/tags/v${core}-${label}.${candidate}" >/dev/null 2>&1; then
+      break
+    fi
+    candidate=$((candidate + 1)); skipped=$((skipped + 1)); guard=$((guard + 1))
+  done
+  printf '%s-%s.%s %s\n' "$core" "$label" "$candidate" "$skipped"
+}
+
+do_next_version() {
+  local base_tag current_version="0.0.0"
+  base_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+  [ -n "$base_tag" ] && current_version="${base_tag#v}"
+
+  local major minor patch prerelease
+  read -r major minor patch prerelease <<< "$(parse_semver "$current_version")"
+  local version_core="${major}.${minor}.${patch}"
+
+  local bump_kind commit_count
+  read -r bump_kind commit_count <<< "$(classify_bump "$base_tag")"
+
+  # Semver orders 1.0.0-beta.7 < 1.0.0 < 1.0.1, so a pre-release already sits *before* its own
+  # version number: promoting it IS the bump, not an increment on top of it. A bump promotes when
+  # the field it would raise is already zero, and otherwise increments with the suffix falling
+  # away. These are node-semver's inc() rules reproduced rather than invented.
+  local next_major="$major" next_minor="$minor" next_patch="$patch"
+  if [ "$bump_kind" = "INITIAL" ]; then
     next_major=1; next_minor=0; next_patch=0
   elif [ -n "$prerelease" ]; then
-    # Promotion: a pre-release is released by dropping the suffix, provided the fields the bump
-    # would raise are already zero. Otherwise the bump applies and the suffix falls away with it.
     case "$bump_kind" in
-      MAJOR) if [ "$minor" -eq 0 ] && [ "$patch" -eq 0 ]; then :; else next_major=$((major + 1)); next_minor=0; next_patch=0; fi ;;
-      MINOR) if [ "$patch" -eq 0 ]; then :; else next_minor=$((minor + 1)); next_patch=0; fi ;;
-      *)     : ;;
+      MAJOR) [ "$minor" -eq 0 ] && [ "$patch" -eq 0 ] || { next_major=$((major + 1)); next_minor=0; next_patch=0; } ;;
+      MINOR) [ "$patch" -eq 0 ] || { next_minor=$((minor + 1)); next_patch=0; } ;;
     esac
   else
     case "$bump_kind" in
@@ -240,40 +266,13 @@ do_next_version() {
       *)     next_patch=$((patch + 1)) ;;
     esac
   fi
-
   local next_version="${next_major}.${next_minor}.${next_patch}"
 
   # The other honest option for a pre-release base: continue the line rather than promote it.
   # Reported alongside so the release ritual can offer the choice instead of assuming one.
-  #
-  # The candidate is checked against the tags that exist before it is offered. Computing beta.N+1
-  # arithmetically proposed v1.0.0-beta.8 while that tag was already on origin — a well-formed
-  # value derived without consulting the thing it describes, which is the defect this field was
-  # added to help avoid. `git describe` finds the nearest *reachable* tag, so a pre-release cut on
-  # a branch that was never merged is invisible to the base-tag lookup and collides here instead.
-  #
-  # Advancing past a taken number rather than stopping at it: the caller wants a usable candidate,
-  # and the gap that leaves is a fact about the tag history, not something to hide. Bounded so a
-  # pathological tag set cannot spin.
-  local next_prerelease=""
-  local next_prerelease_skipped=0
+  local next_prerelease="" next_prerelease_skipped=0
   if [ -n "$prerelease" ]; then
-    local pre_label="${prerelease%.*}" pre_num="${prerelease##*.}"
-    if printf '%s' "$pre_num" | grep -qE '^[0-9]+$'; then
-      local candidate_num=$((pre_num + 1))
-      local guard=0
-      while [ "$guard" -lt 100 ]; do
-        next_prerelease="${version_core}-${pre_label}.${candidate_num}"
-        if ! git rev-parse --verify --quiet "refs/tags/v${next_prerelease}" >/dev/null 2>&1; then
-          break
-        fi
-        candidate_num=$((candidate_num + 1))
-        next_prerelease_skipped=$((next_prerelease_skipped + 1))
-        guard=$((guard + 1))
-      done
-    else
-      next_prerelease="${version_core}-${prerelease}.1"
-    fi
+    read -r next_prerelease next_prerelease_skipped <<< "$(next_free_prerelease "$version_core" "$prerelease")"
   fi
 
   jq -n \
@@ -281,7 +280,7 @@ do_next_version() {
     --arg current_version "$current_version" \
     --arg next_version "$next_version" \
     --arg next_prerelease "$next_prerelease" \
-    --arg next_prerelease_skipped "${next_prerelease_skipped:-0}" \
+    --arg next_prerelease_skipped "$next_prerelease_skipped" \
     --arg prerelease "$prerelease" \
     --arg bump_kind "$bump_kind" \
     --argjson commit_count "$commit_count" \
