@@ -283,9 +283,14 @@ def strip_comments(content: str) -> str:
     Blank comment text, preserving newlines so line-based reasoning still lines up.
 
     Most rules here describe things a compiler or runtime acts on, and a commented-out one acts on
-    nothing. Scanning comments made this analyser report its own documentation: the comment
-    explaining that `.Result` is a PascalCase C# member matched the `.Result` rule, and the comment
-    naming the `debugger` keyword matched the `debugger` rule.
+    nothing. Scanning comments made this analyser report its own documentation: each comment
+    explaining why a rule exists contained the very token that rule matches, so the explanations
+    were reported as findings against the file that held them.
+
+    This docstring deliberately names no rule's literal token. A docstring is a string, not a
+    comment, so nothing below strips it — and quoting the tokens here reintroduced two high-severity
+    self-matches after the comment fix had removed them. Describing the tokens is enough; the rule
+    table below is where they belong.
 
     Which rules skip comments is declared per rule below, not decided here. Three of them must read
     comments to work at all — TODO markers, eslint-disable and @SuppressWarnings are comment syntax,

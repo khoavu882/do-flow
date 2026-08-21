@@ -116,11 +116,21 @@ State this before producing a single finding, and report against it when the rev
    teaches a reviewer to skip this step, and a skipped check protects nothing.
 
    So: in an implementing repository, narrow the scan with `--exclude <segment>` (repeatable, and it
-   extends the artifact-directory exclusion rather than replacing it) to the paths that actually
-   ship onward, and report the count you excluded alongside the findings you kept. Never silently
-   drop a path — the verb reports an excluded file as `unscanned` with its reason, and so should
-   you. Where narrowing is not possible, report the total and say plainly that the findings are
-   expected here, rather than pasting them.
+   extends the artifact-directory exclusion rather than replacing it), and report the count you
+   excluded alongside the findings you kept. Never silently drop a path — the verb reports an
+   excluded file as `unscanned` with its reason, and so should you.
+
+   **Derive the exclusion set, do not judge it by eye.** What a repository *implements* is what its
+   package manifest ships plus its tests — for DoFlow that is `package.json`'s
+   `files: ["bin/", "src/", "core/"]`, so the set is `--exclude bin --exclude src --exclude core
+   --exclude test`. Reading "the code that ships onward" as a matter of judgement is how this step
+   was first narrowed wrong: `bin/` was left in and its internal requirement references were
+   reported as leaks, when `bin/` is as much DoFlow's implementation as `src/` is.
+
+   What survives that exclusion in an implementing repository is documentation *about* the chain —
+   a changelog, a docs tree — which contains the vocabulary correctly and in volume. Report the
+   count and say so, rather than pasting it. In DoFlow's own repository this step therefore has no
+   applicable surface at all, and saying that plainly is the honest result, not a failure to look.
 
 **Stop when** every file in the reviewed set the contract names has an answer or a stated gap, **and** the last round produced no new file in the reviewed set. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 
