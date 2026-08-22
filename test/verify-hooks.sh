@@ -99,13 +99,22 @@ section "1. session-start.sh"
 
 INPUT_START="{\"session_id\":\"$SESS\",\"cwd\":\"$CWD\"}"
 
-run_hook session-start.sh "$INPUT_START" > /dev/null 2>&1 || true
+# Capture hook stderr instead of discarding it: an early `set -e` death inside the hook must be
+# visible in CI, not silently converted into a missing-file assertion two lines later.
+HOOK_ERR="$TEST_HOME/session-start.err"
+hook_rc=0
+HOME="$TEST_HOME" bash "$HOOKS/session-start.sh" <<< "$INPUT_START" > /dev/null 2>"$HOOK_ERR" || hook_rc=$?
 GIT_CTX="$SESS_ENV/sessions/$SESS/git-context.json"
 
 if [[ -f "$GIT_CTX" ]]; then
   pass "git-context.json created"
 else
-  fail "git-context.json NOT created at $GIT_CTX"
+  fail "git-context.json NOT created at $GIT_CTX (hook exit=${hook_rc})"
+  if [[ -s "$HOOK_ERR" ]]; then
+    sed 's/^/    [hook-stderr] /' "$HOOK_ERR"
+  else
+    printf '    [hook-stderr] <empty — hook exited silently>\n'
+  fi
 fi
 
 if jq . "$GIT_CTX" > /dev/null 2>&1; then
