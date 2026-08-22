@@ -29,33 +29,38 @@ fail() { FAIL=$((FAIL+1)); printf "  ✗ %s\n" "$1"; }
 skip() { SKIP=$((SKIP+1)); printf "  - %s (skipped)\n" "$1"; }
 section() { printf "\n[%s]\n" "$1"; }
 
-# Run a hook with a fake HOME isolated to TEST_HOME
+# Isolation contract: lib.sh resolves its config root as ${XDG_CONFIG_HOME:-$HOME/.config}, so a
+# fake HOME alone does NOT isolate the sandbox on runners that export XDG_CONFIG_HOME (the ubuntu
+# image does). Every invocation pins both vars, plus DOFLOW_CONFIG_DIR-style knobs stay unset.
+SANDBOXED=(env "HOME=$TEST_HOME" "XDG_CONFIG_HOME=$TEST_HOME/.config")
+
+# Run a hook with an isolated config root inside TEST_HOME
 # Usage: run_hook <hook_script> <json_input>
 run_hook() {
   local script="$1"
   local input="$2"
-  HOME="$TEST_HOME" bash "$HOOKS/$script" <<< "$input"
+  "${SANDBOXED[@]}" bash "$HOOKS/$script" <<< "$input"
 }
 
 # Run hook and capture stdout
 hook_out() {
   local script="$1"
   local input="$2"
-  HOME="$TEST_HOME" bash "$HOOKS/$script" <<< "$input" 2>/dev/null
+  "${SANDBOXED[@]}" bash "$HOOKS/$script" <<< "$input" 2>/dev/null
 }
 
 # Run hook and capture stderr
 hook_err() {
   local script="$1"
   local input="$2"
-  HOME="$TEST_HOME" bash "$HOOKS/$script" <<< "$input" 2>&1 >/dev/null
+  "${SANDBOXED[@]}" bash "$HOOKS/$script" <<< "$input" 2>&1 >/dev/null
 }
 
 # Run hook, capture exit code
 hook_exit() {
   local script="$1"
   local input="$2"
-  HOME="$TEST_HOME" bash "$HOOKS/$script" <<< "$input" 2>/dev/null; echo $?
+  "${SANDBOXED[@]}" bash "$HOOKS/$script" <<< "$input" 2>/dev/null; echo $?
 }
 
 clean_test_home() {
@@ -99,13 +104,22 @@ section "1. session-start.sh"
 
 INPUT_START="{\"session_id\":\"$SESS\",\"cwd\":\"$CWD\"}"
 
-run_hook session-start.sh "$INPUT_START" > /dev/null 2>&1 || true
+# Capture hook stderr instead of discarding it: an early `set -e` death inside the hook must be
+# visible in CI, not silently converted into a missing-file assertion two lines later.
+HOOK_ERR="$TEST_HOME/session-start.err"
+hook_rc=0
+"${SANDBOXED[@]}" bash "$HOOKS/session-start.sh" <<< "$INPUT_START" > /dev/null 2>"$HOOK_ERR" || hook_rc=$?
 GIT_CTX="$SESS_ENV/sessions/$SESS/git-context.json"
 
 if [[ -f "$GIT_CTX" ]]; then
   pass "git-context.json created"
 else
-  fail "git-context.json NOT created at $GIT_CTX"
+  fail "git-context.json NOT created at $GIT_CTX (hook exit=${hook_rc})"
+  if [[ -s "$HOOK_ERR" ]]; then
+    sed 's/^/    [hook-stderr] /' "$HOOK_ERR"
+  else
+    printf '    [hook-stderr] <empty — hook exited silently>\n'
+  fi
 fi
 
 if jq . "$GIT_CTX" > /dev/null 2>&1; then
