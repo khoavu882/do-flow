@@ -1,9 +1,0 @@
-{
-  "model": "claude-sonnet-5",
-  "modelNote": "Pinned so runs are comparable across iterations (FR-017). Changing this invalidates comparison against any baseline captured on a different model; capture a fresh baseline instead of comparing across models.",
-  "skillsRoot": "core/shared/skills",
-  "benchRoot": "bench",
-  "baselineDir": "bench/baseline",
-  "reportsDir": "bench/reports",
-  "caseKinds": ["triggering", "behavioral"]
-}
