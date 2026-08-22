@@ -65,6 +65,7 @@
         "ConfigChange",
         "CwdChanged",
         "FileChanged",
+        "DirectoryAdded",
         "PreCompact",
         "PostCompact",
         "WorktreeCreate",
@@ -84,7 +85,7 @@
     {
       "harness": "codex",
       "completeness": "lower-bound",
-      "note": "Frontmatter field lists are deliberately absent: shared skills and agent specs are byte-identical across harnesses, so a per-harness list could only restate a subset of claude's and would change no guard outcome — an inert declaration of exactly the kind these guards exist to remove. hookEvents IS per-harness and lists the events DoFlow actually wires; widen it only with an added evidence URL.",
+      "note": "Frontmatter field lists are deliberately absent: shared skills and agent specs are byte-identical across harnesses, so a per-harness list could only restate a subset of claude's and would change no guard outcome \u2014 an inert declaration of exactly the kind these guards exist to remove. hookEvents IS per-harness and lists the events DoFlow actually wires; widen it only with an added evidence URL.",
       "hookEvents": [
         "SessionStart",
         "SessionEnd",
@@ -97,15 +98,15 @@
         "PreCompact"
       ],
       "evidence": [
-        "https://developers.openai.com/codex/concepts/customization",
-        "https://developers.openai.com/codex/config-advanced#hooks",
-        "https://developers.openai.com/codex/subagents"
+        "https://developers.openai.com/codex/agent-configuration/agents-md",
+        "https://developers.openai.com/codex/hooks",
+        "https://developers.openai.com/codex/agent-configuration/subagents"
       ]
     },
     {
       "harness": "gemini",
       "completeness": "lower-bound",
-      "note": "Frontmatter field lists are deliberately absent: shared skills and agent specs are byte-identical across harnesses, so a per-harness list could only restate a subset of claude's and would change no guard outcome — an inert declaration of exactly the kind these guards exist to remove. hookEvents IS per-harness and lists the events DoFlow actually wires; widen it only with an added evidence URL.",
+      "note": "Frontmatter field lists are deliberately absent: shared skills and agent specs are byte-identical across harnesses, so a per-harness list could only restate a subset of claude's and would change no guard outcome \u2014 an inert declaration of exactly the kind these guards exist to remove. hookEvents IS per-harness and lists the events DoFlow actually wires; widen it only with an added evidence URL.",
       "hookEvents": [
         "SessionStart",
         "SessionEnd",
@@ -116,7 +117,7 @@
       "evidence": [
         "https://geminicli.com/docs/cli/skills/",
         "https://geminicli.com/docs/hooks/",
-        "https://geminicli.com/docs/cli/configuration/"
+        "https://geminicli.com/docs/cli/settings/"
       ]
     },
     {
@@ -144,18 +145,19 @@
     {
       "harness": "copilot",
       "completeness": "lower-bound",
-      "note": "hookEvents is empty because no writable hook or lifecycle-event surface is documented for Copilot CLI: it exposes custom instructions, skills, custom agents, and MCP configuration, but nothing DoFlow can wire a command-string hook into. Widen this list only if such a surface is documented, alongside an added evidence URL.",
+      "note": "Copilot CLI now documents a full hook surface (use-hooks / hooks-reference, 2026): .github/hooks/*.json and ~/.copilot/hooks/, shape {version:1,hooks:{camelCaseEvent:[entries]}}. DoFlow wires none of it: the shipped scripts are Claude-payload-coupled (tool names, .session_id/.transcript_path stdin fields, CLAUDE_* envs) and Copilot's payload schemas are unverified here. hookEvents stays empty until that verification lands; widen only alongside it and an added evidence URL.",
       "hookEvents": [],
       "evidence": [
         "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills",
         "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli",
-        "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+        "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/use-hooks",
+        "https://docs.github.com/en/copilot/reference/hooks-reference"
       ]
     },
     {
       "harness": "kiro",
       "completeness": "lower-bound",
-      "note": "hookEvents lists only the events DoFlow actually installs a doflow.json entry for (session-context on SessionStart, pre-implementation-gate and mcp-tool-guard both on PreToolUse — hence PreToolUse appearing once, not twice — and stop-check on Stop), not the full set of trigger names Kiro's docs confirm (SessionStart, Stop, PreToolUse, PostToolUse, UserPromptSubmit, PreTaskExec, PostTaskExec, PostFileSave, PostFileCreate, PostFileDelete — see kiro.dev/docs/hooks/actions/). Widen this list only when DoFlow wires a hook to one of the unused confirmed events, alongside an added evidence URL.",
+      "note": "hookEvents lists only the events DoFlow actually installs a doflow.json entry for (session-context on SessionStart, pre-implementation-gate and mcp-tool-guard both on PreToolUse \u2014 hence PreToolUse appearing once, not twice \u2014 and stop-check on Stop), not the full set of trigger names Kiro's docs confirm (SessionStart, Stop, PreToolUse, PostToolUse, UserPromptSubmit, PreTaskExec, PostTaskExec, PostFileSave, PostFileCreate, PostFileDelete \u2014 see kiro.dev/docs/hooks/actions/). Widen this list only when DoFlow wires a hook to one of the unused confirmed events, alongside an added evidence URL.",
       "hookEvents": [
         "SessionStart",
         "PreToolUse",
@@ -166,6 +168,17 @@
         "https://kiro.dev/docs/mcp/configuration/",
         "https://kiro.dev/docs/hooks/",
         "https://kiro.dev/docs/hooks/actions/"
+      ]
+    },
+    {
+      "harness": "antigravity",
+      "completeness": "lower-bound",
+      "note": "Antigravity CLI documents a keyed-by-event hook map (.agents/hooks.json or ~/.gemini/config/hooks.json) whose blocking contract is stdout JSON {decision}, unlike DoFlow's exit-code scripts - so no hooks are wired and hookEvents stays empty until translated shims exist. Widen only alongside them and an added evidence URL.",
+      "hookEvents": [],
+      "evidence": [
+        "https://antigravity.google/docs/cli/gcli-migration",
+        "https://antigravity.google/docs/hooks",
+        "https://antigravity.google/docs/cli/mcp"
       ]
     }
   ]

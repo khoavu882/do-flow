@@ -13,6 +13,51 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [Unreleased]
+
+## [1.0.1] - 2026-08-22
+
+### Changed — MCP selection defaults to none for non-interactive installs
+
+- `doflow install` without `--mcp` and without a TTY now registers **zero** MCP servers (was: the
+  full catalog). Third-party servers are opt-in; a notice names the flag. Interactive installs are
+  unchanged (checkbox, pre-seeded with the catalog).
+- A remembered selection that ends up empty stays empty across updates and catalog reshuffles;
+  the full catalog is never silently resurrected.
+
+### Added — MCP selection keywords
+
+- `--mcp all` adopts the whole catalog; `--mcp none` persists an explicit empty selection.
+  Keywords cannot be combined with server names or with each other.
+
+### Added — control-plane capabilities
+
+- Content-addressed object store (`src/state/cas.js`); `doflow.lock` — a
+  resolved-selections pin written by install/update/remove with reviewable diffs
+  (`src/state/lockfile.js`); ledger v2 (additive: v1 ledgers stay readable, writes carry a
+  tombstone log); `models.yaml` registry shell (providers × roles).
+- `doflow reconcile` converges observed state onto the lock pin — drift report,
+  CI-friendly `--dry-run` (exit 1 on drift), `--json`, confirmed heal. Claim relocations journal
+  tombstones; stale copies are swept only when bytes still match the last-verified fingerprint.
+  Fixed two latent bugs: removal left empty directory skeletons; a forced update silently skipped
+  hand-edited destinations instead of restoring them.
+- `WorkflowOrchestrator` + `doflow orchestrate` — deterministic stage/gate
+  state machine over the workflow registry; human gates pause runs; source-mutating gated stages
+  evaluate live readiness (anything but READY refuses); optional stages skip with anchored gates;
+  run journals survive process death.
+- Structure-aware markdown chunker; content-addressed guidance index under
+  `.doflow/index/` (incremental rebuild by sha256); `doflow retrieve` (BM25, lexical-only until a
+  dense provider is declared); @import-derived graph expansion (`viaGraph`); golden hit@k eval gate
+  in `npm test`.
+- Provider tiers in models.yaml; `doflow model-role` resolves roles to ranked,
+  availability-annotated providers (`--exclude` implements cross-family review).
+- Eighth harness adapter — **Antigravity CLI** (`agy`): managed AGENTS.md section
+  (project), skills at `.agents/skills`, shared agents, locator seam, MCP via `.agents/mcp_config.json`
+  / `~/.gemini/config/mcp_config.json` with remote `serverUrl` rewrite. Global instructions and
+  user-scope skills are intentionally out of scope (documented contradictions/shared-file hazards).
+- Copilot CLI hook surface recorded as `different` with per-event payload-coupling notes —
+  nothing projected until its stdin schemas are verified live.
+
 ## [1.0.0] - 2026-08-21
 
 First stable release. The beta line closes here: semver orders 1.0.0-beta.8 below 1.0.0, so this

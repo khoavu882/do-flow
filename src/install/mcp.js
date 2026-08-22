@@ -107,11 +107,14 @@ function mergeGlobalMcpServers(homeDir, knownServerNames, serverDefs) {
 }
 
 /**
- * Decide which MCP servers to install, in precedence order:
- *   1. --mcp <list>          — explicit, always wins, always persisted
- *   2. interactive checkbox  — install only, real TTY, no --force/--dry-run
- *   3. remembered manifest   — update (or a forced/non-interactive install) reuses the last pick
- *   4. all servers           — first-ever install, nothing else applies
+  * Decide which MCP servers to install, in precedence order:
+  *   1. --mcp <list>|all|none — explicit, always wins, always persisted ('all'/'none' are
+  *                              keywords and cannot be mixed with server names)
+  *   2. interactive checkbox  — install only, real TTY, no --force/--dry-run
+  *   3. remembered manifest   — update (or a forced/non-interactive install) reuses the last pick
+  *   4. none                  — first-ever install without a TTY defaults to an EMPTY selection
+  *                              (safe by default: third-party servers are opt-in). Interactive
+  *                              installs still get the checkbox pre-seeded with the catalog.
  * `promptFn` is injected so this stays unit-testable without a real TTY.
  * @param {{cmd:string, requested:string[]|null, allServers:string[], manifestServers:string[]|null,
  *           interactive:boolean, promptFn:(servers:string[], seed:string[])=>string[]|null}} p
@@ -119,8 +122,18 @@ function mergeGlobalMcpServers(homeDir, knownServerNames, serverDefs) {
  */
 function resolveMcpSelection({ cmd, requested, allServers, manifestServers, interactive, promptFn, onStale }) {
   if (requested) {
+    const keywords = requested.filter((s) => s === 'all' || s === 'none');
+    if (keywords.length) {
+      if (keywords.length !== requested.length) {
+        throw new Error(`--mcp keyword '${keywords[0]}' cannot be combined with server names`);
+      }
+      if (new Set(requested).size > 1) {
+        throw new Error("Choose either '--mcp all' or '--mcp none', not both");
+      }
+      return keywords[0] === 'all' ? [...allServers] : [];
+    }
     if (requested.length === 0) {
-      throw new Error('--mcp requires at least one server (omit the flag entirely to keep all)');
+      throw new Error("--mcp requires at least one server; use '--mcp none' for an explicit empty selection");
     }
     const invalid = requested.filter((s) => !allServers.includes(s));
     if (invalid.length) {
@@ -150,10 +163,13 @@ function resolveMcpSelection({ cmd, requested, allServers, manifestServers, inte
     if (picked !== null) return picked; // [] is a deliberate "no servers" choice, honored as-is
   }
 
-  // An install that had every one of its servers retired falls back to the full catalog rather
-  // than to [], which would silently uninstall MCP support the user never asked to remove.
-  if (known && known.length === 0) return [...allServers];
-  return known ?? allServers;
+  // An explicitly empty remembered selection stays empty: the user chose "no servers", and a
+  // catalog reshuffle must not resurrect third-party processes behind their back. Likewise the
+  // first-ever non-interactive default is now NONE — third-party servers are opt-in
+  // (--mcp all|<names>); interactive installs remain the discovery path via the pre-seeded
+  // checkbox above.
+  if (known && known.length === 0) return [];
+  return known ?? [];
 }
 
 const KEY = {

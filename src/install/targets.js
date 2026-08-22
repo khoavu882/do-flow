@@ -11,7 +11,7 @@
 const os = require('node:os');
 const path = require('node:path');
 
-const VALID = ['claude', 'codex', 'gemini', 'copilot', 'kiro', 'opencode', 'pi'];
+const VALID = ['claude', 'codex', 'gemini', 'copilot', 'kiro', 'opencode', 'pi', 'antigravity'];
 
 /** The target used when `--target` is omitted. Deliberately one harness, not all of VALID: an
  * install with no flag should touch the one tool the user almost certainly has, not write
@@ -21,8 +21,7 @@ const VALID = ['claude', 'codex', 'gemini', 'copilot', 'kiro', 'opencode', 'pi']
 const DEFAULT_TARGETS = ['claude'];
 
 const TARGET_ALIASES = {
-  antigravity: 'gemini',
-  agy: 'gemini',
+  agy: 'antigravity',
 };
 
 /** Default to DEFAULT_TARGETS; validate any explicitly requested. */

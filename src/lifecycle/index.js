@@ -5,9 +5,11 @@
 // the neutral ledger in sync only after successful verification.
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { harnessFor, selectAssets, selectMcpServers } = require('../registry');
-const { defaultLedger, ownershipKey, writeLedger, writeRecoveryRecord } = require('../state');
+const { defaultLedger, ownershipKey, writeLedger, writeRecoveryRecord, upgradeLedger, LEDGER_VERSION } = require('../state');
 const { resolveAdapter, projectAdapterInput } = require('../adapters');
+const { pruneEmptyAncestors } = require('../adapters/copy-tree');
 const { renderPolicies } = require('./policies');
 const { renderMcpIndex } = require('./mcp-index');
 const { hasBashCapableShell } = require('./bash-availability');
@@ -356,7 +358,16 @@ function applyMcpIndex({ scopeRoot, selectedMcp, mode, retain = false, fsImpl = 
 }
 
 function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recoveryRef, fsImpl = fs }) {
-  const next = JSON.parse(JSON.stringify(ledger ?? defaultLedger({ scope, scopeRoot })));
+  // upgradeLedger makes every written ledger v2-shaped (tombstone log present) while v1 inputs
+  // stay readable — migration happens on write, never as a separate user-facing step.
+  const next = JSON.parse(JSON.stringify(upgradeLedger(ledger ?? defaultLedger({ scope, scopeRoot }))));
+  if (!Array.isArray(next.tombstones)) next.tombstones = [];
+  // Snapshot pre-run claims by ownership identity (harness+asset+identity) so a re-verification
+  // that relocates the same claim to a new target is detectable as a MOVE, not remove-plus-add.
+  const priorByIdentity = new Map();
+  for (const resource of next.resources) {
+    priorByIdentity.set(`${resource.harness}\u0000${resource.assetId}\u0000${resource.identity ?? ''}`, resource);
+  }
   for (const verification of verifications) {
     const related = changes.filter((change) => change.harness === verification.harness);
     const removed = related.filter((change) => change.operation === 'remove');
@@ -368,11 +379,47 @@ function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recove
       // still there (markRetainedRemovals). Re-adding it would resurrect the exact claim this run
       // gave up, so a key this run removed is never written back by the same run.
       if (removeKeys.has(key)) continue;
+      // A claim re-verified at a NEW target supersedes its old-location row (same harness+asset+
+      // identity, different path). Without this the moved-from row would survive the merge as a
+      // live claim, keeping the stale bytes owned and blocking the tombstone sweep below.
+      const prior = priorByIdentity.get(`${resource.harness}\u0000${resource.assetId}\u0000${resource.identity ?? ''}`);
+      if (prior && prior.target !== resource.target) {
+        const supersededKey = ownershipKey(prior);
+        next.resources = next.resources.filter((item) => ownershipKey(item) !== supersededKey);
+      }
       const index = next.resources.findIndex((item) => ownershipKey(item) === key);
       if (index >= 0) next.resources[index] = resource;
       else next.resources.push(resource);
     }
     next.targets[verification.harness] = { installed: true, lastUpdated: new Date().toISOString() };
+  }
+  // Tombstones (ledger v2): a claim that moved leaves its old bytes behind at the old target.
+  // Record the relocation, then sweep the stale copy — but only when its bytes still hash to the
+  // fingerprint DoFlow last verified there. A mismatch means someone edited that file after us:
+  // their content outranks our tidiness, so the file stays and the unswept tombstone says why.
+  for (const resource of next.resources) {
+    const prior = priorByIdentity.get(`${resource.harness}\u0000${resource.assetId}\u0000${resource.identity ?? ''}`);
+    if (!prior || prior.target === resource.target) continue;
+    if (!next.tombstones.some((entry) => entry.harness === resource.harness
+      && entry.fromTarget === prior.target && entry.toTarget === resource.target)) {
+      next.tombstones.push({
+        harness: resource.harness, assetId: resource.assetId,
+        fromTarget: prior.target, toTarget: resource.target,
+        fingerprint: prior.fingerprint ?? null, movedAt: new Date().toISOString(),
+      });
+    }
+  }
+  const claims = new Set(next.resources.map((resource) => resource.target));
+  for (const entry of next.tombstones) {
+    if (entry.sweptAt || !fsImpl.existsSync(entry.fromTarget) || claims.has(entry.fromTarget)) continue;
+    try {
+      const current = crypto.createHash('sha256').update(fsImpl.readFileSync(entry.fromTarget)).digest('hex');
+      if (entry.fingerprint && current === String(entry.fingerprint).replace(/^sha256:/, '')) {
+        fsImpl.rmSync(entry.fromTarget);
+        entry.sweptAt = new Date().toISOString();
+        pruneEmptyAncestors(path.dirname(entry.fromTarget), { fsImpl });
+      }
+    } catch { /* unreadable or undeletable: leave it; the tombstone stays unswept and visible */ }
   }
   next.lastRecoveryId = recoveryRef;
   const guidanceVersion = readGuidanceVersion(scopeRoot, fsImpl);

@@ -233,6 +233,9 @@ Artifact and repository state:
 Workflow and evidence:
   classify         validate a proposed task class, return its workflow
   workflow         resolve stages, dependencies and gates for a class
+  orchestrate      start/resume a run: complete stages, skip optional ones, decide gates
+  retrieve         BM25 search over the installed guidance tree (auto-refreshing index)
+  model-role       resolve an abstract model role to ranked, availability-annotated providers
   route            resolve an information need to a healthy provider
   evidence         record a stage's evidence batch, or query the ledger
   claim            record or update a claim and its support state
@@ -347,7 +350,7 @@ shell_helper_for() {
 is_node_verb() {
   case "$1" in
     classify|workflow|route|evidence|claim|readiness|context-pack|retrieval-plan|outcome|scaffold|verify|recover|leak-scan|\
-trace|stats|discover|capabilities|doctor) return 0 ;;
+trace|stats|discover|capabilities|doctor|orchestrate|retrieve|model-role) return 0 ;;
     *) return 1 ;;
   esac
 }

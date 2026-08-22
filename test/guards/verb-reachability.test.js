@@ -49,6 +49,18 @@ const ALLOWLIST = new Map([
     'doctor',
     'CLI-only health diagnostic and smoke check command (doflow doctor) for human operators and environment setup, not invoked by skill workflows',
   ],
+  [
+    'orchestrate',
+    'deterministic workflow-run state machine: skills execute stages themselves and assert completion via doflow-run orchestrate; no skill names it as a top-level command yet because stage adoption is per-class, so it is allowlisted until the first skill wires its own stage transitions',
+  ],
+  [
+    'retrieve',
+    'knowledge-fabric search verb: operator/diagnostic entry over the installed guidance index; skills adopt it through retrieval declarations rather than naming it directly, so it is allowlisted with that rationale',
+  ],
+  [
+    'model-role',
+    'advisory model routing verb: resolves a role from models.yaml to availability-annotated provider candidates; consumed by skills and orchestration snapshots at adoption time rather than named directly by any skill today',
+  ],
 ]);
 
 /** Parse all shell-backed verbs from shell_helper_for() in doflow-run. */

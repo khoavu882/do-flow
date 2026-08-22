@@ -172,12 +172,12 @@ test('resolveMcpSelection: install + interactive, prompt returns [] (deliberate 
   assert.deepStrictEqual(selected, []);
 });
 
-test('resolveMcpSelection: install + interactive, prompt unavailable (null, e.g. no real TTY) falls back to manifest/all', () => {
+test('resolveMcpSelection: install + interactive, prompt unavailable (null) selects nothing — no consent, no servers', () => {
   const selected = resolveMcpSelection({
     cmd: 'install', requested: null, allServers: ['a', 'b'], manifestServers: null, interactive: true,
     promptFn: () => null,
   });
-  assert.deepStrictEqual(selected, ['a', 'b']);
+  assert.deepStrictEqual(selected, []);
 });
 
 // Regression: removing chrome-devtools and playwright from core/registry/mcp.yaml (d1bf9e8) made
@@ -215,13 +215,15 @@ test('resolveMcpSelection: an explicit --mcp naming a retired server is still fa
   );
 });
 
-test('resolveMcpSelection: a manifest whose every server was retired falls back to the full catalog', () => {
-  // Returning [] here would silently uninstall MCP support the user never asked to remove.
+test('resolveMcpSelection: a manifest whose every server was retired stays empty — the catalog is never resurrected', () => {
+  // The old behavior here re-added every catalog server behind the user's back. Servers are
+  // opt-in: once the remembered selection is empty (deliberately chosen or fully retired), it
+  // takes explicit intent (--mcp all|<names>) to bring any back.
   const selected = resolveMcpSelection({
     cmd: 'update', requested: null, allServers: ['a', 'b'], manifestServers: ['gone-1', 'gone-2'],
     interactive: false, promptFn: null,
   });
-  assert.deepStrictEqual(selected, ['a', 'b']);
+  assert.deepStrictEqual(selected, []);
 });
 
 test('resolveMcpSelection: the interactive seed is reconciled, never pre-ticking a retired server', () => {
@@ -241,12 +243,39 @@ test('resolveMcpSelection: update never prompts, even when interactive is true',
   assert.deepStrictEqual(selected, ['a']);
 });
 
-test('resolveMcpSelection: no flag, not interactive, no manifest yet -> defaults to all', () => {
+test('resolveMcpSelection: no flag, not interactive, no manifest yet -> defaults to none (safe by default)', () => {
   const selected = resolveMcpSelection({
-    cmd: 'install', requested: null, allServers: ['a', 'b', 'c'], manifestServers: null, interactive: false, promptFn: null,
+    cmd: 'install', requested: null, allServers: ['a', 'b'], manifestServers: null,
+    interactive: false, promptFn: null,
   });
-  assert.deepStrictEqual(selected, ['a', 'b', 'c']);
+  assert.deepStrictEqual(selected, [], 'third-party servers must be opt-in for scripted installs');
 });
+
+test('resolveMcpSelection: --mcp all adopts the full catalog explicitly', () => {
+  const selected = resolveMcpSelection({
+    cmd: 'install', requested: ['all'], allServers: ['a', 'b'], manifestServers: null,
+    interactive: false, promptFn: null,
+  });
+  assert.deepStrictEqual(selected, ['a', 'b']);
+});
+
+test('resolveMcpSelection: --mcp none persists an explicit empty selection', () => {
+  const selected = resolveMcpSelection({
+    cmd: 'update', requested: ['none'], allServers: ['a', 'b'], manifestServers: ['a'],
+    interactive: false, promptFn: null,
+  });
+  assert.deepStrictEqual(selected, []);
+});
+
+test('resolveMcpSelection: keywords cannot be mixed with names or with each other', () => {
+  const base = { cmd: 'install', allServers: ['a', 'b'], manifestServers: null, interactive: false, promptFn: null };
+  assert.throws(() => resolveModelRoleGuard(base, ['all', 'a']));
+  assert.throws(() => resolveModelRoleGuard(base, ['none', 'b']));
+  assert.throws(() => resolveModelRoleGuard(base, ['all', 'none']), /not both/);
+});
+function resolveModelRoleGuard(base, requested) {
+  return resolveMcpSelection({ ...base, requested });
+}
 
 test('promptMcpCheckbox returns [] immediately for an empty server list, never entering the raw-mode read loop', () => {
   // Regression test: the cursor-movement math (`(cursor - 1 + servers.length) % servers.length`)

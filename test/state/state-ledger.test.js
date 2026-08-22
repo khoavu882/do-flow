@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { writeManifest } = require('../../src/install/manifest');
 const {
-  STATE_VERSION, stateRoot, ledgerPath, defaultLedger, readLedger, writeLedger,
+  STATE_VERSION, LEDGER_VERSION, stateRoot, ledgerPath, defaultLedger, readLedger, writeLedger,
   writeRecoveryRecord, readRecoveryRecord, migrateLegacyManifest, ownershipKey,
 } = require('../../src/state');
 
@@ -64,7 +64,7 @@ test('legacy manifest migration imports explicit ownership once and leaves the l
   assert.equal(second.migrated, false);
   assert.equal(second.reason, 'already-imported');
   assert.equal(second.ledger.resources.length, 1);
-  assert.equal(second.ledger.version, STATE_VERSION);
+  assert.equal(second.ledger.version, LEDGER_VERSION);
 });
 
 test('legacy migration does not create ownership from tool-only or malformed legacy state', () => {
