@@ -27,9 +27,11 @@ const { createOpenCodeAdapter } = require('../src/adapters/opencode');
 const { createPiAdapter } = require('../src/adapters/pi');
 const { createCopilotAdapter } = require('../src/adapters/copilot');
 const { createKiroAdapter } = require('../src/adapters/kiro');
+const { createAntigravityAdapter } = require('../src/adapters/antigravity');
 const { applyLifecycle, removeLifecycle, applyMcpIndex, verifyLifecycle, retentionSummary } = require('../src/lifecycle');
 const { readLedger } = require('../src/state');
-const { codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan } = require('../src/lifecycle/view');
+const { codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan, lockDocument, recordLock } = require('../src/lifecycle/view');
+const { removeLock, readLock } = require('../src/state/lockfile');
 const { commandText, planToolLifecycle, executeToolLifecycle } = require('../src/install/tool-lifecycle');
 const {
   handleCapabilitiesCommand, handleReadinessCommand, handleEvidenceCommand,
@@ -46,6 +48,9 @@ const { ReadinessEngine } = require('../src/runtime/readiness');
 const { handleClaimCommand } = require('../src/runtime/claims');
 const { handleClassifyCommand } = require('../src/runtime/task-classifier');
 const { handleWorkflowCommand } = require('../src/runtime/workflow-engine');
+const { handleOrchestrateCommand } = require('../src/runtime/workflow-orchestrator');
+const { handleRetrieveCommand } = require('../src/runtime/knowledge/retrieval');
+const { handleModelRoleCommand } = require('../src/runtime/model-router');
 const { handleRouteCommand } = require('../src/runtime/capability-router');
 const { handleContextPackCommand } = require('../src/runtime/context-pack');
 const { handleRetrievalPlanCommand } = require('../src/runtime/retrieval-plan');
@@ -127,6 +132,52 @@ function parseArgs(argv) {
         const val = argv[i + 1];
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
         o.taskId = val; i++; break;
+      }
+      case '--stage': {
+        const val = argv[i + 1];
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
+        o.stage = val; i++; break;
+      }
+      case '--gate': {
+        const val = argv[i + 1];
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
+        o.gate = val; i++; break;
+      }
+      case '--decision': {
+        const val = argv[i + 1];
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
+        o.decision = val; i++; break;
+      }
+      case '--note': {
+        const val = argv[i + 1];
+        if (val === undefined) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
+        o.note = val; i++; break;
+      }
+      case '--reason': {
+        const val = argv[i + 1];
+        if (val === undefined) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
+        o.reason = val; i++; break;
+      }
+      case '--query': {
+        const val = argv[i + 1];
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
+        o.query = val; i++; break;
+      }
+      case '-k': case '--top': {
+        const val = argv[i + 1];
+        const parsed = parseInt(val, 10);
+        if (!Number.isFinite(parsed) || parsed < 1) { console.error(`doflow: ${a} expects a positive number`); process.exit(2); }
+        o.top = parsed; i++; break;
+      }
+      case '--role': {
+        const val = argv[i + 1];
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
+        o.role = val; i++; break;
+      }
+      case '--exclude': {
+        const val = argv[i + 1];
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
+        o.exclude = val.split(',').map((s) => s.trim()).filter(Boolean); i++; break;
       }
       case '--days': {
         const val = argv[i + 1];
@@ -358,6 +409,7 @@ Usage: doflow <command> [path] [options]
 Commands:
   install [path]       Install configs to target tools (use --dry-run to preview)
   update               Incremental update of changed files only
+  reconcile            Converge observed state onto the doflow.lock pin (drift report + heal)
   status               Show resolved context + installed state from manifest (--json for scripting)
   rollback [id]        Restore from a backup (interactive pick if id omitted)
   remove [path]        Remove only lifecycle-owned native resources
@@ -490,6 +542,13 @@ function cmdInstall(o) {
     allServers: codexCatalog.allServers, manifestServers: existingManifest?.mcpServers ?? null,
     interactive: !o.dryRun && !o.force && Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY), promptFn: promptMcpCheckbox, onStale: reportRetiredMcp })) : [];
   const mcpIds = mcp?.selected ?? (codexCatalog ? codexMcpSelection : undefined);
+  // Safe-by-default surfaced, not silent: a first-ever non-interactive install now selects zero
+  // MCP servers. Anyone scripting installs must opt in explicitly; interactive users never see
+  // this because the checkbox is the discovery path.
+  if (!o.mcp && !existingManifest?.mcpServers && !o.dryRun &&
+      !process.stdin.isTTY && (targets.includes('claude') || codexCatalog)) {
+    console.log('[INFO] MCP: none selected by default in non-interactive mode — pass --mcp all or --mcp <names> to include servers.');
+  }
   // One lifecycle view across every requested target — computed unconditionally (not only under
   // --dry-run) so its safety gate and its plan are the exact same object the real apply below uses.
   const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds, force: o.force });
@@ -525,7 +584,7 @@ function cmdInstall(o) {
   if (lifecycleView.plan.changes.length) {
     const result = applyLifecycle({ plan: lifecycleView.plan, registry: lifecycleView.registry,
       adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter(),
-        opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter() }),
+        opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter(), antigravity: createAntigravityAdapter() }),
       stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
     for (const target of lifecycleView.plan.targets) {
       if (target.skipped || !target.changes.length) continue;
@@ -554,6 +613,17 @@ function cmdInstall(o) {
   }
 
   writeManifest({ claudeDir: dirs.claude, scriptVersion: pkg.version, operation: 'install', repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: targets, date: new Date(), mcpServers: mcpIds });
+
+  // Pin what this install CHOSE. The ledger owns ownership; the lock owns selection — together
+  // they make the next update's delta a reviewable fact instead of a surprise.
+  const lockResult = recordLock(
+    scope.global ? { scope: 'global', homeDir: os.homedir() } : { scope: 'project', projectRoot: path.resolve(scope.projectRoot) },
+    lockDocument({
+      registry, scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot), targets,
+      mcpSelections: { claude: mcp?.selected ?? [], codex: codexCatalog ? codexMcpSelection : [] },
+    }),
+  );
+  console.log(`[INFO] doflow.lock: ${lockResult.summary}`);
 
   if (o.prune > 0) {
     const pruned = pruneBackups(backupRoot, o.prune);
@@ -629,7 +699,7 @@ function cmdUpdate(o) {
   if (lifecycleView.plan.changes.length) {
     const result = applyLifecycle({ plan: lifecycleView.plan, registry: lifecycleView.registry,
       adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter(),
-        opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter() }),
+        opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter(), antigravity: createAntigravityAdapter() }),
       stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
     for (const target of lifecycleView.plan.targets) {
       if (target.skipped || !target.changes.length) continue;
@@ -641,12 +711,98 @@ function cmdUpdate(o) {
 
   writeManifest({ claudeDir: dirs.claude, scriptVersion: pkg.version, operation: 'update', repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: targets, date: new Date(), mcpServers: mcpIds });
 
+  const updateLock = recordLock(
+    scope.global ? { scope: 'global', homeDir: os.homedir() } : { scope: 'project', projectRoot: path.resolve(scope.projectRoot) },
+    lockDocument({
+      registry, scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot), targets,
+      mcpSelections: { claude: mcp?.selected ?? [], codex: codexCatalog ? codexMcpSelection : [] },
+    }),
+  );
+  console.log(`[INFO] doflow.lock: ${updateLock.summary}`);
+
   if (o.prune > 0) {
     const pruned = pruneBackups(backupRoot, o.prune);
     if (pruned.length) console.error(`[INFO]  Pruned ${pruned.length} old backup(s)`);
   }
 
   console.log('[OK] Update complete!');
+}
+
+/** Classify desired-vs-observed drift for one lifecycle view. The plan IS the diff: its changes
+ * are the operations needed to converge, its conflicts and prerequisites are the drift that must
+ * not be silently healed. */
+function reconcileReport(view) {
+  const drifts = [];
+  const perHarness = new Map();
+  for (const target of view.plan.targets) {
+    if (target.skipped) continue;
+    const entry = { create: 0, update: 0, remove: 0 };
+    for (const change of target.changes) {
+      if (entry[change.operation] !== undefined) entry[change.operation] += 1;
+      drifts.push({ harness: target.harness, operation: change.operation, assetId: change.assetId, target: change.target });
+    }
+    perHarness.set(target.harness, entry);
+  }
+  return {
+    drifts,
+    conflicts: view.plan.conflicts,
+    prerequisites: view.plan.prerequisites,
+    perHarness: Object.fromEntries(perHarness),
+    clean: drifts.length === 0 && view.plan.conflicts.length === 0,
+  };
+}
+
+function printReconcileReport(report, lock) {
+  console.log(`[INFO] Reconciling against doflow.lock (sourceVersion ${lock.sourceVersion ?? 'unknown'})`);
+  for (const [harness, counts] of Object.entries(report.perHarness)) {
+    const total = counts.create + counts.update + counts.remove;
+    console.log(`[INFO] ${harness}: ${total === 0 ? 'clean' : `${total} drift(s) (${counts.create} create, ${counts.update} update, ${counts.remove} remove)`}`);
+  }
+  for (const conflict of report.conflicts) console.log(`[CONFLICT] ${conflict.harness}: ${conflict.reason}`);
+  for (const prerequisite of report.prerequisites) console.log(`[PENDING-TRUST] ${prerequisite.harness}: ${prerequisite.prerequisite}`);
+  if (report.clean) console.log('[OK] Observed state matches doflow.lock.');
+}
+
+function cmdReconcile(o) {
+  const scope = scopeOf(o);
+  const dirs = toolDirs(scope);
+  const lockArgs = scope.global ? { scope: 'global', homeDir: os.homedir() } : { scope: 'project', projectRoot: path.resolve(scope.projectRoot) };
+  const lock = readLock(lockArgs);
+  if (!lock || !lock.targets.length) {
+    // Reconcile converges onto what install pinned; with no pin there is no desired state to
+    // converge to, and guessing one from the registry would silently adopt targets the user
+    // never chose.
+    console.log('[INFO] No doflow.lock in this scope — nothing pinned to reconcile against. Run `doflow install` first.');
+    return;
+  }
+  const targets = lock.targets.map((entry) => entry.harness);
+  const registry = loadRegistry({ repoRoot: REPO_ROOT });
+  printContext(resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: sourceCommit(SCRIPT_DIR), ...scope }));
+  // MCP selections ride exactly as pinned — reconcile never re-prompts and never widens them.
+  const mcpIds = [...new Set(Object.entries(lock.mcpSelections ?? {}).flatMap(([harness, ids]) => (targets.includes(harness) ? ids : [])))];
+  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds, force: true });
+  if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
+
+  const report = reconcileReport(lifecycleView);
+  printReconcileReport(report, lock);
+  if (o.json) console.log(JSON.stringify({ scope: lock.scope, sourceVersion: lock.sourceVersion, targets, ...report }, null, 2));
+  if (o.dryRun) {
+    console.log('[DRY] Reconcile plan complete — no changes written');
+    if (!report.clean) process.exitCode = 1; // CI-friendly: drifted check must fail loudly.
+    return;
+  }
+  if (report.clean) return;
+
+  if (!confirm(`Reconcile ${targets.join(', ')} by applying ${report.drifts.length} change(s)?`, o.force)) {
+    console.error('[INFO]  Aborted.');
+    process.exit(1);
+  }
+  applyLifecycle({ plan: lifecycleView.plan, registry: lifecycleView.registry,
+    adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter(),
+      opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter(), antigravity: createAntigravityAdapter() }),
+    stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
+  writeManifest({ claudeDir: dirs.claude, scriptVersion: pkg.version, operation: 'update', repoRoot: SCRIPT_DIR, sourceCommit: sourceCommit(SCRIPT_DIR), backupId: '', tools: targets, date: new Date(), mcpServers: mcpIds });
+  console.log('[OK] Reconciliation complete — state converged onto doflow.lock.');
 }
 
 function cmdRemove(o) {
@@ -676,7 +832,7 @@ function cmdRemove(o) {
   }
   const result = removeLifecycle({ registry: view.registry,
     adapters: createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter(),
-      opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter() }),
+      opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter(), antigravity: createAntigravityAdapter() }),
     scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot),
     targets: lifecycleTargets, mcpIds: [], stateRoot: view.stateRoot, ledger: view.ledger,
     context: view.plan.targets[0].adapterInput.context });
@@ -685,6 +841,21 @@ function cmdRemove(o) {
   // would be half the truth, so what was kept and who still claims it is printed, not implied.
   for (const line of retentionSummary(result.retained)) console.log(`[INFO] ${line}`);
   console.log(`[OK] Removed ${result.ledger.resources.length === 0 ? 'all' : 'eligible'} native resource(s) for ${lifecycleTargets.join(', ')}; ${result.ledger.resources.length} owned record(s) remain.`);
+
+  // Re-pin what still stands: harnesses with no remaining owned resources leave the lock; when
+  // nothing remains at all the lock goes with them. Shared destinations are handled naturally —
+  // their claims belong to whichever harness still holds them in the ledger.
+  const remaining = lifecycleTargets.filter((harness) => result.ledger.resources.some((resource) => resource.harness === harness));
+  if (remaining.length) {
+    const removalLock = recordLock(
+      scope.global ? { scope: 'global', homeDir: os.homedir() } : { scope: 'project', projectRoot: path.resolve(scope.projectRoot) },
+      lockDocument({ registry, scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot), targets: remaining }),
+    );
+    console.log(`[INFO] doflow.lock: ${removalLock.summary}`);
+  } else {
+    removeLock(scope.global ? { scope: 'global', homeDir: os.homedir() } : { scope: 'project', projectRoot: path.resolve(scope.projectRoot) });
+    console.log('[INFO] doflow.lock: cleared');
+  }
 }
 
 function cmdStatus(o) {
@@ -969,6 +1140,7 @@ function main() {
       case 'install': return cmdInstall(o);
       case 'update': return cmdUpdate(o);
       case 'remove': return cmdRemove(o);
+      case 'reconcile': return cmdReconcile(o);
       case 'status': return cmdStatus(o);
       case 'rollback': return cmdRollback(o);
       case 'list-backups': return cmdListBackups(o);
@@ -1010,6 +1182,9 @@ function main() {
       // state and source tree, following the same scope rules as every other command.
       case 'classify': return handleClassifyCommand({ taskClass: o.taskClass, rationale: o.rationale, proposedBy: o.proposedBy, callingSkill: o.callingSkill, json: o.json });
       case 'workflow': return handleWorkflowCommand({ taskClass: o.taskClass, json: o.json });
+      case 'orchestrate': return handleOrchestrateCommand({ action: o.action, taskId: o.taskId, taskClass: o.taskClass, stage: o.stage, gate: o.gate, decision: o.decision, note: o.note, reason: o.reason, json: o.json, repoRoot: REPO_ROOT });
+      case 'retrieve': return handleRetrieveCommand({ query: o.query, top: o.top, json: o.json });
+      case 'model-role': return handleModelRoleCommand({ role: o.role, exclude: o.exclude, json: o.json, repoRoot: REPO_ROOT });
       case 'route': return handleRouteCommand({ intent: o.intent, query: o.query, check: o.check, json: o.json, projectRoot: evidenceRoot(o) });
       case 'claim': return handleClaimCommand({ taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, replacedBy: o.replacedBy, relation: o.relation, json: o.json, stateRoot: evidenceRoot(o) });
       case 'context-pack': return handleContextPackCommand({ taskId: requireTaskId(o), taskClass: o.taskClass, objective: o.objective, json: o.json, stateRoot: evidenceRoot(o) });

@@ -147,6 +147,7 @@
       "nativeProjection": {
         "config": {
           "source": "core/harnesses/codex/config/config.toml",
+          "note": "Codex hooks are enabled by default since GA; DoFlow still writes features.hooks=true so older CLI versions that required the opt-in also pick the projection up. The flag now only ever disables (features.hooks=false).",
           "resources": [
             {
               "kind": "configuration-entry",
@@ -172,21 +173,21 @@
         "instructions": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/concepts/customization"
+            "https://developers.openai.com/codex/agent-configuration/agents-md"
           ],
-          "verification": "Confirm the managed AGENTS.md section is applied."
+          "verification": "Confirm the managed AGENTS.md section is applied at the project root (or ~/.codex/AGENTS.md globally)."
         },
         "skills": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/concepts/customization"
+            "https://developers.openai.com/codex/build-skills"
           ],
-          "verification": "Confirm the installed skill is discoverable."
+          "verification": "Confirm Codex discovers the installed skill from .agents/skills (repo scope) or ~/.agents/skills (user scope); Codex never scans .codex/skills."
         },
         "agents": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/subagents"
+            "https://developers.openai.com/codex/agent-configuration/subagents"
           ],
           "verification": "Delegate a test task to a custom agent."
         },
@@ -214,7 +215,7 @@
         "settings": {
           "status": "different",
           "evidence": [
-            "https://developers.openai.com/codex/config-advanced"
+            "https://developers.openai.com/codex/config-file/config-advanced"
           ],
           "prerequisites": [
             "trusted-project"
@@ -224,7 +225,7 @@
         "hooks": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/config-advanced#hooks"
+            "https://developers.openai.com/codex/hooks"
           ],
           "prerequisites": [
             "trusted-project",
@@ -272,14 +273,14 @@
         "mcp": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/config-advanced#mcp-servers"
+            "https://developers.openai.com/codex/extend/mcp"
           ],
           "verification": "Confirm selected MCP servers connect."
         },
         "plugin": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/concepts/plugins"
+            "https://developers.openai.com/codex/build-plugins"
           ],
           "prerequisites": [
             "user-activation"
@@ -348,7 +349,7 @@
         "settings": {
           "status": "different",
           "evidence": [
-            "https://geminicli.com/docs/cli/configuration/"
+            "https://geminicli.com/docs/cli/settings/"
           ],
           "verification": "Verify only adapter-supported native settings."
         },
@@ -376,19 +377,19 @@
             },
             "UserPromptSubmit": {
               "status": "unavailable",
-              "note": "No Gemini equivalent; BeforeAgent fires at full-turn granularity, not per prompt."
+              "note": "No Gemini equivalent; the nearest native hook is BeforeAgent, which fires once before planning and can block the turn or inject context \u2014 not a per-prompt pre-submission gate."
             },
             "Stop": {
               "status": "unavailable",
-              "note": "No Gemini equivalent at matching semantics."
+              "note": "No exact match; AfterAgent fires at agent-loop end and can halt or retry the turn, which is coarser than Claude's Stop."
             },
             "SubagentStart": {
               "status": "unavailable",
-              "note": "BeforeAgent/AfterAgent are turn-scoped, not subagent-scoped."
+              "note": "BeforeAgent/AfterAgent bracket the whole agent loop; they are not subagent lifecycle events."
             },
             "SubagentStop": {
               "status": "unavailable",
-              "note": "BeforeAgent/AfterAgent are turn-scoped, not subagent-scoped."
+              "note": "BeforeAgent/AfterAgent bracket the whole agent loop; they are not subagent lifecycle events."
             },
             "PostToolUseFailure": {
               "status": "unavailable",
@@ -403,7 +404,7 @@
         "mcp": {
           "status": "different",
           "evidence": [
-            "https://geminicli.com/docs/tools/mcp/"
+            "https://geminicli.com/docs/tools/mcp-server/"
           ],
           "verification": "Verify only adapter-supported MCP registration."
         },
@@ -412,6 +413,7 @@
           "evidence": [
             "https://geminicli.com/docs/extensions/"
           ],
+          "note": "Extensions (gemini-extension.json) now package skills, hooks, sub-agents, and MCP; security.blockGitExtensions/allowedExtensions can gate Git-sourced installs. Context: Google sunset Gemini CLI for consumer tiers on 2026-06-18 \u2014 enterprise/paid-API use only; Antigravity CLI (GA 2026-05-19, antigravity.google/docs/gcli-migration) is the successor surface carrying skills/hooks/subagents/plugins.",
           "verification": "Verify extensions through the native host workflow."
         }
       }
@@ -630,7 +632,7 @@
           "evidence": [
             "https://pi.dev/docs/latest/extensions"
           ],
-          "note": "Pi lifecycle hooks are TypeScript extension modules registered through pi.on(), executing arbitrary code with full permissions — a different trust model from the shell hooks DoFlow ships, so no hook projection is attempted.",
+          "note": "Pi lifecycle hooks are TypeScript extension modules registered through pi.on(), executing arbitrary code with full permissions \u2014 a different trust model from the shell hooks DoFlow ships, so no hook projection is attempted.",
           "verification": "Report that DoFlow installs no Pi extension and its shell hooks do not apply here.",
           "events": {
             "SessionStart": {
@@ -731,7 +733,7 @@
           "evidence": [
             "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills"
           ],
-          "verification": "Confirm Copilot CLI discovers the installed skill from .agents/skills (project) or ~/.agents/skills (personal) — the same SKILL.md + YAML frontmatter format DoFlow already authors, so no per-harness transformation is required."
+          "verification": "Confirm Copilot CLI discovers the installed skill from .agents/skills (project) or ~/.agents/skills (personal) \u2014 the same SKILL.md + YAML frontmatter format DoFlow already authors, so no per-harness transformation is required."
         },
         "agents": {
           "status": "supported",
@@ -773,12 +775,59 @@
           "verification": "Report the capability gap; do not attempt a native settings merge."
         },
         "hooks": {
-          "status": "unavailable",
+          "status": "different",
           "evidence": [
-            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/use-hooks",
+            "https://docs.github.com/en/copilot/reference/hooks-reference"
           ],
-          "note": "No writable hook or lifecycle-event surface is documented for Copilot CLI.",
-          "verification": "Report the capability gap; do not attempt to install a hook."
+          "note": "Copilot CLI documented a full hook surface (2026): .github/hooks/*.json (repo) and ~/.copilot/hooks/ (user), shape {\"version\":1,\"hooks\":{\"<camelCase event>\":[entries]}}, command entries fail-closed on non-zero exit, preToolUse decides via stdout JSON {permissionDecision}. DoFlow wires NONE of it yet, deliberately: its shipped scripts are Claude-payload-coupled (tool names Edit|Write|MultiEdit, .session_id/.transcript_path stdin fields, CLAUDE_CONFIG_DIR/CLAUDE_PROJECT_DIR envs). Projecting them onto Copilot's unverified payload schemas would install hooks that silently misfire \u2014 recorded here instead of imitated.",
+          "verification": "Report that no Copilot hook is installed; revisit once payload schemas are verified in a live session.",
+          "events": {
+            "SessionStart": {
+              "status": "different",
+              "note": "Native sessionStart exists; DoFlow's script reads Claude's .session_id/.cwd stdin fields."
+            },
+            "SessionEnd": {
+              "status": "different",
+              "note": "Native sessionEnd exists; same payload-schema caveat."
+            },
+            "PreToolUse": {
+              "status": "different",
+              "note": "Blocking contract matches ({permissionDecision} on stdout) but tool names differ from Claude's Edit|Write|MultiEdit and the gate reads CLAUDE_* envs."
+            },
+            "PostToolUse": {
+              "status": "different",
+              "note": "Native postToolUse can rewrite results/inject context; not projected."
+            },
+            "PostToolUseFailure": {
+              "status": "different",
+              "note": "Native postToolUseFailure exists \u2014 a failure-only event Claude lacks a direct name for."
+            },
+            "Stop": {
+              "status": "different",
+              "note": "Native agentStop forces continuation via stdout {decision:'block'} (8-block runaway cap), unlike Claude's exit-2 semantics; stop-check relies on .transcript_path."
+            },
+            "UserPromptSubmit": {
+              "status": "different",
+              "note": "Natives are userPromptSubmitted and userPromptTransformed; pre-submission gating semantics unverified."
+            },
+            "PreCompact": {
+              "status": "different",
+              "note": "Native preCompact exists."
+            },
+            "SubagentStart": {
+              "status": "different",
+              "note": "Native subagentStart/subagentStop exist."
+            },
+            "SubagentStop": {
+              "status": "different",
+              "note": "Native subagentStart/subagentStop exist."
+            },
+            "PermissionDenied": {
+              "status": "unavailable",
+              "note": "No deny-side event; permissionRequest carries the decision instead."
+            }
+          }
         },
         "mcp": {
           "status": "supported",
@@ -825,7 +874,7 @@
           "evidence": [
             "https://kiro.dev/docs/skills/"
           ],
-          "note": "Kiro has a dedicated skills system, separate from steering: a skill is a folder containing SKILL.md with YAML frontmatter (name, description) plus optional scripts/references/assets subdirectories, following the same open Agent Skills standard DoFlow already authors — no transformation needed. Scanned from .kiro/skills/ (workspace) and ~/.kiro/skills/ (global); workspace wins on a same-name conflict. This corrects an earlier declaration made before kiro.dev/docs/skills/ was found.",
+          "note": "Kiro has a dedicated skills system, separate from steering: a skill is a folder containing SKILL.md with YAML frontmatter (name, description) plus optional scripts/references/assets subdirectories, following the same open Agent Skills standard DoFlow already authors \u2014 no transformation needed. Scanned from .kiro/skills/ (workspace) and ~/.kiro/skills/ (global); workspace wins on a same-name conflict. This corrects an earlier declaration made before kiro.dev/docs/skills/ was found.",
           "verification": "Confirm the installed skill is discoverable under .kiro/skills/ (workspace) or ~/.kiro/skills/ (global)."
         },
         "agents": {
@@ -841,7 +890,7 @@
           "evidence": [
             "https://kiro.dev/docs/skills/"
           ],
-          "note": "A skill's own scripts/ subdirectory travels with it inside .kiro/skills/, per the same bundled-with-skill pattern opencode/pi/copilot already use — not a standalone tree DoFlow projects separately.",
+          "note": "A skill's own scripts/ subdirectory travels with it inside .kiro/skills/, per the same bundled-with-skill pattern opencode/pi/copilot already use \u2014 not a standalone tree DoFlow projects separately.",
           "verification": "Confirm a bundled skill scripts/ directory is reachable from the installed .kiro/skills/ path."
         },
         "templates": {
@@ -874,7 +923,7 @@
             "https://kiro.dev/docs/hooks/",
             "https://kiro.dev/docs/hooks/actions/"
           ],
-          "note": "`.kiro/hooks/*.json` (flat `{version, hooks: [...]}` array, each entry naming its own `trigger`) is a confirmed, writable hook surface that activates automatically on session start — no trust/review prerequisite, unlike Codex's hooks.json. Confirmed trigger names: SessionStart, Stop, PreToolUse, PostToolUse, UserPromptSubmit, PreTaskExec, PostTaskExec, PostFileSave, PostFileCreate, PostFileDelete; PreToolUse/UserPromptSubmit/PreTaskExec are documented as blockable via a non-zero command exit code. DoFlow now projects a real doflow.json (kiro.hooks-scripts asset) wiring SessionStart, PreToolUse (x2: pre-implementation-gate and mcp-tool-guard), and Stop to the same shared session-start/stop-check implementations Claude and Codex reuse; Stop's own blocking semantics are not explicitly confirmed by the cited docs (only PreToolUse/UserPromptSubmit/PreTaskExec are), so stop-check's stub-detection block on Kiro is best-effort pending direct confirmation.",
+          "note": "`.kiro/hooks/*.json` (flat `{version, hooks: [...]}` array, each entry naming its own `trigger`) is a confirmed, writable hook surface that activates automatically on session start \u2014 no trust/review prerequisite, unlike Codex's hooks.json. Confirmed trigger names: SessionStart, Stop, PreToolUse, PostToolUse, UserPromptSubmit, PreTaskExec, PostTaskExec, PostFileSave, PostFileCreate, PostFileDelete; PreToolUse/UserPromptSubmit/PreTaskExec are documented as blockable via a non-zero command exit code. DoFlow now projects a real doflow.json (kiro.hooks-scripts asset) wiring SessionStart, PreToolUse (x2: pre-implementation-gate and mcp-tool-guard), and Stop to the same shared session-start/stop-check implementations Claude and Codex reuse. Kiro's docs mark Stop as explicitly NOT blockable (only PreToolUse/UserPromptSubmit/PreTaskExec block via non-zero exit), so stop-check's stub-detection runs advisory-only on Kiro \u2014 exit 0 stdout is injected as context rather than enforced.",
           "verification": "Confirm a projected hook file under .kiro/hooks/ is present, is well-formed JSON with the expected trigger names, and that a PreToolUse hook's non-zero exit actually blocks the tool call on the installed Kiro CLI."
         },
         "mcp": {
@@ -891,6 +940,124 @@
           ],
           "note": "No plugin or extension marketplace mechanism is documented in the steering, hooks, or MCP sources cited for this feature.",
           "verification": "Report the capability gap; do not attempt to install a plugin."
+        }
+      }
+    },
+    {
+      "id": "antigravity",
+      "displayName": "Antigravity CLI",
+      "adapter": "antigravity",
+      "scopes": [
+        "project",
+        "user"
+      ],
+      "nativeTargets": {
+        "instructions": "AGENTS.md",
+        "skills": ".agents/skills",
+        "agents": ".agents/agents",
+        "mcp": ".agents/mcp_config.json"
+      },
+      "capabilities": {
+        "instructions": {
+          "status": "supported",
+          "evidence": [
+            "https://antigravity.google/docs/cli/gcli-migration"
+          ],
+          "verification": "Confirm agy reads the managed AGENTS.md section from the workspace."
+        },
+        "skills": {
+          "status": "supported",
+          "evidence": [
+            "https://antigravity.google/docs/cli/plugins",
+            "https://antigravity.google/docs/skills"
+          ],
+          "note": "DoFlow projects folder-form skills to project .agents/skills only. User scope is deliberately skipped: CLI pages document flat ~/.gemini/antigravity-cli/skills/*.md while desktop docs document folder form under config/skills - an unresolved contradiction.",
+          "verification": "Confirm the skill is discoverable by agy from .agents/skills."
+        },
+        "agents": {
+          "status": "supported",
+          "evidence": [
+            "https://antigravity.google/docs/cli/subagents"
+          ],
+          "note": "Shared agent-spec frontmatter (name, description) is a compatible subset of Antigravity's subagent schema; body becomes the system prompt.",
+          "verification": "Confirm invoke_subagent reaches the installed agent definition."
+        },
+        "scripts": {
+          "status": "supported",
+          "evidence": [
+            "https://antigravity.google/docs/cli/plugins",
+            "https://antigravity.google/docs/skills"
+          ],
+          "note": "Bundled skill scripts travel inside .agents/skills/<name>/scripts/. DoFlow does not project its runtime seam - only the locator lands (.agents/bin/doflow-run), so dispatched verbs exit 2 with the documented searched-paths message.",
+          "verification": "Confirm a bundled skill scripts/ directory is reachable from an installed skill."
+        },
+        "templates": {
+          "status": "different",
+          "evidence": [
+            "https://antigravity.google/docs/cli/plugins"
+          ],
+          "verification": "Report that template access arrives through skill bundles, not a projected tree."
+        },
+        "modes": {
+          "status": "different",
+          "evidence": [
+            "https://antigravity.google/docs/rules-workflows"
+          ],
+          "verification": "Report that mode guidance rides the instructions pointer; .agents/rules projection is future work."
+        },
+        "settings": {
+          "status": "unavailable",
+          "evidence": [
+            "https://antigravity.google/docs/cli/settings"
+          ],
+          "note": "Settings live only at user scope (~/.gemini/antigravity-cli/settings.json); no project settings tier exists.",
+          "verification": "Report the capability gap; never write that file."
+        },
+        "hooks": {
+          "status": "different",
+          "evidence": [
+            "https://antigravity.google/docs/hooks"
+          ],
+          "note": "Keyed-by-event named-hook map (.agents/hooks.json or ~/.gemini/config/hooks.json) whose blocking contract is stdout JSON {decision}, unlike DoFlow's exit-code scripts. Nothing wired until translated shims exist.",
+          "verification": "Report that no Antigravity hook is installed.",
+          "events": {
+            "PreToolUse": {
+              "status": "different",
+              "note": "Native matcher+stdout-decision model differs from Claude-style payloads."
+            },
+            "PostToolUse": {
+              "status": "different",
+              "note": "Native postToolUse can rewrite results; not projected."
+            },
+            "Stop": {
+              "status": "different",
+              "note": "decision:continue re-enters the loop rather than blocking a stop."
+            },
+            "PostInvocation": {
+              "status": "different",
+              "note": "terminationBehavior terminate|force_continue; no neutral equivalent."
+            },
+            "PreInvocation": {
+              "status": "different",
+              "note": "No neutral equivalent."
+            }
+          }
+        },
+        "mcp": {
+          "status": "supported",
+          "evidence": [
+            "https://antigravity.google/docs/cli/mcp"
+          ],
+          "note": "mcpServers object in .agents/mcp_config.json (workspace) or ~/.gemini/config/mcp_config.json (user). Remote servers project url/httpUrl to serverUrl per current schema.",
+          "verification": "Confirm selected MCP servers appear via /mcp in agy."
+        },
+        "plugin": {
+          "status": "different",
+          "evidence": [
+            "https://antigravity.google/docs/cli/plugins"
+          ],
+          "note": "Local-path plugin installs only; DoFlow publishes none.",
+          "verification": "Report that no plugin is installed."
         }
       }
     }

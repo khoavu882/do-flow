@@ -1,9 +1,0 @@
-[
-  {
-    "file": "docs/architecture.md",
-    "line": 63,
-    "rule": "staleness_marker",
-    "severity": "low",
-    "message": "Possible staleness marker 'legacy' \u2014 confirm this prose actually asserts the surrounding content is outdated, not a rule/instruction quoting the word as a detection target."
-  }
-]
