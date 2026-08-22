@@ -12,12 +12,12 @@ const REPO = path.resolve(__dirname, "../..");
 
 test('loads and validates the complete multi-harness registry', () => {
   const registry = loadRegistry({ repoRoot: REPO });
-  assert.deepEqual(registry.harnesses.map((item) => item.id), ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro']);
-  assert.deepEqual(Object.keys(REGISTRY_FILES), ['harnesses', 'assets', 'mcp', 'lifecycle', 'contracts', 'externalTools']);
+  assert.deepEqual(registry.harnesses.map((item) => item.id), ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
+  assert.deepEqual(Object.keys(REGISTRY_FILES), ['harnesses', 'assets', 'mcp', 'lifecycle', 'contracts', 'externalTools', 'models']);
   // contracts.yaml declares what each harness ACCEPTS, deliberately separate from harnesses.yaml's
   // what-DoFlow-SUPPORTS: nesting them would make the registry-truth guard validate the registry
   // against itself. Every harness must have exactly one contract.
-  assert.deepEqual(registry.contracts.map((c) => c.harness), ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro']);
+  assert.deepEqual(registry.contracts.map((c) => c.harness), ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
   assert.equal(registry.validation.ok, true);
   assert.deepEqual(registry.harnesses.find((harness) => harness.id === 'codex').nativeProjection.config.resources,
     [{ kind: 'configuration-entry', identity: 'features.hooks', value: true }]);

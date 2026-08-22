@@ -49,14 +49,14 @@ test('resolveTargets defaults to claude alone and validates', () => {
   assert.deepStrictEqual(resolveTargets([]), ['claude']);
   assert.deepStrictEqual(resolveTargets(undefined), ['claude']);
   assert.deepStrictEqual(resolveTargets(['claude']), ['claude']);
-  assert.deepStrictEqual(resolveTargets(['antigravity']), ['gemini']);
-  assert.deepStrictEqual(resolveTargets(['agy']), ['gemini']);
+  assert.deepStrictEqual(resolveTargets(['antigravity']), ['antigravity']);
+  assert.deepStrictEqual(resolveTargets(['agy']), ['antigravity']);
   assert.deepStrictEqual(resolveTargets([...VALID]), VALID, 'every valid target is still selectable');
   assert.throws(() => resolveTargets(['bogus']), /Unknown target/);
 });
 
-test('VALID lists all seven harnesses', () => {
-  assert.deepStrictEqual(VALID, ['claude', 'codex', 'gemini', 'copilot', 'kiro', 'opencode', 'pi']);
+test('VALID lists all eight harnesses', () => {
+  assert.deepStrictEqual(VALID, ['claude', 'codex', 'gemini', 'copilot', 'kiro', 'opencode', 'pi', 'antigravity']);
 });
 
 for (const target of ['copilot', 'kiro', 'opencode', 'pi']) {

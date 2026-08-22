@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "id": "claude",
+      "displayName": "Claude Code hosted models",
+      "kind": "hosted",
+      "evidence": [
+        "https://code.claude.com/docs/en/model-config"
+      ],
+      "tiers": [
+        "capable-long",
+        "capable"
+      ]
+    },
+    {
+      "id": "codex",
+      "displayName": "Codex CLI models",
+      "kind": "hosted",
+      "evidence": [
+        "https://developers.openai.com/codex/models"
+      ],
+      "tiers": [
+        "capable",
+        "cheap-fast"
+      ]
+    },
+    {
+      "id": "copilot",
+      "displayName": "GitHub Copilot model catalogue",
+      "kind": "hosted",
+      "evidence": [
+        "https://docs.github.com/en/copilot/using-github-copilot/ai-models/changing-the-ai-model-for-copilot-chat"
+      ],
+      "tiers": [
+        "cheap-fast",
+        "capable"
+      ]
+    },
+    {
+      "id": "ollama",
+      "displayName": "Ollama local models",
+      "kind": "local",
+      "evidence": [
+        "https://ollama.com"
+      ],
+      "tiers": [
+        "cheap-fast"
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "id": "triage",
+      "prefer": "cheap-fast",
+      "fallback": "any-healthy"
+    },
+    {
+      "id": "reasoning",
+      "prefer": "capable-long",
+      "fallback": "capable"
+    },
+    {
+      "id": "review",
+      "require": "different-family"
+    }
+  ]
+}

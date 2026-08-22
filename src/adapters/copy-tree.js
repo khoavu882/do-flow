@@ -148,8 +148,12 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
       const current = sha256(fsImpl.readFileSync(file.destAbs));
       const knownGood = force || current === file.fingerprint || (sameLocation && current === prev.fingerprint);
       if (!knownGood) { conflicts.push(`${file.relPath} was modified outside DoFlow`); continue; }
+      // A true no-op requires the DESTINATION bytes to equal the incoming source. Comparing only
+      // ledger-vs-source fingerprints here (the previous form) let a forced run over a hand-edited
+      // destination — force ⇒ knownGood — fall through and silently ignore exactly the drift it
+      // was asked to heal.
+      if (sameLocation && current === file.fingerprint && prev.fingerprint === file.fingerprint) continue; // unchanged, no-op
     }
-    if (sameLocation && prev.fingerprint === file.fingerprint && file.exists) continue; // unchanged, no-op
     changes.push({ relPath: file.relPath, target: file.destAbs, source: file.sourceAbs,
       operation: sameLocation ? 'update' : 'create', fingerprint: file.fingerprint });
   }
@@ -187,9 +191,27 @@ function removeTree({ changes = [], fsImpl = fs }) {
     const current = sha256(fsImpl.readFileSync(change.target));
     if (current !== change.fingerprint) throw new Error(`Refusing to remove modified copy-tree resource: ${change.relPath}`);
     fsImpl.rmSync(change.target, { force: true });
+    pruneEmptyAncestors(path.dirname(change.target), { fsImpl, stopAtBasename: ANCHOR_DIRS });
     removed += 1;
   }
   return { removed };
+}
+
+const ANCHOR_DIRS = new Set(['.agents', '.claude', '.codex', '.copilot', '.doflow', '.gemini', '.github', '.kiro', '.opencode', '.pi', 'skills', 'agents']);
+
+/** Delete now-empty ancestor directories after a file removal, so a relocated or fully-uninstalled
+ * tree doesn't leave a skeleton of empty folders behind. Walks upward only while rmdir succeeds
+ * (i.e. the directory is empty); stops unconditionally at anchor basenames — the harness/config
+ * roots themselves are never pruned even when empty, because they may hold user content elsewhere
+ * and their existence is not DoFlow's call. */
+function pruneEmptyAncestors(startDir, { fsImpl = fs } = {}) {
+  let current = startDir;
+  for (;;) {
+    const basename = path.basename(current);
+    if (!basename || basename === '.' || basename === path.sep || ANCHOR_DIRS.has(basename)) return;
+    try { fsImpl.rmdirSync(current); } catch { return; }
+    current = path.dirname(current);
+  }
 }
 
 /** Re-derive ownership resources from what's actually on disk right now, for status/verify. */
@@ -261,4 +283,4 @@ function ledgerFileResources(resources, harness, assetId) {
     .map((resource) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
-module.exports = { discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, resolveLayout, LAYOUTS, fingerprint, readJson, sourceDirFor };
+module.exports = { discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, resolveLayout, LAYOUTS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };

@@ -15,12 +15,14 @@ const REGISTRY_FILES = Object.freeze({
   lifecycle: 'lifecycle.yaml',
   contracts: 'contracts.yaml',
   externalTools: 'external-tools.yaml',
+  models: 'models.yaml',
 });
 const CAPABILITY_STATUS = new Set(['supported', 'different', 'unavailable']);
 const SCOPES = new Set(['project', 'user']);
 const MCP_TRANSPORTS = new Set(['stdio', 'http', 'sse']);
 const EXTERNAL_TOOL_IDS = new Set(['rtk', 'graphify', 'semble']);
 const EXTERNAL_TOOL_ACTIONS = new Set(['install', 'update', 'uninstall']);
+const MODEL_KINDS = new Set(['hosted', 'local']);
 
 function issue(errors, location, message) { errors.push(`${location}: ${message}`); }
 function object(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
@@ -61,6 +63,8 @@ function loadRegistry({ repoRoot, dir, fsImpl = fs } = {}) {
     lifecycle: loaded.lifecycle.policies,
     contracts: loaded.contracts.contracts,
     externalTools: loaded.externalTools.tools,
+    modelProviders: loaded.models.providers,
+    modelRoles: loaded.models.roles,
     versions: Object.fromEntries(Object.entries(loaded).map(([name, value]) => [name, value.version])),
   };
   const validation = validateRegistry(registry, { repoRoot: registry.repoRoot, fsImpl });
@@ -235,6 +239,31 @@ function validateExternalTool(value, location, errors) {
   }
 }
 
+/** Validates core/registry/models.yaml — the provider × role matrix the orchestrator's model
+ * router will consume. Shell scope: providers are declared with identity, kind, and
+ * evidence (a capability claim without a citation is folklore); roles name routing preferences
+ * without binding to concrete model IDs, which stay runtime/user choices resolved at run time. */
+function validateModelProvider(value, location, errors) {
+  if (!object(value)) { issue(errors, location, 'must be an object'); return; }
+  if (typeof value.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(value.id)) issue(errors, location, 'id must be a lowercase identifier');
+  if (typeof value.displayName !== 'string' || !value.displayName.trim()) issue(errors, location, 'requires displayName');
+  if (!MODEL_KINDS.has(value.kind)) issue(errors, location, `kind must be one of: ${[...MODEL_KINDS].join(', ')}`);
+  if (!Array.isArray(value.evidence) || value.evidence.length === 0
+    || value.evidence.some((url) => typeof url !== 'string' || !/^https:\/\//.test(url))) {
+    issue(errors, location, 'must include one or more HTTPS evidence URLs');
+  }
+}
+
+function validateModelRole(value, location, errors) {
+  if (!object(value)) { issue(errors, location, 'must be an object'); return; }
+  if (typeof value.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(value.id)) issue(errors, location, 'id must be a lowercase identifier');
+  for (const field of ['prefer', 'fallback', 'require']) {
+    if (value[field] !== undefined && (typeof value[field] !== 'string' || !value[field].trim())) {
+      issue(errors, location, `${field} must be a non-empty string when present`);
+    }
+  }
+}
+
 function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
   const errors = [];
   const harnesses = Array.isArray(registry?.harnesses) ? registry.harnesses : null;
@@ -332,6 +361,15 @@ function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
     }
   }
   for (const tool of externalTools || []) validateExternalTool(tool, `external tool '${tool?.id ?? '?'}'`, errors);
+
+  const modelProviders = Array.isArray(registry?.modelProviders) ? registry.modelProviders : null;
+  const modelRoles = Array.isArray(registry?.modelRoles) ? registry.modelRoles : null;
+  if (!modelProviders) issue(errors, 'models.providers', 'must be an array');
+  if (!modelRoles) issue(errors, 'models.roles', 'must be an array');
+  idsUnique(modelProviders, 'models.providers', errors);
+  idsUnique(modelRoles, 'models.roles', errors);
+  for (const provider of modelProviders || []) validateModelProvider(provider, `model provider '${provider?.id ?? '?'}'`, errors);
+  for (const role of modelRoles || []) validateModelRole(role, `model role '${role?.id ?? '?'}'`, errors);
   return { ok: errors.length === 0, errors };
 }
 

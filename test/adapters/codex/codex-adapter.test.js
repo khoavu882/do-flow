@@ -142,7 +142,7 @@ test('full apply then verify returns lifecycle-ready owned resources for project
   assert.equal(fs.readFileSync(config, 'utf8'), edited, 'planning a conflict must preserve user-edited bytes');
 });
 
-test('copy-tree assets (rules/skills/agents/templates/scripts/references) install, converge, and remove under .codex/', () => {
+test('copy-tree assets (rules/skills/agents/templates/scripts/references) install, converge, and remove across .agents/ and .codex/', () => {
   const registry = loadRegistry({ repoRoot: REPO }); const projectRoot = scratch(); const harness = harnessFor(registry, 'codex');
   const assets = selectAssets(registry, { harness: 'codex' });
   const projected = projectAdapterInput({ registry, harness, scope: 'project', scopeRoot: projectRoot, assets, mcp: [], policies: [], context: { sourceVersion: 'test-v1' } });
@@ -152,10 +152,11 @@ test('copy-tree assets (rules/skills/agents/templates/scripts/references) instal
   assert.equal(planned.components.copyTree.ok, true);
   apply({ ...input, changes: planned.changes });
 
-  for (const [dir, file] of [['skills', path.join('do-diagnose', 'SKILL.md')],
-    ['agents', 'system-architect.md']]) {
-    assert.ok(fs.existsSync(path.join(projectRoot, '.codex', dir, file)), `${dir}/${file} must exist after install`);
-  }
+  // skills.doflow lands in .agents/skills — Codex scans $REPO_ROOT/.agents/skills (plus CWD and
+  // parents) and never .codex/skills, which would be a silent no-discovery dead end.
+  assert.ok(fs.existsSync(path.join(projectRoot, '.agents', 'skills', 'do-diagnose', 'SKILL.md')), '.agents/skills/do-diagnose must exist after install');
+  assert.ok(!fs.existsSync(path.join(projectRoot, '.codex', 'skills')), 'no skills copy may be written under .codex/');
+  assert.ok(fs.existsSync(path.join(projectRoot, '.codex', 'agents', 'system-architect.md')), 'agents/system-architect.md must exist after install');
   // rules/ and references/ (guidance.context-layer) no longer duplicate into .codex/ — they land
   // in the shared .doflow/guidance/ tree, referenced by AGENTS.md's pointer instead of copied.
   // PRINCIPLES.md/FLAGS.md sit at that tree's root (not a docs/ subdir), which is what makes
@@ -197,7 +198,7 @@ test('copy-tree assets (rules/skills/agents/templates/scripts/references) instal
   const removal = plan({ ...input, ledger, context: { ...input.context, operation: 'remove' } });
   remove({ ...input, changes: removal.changes });
   assert.equal(fs.existsSync(path.join(projectRoot, '.doflow', 'guidance', 'rules', 'RULE_01_SAFETY.md')), false);
-  assert.equal(fs.existsSync(path.join(projectRoot, '.codex', 'skills', 'do-analyze', 'SKILL.md')), false);
+  assert.equal(fs.existsSync(path.join(projectRoot, '.agents', 'skills', 'do-analyze', 'SKILL.md')), false);
 });
 
 test('verification reports registry gaps and reconciliation conflicts', () => {

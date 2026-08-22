@@ -29,7 +29,8 @@
         "codex",
         "opencode",
         "pi",
-        "copilot"
+        "copilot",
+        "antigravity"
       ],
       "projection": {
         "codex": {
@@ -47,6 +48,10 @@
         "copilot": {
           "renderer": "copilot-instructions",
           "capability": "instructions"
+        },
+        "antigravity": {
+          "renderer": "antigravity-instructions",
+          "capability": "instructions"
         }
       },
       "ownership": "managed-file-section"
@@ -59,7 +64,8 @@
         "claude",
         "codex",
         "gemini",
-        "kiro"
+        "kiro",
+        "antigravity"
       ],
       "projection": {
         "claude": {
@@ -77,6 +83,10 @@
         "kiro": {
           "renderer": "copy-tree",
           "capability": "instructions"
+        },
+        "antigravity": {
+          "renderer": "copy-tree",
+          "capability": "instructions"
         }
       },
       "ownership": "managed-tree",
@@ -84,7 +94,8 @@
         "claude": "../.doflow/guidance",
         "codex": "../.doflow/guidance",
         "gemini": "../.doflow/guidance",
-        "kiro": "steering"
+        "kiro": "steering",
+        "antigravity": "../.doflow/guidance"
       }
     },
     {
@@ -98,7 +109,8 @@
         "opencode",
         "pi",
         "copilot",
-        "kiro"
+        "kiro",
+        "antigravity"
       ],
       "projection": {
         "claude": {
@@ -128,17 +140,22 @@
         "kiro": {
           "renderer": "copy-tree",
           "capability": "skills"
+        },
+        "antigravity": {
+          "renderer": "copy-tree",
+          "capability": "skills"
         }
       },
       "ownership": "managed-tree",
       "nativeDir": {
         "claude": "skills",
-        "codex": "skills",
+        "codex": "../.agents/skills",
         "gemini": "skills",
         "opencode": "skills",
         "pi": "skills",
         "copilot": "skills",
-        "kiro": "skills"
+        "kiro": "skills",
+        "antigravity": ".agents/skills"
       }
     },
     {
@@ -150,7 +167,8 @@
         "codex",
         "gemini",
         "copilot",
-        "kiro"
+        "kiro",
+        "antigravity"
       ],
       "projection": {
         "claude": {
@@ -173,6 +191,10 @@
         "kiro": {
           "renderer": "kiro-agents",
           "capability": "agents"
+        },
+        "antigravity": {
+          "renderer": "copy-tree",
+          "capability": "agents"
         }
       },
       "ownership": "managed-tree",
@@ -181,7 +203,8 @@
         "codex": "agents",
         "gemini": "agents",
         "copilot": "agents",
-        "kiro": "agents"
+        "kiro": "agents",
+        "antigravity": ".agents/agents"
       }
     },
     {
@@ -345,7 +368,8 @@
         "opencode",
         "pi",
         "copilot",
-        "kiro"
+        "kiro",
+        "antigravity"
       ],
       "projection": {
         "claude": {
@@ -375,6 +399,10 @@
         "kiro": {
           "renderer": "copy-tree",
           "capability": "scripts"
+        },
+        "antigravity": {
+          "renderer": "copy-tree",
+          "capability": "scripts"
         }
       },
       "ownership": "managed-tree",
@@ -385,7 +413,8 @@
         "opencode": "bin",
         "pi": "bin",
         "copilot": "bin",
-        "kiro": "bin"
+        "kiro": "bin",
+        "antigravity": "bin"
       }
     },
     {

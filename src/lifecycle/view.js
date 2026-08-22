@@ -15,8 +15,11 @@ const { createOpenCodeAdapter } = require('../adapters/opencode');
 const { createPiAdapter } = require('../adapters/pi');
 const { createCopilotAdapter } = require('../adapters/copilot');
 const { createKiroAdapter } = require('../adapters/kiro');
+const { createAntigravityAdapter } = require('../adapters/antigravity');
 const { planLifecycle } = require('./index');
 const { stateRoot, readLedger, defaultLedger } = require('../state');
+const { selectAssets } = require('../registry');
+const { defaultLock, readLock, writeLock, diffLocks } = require('../state/lockfile');
 // Tolerant because the projected runtime under `.doflow/runtime/` ships bin/, src/ and
 // core/registry/ but no package.json — see the `runtime.*` assets in core/registry/assets.yaml.
 // A hard require here would make every Node-backed verb fail in an install, which is the exact
@@ -48,7 +51,8 @@ function registryLifecycleView({ registry, scope, targets, mcpIds, operation, re
   const neutralStateRoot = stateRoot({ scope: lifecycleScope, projectRoot: scopeRoot, homeDir: scopeRoot });
   const ledger = readLedger(neutralStateRoot) ?? defaultLedger({ scope: lifecycleScope, scopeRoot });
   const adapters = createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter(),
-    opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter() });
+    opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter(),
+    antigravity: createAntigravityAdapter() });
   const plan = planLifecycle({ registry, adapters, scope: lifecycleScope, scopeRoot, targets, mcpIds, ledger, context: {
     repoRoot, projectRoot: scopeRoot, homeDir: os.homedir(), sourceVersion: pkg.version,
     codexConfigResources: codexConfigResources(repoRoot, fsImpl),
@@ -78,7 +82,7 @@ function printRegistryLifecycle(view, prefix = '[PLAN]') {
 /** Harnesses whose native resources are reconciled through the registry/lifecycle path (all of
  * them, as of this wiring). Kept as an explicit list — rather than reusing VALID from
  * src/targets.js — so a future non-lifecycle target doesn't silently gain lifecycle behavior. */
-const LIFECYCLE_HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro'];
+const LIFECYCLE_HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
 
 function assertSafeRegistryPlan(view) {
   if (view.plan.safe) return;
@@ -87,6 +91,49 @@ function assertSafeRegistryPlan(view) {
   process.exitCode = 1;
 }
 
+/** Build the doflow.lock document describing an invocation's resolved selections. Pure — no I/O —
+ * so tests can pin exactly what gets pinned without running an install. Assets are enumerated per
+ * targeted harness from the same registry selection the adapters consume; MCP selections arrive
+ * pre-resolved from the caller because their prompting lives in the CLI layer. */
+function lockDocument({ registry, scope, scopeRoot, targets, mcpSelections = {}, sourceVersion = pkg.version, now = new Date() }) {
+  const assets = [];
+  for (const harness of targets) {
+    for (const asset of selectAssets(registry, { harness })) {
+      const nativeDir = asset.nativeDir?.[harness];
+      assets.push({ id: asset.id, kind: asset.kind, ...(nativeDir ? { nativeDir } : {}) });
+    }
+  }
+  const selections = Object.fromEntries(
+    Object.entries(mcpSelections)
+      .filter(([harness, ids]) => targets.includes(harness) && Array.isArray(ids) && ids.length > 0),
+  );
+  return {
+    ...defaultLock({ scope, scopeRoot }),
+    generatedAt: now.toISOString(),
+    sourceVersion,
+    targets: [...targets].sort().map((harness) => ({ harness })),
+    assets,
+    mcpSelections: selections,
+  };
+}
+
+/** Persist the lock for a completed command and describe the reviewable delta against whatever was
+ * pinned before. A first pin reads "created"; identical re-pins stay silent-ish ("unchanged") so
+ * routine updates don't manufacture noise. */
+function recordLock(scopeArgs, document, { fsImpl = fs } = {}) {
+  const previous = readLock(scopeArgs, { fsImpl });
+  writeLock(scopeArgs, document, { fsImpl });
+  if (!previous) return { changed: true, summary: 'created' };
+  const diff = diffLocks(previous, document);
+  if (diff.clean) return { changed: false, summary: 'unchanged' };
+  const count = ['targets', 'assets']
+    .flatMap((section) => Object.values(diff[section]).map((list) => list.length))
+    .reduce((sum, n) => sum + n, 0)
+    + diff.mcpSelections.changed.length + (diff.meta.sourceVersion ? 1 : 0);
+  return { changed: true, summary: `${count} change(s)` };
+}
+
 module.exports = {
   codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan,
+  lockDocument, recordLock,
 };

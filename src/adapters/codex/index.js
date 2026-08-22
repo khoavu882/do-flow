@@ -195,13 +195,18 @@ function sourceDirFor(asset, repoRoot) {
 }
 
 // ---- guidance.codex-pointer instructions (AGENTS.md managed-section merge) ----
-// The registry declares this asset's codex projection as renderer "codex-agents" (see
-// core/registry/assets.yaml), but nothing previously implemented it — Codex's AGENTS.md merge was
-// silently carried entirely by the legacy mappings.conf copier (its `dst === 'AGENTS.md'`
-// special-case in bin/doflow.js), invisible until Phase E emptied that copier's mappings.
+// Codex discovers AGENTS.md at the repository root and walks down toward the CWD, plus
+// ~/.codex/AGENTS.md for global scope (developers.openai.com/codex/agent-configuration/agents-md).
+// A project-scoped file inside .codex/ is not in that discovery chain and would never load, so
+// the project-scope managed section must land at the project root itself. The registry declares
+// this asset's codex projection as renderer "codex-agents" (see core/registry/assets.yaml).
 
 function instructionsAsset(assets) { return (assets || []).find((asset) => asset?.renderer === 'codex-agents'); }
-function instructionsPath(context) { return path.join(codexConfigDir(context), 'AGENTS.md'); }
+function instructionsPath(context) {
+  return context.scope === 'global'
+    ? path.join(context.codexDir, 'AGENTS.md')
+    : path.join(context.projectRoot, 'AGENTS.md');
+}
 function sha256Text(text) { return crypto.createHash('sha256').update(text).digest('hex'); }
 
 function planInstructionsAsset({ assets, context, removing, repoRoot }) {
@@ -256,14 +261,20 @@ function verifyInstructionsAsset({ assets, context, repoRoot }) {
   return { statuses, resources };
 }
 
-function planCopyTreeAssets({ assets, context, neutralResources, removing, repoRoot, sourceVersion }) {
+function planCopyTreeAssets({ assets, context, neutralResources, removing, repoRoot, sourceVersion, force = false }) {
   const changes = [];
   const conflicts = [];
   for (const asset of copyTreeAssets(assets)) {
     const destDir = copyTreeDestDir(codexConfigDir(context), asset);
     const sourceDir = sourceDirFor(asset, repoRoot);
     const previousResources = ledgerFileResources(neutralResources, HARNESS, asset.id);
-    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', layout: asset.layout });
+    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', layout: asset.layout,
+      // `force` is the CLI's --force reaching the one conflict class a plan can actually
+      // downgrade: a ledger-owned destination whose bytes were edited underneath us. With force,
+      // that is drift to heal rather than a refusal — exactly what `doflow reconcile` (always
+      // forced) and `update --force` need. Removal stays strict by design: a hand-edited file is
+      // never deleted, forced or not.
+      force: !removing && force === true });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const change of result.changes) {
       changes.push({
@@ -407,7 +418,8 @@ function plan(options) {
   if (mcpComponent) components.mcp = mcpComponent;
   Object.assign(components, planAgentsAndHooksComponents({ native, neutralResources, context, agentsDirectory, removing, options }));
   const copyTree = planCopyTreeAssets({ assets: options.assets, context, neutralResources, removing,
-    repoRoot: options.context?.repoRoot, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion });
+    repoRoot: options.context?.repoRoot, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion,
+    force: options.context?.force === true });
   const instructions = planInstructionsAsset({ assets: options.assets, context, removing, repoRoot: options.context?.repoRoot });
   // Two pseudo-components: their changes are already in final adapter shape (unlike the other
   // components' native shape, which addChanges() below converts), so they're appended to `changes`

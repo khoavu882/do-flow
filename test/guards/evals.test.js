@@ -14,8 +14,15 @@ const { skillFiles } = require('./_shared');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const BENCH = path.join(REPO, 'bench');
-const runner = require('../../bench/runner.js');
+// bench/ became local-only (gitignored) in b56406f: fresh clones legitimately lack it. The guard
+// suite degrades to one skipped test there instead of crashing the offline default suite.
+const HAS_BENCH = fs.existsSync(path.join(BENCH, 'runner.js'));
+const runner = HAS_BENCH ? require('../../bench/runner.js') : null;
 const { WorktreeManager, SKILL_SOURCE_FILE, SANDBOX_SKILLS_DIR, sha256File } = require('../../src/runtime/worktree.js');
+
+// With no local bench/, only the harness-independent contracts below the conditional run; the
+// corpus/provenance checks need bench files that legitimately may not exist in this checkout.
+if (HAS_BENCH) {
 
 function casesFor(skill) {
   const file = path.join(BENCH, skill, 'evals.json');
@@ -210,6 +217,8 @@ test('G11b: the run contract in bench/README.md still requires provenance', () =
   assert.ok(section, 'bench/README.md lost its "What a dispatched run must save" section');
   assert.match(section.split('\n##')[0], new RegExp(runner.RUN_SOURCE_FILE.replace('.', '\\.')));
 });
+
+}
 
 test('G11: the bench harness is not wired into the default test command', () => {
   // npm test is pure offline Node in ~14s. Pulling paid model calls into it would make the suite
