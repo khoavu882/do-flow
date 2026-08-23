@@ -935,7 +935,7 @@
             "https://docs.github.com/en/copilot/concepts/agents/about-plugins",
             "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference"
           ],
-          "note": "Copilot CLI now documents plugins (plugin.json manifest bundling agents, skills, hooks, .mcp.json and lsp.json; installed via 'copilot plugin install' or enabledPlugins in settings). DoFlow publishes no Copilot plugin package yet - its content reaches Copilot through direct projection instead. A distribution package remains an option and would mirror the existing .claude-plugin/ and .codex-plugin/ artifacts.",
+          "note": "Copilot CLI documents plugins (plugin.json manifest bundling agents, skills, hooks, .mcp.json and lsp.json; installed via 'copilot plugin install' or enabledPlugins in settings). Manifest discovery checks .plugin/plugin.json, plugin.json, .github/plugin/plugin.json, then .claude-plugin/plugin.json - there is no .copilot-plugin/ convention. DoFlow publishes a skills-only manifest at core/.plugin/plugin.json declaring only what activates there: agent specs are excluded (Copilot requires .agent.md; shared agent-specs are plain .md), hooks stay unprojected (Claude-payload-coupled), MCP registration stays installer-managed. Findings: docs/distribution-notes.md.",
           "verification": "Report that no Copilot plugin package is installed."
         }
       }

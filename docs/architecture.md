@@ -40,6 +40,7 @@ are reported rather than imitated.
 | `core/harnesses/` | Native per-harness sources that have no cross-harness equivalent — hooks, settings, and native agent definitions for `claude`, `codex`, `gemini`, and `kiro` — plus `core/harnesses/shared/locator`, the one file projected into all eight. Antigravity has no native directory here by design: its adapter projects into Gemini-compatible paths (`.agents/`, `~/.gemini/config/`) rather than owning a distinct surface |
 | `core/.claude-plugin/` | Claude Code marketplace registry and plugin manifest; `core/` is the plugin root |
 | `core/.codex-plugin/` | Codex plugin manifest for plugin-based distribution |
+| `core/.plugin/` | GitHub Copilot CLI plugin manifest (skills-only); first in Copilot's documented manifest check order |
 | `bin/doflow.js` | The thin CLI entry point (exposed as the `doflow` command) — a forwarder into `src/cli`; it defines no handlers and no parser, so the binary path and the dispatcher seam (`doflow-run`) keep resolving here |
 | `src/cli/` | The CLI itself: argument parsing and the installer command→handler table (`index.js`), one file per installer command under `commands/`, the runtime-verb forwarding switch (`runtime-commands.js`, whose implementations stay in `src/runtime/`), and the shared command plumbing (`shared.js`) — including `buildAdapterRegistry()`, the single construction of the adapter registry that install/update/remove/reconcile use |
 | `core/shared/scripts/doflow/bin/doflow-run` | The runtime seam: one dispatcher owning the whole verb namespace |
