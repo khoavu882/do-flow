@@ -11,6 +11,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { msysArgConvGuards } = require('../helper-platform');
 
 const HOOKS = path.resolve(__dirname, '../..', 'core/harnesses/claude/hooks');
 
@@ -20,7 +21,10 @@ function run(script, payload) {
   try {
     execFileSync('bash', [path.join(HOOKS, script)], {
       input: typeof payload === 'string' ? payload : JSON.stringify(payload),
-      env: { ...process.env, XDG_CONFIG_HOME: home },
+      // Without the MSYS guards, Git Bash rewrites a payload path like /x/y.js into X:/y.js when
+      // it hands it to native jq.exe ("/x/" reads as drive X:) — a fixture artifact, not hook
+      // behavior; real Windows payloads carry Windows paths, which are never rewritten.
+      env: { ...process.env, XDG_CONFIG_HOME: home, ...msysArgConvGuards() },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
   } catch (error) { status.code = error.status ?? 1; }
