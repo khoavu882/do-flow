@@ -64,8 +64,10 @@ test('G12: the only Python in core/ is the exempt do-code-review analyzer set (F
 });
 
 test('G12: exactly one dispatcher and one locator exist, and the retired entrypoints stay retired', () => {
+  // Normalize to forward slashes so the expected literals hold on every platform's separator.
+  const toPosix = (rel) => rel.split(path.sep).join('/');
   const named = walk(path.join(REPO, 'core'))
-    .map((file) => path.relative(REPO, file))
+    .map((file) => toPosix(path.relative(REPO, file)))
     .filter((rel) => path.basename(rel) === 'doflow-run');
   assert.deepEqual(named.sort(), [
     'core/harnesses/shared/locator/doflow-run',
@@ -142,21 +144,23 @@ test('G12: the path the locator searches for is where the registry projects the 
 
 // ------------------------------------------------------------------- 4. verb-table integrity
 
-/** The dispatcher's own two case blocks are the verb table; parse them rather than restating it. */
+/** The dispatcher's own two case blocks are the verb table; parse them rather than restating it.
+ * Line anchors tolerate CRLF checkouts (`\r?\n`), which is exactly how the Windows CI leg sees
+ * these files. */
 function shellVerbs() {
-  const block = dispatcherText.match(/shell_helper_for\(\)\s*\{([\s\S]*?)\n\}/);
+  const block = dispatcherText.match(/shell_helper_for\(\)\s*\{([\s\S]*?)\r?\n\}/);
   assert.ok(block, 'shell_helper_for() is the shell arm of the verb table and must be parseable');
   return new Map([...block[1].matchAll(/^\s*([a-z][a-z-]*)\)\s*printf '([^']+)'/gm)]
     .map(([, verb, helper]) => [verb, helper]));
 }
 
 function nodeVerbs() {
-  const block = dispatcherText.match(/is_node_verb\(\)\s*\{([\s\S]*?)\n\}/);
+  const block = dispatcherText.match(/is_node_verb\(\)\s*\{([\s\S]*?)\r?\n\}/);
   assert.ok(block, 'is_node_verb() is the node arm of the verb table and must be parseable');
   // The pattern list wraps with a trailing backslash; join it back into one alternation.
-  const [, patterns] = block[1].replace(/\\\n/g, '').match(/^\s*([a-z|-]+)\)\s*return 0/m) || [];
+  const [, patterns] = block[1].replace(/\\\r?\n/g, '').match(/^\s*([a-z|-]+)\)\s*return 0/m) || [];
   assert.ok(patterns, 'the node verb alternation must be parseable');
-  return patterns.split('|');
+  return patterns.split('|').map((verb) => verb.trim()).filter(Boolean);
 }
 
 test('G12: every shell-backed verb resolves to a helper that exists', () => {
@@ -201,7 +205,7 @@ test('G12: every shell helper is either a verb target or a recorded non-verb hel
 });
 
 test('G12: the dispatcher documents exactly the verbs it dispatches', () => {
-  const help = dispatcherText.match(/usage\(\)\s*\{\s*cat <<'EOF'\n([\s\S]*?)\nEOF/);
+  const help = dispatcherText.match(/usage\(\)\s*\{\s*cat <<'EOF'\r?\n([\s\S]*?)\r?\nEOF/);
   assert.ok(help, 'usage() must be parseable — it is the only verb list a user ever sees');
   const documented = new Set([...help[1].matchAll(/^ {2}([a-z][a-z-]*)\s{2,}\S/gm)].map(([, v]) => v));
   const dispatched = new Set([...shellVerbs().keys(), ...nodeVerbs()]);
@@ -381,7 +385,7 @@ test('G12: the shell dispatcher records only fields the sanitizer would have all
   // being recorded may be a shell verb that never loads the CLI. It is therefore the one writer
   // sanitizeRunEvent cannot police, so its record is policed here instead: a fixed format string,
   // only declared wire keys, and no expansion that could carry an argument value.
-  const body = dispatcherText.match(/trace_run\(\)\s*\{([\s\S]*?)\n\}/);
+  const body = dispatcherText.match(/trace_run\(\)\s*\{([\s\S]*?)\r?\n\}/);
   assert.ok(body, 'trace_run() is the dispatcher-side ledger writer and must be parseable');
 
   const format = body[1].match(/printf '([^']*)'/);

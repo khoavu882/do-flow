@@ -7,6 +7,7 @@ const path = require('node:path');
 const { loadRegistry, selectAssets } = require('../../../src/registry');
 const { projectAdapterInput } = require('../../../src/adapters');
 const adapter = require('../../../src/adapters/antigravity');
+const { expectExecutable } = require('../../helper-platform');
 
 const REPO = path.resolve(__dirname, '..', '..', '..');
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-agy-')); }
@@ -165,7 +166,7 @@ test('hooks.antigravity projects the gate shim + hooks.json group, and remove un
   const entry = doc['doflow-pre-implementation-gate'].PreToolUse[0];
   assert.equal(entry.matcher, 'write_to_file|replace_file_content|multi_replace_file_content');
   assert.equal(entry.hooks[0].command, path.join(root, '.agents', 'hooks', 'pre-implementation-gate.sh'));
-  assert.equal(fs.statSync(entry.hooks[0].command).mode & 0o111, 0o111, 'the shim must be executable');
+  expectExecutable(fs, entry.hooks[0].command, 'the shim must be executable');
 
   // Foreign groups survive; ours do not.
   fs.writeFileSync(path.join(root, '.agents', 'hooks.json'), JSON.stringify({

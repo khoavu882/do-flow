@@ -272,7 +272,9 @@ test('copy-tree removal reads no source when the recorded fingerprint already ma
 test('CLI: removing one of three harnesses that share .doflow leaves the runtime standing', { timeout: 120000 }, () => {
   const root = scratch('cli');
   const home = path.join(root, 'home');
-  const cli = (args) => spawnSync('node', [CLI, ...args], { cwd: REPO, encoding: 'utf8', input: '\n', env: { ...process.env, HOME: home } });
+  // os.homedir() ignores HOME on Windows; USERPROFILE must be redirected alongside it.
+  const homeEnv = process.platform === 'win32' ? { HOME: home, USERPROFILE: home } : { HOME: home };
+  const cli = (args) => spawnSync('node', [CLI, ...args], { cwd: REPO, encoding: 'utf8', input: '\n', env: { ...process.env, ...homeEnv } });
   const ledgerOf = () => JSON.parse(fs.readFileSync(path.join(root, '.doflow', 'state', 'ledger.json'), 'utf8'));
   const dispatcher = path.join(root, '.doflow', 'scripts', 'doflow', 'bin', 'doflow-run');
 
@@ -296,9 +298,10 @@ test('CLI: removing one of three harnesses that share .doflow leaves the runtime
   // The runtime is not merely present, it still answers from THIS project — the failure that hid
   // the original defect was claude's locator falling through to a global install and working.
   const paths = spawnSync(path.join(root, '.claude', 'bin', 'doflow-run'), ['paths', '--json'],
-    { cwd: root, encoding: 'utf8', env: { ...process.env, HOME: home, DOFLOW_CONFIG_DIR: undefined, DOFLOW_CLI: undefined } });
+    { cwd: root, encoding: 'utf8', env: { ...process.env, ...homeEnv, DOFLOW_CONFIG_DIR: undefined, DOFLOW_CLI: undefined } });
   assert.equal(paths.status, 0, paths.stderr);
-  assert.match(JSON.parse(paths.stdout).constitution_base, new RegExp(`^${fs.realpathSync(root)}/`),
+  const escapedRoot = fs.realpathSync(root).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  assert.match(JSON.parse(paths.stdout).constitution_base, new RegExp(`^${escapedRoot}${path.sep === '\\' ? '\\\\' : '/'}?`),
     'the locator must reach this project\'s runtime, not another install\'s');
 
   const last = cli(['remove', root, '-f', '-t', 'claude,codex']);

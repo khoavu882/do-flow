@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createKiroAdapter } = require('../../../src/adapters/kiro');
+const { IS_WIN } = require('../../helper-platform');
 
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-kiro-hooks-')); }
 
@@ -135,6 +136,8 @@ test('installed hook scripts are executable', () => {
 
   for (const name of fs.readdirSync(HOOKS_SOURCE)) {
     if (!name.endsWith('.sh')) continue;
+    // Windows has no exec bits; presence of the deployed script is the portable invariant.
+    if (IS_WIN) { assert.ok(fs.existsSync(path.join(root, '.kiro', 'hooks', name)), `expected ${name} to be deployed`); continue; }
     const mode = fs.statSync(path.join(root, '.kiro', 'hooks', name)).mode;
     assert.ok(mode & 0o111, `expected ${name} to be executable`);
   }

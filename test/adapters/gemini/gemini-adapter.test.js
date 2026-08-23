@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { createGeminiAdapter, nativePaths, MARKER_START } = require('../../../src/adapters/gemini');
 const { assertAdapter } = require('../../../src/adapters');
+const { IS_WIN } = require('../../helper-platform');
 
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-gemini-')); }
 const assets = [{ id: 'guidance.core', source: 'core/CLAUDE.md' }];
@@ -116,7 +117,11 @@ test('the runtime locator is projected into every harness, inside that harness o
 test('the locator source is executable', () => {
   const src = path.resolve(__dirname, '../../..', 'core', 'harnesses', 'shared', 'locator', 'doflow-run');
   assert.ok(fs.existsSync(src), 'locator source is missing');
-  assert.ok(fs.statSync(src).mode & 0o111, 'locator must be executable — applyTree copies the source mode verbatim');
+  // On Windows a git checkout carries no exec bits; the deployed copy is still exercised end-to-end
+  // by the install/e2e suites, so here we pin the source's presence (and the bit where it exists).
+  if (!IS_WIN) {
+    assert.ok(fs.statSync(src).mode & 0o111, 'locator must be executable — applyTree copies the source mode verbatim');
+  }
 });
 
 // The pointer source carries one hardcoded `../`, correct only when the instruction file sits a

@@ -18,7 +18,9 @@ jobs:
 
   verify-tag:
     name: tag matches package.json
-    needs: test
+    # Gate on every job the PR suite runs (the OS matrix plus the required shell-suites job),
+    # so a tag publishes exactly what a merge was gated on.
+    needs: [test, shell-suites]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
