@@ -300,7 +300,7 @@ populated. In Pi, verify `AGENTS.md` and the `skills[]` array in `settings.json`
 verify the managed section in `.github/copilot-instructions.md`, skill discovery under
 `.agents/skills/`, and any registered MCP servers. In Kiro, verify the projected steering files
 under `.kiro/steering/`, skill discovery under `.kiro/skills/`, and hook files under `.kiro/hooks/`.
-In Antigravity, additionally verify `.agents/hooks/pre-implementation-gate.sh` is executable and `.agents/hooks.json` registers it. In Antigravity, verify the managed section in `AGENTS.md`, skill discovery under `.agents/skills/`,
+In Antigravity, additionally verify `.agents/hooks/pre-implementation-gate.sh` and `.agents/hooks/stop-check.sh` are executable and `.agents/hooks.json` registers them. In Antigravity, verify the managed section in `AGENTS.md`, skill discovery under `.agents/skills/`,
 and any registered MCP servers in `.agents/mcp_config.json` (project) or
 `~/.gemini/config/mcp_config.json` (global).
 

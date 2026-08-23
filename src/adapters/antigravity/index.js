@@ -10,8 +10,9 @@
 //   agents       — copy-tree into project .agents/agents or user ~/.gemini/config/agents.
 //   mcp          — mcpServers object merged into .agents/mcp_config.json (workspace) or
 //     ~/.gemini/config/mcp_config.json (user); remote url/httpUrl projects to serverUrl.
-// Hooks are NOT wired: Antigravity's blocking contract is stdout JSON {decision}, incompatible
-// with DoFlow's exit-code scripts until translated shims exist (see registry note).
+//   hooks        — native-payload shims (bash + jq translating Antigravity's stdin/stdout
+//     {decision} contract): the pre-implementation gate on PreToolUse and the stop check on Stop,
+//     each registered under its own named hooks.json group.
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -34,34 +35,45 @@ function readJsonObject(file, { fsImpl = fs } = {}) {
 // mcp-server alike). The antigravity projection shares that same pointer asset, so its rows do too.
 const POINTER_ASSET_ID = 'guidance.codex-pointer';
 const HOOKS_ASSET_ID = 'hooks.antigravity';
+// One owned hooks.json group per DoFlow policy (the Kiro doflow.json precedent): the two gates
+// stay independently removable/enablable, and a user's own groups are never touched. The Stop
+// registration is matcher-free — Antigravity documents handlers sitting directly under the event
+// key for PreInvocation/PostInvocation/Stop ("the matcher is ignored").
+const HOOK_SCRIPTS = ['pre-implementation-gate.sh', 'stop-check.sh'];
 const HOOKS_GROUP = 'doflow-pre-implementation-gate';
+const STOP_HOOKS_GROUP = 'doflow-stop-check';
 // Antigravity's documented file-mutation tools (docs/hooks, Supported Tools) — the exact set the
 // gate is meaningful for.
 const GATE_MATCHER = 'write_to_file|replace_file_content|multi_replace_file_content';
 
-/** Build DoFlow's hooks.json group from the projected script's on-disk location. Absolute command
+/** Build DoFlow's hooks.json groups from the projected scripts' on-disk locations. Absolute command
  * path: the docs' own examples use relative ./scripts paths whose resolution base is not stated,
  * and an absolute path is unambiguous for a per-workspace install. */
-function hookGroup(command) {
-  return { PreToolUse: [{ matcher: GATE_MATCHER, hooks: [{ type: 'command', command }] }] };
+function hookGroups({ gateCommand, stopCommand }) {
+  return {
+    [HOOKS_GROUP]: { PreToolUse: [{ matcher: GATE_MATCHER, hooks: [{ type: 'command', command: gateCommand }] }] },
+    [STOP_HOOKS_GROUP]: { Stop: [{ type: 'command', command: stopCommand }] },
+  };
+}
+
+function hookScriptTarget(identity, paths) {
+  return identity === 'pre-implementation-gate.sh' ? paths.hookScript : paths.stopHookScript;
 }
 
 function planHooks({ paths, scope, neutralResources, removing, fsImpl = fs }) {
   const changes = [];
   const conflicts = [];
   if (scope !== 'project') {
-    // The shim resolves the workspace via git; a user-scope hooks.json would fire against every
-    // project including non-git ones. Project-only until a documented user story exists.
+    // The shims resolve the workspace via git/transcriptPath; a user-scope hooks.json would fire
+    // against every project including non-git ones. Project-only until a documented user story exists.
     return { changes, conflicts };
   }
   const target = paths.hooksJson;
   const scriptSource = sourceDirFor({ source: 'core/harnesses/antigravity/hooks' }, { repoRoot: process.cwd() }, fsImpl, HARNESS);
-  const scriptTarget = paths.hookScript;
 
   const previousHookRows = (neutralResources || []).filter((r) => r.harness === HARNESS && r.assetId === HOOKS_ASSET_ID && r.kind === 'hooks-json');
   const previousScriptRows = (neutralResources || []).filter((r) => r.harness === HARNESS && r.assetId === HOOKS_ASSET_ID && r.kind === 'copy-tree-file');
   const docRow = previousHookRows.find((r) => r.target === target);
-  const scriptRow = previousScriptRows.find((r) => r.identity === 'pre-implementation-gate.sh');
 
   if (removing) {
     if (docRow || fsImpl.existsSync(target)) {
@@ -70,32 +82,39 @@ function planHooks({ paths, scope, neutralResources, removing, fsImpl = fs }) {
         fingerprint: fingerprint('{}'), managed: null,
         projection: { renderer: 'antigravity-hooks' } });
     }
-    if (scriptRow && fsImpl.existsSync(scriptTarget)) {
-      const current = sha256File(fsImpl, scriptTarget);
-      if (current === scriptRow.fingerprint) {
-        changes.push({ assetId: HOOKS_ASSET_ID, target: scriptTarget, source: path.join(scriptSource, 'pre-implementation-gate.sh'),
-          operation: 'remove', ownershipIdentity: `${HARNESS}:copy-tree:${HOOKS_ASSET_ID}:pre-implementation-gate.sh`,
-          kind: 'copy-tree-file', identity: 'pre-implementation-gate.sh',
-          fingerprint: current, projection: { renderer: 'antigravity-hooks' } });
+    for (const identity of HOOK_SCRIPTS) {
+      const scriptTarget = hookScriptTarget(identity, paths);
+      const scriptRow = previousScriptRows.find((r) => r.identity === identity);
+      if (scriptRow && fsImpl.existsSync(scriptTarget)) {
+        const current = sha256File(fsImpl, scriptTarget);
+        if (current === scriptRow.fingerprint) {
+          changes.push({ assetId: HOOKS_ASSET_ID, target: scriptTarget, source: path.join(scriptSource, identity),
+            operation: 'remove', ownershipIdentity: `${HARNESS}:copy-tree:${HOOKS_ASSET_ID}:${identity}`,
+            kind: 'copy-tree-file', identity,
+            fingerprint: current, projection: { renderer: 'antigravity-hooks' } });
+        }
       }
     }
     return { changes, conflicts };
   }
 
-  // Script first: the JSON references it, so apply order must never leave a dangling reference.
-  const scriptText = fsImpl.readFileSync(path.join(scriptSource, 'pre-implementation-gate.sh'), 'utf8');
-  const scriptFp = fingerprint(scriptText);
-  if (!fsImpl.existsSync(scriptTarget) || sha256File(fsImpl, scriptTarget) !== scriptFp) {
-    changes.push({ assetId: HOOKS_ASSET_ID, target: scriptTarget, source: path.join(scriptSource, 'pre-implementation-gate.sh'),
-      operation: fsImpl.existsSync(scriptTarget) ? 'update' : 'create',
-      ownershipIdentity: `${HARNESS}:copy-tree:${HOOKS_ASSET_ID}:pre-implementation-gate.sh`,
-      kind: 'copy-tree-file', identity: 'pre-implementation-gate.sh',
-      afterFingerprint: scriptFp, fingerprint: scriptFp,
-      _text: scriptText, projection: { renderer: 'antigravity-hooks' } });
+  // Scripts first: the JSON references them, so apply order must never leave a dangling reference.
+  for (const identity of HOOK_SCRIPTS) {
+    const scriptTarget = hookScriptTarget(identity, paths);
+    const scriptText = fsImpl.readFileSync(path.join(scriptSource, identity), 'utf8');
+    const scriptFp = fingerprint(scriptText);
+    if (!fsImpl.existsSync(scriptTarget) || sha256File(fsImpl, scriptTarget) !== scriptFp) {
+      changes.push({ assetId: HOOKS_ASSET_ID, target: scriptTarget, source: path.join(scriptSource, identity),
+        operation: fsImpl.existsSync(scriptTarget) ? 'update' : 'create',
+        ownershipIdentity: `${HARNESS}:copy-tree:${HOOKS_ASSET_ID}:${identity}`,
+        kind: 'copy-tree-file', identity,
+        afterFingerprint: scriptFp, fingerprint: scriptFp,
+        _text: scriptText, projection: { renderer: 'antigravity-hooks' } });
+    }
   }
 
   const currentDoc = readJsonObject(target, { fsImpl }) ?? {};
-  const next = { ...currentDoc, [HOOKS_GROUP]: hookGroup(scriptTarget) };
+  const next = { ...currentDoc, ...hookGroups({ gateCommand: paths.hookScript, stopCommand: paths.stopHookScript }) };
   if (JSON.stringify(next) !== JSON.stringify(currentDoc)) {
     changes.push({ assetId: HOOKS_ASSET_ID, target, operation: fsImpl.existsSync(target) ? 'update' : 'create',
       content: `${JSON.stringify(next, null, 2)}\n`,
@@ -128,6 +147,7 @@ function resolveNativePaths(declaredPaths, { scope, scopeRoot, homeDir } = {}) {
     // Declared project-scope hook surfaces (null at user scope — see the paths declaration).
     hooksJson: resolved.hooksJson,
     hookScript: resolved.hookScript,
+    stopHookScript: resolved.stopHookScript,
   };
 }
 
@@ -445,11 +465,11 @@ function apply(options = {}, impl = {}) {
   for (const change of changes.filter((c) => c.projection?.renderer === 'antigravity-hooks')) {
     if (change.kind === 'copy-tree-file') continue;          // handled by runTreeChanges below
     if (change.operation === 'remove') {
-      // Unmerge only DoFlow's group; a user's own hook groups survive.
+      // Unmerge only DoFlow's groups (one per policy); a user's own hook groups survive.
       if (!fsImpl.existsSync(change.target)) continue;
       let doc = readJsonObject(change.target, { fsImpl });
       if (!doc) continue;
-      delete doc[HOOKS_GROUP];
+      for (const group of [HOOKS_GROUP, STOP_HOOKS_GROUP]) delete doc[group];
       if (Object.keys(doc).length === 0) fsImpl.rmSync(change.target, { force: true });
       else { const tmp = `${change.target}.${process.pid}.tmp`;
         fsImpl.writeFileSync(tmp, `${JSON.stringify(doc, null, 2)}\n`, 'utf8'); fsImpl.renameSync(tmp, change.target); }
@@ -559,36 +579,54 @@ function verify(options = {}, impl = {}) {
     }
   }
 
-  // Hooks projection (project scope): the script's bytes and the registered group.
+  // Hooks projection (project scope): the shims' bytes and the registered groups.
   if (scope === 'project') {
     const hooksTarget = paths.hooksJson;
-    const scriptTarget = paths.hookScript;
-    // Source-side residue: reads the shim from THIS checkout (the authored source of the projection,
-    // not an install destination — the destination is declared as paths.hookScript).
-    const scriptSource = path.join(path.resolve(registryRepoRoot(options)), 'core', 'harnesses', 'antigravity', 'hooks', 'pre-implementation-gate.sh');
+    const scriptTargets = {
+      'pre-implementation-gate.sh': paths.hookScript,
+      'stop-check.sh': paths.stopHookScript,
+    };
+    // Source-side residue: reads the shims from THIS checkout (the authored source of the
+    // projection, not an install destination — the destination is declared as the paths above).
+    const scriptSourceDir = path.join(path.resolve(registryRepoRoot(options)), 'core', 'harnesses', 'antigravity', 'hooks');
     const removingOp = (context.operation ?? options.operation ?? '') === 'remove';
-    let scriptFp = null;
-    try { scriptFp = sha256File(fsImpl, scriptSource); } catch { /* checkout without the shim */ }
-    const currentScript = fsImpl.existsSync(scriptTarget) ? sha256File(fsImpl, scriptTarget) : null;
+    const fingerprints = {};
+    let scriptsOk = true;
+    let anyPresent = false;
+    for (const identity of HOOK_SCRIPTS) {
+      let sourceFp = null;
+      try { sourceFp = sha256File(fsImpl, path.join(scriptSourceDir, identity)); } catch { /* checkout without that shim */ }
+      fingerprints[identity] = sourceFp;
+      const target = scriptTargets[identity];
+      const current = fsImpl.existsSync(target) ? sha256File(fsImpl, target) : null;
+      if (current !== null) anyPresent = true;
+      if (current === null || current !== sourceFp) scriptsOk = false;
+    }
     const doc = readJsonObject(hooksTarget, { fsImpl });
-    const group = doc?.[HOOKS_GROUP];
-    const expectedCommand = scriptTarget;
-    const groupOk = Boolean(group?.PreToolUse?.[0]?.hooks?.[0]?.command)
-      && group.PreToolUse[0].hooks[0].command === expectedCommand
-      && group.PreToolUse[0].matcher === GATE_MATCHER;
+    const gate = doc?.[HOOKS_GROUP];
+    const stop = doc?.[STOP_HOOKS_GROUP];
+    const gateOk = Boolean(gate?.PreToolUse?.[0]?.hooks?.[0]?.command)
+      && gate.PreToolUse[0].hooks[0].command === scriptTargets['pre-implementation-gate.sh']
+      && gate.PreToolUse[0].matcher === GATE_MATCHER;
+    // Stop registration is matcher-free: handlers sit directly under the event key.
+    const stopOk = Array.isArray(stop?.Stop) && stop.Stop.length > 0
+      && stop.Stop[0]?.command === scriptTargets['stop-check.sh'];
+    const groupsOk = gateOk && stopOk;
     statuses.push({ assetId: HOOKS_ASSET_ID, capability: 'hooks', status:
-      removingOp ? ((currentScript === null || currentScript === scriptFp) && !groupOk ? 'absent' : 'retained')
-        : (currentScript !== null && currentScript === scriptFp && groupOk ? 'managed' : (currentScript === null ? 'absent' : 'missing')),
+      removingOp ? (!anyPresent && !groupsOk ? 'absent' : 'retained')
+        : (scriptsOk && groupsOk ? 'managed' : (!anyPresent && !groupsOk ? 'absent' : 'missing')),
       ownershipIdentity: `${HARNESS}:hooks:registration`, target: hooksTarget });
-    if (!removingOp && currentScript !== null && currentScript === scriptFp && groupOk) {
+    if (!removingOp && scriptsOk && groupsOk) {
       resources.push({ assetId: HOOKS_ASSET_ID, target: hooksTarget,
         ownershipIdentity: `${HARNESS}:hooks:registration`, kind: 'hooks-json',
         fingerprint: fingerprint(JSON.stringify(doc)), sourceVersion: 'registry-v1',
         projection: { renderer: 'antigravity-hooks' } });
-      resources.push({ assetId: HOOKS_ASSET_ID, target: scriptTarget,
-        ownershipIdentity: `${HARNESS}:copy-tree:${HOOKS_ASSET_ID}:pre-implementation-gate.sh`,
-        kind: 'copy-tree-file', identity: 'pre-implementation-gate.sh', fingerprint: scriptFp,
-        sourceVersion: 'registry-v1', projection: { renderer: 'antigravity-hooks' } });
+      for (const identity of HOOK_SCRIPTS) {
+        resources.push({ assetId: HOOKS_ASSET_ID, target: scriptTargets[identity],
+          ownershipIdentity: `${HARNESS}:copy-tree:${HOOKS_ASSET_ID}:${identity}`,
+          kind: 'copy-tree-file', identity, fingerprint: fingerprints[identity],
+          sourceVersion: 'registry-v1', projection: { renderer: 'antigravity-hooks' } });
+      }
     }
   }
 
