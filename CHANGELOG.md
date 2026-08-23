@@ -17,6 +17,16 @@ All notable changes to DoFlow are documented here. Format follows
 
 ### Added
 
+- Antigravity Stop-event stop-check shim (#24): fail-open-always, mirrors Claude's gate semantics onto the documented `{decision:"continue"}` contract; transcriptPath optional by design; separate `doflow-stop-check` registration group.
+- Copilot plugin manifest at `core/.plugin/plugin.json` (#23): skills-only, fully truthful today (declarative component paths; `.plugin/` is the real check location — `.copilot-plugin/` would be inert). Pi packaging assessed and declined with rationale in docs/distribution-notes.md.
+- Optional dense/rerank retrieval slots in models.json (#10): registry-validated, routed through the existing PATH-probe seam; absent = byte-for-byte current behavior.
+- Orchestrator context-modes + event-bus design spec (docs/specs/orchestrator-context-modes.md, #9) — implementation staged in the spec.
+
+### Fixed
+
+- Windows CI leg: ~95 failures root-caused and reduced to one flaky spawn class (exec-bit gates refusing hook installs on win32 was a product bug; plus .gitattributes EOL, USERPROFILE redirects, separator-tolerant assertions). Leg stays informational pending runner-variance diagnosis (#11).
+- Release workflow parsed-fail on every branch push (`needs:` reached into a reusable workflow's internal jobs); now fixed at the source (#46).
+
 - Structure refactor (docs/refactor-plan.md, stages 1-5), behavior-preserving throughout — proven by a 16-cell byte-identical install matrix across all eight harnesses and both scopes:
   - Registry family renamed `core/registry/*.yaml` to `*.json` (hard cutover; contents were always JSON).
   - CLI extracted from the 1215-line `bin/doflow.js` monolith into `src/cli/` (nine command handlers behind one `COMMANDS` table; three duplicate adapter-registry constructions collapsed into `buildAdapterRegistry()`); new cli-boundary guard.
