@@ -173,8 +173,8 @@
           "status": "supported"
         },
         "antigravity": {
-          "status": "unavailable",
-          "fallback": "guidance"
+          "event": "Stop",
+          "status": "supported"
         }
       }
     }

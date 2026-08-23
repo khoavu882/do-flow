@@ -1083,6 +1083,9 @@
         },
         "hookScript": {
           "project": { "base": "root", "segments": [".agents", "hooks", "pre-implementation-gate.sh"] }
+        },
+        "stopHookScript": {
+          "project": { "base": "root", "segments": [".agents", "hooks", "stop-check.sh"] }
         }
       },
       "capabilities": {
@@ -1146,7 +1149,7 @@
           "evidence": [
             "https://antigravity.google/docs/hooks/"
           ],
-          "note": "Antigravity documents a full hook surface (2026): hooks.json in the customization directory (.agents/ workspace, ~/.gemini/config/ user), named groups per event, PreToolUse/PostToolUse/PreInvocation/PostInvocation/Stop, and an explicit stdin/stdout contract (PreToolUse returns {decision: allow|deny|ask|force_ask|...}, Stop returns {decision: continue}). Unlike Copilot's, this contract is complete enough to project against without a live-session capture. DoFlow wires its pre-implementation gate as a native-payload shim; events with no matching DoFlow policy stay unwired.",
+          "note": "Antigravity documents a full hook surface (2026): hooks.json in the customization directory (.agents/ workspace, ~/.gemini/config/ user), named groups per event, PreToolUse/PostToolUse/PreInvocation/PostInvocation/Stop, and an explicit stdin/stdout contract (PreToolUse returns {decision: allow|deny|ask|force_ask|...}, Stop returns {decision: continue}). Unlike Copilot's, this contract is complete enough to project against without a live-session capture. DoFlow wires its pre-implementation gate and its stop check as native-payload shims; events with no matching DoFlow policy stay unwired.",
           "verification": "Report that no Antigravity hook is installed.",
           "events": {
             "PreToolUse": {
@@ -1166,8 +1169,8 @@
               "note": "Documented (terminationBehavior control); no current DoFlow policy maps to it."
             },
             "Stop": {
-              "status": "different",
-              "note": "Documented continue-decision matches stop-check semantics; projection deferred until the shim can consume transcriptPath with verified field semantics."
+              "status": "supported",
+              "note": "DoFlow projects its stop check as a native shim: emits the documented {decision:'continue', reason} when the last assistant response in transcriptPath carries unfinished-work markers (the same gate Claude's stop-check enforces via exit 2). transcriptPath is optional and unverified — empty/garbage stdin, missing/unreadable/unrecognized transcripts all fail open, so a broken hook can never trap session end."
             }
           }
         },
