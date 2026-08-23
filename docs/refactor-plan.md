@@ -84,8 +84,8 @@ Done when: regenerate produces zero diff; docs build strict-clean.
 Registry evidence URLs record where facts came from but nothing watches them; two drifts were
 caught manually this cycle (antigravity hooks, copilot payloads).
 
-- core/registry/format-baseline.json: normalized fingerprint of the doc section backing each
-  capability claim.
+- scripts/drift/baseline.json: normalized fingerprint of the doc page backing each capability
+  claim (CI state, deliberately outside the ratcheted 12-file core/registry family).
 - scripts/check-format-drift.js: fetch evidence URL → normalize (strip dates/nav/whitespace)
   → fingerprint → diff baseline; non-zero exit naming changed rows. Read-only locally via
   `npm run drift`.

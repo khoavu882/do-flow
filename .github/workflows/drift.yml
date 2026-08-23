@@ -1,0 +1,72 @@
+name: Upstream Drift
+
+# Stage 5 (docs/refactor-plan.md): registry evidence URLs record where DoFlow's capability facts
+# came from, but nothing noticed when those pages moved — two drifts were caught manually this
+# cycle (antigravity hooks, copilot payloads). This watches them on a schedule. It is deliberately
+# NOT a PR gate: upstream docs change on their own calendar, and a red PR caused by someone
+# else's doc edit would be noise.
+on:
+  schedule:
+    # Mondays 05:23 UTC. Fixed time so runs are comparable; off the top-of-hour CI herd.
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read   # checkout
+  issues: write    # the tracking-issue step below
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      - name: Check upstream format drift (read-only)
+        id: drift
+        shell: bash
+        # npm run drift exits: 0 clean · 1 DRIFTED · 3 previously-fingerprinted page unreachable ·
+        # 2 config error. Only 1 opens the tracking issue; 3 is visible in the log but must not
+        # spam issues; neither may fail the job outright — upstream flakiness is not our regression.
+        run: |
+          set +e
+          npm run drift -- --json > drift-report.json
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Open or append to the tracking issue
+        if: steps.drift.outputs.code == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          title="Upstream format drift detected"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          {
+            echo "**Drifted claims** from [$GITHUB_SHA]($run_url):"
+            echo ""
+            jq -r '.results[] | select(.status == "DRIFTED")
+              | "- `\(.url)`\n  claims: \(.claims | join(", "))"' drift-report.json
+          } > drift-body.md
+
+          # Exactly one open tracking issue at a time: create it on first drift, append every
+          # later run as a comment. Resolve by refreshing scripts/drift/baseline.json
+          # (`npm run drift -- --update`) once each change is confirmed intentional.
+          number=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body-file drift-body.md
+          else
+            intro="Tracking issue for upstream documentation drift found by the weekly drift \
+          workflow. Each comment is one run's drifted claims. After confirming a change is \
+          intentional, refresh \`scripts/drift/baseline.json\` via \`npm run drift -- --update\`."
+            { printf '%s\n\n---\n\n' "$intro"; cat drift-body.md; } > issue-body.md
+            gh issue create --title "$title" --body-file issue-body.md
+          fi
+
+      - name: Fail the run so the drift is visible in CI history
+        if: steps.drift.outputs.code == '1'
+        run: exit 1
