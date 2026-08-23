@@ -42,6 +42,25 @@ test('Claude marketplace exposes the single-source core plugin', () => {
   assert.ok(fs.existsSync(path.join(REPO, 'core', 'shared', 'agent-specs', 'system-architect.md')));
 });
 
+test('Copilot CLI plugin manifest declares only what activates there', () => {
+  // Copilot CLI checks plugin manifests at .plugin/plugin.json, plugin.json,
+  // .github/plugin/plugin.json, then .claude-plugin/plugin.json (docs.github.com Copilot CLI
+  // plugin reference, "File locations"). There is no .copilot-plugin/ convention, so the
+  // Copilot-authored manifest lives at the first-checked location instead.
+  const manifestPath = path.join(REPO, 'core', '.plugin', 'plugin.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  assert.strictEqual(manifest.name, 'doflow');
+  assert.strictEqual(manifest.version, require('../../package.json').version);
+  assert.strictEqual(manifest.skills, './shared/skills/');
+  assert.ok(fs.existsSync(path.join(REPO, 'core', 'shared', 'skills', 'do-execute-plan', 'SKILL.md')));
+  // Parity doctrine: an installed file is not evidence of activation. Copilot agents must be
+  // .agent.md files (the shared agent-specs are plain .md), DoFlow hooks are Claude-payload-coupled,
+  // and MCP registration is installer-managed opt-in — none may be declared here.
+  for (const key of ['agents', 'hooks', 'mcpServers', 'lspServers', 'commands', 'extensions']) {
+    assert.ok(!Object.hasOwn(manifest, key), `.plugin/plugin.json must not declare '${key}'`);
+  }
+});
+
 test('resolveTargets defaults to claude alone and validates', () => {
   // Deliberately not all of VALID: an install with no --target should configure the one harness the
   // user almost certainly has, rather than writing into every harness DoFlow knows about. That was
@@ -74,14 +93,18 @@ test('resolveTargets rejects an unknown target and names all seven valid ones', 
 });
 
 test('toolDirs defaults to project scope rooted at projectRoot', () => {
-  const dirs = toolDirs({ projectRoot: '/tmp/some-project' });
-  assert.strictEqual(dirs.claude, '/tmp/some-project/.claude');
-  assert.strictEqual(dirs.codex, '/tmp/some-project/.codex');
-  assert.strictEqual(dirs.gemini, '/tmp/some-project/.agents');
-  assert.strictEqual(dirs.copilot, '/tmp/some-project/.github');
-  assert.strictEqual(dirs.kiro, '/tmp/some-project/.kiro');
-  assert.strictEqual(dirs.opencode, '/tmp/some-project/.opencode');
-  assert.strictEqual(dirs.pi, '/tmp/some-project/.pi');
+  // Expected paths are derived, never literal: '/tmp/some-project' is a POSIX-shaped input that
+  // toolDirs resolves like any caller-supplied root, so the fixture resolves it identically before
+  // asserting — on win32 that anchors it to the working drive instead of leaving it relative.
+  const root = path.resolve('/tmp/some-project');
+  const dirs = toolDirs({ projectRoot: root });
+  assert.strictEqual(dirs.claude, path.join(root, '.claude'));
+  assert.strictEqual(dirs.codex, path.join(root, '.codex'));
+  assert.strictEqual(dirs.gemini, path.join(root, '.agents'));
+  assert.strictEqual(dirs.copilot, path.join(root, '.github'));
+  assert.strictEqual(dirs.kiro, path.join(root, '.kiro'));
+  assert.strictEqual(dirs.opencode, path.join(root, '.opencode'));
+  assert.strictEqual(dirs.pi, path.join(root, '.pi'));
 });
 
 test('toolDirs defaults projectRoot to cwd when omitted', () => {

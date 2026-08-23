@@ -15,12 +15,17 @@ jobs:
   test:
     name: test (${{ matrix.os }}, node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
-    # The Windows leg is informational today: its checkout has no exec bits and CRLF line
-    # endings, and ~76 latent test failures across guards/lifecycle/adapters depend on both.
-    # Those tests never ran on CI before the scoped runner landed (a quoted glob failed on
-    # Node <21 before any test could), so this debt predates that fix. Stabilize Windows via
-    # the tracking issue, then flip this back to a hard gate.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    # The Windows leg is still informational, but for a much narrower reason than before: the
+    # exec-bit assertions, hook-deployment refusals, CRLF parse failures and $HOME redirection
+    # bugs it used to fail on are fixed (see .gitattributes and test/helper-platform.js). What
+    # remains risky there is inherent to the platform, not to this repo's tests alone:
+    #   - install-shapes/failure-hooks execute POSIX shell scripts (the dispatcher/locator and
+    #     hook fixtures) whose behavior under Git Bash/MSYS path translation cannot be asserted
+    #     deterministically;
+    # Windows went green after the win32 portability pass (#40/#42: bash-spawn interpreter
+    # wrapper, native-separator expectations, MSYS arg-conversion guards) and is now a required
+    # gate like every other OS. The verify-hooks.sh step below keeps its own documented flag —
+    # that suite has pre-existing fixture divergences unrelated to OS portability.
     strategy:
       fail-fast: false
       matrix:
@@ -49,35 +54,44 @@ jobs:
       - name: Run Node test suite
         run: npm test
 
-      # jq ships preinstalled on all three GitHub-hosted runner images
-      # (ubuntu-latest, macos-latest, windows-latest), so no install step is needed.
-      #
-      # `shell: bash` resolves to Git Bash on windows-latest (bundled with Git for
-      # Windows) and to the native bash on ubuntu-latest/macos-latest, so these
-      # scripts run the same interpreter on all three OSes.
+  # The bash suites are a dedicated required job rather than per-OS steps: they are POSIX-only
+  # by design, and isolating them on ubuntu makes a failure attributable to the suite that
+  # failed instead of drowning in the three-OS matrix. code-review-fixtures.sh drives
+  # do-code-review's Python analyzers; python3 is preinstalled on ubuntu-latest.
+  shell-suites:
+    name: shell-suites (ubuntu, bash)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+
       - name: Run doflow-chain-test.sh
-        # Informational this release: the shell suites had never executed in CI before
-        # the scoped runner landed, and their first ubuntu runs surfaced latent portability
-        # debt (detached-HEAD branch expectations, fixture/hash divergence). Stabilize via
-        # the tracking issue, then remove these continue-on-error markers.
-        continue-on-error: true
-        shell: bash
         run: bash test/doflow-chain-test.sh
 
       - name: Run test-hooks.sh
-        # Informational this release: the shell suites had never executed in CI before
-        # the scoped runner landed, and their first ubuntu runs surfaced latent portability
-        # debt (detached-HEAD branch expectations, fixture/hash divergence). Stabilize via
-        # the tracking issue, then remove these continue-on-error markers.
-        continue-on-error: true
-        shell: bash
         run: bash test/hooks/test-hooks.sh
 
+      # Informational, not required: this suite already fails on today's ubuntu runners and on
+      # macOS checkouts alike, independent of this branch (its step was continue-on-error inside
+      # the old matrix too). Known-failing cases, from the latest main run's log and locally:
+      #   - post-edit-lint: "expected 4 paths in edited-files.txt, found 0"
+      #   - subagent-audit: TODO detection exits before writing ("stat /tmp/baz.go: no such file")
+      #   - pre-compact: last-compact-summary.md not created / missing frontmatter
+      #   - session-end: session directory not removed, END marker missing from sessions.log
+      #   - meta.json: fails where the harness's canonicalized CWD differs from the hook's
+      #     canonicalize_path (macOS /tmp symlink) — a fixture/runtime hash divergence.
+      # Stabilize the suite first (same tracking issue as the Windows gate), then drop this flag.
       - name: Run verify-hooks.sh
-        # Informational this release: the shell suites had never executed in CI before
-        # the scoped runner landed, and their first ubuntu runs surfaced latent portability
-        # debt (detached-HEAD branch expectations, fixture/hash divergence). Stabilize via
-        # the tracking issue, then remove these continue-on-error markers.
         continue-on-error: true
-        shell: bash
         run: bash test/verify-hooks.sh
+
+      - name: Run code-review-fixtures.sh
+        run: bash test/code-review-fixtures.sh

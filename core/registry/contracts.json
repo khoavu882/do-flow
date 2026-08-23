@@ -173,9 +173,10 @@
     {
       "harness": "antigravity",
       "completeness": "lower-bound",
-      "note": "hookEvents lists what DoFlow wires; widen only with added evidence. Antigravity documents five hook events; DoFlow wires PreToolUse today.",
+      "note": "hookEvents lists what DoFlow wires; widen only with added evidence. Antigravity documents five hook events; DoFlow wires PreToolUse (pre-implementation gate) and Stop (stop check) today.",
       "hookEvents": [
-        "PreToolUse"
+        "PreToolUse",
+        "Stop"
       ],
       "evidence": [
         "https://antigravity.google/docs/cli/gcli-migration",

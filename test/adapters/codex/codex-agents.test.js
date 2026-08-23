@@ -20,7 +20,9 @@ function parseAgentToml(source, file) {
     const match = source.match(new RegExp(`^${field}\\s*=\\s*"([^"\\n]+)"\\s*$`, 'm'));
     if (match) values[field] = match[1];
   }
-  const instructions = source.match(/^developer_instructions\s*=\s*"""\n([\s\S]*?)\n"""\s*$/m);
+  // `\r?\n` on both sides of the multiline body: a Windows checkout without eol=lf normalization
+  // materializes these files with CRLF, and the triple-quoted TOML block must still parse.
+  const instructions = source.match(/^developer_instructions\s*=\s*"""\r?\n([\s\S]*?)\r?\n"""\s*$/m);
   if (instructions) values.developer_instructions = instructions[1].trim();
   return values;
 }

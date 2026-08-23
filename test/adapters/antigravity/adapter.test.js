@@ -7,6 +7,7 @@ const path = require('node:path');
 const { loadRegistry, selectAssets } = require('../../../src/registry');
 const { projectAdapterInput } = require('../../../src/adapters');
 const adapter = require('../../../src/adapters/antigravity');
+const { expectExecutable } = require('../../helper-platform');
 
 const REPO = path.resolve(__dirname, '..', '..', '..');
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-agy-')); }
@@ -149,40 +150,137 @@ function verifiedResources(adapt, input) {
   return (v.resources || []).map((r) => ({ ...r, harness: 'antigravity', kind: r.kind || 'copy-tree-file' }));
 }
 
-test('hooks.antigravity projects the gate shim + hooks.json group, and remove unmerges only its own', () => {
+test('hooks.antigravity projects both shims + their groups, verifies managed, and remove unmerges only its own', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   const root = scratch();
   const input = harnessInput(registry, { scope: 'project', scopeRoot: root });
   const planned = adapter.plan(input);
 
-  const scriptChange = planned.changes.find((c) => c.assetId === 'hooks.antigravity' && c.kind === 'copy-tree-file');
+  const scriptChanges = planned.changes.filter((c) => c.assetId === 'hooks.antigravity' && c.kind === 'copy-tree-file');
   const docChange = planned.changes.find((c) => c.assetId === 'hooks.antigravity' && c.kind === 'hooks-json');
-  assert.ok(scriptChange, 'the gate shim is projected');
-  assert.ok(docChange, 'the hooks.json group is registered');
+  assert.deepEqual(scriptChanges.map((c) => c.identity).sort(), ['pre-implementation-gate.sh', 'stop-check.sh'],
+    'both native-payload shims are projected');
+  assert.ok(docChange, 'the hooks.json groups are registered');
 
   adapter.apply({ ...input, changes: planned.changes });
-  const doc = JSON.parse(fs.readFileSync(path.join(root, '.agents', 'hooks.json'), 'utf8'));
+  const hooksJsonPath = path.join(root, '.agents', 'hooks.json');
+  const doc = JSON.parse(fs.readFileSync(hooksJsonPath, 'utf8'));
   const entry = doc['doflow-pre-implementation-gate'].PreToolUse[0];
   assert.equal(entry.matcher, 'write_to_file|replace_file_content|multi_replace_file_content');
   assert.equal(entry.hooks[0].command, path.join(root, '.agents', 'hooks', 'pre-implementation-gate.sh'));
-  assert.equal(fs.statSync(entry.hooks[0].command).mode & 0o111, 0o111, 'the shim must be executable');
+  expectExecutable(fs, entry.hooks[0].command, 'the shim must be executable');
 
-  // Foreign groups survive; ours do not.
-  fs.writeFileSync(path.join(root, '.agents', 'hooks.json'), JSON.stringify({
+  // PreToolUse registration keeps the documented matcher-wrapper shape.
+  const gateEntry = doc['doflow-pre-implementation-gate'].PreToolUse[0];
+  assert.equal(gateEntry.matcher, 'write_to_file|replace_file_content|multi_replace_file_content');
+  assert.equal(gateEntry.hooks[0].command, path.join(root, '.agents', 'hooks', 'pre-implementation-gate.sh'));
+  // Stop registration is matcher-free per Antigravity's docs: handlers sit directly under the key.
+  const stopEntry = doc['doflow-stop-check'].Stop[0];
+  assert.equal(stopEntry.command, path.join(root, '.agents', 'hooks', 'stop-check.sh'));
+  if (process.platform !== 'win32') {   // GUARD: executable-bit semantics are POSIX-only
+    for (const command of [gateEntry.hooks[0].command, stopEntry.command]) {
+      assert.equal(fs.statSync(command).mode & 0o111, 0o111, `${path.basename(command)} must be executable`);
+    }
+  }
+
+  // Verification journals the managed state with resource rows for both shims and the json.
+  const verified = adapter.verify({ ...input });
+  const hooksStatuses = verified.statuses.filter((s) => s.capability === 'hooks');
+  assert.equal(hooksStatuses.length, 1);
+  assert.equal(hooksStatuses[0].status, 'managed');
+  const hookResources = verified.resources.filter((r) => r.assetId === 'hooks.antigravity');
+  assert.deepEqual(hookResources.map((r) => r.identity).filter(Boolean).sort(), ['pre-implementation-gate.sh', 'stop-check.sh'],
+    'verify journals one row per shim');
+  assert.equal(hookResources.filter((r) => r.identity === undefined).length, 1,
+    'verify journals the hooks.json registration row too');
+
+  // Foreign groups survive; ours (both) do not — and both projected scripts go with theirs.
+  fs.writeFileSync(hooksJsonPath, JSON.stringify({
     'user-own-group': { Stop: [{ type: 'command', command: './mine.sh' }] },
     'doflow-pre-implementation-gate': doc['doflow-pre-implementation-gate'],
+    'doflow-stop-check': doc['doflow-stop-check'],
   }));
+  const crypto = require('node:crypto');
   const ledgerRows = { resources: [
     { harness: 'antigravity', assetId: 'hooks.antigravity', kind: 'hooks-json',
-      ownershipIdentity: 'antigravity:hooks:registration', target: path.join(root, '.agents', 'hooks.json') },
-    { harness: 'antigravity', assetId: 'hooks.antigravity', kind: 'copy-tree-file',
-      identity: 'pre-implementation-gate.sh',
-      fingerprint: require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(root, '.agents', 'hooks', 'pre-implementation-gate.sh'))).digest('hex'),
-      target: path.join(root, '.agents', 'hooks', 'pre-implementation-gate.sh') },
+      ownershipIdentity: 'antigravity:hooks:registration', target: hooksJsonPath },
+    ...scriptChanges.map((c) => ({ harness: 'antigravity', assetId: 'hooks.antigravity', kind: 'copy-tree-file',
+      identity: c.identity,
+      fingerprint: crypto.createHash('sha256').update(fs.readFileSync(c.target)).digest('hex'),
+      target: c.target })),
   ] };
   const removal = adapter.plan({ ...input, context: { ...(input.context ?? {}), operation: 'remove' }, ledger: ledgerRows });
   adapter.apply({ ...input, changes: removal.changes });
-  const after = JSON.parse(fs.readFileSync(path.join(root, '.agents', 'hooks.json'), 'utf8'));
+  const after = JSON.parse(fs.readFileSync(hooksJsonPath, 'utf8'));
   assert.ok(after['user-own-group'], 'foreign hook groups survive removal');
-  assert.equal(after['doflow-pre-implementation-gate'], undefined, 'only the DoFlow-owned group is removed');
+  assert.equal(after['doflow-pre-implementation-gate'], undefined, 'the owned gate group is removed');
+  assert.equal(after['doflow-stop-check'], undefined, 'the owned stop group is removed');
+  assert.ok(!fs.existsSync(path.join(root, '.agents', 'hooks', 'pre-implementation-gate.sh')));
+  assert.ok(!fs.existsSync(path.join(root, '.agents', 'hooks', 'stop-check.sh')), 'the stop shim goes with its registration');
+});
+
+// ── stop-check.sh shim stdin contract ─────────────────────────────────────────
+// The shim translates Antigravity's documented Stop payload into the same gate Claude's stop-check
+// enforces. Its defining property is fail-open: every ambiguity exits 0 silently, because a stop
+// hook that breaks session ending is worse than an under-gated one.
+
+const SHIM_TEST = process.platform !== 'win32' ? test : test.skip;   // GUARD: needs bash + jq
+const STOP_SHIM = path.resolve(REPO, 'core', 'harnesses', 'antigravity', 'hooks', 'stop-check.sh');
+
+function runStopShim(payload) {
+  const { execFileSync } = require('node:child_process');
+  try {
+    const stdout = execFileSync('bash', [STOP_SHIM], {
+      input: typeof payload === 'string' ? payload : JSON.stringify(payload),
+      stdio: ['pipe', 'pipe', 'pipe'],
+      encoding: 'utf8',
+    });
+    return { code: 0, stdout };
+  } catch (error) {
+    return { code: error.status ?? 1, stdout: String(error.stdout ?? '') };
+  }
+}
+
+function transcriptWith(lines) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-agy-transcript-'));
+  const file = path.join(dir, 'transcript.jsonl');
+  fs.writeFileSync(file, lines.map((line) => JSON.stringify(line)).join('\n') + '\n');
+  return file;
+}
+
+SHIM_TEST('stop-check shim blocks with the documented {decision:continue} when the last response carries stubs', () => {
+  const transcript = transcriptWith([
+    { role: 'user', content: 'go' },
+    { role: 'assistant', content: 'Writing the module now.' },
+    { role: 'assistant', content: "Done except one spot:\n\n// TODO: wire the retry path" },
+  ]);
+  const { code, stdout } = runStopShim({ executionNum: 1, terminationReason: 'model_stop', fullyIdle: true, transcriptPath: transcript });
+  assert.equal(code, 0);
+  const decision = JSON.parse(stdout);
+  assert.equal(decision.decision, 'continue');
+  assert.match(decision.reason, /[Tt][Oo][Dd][Oo]|stub/);
+});
+
+SHIM_TEST('stop-check shim lets a clean response end the session silently', () => {
+  const transcript = transcriptWith([
+    { role: 'assistant', content: 'All done; tests pass. I removed the TODO comment as requested.' },
+  ]);
+  const { code, stdout } = runStopShim({ executionNum: 2, terminationReason: 'model_stop', fullyIdle: true, transcriptPath: transcript });
+  assert.equal(code, 0);
+  assert.equal(stdout, '', 'an allow is silence, not JSON');
+});
+
+SHIM_TEST('stop-check shim fails open on every ambiguity', () => {
+  const transcript = transcriptWith([{ role: 'assistant', content: '// TODO unfinished' }]);
+  for (const [name, payload] of Object.entries({
+    'empty stdin': '',
+    'garbage stdin': '{definitely not json',
+    'missing transcriptPath': { executionNum: 1, fullyIdle: true },
+    'nonexistent transcript': { executionNum: 1, transcriptPath: '/nowhere/transcript.jsonl' },
+    'foreign transcript schema': { executionNum: 1, transcriptPath: transcriptWith([{ message: 'no role field here' }]) },
+  })) {
+    const outcome = runStopShim(payload);
+    assert.equal(outcome.code, 0, `${name}: must exit 0`);
+    assert.equal(outcome.stdout, '', `${name}: must stay silent`);
+  }
 });

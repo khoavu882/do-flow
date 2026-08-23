@@ -31,7 +31,7 @@ test('discoverTree lists nested files with source fingerprints and dest existenc
   const byRel = Object.fromEntries(files.map((f) => [f.relPath, f]));
   assert.equal(files.length, 2);
   assert.equal(byRel['a.md'].exists, true);
-  assert.equal(byRel['nested/b.md'].exists, false);
+  assert.equal(byRel[path.join('nested', 'b.md')].exists, false, 'relPath uses the platform separator');
   assert.equal(byRel['a.md'].fingerprint, sha256('A'));
 });
 
@@ -56,7 +56,11 @@ test('applyTree writes files and preserves the source file mode (hook script +x 
   const { applied } = applyTree({ changes });
   assert.equal(applied, 1);
   assert.equal(fs.readFileSync(path.join(destDir, 'hook.sh'), 'utf8'), '#!/usr/bin/env bash\necho hi\n');
-  assert.equal(fs.statSync(path.join(destDir, 'hook.sh')).mode & 0o777, 0o755);
+  // Windows has no exec bits (chmodSync only toggles read-only), so mode preservation is a
+  // POSIX-only property; the byte-identical content above is the portable half of the contract.
+  if (!process.platform.startsWith('win')) {
+    assert.equal(fs.statSync(path.join(destDir, 'hook.sh')).mode & 0o777, 0o755);
+  }
 });
 
 test('re-planning after an unchanged apply reports zero changes (idempotent convergence)', () => {

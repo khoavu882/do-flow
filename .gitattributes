@@ -1,0 +1,8 @@
+# Normalize every text file to LF on checkout, on every platform.
+#
+# Without this, a default Windows clone materializes text files with CRLF, which breaks the
+# shipped shell scripts outright (bash chokes on \r) and diverges byte-for-byte from the content
+# every fingerprint/guard compares against. All blobs are already LF-normalized in the index
+# (git's text=auto detection), so this changes nothing on macOS/Linux and only affects what a
+# Windows checkout writes to disk. Binary formats stay protected by git's auto detection.
+* text=auto eol=lf

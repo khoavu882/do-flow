@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { chmodHooksExecutable } = require('../../src/helper/settings-scope');
+const { IS_WIN } = require('../helper-platform');
 
 function scratchDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-settingsscope-'));
@@ -28,6 +29,15 @@ test('chmodHooksExecutable adds +x to every .sh hook while preserving existing b
 
   chmodHooksExecutable(dir);
 
+  // Windows has no permission bits: chmodSync can only toggle the read-only flag and every
+  // writable file stats back as 0666, so the bit arithmetic is unanswerable there. The portable
+  // invariant is that the pass runs cleanly, touches nothing but .sh files, and leaves content
+  // intact — the exact bits are pinned on POSIX only.
+  if (IS_WIN) {
+    assert.strictEqual(fs.readFileSync(hook, 'utf8'), '#!/bin/sh\necho hi\n', 'hook content untouched');
+    assert.strictEqual(fs.readFileSync(readme, 'utf8'), 'not a hook\n', 'readme content untouched');
+    return;
+  }
   assert.strictEqual(fs.statSync(hook).mode & 0o777, 0o775, 'existing rw bits preserved, +x added');
   assert.strictEqual(fs.statSync(readme).mode & 0o777, 0o664, 'a non-.sh file must be left untouched');
 });

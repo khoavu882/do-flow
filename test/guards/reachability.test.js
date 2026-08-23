@@ -70,8 +70,9 @@ function scriptTexts() {
  * Parsed rather than restated so a verb added tomorrow is covered without editing this file.
  */
 function verbTable() {
+  // `\r?\n` keeps the parser working on CRLF checkouts (Windows without eol=lf normalization).
   const text = fs.readFileSync(DISPATCHER, 'utf8');
-  const block = text.match(/shell_helper_for\(\)\s*\{([\s\S]*?)\n\}/);
+  const block = text.match(/shell_helper_for\(\)\s*\{([\s\S]*?)\r?\n\}/);
   assert.ok(block, 'shell_helper_for() is the dispatcher verb table and must be parseable');
   const table = new Map([...block[1].matchAll(/^\s*([a-z][a-z-]*)\)\s*printf '([^']+)'/gm)]
     .map(([, verb, helper]) => [verb, helper]));
@@ -137,9 +138,9 @@ test('G8: every verb a skill or doc invokes is a verb the dispatcher actually di
   // instead — the failure surfaces as an unrelated orphan, or not at all if something else happens
   // to reach the same helper. Checking the call side directly keeps the diagnosis at the typo.
   const text = fs.readFileSync(DISPATCHER, 'utf8');
-  const nodeBlock = text.match(/is_node_verb\(\)\s*\{([\s\S]*?)\n\}/);
+  const nodeBlock = text.match(/is_node_verb\(\)\s*\{([\s\S]*?)\r?\n\}/);
   assert.ok(nodeBlock, 'is_node_verb() is the node arm of the verb table and must be parseable');
-  const [, alternation] = nodeBlock[1].replace(/\\\n/g, '').match(/^\s*([a-z|-]+)\)\s*return 0/m) || [];
+  const [, alternation] = nodeBlock[1].replace(/\\\r?\n/g, '').match(/^\s*([a-z|-]+)\)\s*return 0/m) || [];
   assert.ok(alternation, 'the node verb alternation must be parseable');
 
   // `--help`/`help` are the dispatcher's own arguments, not verbs, and answer before the table.
@@ -223,9 +224,12 @@ test('G8: capability-map.md is byte-for-byte what the registry generates', () =>
   // registry, and this guard asserts the committed file is exactly that rendering. A hand edit to
   // a generated region, or any registry change without a regeneration, fails here with the fix in
   // the message. Prose outside the markers is not the generator's to touch, so it is not asserted.
+  // Line-ending agnostic on purpose: the committed file is LF, but a CRLF checkout (Windows
+  // without eol=lf normalization) must compare equal after normalization, not fail byte-for-byte.
+  const normalizeEol = (text) => text.replace(/\r\n/g, '\n');
   const committed = fs.readFileSync(path.join(REPO, 'docs', 'capability-map.md'), 'utf8');
-  const rendered = generator.renderDocumentText(committed, loadRegistry({ repoRoot: REPO }));
-  assert.equal(rendered, committed,
+  const rendered = generator.renderDocumentText(normalizeEol(committed), loadRegistry({ repoRoot: REPO }));
+  assert.equal(rendered, normalizeEol(committed),
     'docs/capability-map.md has drifted from core/registry — run `npm run gen:capability-map` '
     + 'and commit the result');
 });
@@ -344,7 +348,7 @@ function resolutionSnippets() {
       if (entry.isDirectory()) { walk(full); continue; }
       if (!entry.name.endsWith('.md')) continue;
       const text = fs.readFileSync(full, 'utf8');
-      for (const [, block] of text.matchAll(/```bash\n([\s\S]*?)```/g)) {
+      for (const [, block] of text.matchAll(/```bash\r?\n([\s\S]*?)```/g)) {
         if (block.includes(SEAM_MARK)) out.push({ rel: path.relative(REPO, full), code: dedent(block) });
       }
     }
@@ -365,10 +369,12 @@ test('G8: every documented runtime-resolution snippet resolves with CWD at the p
     // pass, and the not-installed branch must be reachable.
     const home = path.join(root, 'home');
     fs.mkdirSync(home);
+    // os.homedir() ignores HOME on Windows, so USERPROFILE must be redirected alongside it.
+    const homeRedirect = process.platform === 'win32' ? { HOME: home, USERPROFILE: home } : { HOME: home };
     const install = spawnSync(
       'node',
       [path.join(REPO, 'bin', 'doflow.js'), 'install', root, '-f', '--no-backup', '-t', 'claude'],
-      { encoding: 'utf8', input: '\n', env: { ...process.env, HOME: home } },
+      { encoding: 'utf8', input: '\n', env: { ...process.env, ...homeRedirect } },
     );
     assert.equal(install.status, 0, `installer failed: ${install.stderr}`);
     assert.ok(fs.existsSync(path.join(root, INSTALLED_DISPATCHER)), 'install did not place the dispatcher');
@@ -387,7 +393,7 @@ test('G8: every documented runtime-resolution snippet resolves with CWD at the p
           encoding: 'utf8',
           // A developer's exported override would resolve the runtime for reasons the snippet does
           // not own, hiding exactly the defect under test.
-          env: { ...process.env, HOME: home, DOFLOW_CONFIG_DIR: undefined },
+          env: { ...process.env, ...homeRedirect, DOFLOW_CONFIG_DIR: undefined },
         });
         if (run.status !== 0) {
           failures.push(`${rel} (cwd=${where}): exit ${run.status} — ${(run.stderr || '').trim().split('\n')[0]}`);
@@ -406,7 +412,7 @@ test('G8: every documented runtime-resolution snippet resolves with CWD at the p
         const probe = spawnSync('bash', ['-c', `{\n${code}\n} >/dev/null 2>&1\n"$DOFLOW" paths --json\n`], {
           cwd,
           encoding: 'utf8',
-          env: { ...process.env, HOME: home, DOFLOW_CONFIG_DIR: undefined },
+          env: { ...process.env, ...homeRedirect, DOFLOW_CONFIG_DIR: undefined },
         });
         if (probe.status !== 0) {
           failures.push(`${rel} (cwd=${where}): resolved, but the dispatcher it found exited ${probe.status} on 'paths --json'`);

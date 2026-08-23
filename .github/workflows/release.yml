@@ -18,7 +18,13 @@ jobs:
 
   verify-tag:
     name: tag matches package.json
-    needs: test
+    # Gate on every job the PR suite runs (the OS matrix plus the required shell-suites job),
+    # so a tag publishes exactly what a merge was gated on.
+    # `test` IS the called cross-os-tests workflow (shell-suites included); its conclusion
+    # propagates, so needs must name only jobs of THIS file. Reaching inside the reusable
+    # workflow's own jobs is invalid and fails workflow parsing on every push (seen as the
+    # instant-red Release runs on branch pushes).
+    needs: [test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

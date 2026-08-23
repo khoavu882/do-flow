@@ -38,7 +38,9 @@ function agentSpecFiles() {
     .map((name) => ({ name, file: path.join(AGENT_SPECS, name) }));
 }
 
-/** Every file under core/ as text, for "is this declaration referenced anywhere?" scans. */
+/** Every file under core/ as text, for "is this declaration referenced anywhere?" scans. `rel` is
+ * normalized to forward slashes so guards can match it against literal `core/...` prefixes on any
+ * platform's separator. */
 function coreTextFiles({ exclude = [] } = {}) {
   const out = [];
   const excluded = exclude.map((p) => path.resolve(REPO, p));
@@ -48,7 +50,11 @@ function coreTextFiles({ exclude = [] } = {}) {
       if (entry.isDirectory()) { walk(full); continue; }
       if (excluded.includes(full)) continue;
       if (!/\.(md|json|yaml|toml|sh|conf)$/.test(entry.name)) continue;
-      out.push({ file: full, rel: path.relative(REPO, full), text: fs.readFileSync(full, 'utf8') });
+      out.push({
+        file: full,
+        rel: path.relative(REPO, full).split(path.sep).join('/'),
+        text: fs.readFileSync(full, 'utf8'),
+      });
     }
   }(path.join(REPO, 'core')));
   return out;
