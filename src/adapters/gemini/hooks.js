@@ -101,7 +101,7 @@ function classifyClaudeGuardrails(claudeHooks = {}) {
  * exists but fails to parse is a hard error, not silently treated as empty (this path merges
  * into content DoFlow does not own — a malformed-file work-around here risks losing it).
  */
-function planGeminiHooks({ config, sourceFile, sourceHooksDir, settingsFile, trusted = false, fsImpl = fs } = {}) {
+function planGeminiHooks({ config, sourceFile, sourceHooksDir, settingsFile, destinationHooksDir: declaredHooksDir, trusted = false, fsImpl = fs } = {}) {
   let desired = config;
   try {
     if (!desired && sourceFile) desired = JSON.parse(fsImpl.readFileSync(sourceFile, 'utf8'));
@@ -126,7 +126,10 @@ function planGeminiHooks({ config, sourceFile, sourceHooksDir, settingsFile, tru
   return { ok: true, status: changed ? 'change' : 'unchanged', settingsFile, existing, merged,
     changes: changed ? [{ type: fsImpl.existsSync(settingsFile) ? 'update' : 'create', file: settingsFile, key: 'hooks' }] : [],
     errors: [], commands, trust: commands.trust, scriptsDir: sourceHooksDir,
-    destinationHooksDir: path.join(path.dirname(settingsFile), 'hooks') };
+    // Preferred: the declared hooks directory (harnesses.json "paths".hooksDirectory); the derived
+    // sibling-of-settings fallback stays for direct callers passing raw inputs, and resolves to the
+    // same location.
+    destinationHooksDir: declaredHooksDir || path.join(path.dirname(settingsFile), 'hooks') };
 }
 
 function deployGeminiHooks(plan, { dryRun = false, fsImpl = fs } = {}) {

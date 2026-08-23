@@ -16,12 +16,15 @@ const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harn
 const INSTRUCTION_RENDERER = 'claude-instructions';
 const SETTINGS_RENDERER = 'claude-settings';
 /**
- * Logic residue (content substitution, not an install path): the second settings file this asset
- * projects. Its destination IS declared (paths.keybindings); what stays here is the per-file
- * dispatch between the two declared surfaces plus these hook-command prefixes, which are rewritten
- * INTO the authored settings content — `~/.claude/hooks/` becomes Claude Code's documented
- * ${CLAUDE_PROJECT_DIR}/.claude/hooks/ placeholder at project scope (code.claude.com/docs/en/hooks).
- * That placeholder is Claude-native payload syntax, not a filesystem join, so it cannot be declared.
+ * Logic residue (content substitution + source anchoring, not install destinations):
+ *  - the second settings file this asset projects; its destination IS declared (paths.keybindings),
+ *    what stays here is the per-file dispatch between the two declared surfaces;
+ *  - the hook-command prefixes rewritten INTO the authored settings content — `~/.claude/hooks/`
+ *    becomes Claude Code's documented ${CLAUDE_PROJECT_DIR}/.claude/hooks/ placeholder at project
+ *    scope (code.claude.com/docs/en/hooks). That placeholder is Claude-native payload syntax, not a
+ *    filesystem join, so it cannot be declared;
+ *  - `doflow-statusline.sh` names the projected script for the SOURCE read and the ledger identity;
+ *    its install destination is declared (paths.statuslineScript).
  */
 const SETTINGS_FILES = ['settings.json', 'keybindings.json'];
 

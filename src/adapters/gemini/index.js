@@ -186,7 +186,7 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
       ? planRemoveGeminiHooks({ settingsFile: found.paths.settings, fsImpl })
       : (context.geminiHooksSourceFile
         ? planGeminiHooks({ sourceFile: context.geminiHooksSourceFile, sourceHooksDir: context.geminiHooksSourceDir,
-          settingsFile: found.paths.settings, trusted: context.hooksTrusted, fsImpl })
+          settingsFile: found.paths.settings, destinationHooksDir: found.paths.hooksDirectory, trusted: context.hooksTrusted, fsImpl })
         : null);
     if (hooksPlan && !hooksPlan.ok) return { changes: [], conflicts: hooksPlan.errors || [] };
     if (hooksPlan?.status !== 'change') return { changes: [], conflicts: [] };
@@ -285,7 +285,7 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
     let hooksStatus = null; const conflicts = [...(found.settings.error ? [found.settings.error] : []), ...copyTree.conflicts];
     if (context.geminiHooksSourceFile && !found.settings.error) {
       const hooksPlan = planGeminiHooks({ sourceFile: context.geminiHooksSourceFile, sourceHooksDir: context.geminiHooksSourceDir,
-        settingsFile: found.paths.settings, trusted: context.hooksTrusted, fsImpl });
+        settingsFile: found.paths.settings, destinationHooksDir: found.paths.hooksDirectory, trusted: context.hooksTrusted, fsImpl });
       hooksStatus = hooksPlan.ok && hooksPlan.status === 'unchanged' ? 'managed' : (hooksPlan.ok ? 'missing' : 'conflict');
       if (!hooksPlan.ok) conflicts.push(...(hooksPlan.errors || []));
       if (hooksStatus === 'managed') {

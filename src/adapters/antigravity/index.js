@@ -563,6 +563,8 @@ function verify(options = {}, impl = {}) {
   if (scope === 'project') {
     const hooksTarget = paths.hooksJson;
     const scriptTarget = paths.hookScript;
+    // Source-side residue: reads the shim from THIS checkout (the authored source of the projection,
+    // not an install destination — the destination is declared as paths.hookScript).
     const scriptSource = path.join(path.resolve(registryRepoRoot(options)), 'core', 'harnesses', 'antigravity', 'hooks', 'pre-implementation-gate.sh');
     const removingOp = (context.operation ?? options.operation ?? '') === 'remove';
     let scriptFp = null;
