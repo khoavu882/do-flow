@@ -84,6 +84,35 @@ function resolveModelRole({ registry, roleId, isAvailable = null, exclude = [] }
   };
 }
 
+/**
+ * Resolve one optional dense/rerank retrieval slot from core/registry/models.json. A slot binds a
+ * retrieval stage (`dense` embedding lookup, `rerank` cross-encoder pass) to one declared provider
+ * and the concrete model that provider serves; it takes effect only while `enabled`. Absent or
+ * disabled slots resolve to `{active:false}` and every caller stays on its existing lexical/graph
+ * path unchanged — this function never routes anywhere on its own. An enabled slot resolves to the
+ * bound provider with availability probed through the same injected seam resolveModelRole uses
+ * (PATH scan for the provider's backend CLI); `available:false` or `null` tells the caller to stay
+ * lexical rather than guess. Unknown slot ids also resolve to `{active:false}` rather than
+ * throwing: absence of a slot is every install's normal state, unlike an unknown role.
+ */
+function resolveRetrievalSlot({ registry, slotId, isAvailable = null } = {}) {
+  const slot = (registry.retrievalSlots || []).find((entry) => entry.id === slotId);
+  if (!slot || !slot.enabled) return { slotId, active: false, reason: slot ? 'disabled' : 'undeclared' };
+  const provider = (registry.modelProviders || []).find((entry) => entry.id === slot.provider);
+  if (!provider) return { slotId, active: false, reason: 'provider-missing' };
+  return {
+    slotId,
+    active: true,
+    reason: null,
+    provider: provider.id,
+    displayName: provider.displayName,
+    kind: provider.kind,
+    backendCli: BACKEND_CLI[provider.id] ?? null,
+    model: slot.model,
+    available: isAvailable ? Boolean(isAvailable(provider.id)) : null,
+  };
+}
+
 /** CLI handler for `doflow model-role`. Read-only advisory routing; exits 1 on an unknown role
  * because a silently-empty candidate list would read as "no providers" rather than "bad input". */
 function handleModelRoleCommand({ role, exclude, json = false, repoRoot } = {}) {
@@ -117,4 +146,4 @@ function handleModelRoleCommand({ role, exclude, json = false, repoRoot } = {}) 
   }
 }
 
-module.exports = { resolveModelRole, handleModelRoleCommand, availableProviderIds, BACKEND_CLI };
+module.exports = { resolveModelRole, resolveRetrievalSlot, handleModelRoleCommand, availableProviderIds, BACKEND_CLI };

@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { resolveModelRole, availableProviderIds, BACKEND_CLI } = require('../../src/runtime/model-router');
+const { resolveModelRole, resolveRetrievalSlot, availableProviderIds, BACKEND_CLI } = require('../../src/runtime/model-router');
 const { loadRegistry } = require('../../src/registry');
 const path = require('node:path');
 
@@ -84,4 +84,59 @@ test('availability probe scans PATH via fs only (no spawn), injectable everywher
   });
   assert.deepEqual(ids, ['ollama']);
   assert.equal(BACKEND_CLI.claude, 'claude');
+});
+
+test('absent slots resolve inactive and leave role routing byte-identical', () => {
+  // Shipped registry declares no slots: both lookups stay lexical, no throw.
+  for (const slotId of ['dense', 'rerank']) {
+    const resolution = resolveRetrievalSlot({ registry, slotId });
+    assert.deepEqual(resolution, { slotId, active: false, reason: 'undeclared' });
+  }
+  // Adding disabled slots to a fixture must not perturb role routing at all — the outputs are
+  // deep-equal with and without them.
+  const base = {
+    modelProviders: structuredClone(registry.modelProviders),
+    modelRoles: structuredClone(registry.modelRoles),
+  };
+  const without = resolveModelRole({ registry: base, roleId: 'triage' });
+  const withDisabled = resolveModelRole({
+    registry: { ...base, retrievalSlots: [
+      { id: 'dense', provider: 'ollama', model: 'nomic-embed-text', enabled: false },
+      { id: 'rerank', provider: 'ollama', model: 'bge-reranker-base', enabled: false },
+    ] },
+    roleId: 'triage',
+  });
+  assert.deepEqual(without, withDisabled);
+});
+
+test('an enabled dense slot routes through its bound provider with probed availability', () => {
+  const slotted = {
+    ...registry,
+    retrievalSlots: [{ id: 'dense', provider: 'ollama', model: 'nomic-embed-text', enabled: true }],
+  };
+  const installed = resolveRetrievalSlot({ registry: slotted, slotId: 'dense', isAvailable: (id) => id === 'ollama' });
+  assert.equal(installed.active, true);
+  assert.equal(installed.provider, 'ollama');
+  assert.equal(installed.model, 'nomic-embed-text');
+  assert.equal(installed.kind, 'local');
+  assert.equal(installed.backendCli, 'ollama');
+  assert.equal(installed.available, true);
+  // Same slot, backend absent: still reported, availability false — the caller stays lexical
+  // rather than guessing; the binding itself is never hidden.
+  const missing = resolveRetrievalSlot({ registry: slotted, slotId: 'dense', isAvailable: () => false });
+  assert.equal(missing.active, true);
+  assert.equal(missing.available, false);
+  // No probe supplied: unknown stays null, never guessed into either boolean.
+  const unprobed = resolveRetrievalSlot({ registry: slotted, slotId: 'dense' });
+  assert.equal(unprobed.available, null);
+});
+
+test('a declared-but-disabled slot resolves inactive with its reason reported', () => {
+  const slotted = {
+    ...registry,
+    retrievalSlots: [{ id: 'rerank', provider: 'ollama', model: 'bge-reranker-base', enabled: false }],
+  };
+  assert.deepEqual(resolveRetrievalSlot({ registry: slotted, slotId: 'rerank' }), {
+    slotId: 'rerank', active: false, reason: 'disabled',
+  });
 });
