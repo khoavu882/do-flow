@@ -11,11 +11,20 @@ const { spawnSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, "../..");
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
+const { IS_WIN, expectExecutable } = require('../helper-platform');
+
+/** Scratch-$HOME env for a spawned CLI. os.homedir() prefers USERPROFILE on Windows and ignores
+ * HOME there entirely, so both must be redirected or -g installs would land in the runner's real
+ * profile instead of the scratch directory. */
+function homeEnv(home) {
+  return IS_WIN ? { HOME: home, USERPROFILE: home } : { HOME: home };
+}
 
 function run(args, { home, input, env } = {}) {
+  const resolvedHome = home ?? fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   return spawnSync('node', [DOFLOW, ...args], {
     cwd: REPO,
-    env: { ...process.env, ...env, HOME: home ?? fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-')) },
+    env: { ...process.env, ...env, ...homeEnv(resolvedHome) },
     // Reply "no" explicitly for prompt-abort cases. An empty input can leave the test worker's
     // non-blocking pseudo-TTY attached and make the CLI retry EAGAIN as if a user were typing.
     input: input || '\n',
@@ -41,9 +50,10 @@ function toolEnv(bin, extra = {}) {
 
 function runInteractive(args, { home, env, replies }) {
   return new Promise((resolve, reject) => {
+    const resolvedHome = home ?? fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
     const child = require('node:child_process').spawn('node', [DOFLOW, ...args], {
       cwd: REPO,
-      env: { ...process.env, ...env, HOME: home ?? fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-')) },
+      env: { ...process.env, ...env, ...homeEnv(resolvedHome) },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -61,7 +71,17 @@ function runInteractive(args, { home, env, replies }) {
   });
 }
 
-test('tools status selects both registered tools and returns one JSON result per tool', () => {
+// The tools fixtures are POSIX-bound by construction: fakeBin writes `#!/bin/sh` scripts and
+// toolEnv builds a colon-separated PATH ending in /usr/bin:/bin. Windows can neither exec a
+// shebang script nor interpret that PATH, so the whole class is skipped there rather than
+// silently exercising nothing.
+function skipToolsOnWin(t) {
+  if (IS_WIN) t.skip('tools fixtures require #!/bin/sh scripts and a POSIX PATH');
+  return !IS_WIN;
+}
+
+test('tools status selects both registered tools and returns one JSON result per tool', (t) => {
+  if (!skipToolsOnWin(t)) return;
   const bin = fakeBin({
     rtk: 'case "$1" in --version|gain) exit 0;; *) exit 1;; esac',
     graphify: 'test "$1" = "--version"',
@@ -85,7 +105,8 @@ test('tools rejects --force and requires --tool outside an interactive terminal'
   assert.match(omitted.stderr, /--tool is required when stdin is not an interactive terminal/);
 });
 
-test('tools --dry-run inspects and plans mutations without executing them', () => {
+test('tools --dry-run inspects and plans mutations without executing them', (t) => {
+  if (!skipToolsOnWin(t)) return;
   const bin = fakeBin({
     uv: 'test "$1" = "--version"',
   });
@@ -100,7 +121,8 @@ test('tools --dry-run inspects and plans mutations without executing them', () =
   ]);
 });
 
-test('tools reports a declined lifecycle action without executing it', () => {
+test('tools reports a declined lifecycle action without executing it', (t) => {
+  if (!skipToolsOnWin(t)) return;
   const bin = fakeBin({});
   const r = run(['tools', '--tool', 'rtk', '--action', 'install'], { env: toolEnv(bin), input: 'n\n' });
   assert.strictEqual(r.status, 0, r.stderr);
@@ -108,7 +130,8 @@ test('tools reports a declined lifecycle action without executing it', () => {
   assert.match(r.stdout, /rtk: declined/);
 });
 
-test('tools continues independently when one confirmed lifecycle command fails', async () => {
+test('tools continues independently when one confirmed lifecycle command fails', async (t) => {
+  if (!skipToolsOnWin(t)) return;
   const bin = fakeBin({
     rtk: 'case "$1" in --version|gain) exit 0;; *) exit 1;; esac',
     graphify: 'test "$1" = "--version"',
@@ -386,7 +409,7 @@ test('Codex-native lifecycle supports isolated project dry-run, selected MCP upd
   const config = path.join(project, '.codex', 'config.toml');
   assert.match(fs.readFileSync(config, 'utf8'), /\[features\]\nhooks = true/);
   assert.match(fs.readFileSync(config, 'utf8'), /\[mcp_servers\.context7\]/);
-  assert.ok(fs.statSync(path.join(project, '.codex', 'hooks', 'session-start.sh')).mode & 0o111);
+  expectExecutable(fs, path.join(project, '.codex', 'hooks', 'session-start.sh'), 'deployed codex hook script');
   assert.ok(fs.existsSync(path.join(project, '.codex', 'agents', 'system-architect.toml')));
 
   r = run(['update', project, '--force', '--target', 'codex', '--mcp', 'sequential-thinking'], { home });

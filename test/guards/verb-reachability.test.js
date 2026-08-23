@@ -63,10 +63,11 @@ const ALLOWLIST = new Map([
   ],
 ]);
 
-/** Parse all shell-backed verbs from shell_helper_for() in doflow-run. */
+/** Parse all shell-backed verbs from shell_helper_for() in doflow-run. `\r?\n` keeps the parser
+ * working on CRLF checkouts (Windows without eol=lf normalization). */
 function parseShellVerbs() {
   const text = fs.readFileSync(DISPATCHER, 'utf8');
-  const block = text.match(/shell_helper_for\(\)\s*\{([\s\S]*?)\n\}/);
+  const block = text.match(/shell_helper_for\(\)\s*\{([\s\S]*?)\r?\n\}/);
   assert.ok(block, 'shell_helper_for() must be present and parseable in doflow-run');
   const verbs = [...block[1].matchAll(/^\s*([a-z][a-z-]*)\)\s*printf/gm)].map(([, v]) => v);
   assert.ok(verbs.length > 0, 'expected to parse at least one shell-backed verb');
@@ -76,11 +77,11 @@ function parseShellVerbs() {
 /** Parse all Node-backed verbs from is_node_verb() in doflow-run. */
 function parseNodeVerbs() {
   const text = fs.readFileSync(DISPATCHER, 'utf8');
-  const block = text.match(/is_node_verb\(\)\s*\{([\s\S]*?)\n\}/);
+  const block = text.match(/is_node_verb\(\)\s*\{([\s\S]*?)\r?\n\}/);
   assert.ok(block, 'is_node_verb() must be present and parseable in doflow-run');
-  const [, alternation] = block[1].replace(/\\\n/g, '').match(/^\s*([a-z|-]+)\)\s*return 0/m) || [];
+  const [, alternation] = block[1].replace(/\\\r?\n/g, '').match(/^\s*([a-z|-]+)\)\s*return 0/m) || [];
   assert.ok(alternation, 'the node verb alternation must be parseable in doflow-run');
-  const verbs = alternation.split('|').filter(Boolean);
+  const verbs = alternation.split('|').map((verb) => verb.trim()).filter(Boolean);
   assert.ok(verbs.length > 0, 'expected to parse at least one node-backed verb');
   return verbs;
 }

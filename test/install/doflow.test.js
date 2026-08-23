@@ -74,14 +74,17 @@ test('resolveTargets rejects an unknown target and names all seven valid ones', 
 });
 
 test('toolDirs defaults to project scope rooted at projectRoot', () => {
-  const dirs = toolDirs({ projectRoot: '/tmp/some-project' });
-  assert.strictEqual(dirs.claude, '/tmp/some-project/.claude');
-  assert.strictEqual(dirs.codex, '/tmp/some-project/.codex');
-  assert.strictEqual(dirs.gemini, '/tmp/some-project/.agents');
-  assert.strictEqual(dirs.copilot, '/tmp/some-project/.github');
-  assert.strictEqual(dirs.kiro, '/tmp/some-project/.kiro');
-  assert.strictEqual(dirs.opencode, '/tmp/some-project/.opencode');
-  assert.strictEqual(dirs.pi, '/tmp/some-project/.pi');
+  // Expected paths are derived, never literal: '/tmp/some-project' is a POSIX-shaped input whose
+  // Windows resolution differs only by separator, which path.join expresses portably.
+  const root = '/tmp/some-project';
+  const dirs = toolDirs({ projectRoot: root });
+  assert.strictEqual(dirs.claude, path.join(root, '.claude'));
+  assert.strictEqual(dirs.codex, path.join(root, '.codex'));
+  assert.strictEqual(dirs.gemini, path.join(root, '.agents'));
+  assert.strictEqual(dirs.copilot, path.join(root, '.github'));
+  assert.strictEqual(dirs.kiro, path.join(root, '.kiro'));
+  assert.strictEqual(dirs.opencode, path.join(root, '.opencode'));
+  assert.strictEqual(dirs.pi, path.join(root, '.pi'));
 });
 
 test('toolDirs defaults projectRoot to cwd when omitted', () => {

@@ -29,12 +29,18 @@ const ALL_HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot',
 
 function scratch(tag) { return fs.mkdtempSync(path.join(os.tmpdir(), `doflow-shape-${tag}-`)); }
 
+/** os.homedir() ignores HOME on Windows and reads USERPROFILE instead, so a scratch home must
+ * redirect both or -g installs would land in the real profile. */
+function homeEnv(home) {
+  return process.platform === 'win32' ? { HOME: home, USERPROFILE: home } : { HOME: home };
+}
+
 /** Run the installer CLI. `home` is always a scratch directory so a global install can never touch
  *  the developer's real ~/.doflow. */
 function cli(args, { home, cwd = REPO, env = {} } = {}) {
   return spawnSync('node', [CLI, ...args], {
     cwd, encoding: 'utf8', input: '\n',
-    env: { ...process.env, HOME: home, ...env },
+    env: { ...process.env, ...homeEnv(home), ...env },
   });
 }
 
@@ -44,7 +50,7 @@ function runtime(exe, args, { home, cwd, env = {} } = {}) {
     cwd, encoding: 'utf8',
     // A developer's own exported DOFLOW_CONFIG_DIR / DOFLOW_CLI would silently redirect the
     // resolution these tests exist to exercise, so they are cleared unless a case sets them.
-    env: { ...process.env, DOFLOW_CONFIG_DIR: undefined, DOFLOW_CLI: undefined, HOME: home, ...env },
+    env: { ...process.env, DOFLOW_CONFIG_DIR: undefined, DOFLOW_CLI: undefined, ...homeEnv(home), ...env },
   });
 }
 

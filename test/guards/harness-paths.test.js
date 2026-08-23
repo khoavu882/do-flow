@@ -38,12 +38,16 @@ test('G-Paths: declarations are consistent — every uniform-rule surface exists
   // softer invariant: scoped entries must name their scopes correctly, and every resolved user-
   // scope path must live under home while project-scope paths live under the project root.
   const offenders = [];
+  // The resolver path.resolve()s its scope inputs, so the prefix to assert against must be
+  // resolved the same way — on Windows '/proj' resolves to '<drive>:\proj', not '\proj'.
+  const projectRootPrefix = path.resolve('/proj');
+  const homePrefix = path.resolve('/home');
   for (const harness of registry.harnesses) {
     for (const [name, value] of Object.entries(harness.paths || {})) {
       const project = resolveHarnessPaths({ [name]: value }, { scope: 'project', scopeRoot: '/proj', homeDir: '/home' })[name];
       const user = resolveHarnessPaths({ [name]: value }, { scope: 'global', scopeRoot: '/home', homeDir: '/home' })[name];
-      if (project !== null && !project.startsWith(`${path.sep}proj`)) offenders.push(`${harness.id}.${name}: project resolution escaped the project root (${project})`);
-      if (user !== null && !user.startsWith(`${path.sep}home`)) offenders.push(`${harness.id}.${name}: user resolution escaped the home root (${user})`);
+      if (project !== null && !project.startsWith(projectRootPrefix)) offenders.push(`${harness.id}.${name}: project resolution escaped the project root (${project})`);
+      if (user !== null && !user.startsWith(homePrefix)) offenders.push(`${harness.id}.${name}: user resolution escaped the home root (${user})`);
     }
   }
   assert.deepEqual(offenders, [], `declarations must resolve under their scope root:\n  ${offenders.join('\n  ')}`);
