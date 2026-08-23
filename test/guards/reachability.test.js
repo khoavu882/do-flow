@@ -155,10 +155,11 @@ test('G8: every verb a skill or doc invokes is a verb the dispatcher actually di
 
 test('G8: every runtime CLI command is named by a skill or doc', () => {
   // Parsed from the dispatch switch rather than hardcoded, so a new command is covered the moment
-  // it is wired up — the guard should not need editing to start guarding.
-  const cli = fs.readFileSync(path.join(REPO, 'bin', 'doflow.js'), 'utf8');
+  // it is wired up — the guard should not need editing to start guarding. Since Stage 2 the
+  // switch lives in src/cli/runtime-commands.js (bin/doflow.js only forwards into src/cli).
+  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.js'), 'utf8');
   const commands = [...cli.matchAll(/case '([a-z-]+)': return handle[A-Za-z]+Command/g)].map((m) => m[1]);
-  assert.ok(commands.length > 0, 'expected to find runtime command handlers in bin/doflow.js');
+  assert.ok(commands.length > 0, 'expected to find runtime command handlers in src/cli/runtime-commands.js');
 
   const consumers = consumerTexts();
   const orphaned = commands

@@ -150,7 +150,7 @@ returns the action, so no agent picks its own retry count.
 
 Every runtime call a skill can make goes through a single dispatcher,
 `core/shared/scripts/doflow/bin/doflow-run`, which owns the whole verb namespace and decides per
-verb whether a shell helper or a `bin/doflow.js` command serves it. Skills never name a helper and
+verb whether a shell helper or a `src/cli` command serves it. Skills never name a helper and
 never name a verb's implementation, so a verb can move between the two arms without any caller
 changing.
 
