@@ -7,7 +7,8 @@ guidance, and guardrails that stay close to the repository.
 flowchart LR
     D[DoFlow] --> C[Claude Code]
     D --> X[Codex]
-    D --> G[Gemini / Antigravity]
+    D --> G[Gemini CLI]
+    D --> A[Antigravity CLI]
     D --> O[OpenCode]
     D --> P[Pi Coding Agent]
     D --> CP[Copilot CLI]
@@ -24,7 +25,7 @@ flowchart LR
 | Skills | Structured workflows for planning, implementation, testing, review, and research |
 | Agents | Five specialist archetypes: spec analysis, system architecture, implementation, quality, and research |
 | Rules | Consistent safety, workflow, quality, and question-handling expectations |
-| Hooks | Claude Code session context and command safety controls |
+| Hooks | Session context capture and command safety controls on the harnesses that support them |
 
 ## Documentation map
 

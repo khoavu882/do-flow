@@ -155,7 +155,8 @@ For this repository, keep one canonical home for each topic: installation in [Se
 | Claude Code | `/do` or a named skill | Native instructions, skills, hooks, and MCP after verification |
 | Codex | Read `AGENTS.md`, then use installed skills | Native settings/MCP/hook behavior requires trust and hook review |
 | Gemini CLI | Read `GEMINI.md`, then use installed skills | Skills and instructions are native; unavailable hooks/scripts/templates are reported, not emulated |
+| OpenCode · Pi · Copilot CLI · Kiro · Antigravity | Read the projected instruction file (`AGENTS.md`, steering files, or `.github/copilot-instructions.md`), then use installed skills | Each harness gets its documented native surfaces; everything else is guidance projection |
 
 The same shared sources drive every installation, but adapters render them into native target
-formats. Tool-specific behavior, activation prerequisites, and unavailable differences are in the
-[capability map](capability-map.md) and [Setup](setup.md).
+formats — eight of them today. Tool-specific behavior, activation prerequisites, and per-harness
+differences are in the [capability map](capability-map.md) and [Setup](setup.md).

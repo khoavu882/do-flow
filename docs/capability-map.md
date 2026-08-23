@@ -45,7 +45,7 @@ plugin/extension marketplace is documented in its steering, hooks, or MCP source
 
 ## Runtime seam projection
 
-The `Scripts` row above reads Supported for all seven harnesses, but that is a statement about the
+The `Scripts` row above reads Supported for all eight harnesses, but that is a statement about the
 capability, not about which script assets each harness receives. Two distinct assets in
 `core/registry/assets.yaml` use it, and they do **not** claim the same set of harnesses. The
 difference decides whether a given install can reach the DoFlow runtime at all, so it is recorded
@@ -53,7 +53,7 @@ here rather than left to be inferred from the row.
 
 | Asset | Ships | `appliesTo` | `nativeDir` |
 |---|---|---|---|
-| `locator.doflow` | `core/harnesses/shared/locator/doflow-run` — a verb-free shim that finds and `exec`s the dispatcher | All seven harnesses | `bin`, inside each harness's own directory (for Claude: `.claude/bin/doflow-run` at project scope, `~/.claude/bin/doflow-run` at global scope) |
+| `locator.doflow` | `core/harnesses/shared/locator/doflow-run` — a verb-free shim that finds and `exec`s the dispatcher | All eight harnesses | `bin`, inside each harness's own directory (for Claude: `.claude/bin/doflow-run` at project scope, `~/.claude/bin/doflow-run` at global scope) |
 | `scripts.doflow` | `core/shared/scripts/doflow/` — the dispatcher itself plus every shell helper it serves verbs from | `claude`, `codex`, `gemini` | `../.doflow/scripts`, so all three project into the **same** shared tree at `<config>/.doflow/scripts` |
 
 Three consequences follow, all of them intentional:
@@ -77,7 +77,7 @@ Three consequences follow, all of them intentional:
 
 Verification is the same on every harness: run one verb through the locator and check the exit code
 and JSON, e.g. `doflow-run paths --json` from a project root. `test/e2e/install-shapes.test.js` performs
-real installs for all seven harnesses into temporary directories and executes the projected locator
+real installs for all eight harnesses into temporary directories and executes the projected locator
 and dispatcher in source-checkout, project-local, and global shapes rather than asserting against a
 mock.
 
@@ -101,7 +101,8 @@ dash for it. Kiro's `hooks` capability is Supported — DoFlow projects a real `
 file wiring `SessionStart`, two `PreToolUse` hooks, and `Stop` — but the registry does not yet break
 that support down into a per-event map, so Kiro's column here is also a dash pending that data;
 see the `hooks` capability note in `core/registry/harnesses.yaml` and the verification row below for
-Kiro's actual wired events instead of this table.
+Kiro's actual wired events instead of this table. Antigravity reads `Different` for hooks (its
+adapter projects into Gemini-compatible surfaces) and likewise has no per-event column yet.
 
 | Event | Claude Code | Codex | Gemini CLI | OpenCode | Pi Coding Agent | GitHub Copilot CLI | Kiro | Notes |
 |---|---|---|---|---|---|---|---|---|
@@ -136,6 +137,7 @@ is covered in [Runtime seam projection](#runtime-seam-projection) instead of rep
 | Pi Coding Agent | Confirm `AGENTS.md` loads, skills discover in `.pi/skills/` (project) or `~/.pi/agent/skills/` (global), and MCP connects via `pi-mcp-adapter`. | Minimalist terminal harness; extensions manage external tools. |
 | GitHub Copilot CLI | Confirm `.github/copilot-instructions.md` loads, a skill is discoverable from `.agents/skills` (project) or `~/.agents/skills` (global), a custom agent under `.github/agents` (or `~/.copilot/agents`) is selectable, and selected MCP servers appear via `.mcp.json` (project) or `~/.copilot/mcp-config.json` (global). | Settings (`~/.copilot/settings.json`, `.github/copilot/settings.json`), hooks (`.github/hooks/`, `~/.copilot/hooks/`), and a plugin marketplace are now documented upstream; DoFlow projects none of them — those three capabilities are recorded as unprojected rather than as host gaps. |
 | Kiro | Confirm the DoFlow guidance tree is discoverable as steering files under `.kiro/steering/` (workspace) or `~/.kiro/steering/` (global), a skill is discoverable under `.kiro/skills/`, a custom agent under `.kiro/agents` is discoverable, a projected hook file exists under `.kiro/hooks/` with the expected trigger names and actually blocks on a non-zero exit, and selected MCP servers appear in `.kiro/settings/mcp.json`. | No general Kiro settings file exists separate from `.kiro/settings/mcp.json`, so the `settings` capability is a recorded gap; no plugin/extension marketplace is documented either. |
+| Antigravity | Confirm the managed section in `AGENTS.md` loads, a skill is discoverable under `.agents/skills/`, a shared agent under `.agents/agents/` is selectable, the runtime locator exists in the harness `bin/`, and selected MCP servers appear in `.agents/mcp_config.json` (project) or `~/.gemini/config/mcp_config.json` (global). | Global instructions and user-scope skills are intentionally untouched pending upstream clarification; Antigravity and Gemini CLI share `~/.gemini/`, so global-scope installs affect both products. |
 
 ## Evidence
 
@@ -151,17 +153,19 @@ surface availability, not a guarantee that a local configuration has been accept
 | Pi Coding Agent | [pi.dev](https://pi.dev), [quickstart](https://pi.dev/docs/latest/quickstart), [skills](https://pi.dev/docs/latest/skills), [settings](https://pi.dev/docs/latest/settings), [extensions](https://pi.dev/docs/latest/extensions), [packages](https://pi.dev/packages), [github](https://github.com/earendil-works/pi-coding-agent) |
 | GitHub Copilot CLI | [customize Copilot](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot), [add skills](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills), [create custom agents](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli), [custom agents configuration reference](https://docs.github.com/en/copilot/reference/custom-agents-configuration) |
 | Kiro | [steering](https://kiro.dev/docs/steering/), [skills](https://kiro.dev/docs/skills/), [custom agents configuration reference](https://kiro.dev/docs/custom-agents/configuration-reference/), [hooks](https://kiro.dev/docs/hooks/), [hook actions](https://kiro.dev/docs/hooks/actions/), [MCP configuration](https://kiro.dev/docs/mcp/configuration/) |
+| Antigravity | [Antigravity](https://antigravity.google/) — product-level documentation; the customization conventions DoFlow projects into (`.agents/` trees, `~/.gemini/config/`) are shared with Gemini CLI and are covered by that row's evidence. |
 
 See [Architecture](architecture.md) for registry ownership and [Setup](setup.md) for installation,
 recovery, and verification procedures.
 
 ## Codex capability detail
 
-The capability matrix above uses one uniform 10-row taxonomy across all seven harnesses it lists.
-All seven — Claude Code, Codex, Gemini CLI, OpenCode, Pi Coding Agent, GitHub Copilot CLI, and
-Kiro — are declared in `core/registry/harnesses.yaml` and driven by their own dedicated adapter
-(`src/adapters/claude/`, `src/adapters/codex/`, `src/adapters/gemini/`, `src/adapters/opencode/`,
-`src/adapters/pi/`, `src/adapters/copilot/`, `src/adapters/kiro/`). Each adapter exposes the same
+The capability matrix above uses one uniform 10-row taxonomy across all eight harnesses it lists.
+All eight — Claude Code, Codex, Gemini CLI, OpenCode, Pi Coding Agent, GitHub Copilot CLI,
+Kiro, and Antigravity — are declared in `core/registry/harnesses.yaml` and driven by their own
+dedicated adapter (`src/adapters/claude/`, `src/adapters/codex/`, `src/adapters/gemini/`,
+`src/adapters/opencode/`, `src/adapters/pi/`, `src/adapters/copilot/`, `src/adapters/kiro/`,
+`src/adapters/antigravity/`). Each adapter exposes the same
 six-function contract (`discover`, `render`, `plan`, `apply`, `remove`, `verify`) through a uniform
 `create<Name>Adapter()` factory (e.g. `createClaudeAdapter`, `createCodexAdapter`,
 `createGeminiAdapter`). Codex alone has several additional native-workflow distinctions that don't

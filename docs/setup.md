@@ -117,6 +117,8 @@ doflow install ../my-project --target codex
 # -> ../my-project/.codex/
 ```
 
+### What gets installed
+
 `doflow` always writes to the real per-tool directory below — never to `core/`, which is only the
 source tree this repo ships. `doflow status` (see below) prints the exact resolved paths for any
 given invocation, so treat it as the source of truth over this table for a specific run:
@@ -130,6 +132,7 @@ given invocation, so treat it as the source of truth over this table for a speci
 | Pi | `~/.pi/agent/` | `<projectRoot>/.pi/` |
 | GitHub Copilot CLI | `~/.copilot/` **and** `~/.agents/` | `<projectRoot>/.github/`, `<projectRoot>/.agents/`, **and** `<projectRoot>/.mcp.json` — see below |
 | Kiro | `~/.kiro/` | `<projectRoot>/.kiro/` |
+| Antigravity | `~/.gemini/config/` **and** `~/.agents/` | `<projectRoot>/.agents/` **and** `<projectRoot>/AGENTS.md` — see below |
 
 OpenCode's global config lives at `~/.config/opencode/`, **not** `~/.opencode/` — a path DoFlow's
 own docs asserted incorrectly for several releases. `~/.opencode/` is a plausible guess that
@@ -161,7 +164,7 @@ each follow their own documented convention rather than one shared root:
 
 #### Gemini CLI and Antigravity share one global file
 
-Both products read **`~/.gemini/GEMINI.md`**, and neither offers a way to separate them. A global
+All products built on that config root — Gemini CLI and Antigravity alike — read **`~/.gemini/`**, and `~/.gemini/GEMINI.md` has no per-product split. A global
 `--target gemini` install therefore configures **both** tools, whichever one you meant. This is a
 property of those products, not of DoFlow — but it has two consequences worth knowing:
 
@@ -220,15 +223,15 @@ and a no-op update leaves the lock byte-untouched.
 
 ## Harness capabilities and activation
 
-| Component | Claude Code | Codex | Gemini CLI | OpenCode | Pi Coding Agent | GitHub Copilot CLI | Kiro |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| Instructions | `CLAUDE.md` | Managed `AGENTS.md` | `GEMINI.md` | Managed `AGENTS.md` | Managed `AGENTS.md` | `.github/copilot-instructions.md` (project only) | Steering files (`.kiro/steering/`) |
-| Rules, agents, references | ✓ | ✓ | ✓ | Different — agent guidance via instructions, no native agent directory | Different — agent guidance via instructions, no native agent directory | ✓ | ✓ |
-| Skills | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Scripts and templates | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Modes | ✓ | Native mode unavailable | Guidance projection | Guidance projection | Guidance projection | Guidance projection | Guidance projection (steering) |
-| Hooks and settings | ✓ | Hooks require trust/review; settings differ | Hooks merge into settings.json, require trust/review; some events unmapped | No hook projection (plugin module required); settings supported via `opencode.json` | No hook projection (extension module required); settings supported via `settings.json` | No documented hook or general settings surface | Hooks supported via `.kiro/hooks/`, no trust/review gate; no general settings file beyond MCP |
-| MCP registration | ✓ | ✓ | Native registration differs | ✓ (`opencode.json`) | Delegated to the separate `pi-mcp-adapter` extension, not written by DoFlow | ✓ (`.mcp.json` / `mcp-config.json`) | ✓ (`.kiro/settings/mcp.json`) |
+| Component | Claude Code | Codex | Gemini CLI | OpenCode | Pi Coding Agent | GitHub Copilot CLI | Kiro | Antigravity |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Instructions | `CLAUDE.md` | Managed `AGENTS.md` | `GEMINI.md` | Managed `AGENTS.md` | Managed `AGENTS.md` | `.github/copilot-instructions.md` (project only) | Steering files (`.kiro/steering/`) | Managed `AGENTS.md` (project only) |
+| Rules, agents, references | ✓ | ✓ | ✓ | Different — agent guidance via instructions, no native agent directory | Different — agent guidance via instructions, no native agent directory | ✓ | ✓ | ✓
+| Skills | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓
+| Scripts and templates | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓
+| Modes | ✓ | Native mode unavailable | Guidance projection | Guidance projection | Guidance projection | Guidance projection | Guidance projection (steering) | Guidance projection
+| Hooks and settings | ✓ | Hooks require trust/review; settings differ | Hooks merge into settings.json, require trust/review; some events unmapped | No hook projection (plugin module required); settings supported via `opencode.json` | No hook projection (extension module required); settings supported via `settings.json` | No documented hook or general settings surface | Hooks supported via `.kiro/hooks/`, no trust/review gate; no general settings file beyond MCP | Unavailable — projects into Gemini-compatible surfaces instead |
+| MCP registration | ✓ | ✓ | Native registration differs | ✓ (`opencode.json`) | Delegated to the separate `pi-mcp-adapter` extension, not written by DoFlow | ✓ (`.mcp.json` / `mcp-config.json`) | ✓ (`.kiro/settings/mcp.json`) | ✓ (`.agents/mcp_config.json` / `~/.gemini/config/mcp_config.json`) |
 
 This is a capability contract, not a statement that every native surface is active after copying
 files. Verify installation in the target harness and review the [capability map](capability-map.md)
@@ -291,6 +294,9 @@ populated. In Pi, verify `AGENTS.md` and the `skills[]` array in `settings.json`
 verify the managed section in `.github/copilot-instructions.md`, skill discovery under
 `.agents/skills/`, and any registered MCP servers. In Kiro, verify the projected steering files
 under `.kiro/steering/`, skill discovery under `.kiro/skills/`, and hook files under `.kiro/hooks/`.
+In Antigravity, verify the managed section in `AGENTS.md`, skill discovery under `.agents/skills/`,
+and any registered MCP servers in `.agents/mcp_config.json` (project) or
+`~/.gemini/config/mcp_config.json` (global).
 
 During the registry migration, verified ownership and recovery records are stored independently of
 the harness: `<project>/.doflow/state/` for project scope and `~/.doflow/state/` for user scope.

@@ -8,7 +8,7 @@ This guide is for contributors changing DoFlow itself. For the user-facing model
 flowchart LR
     Shared[core/shared\ncontent index] --> Registry[core/registry\ncapabilities and assets]
     Registry --> Lifecycle[src/lifecycle\nplan apply verify]
-    Lifecycle --> Adapters[7 native adapters\nclaude codex gemini\nopencode pi copilot kiro]
+    Lifecycle -->     Adapters[8 native adapters\nclaude codex gemini opencode\npi copilot kiro antigravity]
     Lifecycle --> State[.doflow/state\nneutral ledger]
     Adapters --> Installed[Installed harness tree]
     Installed --> Seam[doflow-run\nthe runtime seam]
@@ -37,12 +37,12 @@ are reported rather than imitated.
 |---|---|
 | `core/shared/` | The single physical source for cross-harness content: guidance, skills, agent specifications, scripts, and templates. Stable IDs and projections, no duplicated bytes |
 | `core/registry/` | Two registry families in one directory: installation (harness capabilities, assets, neutral MCP catalog, lifecycle policy) and runtime (capabilities, routes, workflows, verification, readiness templates, external tools) |
-| `core/harnesses/` | Native per-harness sources that have no cross-harness equivalent — hooks, settings, and native agent definitions for `claude`, `codex`, `gemini`, and `kiro` — plus `core/harnesses/shared/locator`, the one file projected into all seven |
+| `core/harnesses/` | Native per-harness sources that have no cross-harness equivalent — hooks, settings, and native agent definitions for `claude`, `codex`, `gemini`, and `kiro` — plus `core/harnesses/shared/locator`, the one file projected into all eight. Antigravity has no native directory here by design: its adapter projects into Gemini-compatible paths (`.agents/`, `~/.gemini/config/`) rather than owning a distinct surface |
 | `core/.claude-plugin/` | Claude Code marketplace registry and plugin manifest; `core/` is the plugin root |
 | `core/.codex-plugin/` | Codex plugin manifest for plugin-based distribution |
 | `bin/doflow.js` | CLI entry point (exposed as the `doflow` command) — parses arguments, implements the installer commands (`cmdInstall`, `cmdUpdate`, `cmdStatus`, and siblings) directly against `src/lifecycle`, `src/adapters`, and `src/state`, and dispatches every runtime verb to the `src/runtime/` engine module that backs it (for example `handleClassifyCommand` in `task-classifier.js`), so each verb has exactly one implementation |
 | `core/shared/scripts/doflow/bin/doflow-run` | The runtime seam: one dispatcher owning the whole verb namespace |
-| `src/adapters/` | Native file formats and verification boundaries, one directory per harness (`claude`, `codex`, `gemini`, `opencode`, `pi`, `copilot`, `kiro`), each implementing the same six-function contract (`discover, render, plan, apply, remove, verify`) that `src/adapters/index.js` validates and each also exposing that contract through a uniform `create<Name>Adapter()` factory (`createClaudeAdapter`, `createCodexAdapter`, `createGeminiAdapter`, and so on); `src/adapters/copy-tree.js` is the shared tree-materializing engine most adapters call into rather than reimplementing file-copy logic |
+| `src/adapters/` | Native file formats and verification boundaries, one directory per harness (`claude`, `codex`, `gemini`, `opencode`, `pi`, `copilot`, `kiro`, `antigravity`), each implementing the same six-function contract (`discover, render, plan, apply, remove, verify`) that `src/adapters/index.js` validates and each also exposing that contract through a uniform `create<Name>Adapter()` factory (`createClaudeAdapter`, `createCodexAdapter`, `createGeminiAdapter`, and so on); `src/adapters/copy-tree.js` is the shared tree-materializing engine most adapters call into rather than reimplementing file-copy logic |
 | `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification against the neutral state ledger; obtains `planGeminiHooks` from the gemini adapter's public export (`src/adapters/gemini/index.js`) rather than reaching into a file inside it, and shares the generic parser in `src/helper/toml.js` with `src/adapters/codex/config.js` instead of depending on that adapter |
 | `src/runtime/` | Everything a skill asks for at use time: classification, workflow resolution, capability routing, evidence and claims, readiness, verification and command detection, recovery, tracing, scaffold generation, provider health, and worktree support; `src/runtime/cli-result.js` holds the exit/error-reporting helpers (`finishRuntime`, `usageError`) shared by the verb handlers `bin/doflow.js` dispatches to, and deliberately depends on nothing else in the tree |
 | `src/state/` | Harness-neutral ledger, recovery records, and legacy-manifest migration |
@@ -98,7 +98,7 @@ passes through a single dispatcher and nothing else.
 ```mermaid
 flowchart LR
     Skill[Skill prose] -->|walk up from PWD| Dispatch[.doflow/scripts/doflow/bin/doflow-run]
-    Locator[Harness locator shim\n7 copies, one per harness bin/] -->|exec| Dispatch
+    Locator[Harness locator shim\n8 copies, one per harness bin/] -->|exec| Dispatch
     Dispatch -->|shell verbs| Bash[scripts/doflow/bash/*.sh]
     Dispatch -->|runtime verbs| Node[bin/doflow.js + src/runtime]
     Node --> Reg[(core/registry)]
@@ -125,9 +125,9 @@ real project root.
 
 **The locator is a shim, not a second dispatcher.** `core/harnesses/shared/locator/doflow-run` is
 projected into each harness's own `bin/` directory by the `locator.doflow` asset. It holds no verb
-table — it finds the dispatcher and `exec`s it — so adding a verb never edits seven files. Note the
+table — it finds the dispatcher and `exec`s it — so adding a verb never edits eight files. Note the
 asymmetry, because it decides what a single-harness install can actually do: `locator.doflow`
-applies to all seven harnesses, while `scripts.doflow`, which carries the dispatcher itself, applies
+applies to all eight harnesses, while `scripts.doflow`, which carries the dispatcher itself, applies
 to `claude`, `codex`, and `gemini`, all three projecting into the same shared
 `<project>/.doflow/scripts`. A harness that receives only the locator gets the documented exit-2
 message naming every path searched, rather than a silent failure.
@@ -257,6 +257,9 @@ Run checks appropriate to the change:
 ```bash
 npm test                                   # the whole suite, including test/guards/
 node --test test/guards/registry.test.js   # a single guard while iterating
+bash test/doflow-chain-test.sh             # shell suites — not part of npm test
+bash test/hooks/test-hooks.sh              # shell suites — not part of npm test
+bash test/verify-hooks.sh                  # shell suites — not part of npm test
 bash test/code-review-fixtures.sh          # do-code-review's analyzer fixtures, outside npm test
 mkdocs build --strict --site-dir /tmp/doflow-docs-site
 ```

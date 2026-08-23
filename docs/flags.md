@@ -8,7 +8,7 @@ from any skill's frontmatter. This complements, rather than duplicates, two othe
 - [`reference.md`](./reference.md)'s "Full Skill Reference" table is organized **by skill** — one
   row per skill, its full `argument-hint` verbatim — and is kept in sync with each skill's
   frontmatter by `test/guards/reachability.test.js` (G8).
-- [`FLAGS.md`](../core/shared/guidance/FLAGS.md) is the always-loaded statement of what the runtime
+- `core/shared/guidance/FLAGS.md` (in the repository, not on this site) is the always-loaded statement of what the runtime
   now does unconditionally. The only flag it still documents is `--focus`, the one flag that is not
   skill-local; it deliberately excludes the rest, like `--depth` or `--type` (see its guard,
   `test/guards/flags.test.js`, "G4", and that guard's `NOT_FRAMEWORK_FLAGS` map).
