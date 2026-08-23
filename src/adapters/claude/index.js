@@ -10,7 +10,7 @@ const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = re
 const { selectMcpServers } = require('../../registry');
 const { GLOBAL_HOOK_PREFIX, PROJECT_HOOK_PREFIX } = require('../../helper/settings-scope');
 const { mergeSettings, settingsContains, settingsContainsAny, stripManagedSettings } = require('../../helper/settings-merge');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, resolveTransform } = require('../copy-tree');
 
 const INSTRUCTION_RENDERER = 'claude-instructions';
 const SETTINGS_RENDERER = 'claude-settings';
@@ -65,15 +65,22 @@ function discover({ scope, scopeRoot, context = {}, registry }) {
 
 // ---- copy-tree assets (rules, skills, agents, templates, scripts, modes, references, hooks) ----
 
+/** Every asset materialised through the copy-tree engine, whatever its declared renderer:
+ * verbatim mirrors declare 'copy-tree', transformed projections (output styles) declare their
+ * own name so the registry can tell the shapes apart. Routing is on `kind`, which both share. */
+function claudeTreeAssets(assets) {
+  return [...copyTreeAssets(assets), ...(assets || []).filter((asset) => asset.renderer === 'claude-output-styles')];
+}
+
 function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing }) {
   const paths = nativePaths({ scope, scopeRoot });
   const changes = [];
   const conflicts = [];
-  for (const asset of copyTreeAssets(assets)) {
+  for (const asset of claudeTreeAssets(assets)) {
     const destDir = copyTreeDestDir(paths.configDir, asset);
     const sourceDir = sourcePath(asset, context);
     const previousResources = ledgerFileResources(ledger?.resources, 'claude', asset.id);
-    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', layout: asset.layout });
+    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', layout: asset.layout, transform: asset.transform });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const change of result.changes) {
       changes.push({
@@ -81,6 +88,7 @@ function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removin
         ownershipIdentity: `doflow:claude:copy-tree:${asset.id}:${change.relPath}`,
         kind: 'copy-tree-file', identity: change.relPath,
         afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: 'registry-v1',
+        transformName: asset.transform || null,
         projection: { renderer: 'copy-tree' },
       });
     }
@@ -89,13 +97,22 @@ function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removin
 }
 
 function applyCopyTreeAssets(changes) {
-  const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation !== 'remove')
-    .map((change) => ({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint }));
-  return applyTree({ changes: treeChanges }).applied;
+  let applied = 0;
+  const grouped = new Map();
+  for (const change of changes) {
+    if (change.kind !== 'copy-tree-file' || change.operation === 'remove') continue;
+    const key = change.transformName || null;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint });
+  }
+  for (const [transformName, treeChanges] of grouped) {
+    applied += applyTree({ changes: treeChanges, transform: resolveTransform(transformName) }).applied;
+  }
+  return applied;
 }
 
 function removeCopyTreeAssets(changes) {
-  const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove')
+  const treeChanges = changes.filter((change) => change.kind === 'copy-tree-file' && change.operation === 'remove')
     .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
   return removeTree({ changes: treeChanges }).removed;
 }
@@ -105,10 +122,10 @@ function verifyCopyTreeAssets({ assets, scope, scopeRoot, context }) {
   const statuses = [];
   const resources = [];
   const conflicts = [];
-  for (const asset of copyTreeAssets(assets)) {
+  for (const asset of claudeTreeAssets(assets)) {
     const destDir = copyTreeDestDir(paths.configDir, asset);
     const sourceDir = sourcePath(asset, context);
-    const result = verifyTree({ sourceDir, destDir, layout: asset.layout });
+    const result = verifyTree({ sourceDir, destDir, layout: asset.layout, transform: asset.transform });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const resource of result.resources) {
       resources.push({

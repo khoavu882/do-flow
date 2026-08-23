@@ -91,7 +91,16 @@ function treeDestFor(asset, paths, scope) {
   const nativeDir = asset.nativeDir;
   if (!nativeDir) return null;
   if (asset.id === 'skills.doflow') {
+    // Project-only: the user-scope skills format contradiction is unresolved upstream. The
+    // registry's own nativeDir (.agents/skills) is root-relative, so this joins the ROOT.
     return scope === 'project' ? path.join(paths.root, nativeDir) : null;
+  }
+  if (asset.id === 'rules.antigravity' || asset.id === 'workflows.antigravity') {
+    // Workspace-scope surfaces under .agents/: Antigravity documents workspace rules
+    // (.agents/rules) and workflows (.agents/workflows) with no user-scope home — a global
+    // install deliberately projects neither rather than guessing one. These nativeDirs are
+    // config-relative.
+    return scope === 'project' ? path.join(paths.configDir, nativeDir) : null;
   }
   if (asset.id === 'agents.shared') {
     return scope === 'project' ? path.join(paths.root, nativeDir) : path.join(paths.configDir, 'agents');
@@ -132,10 +141,19 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
 }
 
 function runTreeChanges(changes, mode) {
+  // Route by what each change IS, not by which verb invoked us: remove() delegates here with a
+  // plan full of operation:'remove' changes, and applyTree deliberately skips those — so routing
+  // everything through one engine call silently deleted nothing (verification then correctly
+  // refused to journal the no-op). Writes go to applyTree, removals to removeTree, always.
+  void mode;
   const treeChanges = changes
-    .filter((c) => c.projection?.renderer === 'copy-tree' && (mode === 'all' || c.operation === 'remove'))
+    .filter((c) => c.projection?.renderer === 'copy-tree')
     .map((c) => ({ relPath: c.identity ?? c.relPath, target: c.target, source: c.source, operation: c.operation, fingerprint: c.fingerprint }));
-  return (mode === 'remove' ? removeTree : applyTree)({ changes: treeChanges });
+  const writes = treeChanges.filter((c) => c.operation !== 'remove');
+  const removals = treeChanges.filter((c) => c.operation === 'remove');
+  const applied = writes.length ? applyTree({ changes: writes }).applied : 0;
+  const removed = removals.length ? removeTree({ changes: removals }).removed : 0;
+  return { applied, removed };
 }
 
 // ---- instructions component ----

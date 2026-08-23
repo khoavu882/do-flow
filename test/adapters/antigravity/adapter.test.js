@@ -120,3 +120,31 @@ test('MCP removal deletes only DoFlow-owned servers; foreign ones survive byte-f
   assert.ok(!Object.prototype.hasOwnProperty.call(after.mcpServers, ownedId));
   assert.deepEqual(after.mcpServers['foreign-thing'], { command: '/bin/true' }, 'a foreign server is never swept');
 });
+
+test('rules and workflows are workspace-scope only, landing under .agents/, and remove actually deletes', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const root = scratch();
+  const input = harnessInput(registry, { scope: 'project', scopeRoot: root });
+  const planned = adapter.plan(input);
+  assert.ok(planned.changes.some((c) => c.target === path.join(root, '.agents', 'rules', 'RULE_01_SAFETY.md')), 'workspace rules land under .agents/rules');
+  assert.ok(planned.changes.some((c) => c.target === path.join(root, '.agents', 'workflows', 'do-flow-chain.md')), 'the chain workflow lands under .agents/workflows');
+  adapter.apply({ ...input, changes: planned.changes });
+  assert.ok(fs.existsSync(path.join(root, '.agents', 'workflows', 'do-flow-chain.md')));
+
+  // Regression guard: a removal plan routed through applyTree (which skips operation:'remove')
+  // used to delete nothing while verification correctly refused to journal it.
+  const ledgerAfterInstall = { resources: verifiedResources(adapter, input) };
+  const removalPlan = adapter.plan({ ...input, context: { ...(input.context ?? {}), operation: 'remove' }, ledger: ledgerAfterInstall });
+  adapter.apply({ ...input, changes: removalPlan.changes });
+  assert.ok(!fs.existsSync(path.join(root, '.agents', 'workflows', 'do-flow-chain.md')), 'remove must delete projected workflow files');
+
+  const globalHome = scratch();
+  const globalPlanned = adapter.plan(harnessInput(registry, { scope: 'global', scopeRoot: globalHome }));
+  assert.ok(!globalPlanned.changes.some((c) => c.target.includes('.agents/rules') || c.target.includes('.agents/workflows')),
+    'neither rules nor workflows have a documented user-scope home');
+});
+
+function verifiedResources(adapt, input) {
+  const v = adapt.verify(input);
+  return (v.resources || []).map((r) => ({ ...r, harness: 'antigravity', kind: r.kind || 'copy-tree-file' }));
+}

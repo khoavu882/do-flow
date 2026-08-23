@@ -495,6 +495,62 @@
           "layout": "instructions-md"
         }
       }
+    },
+    {
+      "id": "output-styles.claude",
+      "kind": "guidance",
+      "source": "core/shared/guidance/modes",
+      "appliesTo": [
+        "claude"
+      ],
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "claude": "output-styles"
+      },
+      "projection": {
+        "claude": {
+          "renderer": "claude-output-styles",
+          "capability": "modes",
+          "layout": "doflow-output-style",
+          "transform": "claude-output-styles"
+        }
+      }
+    },
+    {
+      "id": "rules.antigravity",
+      "kind": "guidance",
+      "source": "core/shared/guidance/rules",
+      "appliesTo": [
+        "antigravity"
+      ],
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "antigravity": "rules"
+      },
+      "projection": {
+        "antigravity": {
+          "renderer": "copy-tree",
+          "capability": "instructions"
+        }
+      }
+    },
+    {
+      "id": "workflows.antigravity",
+      "kind": "template",
+      "source": "core/shared/workflows",
+      "appliesTo": [
+        "antigravity"
+      ],
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "antigravity": "workflows"
+      },
+      "projection": {
+        "antigravity": {
+          "renderer": "copy-tree",
+          "capability": "templates"
+        }
+      }
     }
   ]
 }
