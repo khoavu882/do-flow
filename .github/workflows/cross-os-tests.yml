@@ -22,11 +22,10 @@ jobs:
     #   - install-shapes/failure-hooks execute POSIX shell scripts (the dispatcher/locator and
     #     hook fixtures) whose behavior under Git Bash/MSYS path translation cannot be asserted
     #     deterministically;
-    #   - the sanitized-PATH fixture builds symlinks, which needs privileges Windows runners
-    #     do not grant.
-    # Stabilizing those means reworking the fixtures to spawn through an explicit interpreter,
-    # tracked by the Windows-gate issue; until then keep this leg non-blocking.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    # Windows went green after the win32 portability pass (#40/#42: bash-spawn interpreter
+    # wrapper, native-separator expectations, MSYS arg-conversion guards) and is now a required
+    # gate like every other OS. The verify-hooks.sh step below keeps its own documented flag —
+    # that suite has pre-existing fixture divergences unrelated to OS portability.
     strategy:
       fail-fast: false
       matrix:

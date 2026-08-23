@@ -28,3 +28,4 @@ nav:
   - Distribution notes: distribution-notes.md
   - Architecture: architecture.md
   - Refactor plan: refactor-plan.md
+  - Orchestrator spec: specs/orchestrator-context-modes.md
