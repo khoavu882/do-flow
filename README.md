@@ -8,7 +8,7 @@ workflows, and safer defaults — projected from one source, so the eight never 
 flowchart LR
     R[One DoFlow source] --> C[Claude Code]
     R --> X[Codex]
-    R --> G[Gemini / Antigravity]
+    R --> G[Gemini CLI]
     R --> O[OpenCode]
     R --> P[Pi]
     R --> CP[Copilot CLI]
@@ -16,7 +16,8 @@ flowchart LR
     R --> A[Antigravity CLI]
     C --> H[Hooks + MCP + skills]
     X --> S[AGENTS.md + skills]
-    G --> A[Shared guidance]
+    G --> GM[GEMINI.md + skills]
+    A --> AG[AGENTS.md + .agents tree]
     O --> S
     P --> S
     CP --> CI[copilot-instructions.md + skills]
@@ -110,12 +111,12 @@ Use `/do-flow "add a customer export"` to run the same sequence with its approva
 |---|---|
 | Claude Code | Full integration: skills, agents, hooks, MCP registration, session context, and rules |
 | Codex | `AGENTS.md`, skills at `.agents/skills/`, scripts, templates, rules, agents, hooks, and references |
-| Gemini / Antigravity | `GEMINI.md`, rules, agents, modes, skills, hooks, and references |
+| Gemini CLI | `GEMINI.md`, rules, agents, modes, skills, hooks, and references |
+| Antigravity CLI (`agy`) | Managed `AGENTS.md` section (project), skills at `.agents/skills/`, shared agents, the runtime locator, and MCP in `.agents/mcp_config.json` / `~/.gemini/config/mcp_config.json` |
 | OpenCode | `AGENTS.md`, skills discovered at `.opencode/skills/` (project) or `~/.config/opencode/skills/` (global), and `opencode.json` configuration |
 | Pi Coding Agent | `AGENTS.md`, skills discovered at `.pi/skills/` (project) or `~/.pi/agent/skills/` (global), and `pi-mcp-adapter` MCP integration |
 | GitHub Copilot CLI | `.github/copilot-instructions.md` (project scope only), skills at `.agents/skills/`, agents at `.github/agents/`, and MCP registered in `.mcp.json` |
 | Kiro | Steering files under `.kiro/steering/`, skills at `.kiro/skills/`, agents at `.kiro/agents/`, hooks at `.kiro/hooks/`, and MCP registered in `.kiro/settings/mcp.json` |
-| Antigravity CLI (`agy`) | Managed `AGENTS.md` section (project), skills at `.agents/skills/`, shared agents, the runtime locator, and MCP registered in `.agents/mcp_config.json` / `~/.gemini/config/mcp_config.json` |
 
 Codex hooks are installed as `hooks.json` but require review/trust in Codex before they run.
 Gemini hooks merge into a `hooks` key inside `settings.json` (never a full-file replace) and are
