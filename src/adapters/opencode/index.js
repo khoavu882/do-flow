@@ -14,15 +14,17 @@
 // https://opencode.ai/docs/rules
 const fs = require('node:fs');
 const path = require('node:path');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, fingerprint, readJson, sourceDirFor, resolveTransform } = require('../copy-tree');
 
 // Only the marker constants: marker-merge.js reads and writes files itself, which cannot be used
 // from plan(), whose contract is to compute changes without touching disk. The gemini adapter
 // solves this the same way, with a pure managedInstruction() over strings.
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
+const { destructiveCommandGlobs } = require('../../helper/guardrails');
 
 const HARNESS = 'opencode';
 const CONFIG_FILE = 'opencode.json';
+const PERMISSIONS_OWNER = 'doflow:guardrails';
 const INSTRUCTION_FILE = 'AGENTS.md';
 
 /**
@@ -101,6 +103,36 @@ function unmergeConfig(existing, { mcpServers = [] } = {}) {
  * policy the gemini adapter applies to GEMINI.md, and for the same reason: AGENTS.md is a shared,
  * cross-tool file, so where DoFlow's content belongs inside it is a decision for its owner, not a
  * guess for the installer. Add an empty marker pair to opt in. */
+/** Opt-in (--permissions) guardrail projection: DoFlow's destructive-command blocklist lands as
+ * deny rules under permission.bash. Only keys this feature owns (each carries a matching
+ * comment-free glob we can re-derive) are touched; a user's own bash rules survive untouched.
+ * Entries are namespaced by value, not by key, so ownership is decided by re-deriving the list
+ * from the single authored source rather than by trusting whatever happens to be present. */
+function guardrailBashRules(context) {
+  const globs = destructiveCommandGlobs({ repoRoot: context.repoRoot });
+  return Object.fromEntries(globs.map((glob) => [glob, 'deny']));
+}
+
+function mergeGuardrails(existing, context) {
+  const next = { ...(existing || {}) };
+  const bash = { ...guardrailBashRules(context), ...((next.permission?.bash ?? {})) };
+  // Keep user rules, but make sure ours win for identical globs (they are the stricter value).
+  next.permission = { ...(next.permission ?? {}), bash };
+  return next;
+}
+
+function stripGuardrails(existing, context) {
+  if (!existing?.permission?.bash) return existing;
+  const ours = new Set(Object.keys(guardrailBashRules(context)));
+  const bash = Object.fromEntries(Object.entries(existing.permission.bash).filter(([glob]) => !ours.has(glob)));
+  const permission = { ...existing.permission };
+  if (Object.keys(bash).length) permission.bash = bash; else delete permission.bash;
+  if (Object.keys(permission).length) return { ...existing, permission };
+  const { permission: _dropped, ...rest } = existing;
+  void _dropped;
+  return rest;
+}
+
 function managedInstruction(existing, rendered) {
   if (existing === null) return { ok: true, operation: 'create', content: rendered };
   const start = existing.indexOf(MARKER_START);
@@ -125,16 +157,30 @@ function strippedInstruction(existing) {
 
 // ---- copy-tree assets (skills) ----
 
+/** `agents.shared` projects onto OpenCode through its own renderer name (its frontmatter is
+ * transformed into OpenCode's markdown-agent vocabulary) but materialises with exactly the same
+ * engine and change records as every other copy-tree asset. */
+function opencodeTreeAssets(assets) {
+  return [...copyTreeAssets(assets), ...(assets || []).filter((asset) => asset.renderer === 'opencode-agents')];
+}
+
+/** Agents live under `.opencode/agents/` at project scope and `~/.config/opencode/agents/`
+ * globally — a different root from the skills tree in both scopes, so they get their own
+ * destination resolution rather than reusing copyTreeConfigDir. */
+function agentsDestDir(scope, paths) {
+  return scope === 'global' ? path.join(paths.configDir, 'agents') : path.join(paths.root, '.opencode', 'agents');
+}
+
 function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing, fsImpl = fs }) {
   const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir });
   const treeConfigDir = copyTreeConfigDir(scope, paths);
   const changes = [];
   const conflicts = [];
-  for (const asset of copyTreeAssets(assets)) {
-    const destDir = copyTreeDestDir(treeConfigDir, asset);
+  for (const asset of opencodeTreeAssets(assets)) {
+    const destDir = asset.renderer === 'opencode-agents' ? agentsDestDir(scope, paths) : copyTreeDestDir(treeConfigDir, asset);
     const sourceDir = sourceDirFor(asset, context, fsImpl, 'OpenCode');
     const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout });
+    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, transform: asset.transform });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const change of result.changes) {
       changes.push({
@@ -142,7 +188,8 @@ function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removin
         ownershipIdentity: `doflow:${HARNESS}:copy-tree:${asset.id}:${change.relPath}`,
         kind: 'copy-tree-file', identity: change.relPath,
         afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: 'registry-v1',
-        projection: { renderer: 'copy-tree' },
+        transformName: asset.transform || null,
+        projection: { renderer: asset.renderer },
       });
     }
   }
@@ -150,13 +197,22 @@ function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removin
 }
 
 function applyCopyTreeAssets(changes, { fsImpl = fs } = {}) {
-  const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation !== 'remove')
-    .map((change) => ({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint }));
-  return applyTree({ changes: treeChanges, fsImpl }).applied;
+  let applied = 0;
+  const grouped = new Map();
+  for (const change of changes) {
+    if (change.kind !== 'copy-tree-file' || change.operation === 'remove') continue;
+    const key = change.transformName || null;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint });
+  }
+  for (const [transformName, treeChanges] of grouped) {
+    applied += applyTree({ changes: treeChanges, fsImpl, transform: resolveTransform(transformName) }).applied;
+  }
+  return applied;
 }
 
 function removeCopyTreeAssets(changes, { fsImpl = fs } = {}) {
-  const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove')
+  const treeChanges = changes.filter((change) => change.kind === 'copy-tree-file' && change.operation === 'remove')
     .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
   return removeTree({ changes: treeChanges, fsImpl }).removed;
 }
@@ -167,20 +223,20 @@ function verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl = fs }
   const statuses = [];
   const resources = [];
   const conflicts = [];
-  for (const asset of copyTreeAssets(assets)) {
-    const destDir = copyTreeDestDir(treeConfigDir, asset);
+  for (const asset of opencodeTreeAssets(assets)) {
+    const destDir = asset.renderer === 'opencode-agents' ? agentsDestDir(scope, paths) : copyTreeDestDir(treeConfigDir, asset);
     const sourceDir = sourceDirFor(asset, context, fsImpl, 'OpenCode');
-    const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout });
+    const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, transform: asset.transform });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const resource of result.resources) {
       resources.push({
         assetId: asset.id, target: resource.target, ownershipIdentity: `doflow:${HARNESS}:copy-tree:${asset.id}:${resource.relPath}`,
         kind: 'copy-tree-file', identity: resource.relPath,
         fingerprint: resource.fingerprint, sourceVersion: 'registry-v1',
-        projection: { renderer: 'copy-tree' },
+        projection: { renderer: asset.renderer },
       });
     }
-    statuses.push({ assetId: asset.id, capability: asset.capability, status: result.ok ? 'managed' : 'conflict', target: destDir });
+    statuses.push({ harness: HARNESS, assetId: asset.id, capability: asset.capability, status: result.ok ? 'managed' : 'conflict', target: destDir });
   }
   return { statuses, resources, conflicts };
 }
@@ -221,7 +277,12 @@ function plan({ scope, scopeRoot, assets = [], mcp = [], context = {}, ledger, f
 
   if (!found.config.error) {
     const current = found.config.value || {};
-    const next = removing ? unmergeConfig(current, { mcpServers: mcp }) : mergeConfig(current, { mcpServers: mcp });
+    let next = removing ? unmergeConfig(current, { mcpServers: mcp }) : mergeConfig(current, { mcpServers: mcp });
+    // Opt-in (--permissions): fold the destructive-command deny list into the same single write
+    // so a run never produces two competing rewrites of one JSON file.
+    if (context.permissions && !found.config.error) {
+      next = removing ? stripGuardrails(next, context) : mergeGuardrails(next, context);
+    }
     if (JSON.stringify(next) !== JSON.stringify(current)) {
       changes.push({ assetId: pseudoAssetId(assets), target: found.paths.config,
         // Tagged 'remove' during a remove operation (rather than always 'update'/'create') so this
@@ -250,7 +311,7 @@ function apply({ changes = [], fsImpl = fs }) {
   let applied = 0;
   for (const change of changes) {
     if (change.operation === 'remove') continue;
-    if (change.projection?.renderer === 'copy-tree') continue;
+    if (change.kind === 'copy-tree-file') continue; // routed through applyCopyTreeAssets below
     writeChange(change, fsImpl);
     applied += 1;
   }
@@ -262,7 +323,7 @@ function remove({ changes = [], fsImpl = fs }) {
   let removed = 0;
   for (const change of changes) {
     if (change.operation !== 'remove') continue;
-    if (change.projection?.renderer === 'copy-tree') continue;
+    if (change.kind === 'copy-tree-file') continue; // routed through removeCopyTreeAssets below
     if (change.content === null) continue;
     writeChange(change, fsImpl);
     removed += 1;
@@ -307,6 +368,13 @@ function verify({ scope, scopeRoot, assets = [], mcp = [], context = {}, fsImpl 
     for (const server of missingMcp) {
       statuses.push({ harness: HARNESS, assetId: pseudoAssetId(assets), capability: 'mcp', status: 'missing',
         identity: server.id, target: found.paths.config });
+    }
+    if (context.permissions) {
+      const ours = guardrailBashRules(context);
+      const projected = Object.entries(ours).every(([glob, effect]) => value.permission?.bash?.[glob] === effect);
+      statuses.push({ harness: HARNESS, assetId: pseudoAssetId(assets), capability: 'settings',
+        status: context.operation === 'remove' ? (projected ? 'retained' : 'absent') : (projected ? 'managed' : 'missing'),
+        ownershipIdentity: `${HARNESS}:guardrails:permissions`, target: found.paths.config });
     }
   }
 

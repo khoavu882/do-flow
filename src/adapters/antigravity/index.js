@@ -32,6 +32,82 @@ function readJsonObject(file, { fsImpl = fs } = {}) {
 // Precedent: Codex rides its pointer asset's id for every managed row (instructions-section and
 // mcp-server alike). The antigravity projection shares that same pointer asset, so its rows do too.
 const POINTER_ASSET_ID = 'guidance.codex-pointer';
+const HOOKS_ASSET_ID = 'hooks.antigravity';
+const HOOKS_GROUP = 'doflow-pre-implementation-gate';
+// Antigravity's documented file-mutation tools (docs/hooks, Supported Tools) — the exact set the
+// gate is meaningful for.
+const GATE_MATCHER = 'write_to_file|replace_file_content|multi_replace_file_content';
+
+/** Build DoFlow's hooks.json group from the projected script's on-disk location. Absolute command
+ * path: the docs' own examples use relative ./scripts paths whose resolution base is not stated,
+ * and an absolute path is unambiguous for a per-workspace install. */
+function hookGroup(command) {
+  return { PreToolUse: [{ matcher: GATE_MATCHER, hooks: [{ type: 'command', command }] }] };
+}
+
+function planHooks({ paths, scope, neutralResources, removing, fsImpl = fs }) {
+  const changes = [];
+  const conflicts = [];
+  if (scope !== 'project') {
+    // The shim resolves the workspace via git; a user-scope hooks.json would fire against every
+    // project including non-git ones. Project-only until a documented user story exists.
+    return { changes, conflicts };
+  }
+  const target = path.join(paths.configDir, 'hooks.json');
+  const scriptSource = sourceDirFor({ source: 'core/harnesses/antigravity/hooks' }, { repoRoot: process.cwd() }, fsImpl, HARNESS);
+  const scriptTarget = path.join(paths.configDir, 'hooks', 'pre-implementation-gate.sh');
+
+  const previousHookRows = (neutralResources || []).filter((r) => r.harness === HARNESS && r.assetId === HOOKS_ASSET_ID && r.kind === 'hooks-json');
+  const previousScriptRows = (neutralResources || []).filter((r) => r.harness === HARNESS && r.assetId === HOOKS_ASSET_ID && r.kind === 'copy-tree-file');
+  const docRow = previousHookRows.find((r) => r.target === target);
+  const scriptRow = previousScriptRows.find((r) => r.identity === 'pre-implementation-gate.sh');
+
+  if (removing) {
+    if (docRow || fsImpl.existsSync(target)) {
+      changes.push({ assetId: HOOKS_ASSET_ID, target, operation: 'remove',
+        ownershipIdentity: `${HARNESS}:hooks:registration`, kind: 'hooks-json',
+        fingerprint: fingerprint('{}'), managed: null,
+        projection: { renderer: 'antigravity-hooks' } });
+    }
+    if (scriptRow && fsImpl.existsSync(scriptTarget)) {
+      const current = sha256File(fsImpl, scriptTarget);
+      if (current === scriptRow.fingerprint) {
+        changes.push({ assetId: HOOKS_ASSET_ID, target: scriptTarget, source: path.join(scriptSource, 'pre-implementation-gate.sh'),
+          operation: 'remove', ownershipIdentity: `${HARNESS}:copy-tree:${HOOKS_ASSET_ID}:pre-implementation-gate.sh`,
+          kind: 'copy-tree-file', identity: 'pre-implementation-gate.sh',
+          fingerprint: current, projection: { renderer: 'antigravity-hooks' } });
+      }
+    }
+    return { changes, conflicts };
+  }
+
+  // Script first: the JSON references it, so apply order must never leave a dangling reference.
+  const scriptText = fsImpl.readFileSync(path.join(scriptSource, 'pre-implementation-gate.sh'), 'utf8');
+  const scriptFp = fingerprint(scriptText);
+  if (!fsImpl.existsSync(scriptTarget) || sha256File(fsImpl, scriptTarget) !== scriptFp) {
+    changes.push({ assetId: HOOKS_ASSET_ID, target: scriptTarget, source: path.join(scriptSource, 'pre-implementation-gate.sh'),
+      operation: fsImpl.existsSync(scriptTarget) ? 'update' : 'create',
+      ownershipIdentity: `${HARNESS}:copy-tree:${HOOKS_ASSET_ID}:pre-implementation-gate.sh`,
+      kind: 'copy-tree-file', identity: 'pre-implementation-gate.sh',
+      afterFingerprint: scriptFp, fingerprint: scriptFp,
+      _text: scriptText, projection: { renderer: 'antigravity-hooks' } });
+  }
+
+  const currentDoc = readJsonObject(target, { fsImpl }) ?? {};
+  const next = { ...currentDoc, [HOOKS_GROUP]: hookGroup(scriptTarget) };
+  if (JSON.stringify(next) !== JSON.stringify(currentDoc)) {
+    changes.push({ assetId: HOOKS_ASSET_ID, target, operation: fsImpl.existsSync(target) ? 'update' : 'create',
+      content: `${JSON.stringify(next, null, 2)}\n`,
+      ownershipIdentity: `${HARNESS}:hooks:registration`, kind: 'hooks-json',
+      fingerprint: fingerprint(next), harness: HARNESS,
+      projection: { renderer: 'antigravity-hooks' } });
+  }
+  return { changes, conflicts };
+}
+
+function sha256File(fsImpl, file) {
+  return require('node:crypto').createHash('sha256').update(fsImpl.readFileSync(file)).digest('hex');
+}
 
 /** Native paths per scope. Global config lives at ~/.gemini/config (shared-customization root);
  * project customization lives at <root>/.agents. */
@@ -91,7 +167,16 @@ function treeDestFor(asset, paths, scope) {
   const nativeDir = asset.nativeDir;
   if (!nativeDir) return null;
   if (asset.id === 'skills.doflow') {
+    // Project-only: the user-scope skills format contradiction is unresolved upstream. The
+    // registry's own nativeDir (.agents/skills) is root-relative, so this joins the ROOT.
     return scope === 'project' ? path.join(paths.root, nativeDir) : null;
+  }
+  if (asset.id === 'rules.antigravity' || asset.id === 'workflows.antigravity') {
+    // Workspace-scope surfaces under .agents/: Antigravity documents workspace rules
+    // (.agents/rules) and workflows (.agents/workflows) with no user-scope home — a global
+    // install deliberately projects neither rather than guessing one. These nativeDirs are
+    // config-relative.
+    return scope === 'project' ? path.join(paths.configDir, nativeDir) : null;
   }
   if (asset.id === 'agents.shared') {
     return scope === 'project' ? path.join(paths.root, nativeDir) : path.join(paths.configDir, 'agents');
@@ -116,7 +201,7 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
   for (const { asset, destDir } of targets) {
     const sourceDir = sourceDirFor(asset, { repoRoot }, fsImpl, HARNESS);
     const previousResources = ledgerFileResources(neutralResources, HARNESS, asset.id);
-    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl });
+    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const change of result.changes) {
       changes.push({
@@ -132,10 +217,40 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
 }
 
 function runTreeChanges(changes, mode) {
+  // Route by what each change IS, not by which verb invoked us: remove() delegates here with a
+  // plan full of operation:'remove' changes, and applyTree deliberately skips those — so routing
+  // everything through one engine call silently deleted nothing (verification then correctly
+  // refused to journal the no-op). Writes go to applyTree, removals to removeTree, always.
+  void mode;
   const treeChanges = changes
-    .filter((c) => c.projection?.renderer === 'copy-tree' && (mode === 'all' || c.operation === 'remove'))
-    .map((c) => ({ relPath: c.identity ?? c.relPath, target: c.target, source: c.source, operation: c.operation, fingerprint: c.fingerprint }));
-  return (mode === 'remove' ? removeTree : applyTree)({ changes: treeChanges });
+    .filter((c) => c.projection?.renderer === 'copy-tree' || c.kind === 'copy-tree-file')
+    .map((c) => ({ relPath: c.identity ?? c.relPath, target: c.target,
+      source: c._text ? undefined : c.source, operation: c.operation,
+      fingerprint: c.fingerprint, ...(c._text ? { _text: c._text } : {}) }));
+  // Content-managed tree files (hook scripts): write rendered text with +x, not a byte copy.
+  for (const t of treeChanges) {
+    if (t._text === undefined) continue;
+    if (t.operation === 'remove') { fs.rmSync(t.target, { force: true }); continue; }
+    fs.mkdirSync(path.dirname(t.target), { recursive: true });
+    fs.writeFileSync(t.target, t._text);
+    fs.chmodSync(t.target, 0o755);
+  }
+  return {
+    applied: 0, removed: 0,
+    ...(function () {
+      const plain = treeChanges.filter((t) => t._text === undefined);
+      const writes = plain.filter((c) => c.operation !== 'remove');
+      const removals = plain.filter((c) => c.operation === 'remove');
+      const applied = writes.length ? applyTree({ changes: writes }).applied : 0;
+      const removed = removals.length ? removeTree({ changes: removals }).removed : 0;
+      return { applied, removed };
+    })(),
+  };
+  const writes = treeChanges.filter((c) => c.operation !== 'remove');
+  const removals = treeChanges.filter((c) => c.operation === 'remove');
+  const applied = writes.length ? applyTree({ changes: writes }).applied : 0;
+  const removed = removals.length ? removeTree({ changes: removals }).removed : 0;
+  return { applied, removed };
 }
 
 // ---- instructions component ----
@@ -263,9 +378,10 @@ function plan(options = {}, impl = {}) {
   const instructions = planInstructions({ paths, assets: options.assets, removing, repoRoot: context.repoRoot, fsImpl });
   const trees = planTrees({ assets: options.assets, paths, scope, neutralResources, removing, repoRoot: context.repoRoot, fsImpl });
   const mcp = planMcp({ paths, selectedServers, neutralResources, removing, fsImpl });
+  const hooksPlan = planHooks({ paths, scope, neutralResources, removing, fsImpl });
 
-  const changes = [...instructions.changes, ...trees.changes, ...mcp.changes];
-  const conflicts = [...instructions.conflicts, ...trees.conflicts];
+  const changes = [...instructions.changes, ...trees.changes, ...mcp.changes, ...hooksPlan.changes];
+  const conflicts = [...instructions.conflicts, ...trees.conflicts, ...hooksPlan.conflicts];
   return {
     changes,
     conflicts,
@@ -292,7 +408,31 @@ function apply(options = {}, impl = {}) {
     fsImpl.mkdirSync(path.dirname(change.target), { recursive: true });
     fsImpl.writeFileSync(change.target, change._content ?? render({ content: '' }), 'utf8');
   }
+  for (const change of changes.filter((c) => c.projection?.renderer === 'antigravity-hooks')) {
+    if (change.kind === 'copy-tree-file') continue;          // handled by runTreeChanges below
+    if (change.operation === 'remove') {
+      // Unmerge only DoFlow's group; a user's own hook groups survive.
+      if (!fsImpl.existsSync(change.target)) continue;
+      let doc = readJsonObject(change.target, { fsImpl });
+      if (!doc) continue;
+      delete doc[HOOKS_GROUP];
+      if (Object.keys(doc).length === 0) fsImpl.rmSync(change.target, { force: true });
+      else { const tmp = `${change.target}.${process.pid}.tmp`;
+        fsImpl.writeFileSync(tmp, `${JSON.stringify(doc, null, 2)}\n`, 'utf8'); fsImpl.renameSync(tmp, change.target); }
+      continue;
+    }
+    if (change.content !== undefined) {
+      fsImpl.mkdirSync(path.dirname(change.target), { recursive: true });
+      const tmp = `${change.target}.${process.pid}.tmp`;
+      fsImpl.writeFileSync(tmp, change.content, 'utf8'); fsImpl.renameSync(tmp, change.target);
+    }
+  }
+  // Projected hook scripts ride the copy-tree engine (kind copy-tree-file), but their renderer is
+  // ours; teach the tree router to include them.
   runTreeChanges(changes, 'all');
+
+  // Script writes carry pre-rendered text (_text) because they are content-managed, not mirrored:
+  // execute them after the generic tree pass so the executable bit lands last and survives.
 
   const mcpTargets = new Set(changes.filter((c) => c.projection?.renderer === 'antigravity-mcp').map((c) => c.target));
   for (const target of mcpTargets) {
@@ -356,7 +496,7 @@ function verify(options = {}, impl = {}) {
     const destDir = treeDestFor(asset, paths, scope);
     if (!destDir) continue;
     const sourceDir = sourceDirFor(asset, { repoRoot: context.repoRoot }, fsImpl, HARNESS);
-    const result = verifyTree({ sourceDir, destDir, fsImpl });
+    const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout });
     conflictsToStatuses(result.conflicts, asset.id, statuses);
     for (const resource of result.resources) {
       resources.push({
@@ -385,8 +525,43 @@ function verify(options = {}, impl = {}) {
     }
   }
 
+  // Hooks projection (project scope): the script's bytes and the registered group.
+  if (scope === 'project') {
+    const hooksTarget = path.join(paths.configDir, 'hooks.json');
+    const scriptTarget = path.join(paths.configDir, 'hooks', 'pre-implementation-gate.sh');
+    const scriptSource = path.join(path.resolve(registryRepoRoot(options)), 'core', 'harnesses', 'antigravity', 'hooks', 'pre-implementation-gate.sh');
+    const removingOp = (context.operation ?? options.operation ?? '') === 'remove';
+    let scriptFp = null;
+    try { scriptFp = sha256File(fsImpl, scriptSource); } catch { /* checkout without the shim */ }
+    const currentScript = fsImpl.existsSync(scriptTarget) ? sha256File(fsImpl, scriptTarget) : null;
+    const doc = readJsonObject(hooksTarget, { fsImpl });
+    const group = doc?.[HOOKS_GROUP];
+    const expectedCommand = scriptTarget;
+    const groupOk = Boolean(group?.PreToolUse?.[0]?.hooks?.[0]?.command)
+      && group.PreToolUse[0].hooks[0].command === expectedCommand
+      && group.PreToolUse[0].matcher === GATE_MATCHER;
+    statuses.push({ assetId: HOOKS_ASSET_ID, capability: 'hooks', status:
+      removingOp ? ((currentScript === null || currentScript === scriptFp) && !groupOk ? 'absent' : 'retained')
+        : (currentScript !== null && currentScript === scriptFp && groupOk ? 'managed' : (currentScript === null ? 'absent' : 'missing')),
+      ownershipIdentity: `${HARNESS}:hooks:registration`, target: hooksTarget });
+    if (!removingOp && currentScript !== null && currentScript === scriptFp && groupOk) {
+      resources.push({ assetId: HOOKS_ASSET_ID, target: hooksTarget,
+        ownershipIdentity: `${HARNESS}:hooks:registration`, kind: 'hooks-json',
+        fingerprint: fingerprint(JSON.stringify(doc)), sourceVersion: 'registry-v1',
+        projection: { renderer: 'antigravity-hooks' } });
+      resources.push({ assetId: HOOKS_ASSET_ID, target: scriptTarget,
+        ownershipIdentity: `${HARNESS}:copy-tree:${HOOKS_ASSET_ID}:pre-implementation-gate.sh`,
+        kind: 'copy-tree-file', identity: 'pre-implementation-gate.sh', fingerprint: scriptFp,
+        sourceVersion: 'registry-v1', projection: { renderer: 'antigravity-hooks' } });
+    }
+  }
+
   const conflicts = statuses.filter((s) => s.status === 'conflict').map((s) => s.reason ?? s.identity);
   return { ok: conflicts.length === 0, statuses, resources, conflicts };
+}
+
+function registryRepoRoot(options) {
+  return options.registry?.repoRoot ?? process.cwd();
 }
 
 function conflictsToStatuses(conflicts, assetId, statuses) {

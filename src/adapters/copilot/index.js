@@ -24,7 +24,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeDestDir, ledgerFileResources, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeDestDir, ledgerFileResources, fingerprint, readJson, sourceDirFor, resolveTransform } = require('../copy-tree');
 
 const HARNESS = 'copilot';
 const INSTRUCTION_FILE = 'copilot-instructions.md';
@@ -44,10 +44,14 @@ function nativePaths({ scope, scopeRoot, homeDir }) {
   const root = scope === 'global' ? path.resolve(homeDir || scopeRoot) : path.resolve(scopeRoot);
   const skillsConfigDir = path.join(root, '.agents');
   const agentsConfigDir = scope === 'global' ? path.join(root, '.copilot') : path.join(root, '.github');
+  // Path-specific instructions read from .github/instructions/ (repo) and ~/.copilot/instructions/
+  // (personal) — the same asymmetry as the agents dir, for the same reason.
+  const ruleInstructionsConfigDir = agentsConfigDir;
   return {
     root,
     skillsConfigDir,
     agentsConfigDir,
+    ruleInstructionsConfigDir,
     skills: path.join(skillsConfigDir, 'skills'),
     agents: path.join(agentsConfigDir, 'agents'),
     instruction: scope === 'global' ? null : path.join(root, '.github', INSTRUCTION_FILE),
@@ -107,7 +111,9 @@ function strippedInstruction(existing) {
  * mirroring how other adapters skip a capability with no native equivalent for a given scope. */
 function planInstructionsChange({ assets, found, context, removing, fsImpl }) {
   if (!found.paths.instruction) return { changes: [], conflicts: [] };
-  const guidance = assets.find((asset) => asset.capability === 'instructions');
+  // The marker-managed instruction file is one specific asset: exclude tree-projected rule
+  // assets (copilot-rule-instructions), whose `source` is a directory, not a file.
+  const guidance = assets.find((asset) => asset.capability === 'instructions' && asset.renderer !== 'copilot-rule-instructions');
   if (!guidance) return { changes: [], conflicts: [] };
   const outcome = removing
     ? { ok: true, operation: 'remove', content: strippedInstruction(found.instruction) }
@@ -154,7 +160,7 @@ function planTreeAssets({ assets, renderer, destRoot, layout, context, ledger, r
     const destDir = copyTreeDestDir(destRoot, asset);
     const sourceDir = sourceDirFor(asset, context, fsImpl, 'Copilot');
     const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: layout || asset.layout });
+    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: layout || asset.layout, transform: asset.transform });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const change of result.changes) {
       changes.push({
@@ -162,6 +168,7 @@ function planTreeAssets({ assets, renderer, destRoot, layout, context, ledger, r
         ownershipIdentity: `doflow:${HARNESS}:copy-tree:${asset.id}:${change.relPath}`,
         kind: 'copy-tree-file', identity: change.relPath,
         afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: 'registry-v1',
+        transformName: asset.transform || null,
         projection: { renderer: 'copy-tree' },
       });
     }
@@ -170,9 +177,18 @@ function planTreeAssets({ assets, renderer, destRoot, layout, context, ledger, r
 }
 
 function applyCopyTreeAssets(changes, { fsImpl = fs } = {}) {
-  const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation !== 'remove')
-    .map((change) => ({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint }));
-  return applyTree({ changes: treeChanges, fsImpl }).applied;
+  let applied = 0;
+  const grouped = new Map();
+  for (const change of changes) {
+    if (change.projection?.renderer !== 'copy-tree' || change.operation === 'remove') continue;
+    const key = change.transformName || null;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint });
+  }
+  for (const [transformName, treeChanges] of grouped) {
+    applied += applyTree({ changes: treeChanges, fsImpl, transform: resolveTransform(transformName) }).applied;
+  }
+  return applied;
 }
 
 function removeCopyTreeAssets(changes, { fsImpl = fs } = {}) {
@@ -188,7 +204,7 @@ function verifyTreeAssets({ assets, renderer, destRoot, layout, context, fsImpl 
   for (const asset of treeAssetsFor(assets, renderer)) {
     const destDir = copyTreeDestDir(destRoot, asset);
     const sourceDir = sourceDirFor(asset, context, fsImpl, 'Copilot');
-    const result = verifyTree({ sourceDir, destDir, fsImpl, layout: layout || asset.layout });
+    const result = verifyTree({ sourceDir, destDir, fsImpl, layout: layout || asset.layout, transform: asset.transform });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const resource of result.resources) {
       resources.push({
@@ -251,6 +267,10 @@ function plan({ scope, scopeRoot, assets = [], mcp = [], context = {}, ledger, f
   changes.push(...agents.changes);
   conflicts.push(...agents.conflicts);
 
+  const rules = planTreeAssets({ assets, renderer: 'copilot-rule-instructions', destRoot: found.paths.ruleInstructionsConfigDir, context, ledger, removing, fsImpl });
+  changes.push(...rules.changes);
+  conflicts.push(...rules.conflicts);
+
   if (found.mcp.error) {
     conflicts.push(found.mcp.error);
   } else {
@@ -310,7 +330,9 @@ function verify({ scope, scopeRoot, assets = [], mcp = [], context = {}, fsImpl 
   const conflicts = [];
 
   if (found.paths.instruction) {
-    const guidance = assets.find((asset) => asset.capability === 'instructions');
+    // The marker-managed instruction file is one specific asset: exclude tree-projected rule
+  // assets (copilot-rule-instructions), whose `source` is a directory, not a file.
+  const guidance = assets.find((asset) => asset.capability === 'instructions' && asset.renderer !== 'copilot-rule-instructions');
     const hasSection = typeof found.instruction === 'string' && found.instruction.includes(MARKER_START) && found.instruction.includes(MARKER_END);
     const assetId = guidance?.id ?? 'guidance.codex-pointer';
     statuses.push({ harness: HARNESS, assetId, capability: 'instructions',
@@ -332,6 +354,11 @@ function verify({ scope, scopeRoot, assets = [], mcp = [], context = {}, fsImpl 
   resources.push(...agents.resources);
   statuses.push(...agents.statuses);
   conflicts.push(...agents.conflicts);
+
+  const rules = verifyTreeAssets({ assets, renderer: 'copilot-rule-instructions', destRoot: found.paths.ruleInstructionsConfigDir, context, fsImpl });
+  resources.push(...rules.resources);
+  statuses.push(...rules.statuses);
+  conflicts.push(...rules.conflicts);
 
   if (found.mcp.error) {
     conflicts.push(found.mcp.error);

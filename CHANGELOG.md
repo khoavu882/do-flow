@@ -15,6 +15,17 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in installer flags: `--permissions` projects the destructive-command blocklist into OpenCode's `permission.bash` (derived from the single authored Claude deny list); `--statusline` projects `doflow-statusline.sh` plus the managed `statusLine` key for Claude Code.
+- Antigravity native hooks: the pre-implementation gate ships as a documented-contract shim registered under `.agents/hooks.json`; `hooks.antigravity` capability moves different -> supported.
+
+### Fixed
+
+- Antigravity removal never deleted copy-tree files (`runTreeChanges` routed removals through applyTree); verification now journals real deletions.
+- Antigravity was not installable end-to-end: lifecycle policy mappings, dir-per-file agent layout, and adapter layout passthrough all landed.
+- Registry truth corrections from official-docs research: copilot settings supported / plugin different, opencode agents supported, codex PermissionRequest prose.
+
 ### Changed
 
 - Documentation site now uses the Dracula theme (`mkdocs-dracula-theme`); `mkdocs build --strict` is unchanged otherwise.

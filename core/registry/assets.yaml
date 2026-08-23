@@ -168,7 +168,8 @@
         "gemini",
         "copilot",
         "kiro",
-        "antigravity"
+        "antigravity",
+        "opencode"
       ],
       "projection": {
         "claude": {
@@ -194,7 +195,13 @@
         },
         "antigravity": {
           "renderer": "copy-tree",
-          "capability": "agents"
+          "capability": "agents",
+          "layout": "dir-per-file:agent.md"
+        },
+        "opencode": {
+          "renderer": "opencode-agents",
+          "capability": "agents",
+          "transform": "opencode-agents"
         }
       },
       "ownership": "managed-tree",
@@ -204,7 +211,8 @@
         "gemini": "agents",
         "copilot": "agents",
         "kiro": "agents",
-        "antigravity": ".agents/agents"
+        "antigravity": ".agents/agents",
+        "opencode": "agents"
       }
     },
     {
@@ -467,6 +475,100 @@
         }
       },
       "ownership": "managed-file"
+    },
+    {
+      "id": "instructions.copilot",
+      "kind": "instructions",
+      "source": "core/shared/guidance/rules",
+      "appliesTo": [
+        "copilot"
+      ],
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "copilot": "instructions"
+      },
+      "projection": {
+        "copilot": {
+          "renderer": "copilot-rule-instructions",
+          "capability": "instructions",
+          "transform": "copilot-rule-instructions",
+          "layout": "instructions-md"
+        }
+      }
+    },
+    {
+      "id": "output-styles.claude",
+      "kind": "guidance",
+      "source": "core/shared/guidance/modes",
+      "appliesTo": [
+        "claude"
+      ],
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "claude": "output-styles"
+      },
+      "projection": {
+        "claude": {
+          "renderer": "claude-output-styles",
+          "capability": "modes",
+          "layout": "doflow-output-style",
+          "transform": "claude-output-styles"
+        }
+      }
+    },
+    {
+      "id": "rules.antigravity",
+      "kind": "guidance",
+      "source": "core/shared/guidance/rules",
+      "appliesTo": [
+        "antigravity"
+      ],
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "antigravity": "rules"
+      },
+      "projection": {
+        "antigravity": {
+          "renderer": "copy-tree",
+          "capability": "instructions"
+        }
+      }
+    },
+    {
+      "id": "workflows.antigravity",
+      "kind": "template",
+      "source": "core/shared/workflows",
+      "appliesTo": [
+        "antigravity"
+      ],
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "antigravity": "workflows"
+      },
+      "projection": {
+        "antigravity": {
+          "renderer": "copy-tree",
+          "capability": "templates"
+        }
+      }
+    },
+    {
+      "id": "hooks.antigravity",
+      "kind": "hooks",
+      "source": "core/harnesses/antigravity/hooks",
+      "appliesTo": [
+        "antigravity"
+      ],
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "antigravity": "hooks"
+      },
+      "projection": {
+        "antigravity": {
+          "renderer": "antigravity-hooks",
+          "capability": "hooks"
+        }
+      }
     }
   ]
 }

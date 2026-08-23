@@ -10,7 +10,7 @@ const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = re
 const { selectMcpServers } = require('../../registry');
 const { GLOBAL_HOOK_PREFIX, PROJECT_HOOK_PREFIX } = require('../../helper/settings-scope');
 const { mergeSettings, settingsContains, settingsContainsAny, stripManagedSettings } = require('../../helper/settings-merge');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, resolveTransform } = require('../copy-tree');
 
 const INSTRUCTION_RENDERER = 'claude-instructions';
 const SETTINGS_RENDERER = 'claude-settings';
@@ -65,15 +65,22 @@ function discover({ scope, scopeRoot, context = {}, registry }) {
 
 // ---- copy-tree assets (rules, skills, agents, templates, scripts, modes, references, hooks) ----
 
+/** Every asset materialised through the copy-tree engine, whatever its declared renderer:
+ * verbatim mirrors declare 'copy-tree', transformed projections (output styles) declare their
+ * own name so the registry can tell the shapes apart. Routing is on `kind`, which both share. */
+function claudeTreeAssets(assets) {
+  return [...copyTreeAssets(assets), ...(assets || []).filter((asset) => asset.renderer === 'claude-output-styles')];
+}
+
 function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing }) {
   const paths = nativePaths({ scope, scopeRoot });
   const changes = [];
   const conflicts = [];
-  for (const asset of copyTreeAssets(assets)) {
+  for (const asset of claudeTreeAssets(assets)) {
     const destDir = copyTreeDestDir(paths.configDir, asset);
     const sourceDir = sourcePath(asset, context);
     const previousResources = ledgerFileResources(ledger?.resources, 'claude', asset.id);
-    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', layout: asset.layout });
+    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', layout: asset.layout, transform: asset.transform });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const change of result.changes) {
       changes.push({
@@ -81,6 +88,7 @@ function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removin
         ownershipIdentity: `doflow:claude:copy-tree:${asset.id}:${change.relPath}`,
         kind: 'copy-tree-file', identity: change.relPath,
         afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: 'registry-v1',
+        transformName: asset.transform || null,
         projection: { renderer: 'copy-tree' },
       });
     }
@@ -89,13 +97,22 @@ function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removin
 }
 
 function applyCopyTreeAssets(changes) {
-  const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation !== 'remove')
-    .map((change) => ({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint }));
-  return applyTree({ changes: treeChanges }).applied;
+  let applied = 0;
+  const grouped = new Map();
+  for (const change of changes) {
+    if (change.kind !== 'copy-tree-file' || change.operation === 'remove') continue;
+    const key = change.transformName || null;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint });
+  }
+  for (const [transformName, treeChanges] of grouped) {
+    applied += applyTree({ changes: treeChanges, transform: resolveTransform(transformName) }).applied;
+  }
+  return applied;
 }
 
 function removeCopyTreeAssets(changes) {
-  const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove')
+  const treeChanges = changes.filter((change) => change.kind === 'copy-tree-file' && change.operation === 'remove')
     .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
   return removeTree({ changes: treeChanges }).removed;
 }
@@ -105,10 +122,10 @@ function verifyCopyTreeAssets({ assets, scope, scopeRoot, context }) {
   const statuses = [];
   const resources = [];
   const conflicts = [];
-  for (const asset of copyTreeAssets(assets)) {
+  for (const asset of claudeTreeAssets(assets)) {
     const destDir = copyTreeDestDir(paths.configDir, asset);
     const sourceDir = sourcePath(asset, context);
-    const result = verifyTree({ sourceDir, destDir, layout: asset.layout });
+    const result = verifyTree({ sourceDir, destDir, layout: asset.layout, transform: asset.transform });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const resource of result.resources) {
       resources.push({
@@ -137,6 +154,23 @@ function settingsLedgerResources(ledger, assetId) {
   }
   return byFile;
 }
+const statuslineScriptName = 'doflow-statusline.sh';
+
+/** Inject (or leave untouched) the statusLine key pointing at the projected script. Refuses to
+ * overwrite a user's existing custom status line unless forced: their script is theirs. */
+function withStatusLineKey(rawSettingsJson, scriptPath, force) {
+  let parsed;
+  try {
+    parsed = JSON.parse(rawSettingsJson);
+  } catch {
+    return rawSettingsJson; // malformed authored settings are another guard's problem
+  }
+  const existing = parsed.statusLine?.command;
+  if (existing && existing !== scriptPath && !force) return rawSettingsJson;
+  parsed.statusLine = { type: 'command', command: scriptPath };
+  return serializeSettings(parsed);
+}
+
 const settingsChangeExtras = (fileName) => ({ kind: 'settings-file', identity: fileName });
 // Single serialization form for every settings write, so repeated runs are byte-stable.
 const serializeSettings = (value) => `${JSON.stringify(value, null, 2)}\n`;
@@ -165,12 +199,25 @@ function planSettingsAsset({ assets, scope, scopeRoot, context, ledger, removing
         managed: settingsContent(fileName, fs.readFileSync(sourceAbs, 'utf8'), scope),
         projection: { renderer: SETTINGS_RENDERER } });
     }
+    if (previous.get(statuslineScriptName)) {
+      changes.push({ assetId: asset.id, target: path.join(paths.configDir, statuslineScriptName),
+        operation: 'remove', ownershipIdentity: 'doflow:claude:statusline',
+        ...settingsChangeExtras(statuslineScriptName), fingerprint: previous.get(statuslineScriptName).fingerprint,
+        managed: null, projection: { renderer: SETTINGS_RENDERER } });
+    }
     return { changes, conflicts };
   }
   for (const fileName of SETTINGS_FILES) {
     const sourceAbs = path.join(sourceDir, fileName);
     if (!fs.existsSync(sourceAbs)) continue;
-    const managedRaw = settingsContent(fileName, fs.readFileSync(sourceAbs, 'utf8'), scope);
+    let managedRaw = settingsContent(fileName, fs.readFileSync(sourceAbs, 'utf8'), scope);
+    if (fileName === 'settings.json' && context.statusline && !removing) {
+      // --statusline: point Claude Code's statusLine key at the projected script. It rides the
+      // same managed settings write as everything else this asset owns — one serialization, one
+      // fingerprint, one ownership row.
+      const scriptTarget = path.join(paths.configDir, statuslineScriptName);
+      managedRaw = withStatusLineKey(managedRaw, scriptTarget, Boolean(context.force));
+    }
     const target = settingsTarget(fileName, paths);
     const prev = previous.get(fileName);
     // Both the fresh-install and merge paths emit re-serialized JSON so the on-disk bytes are
@@ -206,6 +253,25 @@ function planSettingsAsset({ assets, scope, scopeRoot, context, ledger, removing
       ownershipIdentity: `doflow:claude:settings:${fileName}`, ...settingsChangeExtras(fileName),
       afterFingerprint: fingerprint, fingerprint, sourceVersion: 'registry-v1',
       projection: { renderer: SETTINGS_RENDERER } });
+  }
+
+  if (context.statusline) {
+    const scriptSource = path.join(path.dirname(sourceDir), 'statusline', statuslineScriptName);
+    if (fs.existsSync(scriptSource)) {
+      const target = path.join(paths.configDir, statuslineScriptName);
+      const content = fs.readFileSync(scriptSource, 'utf8');
+      const fingerprint = sha256(content);
+      const prev = previous.get(statuslineScriptName);
+      const operation = !prev ? 'create' : (fs.existsSync(target) && sha256(fs.readFileSync(target, 'utf8')) === fingerprint ? null : 'update');
+      // A byte-identical script is a no-op — but the settings key above still needed its merge
+      // pass, so only the file write is skipped, never the change record's bookkeeping.
+      if (operation) {
+        changes.push({ assetId: asset.id, target, source: scriptSource, content, operation,
+          ownershipIdentity: 'doflow:claude:statusline', ...settingsChangeExtras(statuslineScriptName),
+          afterFingerprint: fingerprint, fingerprint, sourceVersion: 'registry-v1',
+          projection: { renderer: SETTINGS_RENDERER } });
+      }
+    }
   }
   return { changes, conflicts };
 }
@@ -296,6 +362,29 @@ function verifySettingsAsset({ assets, scope, scopeRoot, context }) {
     statuses.push({ assetId: asset.id, capability: 'settings', status: 'managed', target });
     resources.push({ assetId: asset.id, target, ownershipIdentity: `doflow:claude:settings:${fileName}`,
       ...settingsChangeExtras(fileName), fingerprint, sourceVersion: 'registry-v1', projection: { renderer: SETTINGS_RENDERER } });
+  }
+  if (context.statusline) {
+    const target = path.join(paths.configDir, statuslineScriptName);
+    const scriptSource = path.join(path.dirname(sourceDir), 'statusline', statuslineScriptName);
+    if (!fs.existsSync(scriptSource)) {
+      conflicts.push('doflow-statusline.sh source is missing from this checkout');
+      statuses.push({ assetId: asset.id, capability: 'settings', status: 'conflict', target });
+    } else {
+      const expected = sha256(fs.readFileSync(scriptSource, 'utf8'));
+      const current = fs.existsSync(target) ? sha256(fs.readFileSync(target, 'utf8')) : null;
+      if (current === null || (current !== expected && !(context.operation === 'remove'))) {
+        statuses.push({ assetId: asset.id, capability: 'settings', status: current === null ? 'absent' : 'missing',
+          ownershipIdentity: 'doflow:claude:statusline', target });
+      } else {
+        statuses.push({ assetId: asset.id, capability: 'settings', status: current === expected ? 'managed' : 'absent',
+          ownershipIdentity: 'doflow:claude:statusline', target });
+        if (current === expected) {
+          resources.push({ assetId: asset.id, target, ownershipIdentity: 'doflow:claude:statusline',
+            ...settingsChangeExtras(statuslineScriptName), fingerprint: expected,
+            sourceVersion: 'registry-v1', projection: { renderer: SETTINGS_RENDERER } });
+        }
+      }
+    }
   }
   return { statuses, resources, conflicts };
 }

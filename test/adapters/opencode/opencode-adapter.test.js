@@ -186,3 +186,44 @@ test('remove is a no-op on a foreign AGENTS.md that DoFlow never owned', () => {
   assert.equal(instructionChange, undefined);
   assert.equal(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), '# Personal instructions\n');
 });
+
+test('agents.shared projects transformed OpenCode markdown agents and reclaims them on remove', () => {
+  const root = scratch(); const adapter = createOpenCodeAdapter();
+  const specsDir = path.join(root, 'specs');
+  fs.mkdirSync(specsDir, { recursive: true });
+  fs.writeFileSync(path.join(specsDir, 'spec-analyst.md'),
+    '---\nname: spec-analyst\ndescription: "Requirements specialist"\ntools: Read, Grep\nmodel: inherit\neffort: high\n---\n\n# spec-analyst\n');
+  fs.writeFileSync(path.join(specsDir, 'core-implementer.md'),
+    '---\nname: core-implementer\ndescription: "Implementation specialist"\n---\n\n# core-implementer\n');
+  const assets = [{
+    id: 'agents.shared', kind: 'agents', source: 'specs',
+    renderer: 'opencode-agents', capability: 'agents',
+    nativeDir: 'agents', layout: null, transform: 'opencode-agents',
+  }];
+
+  const planned = adapter.plan({ scope: 'project', scopeRoot: root, assets, context: { repoRoot: root }, ledger: null });
+  const agentChanges = planned.changes.filter((c) => c.assetId === 'agents.shared' && c.kind === 'copy-tree-file');
+  assert.equal(agentChanges.length, 2);
+  assert.ok(agentChanges.every((c) => c.target.startsWith(path.join(root, '.opencode', 'agents'))),
+    'agents materialise under .opencode/agents at project scope');
+
+  adapter.apply({ changes: planned.changes });
+  const analyst = fs.readFileSync(path.join(root, '.opencode', 'agents', 'spec-analyst.md'), 'utf8');
+  assert.match(analyst, /^---\ndescription: "Requirements specialist"\nmode: subagent\npermission:\n  edit: deny\n  bash: deny\n---/);
+  assert.doesNotMatch(analyst, /tools:|model:|effort:/, 'spec vocabulary OpenCode does not define must not leak through');
+  const implementer = fs.readFileSync(path.join(root, '.opencode', 'agents', 'core-implementer.md'), 'utf8');
+  assert.match(implementer, /mode: subagent/);
+  assert.doesNotMatch(implementer, /permission:/, 'the write-capable archetype inherits host defaults');
+
+  const verified = adapter.verify({ scope: 'project', scopeRoot: root, assets, context: { repoRoot: root } });
+  const agentStatus = verified.statuses.find((s) => s.assetId === 'agents.shared' && s.capability === 'agents');
+  assert.equal(agentStatus.status, 'managed');
+
+  const removalPlan = adapter.plan({ scope: 'project', scopeRoot: root, assets, context: { repoRoot: root, operation: 'remove' }, ledger: verifiedLedger(verified) , removing: true });
+  adapter.remove({ changes: removalPlan.changes });
+  assert.equal(fs.readdirSync(path.join(root, '.opencode', 'agents')).length, 0, 'remove reclaims every projected agent');
+});
+
+function verifiedLedger(verified) {
+  return { resources: verified.resources.map((r) => ({ ...r, harness: 'opencode', kind: r.kind || 'copy-tree-file' })) };
+}

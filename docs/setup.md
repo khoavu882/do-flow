@@ -196,6 +196,12 @@ doflow rollback -g install_YYYY-MM-DD_HH-MM-SS
 
 # Preview any command without writing.
 doflow install --dry-run -g --target codex
+
+# Opt-in projections (both default OFF):
+doflow install -g --permissions --target opencode   # destructive-command deny rules in opencode.json
+doflow install -g --statusline --target claude      # doflow-statusline.sh + managed statusLine key
+
+# Remove accepts the same flags so it can identify exactly what to strip.
 ```
 
 Every normal install creates a backup. `--no-backup` requires `--force`; use it only when the
@@ -230,7 +236,7 @@ and a no-op update leaves the lock byte-untouched.
 | Skills | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓
 | Scripts and templates | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓
 | Modes | ✓ | Native mode unavailable | Guidance projection | Guidance projection | Guidance projection | Guidance projection | Guidance projection (steering) | Guidance projection
-| Hooks and settings | ✓ | Hooks require trust/review; settings differ | Hooks merge into settings.json, require trust/review; some events unmapped | No hook projection (plugin module required); settings supported via `opencode.json` | No hook projection (extension module required); settings supported via `settings.json` | No documented hook or general settings surface | Hooks supported via `.kiro/hooks/`, no trust/review gate; no general settings file beyond MCP | Unavailable — projects into Gemini-compatible surfaces instead |
+| Hooks and settings | ✓ | Hooks require trust/review; settings differ | Hooks merge into settings.json, require trust/review; some events unmapped | No hook projection (plugin module required); settings supported via `opencode.json` | No hook projection (extension module required); settings supported via `settings.json` | Hooks documented upstream but not projected (Claude-payload coupling); settings supported via named-key merge into `.github/copilot/settings.json` | Hooks supported via `.kiro/hooks/`, no trust/review gate; no general settings file beyond MCP | Unavailable — projects into Gemini-compatible surfaces instead |
 | MCP registration | ✓ | ✓ | Native registration differs | ✓ (`opencode.json`) | Delegated to the separate `pi-mcp-adapter` extension, not written by DoFlow | ✓ (`.mcp.json` / `mcp-config.json`) | ✓ (`.kiro/settings/mcp.json`) | ✓ (`.agents/mcp_config.json` / `~/.gemini/config/mcp_config.json`) |
 
 This is a capability contract, not a statement that every native surface is active after copying
@@ -294,7 +300,7 @@ populated. In Pi, verify `AGENTS.md` and the `skills[]` array in `settings.json`
 verify the managed section in `.github/copilot-instructions.md`, skill discovery under
 `.agents/skills/`, and any registered MCP servers. In Kiro, verify the projected steering files
 under `.kiro/steering/`, skill discovery under `.kiro/skills/`, and hook files under `.kiro/hooks/`.
-In Antigravity, verify the managed section in `AGENTS.md`, skill discovery under `.agents/skills/`,
+In Antigravity, additionally verify `.agents/hooks/pre-implementation-gate.sh` is executable and `.agents/hooks.json` registers it. In Antigravity, verify the managed section in `AGENTS.md`, skill discovery under `.agents/skills/`,
 and any registered MCP servers in `.agents/mcp_config.json` (project) or
 `~/.gemini/config/mcp_config.json` (global).
 

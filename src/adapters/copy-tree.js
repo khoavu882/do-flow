@@ -37,6 +37,20 @@ const LAYOUTS = {
     const ext = path.extname(sourceRel);
     return path.join(sourceRel.slice(0, sourceRel.length - ext.length), `agent${ext || '.md'}`);
   },
+  /** `RULE_01_SAFETY.md` -> `RULE_01_SAFETY.instructions.md` — GitHub's path-specific
+   * instructions are discovered by their `.instructions.md` suffix. */
+  'instructions-md': (sourceRel) => {
+    const ext = path.extname(sourceRel);
+    return `${sourceRel.slice(0, sourceRel.length - ext.length)}.instructions.md`;
+  },
+  /** `MODE_Orchestration.md` -> `doflow-orchestration.md` — Claude's /config picker lists
+   * output styles by file name; the doflow- prefix keeps DoFlow's styles grouped and
+   * non-colliding with anything a user authors by hand. */
+  'doflow-output-style': (sourceRel) => {
+    const ext = path.extname(sourceRel);
+    const base = path.basename(sourceRel, ext).replace(/^MODE_/i, '').replace(/_/g, '-').toLowerCase();
+    return `doflow-${base}${ext || '.md'}`;
+  },
 };
 
 /** Resolve a declared layout name to its mapper. Unknown names fail loudly rather than silently
@@ -48,18 +62,99 @@ function resolveLayout(name) {
   return layout;
 }
 
+/** Destination content transforms. Where a harness reads a supported but different file FORMAT
+ * than the shared source authors (Copilot's path-specific instructions require an `applyTo`
+ * frontmatter header; OpenCode's markdown agents want their own frontmatter vocabulary), the
+ * projection declares a named transform instead of an adapter branching on bytes. A transform is
+ * a pure function of (sourceRelPath, sourceBytes) -> Buffer: deterministic, so the fingerprint
+ * planTree records is the fingerprint verifyTree re-derives and removeTree re-checks, and so
+ * applyTree can re-derive the written bytes from the untouched source at any later retry.
+ * @type {Record<string, (sourceRel: string, content: Buffer) => Buffer>}
+ */
+const TRANSFORMS = {
+  /** Shared mode doc -> Claude output style with name/description/keep-coding-instructions */
+  'claude-output-styles': renderClaudeOutputStyle,
+  /** `<rule>.md` -> `<rule>.instructions.md` body under a Copilot applyTo header */
+  'copilot-rule-instructions': (sourceRel, content) => {
+    void sourceRel;
+    return Buffer.from(`---\napplyTo: '**'\n---\n\n${stripFrontmatter(content.toString('utf8'))}`);
+  },
+  /** Shared agent spec frontmatter -> OpenCode's markdown-agent vocabulary */
+  'opencode-agents': (sourceRel, content) => {
+    void sourceRel;
+    return Buffer.from(renderOpencodeAgent(content.toString('utf8')));
+  },
+};
+
+function resolveTransform(name) {
+  if (!name) return null;
+  const transform = TRANSFORMS[name];
+  if (!transform) throw new Error(`Unknown copy-tree transform '${name}' (known: ${Object.keys(TRANSFORMS).join(', ')})`);
+  return transform;
+}
+
+function stripFrontmatter(text) {
+  if (!text.startsWith('---')) return text;
+  const end = text.indexOf('\n---', 3);
+  if (end === -1) return text;
+  return text.slice(end + 4).replace(/^\n+/, '');
+}
+
+/** Wrap a shared mode document as a Claude output style: system-prompt modifiers keep the
+ * built-in engineering instructions (these styles shape HOW DoFlow works, not WHETHER Claude
+ * codes). The description is lifted from the document's first `**Purpose**` line so the /config
+ * picker explains each style without opening it. */
+function renderClaudeOutputStyle(sourceRel, content) {
+  const text = Buffer.isBuffer(content) ? content.toString('utf8') : String(content);
+  const base = path.basename(sourceRel).replace(/\.[^.]+$/, '').replace(/^MODE_/i, '').replace(/_/g, ' ');
+  const purpose = text.match(/\*\*Purpose\*\*[:*]*\s*(.+)?/);
+  const description = (purpose && purpose[1] ? purpose[1] : `DoFlow ${base} mode`).trim().replace(/\s+/g, ' ');
+  return ['---', `name: DoFlow: ${base}`, `description: ${JSON.stringify(description)}`, 'keep-coding-instructions: true', '---', '', text.replace(/\n*$/, ''), ''].join('\n');
+}
+
+const OPENCODE_READONLY_AGENTS = new Set(['spec-analyst', 'system-architect', 'quality-guardian', 'research-writer']);
+
+/** Map one core/shared agent-spec file onto OpenCode's documented markdown-agent frontmatter
+ * (description / mode / permission; model omitted because OpenCode has no 'inherit'). Unknown
+ * spec keys (tools, effort) are dropped rather than passed through, so OpenCode never sees
+ * vocabulary it does not define. Body below the frontmatter passes through untouched. */
+function renderOpencodeAgent(text) {
+  const fm = {};
+  let body = text;
+  if (text.startsWith('---')) {
+    const end = text.indexOf('\n---', 3);
+    if (end !== -1) {
+      for (const line of text.slice(4, end).split('\n')) {
+        const m = line.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/);
+        if (m) fm[m[1]] = m[2].trim().replace(/^"|"$/g, '');
+      }
+      body = text.slice(end + 4).replace(/^\n+/, '');
+    }
+  }
+  const lines = ['---'];
+  if (fm.description) lines.push(`description: ${JSON.stringify(fm.description)}`);
+  lines.push('mode: subagent');
+  if (OPENCODE_READONLY_AGENTS.has(fm.name)) {
+    lines.push('permission:', '  edit: deny', '  bash: deny');
+  }
+  lines.push('---', '', body.replace(/\n*$/, ''), '');
+  return lines.join('\n');
+}
+
 /** List every source file with its would-be destination and content fingerprint. Does not touch
  * the destination tree beyond checking existence. `relPath` is destination-relative and doubles as
  * the ledger identity, so a layout change relocates the recorded resource too — planTree's
  * relocation handling then removes the old path rather than orphaning it. */
-function discoverTree({ sourceDir, destDir, fsImpl = fs, layout }) {
+function discoverTree({ sourceDir, destDir, fsImpl = fs, layout, transform }) {
   if (!fsImpl.existsSync(sourceDir)) throw new Error(`copy-tree source is missing: ${sourceDir}`);
   const mapRel = typeof layout === 'function' ? layout : resolveLayout(layout);
+  const mapContent = typeof transform === 'function' ? transform : resolveTransform(transform);
   const files = walkRelFiles(sourceDir, fsImpl).map((sourceRel) => {
     const relPath = mapRel(sourceRel);
     const sourceAbs = path.join(sourceDir, sourceRel);
     const destAbs = path.join(destDir, relPath);
-    return { relPath, sourceAbs, destAbs, exists: fsImpl.existsSync(destAbs), fingerprint: sha256(fsImpl.readFileSync(sourceAbs)) };
+    const raw = fsImpl.readFileSync(sourceAbs);
+    return { relPath, sourceAbs, destAbs, exists: fsImpl.existsSync(destAbs), fingerprint: sha256(mapContent ? mapContent(sourceRel, raw) : raw) };
   });
   return { files };
 }
@@ -73,7 +168,7 @@ function discoverTree({ sourceDir, destDir, fsImpl = fs, layout }) {
  * `operation: 'remove'` skips the source tree entirely and only proposes removals for every
  * previously-owned file, mirroring Codex's `ownedRemovalPlan`.
  */
-function planTree({ sourceDir, destDir, previousResources = [], operation = 'apply', fsImpl = fs, layout, force = false }) {
+function planTree({ sourceDir, destDir, previousResources = [], operation = 'apply', fsImpl = fs, layout, transform, force = false }) {
   const prevByPath = new Map(previousResources.map((resource) => [resource.relPath, resource]));
   const changes = [];
   const conflicts = [];
@@ -86,7 +181,7 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
   const sourceFingerprint = (destAbs) => {
     if (sourceByDest === undefined) {
       sourceByDest = sourceDir && fsImpl.existsSync(sourceDir)
-        ? new Map(discoverTree({ sourceDir, destDir, fsImpl, layout }).files.map((file) => [file.destAbs, file.fingerprint]))
+        ? new Map(discoverTree({ sourceDir, destDir, fsImpl, layout, transform }).files.map((file) => [file.destAbs, file.fingerprint]))
         : new Map();
     }
     return sourceByDest.get(destAbs);
@@ -121,7 +216,7 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
     return { changes, conflicts };
   }
 
-  const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout });
+  const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout, transform });
   const satisfiedAtSameLocation = new Set();
   for (const file of files) {
     const prev = prevByPath.get(file.relPath);
@@ -167,14 +262,23 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
  * bit survives the copy without a separate chmod pass) and mtime, matching this codebase's
  * general convention for a lifecycle-owned write (see src/adapters/claude/index.js's
  * applySettingsAsset for the same pattern applied to a transformed-content file). */
-function applyTree({ changes = [], fsImpl = fs }) {
+function applyTree({ changes = [], fsImpl = fs, transform }) {
+  const mapContent = typeof transform === 'function' ? transform : resolveTransform(transform);
   let applied = 0;
   for (const change of changes) {
     if (change.operation === 'remove') continue;
     fsImpl.mkdirSync(path.dirname(change.target), { recursive: true });
-    fsImpl.copyFileSync(change.source, change.target);
     const sourceStat = fsImpl.statSync(change.source);
-    fsImpl.chmodSync(change.target, sourceStat.mode & 0o777);
+    if (mapContent) {
+      // Re-derive the bytes from the source at write time instead of copying it: the transform,
+      // not the source file, is what the recorded fingerprint describes. Keeps recovery retries
+      // correct without ever persisting rendered content in state.
+      fsImpl.writeFileSync(change.target, mapContent(path.basename(change.source), fsImpl.readFileSync(change.source)));
+      fsImpl.chmodSync(change.target, sourceStat.mode & 0o777);
+    } else {
+      fsImpl.copyFileSync(change.source, change.target);
+      fsImpl.chmodSync(change.target, sourceStat.mode & 0o777);
+    }
     fsImpl.utimesSync(change.target, Math.floor(sourceStat.atimeMs / 1000), Math.floor(sourceStat.mtimeMs / 1000));
     applied += 1;
   }
@@ -215,8 +319,8 @@ function pruneEmptyAncestors(startDir, { fsImpl = fs } = {}) {
 }
 
 /** Re-derive ownership resources from what's actually on disk right now, for status/verify. */
-function verifyTree({ sourceDir, destDir, fsImpl = fs, layout }) {
-  const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout });
+function verifyTree({ sourceDir, destDir, fsImpl = fs, layout, transform }) {
+  const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout, transform });
   const resources = [];
   const conflicts = [];
   for (const file of files) {
@@ -283,4 +387,4 @@ function ledgerFileResources(resources, harness, assetId) {
     .map((resource) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
-module.exports = { discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, resolveLayout, LAYOUTS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };
+module.exports = { discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, resolveLayout, LAYOUTS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };
