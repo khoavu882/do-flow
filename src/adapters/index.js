@@ -62,6 +62,7 @@ function projectAdapterInput({ registry, harness, scope, scopeRoot, assets = [],
       // Optional destination shape for copy-tree assets. Null for every projection that mirrors
       // source paths, which is all of them except Antigravity's directory-per-agent requirement.
       layout: projection.layout ?? null,
+      transform: projection.transform ?? null,
       prerequisites: [...(capability.prerequisites || [])],
     });
   };

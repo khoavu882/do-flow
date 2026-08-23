@@ -168,7 +168,8 @@
         "gemini",
         "copilot",
         "kiro",
-        "antigravity"
+        "antigravity",
+        "opencode"
       ],
       "projection": {
         "claude": {
@@ -196,6 +197,11 @@
           "renderer": "copy-tree",
           "capability": "agents",
           "layout": "dir-per-file:agent.md"
+        },
+        "opencode": {
+          "renderer": "opencode-agents",
+          "capability": "agents",
+          "transform": "opencode-agents"
         }
       },
       "ownership": "managed-tree",
@@ -205,7 +211,8 @@
         "gemini": "agents",
         "copilot": "agents",
         "kiro": "agents",
-        "antigravity": ".agents/agents"
+        "antigravity": ".agents/agents",
+        "opencode": "agents"
       }
     },
     {
@@ -468,6 +475,26 @@
         }
       },
       "ownership": "managed-file"
+    },
+    {
+      "id": "instructions.copilot",
+      "kind": "instructions",
+      "source": "core/shared/guidance/rules",
+      "appliesTo": [
+        "copilot"
+      ],
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "copilot": "instructions"
+      },
+      "projection": {
+        "copilot": {
+          "renderer": "copilot-rule-instructions",
+          "capability": "instructions",
+          "transform": "copilot-rule-instructions",
+          "layout": "instructions-md"
+        }
+      }
     }
   ]
 }

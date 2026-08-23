@@ -321,3 +321,35 @@ test('invalid mcp json blocks planning but never mutates the file', () => {
   assert.match(planned.conflicts[0], /Invalid JSON/);
   assert.equal(fs.readFileSync(path.join(root, '.mcp.json'), 'utf8'), '{ broken');
 });
+
+test('rules project as .github/instructions/*.instructions.md with applyTo headers, and remove reclaims them', () => {
+  const root = scratch(); const adapter = createCopilotAdapter();
+  const rulesDir = path.join(root, 'rules');
+  fs.mkdirSync(rulesDir, { recursive: true });
+  fs.writeFileSync(path.join(rulesDir, 'RULE_01_SAFETY.md'), '# Safety Rules\n\nnever compromise security\n');
+  const assets = [{
+    id: 'instructions.copilot', kind: 'instructions', source: 'rules',
+    renderer: 'copilot-rule-instructions', capability: 'instructions',
+    nativeDir: 'instructions', layout: 'instructions-md', transform: 'copilot-rule-instructions',
+  }];
+
+  const planned = adapter.plan({ scope: 'project', scopeRoot: root, assets, context: { repoRoot: root }, ledger: null });
+  const ruleChanges = planned.changes.filter((c) => c.kind === 'copy-tree-file');
+  assert.equal(ruleChanges.length, 1);
+  assert.equal(ruleChanges[0].target, path.join(root, '.github', 'instructions', 'RULE_01_SAFETY.instructions.md'));
+  assert.equal(ruleChanges[0].transformName, 'copilot-rule-instructions');
+
+  adapter.apply({ changes: planned.changes });
+  const onDisk = fs.readFileSync(ruleChanges[0].target, 'utf8');
+  assert.match(onDisk, /^---\napplyTo: '\*\*'\n---\n\n# Safety Rules/);
+
+  const verified = adapter.verify({ scope: 'project', scopeRoot: root, assets, context: { repoRoot: root } });
+  const status = verified.statuses.find((s) => s.assetId === 'instructions.copilot');
+  assert.equal(status.status, 'managed');
+
+  const removal = adapter.plan({ scope: 'project', scopeRoot: root, assets, context: { repoRoot: root, operation: 'remove' }, ledger: { resources: verified.resources.map((r) => ({ ...r, harness: 'copilot', kind: 'copy-tree-file' })) } });
+  adapter.remove({ changes: removal.changes });
+  const instructionsDir = path.join(root, '.github', 'instructions');
+  assert.ok(!fs.existsSync(instructionsDir) || fs.readdirSync(instructionsDir).length === 0,
+    'remove reclaims every projected rule file');
+});
