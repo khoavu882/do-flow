@@ -15,6 +15,11 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Documentation site now uses the Dracula theme (`mkdocs-dracula-theme`); `mkdocs build --strict` is unchanged otherwise.
+- Docs brought in line with the eight-harness registry: Antigravity added to the overview/index diagrams, guide's environment table, setup's capability/path/verify tables, and the capability map's runtime-seam, verification, and evidence sections; "seven harnesses" counts corrected everywhere. Fixed a duplicate-node-id bug in README's mermaid diagram.
+
 ## [1.0.1] - 2026-08-22
 
 ### Changed — MCP selection defaults to none for non-interactive installs
