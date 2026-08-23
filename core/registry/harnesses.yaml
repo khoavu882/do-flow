@@ -1015,32 +1015,32 @@
           "verification": "Report the capability gap; never write that file."
         },
         "hooks": {
-          "status": "different",
+          "status": "supported",
           "evidence": [
-            "https://antigravity.google/docs/hooks"
+            "https://antigravity.google/docs/hooks/"
           ],
-          "note": "Keyed-by-event named-hook map (.agents/hooks.json or ~/.gemini/config/hooks.json) whose blocking contract is stdout JSON {decision}, unlike DoFlow's exit-code scripts. Nothing wired until translated shims exist.",
+          "note": "Antigravity documents a full hook surface (2026): hooks.json in the customization directory (.agents/ workspace, ~/.gemini/config/ user), named groups per event, PreToolUse/PostToolUse/PreInvocation/PostInvocation/Stop, and an explicit stdin/stdout contract (PreToolUse returns {decision: allow|deny|ask|force_ask|...}, Stop returns {decision: continue}). Unlike Copilot's, this contract is complete enough to project against without a live-session capture. DoFlow wires its pre-implementation gate as a native-payload shim; events with no matching DoFlow policy stay unwired.",
           "verification": "Report that no Antigravity hook is installed.",
           "events": {
             "PreToolUse": {
-              "status": "different",
-              "note": "Native matcher+stdout-decision model differs from Claude-style payloads."
+              "status": "supported",
+              "note": "DoFlow projects its pre-implementation gate as a native shim: matcher write_to_file|replace_file_content|multi_replace_file_content, deny decision until the branch-coupled feature's three specifications exist."
             },
             "PostToolUse": {
               "status": "different",
-              "note": "Native postToolUse can rewrite results; not projected."
-            },
-            "Stop": {
-              "status": "different",
-              "note": "decision:continue re-enters the loop rather than blocking a stop."
-            },
-            "PostInvocation": {
-              "status": "different",
-              "note": "terminationBehavior terminate|force_continue; no neutral equivalent."
+              "note": "Documented (post-edit lint candidate), not projected yet."
             },
             "PreInvocation": {
               "status": "different",
-              "note": "No neutral equivalent."
+              "note": "Documented step-injection point; no current DoFlow policy needs model-call interception."
+            },
+            "PostInvocation": {
+              "status": "different",
+              "note": "Documented (terminationBehavior control); no current DoFlow policy maps to it."
+            },
+            "Stop": {
+              "status": "different",
+              "note": "Documented continue-decision matches stop-check semantics; projection deferred until the shim can consume transcriptPath with verified field semantics."
             }
           }
         },

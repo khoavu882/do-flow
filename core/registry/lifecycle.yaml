@@ -84,8 +84,8 @@
           "status": "supported"
         },
         "antigravity": {
-          "status": "unavailable",
-          "fallback": "guidance"
+          "event": "PreToolUse",
+          "status": "supported"
         }
       }
     },

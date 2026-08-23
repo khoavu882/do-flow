@@ -97,6 +97,8 @@ function parseArgs(argv) {
       case '-f': case '--force': o.force = true; break;
       case '-g': case '--global': o.global = true; break;
       case '--no-backup': o.noBackup = true; break;
+      case '--permissions': o.permissions = true; break;
+      case '--statusline': o.statusline = true; break;
       case '--json': o.json = true; break;
       case '--check': o.check = true; break;
       // readiness: the caller declares a decision is owed by the user. A flag rather than an
@@ -551,7 +553,7 @@ function cmdInstall(o) {
   }
   // One lifecycle view across every requested target — computed unconditionally (not only under
   // --dry-run) so its safety gate and its plan are the exact same object the real apply below uses.
-  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds, force: o.force });
+  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds, force: o.force, permissions: o.permissions === true, statusline: o.statusline === true });
   if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
 
   if (o.dryRun) {
@@ -653,7 +655,7 @@ function cmdUpdate(o) {
   const mcpIds = mcp?.selected ?? (codexCatalog ? codexMcpSelection : undefined);
   // One lifecycle view across every requested target — computed unconditionally (not only under
   // --dry-run) so its safety gate and its plan are the exact same object the real apply below uses.
-  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds, force: o.force });
+  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds, force: o.force, permissions: o.permissions === true, statusline: o.statusline === true });
   if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
   const lifecycleChanged = Boolean(lifecycleView.plan.changes.length);
 
@@ -815,7 +817,8 @@ function cmdRemove(o) {
     return;
   }
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
-  const view = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets: lifecycleTargets, mcpIds: [], operation: 'remove' });
+  const view = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets: lifecycleTargets, mcpIds: [], operation: 'remove',
+    permissions: o.permissions === true, statusline: o.statusline === true });
   if (!view.plan.safe) { assertSafeRegistryPlan(view); return; }
   if (o.dryRun) {
     printRegistryLifecycle(view, '[DRY]');

@@ -148,3 +148,41 @@ function verifiedResources(adapt, input) {
   const v = adapt.verify(input);
   return (v.resources || []).map((r) => ({ ...r, harness: 'antigravity', kind: r.kind || 'copy-tree-file' }));
 }
+
+test('hooks.antigravity projects the gate shim + hooks.json group, and remove unmerges only its own', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const root = scratch();
+  const input = harnessInput(registry, { scope: 'project', scopeRoot: root });
+  const planned = adapter.plan(input);
+
+  const scriptChange = planned.changes.find((c) => c.assetId === 'hooks.antigravity' && c.kind === 'copy-tree-file');
+  const docChange = planned.changes.find((c) => c.assetId === 'hooks.antigravity' && c.kind === 'hooks-json');
+  assert.ok(scriptChange, 'the gate shim is projected');
+  assert.ok(docChange, 'the hooks.json group is registered');
+
+  adapter.apply({ ...input, changes: planned.changes });
+  const doc = JSON.parse(fs.readFileSync(path.join(root, '.agents', 'hooks.json'), 'utf8'));
+  const entry = doc['doflow-pre-implementation-gate'].PreToolUse[0];
+  assert.equal(entry.matcher, 'write_to_file|replace_file_content|multi_replace_file_content');
+  assert.equal(entry.hooks[0].command, path.join(root, '.agents', 'hooks', 'pre-implementation-gate.sh'));
+  assert.equal(fs.statSync(entry.hooks[0].command).mode & 0o111, 0o111, 'the shim must be executable');
+
+  // Foreign groups survive; ours do not.
+  fs.writeFileSync(path.join(root, '.agents', 'hooks.json'), JSON.stringify({
+    'user-own-group': { Stop: [{ type: 'command', command: './mine.sh' }] },
+    'doflow-pre-implementation-gate': doc['doflow-pre-implementation-gate'],
+  }));
+  const ledgerRows = { resources: [
+    { harness: 'antigravity', assetId: 'hooks.antigravity', kind: 'hooks-json',
+      ownershipIdentity: 'antigravity:hooks:registration', target: path.join(root, '.agents', 'hooks.json') },
+    { harness: 'antigravity', assetId: 'hooks.antigravity', kind: 'copy-tree-file',
+      identity: 'pre-implementation-gate.sh',
+      fingerprint: require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(root, '.agents', 'hooks', 'pre-implementation-gate.sh'))).digest('hex'),
+      target: path.join(root, '.agents', 'hooks', 'pre-implementation-gate.sh') },
+  ] };
+  const removal = adapter.plan({ ...input, context: { ...(input.context ?? {}), operation: 'remove' }, ledger: ledgerRows });
+  adapter.apply({ ...input, changes: removal.changes });
+  const after = JSON.parse(fs.readFileSync(path.join(root, '.agents', 'hooks.json'), 'utf8'));
+  assert.ok(after['user-own-group'], 'foreign hook groups survive removal');
+  assert.equal(after['doflow-pre-implementation-gate'], undefined, 'only the DoFlow-owned group is removed');
+});
