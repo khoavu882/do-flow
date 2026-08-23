@@ -545,18 +545,18 @@ test('G12: every discover analysis declares which ledger fields its verdict rest
 
 // --------------------------------------- 9. the verification registry names real failure classes
 
-// verification.yaml declares, per tier, which recovery class that tier's failure means — structural
+// verification.json declares, per tier, which recovery class that tier's failure means — structural
 // evidence that outranks the keyword classifier reading an error string. The registry loader
 // deliberately does not import recovery.js (the registry is data; importing the classifier to
 // validate the data would invert the dependency), so nothing at load time notices a tier naming a
 // class that does not exist. It surfaces later, in the recovery path, as an unrouted failure —
 // which is the moment the system is least able to absorb a second problem.
-test('G12: every failureClass in verification.yaml is a declared recovery class (FR-010)', () => {
+test('G12: every failureClass in verification.json is a declared recovery class (FR-010)', () => {
   const { parseYamlFile } = require('../../src/runtime/capability-router');
   const { FAILURE_CLASSES } = require('../../src/runtime/recovery');
-  const doc = parseYamlFile(path.join(REPO, 'core', 'registry', 'verification.yaml'), fs);
+  const doc = parseYamlFile(path.join(REPO, 'core', 'registry', 'verification.json'), fs);
 
-  assert.ok(Array.isArray(doc.tiers) && doc.tiers.length > 0, 'verification.yaml must declare tiers');
+  assert.ok(Array.isArray(doc.tiers) && doc.tiers.length > 0, 'verification.json must declare tiers');
   const known = new Set(FAILURE_CLASSES);
 
   const problems = doc.tiers.flatMap((tier) => {

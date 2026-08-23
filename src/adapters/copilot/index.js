@@ -59,7 +59,7 @@ function nativePaths({ scope, scopeRoot, homeDir }) {
   };
 }
 
-/** Copilot's MCP-merge change has no asset of its own in core/registry/assets.yaml (it's a
+/** Copilot's MCP-merge change has no asset of its own in core/registry/assets.json (it's a
  * registration side-effect of the selected MCP servers, not a projected asset), so it piggybacks on
  * a real asset id already routed to this harness — the same "pseudo-component" technique
  * src/adapters/gemini/index.js#hooksAssetId and src/adapters/kiro/index.js#pseudoAssetId use. The

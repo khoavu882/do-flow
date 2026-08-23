@@ -44,8 +44,8 @@ class CapabilityRouter {
   }
 
   loadRegistries() {
-    const capsPath = path.join(this.registryDir, 'capabilities.yaml');
-    const routesPath = path.join(this.registryDir, 'routes.yaml');
+    const capsPath = path.join(this.registryDir, 'capabilities.json');
+    const routesPath = path.join(this.registryDir, 'routes.json');
     
     const capsData = parseYamlFile(capsPath, this.fsImpl);
     const routesData = parseYamlFile(routesPath, this.fsImpl);

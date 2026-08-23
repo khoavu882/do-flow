@@ -46,7 +46,7 @@ function discover({ scope, scopeRoot, context = {}, fsImpl = fs }) {
 /**
  * Kiro has no single-file, marker-managed instruction surface for this adapter to render into —
  * the guidance tree is projected file-for-file by the copy-tree engine below, and there is no
- * other renderer-driven asset routed to this harness (see core/registry/assets.yaml: only
+ * other renderer-driven asset routed to this harness (see core/registry/assets.json: only
  * guidance.context-layer and agents.shared apply to 'kiro', both `renderer: copy-tree`/
  * `kiro-agents`). This is kept as a pure passthrough only to satisfy the six-function adapter
  * contract every harness must implement identically.
@@ -137,7 +137,7 @@ function verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl = fs }
  * Shape one registry MCP server declaration into Kiro's own per-server schema (confirmed against
  * kiro.dev/docs/mcp/configuration/): a local (stdio) server carries `command`/`args`/`env`/
  * `disabled`/`autoApprove`/`disabledTools`; a remote server carries `url`/`headers` instead. The
- * registry (core/registry/mcp.yaml) only ever declares stdio servers today, so only the fields it
+ * registry (core/registry/mcp.json) only ever declares stdio servers today, so only the fields it
  * actually carries are emitted — this never invents a field the registry doesn't supply.
  */
 function buildServerEntry(server) {
@@ -170,8 +170,8 @@ function unmergeMcpConfig(existing, servers = []) {
   return next;
 }
 
-/** Kiro has no hooks or mcp asset of its own in core/registry/assets.yaml (mcp servers come from
- * core/registry/mcp.yaml, not an asset), so an mcp-registration change piggybacks on an asset id
+/** Kiro has no hooks or mcp asset of its own in core/registry/assets.json (mcp servers come from
+ * core/registry/mcp.json, not an asset), so an mcp-registration change piggybacks on an asset id
  * this harness actually receives — the same "pseudo-component" technique
  * src/adapters/gemini/index.js#hooksAssetId already uses for its own settings-only component. */
 function pseudoAssetId(assets) {
@@ -193,7 +193,7 @@ function atomicWrite(file, content, { fsImpl = fs } = {}) {
 
 /**
  * `.kiro/hooks/` is now a real, populated native surface: `kiro.hooks-scripts`
- * (core/registry/assets.yaml) is a copy-tree asset like skills/agents, so `kiroTreeAssets()` above
+ * (core/registry/assets.json) is a copy-tree asset like skills/agents, so `kiroTreeAssets()` above
  * already plans/applies/removes/verifies it alongside them. This function only reports the
  * declarative capability surface — same unconditional shape `plan()` already uses for
  * instructions/skills/agents — not whether that asset happens to be present in a given call's

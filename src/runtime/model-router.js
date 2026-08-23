@@ -1,7 +1,7 @@
 'use strict';
 
 // Model role router. DoFlow never invokes a model itself; this resolves an abstract
-// role from core/registry/models.yaml into availability-annotated provider candidates that skills,
+// role from core/registry/models.json into availability-annotated provider candidates that skills,
 // orchestration snapshots, or operators act on through each harness's native model selection.
 // Policy strings (prefer/fallback/require) pass through verbatim — the registry owns them; this
 // module owns matching them against providers' declared tiers and what is installed right now.
@@ -87,7 +87,7 @@ function resolveModelRole({ registry, roleId, isAvailable = null, exclude = [] }
 /** CLI handler for `doflow model-role`. Read-only advisory routing; exits 1 on an unknown role
  * because a silently-empty candidate list would read as "no providers" rather than "bad input". */
 function handleModelRoleCommand({ role, exclude, json = false, repoRoot } = {}) {
-  if (!role) return usageError('model-role', '--role is required (one of the roles in core/registry/models.yaml)', json);
+  if (!role) return usageError('model-role', '--role is required (one of the roles in core/registry/models.json)', json);
   const registry = (() => {
     try { return loadRegistry({ repoRoot: repoRoot || REPO_ROOT }); }
     catch (error) { console.error(`[ERROR] model-role: ${error.message}`); return finishRuntime(1); }

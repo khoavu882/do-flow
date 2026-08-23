@@ -10,7 +10,7 @@
  *   - `verification-contract-runner.js` — `VerificationContractRunner`, the deterministic
  *     check-execution primitive this engine compiles tiers of checks down to.
  *   - `verification-registry.js` — `loadVerificationRegistry`, which reads and validates
- *     `core/registry/verification.yaml` into the shape `compileContract` reads tiers from.
+ *     `core/registry/verification.json` into the shape `compileContract` reads tiers from.
  *
  * Three defects in the runner this engine sits on (a check with no command reporting PASS, a
  * timed-out check losing its output, an empty contract reporting PASS over zero evidence — see

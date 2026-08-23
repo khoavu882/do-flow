@@ -8,10 +8,28 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadRegistry, selectAssets } = require('../../src/registry');
+const { REGISTRY_FILES, loadRegistry, selectAssets } = require('../../src/registry');
 const { REPO } = require('./_shared');
 
 const registry = loadRegistry({ repoRoot: REPO });
+
+// The registry family is plain JSON (core/registry/*.json, loaded only through
+// src/registry/index.js). This pins both directions: the loader names .json files that all exist
+// and parse, and no stray non-JSON leftover lives in the directory.
+test('G5: every core/registry entry is a parseable .json file and the loader names exactly those', () => {
+  const onDisk = fs.readdirSync(path.join(REPO, 'core', 'registry')).sort();
+  assert.deepEqual(onDisk.filter((name) => !name.endsWith('.json')), [],
+    'core/registry holds non-.json files — the registry family was hard-cut over to .json');
+  for (const name of onDisk) {
+    const text = fs.readFileSync(path.join(REPO, 'core', 'registry', name), 'utf8');
+    assert.doesNotThrow(() => JSON.parse(text), `${name} is not parseable JSON`);
+  }
+  const declared = Object.values(REGISTRY_FILES);
+  assert.ok(declared.every((name) => name.endsWith('.json')), 'REGISTRY_FILES must name .json files');
+  for (const name of declared) {
+    assert.ok(onDisk.includes(name), `REGISTRY_FILES entry '${name}' does not exist under core/registry/`);
+  }
+});
 
 /** Evidence that a capability is actually deployed: a native target, a projected asset, or
  * harness-native source content on disk. Existence only — never a behavioural claim, so this
@@ -75,7 +93,7 @@ test('G5: every unavailable event carries a note explaining why no equivalent ex
 });
 
 // FR-007 extension contract (design.md §4, "Adding a harness"): a harness declared in
-// harnesses.yaml is not actually usable until three other things agree with it. This is the exact
+// harnesses.json is not actually usable until three other things agree with it. This is the exact
 // defect the multi-harness-parity feature exists to prevent recurring — opencode and pi were
 // declared in the registry for a time with no adapter module wired to dispatch, no contract entry,
 // and no --target id, i.e. present on paper but unreachable by any real command.
@@ -90,7 +108,7 @@ test('G5: every declared harness has an adapter module, exactly one contract, an
     }
     const contractCount = registry.contracts.filter((c) => c.harness === harness.id).length;
     if (contractCount !== 1) {
-      offenders.push(`${harness.id}: expected exactly one contracts.yaml entry, found ${contractCount}`);
+      offenders.push(`${harness.id}: expected exactly one contracts.json entry, found ${contractCount}`);
     }
     if (!VALID.includes(harness.id)) {
       offenders.push(`${harness.id}: not in src/targets.js's VALID array, so '--target ${harness.id}' would be rejected`);

@@ -5,7 +5,7 @@
 //   project scope -> <projectRoot>/.mcp.json (sibling to .claude/, the project-root convention
 //                    Claude Code actually auto-discovers)
 // Both are read-merge-write, never a wholesale overwrite, and scan-then-append: only the server
-// names doflow itself ships in core/registry/mcp.yaml are added/removed by selection, and a
+// names doflow itself ships in core/registry/mcp.json are added/removed by selection, and a
 // selected name already present keeps its existing definition rather than being reset to doflow's
 // shipped default (a user's hand-edited arg/env survives). Any server under a name doflow doesn't know
 // about — in either file — is left completely untouched regardless of selection. This matters
@@ -89,7 +89,7 @@ function writeProjectMcpJson(projectRoot, knownServerNames, serverDefs) {
 /**
  * Global scope: ~/.claude.json is a shared, multi-purpose state file (history, projects,
  * credentials-adjacent references) doflow does not own — read-merge-write, touching only the
- * `mcpServers` keys that match a name doflow itself ships in core/registry/mcp.yaml. Every other key in
+ * `mcpServers` keys that match a name doflow itself ships in core/registry/mcp.json. Every other key in
  * the file, including any MCP server the user registered themselves via `claude mcp add`, is left
  * untouched.
  * @returns {string} the path written
@@ -146,7 +146,7 @@ function resolveMcpSelection({ cmd, requested, allServers, manifestServers, inte
   // selection is *persisted resolved state* (see src/manifest.js), so an id the registry no longer
   // declares means the project retired that server between installs — a normal upgrade, not user
   // error. Passing it through unfiltered reached selectMcpServers() in src/registry/index.js,
-  // which throws, so removing chrome-devtools and playwright from core/registry/mcp.yaml (d1bf9e8)
+  // which throws, so removing chrome-devtools and playwright from core/registry/mcp.json (d1bf9e8)
   // made `install` and `update` fatally fail for every install predating that commit, with no hint
   // that `--mcp <survivors>` was the way out. cmdStatus already tolerated the same state because
   // it happens to wrap the call in try/catch; reconcile here so every caller behaves that way.

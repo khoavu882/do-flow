@@ -1,6 +1,6 @@
 #!/bin/sh
 # DoFlow locator shim — projected to all seven harnesses by the `locator.doflow` asset in
-# core/registry/assets.yaml (design.md §3 C2, §4.1).
+# core/registry/assets.json (design.md §3 C2, §4.1).
 #
 # Its ONLY job is to find the single dispatcher (at $REL below, under the config dir) and exec it
 # with every argument passed through unmodified. It deliberately holds NO verb table and NO verb

@@ -10,7 +10,7 @@
 # names in order and fails open (exit 0 — allow) the moment any of them is missing or ambiguous,
 # exactly like the Claude/Codex versions fail open on their own uncertain paths.
 #
-# Residual uncertainty: until core/registry/assets.yaml's scripts.doflow asset is extended to
+# Residual uncertainty: until core/registry/assets.json's scripts.doflow asset is extended to
 # apply to 'kiro' (out of scope for this change — see agent-docs/doflow/006-multi-harness-parity/
 # plan.md D.1), the do-paths.sh resolver this script looks for is never installed under
 # .kiro/scripts/doflow/bash/, so this gate currently always allows (resolver absent -> allow) on

@@ -1,6 +1,6 @@
 # Multi-harness capability map
 
-This map is generated in intent from `core/registry/harnesses.yaml`: it records the capability
+This map is generated in intent from `core/registry/harnesses.json`: it records the capability
 contract that adapters must honor. A `supported` row means the native harness has a documented
 surface; it does **not** mean a file copy has activated it. Each installation still needs the
 listed verification and any prerequisite.
@@ -24,7 +24,7 @@ installation; do not infer activation from this table alone.
 | MCP | Supported — `.mcp.json` | Supported — `.codex/config.toml` | Different | Supported — `opencode.json` | Different | Supported — `.mcp.json` | Supported — `.kiro/settings/mcp.json` | Supported — `.agents/mcp_config.json`  |
 | Plugin / extension | Supported | Supported | Different | Different | Different | Different | Unavailable | Different |
 
-This table is generated from `capabilities` in `core/registry/harnesses.yaml`; the registry is the
+This table is generated from `capabilities` in `core/registry/harnesses.json`; the registry is the
 source of truth and a hand edit here will drift from it. Where a harness declares a native target
 for a capability, it is shown inline.
 
@@ -47,7 +47,7 @@ plugin/extension marketplace is documented in its steering, hooks, or MCP source
 
 The `Scripts` row above reads Supported for all eight harnesses, but that is a statement about the
 capability, not about which script assets each harness receives. Two distinct assets in
-`core/registry/assets.yaml` use it, and they do **not** claim the same set of harnesses. The
+`core/registry/assets.json` use it, and they do **not** claim the same set of harnesses. The
 difference decides whether a given install can reach the DoFlow runtime at all, so it is recorded
 here rather than left to be inferred from the row.
 
@@ -83,7 +83,7 @@ mock.
 
 ## Hook event matrix
 
-Per-event support, from `capabilities.hooks.events` in `core/registry/harnesses.yaml`. A gap is
+Per-event support, from `capabilities.hooks.events` in `core/registry/harnesses.json`. A gap is
 recorded explicitly with the reason no equivalent exists — never left out, which would be
 indistinguishable from an oversight. `test/guards/registry.test.js` enforces both directions:
 an event declared supported must be in the harness contract, and an unavailable one must carry
@@ -98,7 +98,7 @@ than a projection. **Unavailable** means no equivalent event exists at matching 
 A dash means the harness has no such event name in DoFlow's taxonomy and none was claimed. Copilot CLI's hooks capability reads Different: a full native surface is documented upstream, but DoFlow wires none of it yet because its shipped scripts are Claude-payload-coupled — every event is a dash for it pending payload-verified projection. Kiro's `hooks` capability is Supported — DoFlow projects a real `.kiro/hooks/*.json`
 file wiring `SessionStart`, two `PreToolUse` hooks, and `Stop` — but the registry does not yet break
 that support down into a per-event map, so Kiro's column here is also a dash pending that data;
-see the `hooks` capability note in `core/registry/harnesses.yaml` and the verification row below for
+see the `hooks` capability note in `core/registry/harnesses.json` and the verification row below for
 Kiro's actual wired events instead of this table. Antigravity's hooks are supported with a documented
 native contract; its per-event column is limited to the one event DoFlow wires today (PreToolUse),
 with the other four recorded as Different in the registry rather than as dashes here.
@@ -163,7 +163,7 @@ recovery, and verification procedures.
 
 The capability matrix above uses one uniform 10-row taxonomy across all eight harnesses it lists.
 All eight — Claude Code, Codex, Gemini CLI, OpenCode, Pi Coding Agent, GitHub Copilot CLI,
-Kiro, and Antigravity — are declared in `core/registry/harnesses.yaml` and driven by their own
+Kiro, and Antigravity — are declared in `core/registry/harnesses.json` and driven by their own
 dedicated adapter (`src/adapters/claude/`, `src/adapters/codex/`, `src/adapters/gemini/`,
 `src/adapters/opencode/`, `src/adapters/pi/`, `src/adapters/copilot/`, `src/adapters/kiro/`,
 `src/adapters/antigravity/`). Each adapter exposes the same

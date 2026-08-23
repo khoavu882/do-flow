@@ -218,7 +218,7 @@ test('G8: the capability matrix in docs matches the registry it claims to be gen
   // "different", and pointed Pi's settings at config.json instead of settings.json. A table that
   // says it is generated from the registry has to actually agree with it, or it is just a second
   // source of truth wearing the first one's name.
-  const reg = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.yaml'), 'utf8'));
+  const reg = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.json'), 'utf8'));
   const doc = fs.readFileSync(path.join(REPO, 'docs', 'capability-map.md'), 'utf8');
   const LABELS = { Instructions: 'instructions', Skills: 'skills', Agents: 'agents', Scripts: 'scripts', Templates: 'templates', Modes: 'modes', Settings: 'settings', Hooks: 'hooks', MCP: 'mcp', 'Plugin / extension': 'plugin' };
   const title = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -253,7 +253,7 @@ test('G8: no doc claims a capability the registry does not declare', () => {
   // that names capabilities the router cannot resolve sends the model after tools that do not
   // exist, which is worse than having no table.
   const declared = new Set(Object.keys(
-    JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'capabilities.yaml'), 'utf8')).capabilities,
+    JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'capabilities.json'), 'utf8')).capabilities,
   ));
   const phantom = [];
   for (const { rel, text } of consumerTexts()) {
