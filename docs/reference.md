@@ -97,6 +97,17 @@ directory, branch-derived in a git repo — so run it from the project root. Whe
 holds more than one feature directory it cannot choose: it exits 2 naming every candidate, and
 `--slug <name>` re-runs against the one you pick.
 
+**Dense/rerank retrieval slots.** `core/registry/models.json` accepts an optional top-level `slots`
+array binding a retrieval stage (`dense` embedding lookup, `rerank` cross-encoder pass) to one
+declared provider: entries are `{ "id": "dense" | "rerank", "provider": <models.json provider id>,
+"model": "<concrete model>", "enabled": false }`. A slot changes nothing until it is both declared
+and `"enabled": true` — until then (and whenever the bound backend does not answer a PATH probe)
+retrieval stays lexical BM25 plus the import graph, which remains the correctness floor. There is
+deliberately no HTTP client here: enabling a slot only routes lookups to the named provider through
+the same advisory availability probe `model-role` uses; the provider implementation itself (local
+vs API) is a separate decision and no caller invokes one today. Malformed slots fail registry load
+loudly rather than reading as "no dense provider".
+
 ## Git Lifecycle Intents
 
 The `/do-git` skill provides cycle-aware commands:

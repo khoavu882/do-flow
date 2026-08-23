@@ -20,6 +20,7 @@ const MCP_TRANSPORTS = new Set(['stdio', 'http', 'sse']);
 const EXTERNAL_TOOL_IDS = new Set(['rtk', 'graphify', 'semble']);
 const EXTERNAL_TOOL_ACTIONS = new Set(['install', 'update', 'uninstall']);
 const MODEL_KINDS = new Set(['hosted', 'local']);
+const MODEL_SLOT_IDS = new Set(['dense', 'rerank']);
 
 function issue(errors, location, message) { errors.push(`${location}: ${message}`); }
 function object(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
@@ -62,6 +63,7 @@ function loadRegistry({ repoRoot, dir, fsImpl = fs } = {}) {
     externalTools: loaded.externalTools.tools,
     modelProviders: loaded.models.providers,
     modelRoles: loaded.models.roles,
+    retrievalSlots: Array.isArray(loaded.models.slots) ? loaded.models.slots : [],
     versions: Object.fromEntries(Object.entries(loaded).map(([name, value]) => [name, value.version])),
   };
   const validation = validateRegistry(registry, { repoRoot: registry.repoRoot, fsImpl });
@@ -261,6 +263,29 @@ function validateModelRole(value, location, errors) {
   }
 }
 
+/** Validates an optional retrieval slot in core/registry/models.json — a dense-embedding or
+ * cross-encoder rerank stage bound to one declared provider and the concrete model that provider
+ * serves. Absent slots are the shipped posture and keep retrieval lexical-only; malformed ones
+ * must fail the load loudly, because a typo reading as "no dense provider" would silently skip
+ * the feature instead of surfacing it. `enabled` is therefore required rather than defaulted:
+ * a misspelled flag defaulting to off is the same PASS-over-no-evidence defect in miniature. */
+function validateModelSlot(value, location, errors, providerIds) {
+  if (!object(value)) { issue(errors, location, 'must be an object'); return; }
+  const allowed = new Set(['id', 'provider', 'model', 'enabled', 'evidence']);
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) issue(errors, location, `unsupported field '${key}'`);
+  }
+  if (!MODEL_SLOT_IDS.has(value.id)) issue(errors, location, `id must be one of: ${[...MODEL_SLOT_IDS].join(', ')}`);
+  if (typeof value.provider !== 'string' || !value.provider.trim()) issue(errors, location, 'requires provider');
+  else if (providerIds && !providerIds.has(value.provider)) issue(errors, location, `references unknown model provider '${value.provider}'`);
+  if (typeof value.model !== 'string' || !value.model.trim()) issue(errors, location, 'requires model');
+  if (typeof value.enabled !== 'boolean') issue(errors, location, 'enabled must be a boolean');
+  if (value.evidence !== undefined && (!Array.isArray(value.evidence) || value.evidence.length === 0
+    || value.evidence.some((url) => typeof url !== 'string' || !/^https:\/\//.test(url)))) {
+    issue(errors, location, 'must include one or more HTTPS evidence URLs when evidence is present');
+  }
+}
+
 function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
   const errors = [];
   const harnesses = Array.isArray(registry?.harnesses) ? registry.harnesses : null;
@@ -373,6 +398,18 @@ function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
   idsUnique(modelRoles, 'models.roles', errors);
   for (const provider of modelProviders || []) validateModelProvider(provider, `model provider '${provider?.id ?? '?'}'`, errors);
   for (const role of modelRoles || []) validateModelRole(role, `model role '${role?.id ?? '?'}'`, errors);
+  // Slots are optional: undefined means the registry does not use them at all and routing stays
+  // exactly as it was. Anything present-but-wrong (null, a bare object, malformed entries) fails.
+  const modelSlots = registry?.retrievalSlots;
+  if (modelSlots === undefined) {
+    // default posture — no dense/rerank binding declared
+  } else if (!Array.isArray(modelSlots)) {
+    issue(errors, 'models.slots', 'must be an array when present');
+  } else {
+    idsUnique(modelSlots, 'models.slots', errors);
+    const providerIds = new Set((modelProviders || []).filter(object).map((item) => item.id));
+    for (const slot of modelSlots) validateModelSlot(slot, `model slot '${slot?.id ?? '?'}'`, errors, providerIds);
+  }
   return { ok: errors.length === 0, errors };
 }
 
