@@ -227,10 +227,10 @@ test('G12: the dispatcher documents exactly the verbs it dispatches', () => {
 // Both sides are parsed. The command list comes from the dispatch switch, so a command wired
 // tomorrow is guarded the moment it is wired rather than when someone remembers this file.
 test('G12: every runtime command the CLI implements is dispatched by a verb (FR-003)', () => {
-  const cli = fs.readFileSync(path.join(REPO, 'bin', 'doflow.js'), 'utf8');
+  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.js'), 'utf8');
   const commands = [...cli.matchAll(/case '([a-z-]+)': return handle[A-Za-z]+Command/g)].map((m) => m[1]);
   assert.ok(commands.length > 0,
-    "expected to parse runtime commands from bin/doflow.js's dispatch switch. A command written as a "
+    "expected to parse runtime commands from src/cli/runtime-commands.js's dispatch switch. A command written as a "
     + "block — case 'x': { ...; return; } — is invisible to this pattern and to G8's, so it would be "
     + 'silently unguarded rather than newly failing; keep the single-expression form');
 
@@ -253,7 +253,7 @@ test('G12: every runtime command the CLI implements is dispatched by a verb (FR-
 // This test asks only that a verb which *is* wired is wired visibly. Whether every advertised verb
 // is wired at all is section 5c's question.
 test('G12: a wired runtime verb uses the case form the guards can parse', () => {
-  const cli = fs.readFileSync(path.join(REPO, 'bin', 'doflow.js'), 'utf8');
+  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.js'), 'utf8');
   const nodeArm = new Set(nodeVerbs());
   const invisible = [];
   for (const [, verb, tail] of cli.matchAll(/case '([a-z-]+)':(.{0,60})/g)) {
@@ -280,7 +280,7 @@ test('G12: a wired runtime verb uses the case form the guards can parse', () => 
 // Both arms are now checked in both directions. An advertised verb is a promise to every skill that
 // reads the verb table, and this is the guard that makes the promise mean something.
 test('G12: every verb the dispatcher advertises on the Node arm has a CLI command (FR-003)', () => {
-  const cli = fs.readFileSync(path.join(REPO, 'bin', 'doflow.js'), 'utf8');
+  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.js'), 'utf8');
   const commands = new Set([...cli.matchAll(/case '([a-z-]+)': return handle[A-Za-z]+Command/g)].map((m) => m[1]));
   const unimplemented = nodeVerbs().filter((verb) => !commands.has(verb)).sort();
   assert.deepEqual(unimplemented, [],

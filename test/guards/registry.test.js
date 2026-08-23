@@ -118,13 +118,15 @@ test('G5: every declared harness has an adapter module, exactly one contract, an
 });
 
 // A module existing on disk is not the same as it being reachable: src/lifecycle/view.js once kept
-// its own, separate adapter registry that silently fell behind the one in bin/doflow.js (fixed in
-// 96006da). Grep every createAdapterRegistry({...}) call site — install, update, and remove in
-// bin/doflow.js, plus the one shared by src/lifecycle/view.js — and confirm each declared harness's
-// id is actually passed in as a key, not just that its file exists somewhere under src/adapters/.
+// its own, separate adapter registry that silently fell behind the one in src/cli/shared.js
+// (fixed in 96006da). Grep every createAdapterRegistry({...}) call site — the one shared factory
+// in src/cli/shared.js (used by install, update, remove and reconcile since Stage 2 collapsed the
+// three inline copies) plus the one shared by src/lifecycle/view.js — and confirm each declared
+// harness's id is actually passed in as a key, not just that its file exists somewhere under
+// src/adapters/.
 test('G5: every declared harness is wired into every createAdapterRegistry(...) dispatch call site', () => {
   const files = [
-    path.join(REPO, 'bin', 'doflow.js'),
+    path.join(REPO, 'src', 'cli', 'shared.js'),
     path.join(REPO, 'src', 'lifecycle', 'view.js'),
   ];
   const offenders = [];

@@ -40,11 +40,12 @@ are reported rather than imitated.
 | `core/harnesses/` | Native per-harness sources that have no cross-harness equivalent — hooks, settings, and native agent definitions for `claude`, `codex`, `gemini`, and `kiro` — plus `core/harnesses/shared/locator`, the one file projected into all eight. Antigravity has no native directory here by design: its adapter projects into Gemini-compatible paths (`.agents/`, `~/.gemini/config/`) rather than owning a distinct surface |
 | `core/.claude-plugin/` | Claude Code marketplace registry and plugin manifest; `core/` is the plugin root |
 | `core/.codex-plugin/` | Codex plugin manifest for plugin-based distribution |
-| `bin/doflow.js` | CLI entry point (exposed as the `doflow` command) — parses arguments, implements the installer commands (`cmdInstall`, `cmdUpdate`, `cmdStatus`, and siblings) directly against `src/lifecycle`, `src/adapters`, and `src/state`, and dispatches every runtime verb to the `src/runtime/` engine module that backs it (for example `handleClassifyCommand` in `task-classifier.js`), so each verb has exactly one implementation |
+| `bin/doflow.js` | The thin CLI entry point (exposed as the `doflow` command) — a forwarder into `src/cli`; it defines no handlers and no parser, so the binary path and the dispatcher seam (`doflow-run`) keep resolving here |
+| `src/cli/` | The CLI itself: argument parsing and the installer command→handler table (`index.js`), one file per installer command under `commands/`, the runtime-verb forwarding switch (`runtime-commands.js`, whose implementations stay in `src/runtime/`), and the shared command plumbing (`shared.js`) — including `buildAdapterRegistry()`, the single construction of the adapter registry that install/update/remove/reconcile use |
 | `core/shared/scripts/doflow/bin/doflow-run` | The runtime seam: one dispatcher owning the whole verb namespace |
 | `src/adapters/` | Native file formats and verification boundaries, one directory per harness (`claude`, `codex`, `gemini`, `opencode`, `pi`, `copilot`, `kiro`, `antigravity`), each implementing the same six-function contract (`discover, render, plan, apply, remove, verify`) that `src/adapters/index.js` validates and each also exposing that contract through a uniform `create<Name>Adapter()` factory (`createClaudeAdapter`, `createCodexAdapter`, `createGeminiAdapter`, and so on); `src/adapters/copy-tree.js` is the shared tree-materializing engine most adapters call into rather than reimplementing file-copy logic |
 | `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification against the neutral state ledger; obtains `planGeminiHooks` from the gemini adapter's public export (`src/adapters/gemini/index.js`) rather than reaching into a file inside it, and shares the generic parser in `src/helper/toml.js` with `src/adapters/codex/config.js` instead of depending on that adapter |
-| `src/runtime/` | Everything a skill asks for at use time: classification, workflow resolution, capability routing, evidence and claims, readiness, verification and command detection, recovery, tracing, scaffold generation, provider health, and worktree support; `src/runtime/cli-result.js` holds the exit/error-reporting helpers (`finishRuntime`, `usageError`) shared by the verb handlers `bin/doflow.js` dispatches to, and deliberately depends on nothing else in the tree |
+| `src/runtime/` | Everything a skill asks for at use time: classification, workflow resolution, capability routing, evidence and claims, readiness, verification and command detection, recovery, tracing, scaffold generation, provider health, and worktree support; `src/runtime/cli-result.js` holds the exit/error-reporting helpers (`finishRuntime`, `usageError`) shared by the verb handlers `src/cli/runtime-commands.js` dispatches to, and deliberately depends on nothing else in the tree |
 | `src/state/` | Harness-neutral ledger, recovery records, and legacy-manifest migration |
 | `src/registry/` | Loads and validates `core/registry/*.json` into the in-memory registry object every adapter and lifecycle call consumes — the same data `test/guards/registry.test.js` checks implementation claims against |
 | `src/helper/` | Cross-layer utilities with no harness-, install-, or runtime-specific domain: git commit lookup (`git.js`), managed-section merging (`marker-merge.js`), interactive prompts (`prompt.js`), `settings.json` merging (`settings-merge.js`, `settings-scope.js`), generic TOML parsing (`toml.js`), and the single computation of the package root (`repo-root.js`), which every layer shares and no layer should re-derive from its own depth |
@@ -100,7 +101,7 @@ flowchart LR
     Skill[Skill prose] -->|walk up from PWD| Dispatch[.doflow/scripts/doflow/bin/doflow-run]
     Locator[Harness locator shim\n8 copies, one per harness bin/] -->|exec| Dispatch
     Dispatch -->|shell verbs| Bash[scripts/doflow/bash/*.sh]
-    Dispatch -->|runtime verbs| Node[bin/doflow.js + src/runtime]
+    Dispatch -->|runtime verbs| Node[src/cli + src/runtime]
     Node --> Reg[(core/registry)]
     Node --> St[(.doflow/state)]
     Dispatch -->|one metadata record per verb| St
@@ -109,7 +110,7 @@ flowchart LR
 Four properties are load-bearing, and each has a guard because each has already been broken once:
 
 **One namespace, one table.** The dispatcher decides whether a verb is served by a shell helper or
-by a `bin/doflow.js` command, so a verb can move between the two without any caller changing. Skills
+by a `src/cli` command, so a verb can move between the two without any caller changing. Skills
 never name a helper. `test/guards/runtime-unification.test.js` checks that every shell verb resolves
 to a helper that exists, that every Node verb has a CLI command and every CLI runtime command has a
 verb, and that no verb has two implementations.
@@ -244,7 +245,7 @@ Examples:
 
 - Add or revise a workflow: edit its `core/shared/skills/<name>/SKILL.md`; keep the public description compact in [Reference](reference.md).
 - Change a client destination or add a supported asset: edit `core/registry/assets.json`, then cover it in tests.
-- Add a harness: declare it in `core/registry/harnesses.json`, `contracts.json`, and `assets.json`; implement `src/adapters/<id>/index.js`'s six-function contract (`discover, render, plan, apply, remove, verify`); and register the adapter with `createAdapterRegistry` in `bin/doflow.js`. `test/guards/registry.test.js` checks the three registry files and the implementation against each other.
+- Add a harness: declare it in `core/registry/harnesses.json`, `contracts.json`, and `assets.json`; implement `src/adapters/<id>/index.js`'s six-function contract (`discover, render, plan, apply, remove, verify`); and register the adapter via `buildAdapterRegistry()` in `src/cli/shared.js`, the one construction of the adapter registry. `test/guards/registry.test.js` checks the three registry files and the implementation against each other.
 - Change managed instruction behavior: edit the merge/copy implementation in `src/`, then test both fresh install and update paths.
 - Add or change a runtime verb: edit the dispatcher's own table alongside the implementation — it is the single place the verb namespace is written down — then run the guards, which cross-check that table against the shell helpers and the CLI commands in both directions.
 - Change a skill's flags: land the skill's `argument-hint`, `docs/reference.md`, and `docs/flags.md` in the same commit. Three guards cross-check them, so a partial change turns the suite red.
