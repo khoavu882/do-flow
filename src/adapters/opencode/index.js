@@ -14,7 +14,7 @@
 // https://opencode.ai/docs/rules
 const fs = require('node:fs');
 const path = require('node:path');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, fingerprint, readJson, sourceDirFor, resolveTransform } = require('../copy-tree');
 
 // Only the marker constants: marker-merge.js reads and writes files itself, which cannot be used
 // from plan(), whose contract is to compute changes without touching disk. The gemini adapter
@@ -125,16 +125,30 @@ function strippedInstruction(existing) {
 
 // ---- copy-tree assets (skills) ----
 
+/** `agents.shared` projects onto OpenCode through its own renderer name (its frontmatter is
+ * transformed into OpenCode's markdown-agent vocabulary) but materialises with exactly the same
+ * engine and change records as every other copy-tree asset. */
+function opencodeTreeAssets(assets) {
+  return [...copyTreeAssets(assets), ...(assets || []).filter((asset) => asset.renderer === 'opencode-agents')];
+}
+
+/** Agents live under `.opencode/agents/` at project scope and `~/.config/opencode/agents/`
+ * globally — a different root from the skills tree in both scopes, so they get their own
+ * destination resolution rather than reusing copyTreeConfigDir. */
+function agentsDestDir(scope, paths) {
+  return scope === 'global' ? path.join(paths.configDir, 'agents') : path.join(paths.root, '.opencode', 'agents');
+}
+
 function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing, fsImpl = fs }) {
   const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir });
   const treeConfigDir = copyTreeConfigDir(scope, paths);
   const changes = [];
   const conflicts = [];
-  for (const asset of copyTreeAssets(assets)) {
-    const destDir = copyTreeDestDir(treeConfigDir, asset);
+  for (const asset of opencodeTreeAssets(assets)) {
+    const destDir = asset.renderer === 'opencode-agents' ? agentsDestDir(scope, paths) : copyTreeDestDir(treeConfigDir, asset);
     const sourceDir = sourceDirFor(asset, context, fsImpl, 'OpenCode');
     const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout });
+    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, transform: asset.transform });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const change of result.changes) {
       changes.push({
@@ -142,7 +156,8 @@ function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removin
         ownershipIdentity: `doflow:${HARNESS}:copy-tree:${asset.id}:${change.relPath}`,
         kind: 'copy-tree-file', identity: change.relPath,
         afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: 'registry-v1',
-        projection: { renderer: 'copy-tree' },
+        transformName: asset.transform || null,
+        projection: { renderer: asset.renderer },
       });
     }
   }
@@ -150,13 +165,22 @@ function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removin
 }
 
 function applyCopyTreeAssets(changes, { fsImpl = fs } = {}) {
-  const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation !== 'remove')
-    .map((change) => ({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint }));
-  return applyTree({ changes: treeChanges, fsImpl }).applied;
+  let applied = 0;
+  const grouped = new Map();
+  for (const change of changes) {
+    if (change.kind !== 'copy-tree-file' || change.operation === 'remove') continue;
+    const key = change.transformName || null;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint });
+  }
+  for (const [transformName, treeChanges] of grouped) {
+    applied += applyTree({ changes: treeChanges, fsImpl, transform: resolveTransform(transformName) }).applied;
+  }
+  return applied;
 }
 
 function removeCopyTreeAssets(changes, { fsImpl = fs } = {}) {
-  const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove')
+  const treeChanges = changes.filter((change) => change.kind === 'copy-tree-file' && change.operation === 'remove')
     .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
   return removeTree({ changes: treeChanges, fsImpl }).removed;
 }
@@ -167,20 +191,20 @@ function verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl = fs }
   const statuses = [];
   const resources = [];
   const conflicts = [];
-  for (const asset of copyTreeAssets(assets)) {
-    const destDir = copyTreeDestDir(treeConfigDir, asset);
+  for (const asset of opencodeTreeAssets(assets)) {
+    const destDir = asset.renderer === 'opencode-agents' ? agentsDestDir(scope, paths) : copyTreeDestDir(treeConfigDir, asset);
     const sourceDir = sourceDirFor(asset, context, fsImpl, 'OpenCode');
-    const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout });
+    const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, transform: asset.transform });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const resource of result.resources) {
       resources.push({
         assetId: asset.id, target: resource.target, ownershipIdentity: `doflow:${HARNESS}:copy-tree:${asset.id}:${resource.relPath}`,
         kind: 'copy-tree-file', identity: resource.relPath,
         fingerprint: resource.fingerprint, sourceVersion: 'registry-v1',
-        projection: { renderer: 'copy-tree' },
+        projection: { renderer: asset.renderer },
       });
     }
-    statuses.push({ assetId: asset.id, capability: asset.capability, status: result.ok ? 'managed' : 'conflict', target: destDir });
+    statuses.push({ harness: HARNESS, assetId: asset.id, capability: asset.capability, status: result.ok ? 'managed' : 'conflict', target: destDir });
   }
   return { statuses, resources, conflicts };
 }
@@ -250,7 +274,7 @@ function apply({ changes = [], fsImpl = fs }) {
   let applied = 0;
   for (const change of changes) {
     if (change.operation === 'remove') continue;
-    if (change.projection?.renderer === 'copy-tree') continue;
+    if (change.kind === 'copy-tree-file') continue; // routed through applyCopyTreeAssets below
     writeChange(change, fsImpl);
     applied += 1;
   }
@@ -262,7 +286,7 @@ function remove({ changes = [], fsImpl = fs }) {
   let removed = 0;
   for (const change of changes) {
     if (change.operation !== 'remove') continue;
-    if (change.projection?.renderer === 'copy-tree') continue;
+    if (change.kind === 'copy-tree-file') continue; // routed through removeCopyTreeAssets below
     if (change.content === null) continue;
     writeChange(change, fsImpl);
     removed += 1;
