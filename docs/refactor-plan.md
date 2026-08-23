@@ -20,6 +20,8 @@ same commit as the move.
 
 ### Stage 1 — registry `.yaml` → `.json` hard cutover
 
+Status: **landed** (#33).
+
 The `.yaml` extension on JSON files is a historical quirk guarded into permanence. Kill it.
 
 - Rename all 12 `core/registry/*.yaml` to `.json` (contents already JSON; zero semantic change).
@@ -33,6 +35,8 @@ Done when: zero remaining `.yaml` references to core/registry paths; suite green
 sandbox round-trip green.
 
 ### Stage 2 — CLI extraction from bin monolith
+
+Status: **landed** (#34).
 
 `bin/doflow.js` is 1215 lines holding parseArgs plus nine `cmd*` handlers. Apply our own
 verb-table doctrine to installer commands.
@@ -50,6 +54,8 @@ Done when: suite green; temp-home smoke of install/status/remove/--dry-run.
 
 ### Stage 3 — harness paths become data
 
+Status: **landed** (#37).
+
 Adapters currently hardcode native path facts in code. vercel-labs/skills holds 75+ agents as
 one declarative table; DoFlow moves its per-harness path facts the same way.
 
@@ -66,6 +72,8 @@ pre/post refactor, ledger fingerprints equal. Rollback = revert restores hardcod
 
 ### Stage 4 — generate capability-map.md from the registry
 
+Status: **landed** (#35).
+
 G8 exists because the capability map drifted from the registry by hand. Generation removes the
 class of error instead of detecting it.
 
@@ -80,6 +88,8 @@ class of error instead of detecting it.
 Done when: regenerate produces zero diff; docs build strict-clean.
 
 ### Stage 5 — upstream format-drift watcher
+
+Status: **landed** (#36). Baseline lives at scripts/drift/baseline.json (CI state, deliberately outside the 12-file registry ratchet), not core/registry/.
 
 Registry evidence URLs record where facts came from but nothing watches them; two drifts were
 caught manually this cycle (antigravity hooks, copilot payloads).
