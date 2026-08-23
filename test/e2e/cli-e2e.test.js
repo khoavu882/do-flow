@@ -466,7 +466,10 @@ test('Codex dry-run and status expose the non-mutating registry lifecycle and ne
   const dry = run(['install', project, '--dry-run', '--target', 'codex', '--mcp', 'context7'], { home });
   assert.strictEqual(dry.status, 0, dry.stderr);
   assert.match(dry.stdout, /Registry lifecycle: \d+ native change\(s\), 0 conflict\(s\)/);
-  assert.match(dry.stdout, new RegExp(`Neutral state: ${project.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/\\.doflow/state`));
+  // The CLI echoes the state root joined with native separators (path.join in src/lifecycle/view.js),
+  // so the expected path is built — and escaped whole — the same way rather than assuming '/'.
+  const stateRoot = path.join(project, '.doflow', 'state');
+  assert.match(dry.stdout, new RegExp(`Neutral state: ${stateRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.ok(!fs.existsSync(path.join(project, '.doflow')), 'dry planning must not create neutral state');
 
   const status = run(['status', project, '--target', 'codex', '--json'], { home });

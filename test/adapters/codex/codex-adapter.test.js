@@ -71,10 +71,11 @@ test('consumes real registry-shaped projected native input and returns required 
   } });
   assert.equal(result.ok, true);
   assert.ok(result.changes.length > 0, 'projected selected Codex capabilities must yield native changes');
-  assert.ok(result.requiredNativeResources.some((resource) => resource.component === 'config' && resource.target.endsWith('.codex/config.toml')));
+  // Suffixes are built with path.join: targets carry native separators on every platform.
+  assert.ok(result.requiredNativeResources.some((resource) => resource.component === 'config' && resource.target.endsWith(path.join('.codex', 'config.toml'))));
   assert.ok(result.requiredNativeResources.some((resource) => resource.component === 'mcp'));
   assert.ok(result.requiredNativeResources.some((resource) => resource.component === 'agents'));
-  assert.ok(result.requiredNativeResources.some((resource) => resource.component === 'hooks' && resource.target.endsWith('.codex/hooks.json')));
+  assert.ok(result.requiredNativeResources.some((resource) => resource.component === 'hooks' && resource.target.endsWith(path.join('.codex', 'hooks.json'))));
 });
 
 test('reports unowned configuration conflicts instead of adopting or overwriting it', () => {
