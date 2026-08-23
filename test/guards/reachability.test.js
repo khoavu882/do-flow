@@ -21,6 +21,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared');
+const { loadRegistry } = require('../../src/registry');
+const generator = require('../../scripts/generate-capability-map');
 
 const BASH_DIR = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash');
 const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
@@ -213,30 +215,19 @@ test('G8: every repo path a doc names in backticks exists', () => {
   assert.deepEqual(unique, [], `these documented paths do not exist:\n  ${unique.join('\n  ')}`);
 });
 
-test('G8: the capability matrix in docs matches the registry it claims to be generated from', () => {
-  // Both matrices in capability-map.md were hand-maintained and had drifted: the capability table
-  // claimed Hooks "Supported" for OpenCode and MCP "Supported" for Pi where the registry says
-  // "different", and pointed Pi's settings at config.json instead of settings.json. A table that
-  // says it is generated from the registry has to actually agree with it, or it is just a second
-  // source of truth wearing the first one's name.
-  const reg = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.json'), 'utf8'));
-  const doc = fs.readFileSync(path.join(REPO, 'docs', 'capability-map.md'), 'utf8');
-  const LABELS = { Instructions: 'instructions', Skills: 'skills', Agents: 'agents', Scripts: 'scripts', Templates: 'templates', Modes: 'modes', Settings: 'settings', Hooks: 'hooks', MCP: 'mcp', 'Plugin / extension': 'plugin' };
-  const title = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-
-  const mismatches = [];
-  for (const [label, cap] of Object.entries(LABELS)) {
-    const row = doc.split('\n').find((l) => l.startsWith(`| ${label} |`));
-    if (!row) { mismatches.push(`missing row: ${label}`); continue; }
-    const cells = row.split('|').slice(2, -1).map((c) => c.trim());
-    reg.harnesses.forEach((h, i) => {
-      const expected = title(h.capabilities[cap]?.status ?? '—');
-      if (!cells[i]?.startsWith(expected)) {
-        mismatches.push(`${label}/${h.id}: doc says "${cells[i]}", registry says "${expected}"`);
-      }
-    });
-  }
-  assert.deepEqual(mismatches, [], `capability-map.md has drifted from the registry:\n  ${mismatches.join('\n  ')}`);
+test('G8: capability-map.md is byte-for-byte what the registry generates', () => {
+  // The two matrices used to be hand-maintained and drifted (Hooks "Supported" for OpenCode, MCP
+  // "Supported" for Pi, Pi's settings pointed at config.json — the old cell-by-cell comparison
+  // caught each after the fact). Stage 4 removes the class instead of detecting it: both tables
+  // are rendered between managed markers by scripts/generate-capability-map.js from the loaded
+  // registry, and this guard asserts the committed file is exactly that rendering. A hand edit to
+  // a generated region, or any registry change without a regeneration, fails here with the fix in
+  // the message. Prose outside the markers is not the generator's to touch, so it is not asserted.
+  const committed = fs.readFileSync(path.join(REPO, 'docs', 'capability-map.md'), 'utf8');
+  const rendered = generator.renderDocumentText(committed, loadRegistry({ repoRoot: REPO }));
+  assert.equal(rendered, committed,
+    'docs/capability-map.md has drifted from core/registry — run `npm run gen:capability-map` '
+    + 'and commit the result');
 });
 
 test('G8: every docs page is reachable from the mkdocs nav', () => {
