@@ -6,42 +6,25 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
+const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
 const { planGeminiHooks, deployGeminiHooks, planRemoveGeminiHooks, deployRemoveGeminiHooks } = require('./hooks');
 
 const MARKER_START = '<!-- doflow:start -->';
 const MARKER_END = '<!-- doflow:end -->';
+/**
+ * Residue (not a path fact): the one non-path native fact this harness still reads from its own
+ * fixture file — how extensions are installed ("native-host-workflow"), reported verbatim in plan
+ * surfaces. The file-name facts that used to live beside it (instructionFile, settingsFile) are now
+ * declared in core/registry/harnesses.json "paths" and resolve below like every other harness.
+ */
 const DEFAULTS_FILE = path.resolve(__dirname, '../../../core/harnesses/gemini/settings/adapter-defaults.json');
 const HARNESS = 'gemini';
 
 function defaults({ fsImpl = fs } = {}) { return JSON.parse(fsImpl.readFileSync(DEFAULTS_FILE, 'utf8')); }
 
-function nativePaths({ scope, scopeRoot, homeDir, fsImpl = fs }) {
-  const config = defaults({ fsImpl });
-  const root = scope === 'global' ? path.resolve(homeDir || scopeRoot) : path.resolve(scopeRoot);
-  const geminiDir = path.join(root, '.gemini');
-  // Global Antigravity customizations live under ~/.gemini/config/, while project-scope
-  // config lives under .agents/
-  const configDir = scope === 'global' ? path.join(geminiDir, 'config') : path.join(root, '.agents');
-  return {
-    root,
-    configDir,
-    instruction: scope === 'global' ? path.join(geminiDir, config.instructionFile) : path.join(root, config.instructionFile),
-    settings: path.join(root, config.settingsFile),
-    extensionMode: config.extensionInstall,
-  };
-}
-
-function discover({ scope, scopeRoot, context = {}, fsImpl = fs }) {
-  const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir, fsImpl });
-  const instruction = fsImpl.existsSync(paths.instruction) ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
-  return { paths, instruction, settings: readJson(paths.settings, { fsImpl }) };
-}
-
-function render({ content = '' } = {}) {
-  const body = String(content).trimEnd();
-  return `${MARKER_START}\n${body}\n${MARKER_END}\n`;
-}
-
+/** Pure string helper (no path facts): replace only the span between DoFlow's markers in an
+ * existing GEMINI.md body. An existing file with no DoFlow section is refused rather than appended
+ * to — GEMINI.md is shared with the user and other tools. */
 function managedInstruction(existing, rendered) {
   if (existing === null) return { ok: true, operation: 'create', content: rendered };
   const start = existing.indexOf(MARKER_START);
@@ -53,234 +36,277 @@ function managedInstruction(existing, rendered) {
 }
 
 /**
- * Rewrite the pointer's guidance import so it resolves from wherever the instruction file
- * actually lands. The shared pointer source carries one hardcoded `../`, which is correct only
- * when the instruction file sits one level below the install root — true for Gemini's global
- * scope (`.gemini/GEMINI.md`) and false for its project scope, where Gemini reads `GEMINI.md`
- * from the workspace root itself. A static prefix cannot satisfy both, because the depth varies
- * by scope rather than by harness, so it is computed here instead. Left unrewritten, the import
- * pointed above the install root and the whole guidance chain silently failed to load.
+ * Native path facts live in core/registry/harnesses.json under this harness's "paths" section and
+ * resolve through the shared harness-paths resolver: project-scope config follows the Antigravity
+ * customization convention (.agents/) while user-scope config lives under ~/.gemini/config/.
+ * createGeminiAdapter({ declaredPaths }) is the injection point buildAdapterRegistry() uses;
+ * module-level exports delegate to a default-configured instance so direct callers keep their
+ * historical shape.
  */
-function geminiDestDir(paths, asset) {
-  if (asset.nativeDir && asset.nativeDir.startsWith('../.doflow')) {
-    return path.join(paths.root, asset.nativeDir.replace(/^\.\.\//, ''));
+function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {}) {
+  function nativePaths({ scope, scopeRoot, homeDir, fsImpl = fs }) {
+    const resolved = resolveHarnessPaths(declaredPaths, { scope, scopeRoot, homeDir });
+    // Non-path native fact carried alongside the resolved surfaces (see DEFAULTS_FILE residue note).
+    return { ...resolved, extensionMode: defaults({ fsImpl }).extensionInstall };
   }
-  return copyTreeDestDir(paths.configDir, asset);
-}
 
-function rewriteGuidanceImport(content, assets, paths) {
-  const guidance = assets.find((item) => item.id === 'guidance.context-layer');
-  if (!guidance?.nativeDir || !paths?.instruction || !paths?.configDir) return content;
-  const guidanceDir = geminiDestDir(paths, guidance);
-  const rel = path.relative(path.dirname(paths.instruction), guidanceDir).split(path.sep).join('/');
-  if (!rel) return content;
-  // `./` is added explicitly for a same-directory descent: the bare form starts with the dot of
-  // `.doflow`, which reads as an extension rather than a path segment.
-  const prefix = rel.startsWith('../') ? rel : `./${rel}`;
-  return content.replace(/@\S*?(DOFLOW_CORE\.md)/g, `@${prefix}/$1`);
-}
+  function discover({ scope, scopeRoot, context = {}, fsImpl = fs }) {
+    const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir, fsImpl });
+    const instruction = fsImpl.existsSync(paths.instruction) ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
+    return { paths, instruction, settings: readJson(paths.settings, { fsImpl }) };
+  }
 
-function instructionContent({ assets, context, paths, fsImpl = fs }) {
-  if (context.instructionContent !== undefined) return String(context.instructionContent);
-  const asset = assets.find((item) => item.id === 'guidance.core');
-  if (!asset || !context.repoRoot) return null;
-  const source = path.resolve(context.repoRoot, asset.source);
-  if (!fsImpl.existsSync(source)) return null;
-  return rewriteGuidanceImport(fsImpl.readFileSync(source, 'utf8'), assets, paths);
-}
+  function render({ content = '' } = {}) {
+    const body = String(content).trimEnd();
+    return `${MARKER_START}\n${body}\n${MARKER_END}\n`;
+  }
 
-function policyStatuses(policies = []) {
-  return policies.map((policy) => ({ id: policy.id, status: 'unavailable', fallback: 'guidance', reason: 'Gemini policy automation is not rendered by this adapter' }));
-}
+  /**
+   * Rewrite the pointer's guidance import so it resolves from wherever the instruction file
+   * actually lands. The shared pointer source carries one hardcoded `../`, which is correct only
+   * when the instruction file sits one level below the install root — true for Gemini's global
+   * scope (`.gemini/GEMINI.md`) and false for its project scope, where Gemini reads `GEMINI.md`
+   * from the workspace root itself. A static prefix cannot satisfy both, because the depth varies
+   * by scope rather than by harness, so it is computed here instead. Left unrewritten, the import
+   * pointed above the install root and the whole guidance chain silently failed to load.
+   *
+   * Logic residue: the relative prefix depends on the DISTANCE between two declared surfaces
+   * (instruction vs. the guidance tree), not on any single declared path — expressible only by
+   * joining and diffing, which is computation, not declaration.
+   */
+  function geminiDestDir(paths, asset) {
+    if (asset.nativeDir && asset.nativeDir.startsWith('../.doflow')) {
+      return path.join(paths.root, asset.nativeDir.replace(/^\.\.\//, ''));
+    }
+    return copyTreeDestDir(paths.configDir, asset);
+  }
 
-// ---- copy-tree assets (rules, skills, agents, modes, references) ----
+  function rewriteGuidanceImport(content, assets, paths) {
+    const guidance = assets.find((item) => item.id === 'guidance.context-layer');
+    if (!guidance?.nativeDir || !paths?.instruction || !paths?.configDir) return content;
+    const guidanceDir = geminiDestDir(paths, guidance);
+    const rel = path.relative(path.dirname(paths.instruction), guidanceDir).split(path.sep).join('/');
+    if (!rel) return content;
+    // `./` is added explicitly for a same-directory descent: the bare form starts with the dot of
+    // `.doflow`, which reads as an extension rather than a path segment.
+    const prefix = rel.startsWith('../') ? rel : `./${rel}`;
+    return content.replace(/@\S*?(DOFLOW_CORE\.md)/g, `@${prefix}/$1`);
+  }
 
-function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing, fsImpl = fs }) {
-  const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir, fsImpl });
-  const changes = [];
-  const conflicts = [];
-  for (const asset of copyTreeAssets(assets)) {
-    const destDir = geminiDestDir(paths, asset);
-    const sourceDir = sourceDirFor(asset, context, fsImpl, 'Gemini');
-    const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, force: context?.force });
-    conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
-    for (const change of result.changes) {
-      changes.push({
-        assetId: asset.id, target: change.target, source: change.source, operation: change.operation,
-        ownershipIdentity: `doflow:gemini:copy-tree:${asset.id}:${change.relPath}`,
-        kind: 'copy-tree-file', identity: change.relPath,
-        afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: 'registry-v1',
-        projection: { renderer: 'copy-tree' },
-      });
+  function instructionContent({ assets, context, paths, fsImpl = fs }) {
+    if (context.instructionContent !== undefined) return String(context.instructionContent);
+    const asset = assets.find((item) => item.id === 'guidance.core');
+    if (!asset || !context.repoRoot) return null;
+    const source = path.resolve(context.repoRoot, asset.source);
+    if (!fsImpl.existsSync(source)) return null;
+    return rewriteGuidanceImport(fsImpl.readFileSync(source, 'utf8'), assets, paths);
+  }
+
+  function policyStatuses(policies = []) {
+    return policies.map((policy) => ({ id: policy.id, status: 'unavailable', fallback: 'guidance', reason: 'Gemini policy automation is not rendered by this adapter' }));
+  }
+
+  // ---- copy-tree assets (rules, skills, agents, modes, references) ----
+
+  function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing, fsImpl = fs }) {
+    const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir, fsImpl });
+    const changes = [];
+    const conflicts = [];
+    for (const asset of copyTreeAssets(assets)) {
+      const destDir = geminiDestDir(paths, asset);
+      const sourceDir = sourceDirFor(asset, context, fsImpl, 'Gemini');
+      const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
+      const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, force: context?.force });
+      conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+      for (const change of result.changes) {
+        changes.push({
+          assetId: asset.id, target: change.target, source: change.source, operation: change.operation,
+          ownershipIdentity: `doflow:gemini:copy-tree:${asset.id}:${change.relPath}`,
+          kind: 'copy-tree-file', identity: change.relPath,
+          afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: 'registry-v1',
+          projection: { renderer: 'copy-tree' },
+        });
+      }
+    }
+    return { changes, conflicts };
+  }
+
+  function applyCopyTreeAssets(changes, { fsImpl = fs } = {}) {
+    const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation !== 'remove')
+      .map((change) => ({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint }));
+    return applyTree({ changes: treeChanges, fsImpl }).applied;
+  }
+
+  function removeCopyTreeAssets(changes, { fsImpl = fs } = {}) {
+    const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove')
+      .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
+    return removeTree({ changes: treeChanges, fsImpl }).removed;
+  }
+
+  function verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl = fs }) {
+    const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir, fsImpl });
+    const statuses = [];
+    const resources = [];
+    const conflicts = [];
+    for (const asset of copyTreeAssets(assets)) {
+      const destDir = geminiDestDir(paths, asset);
+      const sourceDir = sourceDirFor(asset, context, fsImpl, 'Gemini');
+      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout });
+      conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+      for (const resource of result.resources) {
+        resources.push({
+          assetId: asset.id, target: resource.target, ownershipIdentity: `doflow:gemini:copy-tree:${asset.id}:${resource.relPath}`,
+          kind: 'copy-tree-file', identity: resource.relPath,
+          fingerprint: resource.fingerprint, sourceVersion: 'registry-v1',
+          projection: { renderer: 'copy-tree' },
+        });
+      }
+      statuses.push({ assetId: asset.id, capability: asset.capability, status: result.ok ? 'managed' : 'conflict', target: destDir });
+    }
+    return { statuses, resources, conflicts };
+  }
+
+  // ---- shared adapter contract ----
+
+  // Hooks are a pseudo-component, not a registry-declared asset (like Codex's own hooks
+  // integration) — the lifecycle layer's normalizeChange() requires every change's assetId to
+  // match a real registered asset, so this piggybacks on guidance.core's id the same way Codex's
+  // assetIdFor(options, 'hooks') does, rather than inventing an unregistered 'hooks' id.
+  function hooksAssetId(assets) {
+    return assets.find((asset) => asset.id === 'guidance.core')?.id ?? assets[0]?.id;
+  }
+
+  /** Plan the hooks pseudo-component's single change (or none), mirroring the {changes, conflicts}
+   * shape planCopyTreeAssets already returns so plan() can fold it in the same way. The hook
+   * scripts directory beside settings.json is declared (paths.hooksDirectory); the merge/remove
+   * planning itself lives in ./hooks.js. */
+  function planHooksChange({ removing, found, context, assets, fsImpl }) {
+    if (found.settings.error) return { changes: [], conflicts: [] };
+    const hooksPlan = removing
+      ? planRemoveGeminiHooks({ settingsFile: found.paths.settings, fsImpl })
+      : (context.geminiHooksSourceFile
+        ? planGeminiHooks({ sourceFile: context.geminiHooksSourceFile, sourceHooksDir: context.geminiHooksSourceDir,
+          settingsFile: found.paths.settings, trusted: context.hooksTrusted, fsImpl })
+        : null);
+    if (hooksPlan && !hooksPlan.ok) return { changes: [], conflicts: hooksPlan.errors || [] };
+    if (hooksPlan?.status !== 'change') return { changes: [], conflicts: [] };
+    return { changes: [{ assetId: hooksAssetId(assets), target: hooksPlan.settingsFile, operation: removing ? 'remove' : (hooksPlan.changes[0]?.type ?? 'update'),
+      ownershipIdentity: 'gemini:hooks', nativeComponent: 'hooks', nativePlan: hooksPlan, projection: { renderer: 'gemini-hooks' } }], conflicts: [] };
+  }
+
+  function plan({ scope, scopeRoot, assets = [], mcp = [], discovery, context = {}, ledger, fsImpl = fs }) {
+    const found = discovery || discover({ scope, scopeRoot, context, fsImpl });
+    const changes = []; const conflicts = [];
+    const removing = context.operation === 'remove';
+    if (removing) {
+      // Removal only ever targets a section this adapter itself owns — a foreign or absent
+      // GEMINI.md yields no change, never a forced deletion of user content.
+      const owns = found.instruction !== null && found.instruction.includes(MARKER_START) && found.instruction.includes(MARKER_END);
+      if (assets.some((asset) => asset.id === 'guidance.core') && owns) {
+        changes.push({ assetId: 'guidance.core', target: found.paths.instruction, operation: 'remove', ownershipIdentity: 'gemini:instructions', projection: { renderer: 'gemini-instructions' } });
+      }
+    } else {
+      const content = instructionContent({ assets, context, paths: found.paths, fsImpl });
+      if (content !== null) {
+        const next = managedInstruction(found.instruction, render({ content }));
+        if (!next.ok) conflicts.push(next.conflict);
+        else if (next.operation !== 'none') changes.push({ assetId: 'guidance.core', target: found.paths.instruction, operation: next.operation, ownershipIdentity: 'gemini:instructions', afterFingerprint: fingerprint(next.content), content: next.content, projection: { renderer: 'gemini-instructions' } });
+      }
+    }
+    const copyTree = planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing, fsImpl });
+    changes.push(...copyTree.changes); conflicts.push(...copyTree.conflicts);
+    if (found.settings.error) conflicts.push(found.settings.error);
+    const hooks = planHooksChange({ removing, found, context, assets, fsImpl });
+    changes.push(...hooks.changes); conflicts.push(...hooks.conflicts);
+    return {
+      changes, conflicts, prerequisites: [],
+      surfaces: {
+        instructions: { status: 'supported', target: found.paths.instruction },
+        settings: { status: found.settings.error ? 'invalid' : 'supported', target: found.paths.settings },
+        mcp: { status: found.settings.error ? 'blocked' : 'supported', target: found.paths.settings, selected: mcp.map((item) => item.id) },
+        extensions: { status: 'different', mode: found.paths.extensionMode, action: 'use Gemini CLI extension management' },
+        policies: policyStatuses(context.policies),
+      },
+    };
+  }
+
+  function atomicWrite(file, content, { fsImpl = fs } = {}) {
+    fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+    const temp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`);
+    try {
+      fsImpl.writeFileSync(temp, content, { encoding: 'utf8', flag: 'wx' });
+      fsImpl.renameSync(temp, file);
+    } finally {
+      if (fsImpl.existsSync(temp)) fsImpl.rmSync(temp, { force: true });
     }
   }
-  return { changes, conflicts };
-}
+  function apply({ changes = [], fsImpl = fs }) {
+    for (const change of changes) if (change.content !== undefined) atomicWrite(change.target, change.content, { fsImpl });
+    const hooksChange = changes.find((change) => change.nativeComponent === 'hooks');
+    if (hooksChange?.nativePlan) deployGeminiHooks(hooksChange.nativePlan, { fsImpl });
+    applyCopyTreeAssets(changes, { fsImpl });
+  }
 
-function applyCopyTreeAssets(changes, { fsImpl = fs } = {}) {
-  const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation !== 'remove')
-    .map((change) => ({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint }));
-  return applyTree({ changes: treeChanges, fsImpl }).applied;
-}
-
-function removeCopyTreeAssets(changes, { fsImpl = fs } = {}) {
-  const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove')
-    .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
-  return removeTree({ changes: treeChanges, fsImpl }).removed;
-}
-
-function verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl = fs }) {
-  const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir, fsImpl });
-  const statuses = [];
-  const resources = [];
-  const conflicts = [];
-  for (const asset of copyTreeAssets(assets)) {
-    const destDir = geminiDestDir(paths, asset);
-    const sourceDir = sourceDirFor(asset, context, fsImpl, 'Gemini');
-    const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout });
-    conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
-    for (const resource of result.resources) {
-      resources.push({
-        assetId: asset.id, target: resource.target, ownershipIdentity: `doflow:gemini:copy-tree:${asset.id}:${resource.relPath}`,
-        kind: 'copy-tree-file', identity: resource.relPath,
-        fingerprint: resource.fingerprint, sourceVersion: 'registry-v1',
-        projection: { renderer: 'copy-tree' },
-      });
+  /** Strip only the DoFlow-managed span, exactly like the Claude adapter's removeManagedSection —
+   * a file with user content before/after the managed section must keep that content. Only delete
+   * the file outright once nothing but the managed section (and its separator) remains. */
+  function removeManagedSection(file, { fsImpl = fs } = {}) {
+    if (!fsImpl.existsSync(file)) return false;
+    const existing = fsImpl.readFileSync(file, 'utf8');
+    const start = existing.indexOf(MARKER_START);
+    if (start === -1) return false;
+    const end = existing.indexOf(MARKER_END, start + MARKER_START.length);
+    if (end === -1 || existing.indexOf(MARKER_START, end + MARKER_END.length) !== -1) {
+      throw new Error(`Refusing to remove malformed DoFlow markers in ${file}`);
     }
-    statuses.push({ assetId: asset.id, capability: asset.capability, status: result.ok ? 'managed' : 'conflict', target: destDir });
+    let after = end + MARKER_END.length;
+    if (existing[after] === '\n') after += 1;
+    let next = existing.slice(0, start) + existing.slice(after);
+    if (next === '\n') next = '';
+    if (next === '') fsImpl.rmSync(file, { force: true });
+    else fsImpl.writeFileSync(file, next);
+    return true;
   }
-  return { statuses, resources, conflicts };
-}
+  function remove({ changes = [], fsImpl = fs }) {
+    for (const change of changes) if (change.target && change.projection?.renderer === 'gemini-instructions') removeManagedSection(change.target, { fsImpl });
+    const hooksChange = changes.find((change) => change.nativeComponent === 'hooks');
+    if (hooksChange?.nativePlan) deployRemoveGeminiHooks(hooksChange.nativePlan, { fsImpl });
+    removeCopyTreeAssets(changes, { fsImpl });
+  }
 
-// ---- shared adapter contract ----
-
-// Hooks are a pseudo-component, not a registry-declared asset (like Codex's own hooks
-// integration) — the lifecycle layer's normalizeChange() requires every change's assetId to
-// match a real registered asset, so this piggybacks on guidance.core's id the same way Codex's
-// assetIdFor(options, 'hooks') does, rather than inventing an unregistered 'hooks' id.
-function hooksAssetId(assets) {
-  return assets.find((asset) => asset.id === 'guidance.core')?.id ?? assets[0]?.id;
-}
-
-/** Plan the hooks pseudo-component's single change (or none), mirroring the {changes, conflicts}
- * shape planCopyTreeAssets already returns so plan() can fold it in the same way. */
-function planHooksChange({ removing, found, context, assets, fsImpl }) {
-  if (found.settings.error) return { changes: [], conflicts: [] };
-  const hooksPlan = removing
-    ? planRemoveGeminiHooks({ settingsFile: found.paths.settings, fsImpl })
-    : (context.geminiHooksSourceFile
-      ? planGeminiHooks({ sourceFile: context.geminiHooksSourceFile, sourceHooksDir: context.geminiHooksSourceDir,
-        settingsFile: found.paths.settings, trusted: context.hooksTrusted, fsImpl })
-      : null);
-  if (hooksPlan && !hooksPlan.ok) return { changes: [], conflicts: hooksPlan.errors || [] };
-  if (hooksPlan?.status !== 'change') return { changes: [], conflicts: [] };
-  return { changes: [{ assetId: hooksAssetId(assets), target: hooksPlan.settingsFile, operation: removing ? 'remove' : (hooksPlan.changes[0]?.type ?? 'update'),
-    ownershipIdentity: 'gemini:hooks', nativeComponent: 'hooks', nativePlan: hooksPlan, projection: { renderer: 'gemini-hooks' } }], conflicts: [] };
-}
-
-function plan({ scope, scopeRoot, assets = [], mcp = [], discovery, context = {}, ledger, fsImpl = fs }) {
-  const found = discovery || discover({ scope, scopeRoot, context, fsImpl });
-  const changes = []; const conflicts = [];
-  const removing = context.operation === 'remove';
-  if (removing) {
-    // Removal only ever targets a section this adapter itself owns — a foreign or absent
-    // GEMINI.md yields no change, never a forced deletion of user content.
-    const owns = found.instruction !== null && found.instruction.includes(MARKER_START) && found.instruction.includes(MARKER_END);
-    if (assets.some((asset) => asset.id === 'guidance.core') && owns) {
-      changes.push({ assetId: 'guidance.core', target: found.paths.instruction, operation: 'remove', ownershipIdentity: 'gemini:instructions', projection: { renderer: 'gemini-instructions' } });
+  function verify({ scope, scopeRoot, assets = [], context = {}, fsImpl = fs }) {
+    const found = discover({ scope, scopeRoot, context, fsImpl });
+    const resources = [];
+    if (assets.some((asset) => asset.id === 'guidance.core') && found.instruction?.includes(MARKER_START) && found.instruction.includes(MARKER_END)) {
+      resources.push({ assetId: 'guidance.core', target: found.paths.instruction, ownershipIdentity: 'gemini:instructions', fingerprint: fingerprint(found.instruction), sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'gemini-instructions' } });
     }
-  } else {
-    const content = instructionContent({ assets, context, paths: found.paths, fsImpl });
-    if (content !== null) {
-      const next = managedInstruction(found.instruction, render({ content }));
-      if (!next.ok) conflicts.push(next.conflict);
-      else if (next.operation !== 'none') changes.push({ assetId: 'guidance.core', target: found.paths.instruction, operation: next.operation, ownershipIdentity: 'gemini:instructions', afterFingerprint: fingerprint(next.content), content: next.content, projection: { renderer: 'gemini-instructions' } });
+    const copyTree = verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl });
+    resources.push(...copyTree.resources);
+    let hooksStatus = null; const conflicts = [...(found.settings.error ? [found.settings.error] : []), ...copyTree.conflicts];
+    if (context.geminiHooksSourceFile && !found.settings.error) {
+      const hooksPlan = planGeminiHooks({ sourceFile: context.geminiHooksSourceFile, sourceHooksDir: context.geminiHooksSourceDir,
+        settingsFile: found.paths.settings, trusted: context.hooksTrusted, fsImpl });
+      hooksStatus = hooksPlan.ok && hooksPlan.status === 'unchanged' ? 'managed' : (hooksPlan.ok ? 'missing' : 'conflict');
+      if (!hooksPlan.ok) conflicts.push(...(hooksPlan.errors || []));
+      if (hooksStatus === 'managed') {
+        resources.push({ assetId: hooksAssetId(assets), target: hooksPlan.settingsFile, ownershipIdentity: 'gemini:hooks',
+          fingerprint: fingerprint(hooksPlan.merged.hooks), sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'gemini-hooks' } });
+      }
     }
+    return { ok: !found.settings.error && copyTree.conflicts.length === 0 && hooksStatus !== 'conflict', resources,
+      statuses: { settings: found.settings.error ? 'invalid' : 'supported', extensions: 'different', policies: policyStatuses(context.policies), copyTree: copyTree.statuses, hooks: hooksStatus },
+      conflicts };
   }
-  const copyTree = planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing, fsImpl });
-  changes.push(...copyTree.changes); conflicts.push(...copyTree.conflicts);
-  if (found.settings.error) conflicts.push(found.settings.error);
-  const hooks = planHooksChange({ removing, found, context, assets, fsImpl });
-  changes.push(...hooks.changes); conflicts.push(...hooks.conflicts);
-  return {
-    changes, conflicts, prerequisites: [],
-    surfaces: {
-      instructions: { status: 'supported', target: found.paths.instruction },
-      settings: { status: found.settings.error ? 'invalid' : 'supported', target: found.paths.settings },
-      mcp: { status: found.settings.error ? 'blocked' : 'supported', target: found.paths.settings, selected: mcp.map((item) => item.id) },
-      extensions: { status: 'different', mode: found.paths.extensionMode, action: 'use Gemini CLI extension management' },
-      policies: policyStatuses(context.policies),
-    },
-  };
+
+  return { nativePaths, discover, render, plan, apply, remove, verify };
 }
 
-function atomicWrite(file, content, { fsImpl = fs } = {}) {
-  fsImpl.mkdirSync(path.dirname(file), { recursive: true });
-  const temp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`);
-  try {
-    fsImpl.writeFileSync(temp, content, { encoding: 'utf8', flag: 'wx' });
-    fsImpl.renameSync(temp, file);
-  } finally {
-    if (fsImpl.existsSync(temp)) fsImpl.rmSync(temp, { force: true });
-  }
-}
-function apply({ changes = [], fsImpl = fs }) {
-  for (const change of changes) if (change.content !== undefined) atomicWrite(change.target, change.content, { fsImpl });
-  const hooksChange = changes.find((change) => change.nativeComponent === 'hooks');
-  if (hooksChange?.nativePlan) deployGeminiHooks(hooksChange.nativePlan, { fsImpl });
-  applyCopyTreeAssets(changes, { fsImpl });
-}
+const singleton = createGeminiAdapter();
 
-/** Strip only the DoFlow-managed span, exactly like the Claude adapter's removeManagedSection —
- * a file with user content before/after the managed section must keep that content. Only delete
- * the file outright once nothing but the managed section (and its separator) remains. */
-function removeManagedSection(file, { fsImpl = fs } = {}) {
-  if (!fsImpl.existsSync(file)) return false;
-  const existing = fsImpl.readFileSync(file, 'utf8');
-  const start = existing.indexOf(MARKER_START);
-  if (start === -1) return false;
-  const end = existing.indexOf(MARKER_END, start + MARKER_START.length);
-  if (end === -1 || existing.indexOf(MARKER_START, end + MARKER_END.length) !== -1) {
-    throw new Error(`Refusing to remove malformed DoFlow markers in ${file}`);
-  }
-  let after = end + MARKER_END.length;
-  if (existing[after] === '\n') after += 1;
-  let next = existing.slice(0, start) + existing.slice(after);
-  if (next === '\n') next = '';
-  if (next === '') fsImpl.rmSync(file, { force: true });
-  else fsImpl.writeFileSync(file, next);
-  return true;
-}
-function remove({ changes = [], fsImpl = fs }) {
-  for (const change of changes) if (change.target && change.projection?.renderer === 'gemini-instructions') removeManagedSection(change.target, { fsImpl });
-  const hooksChange = changes.find((change) => change.nativeComponent === 'hooks');
-  if (hooksChange?.nativePlan) deployRemoveGeminiHooks(hooksChange.nativePlan, { fsImpl });
-  removeCopyTreeAssets(changes, { fsImpl });
-}
-
-function verify({ scope, scopeRoot, assets = [], context = {}, fsImpl = fs }) {
-  const found = discover({ scope, scopeRoot, context, fsImpl });
-  const resources = [];
-  if (assets.some((asset) => asset.id === 'guidance.core') && found.instruction?.includes(MARKER_START) && found.instruction.includes(MARKER_END)) {
-    resources.push({ assetId: 'guidance.core', target: found.paths.instruction, ownershipIdentity: 'gemini:instructions', fingerprint: fingerprint(found.instruction), sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'gemini-instructions' } });
-  }
-  const copyTree = verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl });
-  resources.push(...copyTree.resources);
-  let hooksStatus = null; const conflicts = [...(found.settings.error ? [found.settings.error] : []), ...copyTree.conflicts];
-  if (context.geminiHooksSourceFile && !found.settings.error) {
-    const hooksPlan = planGeminiHooks({ sourceFile: context.geminiHooksSourceFile, sourceHooksDir: context.geminiHooksSourceDir,
-      settingsFile: found.paths.settings, trusted: context.hooksTrusted, fsImpl });
-    hooksStatus = hooksPlan.ok && hooksPlan.status === 'unchanged' ? 'managed' : (hooksPlan.ok ? 'missing' : 'conflict');
-    if (!hooksPlan.ok) conflicts.push(...(hooksPlan.errors || []));
-    if (hooksStatus === 'managed') {
-      resources.push({ assetId: hooksAssetId(assets), target: hooksPlan.settingsFile, ownershipIdentity: 'gemini:hooks',
-        fingerprint: fingerprint(hooksPlan.merged.hooks), sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'gemini-hooks' } });
-    }
-  }
-  return { ok: !found.settings.error && copyTree.conflicts.length === 0 && hooksStatus !== 'conflict', resources,
-    statuses: { settings: found.settings.error ? 'invalid' : 'supported', extensions: 'different', policies: policyStatuses(context.policies), copyTree: copyTree.statuses, hooks: hooksStatus },
-    conflicts };
-}
-
-module.exports = { MARKER_START, MARKER_END, nativePaths, discover, render, managedInstruction, plan, apply, remove, verify, planGeminiHooks, createGeminiAdapter: () => ({ discover, render, plan, apply, remove, verify }) };
+module.exports = {
+  MARKER_START, MARKER_END,
+  nativePaths: singleton.nativePaths, discover: singleton.discover, render: singleton.render,
+  managedInstruction, plan: singleton.plan, apply: singleton.apply, remove: singleton.remove,
+  verify: singleton.verify, planGeminiHooks,
+  createGeminiAdapter,
+};

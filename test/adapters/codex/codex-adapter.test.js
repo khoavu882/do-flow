@@ -23,9 +23,15 @@ test('discovers native Codex locations in neutral project scope', () => {
 
 test('normalizes user root to ~/.codex and project root to the selected repository only', () => {
   const home = scratch();
-  assert.deepEqual(normalizeContext({ scope: 'user', homeDir: home }), { scope: 'global', codexDir: path.join(home, '.codex') });
+  // Stage 3: the context now also carries the declared paths resolved from harnesses.json; assert
+  // them against the declaration instead of hardcoding the literals here a second time.
+  const userContext = normalizeContext({ scope: 'user', homeDir: home });
+  assert.equal(userContext.scope, 'global');
+  assert.equal(userContext.codexDir, path.join(home, '.codex'));
   const workspace = path.join(home, 'Workspace'); const repository = path.join(workspace, 'repo-a');
-  assert.deepEqual(normalizeContext({ scope: 'project', scopeRoot: workspace, projectRoot: repository }), { scope: 'project', projectRoot: repository });
+  const projectContext = normalizeContext({ scope: 'project', scopeRoot: workspace, projectRoot: repository });
+  assert.equal(projectContext.scope, 'project');
+  assert.equal(projectContext.projectRoot, repository);
   assert.equal(discover({ scope: 'project', scopeRoot: workspace, projectRoot: repository }).config.file, path.join(repository, '.codex', 'config.toml'));
 });
 

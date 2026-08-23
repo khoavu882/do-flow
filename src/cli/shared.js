@@ -14,6 +14,7 @@ const {
   resolveMcpSelection, promptMcpCheckbox,
 } = require('../install/mcp');
 const { createAdapterRegistry } = require('../adapters');
+const { declaredHarnessPaths } = require('../helper/harness-paths');
 const claudeAdapter = require('../adapters/claude');
 const codexAdapter = require('../adapters/codex');
 const { createGeminiAdapter } = require('../adapters/gemini');
@@ -41,14 +42,22 @@ const pkg = loadPkg();
  * The one adapter registry construction, used by install/update/remove/reconcile. There used to
  * be three inline copies of the same construction (one per mutating command); a fourth variant
  * once grew in src/lifecycle/view.js and silently fell behind (fixed in 96006da) — which is why
- * test/guards/registry.test.js pins every declared harness into each call site by parsing them.
- * Build one here rather than copying the object literal again.
+ * the registry guard pins every declared harness into each call site by parsing them.
+ * Build one here rather than copying the object literal again. Stage 3: each adapter factory
+ * receives its harness's declared native paths from core/registry/harnesses.json, so the CLI
+ * consumes exactly what the loader validates.
  */
 function buildAdapterRegistry() {
+  const declared = declaredHarnessPaths();
   return createAdapterRegistry({
-    claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter(),
-    opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(),
-    kiro: createKiroAdapter(), antigravity: createAntigravityAdapter(),
+    claude: claudeAdapter.createClaudeAdapter({ declaredPaths: declared.claude }),
+    codex: codexAdapter.createCodexAdapter({ declaredPaths: declared.codex }),
+    gemini: createGeminiAdapter({ declaredPaths: declared.gemini }),
+    opencode: createOpenCodeAdapter({ declaredPaths: declared.opencode }),
+    pi: createPiAdapter({ declaredPaths: declared.pi }),
+    copilot: createCopilotAdapter({ declaredPaths: declared.copilot }),
+    kiro: createKiroAdapter({ declaredPaths: declared.kiro }),
+    antigravity: createAntigravityAdapter({ declaredPaths: declared.antigravity }),
   });
 }
 

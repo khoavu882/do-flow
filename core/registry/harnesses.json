@@ -15,6 +15,17 @@
         "hooks": "settings.json",
         "mcp": ".mcp.json"
       },
+      "paths": {
+        "configDir": { "base": "root", "segments": [".claude"] },
+        "instructions": { "base": "root", "segments": [".claude", "CLAUDE.md"] },
+        "settings": { "base": "root", "segments": [".claude", "settings.json"] },
+        "keybindings": { "base": "root", "segments": [".claude", "keybindings.json"] },
+        "statuslineScript": { "base": "root", "segments": [".claude", "doflow-statusline.sh"] },
+        "mcp": {
+          "project": { "base": "root", "segments": [".mcp.json"] },
+          "user": { "base": "root", "segments": [".claude.json"] }
+        }
+      },
       "capabilities": {
         "instructions": {
           "status": "supported",
@@ -143,6 +154,17 @@
         "hooks": ".codex/hooks.json",
         "agents": ".codex/agents/*.toml",
         "mcp": ".codex/config.toml"
+      },
+      "paths": {
+        "configDir": { "base": "root", "segments": [".codex"] },
+        "configFile": { "base": "root", "segments": [".codex", "config.toml"] },
+        "agentsDirectory": { "base": "root", "segments": [".codex", "agents"] },
+        "hooksFile": { "base": "root", "segments": [".codex", "hooks.json"] },
+        "hooksDirectory": { "base": "root", "segments": [".codex", "hooks"] },
+        "instructions": {
+          "project": { "base": "root", "segments": ["AGENTS.md"] },
+          "user": { "base": "root", "segments": [".codex", "AGENTS.md"] }
+        }
       },
       "nativeProjection": {
         "config": {
@@ -301,6 +323,18 @@
         "instructions": "GEMINI.md",
         "hooks": "settings.json"
       },
+      "paths": {
+        "configDir": {
+          "project": { "base": "root", "segments": [".agents"] },
+          "user": { "base": "root", "segments": [".gemini", "config"] }
+        },
+        "instruction": {
+          "project": { "base": "root", "segments": ["GEMINI.md"] },
+          "user": { "base": "root", "segments": [".gemini", "GEMINI.md"] }
+        },
+        "settings": { "base": "root", "segments": [".gemini", "settings.json"] },
+        "hooksDirectory": { "base": "root", "segments": [".gemini", "hooks"] }
+      },
       "capabilities": {
         "instructions": {
           "status": "supported",
@@ -430,6 +464,28 @@
         "instructions": "AGENTS.md",
         "settings": "opencode.json",
         "mcp": "opencode.json"
+      },
+      "paths": {
+        "configDir": {
+          "project": { "base": "root", "segments": [] },
+          "user": { "base": "root", "segments": [".config", "opencode"] }
+        },
+        "instruction": {
+          "project": { "base": "root", "segments": ["AGENTS.md"] },
+          "user": { "base": "root", "segments": [".config", "opencode", "AGENTS.md"] }
+        },
+        "config": {
+          "project": { "base": "root", "segments": ["opencode.json"] },
+          "user": { "base": "root", "segments": [".config", "opencode", "opencode.json"] }
+        },
+        "treeRoot": {
+          "project": { "base": "root", "segments": [".opencode"] },
+          "user": { "base": "root", "segments": [".config", "opencode"] }
+        },
+        "agentsDirectory": {
+          "project": { "base": "root", "segments": [".opencode", "agents"] },
+          "user": { "base": "root", "segments": [".config", "opencode", "agents"] }
+        }
       },
       "capabilities": {
         "instructions": {
@@ -574,6 +630,20 @@
       "nativeTargets": {
         "instructions": "AGENTS.md",
         "settings": ".pi/settings.json"
+      },
+      "paths": {
+        "configDir": {
+          "project": { "base": "root", "segments": [".pi"] },
+          "user": { "base": "root", "segments": [".pi", "agent"] }
+        },
+        "settings": {
+          "project": { "base": "root", "segments": [".pi", "settings.json"] },
+          "user": { "base": "root", "segments": [".pi", "agent", "settings.json"] }
+        },
+        "instruction": {
+          "project": { "base": "root", "segments": ["AGENTS.md"] },
+          "user": { "base": "root", "segments": [".pi", "agent", "AGENTS.md"] }
+        }
       },
       "capabilities": {
         "instructions": {
@@ -720,6 +790,29 @@
         "agents": ".github/agents",
         "mcp": ".mcp.json"
       },
+      "paths": {
+        "skillsConfigDir": { "base": "root", "segments": [".agents"] },
+        "agentsConfigDir": {
+          "project": { "base": "root", "segments": [".github"] },
+          "user": { "base": "root", "segments": [".copilot"] }
+        },
+        "ruleInstructionsConfigDir": {
+          "project": { "base": "root", "segments": [".github"] },
+          "user": { "base": "root", "segments": [".copilot"] }
+        },
+        "skills": { "base": "root", "segments": [".agents", "skills"] },
+        "agents": {
+          "project": { "base": "root", "segments": [".github", "agents"] },
+          "user": { "base": "root", "segments": [".copilot", "agents"] }
+        },
+        "instruction": {
+          "project": { "base": "root", "segments": [".github", "copilot-instructions.md"] }
+        },
+        "mcp": {
+          "project": { "base": "root", "segments": [".mcp.json"] },
+          "user": { "base": "root", "segments": [".copilot", "mcp-config.json"] }
+        }
+      },
       "capabilities": {
         "instructions": {
           "status": "supported",
@@ -862,6 +955,14 @@
         "hooks": ".kiro/hooks",
         "mcp": ".kiro/settings/mcp.json"
       },
+      "paths": {
+        "configDir": { "base": "root", "segments": [".kiro"] },
+        "steering": { "base": "root", "segments": [".kiro", "steering"] },
+        "skills": { "base": "root", "segments": [".kiro", "skills"] },
+        "agents": { "base": "root", "segments": [".kiro", "agents"] },
+        "hooks": { "base": "root", "segments": [".kiro", "hooks"] },
+        "mcp": { "base": "root", "segments": [".kiro", "settings", "mcp.json"] }
+      },
       "capabilities": {
         "instructions": {
           "status": "supported",
@@ -957,6 +1058,32 @@
         "skills": ".agents/skills",
         "agents": ".agents/agents",
         "mcp": ".agents/mcp_config.json"
+      },
+      "paths": {
+        "configDir": {
+          "project": { "base": "root", "segments": [".agents"] },
+          "user": { "base": "root", "segments": [".gemini", "config"] }
+        },
+        "instruction": {
+          "project": { "base": "root", "segments": ["AGENTS.md"] }
+        },
+        "mcpFile": {
+          "project": { "base": "root", "segments": [".agents", "mcp_config.json"] },
+          "user": { "base": "root", "segments": [".gemini", "config", "mcp_config.json"] }
+        },
+        "skillsDir": {
+          "project": { "base": "root", "segments": [".agents", "skills"] }
+        },
+        "agentsDir": {
+          "project": { "base": "root", "segments": [".agents", "agents"] },
+          "user": { "base": "root", "segments": [".gemini", "config", "agents"] }
+        },
+        "hooksJson": {
+          "project": { "base": "root", "segments": [".agents", "hooks.json"] }
+        },
+        "hookScript": {
+          "project": { "base": "root", "segments": [".agents", "hooks", "pre-implementation-gate.sh"] }
+        }
       },
       "capabilities": {
         "instructions": {

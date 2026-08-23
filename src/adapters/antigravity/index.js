@@ -19,6 +19,7 @@ const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, ledgerFileResources, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
+const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
 
 const HARNESS = 'antigravity';
 
@@ -53,9 +54,9 @@ function planHooks({ paths, scope, neutralResources, removing, fsImpl = fs }) {
     // project including non-git ones. Project-only until a documented user story exists.
     return { changes, conflicts };
   }
-  const target = path.join(paths.configDir, 'hooks.json');
+  const target = paths.hooksJson;
   const scriptSource = sourceDirFor({ source: 'core/harnesses/antigravity/hooks' }, { repoRoot: process.cwd() }, fsImpl, HARNESS);
-  const scriptTarget = path.join(paths.configDir, 'hooks', 'pre-implementation-gate.sh');
+  const scriptTarget = paths.hookScript;
 
   const previousHookRows = (neutralResources || []).filter((r) => r.harness === HARNESS && r.assetId === HOOKS_ASSET_ID && r.kind === 'hooks-json');
   const previousScriptRows = (neutralResources || []).filter((r) => r.harness === HARNESS && r.assetId === HOOKS_ASSET_ID && r.kind === 'copy-tree-file');
@@ -109,25 +110,56 @@ function sha256File(fsImpl, file) {
   return require('node:crypto').createHash('sha256').update(fsImpl.readFileSync(file)).digest('hex');
 }
 
-/** Native paths per scope. Global config lives at ~/.gemini/config (shared-customization root);
- * project customization lives at <root>/.agents. */
-function nativePaths({ scope, scopeRoot, homeDir } = {}) {
+/** Native paths per scope, resolved from the declaration in core/registry/harnesses.json
+ * ("paths"): project customization lives at <root>/.agents, global config at ~/.gemini/config
+ * (the shared-customization root); instructions and skills are project-only surfaces, so no user
+ * rule is declared for them and they resolve to null there. */
+function resolveNativePaths(declaredPaths, { scope, scopeRoot, homeDir } = {}) {
   if (scope !== 'project' && scope !== 'global') throw new Error(`Unsupported Antigravity scope '${scope}'`);
-  const base = scope === 'project' ? path.resolve(scopeRoot) : path.resolve(homeDir || scopeRoot);
-  const configDir = scope === 'project' ? path.join(base, '.agents') : path.join(base, '.gemini', 'config');
+  const resolved = resolveHarnessPaths(declaredPaths, { scope, scopeRoot, homeDir });
   return {
     scope,
-    root: base,
-    configDir,
-    instruction: scope === 'project' ? path.join(base, 'AGENTS.md') : null,
-    mcpFile: path.join(configDir, 'mcp_config.json'),
-    skillsDir: scope === 'project' ? path.join(base, '.agents', 'skills') : null,
-    agentsDir: path.join(configDir, 'agents'),
+    root: resolved.root,
+    configDir: resolved.configDir,
+    instruction: resolved.instruction,
+    mcpFile: resolved.mcpFile,
+    skillsDir: resolved.skillsDir,
+    agentsDir: resolved.agentsDir,
+    // Declared project-scope hook surfaces (null at user scope — see the paths declaration).
+    hooksJson: resolved.hooksJson,
+    hookScript: resolved.hookScript,
   };
 }
 
-function discover(options, { fsImpl = fs } = {}) {
-  const paths = nativePaths(options);
+const DEFAULT_DECLARED_PATHS = declaredHarnessPaths()[HARNESS];
+
+function nativePaths(options = {}) {
+  return resolveNativePaths(DEFAULT_DECLARED_PATHS, options);
+}
+
+/**
+ * createAntigravityAdapter({ declaredPaths }) is the injection point buildAdapterRegistry() uses:
+ * it rebinds the contract methods to the given declaration. Unlike the smaller adapters this one
+ * keeps its planners module-level (they already thread resolved `paths` explicitly), so injection
+ * flows through an optional `impl.nativePaths` seam instead of a full closure rewrite.
+ */
+function createAntigravityAdapter({ declaredPaths = DEFAULT_DECLARED_PATHS } = {}) {
+  const nativePathsFor = (options) => resolveNativePaths(declaredPaths, options);
+  return {
+    nativePaths: nativePathsFor,
+    discover: (options, impl = {}) => discover(options, { ...impl, nativePaths: nativePathsFor }),
+    render,
+    plan: (options, impl = {}) => plan(options, { ...impl, nativePaths: nativePathsFor }),
+    apply,
+    remove,
+    verify: (options, impl = {}) => verify(options, { ...impl, nativePaths: nativePathsFor }),
+  };
+}
+
+const singleton = createAntigravityAdapter();
+
+function discover(options, { fsImpl = fs, nativePaths: resolvePaths = singleton.nativePaths } = {}) {
+  const paths = resolvePaths(options);
   const instruction = paths.instruction && fsImpl.existsSync(paths.instruction)
     ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
   return { paths, instruction, mcp: readJsonObject(paths.mcpFile, { fsImpl }) };
@@ -370,7 +402,7 @@ function plan(options = {}, impl = {}) {
   const fsImpl = impl.fsImpl || fs;
   const context = options.context ?? {};
   const scope = options.scope ?? 'project';
-  const paths = nativePaths({ ...options, scope, homeDir: context.homeDir });
+  const paths = (impl.nativePaths ?? singleton.nativePaths)({ ...options, scope, homeDir: context.homeDir });
   const removing = context.operation === 'remove';
   const neutralResources = options.ledger?.resources ?? options.managedResources ?? [];
   const selectedServers = Array.isArray(options.mcp) ? options.mcp : [];
@@ -393,8 +425,10 @@ function plan(options = {}, impl = {}) {
 function apply(options = {}, impl = {}) {
   const fsImpl = impl.fsImpl || fs;
   // apply()/verify() are reached through the lifecycle with the same scope inputs plan() saw, so
-  // they re-derive paths instead of trusting plan-private state.
-  const paths = nativePaths(options);
+  // they re-derive paths instead of trusting plan-private state. `paths` itself is unused here —
+  // every change carries its own absolute target — but resolving it keeps scope validation (and
+  // the fail-loud contract) identical to plan().
+  (impl.nativePaths ?? singleton.nativePaths)(options);
   const changes = options.changes ?? [];
 
   for (const change of changes.filter((c) => c.projection?.renderer === 'antigravity-instructions')) {
@@ -466,7 +500,7 @@ function verify(options = {}, impl = {}) {
   const fsImpl = impl.fsImpl || fs;
   const context = options.context ?? {};
   const scope = options.scope ?? 'project';
-  const paths = nativePaths({ ...options, scope, homeDir: context.homeDir });
+  const paths = (impl.nativePaths ?? singleton.nativePaths)({ ...options, scope, homeDir: context.homeDir });
   const removing = (context.operation ?? options.operation) === 'remove';
   const statuses = [];
   const resources = [];
@@ -527,8 +561,8 @@ function verify(options = {}, impl = {}) {
 
   // Hooks projection (project scope): the script's bytes and the registered group.
   if (scope === 'project') {
-    const hooksTarget = path.join(paths.configDir, 'hooks.json');
-    const scriptTarget = path.join(paths.configDir, 'hooks', 'pre-implementation-gate.sh');
+    const hooksTarget = paths.hooksJson;
+    const scriptTarget = paths.hookScript;
     const scriptSource = path.join(path.resolve(registryRepoRoot(options)), 'core', 'harnesses', 'antigravity', 'hooks', 'pre-implementation-gate.sh');
     const removingOp = (context.operation ?? options.operation ?? '') === 'remove';
     let scriptFp = null;
@@ -569,6 +603,6 @@ function conflictsToStatuses(conflicts, assetId, statuses) {
 }
 
 module.exports = {
-  HARNESS, nativePaths, discover, render, plan, apply, remove, verify,
-  createAntigravityAdapter: () => ({ discover, render, plan, apply, remove, verify }),
+  HARNESS, nativePaths: singleton.nativePaths, discover, render, plan, apply, remove, verify,
+  createAntigravityAdapter,
 };
