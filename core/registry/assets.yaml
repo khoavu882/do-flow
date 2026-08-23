@@ -194,7 +194,8 @@
         },
         "antigravity": {
           "renderer": "copy-tree",
-          "capability": "agents"
+          "capability": "agents",
+          "layout": "dir-per-file:agent.md"
         }
       },
       "ownership": "managed-tree",

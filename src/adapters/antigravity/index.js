@@ -116,7 +116,7 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
   for (const { asset, destDir } of targets) {
     const sourceDir = sourceDirFor(asset, { repoRoot }, fsImpl, HARNESS);
     const previousResources = ledgerFileResources(neutralResources, HARNESS, asset.id);
-    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl });
+    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const change of result.changes) {
       changes.push({
@@ -356,7 +356,7 @@ function verify(options = {}, impl = {}) {
     const destDir = treeDestFor(asset, paths, scope);
     if (!destDir) continue;
     const sourceDir = sourceDirFor(asset, { repoRoot: context.repoRoot }, fsImpl, HARNESS);
-    const result = verifyTree({ sourceDir, destDir, fsImpl });
+    const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout });
     conflictsToStatuses(result.conflicts, asset.id, statuses);
     for (const resource of result.resources) {
       resources.push({
