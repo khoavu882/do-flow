@@ -73,6 +73,9 @@ class of error instead of detecting it.
   prose outside markers is preserved untouched.
 - G8 flips from "cells match registry" to "run generator → git diff must be empty".
 - Adds npm script `gen:capability-map`.
+- Landed: `scripts/generate-capability-map.js` (npm run `gen:capability-map`) renders the
+  `capability-matrix` and `hook-event-matrix` regions between `<!-- BEGIN GENERATED:<region> -->`
+  / `<!-- END GENERATED:<region> -->` markers; prose outside markers is never machine-edited.
 
 Done when: regenerate produces zero diff; docs build strict-clean.
 

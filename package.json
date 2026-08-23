@@ -30,7 +30,8 @@
   },
   "scripts": {
     "test": "node scripts/run-tests.js",
-    "bench": "node bench/runner.js"
+    "bench": "node bench/runner.js",
+    "gen:capability-map": "node scripts/generate-capability-map.js"
   },
   "files": [
     "bin/",
