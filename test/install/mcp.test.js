@@ -180,7 +180,7 @@ test('resolveMcpSelection: install + interactive, prompt unavailable (null) sele
   assert.deepStrictEqual(selected, []);
 });
 
-// Regression: removing chrome-devtools and playwright from core/registry/mcp.yaml (d1bf9e8) made
+// Regression: removing chrome-devtools and playwright from core/registry/mcp.json (d1bf9e8) made
 // `install` and `update` throw "Unknown registry MCP server(s)" for every install that had them in
 // its manifest — i.e. the upgrade path was broken for all pre-existing users, on both commands.
 // The asymmetry these tests pin down: `requested` is user intent (typo => fatal), the manifest is

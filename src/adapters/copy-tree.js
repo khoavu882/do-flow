@@ -1,7 +1,7 @@
 'use strict';
 
 // Shared copy-tree engine — the generic "own a tree of files" implementation every asset
-// declaring `renderer: "copy-tree"` in core/registry/assets.yaml needs. Codex's adapter already
+// declaring `renderer: "copy-tree"` in core/registry/assets.json needs. Codex's adapter already
 // proved this per-file fingerprint/conflict model for agents and hooks (ownedRemovalPlan,
 // nativeManagedResources); this module generalizes it so Claude, Gemini, and Codex's own
 // tree-shaped assets (skills, rules, agent-specs, templates, scripts, modes, references) share

@@ -48,7 +48,7 @@ harnesses diverge the most: some support all of them natively, some support a su
 have DoFlow project the underlying guidance through instructions or skills instead of a dedicated
 native surface.
 
-The full capability matrix — generated from `core/registry/harnesses.yaml` and covering
+The full capability matrix — generated from `core/registry/harnesses.json` and covering
 instructions, skills, agents, scripts, templates, modes, settings, hooks, MCP, and plugin support
 across all eight harnesses, plus the per-event hook matrix and per-harness verification and
 prerequisite tables — lives in [Capability Map](capability-map.md). This page intentionally does

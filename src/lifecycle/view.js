@@ -8,6 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { parseToml } = require('../helper/toml');
 const { createAdapterRegistry } = require('../adapters');
+const { declaredHarnessPaths } = require('../helper/harness-paths');
 const claudeAdapter = require('../adapters/claude');
 const codexAdapter = require('../adapters/codex');
 const { createGeminiAdapter } = require('../adapters/gemini');
@@ -21,7 +22,7 @@ const { stateRoot, readLedger, defaultLedger } = require('../state');
 const { selectAssets } = require('../registry');
 const { defaultLock, readLock, writeLock, diffLocks } = require('../state/lockfile');
 // Tolerant because the projected runtime under `.doflow/runtime/` ships bin/, src/ and
-// core/registry/ but no package.json — see the `runtime.*` assets in core/registry/assets.yaml.
+// core/registry/ but no package.json — see the `runtime.*` assets in core/registry/assets.json.
 // A hard require here would make every Node-backed verb fail in an install, which is the exact
 // defect that projection exists to fix. Only version reporting depends on this.
 function loadPkg() {
@@ -50,9 +51,15 @@ function registryLifecycleView({ registry, scope, targets, mcpIds, operation, re
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   const neutralStateRoot = stateRoot({ scope: lifecycleScope, projectRoot: scopeRoot, homeDir: scopeRoot });
   const ledger = readLedger(neutralStateRoot) ?? defaultLedger({ scope: lifecycleScope, scopeRoot });
-  const adapters = createAdapterRegistry({ claude: claudeAdapter, codex: codexAdapter, gemini: createGeminiAdapter(),
-    opencode: createOpenCodeAdapter(), pi: createPiAdapter(), copilot: createCopilotAdapter(), kiro: createKiroAdapter(),
-    antigravity: createAntigravityAdapter() });
+  // Mirrors buildAdapterRegistry() in src/cli/shared.js — including the declared-paths wiring —
+  // and is kept as a literal construction here because the registry guard pins every declared
+  // harness into each adapter-registry call site by parsing it.
+  const declared = declaredHarnessPaths();
+  const adapters = createAdapterRegistry({ claude: claudeAdapter.createClaudeAdapter({ declaredPaths: declared.claude }),
+    codex: codexAdapter.createCodexAdapter({ declaredPaths: declared.codex }), gemini: createGeminiAdapter({ declaredPaths: declared.gemini }),
+    opencode: createOpenCodeAdapter({ declaredPaths: declared.opencode }), pi: createPiAdapter({ declaredPaths: declared.pi }),
+    copilot: createCopilotAdapter({ declaredPaths: declared.copilot }), kiro: createKiroAdapter({ declaredPaths: declared.kiro }),
+    antigravity: createAntigravityAdapter({ declaredPaths: declared.antigravity }) });
   const plan = planLifecycle({ registry, adapters, scope: lifecycleScope, scopeRoot, targets, mcpIds, ledger, context: {
     repoRoot, projectRoot: scopeRoot, homeDir: os.homedir(), sourceVersion: pkg.version,
     codexConfigResources: codexConfigResources(repoRoot, fsImpl),

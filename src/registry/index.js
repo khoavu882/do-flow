@@ -1,21 +1,18 @@
 'use strict';
 
-// Registry loader and validator.  Registry files deliberately use JSON syntax in
-// .yaml files: JSON is a YAML subset, so this is dependency-free while retaining
-// a future-compatible declarative file extension.  Do not add a permissive YAML
-// parser here; accepting partial/ambiguous YAML would make safety validation less
-// reliable than failing with an actionable conversion message.
+// Registry loader and validator.  Registry files are plain JSON (core/registry/*.json).
 const fs = require('node:fs');
 const path = require('node:path');
+const { validatePathsSection } = require('../helper/harness-paths');
 
 const REGISTRY_FILES = Object.freeze({
-  harnesses: 'harnesses.yaml',
-  assets: 'assets.yaml',
-  mcp: 'mcp.yaml',
-  lifecycle: 'lifecycle.yaml',
-  contracts: 'contracts.yaml',
-  externalTools: 'external-tools.yaml',
-  models: 'models.yaml',
+  harnesses: 'harnesses.json',
+  assets: 'assets.json',
+  mcp: 'mcp.json',
+  lifecycle: 'lifecycle.json',
+  contracts: 'contracts.json',
+  externalTools: 'external-tools.json',
+  models: 'models.json',
 });
 const CAPABILITY_STATUS = new Set(['supported', 'different', 'unavailable']);
 const SCOPES = new Set(['project', 'user']);
@@ -41,7 +38,7 @@ function parseRegistryFile(file, fsImpl = fs) {
     throw new Error(`Could not read registry file '${file}': ${error.message}`);
   }
   try { return JSON.parse(text); } catch (error) {
-    throw new Error(`Registry file '${file}' must use JSON-compatible YAML (valid JSON in a .yaml file): ${error.message}`);
+    throw new Error(`Registry file '${file}' is not valid JSON: ${error.message}`);
   }
 }
 
@@ -78,8 +75,8 @@ function loadRegistry({ repoRoot, dir, fsImpl = fs } = {}) {
 
 const CONTRACT_COMPLETENESS = new Set(['verified', 'lower-bound']);
 
-/** Validates core/registry/contracts.yaml — what each harness ACCEPTS (legal frontmatter fields,
- * legal hook event names), kept separate from harnesses.yaml's what-DoFlow-SUPPORTS. The split is
+/** Validates core/registry/contracts.json — what each harness ACCEPTS (legal frontmatter fields,
+ * legal hook event names), kept separate from harnesses.json's what-DoFlow-SUPPORTS. The split is
  * what keeps the registry-truth guard from validating the registry against itself.
  *
  * `evidence` is required for the same reason capabilities require it: a contract claim with no
@@ -239,7 +236,7 @@ function validateExternalTool(value, location, errors) {
   }
 }
 
-/** Validates core/registry/models.yaml — the provider × role matrix the orchestrator's model
+/** Validates core/registry/models.json — the provider × role matrix the orchestrator's model
  * router will consume. Shell scope: providers are declared with identity, kind, and
  * evidence (a capability claim without a citation is folklore); roles name routing preferences
  * without binding to concrete model IDs, which stay runtime/user choices resolved at run time. */
@@ -291,6 +288,12 @@ function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
     if (typeof harness.adapter !== 'string' || !harness.adapter.trim()) issue(errors, at, 'requires adapter');
     if (!Array.isArray(harness.scopes) || harness.scopes.length === 0 || harness.scopes.some((scope) => !SCOPES.has(scope))) issue(errors, at, 'scopes must contain project and/or user');
     if (!object(harness.nativeTargets)) issue(errors, at, 'nativeTargets must be an object');
+    // Declared native paths (Stage 3): every surface a harness declares must parse into the
+    // minimal {base, segments} shape — unknown keys or malformed rules fail the load loudly so a
+    // typo can never silently fall back to an adapter's previous hardcoded literal.
+    if (harness.paths !== undefined) {
+      errors.push(...validatePathsSection(harness.paths, `${at} paths`));
+    }
     if (!object(harness.capabilities) || Object.keys(harness.capabilities || {}).length === 0) issue(errors, at, 'capabilities must be a non-empty object');
     for (const [capability, declaration] of Object.entries(harness.capabilities || {})) {
       if (!/^[a-z][a-z0-9-]*$/.test(capability)) issue(errors, at, `invalid capability '${capability}'`);

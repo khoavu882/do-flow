@@ -1,12 +1,19 @@
 {
   "version": 1,
-  "description": "Verification check tiers, their fixed ordering, and which tiers each risk level requires. JSON content under a .yaml extension, matching capabilities.yaml and routes.yaml (design 4.4). Consumed by src/runtime/verification/engine.js.",
+  "description": "Verification check tiers, their fixed ordering, and which tiers each risk level requires. Plain JSON, matching capabilities.json and routes.json. Consumed by src/runtime/verification/engine.js.",
   "policy": {
     "defaultRiskLevel": "MEDIUM",
     "emptyContractStatus": "INCONCLUSIVE",
     "unresolvedRequiredTierStatus": "INCONCLUSIVE",
     "modelReviewIsPrimaryProof": false,
-    "commandRoles": ["parse", "build", "lint", "typecheck", "test", "testTargeted"],
+    "commandRoles": [
+      "parse",
+      "build",
+      "lint",
+      "typecheck",
+      "test",
+      "testTargeted"
+    ],
     "planOverrideBlock": "doflow-verification",
     "completion": {
       "requires": "all-required-tiers-pass",
@@ -38,10 +45,15 @@
       "kind": "deterministic",
       "description": "Syntax-only check of the changed sources. Cheapest possible evidence that the edit is even well-formed.",
       "source": "detected-command",
-      "commandRoles": ["parse"],
+      "commandRoles": [
+        "parse"
+      ],
       "commandRoleSelection": "first",
       "failureClass": "BUILD_FAILURE",
-      "subsumedBy": ["build", "static-analysis"],
+      "subsumedBy": [
+        "build",
+        "static-analysis"
+      ],
       "absenceIsEvidence": true,
       "fatal": true,
       "modelBased": false,
@@ -54,7 +66,9 @@
       "kind": "deterministic",
       "description": "Compile or bundle the project. A broken build makes every later result a description of the broken build rather than of the change, which is why it is fatal.",
       "source": "detected-command",
-      "commandRoles": ["build"],
+      "commandRoles": [
+        "build"
+      ],
       "commandRoleSelection": "first",
       "failureClass": "BUILD_FAILURE",
       "subsumedBy": [],
@@ -70,7 +84,10 @@
       "kind": "deterministic",
       "description": "Type checking and linting. Deterministic, no test fixtures required, and finds whole classes of defect before a single test runs.",
       "source": "detected-command",
-      "commandRoles": ["typecheck", "lint"],
+      "commandRoles": [
+        "typecheck",
+        "lint"
+      ],
       "commandRoleSelection": "all",
       "failureClass": "WRONG_IMPLEMENTATION",
       "subsumedBy": [],
@@ -86,7 +103,10 @@
       "kind": "behavioral",
       "description": "Tests scoped to the change. Falls back to the broad test command when no target pattern is available, and the report records that it did.",
       "source": "detected-command",
-      "commandRoles": ["testTargeted", "test"],
+      "commandRoles": [
+        "testTargeted",
+        "test"
+      ],
       "commandRoleSelection": "first",
       "failureClass": "TEST_FAILURE",
       "subsumedBy": [],
@@ -100,9 +120,11 @@
       "order": 50,
       "name": "Broad tests",
       "kind": "behavioral",
-      "description": "The full suite. Required from MEDIUM risk upward — this is the tier the risk scaling actually turns on.",
+      "description": "The full suite. Required from MEDIUM risk upward \u2014 this is the tier the risk scaling actually turns on.",
       "source": "detected-command",
-      "commandRoles": ["test"],
+      "commandRoles": [
+        "test"
+      ],
       "commandRoleSelection": "first",
       "failureClass": "TEST_FAILURE",
       "subsumedBy": [],
@@ -116,7 +138,7 @@
       "order": 60,
       "name": "Structural invariants",
       "kind": "structural",
-      "description": "Repository-shape checks the caller supplies — guard suites, architecture fitness functions, layering rules. Not derivable from a manifest, so the compiler asks for them.",
+      "description": "Repository-shape checks the caller supplies \u2014 guard suites, architecture fitness functions, layering rules. Not derivable from a manifest, so the compiler asks for them.",
       "source": "caller-supplied",
       "commandRoles": [],
       "failureClass": "ARCHITECTURE_FAILURE",
@@ -131,7 +153,7 @@
       "order": 70,
       "name": "Requirement satisfaction",
       "kind": "requirement",
-      "description": "One check per requirement the change claims to satisfy. A requirement with no executable check is reported unevaluated, never satisfied — an assertion is not a verification.",
+      "description": "One check per requirement the change claims to satisfy. A requirement with no executable check is reported unevaluated, never satisfied \u2014 an assertion is not a verification.",
       "source": "caller-supplied",
       "commandRoles": [],
       "failureClass": "REQUIREMENT_FAILURE",
@@ -211,7 +233,9 @@
         "requirement-satisfaction",
         "change-scope"
       ],
-      "advisoryTiers": ["model-review"],
+      "advisoryTiers": [
+        "model-review"
+      ],
       "maxRecoveryIterations": 2
     },
     "CRITICAL": {

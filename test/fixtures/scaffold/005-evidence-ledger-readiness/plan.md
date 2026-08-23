@@ -15,7 +15,7 @@ Implement **Release B** of the DoFlow v3 runtime architecture: the **Evidence Le
 
 - Implement modular in-process JavaScript classes in `src/runtime/` with zero external binary dependencies.
 - Persist task evidence and claims to neutral JSON state under `.doflow/state/evidence/<task_id>.json`.
-- Provide declarative task class readiness contract templates in `core/registry/readiness-templates.yaml` for 5 task types (Bug, Feature, Refactor, Trivial Edit, Dependency Change).
+- Provide declarative task class readiness contract templates in `core/registry/readiness-templates.json` for 5 task types (Bug, Feature, Refactor, Trivial Edit, Dependency Change).
 - Integrate Git HEAD and file mtime freshness checking to automatically invalidate stale evidence.
 - Compile compact, budget-controlled `ContextPack` structures synthesizing only verified facts and supported claims.
 - Refactor `confidence-check` skill into a `ReadinessContract` evaluator and expose `doflow readiness` / `doflow evidence` CLI inspection commands.
@@ -42,7 +42,7 @@ None.
 
 ### Configuration & Declarative Templates
 
-#### [NEW] [readiness-templates.yaml](file://<repo>/core/registry/readiness-templates.yaml)
+#### [NEW] [readiness-templates.json](file://<repo>/core/registry/readiness-templates.json)
 - Declarative template specifications for 5 task classes (`bug`, `feature`, `refactor`, `trivial-edit`, `dependency-change`).
 
 ### Runtime Subsystems (`src/runtime/`)
@@ -120,7 +120,7 @@ N/A: single-repo feature
 
 ### Phase A — Declarative Task Templates & Evidence Schemas
 
-- [x] A.1 [P] [US3] Create declarative readiness templates in `core/registry/readiness-templates.yaml` for 5 task classes — owner: developer; files: core/registry/readiness-templates.yaml
+- [x] A.1 [P] [US3] Create declarative readiness templates in `core/registry/readiness-templates.json` for 5 task classes — owner: developer; files: core/registry/readiness-templates.json
 - [x] A.2 [P] [US1] Initialize feature execution state in `agent-docs/doflow/005-evidence-ledger-readiness/state.md` — owner: developer; files: agent-docs/doflow/005-evidence-ledger-readiness/state.md
 
 ### Phase B — Evidence Ledger & Claims State Machine

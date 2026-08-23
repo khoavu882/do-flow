@@ -388,7 +388,7 @@
       "name": "Operations",
       "description": "Repository-lifecycle work — branch, release, merge, hotfix, backport — executed against a verified state rather than authored as source.",
       "handoff": "Source changes discovered while running an operation are a separate task and start their own workflow.",
-      "readinessNote": "No readiness template exists for this class in readiness-templates.yaml, and none is claimed here. This workflow authors no source, so implementation readiness does not apply; its equivalent safeguard is the preflight verification stage.",
+      "readinessNote": "No readiness template exists for this class in readiness-templates.json, and none is claimed here. This workflow authors no source, so implementation readiness does not apply; its equivalent safeguard is the preflight verification stage.",
       "stages": [
         {
           "id": "state-check",

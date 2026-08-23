@@ -14,7 +14,7 @@ test('loads and validates the complete multi-harness registry', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   assert.deepEqual(registry.harnesses.map((item) => item.id), ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
   assert.deepEqual(Object.keys(REGISTRY_FILES), ['harnesses', 'assets', 'mcp', 'lifecycle', 'contracts', 'externalTools', 'models']);
-  // contracts.yaml declares what each harness ACCEPTS, deliberately separate from harnesses.yaml's
+  // contracts.json declares what each harness ACCEPTS, deliberately separate from harnesses.json's
   // what-DoFlow-SUPPORTS: nesting them would make the registry-truth guard validate the registry
   // against itself. Every harness must have exactly one contract.
   assert.deepEqual(registry.contracts.map((c) => c.harness), ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
@@ -103,12 +103,12 @@ test('generates capability-map records with evidence and explicit gaps', () => {
   }
 });
 
-test('fails closed for malformed JSON-compatible YAML', () => {
+test('fails closed for malformed JSON', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-registry-'));
   fs.mkdirSync(path.join(root, 'core', 'registry'), { recursive: true });
   for (const file of Object.values(REGISTRY_FILES)) fs.writeFileSync(path.join(root, 'core', 'registry', file), '{}');
-  fs.writeFileSync(path.join(root, 'core', 'registry', 'harnesses.yaml'), 'not: supported-yaml-without-json');
-  assert.throws(() => loadRegistry({ repoRoot: root }), /JSON-compatible YAML/);
+  fs.writeFileSync(path.join(root, 'core', 'registry', 'harnesses.json'), '{not valid json');
+  assert.throws(() => loadRegistry({ repoRoot: root }), /not valid JSON/);
 });
 
 test('rejects projections to unavailable capabilities and missing source files', () => {

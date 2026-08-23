@@ -239,7 +239,7 @@ function probeFreshness(providerId, { root = process.cwd(), homeDir = os.homedir
 }
 
 /**
- * Probes one provider declared in `capabilities.yaml`.
+ * Probes one provider declared in `capabilities.json`.
  * @param {Object} provider
  * @param {Object} options
  * @param {CapabilityRouter} options.router

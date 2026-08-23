@@ -28,7 +28,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-/** The roles a tier in `verification.yaml` can ask for. Anything else in an override is an error,
+/** The roles a tier in `verification.json` can ask for. Anything else in an override is an error,
  * because a typo'd key that is silently ignored is a command the user believes is running. */
 const COMMAND_ROLES = Object.freeze([
   'parse',
@@ -39,8 +39,8 @@ const COMMAND_ROLES = Object.freeze([
   'testTargeted',
 ]);
 
-/** Info string of the fenced block a feature's `plan.md` uses to override detection. JSON body, to
- * match the JSON-under-.yaml convention the registry already uses. */
+/** Info string of the fenced block a feature's `plan.md` uses to override detection. JSON body,
+ * matching the plain-JSON registry files. */
 const PLAN_OVERRIDE_BLOCK = 'doflow-verification';
 
 /** Substituted by the verification engine when it has a target to scope tests to. */

@@ -326,7 +326,7 @@ function readGuidanceVersion(scopeRoot, fsImpl = fs) {
  * contract for the rest of that tree.
  *
  * It sits at the guidance ROOT, next to DOFLOW_CORE.md. That is load-bearing: the `doc` paths it
- * emits come from core/registry/mcp.yaml as `mcp/MCP_*.md`, anchored at the guidance root — the
+ * emits come from core/registry/mcp.json as `mcp/MCP_*.md`, anchored at the guidance root — the
  * same anchor DOFLOW_CORE.md's own @-imports use. Writing this file into a subdirectory would
  * silently reinterpret every one of those paths against that subdirectory and break them all,
  * with no error at install time. test/mcp-index.test.js pins the anchor from both ends. */
@@ -450,7 +450,7 @@ function assertPlanApplicable(plan, stateRoot, acceptPrerequisites) {
   if (!plan.requiredNativeResources?.length || !plan.changes.length) throw new Error('Refusing to apply a lifecycle plan with no required native resources');
 }
 
-/** Registry-declared hooks assets (`kind: "hooks"` in core/registry/assets.yaml) this harness's
+/** Registry-declared hooks assets (`kind: "hooks"` in core/registry/assets.json) this harness's
  * plan selected — currently only claude.hooks-scripts and kiro.hooks-scripts. Codex and Gemini
  * deploy hooks via their own bespoke code paths (see targetNeedsHooks below) rather than a
  * registered asset, so they never appear here. */
@@ -459,7 +459,7 @@ function hookAssetIds(target) {
 }
 
 /** Whether this harness's plan includes at least one hooks-bearing change. Claude's hooks are a
- * registry-declared asset (`kind: "hooks"` in core/registry/assets.yaml); Codex and Gemini deploy
+ * registry-declared asset (`kind: "hooks"` in core/registry/assets.json); Codex and Gemini deploy
  * hooks via their own bespoke code paths and tag the resulting change with `nativeComponent:
  * 'hooks'` instead (see src/adapters/codex/index.js and src/adapters/gemini/index.js). Either
  * signal is sufficient — this stays harness-agnostic on purpose. */
@@ -480,7 +480,7 @@ function verificationOwnsHooks(verification, hookIds) {
 }
 
 /** Gemini's hooks trust is not a static registry prerequisite the way Codex's `trusted-project`/
- * `hook-review` are (see core/registry/harnesses.yaml's gemini.capabilities.hooks, which declares
+ * `hook-review` are (see core/registry/harnesses.json's gemini.capabilities.hooks, which declares
  * no `prerequisites`); Gemini fingerprints hook name/command and warns before running one that
  * changed (geminicli.com/docs/hooks/), computed live by src/adapters/gemini/hooks.js's planGeminiHooks
  * against the current hooks.json source and the harness's current settings.json. Re-deriving that

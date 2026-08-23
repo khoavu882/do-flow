@@ -1,6 +1,6 @@
 # Multi-harness capability map
 
-This map is generated in intent from `core/registry/harnesses.yaml`: it records the capability
+This map is generated in intent from `core/registry/harnesses.json`: it records the capability
 contract that adapters must honor. A `supported` row means the native harness has a documented
 surface; it does **not** mean a file copy has activated it. Each installation still needs the
 listed verification and any prerequisite.
@@ -11,20 +11,22 @@ installation; do not infer activation from this table alone.
 
 ## Capability matrix
 
-| Capability | Claude Code | Codex | Gemini CLI | OpenCode | Pi Coding Agent | GitHub Copilot CLI | Kiro | Antigravity |
+<!-- BEGIN GENERATED:capability-matrix -->
+| Capability | Claude Code | Codex | Gemini CLI | OpenCode | Pi Coding Agent | GitHub Copilot CLI | Kiro | Antigravity CLI |
 |---|---|---|---|---|---|---|---|---|
-| Instructions | Supported — `CLAUDE.md` | Supported — `AGENTS.md` | Supported — `GEMINI.md` | Supported — `AGENTS.md` | Supported — `AGENTS.md` | Supported — `.github/copilot-instructions.md` | Supported — `.kiro/steering/` | Supported — `AGENTS.md`  |
-| Skills | Supported | Supported | Supported | Supported | Supported | Supported | Supported — `.kiro/skills` | Supported — `.agents/skills`  |
-| Agents | Supported | Supported — `.codex/agents/*.toml` | Different | Supported — `.opencode/agents/*.md`, `~/.config/opencode/agents/` | Different | Supported — `.github/agents` | Supported — `.kiro/agents` | Supported — `.agents/agents`  |
+| Instructions | Supported — `CLAUDE.md` | Supported — `AGENTS.md` | Supported — `GEMINI.md` | Supported — `AGENTS.md` | Supported — `AGENTS.md` | Supported — `.github/copilot-instructions.md` | Supported — `.kiro/steering/` | Supported — `AGENTS.md` |
+| Skills | Supported | Supported | Supported | Supported | Supported | Supported | Supported — `.kiro/skills` | Supported — `.agents/skills` |
+| Agents | Supported | Supported — `.codex/agents/*.toml` | Different | Supported | Different | Supported — `.github/agents` | Supported — `.kiro/agents` | Supported — `.agents/agents` |
 | Scripts | Supported | Supported | Supported | Supported | Supported | Supported | Supported | Supported |
 | Templates | Supported | Supported | Supported | Supported | Supported | Supported | Supported | Different |
-| Modes | Supported | Unavailable | Different | Different | Different | Different | Different | Different  |
-| Settings | Supported — `settings.json` | Different — `.codex/config.toml` | Different | Supported — `opencode.json` | Supported — `.pi/settings.json` | Supported — `~/.copilot/settings.json`, `.github/copilot/settings.json[.local]` | Unavailable | Unavailable |
-| Hooks | Supported — `settings.json` | Supported — `.codex/hooks.json` | Supported — `settings.json` | Different | Different | Different | Supported — `.kiro/hooks` | Supported — `.agents/hooks.json` |
-| MCP | Supported — `.mcp.json` | Supported — `.codex/config.toml` | Different | Supported — `opencode.json` | Different | Supported — `.mcp.json` | Supported — `.kiro/settings/mcp.json` | Supported — `.agents/mcp_config.json`  |
+| Modes | Supported | Unavailable | Different | Different | Different | Different | Different | Different |
+| Settings | Supported — `settings.json` | Different — `.codex/config.toml` | Different | Supported — `opencode.json` | Supported — `.pi/settings.json` | Supported | Unavailable | Unavailable |
+| Hooks | Supported — `settings.json` | Supported — `.codex/hooks.json` | Supported — `settings.json` | Different | Different | Different | Supported — `.kiro/hooks` | Supported |
+| MCP | Supported — `.mcp.json` | Supported — `.codex/config.toml` | Different | Supported — `opencode.json` | Different | Supported — `.mcp.json` | Supported — `.kiro/settings/mcp.json` | Supported — `.agents/mcp_config.json` |
 | Plugin / extension | Supported | Supported | Different | Different | Different | Different | Unavailable | Different |
+<!-- END GENERATED:capability-matrix -->
 
-This table is generated from `capabilities` in `core/registry/harnesses.yaml`; the registry is the
+This table is generated from `capabilities` in `core/registry/harnesses.json`; the registry is the
 source of truth and a hand edit here will drift from it. Where a harness declares a native target
 for a capability, it is shown inline.
 
@@ -37,17 +39,19 @@ rather than projection: DoFlow points their settings at its existing skills dire
 copying a second tree, and their hook and plugin surfaces take JS/TS modules rather than the shell
 scripts DoFlow ships.
 
-Copilot CLI and Kiro read “Unavailable” for a few rows for a different reason than OpenCode/Pi's
-“Different”: no documented native surface exists at all for those capabilities. Copilot CLI has no
-general settings file, hook surface, or plugin/marketplace mechanism beyond its custom-agent and
-MCP surfaces. Kiro has no general settings file separate from its MCP config, and no
-plugin/extension marketplace is documented in its steering, hooks, or MCP sources.
+Kiro reads “Unavailable” for two rows for a different reason than OpenCode/Pi's
+“Different”: no documented native surface exists at all for those capabilities — no general settings
+file separate from its MCP config, and no plugin/extension marketplace documented in its steering,
+hooks, or MCP sources. GitHub Copilot CLI's rows read Supported or Different instead: upstream now
+documents a settings stack, hook surface, and plugin mechanism, so the matrix records those
+capabilities per their evidence even though DoFlow projects none of them yet (the hook-event notes
+below say what blocks each projection).
 
 ## Runtime seam projection
 
 The `Scripts` row above reads Supported for all eight harnesses, but that is a statement about the
 capability, not about which script assets each harness receives. Two distinct assets in
-`core/registry/assets.yaml` use it, and they do **not** claim the same set of harnesses. The
+`core/registry/assets.json` use it, and they do **not** claim the same set of harnesses. The
 difference decides whether a given install can reach the DoFlow runtime at all, so it is recorded
 here rather than left to be inferred from the row.
 
@@ -83,7 +87,7 @@ mock.
 
 ## Hook event matrix
 
-Per-event support, from `capabilities.hooks.events` in `core/registry/harnesses.yaml`. A gap is
+Per-event support, from `capabilities.hooks.events` in `core/registry/harnesses.json`. A gap is
 recorded explicitly with the reason no equivalent exists — never left out, which would be
 indistinguishable from an oversight. `test/guards/registry.test.js` enforces both directions:
 an event declared supported must be in the harness contract, and an unavailable one must carry
@@ -95,34 +99,40 @@ modules rather than command strings, so DoFlow's shell hooks have nothing to att
 would mean shipping executable code into the user's agent, which is a distribution decision rather
 than a projection. **Unavailable** means no equivalent event exists at matching semantics.
 
-A dash means the harness has no such event name in DoFlow's taxonomy and none was claimed. Copilot CLI's hooks capability reads Different: a full native surface is documented upstream, but DoFlow wires none of it yet because its shipped scripts are Claude-payload-coupled — every event is a dash for it pending payload-verified projection. Kiro's `hooks` capability is Supported — DoFlow projects a real `.kiro/hooks/*.json`
+A dash means the harness declares no such event name in DoFlow's taxonomy. Copilot CLI's hooks
+capability reads Different: a full native surface is documented upstream, but DoFlow wires none of
+it yet because its shipped scripts are Claude-payload-coupled — its cells record that status per
+event rather than hiding it behind a dash, and each note names the payload caveat blocking
+projection. Kiro's `hooks` capability is Supported — DoFlow projects a real `.kiro/hooks/*.json`
 file wiring `SessionStart`, two `PreToolUse` hooks, and `Stop` — but the registry does not yet break
 that support down into a per-event map, so Kiro's column here is also a dash pending that data;
-see the `hooks` capability note in `core/registry/harnesses.yaml` and the verification row below for
+see the `hooks` capability note in `core/registry/harnesses.json` and the verification row below for
 Kiro's actual wired events instead of this table. Antigravity's hooks are supported with a documented
-native contract; its per-event column is limited to the one event DoFlow wires today (PreToolUse),
-with the other four recorded as Different in the registry rather than as dashes here.
+native contract; its column shows the one event DoFlow wires today (PreToolUse) as Supported and
+the other four as the Different statuses recorded in the registry.
 
-| Event | Claude Code | Codex | Gemini CLI | OpenCode | Pi Coding Agent | GitHub Copilot CLI | Kiro | Notes |
-|---|---|---|---|---|---|---|---|---|
-| `AfterTool` | — | — | Supported | — | — | — | — |  |
-| `BeforeTool` | — | — | Supported | — | — | — | — |  |
-| `ConfigChange` | Supported | — | — | Unavailable | Unavailable | — | — | **OpenCode:** installation.updated tracks OpenCode upgrades, not configuration edits. **Pi Coding Agent:** Pi reloads configuration via /reload, surfaced as session_start with reason "reload", not as a distinct config event. |
-| `PermissionDenied` | Supported | Unavailable | Unavailable | Different | Unavailable | — | — | **Codex:** Codex's decision-side event is PermissionRequest, whose matcher covers Bash, apply_patch and MCP tool names; DoFlow does not wire it yet. **Gemini CLI:** Gemini exposes no permission-decision event. **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: permission.replied, whose payload carries the decision. **Pi Coding Agent:** Pi has no permission-decision event; extensions run with full permissions rather than gating them. **GitHub Copilot CLI:** No deny-side event; permissionRequest carries the decision instead. |
-| `PostCompact` | Supported | — | — | Different | Different | — | — | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.compacted. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: compaction_end. |
-| `PostToolUse` | Supported | Supported | — | Different | Different | — | — | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: tool.execute.after. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: tool_execution_end, exposed through session.subscribe rather than pi.on. **GitHub Copilot CLI:** Native postToolUse can rewrite results/inject context; not projected. |
-| `PostToolUseFailure` | Supported | Unavailable | Unavailable | Unavailable | Unavailable | — | — | **Codex:** No Codex event fires only on tool failure; PostToolUse cannot distinguish the two. **Gemini CLI:** AfterTool fires regardless of outcome; failure cannot be isolated. **OpenCode:** tool.execute.after fires for both outcomes; no failure-only event exists. **Pi Coding Agent:** tool_execution_end reports both outcomes; no failure-only event exists. **GitHub Copilot CLI:** Native postToolUseFailure exists — a failure-only event Claude lacks a direct name for. |
-| `PreCompact` | Supported | Supported | — | Different | Different | — | — | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: experimental.session.compacting. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_before_compact, which may cancel or supply a summary. **GitHub Copilot CLI:** Native preCompact exists. |
-| `PreCompress` | — | — | Supported | — | — | — | — |  |
-| `PreToolUse` | Supported | Supported | — | Different | Different | — | — | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: tool.execute.before. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: tool_execution_start, exposed through session.subscribe rather than pi.on. **GitHub Copilot CLI:** Blocking contract matches ({permissionDecision} on stdout) but tool names differ from Claude's Edit|Write|MultiEdit and the gate reads CLAUDE_* envs.  **Antigravity:** Supported — native shim for the pre-implementation gate (matcher write_to_file/replace_file_content/multi_replace_file_content); other events Different.
-
-|
-| `SessionEnd` | Supported | Supported | Supported | Different | Different | — | — | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.idle / session.deleted. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_shutdown. **GitHub Copilot CLI:** Native sessionEnd exists; same payload-schema caveat. |
-| `SessionStart` | Supported | Supported | Supported | Different | Different | — | — | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.created. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_start, which carries reason:"reload" on /reload. **GitHub Copilot CLI:** Native sessionStart exists; DoFlow's script reads Claude's .session_id/.cwd stdin fields. |
-| `Stop` | Supported | Supported | Unavailable | Different | Different | — | — | **Gemini CLI:** No Gemini equivalent at matching semantics. **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.idle. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: agent_end. **GitHub Copilot CLI:** Native agentStop forces continuation via stdout {decision:'block'} (8-block runaway cap), unlike Claude's exit-2 semantics; stop-check relies on .transcript_path. |
-| `SubagentStart` | Supported | Supported | Unavailable | Unavailable | Unavailable | — | — | **Gemini CLI:** BeforeAgent/AfterAgent are turn-scoped, not subagent-scoped. **OpenCode:** OpenCode publishes no subagent lifecycle event. **Pi Coding Agent:** Pi publishes no subagent lifecycle event. **GitHub Copilot CLI:** Native subagentStart/subagentStop exist. |
-| `SubagentStop` | Supported | Supported | Unavailable | Unavailable | Unavailable | — | — | **Gemini CLI:** BeforeAgent/AfterAgent are turn-scoped, not subagent-scoped. **OpenCode:** OpenCode publishes no subagent lifecycle event. **Pi Coding Agent:** Pi publishes no subagent lifecycle event. **GitHub Copilot CLI:** Native subagentStart/subagentStop exist. |
-| `UserPromptSubmit` | Supported | Supported | Unavailable | Unavailable | Different | — | — | **Gemini CLI:** No Gemini equivalent; BeforeAgent fires at full-turn granularity, not per prompt. **OpenCode:** OpenCode exposes message.updated rather than a pre-submission prompt event, so a hook could not gate a prompt before the model sees it. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: input, which fires before skill expansion. **GitHub Copilot CLI:** Natives are userPromptSubmitted and userPromptTransformed; pre-submission gating semantics unverified. |
+<!-- BEGIN GENERATED:hook-event-matrix -->
+| Event | Claude Code | Codex | Gemini CLI | OpenCode | Pi Coding Agent | GitHub Copilot CLI | Kiro | Antigravity CLI | Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| `AfterTool` | — | — | Supported | — | — | — | — | — |  |
+| `BeforeTool` | — | — | Supported | — | — | — | — | — |  |
+| `ConfigChange` | Supported | — | — | Unavailable | Unavailable | — | — | — | **OpenCode:** installation.updated tracks OpenCode upgrades, not configuration edits. **Pi Coding Agent:** Pi reloads configuration via /reload, surfaced as session_start with reason "reload", not as a distinct config event. |
+| `PermissionDenied` | Supported | Unavailable | Unavailable | Different | Unavailable | Unavailable | — | — | **Codex:** Codex exposes no permission-decision event. **Gemini CLI:** Gemini exposes no permission-decision event. **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: permission.replied, whose payload carries the decision. **Pi Coding Agent:** Pi has no permission-decision event; extensions run with full permissions rather than gating them. **GitHub Copilot CLI:** No deny-side event; permissionRequest carries the decision instead. |
+| `PostCompact` | Supported | — | — | Different | Different | — | — | — | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.compacted. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: compaction_end. |
+| `PostInvocation` | — | — | — | — | — | — | — | Different | **Antigravity CLI:** Documented (terminationBehavior control); no current DoFlow policy maps to it. |
+| `PostToolUse` | Supported | Supported | — | Different | Different | Different | — | Different | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: tool.execute.after. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: tool_execution_end, exposed through session.subscribe rather than pi.on. **GitHub Copilot CLI:** Native postToolUse can rewrite results/inject context; not projected. **Antigravity CLI:** Documented (post-edit lint candidate), not projected yet. |
+| `PostToolUseFailure` | Supported | Unavailable | Unavailable | Unavailable | Unavailable | Different | — | — | **Codex:** No Codex event fires only on tool failure; PostToolUse cannot distinguish the two. **Gemini CLI:** AfterTool fires regardless of outcome; failure cannot be isolated. **OpenCode:** tool.execute.after fires for both outcomes; no failure-only event exists. **Pi Coding Agent:** tool_execution_end reports both outcomes; no failure-only event exists. **GitHub Copilot CLI:** Native postToolUseFailure exists — a failure-only event Claude lacks a direct name for. |
+| `PreCompact` | Supported | Supported | — | Different | Different | Different | — | — | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: experimental.session.compacting. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_before_compact, which may cancel or supply a summary. **GitHub Copilot CLI:** Native preCompact exists. |
+| `PreCompress` | — | — | Supported | — | — | — | — | — |  |
+| `PreInvocation` | — | — | — | — | — | — | — | Different | **Antigravity CLI:** Documented step-injection point; no current DoFlow policy needs model-call interception. |
+| `PreToolUse` | Supported | Supported | — | Different | Different | Different | — | Supported | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: tool.execute.before. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: tool_execution_start, exposed through session.subscribe rather than pi.on. **GitHub Copilot CLI:** Blocking contract matches ({permissionDecision} on stdout) but tool names differ from Claude's Edit\|Write\|MultiEdit and the gate reads CLAUDE_* envs. **Antigravity CLI:** DoFlow projects its pre-implementation gate as a native shim: matcher write_to_file\|replace_file_content\|multi_replace_file_content, deny decision until the branch-coupled feature's three specifications exist. |
+| `SessionEnd` | Supported | Supported | Supported | Different | Different | Different | — | — | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.idle / session.deleted. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_shutdown. **GitHub Copilot CLI:** Native sessionEnd exists; same payload-schema caveat. |
+| `SessionStart` | Supported | Supported | Supported | Different | Different | Different | — | — | **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.created. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: session_start, which carries reason:"reload" on /reload. **GitHub Copilot CLI:** Native sessionStart exists; DoFlow's script reads Claude's .session_id/.cwd stdin fields. |
+| `Stop` | Supported | Supported | Unavailable | Different | Different | Different | — | Different | **Gemini CLI:** No exact match; AfterAgent fires at agent-loop end and can halt or retry the turn, which is coarser than Claude's Stop. **OpenCode:** DoFlow projects shell hooks; OpenCode requires a code module, so no hook is installed. Native equivalent: session.idle. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: agent_end. **GitHub Copilot CLI:** Native agentStop forces continuation via stdout {decision:'block'} (8-block runaway cap), unlike Claude's exit-2 semantics; stop-check relies on .transcript_path. **Antigravity CLI:** Documented continue-decision matches stop-check semantics; projection deferred until the shim can consume transcriptPath with verified field semantics. |
+| `SubagentStart` | Supported | Supported | Unavailable | Unavailable | Unavailable | Different | — | — | **Gemini CLI:** BeforeAgent/AfterAgent bracket the whole agent loop; they are not subagent lifecycle events. **OpenCode:** OpenCode publishes no subagent lifecycle event. **Pi Coding Agent:** Pi publishes no subagent lifecycle event. **GitHub Copilot CLI:** Native subagentStart/subagentStop exist. |
+| `SubagentStop` | Supported | Supported | Unavailable | Unavailable | Unavailable | Different | — | — | **Gemini CLI:** BeforeAgent/AfterAgent bracket the whole agent loop; they are not subagent lifecycle events. **OpenCode:** OpenCode publishes no subagent lifecycle event. **Pi Coding Agent:** Pi publishes no subagent lifecycle event. **GitHub Copilot CLI:** Native subagentStart/subagentStop exist. |
+| `UserPromptSubmit` | Supported | Supported | Unavailable | Unavailable | Different | Different | — | — | **Gemini CLI:** No Gemini equivalent; the nearest native hook is BeforeAgent, which fires once before planning and can block the turn or inject context — not a per-prompt pre-submission gate. **OpenCode:** OpenCode exposes message.updated rather than a pre-submission prompt event, so a hook could not gate a prompt before the model sees it. **Pi Coding Agent:** DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: input, which fires before skill expansion. **GitHub Copilot CLI:** Natives are userPromptSubmitted and userPromptTransformed; pre-submission gating semantics unverified. |
+<!-- END GENERATED:hook-event-matrix -->
 
 ## Native verification and prerequisites
 
@@ -163,7 +173,7 @@ recovery, and verification procedures.
 
 The capability matrix above uses one uniform 10-row taxonomy across all eight harnesses it lists.
 All eight — Claude Code, Codex, Gemini CLI, OpenCode, Pi Coding Agent, GitHub Copilot CLI,
-Kiro, and Antigravity — are declared in `core/registry/harnesses.yaml` and driven by their own
+Kiro, and Antigravity — are declared in `core/registry/harnesses.json` and driven by their own
 dedicated adapter (`src/adapters/claude/`, `src/adapters/codex/`, `src/adapters/gemini/`,
 `src/adapters/opencode/`, `src/adapters/pi/`, `src/adapters/copilot/`, `src/adapters/kiro/`,
 `src/adapters/antigravity/`). Each adapter exposes the same
