@@ -448,12 +448,12 @@
           "verification": "Confirm OpenCode discovers DoFlow skills from the registered directory rather than a copied tree."
         },
         "agents": {
-          "status": "different",
+          "status": "supported",
           "evidence": [
-            "https://opencode.ai/docs/config"
+            "https://opencode.ai/docs/agents"
           ],
-          "note": "OpenCode defines agents in its own config rather than as standalone spec files, so DoFlow projects agent guidance through instructions instead of a native agents directory.",
-          "verification": "Report that agent guidance arrives via instructions, not a native agent registry."
+          "note": "OpenCode supports native agent definitions as Markdown files with frontmatter (description, mode primary|subagent, model, temperature, permission, hidden) discovered at .opencode/agents/ (project) and ~/.config/opencode/agents/ (global); agents are also definable in opencode.json's agent key. DoFlow still projects specialist guidance through instructions; direct projection into these directories is planned and will reuse copy-tree's layout rename.",
+          "verification": "Confirm a native agent under .opencode/agents/ or ~/.config/opencode/agents/ is selectable (Tab cycles primary agents; @ mentions invoke subagents)."
         },
         "scripts": {
           "status": "supported",
@@ -767,12 +767,12 @@
           "verification": "Confirm mode guidance is available through instructions."
         },
         "settings": {
-          "status": "unavailable",
+          "status": "supported",
           "evidence": [
-            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+            "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference"
           ],
-          "note": "No general Copilot CLI settings/config file is documented separately from .mcp.json / ~/.copilot/mcp-config.json (covered under mcp) and the instructions, agent, and skill surfaces, each already covered by its own capability.",
-          "verification": "Report the capability gap; do not attempt a native settings merge."
+          "note": "Copilot CLI documents a full settings stack (2026): ~/.copilot/settings.json (user), .github/copilot/settings.json (repo, committed) and .github/copilot/settings.local.json (personal), merged in that order. Documented keys include hooks, disableAllHooks, disabledMcpServers, enabledMcpServers, disabledSkills, skillDirectories, subagents.agents and enabledPlugins. DoFlow merges named keys it owns and never replaces the file, the same posture as its opencode.json merge.",
+          "verification": "Confirm .github/copilot/settings.json retains user keys and only DoFlow-owned keys change; run /settings inside Copilot CLI to confirm the file loaded."
         },
         "hooks": {
           "status": "different",
@@ -837,12 +837,13 @@
           "verification": "Confirm selected MCP servers appear via .mcp.json (project) or ~/.copilot/mcp-config.json (global)."
         },
         "plugin": {
-          "status": "unavailable",
+          "status": "different",
           "evidence": [
-            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+            "https://docs.github.com/en/copilot/concepts/agents/about-plugins",
+            "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference"
           ],
-          "note": "No plugin or marketplace mechanism is documented for Copilot CLI distinct from custom agents and MCP servers.",
-          "verification": "Report the capability gap; do not attempt to install a plugin."
+          "note": "Copilot CLI now documents plugins (plugin.json manifest bundling agents, skills, hooks, .mcp.json and lsp.json; installed via 'copilot plugin install' or enabledPlugins in settings). DoFlow publishes no Copilot plugin package yet - its content reaches Copilot through direct projection instead. A distribution package remains an option and would mirror the existing .claude-plugin/ and .codex-plugin/ artifacts.",
+          "verification": "Report that no Copilot plugin package is installed."
         }
       }
     },

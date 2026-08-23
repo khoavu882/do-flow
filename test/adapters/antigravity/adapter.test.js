@@ -41,7 +41,7 @@ test('project plan: instructions, skills, agents, locator, and MCP land where An
   assert.equal(planned.conflicts.length, 0);
   assert.ok(planned.changes.some((c) => c.projection.renderer === 'antigravity-instructions' && c.target === path.join(root, 'AGENTS.md')));
   assert.ok(planned.changes.some((c) => c.target === path.join(root, '.agents', 'skills', 'do-execute-plan', 'SKILL.md')));
-  assert.ok(planned.changes.some((c) => c.target === path.join(root, '.agents', 'agents', 'system-architect.md')));
+  assert.ok(planned.changes.some((c) => c.target === path.join(root, '.agents', 'agents', 'system-architect', 'agent.md')));
   assert.ok(planned.changes.some((c) => c.target === path.join(root, '.agents', 'bin', 'doflow-run')), 'the locator rides the config dir');
 
   const mcpChanges = planned.changes.filter((c) => c.projection.renderer === 'antigravity-mcp');
@@ -70,7 +70,7 @@ test('global scope: no instructions, no skills; agents and locator ride ~/.gemin
   const planned = adapter.plan(input);
   assert.ok(!planned.changes.some((c) => c.target.endsWith('AGENTS.md')), 'global instructions belong to Gemini CLI; never written');
   assert.ok(!planned.changes.some((c) => c.target.includes('.agents', 'skills')));
-  assert.ok(planned.changes.some((c) => c.target === path.join(home, '.gemini', 'config', 'agents', 'system-architect.md')));
+  assert.ok(planned.changes.some((c) => c.target === path.join(home, '.gemini', 'config', 'agents', 'system-architect', 'agent.md')));
   adapter.apply({ ...input, changes: planned.changes });
   assert.ok(fs.existsSync(path.join(home, '.gemini', 'config', 'bin', 'doflow-run')));
 });
