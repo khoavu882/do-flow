@@ -42,6 +42,25 @@ test('Claude marketplace exposes the single-source core plugin', () => {
   assert.ok(fs.existsSync(path.join(REPO, 'core', 'shared', 'agent-specs', 'system-architect.md')));
 });
 
+test('Copilot CLI plugin manifest declares only what activates there', () => {
+  // Copilot CLI checks plugin manifests at .plugin/plugin.json, plugin.json,
+  // .github/plugin/plugin.json, then .claude-plugin/plugin.json (docs.github.com Copilot CLI
+  // plugin reference, "File locations"). There is no .copilot-plugin/ convention, so the
+  // Copilot-authored manifest lives at the first-checked location instead.
+  const manifestPath = path.join(REPO, 'core', '.plugin', 'plugin.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  assert.strictEqual(manifest.name, 'doflow');
+  assert.strictEqual(manifest.version, require('../../package.json').version);
+  assert.strictEqual(manifest.skills, './shared/skills/');
+  assert.ok(fs.existsSync(path.join(REPO, 'core', 'shared', 'skills', 'do-execute-plan', 'SKILL.md')));
+  // Parity doctrine: an installed file is not evidence of activation. Copilot agents must be
+  // .agent.md files (the shared agent-specs are plain .md), DoFlow hooks are Claude-payload-coupled,
+  // and MCP registration is installer-managed opt-in — none may be declared here.
+  for (const key of ['agents', 'hooks', 'mcpServers', 'lspServers', 'commands', 'extensions']) {
+    assert.ok(!Object.hasOwn(manifest, key), `.plugin/plugin.json must not declare '${key}'`);
+  }
+});
+
 test('resolveTargets defaults to claude alone and validates', () => {
   // Deliberately not all of VALID: an install with no --target should configure the one harness the
   // user almost certainly has, rather than writing into every harness DoFlow knows about. That was

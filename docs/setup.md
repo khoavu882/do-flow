@@ -243,8 +243,9 @@ This is a capability contract, not a statement that every native surface is acti
 files. Verify installation in the target harness and review the [capability map](capability-map.md)
 before treating a feature as available. The repository exposes
 `core/` as a Claude Code marketplace plugin through its `.claude-plugin/marketplace.json` and
-`.claude-plugin/plugin.json`, and as a Codex/ChatGPT plugin through
-`core/.codex-plugin/plugin.json`. These manifests are distribution artifacts and are not copied by
+`.claude-plugin/plugin.json`, as a Codex/ChatGPT plugin through
+`core/.codex-plugin/plugin.json`, and as a GitHub Copilot CLI plugin through
+`core/.plugin/plugin.json`. These manifests are distribution artifacts and are not copied by
 `doflow install`.
 
 ### Claude Code marketplace
@@ -258,6 +259,24 @@ claude plugin marketplace add /path/to/do-flow/core
 Then install `doflow` from the marketplace in Claude Code. The marketplace entry points to the
 current `core/` directory, so the plugin and the CLI installer share the same canonical skills and
 guidance.
+
+### GitHub Copilot CLI plugin
+
+Copilot CLI discovers plugins by checking `.plugin/plugin.json`, `plugin.json`,
+`.github/plugin/plugin.json`, then `.claude-plugin/plugin.json`; there is no `.copilot-plugin/`
+convention. DoFlow authors the first-checked location with a skills-only manifest so the plugin
+declares exactly what activates there: skills from `core/shared/skills/`. Agent specs are not
+exposed through this plugin (Copilot requires `.agent.md` files; DoFlow's shared agent-specs are
+plain Markdown), and hooks and MCP registration stay installer-managed — see
+[distribution notes](distribution-notes.md) for the full findings.
+
+```bash
+copilot plugin install /path/to/do-flow/core     # local checkout
+copilot plugin install khoavu882/do-flow:core    # subdirectory of a GitHub repository
+```
+
+Verify with `copilot plugin list` and `/skills list` inside a session; an installed file is not
+evidence of activation.
 
 ## Claude MCP servers
 
