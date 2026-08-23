@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { validateHooksConfig, classifyClaudeGuardrails, verifyHookCommands, planCodexHooks, deployCodexHooks } = require('../../../src/adapters/codex/hooks');
+const { IS_WIN, expectExecutable } = require('../../helper-platform');
 
 const CODEX_HOOKS_DIR = path.resolve(__dirname, '../../..', 'core', 'harnesses', 'codex', 'hooks');
 
@@ -37,7 +38,13 @@ test('fails closed for missing or non-executable command wrappers', () => {
   assert.equal(result.ok, false); assert.equal(result.checks[0].reason, 'Hook script is missing');
   const hooks = wrapper(root, 'session-start.sh', 0o644);
   result = verifyHookCommands(hookConfig(), { scriptsDir: hooks });
-  assert.equal(result.ok, false); assert.equal(result.checks[0].reason, 'Hook script is not executable');
+  // Windows has no exec bits, so a 0644 wrapper is indistinguishable from 0755 there and the
+  // not-executable refusal is POSIX-only (see src/adapters/hook-commands.js).
+  if (!IS_WIN) {
+    assert.equal(result.ok, false); assert.equal(result.checks[0].reason, 'Hook script is not executable');
+  } else {
+    assert.equal(result.ok, true);
+  }
 });
 
 test('reports hook trust as a prerequisite instead of bypassing it', () => {
@@ -57,7 +64,7 @@ test('plans and deploys hook config using an explicit project destination', () =
   const deployed = deployCodexHooks(plan);
   assert.equal(deployed.applied, true);
   assert.deepEqual(JSON.parse(fs.readFileSync(plan.destination, 'utf8')), hookConfig());
-  assert.equal(fs.statSync(path.join(projectRoot, '.codex', 'hooks', 'session-start.sh')).mode & 0o111, 0o111);
+  expectExecutable(fs, path.join(projectRoot, '.codex', 'hooks', 'session-start.sh'), 'deployed hook script');
 });
 
 test('merges into pre-existing hooks in .codex/hooks.json, preserving user custom hooks', () => {
