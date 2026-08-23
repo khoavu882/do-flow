@@ -24,6 +24,7 @@ const { createAdapterRegistry } = require('../../src/adapters');
 const { defaultLedger } = require('../../src/state');
 const { planLifecycle, applyLifecycle, removeLifecycle, markRetainedRemovals, retentionSummary } = require('../../src/lifecycle');
 const { planTree, removeTree } = require('../../src/adapters/copy-tree');
+const { interpreterSpawn, withinPath, msysArgConvGuards } = require('../helper-platform');
 
 const REPO = path.resolve(__dirname, "../..");
 const CLI = path.join(REPO, 'bin', 'doflow.js');
@@ -297,12 +298,16 @@ test('CLI: removing one of three harnesses that share .doflow leaves the runtime
 
   // The runtime is not merely present, it still answers from THIS project — the failure that hid
   // the original defect was claude's locator falling through to a global install and working.
-  const paths = spawnSync(path.join(root, '.claude', 'bin', 'doflow-run'), ['paths', '--json'],
-    { cwd: root, encoding: 'utf8', env: { ...process.env, ...homeEnv, DOFLOW_CONFIG_DIR: undefined, DOFLOW_CLI: undefined } });
+  // The locator is a POSIX script, so on win32 it is spawned through Git Bash (interpreterSpawn)
+  // instead of being skipped — CreateProcess can neither honor a shebang nor consult exec bits.
+  const { file, args: locatorArgs } = interpreterSpawn(path.join(root, '.claude', 'bin', 'doflow-run'), ['paths', '--json']);
+  const paths = spawnSync(file, locatorArgs,
+    { cwd: root, encoding: 'utf8', env: { ...process.env, ...homeEnv, DOFLOW_CONFIG_DIR: undefined, DOFLOW_CLI: undefined, ...msysArgConvGuards() } });
   assert.equal(paths.status, 0, paths.stderr);
-  const escapedRoot = fs.realpathSync(root).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  assert.match(JSON.parse(paths.stdout).constitution_base, new RegExp(`^${escapedRoot}${path.sep === '\\' ? '\\\\' : '/'}?`),
-    'the locator must reach this project\'s runtime, not another install\'s');
+  // constitution_base echoes `pwd` from inside the script, which under Git Bash is /c/... MSYS
+  // form; withinPath() compares that against realpath()'s native form portably.
+  assert.ok(withinPath(JSON.parse(paths.stdout).constitution_base, fs.realpathSync(root)),
+    `constitution_base ${JSON.parse(paths.stdout).constitution_base} is not inside ${fs.realpathSync(root)} — the locator must reach this project's runtime, not another install's`);
 
   const last = cli(['remove', root, '-f', '-t', 'claude,codex']);
   assert.equal(last.status, 0, last.stderr);

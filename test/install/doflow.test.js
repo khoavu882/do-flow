@@ -74,9 +74,10 @@ test('resolveTargets rejects an unknown target and names all seven valid ones', 
 });
 
 test('toolDirs defaults to project scope rooted at projectRoot', () => {
-  // Expected paths are derived, never literal: '/tmp/some-project' is a POSIX-shaped input whose
-  // Windows resolution differs only by separator, which path.join expresses portably.
-  const root = '/tmp/some-project';
+  // Expected paths are derived, never literal: '/tmp/some-project' is a POSIX-shaped input that
+  // toolDirs resolves like any caller-supplied root, so the fixture resolves it identically before
+  // asserting — on win32 that anchors it to the working drive instead of leaving it relative.
+  const root = path.resolve('/tmp/some-project');
   const dirs = toolDirs({ projectRoot: root });
   assert.strictEqual(dirs.claude, path.join(root, '.claude'));
   assert.strictEqual(dirs.codex, path.join(root, '.codex'));
