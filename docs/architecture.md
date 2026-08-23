@@ -46,7 +46,7 @@ are reported rather than imitated.
 | `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification against the neutral state ledger; obtains `planGeminiHooks` from the gemini adapter's public export (`src/adapters/gemini/index.js`) rather than reaching into a file inside it, and shares the generic parser in `src/helper/toml.js` with `src/adapters/codex/config.js` instead of depending on that adapter |
 | `src/runtime/` | Everything a skill asks for at use time: classification, workflow resolution, capability routing, evidence and claims, readiness, verification and command detection, recovery, tracing, scaffold generation, provider health, and worktree support; `src/runtime/cli-result.js` holds the exit/error-reporting helpers (`finishRuntime`, `usageError`) shared by the verb handlers `bin/doflow.js` dispatches to, and deliberately depends on nothing else in the tree |
 | `src/state/` | Harness-neutral ledger, recovery records, and legacy-manifest migration |
-| `src/registry/` | Loads and validates `core/registry/*.yaml` into the in-memory registry object every adapter and lifecycle call consumes — the same data `test/guards/registry.test.js` checks implementation claims against |
+| `src/registry/` | Loads and validates `core/registry/*.json` into the in-memory registry object every adapter and lifecycle call consumes — the same data `test/guards/registry.test.js` checks implementation claims against |
 | `src/helper/` | Cross-layer utilities with no harness-, install-, or runtime-specific domain: git commit lookup (`git.js`), managed-section merging (`marker-merge.js`), interactive prompts (`prompt.js`), `settings.json` merging (`settings-merge.js`, `settings-scope.js`), generic TOML parsing (`toml.js`), and the single computation of the package root (`repo-root.js`), which every layer shares and no layer should re-derive from its own depth |
 | `src/install/` | Installer-domain operations: backup/restore/prune (`backup.js`), scope and target resolution (`context.js`, `targets.js`), manifest read/write (`manifest.js`), external-tool detection and install (`tool-lifecycle.js`), and MCP server selection (`mcp.js`) |
 | `test/` | Installer, mapping, and runtime behavior tests organized into module directories mirroring `src/` (`adapters/`, `lifecycle/`, `runtime/`, `registry/`, `state/`, `helper/`, `install/`, `e2e/`), plus `test/guards/` for structural invariants about this repo's content |
@@ -76,17 +76,17 @@ adapter is the only component that knows a client-specific destination or serial
 
 ### Installation registries
 
-Despite the `.yaml` extension, every file under `core/registry/` is plain JSON — a convention the
+Every file under `core/registry/` is plain JSON — a convention the
 runtime registries below also follow. The installation family declares what each harness can do and
 how a shared asset projects onto it:
 
 | File | Declares |
 |---|---|
-| `core/registry/harnesses.yaml` | Each target's adapter id, supported scopes, native target files, and per-surface capability status with verification evidence |
-| `core/registry/assets.yaml` | Each shared asset's `source` path and per-harness `projection`/`nativeDir` |
-| `core/registry/contracts.yaml` | Per-harness recognized frontmatter fields and hook events — what `test/guards/fields.test.js` (G1) checks every asset against |
-| `core/registry/lifecycle.yaml` | Hook-based lifecycle policies (session-context capture, pre-implementation gate, MCP tool guard, stop check) and each harness's support status or fallback |
-| `core/registry/mcp.yaml` | The neutral MCP server catalog every harness's adapter selects from |
+| `core/registry/harnesses.json` | Each target's adapter id, supported scopes, native target files, and per-surface capability status with verification evidence |
+| `core/registry/assets.json` | Each shared asset's `source` path and per-harness `projection`/`nativeDir` |
+| `core/registry/contracts.json` | Per-harness recognized frontmatter fields and hook events — what `test/guards/fields.test.js` (G1) checks every asset against |
+| `core/registry/lifecycle.json` | Hook-based lifecycle policies (session-context capture, pre-implementation gate, MCP tool guard, stop check) and each harness's support status or fallback |
+| `core/registry/mcp.json` | The neutral MCP server catalog every harness's adapter selects from |
 
 ## The runtime seam
 
@@ -146,16 +146,16 @@ analyzer set, which belongs to a skill rather than to the runtime and is fixture
 ### Runtime registries
 
 The runtime reads its policy from the registry rather than hardcoding it — see [Installation
-registries](#installation-registries) for the same JSON-under-a-`.yaml`-extension convention.
+registries](#installation-registries) for the same plain-JSON convention.
 
 | File | Declares |
 |---|---|
-| `core/registry/workflows.yaml` | Nine task classes, each an ordered stage list naming skills that already exist, with its readiness template and gates, plus the `callers` map giving every shipped skill a role (`stage`, `router`, `standalone`) so the classifier can judge whether a class has a stage for the skill asking. There is no default class: an unrecognized proposal is rejected with the valid set rather than coerced into one |
-| `core/registry/verification.yaml` | Nine check tiers and four risk levels; a level selects its required and advisory tiers and sets the recovery-retry bound |
-| `core/registry/readiness-templates.yaml` | Per-class readiness requirements and the evidence kinds that satisfy each one |
-| `core/registry/capabilities.yaml` | The capabilities an information need can resolve to, and their providers |
-| `core/registry/routes.yaml` | Information need → capability, with an ordered fallback when the preferred capability has no healthy provider |
-| `core/registry/external-tools.yaml` | External tools DoFlow can detect, install, and probe rather than reimplement |
+| `core/registry/workflows.json` | Nine task classes, each an ordered stage list naming skills that already exist, with its readiness template and gates, plus the `callers` map giving every shipped skill a role (`stage`, `router`, `standalone`) so the classifier can judge whether a class has a stage for the skill asking. There is no default class: an unrecognized proposal is rejected with the valid set rather than coerced into one |
+| `core/registry/verification.json` | Nine check tiers and four risk levels; a level selects its required and advisory tiers and sets the recovery-retry bound |
+| `core/registry/readiness-templates.json` | Per-class readiness requirements and the evidence kinds that satisfy each one |
+| `core/registry/capabilities.json` | The capabilities an information need can resolve to, and their providers |
+| `core/registry/routes.json` | Information need → capability, with an ordered fallback when the preferred capability has no healthy provider |
+| `core/registry/external-tools.json` | External tools DoFlow can detect, install, and probe rather than reimplement |
 
 Two contracts follow from these files and should not be re-expressed as flags. Readiness is a
 four-state verdict — `READY`, `NEEDS_EVIDENCE`, `NEEDS_USER_DECISION`, `BLOCKED` — with the missing
@@ -183,8 +183,8 @@ still claims.
 
 ## Shared content and client adapters
 
-`core/shared/` is the single physical source for cross-harness content — `core/registry/assets.yaml`
-declares each asset's `source` path and per-harness projection; `core/registry/*.yaml` overall
+`core/shared/` is the single physical source for cross-harness content — `core/registry/assets.json`
+declares each asset's `source` path and per-harness projection; `core/registry/*.json` overall
 declares target capability and ownership inputs, and is not itself a native configuration file.
 
 | Content | Where it lives | Why it is shared |
@@ -193,7 +193,7 @@ declares target capability and ownership inputs, and is not itself a native conf
 | `MCP_INDEX.md` (`.doflow/guidance/` only, no `core/` source) | Written directly by `applyLifecycle` (`src/lifecycle/index.js`) | The one file in `.doflow/guidance/` that varies per install (the resolved MCP selection) — deliberately outside `guidance.context-layer`'s copy-tree source so its per-install content never conflicts with that asset's byte-for-byte mirror; imported unconditionally from `DOFLOW_CORE.md` |
 
 > **Path anchor (load-bearing).** Every `@import` in `DOFLOW_CORE.md`, and every `doc` value in
-> `core/registry/mcp.yaml`, is relative to the **guidance root** (`.doflow/guidance/`). That is why
+> `core/registry/mcp.json`, is relative to the **guidance root** (`.doflow/guidance/`). That is why
 > `PRINCIPLES.md`/`FLAGS.md`/`MCP_INDEX.md` sit at the root rather than in a subdirectory: writing
 > any of them one level deeper silently reinterprets those relative paths against that subdirectory
 > and breaks them without any error. `test/adapters/copy-tree.test.js` and `test/install/mcp-index.test.js` resolve
@@ -201,7 +201,7 @@ declares target capability and ownership inputs, and is not itself a native conf
 | `skills/`, `agent-specs/`, `scripts/`, `templates/` | `core/shared/{skills,agent-specs,scripts,templates}/` | Task knowledge and reusable assets are client-neutral |
 | Native hooks, settings, and native agent definitions per harness | `core/harnesses/{claude,codex,gemini,kiro}/` | Copied or reconciled as native configuration only where the harness has such a surface |
 | The runtime locator shim | `core/harnesses/shared/locator/` | Byte-identical on every harness; only the native path it is written to differs |
-| MCP server catalog | `core/registry/mcp.yaml` | Single neutral source every harness's adapter selects from |
+| MCP server catalog | `core/registry/mcp.json` | Single neutral source every harness's adapter selects from |
 
 Each harness's native entry file (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`) no longer receives a full
 copy of the guidance content — its managed section is a short pointer into `.doflow/guidance/`
@@ -243,8 +243,8 @@ flowchart TD
 Examples:
 
 - Add or revise a workflow: edit its `core/shared/skills/<name>/SKILL.md`; keep the public description compact in [Reference](reference.md).
-- Change a client destination or add a supported asset: edit `core/registry/assets.yaml`, then cover it in tests.
-- Add a harness: declare it in `core/registry/harnesses.yaml`, `contracts.yaml`, and `assets.yaml`; implement `src/adapters/<id>/index.js`'s six-function contract (`discover, render, plan, apply, remove, verify`); and register the adapter with `createAdapterRegistry` in `bin/doflow.js`. `test/guards/registry.test.js` checks the three registry files and the implementation against each other.
+- Change a client destination or add a supported asset: edit `core/registry/assets.json`, then cover it in tests.
+- Add a harness: declare it in `core/registry/harnesses.json`, `contracts.json`, and `assets.json`; implement `src/adapters/<id>/index.js`'s six-function contract (`discover, render, plan, apply, remove, verify`); and register the adapter with `createAdapterRegistry` in `bin/doflow.js`. `test/guards/registry.test.js` checks the three registry files and the implementation against each other.
 - Change managed instruction behavior: edit the merge/copy implementation in `src/`, then test both fresh install and update paths.
 - Add or change a runtime verb: edit the dispatcher's own table alongside the implementation — it is the single place the verb namespace is written down — then run the guards, which cross-check that table against the shell helpers and the CLI commands in both directions.
 - Change a skill's flags: land the skill's `argument-hint`, `docs/reference.md`, and `docs/flags.md` in the same commit. Three guards cross-check them, so a partial change turns the suite red.

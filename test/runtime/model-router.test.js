@@ -8,7 +8,7 @@ const path = require('node:path');
 const REPO = path.resolve(__dirname, '..', '..');
 const registry = loadRegistry({ repoRoot: REPO });
 
-test('every shipped role resolves against real providers, tiers bound in models.yaml', () => {
+test('every shipped role resolves against real providers, tiers bound in models.json', () => {
   for (const roleId of registry.modelRoles.map((r) => r.id)) {
     const resolution = resolveModelRole({ registry, roleId });
     assert.ok(resolution.candidates.length >= 3, `${roleId} sees all declared providers`);

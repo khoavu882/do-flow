@@ -182,7 +182,7 @@ test('a registry with no `callers` map fails at load, not at the gate', () => {
   // path means the fit gate can be off while the system runs, which is the defect family, not the
   // remedy. The engine's existing contract is that an invalid registry throws at construction.
   const document = JSON.parse(JSON.stringify(
-    parseYamlFile(path.join(REPO, 'core', 'registry', 'workflows.yaml'), fs),
+    parseYamlFile(path.join(REPO, 'core', 'registry', 'workflows.json'), fs),
   ));
   delete document.callers;
 

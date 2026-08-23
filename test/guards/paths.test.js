@@ -52,7 +52,7 @@ test('G2: every guidance-relative markdown link in the guidance tree resolves', 
 });
 
 // The generated index is the other half of path reachability, and the half that actually broke:
-// mcp.yaml's `doc` values are relative, so they are only meaningful against the directory
+// mcp.json's `doc` values are relative, so they are only meaningful against the directory
 // MCP_INDEX.md is written into. In v0.8.0 the index moved one level deeper and every pointer
 // silently aimed at a path that never existed. This guard resolves them the way an agent does —
 // render the index, read each emitted path, resolve it from the index's own location — so the

@@ -21,7 +21,7 @@ const { stateRoot, readLedger, defaultLedger } = require('../state');
 const { selectAssets } = require('../registry');
 const { defaultLock, readLock, writeLock, diffLocks } = require('../state/lockfile');
 // Tolerant because the projected runtime under `.doflow/runtime/` ships bin/, src/ and
-// core/registry/ but no package.json — see the `runtime.*` assets in core/registry/assets.yaml.
+// core/registry/ but no package.json — see the `runtime.*` assets in core/registry/assets.json.
 // A hard require here would make every Node-backed verb fail in an install, which is the exact
 // defect that projection exists to fix. Only version reporting depends on this.
 function loadPkg() {

@@ -1,21 +1,17 @@
 'use strict';
 
-// Registry loader and validator.  Registry files deliberately use JSON syntax in
-// .yaml files: JSON is a YAML subset, so this is dependency-free while retaining
-// a future-compatible declarative file extension.  Do not add a permissive YAML
-// parser here; accepting partial/ambiguous YAML would make safety validation less
-// reliable than failing with an actionable conversion message.
+// Registry loader and validator.  Registry files are plain JSON (core/registry/*.json).
 const fs = require('node:fs');
 const path = require('node:path');
 
 const REGISTRY_FILES = Object.freeze({
-  harnesses: 'harnesses.yaml',
-  assets: 'assets.yaml',
-  mcp: 'mcp.yaml',
-  lifecycle: 'lifecycle.yaml',
-  contracts: 'contracts.yaml',
-  externalTools: 'external-tools.yaml',
-  models: 'models.yaml',
+  harnesses: 'harnesses.json',
+  assets: 'assets.json',
+  mcp: 'mcp.json',
+  lifecycle: 'lifecycle.json',
+  contracts: 'contracts.json',
+  externalTools: 'external-tools.json',
+  models: 'models.json',
 });
 const CAPABILITY_STATUS = new Set(['supported', 'different', 'unavailable']);
 const SCOPES = new Set(['project', 'user']);
@@ -41,7 +37,7 @@ function parseRegistryFile(file, fsImpl = fs) {
     throw new Error(`Could not read registry file '${file}': ${error.message}`);
   }
   try { return JSON.parse(text); } catch (error) {
-    throw new Error(`Registry file '${file}' must use JSON-compatible YAML (valid JSON in a .yaml file): ${error.message}`);
+    throw new Error(`Registry file '${file}' is not valid JSON: ${error.message}`);
   }
 }
 
@@ -78,8 +74,8 @@ function loadRegistry({ repoRoot, dir, fsImpl = fs } = {}) {
 
 const CONTRACT_COMPLETENESS = new Set(['verified', 'lower-bound']);
 
-/** Validates core/registry/contracts.yaml — what each harness ACCEPTS (legal frontmatter fields,
- * legal hook event names), kept separate from harnesses.yaml's what-DoFlow-SUPPORTS. The split is
+/** Validates core/registry/contracts.json — what each harness ACCEPTS (legal frontmatter fields,
+ * legal hook event names), kept separate from harnesses.json's what-DoFlow-SUPPORTS. The split is
  * what keeps the registry-truth guard from validating the registry against itself.
  *
  * `evidence` is required for the same reason capabilities require it: a contract claim with no
@@ -239,7 +235,7 @@ function validateExternalTool(value, location, errors) {
   }
 }
 
-/** Validates core/registry/models.yaml — the provider × role matrix the orchestrator's model
+/** Validates core/registry/models.json — the provider × role matrix the orchestrator's model
  * router will consume. Shell scope: providers are declared with identity, kind, and
  * evidence (a capability claim without a citation is folklore); roles name routing preferences
  * without binding to concrete model IDs, which stay runtime/user choices resolved at run time. */

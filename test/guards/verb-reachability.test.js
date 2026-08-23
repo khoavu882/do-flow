@@ -59,7 +59,7 @@ const ALLOWLIST = new Map([
   ],
   [
     'model-role',
-    'advisory model routing verb: resolves a role from models.yaml to availability-annotated provider candidates; consumed by skills and orchestration snapshots at adoption time rather than named directly by any skill today',
+    'advisory model routing verb: resolves a role from models.json to availability-annotated provider candidates; consumed by skills and orchestration snapshots at adoption time rather than named directly by any skill today',
   ],
 ]);
 

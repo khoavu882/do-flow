@@ -199,7 +199,7 @@ function sourceDirFor(asset, repoRoot) {
 // ~/.codex/AGENTS.md for global scope (developers.openai.com/codex/agent-configuration/agents-md).
 // A project-scoped file inside .codex/ is not in that discovery chain and would never load, so
 // the project-scope managed section must land at the project root itself. The registry declares
-// this asset's codex projection as renderer "codex-agents" (see core/registry/assets.yaml).
+// this asset's codex projection as renderer "codex-agents" (see core/registry/assets.json).
 
 function instructionsAsset(assets) { return (assets || []).find((asset) => asset?.renderer === 'codex-agents'); }
 function instructionsPath(context) {

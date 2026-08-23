@@ -247,7 +247,7 @@ test('009-unlinked-checkout: assertion 3 — a runtime/-sourced Node verb that h
   // validated `loadRegistry` (src/runtime/health.js) rather than reading one or two registry files
   // directly — so it is the one verb that can actually throw the registry loader's
   // `Invalid DoFlow registry:` error. The projected `runtime/` tree carries only bin/, src/ and
-  // core/registry/ (not the full core/ tree assets.yaml's own entries point at), so running doctor
+  // core/registry/ (not the full core/ tree assets.json's own entries point at), so running doctor
   // straight against it is a real, unmodified reproduction of "this registry is mismatched relative
   // to what validation expects" — nothing here is artificially corrupted.
   const cwd = scratch('stale-runtime-cwd');

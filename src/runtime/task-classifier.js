@@ -23,7 +23,7 @@ const CLASSIFICATION_OUTCOMES = Object.freeze({
 const REJECTION_REASONS = Object.freeze({
   /** No class was proposed at all, or one was proposed under the wrong key. */
   MISSING_CLASS: 'missing-class',
-  /** A class was proposed but is not declared in workflows.yaml. */
+  /** A class was proposed but is not declared in workflows.json. */
   UNKNOWN_CLASS: 'unknown-class',
   /** The class exists, but no stage of it names the calling skill. */
   CALLER_NOT_A_STAGE: 'caller-not-a-stage',

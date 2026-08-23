@@ -1,8 +1,8 @@
 'use strict';
 
 // G7 — the published tarball matches the source of truth. Added during v1.0.0 release review,
-// which found `bin/doflow.js.bak` (a stale pre-refactor copy of the CLI, 34 kB) and
-// `core/registry/harnesses.yaml.bak` shipping inside `npm pack`. Git was clean the whole time:
+// which found `bin/doflow.js.bak` (a stale pre-refactor copy of the CLI, 34 kB) and a stale
+// backup of a core/registry file shipping inside `npm pack`. Git was clean the whole time:
 // both files were gitignored, but package.json's `files` array whitelists whole directories and
 // npm applies different ignore semantics than git. Scanning the whitelisted trees directly is
 // cheaper and more deterministic than shelling out to `npm pack --dry-run`.

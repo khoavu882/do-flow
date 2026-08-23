@@ -99,7 +99,7 @@ flowchart TB
         PACK_MOD["ContextPackCompiler<br/>(src/runtime/context-pack.js)"]
     end
     
-    TEMPLATES[("readiness-templates.yaml<br/>(core/registry/)")]
+    TEMPLATES[("readiness-templates.json<br/>(core/registry/)")]
     EVID_STORE[(".doflow/state/evidence/*.json")]
 
     READINESS_MOD -->|"loads task templates"| TEMPLATES
@@ -124,7 +124,7 @@ flowchart TB
 | C3 | `src/runtime/readiness.js` | service | FR-003, FR-006 | Live |
 | C4 | `src/runtime/context-pack.js` | service | FR-004 | Live |
 | C5 | `src/runtime/freshness.js` | service | FR-005 | Live |
-| C6 | `core/registry/readiness-templates.yaml` | configuration | FR-006 | Live |
+| C6 | `core/registry/readiness-templates.json` | configuration | FR-006 | Live |
 | C7 | `core/shared/skills/confidence-check/` | template | FR-007, NFR-004 | Live |
 | C8 | CLI Handlers (`doflow readiness`, `doflow evidence`) | script | FR-008 | Live |
 
@@ -135,7 +135,7 @@ flowchart TB
 - **C3 (`src/runtime/readiness.js`):** Task readiness evaluation engine. Matches task profiles against declarative templates, checks prerequisite evidence fulfillment, and outputs deterministic readiness states (`READY`, `NEEDS_EVIDENCE`, `NEEDS_USER_DECISION`, `BLOCKED`) with actionable diagnostic guidance.
 - **C4 (`src/runtime/context-pack.js`):** Compact context compiler. Assembles grounded structured context documents for coding agents (objective, constraints, supported claims, relevant files, structural context, unknowns, verification requirements) with strict token/item budget enforcement.
 - **C5 (`src/runtime/freshness.js`):** Repository freshness inspector. Compares recorded evidence commit hashes and file modification timestamps against live Git state, automatically invalidating stale evidence.
-- **C6 (`core/registry/readiness-templates.yaml`):** Canonical declarative registry declaring mandatory and optional prerequisites for 5 task classes (Bug Fix, Feature, Refactor, Trivial Edit, Dependency Change).
+- **C6 (`core/registry/readiness-templates.json`):** Canonical declarative registry declaring mandatory and optional prerequisites for 5 task classes (Bug Fix, Feature, Refactor, Trivial Edit, Dependency Change).
 - **C7 (`core/shared/skills/confidence-check/`):** Refactored skill façade that executes the `ReadinessEngine` and renders structured, actionable readiness diagnostics instead of arbitrary numerical percentages.
 - **C8 (CLI Handlers `src/runtime/cli.js`):** CLI commands `doflow readiness` and `doflow evidence` displaying active task readiness breakdowns, claims genealogies, and evidence chains.
 
@@ -326,7 +326,7 @@ class ReadinessEngine {
 }
 ```
 
-### 5.2 `readiness-templates.yaml` Schema
+### 5.2 `readiness-templates.json` Schema
 
 ```yaml
 version: 1

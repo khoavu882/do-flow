@@ -87,7 +87,7 @@ test('anchor: MCP_INDEX.md is written to the guidance root, not a subdirectory o
   assert.equal(
     path.dirname(written),
     path.join('/scope', '.doflow', 'guidance'),
-    'doc paths in mcp.yaml are guidance-root-relative; writing MCP_INDEX.md deeper breaks them all',
+    'doc paths in mcp.json are guidance-root-relative; writing MCP_INDEX.md deeper breaks them all',
   );
 });
 

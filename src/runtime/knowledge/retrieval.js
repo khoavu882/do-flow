@@ -3,7 +3,7 @@
 // Retrieval over the guidance index. Ranking is BM25 — pure, deterministic, and the correctness
 // floor: BM25 plus the import graph answer questions well enough that no downstream stage depends
 // on embeddings being present. Dense/rerank slots stay unimplemented until a provider is declared
-// in models.yaml — an absent embedding provider degrades to lexical-only, never to a silent
+// in models.json — an absent embedding provider degrades to lexical-only, never to a silent
 // half-answer.
 
 const fs = require('node:fs');

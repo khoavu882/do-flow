@@ -53,11 +53,11 @@ test('G-B1: nothing under core/ requires from src/, bin/, or test/', () => {
 });
 
 test('G-B2: inventory ratchets — registry files and adapters', () => {
-  // Stage 1 renames these to .json; when it lands, this list changes shape in the same commit
-  // and the count stays 12. If you are here because a registry file was ADDED, ask whether the
-  // fact belongs in an existing file first (single-source doctrine) before raising this.
+  // The registry family is plain JSON (core/registry/*.json). If you are here because a registry
+  // file was ADDED, ask whether the fact belongs in an existing file first (single-source
+  // doctrine) before raising this.
   const registryEntries = fs.readdirSync(path.join(REPO, 'core', 'registry'))
-    .filter((name) => /\.(yaml|json)$/.test(name));
+    .filter((name) => /\.json$/.test(name));
   assert.equal(registryEntries.length, 12,
     `core/registry holds ${registryEntries.length} files; expected the ratcheted 12`);
 

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * The registry-driven layer's own registry: loads and validates `core/registry/verification.yaml`
+ * The registry-driven layer's own registry: loads and validates `core/registry/verification.json`
  * (plan task C.2, design C7) into the shape `VerificationEngine` (in `verification.js`) compiles
  * contracts against.
  *
@@ -15,7 +15,7 @@ const nodeFs = require('node:fs');
 const { parseYamlFile } = require('../capability-router');
 const { REPO_ROOT } = require('../../helper/repo-root');
 
-const REGISTRY_FILENAME = 'verification.yaml';
+const REGISTRY_FILENAME = 'verification.json';
 
 /** Tier-level outcomes. `UNRESOLVED` is the load-bearing one: it says "this tier was required and
  * nothing was evaluated for it", and it is what keeps a report off PASS. */
@@ -47,7 +47,7 @@ const RECOVERY_OUTCOMES = Object.freeze([
 ]);
 
 function assert(condition, message) {
-  if (!condition) throw new Error(`verification.yaml is invalid: ${message}`);
+  if (!condition) throw new Error(`verification.json is invalid: ${message}`);
 }
 
 /**
