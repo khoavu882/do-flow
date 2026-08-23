@@ -431,3 +431,14 @@ test('applyTree without a transform still copies source bytes verbatim (layout-o
   applyTree({ changes: planned.changes });
   assert.equal(fs.readFileSync(path.join(destDir, 'a.md'), 'utf8'), 'A');
 });
+
+test('doflow-output-style layout renames MODE_*.md and the transform wraps it as a style', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'MODE_Orchestration.md': '# Orchestration Mode\n\n**Purpose**: route tools well\n\nBody line\n' });
+  const destDir = path.join(root, 'dest');
+  const planned = planTree({ sourceDir, destDir, layout: 'doflow-output-style', transform: 'claude-output-styles' });
+  assert.equal(planned.changes[0].relPath, 'doflow-orchestration.md');
+  applyTree({ changes: planned.changes, transform: 'claude-output-styles' });
+  const text = fs.readFileSync(path.join(destDir, 'doflow-orchestration.md'), 'utf8');
+  assert.match(text, /^---\nname: DoFlow: Orchestration\ndescription: "route tools well"\nkeep-coding-instructions: true\n---/);
+});

@@ -43,6 +43,14 @@ const LAYOUTS = {
     const ext = path.extname(sourceRel);
     return `${sourceRel.slice(0, sourceRel.length - ext.length)}.instructions.md`;
   },
+  /** `MODE_Orchestration.md` -> `doflow-orchestration.md` — Claude's /config picker lists
+   * output styles by file name; the doflow- prefix keeps DoFlow's styles grouped and
+   * non-colliding with anything a user authors by hand. */
+  'doflow-output-style': (sourceRel) => {
+    const ext = path.extname(sourceRel);
+    const base = path.basename(sourceRel, ext).replace(/^MODE_/i, '').replace(/_/g, '-').toLowerCase();
+    return `doflow-${base}${ext || '.md'}`;
+  },
 };
 
 /** Resolve a declared layout name to its mapper. Unknown names fail loudly rather than silently
@@ -64,6 +72,8 @@ function resolveLayout(name) {
  * @type {Record<string, (sourceRel: string, content: Buffer) => Buffer>}
  */
 const TRANSFORMS = {
+  /** Shared mode doc -> Claude output style with name/description/keep-coding-instructions */
+  'claude-output-styles': renderClaudeOutputStyle,
   /** `<rule>.md` -> `<rule>.instructions.md` body under a Copilot applyTo header */
   'copilot-rule-instructions': (sourceRel, content) => {
     void sourceRel;
@@ -88,6 +98,18 @@ function stripFrontmatter(text) {
   const end = text.indexOf('\n---', 3);
   if (end === -1) return text;
   return text.slice(end + 4).replace(/^\n+/, '');
+}
+
+/** Wrap a shared mode document as a Claude output style: system-prompt modifiers keep the
+ * built-in engineering instructions (these styles shape HOW DoFlow works, not WHETHER Claude
+ * codes). The description is lifted from the document's first `**Purpose**` line so the /config
+ * picker explains each style without opening it. */
+function renderClaudeOutputStyle(sourceRel, content) {
+  const text = Buffer.isBuffer(content) ? content.toString('utf8') : String(content);
+  const base = path.basename(sourceRel).replace(/\.[^.]+$/, '').replace(/^MODE_/i, '').replace(/_/g, ' ');
+  const purpose = text.match(/\*\*Purpose\*\*[:*]*\s*(.+)?/);
+  const description = (purpose && purpose[1] ? purpose[1] : `DoFlow ${base} mode`).trim().replace(/\s+/g, ' ');
+  return ['---', `name: DoFlow: ${base}`, `description: ${JSON.stringify(description)}`, 'keep-coding-instructions: true', '---', '', text.replace(/\n*$/, ''), ''].join('\n');
 }
 
 const OPENCODE_READONLY_AGENTS = new Set(['spec-analyst', 'system-architect', 'quality-guardian', 'research-writer']);
