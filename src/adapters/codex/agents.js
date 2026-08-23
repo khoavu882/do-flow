@@ -104,7 +104,11 @@ function validateAgentContract(source, { fileName } = {}) {
   return Object.freeze({ ...agent, fileName: filenameFor(agent.name) });
 }
 
-function agentDirectory({ scope, codexDir, projectRoot }) {
+function agentDirectory({ scope, codexDir, projectRoot, paths } = {}) {
+  // Preferred: the declared path resolved by the adapter (harnesses.json "paths".agentsDirectory).
+  if (paths?.agentsDirectory) return paths.agentsDirectory;
+  // Legacy derivation for direct callers passing raw scope inputs; kept byte-compatible with the
+  // declaration the lifecycle path always supplies.
   if (scope === 'global') {
     if (!codexDir) throw new Error('codexDir is required for global Codex agents');
     return path.join(codexDir, AGENT_DIRECTORY);

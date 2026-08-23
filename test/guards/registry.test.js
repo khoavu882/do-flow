@@ -123,7 +123,28 @@ test('G5: every declared harness has an adapter module, exactly one contract, an
 // in src/cli/shared.js (used by install, update, remove and reconcile since Stage 2 collapsed the
 // three inline copies) plus the one shared by src/lifecycle/view.js — and confirm each declared
 // harness's id is actually passed in as a key, not just that its file exists somewhere under
-// src/adapters/.
+// src/adapters/. Since Stage 3 the values are factory calls with their own braces
+// (`x: createXAdapter({ ... })`), so the block extractor balances braces instead of stopping at
+// the first `})`.
+function extractRegistryBlocks(text) {
+  const marker = 'createAdapterRegistry(';
+  const blocks = [];
+  let index = text.indexOf(marker);
+  while (index !== -1) {
+    let depth = 0;
+    let start = -1;
+    for (let i = index + marker.length; i < text.length; i += 1) {
+      if (text[i] === '{') { if (depth === 0) start = i; depth += 1; }
+      else if (text[i] === '}') {
+        depth -= 1;
+        if (depth === 0 && start !== -1) { blocks.push(text.slice(start + 1, i)); break; }
+      }
+    }
+    index = text.indexOf(marker, index + marker.length);
+  }
+  return blocks;
+}
+
 test('G5: every declared harness is wired into every createAdapterRegistry(...) dispatch call site', () => {
   const files = [
     path.join(REPO, 'src', 'cli', 'shared.js'),
@@ -132,7 +153,7 @@ test('G5: every declared harness is wired into every createAdapterRegistry(...) 
   const offenders = [];
   for (const file of files) {
     const text = fs.readFileSync(file, 'utf8');
-    const blocks = [...text.matchAll(/createAdapterRegistry\(\{([\s\S]*?)\}\)/g)].map((m) => m[1]);
+    const blocks = extractRegistryBlocks(text);
     if (blocks.length === 0) {
       offenders.push(`${path.relative(REPO, file)}: no createAdapterRegistry({...}) call site found`);
       continue;

@@ -82,6 +82,10 @@ function classifyClaudeGuardrails(claudeHooks = {}) {
 }
 
 function destinationFor(context = {}) {
+  // Preferred: the declared path resolved by the adapter (harnesses.json "paths".hooksFile).
+  if (context.paths?.hooksFile) return context.paths.hooksFile;
+  // Legacy derivation for direct callers passing raw scope inputs; kept byte-compatible with the
+  // declaration the lifecycle path always supplies.
   if (context.hooksFile) return context.hooksFile;
   if (context.destination) return context.destination;
   if (context.scope === 'project') {
@@ -127,7 +131,9 @@ function planCodexHooks({ config, sourceFile, sourceHooksDir, destinationContext
   return { ok: true, status: changed ? 'change' : 'unchanged', destination, original, content,
     changes: changed ? [{ type: fsImpl.existsSync(destination) ? 'update' : 'create', file: destination }] : [],
     errors: [], commands, trust: commands.trust, scriptsDir: sourceHooksDir,
-    destinationHooksDir: destinationContext.hooksDir || path.join(path.dirname(destination), 'hooks') };
+    destinationHooksDir: destinationContext.paths?.hooksDirectory
+      || destinationContext.hooksDir
+      || path.join(path.dirname(destination), 'hooks') };
 }
 
 function deployCodexHooks(plan, { dryRun = false, fsImpl = fs } = {}) {

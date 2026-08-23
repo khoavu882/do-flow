@@ -83,7 +83,7 @@ how a shared asset projects onto it:
 
 | File | Declares |
 |---|---|
-| `core/registry/harnesses.json` | Each target's adapter id, supported scopes, native target files, and per-surface capability status with verification evidence |
+| `core/registry/harnesses.json` | Each target's adapter id, supported scopes, native target files, declared native path facts (`paths`: `{base, segments}` rules resolved through `src/helper/harness-paths.js`, with adapters owning only justified logic residue), and per-surface capability status with verification evidence |
 | `core/registry/assets.json` | Each shared asset's `source` path and per-harness `projection`/`nativeDir` |
 | `core/registry/contracts.json` | Per-harness recognized frontmatter fields and hook events — what `test/guards/fields.test.js` (G1) checks every asset against |
 | `core/registry/lifecycle.json` | Hook-based lifecycle policies (session-context capture, pre-implementation gate, MCP tool guard, stop check) and each harness's support status or fallback |

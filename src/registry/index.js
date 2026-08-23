@@ -3,6 +3,7 @@
 // Registry loader and validator.  Registry files are plain JSON (core/registry/*.json).
 const fs = require('node:fs');
 const path = require('node:path');
+const { validatePathsSection } = require('../helper/harness-paths');
 
 const REGISTRY_FILES = Object.freeze({
   harnesses: 'harnesses.json',
@@ -287,6 +288,12 @@ function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
     if (typeof harness.adapter !== 'string' || !harness.adapter.trim()) issue(errors, at, 'requires adapter');
     if (!Array.isArray(harness.scopes) || harness.scopes.length === 0 || harness.scopes.some((scope) => !SCOPES.has(scope))) issue(errors, at, 'scopes must contain project and/or user');
     if (!object(harness.nativeTargets)) issue(errors, at, 'nativeTargets must be an object');
+    // Declared native paths (Stage 3): every surface a harness declares must parse into the
+    // minimal {base, segments} shape — unknown keys or malformed rules fail the load loudly so a
+    // typo can never silently fall back to an adapter's previous hardcoded literal.
+    if (harness.paths !== undefined) {
+      errors.push(...validatePathsSection(harness.paths, `${at} paths`));
+    }
     if (!object(harness.capabilities) || Object.keys(harness.capabilities || {}).length === 0) issue(errors, at, 'capabilities must be a non-empty object');
     for (const [capability, declaration] of Object.entries(harness.capabilities || {})) {
       if (!/^[a-z][a-z0-9-]*$/.test(capability)) issue(errors, at, `invalid capability '${capability}'`);
