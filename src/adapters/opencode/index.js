@@ -20,9 +20,11 @@ const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDes
 // from plan(), whose contract is to compute changes without touching disk. The gemini adapter
 // solves this the same way, with a pure managedInstruction() over strings.
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
+const { destructiveCommandGlobs } = require('../../helper/guardrails');
 
 const HARNESS = 'opencode';
 const CONFIG_FILE = 'opencode.json';
+const PERMISSIONS_OWNER = 'doflow:guardrails';
 const INSTRUCTION_FILE = 'AGENTS.md';
 
 /**
@@ -101,6 +103,36 @@ function unmergeConfig(existing, { mcpServers = [] } = {}) {
  * policy the gemini adapter applies to GEMINI.md, and for the same reason: AGENTS.md is a shared,
  * cross-tool file, so where DoFlow's content belongs inside it is a decision for its owner, not a
  * guess for the installer. Add an empty marker pair to opt in. */
+/** Opt-in (--permissions) guardrail projection: DoFlow's destructive-command blocklist lands as
+ * deny rules under permission.bash. Only keys this feature owns (each carries a matching
+ * comment-free glob we can re-derive) are touched; a user's own bash rules survive untouched.
+ * Entries are namespaced by value, not by key, so ownership is decided by re-deriving the list
+ * from the single authored source rather than by trusting whatever happens to be present. */
+function guardrailBashRules(context) {
+  const globs = destructiveCommandGlobs({ repoRoot: context.repoRoot });
+  return Object.fromEntries(globs.map((glob) => [glob, 'deny']));
+}
+
+function mergeGuardrails(existing, context) {
+  const next = { ...(existing || {}) };
+  const bash = { ...guardrailBashRules(context), ...((next.permission?.bash ?? {})) };
+  // Keep user rules, but make sure ours win for identical globs (they are the stricter value).
+  next.permission = { ...(next.permission ?? {}), bash };
+  return next;
+}
+
+function stripGuardrails(existing, context) {
+  if (!existing?.permission?.bash) return existing;
+  const ours = new Set(Object.keys(guardrailBashRules(context)));
+  const bash = Object.fromEntries(Object.entries(existing.permission.bash).filter(([glob]) => !ours.has(glob)));
+  const permission = { ...existing.permission };
+  if (Object.keys(bash).length) permission.bash = bash; else delete permission.bash;
+  if (Object.keys(permission).length) return { ...existing, permission };
+  const { permission: _dropped, ...rest } = existing;
+  void _dropped;
+  return rest;
+}
+
 function managedInstruction(existing, rendered) {
   if (existing === null) return { ok: true, operation: 'create', content: rendered };
   const start = existing.indexOf(MARKER_START);
@@ -245,7 +277,12 @@ function plan({ scope, scopeRoot, assets = [], mcp = [], context = {}, ledger, f
 
   if (!found.config.error) {
     const current = found.config.value || {};
-    const next = removing ? unmergeConfig(current, { mcpServers: mcp }) : mergeConfig(current, { mcpServers: mcp });
+    let next = removing ? unmergeConfig(current, { mcpServers: mcp }) : mergeConfig(current, { mcpServers: mcp });
+    // Opt-in (--permissions): fold the destructive-command deny list into the same single write
+    // so a run never produces two competing rewrites of one JSON file.
+    if (context.permissions && !found.config.error) {
+      next = removing ? stripGuardrails(next, context) : mergeGuardrails(next, context);
+    }
     if (JSON.stringify(next) !== JSON.stringify(current)) {
       changes.push({ assetId: pseudoAssetId(assets), target: found.paths.config,
         // Tagged 'remove' during a remove operation (rather than always 'update'/'create') so this
@@ -331,6 +368,13 @@ function verify({ scope, scopeRoot, assets = [], mcp = [], context = {}, fsImpl 
     for (const server of missingMcp) {
       statuses.push({ harness: HARNESS, assetId: pseudoAssetId(assets), capability: 'mcp', status: 'missing',
         identity: server.id, target: found.paths.config });
+    }
+    if (context.permissions) {
+      const ours = guardrailBashRules(context);
+      const projected = Object.entries(ours).every(([glob, effect]) => value.permission?.bash?.[glob] === effect);
+      statuses.push({ harness: HARNESS, assetId: pseudoAssetId(assets), capability: 'settings',
+        status: context.operation === 'remove' ? (projected ? 'retained' : 'absent') : (projected ? 'managed' : 'missing'),
+        ownershipIdentity: `${HARNESS}:guardrails:permissions`, target: found.paths.config });
     }
   }
 

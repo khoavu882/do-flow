@@ -551,6 +551,24 @@
           "capability": "templates"
         }
       }
+    },
+    {
+      "id": "hooks.antigravity",
+      "kind": "hooks",
+      "source": "core/harnesses/antigravity/hooks",
+      "appliesTo": [
+        "antigravity"
+      ],
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "antigravity": "hooks"
+      },
+      "projection": {
+        "antigravity": {
+          "renderer": "antigravity-hooks",
+          "capability": "hooks"
+        }
+      }
     }
   ]
 }

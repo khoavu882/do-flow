@@ -173,12 +173,15 @@
     {
       "harness": "antigravity",
       "completeness": "lower-bound",
-      "note": "Antigravity CLI documents a keyed-by-event hook map (.agents/hooks.json or ~/.gemini/config/hooks.json) whose blocking contract is stdout JSON {decision}, unlike DoFlow's exit-code scripts - so no hooks are wired and hookEvents stays empty until translated shims exist. Widen only alongside them and an added evidence URL.",
-      "hookEvents": [],
+      "note": "hookEvents lists what DoFlow wires; widen only with added evidence. Antigravity documents five hook events; DoFlow wires PreToolUse today.",
+      "hookEvents": [
+        "PreToolUse"
+      ],
       "evidence": [
         "https://antigravity.google/docs/cli/gcli-migration",
         "https://antigravity.google/docs/hooks",
-        "https://antigravity.google/docs/cli/mcp"
+        "https://antigravity.google/docs/cli/mcp",
+        "https://antigravity.google/docs/hooks/"
       ]
     }
   ]
