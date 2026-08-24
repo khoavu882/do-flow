@@ -21,6 +21,18 @@ jobs:
     # non-blocking (continue-on-error below) on PRs, and the release caller drops windows
     # from its matrix entirely. Tracked on the Windows-gate issue (#11).
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.os_matrix) }}
+        node: ["20"]
+        # package.json declares engines.node >=18, so the floor is exercised too — otherwise the
+        # supported minimum is only asserted, never tested. One OS is enough for a version sweep;
+        # the OS matrix above already covers the portability axis.
+        include:
+          - os: ubuntu-latest
+            node: "18"
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
