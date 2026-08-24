@@ -15,6 +15,11 @@ jobs:
   # Reuses the PR suite verbatim rather than restating it, so the two can never drift.
   test:
     uses: ./.github/workflows/cross-os-tests.yml
+    with:
+      # Required legs only. Job-level continue-on-error inside a reusable workflow does NOT
+      # soften the caller's conclusion, so the flaky windows leg must simply be absent from
+      # the release gate (v1.1.0's first tag attempt was blocked by it).
+      os_matrix: '["ubuntu-latest", "macos-latest"]'
 
   verify-tag:
     name: tag matches package.json
