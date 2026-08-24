@@ -23,9 +23,15 @@ test('discovers native Codex locations in neutral project scope', () => {
 
 test('normalizes user root to ~/.codex and project root to the selected repository only', () => {
   const home = scratch();
-  assert.deepEqual(normalizeContext({ scope: 'user', homeDir: home }), { scope: 'global', codexDir: path.join(home, '.codex') });
+  // Stage 3: the context now also carries the declared paths resolved from harnesses.json; assert
+  // them against the declaration instead of hardcoding the literals here a second time.
+  const userContext = normalizeContext({ scope: 'user', homeDir: home });
+  assert.equal(userContext.scope, 'global');
+  assert.equal(userContext.codexDir, path.join(home, '.codex'));
   const workspace = path.join(home, 'Workspace'); const repository = path.join(workspace, 'repo-a');
-  assert.deepEqual(normalizeContext({ scope: 'project', scopeRoot: workspace, projectRoot: repository }), { scope: 'project', projectRoot: repository });
+  const projectContext = normalizeContext({ scope: 'project', scopeRoot: workspace, projectRoot: repository });
+  assert.equal(projectContext.scope, 'project');
+  assert.equal(projectContext.projectRoot, repository);
   assert.equal(discover({ scope: 'project', scopeRoot: workspace, projectRoot: repository }).config.file, path.join(repository, '.codex', 'config.toml'));
 });
 
@@ -65,10 +71,11 @@ test('consumes real registry-shaped projected native input and returns required 
   } });
   assert.equal(result.ok, true);
   assert.ok(result.changes.length > 0, 'projected selected Codex capabilities must yield native changes');
-  assert.ok(result.requiredNativeResources.some((resource) => resource.component === 'config' && resource.target.endsWith('.codex/config.toml')));
+  // Suffixes are built with path.join: targets carry native separators on every platform.
+  assert.ok(result.requiredNativeResources.some((resource) => resource.component === 'config' && resource.target.endsWith(path.join('.codex', 'config.toml'))));
   assert.ok(result.requiredNativeResources.some((resource) => resource.component === 'mcp'));
   assert.ok(result.requiredNativeResources.some((resource) => resource.component === 'agents'));
-  assert.ok(result.requiredNativeResources.some((resource) => resource.component === 'hooks' && resource.target.endsWith('.codex/hooks.json')));
+  assert.ok(result.requiredNativeResources.some((resource) => resource.component === 'hooks' && resource.target.endsWith(path.join('.codex', 'hooks.json'))));
 });
 
 test('reports unowned configuration conflicts instead of adopting or overwriting it', () => {
@@ -142,7 +149,7 @@ test('full apply then verify returns lifecycle-ready owned resources for project
   assert.equal(fs.readFileSync(config, 'utf8'), edited, 'planning a conflict must preserve user-edited bytes');
 });
 
-test('copy-tree assets (rules/skills/agents/templates/scripts/references) install, converge, and remove under .codex/', () => {
+test('copy-tree assets (rules/skills/agents/templates/scripts/references) install, converge, and remove across .agents/ and .codex/', () => {
   const registry = loadRegistry({ repoRoot: REPO }); const projectRoot = scratch(); const harness = harnessFor(registry, 'codex');
   const assets = selectAssets(registry, { harness: 'codex' });
   const projected = projectAdapterInput({ registry, harness, scope: 'project', scopeRoot: projectRoot, assets, mcp: [], policies: [], context: { sourceVersion: 'test-v1' } });
@@ -152,10 +159,11 @@ test('copy-tree assets (rules/skills/agents/templates/scripts/references) instal
   assert.equal(planned.components.copyTree.ok, true);
   apply({ ...input, changes: planned.changes });
 
-  for (const [dir, file] of [['skills', path.join('do-diagnose', 'SKILL.md')],
-    ['agents', 'system-architect.md']]) {
-    assert.ok(fs.existsSync(path.join(projectRoot, '.codex', dir, file)), `${dir}/${file} must exist after install`);
-  }
+  // skills.doflow lands in .agents/skills — Codex scans $REPO_ROOT/.agents/skills (plus CWD and
+  // parents) and never .codex/skills, which would be a silent no-discovery dead end.
+  assert.ok(fs.existsSync(path.join(projectRoot, '.agents', 'skills', 'do-diagnose', 'SKILL.md')), '.agents/skills/do-diagnose must exist after install');
+  assert.ok(!fs.existsSync(path.join(projectRoot, '.codex', 'skills')), 'no skills copy may be written under .codex/');
+  assert.ok(fs.existsSync(path.join(projectRoot, '.codex', 'agents', 'system-architect.md')), 'agents/system-architect.md must exist after install');
   // rules/ and references/ (guidance.context-layer) no longer duplicate into .codex/ — they land
   // in the shared .doflow/guidance/ tree, referenced by AGENTS.md's pointer instead of copied.
   // PRINCIPLES.md/FLAGS.md sit at that tree's root (not a docs/ subdir), which is what makes
@@ -197,7 +205,7 @@ test('copy-tree assets (rules/skills/agents/templates/scripts/references) instal
   const removal = plan({ ...input, ledger, context: { ...input.context, operation: 'remove' } });
   remove({ ...input, changes: removal.changes });
   assert.equal(fs.existsSync(path.join(projectRoot, '.doflow', 'guidance', 'rules', 'RULE_01_SAFETY.md')), false);
-  assert.equal(fs.existsSync(path.join(projectRoot, '.codex', 'skills', 'do-analyze', 'SKILL.md')), false);
+  assert.equal(fs.existsSync(path.join(projectRoot, '.agents', 'skills', 'do-analyze', 'SKILL.md')), false);
 });
 
 test('verification reports registry gaps and reconciliation conflicts', () => {

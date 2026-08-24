@@ -60,10 +60,10 @@ AGENTS.md
 # session to trust state.md and `git log` together, which a file git never sees cannot satisfy,
 # and DOFLOW_CHAIN.md puts a repository's tier-2 constitution at agent-docs/constitution.md.
 # Split so each rule states which of the two it is for.
-bench/runs/**/outputs/agent-docs/
-agent-docs/research/
-agent-docs/*.md
-!agent-docs/constitution.md
+agent-docs/
+
+# Skill-eval harness and its run artifacts are local-only
+bench/
 .mcp.json
 
 # MkDocs build output

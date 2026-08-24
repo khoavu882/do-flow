@@ -5,7 +5,7 @@
 //   project scope -> <projectRoot>/.mcp.json (sibling to .claude/, the project-root convention
 //                    Claude Code actually auto-discovers)
 // Both are read-merge-write, never a wholesale overwrite, and scan-then-append: only the server
-// names doflow itself ships in core/registry/mcp.yaml are added/removed by selection, and a
+// names doflow itself ships in core/registry/mcp.json are added/removed by selection, and a
 // selected name already present keeps its existing definition rather than being reset to doflow's
 // shipped default (a user's hand-edited arg/env survives). Any server under a name doflow doesn't know
 // about — in either file — is left completely untouched regardless of selection. This matters
@@ -89,7 +89,7 @@ function writeProjectMcpJson(projectRoot, knownServerNames, serverDefs) {
 /**
  * Global scope: ~/.claude.json is a shared, multi-purpose state file (history, projects,
  * credentials-adjacent references) doflow does not own — read-merge-write, touching only the
- * `mcpServers` keys that match a name doflow itself ships in core/registry/mcp.yaml. Every other key in
+ * `mcpServers` keys that match a name doflow itself ships in core/registry/mcp.json. Every other key in
  * the file, including any MCP server the user registered themselves via `claude mcp add`, is left
  * untouched.
  * @returns {string} the path written
@@ -107,11 +107,14 @@ function mergeGlobalMcpServers(homeDir, knownServerNames, serverDefs) {
 }
 
 /**
- * Decide which MCP servers to install, in precedence order:
- *   1. --mcp <list>          — explicit, always wins, always persisted
- *   2. interactive checkbox  — install only, real TTY, no --force/--dry-run
- *   3. remembered manifest   — update (or a forced/non-interactive install) reuses the last pick
- *   4. all servers           — first-ever install, nothing else applies
+  * Decide which MCP servers to install, in precedence order:
+  *   1. --mcp <list>|all|none — explicit, always wins, always persisted ('all'/'none' are
+  *                              keywords and cannot be mixed with server names)
+  *   2. interactive checkbox  — install only, real TTY, no --force/--dry-run
+  *   3. remembered manifest   — update (or a forced/non-interactive install) reuses the last pick
+  *   4. none                  — first-ever install without a TTY defaults to an EMPTY selection
+  *                              (safe by default: third-party servers are opt-in). Interactive
+  *                              installs still get the checkbox pre-seeded with the catalog.
  * `promptFn` is injected so this stays unit-testable without a real TTY.
  * @param {{cmd:string, requested:string[]|null, allServers:string[], manifestServers:string[]|null,
  *           interactive:boolean, promptFn:(servers:string[], seed:string[])=>string[]|null}} p
@@ -119,8 +122,18 @@ function mergeGlobalMcpServers(homeDir, knownServerNames, serverDefs) {
  */
 function resolveMcpSelection({ cmd, requested, allServers, manifestServers, interactive, promptFn, onStale }) {
   if (requested) {
+    const keywords = requested.filter((s) => s === 'all' || s === 'none');
+    if (keywords.length) {
+      if (keywords.length !== requested.length) {
+        throw new Error(`--mcp keyword '${keywords[0]}' cannot be combined with server names`);
+      }
+      if (new Set(requested).size > 1) {
+        throw new Error("Choose either '--mcp all' or '--mcp none', not both");
+      }
+      return keywords[0] === 'all' ? [...allServers] : [];
+    }
     if (requested.length === 0) {
-      throw new Error('--mcp requires at least one server (omit the flag entirely to keep all)');
+      throw new Error("--mcp requires at least one server; use '--mcp none' for an explicit empty selection");
     }
     const invalid = requested.filter((s) => !allServers.includes(s));
     if (invalid.length) {
@@ -133,7 +146,7 @@ function resolveMcpSelection({ cmd, requested, allServers, manifestServers, inte
   // selection is *persisted resolved state* (see src/manifest.js), so an id the registry no longer
   // declares means the project retired that server between installs — a normal upgrade, not user
   // error. Passing it through unfiltered reached selectMcpServers() in src/registry/index.js,
-  // which throws, so removing chrome-devtools and playwright from core/registry/mcp.yaml (d1bf9e8)
+  // which throws, so removing chrome-devtools and playwright from core/registry/mcp.json (d1bf9e8)
   // made `install` and `update` fatally fail for every install predating that commit, with no hint
   // that `--mcp <survivors>` was the way out. cmdStatus already tolerated the same state because
   // it happens to wrap the call in try/catch; reconcile here so every caller behaves that way.
@@ -150,10 +163,13 @@ function resolveMcpSelection({ cmd, requested, allServers, manifestServers, inte
     if (picked !== null) return picked; // [] is a deliberate "no servers" choice, honored as-is
   }
 
-  // An install that had every one of its servers retired falls back to the full catalog rather
-  // than to [], which would silently uninstall MCP support the user never asked to remove.
-  if (known && known.length === 0) return [...allServers];
-  return known ?? allServers;
+  // An explicitly empty remembered selection stays empty: the user chose "no servers", and a
+  // catalog reshuffle must not resurrect third-party processes behind their back. Likewise the
+  // first-ever non-interactive default is now NONE — third-party servers are opt-in
+  // (--mcp all|<names>); interactive installs remain the discovery path via the pre-seeded
+  // checkbox above.
+  if (known && known.length === 0) return [];
+  return known ?? [];
 }
 
 const KEY = {

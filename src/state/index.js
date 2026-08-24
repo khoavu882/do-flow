@@ -10,6 +10,9 @@ const crypto = require('node:crypto');
 const { manifestPath, readManifest } = require('../install/manifest');
 
 const STATE_VERSION = 1;
+// Ledger document version. v1 ledgers (no tombstones) remain readable forever; writers produce
+// v2, which adds the append-only tombstone log used by the reconciler to remember moved targets.
+const LEDGER_VERSION = 2;
 const LEDGER_FILE = 'ledger.json';
 const RECOVERY_DIR = 'recovery';
 
@@ -53,7 +56,7 @@ function atomicJsonWrite(file, value, { fsImpl = fs } = {}) {
 function defaultLedger({ scope, scopeRoot }) {
   assertScope(scope);
   return {
-    version: STATE_VERSION,
+    version: LEDGER_VERSION,
     scope,
     scopeRoot: path.resolve(scopeRoot),
     targets: {},
@@ -62,12 +65,23 @@ function defaultLedger({ scope, scopeRoot }) {
     legacyImports: [],
     lastRecoveryId: null,
     guidanceVersion: null,
+    tombstones: [],
   };
+}
+
+/** Upgrade a v1 ledger in memory to the current shape without touching disk. Idempotent. */
+function upgradeLedger(ledger) {
+  if (!ledger || typeof ledger !== 'object') throw new Error('Invalid neutral ledger: expected object');
+  if (ledger.version === LEDGER_VERSION) return ledger;
+  return { ...ledger, version: LEDGER_VERSION, tombstones: Array.isArray(ledger.tombstones) ? ledger.tombstones : [] };
 }
 
 function validateLedger(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid neutral ledger: expected object');
-  if (value.version !== STATE_VERSION) throw new Error(`Unsupported neutral ledger version: '${value.version}'`);
+  if (![STATE_VERSION, LEDGER_VERSION].includes(value.version)) throw new Error(`Unsupported neutral ledger version: '${value.version}'`);
+  if (value.version >= LEDGER_VERSION && value.tombstones !== undefined && !Array.isArray(value.tombstones)) {
+    throw new Error('Invalid neutral ledger: tombstones must be an array');
+  }
   assertScope(value.scope);
   if (typeof value.scopeRoot !== 'string' || !path.isAbsolute(value.scopeRoot)) throw new Error('Invalid neutral ledger: scopeRoot must be absolute');
   for (const field of ['targets', 'mcpSelections']) if (!value[field] || typeof value[field] !== 'object' || Array.isArray(value[field])) throw new Error(`Invalid neutral ledger: ${field} must be an object`);
@@ -169,9 +183,9 @@ function migrateLegacyManifest({ root, scope, scopeRoot, claudeDir, now = new Da
 }
 
 module.exports = {
-  STATE_VERSION, LEDGER_FILE, RECOVERY_DIR,
+  STATE_VERSION, LEDGER_VERSION, LEDGER_FILE, RECOVERY_DIR,
   stateRoot, ledgerPath, recoveryRoot, atomicJsonWrite,
-  defaultLedger, validateLedger, readLedger, writeLedger,
+  defaultLedger, upgradeLedger, validateLedger, readLedger, writeLedger,
   recoveryId, writeRecoveryRecord, readRecoveryRecord,
   ownershipKey, importLegacyResource, migrateLegacyManifest,
 };

@@ -9,7 +9,8 @@ flowchart LR
     Core[core/\ncanonical content] --> Installer[bin/doflow.js\ninstaller]
     Installer --> Claude[Claude Code\nCLAUDE.md, hooks, MCP]
     Installer --> Codex[Codex\nAGENTS.md, skills]
-    Installer --> Gemini[Gemini CLI / Antigravity\nGEMINI.md, skills]
+    Installer --> Gemini[Gemini CLI\nGEMINI.md, skills]
+    Installer --> Anti[Antigravity CLI\nAGENTS.md, skills]
     Installer --> OpenCode[OpenCode\nAGENTS.md, skills]
     Installer --> Pi[Pi Coding Agent\nAGENTS.md, skills]
     Installer --> Copilot[GitHub Copilot CLI\ncopilot-instructions.md, skills]
@@ -38,8 +39,8 @@ The client decides how to execute work. DoFlow supplies shared guidance, task wo
 
 ## Capability boundaries by client
 
-DoFlow now spans seven harnesses: Claude Code, Codex, Gemini CLI / Antigravity, OpenCode, Pi
-Coding Agent, GitHub Copilot CLI, and Kiro. Every one of them gets DoFlow's base instructions,
+DoFlow spans eight harnesses: Claude Code, Codex, Gemini CLI, OpenCode, Pi Coding Agent,
+GitHub Copilot CLI, Kiro, and Antigravity. Every one of them gets DoFlow's base instructions,
 skills, and specialist guidance (agents, scripts, templates, references) in whatever native form
 that harness documents — a managed instruction file, a discoverable skills directory, or both.
 Hooks, native settings merges, MCP registration, and plugin/marketplace distribution are where the
@@ -47,9 +48,9 @@ harnesses diverge the most: some support all of them natively, some support a su
 have DoFlow project the underlying guidance through instructions or skills instead of a dedicated
 native surface.
 
-The full capability matrix — generated from `core/registry/harnesses.yaml` and covering
+The full capability matrix — generated from `core/registry/harnesses.json` and covering
 instructions, skills, agents, scripts, templates, modes, settings, hooks, MCP, and plugin support
-across all seven harnesses, plus the per-event hook matrix and per-harness verification and
+across all eight harnesses, plus the per-event hook matrix and per-harness verification and
 prerequisite tables — lives in [Capability Map](capability-map.md). This page intentionally does
 not repeat that table: DoFlow previously kept two hand-maintained copies of the same matrix, and
 they drifted from the registry and from each other. One generated source is kept instead.

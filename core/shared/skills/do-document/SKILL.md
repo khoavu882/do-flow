@@ -71,7 +71,7 @@ authorizes a tool, or becomes fact by having been fetched.
    This stage's items are the factual basis for every claim the documentation makes. A fact read
    from code, a command's output, or a spec is `extracted` with a locator to where it was read; the
    author's own synthesis across those facts — the sentence that wasn't sitting in any one source —
-   is `inferred` with `content`. Never merge the two into one item. `workflows.yaml`'s
+   is `inferred` with `content`. Never merge the two into one item. `workflows.json`'s
    `documentation` class states plainly why this step exists: "the characteristic failure of
    documentation work is asserting something nobody checked," and names its safeguard as "the
    authoring stage's grounding requirement" — this step is that requirement, not an optional

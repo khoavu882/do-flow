@@ -27,6 +27,13 @@ function hookHandlers(config) {
 // a running CLI session. It reports trust as a prerequisite whose shape it observed, not one it
 // bypassed or assumed satisfied. That reading is identical for both harnesses, which is part of
 // why this function is shared.
+// Windows carries no executable permission bits — statSync().mode always reports 0666/0444 and
+// chmodSync can only toggle the read-only flag — so the POSIX "not executable" failure mode
+// cannot exist there. Requiring the bit would refuse every hooks install on win32 (the scripts
+// are invoked through an explicit `bash <script>` command string, which needs no +x), so the
+// exec-bit half of the check is POSIX-only; existence is checked everywhere.
+const EXEC_BITS_EXIST = process.platform !== 'win32';
+
 function verifyHookCommands(config, { scriptsDir, trusted = false, fsImpl = fs } = {}) {
   const checks = [];
   for (const { event, handler } of hookHandlers(config)) {
@@ -39,7 +46,7 @@ function verifyHookCommands(config, { scriptsDir, trusted = false, fsImpl = fs }
     for (const name of names) {
       const file = scriptsDir ? path.join(scriptsDir, name) : null;
       const exists = Boolean(file && fsImpl.existsSync(file));
-      const executable = exists && Boolean(fsImpl.statSync(file).mode & 0o111);
+      const executable = exists && (!EXEC_BITS_EXIST || Boolean(fsImpl.statSync(file).mode & 0o111));
       checks.push({ event, command: handler.command, script: name, file, exists, executable,
         ok: exists && executable, reason: !exists ? 'Hook script is missing' : (!executable ? 'Hook script is not executable' : null),
         requiresTrust: true, trusted });

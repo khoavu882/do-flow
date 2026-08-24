@@ -16,7 +16,7 @@ const READINESS_STATES = new Set([
 class ReadinessEngine {
   /**
    * @param {Object} [options]
-   * @param {string} [options.repoRoot] the DoFlow install, where readiness-templates.yaml lives
+   * @param {string} [options.repoRoot] the DoFlow install, where readiness-templates.json lives
    * @param {string} [options.projectRoot] the repository under work, which evidence locators name.
    *   Distinct from repoRoot on purpose: when the CLI runs inside another project, the templates
    *   come from the install and the locators must be resolved against that project, not the install.
@@ -28,7 +28,7 @@ class ReadinessEngine {
     this.fsImpl = options.fsImpl || fs;
     this.repoRoot = options.repoRoot || REPO_ROOT;
     this.projectRoot = options.projectRoot || process.cwd();
-    this.templatePath = options.templatePath || path.join(this.repoRoot, 'core', 'registry', 'readiness-templates.yaml');
+    this.templatePath = options.templatePath || path.join(this.repoRoot, 'core', 'registry', 'readiness-templates.json');
 
     if (options.templates) {
       this.templates = options.templates;

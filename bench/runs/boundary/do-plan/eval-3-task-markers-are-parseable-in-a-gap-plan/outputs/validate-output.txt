@@ -1,1 +1,0 @@
-validate-artifacts: 1 artifact(s) checked, no violations

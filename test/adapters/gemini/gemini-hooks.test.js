@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { validateHooksConfig, classifyClaudeGuardrails, verifyHookCommands, planGeminiHooks, deployGeminiHooks, planRemoveGeminiHooks, deployRemoveGeminiHooks } = require('../../../src/adapters/gemini/hooks');
+const { IS_WIN, expectExecutable } = require('../../helper-platform');
 
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-gemini-hooks-')); }
 function hookConfig(command = 'bash "$GEMINI_PROJECT_DIR/.gemini/hooks/session-start.sh"') {
@@ -35,7 +36,13 @@ test('fails closed for missing or non-executable command wrappers', () => {
   assert.equal(result.ok, false); assert.equal(result.checks[0].reason, 'Hook script is missing');
   const hooks = wrapper(root, 'session-start.sh', 0o644);
   result = verifyHookCommands(hookConfig(), { scriptsDir: hooks });
-  assert.equal(result.ok, false); assert.equal(result.checks[0].reason, 'Hook script is not executable');
+  // Windows has no exec bits, so a 0644 wrapper is indistinguishable from 0755 there and the
+  // not-executable refusal is POSIX-only (see src/adapters/hook-commands.js).
+  if (!IS_WIN) {
+    assert.equal(result.ok, false); assert.equal(result.checks[0].reason, 'Hook script is not executable');
+  } else {
+    assert.equal(result.ok, true);
+  }
 });
 
 test('reports hook trust as a prerequisite instead of assuming Gemini activated it', () => {
@@ -60,7 +67,7 @@ test('plans a key-scoped merge into settings.json, preserving every unrelated ke
   assert.deepEqual(written.mcpServers, { foo: { command: 'bar' } }, 'pre-existing mcpServers must survive the merge');
   assert.deepEqual(written.ui, { theme: 'dark' }, 'pre-existing ui settings must survive the merge');
   assert.deepEqual(written.hooks, hookConfig().hooks);
-  assert.equal(fs.statSync(path.join(root, '.gemini', 'hooks', 'session-start.sh')).mode & 0o111, 0o111, 'script must be deployed and executable');
+  expectExecutable(fs, path.join(root, '.gemini', 'hooks', 'session-start.sh'), 'script must be deployed and executable');
 });
 
 test('merges into pre-existing hooks in settings.json, preserving user custom hooks (FR-002)', () => {

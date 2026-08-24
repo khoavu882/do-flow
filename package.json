@@ -1,7 +1,7 @@
 {
   "name": "@khoavu882/doflow",
-  "version": "1.0.0",
-  "description": "DoFlow config installer — npx CLI for the registry-driven multi-harness install/update/remove lifecycle",
+  "version": "1.1.0",
+  "description": "DoFlow config installer \u2014 npx CLI for the registry-driven multi-harness install/update/remove lifecycle",
   "keywords": [
     "claude-code",
     "codex",
@@ -29,8 +29,10 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test \"test/**/*.test.js\"",
-    "bench": "node bench/runner.js"
+    "test": "node scripts/run-tests.js",
+    "bench": "node bench/runner.js",
+    "gen:capability-map": "node scripts/generate-capability-map.js",
+    "drift": "node scripts/check-format-drift.js"
   },
   "files": [
     "bin/",

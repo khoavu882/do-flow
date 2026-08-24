@@ -2,40 +2,15 @@ site_name: DoFlow
 site_description: >
   A configuration layer giving AI coding assistants persistent memory,
   specialist expertise, and production-grade safety guardrails —
-  across Claude Code, Codex, and Gemini.
+  across Claude Code, Codex, Gemini, OpenCode, Pi, Copilot CLI, Kiro,
+  and Antigravity.
 site_url: https://khoavu882.github.io/do-flow
 repo_url: https://github.com/khoavu882/do-flow
 repo_name: khoavu882/do-flow
 edit_uri: edit/main/
 
 theme:
-  name: material
-  palette:
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: deep purple
-      accent: cyan
-      toggle:
-        icon: material/brightness-4
-        name: Switch to light mode
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      primary: deep purple
-      accent: cyan
-      toggle:
-        icon: material/brightness-7
-        name: Switch to dark mode
-  features:
-    - navigation.tabs
-    - navigation.tabs.sticky
-    - navigation.sections
-    - navigation.expand
-    - navigation.path
-    - navigation.top
-    - search.suggest
-    - search.highlight
-    - content.code.copy
-    - content.code.annotate
+  name: dracula
 
 plugins:
   - search
@@ -50,4 +25,7 @@ nav:
   - Reference: reference.md
   - Flags: flags.md
   - Capability Map: capability-map.md
+  - Distribution notes: distribution-notes.md
   - Architecture: architecture.md
+  - Refactor plan: refactor-plan.md
+  - Orchestrator spec: specs/orchestrator-context-modes.md

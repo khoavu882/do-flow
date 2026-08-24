@@ -32,7 +32,7 @@ refused for a class that is perfectly correct, because that class does not route
 
 ## The nine task classes
 
-Declared in `core/registry/workflows.yaml`. Stages name skills that already exist; the registry adds
+Declared in `core/registry/workflows.json`. Stages name skills that already exist; the registry adds
 none.
 
 | Class | Stages | Gates | Readiness |
@@ -88,7 +88,7 @@ edits until its three artifacts exist — regardless of which skill is doing the
 ## Readiness is four states, never a score
 
 Before a stage that edits source, the runtime grades the task against its class's template from
-`core/registry/readiness-templates.yaml`. The verdict is one of exactly four states:
+`core/registry/readiness-templates.json`. The verdict is one of exactly four states:
 
 | State | Meaning |
 |---|---|
@@ -139,7 +139,7 @@ of the fact; the ledger records locators, never scores.
 
 ## Verification scales with risk
 
-`core/registry/verification.yaml` declares nine check tiers in a fixed order —
+`core/registry/verification.json` declares nine check tiers in a fixed order —
 `parse`, `build`, `static-analysis`, `targeted-tests`, `broad-tests`, `structural-invariants`,
 `requirement-satisfaction`, `change-scope`, `model-review` — and four risk levels (`LOW`, `MEDIUM`,
 `HIGH`, `CRITICAL`) that select how many of them a change must clear. The risk level also sets the
@@ -150,7 +150,7 @@ returns the action, so no agent picks its own retry count.
 
 Every runtime call a skill can make goes through a single dispatcher,
 `core/shared/scripts/doflow/bin/doflow-run`, which owns the whole verb namespace and decides per
-verb whether a shell helper or a `bin/doflow.js` command serves it. Skills never name a helper and
+verb whether a shell helper or a `src/cli` command serves it. Skills never name a helper and
 never name a verb's implementation, so a verb can move between the two arms without any caller
 changing.
 

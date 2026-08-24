@@ -1,26 +1,26 @@
 'use strict';
 
-// Registry loader and validator.  Registry files deliberately use JSON syntax in
-// .yaml files: JSON is a YAML subset, so this is dependency-free while retaining
-// a future-compatible declarative file extension.  Do not add a permissive YAML
-// parser here; accepting partial/ambiguous YAML would make safety validation less
-// reliable than failing with an actionable conversion message.
+// Registry loader and validator.  Registry files are plain JSON (core/registry/*.json).
 const fs = require('node:fs');
 const path = require('node:path');
+const { validatePathsSection } = require('../helper/harness-paths');
 
 const REGISTRY_FILES = Object.freeze({
-  harnesses: 'harnesses.yaml',
-  assets: 'assets.yaml',
-  mcp: 'mcp.yaml',
-  lifecycle: 'lifecycle.yaml',
-  contracts: 'contracts.yaml',
-  externalTools: 'external-tools.yaml',
+  harnesses: 'harnesses.json',
+  assets: 'assets.json',
+  mcp: 'mcp.json',
+  lifecycle: 'lifecycle.json',
+  contracts: 'contracts.json',
+  externalTools: 'external-tools.json',
+  models: 'models.json',
 });
 const CAPABILITY_STATUS = new Set(['supported', 'different', 'unavailable']);
 const SCOPES = new Set(['project', 'user']);
 const MCP_TRANSPORTS = new Set(['stdio', 'http', 'sse']);
 const EXTERNAL_TOOL_IDS = new Set(['rtk', 'graphify', 'semble']);
 const EXTERNAL_TOOL_ACTIONS = new Set(['install', 'update', 'uninstall']);
+const MODEL_KINDS = new Set(['hosted', 'local']);
+const MODEL_SLOT_IDS = new Set(['dense', 'rerank']);
 
 function issue(errors, location, message) { errors.push(`${location}: ${message}`); }
 function object(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
@@ -39,7 +39,7 @@ function parseRegistryFile(file, fsImpl = fs) {
     throw new Error(`Could not read registry file '${file}': ${error.message}`);
   }
   try { return JSON.parse(text); } catch (error) {
-    throw new Error(`Registry file '${file}' must use JSON-compatible YAML (valid JSON in a .yaml file): ${error.message}`);
+    throw new Error(`Registry file '${file}' is not valid JSON: ${error.message}`);
   }
 }
 
@@ -61,6 +61,9 @@ function loadRegistry({ repoRoot, dir, fsImpl = fs } = {}) {
     lifecycle: loaded.lifecycle.policies,
     contracts: loaded.contracts.contracts,
     externalTools: loaded.externalTools.tools,
+    modelProviders: loaded.models.providers,
+    modelRoles: loaded.models.roles,
+    retrievalSlots: Array.isArray(loaded.models.slots) ? loaded.models.slots : [],
     versions: Object.fromEntries(Object.entries(loaded).map(([name, value]) => [name, value.version])),
   };
   const validation = validateRegistry(registry, { repoRoot: registry.repoRoot, fsImpl });
@@ -74,8 +77,8 @@ function loadRegistry({ repoRoot, dir, fsImpl = fs } = {}) {
 
 const CONTRACT_COMPLETENESS = new Set(['verified', 'lower-bound']);
 
-/** Validates core/registry/contracts.yaml — what each harness ACCEPTS (legal frontmatter fields,
- * legal hook event names), kept separate from harnesses.yaml's what-DoFlow-SUPPORTS. The split is
+/** Validates core/registry/contracts.json — what each harness ACCEPTS (legal frontmatter fields,
+ * legal hook event names), kept separate from harnesses.json's what-DoFlow-SUPPORTS. The split is
  * what keeps the registry-truth guard from validating the registry against itself.
  *
  * `evidence` is required for the same reason capabilities require it: a contract claim with no
@@ -235,6 +238,54 @@ function validateExternalTool(value, location, errors) {
   }
 }
 
+/** Validates core/registry/models.json — the provider × role matrix the orchestrator's model
+ * router will consume. Shell scope: providers are declared with identity, kind, and
+ * evidence (a capability claim without a citation is folklore); roles name routing preferences
+ * without binding to concrete model IDs, which stay runtime/user choices resolved at run time. */
+function validateModelProvider(value, location, errors) {
+  if (!object(value)) { issue(errors, location, 'must be an object'); return; }
+  if (typeof value.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(value.id)) issue(errors, location, 'id must be a lowercase identifier');
+  if (typeof value.displayName !== 'string' || !value.displayName.trim()) issue(errors, location, 'requires displayName');
+  if (!MODEL_KINDS.has(value.kind)) issue(errors, location, `kind must be one of: ${[...MODEL_KINDS].join(', ')}`);
+  if (!Array.isArray(value.evidence) || value.evidence.length === 0
+    || value.evidence.some((url) => typeof url !== 'string' || !/^https:\/\//.test(url))) {
+    issue(errors, location, 'must include one or more HTTPS evidence URLs');
+  }
+}
+
+function validateModelRole(value, location, errors) {
+  if (!object(value)) { issue(errors, location, 'must be an object'); return; }
+  if (typeof value.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(value.id)) issue(errors, location, 'id must be a lowercase identifier');
+  for (const field of ['prefer', 'fallback', 'require']) {
+    if (value[field] !== undefined && (typeof value[field] !== 'string' || !value[field].trim())) {
+      issue(errors, location, `${field} must be a non-empty string when present`);
+    }
+  }
+}
+
+/** Validates an optional retrieval slot in core/registry/models.json — a dense-embedding or
+ * cross-encoder rerank stage bound to one declared provider and the concrete model that provider
+ * serves. Absent slots are the shipped posture and keep retrieval lexical-only; malformed ones
+ * must fail the load loudly, because a typo reading as "no dense provider" would silently skip
+ * the feature instead of surfacing it. `enabled` is therefore required rather than defaulted:
+ * a misspelled flag defaulting to off is the same PASS-over-no-evidence defect in miniature. */
+function validateModelSlot(value, location, errors, providerIds) {
+  if (!object(value)) { issue(errors, location, 'must be an object'); return; }
+  const allowed = new Set(['id', 'provider', 'model', 'enabled', 'evidence']);
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) issue(errors, location, `unsupported field '${key}'`);
+  }
+  if (!MODEL_SLOT_IDS.has(value.id)) issue(errors, location, `id must be one of: ${[...MODEL_SLOT_IDS].join(', ')}`);
+  if (typeof value.provider !== 'string' || !value.provider.trim()) issue(errors, location, 'requires provider');
+  else if (providerIds && !providerIds.has(value.provider)) issue(errors, location, `references unknown model provider '${value.provider}'`);
+  if (typeof value.model !== 'string' || !value.model.trim()) issue(errors, location, 'requires model');
+  if (typeof value.enabled !== 'boolean') issue(errors, location, 'enabled must be a boolean');
+  if (value.evidence !== undefined && (!Array.isArray(value.evidence) || value.evidence.length === 0
+    || value.evidence.some((url) => typeof url !== 'string' || !/^https:\/\//.test(url)))) {
+    issue(errors, location, 'must include one or more HTTPS evidence URLs when evidence is present');
+  }
+}
+
 function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
   const errors = [];
   const harnesses = Array.isArray(registry?.harnesses) ? registry.harnesses : null;
@@ -262,6 +313,12 @@ function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
     if (typeof harness.adapter !== 'string' || !harness.adapter.trim()) issue(errors, at, 'requires adapter');
     if (!Array.isArray(harness.scopes) || harness.scopes.length === 0 || harness.scopes.some((scope) => !SCOPES.has(scope))) issue(errors, at, 'scopes must contain project and/or user');
     if (!object(harness.nativeTargets)) issue(errors, at, 'nativeTargets must be an object');
+    // Declared native paths (Stage 3): every surface a harness declares must parse into the
+    // minimal {base, segments} shape — unknown keys or malformed rules fail the load loudly so a
+    // typo can never silently fall back to an adapter's previous hardcoded literal.
+    if (harness.paths !== undefined) {
+      errors.push(...validatePathsSection(harness.paths, `${at} paths`));
+    }
     if (!object(harness.capabilities) || Object.keys(harness.capabilities || {}).length === 0) issue(errors, at, 'capabilities must be a non-empty object');
     for (const [capability, declaration] of Object.entries(harness.capabilities || {})) {
       if (!/^[a-z][a-z0-9-]*$/.test(capability)) issue(errors, at, `invalid capability '${capability}'`);
@@ -332,6 +389,27 @@ function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
     }
   }
   for (const tool of externalTools || []) validateExternalTool(tool, `external tool '${tool?.id ?? '?'}'`, errors);
+
+  const modelProviders = Array.isArray(registry?.modelProviders) ? registry.modelProviders : null;
+  const modelRoles = Array.isArray(registry?.modelRoles) ? registry.modelRoles : null;
+  if (!modelProviders) issue(errors, 'models.providers', 'must be an array');
+  if (!modelRoles) issue(errors, 'models.roles', 'must be an array');
+  idsUnique(modelProviders, 'models.providers', errors);
+  idsUnique(modelRoles, 'models.roles', errors);
+  for (const provider of modelProviders || []) validateModelProvider(provider, `model provider '${provider?.id ?? '?'}'`, errors);
+  for (const role of modelRoles || []) validateModelRole(role, `model role '${role?.id ?? '?'}'`, errors);
+  // Slots are optional: undefined means the registry does not use them at all and routing stays
+  // exactly as it was. Anything present-but-wrong (null, a bare object, malformed entries) fails.
+  const modelSlots = registry?.retrievalSlots;
+  if (modelSlots === undefined) {
+    // default posture — no dense/rerank binding declared
+  } else if (!Array.isArray(modelSlots)) {
+    issue(errors, 'models.slots', 'must be an array when present');
+  } else {
+    idsUnique(modelSlots, 'models.slots', errors);
+    const providerIds = new Set((modelProviders || []).filter(object).map((item) => item.id));
+    for (const slot of modelSlots) validateModelSlot(slot, `model slot '${slot?.id ?? '?'}'`, errors, providerIds);
+  }
   return { ok: errors.length === 0, errors };
 }
 

@@ -21,6 +21,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared');
+const { loadRegistry } = require('../../src/registry');
+const generator = require('../../scripts/generate-capability-map');
 
 const BASH_DIR = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash');
 const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
@@ -68,8 +70,9 @@ function scriptTexts() {
  * Parsed rather than restated so a verb added tomorrow is covered without editing this file.
  */
 function verbTable() {
+  // `\r?\n` keeps the parser working on CRLF checkouts (Windows without eol=lf normalization).
   const text = fs.readFileSync(DISPATCHER, 'utf8');
-  const block = text.match(/shell_helper_for\(\)\s*\{([\s\S]*?)\n\}/);
+  const block = text.match(/shell_helper_for\(\)\s*\{([\s\S]*?)\r?\n\}/);
   assert.ok(block, 'shell_helper_for() is the dispatcher verb table and must be parseable');
   const table = new Map([...block[1].matchAll(/^\s*([a-z][a-z-]*)\)\s*printf '([^']+)'/gm)]
     .map(([, verb, helper]) => [verb, helper]));
@@ -135,9 +138,9 @@ test('G8: every verb a skill or doc invokes is a verb the dispatcher actually di
   // instead — the failure surfaces as an unrelated orphan, or not at all if something else happens
   // to reach the same helper. Checking the call side directly keeps the diagnosis at the typo.
   const text = fs.readFileSync(DISPATCHER, 'utf8');
-  const nodeBlock = text.match(/is_node_verb\(\)\s*\{([\s\S]*?)\n\}/);
+  const nodeBlock = text.match(/is_node_verb\(\)\s*\{([\s\S]*?)\r?\n\}/);
   assert.ok(nodeBlock, 'is_node_verb() is the node arm of the verb table and must be parseable');
-  const [, alternation] = nodeBlock[1].replace(/\\\n/g, '').match(/^\s*([a-z|-]+)\)\s*return 0/m) || [];
+  const [, alternation] = nodeBlock[1].replace(/\\\r?\n/g, '').match(/^\s*([a-z|-]+)\)\s*return 0/m) || [];
   assert.ok(alternation, 'the node verb alternation must be parseable');
 
   // `--help`/`help` are the dispatcher's own arguments, not verbs, and answer before the table.
@@ -155,10 +158,11 @@ test('G8: every verb a skill or doc invokes is a verb the dispatcher actually di
 
 test('G8: every runtime CLI command is named by a skill or doc', () => {
   // Parsed from the dispatch switch rather than hardcoded, so a new command is covered the moment
-  // it is wired up — the guard should not need editing to start guarding.
-  const cli = fs.readFileSync(path.join(REPO, 'bin', 'doflow.js'), 'utf8');
+  // it is wired up — the guard should not need editing to start guarding. Since Stage 2 the
+  // switch lives in src/cli/runtime-commands.js (bin/doflow.js only forwards into src/cli).
+  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.js'), 'utf8');
   const commands = [...cli.matchAll(/case '([a-z-]+)': return handle[A-Za-z]+Command/g)].map((m) => m[1]);
-  assert.ok(commands.length > 0, 'expected to find runtime command handlers in bin/doflow.js');
+  assert.ok(commands.length > 0, 'expected to find runtime command handlers in src/cli/runtime-commands.js');
 
   const consumers = consumerTexts();
   const orphaned = commands
@@ -212,30 +216,22 @@ test('G8: every repo path a doc names in backticks exists', () => {
   assert.deepEqual(unique, [], `these documented paths do not exist:\n  ${unique.join('\n  ')}`);
 });
 
-test('G8: the capability matrix in docs matches the registry it claims to be generated from', () => {
-  // Both matrices in capability-map.md were hand-maintained and had drifted: the capability table
-  // claimed Hooks "Supported" for OpenCode and MCP "Supported" for Pi where the registry says
-  // "different", and pointed Pi's settings at config.json instead of settings.json. A table that
-  // says it is generated from the registry has to actually agree with it, or it is just a second
-  // source of truth wearing the first one's name.
-  const reg = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.yaml'), 'utf8'));
-  const doc = fs.readFileSync(path.join(REPO, 'docs', 'capability-map.md'), 'utf8');
-  const LABELS = { Instructions: 'instructions', Skills: 'skills', Agents: 'agents', Scripts: 'scripts', Templates: 'templates', Modes: 'modes', Settings: 'settings', Hooks: 'hooks', MCP: 'mcp', 'Plugin / extension': 'plugin' };
-  const title = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-
-  const mismatches = [];
-  for (const [label, cap] of Object.entries(LABELS)) {
-    const row = doc.split('\n').find((l) => l.startsWith(`| ${label} |`));
-    if (!row) { mismatches.push(`missing row: ${label}`); continue; }
-    const cells = row.split('|').slice(2, -1).map((c) => c.trim());
-    reg.harnesses.forEach((h, i) => {
-      const expected = title(h.capabilities[cap]?.status ?? '—');
-      if (!cells[i]?.startsWith(expected)) {
-        mismatches.push(`${label}/${h.id}: doc says "${cells[i]}", registry says "${expected}"`);
-      }
-    });
-  }
-  assert.deepEqual(mismatches, [], `capability-map.md has drifted from the registry:\n  ${mismatches.join('\n  ')}`);
+test('G8: capability-map.md is byte-for-byte what the registry generates', () => {
+  // The two matrices used to be hand-maintained and drifted (Hooks "Supported" for OpenCode, MCP
+  // "Supported" for Pi, Pi's settings pointed at config.json — the old cell-by-cell comparison
+  // caught each after the fact). Stage 4 removes the class instead of detecting it: both tables
+  // are rendered between managed markers by scripts/generate-capability-map.js from the loaded
+  // registry, and this guard asserts the committed file is exactly that rendering. A hand edit to
+  // a generated region, or any registry change without a regeneration, fails here with the fix in
+  // the message. Prose outside the markers is not the generator's to touch, so it is not asserted.
+  // Line-ending agnostic on purpose: the committed file is LF, but a CRLF checkout (Windows
+  // without eol=lf normalization) must compare equal after normalization, not fail byte-for-byte.
+  const normalizeEol = (text) => text.replace(/\r\n/g, '\n');
+  const committed = fs.readFileSync(path.join(REPO, 'docs', 'capability-map.md'), 'utf8');
+  const rendered = generator.renderDocumentText(normalizeEol(committed), loadRegistry({ repoRoot: REPO }));
+  assert.equal(rendered, normalizeEol(committed),
+    'docs/capability-map.md has drifted from core/registry — run `npm run gen:capability-map` '
+    + 'and commit the result');
 });
 
 test('G8: every docs page is reachable from the mkdocs nav', () => {
@@ -253,7 +249,7 @@ test('G8: no doc claims a capability the registry does not declare', () => {
   // that names capabilities the router cannot resolve sends the model after tools that do not
   // exist, which is worse than having no table.
   const declared = new Set(Object.keys(
-    JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'capabilities.yaml'), 'utf8')).capabilities,
+    JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'capabilities.json'), 'utf8')).capabilities,
   ));
   const phantom = [];
   for (const { rel, text } of consumerTexts()) {
@@ -352,7 +348,7 @@ function resolutionSnippets() {
       if (entry.isDirectory()) { walk(full); continue; }
       if (!entry.name.endsWith('.md')) continue;
       const text = fs.readFileSync(full, 'utf8');
-      for (const [, block] of text.matchAll(/```bash\n([\s\S]*?)```/g)) {
+      for (const [, block] of text.matchAll(/```bash\r?\n([\s\S]*?)```/g)) {
         if (block.includes(SEAM_MARK)) out.push({ rel: path.relative(REPO, full), code: dedent(block) });
       }
     }
@@ -373,10 +369,12 @@ test('G8: every documented runtime-resolution snippet resolves with CWD at the p
     // pass, and the not-installed branch must be reachable.
     const home = path.join(root, 'home');
     fs.mkdirSync(home);
+    // os.homedir() ignores HOME on Windows, so USERPROFILE must be redirected alongside it.
+    const homeRedirect = process.platform === 'win32' ? { HOME: home, USERPROFILE: home } : { HOME: home };
     const install = spawnSync(
       'node',
       [path.join(REPO, 'bin', 'doflow.js'), 'install', root, '-f', '--no-backup', '-t', 'claude'],
-      { encoding: 'utf8', input: '\n', env: { ...process.env, HOME: home } },
+      { encoding: 'utf8', input: '\n', env: { ...process.env, ...homeRedirect } },
     );
     assert.equal(install.status, 0, `installer failed: ${install.stderr}`);
     assert.ok(fs.existsSync(path.join(root, INSTALLED_DISPATCHER)), 'install did not place the dispatcher');
@@ -395,7 +393,7 @@ test('G8: every documented runtime-resolution snippet resolves with CWD at the p
           encoding: 'utf8',
           // A developer's exported override would resolve the runtime for reasons the snippet does
           // not own, hiding exactly the defect under test.
-          env: { ...process.env, HOME: home, DOFLOW_CONFIG_DIR: undefined },
+          env: { ...process.env, ...homeRedirect, DOFLOW_CONFIG_DIR: undefined },
         });
         if (run.status !== 0) {
           failures.push(`${rel} (cwd=${where}): exit ${run.status} — ${(run.stderr || '').trim().split('\n')[0]}`);
@@ -414,7 +412,7 @@ test('G8: every documented runtime-resolution snippet resolves with CWD at the p
         const probe = spawnSync('bash', ['-c', `{\n${code}\n} >/dev/null 2>&1\n"$DOFLOW" paths --json\n`], {
           cwd,
           encoding: 'utf8',
-          env: { ...process.env, HOME: home, DOFLOW_CONFIG_DIR: undefined },
+          env: { ...process.env, ...homeRedirect, DOFLOW_CONFIG_DIR: undefined },
         });
         if (probe.status !== 0) {
           failures.push(`${rel} (cwd=${where}): resolved, but the dispatcher it found exited ${probe.status} on 'paths --json'`);

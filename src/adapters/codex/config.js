@@ -11,7 +11,11 @@ const { parseToml, stripComment } = require('../../helper/toml');
 const CONFIG_NAME = 'config.toml';
 const CONFIG_KIND = 'configuration-entry';
 
-function configPath({ scope, codexDir, projectRoot }) {
+function configPath({ scope, codexDir, projectRoot, paths } = {}) {
+  // Preferred: the declared path resolved by the adapter (harnesses.json "paths".configFile).
+  if (paths?.configFile) return paths.configFile;
+  // Legacy derivation for direct callers passing raw scope inputs (tests, reconcileCodexConfig);
+  // kept byte-compatible with the declaration the lifecycle path always supplies.
   if (scope === 'global') {
     if (!codexDir) throw new Error('codexDir is required for global Codex configuration');
     return path.join(codexDir, CONFIG_NAME);

@@ -170,7 +170,7 @@ test('Pi adapter refuses to remove a copy-tree file that was modified outside Do
   assert.match(removal.conflicts[0], /modified outside DoFlow/);
 });
 
-test('assets.yaml routes skills.doflow to the pi adapter as a copy-tree asset', () => {
+test('assets.json routes skills.doflow to the pi adapter as a copy-tree asset', () => {
   const { loadRegistry, selectAssets, harnessFor } = require('../../../src/registry');
   const { projectAdapterInput } = require('../../../src/adapters');
   const repoRoot = path.resolve(__dirname, "../../..");

@@ -25,28 +25,44 @@ const { spawnSync } = require('node:child_process');
 const REPO = path.resolve(__dirname, "../..");
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const SOURCE_DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
-const ALL_HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro'];
+const ALL_HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const { IS_WIN, interpreterSpawn, samePath, msysArgConvGuards } = require('../helper-platform');
 
 function scratch(tag) { return fs.mkdtempSync(path.join(os.tmpdir(), `doflow-shape-${tag}-`)); }
+
+/** os.homedir() ignores HOME on Windows and reads USERPROFILE instead, so a scratch home must
+ * redirect both or -g installs would land in the real profile. */
+function homeEnv(home) {
+  return process.platform === 'win32' ? { HOME: home, USERPROFILE: home } : { HOME: home };
+}
 
 /** Run the installer CLI. `home` is always a scratch directory so a global install can never touch
  *  the developer's real ~/.doflow. */
 function cli(args, { home, cwd = REPO, env = {} } = {}) {
   return spawnSync('node', [CLI, ...args], {
     cwd, encoding: 'utf8', input: '\n',
-    env: { ...process.env, HOME: home, ...env },
+    env: { ...process.env, ...homeEnv(home), ...env },
   });
 }
 
-/** Execute a locator or the dispatcher itself, exactly as a skill would. */
+/** Execute a locator or the dispatcher itself, exactly as a skill would. The entrypoints are POSIX
+ * scripts, so on win32 they run through Git Bash (interpreterSpawn) rather than being skipped:
+ * CreateProcess can neither honor a shebang nor consult exec bits, and "the pieces join up" is
+ * precisely the behavior under test. */
 function runtime(exe, args, { home, cwd, env = {} } = {}) {
-  return spawnSync(exe, args, {
+  const { file, args: argv } = interpreterSpawn(exe, args);
+  return spawnSync(file, argv, {
     cwd, encoding: 'utf8',
     // A developer's own exported DOFLOW_CONFIG_DIR / DOFLOW_CLI would silently redirect the
     // resolution these tests exist to exercise, so they are cleared unless a case sets them.
-    env: { ...process.env, DOFLOW_CONFIG_DIR: undefined, DOFLOW_CLI: undefined, HOME: home, ...env },
+    env: { ...process.env, DOFLOW_CONFIG_DIR: undefined, DOFLOW_CLI: undefined, ...msysArgConvGuards(), ...homeEnv(home), ...env },
   });
 }
+
+// A PATH keeping only POSIX coreutils plus node itself. Colon-separated and forward-slashed even
+// on win32, where its sole consumer IS a shell (the bash-spawned dispatcher resolving `command -v
+// node`); MSYS reads this form natively, mapping /usr/bin and /bin onto Git's own tools.
+const MINIMAL_PATH = `/usr/bin:/bin:${path.dirname(process.execPath).replace(/\\/g, '/')}`;
 
 function walk(dir, out = []) {
   let entries;
@@ -66,9 +82,25 @@ function ledgerOf(root) {
 // A PATH built by mirroring the real one minus the optional providers, rather than a hand-picked
 // minimal PATH: stripping PATH down to a few entries removes coreutils too, so every bash helper
 // fails with 127 and the run proves nothing about python3's absence specifically.
+//
+// win32 cannot mirror: fs.symlinkSync needs privileges there and deny names arrive as
+// `python3.exe`. Instead whole directories are dropped — any directory CONTAINING a denied tool
+// (extension-stripped before matching) leaves the PATH entirely. That preserves this fixture's
+// intent just as faithfully on Windows, where an optional provider never shares a directory with
+// the POSIX coreutils the dispatcher needs (those ride Git's /usr/bin via MINIMAL_PATH).
 let sanitizedPath;
 function pathWithout(names) {
   const deny = new RegExp(`^(${names.join('|')})$`);
+  if (IS_WIN) {
+    const keep = [];
+    for (const entry of (process.env.PATH || '').split(path.delimiter)) {
+      let files;
+      try { files = fs.readdirSync(entry); } catch { continue; }
+      const polluted = files.some((file) => deny.test(file.replace(/\.(exe|bat|cmd|com)$/i, '')));
+      if (!polluted) keep.push(entry.replace(/\\/g, '/'));
+    }
+    return keep.join(':');
+  }
   const dir = scratch('nopath');
   for (const entry of (process.env.PATH || '').split(path.delimiter)) {
     let files;
@@ -89,7 +121,10 @@ test('FR-001: the dispatcher answers from the source checkout', () => {
   const cwd = scratch('src');
   const r = runtime(SOURCE_DISPATCHER, ['paths', '--json'], { home: scratch('srch'), cwd });
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(JSON.parse(r.stdout).repo_root, fs.realpathSync(cwd));
+  // do-paths.sh echoes `pwd`/`git rev-parse` verbatim, which under Git Bash is /c/... MSYS form;
+  // samePath() compares that against realpath()'s native form without weakening either platform.
+  assert.ok(samePath(JSON.parse(r.stdout).repo_root, fs.realpathSync(cwd)),
+    `repo_root ${JSON.parse(r.stdout).repo_root} != cwd ${fs.realpathSync(cwd)}`);
 });
 
 test('FR-001/FR-002: harness locator -> dispatcher -> shell verb works in a project-local install', () => {
@@ -103,7 +138,8 @@ test('FR-001/FR-002: harness locator -> dispatcher -> shell verb works in a proj
   for (const locator of walk(root).filter((f) => path.basename(f) === 'doflow-run' && !f.includes(`${path.sep}.doflow${path.sep}`))) {
     const r = runtime(locator, ['paths', '--json'], { home, cwd: root });
     assert.equal(r.status, 0, `${path.relative(root, locator)}: ${r.stderr}`);
-    assert.equal(JSON.parse(r.stdout).repo_root, fs.realpathSync(root));
+    assert.ok(samePath(JSON.parse(r.stdout).repo_root, fs.realpathSync(root)),
+      `${locator}: repo_root ${JSON.parse(r.stdout).repo_root} != root ${fs.realpathSync(root)}`);
   }
 });
 
@@ -118,7 +154,8 @@ test('FR-001: a global install answers from a working directory that has no proj
   const locator = path.join(home, '.claude', 'bin', 'doflow-run');
   const r = runtime(locator, ['paths', '--json'], { home, cwd });
   assert.equal(r.status, 0, `global locator failed: ${r.stderr}`);
-  assert.equal(JSON.parse(r.stdout).repo_root, fs.realpathSync(cwd));
+  assert.ok(samePath(JSON.parse(r.stdout).repo_root, fs.realpathSync(cwd)),
+    `repo_root ${JSON.parse(r.stdout).repo_root} != cwd ${fs.realpathSync(cwd)}`);
 
   // The old `doflow.sh` computed its root as /Users here. State proves where the dispatcher decided
   // it lives: the run record must land under the global install, not under a truncated path.
@@ -153,7 +190,7 @@ test('FR-003: exit codes and --json hold at the dispatcher boundary in an instal
   // for every real user while every test passed. Tests run inside a checkout; users do not.
   // The `runtime.*` assets project bin/, src/ and core/registry/ into `.doflow/runtime/`, and this
   // is the assertion that keeps them projected.
-  const noPath = { PATH: `/usr/bin:/bin:${path.dirname(process.execPath)}` };
+  const noPath = { PATH: MINIMAL_PATH };
   const served = runtime(locator, ['capabilities', '--json'], { home, cwd, env: noPath });
   assert.equal(served.status, 0,
     `a Node-backed verb must be served by the projected runtime with no package on PATH: ${served.stderr}`);
@@ -212,7 +249,7 @@ test('009-unlinked-checkout: assertion 1 — a partial local .doflow/ resolves a
   assert.equal(cli(['install', '-g', '-f', '--no-backup', '-t', 'claude'], { home }).status, 0);
   const locator = path.join(home, '.claude', 'bin', 'doflow-run');
 
-  const noPath = { PATH: `/usr/bin:/bin:${path.dirname(process.execPath)}` };
+  const noPath = { PATH: MINIMAL_PATH };
   const r = runtime(locator, ['capabilities', '--json'], { home, cwd, env: noPath });
   assert.equal(r.status, 0, r.stderr);
   assert.ok(JSON.parse(r.stdout).capabilities, 'capabilities answered but returned no capability list');
@@ -230,7 +267,7 @@ test('009-unlinked-checkout: assertion 2 — a partial local .doflow/ with no ow
   assert.equal(cli(['install', '-g', '-f', '--no-backup', '-t', 'claude'], { home }).status, 0);
   const locator = path.join(home, '.claude', 'bin', 'doflow-run');
 
-  const noPath = { PATH: `/usr/bin:/bin:${path.dirname(process.execPath)}` };
+  const noPath = { PATH: MINIMAL_PATH };
   const r = runtime(locator, ['capabilities', '--json'], { home, cwd, env: noPath });
   assert.equal(r.status, 0, r.stderr);
   assert.ok(JSON.parse(r.stdout).capabilities, 'capabilities answered but returned no capability list');
@@ -247,7 +284,7 @@ test('009-unlinked-checkout: assertion 3 — a runtime/-sourced Node verb that h
   // validated `loadRegistry` (src/runtime/health.js) rather than reading one or two registry files
   // directly — so it is the one verb that can actually throw the registry loader's
   // `Invalid DoFlow registry:` error. The projected `runtime/` tree carries only bin/, src/ and
-  // core/registry/ (not the full core/ tree assets.yaml's own entries point at), so running doctor
+  // core/registry/ (not the full core/ tree assets.json's own entries point at), so running doctor
   // straight against it is a real, unmodified reproduction of "this registry is mismatched relative
   // to what validation expects" — nothing here is artificially corrupted.
   const cwd = scratch('stale-runtime-cwd');
@@ -255,7 +292,7 @@ test('009-unlinked-checkout: assertion 3 — a runtime/-sourced Node verb that h
   assert.equal(cli(['install', '-g', '-f', '--no-backup', '-t', 'claude'], { home }).status, 0);
   const locator = path.join(home, '.claude', 'bin', 'doflow-run');
 
-  const noPath = { PATH: `/usr/bin:/bin:${path.dirname(process.execPath)}` };
+  const noPath = { PATH: MINIMAL_PATH };
   const r = runtime(locator, ['doctor', '--json'], { home, cwd, env: noPath });
   assert.equal(r.status, 2, `expected a resolution-class failure, got stdout: ${r.stdout}`);
   const reported = JSON.parse(r.stderr);
@@ -276,7 +313,7 @@ test('009-unlinked-checkout: assertion 4 — a bare bin/doflow.js with no packag
   const locator = path.join(home, '.claude', 'bin', 'doflow-run');
   fs.rmSync(path.join(home, '.doflow', 'runtime'), { recursive: true, force: true });
 
-  const noPath = { PATH: `/usr/bin:/bin:${path.dirname(process.execPath)}` };
+  const noPath = { PATH: MINIMAL_PATH };
   const r = runtime(locator, ['capabilities', '--json'], { home, cwd, env: noPath });
   assert.equal(r.status, 2, `expected a resolution-class failure, got stdout: ${r.stdout}`);
   const reported = JSON.parse(r.stderr);
@@ -297,7 +334,7 @@ test('009-unlinked-checkout: assertion 5 — the generic cli-not-found diagnosis
   const locator = path.join(home, '.claude', 'bin', 'doflow-run');
   fs.rmSync(path.join(home, '.doflow', 'runtime'), { recursive: true, force: true });
 
-  const noPath = { PATH: `/usr/bin:/bin:${path.dirname(process.execPath)}` };
+  const noPath = { PATH: MINIMAL_PATH };
   const r = runtime(locator, ['capabilities', '--json'], { home, cwd, env: noPath });
   assert.equal(r.status, 2, `expected a resolution-class failure, got stdout: ${r.stdout}`);
   const reported = JSON.parse(r.stderr);
@@ -380,12 +417,16 @@ test('NFR-005: an ownership ledger written before this feature updates without l
 
 test('NFR-001/NFR-002: install and dispatch succeed with python3 and every optional provider absent', () => {
   sanitizedPath ??= pathWithout(['python', 'python3', 'python3\\.[0-9]+', 'semble', 'graphify', 'rtk', 'uv', 'uvx']);
-  const env = { PATH: sanitizedPath };
+  // The sanitized PATH alone cannot run the dispatcher's internals on win32 (no coreutils in the
+  // surviving directories), so there — as on POSIX, where /usr/bin holds no python3 either — the
+  // minimal core set rides along. Colon-separated MSYS-readable form; see MINIMAL_PATH.
+  const env = { PATH: IS_WIN ? `${sanitizedPath}:${MINIMAL_PATH}` : sanitizedPath };
 
   // Prove the sanitation actually bit; otherwise this test passes for the wrong reason on a machine
-  // that never had the tools in the first place.
+  // that never had the tools in the first place. The probe needs a shell: sh is a given on POSIX,
+  // and Git Bash provides bash where the dispatcher itself will run on win32.
   for (const tool of ['python3', 'semble', 'graphify', 'rtk']) {
-    const found = spawnSync('sh', ['-c', `command -v ${tool}`], { env: { ...process.env, ...env }, encoding: 'utf8' });
+    const found = spawnSync(IS_WIN ? 'bash' : 'sh', ['-c', `command -v ${tool}`], { env: { ...process.env, ...env }, encoding: 'utf8' });
     assert.notEqual(found.status, 0, `${tool} is still reachable — the sanitized PATH is not sanitizing`);
   }
 

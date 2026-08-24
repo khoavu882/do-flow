@@ -12,7 +12,7 @@ const { REPO_ROOT } = require('../helper/repo-root');
  *
  * The engine holds no knowledge of any particular class. Everything it answers — which stages run,
  * which of them mutate source, which readiness template gates them — is read from
- * `core/registry/workflows.yaml`, so adding a class is a registry edit and not a code change.
+ * `core/registry/workflows.json`, so adding a class is a registry edit and not a code change.
  */
 
 /** Fields every stage must declare as a non-empty string. `readinessTemplate` and `optional` are
@@ -21,7 +21,7 @@ const { REPO_ROOT } = require('../helper/repo-root');
 const STAGE_STRING_FIELDS = ['id', 'skill', 'kind', 'purpose'];
 const GATE_STRING_FIELDS = ['id', 'name', 'afterStage', 'kind', 'trigger', 'prompt'];
 
-const READINESS_REGISTRY_FILE = 'readiness-templates.yaml';
+const READINESS_REGISTRY_FILE = 'readiness-templates.json';
 
 /** What a shipped skill is, as far as class routing is concerned. `stage` is the default and the
  * only role the fit check can answer for; the other two are exemptions, and the registry makes each
@@ -68,7 +68,7 @@ class WorkflowEngine {
    * @param {Object} [options.workflows] Pre-parsed registry document, bypassing the filesystem.
    * @param {Object|Array<string>|Set<string>|false} [options.readinessTemplates] Template names to
    *   cross-check stage gates against, or `false` to skip the cross-check. When omitted, names are
-   *   read from `readiness-templates.yaml` beside the workflow registry — but only if the workflow
+    *   read from `readiness-templates.json` beside the workflow registry — but only if the workflow
    *   registry itself came from disk, so an injected document never forces a filesystem read.
    * @param {Object} [options.fsImpl]
    */
@@ -76,7 +76,7 @@ class WorkflowEngine {
     this.fsImpl = options.fsImpl || fs;
     this.repoRoot = options.repoRoot || REPO_ROOT;
     this.registryPath = options.registryPath
-      || path.join(this.repoRoot, 'core', 'registry', 'workflows.yaml');
+      || path.join(this.repoRoot, 'core', 'registry', 'workflows.json');
 
     const injected = Boolean(options.workflows);
     const document = options.workflows || this.loadRegistry();

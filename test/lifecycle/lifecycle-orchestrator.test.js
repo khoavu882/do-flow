@@ -17,7 +17,7 @@ const registry = {
   assets: [{ id: 'guidance.fake', kind: 'guidance', source: 'ignored', appliesTo: ['fake'], ownership: 'managed-file', projection: { fake: { renderer: 'fake', capability: 'instructions' } } }],
   mcp: [], lifecycle: [],
 };
-// Real registry's MCP catalog (core/registry/mcp.yaml, loaded via loadRegistry) supplies the
+// Real registry's MCP catalog (core/registry/mcp.json, loaded via loadRegistry) supplies the
 // actual short-flag/doc pairs MCP_INDEX.md rendering depends on; everything else about the
 // fixture (fake harness/adapter, scratch scopeRoot) stays the same lightweight pattern used above.
 // The fake harness also needs its own 'mcp' capability declared (projectAdapterInput rejects a
@@ -49,7 +49,7 @@ test('planning is non-mutating and returns normalized adapter changes', () => {
   assert.deepEqual(adapter.calls, [['discover', 'fake']]);
   assert.deepEqual(plan.changes[0], { assetId: 'guidance.fake', target: 'FAKE.md', operation: 'create', ownershipIdentity: 'fake:guidance', afterFingerprint: 'after', harness: 'fake' });
   assert.deepEqual(plan.targets[0].adapterInput.assets[0], {
-    id: 'guidance.fake', kind: 'guidance', source: 'ignored', ownership: 'managed-file', renderer: 'fake',
+    id: 'guidance.fake', kind: 'guidance', source: 'ignored', ownership: 'managed-file', renderer: 'fake', transform: null,
     capability: 'instructions', capabilityStatus: 'supported', nativeTarget: null, nativeDir: null, layout: null, prerequisites: [],
   });
 });
@@ -271,7 +271,7 @@ test('remove deletes MCP_INDEX.md regardless of what selection would otherwise a
 
 // --- hookWiringStatus: the general per-harness hook-wiring status (task 006-D.2) ---
 // Real registry + real adapters, installed into a scratch project, exercising the actual
-// prerequisite declarations in core/registry/harnesses.yaml (Codex) and the live trust
+// prerequisite declarations in core/registry/harnesses.json (Codex) and the live trust
 // computation in src/adapters/gemini/hooks.js (Gemini) rather than a fake harness/adapter.
 {
   const { verifyLifecycle, hookWiringStatus } = require('../../src/lifecycle');

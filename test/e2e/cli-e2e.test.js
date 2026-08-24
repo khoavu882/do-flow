@@ -11,11 +11,20 @@ const { spawnSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, "../..");
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
+const { IS_WIN, expectExecutable } = require('../helper-platform');
+
+/** Scratch-$HOME env for a spawned CLI. os.homedir() prefers USERPROFILE on Windows and ignores
+ * HOME there entirely, so both must be redirected or -g installs would land in the runner's real
+ * profile instead of the scratch directory. */
+function homeEnv(home) {
+  return IS_WIN ? { HOME: home, USERPROFILE: home } : { HOME: home };
+}
 
 function run(args, { home, input, env } = {}) {
+  const resolvedHome = home ?? fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   return spawnSync('node', [DOFLOW, ...args], {
     cwd: REPO,
-    env: { ...process.env, ...env, HOME: home ?? fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-')) },
+    env: { ...process.env, ...env, ...homeEnv(resolvedHome) },
     // Reply "no" explicitly for prompt-abort cases. An empty input can leave the test worker's
     // non-blocking pseudo-TTY attached and make the CLI retry EAGAIN as if a user were typing.
     input: input || '\n',
@@ -41,9 +50,10 @@ function toolEnv(bin, extra = {}) {
 
 function runInteractive(args, { home, env, replies }) {
   return new Promise((resolve, reject) => {
+    const resolvedHome = home ?? fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
     const child = require('node:child_process').spawn('node', [DOFLOW, ...args], {
       cwd: REPO,
-      env: { ...process.env, ...env, HOME: home ?? fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-')) },
+      env: { ...process.env, ...env, ...homeEnv(resolvedHome) },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -61,7 +71,17 @@ function runInteractive(args, { home, env, replies }) {
   });
 }
 
-test('tools status selects both registered tools and returns one JSON result per tool', () => {
+// The tools fixtures are POSIX-bound by construction: fakeBin writes `#!/bin/sh` scripts and
+// toolEnv builds a colon-separated PATH ending in /usr/bin:/bin. Windows can neither exec a
+// shebang script nor interpret that PATH, so the whole class is skipped there rather than
+// silently exercising nothing.
+function skipToolsOnWin(t) {
+  if (IS_WIN) t.skip('tools fixtures require #!/bin/sh scripts and a POSIX PATH');
+  return !IS_WIN;
+}
+
+test('tools status selects both registered tools and returns one JSON result per tool', (t) => {
+  if (!skipToolsOnWin(t)) return;
   const bin = fakeBin({
     rtk: 'case "$1" in --version|gain) exit 0;; *) exit 1;; esac',
     graphify: 'test "$1" = "--version"',
@@ -85,7 +105,8 @@ test('tools rejects --force and requires --tool outside an interactive terminal'
   assert.match(omitted.stderr, /--tool is required when stdin is not an interactive terminal/);
 });
 
-test('tools --dry-run inspects and plans mutations without executing them', () => {
+test('tools --dry-run inspects and plans mutations without executing them', (t) => {
+  if (!skipToolsOnWin(t)) return;
   const bin = fakeBin({
     uv: 'test "$1" = "--version"',
   });
@@ -100,7 +121,8 @@ test('tools --dry-run inspects and plans mutations without executing them', () =
   ]);
 });
 
-test('tools reports a declined lifecycle action without executing it', () => {
+test('tools reports a declined lifecycle action without executing it', (t) => {
+  if (!skipToolsOnWin(t)) return;
   const bin = fakeBin({});
   const r = run(['tools', '--tool', 'rtk', '--action', 'install'], { env: toolEnv(bin), input: 'n\n' });
   assert.strictEqual(r.status, 0, r.stderr);
@@ -108,7 +130,8 @@ test('tools reports a declined lifecycle action without executing it', () => {
   assert.match(r.stdout, /rtk: declined/);
 });
 
-test('tools continues independently when one confirmed lifecycle command fails', async () => {
+test('tools continues independently when one confirmed lifecycle command fails', async (t) => {
+  if (!skipToolsOnWin(t)) return;
   const bin = fakeBin({
     rtk: 'case "$1" in --version|gain) exit 0;; *) exit 1;; esac',
     graphify: 'test "$1" = "--version"',
@@ -203,8 +226,7 @@ test('project-scoped install (no -g, no path) resolves under cwd, not $HOME', ()
   assert.ok(!fs.existsSync(path.join(home, '.claude')), 'must not also write to $HOME');
 });
 
-test('Codex install merges AGENTS.md and installs reusable skills', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('Codex install merges AGENTS.md and installs reusable skills', () => {  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   const codexDir = path.join(home, '.codex');
   fs.mkdirSync(codexDir, { recursive: true });
   fs.writeFileSync(path.join(codexDir, 'AGENTS.md'), '# Project instructions\n\nPreserve this content.\n');
@@ -218,7 +240,7 @@ test('Codex install merges AGENTS.md and installs reusable skills', () => {
   // the shared .doflow/guidance/ tree rather than the full merged guidance content.
   assert.match(agents, /\.doflow\/guidance\/DOFLOW_CORE\.md/);
   assert.ok(fs.existsSync(path.join(home, '.doflow', 'guidance', 'rules', 'RULE_01_SAFETY.md')));
-  assert.ok(fs.existsSync(path.join(codexDir, 'skills', 'do-execute-plan', 'SKILL.md')));
+  assert.ok(fs.existsSync(path.join(home, '.agents', 'skills', 'do-execute-plan', 'SKILL.md')));
   assert.ok(fs.existsSync(path.join(home, '.doflow', 'scripts', 'doflow', 'bash', 'do-paths.sh')));
   assert.ok(fs.existsSync(path.join(home, '.doflow', 'templates', 'doflow', 'plan-template.md')));
 
@@ -387,7 +409,7 @@ test('Codex-native lifecycle supports isolated project dry-run, selected MCP upd
   const config = path.join(project, '.codex', 'config.toml');
   assert.match(fs.readFileSync(config, 'utf8'), /\[features\]\nhooks = true/);
   assert.match(fs.readFileSync(config, 'utf8'), /\[mcp_servers\.context7\]/);
-  assert.ok(fs.statSync(path.join(project, '.codex', 'hooks', 'session-start.sh')).mode & 0o111);
+  expectExecutable(fs, path.join(project, '.codex', 'hooks', 'session-start.sh'), 'deployed codex hook script');
   assert.ok(fs.existsSync(path.join(project, '.codex', 'agents', 'system-architect.toml')));
 
   r = run(['update', project, '--force', '--target', 'codex', '--mcp', 'sequential-thinking'], { home });
@@ -444,7 +466,10 @@ test('Codex dry-run and status expose the non-mutating registry lifecycle and ne
   const dry = run(['install', project, '--dry-run', '--target', 'codex', '--mcp', 'context7'], { home });
   assert.strictEqual(dry.status, 0, dry.stderr);
   assert.match(dry.stdout, /Registry lifecycle: \d+ native change\(s\), 0 conflict\(s\)/);
-  assert.match(dry.stdout, new RegExp(`Neutral state: ${project.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/\\.doflow/state`));
+  // The CLI echoes the state root joined with native separators (path.join in src/lifecycle/view.js),
+  // so the expected path is built — and escaped whole — the same way rather than assuming '/'.
+  const stateRoot = path.join(project, '.doflow', 'state');
+  assert.match(dry.stdout, new RegExp(`Neutral state: ${stateRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.ok(!fs.existsSync(path.join(project, '.doflow')), 'dry planning must not create neutral state');
 
   const status = run(['status', project, '--target', 'codex', '--json'], { home });
@@ -471,7 +496,7 @@ test('Codex remove clears only lifecycle-owned native resources and retains comp
   assert.strictEqual(result.status, 0, result.stderr);
   const ledger = JSON.parse(fs.readFileSync(path.join(project, '.doflow', 'state', 'ledger.json'), 'utf8'));
   assert.deepStrictEqual(ledger.resources, []);
-  assert.ok(!fs.existsSync(path.join(project, '.codex', 'skills', 'do-execute-plan', 'SKILL.md')), 'skills are lifecycle-owned and must be removed');
+  assert.ok(!fs.existsSync(path.join(project, '.agents', 'skills', 'do-execute-plan', 'SKILL.md')), 'skills are lifecycle-owned and must be removed');
   assert.equal(fs.readFileSync(foreignFile, 'utf8'), 'my own notes\n', 'a foreign file never owned by doflow must survive remove untouched');
 });
 
@@ -587,10 +612,20 @@ test('--mcp <list> on project-scoped install writes <projectRoot>/.mcp.json, not
   assert.ok(!fs.existsSync(path.join(projectDir, '.claude', '.mcp.json')));
 });
 
-test('an install with no --mcp flag (non-interactive, piped stdin) defaults to all servers', () => {
+test('an install with no --mcp flag (non-interactive, piped stdin) selects none — safe by default', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   const r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stdout, /MCP: none selected by default/);
+  const claudeJson = JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf8'));
+  assert.deepStrictEqual(Object.keys(claudeJson.mcpServers ?? {}).sort(), [], 'third-party servers are opt-in');
+});
+
+test('--mcp all adopts the full catalog; the notice is absent when a selection is explicit', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'all'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stdout, /MCP: none selected by default/);
   const claudeJson = JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf8'));
   assert.deepStrictEqual(Object.keys(claudeJson.mcpServers).sort(), ['context7', 'sequential-thinking']);
 });
@@ -807,5 +842,65 @@ test('mixed -t claude,codex,gemini: install, update, and remove all reconcile in
   // Skills are lifecycle-owned for Codex too (Phase D), so remove correctly deletes them; every
   // doflow-shipped Codex asset is lifecycle-owned as of Phase E, so a genuinely foreign file (not
   // a doflow asset at all) is the durable "remove never broadly deletes" example.
-  assert.ok(!fs.existsSync(path.join(home, '.codex', 'skills', 'do-execute-plan', 'SKILL.md')));
+  assert.ok(!fs.existsSync(path.join(home, '.agents', 'skills', 'do-execute-plan', 'SKILL.md')));
+});
+
+test('doflow.lock pins resolved selections on install and clears on full removal', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const lockFile = path.join(home, '.doflow', 'doflow.lock');
+
+  const r = run(['install', '-g', '--force', '--target', 'codex'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stdout, /doflow\.lock: created/);
+  const lock = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
+  assert.strictEqual(lock.version, 1);
+  assert.deepEqual(lock.targets.map((t) => t.harness), ['codex']);
+  const skillRow = lock.assets.find((asset) => asset.id === 'skills.doflow');
+  assert.ok(skillRow, 'skills selection must be pinned');
+  assert.strictEqual(skillRow.nativeDir, '../.agents/skills');
+  // No --mcp flag + non-interactive = deliberate empty selection; nothing gets pinned.
+  assert.ok(!('codex' in lock.mcpSelections), 'an explicit none leaves no pin row');
+
+  // A no-op update leaves the existing pin untouched (update short-circuits before re-pinning).
+  const mtimeBefore = fs.statSync(lockFile).mtimeMs;
+  const update = run(['update', '-g', '--force', '--target', 'codex'], { home });
+  assert.strictEqual(update.status, 0, update.stderr);
+  assert.match(update.stdout, /Already up to date/);
+  assert.strictEqual(fs.statSync(lockFile).mtimeMs, mtimeBefore);
+
+  // Full removal clears both the ownership ledger and the selection lock.
+  const removal = run(['remove', '-g', '--force', '--target', 'codex'], { home });
+  assert.strictEqual(removal.status, 0, removal.stderr);
+  assert.match(removal.stdout, /doflow\.lock: cleared/);
+  assert.ok(!fs.existsSync(lockFile), 'an empty scope has nothing left to pin');
+});
+
+test('reconcile reports drift, heals it onto the pin, and converges clean', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const install = run(['install', '-g', '--force', '--target', 'codex'], { home });
+  assert.strictEqual(install.status, 0, install.stderr);
+
+  // Simulate drift: a managed skill file is edited underneath DoFlow.
+  const skillFile = path.join(home, '.agents', 'skills', 'do-execute-plan', 'SKILL.md');
+  assert.ok(fs.existsSync(skillFile), 'skill tree must exist at the pinned destination');
+  fs.writeFileSync(skillFile, '# tampered by something else\n');
+
+  const dry = run(['reconcile', '-g', '--dry-run', '--target', 'codex'], { home });
+  assert.strictEqual(dry.status, 1, 'a drifted dry-run check must fail loudly for CI');
+  assert.match(dry.stdout, /codex: 1 drift\(s\) \(0 create, 1 update, 0 remove\)/);
+  assert.strictEqual(fs.readFileSync(skillFile, 'utf8'), '# tampered by something else\n', 'dry-run writes nothing');
+
+  const healed = run(['reconcile', '-g', '--force', '--target', 'codex'], { home });
+  assert.strictEqual(healed.status, 0, healed.stderr);
+  assert.match(healed.stdout, /Reconciliation complete/);
+  assert.match(fs.readFileSync(skillFile, 'utf8'), /name: do-execute-plan/, 'managed bytes are restored');
+
+  const converged = run(['reconcile', '-g', '--dry-run', '--target', 'codex'], { home });
+  assert.strictEqual(converged.status, 0);
+  assert.match(converged.stdout, /Observed state matches doflow\.lock/);
+
+  // Reconcile without a lock has no desired state and says so instead of guessing.
+  const bare = run(['reconcile', '-g', '--force'], { home: fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-')) });
+  assert.strictEqual(bare.status, 0);
+  assert.match(bare.stdout, /No doflow\.lock in this scope/);
 });

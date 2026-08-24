@@ -31,7 +31,7 @@ test('discoverTree lists nested files with source fingerprints and dest existenc
   const byRel = Object.fromEntries(files.map((f) => [f.relPath, f]));
   assert.equal(files.length, 2);
   assert.equal(byRel['a.md'].exists, true);
-  assert.equal(byRel['nested/b.md'].exists, false);
+  assert.equal(byRel[path.join('nested', 'b.md')].exists, false, 'relPath uses the platform separator');
   assert.equal(byRel['a.md'].fingerprint, sha256('A'));
 });
 
@@ -56,7 +56,11 @@ test('applyTree writes files and preserves the source file mode (hook script +x 
   const { applied } = applyTree({ changes });
   assert.equal(applied, 1);
   assert.equal(fs.readFileSync(path.join(destDir, 'hook.sh'), 'utf8'), '#!/usr/bin/env bash\necho hi\n');
-  assert.equal(fs.statSync(path.join(destDir, 'hook.sh')).mode & 0o777, 0o755);
+  // Windows has no exec bits (chmodSync only toggles read-only), so mode preservation is a
+  // POSIX-only property; the byte-identical content above is the portable half of the contract.
+  if (!process.platform.startsWith('win')) {
+    assert.equal(fs.statSync(path.join(destDir, 'hook.sh')).mode & 0o777, 0o755);
+  }
 });
 
 test('re-planning after an unchanged apply reports zero changes (idempotent convergence)', () => {
@@ -397,4 +401,48 @@ test('planTree still refuses a destination edited to content matching neither so
   assert.equal(changes.length, 0);
   assert.match(conflicts[0], /a\.md was modified outside DoFlow/,
     'widening known-good must not stop real tampering being caught');
+});
+
+test('a declared transform changes both the fingerprint and the written bytes, deterministically', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'rule.md': '# body\n' });
+  const destDir = path.join(root, 'dest');
+
+  const transform = () => Buffer.from('---\nrendered\n---\n');
+  const planned = planTree({ sourceDir, destDir, transform });
+  assert.equal(planned.changes[0].fingerprint, sha256('---\nrendered\n---\n'),
+    'the recorded fingerprint must describe the rendered bytes, not the source bytes');
+
+  applyTree({ changes: planned.changes, transform });
+  const onDisk = fs.readFileSync(path.join(destDir, 'rule.md'), 'utf8');
+  assert.equal(onDisk, '---\nrendered\n---\n');
+  assert.equal(verifyTree({ sourceDir, destDir, transform }).conflicts.length, 0,
+    'verify re-derives the same rendered bytes from the untouched source');
+});
+
+test('an unknown transform name fails loudly rather than silently copying raw bytes', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'a.md': 'A' });
+  assert.throws(() => planTree({ sourceDir, destDir: path.join(root, 'dest'), transform: 'typo' }),
+    /Unknown copy-tree transform 'typo'/);
+});
+
+test('applyTree without a transform still copies source bytes verbatim (layout-only assets unaffected)', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'a.md': 'A' });
+  const destDir = path.join(root, 'dest');
+  const planned = planTree({ sourceDir, destDir });
+  applyTree({ changes: planned.changes });
+  assert.equal(fs.readFileSync(path.join(destDir, 'a.md'), 'utf8'), 'A');
+});
+
+test('doflow-output-style layout renames MODE_*.md and the transform wraps it as a style', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'MODE_Orchestration.md': '# Orchestration Mode\n\n**Purpose**: route tools well\n\nBody line\n' });
+  const destDir = path.join(root, 'dest');
+  const planned = planTree({ sourceDir, destDir, layout: 'doflow-output-style', transform: 'claude-output-styles' });
+  assert.equal(planned.changes[0].relPath, 'doflow-orchestration.md');
+  applyTree({ changes: planned.changes, transform: 'claude-output-styles' });
+  const text = fs.readFileSync(path.join(destDir, 'doflow-orchestration.md'), 'utf8');
+  assert.match(text, /^---\nname: DoFlow: Orchestration\ndescription: "route tools well"\nkeep-coding-instructions: true\n---/);
 });

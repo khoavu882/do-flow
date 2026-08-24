@@ -14,8 +14,15 @@ const { skillFiles } = require('./_shared');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const BENCH = path.join(REPO, 'bench');
-const runner = require('../../bench/runner.js');
+// bench/ became local-only (gitignored) in b56406f: fresh clones legitimately lack it. The guard
+// suite degrades to one skipped test there instead of crashing the offline default suite.
+const HAS_BENCH = fs.existsSync(path.join(BENCH, 'runner.js'));
+const runner = HAS_BENCH ? require('../../bench/runner.js') : null;
 const { WorktreeManager, SKILL_SOURCE_FILE, SANDBOX_SKILLS_DIR, sha256File } = require('../../src/runtime/worktree.js');
+
+// With no local bench/, only the harness-independent contracts below the conditional run; the
+// corpus/provenance checks need bench files that legitimately may not exist in this checkout.
+if (HAS_BENCH) {
 
 function casesFor(skill) {
   const file = path.join(BENCH, skill, 'evals.json');
@@ -211,24 +218,25 @@ test('G11b: the run contract in bench/README.md still requires provenance', () =
   assert.match(section.split('\n##')[0], new RegExp(runner.RUN_SOURCE_FILE.replace('.', '\\.')));
 });
 
+}
+
 test('G11: the bench harness is not wired into the default test command', () => {
   // npm test is pure offline Node in ~14s. Pulling paid model calls into it would make the suite
   // cost money and stop being runnable in CI without credentials.
   const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
-  assert.match(pkg.scripts.test, /^node --test\b/, 'npm test must stay the offline node runner');
+  // Discovery goes through the committed wrapper (scripts/run-tests.js): a shell glob cannot be
+  // expanded portably (cmd.exe/pwsh pass it through literally, and Node's own glob support in
+  // --test arrived after the supported 18/20 lines), while a bare `node --test` walks the whole
+  // repository and would execute captured *.test.js artifacts under bench/runs/. The wrapper
+  // walks exactly test/, sorts, chunks for Windows argv limits, and stays fully offline.
+  assert.strictEqual(
+    pkg.scripts.test, 'node scripts/run-tests.js',
+    'npm test must run through scripts/run-tests.js so discovery is scoped to test/ on every OS and Node line',
+  );
+  assert.ok(fs.existsSync(path.join(REPO, 'scripts', 'run-tests.js')), 'the scoped runner wrapper must exist');
   assert.ok(pkg.scripts.bench, 'the bench harness needs its own npm script');
   assert.ok(
     !pkg.scripts.test.includes('bench'),
     'npm test must not invoke the bench harness — it makes paid model calls',
-  );
-  // Discovery must be scoped, not bare. `node --test` with no argument walks the whole repo, and
-  // once bench/runs/ is committed that sweep picks up captured artifacts: a case whose deliverable
-  // was an edited `*.test.js` gets executed as part of the suite. That is not a hypothetical — it
-  // is how this assertion came to be written. Scoping to test/ is what keeps the suite's contents
-  // decided by this directory rather than by whatever a bench case last produced.
-  assert.match(
-    pkg.scripts.test, /(^|\s)"?test\//,
-    'npm test must scope discovery to test/ — an unscoped `node --test` also runs any *.test.js '
-    + 'captured under bench/runs/',
   );
 });

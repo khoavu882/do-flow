@@ -2,7 +2,7 @@
 
 // G13 — workflow registry integrity (feature 008, design C14 / FR-013, FR-015, FR-022).
 //
-// `core/registry/workflows.yaml` is the only place that knows what a task class means. Nothing at
+// `core/registry/workflows.json` is the only place that knows what a task class means. Nothing at
 // runtime notices when it stops describing reality: `WorkflowEngine` validates the document it is
 // handed, but a class naming a skill that does not exist, or a readiness template that was renamed
 // out from under it, is *structurally valid* — it fails later, at the stage boundary, as "unknown
@@ -10,7 +10,7 @@
 // verification engine: a check that passes while verifying nothing.
 //
 // So this guard cross-checks the registry against the two things it names but does not own — the
-// shipped skill tree and `readiness-templates.yaml` — and pins the two class shapes FR-015 exists
+// shipped skill tree and `readiness-templates.json` — and pins the two class shapes FR-015 exists
 // to guarantee. A failure here means one of those three files moved without the others.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -21,8 +21,8 @@ const { WorkflowEngine } = require('../../src/runtime/workflow-engine');
 const { parseYamlFile } = require('../../src/runtime/capability-router');
 
 const REGISTRY_DIR = path.join(REPO, 'core', 'registry');
-const WORKFLOWS_FILE = path.join(REGISTRY_DIR, 'workflows.yaml');
-const TEMPLATES_FILE = path.join(REGISTRY_DIR, 'readiness-templates.yaml');
+const WORKFLOWS_FILE = path.join(REGISTRY_DIR, 'workflows.json');
+const TEMPLATES_FILE = path.join(REGISTRY_DIR, 'readiness-templates.json');
 
 const workflowDoc = parseYamlFile(WORKFLOWS_FILE, fs);
 const templateNames = new Set(Object.keys(parseYamlFile(TEMPLATES_FILE, fs).templates || {}));
@@ -54,7 +54,7 @@ function engine() {
 const NO_READINESS_TEMPLATE = new Map([
   ['review', 'reviews and reports; makes no edit, so implementation readiness has nothing to gate'],
   ['research', 'terminates at synthesis and never reaches an edit'],
-  ['operations', 'authors no source — it acts on repository state. `readiness-templates.yaml` has no '
+  ['operations', 'authors no source — it acts on repository state. `readiness-templates.json` has no '
     + 'template for it and the class claims none; its equivalent safeguard is the preflight '
     + 'verification stage. Recorded in the class\'s own readinessNote rather than left implicit.'],
   ['documentation', 'authors no source — it produces prose. Readiness gates edits to source, so there '
@@ -87,7 +87,7 @@ test('G13: the shipped workflow registry validates against the shipped readiness
   // weaker statement than it looks. This asks the question with both real files in hand.
   const problems = WorkflowEngine.validateRegistry(workflowDoc, { readinessTemplates: templateNames });
   assert.deepEqual(problems, [],
-    'core/registry/workflows.yaml no longer describes a valid set of workflows. Every problem is '
+    'core/registry/workflows.json no longer describes a valid set of workflows. Every problem is '
     + 'listed rather than the first, so this is the whole picture:\n  ' + problems.join('\n  '));
 });
 
@@ -161,7 +161,7 @@ test('G13: research requires no implementation readiness (FR-015)', () => {
 
 // --------------------------------------------------------- 4. readiness templates exist, or don't
 
-test('G13: no class declares a readiness template that readiness-templates.yaml does not define', () => {
+test('G13: no class declares a readiness template that readiness-templates.json does not define', () => {
   const dangling = [];
   for (const taskClass of engine().listClasses()) {
     for (const stage of engine().resolveWorkflow(taskClass).stages) {
@@ -183,7 +183,7 @@ test('G13: a class with no readiness template is one of the recorded exemptions'
   const unaccounted = ungated.filter((taskClass) => !NO_READINESS_TEMPLATE.has(taskClass));
   assert.deepEqual(unaccounted, [],
     'these classes run with no readiness contract at any stage and no recorded reason. Either add a '
-    + 'template to readiness-templates.yaml and claim it, or add a NO_READINESS_TEMPLATE entry '
+    + 'template to readiness-templates.json and claim it, or add a NO_READINESS_TEMPLATE entry '
     + `stating why the class needs none:\n  ${unaccounted.join('\n  ')}`);
 
   // Reverse direction, so the exemption list cannot outlive what it exempts. Both failure shapes
