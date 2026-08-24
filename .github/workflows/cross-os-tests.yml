@@ -10,6 +10,12 @@ on:
 
   # Reused by release.yml so a v* tag is gated on exactly the suite that gates a PR.
   workflow_call:
+    inputs:
+      os_matrix:
+        description: "JSON array of GitHub runners to run the suite on"
+        required: false
+        type: string
+        default: '["ubuntu-latest", "macos-latest", "windows-latest"]'
 
 jobs:
   test:
@@ -32,7 +38,6 @@ jobs:
         include:
           - os: ubuntu-latest
             node: "18"
-    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
