@@ -13,6 +13,16 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.1.1] - 2026-08-25
+
+### Added
+
+- **Design Template Scaffolding for Database Schemas:**
+  - Added Mermaid `erDiagram` visual scaffolding to `core/shared/templates/doflow/design-template.md` under `### Database Schemas (ORM / DDL)` to illustrate entity relationships, keys (PK, FK, UK), and cardinalities at a glance.
+  - Enhanced table definitions into a structured Table Catalog (Table, Purpose, Primary Key, Foreign Keys & Relations, Key Indexes, Schema / ORM File).
+  - Updated technical scaffolding documentation in `core/shared/guidance/references/ARTIFACT_FORMAT.md` §7.
+  - Added regression test guard in `test/guards/docs.test.js`.
+
 ## [1.1.0] - 2026-08-24
 
 ### Added
