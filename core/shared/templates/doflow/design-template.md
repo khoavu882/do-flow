@@ -111,6 +111,36 @@ flowchart TB
 ## 5. Data Model & Technical Specifications
 
 ### Database Schemas (ORM / DDL)
+
+<!-- Entity-Relationship diagram illustrating entities, primary/foreign keys, and cardinalities.
+     Skip with "N/A: [why]" if the feature does not introduce or alter database entities. -->
+
+```mermaid
+erDiagram
+    USER ||--o{ POST : "creates"
+    USER {
+        uuid id PK
+        string email UK
+        string name
+        timestamp created_at
+    }
+    POST ||--o{ COMMENT : "contains"
+    POST {
+        uuid id PK
+        uuid user_id FK
+        string title
+        text content
+        timestamp created_at
+    }
+    COMMENT {
+        uuid id PK
+        uuid post_id FK
+        uuid author_id FK
+        text body
+        timestamp created_at
+    }
+```
+
 - **Table `[table_name]`:** [fields, primary/foreign keys, indexes, Drizzle/Prisma/SQL schema reference]
 
 ### UX / UI Specifications
