@@ -153,7 +153,7 @@ Acceptance criteria are formatted as testable Gherkin BDD scenario blocks mapped
 
 `design.md` provides dedicated homes for technical implementation anchors:
 - **API & Interface Contracts (§4):** HTTP endpoints (methods, routes, request/response shapes, status codes) and repository interfaces (`interface` → `concrete` → `mock`).
-- **Data Model & Specifications (§5):** Database table schemas (ORM/DDL definitions) and UX design tokens (color palettes, component states, layout cues).
+- **Data Model & Specifications (§5):** Relational data model diagrams (Mermaid `erDiagram` showing entities, keys, and cardinalities), database table schema catalogs (table purpose, keys, relations, indexes, ORM/DDL file references), and UX design tokens (color palettes, component states, layout cues).
 
 ## 8. Tables for comparison
 

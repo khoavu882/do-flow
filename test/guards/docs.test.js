@@ -56,6 +56,7 @@ test('G6: design-template.md provides technical scaffolding for endpoints, repos
   assert.ok(dsgTmpl.includes('### Endpoints'), 'design template must scaffold API Endpoints');
   assert.ok(dsgTmpl.includes('### Repository & Service Interfaces'), 'design template must scaffold Repository interfaces');
   assert.ok(dsgTmpl.includes('### Database Schemas'), 'design template must scaffold Database Schemas');
+  assert.ok(dsgTmpl.includes('erDiagram'), 'design template must scaffold relational ER diagram');
   assert.ok(dsgTmpl.includes('### UX / UI Specifications'), 'design template must scaffold UX/UI specifications');
 });
 
