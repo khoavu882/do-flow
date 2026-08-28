@@ -26,10 +26,10 @@ BRANCH=""
 SHA=""
 UNCOMMITTED=0
 
-if [[ -n "$CWD" ]] && run_with_timeout 1 -- git -C "$CWD" rev-parse --is-inside-work-tree &>/dev/null; then
-  BRANCH=$(run_with_timeout 1 -- git -C "$CWD" branch --show-current 2>/dev/null || echo "")
-  SHA=$(run_with_timeout 1 -- git -C "$CWD" rev-parse --short HEAD 2>/dev/null || echo "")
-  UNCOMMITTED=$(run_with_timeout 1 -- git -C "$CWD" status --porcelain 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+if [[ -n "$CWD" ]] && is_git_worktree "$CWD"; then
+  BRANCH=$(git_branch_of "$CWD" || echo "")
+  SHA=$(git_short_sha_of "$CWD" || echo "")
+  UNCOMMITTED=$(git_uncommitted_count_of "$CWD" || echo "0")
   RECENT=$(run_with_timeout 1 -- git -C "$CWD" log --format="%h %s" -2 2>/dev/null | paste -sd ' | ' - || echo "")
 
   MSG=$(printf 'Include in compact summary:\n- git branch: %s sha: %s\n- recent commits: %s\n- uncommitted files: %s\n- cwd: %s\nPreserve: decisions made, files modified, open questions, planned next steps.' \

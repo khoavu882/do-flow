@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# user-prompt-submit.sh — UserPromptSubmit hook
+# user-prompt-submit.sh — Canonical Policy Library: UserPromptSubmit hook
 #
-# On the FIRST prompt of a session: injects lightweight git context into Claude's
-# LLM context via additionalContext. Sets sessionTitle for window identification.
+# 022-hooks-remaining-duplication: claude and codex's UserPromptSubmit hooks were byte-identical
+# (same payload shape, same additionalContext/sessionTitle output contract) — moved here as the
+# single canonical copy. Gemini has no UserPromptSubmit-equivalent event in its native hook set.
+#
+# On the FIRST prompt of a session: injects lightweight git context into the harness's LLM
+# context via additionalContext. Sets sessionTitle for window identification.
 #
 # On subsequent prompts: outputs nothing (clean, no token waste).
 #

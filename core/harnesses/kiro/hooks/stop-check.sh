@@ -8,4 +8,4 @@
 # code (0 = allow stop, 2 = block) speak for itself.
 set -euo pipefail
 export DOFLOW_AGENT="${DOFLOW_AGENT:-kiro}"
-exec bash "$(dirname "$0")/../../shared/hooks/policies/stop-check.sh"
+exec bash "$(dirname "$0")/../../.doflow/shared/hooks/policies/stop-check.sh"

@@ -569,6 +569,48 @@
           "capability": "hooks"
         }
       }
+    },
+    {
+      "id": "hooks.shared",
+      "kind": "hooks",
+      "source": "core/harnesses/shared/hooks",
+      "appliesTo": [
+        "claude",
+        "codex",
+        "gemini",
+        "kiro",
+        "antigravity"
+      ],
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "claude": "../.doflow/shared/hooks",
+        "codex": "../.doflow/shared/hooks",
+        "gemini": "../.doflow/shared/hooks",
+        "kiro": "../.doflow/shared/hooks",
+        "antigravity": "../.doflow/shared/hooks"
+      },
+      "projection": {
+        "claude": {
+          "renderer": "copy-tree",
+          "capability": "hooks"
+        },
+        "codex": {
+          "renderer": "copy-tree",
+          "capability": "hooks"
+        },
+        "gemini": {
+          "renderer": "copy-tree",
+          "capability": "hooks"
+        },
+        "kiro": {
+          "renderer": "copy-tree",
+          "capability": "hooks"
+        },
+        "antigravity": {
+          "renderer": "copy-tree",
+          "capability": "hooks"
+        }
+      }
     }
   ]
 }

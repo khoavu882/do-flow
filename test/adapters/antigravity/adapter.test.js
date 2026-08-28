@@ -226,7 +226,12 @@ test('hooks.antigravity projects both shims + their groups, verifies managed, an
 // for Antigravity — always-allow regardless of feature state.
 
 const { execFileSync } = require('node:child_process');
-const GATE_SHIM = path.resolve(REPO, 'core', 'harnesses', 'antigravity', 'hooks', 'pre-implementation-gate.sh');
+
+// Front doors resolve the Canonical Policy Library via a path relative to their installed
+// location, not their source location — see build-install-mirror.sh for why this mirror exists.
+const HOOKS_MIRROR = path.join(REPO, 'tmp', 'hooks-mirror');
+execFileSync('bash', [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), HOOKS_MIRROR]);
+const GATE_SHIM = path.join(HOOKS_MIRROR, '.antigravity', 'hooks', 'pre-implementation-gate.sh');
 
 function runGateShim(payload) {
   try {
@@ -276,7 +281,7 @@ SHIM_TEST('pre-implementation-gate shim denies write_to_file when a started feat
 // enforces. Its defining property is fail-open: every ambiguity exits 0 silently, because a stop
 // hook that breaks session ending is worse than an under-gated one.
 
-const STOP_SHIM = path.resolve(REPO, 'core', 'harnesses', 'antigravity', 'hooks', 'stop-check.sh');
+const STOP_SHIM = path.join(HOOKS_MIRROR, '.antigravity', 'hooks', 'stop-check.sh');
 
 function runStopShim(payload) {
   const { execFileSync } = require('node:child_process');

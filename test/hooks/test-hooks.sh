@@ -12,7 +12,14 @@
 
 set -uo pipefail
 
-HOOKS_DIR="${HOOKS_DIR:-core/harnesses/claude/hooks}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Front doors resolve the Canonical Policy Library via a path relative to their installed
+# location, not their source location — see build-install-mirror.sh for why this mirror exists.
+if [[ -z "${HOOKS_DIR:-}" ]]; then
+  MIRROR="$REPO_ROOT/tmp/hooks-mirror"
+  bash "$REPO_ROOT/test/hooks/build-install-mirror.sh" "$MIRROR"
+  HOOKS_DIR="$MIRROR/.claude/hooks"
+fi
 PASS=0
 FAIL=0
 

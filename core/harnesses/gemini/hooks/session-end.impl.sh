@@ -30,9 +30,9 @@ echo "$TIMESTAMP END ${SESSION_ID:-unknown} ${CWD:-unknown}" >> "$SESSIONS_LOG"
 
 # ── 2. Uncommitted-changes warning ────────────────────────────────────────────
 
-if [[ -n "$CWD" ]] && run_with_timeout 1 -- git -C "$CWD" rev-parse --is-inside-work-tree &>/dev/null; then
-  if run_with_timeout 1 -- git -C "$CWD" status --porcelain 2>/dev/null | grep -q .; then
-    BRANCH=$(run_with_timeout 1 -- git -C "$CWD" branch --show-current 2>/dev/null || echo "unknown")
+if [[ -n "$CWD" ]] && is_git_worktree "$CWD"; then
+  if has_uncommitted_changes "$CWD"; then
+    BRANCH=$(git_branch_of "$CWD" || echo "unknown")
     PROJECT_DIR=$(ensure_project_dir "$CWD")
     echo "Session ${SESSION_ID:-unknown} ended with uncommitted changes on branch ${BRANCH}" \
       > "$PROJECT_DIR/uncommitted-warning.txt"

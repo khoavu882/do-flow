@@ -51,18 +51,18 @@ UNCOMMITTED=0
 STASH_COUNT=0
 UPSTREAM_BEHIND=0
 
-if [[ -n "$CWD" ]] && run_with_timeout 1 -- git -C "$CWD" rev-parse --is-inside-work-tree &>/dev/null; then
+if [[ -n "$CWD" ]] && is_git_worktree "$CWD"; then
   IS_GIT_REPO=true
 
-  BRANCH=$(run_with_timeout 1 -- git -C "$CWD" branch --show-current 2>/dev/null || echo "")
-  SHA=$(run_with_timeout 1 -- git -C "$CWD" rev-parse --short HEAD 2>/dev/null || echo "")
+  BRANCH=$(git_branch_of "$CWD" || echo "")
+  SHA=$(git_short_sha_of "$CWD" || echo "")
 
   # Last 5 commits as a JSON array of one-liner strings
   COMMITS_JSON=$(run_with_timeout 1 -- git -C "$CWD" log --oneline -5 2>/dev/null \
     | jq -R . | jq -s . 2>/dev/null || echo "[]")
 
   # Count uncommitted (staged + unstaged) files
-  UNCOMMITTED=$(run_with_timeout 1 -- git -C "$CWD" status --porcelain 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+  UNCOMMITTED=$(git_uncommitted_count_of "$CWD" || echo "0")
 
   # Count stash entries
   STASH_COUNT=$(run_with_timeout 1 -- git -C "$CWD" stash list 2>/dev/null | wc -l | tr -d ' ' || echo "0")

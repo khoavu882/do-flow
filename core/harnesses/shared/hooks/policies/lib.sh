@@ -219,6 +219,35 @@ run_with_timeout() {
   fi
 }
 
+# ── Git state helpers ────────────────────────────────────────────────────────
+#
+# Thin wrappers around `git -C <cwd> ...` with the project's standard 1s
+# timeout. Each echoes git's own output (or nothing/0 on failure) and leaves
+# stderr suppressed — callers keep their own `|| echo <fallback>` around a
+# call for a script-specific default, exactly as the inline git calls these
+# replace did (022-hooks-remaining-duplication: the same 4 invocations were
+# duplicated verbatim across pre-compact.sh/session-end.sh/session-context.sh).
+
+is_git_worktree() {
+  run_with_timeout 1 -- git -C "$1" rev-parse --is-inside-work-tree &>/dev/null
+}
+
+git_branch_of() {
+  run_with_timeout 1 -- git -C "$1" branch --show-current 2>/dev/null
+}
+
+git_short_sha_of() {
+  run_with_timeout 1 -- git -C "$1" rev-parse --short HEAD 2>/dev/null
+}
+
+git_uncommitted_count_of() {
+  run_with_timeout 1 -- git -C "$1" status --porcelain 2>/dev/null | wc -l | tr -d ' '
+}
+
+has_uncommitted_changes() {
+  run_with_timeout 1 -- git -C "$1" status --porcelain 2>/dev/null | grep -q .
+}
+
 # ── Directory helpers ─────────────────────────────────────────────────────────
 
 # Create and return the session-scoped state directory for a given session_id.

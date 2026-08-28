@@ -11,7 +11,11 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HOOKS="$REPO_ROOT/core/harnesses/claude/hooks"
+# Front doors resolve the Canonical Policy Library via a path relative to their installed
+# location, not their source location — see build-install-mirror.sh for why this mirror exists.
+MIRROR="$REPO_ROOT/tmp/hooks-mirror"
+bash "$REPO_ROOT/test/hooks/build-install-mirror.sh" "$MIRROR"
+HOOKS="$MIRROR/.claude/hooks"
 TEST_HOME="$REPO_ROOT/tmp/test-home"
 DOFLOW_HOME="$TEST_HOME/.config/doflow"
 SESS_ENV="$DOFLOW_HOME/session-env"
@@ -312,9 +316,9 @@ fi
 # Verify the matching logic itself actually denies when a pattern IS active — swap in a temporary
 # policy file with one active rule, restore the real (empty) one afterward no matter what.
 # 022-normalize-hooks moved the policy data mcp-tool-guard.sh actually reads to the Canonical
-# Policy Library (core/harnesses/shared/hooks/policies/) — $HOOKS/mcp-policy.conf is a leftover
-# copy the dispatcher no longer consults, so the swap must target the canonical file instead.
-MCP_POLICY_REAL="$REPO_ROOT/core/harnesses/shared/hooks/policies/mcp-policy.conf"
+# Policy Library — the swap must target the mirror's copy (what $HOOKS/mcp-tool-guard.sh actually
+# resolves to at runtime), not the source tree, which the running dispatcher never reads.
+MCP_POLICY_REAL="$MIRROR/.doflow/shared/hooks/policies/mcp-policy.conf"
 MCP_POLICY_BACKUP="$(mktemp)"
 cp "$MCP_POLICY_REAL" "$MCP_POLICY_BACKUP"
 restore_mcp_policy() { cp "$MCP_POLICY_BACKUP" "$MCP_POLICY_REAL"; rm -f "$MCP_POLICY_BACKUP"; }

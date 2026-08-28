@@ -7,4 +7,4 @@
 # moved to the shared runtime.
 set -uo pipefail
 export DOFLOW_AGENT="${DOFLOW_AGENT:-antigravity}"
-exec node "$(dirname "$0")/../../shared/hooks/stream-hook-runner.js" Stop
+exec node "$(dirname "$0")/../../.doflow/shared/hooks/stream-hook-runner.js" Stop

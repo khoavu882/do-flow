@@ -12,9 +12,9 @@ set -uo pipefail
 export DOFLOW_AGENT="${DOFLOW_AGENT:-gemini}"
 
 command -v jq >/dev/null 2>&1 || exit 0
-source "$(dirname "$0")/../../shared/hooks/policies/deny-json.sh"
+source "$(dirname "$0")/../../.doflow/shared/hooks/policies/deny-json.sh"
 
-POLICY="$(dirname "$0")/../../shared/hooks/policies/pre-implementation-gate.sh"
+POLICY="$(dirname "$0")/../../.doflow/shared/hooks/policies/pre-implementation-gate.sh"
 REASON=$(bash "$POLICY" 2>&1 >/dev/null)
 CODE=$?
 
