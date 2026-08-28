@@ -41,18 +41,36 @@ const LEGACY_SCRIPT_NAMES = {
   'pre-bash-guard.sh': 'pre-bash-guard.sh',
 };
 
+// A hook payload is one tool call's JSON — a few KB in the overwhelming majority of cases, a few
+// hundred KB for a large file edit at most. These bounds exist only to stop a misbehaving harness
+// process (stdin that never closes, or streams unboundedly) from hanging this front door forever;
+// they are far above anything a real payload should ever reach.
+const MAX_STDIN_BYTES = 10 * 1024 * 1024;
+const STDIN_TIMEOUT_MS = 5000;
+
 function readStdin() {
   return new Promise((resolve) => {
     let data = '';
+    let settled = false;
+    const settle = (value) => {
+      if (settled) return;
+      settled = true;
+      process.stdin.removeAllListeners('data');
+      process.stdin.removeAllListeners('end');
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => settle(data), STDIN_TIMEOUT_MS);
     process.stdin.setEncoding('utf8');
     process.stdin.on('data', (chunk) => {
       data += chunk;
+      if (data.length > MAX_STDIN_BYTES) settle(data);
     });
     process.stdin.on('end', () => {
-      resolve(data);
+      settle(data);
     });
     if (process.stdin.isTTY) {
-      resolve('');
+      settle('');
     }
   });
 }
@@ -145,6 +163,13 @@ function delegateToPolicy(projectRoot, agent, scriptName, canonicalPayload) {
     });
     return { decision: 'allow' };
   } catch (err) {
+    // A real policy deny has a numeric exit status — the script ran and its own canonical exit
+    // code (1 = deny) is the contract this delegates to. `err.status` is null/undefined when the
+    // process never produced an exit code at all (bash missing from PATH, EACCES, etc.) — that is
+    // an execution fault, not a policy decision, and every sourced .sh policy in this library
+    // fails open on its own uncertainty (`command -v jq || exit 0`); this delegator matches that
+    // posture instead of turning an environment fault into a silent deny.
+    if (typeof err.status !== 'number') return { decision: 'allow' };
     const reason = err.stderr ? err.stderr.toString().trim() : (err.stdout ? err.stdout.toString().trim() : '');
     return {
       decision: 'deny',

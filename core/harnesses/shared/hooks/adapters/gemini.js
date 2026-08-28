@@ -34,15 +34,7 @@
  * wiring is corrected without silently breaking before it is.
  */
 
-const FILE_PATH_ARG_FIELDS = ['AbsolutePath', 'TargetFile', 'Path', 'file_path', 'path'];
-const COMMAND_ARG_FIELDS = ['CommandLine', 'command'];
-
-function firstArgField(args, fields) {
-  for (const field of fields) {
-    if (args && args[field]) return args[field];
-  }
-  return '';
-}
+const { FILE_PATH_ARG_FIELDS, COMMAND_ARG_FIELDS, firstArgField } = require('./arg-fields');
 
 function toCanonical(event, payload) {
   const safePayload = payload && typeof payload === 'object' ? payload : {};
