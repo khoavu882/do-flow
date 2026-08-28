@@ -15,6 +15,14 @@ const REGISTRY_FILES = Object.freeze({
   models: 'models.json',
 });
 const CAPABILITY_STATUS = new Set(['supported', 'different', 'unavailable']);
+// 'core' = must be supported/different (never unavailable) on every currently-integrated harness;
+// 'enhanced' = best-effort, wired wherever a harness's native surface allows. Optional field —
+// a policy without one is neither tier, and test/guards/registry.test.js's core-tier check simply
+// skips it. See agent-docs research backing this (LSP capability negotiation, k8s feature gates,
+// progressive enhancement): reducing every policy to the true cross-harness intersection was
+// rejected as a design in favor of this, since it deletes real working capability instead of just
+// recording where it doesn't reach.
+const POLICY_TIERS = new Set(['core', 'enhanced']);
 const SCOPES = new Set(['project', 'user']);
 const MCP_TRANSPORTS = new Set(['stdio', 'http', 'sse']);
 const EXTERNAL_TOOL_IDS = new Set(['rtk', 'graphify', 'semble']);
@@ -379,6 +387,7 @@ function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
     if (!object(policy)) { issue(errors, 'lifecycle', 'entries must be objects'); continue; }
     if (typeof policy.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(policy.id)) issue(errors, at, 'id must be a lowercase identifier');
     if (typeof policy.intent !== 'string' || !policy.intent.trim()) issue(errors, at, 'requires intent');
+    if (policy.tier !== undefined && !POLICY_TIERS.has(policy.tier)) issue(errors, at, `tier must be one of ${[...POLICY_TIERS].join(', ')}`);
     if (!Array.isArray(policy.requires) || policy.requires.some((capability) => typeof capability !== 'string')) issue(errors, at, 'requires must be an array of capability names');
     if (!object(policy.mappings)) { issue(errors, at, 'mappings must be an object'); continue; }
     for (const [harnessId, mapping] of Object.entries(policy.mappings)) {
