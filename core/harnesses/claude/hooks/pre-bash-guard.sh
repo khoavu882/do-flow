@@ -1,76 +1,27 @@
 #!/usr/bin/env bash
-# pre-bash-guard.sh — PreToolUse(Bash) hook
-#
-# Intercepts every Bash tool call and blocks dangerous commands by matching
-# against patterns in blocked-patterns.conf. Returns a JSON deny decision
-# with a human-readable reason so Claude can understand and self-correct.
-#
-# Multi-session safe: stateless — reads only the conf file, no shared state.
-# Must complete in <50ms.
+# Claude front door: delegates the pre-bash-guard decision to the Canonical Policy
+# Library, then translates it into Claude Code's verified deny contract.
 #
 # Schema verified (Phase 8.3, 2026-04-17): hookSpecificOutput.permissionDecision
-# "deny" is correctly recognized by Claude Code and blocks execution.
+# "deny" is correctly recognized by Claude Code and blocks execution — exit code
+# alone is not sufficient here, so this front door is a translator, not a bare
+# exec (unlike session-context/stop-check, which never need this translation).
+set -uo pipefail
+export DOFLOW_AGENT="${DOFLOW_AGENT:-claude}"
 
-set -euo pipefail
-# shellcheck source=lib.sh
-source "$(dirname "$0")/lib.sh"
-require_jq
+command -v jq >/dev/null 2>&1 || exit 0
 
-INPUT=$(cat)
-TOOL_NAME=$(json_field "$INPUT" ".tool_name")
+POLICY="$(dirname "$0")/../../shared/hooks/policies/pre-bash-guard.sh"
+REASON=$(bash "$POLICY" 2>&1 >/dev/null)
+CODE=$?
 
-# Fast exit for non-Bash tool events
-[[ "$TOOL_NAME" != "Bash" ]] && exit 0
-
-COMMAND=$(json_field "$INPUT" ".tool_input.command")
-
-# Nothing to check if command is empty
-[[ -z "$COMMAND" ]] && exit 0
-
-PATTERNS_FILE="$(dirname "$0")/blocked-patterns.conf"
-
-# If patterns file is missing, allow everything (fail open — don't block Claude)
-[[ ! -f "$PATTERNS_FILE" ]] && exit 0
-
-# ── Pattern matching ──────────────────────────────────────────────────────────
-
-while IFS=$'\t' read -r pattern reason exclude_pattern || [[ -n "$pattern" ]]; do
-  # Skip comments and empty lines
-  [[ -z "$pattern" || "$pattern" == \#* ]] && continue
-
-  # Match pattern against command (case-insensitive, POSIX extended regex)
-  # Wrap in subshell so a bad regex exits the subshell, not the script
-  # `--` stops grep from treating a pattern beginning with '-' (e.g. an
-  # exclude_pattern like "--force-with-lease") as an option flag.
-  matched=false
-  if (echo "$COMMAND" | grep -qiE -- "$pattern" 2>/dev/null); then
-    matched=true
-  fi
-
-  # Optional third column: if the command also matches the exclude pattern,
-  # this pattern line is skipped entirely (approximates negative lookahead,
-  # which POSIX ERE cannot express — e.g. "--force-with-lease" excludes the
-  # "git push --force" block).
-  if [[ "$matched" == "true" && -n "$exclude_pattern" ]]; then
-    if (echo "$COMMAND" | grep -qiE -- "$exclude_pattern" 2>/dev/null); then
-      matched=false
-    fi
-  fi
-
-  if [[ "$matched" == "true" ]]; then
-    # Output deny decision as JSON — Claude receives the reason and can self-correct
-    jq -n \
-      --arg reason "${reason:-Command blocked by pre-bash-guard}" \
-      '{
-        "hookSpecificOutput": {
-          "hookEventName": "PreToolUse",
-          "permissionDecision": "deny",
-          "permissionDecisionReason": $reason
-        }
-      }'
-    exit 0
-  fi
-done < "$PATTERNS_FILE"
-
-# No match — allow
+if [ "$CODE" -ne 0 ]; then
+  jq -n --arg reason "${REASON:-Command blocked by pre-bash-guard}" '{
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: $reason
+    }
+  }'
+fi
 exit 0

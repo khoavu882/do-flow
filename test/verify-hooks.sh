@@ -311,7 +311,10 @@ fi
 
 # Verify the matching logic itself actually denies when a pattern IS active — swap in a temporary
 # policy file with one active rule, restore the real (empty) one afterward no matter what.
-MCP_POLICY_REAL="$HOOKS/mcp-policy.conf"
+# 022-normalize-hooks moved the policy data mcp-tool-guard.sh actually reads to the Canonical
+# Policy Library (core/harnesses/shared/hooks/policies/) — $HOOKS/mcp-policy.conf is a leftover
+# copy the dispatcher no longer consults, so the swap must target the canonical file instead.
+MCP_POLICY_REAL="$REPO_ROOT/core/harnesses/shared/hooks/policies/mcp-policy.conf"
 MCP_POLICY_BACKUP="$(mktemp)"
 cp "$MCP_POLICY_REAL" "$MCP_POLICY_BACKUP"
 restore_mcp_policy() { cp "$MCP_POLICY_BACKUP" "$MCP_POLICY_REAL"; rm -f "$MCP_POLICY_BACKUP"; }
@@ -623,8 +626,11 @@ else
 fi
 
 META_AGENT=$(jq -r '.last_agent // empty' "$META_FILE" 2>/dev/null)
-if [[ "$META_AGENT" == "claude-code" ]]; then
-  pass "meta.json last_agent=claude-code (default)"
+# 022-normalize-hooks: the canonical lib.sh's DOFLOW_AGENT default changed from the Claude-only
+# "claude-code" to "claude" (matching every other harness's own short name convention, and set
+# explicitly by Claude's front-door dispatcher rather than relied upon as lib.sh's fallback).
+if [[ "$META_AGENT" == "claude" ]]; then
+  pass "meta.json last_agent=claude (default)"
 else
   fail "meta.json last_agent unexpected: '$META_AGENT'"
 fi

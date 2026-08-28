@@ -1,46 +1,26 @@
 #!/usr/bin/env bash
-# Codex PreToolUse(apply_patch) adapter for the DoFlow implementation gate.
-#
-# Codex exposes an apply_patch payload as a patch command rather than Claude's
-# file_path field. If the patch paths cannot be identified, this guard fails open
-# to avoid blocking an otherwise valid edit based on an ambiguous payload.
+# Codex front door: delegates the pre-implementation-gate decision to the
+# Canonical Policy Library, then translates it into the
+# hookSpecificOutput.permissionDecision deny contract this script's Codex/Claude
+# originals both used — exit code alone is not sufficient here, so this front
+# door is a translator, not a bare exec (unlike session-context/stop-check,
+# which never need this translation).
 set -uo pipefail
+export DOFLOW_AGENT="${DOFLOW_AGENT:-codex}"
 
 command -v jq >/dev/null 2>&1 || exit 0
-INPUT=$(cat)
-TOOL_NAME=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
-[[ "$TOOL_NAME" == "apply_patch" ]] || exit 0
-PATCH=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
-[[ -n "$PATCH" ]] || exit 0
 
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-RESOLVER="$ROOT/.codex/scripts/doflow/bash/do-paths.sh"
-[[ -x "$RESOLVER" ]] || RESOLVER="${CODEX_HOME:-$HOME/.codex}/scripts/doflow/bash/do-paths.sh"
-[[ -x "$RESOLVER" ]] || exit 0
-STATE=$("$RESOLVER" --json 2>/dev/null) || exit 0
+POLICY="$(dirname "$0")/../../shared/hooks/policies/pre-implementation-gate.sh"
+REASON=$(bash "$POLICY" 2>&1 >/dev/null)
+CODE=$?
 
-FEATURE_DIR=$(printf '%s' "$STATE" | jq -r '.feature_dir // empty' 2>/dev/null)
-REPO_ROOT=$(printf '%s' "$STATE" | jq -r '.repo_root // empty' 2>/dev/null)
-HAS_REQUIREMENT=$(printf '%s' "$STATE" | jq -r '.has_requirement // false' 2>/dev/null)
-HAS_DESIGN=$(printf '%s' "$STATE" | jq -r '.has_design // false' 2>/dev/null)
-HAS_PLAN=$(printf '%s' "$STATE" | jq -r '.has_plan // false' 2>/dev/null)
-[[ -n "$FEATURE_DIR" && -n "$REPO_ROOT" && -d "$REPO_ROOT/$FEATURE_DIR" ]] || exit 0
-[[ "$HAS_REQUIREMENT" == true && "$HAS_DESIGN" == true && "$HAS_PLAN" == true ]] && exit 0
-
-PATHS=$(printf '%s\n' "$PATCH" | sed -nE \
-  -e 's|^\*\*\* (Add|Update|Delete) File: (.+)$|\2|p' \
-  -e 's|^\+\+\+ (a/|b/)?(.+)$|\2|p' \
-  | sed '/^\/dev\/null$/d' | sort -u)
-[[ -n "$PATHS" ]] || exit 0
-
-while IFS= read -r FILE; do
-  [[ -z "$FILE" || "$FILE" == agent-docs/* ]] && continue
-  jq -n --arg fd "$FEATURE_DIR" '{
+if [ "$CODE" -ne 0 ]; then
+  jq -n --arg reason "${REASON:-Implementation requires an approved plan.md}" '{
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
-      permissionDecisionReason: ("doflow gate: feature \($fd) is missing requirement.md, design.md, or plan.md — run /do-brainstorm, /do-design, then /do-plan before editing source. Edits under agent-docs/ are allowed.")
+      permissionDecisionReason: $reason
     }
   }'
-  exit 0
-done <<< "$PATHS"
+fi
+exit 0

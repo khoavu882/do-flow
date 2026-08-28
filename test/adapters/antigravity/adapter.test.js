@@ -219,12 +219,63 @@ test('hooks.antigravity projects both shims + their groups, verifies managed, an
   assert.ok(!fs.existsSync(path.join(root, '.agents', 'hooks', 'stop-check.sh')), 'the stop shim goes with its registration');
 });
 
+// ── pre-implementation-gate.sh shim stdin contract ─────────────────────────────
+// Regression coverage for a real bug found during 022-normalize-hooks: the canonical policy's
+// tool-name matcher initially omitted Antigravity's own native tool names (write_to_file,
+// replace_file_content, multi_replace_file_content), which would have silently disabled this gate
+// for Antigravity — always-allow regardless of feature state.
+
+const { execFileSync } = require('node:child_process');
+const GATE_SHIM = path.resolve(REPO, 'core', 'harnesses', 'antigravity', 'hooks', 'pre-implementation-gate.sh');
+
+function runGateShim(payload) {
+  try {
+    const stdout = execFileSync('bash', [GATE_SHIM], {
+      input: typeof payload === 'string' ? payload : JSON.stringify(payload),
+      stdio: ['pipe', 'pipe', 'pipe'],
+      encoding: 'utf8',
+    });
+    return { code: 0, stdout };
+  } catch (error) {
+    return { code: error.status ?? 1, stdout: String(error.stdout ?? '') };
+  }
+}
+
+const SHIM_TEST = process.platform !== 'win32' ? test : test.skip;   // GUARD: needs bash + jq
+
+SHIM_TEST('pre-implementation-gate shim recognizes Antigravity\'s own native tool names', () => {
+  const result = runGateShim({
+    toolCall: { name: 'view_file', args: {} },
+    workspacePaths: [REPO],
+  });
+  assert.equal(result.code, 0);
+  const decision = JSON.parse(result.stdout);
+  assert.equal(decision.decision, 'allow', 'a non-mutating tool must never trip the gate');
+});
+
+SHIM_TEST('pre-implementation-gate shim denies write_to_file when a started feature is missing specs', () => {
+  const scratchRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-agy-gate-'));
+  execFileSync('git', ['init', '-q'], { cwd: scratchRepo });
+  execFileSync('git', ['checkout', '-q', '-b', 'feat/999-scratch'], { cwd: scratchRepo });
+  fs.mkdirSync(path.join(scratchRepo, 'agent-docs', 'doflow', '999-scratch'), { recursive: true });
+  fs.writeFileSync(path.join(scratchRepo, 'agent-docs', 'doflow', '999-scratch', 'requirement.md'), '');
+
+  for (const toolName of ['write_to_file', 'replace_file_content', 'multi_replace_file_content']) {
+    const result = runGateShim({
+      toolCall: { name: toolName, args: { TargetFile: 'src/foo.js' } },
+      workspacePaths: [scratchRepo],
+    });
+    assert.equal(result.code, 0);
+    const decision = JSON.parse(result.stdout);
+    assert.equal(decision.decision, 'deny', `${toolName} must be recognized and denied`);
+  }
+});
+
 // ── stop-check.sh shim stdin contract ─────────────────────────────────────────
 // The shim translates Antigravity's documented Stop payload into the same gate Claude's stop-check
 // enforces. Its defining property is fail-open: every ambiguity exits 0 silently, because a stop
 // hook that breaks session ending is worse than an under-gated one.
 
-const SHIM_TEST = process.platform !== 'win32' ? test : test.skip;   // GUARD: needs bash + jq
 const STOP_SHIM = path.resolve(REPO, 'core', 'harnesses', 'antigravity', 'hooks', 'stop-check.sh');
 
 function runStopShim(payload) {

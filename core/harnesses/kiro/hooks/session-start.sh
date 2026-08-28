@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Kiro adapter: reuse the shared session initializer with Kiro attribution.
+# Kiro adapter: reuse the canonical session-context policy with Kiro attribution.
 set -euo pipefail
-export DOFLOW_AGENT=kiro
-exec bash "$(dirname "$0")/session-start.impl.sh"
+export DOFLOW_AGENT="${DOFLOW_AGENT:-kiro}"
+exec bash "$(dirname "$0")/../../shared/hooks/policies/session-context.sh"

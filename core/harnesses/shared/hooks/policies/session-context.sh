@@ -1,11 +1,26 @@
 #!/usr/bin/env bash
-# session-start.sh — SessionStart hook
+# session-context.sh — Canonical Policy Library: SessionStart guard policy
 #
-# Fires when Claude Code starts a new session. Captures git state into a
-# session-scoped file so user-prompt-submit.sh can inject it on the first prompt.
+# Fires when a harness starts a new session. Captures git state into a
+# session-scoped file so a harness's user-prompt-submit hook can inject it on
+# the first prompt.
 #
 # Cannot inject into the LLM context from this event — side effects only.
 # Must complete in <200ms. Must never exit non-zero or produce unexpected stderr.
+#
+# Canonical Policy Script Contract (design.md §4):
+#   env    DOFLOW_PROJECT_DIR, DOFLOW_AGENT (both optional here; DOFLOW_AGENT
+#          only affects the "last_agent" field recorded in meta.json)
+#   stdin  the harness's native SessionStart JSON payload — must expose at
+#          least ".session_id" and ".cwd"
+#   exit   this policy never denies — it always exits 0 (side-effect only)
+#
+# Depends on lib.sh (require_jq, json_field, ensure_session_dir,
+# ensure_project_dir, cwd_hash, run_with_timeout, $SESSIONS_LOG) being
+# discoverable next to this script when it runs — a front door invoking this
+# canonical script is responsible for making lib.sh resolvable via
+# "$(dirname "$0")/lib.sh", exactly as every harness's own SessionStart script
+# already required before this policy moved to a shared location.
 
 set -euo pipefail
 # shellcheck source=lib.sh

@@ -20,8 +20,8 @@
           ]
         },
         "gemini": {
-          "status": "unavailable",
-          "fallback": "guidance"
+          "event": "SessionStart",
+          "status": "supported"
         },
         "opencode": {
           "status": "unavailable",
@@ -64,8 +64,8 @@
           ]
         },
         "gemini": {
-          "status": "unavailable",
-          "fallback": "guidance"
+          "event": "BeforeTool",
+          "status": "different"
         },
         "opencode": {
           "status": "unavailable",
@@ -109,8 +109,8 @@
           ]
         },
         "gemini": {
-          "status": "unavailable",
-          "fallback": "guidance"
+          "event": "BeforeTool",
+          "status": "different"
         },
         "opencode": {
           "status": "unavailable",

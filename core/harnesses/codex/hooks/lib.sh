@@ -26,7 +26,7 @@ PROJECTS_DIR="$STATE_DIR/projects"
 SESSIONS_LOG="$DOFLOW_HOME/sessions.log"
 
 # Identifies which agent is running. Override via env var for non-Claude agents.
-export DOFLOW_AGENT="${DOFLOW_AGENT:-claude-code}"
+export DOFLOW_AGENT="${DOFLOW_AGENT:-unknown}"
 
 # ── canonicalize_path ────────────────────────────────────────────────────────
 
@@ -274,7 +274,7 @@ json_field() {
 # ── Dependency guard ──────────────────────────────────────────────────────────
 
 # Verify jq is available at runtime. If absent, emit a diagnostic to stderr
-# and exit 0 (never block Claude Code — degraded operation is preferable to failure).
+# and exit 0 (never block the harness — degraded operation is preferable to failure).
 require_jq() {
   if ! command -v jq &>/dev/null; then
     echo "[hooks] jq not found — install jq to enable session lifecycle hooks (apt install jq / brew install jq)" >&2
