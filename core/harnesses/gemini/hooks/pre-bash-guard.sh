@@ -11,12 +11,11 @@ set -uo pipefail
 export DOFLOW_AGENT="${DOFLOW_AGENT:-gemini}"
 
 command -v jq >/dev/null 2>&1 || exit 0
+source "$(dirname "$0")/../../shared/hooks/policies/deny-json.sh"
 
 POLICY="$(dirname "$0")/../../shared/hooks/policies/pre-bash-guard.sh"
 REASON=$(bash "$POLICY" 2>&1 >/dev/null)
 CODE=$?
 
-if [ "$CODE" -ne 0 ]; then
-  jq -n --arg reason "${REASON:-Command blocked by pre-bash-guard}" '{decision: "deny", reason: $reason}'
-fi
+[ "$CODE" -ne 0 ] && emit_pretooluse_deny_flat "${REASON:-Command blocked by pre-bash-guard}"
 exit 0
