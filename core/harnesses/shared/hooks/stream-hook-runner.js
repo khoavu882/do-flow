@@ -198,9 +198,17 @@ function evaluateEvent(event, canonicalPayload, projectRoot, agent) {
   }
 }
 
+// Falls back to 'antigravity' (this runner's legacy default) for any value other than
+// 'gemini', including unset/empty. An unrecognized non-empty value is likely a typo, so it
+// gets a stderr warning even though the fallback still applies.
 function resolveAgent() {
-  const agent = (process.env.DOFLOW_AGENT || '').toLowerCase();
-  return agent === 'gemini' ? 'gemini' : 'antigravity';
+  const raw = process.env.DOFLOW_AGENT || '';
+  const agent = raw.toLowerCase();
+  if (agent === 'gemini') return 'gemini';
+  if (raw && agent !== 'antigravity') {
+    process.stderr.write(`stream-hook-runner: unrecognized DOFLOW_AGENT="${raw}", falling back to antigravity\n`);
+  }
+  return 'antigravity';
 }
 
 function resolveAdapter(agent) {

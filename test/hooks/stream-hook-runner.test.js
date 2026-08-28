@@ -126,6 +126,31 @@ test('stream-hook-runner: resolveAgent reads DOFLOW_AGENT, defaults to antigravi
   }
 });
 
+test('stream-hook-runner: resolveAgent warns on stderr for an unrecognized non-empty DOFLOW_AGENT (022-diagnose follow-up)', () => {
+  const prev = process.env.DOFLOW_AGENT;
+  const originalWrite = process.stderr.write;
+  let written = '';
+  process.stderr.write = (chunk) => { written += chunk; return true; };
+  try {
+    process.env.DOFLOW_AGENT = 'gemni';
+    assert.equal(resolveAgent(), 'antigravity');
+    assert.ok(written.includes('gemni'));
+
+    written = '';
+    process.env.DOFLOW_AGENT = 'antigravity';
+    resolveAgent();
+    assert.equal(written, '');
+
+    written = '';
+    delete process.env.DOFLOW_AGENT;
+    resolveAgent();
+    assert.equal(written, '');
+  } finally {
+    process.stderr.write = originalWrite;
+    if (prev === undefined) delete process.env.DOFLOW_AGENT; else process.env.DOFLOW_AGENT = prev;
+  }
+});
+
 test('stream-hook-runner: resolveAdapter picks the matching adapter module', () => {
   assert.equal(resolveAdapter('gemini'), geminiAdapter);
   assert.equal(resolveAdapter('antigravity'), antigravityAdapter);
