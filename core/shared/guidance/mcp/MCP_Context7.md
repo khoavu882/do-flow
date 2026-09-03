@@ -27,3 +27,12 @@
 "optimize Next.js performance" → Context7 (official optimization patterns)
 "just explain this function" → Native Claude (no external docs needed)
 ```
+
+## Tool IDs
+
+For a skill that calls context7 explicitly rather than relying on the ambient triggers above:
+- `mcp__context7__resolve-library-id` — resolve a library/framework name to its context7 id
+- `mcp__context7__query-docs` — fetch docs for a resolved id
+- **Availability:** `ToolSearch("select:mcp__context7__resolve-library-id")` finding no match means
+  context7 isn't connected this session — skip the call, note it in the caller's own report, never
+  halt on it.

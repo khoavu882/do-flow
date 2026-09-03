@@ -77,10 +77,16 @@ a `design.md` for it invents an artifact its workflow never reads.
    boundaries, API/interface contracts, data model, sequence/data-flow where useful. Output shape
    inside `design.md` is not a choice: the guidance tree's `references/ARTIFACT_FORMAT.md` §4 fixes
    which diagrams and sections the artifact carries. For a trivial, single-file change with no new external interaction, write
-   "N/A: [why]" in the System Overview section instead of forcing a diagram. Before finalizing
-   system-shape decisions, run the same clarification loop `do-brainstorm` uses for any
-   design-level ambiguity encountered while shaping architecture/API/data-model choices (e.g.
-   "extend an existing endpoint vs. add a new one", "single container vs. split service").
+   "N/A: [why]" in the System Overview section instead of forcing a diagram.
+   **MCP Integration**:
+   - **Context7**: the design records a library/framework/API decision (e.g. confirming an API
+     surface, config shape, or version-specific behavior) → verify it, per `MCP_Context7.md`'s
+     Tool IDs, before it lands in `design.md`.
+   - **Sequential-thinking**: architecture, trade-off, or component-boundary reasoning → route it
+     per `MCP_Sequential.md`'s Tool IDs.
+   Before finalizing system-shape decisions, run the same clarification loop `do-brainstorm` uses
+   for any design-level ambiguity encountered while shaping architecture/API/data-model choices
+   (e.g. "extend an existing endpoint vs. add a new one", "single container vs. split service").
    Concretely: partition ambiguities surfaced while designing into independent ones (up to 4,
    batched into one `AskUserQuestion` call) and dependent ones (asked individually, in dependency
    order, after their dependency resolves, never batched with what they depend on). Every question
@@ -189,8 +195,9 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 ## Boundaries
 **Will:** propose a task class and have the runtime validate it, read `requirement.md`, produce
 system-shape design decisions, log each clarification round to `design/`, write `design.md` and
-`specs.md`, batch the stage's evidence and claims at the boundary, and record the stage handoff
-through `orchestrate`/`render-audit`.
+`specs.md`, batch the stage's evidence and claims at the boundary, record the stage handoff
+through `orchestrate`/`render-audit`, and always consult context7 and sequential-thinking at the
+points named in Step 5.
 **Will Not:** write `plan.md` (implementation approach/task decomposition — that's `/do-plan`),
 write code, execute anything, design under a class the runtime rejected or replaced with `feature`,
 call `readiness` for a stage that declares no template; or express evidence, an estimate or readiness as a number, a percentage or a confidence.
