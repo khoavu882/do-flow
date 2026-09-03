@@ -111,6 +111,12 @@ function parseArgs(argv) {
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
         o.gate = val; i++; break;
       }
+      case '--node': {
+        const val = argv[i + 1];
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
+        o.node = val; i++; break;
+      }
+      case '--forced': o.forced = true; break;
       case '--decision': {
         const val = argv[i + 1];
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
@@ -145,7 +151,13 @@ function parseArgs(argv) {
       case '--exclude': {
         const val = argv[i + 1];
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
-        o.exclude = val.split(',').map((s) => s.trim()).filter(Boolean); i++; break;
+        // Repeatable, like --path: `--exclude a --exclude b` must keep both. This used to assign
+        // rather than accumulate, so only the last `--exclude` survived — silently narrowing the
+        // do-code-review skill's own documented `--exclude bin --exclude src --exclude core
+        // --exclude test` exclusion set down to just `test`.
+        const parts = val.split(',').map((s) => s.trim()).filter(Boolean);
+        o.exclude = (o.exclude || []).concat(parts);
+        i++; break;
       }
       case '--days': {
         const val = argv[i + 1];

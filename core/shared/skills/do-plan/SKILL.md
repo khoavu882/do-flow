@@ -1,14 +1,15 @@
 ---
 name: do-plan
-description: "Generate the implementation plan (HOW) and dependency-ordered task checklist from requirement.md + design.md, with a Constitution Check gate, as Phase 3 of the doflow chain. Use when requirement.md and design.md already exist and the next need is a concrete, owner-and-file-scoped task breakdown before implementation starts, or the user says 'turn this design into a plan' rather than asking to design the system or write code."
+description: "Generate the implementation plan (HOW) and dependency-ordered task checklist from requirement.md + design.md (plus design/specs.md's IC-### interface contracts when the feature has one), with a Constitution Check gate, as Phase 3 of the doflow chain. Use when requirement.md and design.md already exist and the next need is a concrete, owner-and-file-scoped task breakdown before implementation starts, or the user says 'turn this design into a plan' rather than asking to design the system or write code."
 argument-hint: "[--depth shallow|normal|deep]"
 effort: high
 ---
 
 # do-plan
 
-Phase 3 of the doflow chain. Turns `requirement.md` (WHAT/WHY) + `design.md` (system shape) into
-`plan.md` (HOW to implement, plus the dependency-ordered task checklist).
+Phase 3 of the doflow chain. Turns `requirement.md` (WHAT/WHY) + `design.md` (system shape) — and
+`design/specs.md`'s `IC-###` interface contracts when `/do-design` wrote one — into `plan.md` (HOW to
+implement, plus the dependency-ordered task checklist).
 
 ## Invocation
 ```text
@@ -73,21 +74,40 @@ not have.
    existence only — but say so plainly in this stage's report, and in `plan.md`'s own §3 "Research &
    Decisions": a decision written straight from `requirement.md`/`design.md` prose, with no compiled
    pack behind it, must not be recorded as if it traced to prior evidence it doesn't have. When the
-   pack is non-empty, read it alongside `requirement.md`, `design.md`, and the constitution. Read
+   pack is non-empty, read it alongside `requirement.md`, `design.md`, and the constitution.
+   **Also read `specs.md` when step 1's `has_specs` is true** — use that flag, never a filesystem
+   check of your own, and read the `specs` path the resolver returned. `/do-design` moves the
+   interface and data-model contracts out of `design.md` into `specs.md` §1 as numbered `IC-###`
+   entries, so on a feature that has one, `design.md`'s §4/§5 are a pointer and the contracts this
+   plan must decompose toward live only in `specs.md`. Planning from `design.md` alone on such a
+   feature plans against a pointer. When `has_specs` is false (an old-layout feature dir, which never
+   had a `specs.md`), the contracts are still in `design.md` §4/§5 and there is nothing extra to
+   read. Read
    `constitution_base`,
    then read `constitution_local` **only when `has_constitution_local` is true** — use that flag,
    never a filesystem check of your own (path math belongs to the resolver). You then reconcile the
    two tiers yourself, tier-2 taking precedence: nothing hands you a merged set. See
    the guidance tree's `references/DOFLOW_CHAIN.md` → "Two-tier constitution" for what is computed
    and what is convention.
-5. **Write `plan.md`, sections 1–7** — copy the plan template into the feature dir.
+5. **Write `plan.md`, sections 1–7** — copy the plan template to the `plan` path step 1 resolved
+   (`plan/plan.md` in the structured layout, the top-level `plan.md` in an old-layout feature dir),
+   `mkdir -p`-ing its parent directory first.
 The template is `templates/doflow/plan-template.md` in the install step 1 resolved: take `constitution_base` from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
    Fill it: approach, research/decisions that resolve every `[NEEDS CLARIFICATION]` from the
    requirement, components, data/contracts, risks, validation strategy.
+   §5 "Data / Contracts" cites contracts by id, not by pointer: when step 4 read a `specs.md`, name
+   the `IC-###` ids that this plan's tasks implement or consume, one per contract, so a task can be
+   traced to the contract it satisfies. Pointing §5 at `design.md` is only correct when `has_specs`
+   is false and the contracts genuinely still live there.
 **Stop when** every `[NEEDS CLARIFICATION]` marker / open decision the contract names has an answer or a stated gap, **and** the last round produced no new `[NEEDS CLARIFICATION]` marker / open decision. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 Structure the artifact per the guidance tree's `references/ARTIFACT_FORMAT.md` — read it before filling the template; it names which of this artifact's sections take an index-then-detail table.
    Its §5 governs §8's `### Task Summary` rollup — the per-task `- [ ]` checklist stays the single
    source of truth and is never mirrored into a per-task index.
+   This stage fills the plan from requirement + design + constitution rather than by eliciting, so
+   it writes no dialogue log — its sibling stages' `intention/`/`design/` question files have no
+   counterpart here. Should a future revision of this skill add an `AskUserQuestion` clarification
+   loop, each of its rounds logs to `plan/plan-<NN>-question.md` exactly as `/do-brainstorm` and
+   `/do-design` log theirs, numbered from step 1's `plan_next_round`.
 6. **Constitution Check (advisory gate)** — evaluate the plan against both tiers as reconciled in
    step 4. On a violation, STOP and revise the approach before continuing, then record PASS/FAIL in
    the plan. The verdict is **advisory**: it is recorded in `plan.md` §2 "Constitution Check" and nothing downstream
@@ -141,20 +161,63 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
     This stage's items are §3 "Research & Decisions" of the `plan.md` you just wrote: per decision,
     what was found, where it came from, and its locator. Add each `D#` decision as a claim in the
     same pass.
-11. **Stop** — report the plan path, Constitution Check result, the task count (`[P]`/sequential),
+11. **Record the handoff** — drive the workflow state machine, then regenerate the trail it projects
+    into `audit.md`. `<slug>` is step 1's `feature_slug`; `<class>` is the class step 2's `classify`
+    call accepted; `<stage id>` is the id of the entry in that call's `workflow.stages[]` whose
+    `skill` is `do-plan` (`planning` in the `feature` workflow) — read it off that response, never
+    hardcode a guess. One call positions the run — it starts one when none exists yet (an old-layout
+    feature, or a chain that started here), and it backfills any earlier non-mutating stage the chain
+    skipped, so this stage never has to decide between `start` and `complete-stage` for itself:
+    ```bash
+    "$DOFLOW" orchestrate --action catch-up --task-id "<slug>" --task-class "<class>" --stage "<stage id>" --note "entering planning" --json
+    ```
+    Branch on the response's `caughtUpTo` / `reason`, not on the exit code:
+- **`caughtUpTo` is this stage id** (`reason: reached-candidate`) — the run is positioned exactly here, which is the normal case. Complete the stage:
+  ```bash
+  "$DOFLOW" orchestrate --action complete-stage --task-id "<slug>" --stage "<caughtUpTo>" --note "<plan path written; task count; Constitution Check verdict>" --json
+  ```
+- **`reason` starts with `already-completed:`** — this stage was already recorded on an earlier run of this skill (a re-invocation to amend `plan.md`, say). Use `annotate` instead of `complete-stage`:
+  ```bash
+  "$DOFLOW" orchestrate --action annotate --task-id "<slug>" --node "<stage id>" --note "<what changed on this re-run>" --json
+  ```
+- **`reason` starts with `awaiting-gate:`** — the run is paused on a gate a human (or that gate's own owning skill) decides. In the `feature` workflow the first such gate (`gate-a`) sits *after* this stage, so this should not be reached; if it is, report the gate id plainly and stop rather than resolving a gate that is not this stage's.
+- **`reason` is `blocked-on-mutating-stage:<id>`** — a source-mutating stage ahead of this one has not been executed by its own skill. Name `<id>`, report the block plainly, and stop.
+- **`reason` is `run-completed` or `run-rejected`** — the run is finished and takes no further stage. Report it and stop.
+
+    Completing this stage leaves the run `AWAITING_GATE` on the `approval`-kind gate anchored to it,
+    which the `complete-stage` response names in its `awaitingGate` field (`gate-a`, "Before
+    implementation", in the `feature` workflow; `null` in a class that declares no gate at all).
+    **Do not decide that gate here.** Its trigger is `always` — nothing in this stage's own output
+    answers it, and an approval gate is answered by the human who is asked, not by the stage that
+    reached it. `/do-flow` presents the gate's `prompt` and records the answer when it is driving the
+    chain; a standalone run leaves it for `/do-execute-plan`, whose own `catch-up` surfaces the same
+    gate. Either way this skill deliberately starts a gate it never resolves. Finish by rendering the
+    trail. The `--slug` value attaches with an `=`; a space-separated one is rejected with an error
+    rather than silently rendering the wrong feature's trail:
+    ```bash
+    "$DOFLOW" render-audit --slug="<slug>" --json
+    ```
+    Every call in this step is advisory to the trail, not to the artifact. If one fails for a reason
+    outside this flow's control (an unwritable local state directory, say), report the failure plainly and
+    continue — a missing `audit.md` entry degrades the record, it does not make `plan.md` wrong.
+    None of these calls is a gate on finishing this skill.
+12. **Stop** — report the plan path, Constitution Check result, the task count (`[P]`/sequential),
    and the derived branch name/repo count when the Repo Branch Plan is populated.
 
 ## Boundaries
-**Will:** propose a task class and have the runtime validate it, read requirement + design +
-constitution, write `plan.md` including its embedded task checklist and Repo Branch Plan, run the
-Constitution Check, resolve clarifications, and batch the stage's evidence and claims at the
-boundary.
-**Will Not:** write `design.md` (that's `/do-design`), write code, execute the plan, create any
+**Will:** propose a task class and have the runtime validate it, read requirement + design + specs
+(when `has_specs`) + constitution, cite `specs.md`'s `IC-###` contracts in §5, write `plan.md`
+including its embedded task checklist and Repo Branch Plan, run the
+Constitution Check, resolve clarifications, batch the stage's evidence and claims at the boundary,
+and record the stage handoff through `orchestrate`/`render-audit`.
+**Will Not:** write `design.md` or `specs.md` (that's `/do-design`) — it cites their contracts, it
+does not author or amend them — write code, execute the plan, decide the
+approval gate its own handoff opens, create any
 git branch (derivation only), plan under a class the runtime rejected or replaced with `feature`,
 call `readiness` for a stage that declares no template; or express evidence, an estimate or readiness as a number, a percentage or a confidence.
 
 ## CRITICAL BOUNDARIES
-**STOP AFTER PLAN CREATION.** Output: `agent-docs/doflow/<slug>/plan.md` (HOW + tasks).
+**STOP AFTER PLAN CREATION.** Output: `agent-docs/doflow/<slug>/plan/plan.md` (HOW + tasks).
 
 **Next Step:** `/do-execute-plan` to execute the tasks. The implement phase is gated: it requires
 `requirement.md`, `design.md`, and `plan.md` to all exist.

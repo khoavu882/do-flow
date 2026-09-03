@@ -152,7 +152,7 @@ class WorkflowOrchestrator {
   /** Complete the current stage. A source-mutating stage carrying a readiness template must pass
    * the injected evaluator with READY first — the cascade rule: cheap scripted verdicts gate
    * expensive work, and NEEDS_EVIDENCE / NEEDS_USER_DECISION / BLOCKED stop the run here. */
-  completeStage({ taskId, stageId, note, now } = {}) {
+  completeStage({ taskId, stageId, note, backfilled = false, now } = {}) {
     const run = this.requireRun(taskId);
     const node = this.expectOpenStage(run, stageId);
     if (node.mutatesSource && node.readinessTemplate) {
@@ -160,7 +160,7 @@ class WorkflowOrchestrator {
       if (verdict !== 'READY') throw new Error(`Readiness for stage '${node.id}' returned ${verdict}; expected READY — resolve evidence or the user decision first`);
     }
     node.status = 'completed';
-    run.history.push({ at: iso(now), action: 'complete-stage', node: node.id, note: note ?? null });
+    run.history.push({ at: iso(now), action: 'complete-stage', node: node.id, note: note ?? null, backfilled: Boolean(backfilled) });
     this.advance(run, now);
     this.writeRun(run, now);
     return this.snapshot(run);
@@ -168,12 +168,12 @@ class WorkflowOrchestrator {
 
   /** Skip the current OPTIONAL stage without running it. Gates anchored directly to a skipped
    * stage cannot fire, so they are recorded as skipped too rather than blocking forever. */
-  skipStage({ taskId, stageId, reason, now } = {}) {
+  skipStage({ taskId, stageId, reason, backfilled = false, now } = {}) {
     const run = this.requireRun(taskId);
     const node = this.expectOpenStage(run, stageId);
     if (!node.optional) throw new Error(`Stage '${node.id}' is required and cannot be skipped`);
     node.status = 'skipped';
-    run.history.push({ at: iso(now), action: 'skip-stage', node: node.id, note: reason ?? null });
+    run.history.push({ at: iso(now), action: 'skip-stage', node: node.id, note: reason ?? null, backfilled: Boolean(backfilled) });
     let lookahead = run.cursor + 1;
     while (lookahead < run.program.length) {
       const nextNode = run.program[lookahead];
@@ -189,10 +189,95 @@ class WorkflowOrchestrator {
     return this.snapshot(run);
   }
 
-  /** Resolve the gate the run is paused on. approve resumes; reject terminates the run. */
-  decideGate({ taskId, gateId, decision, note, now } = {}) {
+  /** Advance the run toward whichever of `candidateStageIds` the cursor reaches first, starting
+   * the run if none exists yet. A skill knows its OWN stage, not where the cursor happens to be:
+   * `start` always begins at the first stage, so any skill but the first one could never record
+   * its handoff on a fresh run, and a skill occupying two stages of one class (do-test owns both
+   * `reproduction` and `regression-verification` in `bug`) cannot tell which occurrence is live.
+   * Catch-up resolves both by walking the cursor forward for the caller and stopping ON the node
+   * the caller must act on — it never completes a candidate stage itself, since only the owning
+   * skill knows whether its own work is actually done.
+   *
+   * A candidate already behind the cursor (`already-completed:<id>`) means this same skill already
+   * recorded this handoff on an earlier invocation; walking forward from here would complete later
+   * stages as a side effect of a skill re-run, which the caller does not own. Callers must use
+   * `annotate` for that case instead.
+   *
+   * Every stage walked through on the way to a candidate is marked `backfilled: true` in the
+   * journal, distinct from a stage the owning skill actually completed — a stage nobody ran must
+   * never be indistinguishable, in `audit.md`, from one that was. It stops, advancing no further,
+   * at: a candidate stage (the normal case), ANY gate (a human — or the gate's own owning skill —
+   * decides it; catch-up decides nothing), a non-candidate stage carrying a readiness template
+   * (that stage mutates source and only its owner may complete it), or a terminal run state. An
+   * optional non-candidate stage is skipped rather than completed, matching what its own skill
+   * would have done with it. */
+  catchUp({ taskId, taskClass, candidateStageIds, note, now } = {}) {
+    if (!Array.isArray(candidateStageIds) || candidateStageIds.length === 0) {
+      throw new Error('catch-up requires at least one candidate stage id');
+    }
+    for (const id of candidateStageIds) assertSafeId(id, 'stageId');
+    let run = this.readRun(taskId);
+    if (!run) {
+      this.start({ taskId, taskClass, now });
+      run = this.requireRun(taskId);
+    } else if (typeof taskClass === 'string' && taskClass.trim() !== '' && taskClass !== run.taskClass) {
+      throw new Error(`Run '${taskId}' was started as task class '${run.taskClass}', not '${taskClass}' — a caller must not walk a run under a class it did not start`);
+    }
+    // A candidate id naming no stage in this program is refused up front, not left to fall through
+    // the walk below — unvalidated, it would otherwise complete every stage between the cursor and
+    // the next gate/mutating-stage/end as `backfilled`, forging journal entries for a caller typo
+    // or a stale stage id left over from a registry rename.
+    const programStageIds = new Set(run.program.filter((n) => n.type === 'stage').map((n) => n.id));
+    const unknownCandidates = candidateStageIds.filter((id) => !programStageIds.has(id));
+    if (unknownCandidates.length > 0) {
+      throw new Error(`catch-up: candidate stage id(s) not in run '${taskId}''s program: ${unknownCandidates.join(', ')} — check the workflow's own stage ids rather than walking the run forward on an unresolvable candidate`);
+    }
+    const candidates = new Set(candidateStageIds);
+    // ALL candidates already done means this caller's own handoff already happened — detect it
+    // before the walk below can complete anything past it as a side effect. A caller with more than
+    // one candidate (do-test owns two occurrences in `bug`/`refactor`) is not done until every
+    // occurrence is: one completed and one still pending must still walk forward to the pending one.
+    const candidateNodes = run.program.filter((n) => candidates.has(n.id));
+    if (candidateNodes.length > 0 && candidateNodes.every((n) => n.status === 'completed' || n.status === 'approved' || n.status === 'skipped')) {
+      return { ...this.snapshot(run), caughtUpTo: null, reason: `already-completed:${candidateNodes.map((n) => n.id).join(',')}` };
+    }
+    for (;;) {
+      if (run.state === 'COMPLETED' || run.state === 'REJECTED') {
+        return { ...this.snapshot(run), caughtUpTo: null, reason: `run-${run.state.toLowerCase()}` };
+      }
+      const node = this.currentNode(run);
+      if (!node) return { ...this.snapshot(run), caughtUpTo: null, reason: 'run-completed' };
+      if (node.type === 'stage') {
+        if (candidates.has(node.id)) {
+          return { ...this.snapshot(run), caughtUpTo: node.id, reason: 'reached-candidate' };
+        }
+        if (node.readinessTemplate) {
+          return { ...this.snapshot(run), caughtUpTo: null, reason: `blocked-on-mutating-stage:${node.id}` };
+        }
+        if (node.optional) {
+          this.skipStage({ taskId, stageId: node.id, reason: note ?? 'catch-up: backfilled', backfilled: true, now });
+        } else {
+          this.completeStage({ taskId, stageId: node.id, note: note ?? 'catch-up: backfilled', backfilled: true, now });
+        }
+        run = this.requireRun(taskId);
+        continue;
+      }
+      // Every gate — clarification-kind included — is a stop, not a walk-through: only its own
+      // owning skill (or a human) may decide it. `gate-0` is `clarification`-kind and is resolved
+      // explicitly by do-brainstorm's own step 8; auto-approving it here on a later skill's catch-up
+      // call bypassed exactly the "leave it for a human" case do-brainstorm's own prose documents.
+      return { ...this.snapshot(run), caughtUpTo: null, reason: `awaiting-gate:${node.id}` };
+    }
+  }
+
+  /** Resolve the gate the run is paused on. approve resumes; reject terminates the run. A
+   * `forced` decision (e.g. approving despite unresolved clarification markers) requires an
+   * explicit `note` reason — never a silent override — and is flagged in history for
+   * `render-audit.sh` to distinguish from a routine handoff. */
+  decideGate({ taskId, gateId, decision, note, forced = false, now } = {}) {
     assertSafeId(gateId, 'gateId');
     if (!GATE_DECISIONS.includes(decision)) throw new Error(`Invalid gate decision '${decision}'; valid: ${GATE_DECISIONS.join(', ')}`);
+    if (forced && (!note || !String(note).trim())) throw new Error('A forced gate decision requires a --note reason');
     const run = this.requireRun(taskId);
     if (run.state !== 'AWAITING_GATE') throw new Error(`Run '${run.taskId}' is not awaiting a gate (state=${run.state})`);
     const node = this.currentNode(run);
@@ -200,7 +285,7 @@ class WorkflowOrchestrator {
     if (node.id !== gateId) throw new Error(`Expected gate '${node.id}' next, got '${gateId}'`);
     node.status = decision === 'approve' ? 'approved' : 'rejected';
     node.decision = decision;
-    run.history.push({ at: iso(now), action: 'decide-gate', node: node.id, detail: decision, note: note ?? null });
+    run.history.push({ at: iso(now), action: 'decide-gate', node: node.id, detail: decision, note: note ?? null, forced: Boolean(forced) });
     if (decision === 'reject') {
       run.state = 'REJECTED';
     } else {
@@ -208,6 +293,23 @@ class WorkflowOrchestrator {
       run.cursor += 1;
       this.settleCursor(run);
     }
+    this.writeRun(run, now);
+    return this.snapshot(run);
+  }
+
+  /** Append a pure audit-trail entry — a stage re-run after its own handoff, or an artifact
+   * hand-edited after that stage's own handoff — without touching program/cursor/state. Not a
+   * stage completion or a gate decision, so it never collides with the state machine's ordering
+   * rules (D3). `forced` requires an explicit `note` reason, same rule as decideGate. */
+  annotate({ taskId, node: nodeId, note, forced = false, now } = {}) {
+    // Id validated before the run is loaded, matching decideGate's order exactly: an unsafe id is
+    // the caller's problem to hear about first, whether or not the run happens to exist.
+    assertSafeId(nodeId, 'node');
+    if (forced && (!note || !String(note).trim())) throw new Error('A forced annotation requires a --note reason');
+    const run = this.requireRun(taskId);
+    const found = run.program.find((n) => n.id === nodeId);
+    if (!found) throw new Error(`Invalid node: '${nodeId}' is not part of the program for run '${taskId}'`);
+    run.history.push({ at: iso(now), action: 'annotate', node: nodeId, note, forced: Boolean(forced) });
     this.writeRun(run, now);
     return this.snapshot(run);
   }
@@ -247,8 +349,8 @@ class WorkflowOrchestrator {
  * The cascade gate wires the real ReadinessEngine: completing a source-mutating gated stage
  * evaluates the task's live evidence ledger and refuses anything but READY. */
 function handleOrchestrateCommand({
-  action = 'status', taskId, taskClass, stage, gate, decision, note, reason,
-  json = false, repoRoot, stateRoot,
+  action = 'status', taskId, taskClass, stage, gate, node, decision, note, reason, forced = false,
+  verificationPlan, scope, json = false, repoRoot, stateRoot,
 } = {}) {
   const { EvidenceLedger } = require('./evidence-ledger');
   const { ClaimsManager } = require('./claims');
@@ -256,12 +358,32 @@ function handleOrchestrateCommand({
   const { finishRuntime, usageError } = require('./cli-result');
 
   const root = repoRoot || REPO_ROOT;
+  // Same scope rule every other stateful command uses (evidenceRoot(o) in runtime-commands.js):
+  // a bare `stateRoot: stateRoot || process.cwd()` silently ignored `--global`, so `orchestrate`
+  // wrote its journal to $PWD while a `--global` `evidence`/`readiness` call on the same task read
+  // and wrote $HOME — two roots disagreeing about where one task's state lives.
   const state = stateRoot || process.cwd();
   const orchestrator = new WorkflowOrchestrator({
     repoRoot: root,
     stateDir: path.join(state, '.doflow', 'state', 'orchestration'),
   });
-  orchestrator.readinessEvaluate = () => {
+  orchestrator.readinessEvaluate = (node, run) => {
+    // This closure only ever runs for a stage that is actually gated (evaluateReadiness only calls
+    // it for a mutating stage carrying a readiness template) — so a missing --task-class here is a
+    // caller mistake on THIS command, not a fact about the task's readiness. Reported before the
+    // ledger/engine machinery below turns it into a generic readiness-layer exception.
+    if (typeof taskClass !== 'string' || taskClass.trim() === '') {
+      throw new Error("orchestrate complete-stage: this stage is gated by a readiness template, so --task-class is required — pass the same class this run was started/caught-up with.");
+    }
+    // The gate must grade this stage against the contract the run was actually started under, not
+    // whatever class the caller happened to pass on THIS command — catchUp already refuses a
+    // mismatched class for the same reason (a caller must not walk, or complete, a run under a
+    // class it did not start). Without this, `--task-class trivial-edit` on a `bug` run's gated
+    // `implementation` stage would grade source mutation against a 2-requirement contract instead
+    // of the 5-requirement one the run actually declared, silently.
+    if (taskClass !== run.taskClass) {
+      throw new Error(`orchestrate complete-stage: --task-class '${taskClass}' does not match run '${run.taskId}''s own class '${run.taskClass}' — pass the class this run was started under, not a different one.`);
+    }
     let ledger;
     try {
       ledger = new EvidenceLedger({ repoRoot: state });
@@ -272,11 +394,25 @@ function handleOrchestrateCommand({
     const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: state });
     claims.load(taskId);
     const engine = new ReadinessEngine({ repoRoot: root, projectRoot: state });
-    const report = engine.evaluateReadiness({ taskId, taskClass }, ledger, claims);
+    // Caller-stated inputs reach the cascade here, same rule as `doflow readiness`: an absent key
+    // stays absent rather than becoming a falsy default, because the engine reads presence, not
+    // truth. Without this the two requirements readiness_gate.md says are satisfiable by
+    // assertion (`verification_plan`, `scope_clear`) had no path in at all, so every gated stage
+    // completion returned NEEDS_EVIDENCE even when the caller had the answers to give.
+    const profile = { taskId, taskClass: run.taskClass };
+    if (typeof verificationPlan === 'string' && verificationPlan.trim() !== '') profile.verificationPlan = verificationPlan;
+    if (typeof scope === 'string' && scope.trim() !== '') profile.scopeClear = scope;
+    const report = engine.evaluateReadiness(profile, ledger, claims);
     return report.state;
   };
 
   try {
+    // `--forced` is only read by the two actions that can override a decision. Accepting it
+    // silently on any other action lets an operator believe a stage completion or skip was
+    // recorded as forced when nothing recorded it — refuse instead of dropping the flag.
+    if (forced && action !== 'decide-gate' && action !== 'annotate') {
+      return usageError('orchestrate', `'--forced' has no effect on action '${action}' — only decide-gate and annotate read it`, json);
+    }
     let snapshot;
     switch (action) {
       case 'start':
@@ -287,20 +423,30 @@ function handleOrchestrateCommand({
         if (!taskId || !stage) return usageError('orchestrate', 'complete-stage requires --task-id and --stage', json);
         snapshot = orchestrator.completeStage({ taskId, stageId: stage, note });
         break;
+      case 'catch-up': {
+        if (!taskId || !taskClass || !stage) return usageError('orchestrate', 'catch-up requires --task-id, --task-class and --stage (comma-separated candidate ids)', json);
+        const candidateStageIds = String(stage).split(',').map((s) => s.trim()).filter(Boolean);
+        snapshot = orchestrator.catchUp({ taskId, taskClass, candidateStageIds, note });
+        break;
+      }
       case 'skip-stage':
         if (!taskId || !stage) return usageError('orchestrate', 'skip-stage requires --task-id and --stage', json);
         snapshot = orchestrator.skipStage({ taskId, stageId: stage, reason: reason ?? note });
         break;
       case 'decide-gate':
         if (!taskId || !gate || !decision) return usageError('orchestrate', 'decide-gate requires --task-id, --gate and --decision approve|reject', json);
-        snapshot = orchestrator.decideGate({ taskId, gateId: gate, decision, note });
+        snapshot = orchestrator.decideGate({ taskId, gateId: gate, decision, note, forced });
+        break;
+      case 'annotate':
+        if (!taskId || !node || !note) return usageError('orchestrate', 'annotate requires --task-id, --node and --note', json);
+        snapshot = orchestrator.annotate({ taskId, node, note, forced });
         break;
       case 'status':
         if (!taskId) return usageError('orchestrate', 'status requires --task-id', json);
         snapshot = orchestrator.status(taskId);
         break;
       default:
-        return usageError('orchestrate', `unknown action '${action}'; valid: start | status | complete-stage | skip-stage | decide-gate`, json);
+        return usageError('orchestrate', `unknown action '${action}'; valid: start | status | catch-up | complete-stage | skip-stage | decide-gate | annotate`, json);
     }
     if (json) { console.log(JSON.stringify(snapshot, null, 2)); return finishRuntime(0); }
     console.log(`Workflow ${snapshot.taskId} [${snapshot.taskClass}] — ${snapshot.state}`);

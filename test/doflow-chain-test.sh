@@ -22,11 +22,13 @@ T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 FAKE="$T/claudehome"; mkdir -p "$FAKE/scripts/doflow/bash"
 cp "$BASH_SCRIPTS/do-paths.sh" "$BASH_SCRIPTS/do-prereqs.sh" "$BASH_SCRIPTS/sync-context.sh" \
    "$BASH_SCRIPTS/do-exec-paths.sh" "$BASH_SCRIPTS/do-task-brief.sh" \
-   "$BASH_SCRIPTS/do-review-package.sh" "$BASH_SCRIPTS/do-parallel-check.sh" "$FAKE/scripts/doflow/bash/"
+   "$BASH_SCRIPTS/do-review-package.sh" "$BASH_SCRIPTS/do-parallel-check.sh" \
+   "$BASH_SCRIPTS/render-audit.sh" "$FAKE/scripts/doflow/bash/"
 export CLAUDE_CONFIG_DIR="$FAKE"
 PATHS="$FAKE/scripts/doflow/bash/do-paths.sh"
 PREREQ="$FAKE/scripts/doflow/bash/do-prereqs.sh"
 SYNC="$FAKE/scripts/doflow/bash/sync-context.sh"
+RENDER_AUDIT="$FAKE/scripts/doflow/bash/render-audit.sh"
 GATE="$HOOKS/pre-implement-gate.sh"
 
 mkdir -p "$T/repo"; cd "$T/repo" || exit 1
@@ -162,11 +164,24 @@ echo d > agent-docs/doflow/001-auth/design.md
 
 echo "[pre-implement-gate hook]"
 ROOT="$(pwd -P)"
+# Exercises the canonical policy script directly (core/harnesses/shared/hooks/policies/
+# pre-implementation-gate.sh), not the claude front door ($GATE): that front door's own
+# `source "$(dirname "$0")/../../.doflow/shared/hooks/policies/..."` path only resolves in an
+# INSTALLED layout (test/hooks/build-install-mirror.sh sets that up); run from the source
+# checkout, as this script does, both the `source` and the `POLICY=` path silently fail to
+# resolve, and the front door falls through to its own unconditional `exit 0` regardless of the
+# policy's real verdict -- which is exactly how the pre-implementation-gate.sh's own
+# structured-layout defect (missing .doflow/ resolver candidates) shipped past a fully "green"
+# run of this suite. The front-door JSON-translation layer itself is covered separately by
+# test/hooks/test-hooks.sh. The canonical policy speaks exit codes only (0 = allow, non-zero =
+# deny) per its own header comment -- never a harness-specific JSON shape -- so this checks the
+# exit code directly rather than parsing hookSpecificOutput.
+CANONICAL_POLICY="$REPO_ROOT/core/harnesses/shared/hooks/policies/pre-implementation-gate.sh"
 decision() {
-  # A PreToolUse hook that exits 0 with no JSON = allow. jq on empty stdin emits nothing,
-  # so normalize empty -> "allow" here (the deny path prints a decision).
-  local d; d=$(echo "$1" | bash "$GATE" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)
-  echo "${d:-allow}"
+  local rc
+  echo "$1" | bash "$CANONICAL_POLICY" >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -eq 0 ]; then echo "allow"; else echo "deny"; fi
 }
 # remove design.md so the feature is started-but-incomplete (widened gate: requirement+design+plan all required)
 rm agent-docs/doflow/001-auth/design.md
@@ -597,6 +612,225 @@ eq "--branch-name --class=release --slug=1.0.0 produces release/1.0.0" "$($STATE
 # Test error cases
 $STATE --branch-name 2>/dev/null; eq "--branch-name without class -> exit 2" "$?" "2"
 $STATE --branch-name --class=feature 2>/dev/null; eq "--branch-name without slug -> exit 2" "$?" "2"
+
+# ==============================================================================
+# E.1: do-paths.sh layout detection (023-structured-feature-trail, FR-007/FR-008)
+# ==============================================================================
+echo "[E.1: do-paths.sh layout detection]"
+git checkout -q -B main
+
+# Legacy layout: only top-level requirement.md/design.md/plan.md, no intention/.
+mkdir -p agent-docs/doflow/900-legacy-fixture
+echo r > agent-docs/doflow/900-legacy-fixture/requirement.md
+echo d > agent-docs/doflow/900-legacy-fixture/design.md
+echo p > agent-docs/doflow/900-legacy-fixture/plan.md
+eq "legacy layout dir -> layout:legacy" \
+   "$($PATHS --slug=900-legacy-fixture | jq -r '.layout')" "legacy"
+eq "legacy layout -> specs:null" \
+   "$($PATHS --slug=900-legacy-fixture | jq -r '.specs // "null"')" "null"
+eq "legacy layout -> has_specs:false" \
+   "$($PATHS --slug=900-legacy-fixture | jq -r '.has_specs')" "false"
+eq "legacy layout -> audit populated as a path (file need not exist)" \
+   "$($PATHS --slug=900-legacy-fixture | jq -r '.audit')" "agent-docs/doflow/900-legacy-fixture/audit.md"
+eq "legacy layout -> intention_next_round:1" \
+   "$($PATHS --slug=900-legacy-fixture | jq -r '.intention_next_round')" "1"
+eq "legacy layout -> design_next_round:1" \
+   "$($PATHS --slug=900-legacy-fixture | jq -r '.design_next_round')" "1"
+eq "legacy layout -> plan_next_round:1" \
+   "$($PATHS --slug=900-legacy-fixture | jq -r '.plan_next_round')" "1"
+
+# Structured layout: intention/requirement.md exists -> requirement/design/specs/plan all resolve
+# into their own subdirs, even before design.md/specs.md/plan.md exist.
+mkdir -p agent-docs/doflow/901-structured-fixture/intention
+echo r > agent-docs/doflow/901-structured-fixture/intention/requirement.md
+eq "structured layout dir -> layout:structured" \
+   "$($PATHS --slug=901-structured-fixture | jq -r '.layout')" "structured"
+eq "structured layout -> requirement resolves into intention/" \
+   "$($PATHS --slug=901-structured-fixture | jq -r '.requirement')" \
+   "agent-docs/doflow/901-structured-fixture/intention/requirement.md"
+eq "structured layout -> design resolves into design/ (even though design.md does not exist yet)" \
+   "$($PATHS --slug=901-structured-fixture | jq -r '.design')" \
+   "agent-docs/doflow/901-structured-fixture/design/design.md"
+eq "structured layout -> specs resolves into design/ (even though specs.md does not exist yet)" \
+   "$($PATHS --slug=901-structured-fixture | jq -r '.specs')" \
+   "agent-docs/doflow/901-structured-fixture/design/specs.md"
+eq "structured layout -> plan resolves into plan/ (even though plan.md does not exist yet)" \
+   "$($PATHS --slug=901-structured-fixture | jq -r '.plan')" \
+   "agent-docs/doflow/901-structured-fixture/plan/plan.md"
+
+# Round-number scanning: two intention/ rounds -> next round is 3; an empty/absent design/ still
+# floors at 1.
+echo q1 > agent-docs/doflow/901-structured-fixture/intention/brainstorm-01-question.md
+echo q2 > agent-docs/doflow/901-structured-fixture/intention/brainstorm-02-question.md
+eq "round scan -> intention_next_round:3 after brainstorm-01/-02" \
+   "$($PATHS --slug=901-structured-fixture | jq -r '.intention_next_round')" "3"
+eq "round scan -> design_next_round:1 with absent design/" \
+   "$($PATHS --slug=901-structured-fixture | jq -r '.design_next_round')" "1"
+
+# M3 regression: --paths-only must not report the misleading floor value 1 for a field it never
+# computed -- it must report null (the scan itself is skipped, so "not computed" must never read
+# the same as "computed, no rounds yet"), while normal --json mode is unaffected.
+eq "--paths-only -> intention_next_round is null, not the stale floor 1" \
+   "$($PATHS --paths-only --slug=901-structured-fixture | jq -r '.intention_next_round')" "null"
+eq "--paths-only -> design_next_round is also null" \
+   "$($PATHS --paths-only --slug=901-structured-fixture | jq -r '.design_next_round')" "null"
+eq "--paths-only -> plan_next_round is also null" \
+   "$($PATHS --paths-only --slug=901-structured-fixture | jq -r '.plan_next_round')" "null"
+eq "normal --json mode is unaffected by the --paths-only fix (still 3)" \
+   "$($PATHS --slug=901-structured-fixture | jq -r '.intention_next_round')" "3"
+
+# FR-008 regression: a feature dir shaped exactly like this repo's real
+# agent-docs/doflow/022-normalize-hooks (flat top-level, no intention/) must resolve identically
+# to before this feature -- the "old feature dirs keep working, no migration" guarantee.
+mkdir -p agent-docs/doflow/902-fr008-regression
+: > agent-docs/doflow/902-fr008-regression/requirement.md
+: > agent-docs/doflow/902-fr008-regression/design.md
+: > agent-docs/doflow/902-fr008-regression/plan.md
+: > agent-docs/doflow/902-fr008-regression/state.md
+eq "FR-008: old-shaped feature dir -> layout:legacy" \
+   "$($PATHS --slug=902-fr008-regression | jq -r '.layout')" "legacy"
+eq "FR-008: old-shaped feature dir -> requirement path unchanged" \
+   "$($PATHS --slug=902-fr008-regression | jq -r '.requirement')" \
+   "agent-docs/doflow/902-fr008-regression/requirement.md"
+eq "FR-008: old-shaped feature dir -> design path unchanged" \
+   "$($PATHS --slug=902-fr008-regression | jq -r '.design')" \
+   "agent-docs/doflow/902-fr008-regression/design.md"
+eq "FR-008: old-shaped feature dir -> plan path unchanged" \
+   "$($PATHS --slug=902-fr008-regression | jq -r '.plan')" \
+   "agent-docs/doflow/902-fr008-regression/plan.md"
+
+# ==============================================================================
+# E.3: render-audit.sh fixtures (023-structured-feature-trail, FR-004/FR-005/FR-006)
+# ==============================================================================
+echo "[E.3: render-audit.sh]"
+
+# Seeded orchestration journal with one forced entry among three routine ones.
+AUDIT_SLUG="903-audit-fixture"
+mkdir -p "agent-docs/doflow/$AUDIT_SLUG" ".doflow/state/orchestration"
+cat > ".doflow/state/orchestration/$AUDIT_SLUG.json" <<'JOURNAL'
+{
+  "version": 1,
+  "taskId": "903-audit-fixture",
+  "taskClass": "feature",
+  "state": "RUNNING",
+  "history": [
+    {"at": "2026-09-03T03:40:40.139Z", "action": "start", "detail": "task-class=feature"},
+    {"at": "2026-09-03T03:40:40.245Z", "node": "discovery", "action": "complete-stage", "note": "requirement.md written, zero open markers", "forced": false},
+    {"at": "2026-09-03T03:40:40.395Z", "node": "gate-0", "action": "decide-gate", "detail": "approve", "note": "user approved despite one deferred nit", "forced": true},
+    {"at": "2026-09-03T03:40:40.500Z", "node": "design", "action": "complete-stage", "note": "design.md + specs.md written", "forced": false}
+  ]
+}
+JOURNAL
+"$RENDER_AUDIT" --slug="$AUDIT_SLUG" >/dev/null 2>&1
+eq "seeded journal -> render-audit exits 0" "$?" "0"
+AUDIT_MD="agent-docs/doflow/$AUDIT_SLUG/audit.md"
+eq "audit.md is written" "$([ -f "$AUDIT_MD" ] && echo yes || echo no)" "yes"
+eq "audit.md has one table row per history entry (4)" \
+   "$(grep -c '^| 2026-09-03T' "$AUDIT_MD")" "4"
+eq "exactly one row carries the FORCED marker" \
+   "$(grep -c '⚠ FORCED' "$AUDIT_MD")" "1"
+eq "the FORCED marker lands on the gate-0 forced entry's row" \
+   "$(grep 'gate-0' "$AUDIT_MD" | grep -c '⚠ FORCED')" "1"
+eq "routine rows carry no FORCED marker (discovery row)" \
+   "$(grep 'discovery' "$AUDIT_MD" | grep -c '⚠ FORCED')" "0"
+eq "audit.md carries the generated-file / do-not-hand-edit warning line" \
+   "$(grep -c 'Do not' "$AUDIT_MD")" "1"
+
+# M1 regression: a multi-line --note must not split its table row across physical lines and
+# corrupt the generated table -- esc() must collapse embedded newlines/CRs, not just escape pipes.
+NL_SLUG="905-newline-note-fixture"
+mkdir -p "agent-docs/doflow/$NL_SLUG" ".doflow/state/orchestration"
+printf '{"version":1,"taskId":"%s","taskClass":"feature","state":"RUNNING","history":[{"at":"2026-09-03T03:40:40.139Z","action":"start","detail":"task-class=feature"},{"at":"2026-09-03T03:40:40.245Z","node":"discovery","action":"annotate","note":"line one\\nline two with a | pipe","forced":false}]}' \
+  "$NL_SLUG" > ".doflow/state/orchestration/$NL_SLUG.json"
+"$RENDER_AUDIT" --slug="$NL_SLUG" >/dev/null 2>&1
+NL_AUDIT_MD="agent-docs/doflow/$NL_SLUG/audit.md"
+eq "multi-line note -> audit.md still has exactly one row per history entry (2)" \
+   "$(grep -c '^| 2026-09-03T' "$NL_AUDIT_MD")" "2"
+eq "multi-line note -> table has no stray non-row line after the separator" \
+   "$(sed -n '8,$p' "$NL_AUDIT_MD" | grep -vc '^| 2026-09-03T')" "0"
+eq "multi-line note -> the embedded newline was collapsed, not dropped (both halves present)" \
+   "$(grep 'discovery' "$NL_AUDIT_MD" | grep -c 'line one line two')" "1"
+eq "multi-line note -> the pipe inside it is still escaped" \
+   "$(grep 'discovery' "$NL_AUDIT_MD" | grep -c 'with a \\| pipe')" "1"
+
+# Fail-open: no journal recorded yet -> no audit.md written, exit 0.
+mkdir -p agent-docs/doflow/904-no-journal-fixture
+"$RENDER_AUDIT" --slug=904-no-journal-fixture >/dev/null 2>&1
+eq "no journal -> render-audit exits 0 (fail-open)" "$?" "0"
+eq "no journal -> no audit.md written" \
+   "$([ -f agent-docs/doflow/904-no-journal-fixture/audit.md ] && echo yes || echo no)" "no"
+
+# F-4 regression: a backfilled entry (catch-up walking a stage/gate the owning skill never ran)
+# must carry its own distinct marker, not blend into "no marker at all" the way a routine entry
+# does -- a stage nobody ran must never be indistinguishable in audit.md from one that was.
+BF_SLUG="906-backfilled-fixture"
+mkdir -p "agent-docs/doflow/$BF_SLUG" ".doflow/state/orchestration"
+cat > ".doflow/state/orchestration/$BF_SLUG.json" <<'JOURNAL'
+{
+  "version": 1,
+  "taskId": "906-backfilled-fixture",
+  "taskClass": "bug",
+  "state": "RUNNING",
+  "history": [
+    {"at": "2026-09-03T03:40:40.139Z", "action": "start", "detail": "task-class=bug"},
+    {"at": "2026-09-03T03:40:40.245Z", "node": "reproduction", "action": "complete-stage", "note": "catch-up: backfilled", "backfilled": true},
+    {"at": "2026-09-03T03:40:40.500Z", "node": "root-cause", "action": "complete-stage", "note": "actual root-cause writeup", "backfilled": false}
+  ]
+}
+JOURNAL
+"$RENDER_AUDIT" --slug="$BF_SLUG" >/dev/null 2>&1
+BF_AUDIT_MD="agent-docs/doflow/$BF_SLUG/audit.md"
+eq "backfilled entry renders the BACKFILLED marker" \
+   "$(grep 'reproduction' "$BF_AUDIT_MD" | grep -c '⚡ BACKFILLED')" "1"
+eq "a real (non-backfilled) completion carries neither marker" \
+   "$(grep 'root-cause' "$BF_AUDIT_MD" | grep -cE '⚡ BACKFILLED|⚠ FORCED')" "0"
+
+# M4 regression: an unrecognized argument (including the space-separated --slug typo) must error,
+# not fall through and silently render the ACTIVE feature's trail.
+"$RENDER_AUDIT" --slug "$AUDIT_SLUG" >/dev/null 2>&1
+eq "space-separated --slug -> render-audit exits nonzero" "$([ "$?" -ne 0 ] && echo yes || echo no)" "yes"
+"$RENDER_AUDIT" --bogus-flag --json >/tmp/render-audit-m4.$$ 2>&1
+eq "unrecognized --json flag call -> emits ok:false JSON" \
+   "$(grep -c '"ok":false' /tmp/render-audit-m4.$$)" "1"
+rm -f /tmp/render-audit-m4.$$
+
+# L1 regression: audit.md must land at 0644 regardless of the caller's umask.
+( umask 077; "$RENDER_AUDIT" --slug="$AUDIT_SLUG" >/dev/null 2>&1 )
+eq "audit.md is written 0644 even under umask 077" \
+   "$(stat -f '%Lp' "$AUDIT_MD" 2>/dev/null || stat -c '%a' "$AUDIT_MD" 2>/dev/null)" "644"
+
+# L2 regression: a literal backslash in a note must round-trip as a doubled backslash, and a
+# backslash immediately preceding a pipe must not corrupt the pipe's own escaping.
+BS_SLUG="907-backslash-fixture"
+mkdir -p "agent-docs/doflow/$BS_SLUG" ".doflow/state/orchestration"
+printf '{"version":1,"taskId":"%s","taskClass":"feature","state":"RUNNING","history":[{"at":"2026-09-03T03:40:40.139Z","action":"start","detail":"task-class=feature"},{"at":"2026-09-03T03:40:40.245Z","node":"discovery","action":"annotate","note":"path C:\\\\dir then a | pipe","forced":false}]}' \
+  "$BS_SLUG" > ".doflow/state/orchestration/$BS_SLUG.json"
+"$RENDER_AUDIT" --slug="$BS_SLUG" >/dev/null 2>&1
+BS_AUDIT_MD="agent-docs/doflow/$BS_SLUG/audit.md"
+eq "backslash note -> audit.md has exactly one row per history entry (2)" \
+   "$(grep -c '^| 2026-09-03T' "$BS_AUDIT_MD")" "2"
+eq "backslash note -> the backslash is doubled" \
+   "$(grep -c 'C:\\\\dir' "$BS_AUDIT_MD")" "1"
+eq "backslash note -> the pipe immediately after it is still escaped as \\| (no stray column break)" \
+   "$(grep -c 'dir then a \\| pipe' "$BS_AUDIT_MD")" "1"
+
+# F-5 regression: render-audit must report failure, not a false written:true, when the move into
+# place cannot land -- e.g. the feature directory was never created (do-brainstorm's own state
+# before its step 4 mkdir).
+MV_SLUG="908-move-failed-fixture"
+mkdir -p ".doflow/state/orchestration"
+cat > ".doflow/state/orchestration/$MV_SLUG.json" <<'JOURNAL'
+{"version":1,"taskId":"908-move-failed-fixture","taskClass":"bug","state":"RUNNING","history":[{"at":"2026-09-03T03:40:40.139Z","action":"start","detail":"task-class=bug"}]}
+JOURNAL
+# Deliberately no `mkdir -p agent-docs/doflow/$MV_SLUG` -- the mv target's parent doesn't exist.
+"$RENDER_AUDIT" --slug="$MV_SLUG" --json >/tmp/render-audit-f5.$$ 2>&1
+MV_RC=$?
+eq "move-failed -> render-audit exits nonzero" "$([ "$MV_RC" -ne 0 ] && echo yes || echo no)" "yes"
+eq "move-failed -> reports ok:false, not a false written:true" \
+   "$(grep -c '"ok":false' /tmp/render-audit-f5.$$)" "1"
+eq "move-failed -> no audit.md left behind anywhere under agent-docs" \
+   "$(find agent-docs/doflow -name audit.md -path "*$MV_SLUG*" 2>/dev/null | wc -l | tr -d ' ')" "0"
+rm -f /tmp/render-audit-f5.$$
 
 echo ""
 echo "[Results] $PASS passed, $FAIL failed"

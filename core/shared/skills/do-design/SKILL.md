@@ -90,8 +90,31 @@ a `design.md` for it invents an artifact its workflow never reads.
    general "Other" free-text escape) resolves via a recorded assumption, not by re-prompting —
    see Step 6 below for where that's recorded.
 **Stop when** every design-level ambiguity the contract names has an answer or a stated gap, **and** the last round produced no new design-level ambiguity. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
+   **Log each round.** One file per round, never appended to a prior round's file:
+   `<feature dir>/design/design-<NN>-question.md`, shaped by
+   `templates/doflow/question-log-template.md` (same install path resolution step 6 uses for the
+   design template) — every question as asked, the options offered, and the answer given, with a
+   "Decide for me" pick recorded as the assumption it becomes rather than as an answer. `<NN>` is
+   zero-padded to two digits and starts at step 1's `design_next_round` — never hand-counted: the
+   resolver already scanned the subdir, and this session's second round is that value plus one, its
+   third plus two. `mkdir -p <feature dir>/design` before the first write, and write each round's
+   file as soon as its answers land rather than batching them at the end.
 
-6. **Write `design.md`** — copy the design template into the feature dir and fill it from step 5.
+6. **Write `design.md` and `specs.md`** — copy the design template into the feature dir and fill it
+   from step 5, splitting the narrative from the contracts across two files at the paths step 1
+   resolved: `design` (`design/design.md` in the structured layout) and `specs`
+   (`design/specs.md`). `mkdir -p` their parent directory first.
+   The narrative sections — §1 Architecture Approach, §2 System Overview (C4), §3 Components &
+   Boundaries, §6 Sequence / Data Flow, §7 Risks, §8 Assumptions, §9 History — stay in `design.md`.
+   The technical scaffolding `references/ARTIFACT_FORMAT.md` §7 names — `design-template.md`'s §4
+   API / Interface Contracts and §5 Data Model — moves to `specs.md`, built from
+   `templates/doflow/specs-template.md`, where each contract becomes one `IC-###` entry under that
+   template's index-then-detail §1 so `plan.md` and implementation can cite a contract by id
+   instead of a paragraph. Leave `design.md`'s §4/§5 headings as a one-line pointer to `./specs.md`
+   rather than restating their content in both files.
+   When `specs` is `null` (an old-layout feature dir, which never had a `specs.md`), do not create
+   one: fill §4/§5 in `design.md` exactly as before and leave that dir's layout alone — this feature
+   migrates nothing.
 The template is `templates/doflow/design-template.md` in the install step 1 resolved: take `constitution_base` from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
    `design-template.md`'s §8 "Assumptions" section must read "None" unless a design-level
    clarification question was resolved via the defer escape hatch in Step 5, in which case record it
@@ -104,7 +127,9 @@ Structure the artifact per the guidance tree's `references/ARTIFACT_FORMAT.md` �
    ```bash
    "$DOFLOW" validate "<design path>"
    ```
-   Surface findings verbatim; a non-zero exit is advisory and does not halt the chain.
+   Run it a second time against the specs path when step 6 wrote one — `specs.md`'s §1 Interface
+   Contracts is an indexed section, so it is checked the same way. Surface findings verbatim; a
+   non-zero exit is advisory and does not halt the chain.
 8. **Batch this stage's evidence** — one pass here at the stage boundary, never one call per fact.
    `<task id>` is the unit these stores key on: the plan task id once `plan.md` exists, otherwise
    the feature slug. Use the same id for every `evidence`, `claim` and `readiness` call in the run —
@@ -117,17 +142,55 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
    This stage's items are the block you just wrote into `design.md`: what the system shape rests on,
    where each part came from, and its locator. Add every system-shape conclusion as a claim in the
    same pass.
-9. **Stop** — report the design path.
+9. **Record the handoff** — drive the workflow state machine, then regenerate the trail it projects
+   into `audit.md`. `<slug>` is step 1's `feature_slug`; `<class>` is the class step 2's `classify`
+   call accepted; `<stage id>` is the id of the entry in that call's `workflow.stages[]` whose
+   `skill` is `do-design` (`design` in the `feature` workflow) — read it off that response, never
+   hardcode a guess. One call positions the run — it starts one when none exists yet (an old-layout
+   feature, or a chain that started here), and it backfills any earlier non-mutating stage the chain
+   skipped, so this stage never has to decide between `start` and `complete-stage` for itself:
+   ```bash
+   "$DOFLOW" orchestrate --action catch-up --task-id "<slug>" --task-class "<class>" --stage "<stage id>" --note "entering design" --json
+   ```
+   Branch on the response's `caughtUpTo` / `reason`, not on the exit code:
+- **`caughtUpTo` is this stage id** (`reason: reached-candidate`) — the run is positioned exactly here, which is the normal case. Complete the stage:
+  ```bash
+  "$DOFLOW" orchestrate --action complete-stage --task-id "<slug>" --stage "<caughtUpTo>" --note "<design and specs paths written>" --json
+  ```
+- **`reason` starts with `already-completed:`** — this stage was already recorded on an earlier run of this skill (a re-invocation to amend `design.md`, say). Use `annotate` instead of `complete-stage`:
+  ```bash
+  "$DOFLOW" orchestrate --action annotate --task-id "<slug>" --node "<stage id>" --note "<what changed on this re-run>" --json
+  ```
+- **`reason` starts with `awaiting-gate:`** — the run is paused on a gate a human (or that gate's own owning skill) decides. In the `feature` workflow the first such gate (`gate-a`) sits after planning, later than this stage, so this should not be reached; if it is, report the gate id plainly and stop rather than resolving a gate that is not this stage's.
+- **`reason` is `blocked-on-mutating-stage:<id>`** — a source-mutating stage ahead of this one has not been executed by its own skill. Name `<id>`, report the block plainly, and stop.
+- **`reason` is `run-completed` or `run-rejected`** — the run is finished and takes no further stage. Report it and stop.
+
+   No gate is anchored to this stage, and the `complete-stage` response says so directly: its
+   `awaitingGate` comes back `null` in the `feature` workflow, because the next gate (`gate-a`) sits
+   after planning and is `/do-plan`'s neighbour, not this stage's. Read that field rather than
+   re-deriving it from `workflow.gates[]`, and decide no gate when it is null. Finish by rendering
+   the trail. The `--slug` value attaches with an `=`; a space-separated one is rejected with an
+   error rather than silently rendering the wrong feature's trail:
+   ```bash
+   "$DOFLOW" render-audit --slug="<slug>" --json
+   ```
+   Every call in this step is advisory to the trail, not to the artifact. If one fails for a reason
+   outside this flow's control (an unwritable local state directory, say), report the failure plainly and
+   continue — a missing `audit.md` entry degrades the record, it does not make `design.md` wrong.
+   None of these calls is a gate on finishing this skill.
+10. **Stop** — report the design path, and the specs path when one was written.
 
 ## Boundaries
 **Will:** propose a task class and have the runtime validate it, read `requirement.md`, produce
-system-shape design decisions, write `design.md`, and batch the stage's evidence and claims at the
-boundary.
+system-shape design decisions, log each clarification round to `design/`, write `design.md` and
+`specs.md`, batch the stage's evidence and claims at the boundary, and record the stage handoff
+through `orchestrate`/`render-audit`.
 **Will Not:** write `plan.md` (implementation approach/task decomposition — that's `/do-plan`),
 write code, execute anything, design under a class the runtime rejected or replaced with `feature`,
 call `readiness` for a stage that declares no template; or express evidence, an estimate or readiness as a number, a percentage or a confidence.
 
 ## CRITICAL BOUNDARIES
-**STOP AFTER DESIGN CREATION.** Output: `agent-docs/doflow/<slug>/design.md`.
+**STOP AFTER DESIGN CREATION.** Output: `agent-docs/doflow/<slug>/design/design.md` (narrative) and
+`design/specs.md` (contracts), alongside that stage's `design/design-<NN>-question.md` dialogue logs.
 
 **Next Step:** `/do-plan` to turn the design into an implementation plan (HOW to build it).

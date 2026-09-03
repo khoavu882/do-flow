@@ -107,11 +107,20 @@ fi
 # shipped, trying every known per-harness location (a front door invoking
 # this script directly gives us no signal about which one, so this tries all
 # of them rather than assuming DOFLOW_AGENT names the right one).
+# Project-scoped candidates come before global ones; within each group the
+# canonical, install-agnostic `.doflow/` location comes first — that is the
+# two-step walk-up (project `.doflow`, then `$HOME/.doflow`) every SKILL.md
+# and `doflow-run`'s own resolve_config_dir already uses. Without those two
+# entries this list only ever found the per-harness MIRRORED copies, which a
+# real install need never have projected — leaving the resolver unfound and
+# the branch fallback below (flat paths only) as the whole gate.
 RESOLVER_CANDIDATES=(
+  "$ROOT/.doflow/scripts/doflow/bash/do-paths.sh"
   "$ROOT/.claude/scripts/doflow/bash/do-paths.sh"
   "$ROOT/.codex/scripts/doflow/bash/do-paths.sh"
   "$ROOT/.gemini/scripts/doflow/bash/do-paths.sh"
   "$ROOT/.kiro/scripts/doflow/bash/do-paths.sh"
+  "$HOME/.doflow/scripts/doflow/bash/do-paths.sh"
   "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
   "${CLAUDE_PROJECT_DIR:-}/.claude/scripts/doflow/bash/do-paths.sh"
   "${CODEX_HOME:-$HOME/.codex}/scripts/doflow/bash/do-paths.sh"
@@ -154,9 +163,22 @@ if [ -z "$feature_dir" ]; then
   slug=${branch#*/}
   feature_dir="agent-docs/doflow/$slug"
   if [ -d "$repo_root/$feature_dir" ]; then
-    if [ -f "$repo_root/$feature_dir/requirement.md" ]; then has_requirement=true; else has_requirement=false; fi
-    if [ -f "$repo_root/$feature_dir/design.md" ]; then has_design=true; else has_design=false; fi
-    if [ -f "$repo_root/$feature_dir/plan.md" ]; then has_plan=true; else has_plan=false; fi
+    # Layout is decided ONCE from intention/requirement.md's presence, then every
+    # path below follows from it — the same single-probe rule do-paths.sh applies,
+    # so this fallback can never report a self-contradictory mix of layouts. Without
+    # the structured arm a fully-planned feature (artifacts under intention/, design/,
+    # plan/) read as unplanned here and blocked every source edit.
+    if [ -f "$repo_root/$feature_dir/intention/requirement.md" ]; then
+      has_requirement=true
+      if [ -f "$repo_root/$feature_dir/design/design.md" ]; then has_design=true; else has_design=false; fi
+      if [ -f "$repo_root/$feature_dir/plan/plan.md" ]; then has_plan=true; else has_plan=false; fi
+    elif [ -f "$repo_root/$feature_dir/requirement.md" ]; then
+      has_requirement=true
+      if [ -f "$repo_root/$feature_dir/design.md" ]; then has_design=true; else has_design=false; fi
+      if [ -f "$repo_root/$feature_dir/plan.md" ]; then has_plan=true; else has_plan=false; fi
+    else
+      has_requirement=false; has_design=false; has_plan=false
+    fi
   fi
 fi
 

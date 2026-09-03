@@ -76,6 +76,66 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    - Report pass/fail summaries, exact failure traces, and affected requirements.
    - Never skip or delete failing tests to force passing status.
 
+6. **Record the handoff** — when this run is a chain stage rather than a standalone test run, record
+   it on the feature's trail. Resolve the feature and ask the state machine where it stands:
+
+```bash
+"$DOFLOW" paths --json
+"$DOFLOW" orchestrate --action status --task-id "<feature_slug>" --json
+```
+
+   - **`feature_slug` is `null`, or `status` reports `No workflow run for task`** (exit 1) — this is
+     a standalone verification run: no chain stage started a run for this feature, and this skill
+     proposes no task class of its own to start one from. Record nothing and skip the rest of this
+     step; the report you already produced is the whole output. Do not invent a run.
+   - **A run exists** — its response names the `taskClass` it was started under. That is where this
+     skill's class comes from: it proposes none of its own and runs no `classify` call.
+   - **Resolve this skill's candidate stage ids — there may be more than one.** List *every* entry in
+     `"$DOFLOW" workflow --task-class "<taskClass>" --json`'s `stages[]` whose `skill` is `do-test`,
+     in workflow order, and comma-join them. One entry in the `feature` workflow (`verification`);
+     **two** in `bug` (`reproduction,regression-verification`) and in `refactor`
+     (`baseline-verification,verification`), because those classes run this skill twice. Passing both
+     is what makes a second real run of this skill land on the second occurrence rather than misfire
+     on the first, already-completed one — `catch-up` walks past a completed stage because it is no
+     longer the current node. Never hardcode a stage id, and never pass only the first match.
+   - **Position the run and act on where it stops:**
+     ```bash
+     "$DOFLOW" orchestrate --action catch-up --task-id "<feature_slug>" --task-class "<taskClass>" --stage "<id1[,id2]>" --note "entering verification" --json
+     ```
+     Branch on the response's `caughtUpTo` / `reason`, not on the exit code:
+     - **`caughtUpTo` is one of your ids** (`reason: reached-candidate`) — that occurrence is the
+       run's current node, and it is the one this run completes:
+       ```bash
+       "$DOFLOW" orchestrate --action complete-stage --task-id "<feature_slug>" --stage "<caughtUpTo>" --note "<one line: the contract's verdict and tier summary>" --json
+       ```
+     - **`reason` starts with `already-completed:`** — every occurrence you named is already
+       recorded (a re-invocation after both `bug`/`refactor` test stages already completed, say).
+       Use `annotate` instead of `complete-stage`:
+       ```bash
+       "$DOFLOW" orchestrate --action annotate --task-id "<feature_slug>" --node "<one of the ids>" --note "<what changed on this re-run>" --json
+       ```
+     - **`reason` starts with `awaiting-gate:`** — the run is paused on a gate a human (or that
+       gate's own owning skill) decides. No gate in any shipped workflow is this skill's to answer,
+       so report the gate id plainly and stop rather than resolving one that is not yours.
+     - **`reason` is `blocked-on-mutating-stage:<id>`** — a source-mutating stage sits ahead of this
+       one and its own skill has not executed it. In `bug` and `refactor` that is the ordinary answer
+       when this skill is re-invoked before the fix has been applied. Name `<id>`, report the block
+       plainly, and stop.
+     - **`reason` is `run-completed` or `run-rejected`** — the run is finished and takes no further
+       stage. Report it and stop.
+   - No gate is anchored to this stage in any shipped workflow, and the `complete-stage` response
+     says so directly: its `awaitingGate` comes back `null`. Read that field rather than re-deriving
+     it from `workflow.gates[]`, and decide no gate when it is null. Finish by rendering the trail —
+     the `--slug` value attaches with an `=`; a space-separated one is rejected with an error rather
+     than silently rendering the wrong feature's trail:
+     ```bash
+     "$DOFLOW" render-audit --slug="<feature_slug>" --json
+     ```
+   - Every call in this step is advisory to the trail, not to the verdict. If one fails for a reason
+     outside this flow's control (an unwritable local state directory, say), report the failure plainly
+     and continue — a missing `audit.md` entry changes nothing about what the tiers reported, and
+     none of these calls gates this skill's own completion.
+
 ## Boundaries
-**Will:** Compile the verification contract before running anything, run the tiers it names, report every tier's status including the ones that were never reached, report the coverage the detected runner emits, and highlight failure traces.
-**Will Not:** Write new test files (handled during implementation), modify build configuration files, narrow the compiled tier set, or report a verdict the contract did not produce.
+**Will:** Compile the verification contract before running anything, run the tiers it names, report every tier's status including the ones that were never reached, report the coverage the detected runner emits, highlight failure traces, and record the stage handoff through `orchestrate`/`render-audit` when this run is part of a chain — against whichever of its own stage occurrences the run is actually positioned on, in a class that runs it twice.
+**Will Not:** Write new test files (handled during implementation), modify build configuration files, narrow the compiled tier set, report a verdict the contract did not produce, resolve a workflow gate, or start a workflow run for a standalone verification.
