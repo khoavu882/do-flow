@@ -163,8 +163,9 @@ def strip_string_literals(content: str) -> str:
     Two multi-line forms are handled by carrying state across lines: Python/JS triple-quoted blocks
     and JS backtick templates. Both are bounded the same way — an opener with no closer anywhere in
     the remaining text is treated as not an opener, so an odd quote can never blank the tail of a
-    file. Heredocs (shell, Ruby, PHP) are still not handled: their terminator is an arbitrary
-    caller-chosen word, which cannot be recognised without parsing the language.
+    file. Heredocs (shell, Ruby, PHP) are handled separately, by `_blank_heredocs`, before this
+    function ever runs — their terminator is an arbitrary caller-chosen word, so recognising one
+    needs a dedicated forward-scan this per-line, single-character-class scanner cannot do.
     """
     out = []
     for line in content.split("\n"):
@@ -220,13 +221,64 @@ def trim_trailing_comment_block(body: str) -> str:
     return "\n".join(lines[:start]) if start < end else "\n".join(lines[:end])
 
 
-def calculate_cyclomatic_complexity(content: str) -> int:
+HEREDOC_LANGUAGES = {"shell", "ruby", "php"}
+
+
+def _blank_heredocs(content: str) -> str:
+    """
+    Blank shell/Ruby/PHP heredoc bodies so prose or unrelated keywords inside them are not counted
+    as control flow.
+
+    A heredoc's terminator is an arbitrary caller-chosen word, so recognising an opener is not
+    enough — the body is only real if that exact word later appears alone on its own line (leading
+    tabs stripped first for the `<<-` form). This must run on unmodified content, before
+    `strip_comments`/`strip_string_literals` touch anything: either of those could alter what a
+    terminator line looks like, or misinterpret a `#`/quote inside the still-live heredoc body.
+
+    Bounded the same way `strip_string_literals` bounds an unclosed quote: an opener whose
+    terminator never appears anywhere in the remaining file is treated as not a heredoc, so a
+    same-shaped but unrelated `<<word` (a C++ stream-insertion operator, a shift, a string that
+    merely mentions the syntax) never blanks real code on the strength of a coincidence.
+    """
+    lines = content.split("\n")
+    opener_re = re.compile(r"<<(-?)\s*([\"'`]?)(\w+)\2")
+    out = []
+    i, n = 0, len(lines)
+    while i < n:
+        line = lines[i]
+        match = opener_re.search(line)
+        if not match:
+            out.append(line)
+            i += 1
+            continue
+        dash, _quote, terminator = match.groups()
+        end = None
+        for j in range(i + 1, n):
+            candidate = lines[j].lstrip("\t") if dash else lines[j]
+            if candidate == terminator:
+                end = j
+                break
+        if end is None:
+            out.append(line)
+            i += 1
+            continue
+        out.append(line)
+        out.extend([""] * (end - i))  # blank every body line and the terminator line itself
+        i = end + 1
+    return "\n".join(out)
+
+
+def calculate_cyclomatic_complexity(content: str, language: str = "") -> int:
     """
     Estimate cyclomatic complexity based on control flow keywords.
 
     Comments and string literals are stripped first: counting keywords in either made prose a
-    penalty. String stripping is bounded, not complete — see `strip_string_literals`.
+    penalty. String stripping is bounded, not complete — see `strip_string_literals`. Heredoc
+    bodies (shell/Ruby/PHP only — see `_blank_heredocs`) are blanked before that, since they are
+    exactly the kind of prose-as-code false positive comment/string stripping cannot reach.
     """
+    if language in HEREDOC_LANGUAGES:
+        content = _blank_heredocs(content)
     content = strip_string_literals(strip_comments(content))
     complexity = 1  # Base complexity
 
@@ -375,7 +427,7 @@ def find_functions(content: str, language: str) -> List[Dict]:
         func_body = trim_trailing_comment_block(func_body)
 
         line_count = len(func_body.split("\n"))
-        complexity = calculate_cyclomatic_complexity(func_body)
+        complexity = calculate_cyclomatic_complexity(func_body, language)
 
         functions.append({
             "name": name,

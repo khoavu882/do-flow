@@ -83,9 +83,12 @@ test('FR-009: capability router invocations are frozen to the pinned set of skil
 });
 
 test('FR-012: pre-implement-gate hook scripts remain purely file-existence gates independent of readiness', () => {
+  // 022-normalize-hooks moved the gate's actual logic into one canonical script every harness's
+  // front door delegates to (design.md C1) — the per-harness files this test originally pointed
+  // at are now thin exec dispatchers with none of this logic inline. The pinned properties below
+  // still apply to wherever the logic actually lives, so this test follows it there.
   const hookPaths = [
-    path.join(REPO, 'core', 'harnesses', 'claude', 'hooks', 'pre-implement-gate.sh'),
-    path.join(REPO, 'core', 'harnesses', 'kiro', 'hooks', 'pre-implement-gate.sh'),
+    path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'pre-implementation-gate.sh'),
   ];
 
   for (const hookFile of hookPaths) {

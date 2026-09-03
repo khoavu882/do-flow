@@ -2,52 +2,9 @@
   "version": 1,
   "policies": [
     {
-      "id": "session-context",
-      "intent": "capture-session-context",
-      "requires": [
-        "hooks"
-      ],
-      "mappings": {
-        "claude": {
-          "event": "SessionStart",
-          "status": "supported"
-        },
-        "codex": {
-          "event": "SessionStart",
-          "status": "supported",
-          "prerequisites": [
-            "hook-review"
-          ]
-        },
-        "gemini": {
-          "status": "unavailable",
-          "fallback": "guidance"
-        },
-        "opencode": {
-          "status": "unavailable",
-          "fallback": "guidance"
-        },
-        "pi": {
-          "status": "unavailable",
-          "fallback": "guidance"
-        },
-        "copilot": {
-          "status": "unavailable",
-          "fallback": "guidance"
-        },
-        "kiro": {
-          "event": "SessionStart",
-          "status": "supported"
-        },
-        "antigravity": {
-          "status": "unavailable",
-          "fallback": "guidance"
-        }
-      }
-    },
-    {
       "id": "pre-implementation-gate",
       "intent": "require-implementation-prerequisites",
+      "tier": "core",
       "requires": [
         "hooks"
       ],
@@ -64,8 +21,8 @@
           ]
         },
         "gemini": {
-          "status": "unavailable",
-          "fallback": "guidance"
+          "event": "BeforeTool",
+          "status": "different"
         },
         "opencode": {
           "status": "unavailable",
@@ -90,8 +47,99 @@
       }
     },
     {
+      "id": "pre-bash-guard",
+      "intent": "block-destructive-commands",
+      "tier": "enhanced",
+      "requires": [
+        "hooks"
+      ],
+      "mappings": {
+        "claude": {
+          "event": "PreToolUse",
+          "status": "supported"
+        },
+        "codex": {
+          "event": "PreToolUse",
+          "status": "different",
+          "prerequisites": [
+            "hook-review"
+          ]
+        },
+        "gemini": {
+          "event": "BeforeTool",
+          "status": "different"
+        },
+        "opencode": {
+          "status": "unavailable",
+          "fallback": "guidance"
+        },
+        "pi": {
+          "status": "unavailable",
+          "fallback": "guidance"
+        },
+        "copilot": {
+          "status": "unavailable",
+          "fallback": "guidance"
+        },
+        "kiro": {
+          "event": "PreToolUse",
+          "status": "supported"
+        },
+        "antigravity": {
+          "status": "unavailable",
+          "fallback": "guidance"
+        }
+      }
+    },
+    {
+      "id": "session-context",
+      "intent": "capture-session-context",
+      "tier": "enhanced",
+      "requires": [
+        "hooks"
+      ],
+      "mappings": {
+        "claude": {
+          "event": "SessionStart",
+          "status": "supported"
+        },
+        "codex": {
+          "event": "SessionStart",
+          "status": "supported",
+          "prerequisites": [
+            "hook-review"
+          ]
+        },
+        "gemini": {
+          "event": "SessionStart",
+          "status": "supported"
+        },
+        "opencode": {
+          "status": "unavailable",
+          "fallback": "guidance"
+        },
+        "pi": {
+          "status": "unavailable",
+          "fallback": "guidance"
+        },
+        "copilot": {
+          "status": "unavailable",
+          "fallback": "guidance"
+        },
+        "kiro": {
+          "event": "SessionStart",
+          "status": "supported"
+        },
+        "antigravity": {
+          "status": "unavailable",
+          "fallback": "guidance"
+        }
+      }
+    },
+    {
       "id": "mcp-tool-guard",
       "intent": "enforce-mcp-policy",
+      "tier": "enhanced",
       "requires": [
         "hooks",
         "mcp"
@@ -109,8 +157,8 @@
           ]
         },
         "gemini": {
-          "status": "unavailable",
-          "fallback": "guidance"
+          "event": "BeforeTool",
+          "status": "different"
         },
         "opencode": {
           "status": "unavailable",
@@ -137,6 +185,7 @@
     {
       "id": "stop-check",
       "intent": "check-completion-before-stop",
+      "tier": "enhanced",
       "requires": [
         "hooks"
       ],

@@ -51,12 +51,21 @@ test('G6: requirement-template.md provides hierarchical stories and BDD scenario
   assert.ok(reqTmpl.includes('- **Then**'), 'requirement template must scaffold Then clause');
 });
 
-test('G6: design-template.md provides technical scaffolding for endpoints, repositories, schemas, and UX', () => {
+test('G6: specs-template.md provides technical scaffolding for endpoints, repositories, schemas, and UX', () => {
+  // Moved here from design-template.md by feature 023-structured-feature-trail: design.md's own
+  // §4/§5 are now a one-line pointer to specs.md, which carries this scaffolding instead.
+  const specsTmpl = fs.readFileSync(path.join(REPO, 'core/shared/templates/doflow/specs-template.md'), 'utf8');
+  assert.ok(specsTmpl.includes('endpoint / cli-verb / schema / file-format'), 'specs template must scaffold the endpoint/cli-verb/schema Kind vocabulary');
+  assert.ok(specsTmpl.includes('repository/service interface'), 'specs template must scaffold Repository/service interfaces');
+  assert.ok(specsTmpl.includes('### Database Schemas'), 'specs template must scaffold Database Schemas');
+  assert.ok(specsTmpl.includes('erDiagram'), 'specs template must scaffold relational ER diagram');
+  assert.ok(specsTmpl.includes('### UX / UI Specifications'), 'specs template must scaffold UX/UI specifications');
+});
+
+test('G6: design-template.md points §4/§5 at specs.md instead of duplicating its content', () => {
   const dsgTmpl = fs.readFileSync(path.join(REPO, 'core/shared/templates/doflow/design-template.md'), 'utf8');
-  assert.ok(dsgTmpl.includes('### Endpoints'), 'design template must scaffold API Endpoints');
-  assert.ok(dsgTmpl.includes('### Repository & Service Interfaces'), 'design template must scaffold Repository interfaces');
-  assert.ok(dsgTmpl.includes('### Database Schemas'), 'design template must scaffold Database Schemas');
-  assert.ok(dsgTmpl.includes('erDiagram'), 'design template must scaffold relational ER diagram');
-  assert.ok(dsgTmpl.includes('### UX / UI Specifications'), 'design template must scaffold UX/UI specifications');
+  assert.ok(!dsgTmpl.includes('### Endpoints'), 'design template must not re-duplicate API Endpoints scaffolding now owned by specs.md');
+  assert.ok(!dsgTmpl.includes('### Repository & Service Interfaces'), 'design template must not re-duplicate Repository interfaces scaffolding now owned by specs.md');
+  assert.ok(dsgTmpl.includes('specs.md'), 'design template §4/§5 must point at specs.md');
 });
 

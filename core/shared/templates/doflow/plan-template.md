@@ -1,8 +1,8 @@
 # Implementation Plan: [FEATURE NAME]
 
-**Feature:** [NNN-slug] · **Requirement:** ./requirement.md · **Design:** ./design.md · **Status:** Draft · **Created:** [DATE]
+**Feature:** [NNN-slug] · **Requirement:** [REQUIREMENT_PATH] · **Design:** [DESIGN_PATH] · **Status:** Draft · **Created:** [DATE]
 
-> HOW. Reads ./requirement.md and ./design.md. Resolve every `[NEEDS CLARIFICATION]` from the
+> HOW. Reads [REQUIREMENT_PATH] and [DESIGN_PATH]. Resolve every `[NEEDS CLARIFICATION]` from the
 > requirement here.
 >
 > Structure follows `references/ARTIFACT_FORMAT.md`: indexed sections carry a table above full

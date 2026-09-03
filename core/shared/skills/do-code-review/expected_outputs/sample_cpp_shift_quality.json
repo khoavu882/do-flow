@@ -1,0 +1,35 @@
+{
+  "file": "assets/sample_cpp_shift.cpp",
+  "language": "cpp",
+  "metrics": {
+    "lines": {
+      "total": 20,
+      "code": 13,
+      "blank": 2,
+      "comment": 5
+    },
+    "functions": 1,
+    "classes": 0,
+    "avg_complexity": 7.0
+  },
+  "quality_score": 100,
+  "grade": "A",
+  "smells": [
+    {
+      "type": "magic_number",
+      "severity": "low",
+      "message": "Magic number 100 should be a named constant",
+      "location": "line 9"
+    }
+  ],
+  "solid_violations": [],
+  "function_details": [
+    {
+      "name": "report",
+      "parameters": 1,
+      "lines": 13,
+      "complexity": 7
+    }
+  ],
+  "class_details": []
+}

@@ -69,7 +69,14 @@ workflow never reads.
    `--depth shallow|normal|deep` is the single breadth knob: it sets both how many dialogue
    rounds run and how wide each one reaches. Coordinate architecture/analysis/frontend/backend/
    security domain framing as needed, but stay in discovery mode — no implementation decisions
-   here. After each dialogue round, before moving to the next round, partition any ambiguities
+   here.
+   **MCP Integration**:
+   - **Context7**: the idea names a specific library or framework → verify the claim, per
+     `MCP_Context7.md`'s Tool IDs, before folding it into `requirement.md` — read-only
+     fact-checking, never a tech choice.
+   - **Sequential-thinking**: a round's ambiguity is genuinely multi-step or cross-domain → route
+     it per `MCP_Sequential.md`'s Tool IDs.
+   After each dialogue round, before moving to the next round, partition any ambiguities
    surfaced that round into: *independent* ones (answerable without knowing another's answer) —
    up to 4 — batched into one `AskUserQuestion` call (the tool's 4-question max); *dependent*
    ones (whose options depend on a prior answer) — asked as their own individual `AskUserQuestion`
@@ -82,6 +89,17 @@ workflow never reads.
 **Stop when** every ambiguity the contract names has an answer or a stated gap, **and** the last round produced no new ambiguity. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
    The loop's posture — how deep to question, what a round is for — is the Behavioral Posture read
    below, not a second rule stated here.
+   **Log each round.** One file per round, never appended to a prior round's file:
+   `agent-docs/doflow/<slug>/intention/brainstorm-<NN>-question.md`, shaped by
+   `templates/doflow/question-log-template.md` (same install path resolution as the requirement
+   template in step 5) — every question as asked, the options offered, and the answer given, with a
+   "Decide for me" pick recorded as the assumption it becomes rather than as an answer. `<NN>` is
+   zero-padded to two digits and starts at step 1's `intention_next_round` — never hand-counted:
+   the resolver already scanned the subdir, and this session's second round is that value plus one,
+   its third plus two. Write the round's file as soon as its answers land, `mkdir -p` the
+   `intention/` directory first. If `feature_slug` was still null at step 1 (a trunk branch with no
+   feature picked yet), there is no directory to write into until step 4 resolves one — hold the
+   rounds and write them all, in round order, immediately after step 4's `mkdir`.
 4. **Pick the feature** — if `feature_slug` is non-null (branch-derived, auto-selected from a
    single non-git candidate, or resolved via step 1's disambiguation), use it. If still null
    (genuinely no active feature: trunk branch, or a non-git root with zero existing feature dirs),
@@ -90,10 +108,18 @@ workflow never reads.
    call `"$DOFLOW" git-state --branch-name --class=feature --slug=<slug>` and use the
    returned branch name with `git checkout -b`; if false (non-git root), skip branch creation
    entirely.
-   Then, on **every** path: `mkdir -p agent-docs/doflow/<slug>`. A branch-derived slug names a
-   directory that usually does not exist yet, so this is not only the new-feature case.
+   Then, on **every** path: `mkdir -p agent-docs/doflow/<slug>/intention`. A branch-derived slug
+   names a directory that usually does not exist yet, so this is not only the new-feature case, and
+   the stage's own subdirectory holds both its dialogue logs and its output.
 5. **Write `requirement.md`** — copy the requirement template into the feature dir and fill the
-   tokens from the dialogue.
+   tokens from the dialogue. It goes at `agent-docs/doflow/<slug>/intention/requirement.md`: a
+   fresh feature dir holds nothing yet, so step 1's `layout` still reads `legacy` and its
+   `requirement` field still points at the top level — create `intention/` and write there anyway
+   rather than waiting for the resolver, which reports `structured` only once this file exists. The
+   one exception is an existing old-layout feature dir (`layout` is `legacy` **and**
+   `has_requirement` is true): that feature's `design.md`/`plan.md` already sit at the top level, so
+   write to the resolved `requirement` path and leave the dir where it is — this feature performs no
+   migration, and a dir must never resolve as a mix of both layouts.
 The template is `templates/doflow/requirement-template.md` in the install step 1 resolved: take `constitution_base` from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
    WHAT/WHY only: user stories (P1/P2/P3 → US#), `FR-###`, NFRs, out-of-scope, acceptance criteria. Zero `[NEEDS CLARIFICATION]` markers remain in §7 at
    hand-off — every ambiguity from Step 2 is either a resolved answer folded into the relevant
@@ -124,7 +150,55 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
    and `generated-analysis`, neither of which may ever be `extracted`, because that pairing is
    exactly how the user's words and your reading of them stop being distinguishable. Add every
    conclusion this stage reached as a claim in the same pass.
-8. **Stop** — report the requirement path and confirmation that §7 has zero remaining
+8. **Record the handoff** — drive the workflow state machine, then regenerate the trail it projects
+   into `audit.md`. `<slug>` is step 1's `feature_slug`; `<class>` is the class step 2's `classify`
+   call accepted; `<stage id>` is the id of the entry in that call's `workflow.stages[]` whose
+   `skill` is `do-brainstorm` (`discovery` in the `feature` workflow) — read it off that response,
+   never hardcode a guess. One call positions the run — it starts one when none exists yet, so this
+   stage never has to decide between `start` and `complete-stage` for itself:
+   ```bash
+   "$DOFLOW" orchestrate --action catch-up --task-id "<slug>" --task-class "<class>" --stage "<stage id>" --note "entering discovery" --json
+   ```
+   `catch-up` walks the cursor forward over any earlier non-mutating stage and stops on the node
+   this skill must act on. Branch on the response's `caughtUpTo` / `reason`, not on the exit code:
+- **`caughtUpTo` is this stage id** (`reason: reached-candidate`) — the run is positioned exactly here, which is the normal case. Complete the stage:
+  ```bash
+  "$DOFLOW" orchestrate --action complete-stage --task-id "<slug>" --stage "<caughtUpTo>" --note "<requirement path written; §7 marker count>" --json
+  ```
+- **`reason` starts with `already-completed:`** — this stage was already recorded on an earlier run of this skill (a re-invocation to amend `requirement.md`, say). Use `annotate` instead of `complete-stage`:
+  ```bash
+  "$DOFLOW" orchestrate --action annotate --task-id "<slug>" --node "<stage id>" --note "<what changed on this re-run>" --json
+  ```
+- **`reason` starts with `awaiting-gate:`** — the run is paused on a gate a human (or that gate's own owning skill) decides. Discovery is the chain's first stage, so nothing before it can open one; if it happens anyway, report the gate id plainly and stop rather than resolving a gate that is not this stage's.
+- **`reason` is `blocked-on-mutating-stage:<id>`** — a source-mutating stage ahead of this one has not been executed by its own skill. Name `<id>`, report the block plainly, and stop.
+- **`reason` is `run-completed` or `run-rejected`** — the run is finished and takes no further stage. Report it and stop.
+
+   Then the gate anchored to this stage, which the response just above names directly — whichever
+   call actually ran, `complete-stage` on the ordinary path or `annotate` on the already-completed
+   one; both return the same snapshot shape. A non-null `awaitingGate` carries the `gateId`, `name`
+   and `prompt` (`gate-0`, "Unresolved clarifications", in the `feature` workflow); a null one means
+   no gate follows this stage in this workflow and there is nothing to decide. Read it off that
+   response rather than re-deriving it
+   from `workflow.gates[]`. `gate-0` is `clarification`-kind and its `unresolved-clarifications`
+   trigger is exactly what step 9 already checks — so this stage resolves it rather than leaving a
+   mechanically-answerable gate for a human. When §7 genuinely carries zero markers, approve it
+   plainly — this is the routine path, never a forced one:
+   ```bash
+   "$DOFLOW" orchestrate --action decide-gate --task-id "<slug>" --gate "<awaitingGate.gateId>" --decision approve --note "requirement.md §7 carries zero markers" --json
+   ```
+   In the rare aborted-session case where markers remain, do **not** decide the gate at all: leave
+   the run `AWAITING_GATE` and say so — resolving it is a human's call, and approving it anyway
+   would be a forced override this stage has no reason to make. Finish by rendering the trail. The
+   `--slug` value attaches with an `=`; a space-separated one is rejected with an error rather than
+   silently rendering the wrong feature's trail:
+   ```bash
+   "$DOFLOW" render-audit --slug="<slug>" --json
+   ```
+   Every call in this step is advisory to the trail, not to the artifact. If one fails for a reason
+   outside this flow's control (an unwritable local state directory, say), report the failure plainly and
+   continue — a missing `audit.md` entry degrades the record, it does not make `requirement.md`
+   wrong. None of these calls is a gate on finishing this skill.
+9. **Stop** — report the requirement path and confirmation that §7 has zero remaining
    `[NEEDS CLARIFICATION]` markers (or, in the rare aborted-session case, whatever markers remain).
 
 ## Behavioral Posture
@@ -134,14 +208,17 @@ the discovery posture it sets (question depth, when to stop eliciting). That fil
 so skipping the read silently drops the posture it defines.
 
 ## Boundaries
-**Will:** propose a task class and have the runtime validate it, run Socratic discovery, create the
-feature branch+dir (if needed), seed and fill `requirement.md`, and batch the stage's evidence and
-claims at the boundary.
+**Will:** propose a task class and have the runtime validate it, run Socratic discovery, log each
+dialogue round to `intention/`, create the feature branch+dir (if needed), seed and fill
+`requirement.md`, batch the stage's evidence and claims at the boundary, and record the stage
+handoff (and its clarification gate) through `orchestrate`/`render-audit` — and always (no flag)
+consult context7 and sequential-thinking at the points named in Step 3.
 **Will Not:** include tech/implementation detail, design architecture (`/do-design`'s job), write
 code, run `/do-plan`'s job, elicit under a class the runtime rejected or replaced with `feature`,
 call `readiness` for a stage that declares no template; or express evidence, an estimate or readiness as a number, a percentage or a confidence.
 
 ## CRITICAL BOUNDARIES
-**STOP AFTER REQUIREMENT CREATION.** Output: `agent-docs/doflow/<slug>/requirement.md` (WHAT/WHY).
+**STOP AFTER REQUIREMENT CREATION.** Output: `agent-docs/doflow/<slug>/intention/requirement.md`
+(WHAT/WHY), alongside that stage's `intention/brainstorm-<NN>-question.md` dialogue logs.
 
 **Next Step:** `/do-design` for architecture, then `/do-plan` for the implementation plan (HOW).

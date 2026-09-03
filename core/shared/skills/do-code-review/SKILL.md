@@ -319,14 +319,93 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
    `do-code-review` still cannot block a merge or stop a downstream stage — only the Block verdict
    in its own report, read by a human or by `/do-implement`, does that.
 
+3. **Record the handoff, then put the final gate to the user** — run this after the review's verdict
+   has been reported, since the gate below is this skill's last act. Resolve the feature and ask the
+   state machine where it stands:
+   ```bash
+   "$DOFLOW" paths --json
+   "$DOFLOW" orchestrate --action status --task-id "<feature_slug>" --json
+   ```
+   - **`feature_slug` is `null`, or `status` reports `No workflow run for task`** (exit 1) — this is
+     a standalone review: no chain stage started a run for this feature, and this skill proposes no
+     task class of its own to start one from. Record nothing, ask no gate question, and skip the
+     rest of this step. Do not invent a run.
+   - **A run exists** — its response names the `taskClass` it was started under. That is where this
+     skill's class comes from: it proposes none of its own and runs no `classify` call. Read this
+     stage's id off that class's workflow rather than hardcoding it: every entry in
+     `"$DOFLOW" workflow --task-class "<taskClass>" --json`'s `stages[]` whose `skill` is
+     `do-code-review`, comma-joined. Every shipped class has exactly one, but filter for it rather
+     than assuming so — `do-test` already occupies two stages in `bug` and `refactor`.
+   - **Position the run and act on where it stops:**
+     ```bash
+     "$DOFLOW" orchestrate --action catch-up --task-id "<feature_slug>" --task-class "<taskClass>" --stage "<stage id>" --note "entering review" --json
+     ```
+     Branch on the response's `caughtUpTo` / `reason`, not on the exit code:
+     - **`caughtUpTo` is this stage id** (`reason: reached-candidate`) — the run is positioned here.
+       Complete the stage:
+       ```bash
+       "$DOFLOW" orchestrate --action complete-stage --task-id "<feature_slug>" --stage "<caughtUpTo>" --note "<one line: the verdict and the finding counts behind it>" --json
+       ```
+     - **`reason` starts with `already-completed:`** — this stage was already recorded on an earlier
+       run of this skill (a re-review after the gate below was already cleared, say). Use `annotate`
+       instead of `complete-stage`:
+       ```bash
+       "$DOFLOW" orchestrate --action annotate --task-id "<feature_slug>" --node "<stage id>" --note "<what this re-review found>" --json
+       ```
+     - **`reason` starts with `awaiting-gate:`** — the run is paused on a gate standing *before* this
+       stage, which belongs to the stage it follows, not to this one — a human or that gate's own
+       owning skill decides it. Report the gate id plainly and stop; the only gate this skill answers
+       is the one anchored *after* its own stage, below.
+     - **`reason` is `blocked-on-mutating-stage:<id>`** — a source-mutating stage sits ahead of this
+       one and its own skill has not executed it. Name `<id>`, report the block plainly, and stop.
+     - **`reason` is `run-completed` or `run-rejected`** — the run is finished, which is what a
+       re-review after the gate was already cleared looks like. Report it and stop; the review report
+       itself is unaffected and stands as this invocation's output.
+   - **The gate after this stage — check that one exists before trying to resolve one.** Read the
+     `complete-stage` response's `awaitingGate` field; do not re-derive it from `workflow.gates[]`.
+     - **`awaitingGate` is non-null and its `gateId` is anchored after this stage** — `gate-b`,
+       "Before commit or merge", in the `feature` workflow, which is the only shipped class with any
+       gate at all. This stage is that workflow's last and nothing downstream runs to ask it (its own
+       `handoff` sends commit and merge to `/do-git`, outside the workflow), so ask it here: put
+       `awaitingGate.prompt` to the user through `AskUserQuestion` as a plain go/no-go. Its trigger
+       is `always` — nothing in this review's own output answers it, so never approve it mechanically.
+       No gate is ever auto-approved by `catch-up`, `clarification`-kind included — only a human or
+       that gate's own owning skill decides it. On approve:
+       ```bash
+       "$DOFLOW" orchestrate --action decide-gate --task-id "<feature_slug>" --gate "<awaitingGate.gateId>" --decision approve --note "<the user's own answer, one line>" --json
+       ```
+       On "not yet", leave the gate open and say so plainly — the run stays `AWAITING_GATE` and the
+       user can decide later. Do not send `--decision reject` for a deferral: reject terminates the
+       run outright, which is a different answer from "not now", and do not force the approval.
+     - **`awaitingGate` is `null`** — there is no gate to resolve. `bug`, `refactor`, `review`,
+       `documentation` and `dependency-change` declare none, so the response comes back with the run
+       either `COMPLETED` or simply advanced. Say the review is recorded and stop: do not fabricate a
+       prompt, and do not call `decide-gate` on a gate that does not exist.
+     - When `/do-flow` is driving the chain it presents this gate and records the answer itself. That
+       needs no special-casing here: a gate it already decided is no longer open, so the `catch-up`
+       above never stops on it and `awaitingGate` comes back `null` — the same no-op branch.
+     Finish by rendering the trail — the `--slug` value attaches with an `=`; a space-separated one
+     is rejected with an error rather than silently rendering the wrong feature's trail:
+     ```bash
+     "$DOFLOW" render-audit --slug="<feature_slug>" --json
+     ```
+   - This step gains the review no authority either, exactly as step 2's own note says: the gate
+     records the user's answer, it does not produce one. If any call here fails for a reason outside
+     this flow's control (an unwritable local state directory, say), report the failure plainly and
+     continue — a missing `audit.md` entry changes nothing about the verdict already reported.
+
 ## Boundaries
 
 **Will:** Analyze source and prose for complexity, risk, SOLID violations, and code/doc smells;
 generate structured review reports with a verdict (Approve / Approve with suggestions / Request
-changes / Block); dispatch by language or content type to the matching rules file.
+changes / Block); dispatch by language or content type to the matching rules file; record the review
+stage's handoff and put the workflow's final approval gate to the user when this review is part of a
+chain *and* the run reports such a gate open.
 
 **Will Not:** Edit files, apply fixes, or otherwise remediate the findings it reports — that is
-`/do-implement`'s job once a review has run. It also does not orchestrate a multi-task checklist
+`/do-implement`'s job once a review has run. It does not answer the final gate on the user's behalf,
+approve it mechanically from its own verdict, ask for a gate the workflow does not declare, resolve a
+gate anchored before its own stage, or start a workflow run for a standalone review. It also does not orchestrate a multi-task checklist
 through specialist subagents (`/do-execute-plan`'s job) or replace human judgment on a Block verdict.
 
 ## Running the review in a subagent

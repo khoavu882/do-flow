@@ -147,9 +147,21 @@ test('confirms the real registry routes kiro.hooks-scripts to kiro only', () => 
   const { loadRegistry, selectAssets } = require('../../../src/registry');
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
   const hooksAssets = selectAssets(registry, { harness: 'kiro', capability: 'hooks' });
-  assert.equal(hooksAssets.length, 1);
-  assert.equal(hooksAssets[0].id, 'kiro.hooks-scripts');
-  assert.equal(hooksAssets[0].nativeDir.kiro, 'hooks');
+  // Two hooks-capability assets apply to kiro since 022-hooks-shared-install-gap: kiro's own
+  // front-door scripts (kiro.hooks-scripts, installed to .kiro/hooks/) and the canonical shared
+  // library every harness's front doors delegate to (hooks.shared, installed to
+  // ../.doflow/shared/hooks so it lands at the project root, outside any single harness's dir).
+  assert.equal(hooksAssets.length, 2);
+  const ids = hooksAssets.map((a) => a.id).sort();
+  assert.deepEqual(ids, ['hooks.shared', 'kiro.hooks-scripts']);
+
+  const own = hooksAssets.find((a) => a.id === 'kiro.hooks-scripts');
+  assert.equal(own.nativeDir.kiro, 'hooks');
   const declared = registry.assets.find((a) => a.id === 'kiro.hooks-scripts');
   assert.deepEqual(declared.appliesTo, ['kiro']);
+
+  const shared = hooksAssets.find((a) => a.id === 'hooks.shared');
+  assert.equal(shared.nativeDir.kiro, '../.doflow/shared/hooks');
+  const declaredShared = registry.assets.find((a) => a.id === 'hooks.shared');
+  assert.ok(declaredShared.appliesTo.includes('kiro'));
 });

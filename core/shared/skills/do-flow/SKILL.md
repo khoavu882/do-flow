@@ -112,6 +112,29 @@ not declare is not run here, however familiar it is from the `feature` chain.
    A workflow with an empty `gates` array stops at none of these. It still stops on a readiness
    block, on an ambiguous answer, and on any stage skill's own stopping rule.
 
+   **Record every answer that is a decision.** Asking is not recording: a gate this skill asked but
+   never wrote back stays open in the run, so the stage skill that owns it asks the same question
+   again — the user answers twice for one decision. Immediately after the user answers, write it:
+   ```bash
+   "$DOFLOW" orchestrate --action decide-gate --task-id "<slug>" --gate "<gate id>" --decision approve|reject --note "<the user's own answer, one line>" --json
+   ```
+   Map each gate's own option set onto the two decisions the runtime accepts, and never onto a third:
+   - **`gate-a`** — `Proceed` is `approve`; `Stop here` is `reject`. `Let me review the artifacts
+     first` is **neither**: it is a pause, not a decision, so call nothing and actually pause — hold
+     the run at this gate and re-ask once the user comes back, exactly as step 8's ambiguous-answer
+     rule already requires.
+   - **`gate-b`** — an actual "proceed to commit/merge" answer is `approve`; an explicit stop is
+     `reject`. Anything that is not a real decision — "let me address the findings first" on a
+     `CHANGES REQUESTED` review, most often — is neither, and gets no `decide-gate` call. `reject`
+     terminates the run outright, which is a different answer from "not now".
+   - **`gate-0`** — only in the aborted-session branch above, where this skill patched
+     `requirement.md` itself: once every surviving marker is resolved, `approve`. If any marker is
+     still open, leave the gate alone.
+   This call is advisory to the trail, not to the chain: if it fails for a reason outside this flow's
+   control (an unwritable local state directory, say), report the failure plainly and carry the
+   user's answer forward anyway — the answer is what governs whether the next stage runs, and the
+   record of it is what keeps the next stage from asking again.
+
 8. **Never skip a gate on an ambiguous answer** — an unanswered or unclear response to any
    `AskUserQuestion` means stop and ask again, per this repo's `RULE_04_QUESTIONS`. When the
    terminal stage completes, state `workflow.handoff` as the next step rather than continuing into
@@ -123,6 +146,8 @@ not declare is not run here, however familiar it is from the `feature` chain.
   order without a manual re-invocation at each boundary.
 - Stop only where the resolved workflow says to: its declared gates, a readiness block, or an
   ambiguous answer.
+- Record each gate answer it collects through `orchestrate --action decide-gate`, so the stage skill
+  that owns that gate finds it already resolved instead of asking the user the same question twice.
 - Compose with the existing `pre-implement-gate.sh` hard gate rather than bypass or duplicate it.
   That hook keys on branch and artifact state, not on class, so it can deny a `bug` or
   `trivial-edit` workflow's edits on a branch that already holds an incomplete feature dir —
@@ -137,6 +162,9 @@ not declare is not run here, however familiar it is from the `feature` chain.
 - Add a hook-level enforcement gate for commit/merge — `gate-b` is conversational only. A
   hook-level version would be a separate, future proposal.
 - Silently proceed past a gate on an ambiguous or missing answer.
+- Record a pause or a deferral as a gate decision — `Let me review the artifacts first` and "let me
+  address the findings first" are neither `approve` nor `reject`, and forcing them into one writes a
+  decision the user did not make.
 
 **Next Step:** whatever the resolved `workflow.handoff` names — for every class that ends in a
 change, `/do-git` to commit/merge once the last gate is cleared.

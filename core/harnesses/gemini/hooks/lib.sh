@@ -26,7 +26,7 @@ PROJECTS_DIR="$STATE_DIR/projects"
 SESSIONS_LOG="$DOFLOW_HOME/sessions.log"
 
 # Identifies which agent is running. Override via env var for non-Claude agents.
-export DOFLOW_AGENT="${DOFLOW_AGENT:-claude-code}"
+export DOFLOW_AGENT="${DOFLOW_AGENT:-unknown}"
 
 # ── Portability primitives ───────────────────────────────────────────────────
 #
@@ -207,6 +207,38 @@ cwd_hash() {
   fi
 }
 
+# ── Git state helpers ────────────────────────────────────────────────────────
+#
+# Thin wrappers around `git -C <cwd> ...` with the project's standard 1s
+# timeout. Each echoes git's own output (or nothing/0 on failure) and leaves
+# stderr suppressed -- callers keep their own `|| echo <fallback>` around a
+# call for a script-specific default, exactly as the inline git calls these
+# replace did (022-hooks-remaining-duplication). Kept in this per-harness
+# copy rather than moved to the canonical lib.sh's sourcing path: this
+# script's own with_file_lock/other APIs have not been reconciled with the
+# canonical copy, so repointing the `source` line is a separate, larger
+# change this refactor does not make.
+
+is_git_worktree() {
+  run_with_timeout 1 -- git -C "$1" rev-parse --is-inside-work-tree &>/dev/null
+}
+
+git_branch_of() {
+  run_with_timeout 1 -- git -C "$1" branch --show-current 2>/dev/null
+}
+
+git_short_sha_of() {
+  run_with_timeout 1 -- git -C "$1" rev-parse --short HEAD 2>/dev/null
+}
+
+git_uncommitted_count_of() {
+  run_with_timeout 1 -- git -C "$1" status --porcelain 2>/dev/null | wc -l | tr -d ' '
+}
+
+has_uncommitted_changes() {
+  run_with_timeout 1 -- git -C "$1" status --porcelain 2>/dev/null | grep -q .
+}
+
 # ── Directory helpers ─────────────────────────────────────────────────────────
 
 # Create and return the session-scoped state directory for a given session_id.
@@ -241,7 +273,7 @@ json_field() {
 # ── Dependency guard ──────────────────────────────────────────────────────────
 
 # Verify jq is available at runtime. If absent, emit a diagnostic to stderr
-# and exit 0 (never block Claude Code — degraded operation is preferable to failure).
+# and exit 0 (never block the harness — degraded operation is preferable to failure).
 require_jq() {
   if ! command -v jq &>/dev/null; then
     echo "[hooks] jq not found — install jq to enable session lifecycle hooks (apt install jq / brew install jq)" >&2

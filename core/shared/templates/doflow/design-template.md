@@ -1,8 +1,8 @@
 # Design: [FEATURE NAME]
 
-**Feature:** [NNN-slug] · **Requirement:** ./requirement.md · **Status:** Draft · **Created:** [DATE]
+**Feature:** [NNN-slug] · **Requirement:** [REQUIREMENT_PATH] · **Status:** Draft · **Created:** [DATE]
 
-> System shape — architecture, APIs, data/interface contracts. Reads ./requirement.md.
+> System shape — architecture, APIs, data/interface contracts. Reads [REQUIREMENT_PATH].
 > Distinct from plan.md's HOW-to-implement; this is HOW-it's-shaped.
 >
 > Structure follows `references/ARTIFACT_FORMAT.md`: indexed sections carry a table above full
@@ -96,58 +96,17 @@ flowchart TB
 
 ## 4. API / Interface Contracts
 
-<!-- Document endpoints, interface contracts, and repository patterns that anchor implementation. -->
+<!-- Endpoints, CLI verb signatures, and repository/service interfaces that anchor implementation
+     live in ./specs.md §1 Interface Contracts, not here — each as one ID-bearing IC-### entry so
+     plan.md and implementation can cite a contract by id instead of a paragraph. Write "N/A" if
+     this feature genuinely introduces no interface contracts; otherwise leave a one-line pointer,
+     e.g. "See ./specs.md §1." -->
 
-### Endpoints
-- `GET /api/v1/[resource]` — [description, query parameters, response payload]
-- `POST /api/v1/[resource]` — [description, request body schema, status codes]
-- `PATCH /api/v1/[resource]/:id` — [description, payload, status codes]
-- `DELETE /api/v1/[resource]/:id` — [description, status codes]
+## 5. Data Model
 
-### Repository & Service Interfaces
-- **Repository Pattern:** `[resource].repository.ts` (interface) → `[resource].repository.[engine].ts` (concrete) → `[resource].repository.mock.ts` (mock/testing)
-- **Service Signatures:** `[serviceMethod](params): ReturnType`
-
-## 5. Data Model & Technical Specifications
-
-### Database Schemas (ORM / DDL)
-
-<!-- Entity-Relationship diagram illustrating entities, primary/foreign keys, and cardinalities.
-     Skip with "N/A: [why]" if the feature does not introduce or alter database entities. -->
-
-```mermaid
-erDiagram
-    USER ||--o{ POST : "creates"
-    USER {
-        uuid id PK
-        string email UK
-        string name
-        timestamp created_at
-    }
-    POST ||--o{ COMMENT : "contains"
-    POST {
-        uuid id PK
-        uuid user_id FK
-        string title
-        text content
-        timestamp created_at
-    }
-    COMMENT {
-        uuid id PK
-        uuid post_id FK
-        uuid author_id FK
-        text body
-        timestamp created_at
-    }
-```
-
-| Table | Purpose | Primary Key | Foreign Keys & Relations | Key Indexes | Schema / ORM File |
-|---|---|---|---|---|---|
-| `[table_name]` | [one-line table responsibility] | `id` (UUID) | `[user_id]` → `users(id)` | `idx_[table]_[col]` | `src/db/schema/[table].ts` |
-
-### UX / UI Specifications
-- **Design Tokens & Cues:** [color tokens (e.g. Indigo for Work, Emerald for Personal), badge variants, typography]
-- **Component States:** [loading, empty, populated, error states]
+<!-- Data model diagrams (ER diagrams, table schema catalogs) and UX design tokens live in
+     ./specs.md §2 Data Model, not here. Write "N/A" if this feature introduces no data model or
+     UX changes; otherwise leave a one-line pointer, e.g. "See ./specs.md §2." -->
 
 ## 6. Sequence / Data Flow
 

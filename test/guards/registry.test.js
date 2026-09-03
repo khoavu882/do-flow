@@ -92,6 +92,26 @@ test('G5: every unavailable event carries a note explaining why no equivalent ex
   assert.deepEqual(offenders, [], `an unrecorded gap is indistinguishable from an oversight:\n  ${offenders.join('\n  ')}`);
 });
 
+// 022-normalize-hooks tiering (research-backed: LSP capability negotiation, k8s feature gates,
+// progressive enhancement — never "reduce every policy to the intersection"). A 'core' lifecycle
+// policy is the deliberately-scoped invariant: the one thing every currently-integrated harness
+// must keep. This is the regression fence — it catches "core" silently dropping below universal,
+// not the presence of harness-specific gaps in the 'enhanced' set, which are expected and fine.
+test('G5: every core-tier lifecycle policy is supported or different on every currently-integrated harness', () => {
+  const INTEGRATED_HARNESSES = ['claude', 'codex', 'gemini', 'kiro', 'antigravity'];
+  const offenders = [];
+  for (const policy of registry.lifecycle) {
+    if (policy.tier !== 'core') continue;
+    for (const harnessId of INTEGRATED_HARNESSES) {
+      const status = policy.mappings?.[harnessId]?.status;
+      if (status === 'unavailable' || status === undefined) {
+        offenders.push(`${policy.id}: '${harnessId}' is ${status ?? 'undeclared'}, not supported/different`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], `a core-tier policy must reach every integrated harness:\n  ${offenders.join('\n  ')}`);
+});
+
 // FR-007 extension contract (design.md §4, "Adding a harness"): a harness declared in
 // harnesses.json is not actually usable until three other things agree with it. This is the exact
 // defect the multi-harness-parity feature exists to prevent recurring — opencode and pi were

@@ -70,7 +70,7 @@ if [ "${#targets[@]}" -eq 0 ]; then
   root=$(printf '%s' "$json" | jq -r '.repo_root // empty')
   [ -n "$(printf '%s' "$json" | jq -r '.feature_slug // empty')" ] || note "no-active-feature"
 
-  for key in requirement design plan; do
+  for key in requirement design specs plan; do
     p=$(printf '%s' "$json" | jq -r ".$key // empty")
     [ -n "$p" ] && [ -f "$root/$p" ] && targets+=("$root/$p")
   done

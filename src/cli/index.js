@@ -111,6 +111,12 @@ function parseArgs(argv) {
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
         o.gate = val; i++; break;
       }
+      case '--node': {
+        const val = argv[i + 1];
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
+        o.node = val; i++; break;
+      }
+      case '--forced': o.forced = true; break;
       case '--decision': {
         const val = argv[i + 1];
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
@@ -141,11 +147,6 @@ function parseArgs(argv) {
         const val = argv[i + 1];
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
         o.role = val; i++; break;
-      }
-      case '--exclude': {
-        const val = argv[i + 1];
-        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
-        o.exclude = val.split(',').map((s) => s.trim()).filter(Boolean); i++; break;
       }
       case '--days': {
         const val = argv[i + 1];
@@ -289,7 +290,14 @@ function parseRuntimeFlag(arg, argv, i, o) {
     if (!Number.isFinite(parsed) || parsed < 0) { console.error(`doflow: ${name} expects a non-negative integer, got '${value}'`); process.exit(2); }
     o[key] = parsed;
   } else if (RUNTIME_LIST_FLAGS.has(name)) {
-    (o[key] = o[key] || []).push(value);
+    // --exclude alone also accepts a comma-joined value (`--exclude bin,src,core`), not just the
+    // repeatable form (`--exclude bin --exclude src`) every other list flag uses — the two used to
+    // be parsed by two separate code paths (a dedicated switch case handling only the space
+    // spelling's comma-splitting, this generic path handling both spellings but never splitting),
+    // so `--exclude=bin,src` silently excluded nothing while `--exclude bin,src` worked. One path,
+    // both spellings, same behavior now.
+    const parts = name === '--exclude' ? value.split(',').map((s) => s.trim()).filter(Boolean) : [value];
+    (o[key] = o[key] || []).push(...parts);
   } else {
     o[key] = value;
   }

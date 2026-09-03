@@ -12,7 +12,14 @@
 
 set -uo pipefail
 
-HOOKS_DIR="${HOOKS_DIR:-core/harnesses/claude/hooks}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Front doors resolve the Canonical Policy Library via a path relative to their installed
+# location, not their source location — see build-install-mirror.sh for why this mirror exists.
+if [[ -z "${HOOKS_DIR:-}" ]]; then
+  MIRROR="$REPO_ROOT/tmp/hooks-mirror"
+  bash "$REPO_ROOT/test/hooks/build-install-mirror.sh" "$MIRROR"
+  HOOKS_DIR="$MIRROR/.claude/hooks"
+fi
 PASS=0
 FAIL=0
 
@@ -435,8 +442,11 @@ echo ""
 echo "3. stop-check.sh — stub detection pattern"
 echo "──────────────────────────────────────────"
 
-# Load the pattern directly from the script (single source of truth)
-STUB_PATTERN=$(sed -n "s/.*STUB_PATTERN='\([^']*\)'.*/\1/p" "$HOOKS_DIR/stop-check.sh" | head -1)
+# Load the pattern directly from the script. 022-normalize-hooks moved the actual pattern into
+# the Canonical Policy Library (core/harnesses/shared/hooks/policies/) — $HOOKS_DIR/stop-check.sh
+# is now a thin dispatcher with no pattern of its own, so that is the true single source of truth.
+CANONICAL_STOP_CHECK="core/harnesses/shared/hooks/policies/stop-check.sh"
+STUB_PATTERN=$(sed -n "s/.*STUB_PATTERN='\([^']*\)'.*/\1/p" "$CANONICAL_STOP_CHECK" | head -1)
 
 if [[ -z "$STUB_PATTERN" ]]; then
   _fail "could not extract STUB_PATTERN from stop-check.sh"

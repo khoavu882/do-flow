@@ -1,59 +1,18 @@
 #!/usr/bin/env bash
-# mcp-tool-guard.sh — PreToolUse(mcp__.*) hook
-#
-# Intercepts every MCP tool call and blocks matches against mcp-policy.conf, the same
-# TAB-separated pattern<TAB>reason convention pre-bash-guard.sh already uses for Bash — this is a
-# near copy-paste of that script with a different input field (tool_name instead of
-# tool_input.command) and a different config file. Ships with mcp-policy.conf empty (zero active
-# patterns), so this is pure infrastructure until real usage data (via subagent-audit.sh, or
-# manual observation) justifies specific deny rules — see
-# agent-docs/research/hook-governance-agent-tool-mcp-skill.md §3.2.
-#
-# Multi-session safe: stateless — reads only the conf file, no shared state.
-# Must complete in <50ms.
+# Codex front door: delegates the mcp-tool-guard decision to the Canonical Policy
+# Library, then translates it into the hookSpecificOutput.permissionDecision deny
+# contract this script's Codex/Claude originals both used — exit code alone is
+# not sufficient here, so this front door is a translator, not a bare exec
+# (unlike session-context/stop-check, which never need this translation).
+set -uo pipefail
+export DOFLOW_AGENT="${DOFLOW_AGENT:-codex}"
 
-set -euo pipefail
-# shellcheck source=lib.sh
-source "$(dirname "$0")/lib.sh"
-require_jq
+command -v jq >/dev/null 2>&1 || exit 0
+source "$(dirname "$0")/../../.doflow/shared/hooks/policies/deny-json.sh"
 
-INPUT=$(cat)
-TOOL_NAME=$(json_field "$INPUT" ".tool_name")
+POLICY="$(dirname "$0")/../../.doflow/shared/hooks/policies/mcp-tool-guard.sh"
+REASON=$(bash "$POLICY" 2>&1 >/dev/null)
+CODE=$?
 
-# Fast exit for non-MCP tool events
-[[ ! "$TOOL_NAME" =~ ^mcp__ ]] && exit 0
-
-POLICY_FILE="$(dirname "$0")/mcp-policy.conf"
-
-# If policy file is missing, allow everything (fail open — don't block Claude)
-[[ ! -f "$POLICY_FILE" ]] && exit 0
-
-# ── Pattern matching ──────────────────────────────────────────────────────────
-
-while IFS=$'\t' read -r pattern reason || [[ -n "$pattern" ]]; do
-  # Skip comments and empty lines
-  [[ -z "$pattern" || "$pattern" == \#* ]] && continue
-
-  # "--" stops option parsing so a pattern starting with "-" is never
-  # mistaken for a grep flag.
-  matched=false
-  if (echo "$TOOL_NAME" | grep -qiE -- "$pattern" 2>/dev/null); then
-    matched=true
-  fi
-
-  if [[ "$matched" == "true" ]]; then
-    jq -n \
-      --arg reason "${reason:-MCP tool call blocked by mcp-tool-guard}" \
-      '{
-        "hookSpecificOutput": {
-          "hookEventName": "PreToolUse",
-          "permissionDecision": "deny",
-          "permissionDecisionReason": $reason
-        }
-      }'
-    exit 0
-  fi
-done < "$POLICY_FILE"
-
-# No match — allow
+[ "$CODE" -ne 0 ] && emit_pretooluse_deny_nested "${REASON:-MCP tool call blocked by mcp-tool-guard}"
 exit 0

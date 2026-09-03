@@ -122,3 +122,321 @@ test('unsafe identifiers are rejected before touching disk', () => {
   assert.throws(() => orch.start({ taskId: '../escape', taskClass: 'feature' }), /Invalid taskId/);
   assert.throws(() => orch.decideGate({ taskId: 'ok..id', gateId: 'gate-#', decision: 'approve' }), /Invalid gateId/);
 });
+
+test('decideGate forced=true without a note is refused', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.forced-no-note', taskClass: 'feature' });
+  orch.completeStage({ taskId: 't.forced-no-note', stageId: 'discovery' });
+  assert.throws(
+    () => orch.decideGate({ taskId: 't.forced-no-note', gateId: 'gate-0', decision: 'approve', forced: true }),
+    /A forced gate decision requires a --note reason/,
+  );
+});
+
+test('decideGate forced=true with a note succeeds and the history entry carries forced:true', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.forced-yes-note', taskClass: 'feature' });
+  orch.completeStage({ taskId: 't.forced-yes-note', stageId: 'discovery' });
+  const s = orch.decideGate({
+    taskId: 't.forced-yes-note', gateId: 'gate-0', decision: 'approve',
+    forced: true, note: 'approved despite unresolved clarification markers',
+  });
+  assert.equal(s.state, 'RUNNING');
+  const run = orch.readRun('t.forced-yes-note');
+  const entry = run.history.find((h) => h.action === 'decide-gate' && h.node === 'gate-0');
+  assert.equal(entry.forced, true);
+  assert.equal(entry.note, 'approved despite unresolved clarification markers');
+});
+
+test('a routine (non-forced) decideGate call records forced:false explicitly', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.routine-gate', taskClass: 'feature' });
+  orch.completeStage({ taskId: 't.routine-gate', stageId: 'discovery' });
+  orch.decideGate({ taskId: 't.routine-gate', gateId: 'gate-0', decision: 'approve' });
+  const run = orch.readRun('t.routine-gate');
+  const entry = run.history.find((h) => h.action === 'decide-gate' && h.node === 'gate-0');
+  assert.equal(entry.forced, false);
+});
+
+test('annotate on a valid node appends history without touching state/cursor/node statuses', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.annotate', taskClass: 'feature' });
+  orch.completeStage({ taskId: 't.annotate', stageId: 'discovery' });
+  orch.decideGate({ taskId: 't.annotate', gateId: 'gate-0', decision: 'approve' });
+
+  const before = orch.readRun('t.annotate');
+  const beforeState = before.state;
+  const beforeCursor = before.cursor;
+  const beforeStatuses = before.program.map((n) => n.status);
+
+  const snap = orch.annotate({ taskId: 't.annotate', node: 'design', note: 're-reviewed after handoff' });
+  assert.equal(snap.taskId, 't.annotate');
+
+  const after = orch.readRun('t.annotate');
+  assert.equal(after.state, beforeState);
+  assert.equal(after.cursor, beforeCursor);
+  assert.deepEqual(after.program.map((n) => n.status), beforeStatuses);
+
+  const entry = after.history.find((h) => h.action === 'annotate');
+  assert.ok(entry);
+  assert.equal(entry.node, 'design');
+  assert.equal(entry.note, 're-reviewed after handoff');
+  assert.equal(entry.forced, false);
+});
+
+test('annotate on an unknown node id throws', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.annotate-bad-node', taskClass: 'feature' });
+  assert.throws(
+    () => orch.annotate({ taskId: 't.annotate-bad-node', node: 'not-a-real-node', note: 'x' }),
+    /Invalid node: 'not-a-real-node' is not part of the program for run 't\.annotate-bad-node'/,
+  );
+});
+
+test('annotate forced=true without a note is refused', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.annotate-forced-no-note', taskClass: 'feature' });
+  assert.throws(
+    () => orch.annotate({ taskId: 't.annotate-forced-no-note', node: 'discovery', forced: true }),
+    /A forced annotation requires a --note reason/,
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────── catch-up
+
+test('catch-up starts a fresh run and stops on the first candidate stage', () => {
+  const orch = fresh();
+  const s = orch.catchUp({ taskId: 't.cu-fresh', taskClass: 'bug', candidateStageIds: ['reproduction'] });
+  assert.equal(s.caughtUpTo, 'reproduction');
+  assert.equal(s.reason, 'reached-candidate');
+  assert.equal(orch.readRun('t.cu-fresh').cursor, 0);
+});
+
+test('catch-up backfills a non-candidate stage on the way to the candidate, marked backfilled:true — distinct from a real handoff', () => {
+  const orch = fresh();
+  const s = orch.catchUp({ taskId: 't.cu-backfill', taskClass: 'bug', candidateStageIds: ['root-cause'] });
+  assert.equal(s.caughtUpTo, 'root-cause');
+  const run = orch.readRun('t.cu-backfill');
+  const entry = run.history.find((h) => h.action === 'complete-stage' && h.node === 'reproduction');
+  assert.ok(entry, 'reproduction must have been backfilled to reach root-cause');
+  assert.equal(entry.backfilled, true);
+  assert.equal(entry.note, 'catch-up: backfilled');
+
+  // A stage the owning skill actually completes carries no such marker.
+  orch.completeStage({ taskId: 't.cu-backfill', stageId: 'root-cause', note: 'real work' });
+  const real = orch.readRun('t.cu-backfill').history.find((h) => h.action === 'complete-stage' && h.node === 'root-cause');
+  assert.equal(real.backfilled, false);
+});
+
+test('catch-up never auto-approves a clarification gate; it stops and reports awaiting-gate like any other gate', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.cu-gate0', taskClass: 'feature' });
+  orch.completeStage({ taskId: 't.cu-gate0', stageId: 'discovery' });
+  // gate-0 (clarification-kind) is left open, mirroring the "markers survived an aborted session"
+  // case do-brainstorm's own SKILL.md documents — a human, not catch-up, must decide it.
+  const s = orch.catchUp({ taskId: 't.cu-gate0', taskClass: 'feature', candidateStageIds: ['design'] });
+  assert.equal(s.caughtUpTo, null);
+  assert.equal(s.reason, 'awaiting-gate:gate-0');
+  const run = orch.readRun('t.cu-gate0');
+  assert.equal(run.state, 'AWAITING_GATE', 'the gate must still be open, not silently approved');
+  assert.equal(run.program.find((n) => n.id === 'gate-0').status, 'pending');
+});
+
+test('catch-up with two candidate occurrences (do-test\'s own shape in bug/refactor) walks to the second when only the first is done', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.cu-two', taskClass: 'bug' });
+  orch.completeStage({ taskId: 't.cu-two', stageId: 'reproduction' });
+  orch.completeStage({ taskId: 't.cu-two', stageId: 'root-cause' });
+  orch.completeStage({ taskId: 't.cu-two', stageId: 'implementation' });
+  // Now at regression-verification. do-test re-invokes naming BOTH of its occurrences, exactly as
+  // its own SKILL.md instructs — this must resolve the still-pending one, not misfire on the
+  // already-completed 'reproduction'.
+  const s = orch.catchUp({
+    taskId: 't.cu-two', taskClass: 'bug',
+    candidateStageIds: ['reproduction', 'regression-verification'],
+  });
+  assert.equal(s.caughtUpTo, 'regression-verification', 'must not short-circuit on the first, already-done occurrence');
+  assert.equal(s.reason, 'reached-candidate');
+});
+
+test('catch-up returns already-completed when every named candidate is already done, and touches nothing further', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.cu-done', taskClass: 'bug' });
+  orch.completeStage({ taskId: 't.cu-done', stageId: 'reproduction' });
+  orch.completeStage({ taskId: 't.cu-done', stageId: 'root-cause' });
+  orch.completeStage({ taskId: 't.cu-done', stageId: 'implementation' });
+  orch.completeStage({ taskId: 't.cu-done', stageId: 'regression-verification' });
+  const before = orch.readRun('t.cu-done');
+  const beforeCursor = before.cursor;
+  const beforeHistoryLength = before.history.length;
+
+  const s = orch.catchUp({
+    taskId: 't.cu-done', taskClass: 'bug',
+    candidateStageIds: ['reproduction', 'regression-verification'],
+  });
+  assert.equal(s.caughtUpTo, null);
+  assert.equal(s.reason, 'already-completed:reproduction,regression-verification');
+
+  const after = orch.readRun('t.cu-done');
+  assert.equal(after.cursor, beforeCursor, 'catch-up must not advance the cursor on an already-completed check');
+  assert.equal(after.history.length, beforeHistoryLength, 'catch-up must not write anything for an already-completed check');
+});
+
+test('catch-up on an existing run refuses a taskClass that contradicts how the run was started', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.cu-mismatch', taskClass: 'bug' });
+  assert.throws(
+    () => orch.catchUp({ taskId: 't.cu-mismatch', taskClass: 'feature', candidateStageIds: ['root-cause'] }),
+    /started as task class 'bug', not 'feature'/,
+  );
+});
+
+test('catch-up skips (not completes) an optional non-candidate stage it walks past', () => {
+  const orch = fresh();
+  // review workflow: verification(optional) -> review. Candidate is 'review' only.
+  const s = orch.catchUp({ taskId: 't.cu-optional', taskClass: 'review', candidateStageIds: ['review'] });
+  assert.equal(s.caughtUpTo, 'review');
+  const run = orch.readRun('t.cu-optional');
+  const verification = run.program.find((n) => n.id === 'verification');
+  assert.equal(verification.status, 'skipped');
+  const entry = run.history.find((h) => h.node === 'verification');
+  assert.equal(entry.action, 'skip-stage');
+  // A backfilled skip must carry the same marker a backfilled completion does — otherwise a stage
+  // nobody ran renders in audit.md with an empty Flags column, indistinguishable from a deliberate
+  // operator skip (exactly the condition H1's own fix was filed to close, reopened on this path).
+  assert.equal(entry.backfilled, true);
+
+  // A skip the operator actually asked for carries no such marker.
+  orch.start({ taskId: 't.skip-real', taskClass: 'review' });
+  orch.skipStage({ taskId: 't.skip-real', stageId: 'verification', reason: 'nothing to verify' });
+  const real = orch.readRun('t.skip-real').history.find((h) => h.node === 'verification');
+  assert.equal(real.backfilled, false);
+});
+
+test('catch-up reports run-rejected on a rejected run rather than throwing', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.cu-rejected', taskClass: 'feature' });
+  orch.completeStage({ taskId: 't.cu-rejected', stageId: 'discovery' });
+  orch.decideGate({ taskId: 't.cu-rejected', gateId: 'gate-0', decision: 'reject', note: 'wrong problem' });
+  // 'design' is a real, valid stage id — never reached, still 'pending' — so the already-completed
+  // pre-check does not fire and the walk correctly reports the run's own terminal state instead.
+  const rejected = orch.catchUp({ taskId: 't.cu-rejected', taskClass: 'feature', candidateStageIds: ['design'] });
+  assert.equal(rejected.reason, 'run-rejected');
+  assert.equal(rejected.caughtUpTo, null);
+});
+
+test('H-A regression: catch-up on a COMPLETED run naming an already-recorded candidate returns already-completed:<id>, not run-completed', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.cu-completed', taskClass: 'bug' });
+  orch.completeStage({ taskId: 't.cu-completed', stageId: 'reproduction' });
+  orch.completeStage({ taskId: 't.cu-completed', stageId: 'root-cause' });
+  orch.completeStage({ taskId: 't.cu-completed', stageId: 'implementation' });
+  orch.completeStage({ taskId: 't.cu-completed', stageId: 'regression-verification' });
+  orch.skipStage({ taskId: 't.cu-completed', stageId: 'review', reason: 'blast radius stayed within the reproduction' });
+  const before = orch.readRun('t.cu-completed');
+  assert.equal(before.state, 'COMPLETED');
+  const beforeHistoryLength = before.history.length;
+
+  // A chain skill re-invoking catch-up on its own already-recorded stage (the normal shape a
+  // resumed session takes) must still get already-completed:<id> so it calls `annotate`, exactly
+  // as it would on a not-yet-COMPLETED run — the terminal-state check exists for REJECTED, where
+  // no candidate can ever be 'already done'; it must not also pre-empt this check on COMPLETED,
+  // where every stage is, by construction, always in a terminal per-node status.
+  const s = orch.catchUp({ taskId: 't.cu-completed', taskClass: 'bug', candidateStageIds: ['root-cause'] });
+  assert.equal(s.reason, 'already-completed:root-cause');
+  assert.notEqual(s.reason, 'run-completed');
+  assert.equal(s.caughtUpTo, null);
+
+  const after = orch.readRun('t.cu-completed');
+  assert.equal(after.history.length, beforeHistoryLength, 'catch-up must not write anything for an already-completed check');
+});
+
+test('catch-up refuses a candidate stage id that names no stage in the run\'s own program, on any run state', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.cu-unknown', taskClass: 'feature' });
+  assert.throws(
+    () => orch.catchUp({ taskId: 't.cu-unknown', taskClass: 'feature', candidateStageIds: ['not-in-this-program'] }),
+    /candidate stage id\(s\) not in run 't\.cu-unknown''s program: not-in-this-program/,
+  );
+
+  // The same refusal holds even on a COMPLETED run, where every real stage id would otherwise be
+  // caught by the already-completed pre-check — an unknown id must never fall through past both
+  // checks into the walk loop and silently start completing stages as backfilled (the exact defect
+  // this validation exists to close).
+  orch.start({ taskId: 't.cu-unknown-done', taskClass: 'trivial-edit' });
+  orch.completeStage({ taskId: 't.cu-unknown-done', stageId: 'implementation' });
+  orch.skipStage({ taskId: 't.cu-unknown-done', stageId: 'verification', reason: 'nothing to verify' });
+  assert.throws(
+    () => orch.catchUp({ taskId: 't.cu-unknown-done', taskClass: 'trivial-edit', candidateStageIds: ['not-in-this-program'] }),
+    /candidate stage id\(s\) not in run 't\.cu-unknown-done''s program/,
+  );
+});
+
+test('M-1 regression: catch-up validates an EXISTING run against its own compiled program, not the live registry — a stale-relative-to-registry program must still refuse a candidate it does not actually contain', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.cu-stale', taskClass: 'bug' });
+  // Simulate this run's compiled program predating a registry rename: `regression-verification`
+  // is a real, current 'bug' registry stage id, but THIS run's own program no longer has a node
+  // by that name (renamed here to stand in for one compiled under an older registry shape).
+  // Validating the candidate against the live registry instead of this run's own program (an
+  // earlier version of this check did exactly that) would accept 'regression-verification' as
+  // "known" — it IS a real current stage id — and let the walk proceed to look for it, silently
+  // backfilling `reproduction` and `root-cause` as ordinary intermediate stages before blocking
+  // on `implementation` (the renamed node sits AFTER implementation and is never reached), never
+  // finding a match. Reproduced against that behavior before this fix: two forged
+  // `backfilled:true` entries land in the journal for a candidate this run's own program was
+  // never going to reach.
+  const run = orch.readRun('t.cu-stale');
+  run.program.find((n) => n.id === 'regression-verification').id = 'regression-verification-legacy';
+  orch.writeRun(run);
+  assert.throws(
+    () => orch.catchUp({ taskId: 't.cu-stale', taskClass: 'bug', candidateStageIds: ['regression-verification'] }),
+    /candidate stage id\(s\) not in run 't\.cu-stale''s program: regression-verification/,
+  );
+  // Refused before the walk ever ran — nothing was backfilled.
+  assert.equal(orch.readRun('t.cu-stale').history.length, 1, 'only the initial start entry — nothing forged');
+});
+
+test('catch-up refuses an unknown candidate before walking forward, leaving no stage backfilled', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.cu-unknown-safe', taskClass: 'bug' });
+  assert.throws(() => orch.catchUp({
+    taskId: 't.cu-unknown-safe', taskClass: 'bug', candidateStageIds: ['typo-of-root-cause'],
+  }));
+  const run = orch.readRun('t.cu-unknown-safe');
+  assert.equal(run.cursor, 0, 'the cursor must not have moved');
+  assert.equal(run.program.find((n) => n.id === 'reproduction').status, 'pending');
+  assert.equal(run.history.length, 1, 'only the initial start entry — nothing backfilled');
+});
+
+test('H-1 regression: catch-up refuses an unknown candidate on a FRESH task with no existing run, before start() ever writes anything', () => {
+  const orch = fresh();
+  // No orch.start() here — this is exactly the path every real chain skill takes on a feature's
+  // first catch-up call, and exactly the path the three tests above all skip by pre-starting the
+  // run. A typo on this call must not persist a run: start() used to run before candidate
+  // validation, so a bad id still left a durable orphan run pinned to whatever class the failed
+  // call happened to carry, with no CLI verb able to undo it (`start` refuses on an existing run).
+  assert.equal(orch.readRun('t.cu-fresh-typo'), null, 'precondition: no run exists yet');
+  assert.throws(
+    () => orch.catchUp({ taskId: 't.cu-fresh-typo', taskClass: 'feature', candidateStageIds: ['discoverry'] }),
+    /candidate stage id\(s\) not declared by task class 'feature': discoverry/,
+  );
+  assert.equal(orch.readRun('t.cu-fresh-typo'), null, 'a failed first catch-up must not persist a run at all');
+});
+
+test('a corrected candidate id on a retry after H-1\'s refusal starts the run normally', () => {
+  const orch = fresh();
+  assert.throws(() => orch.catchUp({ taskId: 't.cu-fresh-retry', taskClass: 'feature', candidateStageIds: ['discoverry'] }));
+  assert.equal(orch.readRun('t.cu-fresh-retry'), null);
+  const s = orch.catchUp({ taskId: 't.cu-fresh-retry', taskClass: 'feature', candidateStageIds: ['discovery'] });
+  assert.equal(s.caughtUpTo, 'discovery');
+  assert.equal(s.reason, 'reached-candidate');
+});
+
+test('catch-up blocks on a mutating stage carrying a readiness template that only its own skill may complete', () => {
+  const orch = fresh({ readinessEvaluate: NEVER_READY });
+  const s = orch.catchUp({ taskId: 't.cu-blocked', taskClass: 'bug', candidateStageIds: ['regression-verification'] });
+  assert.equal(s.caughtUpTo, null);
+  assert.equal(s.reason, 'blocked-on-mutating-stage:implementation');
+});
+

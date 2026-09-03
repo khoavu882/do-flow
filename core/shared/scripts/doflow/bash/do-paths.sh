@@ -135,16 +135,75 @@ if [ -n "$slug_override" ]; then
   candidate_slugs_json="[]"
 fi
 
-feature_dir=""; requirement=""; design=""; plan=""; state=""
-has_requirement=false; has_design=false; has_plan=false
+feature_dir=""; requirement=""; design=""; specs=""; plan=""; state=""; audit=""
+has_requirement=false; has_design=false; has_plan=false; has_specs=false
+layout="legacy"
+intention_next_round=""; design_next_round=""; plan_next_round=""
 if [ -n "$feature_slug" ]; then
   feature_dir="$specs_rel/$feature_slug"
   abs="$repo_root/$feature_dir"
-  requirement="$feature_dir/requirement.md"; design="$feature_dir/design.md"
-  plan="$feature_dir/plan.md"; state="$feature_dir/state.md"
-  [ -f "$abs/requirement.md" ] && has_requirement=true
-  [ -f "$abs/design.md" ]      && has_design=true
-  [ -f "$abs/plan.md" ]        && has_plan=true
+  state="$feature_dir/state.md"; audit="$feature_dir/audit.md"
+  # ── layout: computed ONCE from a single file's presence, then used to pick
+  # every path field below — never detected per-field (design.md R4). This is
+  # what makes a self-contradictory mix of old/new paths for the same feature
+  # dir unreachable by construction.
+  [ -f "$abs/intention/requirement.md" ] && layout="structured"
+  if [ "$layout" = "structured" ]; then
+    requirement="$feature_dir/intention/requirement.md"
+    design="$feature_dir/design/design.md"
+    specs="$feature_dir/design/specs.md"
+    plan="$feature_dir/plan/plan.md"
+    [ -f "$abs/intention/requirement.md" ] && has_requirement=true
+    [ -f "$abs/design/design.md" ]         && has_design=true
+    [ -f "$abs/design/specs.md" ]          && has_specs=true
+    [ -f "$abs/plan/plan.md" ]             && has_plan=true
+  else
+    requirement="$feature_dir/requirement.md"; design="$feature_dir/design.md"
+    plan="$feature_dir/plan.md"
+    [ -f "$abs/requirement.md" ] && has_requirement=true
+    [ -f "$abs/design.md" ]      && has_design=true
+    [ -f "$abs/plan.md" ]        && has_plan=true
+  fi
+
+  # ── per-stage question-log round scan (structured layout only has files to find,
+  # but the scan itself is layout-agnostic — an empty/absent subdir just floors at 1).
+  # Skipped in --paths-only mode like the next_number scan below; the three variables
+  # stay "" (emitted as null, never a numeric 1) so "not computed in this cheap mode"
+  # can never be mistaken for "computed, no rounds yet" ──
+  if [ "$mode" != "paths-only" ]; then
+    max=0
+    if [ -d "$abs/intention" ]; then
+      for f in "$abs/intention"/brainstorm-*-question.md; do
+        [ -f "$f" ] || continue
+        num="$(basename "$f")"; num="${num#brainstorm-}"; num="${num%-question.md}"
+        case "$num" in ''|*[!0-9]*) continue ;; esac
+        num=$((10#$num)); [ "$num" -gt "$max" ] && max="$num"
+      done
+    fi
+    intention_next_round=$((max + 1))
+
+    max=0
+    if [ -d "$abs/design" ]; then
+      for f in "$abs/design"/design-*-question.md; do
+        [ -f "$f" ] || continue
+        num="$(basename "$f")"; num="${num#design-}"; num="${num%-question.md}"
+        case "$num" in ''|*[!0-9]*) continue ;; esac
+        num=$((10#$num)); [ "$num" -gt "$max" ] && max="$num"
+      done
+    fi
+    design_next_round=$((max + 1))
+
+    max=0
+    if [ -d "$abs/plan" ]; then
+      for f in "$abs/plan"/plan-*-question.md; do
+        [ -f "$f" ] || continue
+        num="$(basename "$f")"; num="${num#plan-}"; num="${num%-question.md}"
+        case "$num" in ''|*[!0-9]*) continue ;; esac
+        num=$((10#$num)); [ "$num" -gt "$max" ] && max="$num"
+      done
+    fi
+    plan_next_round=$((max + 1))
+  fi
 fi
 
 # ── next number: max(existing spec dirs, numbered branches) + 1 ───────────────
@@ -209,8 +268,14 @@ jq -n \
   --arg feature_slug "$feature_slug" \
   --arg feature_dir "$feature_dir" \
   --argjson candidate_slugs "$candidate_slugs_json" \
-  --arg requirement "$requirement" --arg design "$design" --arg plan "$plan" --arg state "$state" \
+  --arg requirement "$requirement" --arg design "$design" --arg specs "$specs" --arg plan "$plan" \
+  --arg state "$state" --arg audit "$audit" \
   --argjson has_requirement "$has_requirement" --argjson has_design "$has_design" --argjson has_plan "$has_plan" \
+  --argjson has_specs "$has_specs" \
+  --arg layout "$layout" \
+  --arg intention_next_round "$intention_next_round" \
+  --arg design_next_round "$design_next_round" \
+  --arg plan_next_round "$plan_next_round" \
   --arg next_number "$next_number" \
   --arg constitution_base "$constitution_base" \
   --arg constitution_local "$constitution_local" \
@@ -223,13 +288,20 @@ jq -n \
     feature_slug:       (if $feature_slug=="" then null else $feature_slug end),
     feature_dir:        (if $feature_dir=="" then null else $feature_dir end),
     candidate_slugs:    $candidate_slugs,
+    layout:             $layout,
     requirement:        (if $requirement=="" then null else $requirement end),
     design:             (if $design=="" then null else $design end),
+    specs:              (if $specs=="" then null else $specs end),
     plan:               (if $plan=="" then null else $plan end),
     state:              (if $state=="" then null else $state end),
+    audit:              (if $audit=="" then null else $audit end),
     has_requirement:    $has_requirement,
     has_design:         $has_design,
+    has_specs:          $has_specs,
     has_plan:           $has_plan,
+    intention_next_round: (if $intention_next_round=="" then null else ($intention_next_round|tonumber) end),
+    design_next_round:  (if $design_next_round=="" then null else ($design_next_round|tonumber) end),
+    plan_next_round:    (if $plan_next_round=="" then null else ($plan_next_round|tonumber) end),
     next_number:        $next_number,
     constitution_base:  (if $constitution_base=="" then null else $constitution_base end),
     constitution_local: $constitution_local,

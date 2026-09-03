@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# subagent-audit.sh — SubagentStart + SubagentStop hook (pure observability, no deny path)
+# subagent-audit.sh — Canonical Policy Library: SubagentStart + SubagentStop hook
+# (pure observability, no deny path)
+#
+# 022-hooks-remaining-duplication: claude and codex's copies were byte-identical — moved here as
+# the single canonical copy. Gemini has no SubagentStart/SubagentStop-equivalent event.
 #
 # Appends {timestamp, session_id, event, agent_type, agent_id} to a session-scoped audit log.
 # Today there is zero record of which of the installed agents/ specialists actually run, how often, or
