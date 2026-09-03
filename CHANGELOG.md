@@ -13,6 +13,23 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.2.0] - 2026-09-03
+
+### Added
+
+- **Structured feature trail for the chain:** `WorkflowOrchestrator.catchUp()` as the single mechanism every chain skill uses to position a run, backfill non-mutating stages, and disambiguate two-occurrence stages (`do-test` in bug/refactor) — replacing six bespoke, independently-buggy implementations. Splits `design.md`'s interface contracts into `specs.md`, and adds `render-audit.sh` to project the orchestration journal into `audit.md`.
+- **Tiered lifecycle policies:** every `lifecycle.json` policy now carries a `tier` (`core` — must stay universal across every integrated harness — vs `enhanced` — best-effort per harness) instead of reducing to the cross-harness intersection.
+- **Heredoc blanking in do-code-review's complexity analyzer:** shell/Ruby/PHP heredocs are now correctly blanked before complexity analysis, fixing false-positive complexity counts from prose inside heredoc bodies.
+- **Always-on context7/sequential-thinking in do-brainstorm and do-design:** both skills now unconditionally consult context7 (library/framework/API references) and sequential-thinking (multi-step/cross-domain reasoning), gated only by their own trigger condition, never by a flag.
+
+### Fixed
+
+- Hardened the catch-up primitive's stage-id validation and terminal-state handling, closing regressions found across five rounds of review on the structured-feature-trail work.
+
+### Changed
+
+- Normalized the hook runtime into a harness-agnostic canonical policy library (`core/harnesses/shared/hooks/policies/`), with claude/codex/gemini/kiro front doors rewritten as thin dispatchers; consolidated remaining front-door duplication and fixed a shared-library install gap that left the new library unreachable in a real install.
+
 ## [1.1.1] - 2026-08-25
 
 ### Added
