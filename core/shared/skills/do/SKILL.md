@@ -1,6 +1,6 @@
 ---
 name: do
-description: "DoFlow universal dispatcher and request router — session announcement, multi-part task decomposition, capability routing, and development estimation. Use when a request doesn't clearly name one of the other /do-* skills, bundles multiple unrelated asks across files or domains, or needs a tool recommendation or effort estimate before any work begins — for example 'what should I use to search this repo' or 'give me a rough estimate for this change'."
+description: "DoFlow universal dispatcher and request router — session announcement, multi-part task decomposition, capability routing, and development estimation. Use whenever a request doesn't clearly map to a single /do-* skill, bundles multiple unrelated asks across files or domains, or needs a tool recommendation or effort estimate before any work begins (e.g., 'what should I use to search this repo', 'give me a rough estimate for this change', or 'first do X, then document Y, then review Z'). Always activate this skill when decomposing multi-part tasks or routing ambiguous requests."
 argument-hint: "[command|request] [--depth shallow|normal|deep] [--estimate]"
 effort: low
 ---
@@ -45,7 +45,12 @@ Branch on the returned `outcome` field, not the exit code.
   A rejection may be about **you** rather than the class (`reason: caller-not-a-stage`). Then the fix is to propose one of the classes in `fit.hostingClasses`, or to hand the work to the skill this class names for the stage you meant — not to re-propose the same class.
 - **Exit 2** — surface the message verbatim and stop.
 
-Route the package to the accepted workflow's first stage. A workflow whose `stages` contain nothing
+In the decomposition plan, explicitly state each work package with:
+1. **Target skill by name**: name the exact `/do-*` skill that owns the package (e.g. `do-implement` for direct code edits, `do-document` for documentation/guides/references, `do-code-review` for code reviews, `do-test` for test execution, `do-flow` for end-to-end features).
+2. **Validated task class**: the class accepted by the runtime in this step.
+3. **Execution order & dependencies**: sequential vs concurrent execution across the packages.
+
+Route each package to the accepted workflow's first stage. A workflow whose `stages` contain nothing
 that does the package's work is a misclassification — re-propose the class rather than routing the
 package under one the runtime accepted for a different kind of task.
 

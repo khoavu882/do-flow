@@ -13,6 +13,18 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.2.1] - 2026-09-03
+
+### Enhanced
+
+- **Skill Creator Optimization across 11 Core Skills:**
+  - Hardened frontmatter `description` fields with pushy triggers and clear operational boundaries to eliminate model undertriggering.
+  - Grounded prompts with "Explain the WHY" architectural rationale across `do`, `do-brainstorm`, `do-design`, `do-plan`, `do-execute-plan`, `do-diagnose`, `do-document`, `do-flow`, `do-git`, `do-implement`, and `do-test`.
+  - Added strict URL validation for deep web research citations in `do-document`.
+  - Explicitly prohibited placeholder stubs (`// TODO: implement`) and mock exceptions in `do-implement`.
+  - Enforced Mermaid flowchart rendering for C4 diagrams in `do-design` for universal viewer compatibility.
+  - Verified against the quantitative benchmark suite (`bench/runner.js`) with 4 improved metrics and zero regressions.
+
 ## [1.2.0] - 2026-09-03
 
 ### Added

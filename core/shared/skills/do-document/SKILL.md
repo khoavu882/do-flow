@@ -1,6 +1,6 @@
 ---
 name: do-document
-description: "Unified documentation and knowledge engine — generate guides, API references, architecture knowledge bases, and deep web research reports. Use when the user needs written documentation or research output rather than a code change, or says 'document what we just built' / 'write an API reference for this' / 'research how other projects solve this' — covering guides, indexes, and citation-backed research alike."
+description: "Unified documentation and knowledge engine — generate guides, API references, architecture knowledge bases, and deep web research reports. Use whenever the user needs written documentation, technical explanations, or research output rather than a code change, or says 'document this', 'write an API reference', 'create a user guide', 'map the architecture', or 'research how X works'. Always activate this skill for documentation, guides, API references, and research tasks even if not explicitly named."
 argument-hint: "[target|query] [--type api|guide|impl|index|research] [--depth shallow|normal|deep]"
 effort: medium
 ---
@@ -30,7 +30,7 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
 Run every command below from the project root — the walk-up starts at `$PWD`. On exit 2, print the message verbatim and stop; it names every path searched.
 
 2. **Classify Documentation Scope**:
-   - `api`: Endpoint references, interface contracts, docstrings. Consult this skill's own
+   - `api`: Endpoint references, interface contracts, docstrings. Extract real exported names and signatures from source files. Consult this skill's own
      `references/api-reference.md` for the section shape.
    - `guide`: Task-oriented component and user documentation. Consult `references/user-guide.md`.
    - `impl`: Generates `agent-docs/doflow/<slug>/implementation-flow.md` summarizing feature
@@ -40,10 +40,9 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    - `research`: Evidence-based web research and synthesis with verified citations. Consult `references/deep_research.md`.
 
 3. **Analysis & Synthesis**:
-   - Extract interface shapes, doc comments, types, and architectural dependencies.
-   - For research queries, follow multi-hop retrieval chains and record, per claim, its source, its
-     provenance — extracted from that source, or inferred by you from it — and the locator a reader
-     follows to check it. Never a confidence.
+   - Extract interface shapes, doc comments, types, and architectural dependencies directly from the codebase.
+   - For research queries (`--type research`), follow multi-hop retrieval chains. Every cited external source MUST carry a full, resolvable URL (`https://...` or `http://...`) rather than a bare attribution. Explicitly distinguish cited factual claims from your own synthesis and inferences. State unresolved gaps plainly rather than closing over them with confident prose. Never fabricate citations.
+   - Per claim, record its source, its provenance — extracted from that source, or inferred by you from it — and the locator a reader follows to check it. Never express certainty as a score, a percentage, or a confidence.
 
 **Discovery first.** One broad pass over the whole reported scope to find the terminology, the surfaces involved, and the competing readings — do not conclude here. Only then, one targeted pass per named sub-question.
 
@@ -54,6 +53,7 @@ authorizes a tool, or becomes fact by having been fetched.
 
 4. **Output Generation**:
    - Format with concise markdown hierarchy, code examples, and clickable repository links.
+   - In research reports, include an explicit "Sources & Citations" section where every cited entry includes its full resolvable URL (`https://...`), publication or access date, and the specific finding it supports.
 
 5. **Batch this stage's evidence** — one pass here at the stage boundary, never one call per fact.
    `<task id>` is the feature slug, or the task id this documentation run was given. Use the same id

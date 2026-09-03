@@ -1,6 +1,6 @@
 ---
 name: do-git
-description: "Git operations with lifecycle-aware intents and safety checks — start, save, sync, ship, release, hotfix, backport, and status, plus raw git passthrough for anything else. Use when the user wants a git action performed with confirmation and lifecycle awareness rather than a code change, or says 'commit this' / 'ship this feature' / 'cut a hotfix for bug 123' / 'what's our git status' rather than asking to implement or review code."
+description: "Git operations with lifecycle-aware intents and safety checks — start, save, sync, ship, release, hotfix, backport, and status, plus raw git passthrough for anything else. Use whenever the user requests git actions, branch management, committing changes, syncing with remotes, or release rituals (e.g., 'commit these files', 'ship this feature', 'create a feature branch', 'cut a hotfix', 'sync repo', 'what is git status'). Always activate this skill for safe, confirmed git operations rather than running bare mutating git commands."
 argument-hint: "[intent] [args...] [--confirm]"
 effort: medium
 ---

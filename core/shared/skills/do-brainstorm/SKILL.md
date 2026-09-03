@@ -1,6 +1,6 @@
 ---
 name: do-brainstorm
-description: "Interactive requirements discovery through Socratic dialogue; seeds requirement.md in a branch-coupled feature dir as Phase 1 of the doflow chain. Use when an idea is still vague and needs discovery questions before any design or planning work starts, or when the user says something like 'I have an idea for a new feature' or 'help me figure out what we actually need to build' rather than describing a concrete, already-scoped task."
+description: "Interactive requirements discovery through Socratic dialogue; seeds requirement.md in a branch-coupled feature dir as Phase 1 of the doflow chain. Use whenever an idea is still vague or early, requirements need discovery questions before design or planning begins, or the user says 'I have an idea', 'help me scope this feature', 'brainstorm what we need', or 'explore building X'. Always activate this skill before designing or planning new features to ensure requirements are grounded in WHAT and WHY without premature implementation choices."
 argument-hint: "[topic/idea] [--depth shallow|normal|deep]"
 effort: high
 ---
@@ -69,7 +69,9 @@ workflow never reads.
    `--depth shallow|normal|deep` is the single breadth knob: it sets both how many dialogue
    rounds run and how wide each one reaches. Coordinate architecture/analysis/frontend/backend/
    security domain framing as needed, but stay in discovery mode — no implementation decisions
-   here.
+   here. Discovery focuses strictly on WHAT and WHY: user problem, personas, business outcomes,
+   and acceptance criteria. Keeping concrete technical stack decisions out of requirements prevents
+   premature technical bias before `/do-design` evaluates architectural options.
    **MCP Integration**:
    - **Context7**: the idea names a specific library or framework → verify the claim, per
      `MCP_Context7.md`'s Tool IDs, before folding it into `requirement.md` — read-only
@@ -122,7 +124,7 @@ workflow never reads.
    migration, and a dir must never resolve as a mix of both layouts.
 The template is `templates/doflow/requirement-template.md` in the install step 1 resolved: take `constitution_base` from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
    WHAT/WHY only: user stories (P1/P2/P3 → US#), `FR-###`, NFRs, out-of-scope, acceptance criteria. Zero `[NEEDS CLARIFICATION]` markers remain in §7 at
-   hand-off — every ambiguity from Step 2 is either a resolved answer folded into the relevant
+   hand-off — every ambiguity from Step 2/3 is either a resolved answer folded into the relevant
    US/FR/NFR, or an assumption recorded in `requirement-template.md`'s §8 "Assumptions" section
    with a one-line rationale.
    The `[NEEDS CLARIFICATION]` marker syntax remains only as a fallback for a session aborted

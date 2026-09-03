@@ -1,6 +1,6 @@
 ---
 name: do-plan
-description: "Generate the implementation plan (HOW) and dependency-ordered task checklist from requirement.md + design.md (plus design/specs.md's IC-### interface contracts when the feature has one), with a Constitution Check gate, as Phase 3 of the doflow chain. Use when requirement.md and design.md already exist and the next need is a concrete, owner-and-file-scoped task breakdown before implementation starts, or the user says 'turn this design into a plan' rather than asking to design the system or write code."
+description: "Generate the implementation plan (HOW) and dependency-ordered task checklist from requirement.md + design.md (plus design/specs.md's IC-### interface contracts when the feature has one), with a Constitution Check gate, as Phase 3 of the doflow chain. Use whenever requirement.md and design.md exist and the next step is creating an actionable, owner-and-file-scoped task breakdown before implementation, or when the user says 'create an implementation plan', 'break this down into tasks', 'plan the work', or 'plan Phase 3'. Always activate this skill before executing feature implementation."
 argument-hint: "[--depth shallow|normal|deep]"
 effort: high
 ---
@@ -121,6 +121,10 @@ Structure the artifact per the guidance tree's `references/ARTIFACT_FORMAT.md` â
    user stories, owner+files named per task, with checkpoints and completion criteria.
    `--depth shallow|normal|deep` is the single granularity knob: it sets how finely a phase is
    split into tasks and how much detail each task carries. Default `normal`.
+   **Why explicit task scoping and `[P]` markers**: Specifying concrete file paths (`files: [...]`)
+   and named specialist owners (`system-architect`, `core-implementer`, `quality-guardian`) per task
+   enables `/do-execute-plan` to compute write-set isolation (`parallel-check`). Tasks with disjoint
+   file sets run concurrently without merge conflicts, while overlapping tasks are safely serialized.
    **Mark `[P]` by default:** parallel execution is the framework default, so apply `[P]` to every
    task whose `files:` set is disjoint from its phase siblings' and leave it off only where a real
    dependency forces the order â€” an unmarked task is the exception that owes a reason, not the norm.

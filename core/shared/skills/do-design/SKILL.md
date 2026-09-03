@@ -1,6 +1,6 @@
 ---
 name: do-design
-description: "Design system architecture, APIs, and component interfaces (HOW at the system-shape level); writes design.md as Phase 2 of the doflow chain, turning requirement.md into concrete architecture and interface decisions. Use when requirement.md already exists and the next need is system-shape decisions — diagrams, API contracts, data models — or the user says 'design the architecture for this' rather than asking for an implementation plan or task list."
+description: "Design system architecture, APIs, and component interfaces (HOW at the system-shape level); writes design.md as Phase 2 of the doflow chain, turning requirement.md into concrete architecture and interface decisions. Use whenever requirement.md exists and the next need is system-shape decisions (diagrams, API contracts, data models, component boundaries), or when the user says 'design the architecture', 'model the data', or 'create the API specs' rather than asking for an implementation plan or task checklist."
 argument-hint: "[target] [--type architecture|api|component|database]"
 effort: high
 ---
@@ -110,6 +110,9 @@ a `design.md` for it invents an artifact its workflow never reads.
    from step 5, splitting the narrative from the contracts across two files at the paths step 1
    resolved: `design` (`design/design.md` in the structured layout) and `specs`
    (`design/specs.md`). `mkdir -p` their parent directory first.
+   **Why narrative vs. contracts**: Decoupling architectural narrative (`design.md`) from concrete
+   interface contracts (`specs.md` with numbered `IC-###` items) enables downstream `/do-plan` and
+   implementation tasks to cite stable, unambiguous contract IDs rather than fragile paragraphs.
    The narrative sections — §1 Architecture Approach, §2 System Overview (C4), §3 Components &
    Boundaries, §6 Sequence / Data Flow, §7 Risks, §8 Assumptions, §9 History — stay in `design.md`.
    The technical scaffolding `references/ARTIFACT_FORMAT.md` §7 names — `design-template.md`'s §4
@@ -134,7 +137,7 @@ The template is `templates/doflow/design-template.md` in the install step 1 reso
 Structure the artifact per the guidance tree's `references/ARTIFACT_FORMAT.md` — read it before filling the template; it names which of this artifact's sections take an index-then-detail table.
    Its §4 also governs the C4 diagrams — keep C4 as the conceptual zoom model but render every level
    with Mermaid `flowchart` plus `subgraph` boundaries; the experimental `C4Context` / `C4Container`
-   types must not be used.
+   types must not be used to ensure universal rendering compatibility across all markdown engines.
 7. **Validate** — run the advisory consistency check and surface any findings verbatim:
    ```bash
    "$DOFLOW" validate "<design path>"
