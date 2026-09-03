@@ -69,7 +69,14 @@ workflow never reads.
    `--depth shallow|normal|deep` is the single breadth knob: it sets both how many dialogue
    rounds run and how wide each one reaches. Coordinate architecture/analysis/frontend/backend/
    security domain framing as needed, but stay in discovery mode — no implementation decisions
-   here. After each dialogue round, before moving to the next round, partition any ambiguities
+   here.
+   **MCP Integration**:
+   - **Context7**: the idea names a specific library or framework → verify the claim, per
+     `MCP_Context7.md`'s Tool IDs, before folding it into `requirement.md` — read-only
+     fact-checking, never a tech choice.
+   - **Sequential-thinking**: a round's ambiguity is genuinely multi-step or cross-domain → route
+     it per `MCP_Sequential.md`'s Tool IDs.
+   After each dialogue round, before moving to the next round, partition any ambiguities
    surfaced that round into: *independent* ones (answerable without knowing another's answer) —
    up to 4 — batched into one `AskUserQuestion` call (the tool's 4-question max); *dependent*
    ones (whose options depend on a prior answer) — asked as their own individual `AskUserQuestion`
@@ -204,7 +211,8 @@ so skipping the read silently drops the posture it defines.
 **Will:** propose a task class and have the runtime validate it, run Socratic discovery, log each
 dialogue round to `intention/`, create the feature branch+dir (if needed), seed and fill
 `requirement.md`, batch the stage's evidence and claims at the boundary, and record the stage
-handoff (and its clarification gate) through `orchestrate`/`render-audit`.
+handoff (and its clarification gate) through `orchestrate`/`render-audit` — and always (no flag)
+consult context7 and sequential-thinking at the points named in Step 3.
 **Will Not:** include tech/implementation detail, design architecture (`/do-design`'s job), write
 code, run `/do-plan`'s job, elicit under a class the runtime rejected or replaced with `feature`,
 call `readiness` for a stage that declares no template; or express evidence, an estimate or readiness as a number, a percentage or a confidence.
