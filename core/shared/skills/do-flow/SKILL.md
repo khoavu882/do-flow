@@ -1,6 +1,6 @@
 ---
 name: do-flow
-description: "Auto-chain the doflow spec-driven flow (brainstorm → design → plan → implement → test → review), pausing only at defined approval gates. Use when the user wants the entire spec-driven lifecycle to run end-to-end without manually invoking each /do-* phase, or says 'just build this feature end to end' or 'run the whole doflow chain for me' rather than asking for one specific phase."
+description: "Auto-chain the doflow spec-driven flow (brainstorm → design → plan → implement → test → review), pausing only at defined approval gates. Use whenever the user wants the spec-driven lifecycle to run end-to-end without manually invoking each /do-* phase, or says 'build this feature end-to-end', 'run the doflow chain', 'start full feature flow', or 'take this from idea to implementation'. Always activate this skill for autonomous multi-phase feature development."
 argument-hint: "[feature description] [--from brainstorm|design|plan|implement|test|review]"
 effort: high
 ---

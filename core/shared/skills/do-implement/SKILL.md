@@ -1,6 +1,6 @@
 ---
 name: do-implement
-description: "Direct, standalone code implementation from a description, /do-code-review findings, or an existing task — no DoFlow chain artifacts required. Use whenever the user asks to implement, build, add, or fix something without a formal brainstorm-design-plan sequence, or says 'now implement that' / 'fix what the review found' / 'let's just build this' / 'address these comments'. Works in any repo, chain-instrumented or not — make sure to trigger this even if the user never mentions DoFlow by name."
+description: "Direct, standalone code implementation from a description, /do-code-review findings, or an existing task — no DoFlow chain artifacts required. Use whenever the user asks to implement, build, add, or fix something directly without a formal brainstorm-design-plan sequence, or says 'now implement that', 'fix what the review found', 'let's just build this', or 'address these comments'. Always activate this skill for one-off coding tasks, direct bugfixes, and immediate code changes even if the user never mentions DoFlow by name."
 argument-hint: "[description of the change] [--from-review]"
 effort: medium
 ---
@@ -128,9 +128,12 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      plausible shape becomes the design.
 
 5. **Implement**:
-   - Make the change. Keep it scoped to what was asked — no bonus refactors, no speculative
-     abstractions (the same scope-discipline rule the chain's own artifacts would otherwise remind
-     you of; here, hold yourself to it directly).
+   - Make the complete change end-to-end. Never leave placeholder stubs (e.g. `// TODO: implement`),
+     unimplemented mock functions, or `throw new Error('Not implemented')` placeholders in the
+     produced change. Every changed component must be fully wired and functional.
+   - Keep it scoped to what was asked — no bonus refactors, no speculative abstractions (the same
+     scope-discipline rule the chain's own artifacts would otherwise remind you of; here, hold
+     yourself to it directly).
    - Add or update tests when the codebase already has a test convention to extend; skip it when
      there is not one, rather than inventing a test harness the project doesn't otherwise use.
 

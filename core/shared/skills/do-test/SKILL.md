@@ -1,6 +1,6 @@
 ---
 name: do-test
-description: "Execute project builds, automated test suites, and coverage verification with intelligent error reporting across whatever toolchain the repo already uses. Use when the user wants existing tests or builds run and reported on rather than new tests written, or says 'run the tests' / 'check coverage' / 'does this still build' rather than asking to implement or review code changes."
+description: "Execute project builds, automated test suites, and coverage verification with intelligent error reporting across whatever toolchain the repo already uses. Use whenever the user wants to run existing tests, execute test suites, verify builds, check test coverage, or check compile status (e.g., 'run the tests', 'execute test suite', 'check coverage', 'verify build', 'does this still build'). Always activate this skill when verifying test suites or running builds without writing new application code."
 argument-hint: "[target] [--clean] [--watch]"
 effort: medium
 ---

@@ -1,6 +1,6 @@
 ---
 name: do-diagnose
-description: "Unified diagnostic and code remediation engine — root cause analysis, performance profiling, security auditing, and targeted refactoring. Use when something is broken, slow, insecure, or needs cleanup and the user wants root-cause evidence before any fix, or says 'why is this crashing' / 'this endpoint feels slow' / 'audit this for security issues' rather than asking for a brand-new feature."
+description: "Unified diagnostic and code remediation engine — root cause analysis, performance profiling, security auditing, and targeted refactoring. Use whenever something is broken, failing tests, throwing errors, slow, insecure, or in need of cleanup, and the user wants root-cause evidence before any fix (e.g. 'why is this crashing', 'debug this failure', 'this endpoint feels slow', 'audit for security issues'). Always activate this skill when investigating defects, performance bottlenecks, or code smells before modifying code."
 argument-hint: "[target|issue] [--focus quality|security|performance|architecture] [--fix]"
 effort: medium
 ---
