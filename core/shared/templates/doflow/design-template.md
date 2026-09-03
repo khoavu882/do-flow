@@ -1,8 +1,8 @@
 # Design: [FEATURE NAME]
 
-**Feature:** [NNN-slug] · **Requirement:** ./requirement.md · **Status:** Draft · **Created:** [DATE]
+**Feature:** [NNN-slug] · **Requirement:** [REQUIREMENT_PATH] · **Status:** Draft · **Created:** [DATE]
 
-> System shape — architecture, APIs, data/interface contracts. Reads ./requirement.md.
+> System shape — architecture, APIs, data/interface contracts. Reads [REQUIREMENT_PATH].
 > Distinct from plan.md's HOW-to-implement; this is HOW-it's-shaped.
 >
 > Structure follows `references/ARTIFACT_FORMAT.md`: indexed sections carry a table above full

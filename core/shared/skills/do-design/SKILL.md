@@ -116,6 +116,12 @@ a `design.md` for it invents an artifact its workflow never reads.
    one: fill §4/§5 in `design.md` exactly as before and leave that dir's layout alone — this feature
    migrates nothing.
 The template is `templates/doflow/design-template.md` in the install step 1 resolved: take `constitution_base` from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
+   Fill `[REQUIREMENT_PATH]` with step 1's own resolved `requirement` field, verbatim
+   (repo-root-relative, exactly as the resolver returns it) — never hand-compute it, which is only
+   correct under the legacy layout; under `layout: structured` the two artifacts sit in sibling
+   subdirectories (`design/design.md` vs `intention/requirement.md`), so a hand-computed path would
+   be wrong there. Reading it off the resolver, the same way `constitution_base` already is, is
+   what keeps the pointer correct under either layout.
    `design-template.md`'s §8 "Assumptions" section must read "None" unless a design-level
    clarification question was resolved via the defer escape hatch in Step 5, in which case record it
    there with a one-line rationale.
@@ -161,7 +167,7 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
   ```bash
   "$DOFLOW" orchestrate --action annotate --task-id "<slug>" --node "<stage id>" --note "<what changed on this re-run>" --json
   ```
-- **`reason` starts with `awaiting-gate:`** — the run is paused on a gate a human (or that gate's own owning skill) decides. In the `feature` workflow the first such gate (`gate-a`) sits after planning, later than this stage, so this should not be reached; if it is, report the gate id plainly and stop rather than resolving a gate that is not this stage's.
+- **`reason` starts with `awaiting-gate:`** — the run is paused on a gate a human (or that gate's own owning skill) decides. Two shapes reach here: `gate-a` (after planning, later than this stage) should never be open this early and its appearance signals something went wrong upstream; `gate-0` (after discovery, `clarification`-kind) reaching here is the ordinary recovery path when `[NEEDS CLARIFICATION]` markers survived an aborted `/do-brainstorm` session — `do-brainstorm/SKILL.md` deliberately leaves it open rather than forcing an approval. Either way, this stage does not own it: report the gate id plainly and stop rather than resolving a gate that is not this stage's.
 - **`reason` is `blocked-on-mutating-stage:<id>`** — a source-mutating stage ahead of this one has not been executed by its own skill. Name `<id>`, report the block plainly, and stop.
 - **`reason` is `run-completed` or `run-rejected`** — the run is finished and takes no further stage. Report it and stop.
 

@@ -7,6 +7,12 @@
 > stage's `AskUserQuestion` loop. This is a dialogue transcript, not an ID-bearing normative
 > artifact — out of `references/ARTIFACT_FORMAT.md`'s index/detail scope, the same way that
 > reference's own intro already carves out `state.md`.
+>
+> Not to be confused with the differently-named `{stage}-questions.md` convention in
+> `rules/RULE_04_QUESTIONS.md`: that file is a *request for input*, written for a
+> non-interactive harness and awaiting a `[Answer]:` tag before the run can continue. This one is
+> the opposite direction — a completed *record* of a round that already happened, filed after the
+> user answered, never awaiting anything.
 
 ## Question 1 — [question text as asked]
 

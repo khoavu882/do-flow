@@ -60,10 +60,11 @@ Branch on the returned `outcome` field, not the exit code.
      `hasImplementationStage` off the returned object rather than recalling which classes those are
      — this skill is the wrong tool for that class. Say so and stop rather than executing tasks the
      workflow never declared.
-   - Also derive `<expected gate id>`: the entry in `gates[]` whose `afterStage` equals the stage
-     immediately preceding this skill's own stage in `stageIds[]` (`gate-a` in `feature`, since
+   - Also derive `<expected gate id>`: among `gates[]`, the one entry whose `afterStage` equals the
+     stage immediately preceding this skill's own stage in `stageIds[]` (`gate-a` in `feature`, since
      `gate-a`'s `afterStage` is `planning`, the stage right before `implementation`) — `null` if no
-     gate is anchored there. Do not hardcode `gate-a`; derive it this way so a differently-shaped
+     gate is anchored there. No shipped workflow anchors two gates to the same stage, so this is
+     always at most one entry; do not hardcode `gate-a`, derive it this way so a differently-shaped
      workflow's own gate is found the same way. Step 3 needs this to tell "the gate that belongs to
      this stage" apart from any other gate `catch-up` might stop on.
 
@@ -94,9 +95,11 @@ Branch on the returned `outcome` field, not the exit code.
      ```bash
      "$DOFLOW" orchestrate --action decide-gate --task-id "<slug>" --gate "<awaitingGate.gateId>" --decision approve --note "<the user's own answer, one line>" --json
      ```
-     Then re-run the same `catch-up` call to land on this stage. On no: **stop the whole run here.**
-     The gate is terminal in the same sense step 1's prerequisite gate is — report that the gate was
-     not approved and dispatch nothing.
+     Then re-run the same `catch-up` call to land on this stage. If that re-run itself stops on
+     *another* `awaiting-gate:`, re-apply this same check from the top — do not assume one approval
+     clears the path; walk it exactly as far as it goes. On no: **stop the whole run here.** The gate
+     is terminal in the same sense step 1's prerequisite gate is — report that the gate was not
+     approved and dispatch nothing.
      **They do not match** — this is a gate belonging to an earlier stage, not this one. `gate-0`,
      left open by an aborted `/do-brainstorm` session, is exactly this case: it now surfaces here
      (catch-up stops on every gate, `clarification`-kind included) instead of being silently
@@ -236,6 +239,11 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
    - No `<feature_dir>/state.md` yet: create it from the template. The template is
      `templates/doflow/state-template.md` in the install step 1 resolved: take `constitution_base`
      from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
+     Fill `[PLAN_PATH]` from that same resolution's `plan` field, verbatim (repo-root-relative,
+     exactly as the resolver returns it) — `state.md` sits at the feature dir's own root under both
+     layouts, but `plan.md` does not: `<feature_dir>/plan.md` under the legacy layout,
+     `<feature_dir>/plan/plan.md` under the structured one, and the resolver's own field is what
+     tells you which.
    - Every checkpoint: append the finished task(s) to the Task Ledger (`Commits` as the actual
      `[base7]..[head7]` range once committed, or `uncommitted (working tree)` when this run doesn't
      commit on its own), move them from **In Progress** to **Completed**, and rewrite **Next

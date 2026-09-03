@@ -166,10 +166,12 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 - **`reason` is `blocked-on-mutating-stage:<id>`** — a source-mutating stage ahead of this one has not been executed by its own skill. Name `<id>`, report the block plainly, and stop.
 - **`reason` is `run-completed` or `run-rejected`** — the run is finished and takes no further stage. Report it and stop.
 
-   Then the gate anchored to this stage, which the `complete-stage` response names directly: a
-   non-null `awaitingGate` carries the `gateId`, `name` and `prompt` (`gate-0`, "Unresolved
-   clarifications", in the `feature` workflow); a null one means no gate follows this stage in this
-   workflow and there is nothing to decide. Read it off that response rather than re-deriving it
+   Then the gate anchored to this stage, which the response just above names directly — whichever
+   call actually ran, `complete-stage` on the ordinary path or `annotate` on the already-completed
+   one; both return the same snapshot shape. A non-null `awaitingGate` carries the `gateId`, `name`
+   and `prompt` (`gate-0`, "Unresolved clarifications", in the `feature` workflow); a null one means
+   no gate follows this stage in this workflow and there is nothing to decide. Read it off that
+   response rather than re-deriving it
    from `workflow.gates[]`. `gate-0` is `clarification`-kind and its `unresolved-clarifications`
    trigger is exactly what step 9 already checks — so this stage resolves it rather than leaving a
    mechanically-answerable gate for a human. When §7 genuinely carries zero markers, approve it

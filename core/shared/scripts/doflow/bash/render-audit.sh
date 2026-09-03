@@ -30,10 +30,21 @@ done
 # `--slug value` form (only `--slug=value` is accepted), which meant a typo rendered the ACTIVE
 # feature's audit.md instead of the one the caller named, with no signal that anything went wrong.
 if [ "${#bad_args[@]}" -gt 0 ]; then
+  args_joined="${bad_args[*]}"
   if [ "$emit_json" = true ]; then
-    printf '{"ok":false,"error":"unrecognized-argument","args":"%s"}\n' "${bad_args[*]}" >&2
+    # Built with jq, not `printf '%s'` interpolation: bad_args is raw argv with no escaping applied
+    # to it, and an argument containing a `"` previously produced a document with a duplicate "ok"
+    # key that JSON resolves to true — inverting this hard failure into an apparent success for any
+    # caller branching on .ok. jq is checked for below the arg-parsing block, not above it, so a
+    # minimally-escaped fallback covers the case this runs before that check does.
+    if command -v jq >/dev/null 2>&1; then
+      jq -nc --arg args "$args_joined" '{"ok":false,"error":"unrecognized-argument","args":$args}' >&2
+    else
+      esc_args=$(printf '%s' "$args_joined" | sed 's/\\/\\\\/g; s/"/\\"/g')
+      printf '{"ok":false,"error":"unrecognized-argument","args":"%s"}\n' "$esc_args" >&2
+    fi
   else
-    printf 'render-audit: unrecognized argument(s): %s (use --slug=<value>, not --slug <value>)\n' "${bad_args[*]}" >&2
+    printf 'render-audit: unrecognized argument(s): %s (use --slug=<value>, not --slug <value>)\n' "$args_joined" >&2
   fi
   exit 2
 fi
@@ -59,8 +70,8 @@ resolver_args=(--json)
 resolved_json=$(bash "$RESOLVER" "${resolver_args[@]}" 2>/dev/null) || note "resolver-error"
 
 repo_root=$(printf '%s' "$resolved_json" | jq -r '.repo_root // empty')
-feature_dir=$(printf '%s' "$resolved_json" | jq -r '.feature_dir // empty')
 feature_slug=$(printf '%s' "$resolved_json" | jq -r '.feature_slug // empty')
+audit_rel=$(printf '%s' "$resolved_json" | jq -r '.audit // empty')
 [ -n "$feature_slug" ] || note "no-active-feature"
 
 # WorkflowOrchestrator's own stateDir/runFile convention (workflow-orchestrator.js):
@@ -70,7 +81,13 @@ journal_file="$repo_root/.doflow/state/orchestration/$feature_slug.json"
 
 jq -e '.history | type == "array"' "$journal_file" >/dev/null 2>&1 || note "journal-unreadable"
 
-audit_file="$repo_root/$feature_dir/audit.md"
+# Consumed from the resolver's own `audit` field rather than recomputed by hand — do-paths.sh is
+# the single source of truth for this path. Unlike requirement/design/plan, `audit` is set once,
+# unconditionally, before the legacy/structured layout branch, so it never varies by layout — but
+# reading it from the resolver rather than recomputing it here still means a future resolver change
+# has one place to land, not two that can drift apart.
+[ -n "$audit_rel" ] || note "resolver-missing-audit-path"
+audit_file="$repo_root/$audit_rel"
 
 # Render to a temp file first, then move it into place. `>"$audit_file"` truncates the target
 # before the group runs, and with no `-e` a mid-stream jq abort (a malformed or hand-corrupted
@@ -78,6 +95,14 @@ audit_file="$repo_root/$feature_dir/audit.md"
 # reported written:true. Same fail-open philosophy as the notes above: report a clear failure
 # rather than corrupt the target.
 tmp_audit="$(mktemp "${audit_file}.XXXXXX" 2>/dev/null || mktemp)"
+# Every mktemp needs a matching cleanup that runs on the error paths AND on interruption — the
+# explicit `rm -f "$tmp_audit"` below each failure branch does not cover a SIGINT/SIGTERM landing
+# between here and the `mv`, which would otherwise leave a stray `audit.md.XXXXXX` behind inside
+# the feature directory. The trap is a backstop: each failure branch below still removes it
+# immediately on its own path (so a checked exit doesn't wait for the shell to unwind), and this
+# catches everything else. Once the `mv` succeeds, $tmp_audit no longer exists, so a post-mv `rm -f`
+# here is a correctly-silent no-op.
+trap 'rm -f "$tmp_audit"' EXIT
 
 {
   printf '# Audit Trail: %s\n\n' "$feature_slug"
@@ -107,9 +132,9 @@ rc=$?
 if [ "$rc" -ne 0 ] || [ ! -s "$tmp_audit" ]; then
   rm -f "$tmp_audit"
   if [ "$emit_json" = true ]; then
-    printf '{"ok":false,"error":"render-failed","path":"%s"}\n' "$feature_dir/audit.md" >&2
+    printf '{"ok":false,"error":"render-failed","path":"%s"}\n' "$audit_rel" >&2
   else
-    printf 'render-audit: failed to render %s (journal may be malformed)\n' "$feature_dir/audit.md" >&2
+    printf 'render-audit: failed to render %s (journal may be malformed)\n' "$audit_rel" >&2
   fi
   exit 1
 fi
@@ -123,16 +148,16 @@ mv_rc=$?
 if [ "$mv_rc" -ne 0 ]; then
   rm -f "$tmp_audit"
   if [ "$emit_json" = true ]; then
-    printf '{"ok":false,"error":"move-failed","path":"%s"}\n' "$feature_dir/audit.md" >&2
+    printf '{"ok":false,"error":"move-failed","path":"%s"}\n' "$audit_rel" >&2
   else
-    printf 'render-audit: failed to write %s (%s)\n' "$feature_dir/audit.md" "$mv_err" >&2
+    printf 'render-audit: failed to write %s (%s)\n' "$audit_rel" "$mv_err" >&2
   fi
   exit 1
 fi
 
 if [ "$emit_json" = true ]; then
-  printf '{"ok":true,"written":true,"path":"%s"}\n' "$feature_dir/audit.md"
+  printf '{"ok":true,"written":true,"path":"%s"}\n' "$audit_rel"
 else
-  printf 'render-audit: wrote %s\n' "$feature_dir/audit.md"
+  printf 'render-audit: wrote %s\n' "$audit_rel"
 fi
 exit 0

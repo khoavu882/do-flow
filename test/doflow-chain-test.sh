@@ -794,6 +794,18 @@ eq "unrecognized --json flag call -> emits ok:false JSON" \
    "$(grep -c '"ok":false' /tmp/render-audit-m4.$$)" "1"
 rm -f /tmp/render-audit-m4.$$
 
+# M4/injection regression: an unrecognized argument containing a literal `"` must not be able to
+# inject a second "ok" key that JSON resolves to true, inverting this hard failure into an
+# apparent success for a caller that branches on .ok.
+inj_out="/tmp/render-audit-inj.$$"
+"$RENDER_AUDIT" --json 'evil","ok":true,"injected":"yes' >"$inj_out" 2>&1
+inj_rc=$?
+eq "injected quote in an unrecognized arg -> still exits nonzero" \
+   "$([ "$inj_rc" -ne 0 ] && echo yes || echo no)" "yes"
+eq "injected quote -> output parses as valid JSON with .ok == false, not overridden to true" \
+   "$(jq -r '.ok' "$inj_out" 2>/dev/null)" "false"
+rm -f "$inj_out"
+
 # L1 regression: audit.md must land at 0644 regardless of the caller's umask.
 ( umask 077; "$RENDER_AUDIT" --slug="$AUDIT_SLUG" >/dev/null 2>&1 )
 eq "audit.md is written 0644 even under umask 077" \

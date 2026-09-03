@@ -169,3 +169,62 @@ test('M3: without --global, orchestrate still writes under the project root (def
   json(cwd, ['orchestrate', '--action', 'start', '--task-id', 't-local', '--task-class', 'trivial-edit']);
   assert.ok(fs.existsSync(path.join(cwd, '.doflow', 'state', 'orchestration', 't-local.json')));
 });
+
+// ─────────────────────────────────────────────────────────────── M6/H-1: catch-up through the CLI
+
+test('M6: catch-up starts a fresh task through the CLI and reaches the first candidate stage', () => {
+  const cwd = project();
+  const s = json(cwd, ['orchestrate', '--action', 'catch-up', '--task-id', 't-cu-1', '--task-class', 'feature', '--stage', 'discovery']);
+  assert.equal(s.data.caughtUpTo, 'discovery');
+  assert.equal(s.data.reason, 'reached-candidate');
+});
+
+test('H-1: catch-up through the CLI refuses an unknown candidate on a fresh task and persists no run at all', () => {
+  const cwd = project();
+  const res = run(cwd, ['orchestrate', '--action', 'catch-up', '--task-id', 't-cu-typo', '--task-class', 'feature', '--stage', 'implementaton']);
+  assert.notEqual(res.status, 0);
+  assert.match(res.stderr, /candidate stage id\(s\) not declared by task class 'feature': implementaton/);
+  assert.ok(!fs.existsSync(path.join(cwd, '.doflow', 'state', 'orchestration', 't-cu-typo.json')),
+    'a failed first catch-up must not leave an orphan run journal on disk');
+});
+
+test('M6: catch-up comma-splits --stage into multiple candidates, matching do-test\'s own two-occurrence shape', () => {
+  const cwd = project();
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 't-cu-two', '--task-class', 'bug']);
+  // 'reproduction' carries no readiness template, so it completes with no evidence needed — enough
+  // to prove the comma-split candidate set is read correctly: with only the FIRST of two named
+  // candidates done, catch-up must not misreport `already-completed` (which requires ALL of them
+  // done) and must instead walk forward and correctly block on the gated stage ahead of the second
+  // occurrence — full evidence for `bug`'s 5-requirement template is unit-tested separately and
+  // isn't needed to prove this CLI-level plumbing.
+  json(cwd, ['orchestrate', '--action', 'complete-stage', '--task-id', 't-cu-two', '--stage', 'reproduction']);
+  const s = json(cwd, ['orchestrate', '--action', 'catch-up', '--task-id', 't-cu-two', '--task-class', 'bug', '--stage', 'reproduction,regression-verification']);
+  assert.equal(s.data.reason, 'blocked-on-mutating-stage:implementation');
+  assert.notEqual(s.data.reason, 'already-completed:reproduction,regression-verification');
+});
+
+test('M6: annotate through the CLI appends history without touching cursor or state', () => {
+  const cwd = project();
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 't-annotate', '--task-class', 'feature']);
+  const before = json(cwd, ['orchestrate', '--action', 'status', '--task-id', 't-annotate']);
+  const s = json(cwd, ['orchestrate', '--action', 'annotate', '--task-id', 't-annotate', '--node', 'discovery', '--note', 're-reviewed after handoff']);
+  assert.equal(s.data.current.id, before.data.current.id);
+  assert.equal(s.data.state, before.data.state);
+});
+
+test('M6: --forced on decide-gate requires --note, and is refused on an action that does not read it', () => {
+  const cwd = project();
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 't-forced', '--task-class', 'feature']);
+  json(cwd, ['orchestrate', '--action', 'complete-stage', '--task-id', 't-forced', '--stage', 'discovery']);
+
+  const noNote = run(cwd, ['orchestrate', '--action', 'decide-gate', '--task-id', 't-forced', '--gate', 'gate-0', '--decision', 'approve', '--forced']);
+  assert.notEqual(noNote.status, 0);
+  assert.match(noNote.stderr, /forced gate decision requires a --note reason/);
+
+  const withNote = json(cwd, ['orchestrate', '--action', 'decide-gate', '--task-id', 't-forced', '--gate', 'gate-0', '--decision', 'approve', '--forced', '--note', 'approved despite an open marker']);
+  assert.equal(withNote.data.state, 'RUNNING');
+
+  const misusedForced = run(cwd, ['orchestrate', '--action', 'catch-up', '--task-id', 't-forced', '--task-class', 'feature', '--stage', 'design', '--forced', '--note', 'x']);
+  assert.notEqual(misusedForced.status, 0);
+  assert.match(misusedForced.stderr, /'--forced' has no effect on action 'catch-up'/);
+});

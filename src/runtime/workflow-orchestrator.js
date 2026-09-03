@@ -181,7 +181,7 @@ class WorkflowOrchestrator {
       // following the skipped stage is anchored to it and can never fire.
       if (nextNode.type !== 'gate' || nextNode.status !== 'pending') break;
       nextNode.status = 'skipped';
-      run.history.push({ at: iso(now), action: 'skip-gate', node: nextNode.id, note: 'anchor stage skipped' });
+      run.history.push({ at: iso(now), action: 'skip-gate', node: nextNode.id, note: 'anchor stage skipped', backfilled: Boolean(backfilled) });
       lookahead += 1;
     }
     this.advance(run, now);
@@ -217,22 +217,53 @@ class WorkflowOrchestrator {
     }
     for (const id of candidateStageIds) assertSafeId(id, 'stageId');
     let run = this.readRun(taskId);
+    if (run && typeof taskClass === 'string' && taskClass.trim() !== '' && taskClass !== run.taskClass) {
+      throw new Error(`Run '${taskId}' was started as task class '${run.taskClass}', not '${taskClass}' — a caller must not walk a run under a class it did not start`);
+    }
+    // Candidates are validated before `start` ever runs, so a typo'd first catch-up for a fresh
+    // task cannot persist a durable, unrecoverable orphan run pinned to whatever class the failed
+    // call happened to carry (no CLI verb can undo it — `start` refuses on an existing run). The
+    // SOURCE of truth for "known stage id" differs by whether a run already exists, and that split
+    // matters: a run's own `program` is the side that goes STALE relative to the registry (compiled
+    // once at `start`, so a later registry rename or removal leaves a stage id in the program the
+    // registry no longer declares — exactly the drift this check exists to catch), while for a
+    // fresh task there is no program yet to consult, so the registry is the only source available.
+    // Validating a run that already exists against the registry instead of its own program was
+    // tried and reverted — it stopped catching stale ids from a registry rename, silently backfilling
+    // through them instead of refusing.
+    let unknownCandidates;
+    if (run) {
+      const programStageIds = new Set(run.program.filter((n) => n.type === 'stage').map((n) => n.id));
+      unknownCandidates = candidateStageIds.filter((id) => !programStageIds.has(id));
+    } else {
+      const workflow = this.engine.resolveWorkflow(taskClass); // unknown classes are rejected loudly, same as start()
+      const workflowStageIds = new Set((workflow.stages || []).map((s) => s.id));
+      unknownCandidates = candidateStageIds.filter((id) => !workflowStageIds.has(id));
+    }
+    if (unknownCandidates.length > 0) {
+      const where = run ? `in run '${taskId}''s program` : `declared by task class '${taskClass}'`;
+      throw new Error(`catch-up: candidate stage id(s) not ${where}: ${unknownCandidates.join(', ')} — check the workflow's own stage ids rather than walking the run forward on an unresolvable candidate`);
+    }
     if (!run) {
       this.start({ taskId, taskClass, now });
       run = this.requireRun(taskId);
-    } else if (typeof taskClass === 'string' && taskClass.trim() !== '' && taskClass !== run.taskClass) {
-      throw new Error(`Run '${taskId}' was started as task class '${run.taskClass}', not '${taskClass}' — a caller must not walk a run under a class it did not start`);
-    }
-    // A candidate id naming no stage in this program is refused up front, not left to fall through
-    // the walk below — unvalidated, it would otherwise complete every stage between the cursor and
-    // the next gate/mutating-stage/end as `backfilled`, forging journal entries for a caller typo
-    // or a stale stage id left over from a registry rename.
-    const programStageIds = new Set(run.program.filter((n) => n.type === 'stage').map((n) => n.id));
-    const unknownCandidates = candidateStageIds.filter((id) => !programStageIds.has(id));
-    if (unknownCandidates.length > 0) {
-      throw new Error(`catch-up: candidate stage id(s) not in run '${taskId}''s program: ${unknownCandidates.join(', ')} — check the workflow's own stage ids rather than walking the run forward on an unresolvable candidate`);
     }
     const candidates = new Set(candidateStageIds);
+    // A REJECTED run answers with its own terminal state first — before the already-completed
+    // pre-check below, which would otherwise misreport a REJECTED run whose named candidates
+    // happen to already be complete (discovery finished, then gate-0 was rejected, say) as
+    // `already-completed` instead of the more informative `run-rejected`. A COMPLETED run needs no
+    // such override and must NOT be included here: every one of its stages reached a terminal
+    // per-node status by definition (that is what COMPLETED means — settleCursor only sets it once
+    // every node has been walked past as completed/skipped/approved), so any validated candidate is
+    // always caught by the already-completed check below on its own. Special-casing COMPLETED here
+    // too was tried and reverted — it pre-empted `already-completed:<id>` with a bare
+    // `run-completed` for a re-invocation naming an already-recorded terminal stage, and six chain
+    // skills branch on that exact distinction in opposite directions (annotate vs. stop-and-report),
+    // so the trail silently stopped recording the re-run.
+    if (run.state === 'REJECTED') {
+      return { ...this.snapshot(run), caughtUpTo: null, reason: 'run-rejected' };
+    }
     // ALL candidates already done means this caller's own handoff already happened — detect it
     // before the walk below can complete anything past it as a side effect. A caller with more than
     // one candidate (do-test owns two occurrences in `bug`/`refactor`) is not done until every
@@ -251,7 +282,14 @@ class WorkflowOrchestrator {
         if (candidates.has(node.id)) {
           return { ...this.snapshot(run), caughtUpTo: node.id, reason: 'reached-candidate' };
         }
-        if (node.readinessTemplate) {
+        // Gated on `mutatesSource` — not `readinessTemplate` — because the safety boundary this
+        // exists to protect ("only a stage's own owner may complete a stage that mutates source")
+        // is about mutation, not about whether a template happens to be attached. Every shipped
+        // mutatesSource stage also carries a template today, so the two conditions currently agree;
+        // gating on the template alone would silently backfill-complete a hypothetical
+        // mutatesSource stage with no template, which is exactly the mutation this check exists to
+        // block.
+        if (node.mutatesSource) {
           return { ...this.snapshot(run), caughtUpTo: null, reason: `blocked-on-mutating-stage:${node.id}` };
         }
         if (node.optional) {

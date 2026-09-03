@@ -325,6 +325,32 @@ test('catch-up reports run-rejected on a rejected run rather than throwing', () 
   assert.equal(rejected.caughtUpTo, null);
 });
 
+test('H-A regression: catch-up on a COMPLETED run naming an already-recorded candidate returns already-completed:<id>, not run-completed', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.cu-completed', taskClass: 'bug' });
+  orch.completeStage({ taskId: 't.cu-completed', stageId: 'reproduction' });
+  orch.completeStage({ taskId: 't.cu-completed', stageId: 'root-cause' });
+  orch.completeStage({ taskId: 't.cu-completed', stageId: 'implementation' });
+  orch.completeStage({ taskId: 't.cu-completed', stageId: 'regression-verification' });
+  orch.skipStage({ taskId: 't.cu-completed', stageId: 'review', reason: 'blast radius stayed within the reproduction' });
+  const before = orch.readRun('t.cu-completed');
+  assert.equal(before.state, 'COMPLETED');
+  const beforeHistoryLength = before.history.length;
+
+  // A chain skill re-invoking catch-up on its own already-recorded stage (the normal shape a
+  // resumed session takes) must still get already-completed:<id> so it calls `annotate`, exactly
+  // as it would on a not-yet-COMPLETED run — the terminal-state check exists for REJECTED, where
+  // no candidate can ever be 'already done'; it must not also pre-empt this check on COMPLETED,
+  // where every stage is, by construction, always in a terminal per-node status.
+  const s = orch.catchUp({ taskId: 't.cu-completed', taskClass: 'bug', candidateStageIds: ['root-cause'] });
+  assert.equal(s.reason, 'already-completed:root-cause');
+  assert.notEqual(s.reason, 'run-completed');
+  assert.equal(s.caughtUpTo, null);
+
+  const after = orch.readRun('t.cu-completed');
+  assert.equal(after.history.length, beforeHistoryLength, 'catch-up must not write anything for an already-completed check');
+});
+
 test('catch-up refuses a candidate stage id that names no stage in the run\'s own program, on any run state', () => {
   const orch = fresh();
   orch.start({ taskId: 't.cu-unknown', taskClass: 'feature' });
@@ -346,6 +372,31 @@ test('catch-up refuses a candidate stage id that names no stage in the run\'s ow
   );
 });
 
+test('M-1 regression: catch-up validates an EXISTING run against its own compiled program, not the live registry — a stale-relative-to-registry program must still refuse a candidate it does not actually contain', () => {
+  const orch = fresh();
+  orch.start({ taskId: 't.cu-stale', taskClass: 'bug' });
+  // Simulate this run's compiled program predating a registry rename: `regression-verification`
+  // is a real, current 'bug' registry stage id, but THIS run's own program no longer has a node
+  // by that name (renamed here to stand in for one compiled under an older registry shape).
+  // Validating the candidate against the live registry instead of this run's own program (an
+  // earlier version of this check did exactly that) would accept 'regression-verification' as
+  // "known" — it IS a real current stage id — and let the walk proceed to look for it, silently
+  // backfilling `reproduction` and `root-cause` as ordinary intermediate stages before blocking
+  // on `implementation` (the renamed node sits AFTER implementation and is never reached), never
+  // finding a match. Reproduced against that behavior before this fix: two forged
+  // `backfilled:true` entries land in the journal for a candidate this run's own program was
+  // never going to reach.
+  const run = orch.readRun('t.cu-stale');
+  run.program.find((n) => n.id === 'regression-verification').id = 'regression-verification-legacy';
+  orch.writeRun(run);
+  assert.throws(
+    () => orch.catchUp({ taskId: 't.cu-stale', taskClass: 'bug', candidateStageIds: ['regression-verification'] }),
+    /candidate stage id\(s\) not in run 't\.cu-stale''s program: regression-verification/,
+  );
+  // Refused before the walk ever ran — nothing was backfilled.
+  assert.equal(orch.readRun('t.cu-stale').history.length, 1, 'only the initial start entry — nothing forged');
+});
+
 test('catch-up refuses an unknown candidate before walking forward, leaving no stage backfilled', () => {
   const orch = fresh();
   orch.start({ taskId: 't.cu-unknown-safe', taskClass: 'bug' });
@@ -356,6 +407,30 @@ test('catch-up refuses an unknown candidate before walking forward, leaving no s
   assert.equal(run.cursor, 0, 'the cursor must not have moved');
   assert.equal(run.program.find((n) => n.id === 'reproduction').status, 'pending');
   assert.equal(run.history.length, 1, 'only the initial start entry — nothing backfilled');
+});
+
+test('H-1 regression: catch-up refuses an unknown candidate on a FRESH task with no existing run, before start() ever writes anything', () => {
+  const orch = fresh();
+  // No orch.start() here — this is exactly the path every real chain skill takes on a feature's
+  // first catch-up call, and exactly the path the three tests above all skip by pre-starting the
+  // run. A typo on this call must not persist a run: start() used to run before candidate
+  // validation, so a bad id still left a durable orphan run pinned to whatever class the failed
+  // call happened to carry, with no CLI verb able to undo it (`start` refuses on an existing run).
+  assert.equal(orch.readRun('t.cu-fresh-typo'), null, 'precondition: no run exists yet');
+  assert.throws(
+    () => orch.catchUp({ taskId: 't.cu-fresh-typo', taskClass: 'feature', candidateStageIds: ['discoverry'] }),
+    /candidate stage id\(s\) not declared by task class 'feature': discoverry/,
+  );
+  assert.equal(orch.readRun('t.cu-fresh-typo'), null, 'a failed first catch-up must not persist a run at all');
+});
+
+test('a corrected candidate id on a retry after H-1\'s refusal starts the run normally', () => {
+  const orch = fresh();
+  assert.throws(() => orch.catchUp({ taskId: 't.cu-fresh-retry', taskClass: 'feature', candidateStageIds: ['discoverry'] }));
+  assert.equal(orch.readRun('t.cu-fresh-retry'), null);
+  const s = orch.catchUp({ taskId: 't.cu-fresh-retry', taskClass: 'feature', candidateStageIds: ['discovery'] });
+  assert.equal(s.caughtUpTo, 'discovery');
+  assert.equal(s.reason, 'reached-candidate');
 });
 
 test('catch-up blocks on a mutating stage carrying a readiness template that only its own skill may complete', () => {
