@@ -3,7 +3,8 @@
 #
 # A doflow task is a single checklist line, and plan.md has no "global constraints"
 # section, so a brief cannot be sliced out of one place the way it can when tasks are
-# prose sections. It is COMPOSED from six sources (design §5.2):
+# prose sections. It is COMPOSED from six sources (design §5.2), plus specs.md when the
+# feature has one:
 #
 #   where this fits    plan.md §1 Approach + the task's own "### Phase X" heading
 #   requirements       requirement.md §3 FR detail for the FRs the task's [US#] traces
@@ -11,6 +12,7 @@
 #   global constraints requirement.md §4 — ALL NFR detail; NFRs bind every task
 #   component boundary design.md §3 detail for components serving those FRs
 #   verification bar   plan.md §7 rows for those FRs + the phase's Checkpoints line
+#   interface contracts specs.md §1 in full — only when the resolver reports has_specs
 #
 # The brief becomes the single source of the task's exact values, so no subagent needs
 # to open the plan — which is what keeps the context discipline real rather than
@@ -121,7 +123,17 @@ repo_root="$(printf '%s' "$resolved" | jq -r '.repo_root // empty')"
 plan_abs="$repo_root/$(printf '%s' "$resolved" | jq -r '.plan // empty')"
 req_abs="$repo_root/$(printf '%s' "$resolved" | jq -r '.requirement // empty')"
 des_abs="$repo_root/$(printf '%s' "$resolved" | jq -r '.design // empty')"
+specs_abs="$repo_root/$(printf '%s' "$resolved" | jq -r '.specs // empty')"
+has_specs="$(printf '%s' "$resolved" | jq -r '.has_specs // false')"
 brief_abs="$repo_root/$brief_rel"
+
+# The preamble names specs.md only when this feature actually has one: a legacy-layout brief
+# stays byte-identical to what it was before specs.md existed, rather than advertising a source
+# the reader will not find a section for.
+composed_from="plan.md, requirement.md and design.md"
+if [ "$has_specs" = "true" ] && [ -f "$specs_abs" ]; then
+  composed_from="plan.md, requirement.md, design.md and specs.md"
+fi
 
 missing=()
 [ -f "$plan_abs" ] || missing+=("plan.md not readable")
@@ -217,7 +229,7 @@ if [ "$mode" = "task" ]; then
   {
     echo "# Task brief: $task_id"
     echo
-    echo "> Composed from plan.md, requirement.md and design.md. This brief is your requirements —"
+    echo "> Composed from $composed_from. This brief is your requirements —"
     echo "> use the exact values it gives, verbatim. You do not need to open the plan."
     echo
     echo "## The task"
@@ -262,6 +274,16 @@ if [ "$mode" = "task" ]; then
       printf '%s\n' "$components" | while read -r cmp; do
         [ -n "$cmp" ] && detail_for "$des_abs" '^## 3[.]' "$cmp"
       done
+      echo
+    fi
+
+    if [ "$has_specs" = "true" ] && [ -f "$specs_abs" ]; then
+      echo "## Interface contracts"
+      echo
+      # §1 IN FULL, deliberately unfiltered: an IC-### entry carries no FR or component
+      # linkage field, so there is nothing to filter it by the way "component boundary"
+      # above filters design.md §3 rows on the FRs they name.
+      section "$specs_abs" '^## 1[.]' | awk 'NF { p = 1 } p'
       echo
     fi
 
@@ -388,7 +410,7 @@ else
     {
       echo "# Task brief: $t_id"
       echo
-      echo "> Composed from plan.md, requirement.md and design.md. This brief is your requirements —"
+      echo "> Composed from $composed_from. This brief is your requirements —"
       echo "> use the exact values it gives, verbatim. You do not need to open the plan."
       echo
       echo "## The task"
@@ -436,6 +458,15 @@ else
         echo
       fi
 
+      if [ "$has_specs" = "true" ] && [ -f "$specs_abs" ]; then
+        echo "## Interface contracts"
+        echo
+        # §1 IN FULL, deliberately unfiltered — see the --task= path above: an IC-### entry
+        # carries no FR or component linkage field to filter it by.
+        section "$specs_abs" '^## 1[.]' | awk 'NF { p = 1 } p'
+        echo
+      fi
+
       echo "## Verification bar"
       echo
       for fr in $t_frs; do
@@ -450,7 +481,7 @@ else
     {
       echo "# Group brief: $group_id"
       echo
-      echo "> Composed from plan.md, requirement.md and design.md. This brief covers multiple tasks that share an owner."
+      echo "> Composed from $composed_from. This brief covers multiple tasks that share an owner."
       echo
       echo "## Shared context"
       echo
@@ -472,6 +503,16 @@ else
         printf '%s\n' "$all_comps_raw" | while read -r cmp; do
           [ -n "$cmp" ] && detail_for "$des_abs" '^## 3[.]' "$cmp"
         done
+        echo
+      fi
+
+      if [ "$has_specs" = "true" ] && [ -f "$specs_abs" ]; then
+        echo "### Interface contracts"
+        echo
+        # §1 IN FULL, deliberately unfiltered — see the --task= path above: an IC-### entry
+        # carries no FR or component linkage field to filter it by. Shared context, since
+        # every task in the group is bound by the same contracts.
+        section "$specs_abs" '^## 1[.]' | awk 'NF { p = 1 } p'
         echo
       fi
 

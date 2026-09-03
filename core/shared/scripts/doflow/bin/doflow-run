@@ -223,6 +223,7 @@ in plain text and --json changes nothing.
 Artifact and repository state:
   paths            resolve repo root, branch, feature slug, artifact paths
   validate         artifact index/detail consistency check
+  render-audit     regenerate audit.md from the orchestration journal
   git-state        branch class and derived branch names
   prereqs          stage prerequisite checks
   parallel-check   dispatch groups and write-set collisions for one plan phase
@@ -334,6 +335,7 @@ shell_helper_for() {
   case "$1" in
     paths)          printf 'do-paths.sh' ;;
     validate)       printf 'validate-artifacts.sh' ;;
+    render-audit)   printf 'render-audit.sh' ;;
     git-state)      printf 'do-git-state.sh' ;;
     prereqs)        printf 'do-prereqs.sh' ;;
     parallel-check) printf 'do-parallel-check.sh' ;;
