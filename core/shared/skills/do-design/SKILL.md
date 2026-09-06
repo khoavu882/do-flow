@@ -138,6 +138,7 @@ Structure the artifact per the guidance tree's `references/ARTIFACT_FORMAT.md` �
    Its §4 also governs the C4 diagrams — keep C4 as the conceptual zoom model but render every level
    with Mermaid `flowchart` plus `subgraph` boundaries; the experimental `C4Context` / `C4Container`
    types must not be used to ensure universal rendering compatibility across all markdown engines.
+   Read `references/ARTIFACT_VOICE.md` at the same point: it carries the prose rules the artifact's sentences follow, and the carve-outs where one of those rules meets a construct the checker parses.
 7. **Validate** — run the advisory consistency check and surface any findings verbatim:
    ```bash
    "$DOFLOW" validate "<design path>"
