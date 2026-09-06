@@ -16,6 +16,8 @@ const { REPO_ROOT } = require('../helper/repo-root');
 
 const RUN_STATES = Object.freeze(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED']);
 const GATE_DECISIONS = Object.freeze(['approve', 'reject']);
+/** What a completed stage established, separate from the fact it was walked past (review A1). */
+const STAGE_OUTCOMES = new Set(['passed', 'failed', 'unverified']);
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 function assertSafeId(value, label) {
@@ -151,16 +153,33 @@ class WorkflowOrchestrator {
 
   /** Complete the current stage. A source-mutating stage carrying a readiness template must pass
    * the injected evaluator with READY first — the cascade rule: cheap scripted verdicts gate
-   * expensive work, and NEEDS_EVIDENCE / NEEDS_USER_DECISION / BLOCKED stop the run here. */
-  completeStage({ taskId, stageId, note, backfilled = false, now } = {}) {
+   * expensive work, and NEEDS_EVIDENCE / NEEDS_USER_DECISION / BLOCKED stop the run here.
+   *
+   * Execution status and outcome are separate facts on the node (review A1): `status: 'completed'`
+   * only ever says the program walked past this stage. `executionStatus` says HOW — 'completed'
+   * (the owning skill ran it) or 'imported' (catch-up backfilled it, nobody ran it here) — and
+   * `outcome` says what the run established: 'passed', 'failed', or 'unverified'. A backfilled
+   * stage is always imported+unverified, whatever the caller says: catch-up importing history
+   * cannot import a verification. A 'failed' outcome still advances — recording the failure
+   * honestly beats refusing to record it, and a bug reproduction legitimately completes by
+   * observing the expected failure — but the record no longer reads as success. */
+  completeStage({ taskId, stageId, note, outcome, backfilled = false, now } = {}) {
     const run = this.requireRun(taskId);
     const node = this.expectOpenStage(run, stageId);
+    if (outcome !== undefined && !STAGE_OUTCOMES.has(outcome)) {
+      throw new Error(`Unknown stage outcome '${outcome}'. Valid: ${[...STAGE_OUTCOMES].join(', ')} — omit the flag to record 'unverified'.`);
+    }
     if (node.mutatesSource && node.readinessTemplate) {
       const verdict = this.evaluateReadiness(node, run);
       if (verdict !== 'READY') throw new Error(`Readiness for stage '${node.id}' returned ${verdict}; expected READY — resolve evidence or the user decision first`);
     }
     node.status = 'completed';
-    run.history.push({ at: iso(now), action: 'complete-stage', node: node.id, note: note ?? null, backfilled: Boolean(backfilled) });
+    node.executionStatus = backfilled ? 'imported' : 'completed';
+    node.outcome = backfilled ? 'unverified' : (outcome ?? 'unverified');
+    run.history.push({
+      at: iso(now), action: 'complete-stage', node: node.id, note: note ?? null,
+      backfilled: Boolean(backfilled), executionStatus: node.executionStatus, outcome: node.outcome,
+    });
     this.advance(run, now);
     this.writeRun(run, now);
     return this.snapshot(run);
@@ -388,7 +407,7 @@ class WorkflowOrchestrator {
  * evaluates the task's live evidence ledger and refuses anything but READY. */
 function handleOrchestrateCommand({
   action = 'status', taskId, taskClass, stage, gate, node, decision, note, reason, forced = false,
-  verificationPlan, scope, json = false, repoRoot, stateRoot,
+  verificationPlan, scope, result, json = false, repoRoot, stateRoot,
 } = {}) {
   const { evaluateTaskReadiness } = require('./readiness');
   const { finishRuntime, usageError } = require('./cli-result');
@@ -439,6 +458,11 @@ function handleOrchestrateCommand({
     if (forced && action !== 'decide-gate' && action !== 'annotate') {
       return usageError('orchestrate', `'--forced' has no effect on action '${action}' — only decide-gate and annotate read it`, json);
     }
+    // Same rule for --result: dropping it silently would let an operator believe an outcome was
+    // recorded when nothing recorded it.
+    if (result !== undefined && action !== 'complete-stage') {
+      return usageError('orchestrate', `'--result' has no effect on action '${action}' — only complete-stage records a stage outcome`, json);
+    }
     let snapshot;
     switch (action) {
       case 'start':
@@ -447,7 +471,7 @@ function handleOrchestrateCommand({
         break;
       case 'complete-stage':
         if (!taskId || !stage) return usageError('orchestrate', 'complete-stage requires --task-id and --stage', json);
-        snapshot = orchestrator.completeStage({ taskId, stageId: stage, note });
+        snapshot = orchestrator.completeStage({ taskId, stageId: stage, note, outcome: result });
         break;
       case 'catch-up': {
         if (!taskId || !taskClass || !stage) return usageError('orchestrate', 'catch-up requires --task-id, --task-class and --stage (comma-separated candidate ids)', json);
@@ -491,4 +515,4 @@ function handleOrchestrateCommand({
   }
 }
 
-module.exports = { WorkflowOrchestrator, RUN_STATES, GATE_DECISIONS, handleOrchestrateCommand };
+module.exports = { WorkflowOrchestrator, RUN_STATES, GATE_DECISIONS, STAGE_OUTCOMES, handleOrchestrateCommand };

@@ -219,6 +219,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--stage', 'stage'],                // retrieval-plan: the stage id declaring the plan;
                                        // outcome: the stage writing it, refused unless terminal
   ['--state', 'state'],                // outcome: the terminal state being recorded
+  ['--result', 'result'],              // orchestrate complete-stage: the stage's own outcome, passed | failed (omit → unverified)
   // outcome: the verdicts the run saw, stated by it and validated against the vocabulary the
   // owning module exports. Recording an outcome never re-evaluates readiness and never re-runs
   // verification, so these arrive as statements rather than as measurements taken here.

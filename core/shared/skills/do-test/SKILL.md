@@ -106,8 +106,12 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      - **`caughtUpTo` is one of your ids** (`reason: reached-candidate`) — that occurrence is the
        run's current node, and it is the one this run completes:
        ```bash
-       "$DOFLOW" orchestrate --action complete-stage --task-id "<feature_slug>" --stage "<caughtUpTo>" --note "<one line: the contract's verdict and tier summary>" --json
+       "$DOFLOW" orchestrate --action complete-stage --task-id "<feature_slug>" --stage "<caughtUpTo>" --result <passed|failed> --note "<one line: the contract's verdict and tier summary>" --json
        ```
+       `--result` states this stage's own outcome — `passed` when the contract's verdict was met
+       (for a `reproduction` stage that means the expected failure was observed), `failed` when it
+       was not. Omitting it records `unverified`, which is honest only when nothing was actually
+       verified; never let a failed run complete as an implied pass by leaving the flag off.
      - **`reason` starts with `already-completed:`** — every occurrence you named is already
        recorded (a re-invocation after both `bug`/`refactor` test stages already completed, say).
        Use `annotate` instead of `complete-stage`:

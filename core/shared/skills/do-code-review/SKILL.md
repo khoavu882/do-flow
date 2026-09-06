@@ -344,7 +344,7 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
      - **`caughtUpTo` is this stage id** (`reason: reached-candidate`) — the run is positioned here.
        Complete the stage:
        ```bash
-       "$DOFLOW" orchestrate --action complete-stage --task-id "<feature_slug>" --stage "<caughtUpTo>" --note "<one line: the verdict and the finding counts behind it>" --json
+       "$DOFLOW" orchestrate --action complete-stage --task-id "<feature_slug>" --stage "<caughtUpTo>" --result <passed|failed> --note "<one line: the verdict and the finding counts behind it>" --json
        ```
      - **`reason` starts with `already-completed:`** — this stage was already recorded on an earlier
        run of this skill (a re-review after the gate below was already cleared, say). Use `annotate`
