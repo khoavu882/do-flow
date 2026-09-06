@@ -30,7 +30,8 @@
   },
   "scripts": {
     "test": "node --test test/",
-    "bench": "node bench/runner.js"
+    "bench": "node bench/runner.js",
+    "version": "node src/release/sync-plugin-versions.js && git add core/.codex-plugin/plugin.json core/.claude-plugin/plugin.json core/.plugin/plugin.json"
   },
   "files": [
     "bin/",
