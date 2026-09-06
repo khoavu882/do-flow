@@ -224,16 +224,16 @@ test('G11: the bench harness is not wired into the default test command', () => 
   // npm test is pure offline Node in ~14s. Pulling paid model calls into it would make the suite
   // cost money and stop being runnable in CI without credentials.
   const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
-  // Discovery goes through the committed wrapper (scripts/run-tests.js): a shell glob cannot be
-  // expanded portably (cmd.exe/pwsh pass it through literally, and Node's own glob support in
-  // --test arrived after the supported 18/20 lines), while a bare `node --test` walks the whole
-  // repository and would execute captured *.test.js artifacts under bench/runs/. The wrapper
-  // walks exactly test/, sorts, chunks for Windows argv limits, and stays fully offline.
+  // Discovery is scoped by a directory argument, not a shell glob: `node --test test/` recurses
+  // exactly test/ on every platform (directory recursion has been in the runner since Node 18,
+  // and no shell expansion is involved), while a bare `node --test` walks the whole repository
+  // and would execute captured *.test.js artifacts under bench/runs/. The former wrapper
+  // (scripts/run-tests.js) that did this walk by hand was removed with the rest of scripts/.
   assert.strictEqual(
-    pkg.scripts.test, 'node scripts/run-tests.js',
-    'npm test must run through scripts/run-tests.js so discovery is scoped to test/ on every OS and Node line',
+    pkg.scripts.test, 'node --test test/',
+    'npm test must scope discovery to test/ via the directory argument — an unscoped node --test '
+    + 'also executes any *.test.js a bench case produced under bench/runs/',
   );
-  assert.ok(fs.existsSync(path.join(REPO, 'scripts', 'run-tests.js')), 'the scoped runner wrapper must exist');
   assert.ok(pkg.scripts.bench, 'the bench harness needs its own npm script');
   assert.ok(
     !pkg.scripts.test.includes('bench'),

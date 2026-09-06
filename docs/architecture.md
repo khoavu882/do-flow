@@ -54,7 +54,7 @@ are reported rather than imitated.
 | `test/` | Installer, mapping, and runtime behavior tests organized into module directories mirroring `src/` (`adapters/`, `lifecycle/`, `runtime/`, `registry/`, `state/`, `helper/`, `install/`, `e2e/`), plus `test/guards/` for structural invariants about this repo's content |
 | `bench/` | Skill-evaluation harness (`npm run bench`) — deliberately outside `npm test` because its dispatched runs make paid model calls |
 | `docs/` | User-facing and contributor documentation site |
-| `docs/capability-map.md` | Registry-derived cross-harness capability contract, evidence, and verification criteria |
+| `docs/capability-map.md` | Cross-harness capability contract, evidence, and verification criteria (hand-maintained since the generator script was removed) |
 
 ## Installation data flow
 
