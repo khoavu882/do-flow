@@ -137,7 +137,7 @@ function dispatchRuntimeCommand(o) {
     // than from evidence, so the gate had one reachable answer for every task. Forwarding is
     // all this does: the handler names them back under `callerAsserted` so a stated input is
     // never mistaken for a measured one.
-    case 'readiness': return handleReadinessCommand({ taskClass: requireTaskClass(o), taskId: requireTaskId(o), verificationPlan: o.verificationPlan, scopeClear: o.scope, invariants: o.invariants, userDecisionPending: o.userDecisionPending, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
+    case 'readiness': return handleReadinessCommand({ taskClass: requireTaskClass(o), taskId: requireTaskId(o), verificationPlan: o.verificationPlan, scopeClear: o.scope, invariants: o.invariants, userDecisionPending: o.userDecisionPending, mode: o.mode, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
     case 'evidence': return handleEvidenceCommand({ taskId: requireTaskId(o), action: o.action, item: evidenceItemFromFlags(o), batchPath: o.batchPath, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
     // Run-ledger views. They resolve their own ledger the way the dispatcher does (nearest
     // `.doflow` walking up, or the global one) rather than assuming cwd is the project root, so

@@ -13,6 +13,50 @@ const READINESS_STATES = new Set([
   'BLOCKED',
 ]);
 
+// ── The one stage-entry policy ───────────────────────────────────────────────────────────────────
+//
+// Whether a readiness state permits editing used to live in prose, three times, disagreeing:
+// do-implement allowed edits under NEEDS_EVIDENCE and NEEDS_USER_DECISION, do-flow stopped on
+// anything but READY, and readiness_gate.md said gather-or-ask first — so entering the same work
+// through different skills changed whether unresolved prerequisites blocked editing (review R3,
+// P1). The policy now lives here, once; skills consume the decision instead of re-deriving it.
+//
+// The standalone exemption is an explicit execution mode, not an inference from a missing evidence
+// record: a caller doing a deliberate one-off fix passes `--mode standalone`, and only the
+// NEEDS_EVIDENCE row softens for it — an owed user decision or contradicting evidence stops edits
+// in every mode, because neither is cured by the work being small.
+
+const EXECUTION_MODES = new Set(['workflow', 'standalone']);
+const STAGE_ENTRY_DECISIONS = new Set(['ENTER', 'GATHER_FIRST', 'ASK_USER', 'STOP']);
+
+/**
+ * Maps a computed readiness state and a declared execution mode to the one stage-entry decision.
+ * @param {string} state one of READINESS_STATES
+ * @param {string} [mode='workflow'] 'workflow' | 'standalone'
+ * @returns {{decision: string, reason: string}}
+ */
+function stageEntryFor(state, mode = 'workflow') {
+  if (!EXECUTION_MODES.has(mode)) {
+    throw new Error(`Unknown execution mode '${mode}'. Valid: ${[...EXECUTION_MODES].join(', ')} — the standalone exemption is declared, never inferred.`);
+  }
+  if (!READINESS_STATES.has(state)) {
+    throw new Error(`Unknown readiness state '${state}' has no stage-entry decision.`);
+  }
+  switch (state) {
+    case 'BLOCKED':
+      return { decision: 'STOP', reason: 'A claim on this task is conflicted — evidence disagrees with itself. No mode edits through that; resolve the contradiction first.' };
+    case 'NEEDS_USER_DECISION':
+      return { decision: 'ASK_USER', reason: 'A decision is owed by the user. Ask it and wait; editing first would decide it silently on their behalf.' };
+    case 'NEEDS_EVIDENCE':
+      return mode === 'standalone'
+        ? { decision: 'ENTER', reason: 'Standalone mode: the unmet contract is reported, not enforced — a declared one-off edit outside a workflow run. Relay the missing requirements in the result.' }
+        : { decision: 'GATHER_FIRST', reason: 'Workflow mode: gather the missing requirements before entering the stage; do not start editing on the assumption it will work out.' };
+    case 'READY':
+    default:
+      return { decision: 'ENTER', reason: 'Every mandatory prerequisite is verified by fresh evidence.' };
+  }
+}
+
 class ReadinessEngine {
   /**
    * @param {Object} [options]
@@ -348,8 +392,9 @@ class ReadinessEngine {
 }
 
 /** One live snapshot for readiness inspection and orchestration transitions. Reads never persist
- * derived freshness or claim status; every invocation evaluates the current project again. */
-function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot = process.cwd() }) {
+ * derived freshness or claim status; every invocation evaluates the current project again.
+ * `mode` defaults to 'workflow' — fail closed: the standalone exemption must be declared. */
+function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot = process.cwd(), mode = 'workflow' }) {
   const { EvidenceLedger } = require('./evidence-ledger');
   const { ClaimsManager } = require('./claims');
   const { FreshnessValidator } = require('./freshness');
@@ -359,11 +404,15 @@ function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot 
   const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: projectRoot });
   claims.load(taskProfile.taskId);
   claims.evaluateAll();
-  return new ReadinessEngine({ repoRoot, projectRoot }).evaluateReadiness(taskProfile, ledger, claims);
+  const report = new ReadinessEngine({ repoRoot, projectRoot }).evaluateReadiness(taskProfile, ledger, claims);
+  return { ...report, executionMode: mode, stageEntry: stageEntryFor(report.state, mode) };
 }
 
 module.exports = {
   evaluateTaskReadiness,
+  stageEntryFor,
   ReadinessEngine,
   READINESS_STATES,
+  EXECUTION_MODES,
+  STAGE_ENTRY_DECISIONS,
 };

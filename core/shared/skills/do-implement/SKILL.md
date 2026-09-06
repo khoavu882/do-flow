@@ -82,19 +82,23 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      the validated class to evaluate readiness against. `REJECTED` — stop, print `message` verbatim
      (it names `validClasses`), ask the user to choose from that set, then re-validate; never
      substitute `feature` for the class that was rejected.
-   - Evaluate readiness before modifying anything:
+   - Evaluate readiness before modifying anything. `do-implement` is the declared one-off path, so
+     it states that mode explicitly — the exemption is a flag, never an inference:
      ```bash
-     "$DOFLOW" readiness --task-class "<validated class>" --task-id "<task id>" --json
+     "$DOFLOW" readiness --task-class "<validated class>" --task-id "<task id>" --mode standalone --json
      ```
-     Both flags are required — omitting either exits 2 and names the valid set. Branch on the
-     returned `state` field, never the exit code: this verb exits 0 for every state it computes, so
-     a zero exit is not a green light. The four states are `READY`, `NEEDS_EVIDENCE`,
-     `NEEDS_USER_DECISION`, `BLOCKED`, and none of them is ever expressed as a number or a
-     percentage.
-     - **`BLOCKED`** — refuse to modify source. Report which requirement is unmet and what evidence
-       would satisfy it, then stop. Do not edit anyway.
-     - **`READY`, `NEEDS_EVIDENCE`, `NEEDS_USER_DECISION`** — none of the three blocks the edit;
-       continue to the context-pack call below.
+     Both `--task-class` and `--task-id` are required — omitting either exits 2 and names the valid
+     set. Branch on the returned `stageEntry.decision`, never the exit code or your own reading of
+     `state`: the entry policy is owned by the runtime, and this verb exits 0 for every state it
+     computes, so a zero exit is not a green light.
+     - **`STOP`** — refuse to modify source. Report which claim is conflicted and what evidence
+       disagrees, then stop. Do not edit anyway.
+     - **`ASK_USER`** — a decision is owed by the user. Ask it through the `RULE_04_QUESTIONS.md`
+       mechanism and wait; editing first would decide it silently on their behalf.
+     - **`ENTER`** — proceed to the context-pack call below. In standalone mode this includes
+       `NEEDS_EVIDENCE`: the unmet contract is reported, not enforced — relay the missing
+       requirements in step 6's report rather than presenting the edit as fully evidenced.
+     (`GATHER_FIRST` is the workflow-mode answer and does not arise under `--mode standalone`.)
    - Once readiness has cleared (or been confirmed non-blocking), compile the prior context:
      ```bash
      "$DOFLOW" context-pack --task-id "<task id>" --json

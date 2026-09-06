@@ -82,9 +82,12 @@ not declare is not run here, however familiar it is from the `feature` chain.
    - `optional: true` — decide from that stage's own `purpose`, then say which way you went and
      why. Never drop an optional stage silently.
    - `readinessTemplate` is non-null — consult readiness before entering the stage:
-     `"$DOFLOW" readiness --task-class "<taskClass>" --task-id "<task id>" --json`. Both
-     `--task-class` and `--task-id` are required; omitting either exits 2 and names the valid set.
-     Not ready → report the missing items and stop; do not enter the stage.
+     `"$DOFLOW" readiness --task-class "<taskClass>" --task-id "<task id>" --mode workflow --json`.
+     Both `--task-class` and `--task-id` are required; omitting either exits 2 and names the valid
+     set. Act on the returned `stageEntry.decision` — the entry policy is the runtime's, not this
+     page's: `ENTER` → enter the stage; `GATHER_FIRST` → report the missing items and gather them
+     first, do not enter; `ASK_USER` → ask the owed decision and wait; `STOP` → stop and surface
+     the conflicted claim.
    - `readinessTemplate` is `null` — enter the stage. Do not consult readiness "to be safe": a
      workflow whose `requiresImplementationReadiness` is `false` has no implementation to be ready
      for and declares no template by design (`references/task_classes.md`). Calling it anyway

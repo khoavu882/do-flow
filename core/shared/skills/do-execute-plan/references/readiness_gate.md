@@ -50,16 +50,34 @@ would satisfy it — `blast_radius`, for example, recommends `estimate-blast-rad
 and its fallback chain, then go gather that evidence. The gate tells you what is missing *and* how
 to go get it.
 
-| State | Meaning | What to do |
-| :--- | :--- | :--- |
-| `READY` | Every mandatory prerequisite is verified by fresh evidence | Proceed. |
-| `NEEDS_EVIDENCE` | Contract understood, prerequisites not yet established | Gather the named requirements first. Do not start editing on the assumption it will work out. |
-| `NEEDS_USER_DECISION` | A design or architectural decision is owed by the user | Ask it through the `RULE_04_QUESTIONS.md` mechanism. Do not decide it yourself and proceed. |
-| `BLOCKED` | A claim on this task is `conflicted` — evidence disagrees with itself | Stop. Never modify source while blocked; surface which claim and which evidence. |
+| State | Meaning |
+| :--- | :--- |
+| `READY` | Every mandatory prerequisite is verified by fresh evidence |
+| `NEEDS_EVIDENCE` | Contract understood, prerequisites not yet established |
+| `NEEDS_USER_DECISION` | A design or architectural decision is owed by the user |
+| `BLOCKED` | A claim on this task is `conflicted` — evidence disagrees with itself |
 
 These four are the whole vocabulary. There is no fifth state, no partial state, and no numeric or
 percentage rendering of any of them — a gate that emits a number invites the reader to round it up.
 All four are reachable through the seam; the next section says exactly which input produces each.
+
+**What to do about a state is not this page's call, and not yours** — the runtime owns the one
+stage-entry policy and every report carries its answer as `stageEntry: {decision, reason}`
+(`Stage Entry:` in the human report), computed from the state and the execution mode you declare
+with `--mode`:
+
+| | `--mode workflow` (default) | `--mode standalone` |
+| :--- | :--- | :--- |
+| `READY` | `ENTER` | `ENTER` |
+| `NEEDS_EVIDENCE` | `GATHER_FIRST` — gather the named requirements before entering the stage | `ENTER` — the unmet contract is reported, not enforced; relay it in the result |
+| `NEEDS_USER_DECISION` | `ASK_USER` — ask through `RULE_04_QUESTIONS.md` and wait | `ASK_USER` — same; a small edit does not cure an owed decision |
+| `BLOCKED` | `STOP` — never modify source; surface which claim and which evidence | `STOP` — same |
+
+`workflow` is an orchestrated run (`do-flow`, `do-execute-plan`); `standalone` is a declared
+one-off edit (`do-implement`, `do-diagnose --fix`). The mode is a flag, never an inference — an
+absent evidence record is not a statement of intent, so the default fails closed to `workflow`.
+Act on `decision`; do not re-derive the answer from `state`, because a policy re-derived in prose
+is exactly how three skills came to disagree about the same state.
 
 The engine fails closed: a requirement it cannot evaluate reads as unmet, not satisfied. A gate that
 guesses in its own favour is worse than no gate, because it reports a verdict it never earned.

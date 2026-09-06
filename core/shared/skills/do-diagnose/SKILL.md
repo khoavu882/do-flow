@@ -114,12 +114,16 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 6. **Remediation (`--fix`)**:
    - Only apply modifications when `--fix` is passed and after the user approves the remediation plan.
    - `--fix` performs the edit that the validated class's workflow places behind its implementation
-     stage, so consult that same contract first — never a new one:
-     `"$DOFLOW" readiness --task-class "<validated class>" --task-id "<task id>" --json`. Both flags
-     are required; omitting either exits 2 and names the valid set. Branch on the `state` field
-     (`READY`, `NEEDS_EVIDENCE`, `NEEDS_USER_DECISION`, `BLOCKED`) — the verb exits 0 for every
-     state it computes, so a zero exit is not a green light, and none of the four is ever expressed
-     as a number or a percentage. `BLOCKED` means stop.
+     stage, so consult that same contract first — never a new one. A `--fix` run is a declared
+     one-off edit, not an orchestrated run, and states that mode explicitly:
+     `"$DOFLOW" readiness --task-class "<validated class>" --task-id "<task id>" --mode standalone --json`.
+     Both `--task-class` and `--task-id` are required; omitting either exits 2 and names the valid
+     set. Act on `stageEntry.decision`, never the exit code or your own reading of `state`:
+     `STOP` → do not edit, surface the conflicted claim; `ASK_USER` → ask the owed decision and
+     wait; `ENTER` → proceed — in standalone mode that includes `NEEDS_EVIDENCE`, where the unmet
+     contract is reported, not enforced, so relay what is missing rather than presenting the fix as
+     fully evidenced. The verb exits 0 for every state it computes, so a zero exit is not a green
+     light, and no state is ever expressed as a number or a percentage.
    - All four states are reachable, so the verdict is about this task: `NEEDS_EVIDENCE` until step
      5's batch is recorded, `READY` once it covers the contract, `BLOCKED` on a claim whose evidence
      contradicts itself. **Run step 5's write before this call** — grading an empty ledger reports a

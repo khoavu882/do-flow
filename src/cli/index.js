@@ -212,6 +212,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--observed-command', 'observedCommand'], // evidence --action add: the command a test-result/runtime-observation ran
   ['--batch', 'batchPath'],            // evidence --action add: a stage's batch file, or '-'
   ['--verification-plan', 'verificationPlan'], // readiness: how success will be established
+  ['--mode', 'mode'],                  // readiness: execution mode, workflow (default) | standalone
   ['--scope', 'scope'],                // readiness: the stated scope boundary
   ['--invariants', 'invariants'],      // readiness: the invariants a refactor must preserve
   ['--objective', 'objective'],        // context-pack

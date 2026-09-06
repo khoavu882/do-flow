@@ -102,7 +102,7 @@ function usageError(verb, message, json) {
  */
 function handleReadinessCommand({
   taskClass = 'feature', taskId = 'default', json = false, repoRoot, stateRoot,
-  verificationPlan, scopeClear, invariants, userDecisionPending = false,
+  verificationPlan, scopeClear, invariants, userDecisionPending = false, mode = 'workflow',
 } = {}) {
   // Two different roots, previously conflated into one. `root` locates the *registry* (the
   // readiness templates ship inside the DoFlow package). `state` locates the invoking project's
@@ -122,7 +122,7 @@ function handleReadinessCommand({
 
   let report;
   try {
-    report = evaluateTaskReadiness({ taskProfile: profile, repoRoot: root, projectRoot: state });
+    report = evaluateTaskReadiness({ taskProfile: profile, repoRoot: root, projectRoot: state, mode });
   } catch (error) {
     return usageError('readiness', error.message, json);
   }
@@ -137,6 +137,7 @@ function handleReadinessCommand({
   console.log(`Task ID:       ${report.taskId}`);
   console.log(`Template:      ${report.templateName}`);
   console.log(`Overall State: ${report.state === 'READY' ? '✓ READY' : report.state === 'NEEDS_EVIDENCE' ? '▲ NEEDS EVIDENCE' : '✗ ' + report.state}`);
+  console.log(`Stage Entry:   ${report.stageEntry.decision} (${report.executionMode} mode) — ${report.stageEntry.reason}`);
   console.log(`Summary:       ${report.summary}`);
   if (callerAsserted.length > 0) {
     // Named, not hidden: these requirements were satisfied because the caller said so, and a
