@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../helper/repo-root');
+const { updateTaskState, readTaskState } = require('./task-state');
 
 const VALID_EVIDENCE_KINDS = new Set([
   'exact-search',
@@ -174,24 +175,27 @@ class EvidenceLedger {
   }
 
   /**
-   * Persists evidence for a specific task to disk.
+   * Persists evidence for a specific task to disk — locked, merged, revisioned (task-state.js).
+   * A concurrent writer's items that this instance never loaded survive the save: they are folded
+   * in from disk inside the lock, so overlapping sessions append rather than overwrite each other.
    * @param {string} [taskId='default']
    * @returns {string} filePath
    */
   save(taskId = 'default') {
-    const taskItems = this.queryEvidence({ taskId });
-    const payload = {
-      version: 1,
-      taskId,
-      updatedAt: new Date().toISOString(),
-      evidenceCount: taskItems.length,
-      evidence: taskItems,
-    };
-
-    this.fsImpl.mkdirSync(this.stateDir, { recursive: true });
     const targetFile = path.join(this.stateDir, `${assertSafeTaskId(taskId)}.json`);
-    this.fsImpl.writeFileSync(targetFile, JSON.stringify(payload, null, 2), 'utf8');
-    return targetFile;
+    return updateTaskState({
+      fsImpl: this.fsImpl,
+      file: targetFile,
+      build: (disk) => {
+        if (disk && Array.isArray(disk.evidence)) {
+          for (const item of disk.evidence) {
+            if (!this.evidenceMap.has(item.id)) this.evidenceMap.set(item.id, item);
+          }
+        }
+        const taskItems = this.queryEvidence({ taskId });
+        return { taskId, updatedAt: new Date().toISOString(), evidenceCount: taskItems.length, evidence: taskItems };
+      },
+    });
   }
 
   /**
@@ -201,22 +205,14 @@ class EvidenceLedger {
    */
   load(taskId = 'default') {
     const targetFile = path.join(this.stateDir, `${assertSafeTaskId(taskId)}.json`);
-    if (!this.fsImpl.existsSync(targetFile)) {
-      return 0;
-    }
-
-    try {
-      const data = JSON.parse(this.fsImpl.readFileSync(targetFile, 'utf8'));
-      if (Array.isArray(data.evidence)) {
-        for (const item of data.evidence) {
-          this.evidenceMap.set(item.id, item);
-        }
-        return data.evidence.length;
+    const data = readTaskState(this.fsImpl, targetFile);
+    if (data && Array.isArray(data.evidence)) {
+      for (const item of data.evidence) {
+        this.evidenceMap.set(item.id, item);
       }
-      return 0;
-    } catch (error) {
-      throw new Error(`Failed to load evidence file '${targetFile}': ${error.message}`);
+      return data.evidence.length;
     }
+    return 0;
   }
 
   /**

@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 // Shared with EvidenceLedger so both stores enforce one definition of a safe task id.
 const { assertSafeTaskId, EvidenceLedger } = require('./evidence-ledger');
+const { updateTaskState, readTaskState } = require('./task-state');
 const { finishRuntime, usageError } = require('./cli-result');
 const { REPO_ROOT } = require('../helper/repo-root');
 
@@ -296,19 +297,23 @@ class ClaimsManager {
    * @returns {string} filePath
    */
   save(taskId = 'default') {
-    const taskClaims = this.getClaims(taskId);
-    const payload = {
-      version: 1,
-      taskId,
-      updatedAt: new Date().toISOString(),
-      claimsCount: taskClaims.length,
-      claims: taskClaims,
-    };
-
-    this.fsImpl.mkdirSync(this.stateDir, { recursive: true });
+    // Locked, merged, revisioned — task-state.js. A concurrent writer's claims that this instance
+    // never loaded are folded in from disk inside the lock; for a claim id both writers hold, this
+    // instance's version wins, because its status was just re-evaluated against linked evidence.
     const targetFile = path.join(this.stateDir, `${assertSafeTaskId(taskId)}_claims.json`);
-    this.fsImpl.writeFileSync(targetFile, JSON.stringify(payload, null, 2), 'utf8');
-    return targetFile;
+    return updateTaskState({
+      fsImpl: this.fsImpl,
+      file: targetFile,
+      build: (disk) => {
+        if (disk && Array.isArray(disk.claims)) {
+          for (const item of disk.claims) {
+            if (!this.claimsMap.has(item.id)) this.claimsMap.set(item.id, item);
+          }
+        }
+        const taskClaims = this.getClaims(taskId);
+        return { taskId, updatedAt: new Date().toISOString(), claimsCount: taskClaims.length, claims: taskClaims };
+      },
+    });
   }
 
   /**
@@ -318,22 +323,14 @@ class ClaimsManager {
    */
   load(taskId = 'default') {
     const targetFile = path.join(this.stateDir, `${assertSafeTaskId(taskId)}_claims.json`);
-    if (!this.fsImpl.existsSync(targetFile)) {
-      return 0;
-    }
-
-    try {
-      const data = JSON.parse(this.fsImpl.readFileSync(targetFile, 'utf8'));
-      if (Array.isArray(data.claims)) {
-        for (const item of data.claims) {
-          this.claimsMap.set(item.id, item);
-        }
-        return data.claims.length;
+    const data = readTaskState(this.fsImpl, targetFile);
+    if (data && Array.isArray(data.claims)) {
+      for (const item of data.claims) {
+        this.claimsMap.set(item.id, item);
       }
-      return 0;
-    } catch (error) {
-      throw new Error(`Failed to load claims file '${targetFile}': ${error.message}`);
+      return data.claims.length;
     }
+    return 0;
   }
 
   clear() {
