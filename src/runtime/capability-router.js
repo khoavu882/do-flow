@@ -9,6 +9,14 @@ const { REPO_ROOT } = require('../helper/repo-root');
 // Mirrors bin/doflow.js's own REPO_ROOT computation, relative to this file's location, so
 // handleRouteCommand resolves the same repo root it did before relocation. (D8)
 
+/** POSIX single-quote escaping, for the DISPLAY string only — execution always uses the argv
+ * vector, never a shell string, so retrieved data can never become shell syntax (review R5). */
+function shellQuote(word) {
+  const text = String(word);
+  if (text !== '' && /^[A-Za-z0-9_@%+=:,.\/-]+$/.test(text)) return text;
+  return `'${text.replace(/'/g, `'\\''`)}'`;
+}
+
 function parseYamlFile(filePath, fsImpl = fs) {
   try {
     const text = fsImpl.readFileSync(filePath, 'utf8');
@@ -109,40 +117,61 @@ class CapabilityRouter {
    */
   evaluateProviderHealth(provider, deepCheck = false) {
     if (!provider) return { status: 'UNAVAILABLE', details: 'No provider declared' };
-    
+
+    // Declared / installed / responsive are DISTINCT facts (review R5): `facts` reports each one
+    // as true, false, or null-for-not-measured, so "healthy" can never silently mean only
+    // "declared in the registry". The summary `status` stays for existing callers.
+    const facts = { declared: true, installed: null, responsive: null };
+
+    // `native.test` has no binary — its installedness is whether this project's manifests declare
+    // a test command at all. Reporting HEALTHY without that check routed verify-runtime-behavior
+    // to an invented `npm test` on machines where every binary probe failed (review R5).
+    if (provider.id === 'native.test') {
+      const command = this.detectTestCommand();
+      facts.installed = Boolean(command);
+      if (!command) {
+        return { status: 'UNAVAILABLE', details: 'No test command detected in project manifests', facts };
+      }
+      return { status: 'HEALTHY', details: `Project test command: ${command}`, facts };
+    }
+
     // For native providers, check binary if specified (or fallback to basic availability)
     if (provider.kind === 'native') {
       if (provider.binary) {
         const available = this.isBinaryAvailable(provider.binary);
+        facts.installed = available;
         if (!available && provider.binary === 'rg') {
           // If rg is not present, check for standard grep as baseline fallback
           const grepAvailable = this.isBinaryAvailable('grep');
           if (grepAvailable) {
-            return { status: 'HEALTHY', details: 'Using grep fallback' };
+            facts.installed = true;
+            return { status: 'HEALTHY', details: 'Using grep fallback', facts };
           }
         }
         if (!available) {
-          return { status: 'UNAVAILABLE', details: `Native binary '${provider.binary}' not found` };
+          return { status: 'UNAVAILABLE', details: `Native binary '${provider.binary}' not found`, facts };
         }
       }
-      return { status: 'HEALTHY' };
+      return { status: 'HEALTHY', facts };
     }
 
     if (provider.binary) {
       const available = this.isBinaryAvailable(provider.binary);
+      facts.installed = available;
       if (!available) {
-        return { status: 'UNAVAILABLE', details: `Tool binary '${provider.binary}' not found` };
+        return { status: 'UNAVAILABLE', details: `Tool binary '${provider.binary}' not found`, facts };
       }
       if (deepCheck && provider.checkCommand) {
         const smoke = this.executeSmokeCheck(provider.checkCommand);
+        facts.responsive = smoke.ok;
         if (!smoke.ok) {
-          return { status: 'UNAVAILABLE', details: `Smoke check failed: ${smoke.error}` };
+          return { status: 'UNAVAILABLE', details: `Smoke check failed: ${smoke.error}`, facts };
         }
       }
-      return { status: 'HEALTHY' };
+      return { status: 'HEALTHY', facts };
     }
 
-    return { status: 'HEALTHY' };
+    return { status: 'HEALTHY', facts };
   }
 
   /**
@@ -190,6 +219,13 @@ class CapabilityRouter {
 
   /**
    * Formats concrete execution instructions for a provider based on intent parameters.
+   *
+   * The executable contract is `argv` — an argument VECTOR, executed without a shell (review R5:
+   * the old interpolated strings turned a query containing `$(...)` into executable shell syntax
+   * and split a path containing spaces). `cliCommand` remains for display and for a human typing
+   * it, built by quoting every argv word; it is never the primary contract. MCP invocations get a
+   * validated tool name plus an argument object using the tool's own parameter names.
+   *
    * @param {string} intent
    * @param {Object} provider
    * @param {Object} params
@@ -198,40 +234,46 @@ class CapabilityRouter {
   formatExecution(intent, provider, params = {}) {
     const query = params.query || params.symbol || params.concept || '';
     const targetPath = params.path || '.';
+    const withDisplay = (result) => (result.argv ? { ...result, cliCommand: result.argv.map(shellQuote).join(' ') } : result);
 
     if (provider.id === 'semble.search') {
-      return {
+      const content = params.content || 'code';
+      return withDisplay({
         mcpTool: 'mcp__semble__search',
-        cliCommand: `semble search "${query}" ${targetPath} --content ${params.content || 'code'}`,
-        args: { query, path: targetPath, content: params.content || 'code' },
-      };
+        // `repo`, not `path`: the MCP tool's schema names the project root `repo` and rejects a
+        // call without it (review R5 — the routed arguments did not fit the tool they named).
+        args: { query, repo: targetPath, content },
+        argv: ['semble', 'search', query, targetPath, '--content', content],
+      });
     }
 
     if (provider.id === 'graphify.query') {
-      return {
+      return withDisplay({
         mcpTool: 'mcp__graphify__query_graph',
-        cliCommand: `graphify query "${query}"`,
         args: { query, project_path: targetPath },
-      };
+        argv: ['graphify', 'query', query],
+      });
     }
 
     if (provider.id === 'native.rg') {
       const isRg = this.isBinaryAvailable('rg');
-      const bin = isRg ? 'rg' : 'grep -rn';
-      return {
-        cliCommand: `${bin} -i "${query}" ${targetPath}`,
+      return withDisplay({
+        argv: isRg ? ['rg', '-i', query, targetPath] : ['grep', '-rn', '-i', query, targetPath],
         args: { query, path: targetPath },
-      };
+      });
     }
 
     if (provider.id === 'git.native') {
-      return {
-        cliCommand: `git log -n ${params.maxCommits || 10} --grep="${query}"`,
+      return withDisplay({
+        argv: ['git', 'log', '-n', String(params.maxCommits || 10), `--grep=${query}`],
         args: { query },
-      };
+      });
     }
 
     if (provider.id === 'rtk') {
+      // `params.command` is by contract a command the caller already owns, not retrieved data, so
+      // it passes through; there is no argv because splitting a caller's command string here would
+      // corrupt any quoted argument it contains.
       const rawCmd = params.command || 'git status';
       return {
         cliCommand: `rtk ${rawCmd}`,
@@ -239,38 +281,43 @@ class CapabilityRouter {
       };
     }
 
-    // `native.test` is the one registry provider with no binary of its own — it stands for
-    // "whatever this project runs its tests with". Without a branch here it fell through to the
-    // generic tail below and produced `native.test "x"`, a string no shell can execute, while
-    // still being reported HEALTHY. Emit the project's actual test command instead.
+    // `native.test` stands for "whatever this project runs its tests with", read from the project's
+    // own manifests via the shared command detector. No detection, no command: inventing `npm test`
+    // for a project that never declared it hands the model a plausible-looking command that answers
+    // a question nobody asked (review R5).
     if (provider.id === 'native.test') {
       const command = params.testCommand || this.detectTestCommand();
-      return {
-        cliCommand: query ? `${command} ${query}` : command,
+      if (!command) {
+        return {
+          cliCommand: null,
+          argv: null,
+          args: {},
+          reason: 'No test command detected in this project\'s manifests; declare one (plan.md override or package manifest) before routing verify-runtime-behavior here.',
+        };
+      }
+      return withDisplay({
+        argv: [...command.split(' '), ...(query ? [query] : [])],
         args: { testCommand: command, ...(query ? { filter: query } : {}) },
-      };
+      });
     }
 
-    return {
-      cliCommand: `${provider.binary || provider.id} "${query}"`,
+    return withDisplay({
+      argv: [provider.binary || provider.id, query],
       args: params,
-    };
+    });
   }
 
-  /** The repo's own test entrypoint, read from package.json when present. Kept deliberately narrow:
-   * a wrong guess here becomes a command the model runs, so fall back to the ecosystem default
-   * rather than inventing something. */
+  /** The project's own test entrypoint, read from its manifests by the shared command detector —
+   * the same detector `doflow verify` uses, so the two agree. Returns null when no manifest
+   * declares one: a wrong guess here becomes a command the model runs. */
   detectTestCommand() {
     try {
-      const pkgPath = path.join(this.repoRoot, 'package.json');
-      if (fs.existsSync(pkgPath)) {
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-        if (pkg.scripts?.test) return 'npm test';
-      }
+      const { detectCommands } = require('./command-detect');
+      const detected = detectCommands({ projectRoot: this.repoRoot });
+      return detected.commands?.test?.command || null;
     } catch {
-      // An unreadable or malformed package.json is not worth failing a capability lookup over.
+      return null;
     }
-    return 'npm test';
   }
 
   /**
