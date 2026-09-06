@@ -64,9 +64,10 @@ test('R5: native.test detects the project command instead of inventing npm test'
   const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-router-empty-'));
   t.after(() => fs.rmSync(empty, { recursive: true, force: true }));
 
-  // A project with no manifest at all: no detection, no command, not healthy. The registry still
-  // comes from the install — repoRoot doubles as the project root for manifest detection here.
-  const bare = router({ repoRoot: empty, registryDir: path.join(REPO, 'core', 'registry') });
+  // A project with no manifest at all: no detection, no command, not healthy. The registry comes
+  // from the install (repoRoot) while manifest detection reads the project (projectRoot) — the
+  // two-roots split review A3 called for; a single root read the install's own package.json.
+  const bare = router({ projectRoot: empty });
   const health = bare.evaluateProviderHealth({ id: 'native.test', kind: 'native' });
   assert.equal(health.status, 'UNAVAILABLE');
   assert.match(health.details, /No test command detected/);

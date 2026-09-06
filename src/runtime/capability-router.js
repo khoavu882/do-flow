@@ -39,6 +39,11 @@ class CapabilityRouter {
   constructor(options = {}) {
     this.fsImpl = options.fsImpl || fs;
     this.repoRoot = options.repoRoot || REPO_ROOT;
+    // Two roots, deliberately distinct (review A3, surfaced by R5's tests): `repoRoot` locates the
+    // DoFlow install — the registry ships inside it — while `projectRoot` is the repository under
+    // work, whose manifests native.test detection reads. Under an npm install they differ; a
+    // single root made detection read the DoFlow package's own package.json.
+    this.projectRoot = options.projectRoot || options.repoRoot || process.cwd();
     this.registryDir = options.registryDir || path.join(this.repoRoot, 'core', 'registry');
     this.binaryChecker = options.binaryChecker || null;
     this.binaryCache = new Map();
@@ -313,7 +318,7 @@ class CapabilityRouter {
   detectTestCommand() {
     try {
       const { detectCommands } = require('./command-detect');
-      const detected = detectCommands({ projectRoot: this.repoRoot });
+      const detected = detectCommands({ projectRoot: this.projectRoot });
       return detected.commands?.test?.command || null;
     } catch {
       return null;
@@ -421,7 +426,7 @@ class CapabilityRouter {
  * @returns {number} exit code
  */
 function handleRouteCommand({ intent, query, check = false, json = false, projectRoot } = {}) {
-  const router = new CapabilityRouter({ repoRoot: REPO_ROOT });
+  const router = new CapabilityRouter({ repoRoot: REPO_ROOT, projectRoot });
   if (typeof intent !== 'string' || intent.trim() === '') {
     return usageError('route', `--intent is required. Declared intents: ${Object.keys(router.routes).join(', ')}`, json);
   }
