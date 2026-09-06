@@ -101,6 +101,15 @@ class EvidenceLedger {
       provenance,
       content: item.content || null,
       freshness,
+      // Which template requirements this item claims to establish. Readiness counts an item toward
+      // a requirement only when the writer named it here — kind-matching alone let an item saying
+      // "tests failed" satisfy a passing-baseline requirement (architecture review R1, P1).
+      establishes: Array.isArray(item.establishes) ? [...item.establishes] : [],
+      // Typed execution record for test-result / runtime-observation items: what ran and how it
+      // exited. Tree identity and time live in freshness (gitCommit, observedAt).
+      observation: item.observation
+        ? { command: item.observation.command, exitCode: item.observation.exitCode }
+        : null,
       supports: Array.isArray(item.supports) ? [...item.supports] : [],
       contradicts: Array.isArray(item.contradicts) ? [...item.contradicts] : [],
     };

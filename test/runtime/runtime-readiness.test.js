@@ -44,11 +44,14 @@ test('ReadinessEngine evaluates Bug Fix readiness as READY when prerequisites sa
   const ledger = new EvidenceLedger();
   const claims = new ClaimsManager({ evidenceLedger: ledger });
 
-  // Add reproduction observation
+  // Add reproduction observation: an executed command with its exit status, bound to the
+  // requirement it was gathered to prove (review R1 — kind alone no longer satisfies).
   const ev1 = ledger.addEvidence({
     taskId: 'task_bug_ready',
     kind: 'runtime-observation',
     content: 'Observed HTTP 504 on payment gateway',
+    establishes: ['reproduction'],
+    observation: { command: 'curl -sf http://localhost:8080/pay', exitCode: 22 },
   });
 
   // Add affected code
@@ -57,6 +60,7 @@ test('ReadinessEngine evaluates Bug Fix readiness as READY when prerequisites sa
     kind: 'exact-search',
     locator: { file: 'src/runtime/readiness.js', lineRange: [45, 60] },
     content: 'function processPayment()',
+    establishes: ['affected_code'],
   });
 
   // Add blast radius
@@ -65,12 +69,14 @@ test('ReadinessEngine evaluates Bug Fix readiness as READY when prerequisites sa
     kind: 'structural',
     locator: { file: 'src/runtime/claims.js' },
     content: 'CheckoutController -> PaymentService',
+    establishes: ['blast_radius'],
   });
 
-  // Add supported root cause claim
+  // Add supported root cause claim, declared in the root-cause role the template requires
   const claimId = claims.addClaim({
     taskId: 'task_bug_ready',
     statement: 'Missing keepalive in socket timeout handler',
+    role: 'root-cause',
   });
   claims.linkEvidence(claimId, ev2, 'supports');
 
@@ -98,6 +104,7 @@ test('ReadinessEngine evaluates Trivial Edit with localized target', () => {
     kind: 'exact-search',
     locator: { file: 'README.md', lineRange: [1, 5] },
     content: '# DoFlow',
+    establishes: ['target_identified'],
   });
 
   const report = engine.evaluateReadiness(
@@ -276,6 +283,7 @@ test('FR-005: resolvable evidence leaves the verdict untouched', () => {
     provenance: 'extracted',
     locator: { file: 'src/runtime/readiness.js', line: 1 },
     content: 'use strict',
+    establishes: ['affected_components'],
   });
 
   const report = engine.evaluateReadiness(

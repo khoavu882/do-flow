@@ -174,9 +174,13 @@ function handleReadinessCommand({
 // watches vanish while the command reports success. Nothing reaches the ledger unnamed.
 
 /** Every field an evidence item may carry here. Anything else is refused, never dropped. */
-const EVIDENCE_ITEM_FIELDS = ['kind', 'provenance', 'source', 'locator', 'content', 'taskId'];
+const EVIDENCE_ITEM_FIELDS = ['kind', 'provenance', 'source', 'locator', 'content', 'taskId', 'establishes', 'observation'];
 const EVIDENCE_SOURCE_FIELDS = ['provider', 'capability'];
 const EVIDENCE_LOCATOR_FIELDS = ['file', 'line', 'symbol', 'uri'];
+const EVIDENCE_OBSERVATION_FIELDS = ['command', 'exitCode'];
+
+/** Kinds that record an execution and may carry a typed observation. */
+const OBSERVATION_KINDS = new Set(['test-result', 'runtime-observation']);
 
 /** Kinds that are by definition not a direct read of the repository. FR-007's second sentence. */
 const NON_REPOSITORY_KINDS = new Set(['generated-analysis', 'user-statement']);
@@ -320,7 +324,9 @@ function validateEvidenceItem(raw, taskId, repoRoot) {
   }
 
   const locator = raw.locator === undefined ? null : parseLocator(raw.locator);
-  if (raw.provenance === 'extracted' && !locator) {
+  // An item carrying an observation is anchored by the command it records — that command is what
+  // the next worker re-runs to check it — so the locator becomes optional there and only there.
+  if (raw.provenance === 'extracted' && !locator && raw.observation === undefined) {
     throw new Error("provenance 'extracted' requires a locator — a fact read from the repository "
       + 'must name where it was read, or the next worker cannot check it and cannot tell when it goes stale');
   }
@@ -345,12 +351,63 @@ function validateEvidenceItem(raw, taskId, repoRoot) {
       + 'is the statement itself, so a record without one records nothing while still counting as evidence');
   }
 
+  // Requirement bindings: which readiness-template requirements this item claims to establish.
+  // Declared by the writer, judged by the gate — the gate counts an item toward a requirement only
+  // when it is named here, so a structural item can no longer satisfy `architecture_mapped` and
+  // `blast_radius` at once by category alone (review R1).
+  let establishes = [];
+  if (raw.establishes !== undefined) {
+    const list = typeof raw.establishes === 'string' ? raw.establishes.split(',').map((s) => s.trim()) : raw.establishes;
+    if (!Array.isArray(list) || list.length === 0 || list.some((r) => typeof r !== 'string' || r.trim() === '')) {
+      throw new Error("'establishes' must be a requirement id, a comma-separated list of them, or a non-empty array of non-empty strings");
+    }
+    establishes = list.map((s) => s.trim());
+  }
+
+  // Typed observation: the execution behind a test-result or runtime-observation. Command and exit
+  // status are the two facts the gate can actually grade; tree identity and observation time are
+  // measured into freshness at this same write. Only an 'extracted' item may carry one — an
+  // observation asserts an execution happened, and an inferred item is by definition not one.
+  let observation = null;
+  if (raw.observation !== undefined) {
+    if (!raw.observation || typeof raw.observation !== 'object' || Array.isArray(raw.observation)) {
+      throw new Error('observation must be an object with command and exitCode');
+    }
+    for (const key of Object.keys(raw.observation)) {
+      if (!EVIDENCE_OBSERVATION_FIELDS.includes(key)) {
+        throw new Error(`unknown observation field '${key}'. Accepted: ${EVIDENCE_OBSERVATION_FIELDS.join(', ')}`);
+      }
+    }
+    if (typeof raw.observation.command !== 'string' || raw.observation.command.trim() === '') {
+      throw new Error('observation.command is required: the exact command whose exit status is being recorded');
+    }
+    if (!Number.isInteger(raw.observation.exitCode) || raw.observation.exitCode < 0) {
+      throw new Error(`observation.exitCode must be a non-negative integer, got '${raw.observation.exitCode}'`);
+    }
+    if (!OBSERVATION_KINDS.has(raw.kind)) {
+      throw new Error(`kind '${raw.kind}' cannot carry an observation — only ${[...OBSERVATION_KINDS].join(', ')} record an execution`);
+    }
+    if (raw.provenance !== 'extracted') {
+      throw new Error(`provenance '${raw.provenance}' cannot carry an observation: an observation asserts a command `
+        + 'was actually run, which is a read of the world, not an inference or an assertion. '
+        + "Either record the execution as 'extracted', or drop the observation.");
+    }
+    observation = { command: raw.observation.command.trim(), exitCode: raw.observation.exitCode };
+  }
+  if (raw.kind === 'test-result' && raw.provenance === 'extracted' && !observation) {
+    throw new Error("an 'extracted' test-result requires an observation ({command, exitCode}) — a test result "
+      + 'without the command and exit status behind it is a claim about an execution nobody can check, '
+      + 'and it is exactly how a failed baseline was once accepted as a passing one');
+  }
+
   return {
     kind: raw.kind,
     provenance: raw.provenance,
     source: { provider: raw.source.provider, capability: raw.source.capability },
     locator: locator || {},
     content,
+    establishes,
+    observation,
   };
 }
 

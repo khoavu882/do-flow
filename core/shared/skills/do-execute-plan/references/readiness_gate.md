@@ -71,8 +71,8 @@ contract that was met and one that was described as met.
 
 | Input | Written by | What it can satisfy |
 | :--- | :--- | :--- |
-| Evidence | `evidence --task-id <id> --action add` — one item from `--kind/--provenance/--provider/--capability/--locator/--content`, or a whole stage from `--batch <file>` | every requirement declaring evidence kinds: `reproduction`, `affected_code`, `blast_radius`, `affected_components`, `architecture_mapped`, `baseline_tests`, `target_identified`, `compatibility_checked`, `usage_impact` |
-| Claims | `claim --action add`, promoted by `claim --action link` | `root_cause`, the one requirement that demands a `supported` claim. A `conflicted` claim additionally forces `BLOCKED` for the whole task |
+| Evidence | `evidence --task-id <id> --action add` — one item from `--kind/--provenance/--provider/--capability/--locator/--content`, plus `--establishes <req-id[,req-id]>` and (for executions) `--observed-command`/`--observed-exit`; or a whole stage from `--batch <file>` | every requirement declaring evidence kinds: `reproduction`, `affected_code`, `blast_radius`, `affected_components`, `architecture_mapped`, `baseline_tests`, `target_identified`, `compatibility_checked`, `usage_impact` |
+| Claims | `claim --action add` (with `--role root-cause` where the contract names a role), promoted by `claim --action link` | `root_cause`, the one requirement that demands a `supported` claim **in the `root-cause` role**. A `conflicted` claim additionally forces `BLOCKED` for the whole task |
 | Caller-stated profile | `readiness --verification-plan <text>` · `--scope <text>` · `--invariants <text>` · `--user-decision-pending` | `verification_plan`, `verification_command`, `regression_verification` (from `--verification-plan`); `scope_clear`, `scope_verified`, `invariants_captured` (from `--scope` or `--invariants`) |
 
 So each state arrives as follows.
@@ -80,6 +80,13 @@ So each state arrives as follows.
 - **`NEEDS_EVIDENCE`** — the default answer for a task with nothing recorded. Every required
   entry the batch has not covered and no stated input satisfies is listed with its
   `recommendedAction`. This is the checklist, not a malfunction.
+
+  An item counts toward a requirement only when it is `extracted` **and** names that requirement
+  in `establishes` — kind alone is a category, and an inferred item is analysis, not measurement.
+  Where the contract expects an execution (`reproduction`, `baseline_tests`), the item must carry
+  the observation `{command, exitCode}` it records, and `baseline_tests` additionally requires
+  exit 0: a run that failed is reported as the failure it was. A bug reproduction succeeds by
+  observing the expected failure, so a non-zero exit there is the evidence, not a defect in it.
 - **`READY`** — recorded evidence plus stated inputs cover every required entry. Each satisfied
   requirement names the evidence ids that satisfied it in `evidenceIds`; a requirement satisfied
   by a *stated* input carries an empty `evidenceIds`, because nothing backs it but the statement.
@@ -101,9 +108,11 @@ Three limits still hold, and none of them is a reason to work around the gate:
 
 - Only evidence whose `freshness.status` is `FRESH` counts. The write measures freshness itself —
   HEAD commit, sha256 of the located file, `observedAt` — and records `null` for anything it cannot
-  establish, rather than a value that happens to parse. But **no verb re-marks a record `STALE`
-  today**, so an old batch stays `FRESH` until something says otherwise: re-check a locator
-  yourself before leaning on evidence recorded in an earlier session.
+  establish, rather than a value that happens to parse. Every `readiness` read and every gated
+  stage completion re-checks those stamps against the tree as it stands — the same evaluation at
+  both boundaries — so an item whose file has changed since it was read reports `STALE` and stops
+  counting, and the report names it. Re-record stale items against the current tree; do not argue
+  with the verdict.
 - `claim --action link` refuses an evidence id the ledger does not hold (exit 2). Record the batch
   first, then link; a link is not a way to reference evidence you have not written.
 - The gate grades this task's ledger only. A different `--task-id` reads a different record, and

@@ -57,7 +57,7 @@ class ClaimsManager {
   /**
    * Registers a new proposition as a claim.
    * Agent inferences start strictly in 'hypothesis' status.
-   * @param {Object} item - { statement, taskId, status, id }
+   * @param {Object} item - { statement, taskId, status, id, role }
    * @returns {string} claimId
    */
   addClaim(item) {
@@ -66,6 +66,11 @@ class ClaimsManager {
     }
     if (!item.statement || typeof item.statement !== 'string') {
       throw new Error('Claim requires a non-empty statement');
+    }
+    // The claim's relationship to the task, e.g. 'root-cause'. A readiness template can require a
+    // role, so a supported-but-unrelated claim cannot satisfy a requirement it never addressed.
+    if (item.role !== undefined && !/^[a-z][a-z0-9-]*$/.test(String(item.role))) {
+      throw new Error(`Claim role '${item.role}' must be a lowercase-kebab token, e.g. 'root-cause'`);
     }
 
     const id = item.id || this.generateId();
@@ -76,6 +81,7 @@ class ClaimsManager {
       id,
       taskId,
       statement: item.statement,
+      role: item.role || null,
       status,
       supportingEvidence: Array.isArray(item.supportingEvidence) ? [...item.supportingEvidence] : [],
       contradictingEvidence: Array.isArray(item.contradictingEvidence) ? [...item.contradictingEvidence] : [],
@@ -355,7 +361,7 @@ class ClaimsManager {
  * @param {string} [options.stateRoot]
  * @returns {number} exit code
  */
-function handleClaimCommand({ taskId, action = 'list', statement, claimId, evidenceId, replacedBy, relation = 'supports', json = false, stateRoot } = {}) {
+function handleClaimCommand({ taskId, action = 'list', statement, claimId, evidenceId, replacedBy, relation = 'supports', role, json = false, stateRoot } = {}) {
   const root = stateRoot || process.cwd();
   const ledger = new EvidenceLedger({ repoRoot: root });
   ledger.load(taskId);
@@ -368,7 +374,7 @@ function handleClaimCommand({ taskId, action = 'list', statement, claimId, evide
       if (typeof statement !== 'string' || statement.trim() === '') {
         return usageError('claim', '--statement is required for --action add', json);
       }
-      const id = claims.addClaim({ statement, taskId });
+      const id = claims.addClaim({ statement, taskId, role });
       claims.save(taskId);
       result = { action, taskId, claim: claims.getClaim(id) };
     } else if (action === 'link') {

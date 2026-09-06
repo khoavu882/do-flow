@@ -62,7 +62,8 @@ test('readiness and stage completion reject the same changed observation', (t) =
   const task = 'freshness-boundary';
   const added = cli(root, 'evidence', '--action', 'add', '--task-id', task,
     '--kind', 'exact-search', '--provenance', 'extracted', '--provider', 'local-read',
-    '--capability', 'code.exact-search', '--locator', 'a.js:1');
+    '--capability', 'code.exact-search', '--locator', 'a.js:1',
+    '--establishes', 'target_identified');
   assert.equal(added.status, 0, added.stderr);
   assert.equal(cli(root, 'orchestrate', '--action', 'start', '--task-id', task, '--task-class', 'trivial-edit').status, 0);
   fs.writeFileSync(path.join(root, 'a.js'), 'module.exports = 5;\n');

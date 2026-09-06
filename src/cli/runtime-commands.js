@@ -96,6 +96,14 @@ function evidenceItemFromFlags(o) {
   if (o.provenance !== undefined) item.provenance = o.provenance;
   if (o.locator !== undefined) item.locator = o.locator;
   if (o.content !== undefined) item.content = o.content;
+  if (o.establishes !== undefined) item.establishes = o.establishes;
+  // Both halves of an observation travel together; a lone half must reach the write boundary as
+  // the partial object it is, so the refusal names the missing field instead of dropping the pair.
+  if (o.observedCommand !== undefined || o.observedExit !== undefined) {
+    item.observation = {};
+    if (o.observedCommand !== undefined) item.observation.command = o.observedCommand;
+    if (o.observedExit !== undefined) item.observation.exitCode = o.observedExit;
+  }
   const source = {};
   if (o.provider !== undefined) source.provider = o.provider;
   if (o.capability !== undefined) source.capability = o.capability;
@@ -152,7 +160,7 @@ function dispatchRuntimeCommand(o) {
     case 'retrieve': return handleRetrieveCommand({ query: o.query, top: o.top, json: o.json });
     case 'model-role': return handleModelRoleCommand({ role: o.role, exclude: o.exclude, json: o.json, repoRoot: REPO_ROOT });
     case 'route': return handleRouteCommand({ intent: o.intent, query: o.query, check: o.check, json: o.json, projectRoot: evidenceRoot(o) });
-    case 'claim': return handleClaimCommand({ taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, replacedBy: o.replacedBy, relation: o.relation, json: o.json, stateRoot: evidenceRoot(o) });
+    case 'claim': return handleClaimCommand({ taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, replacedBy: o.replacedBy, relation: o.relation, role: o.role, json: o.json, stateRoot: evidenceRoot(o) });
     case 'context-pack': return handleContextPackCommand({ taskId: requireTaskId(o), taskClass: o.taskClass, objective: o.objective, json: o.json, stateRoot: evidenceRoot(o) });
     case 'retrieval-plan': return handleRetrievalPlanCommand({ taskId: requireTaskId(o), action: o.action, need: o.need, stage: o.stage, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
     case 'outcome': return handleOutcomeCommand({ taskId: requireTaskId(o), action: o.action, state: o.state, taskClass: o.taskClass, stage: o.stage, readiness: o.readiness, verification: o.verification, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });

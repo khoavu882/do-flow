@@ -92,7 +92,7 @@ retrieval on.
      are diagnosing. Use the same id for every `evidence`, `claim` and `readiness` call in the run.
      ```bash
      "$DOFLOW" evidence --task-id "<task id>" --action add --batch <batch>.json --json
-     "$DOFLOW" claim --task-id "<task id>" --action add --statement "<the root cause, in one sentence>"
+     "$DOFLOW" claim --task-id "<task id>" --action add --role root-cause --statement "<the root cause, in one sentence>"
      ```
    - This stage's items are what the investigation observed: stack frames, log lines, test results
      and diff hunks are **extracted**; your reading of them is **inferred**. A diagnosis is where
@@ -100,8 +100,10 @@ retrieval on.
 
 Item schema, provenance rules, and the refused-field list: the guidance tree's `references/EVIDENCE_LEDGER.md`. Read it before writing the batch.
 
-   - The root cause enters as a claim and is stored as a `hypothesis`. It becomes supported only
-     through linked evidence, recorded after the batch lands:
+   - The root cause enters as a claim and is stored as a `hypothesis`. `--role root-cause` declares
+     what the claim is to the task — the bug class's readiness contract only accepts a supported
+     claim carrying that role, so a supported claim about something unrelated cannot stand in for
+     the cause. It becomes supported only through linked evidence, recorded after the batch lands:
      ```bash
      "$DOFLOW" claim --task-id "<task id>" --action link --claim-id "<claim id>" --evidence-id "<evidence id>" --relation supports
      ```

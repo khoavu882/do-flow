@@ -20,15 +20,31 @@ nothing**, so a half-written stage never reads as complete.
 - **`source`** — `provider` + `capability`. There is no `unknown` stand-in; if you cannot name what
   produced the item, you do not yet have the item.
 
-Pairing rules: `extracted` needs a `locator`; `inferred` and `asserted` need `content`;
-`generated-analysis` and `user-statement` can never be `extracted` — that pairing is how a reading
-of the evidence stops being distinguishable from the evidence.
+Pairing rules: `extracted` needs a `locator` (unless the item carries an `observation` — the
+command is then what the next worker re-runs to check it); `inferred` and `asserted` need
+`content`; `generated-analysis` and `user-statement` can never be `extracted` — that pairing is how
+a reading of the evidence stops being distinguishable from the evidence.
+
+## Bindings and observations
+
+- **`establishes`** — the readiness-template requirement id(s) this item was gathered to prove,
+  e.g. `["baseline_tests"]`. The gate counts an item toward a requirement **only** when named here:
+  kind alone is a category, and category coverage is not proof. One extracted read may establish
+  two requirements by declaring both. An item that establishes nothing is still evidence — it just
+  satisfies no gate requirement.
+- **`observation`** — `{command, exitCode}`, the execution behind a `test-result` or
+  `runtime-observation`. Required for an `extracted` `test-result`; refused on any inferred or
+  asserted item (an inference did not run anything). Where a template expects a passing run
+  (`baseline_tests`), a bound observation that exited non-zero is reported as the failure it was —
+  never as the passing baseline it is not. A bug reproduction succeeds by observing the expected
+  failure, so its observation may exit non-zero.
 
 ## The accepted set is closed
 
-An item carries exactly `kind`, `provenance`, `source`, `locator`, `content`, `taskId` — nothing
-else. Any other key is refused and the whole batch writes nothing, so a field you invent costs the
-batch, not just the field. The list below is what people reach for most, and why each is absent:
+An item carries exactly `kind`, `provenance`, `source`, `locator`, `content`, `taskId`,
+`establishes`, `observation` — nothing else. Any other key is refused and the whole batch writes
+nothing, so a field you invent costs the batch, not just the field. The list below is what people
+reach for most, and why each is absent:
 `id`, `freshness`, `supports`/`contradicts`, `stage`, any score field. Freshness is measured at the
 write, not declared by the writer; the ledger assigns the id; and evidence attaches to a claim by
 linking (below), not by a field on the item.
@@ -39,6 +55,10 @@ Each conclusion is added as a claim in the same pass and is stored as a `hypothe
 supported only through linked evidence — the `claim` verb's link action, naming the claim id, the
 evidence id, and the relation, spelled exactly `supports` or `contradicts`. An earlier stage, a subagent, or
 an artifact from a previous session having asserted something is not support.
+
+A claim may declare a `--role` (lowercase-kebab, e.g. `root-cause`) stating its relationship to
+the task. Where a template requires a role, only a supported claim carrying it counts: a supported
+claim about something unrelated does not answer a requirement it never addressed.
 
 The link refuses an evidence id the ledger does not hold: exit 2, naming the id, not a low grade.
 Record the batch first, link afterwards. A claim carrying both fresh support and fresh

@@ -6,9 +6,10 @@
       "description": "Verifies bug reproduction, affected code locators, supported root-cause claim, blast radius, and regression test plan.",
       "requirements": {
         "reproduction": {
-          "description": "Reproduction step or failing test verified",
+          "description": "Reproduction step or failing test verified by an executed command",
           "required": true,
-          "evidenceKinds": ["runtime-observation", "test-result"]
+          "evidenceKinds": ["runtime-observation", "test-result"],
+          "requiresObservation": true
         },
         "affected_code": {
           "description": "Exact files and symbols identified with source locators",
@@ -18,7 +19,8 @@
         "root_cause": {
           "description": "Root cause claim supported by evidence",
           "required": true,
-          "requiresClaimStatus": "supported"
+          "requiresClaimStatus": "supported",
+          "requiresClaimRole": "root-cause"
         },
         "blast_radius": {
           "description": "Downstream callers and dependent components mapped",
@@ -64,9 +66,11 @@
           "required": true
         },
         "baseline_tests": {
-          "description": "Baseline test suite passing prior to edits",
+          "description": "Baseline test suite passing prior to edits, established by an executed run exiting 0",
           "required": true,
-          "evidenceKinds": ["test-result"]
+          "evidenceKinds": ["test-result"],
+          "requiresObservation": true,
+          "expectedExit": "zero"
         },
         "blast_radius": {
           "description": "Affected dependents mapped",
