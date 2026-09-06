@@ -34,15 +34,30 @@ Rules:
   what the validator reports first.
 - The first column header must be literally `ID`, and the status column header literally `Status` —
   the checker locates them by name, so a column added to the right cannot shift the check.
-- A detail entry starts `- **<ID>**`. A trailing colon or a parenthetical qualifier inside the bold
-  is fine: `- **FR-001:**` and `- **NFR-002 (Backward compatible):**` both parse.
+- A detail entry takes either of two forms, and both may appear in the same artifact. Neither is
+  deprecated.
+  - **Bullet form:** a line starting `- **<ID>`, where `<ID>` is the leading token inside the bold.
+    A trailing colon or a parenthetical qualifier inside the bold is fine: `- **FR-001:**` and
+    `- **NFR-002 (Backward compatible):**` both parse.
+  - **Heading form:** a line matching `#### <ID>: <text>`, which counts as a detail entry only when
+    `<ID>` also appears in the first column of that section's index table. An ID-shaped heading with
+    no matching index row is not a detail entry and is ignored, so an unrelated heading cannot
+    invent a parity finding of its own.
+
+    Two conditions bound this form, and the bullet form is the answer wherever they do not hold.
+    The index table must appear **before** the detail it pairs with, because a heading is read
+    against the rows already seen. And the index must be **ID-first**: §3's History table leads with
+    `Date`, so **History detail uses the bullet form**. Neither condition binds the bullet form,
+    which is reconciled only after the whole file is read.
 
 Which sections take an index: `requirement.md` §3 Functional Requirements, §4 Non-Functional
 Requirements and §8 Assumptions; `design.md` §3 Components & Boundaries, §7 Risks and §8
 Assumptions; `plan.md` §4 Components & Changes and §6 Risks; `specs.md` §1 Interface Contracts.
 Prose sections do not.
 
-## 2. Status — a closed vocabulary
+## 2. Status and Maturity — two closed vocabularies
+
+### Status — the state of one indexed item
 
 | Value | Meaning |
 |---|---|
@@ -56,12 +71,46 @@ An item is **never silently deleted** once another artifact references its ID. S
 recorded so a reference encountered elsewhere always resolves. An item dropped before anything
 references it may simply be removed.
 
+### Maturity — the state of the document
+
+Every chain artifact's header carries `**Maturity:** <value>`, one of exactly three:
+
+| Value | Meaning |
+|---|---|
+| `Draft` | Being written or revised; not yet offered for review |
+| `In review` | Offered for review; no reviewer has ruled on it yet |
+| `Approved` | A reviewer accepted it as it stands |
+
+The two vocabularies are **disjoint**: no value is a member of both, so no reader and no parser has
+to work out which one a value came from. `Maturity` describes the document as a whole; `Status`
+describes one indexed item inside it. A document can be `Approved` while an item inside it is
+`Superseded → <ref>`, and the two say different things.
+
+The former header form `**Status:** Draft` is gone. A header carrying `Status` is reading the item
+vocabulary in the wrong place, and `Draft` was never a legal member of it.
+
 ## 3. History — the live body stays current
 
 When an item is superseded, its obsolete prose leaves the `**Detail**` block and moves to the
 artifact's own final History section — §9 for `requirement.md`, `design.md` and `plan.md`; §3 for
 `specs.md`. The index row stays as a tombstone. Reading the body top to bottom therefore yields
 current truth with no historical detours, while the supersession is still visible at a glance.
+
+Two rules bind that mechanism, and nothing else in this document states them:
+
+- **An id is never renumbered once anything references it.** A deletion at least breaks loudly. A
+  renumber does not, because the reused id still resolves to a real item and every reference to it
+  now silently points at something else — often from another artifact, sometimes from another
+  repository's `plan.md`. When an item's content is replaced, the replacement takes a new id and the
+  old row becomes a tombstone. Ids are append-only.
+- **Moving or reshaping an item is not, on its own, a supersession.** Regrouping detail under new
+  headings, converting a bullet-form entry to §1's heading form, or relocating a section leaves what
+  the item says unchanged, so it records nothing here. Recording such a move as a supersession is as
+  damaging as omitting a real one: it fills the record with reversals that never happened. This does
+  not touch the move described at the top of this section: prose leaving a `**Detail**` block for
+  History *because* its item was superseded is that supersession's recorded consequence, not a case
+  of this rule. The test is always whether what the item says changed, never whether its text
+  moved.
 
 History is itself index-then-detail — a table so changes can be listed and compared, with detail
 below so the reasoning behind a reversal is not compressed into a cell:
@@ -80,19 +129,26 @@ below so the reasoning behind a reversal is not compressed into a cell:
 
 A new artifact writes `None — initial version.` Every ID marked `Superseded` must appear here.
 
+**Revising an artifact updates its History.** An artifact revised after its initial write MUST
+record the revision here. `None — initial version.` MUST NOT remain once any indexed item has been
+added, changed or superseded — that line is a claim that the body has never moved, and leaving it
+in place after a revision makes the artifact's own account of itself false.
+
 ## 4. Diagrams
 
 ### Scope boundary — `requirement.md` §1
 
 A `flowchart` showing what is in scope, what is explicitly excluded, and what outcome each
 in-scope item produces, so the shape of the change is visible before the prose. Use
-`subgraph IN["In scope"]` / `subgraph OUT["Out of scope"]`. Write `N/A: <why>` for a change too
+`subgraph IN["In scope"]` / `subgraph OUT["Out of scope"]`. Write `N/A: [why]` for a change too
 small to have a meaningful boundary.
 
 ### C4 levels — `design.md` §2
 
-C4 is kept as the **conceptual zoom model** — Context, Container, Component, each with its own
-heading — and rendered with Mermaid `flowchart` plus `subgraph` blocks marking C4 boundaries.
+C4 is kept as the **conceptual zoom model** — system context, container, component — and rendered
+with Mermaid `flowchart` plus `subgraph` blocks marking C4 boundaries. Each level takes its own
+heading, written `### C4 Level 1: System Context`, `### C4 Level 2: Container` and
+`### C4 Level 3: Component`.
 
 > **Do not use the `C4Context` / `C4Container` diagram types.** They are experimental in Mermaid:
 > the layout engine offers no direction control and routes relationship arrows so labels collide
@@ -102,12 +158,17 @@ heading — and rendered with Mermaid `flowchart` plus `subgraph` blocks marking
 
 | Level | Shows | Required? |
 |---|---|---|
-| C1 Context | Actors and external systems. One box per actor or external system — no internals | yes |
-| C2 Container | Independently deployable units and how they talk | yes |
-| C3 Component | Internals of one container | only when the feature touches 3+ components in a single container |
+| C4 Level 1 | Actors and external systems. One box per actor or external system — no internals | yes |
+| C4 Level 2 | Independently deployable units and how they talk | yes |
+| C4 Level 3 | Internals of one container | only when the feature touches 3+ components in a single container |
+
+**No level label may match `^C[0-9]+$`.** That pattern is what a `design.md` §3 component ID looks
+like, so a bare `C3` in the same document is ambiguous between the third zoom level and the third
+component. Spelling the level `C4 Level 3` keeps the C4 vocabulary explicit for a reviewer who
+cites levels by number while leaving the component IDs unambiguous.
 
 Put the interaction on the arrow — `-->|"reads"|` — and distinguish secondary or asynchronous
-relations with `-.->`. Skip a level with `N/A: <why>`; for C3 that is normally
+relations with `-.->`. Skip a level with `N/A: [why]`; for C4 Level 3 that is normally
 `N/A: covered by §3 Components & Boundaries`.
 
 ## 5. plan.md — phase rollup
@@ -159,8 +220,11 @@ Acceptance criteria are formatted as testable Gherkin BDD scenario blocks mapped
 
 `specs.md` provides dedicated homes for technical implementation anchors — `design.md` §4/§5 hold
 only a one-line pointer to it:
-- **Interface Contracts (§1):** HTTP endpoints (methods, routes, request/response shapes, status codes), CLI verb signatures, and repository/service interfaces (`interface` → `concrete` → `mock`), each as one ID-bearing `IC-###` entry.
-- **Data Model (§2):** Relational data model diagrams (Mermaid `erDiagram` showing entities, keys, and cardinalities), database table schema catalogs (table purpose, keys, relations, indexes, ORM/DDL file references), and UX design tokens (color palettes, component states, layout cues).
+- **Interface Contracts (§1):** HTTP endpoints (methods, routes, request/response shapes, status codes), CLI verb signatures, and repository/service interfaces (`interface` → `concrete` → `mock`).
+- **Data Model (§2):** Relational data model diagrams, database table schema catalogs (table purpose, keys, relations, indexes, ORM/DDL file references), and UX design tokens (color palettes, component states, layout cues).
+
+This section routes *what* belongs in each of those two sections; the shape each one takes is
+governed by §10.
 
 ## 8. Tables for comparison
 
@@ -181,6 +245,10 @@ file nobody looked at.
 Checked: index/detail parity both directions · `Status` vocabulary · ID-shaped supersede targets
 resolve · superseded items have a History entry · plan rollup counts match the checklist.
 
+Parity reads both detail-entry forms of §1: the `- **<ID>` bullet, and the `#### <ID>: <text>`
+heading whose ID also appears in that section's index table. A heading that merely looks ID-shaped
+matches no index row, so it neither satisfies a row nor reports an orphan of its own.
+
 Not checked: whether an index summary faithfully describes its detail, whether a diagram is
 accurate, whether a required section exists at all. It is a **consistency** checker, not a
 conformance checker — which is also why artifacts written before this convention, having no index
@@ -193,3 +261,76 @@ is no author-vs-index drift for this checker to ever catch.
 
 Findings are reported to the author and never repaired automatically: when an index and its detail
 disagree, deciding which one is wrong is authoring judgement, not a mechanical fix.
+
+## 10. Reviewer-facing sections
+
+> **Authoritative:** this section governs which reviewer-facing sections an artifact carries and
+> what shape each one takes, including the shape of `specs.md` §1 and §2 that §7 routes content to.
+
+Three sections exist so a reviewer can reach a judgement from the top of a document rather than by
+reading it whole:
+
+- **`design.md` §1 — the decision-and-blocker summary.** A table with the columns `Decision`,
+  `Shape chosen`, `Owner`, `Blocks approval?`, positioned above the architectural prose. One row per
+  decision the design makes. A reviewer who reads only this table knows what is being settled, who
+  settled it, and what stands between the design and approval.
+- **`specs.md` §1 — families.** The index carries a `Family` column, and the detail beneath is
+  grouped under `#### Family: <name>` headings, with contracts ordered within a family and families
+  ordered as the index lists them. Each contract carries a `#### IC-###: <summary>` heading, which
+  is the heading detail-entry form of §1 and counts as that contract's detail entry because its ID
+  appears in the index.
+- **`specs.md` §2 — a domain map, then bounded views.** The section opens with a conceptual domain
+  map: a Mermaid `flowchart` naming the entities and the relationships between them, with **no
+  attributes**, so the shape of the domain is legible before any field name. Beneath it comes one
+  `#### ER view: <subdomain>` per bounded subdomain, each a Mermaid `erDiagram` carrying the
+  attributes, keys and cardinalities of that subdomain alone. The table catalog of entities, keys,
+  indexes and ORM file references is unchanged and stays below the views. Splitting one diagram into
+  views must not drop an entity, a key or a constraint the single diagram carried.
+
+### The `N/A: [why]` escape
+
+Any of the three may be replaced by a line matching `^N/A: .+` stating why it does not apply — a
+feature too small to have decisions worth tabling, a specs document with one contract family, a
+domain with no persisted entity. A section left empty with no such line is a violation of this
+convention, because silence cannot be told apart from an oversight.
+
+This is the same escape §4 already uses for a skipped C4 level and for the scope-boundary
+flowchart. There is one spelling of it in this document and no second one.
+
+### The component detail shape
+
+A `design.md` §3 component detail entry names the component after its ID, then answers four labels
+in this order: `**Responsibility:**`, `**Owns:**`, `**Does not own:**`, `**Contracts:**`. None may
+be dropped or reordered. What a component deliberately does *not* own is the half a reviewer cannot
+reconstruct from the code, which is why it has a label of its own rather than a sentence.
+
+The labels are structural, not emphasis — `ARTIFACT_VOICE.md` carves them out of its rule against
+bold-labelled lists on exactly that ground. The entry still begins `- **<ID>:**` so §1's bullet form
+locates it; the labels sit in nested bullets beneath. No other artifact's detail entries take this
+shape.
+
+### Nothing checks this per artifact
+
+These are conventions the writing skill follows, not rules the checker runs. `validate-artifacts.sh`
+has no conformance rule family and gains none: §9's account of it is accurate as written, and an
+artifact missing a section named here produces no finding anywhere. The only mechanical enforcement
+lives in DoFlow's own repository, not in yours: a guard there covers the shipped templates and fails
+DoFlow's suite when a template
+loses a section. An artifact hand-edited away from its template is not covered, and knowing that is
+part of using the convention.
+
+## 11. Authoritative marking
+
+Where two sections could each be read as defining the same state, rule or outcome, the governing one
+carries, immediately beneath its heading, a blockquote naming what it governs:
+
+```markdown
+> **Authoritative:** this section governs [the state, rule or outcome].
+```
+
+The other section carries a one-line pointer naming the governing section and restates nothing —
+not a summary, not a "briefly". Restating is how the two drift apart, which is the failure the
+callout exists to prevent.
+
+Exactly one section may carry the callout for a given subject. Two callouts over the same subject
+is the same ambiguity in a new costume, and neither section then governs.

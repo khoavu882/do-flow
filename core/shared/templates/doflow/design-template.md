@@ -1,14 +1,30 @@
 # Design: [FEATURE NAME]
 
-**Feature:** [NNN-slug] · **Requirement:** [REQUIREMENT_PATH] · **Status:** Draft · **Created:** [DATE]
+**Feature:** [NNN-slug] · **Requirement:** [REQUIREMENT_PATH] · **Maturity:** Draft · **Created:** [DATE]
 
 > System shape — architecture, APIs, data/interface contracts. Reads [REQUIREMENT_PATH].
 > Distinct from plan.md's HOW-to-implement; this is HOW-it's-shaped.
 >
 > Structure follows `references/ARTIFACT_FORMAT.md`: indexed sections carry a table above full
-> `**Detail**`, `Status` is only `Live` or `Superseded → <ref>`, and superseded prose moves to §9.
+> `**Detail**`, the document-level `Maturity` is `Draft`, `In review` or `Approved`, the item-level
+> `Status` is only `Live` or `Superseded → <ref>`, and superseded prose moves to §9.
 
 ## 1. Architecture Approach
+
+**Decisions and blockers:**
+
+<!-- One row per decision this design makes, placed above the architectural prose. "Decision" names
+     what is being settled. "Shape chosen" is the answer this design gives it. "Owner" is the person
+     or role accountable for that answer. "Blocks approval?" says whether a reviewer can approve the
+     design while this decision stands as written, and names what has to happen first when it cannot.
+     A reviewer who reads only this table knows what is being decided, who decided it, and what
+     stands between the design and approval. Replace the table with "N/A: [why]" when the feature is
+     too small to carry decisions worth tabling. -->
+
+| Decision | Shape chosen | Owner | Blocks approval? |
+|---|---|---|---|
+| [what is being settled] | [the shape this design gives it] | [person or role accountable] | no |
+| [what is being settled] | [the shape this design gives it] | [person or role accountable] | yes: [what must happen first] |
 
 [Component boundaries, where this fits in the existing system, 2–4 sentences.]
 
@@ -16,7 +32,8 @@
 
 <!-- The visual complement to §1 — lets a reader unfamiliar with this feature see the shape before
      reading prose. C4 is kept as the conceptual zoom model (Context → Container → Component) and
-     rendered with Mermaid `flowchart` + `subgraph`.
+     rendered with Mermaid `flowchart` + `subgraph`. Each level heading is written
+     "C4 Level N: ...", so no level label collides with a §3 component ID such as C3.
 
      Do NOT use the C4Context / C4Container diagram types. They are experimental in Mermaid: no
      direction control, relationship labels collide with arrowheads, and rendering varies across
@@ -25,10 +42,10 @@
      Skip a level with "N/A: [why]". For a trivial single-file change with no new external
      interaction, write "N/A: [why]" for the whole section. -->
 
-### C1: System Context
+### C4 Level 1: System Context
 
 [Who/what uses this system, and which external systems it talks to. One box per actor or external
-system — internal components belong at C2/C3, not here.]
+system — internal components belong at C4 Level 2 or C4 Level 3, not here.]
 
 ```mermaid
 flowchart TB
@@ -45,10 +62,10 @@ flowchart TB
     SVC -.->|"[secondary/async relation]"| EXT
 ```
 
-### C2: Container
+### C4 Level 2: Container
 
 [Which deployable services/apps/data stores this feature spans, and how they talk. One box per
-independently deployable unit — internals of a single container belong at C3.]
+independently deployable unit — internals of a single container belong at C4 Level 3.]
 
 ```mermaid
 flowchart LR
@@ -64,7 +81,7 @@ flowchart LR
     APP -->|"[interaction]"| EXT
 ```
 
-### C3: Component
+### C4 Level 3: Component
 
 <!-- Required when this feature touches 3+ components within a single container; otherwise write
      "N/A: covered by §3 Components & Boundaries". On a small change this diagram restates the §3
@@ -92,25 +109,34 @@ flowchart TB
 
 **Detail**
 
-- **C1** → [its responsibility in full, what it owns, and what it deliberately does not own].
+<!-- A component entry names the component after its ID, then answers the four labels below in
+     order. The labels are structural, not emphasis, and none may be dropped or reordered. -->
+
+- **C1:** [component name]
+  - **Responsibility:** [what this component is answerable for, in full].
+  - **Owns:** [the state, files or decisions it holds].
+  - **Does not own:** [what a reader could expect it to hold but another component does].
+  - **Contracts:** [the FR-### and IC-### identifiers it serves].
 
 ## 4. API / Interface Contracts
 
 <!-- Endpoints, CLI verb signatures, and repository/service interfaces that anchor implementation
      live in ./specs.md §1 Interface Contracts, not here — each as one ID-bearing IC-### entry so
-     plan.md and implementation can cite a contract by id instead of a paragraph. Write "N/A" if
+     plan.md and implementation can cite a contract by id instead of a paragraph. Write `N/A: [why]` if
      this feature genuinely introduces no interface contracts; otherwise leave a one-line pointer,
      e.g. "See ./specs.md §1." -->
 
 ## 5. Data Model
 
+The data-model shape is governed by `./specs.md` §2.
+
 <!-- Data model diagrams (ER diagrams, table schema catalogs) and UX design tokens live in
-     ./specs.md §2 Data Model, not here. Write "N/A" if this feature introduces no data model or
+     ./specs.md §2 Data Model, not here. Write `N/A: [why]` if this feature introduces no data model or
      UX changes; otherwise leave a one-line pointer, e.g. "See ./specs.md §2." -->
 
 ## 6. Sequence / Data Flow
 
-[Key interaction sequences, if non-trivial — a `sequenceDiagram` works well here — or "N/A".]
+[Key interaction sequences, if non-trivial — a `sequenceDiagram` works well here — or `N/A: [why]`.]
 
 ## 7. Design Risks & Alternatives Considered
 

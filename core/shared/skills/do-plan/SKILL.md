@@ -107,6 +107,7 @@ The template is `templates/doflow/plan-template.md` in the install step 1 resolv
 Structure the artifact per the guidance tree's `references/ARTIFACT_FORMAT.md` — read it before filling the template; it names which of this artifact's sections take an index-then-detail table.
    Its §5 governs §8's `### Task Summary` rollup — the per-task `- [ ]` checklist stays the single
    source of truth and is never mirrored into a per-task index.
+   Read `references/ARTIFACT_VOICE.md` at the same point: it carries the prose rules the artifact's sentences follow, and the carve-outs where one of those rules meets a construct the checker parses.
    This stage fills the plan from requirement + design + constitution rather than by eliciting, so
    it writes no dialogue log — its sibling stages' `intention/`/`design/` question files have no
    counterpart here. Should a future revision of this skill add an `AskUserQuestion` clarification

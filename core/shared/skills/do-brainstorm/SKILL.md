@@ -133,6 +133,7 @@ The template is `templates/doflow/requirement-template.md` in the install step 1
    if it was ambiguous) — otherwise write `none`; do not add a new forced question to every
    brainstorm session just to fill this field.
 Structure the artifact per the guidance tree's `references/ARTIFACT_FORMAT.md` — read it before filling the template; it names which of this artifact's sections take an index-then-detail table.
+Read `references/ARTIFACT_VOICE.md` at the same point: it carries the prose rules the artifact's sentences follow, and the carve-outs where one of those rules meets a construct the checker parses.
 
 6. **Validate** — run the advisory consistency check and surface any findings verbatim:
    ```bash

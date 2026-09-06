@@ -263,11 +263,84 @@ bash test/doflow-chain-test.sh             # shell suites — not part of npm te
 bash test/hooks/test-hooks.sh              # shell suites — not part of npm test
 bash test/verify-hooks.sh                  # shell suites — not part of npm test
 bash test/code-review-fixtures.sh          # do-code-review's analyzer fixtures, outside npm test
+pip install -r requirements.txt            # docs deps, once per environment — see note below
 mkdocs build --strict --site-dir /tmp/doflow-docs-site
 ```
 
+The docs build needs `mkdocs` and the Dracula theme, which `requirements.txt` pins and which nothing
+else in this repository installs. Without that step `mkdocs build` reports command-not-found, which
+reads as "this check cannot run here" rather than "the dependency is not installed yet" — so the
+install line belongs beside the command, not in a contributor's memory.
+
 Use a temporary client home when validating installation behavior. Do not use a developer's live
 configuration as a test fixture.
+
+### The guard suite
+
+`test/guards/*.test.js` checks structural truths about this repository's own content rather than
+runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
+twenty-four test files; the nineteen listed below are the ones this inventory documents, and they
+carry seventeen distinct G-numbers because two numbers are used twice. Name the file, not the
+number, when you mean a specific guard — and note that the list is not the whole directory:
+`verb-reachability.test.js` owns G17 and is absent from it, which is why the list runs G16 then G18,
+and `boundaries.test.js`, `harness-paths.test.js`, `cli-boundary.test.js` and
+`frozen-behaviour.test.js` are absent too.
+
+- **G1** (`fields.test.js`) — every frontmatter key an asset declares is recognized by something.
+- **G2** (`paths.test.js`) — path reachability from `MCP_INDEX.md`-style generalizations.
+- **G3** (`consumers.test.js`) — every guidance-tree `modes/`/`references/` file has at least one
+  skill or always-loaded rule that actually reads it (lazy-loading is only safe if something
+  loads it — a mode's own "Activation Triggers" prose is not itself a trigger).
+- **G4** (`flags.test.js`) — `FLAGS.md` entries are wired to a real consumer and vice versa.
+- **G5** (`registry.test.js`) — the only guard that reads `src/` and `core/harnesses/` as data;
+  checks registry claims against what's actually implemented.
+- **G6** (`docs.test.js`) — documented inventories match reality: the skill list in
+  `docs/reference.md`, and every skill/agent count quoted in `README.md`.
+- **G7** (`package.test.js`) — the published npm tarball matches the source of truth.
+- **G8** (`reachability.test.js`) — every shipped script/CLI command/doc-referenced path is
+  reachable from something, where a script reached *through a dispatcher verb* counts as reached;
+  `docs/reference.md`'s per-skill flags match each skill's own `argument-hint`; and every
+  documented runtime-resolution snippet is actually executed with CWD at a project root.
+- **G9** (`dispatch.test.js`) — a skill that names any `core/shared/agent-specs/` archetype by
+  name must reference `references/MODEL_SELECTION.md` for model-tier selection.
+- **G10** (`flag-index.test.js`) — `docs/flags.md` (the flag-first companion to `reference.md`'s
+  skill-first table) stays in sync with every skill's `argument-hint`, forward and reverse.
+- **G11** (`evals.test.js`) — every skill has both triggering and behavioural `bench/` coverage,
+  each planned run loads its skill from its sandbox *by path* against a recorded hash, and the
+  harness stays out of the default test command.
+- **G11** (`scaffold.test.js`, same number, different guard) — a `--scaffold` run writes only under
+  `agent-docs/doflow/<slug>/scaffold/`, is byte-identical on re-run, emits signatures rather than
+  logic, leaves a hand-edited file alone, and reports what it skipped as prominently as what it
+  produced.
+- **G12** (`runtime-unification.test.js`) — one runtime: exactly one dispatcher and one locator, no
+  verb with two implementations, every shell verb resolving to a helper that exists, every Node verb
+  having a CLI command and vice versa, no skill reaching the JS runtime except through the
+  dispatcher, and the run ledger carrying metadata only.
+- **G13** (`workflows.test.js`) — every class in `workflows.yaml` resolves to stages naming skills
+  that exist; review has no implementation stage; research requires no implementation readiness.
+- **G13** (`context-budget.test.js`, same number, different guard) — the DoFlow-authored
+  always-loaded set stays within its byte ceiling and every import in it resolves.
+- **G14** (`agent-specs.test.js`) — an agent specification references no file outside itself, since
+  a dispatched agent has no working directory to resolve one against.
+- **G15** (`skill-seam.test.js`) — one path to the runtime entrypoint, one spelling of the resolver
+  across the whole skill tree, and no skill reaching into the config directory for anything but that
+  entrypoint.
+- **G16** (`module-reachability.test.js`) — every JavaScript module under `src/` is reachable from
+  something that `require()`s it by a static string literal, closing for `.js` modules the same gap
+  G8 already closes for shipped scripts (this is how four now-deleted `src/runtime/` modules
+  accumulated with no requirer anywhere before this guard existed).
+- **G18** (`artifact-conventions.test.js`) — `references/ARTIFACT_FORMAT.md` declares the artifact
+  conventions and the four chain-artifact templates transcribe them, so the two can disagree
+  silently; this compares them. Each template must carry a `**Maturity:**` header field and no
+  `**Status:**` one, and must restate both closed vocabularies, which stay disjoint. The C4 level
+  names must agree between §4's table, §4's prose and `design-template.md` §2, and no level label on
+  either side may be shaped like a component ID. The reviewer-facing sections §10 declares must
+  appear in the template that owns each, and §10's four component labels must be transcribed into
+  `design-template.md` §3 in order. Separately from the templates, the rule names
+  `validate-artifacts.sh` implements must match the list §9 documents.
+
+A finding from any of these is almost always "a doc/registry/skill went stale relative to
+another," not a runtime bug — fix the stale side, don't weaken the guard.
 
 ## Contributor guardrails
 

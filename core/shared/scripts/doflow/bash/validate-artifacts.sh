@@ -20,8 +20,15 @@
 #   index ID         first cell of each table body row
 #   Status           the cell under the header column literally named "Status" (located by name,
 #                    never by position, so a column added to the right cannot shift the check)
-#   detail entry     a line starting "- **<ID>", where <ID> is the leading token inside the bold;
-#                    "- **FR-001:**" and "- **NFR-001 (qualifier):**" are both valid
+#   detail entry     either of two forms, both valid in the same artifact, neither deprecated:
+#                    bullet form  a line starting "- **<ID>", where <ID> is the leading token
+#                                 inside the bold; "- **FR-001:**" and
+#                                 "- **NFR-001 (qualifier):**" both parse
+#                    heading form a line matching "#### <ID>: <text>", counted as a detail entry
+#                                 only when <ID> also appears in the first column of that
+#                                 section's index table. An ID-shaped heading with no matching
+#                                 index row is not a detail entry and is ignored, so an unrelated
+#                                 heading cannot invent a parity finding of its own
 #
 # Usage: validate-artifacts.sh [--json] [--slug=<slug>] [<path>...]
 #   No <path> → resolve the active feature via do-paths.sh and check every artifact present.
@@ -160,6 +167,29 @@ for f in "${targets[@]}"; do
         id = substr(line, 1, RLENGTH)
         det[sec, id] = 1; dids[sec] = dids[sec] " " id; all[id] = 1
         if (is_hist[sec]) hist[id] = 1
+      }
+      next
+    }
+
+    # The heading form of the same entry: "#### IC-002: <summary>". It counts only when the ID is
+    # already an index row of this section, which is decidable here because a section states its
+    # index table before its "**Detail**" marker, so idx is populated by the time a heading under
+    # that marker is read. Everything else that looks ID-shaped — "#### C4 Level 1: System Context",
+    # "#### Family: Checking" — matches no index row and is ignored outright: it neither satisfies a
+    # row nor reports an orphan of its own. Section tracking is untouched, since sec advances on
+    # "## " headings only.
+    /^#### [A-Za-z]+-?[0-9]+:/ {
+      line = $0; sub(/^#### /, "", line)
+      if (match(line, /^[A-Za-z]+-?[0-9]+/)) {
+        id = substr(line, 1, RLENGTH)
+        # Only an id the index already carries counts. Two statements the bullet rule needs are
+        # deliberately absent here: "all[id] = 1" is already set for every indexed id, and
+        # "hist[id] = 1" is redundant here in both shapes a History section can take. Under the
+        # documented Date-first table its ids never enter idx, so this branch is not reached at all;
+        # under an ID-first table the index rule above has already set hist[id] from the row. Either
+        # way the heading form is not the form to use in a History section -- see ARTIFACT_FORMAT.md
+        # section 1, which says History detail uses the bullet form.
+        if ((sec, id) in idx) { det[sec, id] = 1; dids[sec] = dids[sec] " " id }
       }
       next
     }
