@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { REPO_ROOT } = require('../helper/repo-root');
 const { updateTaskState, readTaskState } = require('./task-state');
 
@@ -51,12 +52,16 @@ class EvidenceLedger {
   }
 
   /**
-   * Generates a unique evidence identifier.
+   * Generates a unique evidence identifier. Uniqueness must hold ACROSS instances and processes,
+   * not just within one: ids key the concurrency-safe merge in save() (task-state.js), and two
+   * ledgers minting `ev_<ms>_1` in the same millisecond made the merge collapse two distinct
+   * observations into one — the very lost write R4 exists to prevent, reintroduced by an id
+   * scheme. The random component carries that burden; timestamp and sequence stay for readability.
    * @returns {string}
    */
   generateId() {
     this.seq += 1;
-    return `ev_${Date.now().toString(36)}_${this.seq.toString(36)}`;
+    return `ev_${Date.now().toString(36)}_${crypto.randomBytes(4).toString('hex')}_${this.seq.toString(36)}`;
   }
 
   /**

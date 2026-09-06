@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 // Shared with EvidenceLedger so both stores enforce one definition of a safe task id.
 const { assertSafeTaskId, EvidenceLedger } = require('./evidence-ledger');
 const { updateTaskState, readTaskState } = require('./task-state');
@@ -51,8 +52,10 @@ class ClaimsManager {
   }
 
   generateId() {
+    // Cross-instance unique, same reasoning as EvidenceLedger.generateId: ids key the merge in
+    // save(), so a same-millisecond collision between two sessions silently merges two claims.
     this.seq += 1;
-    return `claim_${Date.now().toString(36)}_${this.seq.toString(36)}`;
+    return `claim_${Date.now().toString(36)}_${crypto.randomBytes(4).toString('hex')}_${this.seq.toString(36)}`;
   }
 
   /**
