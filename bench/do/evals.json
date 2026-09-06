@@ -1,0 +1,76 @@
+{
+  "skill_name": "do",
+  "evals": [
+    {
+      "id": 1,
+      "kind": "triggering",
+      "name": "multi-part-request-routes",
+      "prompt": "I need to add a --quiet flag to `doflow doctor`, then document it in docs/reference.md, then get the whole thing reviewed.",
+      "expected_output": "do decomposes the request into three parts against real targets in this repo and names which skill owns each",
+      "files": [],
+      "assertions": [
+        {
+          "text": "do was invoked",
+          "type": "skill_resolved",
+          "skill": "do"
+        },
+        {
+          "text": "The documentation part is routed to do-document by name",
+          "type": "output_matches",
+          "pattern": "do-document"
+        },
+        {
+          "text": "The review part is routed to do-code-review by name",
+          "type": "output_matches",
+          "pattern": "do-code-review"
+        },
+        {
+          "text": "Response decomposes the request into 3 distinct parts rather than treating it as one job",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "kind": "behavioral",
+      "name": "estimation-is-ranged-not-false-precision",
+      "prompt": "/do --estimate Add an eighth harness adapter to this repo: a registry entry in harnesses.yaml/contracts.yaml/assets.yaml, a src/adapters/<id>/index.js implementing the six-function contract, dispatch wiring, and the guard updates that keeps.",
+      "expected_output": "An effort estimate grounded in the seven adapters that already exist, with its assumptions stated, rather than a single false-precision number",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The estimate labels its assumptions explicitly",
+          "type": "output_matches",
+          "pattern": "[Aa]ssumption"
+        },
+        {
+          "text": "The estimate is grounded in the existing adapters rather than generic guesswork",
+          "type": "manual"
+        },
+        {
+          "text": "Estimate is a range or is qualified, not a bare single number presented as certain",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "kind": "triggering",
+      "name": "simple-question-does-not-over-route",
+      "prompt": "What does the `--prune` flag do in doflow remove?",
+      "expected_output": "A direct, correct answer about backup retention; the dispatcher should not spin up a multi-skill decomposition",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The answer explains --prune in terms of backup retention, which is what the flag actually does",
+          "type": "output_matches",
+          "pattern": "[Bb]ackup"
+        },
+        {
+          "text": "Answers directly without decomposing into a multi-skill plan",
+          "type": "manual"
+        }
+      ]
+    }
+  ]
+}

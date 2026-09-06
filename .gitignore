@@ -62,8 +62,13 @@ AGENTS.md
 # Split so each rule states which of the two it is for.
 agent-docs/
 
-# Skill-eval harness and its run artifacts are local-only
-bench/
+# Skill-eval corpus is TRACKED — runner, per-skill eval definitions, and the sanitized baseline —
+# so the behavioral baseline is reproducible from a clean clone (review R6). Only run transcripts,
+# disposable sandboxes, and generated reports stay local: they are artifacts of paid runs, not
+# corpus. config.json is tracked too — its pinned model is a deliberate comparability constraint
+# (FR-017), not machine-local state.
+bench/runs/
+bench/reports/
 .mcp.json
 
 # MkDocs build output
