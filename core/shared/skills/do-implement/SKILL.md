@@ -124,12 +124,19 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      here exactly as everywhere else in DoFlow: match what the codebase already does rather than
      importing an unrelated house style.
 
-4. **Name the change set, then stop**:
+4. **Name the change set, then continue**:
    - Before touching anything, write the change set out file by file: each file to be edited, the
      change it takes, and what that change is for. Name what you are deliberately leaving alone.
-   - Stops after producing the change set; never begins edits here. The pass that decides what to
-     change is not the pass that makes it — deciding and typing in one move is how the first
-     plausible shape becomes the design.
+     The pass that decides what to change is still not the pass that makes it — deciding and
+     typing in one move is how the first plausible shape becomes the design — but the separation
+     is an ORDERING inside this run, not a turn boundary.
+   - The user asking to implement IS the authorization to implement: proceed to step 5 in the same
+     run. Ending the turn here to await approval the user already gave costs a round-trip and
+     duplicates the host's own edit-approval mechanisms.
+   - Stop after the change set only when one of two things is true: the user asked for the plan
+     rather than the change ("show me what you'd change first"), or naming the change set surfaced
+     a genuine user-owned decision — then ask it per `RULE_04_QUESTIONS.md` and wait, because
+     editing first would decide it silently.
 
 5. **Implement**:
    - Make the complete change end-to-end. Never leave placeholder stubs (e.g. `// TODO: implement`),
