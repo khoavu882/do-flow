@@ -8,8 +8,8 @@ const { CapabilityRouter } = require('./capability-router');
 const { EvidenceLedger, VALID_EVIDENCE_KINDS, VALID_PROVENANCE } = require('./evidence-ledger');
 const { resolveLocator, describeResolution } = require('./locator-resolve');
 const { ClaimsManager } = require('./claims');
-const { measureFreshness, FreshnessValidator } = require('./freshness');
-const { ReadinessEngine } = require('./readiness');
+const { measureFreshness } = require('./freshness');
+const { evaluateTaskReadiness } = require('./readiness');
 const { loadRegistry } = require('../registry');
 const { REPO_ROOT } = require('../helper/repo-root');
 
@@ -111,26 +111,6 @@ function handleReadinessCommand({
   // which under an npm install is node_modules/ — shared across all projects and often read-only.
   const root = repoRoot || REPO_ROOT;
   const state = stateRoot || process.cwd();
-  const ledger = new EvidenceLedger({ repoRoot: state });
-  try {
-    ledger.load(taskId);
-  } catch (error) {
-    return usageError('readiness', error.message, json);
-  }
-
-  // Re-evaluate freshness before anything counts this evidence as support. measureFreshness stamps
-  // FRESH at write time and nothing used to revisit it, so the engine's `status: 'FRESH'` filter
-  // matched every item ever recorded and the claim status `invalidated` could not occur.
-  //
-  // In memory only — `ledger.save` is deliberately not called here. Freshness is a property of the
-  // moment it is asked, not a stored fact: persisting it would make a read operation write, and
-  // would freeze a verdict that should be recomputed on the next call.
-  const staleCount = new FreshnessValidator({ repoRoot: state }).validateLedgerFreshness(ledger);
-
-  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: state });
-  claims.load(taskId);
-
-  const engine = new ReadinessEngine({ repoRoot: root, projectRoot: state });
   // Only what the caller actually told us. An absent key must stay absent rather than become a
   // falsy default, because the engine reads presence, not truth.
   const profile = { taskId, taskClass };
@@ -140,7 +120,12 @@ function handleReadinessCommand({
   if (userDecisionPending) profile.userDecisionPending = true;
   const callerAsserted = Object.keys(profile).filter((k) => k !== 'taskId' && k !== 'taskClass');
 
-  const report = engine.evaluateReadiness(profile, ledger, claims);
+  let report;
+  try {
+    report = evaluateTaskReadiness({ taskProfile: profile, repoRoot: root, projectRoot: state });
+  } catch (error) {
+    return usageError('readiness', error.message, json);
+  }
 
   if (json) {
     console.log(JSON.stringify({ ...report, callerAsserted }, null, 2));

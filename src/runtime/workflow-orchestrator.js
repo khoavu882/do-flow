@@ -390,9 +390,7 @@ function handleOrchestrateCommand({
   action = 'status', taskId, taskClass, stage, gate, node, decision, note, reason, forced = false,
   verificationPlan, scope, json = false, repoRoot, stateRoot,
 } = {}) {
-  const { EvidenceLedger } = require('./evidence-ledger');
-  const { ClaimsManager } = require('./claims');
-  const { ReadinessEngine } = require('./readiness');
+  const { evaluateTaskReadiness } = require('./readiness');
   const { finishRuntime, usageError } = require('./cli-result');
 
   const root = repoRoot || REPO_ROOT;
@@ -422,16 +420,6 @@ function handleOrchestrateCommand({
     if (taskClass !== run.taskClass) {
       throw new Error(`orchestrate complete-stage: --task-class '${taskClass}' does not match run '${run.taskId}''s own class '${run.taskClass}' — pass the class this run was started under, not a different one.`);
     }
-    let ledger;
-    try {
-      ledger = new EvidenceLedger({ repoRoot: state });
-      ledger.load(taskId);
-    } catch {
-      return 'BLOCKED'; // an unreadable evidence ledger can never certify a safe mutation
-    }
-    const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: state });
-    claims.load(taskId);
-    const engine = new ReadinessEngine({ repoRoot: root, projectRoot: state });
     // Caller-stated inputs reach the cascade here, same rule as `doflow readiness`: an absent key
     // stays absent rather than becoming a falsy default, because the engine reads presence, not
     // truth. Without this the two requirements readiness_gate.md says are satisfiable by
@@ -440,7 +428,7 @@ function handleOrchestrateCommand({
     const profile = { taskId, taskClass: run.taskClass };
     if (typeof verificationPlan === 'string' && verificationPlan.trim() !== '') profile.verificationPlan = verificationPlan;
     if (typeof scope === 'string' && scope.trim() !== '') profile.scopeClear = scope;
-    const report = engine.evaluateReadiness(profile, ledger, claims);
+    const report = evaluateTaskReadiness({ taskProfile: profile, repoRoot: root, projectRoot: state });
     return report.state;
   };
 

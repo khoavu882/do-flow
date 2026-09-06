@@ -303,7 +303,23 @@ class ReadinessEngine {
   }
 }
 
+/** One live snapshot for readiness inspection and orchestration transitions. Reads never persist
+ * derived freshness or claim status; every invocation evaluates the current project again. */
+function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot = process.cwd() }) {
+  const { EvidenceLedger } = require('./evidence-ledger');
+  const { ClaimsManager } = require('./claims');
+  const { FreshnessValidator } = require('./freshness');
+  const ledger = new EvidenceLedger({ repoRoot: projectRoot });
+  ledger.load(taskProfile.taskId);
+  new FreshnessValidator({ repoRoot: projectRoot }).validateLedgerFreshness(ledger);
+  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: projectRoot });
+  claims.load(taskProfile.taskId);
+  claims.evaluateAll();
+  return new ReadinessEngine({ repoRoot, projectRoot }).evaluateReadiness(taskProfile, ledger, claims);
+}
+
 module.exports = {
+  evaluateTaskReadiness,
   ReadinessEngine,
   READINESS_STATES,
 };
