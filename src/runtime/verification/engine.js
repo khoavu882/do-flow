@@ -457,6 +457,10 @@ class VerificationEngine {
     let fatalTier = null;
     let checksRun = 0;
     let checksPassed = 0;
+    // One evaluation pass, one cache: two tiers declaring the same command (targeted and broad
+    // tests are often both `npm test`) run it once and share the result. A recovery retry calls
+    // runContract again and gets a fresh cache, so retries always observe live behaviour.
+    const dedupeCache = new Map();
 
     for (const tier of contract.tiers) {
       const entry = {
@@ -497,7 +501,7 @@ class VerificationEngine {
       }
 
       for (const check of tier.checks) {
-        const result = this.runner.runCheck(check.name, check.command, check.timeoutMs);
+        const result = this.runner.runCheck(check.name, check.command, check.timeoutMs, dedupeCache);
         result.tier = tier.id;
         result.role = check.role;
         if (check.requirementId) result.requirementId = check.requirementId;

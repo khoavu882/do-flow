@@ -24,6 +24,8 @@
  */
 
 const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
 
 /** A failing check whose name contains one of these aborts the remaining checks: once the build is
  * broken, every later result describes the broken build rather than the change. */
@@ -59,6 +61,31 @@ function truncate(value) {
   return `${head}\n… [${dropped} characters elided by the verification report] …\n${tail}`;
 }
 
+/** Cap on extracted failing-test identifiers — a bounded diagnostic, not a second log. */
+const MAX_FAILED_TESTS = 50;
+
+/** `not ok` lines in TAP output (node --test, pytest-tap, prove …): the failing test identifiers.
+ * Directive lines (`# SKIP`, `# TODO`) are not failures and are excluded. */
+const TAP_NOT_OK = /^\s*not ok\b(?:\s+\d+)?(?:\s*-\s*)?(.*)$/gm;
+
+/**
+ * Pulls failing test identifiers out of the FULL output, before any truncation — the middle of a
+ * TAP stream is exactly what the 2,000-character excerpt drops (review A2: a separate raw-log run
+ * was needed to recover which tests failed).
+ * @param {string} text
+ * @returns {Array<string>} unique identifiers, bounded by MAX_FAILED_TESTS
+ */
+function extractFailedTests(text) {
+  const seen = new Set();
+  for (const match of text.matchAll(TAP_NOT_OK)) {
+    const name = match[1].trim();
+    if (name === '' || /#\s*(?:SKIP|TODO)\b/i.test(name)) continue;
+    seen.add(name);
+    if (seen.size >= MAX_FAILED_TESTS) break;
+  }
+  return [...seen];
+}
+
 class VerificationContractRunner {
   /**
    * @param {Object|string} [options] a string is accepted for parity with the Python's positional
@@ -72,6 +99,56 @@ class VerificationContractRunner {
     this.cwd = opts.cwd || process.cwd();
     this.defaultTimeoutMs = opts.defaultTimeoutMs || DEFAULT_TIMEOUT_MS;
     this.exec = opts.exec || spawnSync;
+    this.fsImpl = opts.fsImpl || fs;
+    this.logDir = opts.logDir || path.join(this.cwd, '.doflow', 'state', 'verification', 'logs');
+  }
+
+  /**
+   * Persists one check's full output beside the state the run already keeps, so the 2,000-character
+   * excerpt is a pointer into a complete record rather than the only record (review A2: the
+   * truncation kept the failure count but dropped the failing test names from mid-stream, and
+   * recovering them took a second full run of the same command).
+   * @param {string} name
+   * @param {string} command
+   * @param {string} stdout
+   * @param {string} stderr
+   * @returns {string|null} the log path, or null when the log could not be written
+   */
+  persistLog(name, command, stdout, stderr) {
+    try {
+      this.fsImpl.mkdirSync(this.logDir, { recursive: true });
+      const safe = name.replace(/[^A-Za-z0-9._-]+/g, '_');
+      const file = path.join(this.logDir, `${Date.now()}-${safe}.log`);
+      this.fsImpl.writeFileSync(file,
+        `# check: ${name}\n# command: ${command}\n--- stdout ---\n${stdout || ''}\n--- stderr ---\n${stderr || ''}\n`,
+        'utf8');
+      return file;
+    } catch {
+      // An unwritable log directory must not turn a completed check into an error — the check's
+      // verdict stands; only the pointer is missing, and its null says so.
+      return null;
+    }
+  }
+
+  /**
+   * Adds the A2 diagnostics to a completed check record, from the FULL streams: failing test
+   * identifiers (extracted before truncation) and, for a failure or a truncated stream, the path
+   * of the persisted full log.
+   * @param {Object} result mutated in place
+   * @param {string} command
+   * @param {string} [stdout]
+   * @param {string} [stderr]
+   */
+  decorate(result, command, stdout, stderr) {
+    const full = `${stdout || ''}\n${stderr || ''}`;
+    if (result.status === 'FAIL') {
+      const failedTests = extractFailedTests(full);
+      if (failedTests.length > 0) result.failedTests = failedTests;
+    }
+    const truncated = (stdout || '').length > MAX_STREAM_CHARS || (stderr || '').length > MAX_STREAM_CHARS;
+    if ((result.status === 'FAIL' || truncated) && full.trim() !== '') {
+      result.logPath = this.persistLog(result.name, command, stdout, stderr);
+    }
   }
 
   /**
@@ -79,9 +156,13 @@ class VerificationContractRunner {
    * @param {string} name
    * @param {string} command
    * @param {number} [timeoutMs]
+   * @param {Map} [dedupeCache] scoped to ONE contract evaluation: a second check declaring the
+   *   same command and timeout reuses the first result instead of re-running it (review A2: the
+   *   contract ran the same `npm test` twice after the first failure). Never held across
+   *   evaluations — a recovery retry must observe live behaviour, so each pass passes a fresh map.
    * @returns {Object} check result
    */
-  runCheck(name, command, timeoutMs = this.defaultTimeoutMs) {
+  runCheck(name, command, timeoutMs = this.defaultTimeoutMs, dedupeCache = null) {
     const checkName = name || 'unnamed_check';
 
     // Defect fix (1): the Python defaulted a missing command to `true`, so a typo in a contract
@@ -95,6 +176,15 @@ class VerificationContractRunner {
         error: `Check '${checkName}' declares no command`,
       };
     }
+
+    const dedupeKey = `${timeoutMs} ${command}`;
+    if (dedupeCache && dedupeCache.has(dedupeKey)) {
+      return { ...dedupeCache.get(dedupeKey), name: checkName, deduplicated: true };
+    }
+    const remember = (result) => {
+      if (dedupeCache) dedupeCache.set(dedupeKey, result);
+      return result;
+    };
 
     let res;
     try {
@@ -112,20 +202,20 @@ class VerificationContractRunner {
     } catch (error) {
       // Mirrors the Python's bare `except Exception` arm: an unspawnable command is a FAIL, not a
       // thrown error that aborts the whole contract.
-      return {
+      return remember({
         name: checkName,
         command,
         status: 'FAIL',
         exitCode: 1,
         error: error.message,
-      };
+      });
     }
 
     // Defect fix (2): the Python's TimeoutExpired arm returned neither stdout nor stderr, so a
     // check that hung after printing its first failure told you only that it hung. Whatever the
     // process produced before the kill is exactly what a reader needs.
     if (res.error && res.error.code === 'ETIMEDOUT') {
-      return {
+      const result = {
         name: checkName,
         command,
         status: 'FAIL',
@@ -134,10 +224,12 @@ class VerificationContractRunner {
         stdout: truncate(res.stdout),
         stderr: truncate(res.stderr),
       };
+      this.decorate(result, command, res.stdout, res.stderr);
+      return remember(result);
     }
 
     if (res.error) {
-      return {
+      const result = {
         name: checkName,
         command,
         status: 'FAIL',
@@ -146,6 +238,8 @@ class VerificationContractRunner {
         stdout: truncate(res.stdout),
         stderr: truncate(res.stderr),
       };
+      this.decorate(result, command, res.stdout, res.stderr);
+      return remember(result);
     }
 
     // A process killed by a signal reports `status: null`. Python surfaced this as a negative
@@ -165,7 +259,8 @@ class VerificationContractRunner {
     if (res.signal) {
       result.error = `Terminated by signal ${res.signal}`;
     }
-    return result;
+    this.decorate(result, command, res.stdout, res.stderr);
+    return remember(result);
   }
 
   /**
@@ -196,10 +291,11 @@ class VerificationContractRunner {
     const results = [];
     const failedChecks = [];
     let overallStatus = 'PASS';
+    const dedupeCache = new Map(); // one evaluation, one cache — a retry pass starts fresh
 
     for (const chk of checks) {
       const name = (chk && chk.name) || 'unnamed_check';
-      const res = this.runCheck(name, chk && chk.command, chk && chk.timeoutMs);
+      const res = this.runCheck(name, chk && chk.command, chk && chk.timeoutMs, dedupeCache);
       results.push(res);
 
       if (res.status === 'FAIL') {
@@ -225,4 +321,6 @@ module.exports = {
   FATAL_CHECK_MARKERS,
   TIMEOUT_EXIT_CODE,
   MAX_STREAM_CHARS,
+  MAX_FAILED_TESTS,
+  extractFailedTests,
 };
