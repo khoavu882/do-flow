@@ -319,7 +319,9 @@ and `boundaries.test.js`, `harness-paths.test.js`, `cli-boundary.test.js` and
 - **G13** (`workflows.test.js`) — every class in `workflows.yaml` resolves to stages naming skills
   that exist; review has no implementation stage; research requires no implementation readiness.
 - **G13** (`context-budget.test.js`, same number, different guard) — the DoFlow-authored
-  always-loaded set stays within its byte ceiling and every import in it resolves.
+  always-loaded set stays within its byte ceiling and every import in it resolves; and every task
+  class stays within its loaded-context rail (SKILL.md entries plus named references, summed over
+  the class's resolved workflow skills — a coarse drift rail, not a byte-exact pin).
 - **G14** (`agent-specs.test.js`) — an agent specification references no file outside itself, since
   a dispatched agent has no working directory to resolve one against.
 - **G15** (`skill-seam.test.js`) — one path to the runtime entrypoint, one spelling of the resolver

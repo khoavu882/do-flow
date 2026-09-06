@@ -115,3 +115,70 @@ test('G13: the DoFlow-authored always-loaded set stays within its byte ceiling',
     + '  in this file in its own reviewed commit stating the new number and its cost (RK4).\n'
     + `  Excluded by design: ${[...GENERATED_EXCLUSIONS.keys()].join(', ')} (generated per install).`);
 });
+
+// ── G13 (same budget family): loaded context per representative task ─────────────────────────────
+//
+// The always-loaded ceiling above measures what every session pays before typing; this measures
+// what a TASK pays end-to-end — the SKILL.md entry plus every references/*.md that entry names,
+// summed over the unique skills a task class's resolved workflow stages invoke (review A3: "the
+// existing always-loaded guidance budget … does not measure end-to-end skill loading"). Unlike the
+// exact ceiling above, these are loose drift rails, not byte-for-byte pins: skills are edited
+// constantly and load on demand, so the failure worth catching is a class quietly gaining tens of
+// kilobytes, not a paragraph. Raising a rail is a deliberate one-line commit that states the new
+// measured number — the same RK4 ritual, at a coarser grain.
+//
+// Measured 2026-09-07 (bytes, skills only, always-loaded guidance excluded):
+//   feature 164,710 · dependency-change 75,556 · bug/refactor 60,598 · documentation 49,009 ·
+//   operations 36,877 · review 34,051 · research 28,441 · trivial-edit 23,180
+const TASK_CONTEXT_RAILS = new Map([
+  ['feature', 180000],
+  ['dependency-change', 85000],
+  ['bug', 70000],
+  ['refactor', 70000],
+  ['documentation', 55000],
+  ['operations', 45000],
+  ['review', 40000],
+  ['research', 35000],
+  ['trivial-edit', 30000],
+]);
+
+function skillLoadedBytes(skillName) {
+  const skillsDir = path.join(GUIDANCE, '..', 'skills');
+  const entryFile = path.join(skillsDir, skillName, 'SKILL.md');
+  if (!fs.existsSync(entryFile)) return null;
+  const text = fs.readFileSync(entryFile, 'utf8');
+  let total = Buffer.byteLength(text, 'utf8');
+  const named = new Set([...text.matchAll(/references\/([A-Za-z0-9_./-]+\.md)/g)].map((m) => m[1]));
+  for (const ref of named) {
+    const refFile = path.join(skillsDir, skillName, 'references', ref);
+    if (fs.existsSync(refFile)) total += Buffer.byteLength(fs.readFileSync(refFile, 'utf8'), 'utf8');
+  }
+  return total;
+}
+
+test('G13: every task class stays within its loaded-context rail', () => {
+  const { WorkflowEngine } = require('../../src/runtime/workflow-engine');
+  const REPO = path.resolve(__dirname, '..', '..');
+  const workflows = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'workflows.json'), 'utf8'));
+  const engine = new WorkflowEngine({ workflows, readinessTemplates: false });
+
+  const classes = engine.listClasses();
+  const unrailed = classes.filter((cls) => !TASK_CONTEXT_RAILS.has(cls));
+  assert.deepEqual(unrailed, [],
+    `task classes with no loaded-context rail — measure them and add a TASK_CONTEXT_RAILS entry:\n  ${unrailed.join('\n  ')}`);
+
+  const over = [];
+  for (const cls of classes) {
+    const skills = [...new Set(engine.resolveWorkflow(cls).stages.map((stage) => stage.skill).filter(Boolean))];
+    const parts = skills.map((skill) => ({ skill, bytes: skillLoadedBytes(skill) ?? 0 }));
+    const total = parts.reduce((sum, part) => sum + part.bytes, 0);
+    const rail = TASK_CONTEXT_RAILS.get(cls);
+    if (total > rail) {
+      const detail = parts.sort((a, b) => b.bytes - a.bytes).map((p) => `${p.skill}=${p.bytes}`).join(', ');
+      over.push(`${cls}: ${total} bytes over its ${rail}-byte rail (${detail})`);
+    }
+  }
+  assert.deepEqual(over, [],
+    'a task class quietly gained loaded context — trim the heaviest skill entries/references, or\n'
+    + 'raise the rail in its own commit stating the new measured number:\n  ' + over.join('\n  '));
+});
