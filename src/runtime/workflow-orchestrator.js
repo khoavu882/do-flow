@@ -442,7 +442,7 @@ class WorkflowOrchestrator {
  * evaluates the task's live evidence ledger and refuses anything but READY. */
 function handleOrchestrateCommand({
   action = 'status', taskId, taskClass, stage, gate, node, decision, note, reason, forced = false,
-  verificationPlan, scope, result, callingSkill, json = false, repoRoot, stateRoot,
+  verificationPlan, scope, invariants, result, callingSkill, json = false, repoRoot, stateRoot,
 } = {}) {
   const { evaluateTaskReadiness } = require('./readiness');
   const { finishRuntime, usageError } = require('./cli-result');
@@ -476,12 +476,15 @@ function handleOrchestrateCommand({
     }
     // Caller-stated inputs reach the cascade here, same rule as `doflow readiness`: an absent key
     // stays absent rather than becoming a falsy default, because the engine reads presence, not
-    // truth. Without this the two requirements readiness_gate.md says are satisfiable by
-    // assertion (`verification_plan`, `scope_clear`) had no path in at all, so every gated stage
-    // completion returned NEEDS_EVIDENCE even when the caller had the answers to give.
+    // truth. Without this the three requirements readiness_gate.md says are satisfiable by
+    // assertion (`verification_plan`, `scope_clear`/`scope_verified`, `invariants_captured`) had no
+    // path in at all, so every gated stage completion returned NEEDS_EVIDENCE even when the caller
+    // had the answers to give. `invariants` mirrors `readiness`'s own CLI wiring (runtime-commands.js
+    // forwards it to `handleReadinessCommand`) — `orchestrate` previously dropped it silently.
     const profile = { taskId, taskClass: run.taskClass };
     if (typeof verificationPlan === 'string' && verificationPlan.trim() !== '') profile.verificationPlan = verificationPlan;
     if (typeof scope === 'string' && scope.trim() !== '') profile.scopeClear = scope;
+    if (typeof invariants === 'string' && invariants.trim() !== '') profile.invariants = invariants;
     const report = evaluateTaskReadiness({ taskProfile: profile, repoRoot: root, projectRoot: state });
     return report.state;
   };

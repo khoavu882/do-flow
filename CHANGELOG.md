@@ -13,6 +13,16 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.3.2] - 2026-09-07
+
+### Fixed
+
+- `orchestrate complete-stage`/`handoff` silently dropped `--invariants` at both the CLI dispatch
+  and the internal readiness closure, unlike the standalone `readiness` verb which already
+  forwarded it. No shipped skill was blocked by this (`invariants_captured` accepts `--scope` as
+  an equally valid documented substitute), but a caller stating invariants specifically had that
+  value discarded rather than recorded.
+
 ## [1.3.1] - 2026-09-07
 
 ### Fixed
