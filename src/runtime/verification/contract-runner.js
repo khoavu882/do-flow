@@ -123,9 +123,15 @@ class VerificationContractRunner {
         `# check: ${name}\n# command: ${command}\n--- stdout ---\n${stdout || ''}\n--- stderr ---\n${stderr || ''}\n`,
         'utf8');
       return file;
-    } catch {
+    } catch (error) {
       // An unwritable log directory must not turn a completed check into an error — the check's
-      // verdict stands; only the pointer is missing, and its null says so.
+      // verdict stands; only the pointer is missing, and its null says so. But a chronic
+      // permissions problem should not be invisible either: say so once per runner, on stderr so
+      // a caller capturing stdout never absorbs it as data (review suggestion, 026).
+      if (!this.logWriteWarned) {
+        this.logWriteWarned = true;
+        process.stderr.write(`doflow verification: could not persist check log under '${this.logDir}' (${error.message}); verdicts are unaffected, logPath will be null\n`);
+      }
       return null;
     }
   }

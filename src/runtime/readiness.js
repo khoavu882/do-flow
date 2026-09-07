@@ -395,6 +395,11 @@ class ReadinessEngine {
  * derived freshness or claim status; every invocation evaluates the current project again.
  * `mode` defaults to 'workflow' — fail closed: the standalone exemption must be declared. */
 function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot = process.cwd(), mode = 'workflow' }) {
+  // Validated before any ledger work, not just inside stageEntryFor at the end — an invalid mode
+  // used to pay a full freshness/claims evaluation before erroring (review suggestion, 026).
+  if (!EXECUTION_MODES.has(mode)) {
+    throw new Error(`Unknown execution mode '${mode}'. Valid: ${[...EXECUTION_MODES].join(', ')} — the standalone exemption is declared, never inferred.`);
+  }
   const { EvidenceLedger } = require('./evidence-ledger');
   const { ClaimsManager } = require('./claims');
   const { FreshnessValidator } = require('./freshness');
