@@ -84,7 +84,8 @@ test('M6: --scope reaches the readiness profile and clears a caller-assertable r
 
   json(cwd, ['evidence', '--task-id', 't2', '--action', 'add', '--kind', 'exact-search',
     '--provenance', 'extracted', '--provider', 'grep', '--capability', 'code.exact-search',
-    '--locator', 'a.js:1', '--content', 'module.exports = { x: 1 }']);
+    '--locator', 'a.js:1', '--content', 'module.exports = { x: 1 }',
+    '--establishes', 'target_identified']);
 
   const ready = json(cwd, [
     'orchestrate', '--action', 'complete-stage', '--task-id', 't2', '--stage', 'implementation',

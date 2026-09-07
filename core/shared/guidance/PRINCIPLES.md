@@ -21,6 +21,12 @@ with the plan and stops there: it does not begin edits and does not answer the s
 Name the reading you rejected — the first plausible one becoming the organizing thesis is what this
 separation exists to prevent.
 
+The separation is between PASSES, not turns. When the user has already authorized the work, state
+the plan and continue into execution in the same run; ending the turn at the plan to await approval
+already given costs a round-trip and duplicates the host's own approval mechanisms. End a turn at
+the plan only when the plan was the deliverable asked for, or when planning surfaced a user-owned
+decision that editing would silently make.
+
 ## Broad, then narrow
 
 Retrieval is two passes. One broad discovery pass over the whole scope, to find the terminology, the

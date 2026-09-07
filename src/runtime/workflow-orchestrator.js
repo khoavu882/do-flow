@@ -11,11 +11,13 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { WorkflowEngine } = require('./workflow-engine');
-const { atomicJsonWrite } = require('../state');
+const { updateTaskState, readTaskState } = require('./task-state');
 const { REPO_ROOT } = require('../helper/repo-root');
 
 const RUN_STATES = Object.freeze(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED']);
 const GATE_DECISIONS = Object.freeze(['approve', 'reject']);
+/** What a completed stage established, separate from the fact it was walked past (review A1). */
+const STAGE_OUTCOMES = new Set(['passed', 'failed', 'unverified']);
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 function assertSafeId(value, label) {
@@ -79,13 +81,20 @@ class WorkflowOrchestrator {
   readRun(taskId) {
     const file = this.runFile(taskId);
     if (!this.fsImpl.existsSync(file)) return null;
-    return JSON.parse(this.fsImpl.readFileSync(file, 'utf8'));
+    return readTaskState(this.fsImpl, file);
   }
 
   writeRun(run, now) {
     run.updatedAt = iso(now);
     this.fsImpl.mkdirSync(this.stateDir, { recursive: true });
-    atomicJsonWrite(path.join(this.stateDir, `${run.taskId}.json`), run, { fsImpl: this.fsImpl });
+    const expectedRevision = run.revision || 0;
+    updateTaskState({ file: this.runFile(run.taskId), fsImpl: this.fsImpl, build: disk => {
+      if ((disk?.revision || 0) !== expectedRevision) {
+        throw new Error(`Concurrent workflow update for '${run.taskId}'; reload the run before retrying. Nothing was written.`);
+      }
+      return run;
+    } });
+    run.revision = expectedRevision + 1;
     return run;
   }
 
@@ -131,6 +140,34 @@ class WorkflowOrchestrator {
     return this.snapshot(run);
   }
 
+  /** Record completed work by skill identity. Gate decisions remain a separate action.
+   * With no existing run and no explicit class this is a standalone no-op, not a new workflow. */
+  handoff({ taskId, taskClass, callingSkill, note, outcome, now } = {}) {
+    assertSafeId(taskId, 'taskId');
+    assertSafeId(callingSkill, 'callingSkill');
+    if (!note || !String(note).trim()) throw new Error('handoff requires a note describing the work recorded');
+    if (outcome !== undefined && !STAGE_OUTCOMES.has(outcome)) throw new Error(`Unknown stage outcome '${outcome}'`);
+    const existing = this.readRun(taskId);
+    if (!existing && !taskClass) return { taskId, disposition: 'standalone', state: null, awaitingGate: null };
+    if (existing && taskClass && taskClass !== existing.taskClass) throw new Error(`Task class '${taskClass}' does not match run '${existing.taskClass}'`);
+    const resolvedClass = existing?.taskClass || taskClass;
+    const stages = existing ? existing.program.filter(n => n.type === 'stage')
+      : this.engine.resolveWorkflow(resolvedClass).stages;
+    const candidates = stages.filter(n => n.skill === callingSkill).map(n => n.id);
+    if (!candidates.length) throw new Error(`Skill '${callingSkill}' owns no stage in '${resolvedClass}'`);
+    const positioned = this.catchUp({ taskId, taskClass: resolvedClass, candidateStageIds: candidates, note, now });
+    if (positioned.reason === 'reached-candidate') {
+      const snapshot = this.completeStage({ taskId, stageId: positioned.caughtUpTo, note, outcome, now });
+      return { ...snapshot, disposition: 'completed', recordedStage: positioned.caughtUpTo };
+    }
+    if (positioned.reason.startsWith('already-completed:')) {
+      // A rerun after all occurrences is an annotation on the latest occurrence, never a replay.
+      const recordedStage = candidates[candidates.length - 1];
+      return { ...this.annotate({ taskId, node: recordedStage, note, now }), disposition: 'annotated', recordedStage };
+    }
+    return { ...positioned, disposition: 'deferred', recordedStage: null };
+  }
+
   requireRun(taskId) {
     const run = this.readRun(taskId);
     if (!run) throw new Error(`No workflow run for task '${taskId}'`);
@@ -151,16 +188,33 @@ class WorkflowOrchestrator {
 
   /** Complete the current stage. A source-mutating stage carrying a readiness template must pass
    * the injected evaluator with READY first — the cascade rule: cheap scripted verdicts gate
-   * expensive work, and NEEDS_EVIDENCE / NEEDS_USER_DECISION / BLOCKED stop the run here. */
-  completeStage({ taskId, stageId, note, backfilled = false, now } = {}) {
+   * expensive work, and NEEDS_EVIDENCE / NEEDS_USER_DECISION / BLOCKED stop the run here.
+   *
+   * Execution status and outcome are separate facts on the node (review A1): `status: 'completed'`
+   * only ever says the program walked past this stage. `executionStatus` says HOW — 'completed'
+   * (the owning skill ran it) or 'imported' (catch-up backfilled it, nobody ran it here) — and
+   * `outcome` says what the run established: 'passed', 'failed', or 'unverified'. A backfilled
+   * stage is always imported+unverified, whatever the caller says: catch-up importing history
+   * cannot import a verification. A 'failed' outcome still advances — recording the failure
+   * honestly beats refusing to record it, and a bug reproduction legitimately completes by
+   * observing the expected failure — but the record no longer reads as success. */
+  completeStage({ taskId, stageId, note, outcome, backfilled = false, now } = {}) {
     const run = this.requireRun(taskId);
     const node = this.expectOpenStage(run, stageId);
+    if (outcome !== undefined && !STAGE_OUTCOMES.has(outcome)) {
+      throw new Error(`Unknown stage outcome '${outcome}'. Valid: ${[...STAGE_OUTCOMES].join(', ')} — omit the flag to record 'unverified'.`);
+    }
     if (node.mutatesSource && node.readinessTemplate) {
       const verdict = this.evaluateReadiness(node, run);
       if (verdict !== 'READY') throw new Error(`Readiness for stage '${node.id}' returned ${verdict}; expected READY — resolve evidence or the user decision first`);
     }
     node.status = 'completed';
-    run.history.push({ at: iso(now), action: 'complete-stage', node: node.id, note: note ?? null, backfilled: Boolean(backfilled) });
+    node.executionStatus = backfilled ? 'imported' : 'completed';
+    node.outcome = backfilled ? 'unverified' : (outcome ?? 'unverified');
+    run.history.push({
+      at: iso(now), action: 'complete-stage', node: node.id, note: note ?? null,
+      backfilled: Boolean(backfilled), executionStatus: node.executionStatus, outcome: node.outcome,
+    });
     this.advance(run, now);
     this.writeRun(run, now);
     return this.snapshot(run);
@@ -388,11 +442,9 @@ class WorkflowOrchestrator {
  * evaluates the task's live evidence ledger and refuses anything but READY. */
 function handleOrchestrateCommand({
   action = 'status', taskId, taskClass, stage, gate, node, decision, note, reason, forced = false,
-  verificationPlan, scope, json = false, repoRoot, stateRoot,
+  verificationPlan, scope, result, callingSkill, json = false, repoRoot, stateRoot,
 } = {}) {
-  const { EvidenceLedger } = require('./evidence-ledger');
-  const { ClaimsManager } = require('./claims');
-  const { ReadinessEngine } = require('./readiness');
+  const { evaluateTaskReadiness } = require('./readiness');
   const { finishRuntime, usageError } = require('./cli-result');
 
   const root = repoRoot || REPO_ROOT;
@@ -410,7 +462,7 @@ function handleOrchestrateCommand({
     // it for a mutating stage carrying a readiness template) — so a missing --task-class here is a
     // caller mistake on THIS command, not a fact about the task's readiness. Reported before the
     // ledger/engine machinery below turns it into a generic readiness-layer exception.
-    if (typeof taskClass !== 'string' || taskClass.trim() === '') {
+    if (action !== 'handoff' && (typeof taskClass !== 'string' || taskClass.trim() === '')) {
       throw new Error("orchestrate complete-stage: this stage is gated by a readiness template, so --task-class is required — pass the same class this run was started/caught-up with.");
     }
     // The gate must grade this stage against the contract the run was actually started under, not
@@ -419,19 +471,9 @@ function handleOrchestrateCommand({
     // class it did not start). Without this, `--task-class trivial-edit` on a `bug` run's gated
     // `implementation` stage would grade source mutation against a 2-requirement contract instead
     // of the 5-requirement one the run actually declared, silently.
-    if (taskClass !== run.taskClass) {
+    if (taskClass && taskClass !== run.taskClass) {
       throw new Error(`orchestrate complete-stage: --task-class '${taskClass}' does not match run '${run.taskId}''s own class '${run.taskClass}' — pass the class this run was started under, not a different one.`);
     }
-    let ledger;
-    try {
-      ledger = new EvidenceLedger({ repoRoot: state });
-      ledger.load(taskId);
-    } catch {
-      return 'BLOCKED'; // an unreadable evidence ledger can never certify a safe mutation
-    }
-    const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: state });
-    claims.load(taskId);
-    const engine = new ReadinessEngine({ repoRoot: root, projectRoot: state });
     // Caller-stated inputs reach the cascade here, same rule as `doflow readiness`: an absent key
     // stays absent rather than becoming a falsy default, because the engine reads presence, not
     // truth. Without this the two requirements readiness_gate.md says are satisfiable by
@@ -440,7 +482,7 @@ function handleOrchestrateCommand({
     const profile = { taskId, taskClass: run.taskClass };
     if (typeof verificationPlan === 'string' && verificationPlan.trim() !== '') profile.verificationPlan = verificationPlan;
     if (typeof scope === 'string' && scope.trim() !== '') profile.scopeClear = scope;
-    const report = engine.evaluateReadiness(profile, ledger, claims);
+    const report = evaluateTaskReadiness({ taskProfile: profile, repoRoot: root, projectRoot: state });
     return report.state;
   };
 
@@ -451,15 +493,23 @@ function handleOrchestrateCommand({
     if (forced && action !== 'decide-gate' && action !== 'annotate') {
       return usageError('orchestrate', `'--forced' has no effect on action '${action}' — only decide-gate and annotate read it`, json);
     }
+    // Same rule for --result: dropping it silently would let an operator believe an outcome was
+    // recorded when nothing recorded it.
+    if (result !== undefined && action !== 'complete-stage' && action !== 'handoff') {
+      return usageError('orchestrate', `'--result' has no effect on action '${action}' — only complete-stage and handoff record a stage outcome`, json);
+    }
     let snapshot;
     switch (action) {
+      case 'handoff':
+        snapshot = orchestrator.handoff({ taskId, taskClass, callingSkill, note, outcome: result });
+        break;
       case 'start':
         if (!taskId || !taskClass) return usageError('orchestrate', 'start requires --task-id and --task-class', json);
         snapshot = orchestrator.start({ taskId, taskClass });
         break;
       case 'complete-stage':
         if (!taskId || !stage) return usageError('orchestrate', 'complete-stage requires --task-id and --stage', json);
-        snapshot = orchestrator.completeStage({ taskId, stageId: stage, note });
+        snapshot = orchestrator.completeStage({ taskId, stageId: stage, note, outcome: result });
         break;
       case 'catch-up': {
         if (!taskId || !taskClass || !stage) return usageError('orchestrate', 'catch-up requires --task-id, --task-class and --stage (comma-separated candidate ids)', json);
@@ -484,11 +534,12 @@ function handleOrchestrateCommand({
         snapshot = orchestrator.status(taskId);
         break;
       default:
-        return usageError('orchestrate', `unknown action '${action}'; valid: start | status | catch-up | complete-stage | skip-stage | decide-gate | annotate`, json);
+        return usageError('orchestrate', `unknown action '${action}'; valid: start | status | handoff | catch-up | complete-stage | skip-stage | decide-gate | annotate`, json);
     }
     if (json) { console.log(JSON.stringify(snapshot, null, 2)); return finishRuntime(0); }
     console.log(`Workflow ${snapshot.taskId} [${snapshot.taskClass}] — ${snapshot.state}`);
-    console.log(`Progress: ${snapshot.progress.done}/${snapshot.progress.total}`);
+    if (snapshot.disposition) console.log(`Handoff: ${snapshot.disposition}`);
+    if (snapshot.progress) console.log(`Progress: ${snapshot.progress.done}/${snapshot.progress.total}`);
     if (snapshot.current) {
       console.log(snapshot.awaitingGate
         ? `Awaiting gate ${snapshot.awaitingGate.gateId}${snapshot.awaitingGate.prompt ? `: ${snapshot.awaitingGate.prompt}` : ''}`
@@ -503,4 +554,4 @@ function handleOrchestrateCommand({
   }
 }
 
-module.exports = { WorkflowOrchestrator, RUN_STATES, GATE_DECISIONS, handleOrchestrateCommand };
+module.exports = { WorkflowOrchestrator, RUN_STATES, GATE_DECISIONS, STAGE_OUTCOMES, handleOrchestrateCommand };

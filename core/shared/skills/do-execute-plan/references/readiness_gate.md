@@ -50,16 +50,34 @@ would satisfy it — `blast_radius`, for example, recommends `estimate-blast-rad
 and its fallback chain, then go gather that evidence. The gate tells you what is missing *and* how
 to go get it.
 
-| State | Meaning | What to do |
-| :--- | :--- | :--- |
-| `READY` | Every mandatory prerequisite is verified by fresh evidence | Proceed. |
-| `NEEDS_EVIDENCE` | Contract understood, prerequisites not yet established | Gather the named requirements first. Do not start editing on the assumption it will work out. |
-| `NEEDS_USER_DECISION` | A design or architectural decision is owed by the user | Ask it through the `RULE_04_QUESTIONS.md` mechanism. Do not decide it yourself and proceed. |
-| `BLOCKED` | A claim on this task is `conflicted` — evidence disagrees with itself | Stop. Never modify source while blocked; surface which claim and which evidence. |
+| State | Meaning |
+| :--- | :--- |
+| `READY` | Every mandatory prerequisite is verified by fresh evidence |
+| `NEEDS_EVIDENCE` | Contract understood, prerequisites not yet established |
+| `NEEDS_USER_DECISION` | A design or architectural decision is owed by the user |
+| `BLOCKED` | A claim on this task is `conflicted` — evidence disagrees with itself |
 
 These four are the whole vocabulary. There is no fifth state, no partial state, and no numeric or
 percentage rendering of any of them — a gate that emits a number invites the reader to round it up.
 All four are reachable through the seam; the next section says exactly which input produces each.
+
+**What to do about a state is not this page's call, and not yours** — the runtime owns the one
+stage-entry policy and every report carries its answer as `stageEntry: {decision, reason}`
+(`Stage Entry:` in the human report), computed from the state and the execution mode you declare
+with `--mode`:
+
+| | `--mode workflow` (default) | `--mode standalone` |
+| :--- | :--- | :--- |
+| `READY` | `ENTER` | `ENTER` |
+| `NEEDS_EVIDENCE` | `GATHER_FIRST` — gather the named requirements before entering the stage | `ENTER` — the unmet contract is reported, not enforced; relay it in the result |
+| `NEEDS_USER_DECISION` | `ASK_USER` — ask through `RULE_04_QUESTIONS.md` and wait | `ASK_USER` — same; a small edit does not cure an owed decision |
+| `BLOCKED` | `STOP` — never modify source; surface which claim and which evidence | `STOP` — same |
+
+`workflow` is an orchestrated run (`do-flow`, `do-execute-plan`); `standalone` is a declared
+one-off edit (`do-implement`, `do-diagnose --fix`). The mode is a flag, never an inference — an
+absent evidence record is not a statement of intent, so the default fails closed to `workflow`.
+Act on `decision`; do not re-derive the answer from `state`, because a policy re-derived in prose
+is exactly how three skills came to disagree about the same state.
 
 The engine fails closed: a requirement it cannot evaluate reads as unmet, not satisfied. A gate that
 guesses in its own favour is worse than no gate, because it reports a verdict it never earned.
@@ -71,8 +89,8 @@ contract that was met and one that was described as met.
 
 | Input | Written by | What it can satisfy |
 | :--- | :--- | :--- |
-| Evidence | `evidence --task-id <id> --action add` — one item from `--kind/--provenance/--provider/--capability/--locator/--content`, or a whole stage from `--batch <file>` | every requirement declaring evidence kinds: `reproduction`, `affected_code`, `blast_radius`, `affected_components`, `architecture_mapped`, `baseline_tests`, `target_identified`, `compatibility_checked`, `usage_impact` |
-| Claims | `claim --action add`, promoted by `claim --action link` | `root_cause`, the one requirement that demands a `supported` claim. A `conflicted` claim additionally forces `BLOCKED` for the whole task |
+| Evidence | `evidence --task-id <id> --action add` — one item from `--kind/--provenance/--provider/--capability/--locator/--content`, plus `--establishes <req-id[,req-id]>` and (for executions) `--observed-command`/`--observed-exit`; or a whole stage from `--batch <file>` | every requirement declaring evidence kinds: `reproduction`, `affected_code`, `blast_radius`, `affected_components`, `architecture_mapped`, `baseline_tests`, `target_identified`, `compatibility_checked`, `usage_impact` |
+| Claims | `claim --action add` (with `--role root-cause` where the contract names a role), promoted by `claim --action link` | `root_cause`, the one requirement that demands a `supported` claim **in the `root-cause` role**. A `conflicted` claim additionally forces `BLOCKED` for the whole task |
 | Caller-stated profile | `readiness --verification-plan <text>` · `--scope <text>` · `--invariants <text>` · `--user-decision-pending` | `verification_plan`, `verification_command`, `regression_verification` (from `--verification-plan`); `scope_clear`, `scope_verified`, `invariants_captured` (from `--scope` or `--invariants`) |
 
 So each state arrives as follows.
@@ -80,6 +98,13 @@ So each state arrives as follows.
 - **`NEEDS_EVIDENCE`** — the default answer for a task with nothing recorded. Every required
   entry the batch has not covered and no stated input satisfies is listed with its
   `recommendedAction`. This is the checklist, not a malfunction.
+
+  An item counts toward a requirement only when it is `extracted` **and** names that requirement
+  in `establishes` — kind alone is a category, and an inferred item is analysis, not measurement.
+  Where the contract expects an execution (`reproduction`, `baseline_tests`), the item must carry
+  the observation `{command, exitCode}` it records, and `baseline_tests` additionally requires
+  exit 0: a run that failed is reported as the failure it was. A bug reproduction succeeds by
+  observing the expected failure, so a non-zero exit there is the evidence, not a defect in it.
 - **`READY`** — recorded evidence plus stated inputs cover every required entry. Each satisfied
   requirement names the evidence ids that satisfied it in `evidenceIds`; a requirement satisfied
   by a *stated* input carries an empty `evidenceIds`, because nothing backs it but the statement.
@@ -101,9 +126,11 @@ Three limits still hold, and none of them is a reason to work around the gate:
 
 - Only evidence whose `freshness.status` is `FRESH` counts. The write measures freshness itself —
   HEAD commit, sha256 of the located file, `observedAt` — and records `null` for anything it cannot
-  establish, rather than a value that happens to parse. But **no verb re-marks a record `STALE`
-  today**, so an old batch stays `FRESH` until something says otherwise: re-check a locator
-  yourself before leaning on evidence recorded in an earlier session.
+  establish, rather than a value that happens to parse. Every `readiness` read and every gated
+  stage completion re-checks those stamps against the tree as it stands — the same evaluation at
+  both boundaries — so an item whose file has changed since it was read reports `STALE` and stops
+  counting, and the report names it. Re-record stale items against the current tree; do not argue
+  with the verdict.
 - `claim --action link` refuses an evidence id the ledger does not hold (exit 2). Record the batch
   first, then link; a link is not a way to reference evidence you have not written.
 - The gate grades this task's ledger only. A different `--task-id` reads a different record, and

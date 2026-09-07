@@ -303,10 +303,31 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
 
 const singleton = createGeminiAdapter();
 
+/** Gemini's hooks trust, observed for a lifecycle target. Trust is not a static registry
+ * prerequisite the way Codex's `trusted-project`/`hook-review` are: Gemini fingerprints hook
+ * name/command and warns before running one that changed, so trust is computed live against the
+ * current hooks.json source and the harness's current settings.json. This is the adapter's own
+ * API for that observation (review A3 — lifecycle used to import planGeminiHooks and re-derive
+ * the plan itself, which put Gemini's hook semantics on the lifecycle side of the boundary).
+ * Read-only and side-effect free; returns the trust value or null when unobservable.
+ * @param {Object} target a lifecycle status target ({adapterInput, discovery})
+ * @returns {*} the plan's trust, or null
+ */
+function hookTrustFor(target) {
+  const context = target.adapterInput?.context || {};
+  const settingsFile = target.discovery?.paths?.settings;
+  if (!context.geminiHooksSourceFile || !settingsFile || target.discovery?.settings?.error) return null;
+  const plan = planGeminiHooks({
+    sourceFile: context.geminiHooksSourceFile, sourceHooksDir: context.geminiHooksSourceDir,
+    settingsFile, trusted: context.hooksTrusted,
+  });
+  return plan.ok ? (plan.trust ?? null) : null;
+}
+
 module.exports = {
   MARKER_START, MARKER_END,
   nativePaths: singleton.nativePaths, discover: singleton.discover, render: singleton.render,
   managedInstruction, plan: singleton.plan, apply: singleton.apply, remove: singleton.remove,
-  verify: singleton.verify, planGeminiHooks,
+  verify: singleton.verify, planGeminiHooks, hookTrustFor,
   createGeminiAdapter,
 };

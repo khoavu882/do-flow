@@ -200,6 +200,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--claim-id', 'claimId'],           // claim --action link
   ['--evidence-id', 'evidenceId'],     // claim --action link
   ['--relation', 'relation'],          // claim --action link: supports | contradicts
+  ['--role', 'role'],                  // claim --action add: the claim's relationship to the task, e.g. root-cause
   ['--replaced-by', 'replacedBy'],     // claim --action supersede: the claim replacing this one
   ['--kind', 'kind'],                  // evidence --action add: one of VALID_EVIDENCE_KINDS
   ['--provenance', 'provenance'],      // evidence --action add: extracted | inferred | asserted
@@ -207,14 +208,18 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--capability', 'capability'],      // evidence --action add: source.capability
   ['--locator', 'locator'],            // evidence --action add: 'path/file[:line]' or a URI
   ['--content', 'content'],            // evidence --action add: the fact or the analysis itself
+  ['--establishes', 'establishes'],    // evidence --action add: requirement id(s) this item proves, comma-separated
+  ['--observed-command', 'observedCommand'], // evidence --action add: the command a test-result/runtime-observation ran
   ['--batch', 'batchPath'],            // evidence --action add: a stage's batch file, or '-'
   ['--verification-plan', 'verificationPlan'], // readiness: how success will be established
+  ['--mode', 'mode'],                  // readiness: execution mode, workflow (default) | standalone
   ['--scope', 'scope'],                // readiness: the stated scope boundary
   ['--invariants', 'invariants'],      // readiness: the invariants a refactor must preserve
   ['--objective', 'objective'],        // context-pack
   ['--stage', 'stage'],                // retrieval-plan: the stage id declaring the plan;
                                        // outcome: the stage writing it, refused unless terminal
   ['--state', 'state'],                // outcome: the terminal state being recorded
+  ['--result', 'result'],              // orchestrate complete-stage: the stage's own outcome, passed | failed (omit → unverified)
   // outcome: the verdicts the run saw, stated by it and validated against the vocabulary the
   // owning module exports. Recording an outcome never re-evaluates readiness and never re-runs
   // verification, so these arrive as statements rather than as measurements taken here.
@@ -242,6 +247,7 @@ const RUNTIME_LIST_FLAGS = new Map([
 /** Non-negative integer arguments. */
 const RUNTIME_INT_FLAGS = new Map([
   ['--iteration', 'iteration'],        // recover: retries already spent, bounding the retry budget
+  ['--observed-exit', 'observedExit'], // evidence --action add: exit status of the observed command (0 is meaningful)
 ]);
 
 /**

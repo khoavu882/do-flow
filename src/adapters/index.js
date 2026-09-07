@@ -1,41 +1,28 @@
 'use strict';
 
-const path = require('node:path');
-
 // Harness adapters own native formats and paths. This module intentionally only
 // validates and resolves that boundary; it never reads or writes harness files.
+const { resolveRegistrySource } = require('./resolve-source');
+
 const ADAPTER_METHODS = Object.freeze(['discover', 'render', 'plan', 'apply', 'remove', 'verify']);
 
-function resolveRegistrySource(registry, source, label) {
-  if (typeof registry.repoRoot !== 'string' || !registry.repoRoot) throw new Error(`Registry repoRoot is required for ${label}`);
-  if (typeof source !== 'string' || !source) throw new Error(`Registry ${label} source is required`);
-  const root = path.resolve(registry.repoRoot);
-  const resolved = path.resolve(root, source);
-  if (!resolved.startsWith(`${root}${path.sep}`)) throw new Error(`Registry ${label} source escapes repository: ${source}`);
-  return resolved;
-}
+/** Per-adapter native-projection normalizers. Each lives in its adapter's own directory (review
+ * A3: the Codex shape used to be inlined here, putting per-harness knowledge on the shared side of
+ * the boundary); this module only dispatches by adapter name. An adapter gaining a
+ * nativeProjection declaration registers its normalizer here. */
+const NATIVE_PROJECTION_NORMALIZERS = Object.freeze({
+  codex: () => require('./codex/native-projection').normalizeNativeProjection,
+});
 
-/** Normalize the validated Codex registry declaration into its adapter's named
- * input. Source paths always come from the registry; runtime overrides only
- * affect an explicitly safe trust acknowledgement. */
+/** Dispatch a harness's nativeProjection declaration to its adapter's own normalizer. */
 function nativeProjectionFor(registry, harness, mcp, context) {
   if (!harness.nativeProjection) return {};
-  if (harness.adapter !== 'codex') throw new Error(`No native projection normalizer is registered for '${harness.adapter}'`);
-  const declaration = harness.nativeProjection;
-  const override = context.projectionOverrides?.[harness.id] ?? {};
-  if (!override || typeof override !== 'object' || Array.isArray(override)) throw new Error(`Projection override for '${harness.id}' must be an object`);
-  const trusted = override.hooks?.trusted;
-  if (trusted !== undefined && typeof trusted !== 'boolean') throw new Error(`Projection override '${harness.id}.hooks.trusted' must be boolean`);
-  return Object.freeze({
-    configResources: Object.freeze((declaration.config?.resources || []).map((resource) => Object.freeze({ ...resource }))),
-    mcp: Object.freeze({ catalog: Object.freeze(mcp.map((server) => Object.freeze({ ...server }))), selected: Object.freeze(mcp.map((server) => server.id)) }),
-    agents: Object.freeze({ sourceDir: resolveRegistrySource(registry, declaration.agents?.source, `${harness.id} agents`) }),
-    hooks: Object.freeze({
-      sourceFile: resolveRegistrySource(registry, declaration.hooks?.configSource, `${harness.id} hooks config`),
-      sourceHooksDir: resolveRegistrySource(registry, declaration.hooks?.scriptsSource, `${harness.id} hooks scripts`),
-      trusted: trusted ?? declaration.hooks?.trusted,
-    }),
-  });
+  const load = NATIVE_PROJECTION_NORMALIZERS[harness.adapter];
+  if (!load) {
+    throw new Error(`No native projection normalizer is registered for '${harness.adapter}'. `
+      + `Registered: ${Object.keys(NATIVE_PROJECTION_NORMALIZERS).join(', ')}`);
+  }
+  return load()(registry, harness, mcp, context);
 }
 
 /**

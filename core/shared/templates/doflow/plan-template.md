@@ -1,12 +1,13 @@
 # Implementation Plan: [FEATURE NAME]
 
-**Feature:** [NNN-slug] · **Requirement:** [REQUIREMENT_PATH] · **Design:** [DESIGN_PATH] · **Status:** Draft · **Created:** [DATE]
+**Feature:** [NNN-slug] · **Requirement:** [REQUIREMENT_PATH] · **Design:** [DESIGN_PATH] · **Maturity:** Draft · **Created:** [DATE]
 
 > HOW. Reads [REQUIREMENT_PATH] and [DESIGN_PATH]. Resolve every `[NEEDS CLARIFICATION]` from the
 > requirement here.
 >
 > Structure follows `references/ARTIFACT_FORMAT.md`: indexed sections carry a table above full
-> `**Detail**`, `Status` is only `Live` or `Superseded → <ref>`, and superseded prose moves to §9.
+> `**Detail**`, the document-level `Maturity` is `Draft`, `In review` or `Approved`, the item-level
+> `Status` is only `Live` or `Superseded → <ref>`, and superseded prose moves to §9.
 
 ## 1. Approach
 
@@ -39,7 +40,7 @@
 
 ## 5. Data / Contracts
 
-[schema, API, or interface pointers — or "N/A".]
+[schema, API, or interface pointers — or `N/A: [why]`.]
 
 ## 6. Risks & Mitigations
 

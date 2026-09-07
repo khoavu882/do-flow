@@ -2,8 +2,10 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 // Shared with EvidenceLedger so both stores enforce one definition of a safe task id.
 const { assertSafeTaskId, EvidenceLedger } = require('./evidence-ledger');
+const { updateTaskState, readTaskState, mergeRecords } = require('./task-state');
 const { finishRuntime, usageError } = require('./cli-result');
 const { REPO_ROOT } = require('../helper/repo-root');
 
@@ -46,18 +48,21 @@ class ClaimsManager {
     this.repoRoot = options.repoRoot || REPO_ROOT;
     this.stateDir = options.stateDir || path.join(this.repoRoot, '.doflow', 'state', 'evidence');
     this.claimsMap = new Map();
+    this.baseline = new Map();
     this.seq = 0;
   }
 
   generateId() {
+    // Cross-instance unique, same reasoning as EvidenceLedger.generateId: ids key the merge in
+    // save(), so a same-millisecond collision between two sessions silently merges two claims.
     this.seq += 1;
-    return `claim_${Date.now().toString(36)}_${this.seq.toString(36)}`;
+    return `claim_${Date.now().toString(36)}_${crypto.randomBytes(4).toString('hex')}_${this.seq.toString(36)}`;
   }
 
   /**
    * Registers a new proposition as a claim.
    * Agent inferences start strictly in 'hypothesis' status.
-   * @param {Object} item - { statement, taskId, status, id }
+   * @param {Object} item - { statement, taskId, status, id, role }
    * @returns {string} claimId
    */
   addClaim(item) {
@@ -66,6 +71,11 @@ class ClaimsManager {
     }
     if (!item.statement || typeof item.statement !== 'string') {
       throw new Error('Claim requires a non-empty statement');
+    }
+    // The claim's relationship to the task, e.g. 'root-cause'. A readiness template can require a
+    // role, so a supported-but-unrelated claim cannot satisfy a requirement it never addressed.
+    if (item.role !== undefined && !/^[a-z][a-z0-9-]*$/.test(String(item.role))) {
+      throw new Error(`Claim role '${item.role}' must be a lowercase-kebab token, e.g. 'root-cause'`);
     }
 
     const id = item.id || this.generateId();
@@ -76,6 +86,7 @@ class ClaimsManager {
       id,
       taskId,
       statement: item.statement,
+      role: item.role || null,
       status,
       supportingEvidence: Array.isArray(item.supportingEvidence) ? [...item.supportingEvidence] : [],
       contradictingEvidence: Array.isArray(item.contradictingEvidence) ? [...item.contradictingEvidence] : [],
@@ -290,19 +301,21 @@ class ClaimsManager {
    * @returns {string} filePath
    */
   save(taskId = 'default') {
-    const taskClaims = this.getClaims(taskId);
-    const payload = {
-      version: 1,
-      taskId,
-      updatedAt: new Date().toISOString(),
-      claimsCount: taskClaims.length,
-      claims: taskClaims,
-    };
-
-    this.fsImpl.mkdirSync(this.stateDir, { recursive: true });
     const targetFile = path.join(this.stateDir, `${assertSafeTaskId(taskId)}_claims.json`);
-    this.fsImpl.writeFileSync(targetFile, JSON.stringify(payload, null, 2), 'utf8');
-    return targetFile;
+    let merged;
+    const file = updateTaskState({
+      fsImpl: this.fsImpl,
+      file: targetFile,
+      build: (disk) => {
+        merged = mergeRecords(this.getClaims(taskId), disk?.claims || [], this.baseline);
+        return { taskId, updatedAt: new Date().toISOString(), claimsCount: merged.length, claims: merged };
+      },
+    });
+    for (const item of merged) {
+      this.claimsMap.set(item.id, item);
+      this.baseline.set(item.id, JSON.parse(JSON.stringify(item)));
+    }
+    return file;
   }
 
   /**
@@ -312,26 +325,20 @@ class ClaimsManager {
    */
   load(taskId = 'default') {
     const targetFile = path.join(this.stateDir, `${assertSafeTaskId(taskId)}_claims.json`);
-    if (!this.fsImpl.existsSync(targetFile)) {
-      return 0;
-    }
-
-    try {
-      const data = JSON.parse(this.fsImpl.readFileSync(targetFile, 'utf8'));
-      if (Array.isArray(data.claims)) {
-        for (const item of data.claims) {
-          this.claimsMap.set(item.id, item);
-        }
-        return data.claims.length;
+    const data = readTaskState(this.fsImpl, targetFile);
+    if (data && Array.isArray(data.claims)) {
+      for (const item of data.claims) {
+        this.claimsMap.set(item.id, item);
+        this.baseline.set(item.id, JSON.parse(JSON.stringify(item)));
       }
-      return 0;
-    } catch (error) {
-      throw new Error(`Failed to load claims file '${targetFile}': ${error.message}`);
+      return data.claims.length;
     }
+    return 0;
   }
 
   clear() {
     this.claimsMap.clear();
+    this.baseline.clear();
     this.seq = 0;
   }
 }
@@ -355,7 +362,7 @@ class ClaimsManager {
  * @param {string} [options.stateRoot]
  * @returns {number} exit code
  */
-function handleClaimCommand({ taskId, action = 'list', statement, claimId, evidenceId, replacedBy, relation = 'supports', json = false, stateRoot } = {}) {
+function handleClaimCommand({ taskId, action = 'list', statement, claimId, evidenceId, replacedBy, relation = 'supports', role, json = false, stateRoot } = {}) {
   const root = stateRoot || process.cwd();
   const ledger = new EvidenceLedger({ repoRoot: root });
   ledger.load(taskId);
@@ -368,7 +375,7 @@ function handleClaimCommand({ taskId, action = 'list', statement, claimId, evide
       if (typeof statement !== 'string' || statement.trim() === '') {
         return usageError('claim', '--statement is required for --action add', json);
       }
-      const id = claims.addClaim({ statement, taskId });
+      const id = claims.addClaim({ statement, taskId, role });
       claims.save(taskId);
       result = { action, taskId, claim: claims.getClaim(id) };
     } else if (action === 'link') {

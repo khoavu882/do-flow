@@ -8,8 +8,12 @@
 <important if="asking the user a clarifying question or choosing between approaches">
 ## How to Ask (MANDATORY format)
 Structured multiple-choice — never a free-form question buried in prose.
-- **Claude Code**: use the `AskUserQuestion` tool ("Other"/free-text is auto-provided)
-- **Codex / Gemini / non-interactive**: write a `{stage}-questions.md` file with `[Answer]:` tags
+- **A native question tool exists in this session** (Claude Code's `AskUserQuestion`, or any
+  harness tool that presents options and returns the user's choice): use it. Which harness this
+  is is not the test — what THIS session offers is; Codex and Gemini sessions increasingly
+  carry one.
+- **No native question tool** (truly non-interactive runs): write a `{stage}-questions.md` file
+  with `[Answer]:` tags — the fallback, never the preference.
 
 Each question:
 - 2–4 **meaningful, mutually-exclusive** options covering the real scenarios
@@ -17,7 +21,7 @@ Each question:
 - One topic per question; specific and unambiguous; lead with your recommended default
 </important>
 
-<important if="writing a question file for a non-interactive tool (Codex / Gemini)">
+<important if="writing a question file because this session has no native question tool">
 ## Question-File Format
 ```markdown
 ## Question 1 — [the question]

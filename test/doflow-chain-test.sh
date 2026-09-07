@@ -193,9 +193,19 @@ eq "outside-repo edit -> allow" \
    "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"/etc/hosts\"}}")" "allow"
 eq "non-edit tool -> allow" \
    "$(decision "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls\"}}")" "allow"
+# Normalized doflow_event envelope (review R7): an adapter that already decoded its native event
+# sends {operation, paths, projectRoot}; the policy consumes it without union field-guessing.
+eq "normalized envelope edit, design missing -> deny" \
+   "$(decision "{\"doflow_event\":{\"operation\":\"edit\",\"paths\":[\"$ROOT/src/A.java\"],\"projectRoot\":\"$ROOT\"}}")" "deny"
+eq "normalized envelope non-edit operation -> allow" \
+   "$(decision "{\"doflow_event\":{\"operation\":\"read\",\"paths\":[\"$ROOT/src/A.java\"]}}")" "allow"
+eq "envelope outranks stray native fields beside it -> deny" \
+   "$(decision "{\"tool_name\":\"Bash\",\"doflow_event\":{\"operation\":\"edit\",\"paths\":[\"$ROOT/src/A.java\"],\"projectRoot\":\"$ROOT\"}}")" "deny"
 echo d > agent-docs/doflow/001-auth/design.md
 eq "prereqs met -> allow" \
    "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}")" "allow"
+eq "normalized envelope, prereqs met -> allow" \
+   "$(decision "{\"doflow_event\":{\"operation\":\"edit\",\"paths\":[\"$ROOT/src/A.java\"],\"projectRoot\":\"$ROOT\"}}")" "allow"
 git checkout -q master
 eq "not-in-flow (trunk) -> allow" \
    "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}")" "allow"

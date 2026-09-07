@@ -1,6 +1,6 @@
 # Feature Requirement: [FEATURE NAME]
 
-**Feature:** [NNN-slug] · **Branch:** `feat/[NNN-slug]` · **Status:** Draft
+**Feature:** [NNN-slug] · **Branch:** `feat/[NNN-slug]` · **Maturity:** Draft
 **Created:** [DATE] · **Owner:** [OWNER] · **Ticket:** [PBI/ticket ID, or "none"]
 
 > WHAT and WHY only — no tech or implementation detail. Zero unresolved clarification markers at
@@ -8,7 +8,8 @@
 > deferred answers become assumptions in §8.
 >
 > Structure follows `references/ARTIFACT_FORMAT.md`: indexed sections carry a table above full
-> `**Detail**`, `Status` is only `Live` or `Superseded → <ref>`, and superseded prose moves to §9.
+> `**Detail**`, the document-level `Maturity` is `Draft`, `In review` or `Approved`, the item-level
+> `Status` is only `Live` or `Superseded → <ref>`, and superseded prose moves to §9.
 
 ## 1. Summary
 

@@ -20,9 +20,12 @@ const BEHAVIOURAL_ONLY = new Map([]);
 // single skill's own argument-hint, not to this framework's global flag vocabulary, so FLAGS.md
 // neither documents nor owns them. Each entry needs a reason, like BEHAVIOURAL_ONLY above.
 const NOT_FRAMEWORK_FLAGS = new Map([
+  ...['--action', '--calling-skill', '--note', '--result', '--task-class', '--task-id']
+    .map(flag => [flag, 'orchestrate CLI argument documented in WORKFLOW_HANDOFF.md; owned by the runtime parser, not the global framework vocabulary']),
   ['--json', 'output mode of do-paths.sh / do-prereqs.sh / validate-artifacts.sh, quoted in DOFLOW_CHAIN.md'],
   ['--scaffold', "do-execute-plan's own argument, described in DOFLOW_CHAIN.md"],
   ['--slug', 'feature-override argument of do-paths.sh / do-prereqs.sh / validate-artifacts.sh, quoted in ARTIFACT_FORMAT.md'],
+  ['--role', "the runtime claim verb's own argument (claim --action add --role root-cause), quoted in EVIDENCE_LEDGER.md"],
 ]);
 
 function documentedFlags() {

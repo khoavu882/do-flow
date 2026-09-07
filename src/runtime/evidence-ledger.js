@@ -2,7 +2,9 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { REPO_ROOT } = require('../helper/repo-root');
+const { updateTaskState, readTaskState, mergeRecords } = require('./task-state');
 
 const VALID_EVIDENCE_KINDS = new Set([
   'exact-search',
@@ -46,16 +48,21 @@ class EvidenceLedger {
     this.repoRoot = options.repoRoot || REPO_ROOT;
     this.stateDir = options.stateDir || path.join(this.repoRoot, '.doflow', 'state', 'evidence');
     this.evidenceMap = new Map();
+    this.baseline = new Map();
     this.seq = 0;
   }
 
   /**
-   * Generates a unique evidence identifier.
+   * Generates a unique evidence identifier. Uniqueness must hold ACROSS instances and processes,
+   * not just within one: ids key the concurrency-safe merge in save() (task-state.js), and two
+   * ledgers minting `ev_<ms>_1` in the same millisecond made the merge collapse two distinct
+   * observations into one — the very lost write R4 exists to prevent, reintroduced by an id
+   * scheme. The random component carries that burden; timestamp and sequence stay for readability.
    * @returns {string}
    */
   generateId() {
     this.seq += 1;
-    return `ev_${Date.now().toString(36)}_${this.seq.toString(36)}`;
+    return `ev_${Date.now().toString(36)}_${crypto.randomBytes(4).toString('hex')}_${this.seq.toString(36)}`;
   }
 
   /**
@@ -101,6 +108,15 @@ class EvidenceLedger {
       provenance,
       content: item.content || null,
       freshness,
+      // Which template requirements this item claims to establish. Readiness counts an item toward
+      // a requirement only when the writer named it here — kind-matching alone let an item saying
+      // "tests failed" satisfy a passing-baseline requirement (architecture review R1, P1).
+      establishes: Array.isArray(item.establishes) ? [...item.establishes] : [],
+      // Typed execution record for test-result / runtime-observation items: what ran and how it
+      // exited. Tree identity and time live in freshness (gitCommit, observedAt).
+      observation: item.observation
+        ? { command: item.observation.command, exitCode: item.observation.exitCode }
+        : null,
       supports: Array.isArray(item.supports) ? [...item.supports] : [],
       contradicts: Array.isArray(item.contradicts) ? [...item.contradicts] : [],
     };
@@ -165,24 +181,27 @@ class EvidenceLedger {
   }
 
   /**
-   * Persists evidence for a specific task to disk.
+   * Persists evidence for a specific task to disk — locked, merged, revisioned (task-state.js).
+   * A concurrent writer's items that this instance never loaded survive the save: they are folded
+   * in from disk inside the lock, so overlapping sessions append rather than overwrite each other.
    * @param {string} [taskId='default']
    * @returns {string} filePath
    */
   save(taskId = 'default') {
-    const taskItems = this.queryEvidence({ taskId });
-    const payload = {
-      version: 1,
-      taskId,
-      updatedAt: new Date().toISOString(),
-      evidenceCount: taskItems.length,
-      evidence: taskItems,
-    };
-
-    this.fsImpl.mkdirSync(this.stateDir, { recursive: true });
     const targetFile = path.join(this.stateDir, `${assertSafeTaskId(taskId)}.json`);
-    this.fsImpl.writeFileSync(targetFile, JSON.stringify(payload, null, 2), 'utf8');
-    return targetFile;
+    let merged;
+    const file = updateTaskState({
+      fsImpl: this.fsImpl, file: targetFile,
+      build: disk => {
+        merged = mergeRecords(this.queryEvidence({ taskId }), disk?.evidence || [], this.baseline);
+        return { taskId, updatedAt: new Date().toISOString(), evidenceCount: merged.length, evidence: merged };
+      },
+    });
+    for (const item of merged) {
+      this.evidenceMap.set(item.id, item);
+      this.baseline.set(item.id, JSON.parse(JSON.stringify(item)));
+    }
+    return file;
   }
 
   /**
@@ -192,22 +211,15 @@ class EvidenceLedger {
    */
   load(taskId = 'default') {
     const targetFile = path.join(this.stateDir, `${assertSafeTaskId(taskId)}.json`);
-    if (!this.fsImpl.existsSync(targetFile)) {
-      return 0;
-    }
-
-    try {
-      const data = JSON.parse(this.fsImpl.readFileSync(targetFile, 'utf8'));
-      if (Array.isArray(data.evidence)) {
-        for (const item of data.evidence) {
-          this.evidenceMap.set(item.id, item);
-        }
-        return data.evidence.length;
+    const data = readTaskState(this.fsImpl, targetFile);
+    if (data && Array.isArray(data.evidence)) {
+      for (const item of data.evidence) {
+        this.evidenceMap.set(item.id, item);
+        this.baseline.set(item.id, JSON.parse(JSON.stringify(item)));
       }
-      return 0;
-    } catch (error) {
-      throw new Error(`Failed to load evidence file '${targetFile}': ${error.message}`);
+      return data.evidence.length;
     }
+    return 0;
   }
 
   /**
@@ -215,6 +227,7 @@ class EvidenceLedger {
    */
   clear() {
     this.evidenceMap.clear();
+    this.baseline.clear();
     this.seq = 0;
   }
 }
