@@ -157,12 +157,35 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      as absent — neither is dropped from the report. Never mark something done against a failing
      suite.
 
-7. **Report and hand off**:
+7. **Record the handoff — skip only when step 2 took the standalone exemption**:
+   - Step 2's standalone exemption (`evidenceCount` 0) means there was never a task id to begin
+     with — skip this step entirely; there is nothing to record against.
+   - Otherwise, `<task id>` and the validated class are the same ones step 2 already resolved.
+     Record this skill's completion of the implementation stage:
+     ```bash
+     "$DOFLOW" orchestrate --action handoff --task-id "<task id>" --calling-skill do-implement --note "<one line: what was implemented>" --result <passed|failed> --json
+     ```
+     Use step 6's verification outcome for `--result`: `passed` when every check in the named set
+     passed, `failed` when one did not — never omit it to imply a pass step 6 did not establish.
+     The runtime selects this class's implementation stage — the only mutating stage a caller may
+     complete — and returns `disposition`. `deferred` means a gate, an unfinished mutating stage
+     elsewhere, or a rejected run prevented it; report `reason` and stop, this skill resolves no
+     gate. Render the trail after a recorded completion:
+     ```bash
+     "$DOFLOW" render-audit --slug="<task id>" --json
+     ```
+   - Without this call, the orchestrator's cursor never advances past `implementation` for any
+     class that routes here — `bug`, `refactor`, `dependency-change`, `trivial-edit` all do — and
+     every later stage's own handoff call is refused with `blocked-on-mutating-stage:implementation`
+     until this one runs.
+
+8. **Report and hand off**:
    - Summarize what changed, file by file, and why — not a restatement of the diff.
    - If step 2 took the standalone exemption, state that plainly here — as visible as a block would
      be, per NFR-004 — rather than only mentioning it in passing back in step 2. If step 2 evaluated
-     readiness instead, name the state it returned and, when a context pack was compiled, whether it
-     held usable prior context or came back mismatched-empty.
+     readiness instead, name the state it returned, whether the context pack held usable prior
+     context or came back mismatched-empty, and the handoff `disposition` step 7 recorded (or that
+     step 7 was skipped as standalone).
    - Suggest `/do-code-review` as the natural next step, mirroring the pointer that skill's own
      "Next Step" section already sends back here. If a chain feature's `plan.md` task happened to
      get addressed along the way, say so explicitly rather than silently — `plan.md` bookkeeping
@@ -172,11 +195,14 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 
 **Will:** Implement directly from a description, review findings, or a named task; read and match
 existing repo conventions before writing; run whatever test/lint suite the project already has;
-work in any repo, whether or not it uses the DoFlow chain at all.
+work in any repo, whether or not it uses the DoFlow chain at all; record the stage handoff through
+`orchestrate`/`render-audit` when this run is not standalone, so the orchestrator's cursor can
+advance past the mutating stage only this skill may complete.
 
 **Will Not:** Require or generate `requirement.md` / `design.md` / `plan.md`; orchestrate a
 multi-task checklist through specialist subagents — that is `/do-execute-plan`'s job once a real
 plan exists; silently override the repository's own `pre-implement-gate` hook. That hook triggers
 on any `Edit`/`Write` call, not on which skill made it — a branch mid-chain with a started feature
 but no `design.md` still gets blocked here exactly as it would anywhere else, and that is by
-design, not a gap this skill works around.
+design, not a gap this skill works around. Resolve a workflow gate, or start a workflow run for a
+standalone implementation.

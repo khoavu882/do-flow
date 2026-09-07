@@ -303,28 +303,33 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
          ```
          An `extracted` locator must resolve in this repository — the ledger refuses a batch whose
          locator points at nothing, and refuses the batch whole rather than the item.
-      2. Then complete the stage, stating the other two:
+      2. Then record the handoff, stating the other two — this is the genuine completion case (every
+         task checked), the one case where reaching this stage's candidate and recording it as done
+         are the same fact, so `handoff`'s always-complete-on-reach behavior is exactly right here
+         and cannot mismark unfinished work: the checkpoint branch above never reaches this call:
          ```bash
-         "$DOFLOW" orchestrate --action complete-stage --task-id "<slug>" --task-class "<class>" --stage "<stage id>" \
+         "$DOFLOW" orchestrate --action handoff --task-id "<slug>" --task-class "<class>" --calling-skill do-execute-plan \
            --verification-plan "<one line: how this was verified — plan.md §7 Validation Strategy, or the final phase's own results>" \
            --scope "<one line: plan.md §1 Approach>" \
-           --note "<one line, e.g. tasks A.1–E.5 complete>" --json
+           --note "<one line, e.g. tasks A.1–E.5 complete>" --result passed --json
          ```
-         `--task-class` is not optional on this one call: without the class there is no contract to
-         compile the cascade against. `--verification-plan` and `--scope` are inputs you **state**,
-         not evidence the gate measured — the same `callerAsserted` rule step 4 sets out. Pass them
-         when they are true, and say in the report which part of the verdict rests on a statement.
-    - **Report the resulting state plainly.** With the evidence item recorded and both inputs stated,
-      the cascade returns `READY` and the call succeeds, advancing the cursor to the verification
-      stage. If it refuses anyway, that refusal stands: report the verdict and exactly what the
-      message says is unmet, and fix that — do not re-run the call with a class that grades looser,
-      never assert `READY`, and do not swallow the failure into an `annotate`. The `annotate` path
-      above belongs to the unfinished-tasks case alone; it is not a catch-all for an unexpected
-      readiness failure here.
-    - No gate is anchored to this stage: the `complete-stage` response comes back with
-      `awaitingGate` `null` and the cursor on the verification stage. Read that field rather than
-      re-deriving it from `workflow.gates[]`, and decide no gate when it is null. Finish by rendering
-      the trail — the `--slug` value attaches with an `=`; a space-separated one is rejected with an
+         `--task-class` still matters here even though the run already carries one: a conflicting
+         value is refused, so passing it is a check, not a formality. `--verification-plan` and
+         `--scope` are inputs you **state**, not evidence the gate measured — the same
+         `callerAsserted` rule step 4 sets out. Pass them when they are true, and say in the report
+         which part of the verdict rests on a statement. `--result` reflects step 9's phase review
+         (and step 6's own check runs), never asserted as `passed` when a review finding was left
+         unfixed.
+    - **Report the resulting `disposition` plainly.** `completed` means the evidence item and both
+      stated inputs satisfied the cascade and the cursor advanced to the verification stage — check
+      its `awaitingGate`; `null` means no gate follows this stage in this workflow. `deferred` means
+      a gate, an unfinished mutating stage elsewhere, or a rejected run prevented it — report
+      `reason` plainly, this stage resolves no gate. If the cascade itself refuses (`NEEDS_EVIDENCE`
+      or similar surfaced through the failure), report exactly what is unmet and fix that — do not
+      re-run under a class that grades looser, never assert `READY` yourself, and do not swallow the
+      failure into an `annotate`. The `annotate` path above belongs to the unfinished-tasks case
+      alone; it is not a catch-all for an unexpected readiness failure here. Finish by rendering the
+      trail — the `--slug` value attaches with an `=`; a space-separated one is rejected with an
       error rather than silently rendering the wrong feature's trail:
       ```bash
       "$DOFLOW" render-audit --slug="<slug>" --json
