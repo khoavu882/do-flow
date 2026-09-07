@@ -13,6 +13,15 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.3.1] - 2026-09-07
+
+### Fixed
+
+- `do-implement` never recorded its own orchestrated stage completion, permanently blocking
+  `bug`/`refactor`/`dependency-change`/`trivial-edit` workflow runs at the `implementation` stage.
+  `do-brainstorm` and `do-execute-plan` migrated their remaining hand-rolled
+  catch-up/complete-stage/annotate sequences onto the `handoff` API introduced in 1.3.0.
+
 ## [1.3.0] - 2026-09-07
 
 ### Added
