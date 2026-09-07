@@ -53,22 +53,15 @@ downloads/
 .pi
 GEMINI.md
 AGENTS.md
-# agent-docs/ was a single repo-wide segment match. It did one job correctly — keeping the
-# agent-docs/ trees that bench runs generate under bench/runs/ out of the index, since bench/runs
-# is otherwise tracked — and one by accident: it also excluded this repository's own chain
+# agent-docs/ was a single repo-wide segment match. It also excluded this repository's own chain
 # artifacts. Those are authored records, not build output. state-template.md tells a resuming
 # session to trust state.md and `git log` together, which a file git never sees cannot satisfy,
 # and DOFLOW_CHAIN.md puts a repository's tier-2 constitution at agent-docs/constitution.md.
 # Split so each rule states which of the two it is for.
 agent-docs/
 
-# Skill-eval corpus is TRACKED — runner, per-skill eval definitions, and the sanitized baseline —
-# so the behavioral baseline is reproducible from a clean clone (review R6). Only run transcripts,
-# disposable sandboxes, and generated reports stay local: they are artifacts of paid runs, not
-# corpus. config.json is tracked too — its pinned model is a deliberate comparability constraint
-# (FR-017), not machine-local state.
-bench/runs/
-bench/reports/
+# Optional local benchmark harness. It is deliberately outside the tracked source and test graph.
+bench/*
 .mcp.json
 
 # MkDocs build output

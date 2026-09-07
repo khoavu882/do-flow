@@ -5,7 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 // Shared with EvidenceLedger so both stores enforce one definition of a safe task id.
 const { assertSafeTaskId, EvidenceLedger } = require('./evidence-ledger');
-const { updateTaskState, readTaskState } = require('./task-state');
+const { updateTaskState, readTaskState, mergeRecords } = require('./task-state');
 const { finishRuntime, usageError } = require('./cli-result');
 const { REPO_ROOT } = require('../helper/repo-root');
 
@@ -48,6 +48,7 @@ class ClaimsManager {
     this.repoRoot = options.repoRoot || REPO_ROOT;
     this.stateDir = options.stateDir || path.join(this.repoRoot, '.doflow', 'state', 'evidence');
     this.claimsMap = new Map();
+    this.baseline = new Map();
     this.seq = 0;
   }
 
@@ -300,23 +301,21 @@ class ClaimsManager {
    * @returns {string} filePath
    */
   save(taskId = 'default') {
-    // Locked, merged, revisioned — task-state.js. A concurrent writer's claims that this instance
-    // never loaded are folded in from disk inside the lock; for a claim id both writers hold, this
-    // instance's version wins, because its status was just re-evaluated against linked evidence.
     const targetFile = path.join(this.stateDir, `${assertSafeTaskId(taskId)}_claims.json`);
-    return updateTaskState({
+    let merged;
+    const file = updateTaskState({
       fsImpl: this.fsImpl,
       file: targetFile,
       build: (disk) => {
-        if (disk && Array.isArray(disk.claims)) {
-          for (const item of disk.claims) {
-            if (!this.claimsMap.has(item.id)) this.claimsMap.set(item.id, item);
-          }
-        }
-        const taskClaims = this.getClaims(taskId);
-        return { taskId, updatedAt: new Date().toISOString(), claimsCount: taskClaims.length, claims: taskClaims };
+        merged = mergeRecords(this.getClaims(taskId), disk?.claims || [], this.baseline);
+        return { taskId, updatedAt: new Date().toISOString(), claimsCount: merged.length, claims: merged };
       },
     });
+    for (const item of merged) {
+      this.claimsMap.set(item.id, item);
+      this.baseline.set(item.id, JSON.parse(JSON.stringify(item)));
+    }
+    return file;
   }
 
   /**
@@ -330,6 +329,7 @@ class ClaimsManager {
     if (data && Array.isArray(data.claims)) {
       for (const item of data.claims) {
         this.claimsMap.set(item.id, item);
+        this.baseline.set(item.id, JSON.parse(JSON.stringify(item)));
       }
       return data.claims.length;
     }
@@ -338,6 +338,7 @@ class ClaimsManager {
 
   clear() {
     this.claimsMap.clear();
+    this.baseline.clear();
     this.seq = 0;
   }
 }

@@ -319,50 +319,18 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
    `do-code-review` still cannot block a merge or stop a downstream stage — only the Block verdict
    in its own report, read by a human or by `/do-implement`, does that.
 
-3. **Record the handoff, then put the final gate to the user** — run this after the review's verdict
-   has been reported, since the gate below is this skill's last act. Resolve the feature and ask the
-   state machine where it stands:
+3. **Record the handoff, then handle this stage's gate** — read the guidance tree's
+   `references/WORKFLOW_HANDOFF.md`. When a feature is active, use its slug:
    ```bash
-   "$DOFLOW" paths --json
-   "$DOFLOW" orchestrate --action status --task-id "<feature_slug>" --json
+   "$DOFLOW" orchestrate --action handoff --task-id "<feature_slug>" --calling-skill do-code-review --result <passed|failed> --note "<verdict and finding counts>" --json
    ```
-   - **`feature_slug` is `null`, or `status` reports `No workflow run for task`** (exit 1) — this is
-     a standalone review: no chain stage started a run for this feature, and this skill proposes no
-     task class of its own to start one from. Record nothing, ask no gate question, and skip the
-     rest of this step. Do not invent a run.
-   - **A run exists** — its response names the `taskClass` it was started under. That is where this
-     skill's class comes from: it proposes none of its own and runs no `classify` call. Read this
-     stage's id off that class's workflow rather than hardcoding it: every entry in
-     `"$DOFLOW" workflow --task-class "<taskClass>" --json`'s `stages[]` whose `skill` is
-     `do-code-review`, comma-joined. Every shipped class has exactly one, but filter for it rather
-     than assuming so — `do-test` already occupies two stages in `bug` and `refactor`.
-   - **Position the run and act on where it stops:**
-     ```bash
-     "$DOFLOW" orchestrate --action catch-up --task-id "<feature_slug>" --task-class "<taskClass>" --stage "<stage id>" --note "entering review" --json
-     ```
-     Branch on the response's `caughtUpTo` / `reason`, not on the exit code:
-     - **`caughtUpTo` is this stage id** (`reason: reached-candidate`) — the run is positioned here.
-       Complete the stage:
-       ```bash
-       "$DOFLOW" orchestrate --action complete-stage --task-id "<feature_slug>" --stage "<caughtUpTo>" --result <passed|failed> --note "<one line: the verdict and the finding counts behind it>" --json
-       ```
-     - **`reason` starts with `already-completed:`** — this stage was already recorded on an earlier
-       run of this skill (a re-review after the gate below was already cleared, say). Use `annotate`
-       instead of `complete-stage`:
-       ```bash
-       "$DOFLOW" orchestrate --action annotate --task-id "<feature_slug>" --node "<stage id>" --note "<what this re-review found>" --json
-       ```
-     - **`reason` starts with `awaiting-gate:`** — the run is paused on a gate standing *before* this
-       stage, which belongs to the stage it follows, not to this one — a human or that gate's own
-       owning skill decides it. Report the gate id plainly and stop; the only gate this skill answers
-       is the one anchored *after* its own stage, below.
-     - **`reason` is `blocked-on-mutating-stage:<id>`** — a source-mutating stage sits ahead of this
-       one and its own skill has not executed it. Name `<id>`, report the block plainly, and stop.
-     - **`reason` is `run-completed` or `run-rejected`** — the run is finished, which is what a
-       re-review after the gate was already cleared looks like. Report it and stop; the review report
-       itself is unaffected and stands as this invocation's output.
+   The runtime derives the class and stage from the existing run. `standalone` creates no run
+   and asks no gate question. `deferred` reports a prior gate, unfinished mutating stage or
+   rejected run: report its `reason` and leave that transition to its owner. `completed` records
+   the review; `annotated` records a re-review without replaying any stage.
+   Only a `completed` handoff can present a newly reached gate owned by this stage, below.
    - **The gate after this stage — check that one exists before trying to resolve one.** Read the
-     `complete-stage` response's `awaitingGate` field; do not re-derive it from `workflow.gates[]`.
+     handoff response's `awaitingGate` field; do not re-derive it from `workflow.gates[]`.
      - **`awaitingGate` is non-null and its `gateId` is anchored after this stage** — `gate-b`,
        "Before commit or merge", in the `feature` workflow, which is the only shipped class with any
        gate at all. This stage is that workflow's last and nothing downstream runs to ask it (its own

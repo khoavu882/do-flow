@@ -45,7 +45,7 @@ test("R4 reproduction: two overlapping evidence writers both survive — the rev
   assert.equal(payload.evidenceCount, 2);
 });
 
-test('R4: two overlapping claims writers both survive; a shared id keeps the saving instance\'s version', (t) => {
+test('R4: disjoint claim additions merge while one writer updates a shared record', (t) => {
   const root = stateRoot(t);
   const task = 'overlap-claims';
 
@@ -68,7 +68,48 @@ test('R4: two overlapping claims writers both survive; a shared id keeps the sav
   assert.equal(final.getClaim('claim_a').statement, 'from writer A');
   assert.equal(final.getClaim('claim_b').statement, 'from writer B');
   assert.equal(final.getClaim('claim_shared').statement, 'shared, updated by B',
-    'for an id both writers hold, the later save wins — its view was re-evaluated most recently');
+    'only B changed the shared record, so its edit survives the merge');
+});
+
+test('R4: a stale claim writer cannot resurrect a retracted claim', t => {
+  const root = stateRoot(t);
+  const a = new ClaimsManager({ repoRoot: root });
+  const id = a.addClaim({ taskId: 'task', statement: 'claim' });
+  a.save('task');
+  const b = new ClaimsManager({ repoRoot: root });
+  b.load('task');
+  a.retractClaim(id);
+  a.save('task');
+  b.addClaim({ taskId: 'task', statement: 'unrelated' });
+  b.save('task');
+  const final = new ClaimsManager({ repoRoot: root });
+  final.load('task');
+  assert.equal(final.getClaim(id).status, 'retracted');
+});
+
+test('R4: competing edits fail explicitly and leave disk unchanged', t => {
+  const root = stateRoot(t);
+  for (const Store of [ClaimsManager, EvidenceLedger]) {
+    const a = new Store({ repoRoot: root });
+    const isClaim = Store === ClaimsManager;
+    const id = isClaim ? a.addClaim({ taskId: 'task', statement: 'original' })
+      : a.addEvidence({ taskId: 'task', kind: 'structural', content: 'original' });
+    const file = a.save('task');
+    const b = new Store({ repoRoot: root });
+    b.load('task');
+    const get = store => isClaim ? store.getClaim(id) : store.getEvidence(id);
+    const key = isClaim ? 'statement' : 'content';
+    get(a)[key] = 'first change';
+    a.save('task');
+    const before = fs.readFileSync(file, 'utf8');
+    get(b)[key] = 'conflicting change';
+    assert.throws(() => b.save('task'), /Concurrent update.*reload/);
+    assert.equal(fs.readFileSync(file, 'utf8'), before);
+    b.load('task');
+    get(b)[key] = 'deliberate retry';
+    b.save('task');
+    assert.match(fs.readFileSync(file, 'utf8'), /deliberate retry/);
+  }
 });
 
 test('R4: a file from a future schema version is refused by name, not guessed at', (t) => {

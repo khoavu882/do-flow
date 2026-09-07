@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { REPO_ROOT } = require('../helper/repo-root');
-const { updateTaskState, readTaskState } = require('./task-state');
+const { updateTaskState, readTaskState, mergeRecords } = require('./task-state');
 
 const VALID_EVIDENCE_KINDS = new Set([
   'exact-search',
@@ -48,6 +48,7 @@ class EvidenceLedger {
     this.repoRoot = options.repoRoot || REPO_ROOT;
     this.stateDir = options.stateDir || path.join(this.repoRoot, '.doflow', 'state', 'evidence');
     this.evidenceMap = new Map();
+    this.baseline = new Map();
     this.seq = 0;
   }
 
@@ -188,19 +189,19 @@ class EvidenceLedger {
    */
   save(taskId = 'default') {
     const targetFile = path.join(this.stateDir, `${assertSafeTaskId(taskId)}.json`);
-    return updateTaskState({
-      fsImpl: this.fsImpl,
-      file: targetFile,
-      build: (disk) => {
-        if (disk && Array.isArray(disk.evidence)) {
-          for (const item of disk.evidence) {
-            if (!this.evidenceMap.has(item.id)) this.evidenceMap.set(item.id, item);
-          }
-        }
-        const taskItems = this.queryEvidence({ taskId });
-        return { taskId, updatedAt: new Date().toISOString(), evidenceCount: taskItems.length, evidence: taskItems };
+    let merged;
+    const file = updateTaskState({
+      fsImpl: this.fsImpl, file: targetFile,
+      build: disk => {
+        merged = mergeRecords(this.queryEvidence({ taskId }), disk?.evidence || [], this.baseline);
+        return { taskId, updatedAt: new Date().toISOString(), evidenceCount: merged.length, evidence: merged };
       },
     });
+    for (const item of merged) {
+      this.evidenceMap.set(item.id, item);
+      this.baseline.set(item.id, JSON.parse(JSON.stringify(item)));
+    }
+    return file;
   }
 
   /**
@@ -214,6 +215,7 @@ class EvidenceLedger {
     if (data && Array.isArray(data.evidence)) {
       for (const item of data.evidence) {
         this.evidenceMap.set(item.id, item);
+        this.baseline.set(item.id, JSON.parse(JSON.stringify(item)));
       }
       return data.evidence.length;
     }
@@ -225,6 +227,7 @@ class EvidenceLedger {
    */
   clear() {
     this.evidenceMap.clear();
+    this.baseline.clear();
     this.seq = 0;
   }
 }

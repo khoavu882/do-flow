@@ -22,6 +22,23 @@
 //     the version named, instead of guessing at its shape.
 
 const path = require('node:path');
+const { isDeepStrictEqual } = require('node:util');
+
+/** Three-way merge against the reader's snapshot. Unchanged local records never overwrite a
+ * newer disk version; concurrent edits to the same record must be retried after an explicit read. */
+function mergeRecords(local, disk, baseline) {
+  const merged = new Map(disk.map(item => [item.id, item]));
+  for (const item of local) {
+    const previous = baseline.get(item.id);
+    const current = merged.get(item.id);
+    if (isDeepStrictEqual(item, previous)) continue;
+    if (current && !isDeepStrictEqual(current, previous) && !isDeepStrictEqual(current, item)) {
+      throw new Error(`Concurrent update to '${item.id}'; reload the task and reapply the change. Nothing was written.`);
+    }
+    merged.set(item.id, item);
+  }
+  return [...merged.values()];
+}
 
 const SCHEMA_VERSION = 1;
 const LOCK_STALE_MS = 10_000;
@@ -102,9 +119,9 @@ function updateTaskState({ fsImpl, file, build }) {
   try {
     const disk = readTaskState(fsImpl, file);
     const payload = {
+      ...build(disk),
       version: SCHEMA_VERSION,
       revision: (disk && Number.isInteger(disk.revision) ? disk.revision : 0) + 1,
-      ...build(disk),
     };
     const tmp = `${file}.${process.pid}.tmp`;
     fsImpl.writeFileSync(tmp, JSON.stringify(payload, null, 2), 'utf8');
@@ -115,4 +132,4 @@ function updateTaskState({ fsImpl, file, build }) {
   }
 }
 
-module.exports = { updateTaskState, readTaskState, SCHEMA_VERSION };
+module.exports = { updateTaskState, readTaskState, mergeRecords, SCHEMA_VERSION };

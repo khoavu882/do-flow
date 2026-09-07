@@ -11,7 +11,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { WorkflowEngine } = require('./workflow-engine');
-const { atomicJsonWrite } = require('../state');
+const { updateTaskState, readTaskState } = require('./task-state');
 const { REPO_ROOT } = require('../helper/repo-root');
 
 const RUN_STATES = Object.freeze(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED']);
@@ -81,13 +81,20 @@ class WorkflowOrchestrator {
   readRun(taskId) {
     const file = this.runFile(taskId);
     if (!this.fsImpl.existsSync(file)) return null;
-    return JSON.parse(this.fsImpl.readFileSync(file, 'utf8'));
+    return readTaskState(this.fsImpl, file);
   }
 
   writeRun(run, now) {
     run.updatedAt = iso(now);
     this.fsImpl.mkdirSync(this.stateDir, { recursive: true });
-    atomicJsonWrite(path.join(this.stateDir, `${run.taskId}.json`), run, { fsImpl: this.fsImpl });
+    const expectedRevision = run.revision || 0;
+    updateTaskState({ file: this.runFile(run.taskId), fsImpl: this.fsImpl, build: disk => {
+      if ((disk?.revision || 0) !== expectedRevision) {
+        throw new Error(`Concurrent workflow update for '${run.taskId}'; reload the run before retrying. Nothing was written.`);
+      }
+      return run;
+    } });
+    run.revision = expectedRevision + 1;
     return run;
   }
 
@@ -131,6 +138,34 @@ class WorkflowOrchestrator {
   status(taskId) {
     const run = this.requireRun(taskId);
     return this.snapshot(run);
+  }
+
+  /** Record completed work by skill identity. Gate decisions remain a separate action.
+   * With no existing run and no explicit class this is a standalone no-op, not a new workflow. */
+  handoff({ taskId, taskClass, callingSkill, note, outcome, now } = {}) {
+    assertSafeId(taskId, 'taskId');
+    assertSafeId(callingSkill, 'callingSkill');
+    if (!note || !String(note).trim()) throw new Error('handoff requires a note describing the work recorded');
+    if (outcome !== undefined && !STAGE_OUTCOMES.has(outcome)) throw new Error(`Unknown stage outcome '${outcome}'`);
+    const existing = this.readRun(taskId);
+    if (!existing && !taskClass) return { taskId, disposition: 'standalone', state: null, awaitingGate: null };
+    if (existing && taskClass && taskClass !== existing.taskClass) throw new Error(`Task class '${taskClass}' does not match run '${existing.taskClass}'`);
+    const resolvedClass = existing?.taskClass || taskClass;
+    const stages = existing ? existing.program.filter(n => n.type === 'stage')
+      : this.engine.resolveWorkflow(resolvedClass).stages;
+    const candidates = stages.filter(n => n.skill === callingSkill).map(n => n.id);
+    if (!candidates.length) throw new Error(`Skill '${callingSkill}' owns no stage in '${resolvedClass}'`);
+    const positioned = this.catchUp({ taskId, taskClass: resolvedClass, candidateStageIds: candidates, note, now });
+    if (positioned.reason === 'reached-candidate') {
+      const snapshot = this.completeStage({ taskId, stageId: positioned.caughtUpTo, note, outcome, now });
+      return { ...snapshot, disposition: 'completed', recordedStage: positioned.caughtUpTo };
+    }
+    if (positioned.reason.startsWith('already-completed:')) {
+      // A rerun after all occurrences is an annotation on the latest occurrence, never a replay.
+      const recordedStage = candidates[candidates.length - 1];
+      return { ...this.annotate({ taskId, node: recordedStage, note, now }), disposition: 'annotated', recordedStage };
+    }
+    return { ...positioned, disposition: 'deferred', recordedStage: null };
   }
 
   requireRun(taskId) {
@@ -407,7 +442,7 @@ class WorkflowOrchestrator {
  * evaluates the task's live evidence ledger and refuses anything but READY. */
 function handleOrchestrateCommand({
   action = 'status', taskId, taskClass, stage, gate, node, decision, note, reason, forced = false,
-  verificationPlan, scope, result, json = false, repoRoot, stateRoot,
+  verificationPlan, scope, result, callingSkill, json = false, repoRoot, stateRoot,
 } = {}) {
   const { evaluateTaskReadiness } = require('./readiness');
   const { finishRuntime, usageError } = require('./cli-result');
@@ -427,7 +462,7 @@ function handleOrchestrateCommand({
     // it for a mutating stage carrying a readiness template) — so a missing --task-class here is a
     // caller mistake on THIS command, not a fact about the task's readiness. Reported before the
     // ledger/engine machinery below turns it into a generic readiness-layer exception.
-    if (typeof taskClass !== 'string' || taskClass.trim() === '') {
+    if (action !== 'handoff' && (typeof taskClass !== 'string' || taskClass.trim() === '')) {
       throw new Error("orchestrate complete-stage: this stage is gated by a readiness template, so --task-class is required — pass the same class this run was started/caught-up with.");
     }
     // The gate must grade this stage against the contract the run was actually started under, not
@@ -436,7 +471,7 @@ function handleOrchestrateCommand({
     // class it did not start). Without this, `--task-class trivial-edit` on a `bug` run's gated
     // `implementation` stage would grade source mutation against a 2-requirement contract instead
     // of the 5-requirement one the run actually declared, silently.
-    if (taskClass !== run.taskClass) {
+    if (taskClass && taskClass !== run.taskClass) {
       throw new Error(`orchestrate complete-stage: --task-class '${taskClass}' does not match run '${run.taskId}''s own class '${run.taskClass}' — pass the class this run was started under, not a different one.`);
     }
     // Caller-stated inputs reach the cascade here, same rule as `doflow readiness`: an absent key
@@ -460,11 +495,14 @@ function handleOrchestrateCommand({
     }
     // Same rule for --result: dropping it silently would let an operator believe an outcome was
     // recorded when nothing recorded it.
-    if (result !== undefined && action !== 'complete-stage') {
-      return usageError('orchestrate', `'--result' has no effect on action '${action}' — only complete-stage records a stage outcome`, json);
+    if (result !== undefined && action !== 'complete-stage' && action !== 'handoff') {
+      return usageError('orchestrate', `'--result' has no effect on action '${action}' — only complete-stage and handoff record a stage outcome`, json);
     }
     let snapshot;
     switch (action) {
+      case 'handoff':
+        snapshot = orchestrator.handoff({ taskId, taskClass, callingSkill, note, outcome: result });
+        break;
       case 'start':
         if (!taskId || !taskClass) return usageError('orchestrate', 'start requires --task-id and --task-class', json);
         snapshot = orchestrator.start({ taskId, taskClass });
@@ -496,11 +534,12 @@ function handleOrchestrateCommand({
         snapshot = orchestrator.status(taskId);
         break;
       default:
-        return usageError('orchestrate', `unknown action '${action}'; valid: start | status | catch-up | complete-stage | skip-stage | decide-gate | annotate`, json);
+        return usageError('orchestrate', `unknown action '${action}'; valid: start | status | handoff | catch-up | complete-stage | skip-stage | decide-gate | annotate`, json);
     }
     if (json) { console.log(JSON.stringify(snapshot, null, 2)); return finishRuntime(0); }
     console.log(`Workflow ${snapshot.taskId} [${snapshot.taskClass}] — ${snapshot.state}`);
-    console.log(`Progress: ${snapshot.progress.done}/${snapshot.progress.total}`);
+    if (snapshot.disposition) console.log(`Handoff: ${snapshot.disposition}`);
+    if (snapshot.progress) console.log(`Progress: ${snapshot.progress.done}/${snapshot.progress.total}`);
     if (snapshot.current) {
       console.log(snapshot.awaitingGate
         ? `Awaiting gate ${snapshot.awaitingGate.gateId}${snapshot.awaitingGate.prompt ? `: ${snapshot.awaitingGate.prompt}` : ''}`

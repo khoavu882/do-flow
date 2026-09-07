@@ -128,10 +128,12 @@ test('G13: the DoFlow-authored always-loaded set stays within its byte ceiling',
 // measured number — the same RK4 ritual, at a coarser grain.
 //
 // Measured 2026-09-07 (bytes, skills only, always-loaded guidance excluded):
-//   feature 164,710 · dependency-change 75,556 · bug/refactor 60,598 · documentation 49,009 ·
-//   operations 36,877 · review 34,051 · research 28,441 · trivial-edit 23,180
+// Shared guidance references were previously omitted. With those included once per workflow,
+// feature measured 207,705 before handoff consolidation and 197,864 after (2026-09-07).
+// Other current totals: dependency-change 80,020; bug/refactor 65,062; documentation 53,473;
+// operations 40,213; review 38,515; research 33,294; trivial-edit 21,663.
 const TASK_CONTEXT_RAILS = new Map([
-  ['feature', 180000],
+  ['feature', 220000], // rebased for previously uncounted shared guidance, not new prose
   ['dependency-change', 85000],
   ['bug', 70000],
   ['refactor', 70000],
@@ -142,7 +144,7 @@ const TASK_CONTEXT_RAILS = new Map([
   ['trivial-edit', 30000],
 ]);
 
-function skillLoadedBytes(skillName) {
+function skillLoadedBytes(skillName, loadedReferences = new Set()) {
   const skillsDir = path.join(GUIDANCE, '..', 'skills');
   const entryFile = path.join(skillsDir, skillName, 'SKILL.md');
   if (!fs.existsSync(entryFile)) return null;
@@ -150,8 +152,12 @@ function skillLoadedBytes(skillName) {
   let total = Buffer.byteLength(text, 'utf8');
   const named = new Set([...text.matchAll(/references\/([A-Za-z0-9_./-]+\.md)/g)].map((m) => m[1]));
   for (const ref of named) {
-    const refFile = path.join(skillsDir, skillName, 'references', ref);
-    if (fs.existsSync(refFile)) total += Buffer.byteLength(fs.readFileSync(refFile, 'utf8'), 'utf8');
+    const localRef = path.join(skillsDir, skillName, 'references', ref);
+    const refFile = fs.existsSync(localRef) ? localRef : path.join(GUIDANCE, 'references', ref);
+    if (fs.existsSync(refFile) && !loadedReferences.has(refFile)) {
+      loadedReferences.add(refFile);
+      total += Buffer.byteLength(fs.readFileSync(refFile, 'utf8'), 'utf8');
+    }
   }
   return total;
 }
@@ -170,7 +176,8 @@ test('G13: every task class stays within its loaded-context rail', () => {
   const over = [];
   for (const cls of classes) {
     const skills = [...new Set(engine.resolveWorkflow(cls).stages.map((stage) => stage.skill).filter(Boolean))];
-    const parts = skills.map((skill) => ({ skill, bytes: skillLoadedBytes(skill) ?? 0 }));
+    const loadedReferences = new Set();
+    const parts = skills.map((skill) => ({ skill, bytes: skillLoadedBytes(skill, loadedReferences) ?? 0 }));
     const total = parts.reduce((sum, part) => sum + part.bytes, 0);
     const rail = TASK_CONTEXT_RAILS.get(cls);
     if (total > rail) {
