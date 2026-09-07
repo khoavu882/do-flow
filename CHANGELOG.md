@@ -13,6 +13,62 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.3.0] - 2026-09-07
+
+### Added
+
+- Evidence items can declare `establishes` (which readiness requirement they satisfy) and a typed
+  `observation` (`{command, exitCode}`); claims can declare a `role` (e.g. `root-cause`). Kind
+  alone no longer satisfies a readiness requirement.
+- `readiness` and orchestrated stage completion take `--mode workflow|standalone`; every report
+  carries a `stageEntry` decision (`ENTER`/`GATHER_FIRST`/`ASK_USER`/`STOP`) computed once by the
+  runtime instead of re-derived per skill.
+- `orchestrate complete-stage` takes `--result passed|failed`. Stage nodes record
+  `executionStatus` (`completed`/`imported`) separately from `outcome`, so a stage `catch-up`
+  backfills can never imply a verification nobody ran.
+- New `orchestrator.handoff()` runtime call collapses the classify → catch-up →
+  complete-stage/annotate sequence several skills previously spelled out by hand
+  (`WORKFLOW_HANDOFF.md`).
+- The shared `pre-implementation-gate` hook accepts a normalized `doflow_event` envelope from an
+  adapter that has already decoded its native event, alongside the existing per-harness parsing.
+- Failing or truncated verification checks persist their full output under
+  `.doflow/state/verification/logs/` (`logPath`) and extract failing test identifiers
+  (`failedTests`) from the untruncated stream; a repeated command within one verification run
+  executes once.
+- `doflow doctor` opens with an effective-identity block: installed source version, project root
+  and git identity, and which capabilities actually have an answering provider.
+- Plugin manifest versions (Codex/Claude/Copilot) are now projected from `package.json` by
+  `src/release/sync-plugin-versions.js`, wired into the npm `version` lifecycle.
+- Chain-artifact conventions are declared once and their transcription is guarded.
+
+### Fixed
+
+- Evidence freshness is measured against current file content, not only Git commit/dirty state,
+  and `readiness` and orchestrated stage completion now share one evaluation — the two could
+  previously disagree on the same evidence.
+- Evidence, claims, and the workflow run file persist through a locked, revisioned read-merge-write,
+  closing a lost-write case where two overlapping writers could silently collapse to one; evidence
+  and claim ids are collision-resistant across processes.
+- Capability routing builds an argument vector for execution instead of an interpolated shell
+  string, so a routed query can no longer be interpreted as shell syntax; Semble routing uses the
+  MCP tool's actual `repo` parameter; `native.test` health reflects whether the project's own
+  manifests declare a test command instead of always reporting healthy.
+
+### Changed
+
+- `npm test` now runs `node --test test/` directly. The `scripts/` wrapper tooling (test runner,
+  capability-map generator, format-drift watcher) was removed along with its guard coverage;
+  `docs/capability-map.md` is hand-maintained.
+- Adapter-owned normalization (Codex's native-projection shape, Gemini's hook-trust computation)
+  moved out of the shared adapter/lifecycle modules into each adapter's own code.
+- The always-loaded guidance budget guard gained a companion check measuring loaded context per
+  task class (skill entry plus references, summed per workflow), with per-class drift rails.
+
+### Removed
+
+- The bench-only worktree sandbox manager (`src/runtime/worktree.js`) and its guard coverage, no
+  longer needed with the eval corpus staying untracked.
+
 ## [1.2.1] - 2026-09-03
 
 ### Enhanced
