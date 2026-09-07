@@ -153,39 +153,31 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
    and `generated-analysis`, neither of which may ever be `extracted`, because that pairing is
    exactly how the user's words and your reading of them stop being distinguishable. Add every
    conclusion this stage reached as a claim in the same pass.
-8. **Record the handoff** — drive the workflow state machine, then regenerate the trail it projects
-   into `audit.md`. `<slug>` is step 1's `feature_slug`; `<class>` is the class step 2's `classify`
-   call accepted; `<stage id>` is the id of the entry in that call's `workflow.stages[]` whose
-   `skill` is `do-brainstorm` (`discovery` in the `feature` workflow) — read it off that response,
-   never hardcode a guess. One call positions the run — it starts one when none exists yet, so this
-   stage never has to decide between `start` and `complete-stage` for itself:
+8. **Record the handoff** — one call positions the run (starting one when none exists yet, so this
+   stage never has to decide between `start` and completing it for itself), records this stage's
+   completion or a rerun annotation, and returns the disposition:
    ```bash
-   "$DOFLOW" orchestrate --action catch-up --task-id "<slug>" --task-class "<class>" --stage "<stage id>" --note "entering discovery" --json
+   "$DOFLOW" orchestrate --action handoff --task-id "<slug>" --task-class "<class>" --calling-skill do-brainstorm --note "<requirement path written; §7 marker count>" --json
    ```
-   `catch-up` walks the cursor forward over any earlier non-mutating stage and stops on the node
-   this skill must act on. Branch on the response's `caughtUpTo` / `reason`, not on the exit code:
-- **`caughtUpTo` is this stage id** (`reason: reached-candidate`) — the run is positioned exactly here, which is the normal case. Complete the stage:
-  ```bash
-  "$DOFLOW" orchestrate --action complete-stage --task-id "<slug>" --stage "<caughtUpTo>" --note "<requirement path written; §7 marker count>" --json
-  ```
-- **`reason` starts with `already-completed:`** — this stage was already recorded on an earlier run of this skill (a re-invocation to amend `requirement.md`, say). Use `annotate` instead of `complete-stage`:
-  ```bash
-  "$DOFLOW" orchestrate --action annotate --task-id "<slug>" --node "<stage id>" --note "<what changed on this re-run>" --json
-  ```
-- **`reason` starts with `awaiting-gate:`** — the run is paused on a gate a human (or that gate's own owning skill) decides. Discovery is the chain's first stage, so nothing before it can open one; if it happens anyway, report the gate id plainly and stop rather than resolving a gate that is not this stage's.
-- **`reason` is `blocked-on-mutating-stage:<id>`** — a source-mutating stage ahead of this one has not been executed by its own skill. Name `<id>`, report the block plainly, and stop.
-- **`reason` is `run-completed` or `run-rejected`** — the run is finished and takes no further stage. Report it and stop.
+   `<slug>` is step 1's `feature_slug`; `<class>` is the class step 2's `classify` call accepted.
+   Branch on the response's `disposition`, not the exit code:
+   - **`completed`** — this stage was recorded normally; check `awaitingGate` below.
+   - **`annotated`** — this stage was already recorded on an earlier run of this skill (a
+     re-invocation to amend `requirement.md`, say); the rerun note was appended, no gate to recheck.
+   - **`deferred`** — a gate ahead of this stage, an unfinished mutating stage, or a rejected run
+     prevented the handoff. Discovery is the chain's first stage, so nothing before it can open a
+     gate; report `reason` plainly and stop rather than resolving something that is not this
+     stage's.
+   - **`standalone`** — no workflow applies; there is nothing further to record here.
 
-   Then the gate anchored to this stage, which the response just above names directly — whichever
-   call actually ran, `complete-stage` on the ordinary path or `annotate` on the already-completed
-   one; both return the same snapshot shape. A non-null `awaitingGate` carries the `gateId`, `name`
-   and `prompt` (`gate-0`, "Unresolved clarifications", in the `feature` workflow); a null one means
-   no gate follows this stage in this workflow and there is nothing to decide. Read it off that
-   response rather than re-deriving it
-   from `workflow.gates[]`. `gate-0` is `clarification`-kind and its `unresolved-clarifications`
-   trigger is exactly what step 9 already checks — so this stage resolves it rather than leaving a
-   mechanically-answerable gate for a human. When §7 genuinely carries zero markers, approve it
-   plainly — this is the routine path, never a forced one:
+   Then the gate anchored to this stage, read directly off the same response rather than re-derived
+   from `workflow.gates[]`. A non-null `awaitingGate` carries the `gateId`, `name` and `prompt`
+   (`gate-0`, "Unresolved clarifications", in the `feature` workflow); a null one means no gate
+   follows this stage in this workflow and there is nothing to decide. `gate-0` is
+   `clarification`-kind and its `unresolved-clarifications` trigger is exactly what step 9 already
+   checks — so this stage resolves it rather than leaving a mechanically-answerable gate for a
+   human. When §7 genuinely carries zero markers, approve it plainly — this is the routine path,
+   never a forced one:
    ```bash
    "$DOFLOW" orchestrate --action decide-gate --task-id "<slug>" --gate "<awaitingGate.gateId>" --decision approve --note "requirement.md §7 carries zero markers" --json
    ```
