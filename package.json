@@ -29,10 +29,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node scripts/run-tests.js",
-    "bench": "node bench/runner.js",
-    "gen:capability-map": "node scripts/generate-capability-map.js",
-    "drift": "node scripts/check-format-drift.js"
+    "test": "node --test test/",
+    "version": "node src/release/sync-plugin-versions.js && git add core/.codex-plugin/plugin.json core/.claude-plugin/plugin.json core/.plugin/plugin.json"
   },
   "files": [
     "bin/",

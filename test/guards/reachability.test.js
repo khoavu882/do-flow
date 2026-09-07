@@ -21,8 +21,6 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared');
-const { loadRegistry } = require('../../src/registry');
-const generator = require('../../scripts/generate-capability-map');
 
 const BASH_DIR = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash');
 const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
@@ -216,23 +214,8 @@ test('G8: every repo path a doc names in backticks exists', () => {
   assert.deepEqual(unique, [], `these documented paths do not exist:\n  ${unique.join('\n  ')}`);
 });
 
-test('G8: capability-map.md is byte-for-byte what the registry generates', () => {
-  // The two matrices used to be hand-maintained and drifted (Hooks "Supported" for OpenCode, MCP
-  // "Supported" for Pi, Pi's settings pointed at config.json — the old cell-by-cell comparison
-  // caught each after the fact). Stage 4 removes the class instead of detecting it: both tables
-  // are rendered between managed markers by scripts/generate-capability-map.js from the loaded
-  // registry, and this guard asserts the committed file is exactly that rendering. A hand edit to
-  // a generated region, or any registry change without a regeneration, fails here with the fix in
-  // the message. Prose outside the markers is not the generator's to touch, so it is not asserted.
-  // Line-ending agnostic on purpose: the committed file is LF, but a CRLF checkout (Windows
-  // without eol=lf normalization) must compare equal after normalization, not fail byte-for-byte.
-  const normalizeEol = (text) => text.replace(/\r\n/g, '\n');
-  const committed = fs.readFileSync(path.join(REPO, 'docs', 'capability-map.md'), 'utf8');
-  const rendered = generator.renderDocumentText(normalizeEol(committed), loadRegistry({ repoRoot: REPO }));
-  assert.equal(rendered, normalizeEol(committed),
-    'docs/capability-map.md has drifted from core/registry — run `npm run gen:capability-map` '
-    + 'and commit the result');
-});
+// The byte-for-byte capability-map guard left with its generator when scripts/ was removed:
+// docs/capability-map.md is hand-maintained again, so registry changes must update it by hand.
 
 test('G8: every docs page is reachable from the mkdocs nav', () => {
   // capability-map.md shipped for several releases absent from nav, so it never appeared in the

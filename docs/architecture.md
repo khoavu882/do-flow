@@ -46,15 +46,15 @@ are reported rather than imitated.
 | `core/shared/scripts/doflow/bin/doflow-run` | The runtime seam: one dispatcher owning the whole verb namespace |
 | `src/adapters/` | Native file formats and verification boundaries, one directory per harness (`claude`, `codex`, `gemini`, `opencode`, `pi`, `copilot`, `kiro`, `antigravity`), each implementing the same six-function contract (`discover, render, plan, apply, remove, verify`) that `src/adapters/index.js` validates and each also exposing that contract through a uniform `create<Name>Adapter()` factory (`createClaudeAdapter`, `createCodexAdapter`, `createGeminiAdapter`, and so on); `src/adapters/copy-tree.js` is the shared tree-materializing engine most adapters call into rather than reimplementing file-copy logic |
 | `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification against the neutral state ledger; obtains `planGeminiHooks` from the gemini adapter's public export (`src/adapters/gemini/index.js`) rather than reaching into a file inside it, and shares the generic parser in `src/helper/toml.js` with `src/adapters/codex/config.js` instead of depending on that adapter |
-| `src/runtime/` | Everything a skill asks for at use time: classification, workflow resolution, capability routing, evidence and claims, readiness, verification and command detection, recovery, tracing, scaffold generation, provider health, and worktree support; `src/runtime/cli-result.js` holds the exit/error-reporting helpers (`finishRuntime`, `usageError`) shared by the verb handlers `src/cli/runtime-commands.js` dispatches to, and deliberately depends on nothing else in the tree |
+| `src/runtime/` | Everything a skill asks for at use time: classification, workflow resolution, capability routing, evidence and claims, readiness, verification and command detection, recovery, tracing, scaffold generation, and provider health; `src/runtime/cli-result.js` holds the exit/error-reporting helpers (`finishRuntime`, `usageError`) shared by the verb handlers `src/cli/runtime-commands.js` dispatches to, and deliberately depends on nothing else in the tree |
 | `src/state/` | Harness-neutral ledger, recovery records, and legacy-manifest migration |
 | `src/registry/` | Loads and validates `core/registry/*.json` into the in-memory registry object every adapter and lifecycle call consumes — the same data `test/guards/registry.test.js` checks implementation claims against |
 | `src/helper/` | Cross-layer utilities with no harness-, install-, or runtime-specific domain: git commit lookup (`git.js`), managed-section merging (`marker-merge.js`), interactive prompts (`prompt.js`), `settings.json` merging (`settings-merge.js`, `settings-scope.js`), generic TOML parsing (`toml.js`), and the single computation of the package root (`repo-root.js`), which every layer shares and no layer should re-derive from its own depth |
 | `src/install/` | Installer-domain operations: backup/restore/prune (`backup.js`), scope and target resolution (`context.js`, `targets.js`), manifest read/write (`manifest.js`), external-tool detection and install (`tool-lifecycle.js`), and MCP server selection (`mcp.js`) |
 | `test/` | Installer, mapping, and runtime behavior tests organized into module directories mirroring `src/` (`adapters/`, `lifecycle/`, `runtime/`, `registry/`, `state/`, `helper/`, `install/`, `e2e/`), plus `test/guards/` for structural invariants about this repo's content |
-| `bench/` | Skill-evaluation harness (`npm run bench`) — deliberately outside `npm test` because its dispatched runs make paid model calls |
+| `bench/` | Optional local skill-evaluation harness; ignored by Git and outside the source/test graph |
 | `docs/` | User-facing and contributor documentation site |
-| `docs/capability-map.md` | Registry-derived cross-harness capability contract, evidence, and verification criteria |
+| `docs/capability-map.md` | Cross-harness capability contract, evidence, and verification criteria (hand-maintained since the generator script was removed) |
 
 ## Installation data flow
 
@@ -305,9 +305,8 @@ and `boundaries.test.js`, `harness-paths.test.js`, `cli-boundary.test.js` and
   name must reference `references/MODEL_SELECTION.md` for model-tier selection.
 - **G10** (`flag-index.test.js`) — `docs/flags.md` (the flag-first companion to `reference.md`'s
   skill-first table) stays in sync with every skill's `argument-hint`, forward and reverse.
-- **G11** (`evals.test.js`) — every skill has both triggering and behavioural `bench/` coverage,
-  each planned run loads its skill from its sandbox *by path* against a recorded hash, and the
-  harness stays out of the default test command.
+- **G11** — optional local skill evaluation under the ignored `bench/` directory is deliberately
+  outside the source graph and default test command.
 - **G11** (`scaffold.test.js`, same number, different guard) — a `--scaffold` run writes only under
   `agent-docs/doflow/<slug>/scaffold/`, is byte-identical on re-run, emits signatures rather than
   logic, leaves a hand-edited file alone, and reports what it skipped as prominently as what it
@@ -319,7 +318,9 @@ and `boundaries.test.js`, `harness-paths.test.js`, `cli-boundary.test.js` and
 - **G13** (`workflows.test.js`) — every class in `workflows.yaml` resolves to stages naming skills
   that exist; review has no implementation stage; research requires no implementation readiness.
 - **G13** (`context-budget.test.js`, same number, different guard) — the DoFlow-authored
-  always-loaded set stays within its byte ceiling and every import in it resolves.
+  always-loaded set stays within its byte ceiling and every import in it resolves; and every task
+  class stays within its loaded-context rail (SKILL.md entries plus named references, summed over
+  the class's resolved workflow skills — a coarse drift rail, not a byte-exact pin).
 - **G14** (`agent-specs.test.js`) — an agent specification references no file outside itself, since
   a dispatched agent has no working directory to resolve one against.
 - **G15** (`skill-seam.test.js`) — one path to the runtime entrypoint, one spelling of the resolver

@@ -96,6 +96,14 @@ function evidenceItemFromFlags(o) {
   if (o.provenance !== undefined) item.provenance = o.provenance;
   if (o.locator !== undefined) item.locator = o.locator;
   if (o.content !== undefined) item.content = o.content;
+  if (o.establishes !== undefined) item.establishes = o.establishes;
+  // Both halves of an observation travel together; a lone half must reach the write boundary as
+  // the partial object it is, so the refusal names the missing field instead of dropping the pair.
+  if (o.observedCommand !== undefined || o.observedExit !== undefined) {
+    item.observation = {};
+    if (o.observedCommand !== undefined) item.observation.command = o.observedCommand;
+    if (o.observedExit !== undefined) item.observation.exitCode = o.observedExit;
+  }
   const source = {};
   if (o.provider !== undefined) source.provider = o.provider;
   if (o.capability !== undefined) source.capability = o.capability;
@@ -129,7 +137,7 @@ function dispatchRuntimeCommand(o) {
     // than from evidence, so the gate had one reachable answer for every task. Forwarding is
     // all this does: the handler names them back under `callerAsserted` so a stated input is
     // never mistaken for a measured one.
-    case 'readiness': return handleReadinessCommand({ taskClass: requireTaskClass(o), taskId: requireTaskId(o), verificationPlan: o.verificationPlan, scopeClear: o.scope, invariants: o.invariants, userDecisionPending: o.userDecisionPending, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
+    case 'readiness': return handleReadinessCommand({ taskClass: requireTaskClass(o), taskId: requireTaskId(o), verificationPlan: o.verificationPlan, scopeClear: o.scope, invariants: o.invariants, userDecisionPending: o.userDecisionPending, mode: o.mode, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
     case 'evidence': return handleEvidenceCommand({ taskId: requireTaskId(o), action: o.action, item: evidenceItemFromFlags(o), batchPath: o.batchPath, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
     // Run-ledger views. They resolve their own ledger the way the dispatcher does (nearest
     // `.doflow` walking up, or the global one) rather than assuming cwd is the project root, so
@@ -148,11 +156,11 @@ function dispatchRuntimeCommand(o) {
     // state and source tree, following the same scope rules as every other command.
     case 'classify': return handleClassifyCommand({ taskClass: o.taskClass, rationale: o.rationale, proposedBy: o.proposedBy, callingSkill: o.callingSkill, json: o.json });
     case 'workflow': return handleWorkflowCommand({ taskClass: o.taskClass, json: o.json });
-    case 'orchestrate': return handleOrchestrateCommand({ action: o.action, taskId: o.taskId, taskClass: o.taskClass, stage: o.stage, gate: o.gate, node: o.node, decision: o.decision, note: o.note, reason: o.reason, forced: o.forced, verificationPlan: o.verificationPlan, scope: o.scope, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
+    case 'orchestrate': return handleOrchestrateCommand({ action: o.action, taskId: o.taskId, taskClass: o.taskClass, stage: o.stage, gate: o.gate, node: o.node, decision: o.decision, note: o.note, reason: o.reason, forced: o.forced, verificationPlan: o.verificationPlan, scope: o.scope, result: o.result, callingSkill: o.callingSkill, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
     case 'retrieve': return handleRetrieveCommand({ query: o.query, top: o.top, json: o.json });
     case 'model-role': return handleModelRoleCommand({ role: o.role, exclude: o.exclude, json: o.json, repoRoot: REPO_ROOT });
     case 'route': return handleRouteCommand({ intent: o.intent, query: o.query, check: o.check, json: o.json, projectRoot: evidenceRoot(o) });
-    case 'claim': return handleClaimCommand({ taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, replacedBy: o.replacedBy, relation: o.relation, json: o.json, stateRoot: evidenceRoot(o) });
+    case 'claim': return handleClaimCommand({ taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, replacedBy: o.replacedBy, relation: o.relation, role: o.role, json: o.json, stateRoot: evidenceRoot(o) });
     case 'context-pack': return handleContextPackCommand({ taskId: requireTaskId(o), taskClass: o.taskClass, objective: o.objective, json: o.json, stateRoot: evidenceRoot(o) });
     case 'retrieval-plan': return handleRetrievalPlanCommand({ taskId: requireTaskId(o), action: o.action, need: o.need, stage: o.stage, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
     case 'outcome': return handleOutcomeCommand({ taskId: requireTaskId(o), action: o.action, state: o.state, taskClass: o.taskClass, stage: o.stage, readiness: o.readiness, verification: o.verification, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });

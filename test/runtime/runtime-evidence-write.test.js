@@ -167,7 +167,7 @@ test('C.12: a stage batch writes every item in one pass, in either spelling', ()
 
   const bare = path.join(cwd, 'stage2.json');
   fs.writeFileSync(bare, JSON.stringify([
-    { kind: 'test-result', provenance: 'extracted', source: { provider: 'npm', capability: 'behavior.verify' }, locator: 'a.js' },
+    { kind: 'test-result', provenance: 'extracted', source: { provider: 'npm', capability: 'behavior.verify' }, locator: 'a.js', observation: { command: 'npm test', exitCode: 0 } },
   ]));
   assert.equal(json(cwd, ['evidence', '--task-id', 'task-b', '--action', 'add', '--batch', bare]).data.written, 1);
   assert.equal(json(cwd, ['evidence', '--task-id', 'task-b']).data.evidenceCount, 3);
@@ -396,7 +396,7 @@ test('C.12/FR-008: READY — reachable only because evidence can now be written'
   const before = json(cwd, ['readiness', '--task-class', 'trivial-edit', '--task-id', 'task-a', '--scope', 'a.js only, no dependents']);
   assert.equal(before.data.state, 'NEEDS_EVIDENCE');
 
-  addExtracted(cwd, 'task-a', 'a.js:1', ['--content', 'const x']);
+  addExtracted(cwd, 'task-a', 'a.js:1', ['--content', 'const x', '--establishes', 'target_identified']);
   const after = json(cwd, ['readiness', '--task-class', 'trivial-edit', '--task-id', 'task-a', '--scope', 'a.js only, no dependents']);
   assert.equal(after.data.state, 'READY');
   assert.equal(after.data.evidenceCount, 1);
@@ -408,16 +408,18 @@ test('C.12/FR-008: READY — reachable only because evidence can now be written'
 test('C.12/FR-008: READY on the heaviest template needs a claim promoted by linked evidence', () => {
   const cwd = project();
   const id = 'task-bug';
-  const claim = json(cwd, ['claim', '--task-id', id, '--action', 'add', '--statement', 'x is undefined because a.js exports it late']);
+  const claim = json(cwd, ['claim', '--task-id', id, '--action', 'add', '--role', 'root-cause',
+    '--statement', 'x is undefined because a.js exports it late']);
   assert.equal(claim.data.claim.status, 'hypothesis', 'a conclusion starts as a hypothesis (FR-007)');
 
   const repro = json(cwd, ['evidence', '--task-id', id, '--action', 'add', '--kind', 'test-result',
     '--provenance', 'extracted', '--provider', 'npm', '--capability', 'behavior.verify',
-    '--locator', 'b.js:1', '--content', 'require throws']);
-  addExtracted(cwd, id, 'a.js:1', ['--content', 'module.exports']);
+    '--locator', 'b.js:1', '--content', 'require throws', '--establishes', 'reproduction',
+    '--observed-command', 'node b.js', '--observed-exit', '1']);
+  addExtracted(cwd, id, 'a.js:1', ['--content', 'module.exports', '--establishes', 'affected_code']);
   json(cwd, ['evidence', '--task-id', id, '--action', 'add', '--kind', 'structural',
     '--provenance', 'extracted', '--provider', 'graphify', '--capability', 'code.relationships',
-    '--locator', 'b.js:1', '--content', 'one caller']);
+    '--locator', 'b.js:1', '--content', 'one caller', '--establishes', 'blast_radius']);
 
   const linked = json(cwd, ['claim', '--task-id', id, '--action', 'link',
     '--claim-id', claim.data.claim.id, '--evidence-id', repro.data.evidence[0].id, '--relation', 'supports']);
@@ -435,7 +437,8 @@ test('C.12/FR-008: BLOCKED — a claim with fresh support and fresh contradictio
   const support = addExtracted(cwd, id, 'a.js:1', ['--content', 'module.exports = { x: 1 }']);
   const against = json(cwd, ['evidence', '--task-id', id, '--action', 'add', '--kind', 'test-result',
     '--provenance', 'extracted', '--provider', 'npm', '--capability', 'behavior.verify',
-    '--locator', 'b.js:1', '--content', 'importing x yields undefined']);
+    '--locator', 'b.js:1', '--content', 'importing x yields undefined',
+    '--observed-command', 'node b.js', '--observed-exit', '1']);
 
   json(cwd, ['claim', '--task-id', id, '--action', 'link', '--claim-id', claim.data.claim.id,
     '--evidence-id', support.data.evidence[0].id, '--relation', 'supports']);
@@ -465,7 +468,7 @@ test('C.12/FR-008: all four states are reachable, and only those four', () => {
   const reached = new Set();
 
   reached.add(json(cwd, ['readiness', '--task-class', 'trivial-edit', '--task-id', 'r1']).data.state);
-  addExtracted(cwd, 'r2', 'a.js:1', ['--content', 'const x']);
+  addExtracted(cwd, 'r2', 'a.js:1', ['--content', 'const x', '--establishes', 'target_identified']);
   reached.add(json(cwd, ['readiness', '--task-class', 'trivial-edit', '--task-id', 'r2', '--scope', 'a.js']).data.state);
   reached.add(json(cwd, ['readiness', '--task-class', 'trivial-edit', '--task-id', 'r2', '--scope', 'a.js', '--user-decision-pending']).data.state);
 
@@ -473,7 +476,8 @@ test('C.12/FR-008: all four states are reachable, and only those four', () => {
   const yes = addExtracted(cwd, 'r3', 'a.js:1', ['--content', 'x']);
   const no = json(cwd, ['evidence', '--task-id', 'r3', '--action', 'add', '--kind', 'test-result',
     '--provenance', 'extracted', '--provider', 'npm', '--capability', 'behavior.verify',
-    '--locator', 'b.js:1', '--content', 'x is undefined']);
+    '--locator', 'b.js:1', '--content', 'x is undefined',
+    '--observed-command', 'node b.js', '--observed-exit', '1']);
   json(cwd, ['claim', '--task-id', 'r3', '--action', 'link', '--claim-id', claim.data.claim.id, '--evidence-id', yes.data.evidence[0].id, '--relation', 'supports']);
   json(cwd, ['claim', '--task-id', 'r3', '--action', 'link', '--claim-id', claim.data.claim.id, '--evidence-id', no.data.evidence[0].id, '--relation', 'contradicts']);
   reached.add(json(cwd, ['readiness', '--task-class', 'trivial-edit', '--task-id', 'r3', '--scope', 'a.js']).data.state);

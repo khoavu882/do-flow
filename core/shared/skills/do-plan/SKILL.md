@@ -170,46 +170,20 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
     This stage's items are §3 "Research & Decisions" of the `plan.md` you just wrote: per decision,
     what was found, where it came from, and its locator. Add each `D#` decision as a claim in the
     same pass.
-11. **Record the handoff** — drive the workflow state machine, then regenerate the trail it projects
-    into `audit.md`. `<slug>` is step 1's `feature_slug`; `<class>` is the class step 2's `classify`
-    call accepted; `<stage id>` is the id of the entry in that call's `workflow.stages[]` whose
-    `skill` is `do-plan` (`planning` in the `feature` workflow) — read it off that response, never
-    hardcode a guess. One call positions the run — it starts one when none exists yet (an old-layout
-    feature, or a chain that started here), and it backfills any earlier non-mutating stage the chain
-    skipped, so this stage never has to decide between `start` and `complete-stage` for itself:
-    ```bash
-    "$DOFLOW" orchestrate --action catch-up --task-id "<slug>" --task-class "<class>" --stage "<stage id>" --note "entering planning" --json
-    ```
-    Branch on the response's `caughtUpTo` / `reason`, not on the exit code:
-- **`caughtUpTo` is this stage id** (`reason: reached-candidate`) — the run is positioned exactly here, which is the normal case. Complete the stage:
-  ```bash
-  "$DOFLOW" orchestrate --action complete-stage --task-id "<slug>" --stage "<caughtUpTo>" --note "<plan path written; task count; Constitution Check verdict>" --json
-  ```
-- **`reason` starts with `already-completed:`** — this stage was already recorded on an earlier run of this skill (a re-invocation to amend `plan.md`, say). Use `annotate` instead of `complete-stage`:
-  ```bash
-  "$DOFLOW" orchestrate --action annotate --task-id "<slug>" --node "<stage id>" --note "<what changed on this re-run>" --json
-  ```
-- **`reason` starts with `awaiting-gate:`** — the run is paused on a gate a human (or that gate's own owning skill) decides. Two shapes reach here: `gate-a` sits *after* this stage and its appearance signals something went wrong upstream; `gate-0` (after discovery, `clarification`-kind) reaching here is the ordinary recovery path when `[NEEDS CLARIFICATION]` markers survived an aborted `/do-brainstorm` session — `do-brainstorm/SKILL.md` deliberately leaves it open rather than forcing an approval. Either way, this stage does not own it: report the gate id plainly and stop rather than resolving a gate that is not this stage's.
-- **`reason` is `blocked-on-mutating-stage:<id>`** — a source-mutating stage ahead of this one has not been executed by its own skill. Name `<id>`, report the block plainly, and stop.
-- **`reason` is `run-completed` or `run-rejected`** — the run is finished and takes no further stage. Report it and stop.
+11. **Record the handoff** — read the guidance tree's `references/WORKFLOW_HANDOFF.md`.
+   Use the feature slug as `<task id>`; if no feature is active, this is standalone and there is
+   no workflow handoff. After completing this skill's work:
+   ```bash
+   "$DOFLOW" orchestrate --action handoff --task-id "<task id>" --calling-skill do-plan --task-class "<validated class>" --note "<work completed and verification result>" --json
+   ```
+   The runtime selects this skill's stage, records completion or a rerun annotation, and returns
+   `disposition`. Report `deferred` with its `reason`; resolve no gate in this skill.
+   `standalone` means no run was created. Render the trail after a recorded handoff:
+   ```bash
+   "$DOFLOW" render-audit --slug="<task id>" --json
+   ```
+   Leave any returned approval gate for `/do-flow` or `/do-execute-plan` to present.
 
-    Completing this stage leaves the run `AWAITING_GATE` on the `approval`-kind gate anchored to it,
-    which the `complete-stage` response names in its `awaitingGate` field (`gate-a`, "Before
-    implementation", in the `feature` workflow; `null` in a class that declares no gate at all).
-    **Do not decide that gate here.** Its trigger is `always` — nothing in this stage's own output
-    answers it, and an approval gate is answered by the human who is asked, not by the stage that
-    reached it. `/do-flow` presents the gate's `prompt` and records the answer when it is driving the
-    chain; a standalone run leaves it for `/do-execute-plan`, whose own `catch-up` surfaces the same
-    gate. Either way this skill deliberately starts a gate it never resolves. Finish by rendering the
-    trail. The `--slug` value attaches with an `=`; a space-separated one is rejected with an error
-    rather than silently rendering the wrong feature's trail:
-    ```bash
-    "$DOFLOW" render-audit --slug="<slug>" --json
-    ```
-    Every call in this step is advisory to the trail, not to the artifact. If one fails for a reason
-    outside this flow's control (an unwritable local state directory, say), report the failure plainly and
-    continue — a missing `audit.md` entry degrades the record, it does not make `plan.md` wrong.
-    None of these calls is a gate on finishing this skill.
 12. **Stop** — report the plan path, Constitution Check result, the task count (`[P]`/sequential),
    and the derived branch name/repo count when the Repo Branch Plan is populated.
 

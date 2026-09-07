@@ -84,10 +84,7 @@ test('G2: no tracked file embeds an absolute home directory path', () => {
   // leaks the author's local layout into a public repository. 181 tracked files carried one, 310
   // occurrences in total, and all of them are redacted.
   //
-  // bench/runs is included rather than excluded even though nothing in this repository writes a
-  // transcript — the write happens in the dispatch harness outside it. Excluding it would let the
-  // next bench run quietly restore all 179. Including it means a regenerated transcript fails this
-  // guard instead, which puts the pressure where the fix has to happen.
+  // Local benchmark output is ignored and is outside this tracked-file invariant.
   const tracked = execFileSync('git', ['ls-files'], { cwd: REPO, encoding: 'utf8' })
     .split('\n')
     .filter(Boolean);

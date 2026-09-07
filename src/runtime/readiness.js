@@ -13,6 +13,50 @@ const READINESS_STATES = new Set([
   'BLOCKED',
 ]);
 
+// ── The one stage-entry policy ───────────────────────────────────────────────────────────────────
+//
+// Whether a readiness state permits editing used to live in prose, three times, disagreeing:
+// do-implement allowed edits under NEEDS_EVIDENCE and NEEDS_USER_DECISION, do-flow stopped on
+// anything but READY, and readiness_gate.md said gather-or-ask first — so entering the same work
+// through different skills changed whether unresolved prerequisites blocked editing (review R3,
+// P1). The policy now lives here, once; skills consume the decision instead of re-deriving it.
+//
+// The standalone exemption is an explicit execution mode, not an inference from a missing evidence
+// record: a caller doing a deliberate one-off fix passes `--mode standalone`, and only the
+// NEEDS_EVIDENCE row softens for it — an owed user decision or contradicting evidence stops edits
+// in every mode, because neither is cured by the work being small.
+
+const EXECUTION_MODES = new Set(['workflow', 'standalone']);
+const STAGE_ENTRY_DECISIONS = new Set(['ENTER', 'GATHER_FIRST', 'ASK_USER', 'STOP']);
+
+/**
+ * Maps a computed readiness state and a declared execution mode to the one stage-entry decision.
+ * @param {string} state one of READINESS_STATES
+ * @param {string} [mode='workflow'] 'workflow' | 'standalone'
+ * @returns {{decision: string, reason: string}}
+ */
+function stageEntryFor(state, mode = 'workflow') {
+  if (!EXECUTION_MODES.has(mode)) {
+    throw new Error(`Unknown execution mode '${mode}'. Valid: ${[...EXECUTION_MODES].join(', ')} — the standalone exemption is declared, never inferred.`);
+  }
+  if (!READINESS_STATES.has(state)) {
+    throw new Error(`Unknown readiness state '${state}' has no stage-entry decision.`);
+  }
+  switch (state) {
+    case 'BLOCKED':
+      return { decision: 'STOP', reason: 'A claim on this task is conflicted — evidence disagrees with itself. No mode edits through that; resolve the contradiction first.' };
+    case 'NEEDS_USER_DECISION':
+      return { decision: 'ASK_USER', reason: 'A decision is owed by the user. Ask it and wait; editing first would decide it silently on their behalf.' };
+    case 'NEEDS_EVIDENCE':
+      return mode === 'standalone'
+        ? { decision: 'ENTER', reason: 'Standalone mode: the unmet contract is reported, not enforced — a declared one-off edit outside a workflow run. Relay the missing requirements in the result.' }
+        : { decision: 'GATHER_FIRST', reason: 'Workflow mode: gather the missing requirements before entering the stage; do not start editing on the assumption it will work out.' };
+    case 'READY':
+    default:
+      return { decision: 'ENTER', reason: 'Every mandatory prerequisite is verified by fresh evidence.' };
+  }
+}
+
 class ReadinessEngine {
   /**
    * @param {Object} [options]
@@ -199,25 +243,69 @@ class ReadinessEngine {
           reason = 'No verification command or test execution plan defined in task profile.';
         }
       }
-      // Check claim status requirement (e.g. root_cause)
+      // Check claim status requirement (e.g. root_cause). A template can additionally demand a
+      // claim *role*: `root_cause` is only established by a claim declared as the root-cause claim,
+      // not by any supported claim the task happens to hold (review R1 — a supported claim about an
+      // unrelated invariant satisfied the bug template's root-cause requirement).
       else if (reqDef.requiresClaimStatus) {
-        const matchingClaims = taskClaims.filter((c) => c.status === reqDef.requiresClaimStatus);
+        let matchingClaims = taskClaims.filter((c) => c.status === reqDef.requiresClaimStatus);
+        if (reqDef.requiresClaimRole) {
+          const withRole = matchingClaims.filter((c) => c.role === reqDef.requiresClaimRole);
+          if (withRole.length === 0 && matchingClaims.length > 0) {
+            reason = `${matchingClaims.length} claim(s) have status '${reqDef.requiresClaimStatus}' but none `
+              + `declares role '${reqDef.requiresClaimRole}' — add the claim with --role ${reqDef.requiresClaimRole}, `
+              + 'or re-state which claim answers this requirement.';
+          }
+          matchingClaims = withRole;
+        }
         if (matchingClaims.length > 0) {
           isSatisfied = true;
           matchedEvidenceIds = matchingClaims.flatMap((c) => c.supportingEvidence);
-        } else {
-          reason = `Requires at least one claim with status '${reqDef.requiresClaimStatus}'.`;
+        } else if (!reason) {
+          reason = `Requires at least one claim with status '${reqDef.requiresClaimStatus}'`
+            + `${reqDef.requiresClaimRole ? ` and role '${reqDef.requiresClaimRole}'` : ''}.`;
         }
       }
-      // Check evidence kind requirement
+      // Check evidence kind requirement. Kind alone is a category, not an outcome: to count, an
+      // item must also (a) be an extracted read rather than a model inference, (b) explicitly name
+      // this requirement in `establishes`, and (c) where the template demands an execution, carry a
+      // typed observation whose exit status matches. Before these checks, an inferred item reading
+      // "Baseline tests failed: 12 failures." satisfied `baseline_tests` by being kind test-result
+      // (review R1, P1 — reproduced through the public CLI).
       else if (Array.isArray(reqDef.evidenceKinds) && reqDef.evidenceKinds.length > 0) {
         const allowedKinds = new Set(reqDef.evidenceKinds);
-        const matchingEv = taskEvidence.filter((ev) => allowedKinds.has(ev.kind));
-        if (matchingEv.length > 0) {
+        const kindMatched = taskEvidence.filter((ev) => allowedKinds.has(ev.kind));
+        const extracted = kindMatched.filter((ev) => ev.provenance === 'extracted');
+        const bound = extracted.filter((ev) => Array.isArray(ev.establishes) && ev.establishes.includes(reqId));
+        let qualifying = bound;
+        if (reqDef.requiresObservation) {
+          qualifying = qualifying.filter((ev) => ev.observation && Number.isInteger(ev.observation.exitCode));
+          if (reqDef.expectedExit === 'zero') {
+            qualifying = qualifying.filter((ev) => ev.observation.exitCode === 0);
+          } else if (reqDef.expectedExit === 'nonzero') {
+            qualifying = qualifying.filter((ev) => ev.observation.exitCode !== 0);
+          }
+        }
+        if (qualifying.length > 0) {
           isSatisfied = true;
-          matchedEvidenceIds = matchingEv.map((ev) => ev.id);
-        } else {
+          matchedEvidenceIds = qualifying.map((ev) => ev.id);
+        } else if (kindMatched.length === 0) {
           reason = `Missing fresh evidence of kind: ${reqDef.evidenceKinds.join(', ')}.`;
+        } else if (extracted.length === 0) {
+          reason = `${kindMatched.length} item(s) of the right kind exist but none is 'extracted' — an inferred `
+            + 'or asserted item is analysis, and analysis cannot establish a measured prerequisite.';
+        } else if (bound.length === 0) {
+          reason = `${extracted.length} extracted item(s) of the right kind exist but none declares it `
+            + `establishes '${reqId}' — record evidence with establishes: ['${reqId}'] so the gate grades `
+            + 'what the item was actually gathered to prove.';
+        } else if (reqDef.expectedExit === 'zero' && bound.some((ev) => ev.observation && ev.observation.exitCode !== 0)) {
+          const failed = bound.find((ev) => ev.observation && ev.observation.exitCode !== 0);
+          reason = `The bound observation ran '${failed.observation.command}' and exited ${failed.observation.exitCode}; `
+            + 'this requirement needs an exit status of 0. A failed run does not establish a passing baseline.';
+        } else {
+          reason = 'The bound evidence lacks a typed observation ({command, exitCode})'
+            + `${reqDef.expectedExit ? ` with a${reqDef.expectedExit === 'zero' ? ' passing (0)' : ' non-zero'} exit status` : ''} — `
+            + 'record the execution itself, not a description of one.';
         }
       }
       // Scope verified / scope clear
@@ -303,7 +391,33 @@ class ReadinessEngine {
   }
 }
 
+/** One live snapshot for readiness inspection and orchestration transitions. Reads never persist
+ * derived freshness or claim status; every invocation evaluates the current project again.
+ * `mode` defaults to 'workflow' — fail closed: the standalone exemption must be declared. */
+function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot = process.cwd(), mode = 'workflow' }) {
+  // Validated before any ledger work, not just inside stageEntryFor at the end — an invalid mode
+  // used to pay a full freshness/claims evaluation before erroring (review suggestion, 026).
+  if (!EXECUTION_MODES.has(mode)) {
+    throw new Error(`Unknown execution mode '${mode}'. Valid: ${[...EXECUTION_MODES].join(', ')} — the standalone exemption is declared, never inferred.`);
+  }
+  const { EvidenceLedger } = require('./evidence-ledger');
+  const { ClaimsManager } = require('./claims');
+  const { FreshnessValidator } = require('./freshness');
+  const ledger = new EvidenceLedger({ repoRoot: projectRoot });
+  ledger.load(taskProfile.taskId);
+  new FreshnessValidator({ repoRoot: projectRoot }).validateLedgerFreshness(ledger);
+  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: projectRoot });
+  claims.load(taskProfile.taskId);
+  claims.evaluateAll();
+  const report = new ReadinessEngine({ repoRoot, projectRoot }).evaluateReadiness(taskProfile, ledger, claims);
+  return { ...report, executionMode: mode, stageEntry: stageEntryFor(report.state, mode) };
+}
+
 module.exports = {
+  evaluateTaskReadiness,
+  stageEntryFor,
   ReadinessEngine,
   READINESS_STATES,
+  EXECUTION_MODES,
+  STAGE_ENTRY_DECISIONS,
 };

@@ -8,8 +8,8 @@ const { CapabilityRouter } = require('./capability-router');
 const { EvidenceLedger, VALID_EVIDENCE_KINDS, VALID_PROVENANCE } = require('./evidence-ledger');
 const { resolveLocator, describeResolution } = require('./locator-resolve');
 const { ClaimsManager } = require('./claims');
-const { measureFreshness, FreshnessValidator } = require('./freshness');
-const { ReadinessEngine } = require('./readiness');
+const { measureFreshness } = require('./freshness');
+const { evaluateTaskReadiness } = require('./readiness');
 const { loadRegistry } = require('../registry');
 const { REPO_ROOT } = require('../helper/repo-root');
 
@@ -102,7 +102,7 @@ function usageError(verb, message, json) {
  */
 function handleReadinessCommand({
   taskClass = 'feature', taskId = 'default', json = false, repoRoot, stateRoot,
-  verificationPlan, scopeClear, invariants, userDecisionPending = false,
+  verificationPlan, scopeClear, invariants, userDecisionPending = false, mode = 'workflow',
 } = {}) {
   // Two different roots, previously conflated into one. `root` locates the *registry* (the
   // readiness templates ship inside the DoFlow package). `state` locates the invoking project's
@@ -111,26 +111,6 @@ function handleReadinessCommand({
   // which under an npm install is node_modules/ — shared across all projects and often read-only.
   const root = repoRoot || REPO_ROOT;
   const state = stateRoot || process.cwd();
-  const ledger = new EvidenceLedger({ repoRoot: state });
-  try {
-    ledger.load(taskId);
-  } catch (error) {
-    return usageError('readiness', error.message, json);
-  }
-
-  // Re-evaluate freshness before anything counts this evidence as support. measureFreshness stamps
-  // FRESH at write time and nothing used to revisit it, so the engine's `status: 'FRESH'` filter
-  // matched every item ever recorded and the claim status `invalidated` could not occur.
-  //
-  // In memory only — `ledger.save` is deliberately not called here. Freshness is a property of the
-  // moment it is asked, not a stored fact: persisting it would make a read operation write, and
-  // would freeze a verdict that should be recomputed on the next call.
-  const staleCount = new FreshnessValidator({ repoRoot: state }).validateLedgerFreshness(ledger);
-
-  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: state });
-  claims.load(taskId);
-
-  const engine = new ReadinessEngine({ repoRoot: root, projectRoot: state });
   // Only what the caller actually told us. An absent key must stay absent rather than become a
   // falsy default, because the engine reads presence, not truth.
   const profile = { taskId, taskClass };
@@ -140,7 +120,12 @@ function handleReadinessCommand({
   if (userDecisionPending) profile.userDecisionPending = true;
   const callerAsserted = Object.keys(profile).filter((k) => k !== 'taskId' && k !== 'taskClass');
 
-  const report = engine.evaluateReadiness(profile, ledger, claims);
+  let report;
+  try {
+    report = evaluateTaskReadiness({ taskProfile: profile, repoRoot: root, projectRoot: state, mode });
+  } catch (error) {
+    return usageError('readiness', error.message, json);
+  }
 
   if (json) {
     console.log(JSON.stringify({ ...report, callerAsserted }, null, 2));
@@ -152,6 +137,7 @@ function handleReadinessCommand({
   console.log(`Task ID:       ${report.taskId}`);
   console.log(`Template:      ${report.templateName}`);
   console.log(`Overall State: ${report.state === 'READY' ? '✓ READY' : report.state === 'NEEDS_EVIDENCE' ? '▲ NEEDS EVIDENCE' : '✗ ' + report.state}`);
+  console.log(`Stage Entry:   ${report.stageEntry.decision} (${report.executionMode} mode) — ${report.stageEntry.reason}`);
   console.log(`Summary:       ${report.summary}`);
   if (callerAsserted.length > 0) {
     // Named, not hidden: these requirements were satisfied because the caller said so, and a
@@ -189,9 +175,13 @@ function handleReadinessCommand({
 // watches vanish while the command reports success. Nothing reaches the ledger unnamed.
 
 /** Every field an evidence item may carry here. Anything else is refused, never dropped. */
-const EVIDENCE_ITEM_FIELDS = ['kind', 'provenance', 'source', 'locator', 'content', 'taskId'];
+const EVIDENCE_ITEM_FIELDS = ['kind', 'provenance', 'source', 'locator', 'content', 'taskId', 'establishes', 'observation'];
 const EVIDENCE_SOURCE_FIELDS = ['provider', 'capability'];
 const EVIDENCE_LOCATOR_FIELDS = ['file', 'line', 'symbol', 'uri'];
+const EVIDENCE_OBSERVATION_FIELDS = ['command', 'exitCode'];
+
+/** Kinds that record an execution and may carry a typed observation. */
+const OBSERVATION_KINDS = new Set(['test-result', 'runtime-observation']);
 
 /** Kinds that are by definition not a direct read of the repository. FR-007's second sentence. */
 const NON_REPOSITORY_KINDS = new Set(['generated-analysis', 'user-statement']);
@@ -335,7 +325,9 @@ function validateEvidenceItem(raw, taskId, repoRoot) {
   }
 
   const locator = raw.locator === undefined ? null : parseLocator(raw.locator);
-  if (raw.provenance === 'extracted' && !locator) {
+  // An item carrying an observation is anchored by the command it records — that command is what
+  // the next worker re-runs to check it — so the locator becomes optional there and only there.
+  if (raw.provenance === 'extracted' && !locator && raw.observation === undefined) {
     throw new Error("provenance 'extracted' requires a locator — a fact read from the repository "
       + 'must name where it was read, or the next worker cannot check it and cannot tell when it goes stale');
   }
@@ -360,12 +352,63 @@ function validateEvidenceItem(raw, taskId, repoRoot) {
       + 'is the statement itself, so a record without one records nothing while still counting as evidence');
   }
 
+  // Requirement bindings: which readiness-template requirements this item claims to establish.
+  // Declared by the writer, judged by the gate — the gate counts an item toward a requirement only
+  // when it is named here, so a structural item can no longer satisfy `architecture_mapped` and
+  // `blast_radius` at once by category alone (review R1).
+  let establishes = [];
+  if (raw.establishes !== undefined) {
+    const list = typeof raw.establishes === 'string' ? raw.establishes.split(',').map((s) => s.trim()) : raw.establishes;
+    if (!Array.isArray(list) || list.length === 0 || list.some((r) => typeof r !== 'string' || r.trim() === '')) {
+      throw new Error("'establishes' must be a requirement id, a comma-separated list of them, or a non-empty array of non-empty strings");
+    }
+    establishes = list.map((s) => s.trim());
+  }
+
+  // Typed observation: the execution behind a test-result or runtime-observation. Command and exit
+  // status are the two facts the gate can actually grade; tree identity and observation time are
+  // measured into freshness at this same write. Only an 'extracted' item may carry one — an
+  // observation asserts an execution happened, and an inferred item is by definition not one.
+  let observation = null;
+  if (raw.observation !== undefined) {
+    if (!raw.observation || typeof raw.observation !== 'object' || Array.isArray(raw.observation)) {
+      throw new Error('observation must be an object with command and exitCode');
+    }
+    for (const key of Object.keys(raw.observation)) {
+      if (!EVIDENCE_OBSERVATION_FIELDS.includes(key)) {
+        throw new Error(`unknown observation field '${key}'. Accepted: ${EVIDENCE_OBSERVATION_FIELDS.join(', ')}`);
+      }
+    }
+    if (typeof raw.observation.command !== 'string' || raw.observation.command.trim() === '') {
+      throw new Error('observation.command is required: the exact command whose exit status is being recorded');
+    }
+    if (!Number.isInteger(raw.observation.exitCode) || raw.observation.exitCode < 0) {
+      throw new Error(`observation.exitCode must be a non-negative integer, got '${raw.observation.exitCode}'`);
+    }
+    if (!OBSERVATION_KINDS.has(raw.kind)) {
+      throw new Error(`kind '${raw.kind}' cannot carry an observation — only ${[...OBSERVATION_KINDS].join(', ')} record an execution`);
+    }
+    if (raw.provenance !== 'extracted') {
+      throw new Error(`provenance '${raw.provenance}' cannot carry an observation: an observation asserts a command `
+        + 'was actually run, which is a read of the world, not an inference or an assertion. '
+        + "Either record the execution as 'extracted', or drop the observation.");
+    }
+    observation = { command: raw.observation.command.trim(), exitCode: raw.observation.exitCode };
+  }
+  if (raw.kind === 'test-result' && raw.provenance === 'extracted' && !observation) {
+    throw new Error("an 'extracted' test-result requires an observation ({command, exitCode}) — a test result "
+      + 'without the command and exit status behind it is a claim about an execution nobody can check, '
+      + 'and it is exactly how a failed baseline was once accepted as a passing one');
+  }
+
   return {
     kind: raw.kind,
     provenance: raw.provenance,
     source: { provider: raw.source.provider, capability: raw.source.capability },
     locator: locator || {},
     content,
+    establishes,
+    observation,
   };
 }
 

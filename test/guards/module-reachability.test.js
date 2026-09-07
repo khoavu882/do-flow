@@ -21,12 +21,7 @@ const path = require('node:path');
 const { REPO } = require('./_shared');
 
 const SRC_DIR = path.join(REPO, 'src');
-const REQUIRER_ROOTS = ['bin', 'src', 'test', 'bench'].map((d) => path.join(REPO, d));
-// bench/runs/ holds RECORDED EVAL OUTPUTS — copies of old source and old test/bench files captured
-// as artifacts of past benchmark runs, not code that ships or executes. A `require(...)` inside one
-// of those copies would make a deleted module look reachable again, so the directory is excluded
-// from both the requirer scan and the requiree inventory.
-const BENCH_RUNS = path.join(REPO, 'bench', 'runs');
+const REQUIRER_ROOTS = ['bin', 'src', 'test'].map((d) => path.join(REPO, d));
 
 /**
  * An entry here documents why the named module is deliberately unreferenced — e.g. an entry point
@@ -35,18 +30,13 @@ const BENCH_RUNS = path.join(REPO, 'bench', 'runs');
  */
 const ALLOWLIST = new Set([]);
 
-function isExcluded(full) {
-  return full === BENCH_RUNS || full.startsWith(BENCH_RUNS + path.sep);
-}
-
-/** Every `.js` file under a root, excluding bench/runs/. */
+/** Every `.js` file under a source/test root. */
 function jsFilesUnder(root) {
   const out = [];
   if (!fs.existsSync(root)) return out;
   (function walk(dir) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
-      if (isExcluded(full)) continue;
       if (entry.isDirectory()) { walk(full); continue; }
       if (entry.name.endsWith('.js')) out.push(full);
     }
@@ -69,9 +59,9 @@ function requireSpecifiers(file) {
 /**
  * Is this `require(` occurrence itself inside a string literal?
  *
- * This repository writes real `require(...)` calls into strings: `bench/runner.js` builds a snippet
- * to inject into a subprocess, and `runtime-evidence-write.test.js` writes fixture files whose
- * contents are JavaScript. Those are data, not edges in this tree's module graph, and counting them
+ * This repository writes real `require(...)` calls into strings: runtime-evidence-write.test.js
+ * writes fixture files whose contents are JavaScript. Those are data, not edges in this tree's
+ * module graph, and counting them
  * makes the resolve check below report a broken require that is not broken and not ours.
  *
  * Line-scoped and deliberately bounded: count unescaped quotes before the match on its own line,
@@ -116,8 +106,8 @@ test('G16: every .js module under src/ is required by at least one relative requ
     .sort();
 
   assert.deepEqual(orphaned, [],
-    'these modules ship under src/ but no require(\'...\') literal in bin/, src/, test/, or bench/ '
-    + `(excluding bench/runs/) names them:\n  ${orphaned.join('\n  ')}`);
+    'these modules ship under src/ but no require(\'...\') literal in bin/, src/ or test/ names them:\n  '
+    + orphaned.join('\n  '));
 });
 
 test('G16: every relative require() literal resolves to a file that exists', () => {
@@ -137,12 +127,9 @@ test('G16: every relative require() literal resolves to a file that exists', () 
   for (const file of requirerFiles) {
     for (const spec of requireSpecifiers(file)) {
       if (!resolveSpecifier(file, spec)) {
-        // bench/ became local-only (gitignored, see .gitignore): a fresh clone legitimately lacks
-        // it, and the G11 suite skips itself there. A specifier pointing into bench/ is therefore
-        // optional-local by policy, not dangling — everything else must still resolve.
         const target = path.resolve(path.dirname(file), spec);
         const rel = path.relative(REPO, target);
-        if (rel === 'bench' || rel.startsWith(`bench${path.sep}`) || rel.startsWith('..')) {
+        if (rel.startsWith('..')) {
           continue;
         }
         dangling.push(`${path.relative(REPO, file)} -> ${spec}`);

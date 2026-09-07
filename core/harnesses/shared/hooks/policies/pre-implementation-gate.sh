@@ -52,7 +52,23 @@ command -v jq >/dev/null 2>&1 || exit 0          # no jq -> cannot evaluate -> a
 
 INPUT=$(cat)
 
-# ── Tool name (union of every known field name across harnesses) ──────────────
+# ── Normalized envelope (preferred; review R7) ────────────────────────────────
+# A host adapter that has already decoded its native event sends
+#   {"doflow_event": {"operation": "edit", "paths": [..], "projectRoot": "..", "taskId": ".."}}
+# and this policy consumes it verbatim. The union decoder below remains the
+# fallback for front doors that still forward raw native payloads; per-harness
+# knowledge belongs in those adapters, and each one that starts sending the
+# envelope retires its share of the union.
+ENVELOPE_ROOT=""
+ENVELOPE_OP=$(printf '%s' "$INPUT" | jq -r '.doflow_event.operation // empty' 2>/dev/null)
+if [ -n "$ENVELOPE_OP" ]; then
+  [ "$ENVELOPE_OP" = "edit" ] || exit 0          # only edits are gated
+  FILES=$(printf '%s' "$INPUT" | jq -r '.doflow_event.paths[]? // empty' 2>/dev/null | sed '/^$/d' | sort -u)
+  [ -n "$FILES" ] || exit 0
+  ENVELOPE_ROOT=$(printf '%s' "$INPUT" | jq -r '.doflow_event.projectRoot // empty' 2>/dev/null)
+else
+
+# ── Tool name (union of every known field name across harnesses; LEGACY decoder) ──
 tool=""
 for field in '.tool_name' '.tool' '.toolName' '.name'; do
   tool=$(printf '%s' "$INPUT" | jq -r "${field} // empty" 2>/dev/null)
@@ -96,8 +112,11 @@ else
   FILES="$file"
 fi
 
+fi  # end legacy union decoder
+
 # ── Resolve repo root ───────────────────────────────────────────────────────
-ROOT="${DOFLOW_PROJECT_DIR:-}"
+# DOFLOW_PROJECT_DIR (explicit) beats the envelope's projectRoot beats git discovery.
+ROOT="${DOFLOW_PROJECT_DIR:-$ENVELOPE_ROOT}"
 if [ -z "$ROOT" ]; then
   ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 fi

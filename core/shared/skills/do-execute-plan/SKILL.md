@@ -134,16 +134,19 @@ Branch on the returned `outcome` field, not the exit code.
      stops the run.
 
 4. **Readiness Evaluation (Contract State)**:
-   - Evaluate a task's contract before dispatching it, run from the project the task belongs to:
+   - Evaluate a task's contract before dispatching it, run from the project the task belongs to.
+     This skill is an orchestrated run, and says so:
      ```bash
-     "$DOFLOW" readiness --task-class "<template from step 2>" --task-id "<task id>" --json
+     "$DOFLOW" readiness --task-class "<template from step 2>" --task-id "<task id>" --mode workflow --json
      "$DOFLOW" evidence --task-id "<task id>" --json
      ```
    - **Both `--task-class` and `--task-id` are required.** Omitting either exits 2 and names the
      valid set. Pass them explicitly rather than letting anything default: a verdict computed for
      another task, or against another class's contract, is worse than no verdict.
-   - **Branch on the `state` field, not the exit code.** This verb exits 0 for every state it can
-     compute, so a zero exit is not a grant of readiness. The four states are the entire
+   - **Act on `stageEntry.decision`, not the exit code and not your own reading of `state`.** The
+     entry policy is the runtime's: `ENTER` → dispatch the task; `GATHER_FIRST` → gather the named
+     requirements before dispatching; `ASK_USER` → ask the owed decision and wait; `STOP` → stop
+     and surface the conflicted claim. The four underlying states remain the entire state
      vocabulary — `READY`, `NEEDS_EVIDENCE`, `NEEDS_USER_DECISION`, `BLOCKED` — and none of them is
      ever reported as a number, a percentage, or a confidence.
    - Only `bug`, `feature`, `refactor`, `trivial-edit` and `dependency-change` have templates. On
@@ -288,7 +291,9 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
       1. Batch **one** evidence item under the **feature slug** — deliberately different from every
          other evidence call this skill makes, which key on a plan task id, because the cascade
          grades the ledger under the slug. `kind` is `structural` or `semantic-retrieval`,
-         `provenance` is `extracted`, the `locator` points at `plan.md`, and `content` summarizes the
+         `provenance` is `extracted`, the `locator` points at `plan.md`,
+         `establishes` is `["affected_components"]` — the gate counts an item toward a requirement
+         only when the item names it — and `content` summarizes the
          components and files this implementation actually touched, taken from `plan.md` §4
          "Components & Changes" — which this run already read. That is what satisfies
          `affected_components`; per `readiness_gate.md`'s own rule it cannot be satisfied by a

@@ -158,43 +158,18 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
    This stage's items are the block you just wrote into `design.md`: what the system shape rests on,
    where each part came from, and its locator. Add every system-shape conclusion as a claim in the
    same pass.
-9. **Record the handoff** — drive the workflow state machine, then regenerate the trail it projects
-   into `audit.md`. `<slug>` is step 1's `feature_slug`; `<class>` is the class step 2's `classify`
-   call accepted; `<stage id>` is the id of the entry in that call's `workflow.stages[]` whose
-   `skill` is `do-design` (`design` in the `feature` workflow) — read it off that response, never
-   hardcode a guess. One call positions the run — it starts one when none exists yet (an old-layout
-   feature, or a chain that started here), and it backfills any earlier non-mutating stage the chain
-   skipped, so this stage never has to decide between `start` and `complete-stage` for itself:
+9. **Record the handoff** — read the guidance tree's `references/WORKFLOW_HANDOFF.md`.
+   Use the feature slug as `<task id>`; if no feature is active, this is standalone and there is
+   no workflow handoff. After completing this skill's work:
    ```bash
-   "$DOFLOW" orchestrate --action catch-up --task-id "<slug>" --task-class "<class>" --stage "<stage id>" --note "entering design" --json
+   "$DOFLOW" orchestrate --action handoff --task-id "<task id>" --calling-skill do-design --task-class "<validated class>" --note "<work completed and verification result>" --json
    ```
-   Branch on the response's `caughtUpTo` / `reason`, not on the exit code:
-- **`caughtUpTo` is this stage id** (`reason: reached-candidate`) — the run is positioned exactly here, which is the normal case. Complete the stage:
-  ```bash
-  "$DOFLOW" orchestrate --action complete-stage --task-id "<slug>" --stage "<caughtUpTo>" --note "<design and specs paths written>" --json
-  ```
-- **`reason` starts with `already-completed:`** — this stage was already recorded on an earlier run of this skill (a re-invocation to amend `design.md`, say). Use `annotate` instead of `complete-stage`:
-  ```bash
-  "$DOFLOW" orchestrate --action annotate --task-id "<slug>" --node "<stage id>" --note "<what changed on this re-run>" --json
-  ```
-- **`reason` starts with `awaiting-gate:`** — the run is paused on a gate a human (or that gate's own owning skill) decides. Two shapes reach here: `gate-a` (after planning, later than this stage) should never be open this early and its appearance signals something went wrong upstream; `gate-0` (after discovery, `clarification`-kind) reaching here is the ordinary recovery path when `[NEEDS CLARIFICATION]` markers survived an aborted `/do-brainstorm` session — `do-brainstorm/SKILL.md` deliberately leaves it open rather than forcing an approval. Either way, this stage does not own it: report the gate id plainly and stop rather than resolving a gate that is not this stage's.
-- **`reason` is `blocked-on-mutating-stage:<id>`** — a source-mutating stage ahead of this one has not been executed by its own skill. Name `<id>`, report the block plainly, and stop.
-- **`reason` is `run-completed` or `run-rejected`** — the run is finished and takes no further stage. Report it and stop.
-
-   No gate is anchored to this stage, and the `complete-stage` response says so directly: its
-   `awaitingGate` comes back `null` in the `feature` workflow, because the next gate (`gate-a`) sits
-   after planning and is `/do-plan`'s neighbour, not this stage's. Read that field rather than
-   re-deriving it from `workflow.gates[]`, and decide no gate when it is null. Finish by rendering
-   the trail. The `--slug` value attaches with an `=`; a space-separated one is rejected with an
-   error rather than silently rendering the wrong feature's trail:
+   The runtime selects this skill's stage, records completion or a rerun annotation, and returns
+   `disposition`. Report `deferred` with its `reason`; resolve no gate in this skill.
+   `standalone` means no run was created. Render the trail after a recorded handoff:
    ```bash
-   "$DOFLOW" render-audit --slug="<slug>" --json
+   "$DOFLOW" render-audit --slug="<task id>" --json
    ```
-   Every call in this step is advisory to the trail, not to the artifact. If one fails for a reason
-   outside this flow's control (an unwritable local state directory, say), report the failure plainly and
-   continue — a missing `audit.md` entry degrades the record, it does not make `design.md` wrong.
-   None of these calls is a gate on finishing this skill.
-10. **Stop** — report the design path, and the specs path when one was written.
 
 ## Boundaries
 **Will:** propose a task class and have the runtime validate it, read `requirement.md`, produce

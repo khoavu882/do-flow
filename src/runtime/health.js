@@ -322,7 +322,7 @@ function probeProvider(provider, { router, projectRoot = process.cwd(), execFile
  * @returns {Object} map of provider id -> probe result
  */
 function probeProviders({ repoRoot, projectRoot = process.cwd(), ids = null, router, execFileImpl, fsImpl = fs } = {}) {
-  const activeRouter = router || new CapabilityRouter({ repoRoot: repoRoot || REPO_ROOT });
+  const activeRouter = router || new CapabilityRouter({ repoRoot: repoRoot || REPO_ROOT, projectRoot });
   const wanted = ids ? new Set(ids) : null;
   const results = {};
   for (const capability of Object.values(activeRouter.capabilities || {})) {
@@ -428,10 +428,35 @@ function capabilityStatus(probes) {
  * @param {string} [options.projectRoot] the project being reported on
  * @returns {Object} report model
  */
+/** The installed DoFlow source's own version, read from its package.json; null when unreadable. */
+function installVersion(root, fsImpl = fs) {
+  try {
+    return JSON.parse(fsImpl.readFileSync(path.join(root, 'package.json'), 'utf8')).version || null;
+  } catch {
+    return null;
+  }
+}
+
+/** The project's git identity — short commit and branch — or null outside a repository. */
+function projectGitIdentity(projectRoot) {
+  const git = (args) => {
+    try {
+      return execFileSync('git', ['-C', projectRoot, ...args], {
+        encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim() || null;
+    } catch {
+      return null;
+    }
+  };
+  const commit = git(['rev-parse', '--short', 'HEAD']);
+  if (!commit) return null;
+  return { commit, branch: git(['rev-parse', '--abbrev-ref', 'HEAD']) };
+}
+
 function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, execFileImpl, fsImpl = fs, detector } = {}) {
   const root = repoRoot || REPO_ROOT;
   const registry = loadRegistry({ repoRoot: root });
-  const activeRouter = router || new CapabilityRouter({ repoRoot: root });
+  const activeRouter = router || new CapabilityRouter({ repoRoot: root, projectRoot });
   const probes = probeProviders({ repoRoot: root, projectRoot, router: activeRouter, execFileImpl, fsImpl });
   const project = { root: path.resolve(projectRoot), commands: detectProjectCommands({ projectRoot, detector }) };
 
@@ -500,7 +525,18 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
     ...(project.commands.status === 'DETECTED' ? [] : [{ kind: 'project-commands', subject: 'build/test', detail: project.commands.reason }]),
   ];
 
+  // Effective identity, in one block (review A3): which DoFlow source answered, which project it
+  // was asked about, and which capabilities are actually connected — so "a clean install has a
+  // usable X" claims can be checked against what THIS machine effectively runs, rather than
+  // inferred from the pieces separately.
+  const identity = {
+    source: { root, version: installVersion(root, fsImpl) },
+    project: { root: path.resolve(projectRoot), git: projectGitIdentity(projectRoot) },
+    connectedCapabilities: capabilities.filter((capability) => capability.activeProvider).map((capability) => capability.capability),
+  };
+
   return {
+    identity,
     harnesses: registry.harnesses.map((harness) => ({ id: harness.id, displayName: harness.displayName, status: 'PASS' })),
     externalTools,
     capabilities,
@@ -569,6 +605,12 @@ function handleDoctorCommand({ json = false, repoRoot, projectRoot = process.cwd
   console.log('\nDoFlow System Diagnostics (doflow doctor)');
   console.log('═'.repeat(72));
   console.log('Health means a provider answered a probe, not that a binary exists on PATH.');
+
+  console.log('\n[Effective Identity]');
+  const identity = report.identity;
+  console.log(`  source            ${identity.source.root}${identity.source.version ? ` (v${identity.source.version})` : ' (version unreadable)'}`);
+  console.log(`  project           ${identity.project.root}${identity.project.git ? ` (${identity.project.git.branch} @ ${identity.project.git.commit})` : ' (not a git repository)'}`);
+  console.log(`  connected         ${identity.connectedCapabilities.length ? identity.connectedCapabilities.join(', ') : 'no capability has an answering provider'}`);
 
   console.log('\n[Harness Adapters]');
   for (const harness of report.harnesses) console.log(`  ${harness.displayName.padEnd(28)} PASS`);

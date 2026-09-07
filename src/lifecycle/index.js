@@ -13,7 +13,7 @@ const { pruneEmptyAncestors } = require('../adapters/copy-tree');
 const { renderPolicies } = require('./policies');
 const { renderMcpIndex } = require('./mcp-index');
 const { hasBashCapableShell } = require('./bash-availability');
-const { planGeminiHooks } = require('../adapters/gemini');
+const { hookTrustFor: geminiHookTrustFor } = require('../adapters/gemini');
 
 const OPERATIONS = new Set(['create', 'merge', 'update', 'remove']);
 
@@ -479,23 +479,11 @@ function verificationOwnsHooks(verification, hookIds) {
     hookIds.has(resource.assetId) || resource.kind === 'hooks-file' || resource.projection?.renderer === 'gemini-hooks');
 }
 
-/** Gemini's hooks trust is not a static registry prerequisite the way Codex's `trusted-project`/
- * `hook-review` are (see core/registry/harnesses.json's gemini.capabilities.hooks, which declares
- * no `prerequisites`); Gemini fingerprints hook name/command and warns before running one that
- * changed (geminicli.com/docs/hooks/), computed live by src/adapters/gemini/hooks.js's planGeminiHooks
- * against the current hooks.json source and the harness's current settings.json. Re-deriving that
- * plan here (rather than reading it off the adapter's own verify() output, which does not surface
- * `trust` on the resources/statuses it returns) is the only way to observe it without adapter
- * changes; it is read-only and side-effect free (planGeminiHooks never writes). */
+/** Gemini's hooks trust, observed through the adapter's own API. How trust is computed — the
+ * fingerprint semantics, which context fields matter — lives in src/adapters/gemini (review A3:
+ * this file used to import planGeminiHooks and re-derive the plan itself). */
 function geminiHookTrust(target) {
-  const context = target.adapterInput?.context || {};
-  const settingsFile = target.discovery?.paths?.settings;
-  if (!context.geminiHooksSourceFile || !settingsFile || target.discovery?.settings?.error) return null;
-  const plan = planGeminiHooks({
-    sourceFile: context.geminiHooksSourceFile, sourceHooksDir: context.geminiHooksSourceDir,
-    settingsFile, trusted: context.hooksTrusted,
-  });
-  return plan.ok ? (plan.trust ?? null) : null;
+  return geminiHookTrustFor(target);
 }
 
 /** General, per-harness hook-wiring status — the one place install status distinguishes an
