@@ -128,15 +128,20 @@ flowchart TB
 
 ## 5. Data Model
 
-The data-model shape is governed by `./specs.md` §2.
+The data-model shape is governed by `./data-model.md` §1.
 
 <!-- Data model diagrams (ER diagrams, table schema catalogs) and UX design tokens live in
-     ./specs.md §2 Data Model, not here. Write `N/A: [why]` if this feature introduces no data model or
-     UX changes; otherwise leave a one-line pointer, e.g. "See ./specs.md §2." -->
+     ./data-model.md §1 Data Model, not here. Write `N/A: [why]` if this feature introduces no data
+     model or UX changes; otherwise leave a one-line pointer, e.g. "See ./data-model.md §1." -->
 
 ## 6. Sequence / Data Flow
 
-[Key interaction sequences, if non-trivial — a `sequenceDiagram` works well here — or `N/A: [why]`.]
+The data-flow shape is governed by `./data-model.md` §2.
+
+<!-- Sequence diagrams showing key interaction flows (a `sequenceDiagram` works well here) live in
+     ./data-model.md §2 Sequence / Data Flow, not here. Write `N/A: [why]` if this feature introduces
+     no non-trivial interaction sequence; otherwise leave a one-line pointer, e.g.
+     "See ./data-model.md §2." -->
 
 ## 7. Design Risks & Alternatives Considered
 

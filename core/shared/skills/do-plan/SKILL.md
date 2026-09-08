@@ -90,7 +90,7 @@ not have.
    the guidance tree's `references/DOFLOW_CHAIN.md` → "Two-tier constitution" for what is computed
    and what is convention.
 5. **Write `plan.md`, sections 1–7** — copy the plan template to the `plan` path step 1 resolved
-   (`plan/plan.md` in the structured layout, the top-level `plan.md` in an old-layout feature dir),
+   (`<feature_dir>/plan.md`, the same flat location under both the structured and legacy layouts),
    `mkdir -p`-ing its parent directory first.
 The template is `templates/doflow/plan-template.md` in the install step 1 resolved: take `constitution_base` from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
    Fill `[REQUIREMENT_PATH]`/`[DESIGN_PATH]` with that same step 1 resolution's `requirement`/`design`
@@ -103,6 +103,11 @@ The template is `templates/doflow/plan-template.md` in the install step 1 resolv
    the `IC-###` ids that this plan's tasks implement or consume, one per contract, so a task can be
    traced to the contract it satisfies. Pointing §5 at `design.md` is only correct when `has_specs`
    is false and the contracts genuinely still live there.
+   When the feature has a `data-model.md` (check the resolver's `has_data_model` flag, the same way
+   `has_specs` is already checked), also name any entities/tables from its schema catalog that this
+   plan's tasks touch, citing them by the name the schema catalog already gives them — never
+   inventing a new id scheme, since `data-model.md` carries no `ID`-bearing index the way `specs.md`
+   does.
 **Stop when** every `[NEEDS CLARIFICATION]` marker / open decision the contract names has an answer or a stated gap, **and** the last round produced no new `[NEEDS CLARIFICATION]` marker / open decision. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 Structure the artifact per the guidance tree's `references/ARTIFACT_FORMAT.md` — read it before filling the template; it names which of this artifact's sections take an index-then-detail table.
    Its §5 governs §8's `### Task Summary` rollup — the per-task `- [ ]` checklist stays the single
@@ -111,8 +116,9 @@ Structure the artifact per the guidance tree's `references/ARTIFACT_FORMAT.md` �
    This stage fills the plan from requirement + design + constitution rather than by eliciting, so
    it writes no dialogue log — its sibling stages' `intention/`/`design/` question files have no
    counterpart here. Should a future revision of this skill add an `AskUserQuestion` clarification
-   loop, each of its rounds logs to `plan/plan-<NN>-question.md` exactly as `/do-brainstorm` and
-   `/do-design` log theirs, numbered from step 1's `plan_next_round`.
+   loop, each of its rounds logs to `plan-<NN>-question.md` at the feature root exactly as
+   `/do-brainstorm` and `/do-design` log theirs to their own subdirectories, numbered from step 1's
+   `plan_next_round`.
 6. **Constitution Check (advisory gate)** — evaluate the plan against both tiers as reconciled in
    step 4. On a violation, STOP and revise the approach before continuing, then record PASS/FAIL in
    the plan. The verdict is **advisory**: it is recorded in `plan.md` §2 "Constitution Check" and nothing downstream
@@ -200,7 +206,7 @@ git branch (derivation only), plan under a class the runtime rejected or replace
 call `readiness` for a stage that declares no template; or express evidence, an estimate or readiness as a number, a percentage or a confidence.
 
 ## CRITICAL BOUNDARIES
-**STOP AFTER PLAN CREATION.** Output: `agent-docs/doflow/<slug>/plan/plan.md` (HOW + tasks).
+**STOP AFTER PLAN CREATION.** Output: `agent-docs/doflow/<slug>/plan.md` (HOW + tasks).
 
 **Next Step:** `/do-execute-plan` to execute the tasks. The implement phase is gated: it requires
 `requirement.md`, `design.md`, and `plan.md` to all exist.

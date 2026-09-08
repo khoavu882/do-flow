@@ -190,7 +190,7 @@ if [ -z "$feature_dir" ]; then
     if [ -f "$repo_root/$feature_dir/intention/requirement.md" ]; then
       has_requirement=true
       if [ -f "$repo_root/$feature_dir/design/design.md" ]; then has_design=true; else has_design=false; fi
-      if [ -f "$repo_root/$feature_dir/plan/plan.md" ]; then has_plan=true; else has_plan=false; fi
+      if [ -f "$repo_root/$feature_dir/plan.md" ]; then has_plan=true; else has_plan=false; fi
     elif [ -f "$repo_root/$feature_dir/requirement.md" ]; then
       has_requirement=true
       if [ -f "$repo_root/$feature_dir/design.md" ]; then has_design=true; else has_design=false; fi

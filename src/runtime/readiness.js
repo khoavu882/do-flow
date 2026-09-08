@@ -212,8 +212,13 @@ class ReadinessEngine {
     // item is still checkable by a human, an unresolvable one is not (FR-005).
     // Stale and unresolvable are different failures and are reported apart: an unresolvable
     // locator points at nothing, a stale one points at something that changed since it was read.
+    // A superseded item is excluded here, not from getAllEvidence(): superseding is a recorded
+    // human judgment that this specific item no longer needs re-checking (a fresher item already
+    // covers the same ground), the same way a retracted/superseded claim stops being read as live
+    // in evaluateClaim — it is not a claim that the file never changed. An item that genuinely went
+    // stale and was never superseded still forces NEEDS_EVIDENCE exactly as before.
     const staleEvidence = (evidenceLedger ? evidenceLedger.getAllEvidence() : [])
-      .filter((item) => item.taskId === taskId && item.freshness?.status === 'STALE')
+      .filter((item) => item.taskId === taskId && item.freshness?.status === 'STALE' && item.status !== 'superseded')
       .map((item) => ({ evidenceId: item.id, locator: item.locator, reason: 'file-modified-since-recorded' }));
 
     const unresolvableEvidence = [];

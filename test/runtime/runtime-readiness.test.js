@@ -214,6 +214,81 @@ test('FreshnessValidator detects modified files and marks evidence STALE', () =>
   assert.equal(ledger.getEvidence(evStale).freshness.status, 'STALE');
 });
 
+// ── Supersede: a stale item, once explicitly retired, stops forcing NEEDS_EVIDENCE ───────────
+// Regression for the deadlock found while this very repo's own 027-design-artifact-restructure
+// feature ran /do-execute-plan: design-stage evidence pointed at files the feature's own
+// implementation later edited, went STALE, and staleEvidence.length > 0 forced NEEDS_EVIDENCE
+// forever — even though every template requirement was independently satisfied by fresh evidence
+// and evidence had no way to retire the stale item (unlike claims' retract/supersede).
+
+test('a stale item alone forces NEEDS_EVIDENCE even when every requirement is otherwise satisfied, until superseded', () => {
+  const engine = new ReadinessEngine({ repoRoot: REPO });
+  const ledger = new EvidenceLedger();
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+
+  // Everything the 'feature' template needs is satisfied by fresh evidence...
+  const freshId = ledger.addEvidence({
+    taskId: 'task_supersede',
+    kind: 'structural',
+    provenance: 'extracted',
+    locator: { file: 'src/runtime/readiness.js', line: 1 },
+    content: 'use strict',
+    establishes: ['affected_components'],
+  });
+
+  // ...but an older, unrelated item recorded for the same task has since gone stale.
+  const staleId = ledger.addEvidence({
+    taskId: 'task_supersede',
+    kind: 'structural',
+    provenance: 'extracted',
+    locator: { file: 'src/runtime/evidence-ledger.js', line: 1 },
+    content: 'a fact recorded before evidence-ledger.js changed',
+  });
+  ledger.getEvidence(staleId).freshness.status = 'STALE';
+
+  const before = engine.evaluateReadiness(
+    { taskId: 'task_supersede', taskClass: 'feature', scopeClear: 'stated', verificationPlan: 'npm test' },
+    ledger,
+    claims,
+  );
+
+  assert.ok(before.requirements.every((r) => !r.required || r.satisfied),
+    'every requirement should read satisfied on its own merits');
+  assert.equal(before.state, 'NEEDS_EVIDENCE',
+    'the stale item alone still forces NEEDS_EVIDENCE — this is the deadlock this test guards');
+  assert.equal(before.staleEvidence.length, 1);
+  assert.equal(before.staleEvidence[0].evidenceId, staleId);
+
+  // Superseding the stale item with the fresh one is the only way out — re-recording a fresh
+  // item for the same fact does not, on its own, remove the old one from staleEvidence.
+  const status = ledger.supersedeEvidence(staleId, freshId);
+  assert.equal(status, 'superseded');
+
+  const after = engine.evaluateReadiness(
+    { taskId: 'task_supersede', taskClass: 'feature', scopeClear: 'stated', verificationPlan: 'npm test' },
+    ledger,
+    claims,
+  );
+
+  assert.equal(after.staleEvidence.length, 0);
+  assert.equal(after.state, 'READY');
+});
+
+test('supersedeEvidence refuses a missing replacement, self-supersession, and re-superseding', () => {
+  const ledger = new EvidenceLedger();
+  const a = ledger.addEvidence({ taskId: 't', kind: 'structural', provenance: 'extracted', locator: { file: 'src/runtime/readiness.js' } });
+  const b = ledger.addEvidence({ taskId: 't', kind: 'structural', provenance: 'extracted', locator: { file: 'src/runtime/claims.js' } });
+
+  assert.throws(() => ledger.supersedeEvidence(a, 'no-such-id'), /No evidence 'no-such-id' is recorded/);
+  assert.throws(() => ledger.supersedeEvidence(a, a), /cannot supersede itself/);
+
+  ledger.supersedeEvidence(a, b);
+  assert.equal(ledger.getEvidence(a).status, 'superseded');
+  assert.equal(ledger.getEvidence(a).supersededBy, b);
+
+  assert.throws(() => ledger.supersedeEvidence(a, b), /already superseded/);
+});
+
 // ── FR-005: a gate does not report READY on evidence whose locator no longer resolves ────────
 
 test('FR-005: an unresolvable supporting locator keeps the gate off READY and names the item', () => {
