@@ -664,9 +664,9 @@ eq "structured layout -> design resolves into design/ (even though design.md doe
 eq "structured layout -> specs resolves into design/ (even though specs.md does not exist yet)" \
    "$($PATHS --slug=901-structured-fixture | jq -r '.specs')" \
    "agent-docs/doflow/901-structured-fixture/design/specs.md"
-eq "structured layout -> plan resolves into plan/ (even though plan.md does not exist yet)" \
+eq "structured layout -> plan resolves flat at the feature root (even though plan.md does not exist yet)" \
    "$($PATHS --slug=901-structured-fixture | jq -r '.plan')" \
-   "agent-docs/doflow/901-structured-fixture/plan/plan.md"
+   "agent-docs/doflow/901-structured-fixture/plan.md"
 
 # Round-number scanning: two intention/ rounds -> next round is 3; an empty/absent design/ still
 # floors at 1.

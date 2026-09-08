@@ -258,18 +258,19 @@ test('G18: design-template.md §1 carries the decision-and-blocker columns §10 
     'ARTIFACT_FORMAT.md §10 decision-summary columns', 'templates/doflow/design-template.md §1 table header');
 });
 
-test('G18: specs-template.md carries the §1 family grouping and §2 data-model views §10 declares', () => {
+test('G18: specs-template.md carries the §1 family grouping; data-model-template.md carries the §2-shaped data-model views §10 declares', () => {
   const specs = template('specs-template.md');
   const one = section(specs, /^## 1\. /);
-  const two = section(specs, /^## 2\. /);
+  const dataModel = template('data-model-template.md');
+  const dataModelOne = section(dataModel, /^## 1\. /);
   // Each marker is quoted verbatim out of §10, so the declaration -- not this file -- names them.
   const declaredMarkers = new Set(backticked(REVIEWER_SECTIONS));
-  const expect = (marker, where, text) => {
+  const expect = (marker, file, where, text) => {
     assert.ok(declaredMarkers.has(marker),
       `ARTIFACT_FORMAT.md §10 no longer declares the marker \`${marker}\`; this guard's `
       + `expectation and the declaration have drifted apart`);
     assert.ok(text.includes(marker.replace(/<[^>]+>/g, '').trim()),
-      `ARTIFACT_FORMAT.md §10 declares \`${marker}\` but templates/doflow/specs-template.md ${where} `
+      `ARTIFACT_FORMAT.md §10 declares \`${marker}\` but templates/doflow/${file} ${where} `
       + `does not carry it`);
   };
   // §1: a `Family` column in the index, and `#### Family: <name>` grouping beneath it.
@@ -280,12 +281,13 @@ test('G18: specs-template.md carries the §1 family grouping and §2 data-model 
   assert.ok(cells.includes('Family'),
     `ARTIFACT_FORMAT.md §10 declares a \`Family\` column for specs.md §1, but `
     + `templates/doflow/specs-template.md §1's index header is: ${cells.join(' | ')}`);
-  expect('#### Family: <name>', '§1', one);
-  // §2: a conceptual domain map, then one `#### ER view: <subdomain>` per bounded subdomain.
-  expect('#### ER view: <subdomain>', '§2', two);
-  assert.match(two, /domain map/i,
-    'ARTIFACT_FORMAT.md §10 declares specs.md §2 opens with a conceptual domain map, but '
-    + 'templates/doflow/specs-template.md §2 never names one');
+  expect('#### Family: <name>', 'specs-template.md', '§1', one);
+  // data-model-template.md §1: a conceptual domain map, then one `#### ER view: <subdomain>` per
+  // bounded subdomain -- the shape §10 declares for data-model.md §1.
+  expect('#### ER view: <subdomain>', 'data-model-template.md', '§1', dataModelOne);
+  assert.match(dataModelOne, /domain map/i,
+    'ARTIFACT_FORMAT.md §10 declares data-model.md §1 opens with a conceptual domain map, but '
+    + 'templates/doflow/data-model-template.md §1 never names one');
 });
 
 // --- comparison 6: the component detail labels ---------------------------------------------------

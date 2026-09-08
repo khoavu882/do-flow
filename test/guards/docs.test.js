@@ -51,21 +51,30 @@ test('G6: requirement-template.md provides hierarchical stories and BDD scenario
   assert.ok(reqTmpl.includes('- **Then**'), 'requirement template must scaffold Then clause');
 });
 
-test('G6: specs-template.md provides technical scaffolding for endpoints, repositories, schemas, and UX', () => {
+test('G6: specs-template.md provides technical scaffolding for endpoints and repositories', () => {
   // Moved here from design-template.md by feature 023-structured-feature-trail: design.md's own
-  // §4/§5 are now a one-line pointer to specs.md, which carries this scaffolding instead.
+  // §4/§5 are now a one-line pointer to specs.md, which carries this scaffolding instead. Further
+  // split by feature 027-design-artifact-restructure: the schema/ER/UX scaffolding below moved out
+  // of specs-template.md §2 into its own data-model-template.md, checked separately below.
   const specsTmpl = fs.readFileSync(path.join(REPO, 'core/shared/templates/doflow/specs-template.md'), 'utf8');
   assert.ok(specsTmpl.includes('endpoint / cli-verb / schema / file-format'), 'specs template must scaffold the endpoint/cli-verb/schema Kind vocabulary');
   assert.ok(specsTmpl.includes('repository/service interface'), 'specs template must scaffold Repository/service interfaces');
-  assert.ok(specsTmpl.includes('### Database Schemas'), 'specs template must scaffold Database Schemas');
-  assert.ok(specsTmpl.includes('erDiagram'), 'specs template must scaffold relational ER diagram');
-  assert.ok(specsTmpl.includes('### UX / UI Specifications'), 'specs template must scaffold UX/UI specifications');
 });
 
-test('G6: design-template.md points §4/§5 at specs.md instead of duplicating its content', () => {
+test('G6: data-model-template.md provides technical scaffolding for schemas and UX', () => {
+  // Split out of specs-template.md §2 by feature 027-design-artifact-restructure; see the comment
+  // above the specs-template.md scaffolding test.
+  const dataModelTmpl = fs.readFileSync(path.join(REPO, 'core/shared/templates/doflow/data-model-template.md'), 'utf8');
+  assert.ok(dataModelTmpl.includes('### Database Schemas'), 'data-model template must scaffold Database Schemas');
+  assert.ok(dataModelTmpl.includes('erDiagram'), 'data-model template must scaffold relational ER diagram');
+  assert.ok(dataModelTmpl.includes('### UX / UI Specifications'), 'data-model template must scaffold UX/UI specifications');
+});
+
+test('G6: design-template.md points §4 at specs.md and §5/§6 at data-model.md instead of duplicating their content', () => {
   const dsgTmpl = fs.readFileSync(path.join(REPO, 'core/shared/templates/doflow/design-template.md'), 'utf8');
   assert.ok(!dsgTmpl.includes('### Endpoints'), 'design template must not re-duplicate API Endpoints scaffolding now owned by specs.md');
   assert.ok(!dsgTmpl.includes('### Repository & Service Interfaces'), 'design template must not re-duplicate Repository interfaces scaffolding now owned by specs.md');
-  assert.ok(dsgTmpl.includes('specs.md'), 'design template §4/§5 must point at specs.md');
+  assert.ok(dsgTmpl.includes('specs.md'), 'design template §4 must point at specs.md');
+  assert.ok(dsgTmpl.includes('data-model.md'), 'design template §5/§6 must point at data-model.md');
 });
 
