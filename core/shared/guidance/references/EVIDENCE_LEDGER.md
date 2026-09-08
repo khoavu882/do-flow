@@ -49,6 +49,17 @@ reach for most, and why each is absent:
 write, not declared by the writer; the ledger assigns the id; and evidence attaches to a claim by
 linking (below), not by a field on the item.
 
+## Superseding a stale item
+
+An item's `freshness.status` can only move toward `STALE` — the file it named changed, and nothing
+un-changes it. Once a stale item stops mattering (a fresher item already covers the same ground),
+retire it rather than leaving it to block a task's readiness verdict forever: `evidence --action
+supersede --evidence-id <stale-id> --replaced-by <fresh-id>`, naming an id already recorded. Nothing
+is deleted or rewritten — the stale item's own content and locator stay exactly as observed, only
+its `status` becomes `superseded` and unresolvable readiness checks stop counting it. Record the
+replacing item first: the replacement must already exist, the same rule `claim --action supersede`
+already applies.
+
 ## Claims
 
 Each conclusion is added as a claim in the same pass and is stored as a `hypothesis`. It becomes

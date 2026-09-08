@@ -21,6 +21,13 @@ const VALID_EVIDENCE_KINDS = new Set([
 
 const VALID_PROVENANCE = new Set(['extracted', 'inferred', 'asserted']);
 
+/** An item's lifecycle status, distinct from `freshness.status` (a snapshot judgment about the
+ * file the item points at, which a later edit can only ever move toward STALE, never back).
+ * 'active' is the only non-terminal value; 'superseded' is terminal and permanent — mirrors
+ * `claims.js`'s TERMINAL_CLAIM_STATUSES so a fresher record can retire an item without deleting
+ * it (NFR-003 applies here the same way it does to claims). */
+const EVIDENCE_STATUSES = new Set(['active', 'superseded']);
+
 /** A task id becomes a filename inside the state directory, so it must not be able to name a path.
  * `path.join(stateDir, `${taskId}.json`)` happily resolves `../../../etc/hosts` out of the state
  * dir entirely — read-only today only because nothing calls save(), and an arbitrary file write
@@ -119,6 +126,11 @@ class EvidenceLedger {
         : null,
       supports: Array.isArray(item.supports) ? [...item.supports] : [],
       contradicts: Array.isArray(item.contradicts) ? [...item.contradicts] : [],
+      // Every item starts 'active'. Not settable through addEvidence's own input (EVIDENCE_ITEM_FIELDS
+      // in cli.js does not list it) — the only way to reach 'superseded' is supersedeEvidence below,
+      // the same boundary claims.js already draws around its own status field.
+      status: 'active',
+      supersededBy: null,
     };
 
     this.evidenceMap.set(id, evidenceRecord);
@@ -151,6 +163,42 @@ class EvidenceLedger {
       results.push(item);
     }
     return results;
+  }
+
+  /**
+   * Records that this item's content no longer represents the tree as it stands, and points
+   * forward to the item that does. Nothing is deleted or rewritten: the record and its original
+   * freshness stay exactly as observed, only `status` changes — mirrors
+   * `ClaimsManager.supersedeClaim` field for field, including the checks and their order (the
+   * replacement is validated before the target, for the same reason: a typo in the target reads
+   * as "unknown evidence" either way, but a typo in the replacement should not be reported as a
+   * problem with the target instead).
+   * @param {string} evidenceId the item to retire
+   * @param {string} replacedBy the id of the item that supersedes it; must already exist
+   * @returns {string} the new status
+   */
+  supersedeEvidence(evidenceId, replacedBy) {
+    if (!replacedBy) {
+      throw new Error('supersede requires the id of the evidence item that replaces this one');
+    }
+    if (replacedBy === evidenceId) {
+      throw new Error(`Evidence '${evidenceId}' cannot supersede itself`);
+    }
+    if (!this.evidenceMap.has(replacedBy)) {
+      throw new Error(`No evidence '${replacedBy}' is recorded — a forward pointer to nothing is worse `
+        + 'than no pointer. Record the replacing evidence first: doflow evidence --task-id <id> --action add ...');
+    }
+    const item = this.evidenceMap.get(evidenceId);
+    if (!item) {
+      throw new Error(`Unknown evidence '${evidenceId}'`);
+    }
+    if (item.status === 'superseded') {
+      throw new Error(`Evidence '${evidenceId}' is already superseded and cannot be superseded again`);
+    }
+    item.status = 'superseded';
+    item.supersededBy = replacedBy;
+    item.supersededAt = new Date().toISOString();
+    return item.status;
   }
 
   /**
@@ -236,5 +284,6 @@ module.exports = {
   EvidenceLedger,
   VALID_EVIDENCE_KINDS,
   VALID_PROVENANCE,
+  EVIDENCE_STATUSES,
   assertSafeTaskId,
 };

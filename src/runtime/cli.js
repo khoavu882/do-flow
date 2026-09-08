@@ -195,6 +195,7 @@ const EVIDENCE_REFUSED_FIELDS = new Map([
   ['supports', 'link evidence to a claim with `claim --action link`, which updates both sides; a list written here would leave the claim unaware of it'],
   ['contradicts', 'link evidence to a claim with `claim --action link`, which updates both sides; a list written here would leave the claim unaware of it'],
   ['stage', 'the evidence record has no stage field — the batch *is* the stage boundary, so a stage name recorded here would be dropped'],
+  ['status', "lifecycle status starts 'active' and changes only through `evidence --action supersede` — asserting it here would let a caller declare an item superseded without naming what replaces it"],
 ]);
 
 /** The names a retrieval score arrives under, in camelCase (`--relevance-score` normalises here).
@@ -542,24 +543,57 @@ function locatorText(locator) {
 }
 
 /**
- * Handles `doflow evidence` — record a stage's evidence batch, or query what is recorded.
+ * The `--action supersede` arm: mark one already-recorded item superseded by another. Mirrors
+ * `handleClaimCommand`'s `supersede` branch — validate, write, save, report the same shape.
+ * @returns {number} exit code
+ */
+function supersedeEvidence({ ledger, taskId, evidenceId, replacedBy, json }) {
+  if (!evidenceId || !replacedBy) {
+    return usageError('evidence', '--evidence-id and --replaced-by are both required for --action supersede', json);
+  }
+  let status;
+  try {
+    status = ledger.supersedeEvidence(evidenceId, replacedBy);
+  } catch (error) {
+    return usageError('evidence', error.message, json);
+  }
+  const stateFile = ledger.save(taskId);
+  const record = ledger.getEvidence(evidenceId);
+
+  if (json) {
+    console.log(JSON.stringify({ action: 'supersede', taskId, evidence: record, status, stateFile }, null, 2));
+    return finish(0);
+  }
+  console.log(`\nDoFlow Evidence [Task: ${taskId}]:`);
+  console.log('═'.repeat(78));
+  console.log(`${record.id}  ${status} → ${record.supersededBy}`);
+  console.log(`Wrote to ${stateFile}`);
+  console.log('═'.repeat(78) + '\n');
+  return finish(0);
+}
+
+/**
+ * Handles `doflow evidence` — record a stage's evidence batch, retire a stale item, or query
+ * what is recorded.
  *
  * @param {Object} options
  * @param {string} [options.taskId='default']
- * @param {'list'|'status'|'add'} [options.action='list']
+ * @param {'list'|'status'|'add'|'supersede'} [options.action='list']
  * @param {Object} [options.item] single-item write, assembled from flags by bin/doflow.js
  * @param {string} [options.batchPath] `add`: a JSON batch file, or `-` for stdin
+ * @param {string} [options.evidenceId] `supersede`: the item to retire
+ * @param {string} [options.replacedBy] `supersede`: the item that replaces it
  * @param {boolean} [options.json=false]
  * @param {string} [options.repoRoot]
  * @param {string} [options.stateRoot]
  * @returns {number} exit code
  */
-function handleEvidenceCommand({ taskId = 'default', action = 'list', item = null, batchPath = null, json = false, repoRoot, stateRoot } = {}) {
+function handleEvidenceCommand({ taskId = 'default', action = 'list', item = null, batchPath = null, evidenceId = null, replacedBy = null, json = false, repoRoot, stateRoot } = {}) {
   // See handleReadinessCommand: evidence is the caller's project state, not DoFlow package state.
   const root = stateRoot || repoRoot || process.cwd();
   const isQuery = action === 'list' || action === 'status';
-  if (!isQuery && action !== 'add') {
-    return usageError('evidence', `unknown --action '${action}'. Valid: list, add`, json);
+  if (!isQuery && action !== 'add' && action !== 'supersede') {
+    return usageError('evidence', `unknown --action '${action}'. Valid: list, add, supersede`, json);
   }
   // A write argument on a read action is the defect this verb was reported for: it used to accept
   // append-shaped flags, ignore them, and print the (unchanged) ledger as if the write had landed.
@@ -575,6 +609,7 @@ function handleEvidenceCommand({ taskId = 'default', action = 'list', item = nul
   }
 
   if (action === 'add') return addEvidence({ ledger, root, taskId, item, batchPath, json });
+  if (action === 'supersede') return supersedeEvidence({ ledger, taskId, evidenceId, replacedBy, json });
 
   const items = ledger.queryEvidence({ taskId });
 

@@ -129,8 +129,13 @@ Three limits still hold, and none of them is a reason to work around the gate:
   establish, rather than a value that happens to parse. Every `readiness` read and every gated
   stage completion re-checks those stamps against the tree as it stands — the same evaluation at
   both boundaries — so an item whose file has changed since it was read reports `STALE` and stops
-  counting, and the report names it. Re-record stale items against the current tree; do not argue
-  with the verdict.
+  counting toward the requirement it named, and the report names it. Recording fresh replacement
+  evidence alone does not clear this: a stale item stays in the ledger and keeps forcing
+  `NEEDS_EVIDENCE` at the task level until it is explicitly retired. Once the fresh replacement is
+  recorded, supersede the stale item: `evidence --action supersede --evidence-id <stale-id>
+  --replaced-by <fresh-id>`. Do not argue with the verdict by any other route — not by re-adding the
+  same fact under a new id and hoping the old one stops mattering, and never by editing the local
+  ledger file directly.
 - `claim --action link` refuses an evidence id the ledger does not hold (exit 2). Record the batch
   first, then link; a link is not a way to reference evidence you have not written.
 - The gate grades this task's ledger only. A different `--task-id` reads a different record, and

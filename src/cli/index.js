@@ -198,10 +198,11 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--query', 'query'],                // route: what the resolved provider would be asked
   ['--statement', 'statement'],        // claim --action add
   ['--claim-id', 'claimId'],           // claim --action link
-  ['--evidence-id', 'evidenceId'],     // claim --action link
+  ['--evidence-id', 'evidenceId'],     // claim --action link · evidence --action supersede
   ['--relation', 'relation'],          // claim --action link: supports | contradicts
   ['--role', 'role'],                  // claim --action add: the claim's relationship to the task, e.g. root-cause
-  ['--replaced-by', 'replacedBy'],     // claim --action supersede: the claim replacing this one
+  ['--replaced-by', 'replacedBy'],     // claim --action supersede: the claim replacing this one ·
+                                        // evidence --action supersede: the evidence replacing this one
   ['--kind', 'kind'],                  // evidence --action add: one of VALID_EVIDENCE_KINDS
   ['--provenance', 'provenance'],      // evidence --action add: extracted | inferred | asserted
   ['--provider', 'provider'],          // evidence --action add: source.provider
@@ -365,9 +366,9 @@ Options:
 Runtime verb arguments (accept --flag value or --flag=value):
       --task-class     classify, workflow, readiness, context-pack, outcome --action record
       --task-id        readiness, evidence, claim, context-pack, retrieval-plan, outcome, verify
-      --action         claim: list|add|link|retract|supersede · evidence: list|add · verify: report|contract
-                       retrieval-plan: declare|report · outcome: record|show
-                       tools: see above
+      --action         claim: list|add|link|retract|supersede · evidence: list|add|supersede
+                       verify: report|contract · retrieval-plan: declare|report
+                       outcome: record|show · tools: see above
       --rationale, --proposed-by, --calling-skill    classify
       --intent, --query, --check            route
       --statement, --claim-id,
@@ -375,6 +376,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --kind, --provenance, --provider,
       --capability, --locator, --content    evidence --action add (one item)
       --batch <file|->                      evidence --action add (a stage's JSON batch)
+      --evidence-id, --replaced-by          evidence --action supersede (retire one item, point
+                                            forward to the item that replaces it)
       --verification-plan, --scope,
       --invariants,
       --user-decision-pending               readiness: inputs the caller states rather than
