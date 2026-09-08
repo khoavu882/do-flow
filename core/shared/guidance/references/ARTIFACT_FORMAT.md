@@ -92,7 +92,7 @@ vocabulary in the wrong place, and `Draft` was never a legal member of it.
 ## 3. History — the live body stays current
 
 When an item is superseded, its obsolete prose leaves the `**Detail**` block and moves to the
-artifact's own final History section — §9 for `requirement.md`, `design.md` and `plan.md`; §3 for
+artifact's own final History section — §9 for `requirement.md`, `design.md` and `plan.md`; §2 for
 `specs.md`. The index row stays as a tombstone. Reading the body top to bottom therefore yields
 current truth with no historical detours, while the supersession is still visible at a glance.
 
@@ -214,14 +214,14 @@ Acceptance criteria are formatted as testable Gherkin BDD scenario blocks mapped
   - **Then** [expected observable outcome]
 ```
 
-- **WHAT/WHY vs HOW Boundary:** `requirement.md` strictly describes user-facing behaviors and functional outcomes. Technical implementation anchors (such as database schemas, REST endpoints, repository patterns, and UX tokens) belong in `specs.md` §1 and §2.
+- **WHAT/WHY vs HOW Boundary:** `requirement.md` strictly describes user-facing behaviors and functional outcomes. Technical implementation anchors (such as database schemas, REST endpoints, repository patterns, and UX tokens) belong in `specs.md` §1 and `data-model.md`.
 
-## 7. Technical Scaffolding in specs.md (§1 & §2)
+## 7. Technical Scaffolding in specs.md and data-model.md
 
-`specs.md` provides dedicated homes for technical implementation anchors — `design.md` §4/§5 hold
-only a one-line pointer to it:
-- **Interface Contracts (§1):** HTTP endpoints (methods, routes, request/response shapes, status codes), CLI verb signatures, and repository/service interfaces (`interface` → `concrete` → `mock`).
-- **Data Model (§2):** Relational data model diagrams, database table schema catalogs (table purpose, keys, relations, indexes, ORM/DDL file references), and UX design tokens (color palettes, component states, layout cues).
+`specs.md` and `data-model.md` provide dedicated homes for technical implementation anchors — `design.md` §4/§5 hold
+only a one-line pointer to them:
+- **Interface Contracts (`specs.md` §1):** HTTP endpoints (methods, routes, request/response shapes, status codes), CLI verb signatures, and repository/service interfaces (`interface` → `concrete` → `mock`).
+- **Data Model (`data-model.md` §1):** Relational data model diagrams, database table schema catalogs (table purpose, keys, relations, indexes, ORM/DDL file references), and UX design tokens (color palettes, component states, layout cues).
 
 This section routes *what* belongs in each of those two sections; the shape each one takes is
 governed by §10.
@@ -265,7 +265,7 @@ disagree, deciding which one is wrong is authoring judgement, not a mechanical f
 ## 10. Reviewer-facing sections
 
 > **Authoritative:** this section governs which reviewer-facing sections an artifact carries and
-> what shape each one takes, including the shape of `specs.md` §1 and §2 that §7 routes content to.
+> what shape each one takes, including the shape of `specs.md` §1 and `data-model.md` §1 that §7 routes content to.
 
 Three sections exist so a reviewer can reach a judgement from the top of a document rather than by
 reading it whole:
@@ -279,7 +279,7 @@ reading it whole:
   ordered as the index lists them. Each contract carries a `#### IC-###: <summary>` heading, which
   is the heading detail-entry form of §1 and counts as that contract's detail entry because its ID
   appears in the index.
-- **`specs.md` §2 — a domain map, then bounded views.** The section opens with a conceptual domain
+- **`data-model.md` §1 — a domain map, then bounded views.** The section opens with a conceptual domain
   map: a Mermaid `flowchart` naming the entities and the relationships between them, with **no
   attributes**, so the shape of the domain is legible before any field name. Beneath it comes one
   `#### ER view: <subdomain>` per bounded subdomain, each a Mermaid `erDiagram` carrying the

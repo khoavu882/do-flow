@@ -243,10 +243,9 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
      `templates/doflow/state-template.md` in the install step 1 resolved: take `constitution_base`
      from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
      Fill `[PLAN_PATH]` from that same resolution's `plan` field, verbatim (repo-root-relative,
-     exactly as the resolver returns it) — `state.md` sits at the feature dir's own root under both
-     layouts, but `plan.md` does not: `<feature_dir>/plan.md` under the legacy layout,
-     `<feature_dir>/plan/plan.md` under the structured one, and the resolver's own field is what
-     tells you which.
+     exactly as the resolver returns it) — `state.md` and `plan.md` both sit at the feature dir's
+     own root under both layouts, the same single shared location, and the resolver's own field is
+     what confirms it rather than a hand-computed guess.
    - Every checkpoint: append the finished task(s) to the Task Ledger (`Commits` as the actual
      `[base7]..[head7]` range once committed, or `uncommitted (working tree)` when this run doesn't
      commit on its own), move them from **In Progress** to **Completed**, and rewrite **Next

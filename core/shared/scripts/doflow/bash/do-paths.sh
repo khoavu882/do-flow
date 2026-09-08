@@ -135,8 +135,8 @@ if [ -n "$slug_override" ]; then
   candidate_slugs_json="[]"
 fi
 
-feature_dir=""; requirement=""; design=""; specs=""; plan=""; state=""; audit=""
-has_requirement=false; has_design=false; has_plan=false; has_specs=false
+feature_dir=""; requirement=""; design=""; specs=""; data_model=""; plan=""; state=""; audit=""
+has_requirement=false; has_design=false; has_plan=false; has_specs=false; has_data_model=false
 layout="legacy"
 intention_next_round=""; design_next_round=""; plan_next_round=""
 if [ -n "$feature_slug" ]; then
@@ -152,11 +152,13 @@ if [ -n "$feature_slug" ]; then
     requirement="$feature_dir/intention/requirement.md"
     design="$feature_dir/design/design.md"
     specs="$feature_dir/design/specs.md"
-    plan="$feature_dir/plan/plan.md"
-    [ -f "$abs/intention/requirement.md" ] && has_requirement=true
-    [ -f "$abs/design/design.md" ]         && has_design=true
-    [ -f "$abs/design/specs.md" ]          && has_specs=true
-    [ -f "$abs/plan/plan.md" ]             && has_plan=true
+    data_model="$feature_dir/design/data-model.md"
+    plan="$feature_dir/plan.md"
+    [ -f "$abs/intention/requirement.md" ]  && has_requirement=true
+    [ -f "$abs/design/design.md" ]          && has_design=true
+    [ -f "$abs/design/specs.md" ]           && has_specs=true
+    [ -f "$abs/design/data-model.md" ]      && has_data_model=true
+    [ -f "$abs/plan.md" ]                   && has_plan=true
   else
     requirement="$feature_dir/requirement.md"; design="$feature_dir/design.md"
     plan="$feature_dir/plan.md"
@@ -194,8 +196,8 @@ if [ -n "$feature_slug" ]; then
     design_next_round=$((max + 1))
 
     max=0
-    if [ -d "$abs/plan" ]; then
-      for f in "$abs/plan"/plan-*-question.md; do
+    if [ -d "$abs" ]; then
+      for f in "$abs"/plan-*-question.md; do
         [ -f "$f" ] || continue
         num="$(basename "$f")"; num="${num#plan-}"; num="${num%-question.md}"
         case "$num" in ''|*[!0-9]*) continue ;; esac
@@ -268,10 +270,10 @@ jq -n \
   --arg feature_slug "$feature_slug" \
   --arg feature_dir "$feature_dir" \
   --argjson candidate_slugs "$candidate_slugs_json" \
-  --arg requirement "$requirement" --arg design "$design" --arg specs "$specs" --arg plan "$plan" \
+  --arg requirement "$requirement" --arg design "$design" --arg specs "$specs" --arg data_model "$data_model" --arg plan "$plan" \
   --arg state "$state" --arg audit "$audit" \
   --argjson has_requirement "$has_requirement" --argjson has_design "$has_design" --argjson has_plan "$has_plan" \
-  --argjson has_specs "$has_specs" \
+  --argjson has_specs "$has_specs" --argjson has_data_model "$has_data_model" \
   --arg layout "$layout" \
   --arg intention_next_round "$intention_next_round" \
   --arg design_next_round "$design_next_round" \
@@ -292,12 +294,14 @@ jq -n \
     requirement:        (if $requirement=="" then null else $requirement end),
     design:             (if $design=="" then null else $design end),
     specs:              (if $specs=="" then null else $specs end),
+    data_model:         (if $data_model=="" then null else $data_model end),
     plan:               (if $plan=="" then null else $plan end),
     state:              (if $state=="" then null else $state end),
     audit:              (if $audit=="" then null else $audit end),
     has_requirement:    $has_requirement,
     has_design:         $has_design,
     has_specs:          $has_specs,
+    has_data_model:     $has_data_model,
     has_plan:           $has_plan,
     intention_next_round: (if $intention_next_round=="" then null else ($intention_next_round|tonumber) end),
     design_next_round:  (if $design_next_round=="" then null else ($design_next_round|tonumber) end),
