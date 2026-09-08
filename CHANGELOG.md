@@ -13,6 +13,23 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.4.0] - 2026-09-08
+
+### Added
+
+- `design.md`/`specs.md` split into three chain artifacts — `design.md` (ADR-style narrative),
+  `specs.md` (interface contracts only), and new `data-model.md` (entity/data model plus
+  sequence/data-flow diagrams) — with `plan.md`'s path flattened from `plan/plan.md` to the
+  feature root for newly-scaffolded features. `do-design` and `do-plan` read/write the new
+  layout; guards and the chain-test fixture retargeted to it.
+
+### Fixed
+
+- The evidence ledger had no way to retire a stale item, so a task's own later implementation
+  stage editing files its earlier discovery/design evidence described could permanently block
+  `readiness` from ever returning `READY` again. Added `evidence --action supersede`, mirroring
+  `claims.js`'s existing `retract`/`supersede`.
+
 ## [1.3.2] - 2026-09-07
 
 ### Fixed
