@@ -106,24 +106,34 @@ a `design.md` for it invents an artifact its workflow never reads.
    third plus two. `mkdir -p <feature dir>/design` before the first write, and write each round's
    file as soon as its answers land rather than batching them at the end.
 
-6. **Write `design.md` and `specs.md`** — copy the design template into the feature dir and fill it
-   from step 5, splitting the narrative from the contracts across two files at the paths step 1
-   resolved: `design` (`design/design.md` in the structured layout) and `specs`
-   (`design/specs.md`). `mkdir -p` their parent directory first.
-   **Why narrative vs. contracts**: Decoupling architectural narrative (`design.md`) from concrete
-   interface contracts (`specs.md` with numbered `IC-###` items) enables downstream `/do-plan` and
-   implementation tasks to cite stable, unambiguous contract IDs rather than fragile paragraphs.
+6. **Write `design.md`, `specs.md` and `data-model.md`** — copy the design template into the
+   feature dir and fill it from step 5, splitting the narrative, the interface contracts, and the
+   data model/data-flow shape across three files at the paths step 1 resolved: `design`
+   (`design/design.md` in the structured layout), `specs` (`design/specs.md`), and `data_model`
+   (`design/data-model.md`). `mkdir -p` their parent directory first.
+   **Why narrative vs. contracts vs. data model**: Decoupling architectural narrative (`design.md`)
+   from concrete interface contracts (`specs.md` with numbered `IC-###` items) and from the
+   entity/data-flow shape (`data-model.md`) enables downstream `/do-plan` and implementation tasks
+   to cite stable, unambiguous contract IDs and named entities rather than fragile paragraphs.
    The narrative sections — §1 Architecture Approach, §2 System Overview (C4), §3 Components &
-   Boundaries, §6 Sequence / Data Flow, §7 Risks, §8 Assumptions, §9 History — stay in `design.md`.
-   The technical scaffolding `references/ARTIFACT_FORMAT.md` §7 names — `design-template.md`'s §4
-   API / Interface Contracts and §5 Data Model — moves to `specs.md`, built from
-   `templates/doflow/specs-template.md`, where each contract becomes one `IC-###` entry under that
-   template's index-then-detail §1 so `plan.md` and implementation can cite a contract by id
-   instead of a paragraph. Leave `design.md`'s §4/§5 headings as a one-line pointer to `./specs.md`
-   rather than restating their content in both files.
+   Boundaries, §7 Risks, §8 Assumptions, §9 History — stay in `design.md`. The technical scaffolding
+   `references/ARTIFACT_FORMAT.md` §7 names — `design-template.md`'s §4 API / Interface Contracts —
+   moves to `specs.md`, built from `templates/doflow/specs-template.md`, where each contract
+   becomes one `IC-###` entry under that template's index-then-detail §1 so `plan.md` and
+   implementation can cite a contract by id instead of a paragraph. `design-template.md`'s §5 Data
+   Model and §6 Sequence / Data Flow move to `data-model.md`, built from
+   `templates/doflow/data-model-template.md`, as its §1 Data Model and §2 Sequence / Data Flow
+   respectively — neither carries an `ID`-bearing index, so `plan.md` cites this content by
+   entity/table name instead of an id. Leave `design.md`'s §4, §5 and §6 headings as a one-line
+   pointer to `./specs.md` §1 and `./data-model.md` §1/§2 respectively rather than restating their
+   content in any of the three files.
    When `specs` is `null` (an old-layout feature dir, which never had a `specs.md`), do not create
    one: fill §4/§5 in `design.md` exactly as before and leave that dir's layout alone — this feature
    migrates nothing.
+   When `data_model` is null (an old-layout feature dir, which never had a `data-model.md`), do not
+   create one: fill §5/§6 in `design.md` — the data model and sequence/data-flow content
+   `specs.md`'s former §2 and this template's former §6 used to carry — exactly as the old two-file
+   convention did, and leave that dir's layout alone — this feature migrates nothing.
 The template is `templates/doflow/design-template.md` in the install step 1 resolved: take `constitution_base` from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
    Fill `[REQUIREMENT_PATH]` with step 1's own resolved `requirement` field, verbatim
    (repo-root-relative, exactly as the resolver returns it) — never hand-compute it, which is only
@@ -144,7 +154,9 @@ Structure the artifact per the guidance tree's `references/ARTIFACT_FORMAT.md` �
    "$DOFLOW" validate "<design path>"
    ```
    Run it a second time against the specs path when step 6 wrote one — `specs.md`'s §1 Interface
-   Contracts is an indexed section, so it is checked the same way. Surface findings verbatim; a
+   Contracts is an indexed section, so it is checked the same way. Run it a third time against the
+   data-model path when step 6 wrote one — `data-model.md`'s §3 History is its one indexed section,
+   checked the same way, even though its §1/§2 stay free-form. Surface findings verbatim; a
    non-zero exit is advisory and does not halt the chain.
 8. **Batch this stage's evidence** — one pass here at the stage boundary, never one call per fact.
    `<task id>` is the unit these stores key on: the plan task id once `plan.md` exists, otherwise
@@ -173,16 +185,17 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 
 ## Boundaries
 **Will:** propose a task class and have the runtime validate it, read `requirement.md`, produce
-system-shape design decisions, log each clarification round to `design/`, write `design.md` and
-`specs.md`, batch the stage's evidence and claims at the boundary, record the stage handoff
-through `orchestrate`/`render-audit`, and always consult context7 and sequential-thinking at the
-points named in Step 5.
+system-shape design decisions, log each clarification round to `design/`, write `design.md`,
+`specs.md` and `data-model.md`, batch the stage's evidence and claims at the boundary, record the
+stage handoff through `orchestrate`/`render-audit`, and always consult context7 and
+sequential-thinking at the points named in Step 5.
 **Will Not:** write `plan.md` (implementation approach/task decomposition — that's `/do-plan`),
 write code, execute anything, design under a class the runtime rejected or replaced with `feature`,
 call `readiness` for a stage that declares no template; or express evidence, an estimate or readiness as a number, a percentage or a confidence.
 
 ## CRITICAL BOUNDARIES
-**STOP AFTER DESIGN CREATION.** Output: `agent-docs/doflow/<slug>/design/design.md` (narrative) and
-`design/specs.md` (contracts), alongside that stage's `design/design-<NN>-question.md` dialogue logs.
+**STOP AFTER DESIGN CREATION.** Output: `agent-docs/doflow/<slug>/design/design.md` (narrative),
+`design/specs.md` (interface contracts), and `design/data-model.md` (data model + data flow),
+alongside that stage's `design/design-<NN>-question.md` dialogue logs.
 
 **Next Step:** `/do-plan` to turn the design into an implementation plan (HOW to build it).
