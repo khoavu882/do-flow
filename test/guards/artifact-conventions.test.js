@@ -31,6 +31,10 @@ const TEMPLATES = path.join(REPO, 'core', 'shared', 'templates', 'doflow');
 //   question-log-template.md  -- out of scope; a dialogue transcript with no maturity field.
 //   do-document/references/implementation-flow.md -- out of scope (narrative-only) and carries its
 //                                own "**Status:** Draft" header for the same reason.
+//   intent-template.md        -- out of scope; an intent is written before any branch or feature
+//                                directory exists, carries no indexed ID-bearing section and neither
+//                                closed vocabulary, and is an input to the chain rather than one of
+//                                its artifacts. Its sections are held by G6/031 in docs.test.js.
 // Do not add a file here without first checking that ARTIFACT_FORMAT.md's intro governs it.
 const TRANSCRIPTIONS = ['requirement-template.md', 'design-template.md', 'specs-template.md', 'plan-template.md'];
 

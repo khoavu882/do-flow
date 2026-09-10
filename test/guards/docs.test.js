@@ -137,3 +137,32 @@ test('G6/030: the review policy declares exactly the thresholds the analyzer imp
   assert.deepEqual(Object.keys(policy.thresholdLabels).sort(), implemented,
     'every implemented threshold needs a documentation label, since the guard above matches on them');
 });
+
+// G6/031 — the intent template holds its shape. An intent is the one artifact written before any
+// branch exists, so nothing in the chain resolves it and no existing guard covers it:
+// artifact-conventions.test.js deliberately excludes it (see that file's TRANSCRIPTIONS comment)
+// because ARTIFACT_FORMAT.md governs chain artifacts carrying indexed sections and the Maturity and
+// Status vocabularies, and an intent carries none of those.
+const INTENT_TEMPLATE = path.join(REPO, 'core', 'shared', 'templates', 'doflow', 'intent-template.md');
+
+test('G6/031: the intent template carries the five sections an intent must answer', () => {
+  const text = fs.readFileSync(INTENT_TEMPLATE, 'utf8');
+  // Derived from the template's own numbered headings rather than restated here. A guard carrying its
+  // own copy of what an intent answers would be a second statement of it, and the two would drift —
+  // the same reasoning that put the review policy's threshold labels in the policy file.
+  const headings = [...text.matchAll(/^## \d+\. (.+)$/gm)].map((m) => m[1].trim());
+  assert.deepEqual(headings, ['Problem', 'Proposed outcome', 'Affected', 'Constraints', 'Open questions'],
+    'the intent template must carry exactly these five sections, in this order — a missing one leaves '
+    + `the next reader guessing what was meant; found: ${headings.join(', ') || '(none)'}`);
+});
+
+test('G6/031: the intent template acquires neither closed vocabulary', () => {
+  // Gaining a Maturity or Status field would silently bring the template into a vocabulary it sits
+  // outside of, and artifact-conventions.test.js excludes it on exactly that basis — so the exclusion
+  // would become wrong without anything saying so.
+  const text = fs.readFileSync(INTENT_TEMPLATE, 'utf8');
+  const found = ['Maturity', 'Status'].filter((field) => new RegExp(`\\*\\*${field}:\\*\\*`).test(text));
+  assert.deepEqual(found, [],
+    'an intent is not a chain artifact and carries neither vocabulary; if that changed deliberately, '
+    + `move it into artifact-conventions.test.js's TRANSCRIPTIONS instead of leaving both true: ${found.join(', ')}`);
+});
