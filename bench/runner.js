@@ -346,7 +346,12 @@ function gradeAssertion(assertion, ctx) {
   if (!fn) {
     return { text: assertion.text, passed: null, evidence: `unknown assertion type "${kind}"` };
   }
-  const needsTranscript = kind === 'output_matches' || kind === 'output_not_matches';
+  // Scope, not just type. scopeFor() routes `in: 'outputs'` to the artifacts under outputs/ and never
+  // reads the transcript, so gating those on hasTranscript failed 15 shipped assertions across four
+  // skills whenever a run produced artifacts but no transcript — understating the pass rate and
+  // pointing a baseline delta at the wrong file.
+  const needsTranscript = (kind === 'output_matches' || kind === 'output_not_matches')
+    && assertion.in !== 'outputs';
   if (needsTranscript && !ctx.hasTranscript) {
     return { text: assertion.text, passed: false, evidence: 'no transcript.txt saved for this run' };
   }
