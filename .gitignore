@@ -60,8 +60,15 @@ AGENTS.md
 # Split so each rule states which of the two it is for.
 agent-docs/
 
-# Optional local benchmark harness. It is deliberately outside the tracked source and test graph.
-bench/*
+# Skill-eval corpus is TRACKED — runner, per-skill eval definitions, and the sanitized baseline —
+# so the behavioral baseline is reproducible from a clean clone (review R6, re-landed by feature
+# 028 after 97f870a reverted it with no recorded reason). Only run transcripts, disposable
+# sandboxes, and generated reports stay local: they are artifacts of paid runs, not corpus.
+# config.json is tracked too — its pinned model is a deliberate comparability constraint (FR-017),
+# not machine-local state. A blanket bench/ rule here is what let the corpus go local-only twice;
+# test/guards/evals.test.js now fails if the corpus stops being present.
+bench/runs/
+bench/reports/
 .mcp.json
 
 # MkDocs build output

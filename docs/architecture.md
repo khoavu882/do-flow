@@ -305,8 +305,18 @@ and `boundaries.test.js`, `harness-paths.test.js`, `cli-boundary.test.js` and
   name must reference `references/MODEL_SELECTION.md` for model-tier selection.
 - **G10** (`flag-index.test.js`) — `docs/flags.md` (the flag-first companion to `reference.md`'s
   skill-first table) stays in sync with every skill's `argument-hint`, forward and reverse.
-- **G11** — optional local skill evaluation under the ignored `bench/` directory is deliberately
-  outside the source graph and default test command.
+- **G11** (`evals.test.js`) — the skill-evaluation corpus under `bench/` is tracked, so a clean clone
+  can reproduce the behavioral baseline: the harness, the per-skill case files, the pinned-model
+  config and the sanitized baseline are all present, every shipped skill has a case file carrying
+  both triggering and behavioral cases, the case files are internally consistent, and the committed
+  baseline still describes the committed corpus (a case added without re-capturing the baseline
+  fails here, which `coverage` alone cannot see). It also holds the boundary that keeps the corpus
+  cheap: `npm test` scopes discovery to `test/` via the directory argument, so an unscoped
+  `node --test` cannot execute captured artifacts under `bench/runs/`; the harness keeps its own
+  `bench` script; and `npm test` never invokes the harness, whose dispatch step makes paid model
+  calls. Only `bench/runs/` and `bench/reports/` stay ignored. G11b, in the same file, holds skill
+  provenance: a run is told to load its skill from the sandbox by path, and a run that cannot prove
+  which `SKILL.md` it read is never graded as if it could.
 - **G11** (`scaffold.test.js`, same number, different guard) — a `--scaffold` run writes only under
   `agent-docs/doflow/<slug>/scaffold/`, is byte-identical on re-run, emits signatures rather than
   logic, leaves a hand-edited file alone, and reports what it skipped as prominently as what it

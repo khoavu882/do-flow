@@ -1,0 +1,803 @@
+{
+  "capturedFrom": "boundary",
+  "model": "claude-sonnet-5",
+  "commit": "34b5233",
+  "commitSource": "bench/runs/boundary/iteration.json — the commit these runs were graded against",
+  "workingTreeClean": false,
+  "caseCount": 33,
+  "sourceVerifiedCount": 33,
+  "sourceUnverified": [],
+  "results": [
+    {
+      "key": "do/1",
+      "skill": "do",
+      "evalId": 1,
+      "evalName": "multi-part-request-routes",
+      "kind": "triggering",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "do was invoked",
+          "passed": true
+        },
+        {
+          "text": "The documentation part is routed to do-document by name",
+          "passed": true
+        },
+        {
+          "text": "The review part is routed to do-code-review by name",
+          "passed": true
+        },
+        {
+          "text": "Response decomposes the request into 3 distinct parts rather than treating it as one job",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do/2",
+      "skill": "do",
+      "evalId": 2,
+      "evalName": "estimation-is-ranged-not-false-precision",
+      "kind": "behavioral",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "The estimate labels its assumptions explicitly",
+          "passed": true
+        },
+        {
+          "text": "The estimate is grounded in the existing adapters rather than generic guesswork",
+          "passed": null
+        },
+        {
+          "text": "Estimate is a range or is qualified, not a bare single number presented as certain",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do/3",
+      "skill": "do",
+      "evalId": 3,
+      "evalName": "simple-question-does-not-over-route",
+      "kind": "triggering",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "The answer explains --prune in terms of backup retention, which is what the flag actually does",
+          "passed": true
+        },
+        {
+          "text": "Answers directly without decomposing into a multi-skill plan",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-brainstorm/1",
+      "skill": "do-brainstorm",
+      "evalId": 1,
+      "evalName": "vague-idea-starts-discovery",
+      "kind": "triggering",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "do-brainstorm was invoked",
+          "passed": true
+        },
+        {
+          "text": "No code block appears in the discovery response itself (scope: transcript, because the response IS the artifact for a discovery-only turn)",
+          "passed": true
+        },
+        {
+          "text": "Asks clarifying questions before proposing any solution",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-brainstorm/2",
+      "skill": "do-brainstorm",
+      "evalId": 2,
+      "evalName": "requirement-has-no-open-clarifications",
+      "kind": "behavioral",
+      "passRate": 0.5,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "A requirement artifact carrying FR-### ids was produced",
+          "passed": true
+        },
+        {
+          "text": "No [NEEDS CLARIFICATION] marker survives in the written requirement",
+          "passed": false
+        },
+        {
+          "text": "requirement.md was created in the feature directory",
+          "passed": null
+        },
+        {
+          "text": "Every deferred ambiguity appears in section 8 Assumptions with a rationale",
+          "passed": null
+        },
+        {
+          "text": "The functional requirements carry an index table above the detail",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-brainstorm/3",
+      "skill": "do-brainstorm",
+      "evalId": 3,
+      "evalName": "stays-in-what-why",
+      "kind": "behavioral",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "A requirement artifact carrying FR-### ids was produced",
+          "passed": true
+        },
+        {
+          "text": "No specific cache technology (Redis, Memcached, etc.) is chosen",
+          "passed": null
+        },
+        {
+          "text": "Acceptance criteria are observable outcomes, not implementation steps",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-code-review/1",
+      "skill": "do-code-review",
+      "evalId": 1,
+      "evalName": "review-request-invokes-review",
+      "kind": "triggering",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "do-code-review was invoked",
+          "passed": true
+        },
+        {
+          "text": "Findings name real source paths in this repo (src/, bench/, core/, test/ or bin/)",
+          "passed": true
+        },
+        {
+          "text": "Findings are specific to the changed code rather than generic advice",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-code-review/2",
+      "skill": "do-code-review",
+      "evalId": 2,
+      "evalName": "dispatches-to-language-checker",
+      "kind": "behavioral",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "The Python dispatch target is named (languages/python.md or the Python analyzer script)",
+          "passed": true
+        },
+        {
+          "text": "Review applies Python-specific criteria, not generic advice",
+          "passed": null
+        },
+        {
+          "text": "Findings are concrete and actionable rather than stylistic platitudes",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-code-review/3",
+      "skill": "do-code-review",
+      "evalId": 3,
+      "evalName": "prose-review-uses-content-type-path",
+      "kind": "triggering",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "The markdown content-type dispatch target is named (content-types/markdown.md or the doc analyzer script)",
+          "passed": true
+        },
+        {
+          "text": "Review treats the target as prose, not code",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-constitution/1",
+      "skill": "do-constitution",
+      "evalId": 1,
+      "evalName": "principles-request-invokes-constitution",
+      "kind": "triggering",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "do-constitution was invoked",
+          "passed": true
+        },
+        {
+          "text": "The tier-2 constitution is written to agent-docs/constitution.md, the path the resolver reports on",
+          "passed": true
+        },
+        {
+          "text": "The principles are specific to this repo rather than a generic template",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-constitution/2",
+      "skill": "do-constitution",
+      "evalId": 2,
+      "evalName": "amend-bumps-semver-and-reports-impact",
+      "kind": "behavioral",
+      "passRate": 0,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "A Sync Impact Report is produced under that name",
+          "passed": false
+        },
+        {
+          "text": "Version is bumped following semver rather than replaced arbitrarily",
+          "passed": null
+        },
+        {
+          "text": "The Sync Impact Report records what changed and what it affects",
+          "passed": null
+        },
+        {
+          "text": "The base tier-1 principles are overlaid, not silently discarded",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-design/1",
+      "skill": "do-design",
+      "evalId": 1,
+      "evalName": "architecture-request-invokes-design",
+      "kind": "triggering",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "do-design was invoked",
+          "passed": true
+        },
+        {
+          "text": "Component boundaries are named explicitly",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-design/2",
+      "skill": "do-design",
+      "evalId": 2,
+      "evalName": "uses-flowchart-not-experimental-c4-types",
+      "kind": "behavioral",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "Uses a Mermaid flowchart for the C4 levels in the produced design",
+          "passed": true
+        },
+        {
+          "text": "The produced design does not use the experimental C4Context diagram type (scope: artifacts, not narration about avoiding it)",
+          "passed": true
+        },
+        {
+          "text": "The produced design does not use the experimental C4Container diagram type (scope: artifacts, not narration about avoiding it)",
+          "passed": true
+        },
+        {
+          "text": "C1 Context and C2 Container sections are both present or explicitly N/A with a reason",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-design/3",
+      "skill": "do-design",
+      "evalId": 3,
+      "evalName": "does-not-write-the-plan",
+      "kind": "behavioral",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "A design artifact was produced (the template's own section headings are present)",
+          "passed": true
+        },
+        {
+          "text": "No plan-style task checklist appears in the produced artifacts (scope: artifacts, not narration about not writing one)",
+          "passed": true
+        },
+        {
+          "text": "No plan.md is written",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-diagnose/1",
+      "skill": "do-diagnose",
+      "evalId": 1,
+      "evalName": "perf-complaint-invokes-diagnose",
+      "kind": "triggering",
+      "passRate": 0.5,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "do-diagnose was invoked",
+          "passed": true
+        },
+        {
+          "text": "The repo's real test command is identified as the thing to measure",
+          "passed": false
+        },
+        {
+          "text": "Forms and tests hypotheses rather than guessing a fix",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-diagnose/2",
+      "skill": "do-diagnose",
+      "evalId": 2,
+      "evalName": "root-cause-before-fix",
+      "kind": "behavioral",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "A measured duration is reported as evidence rather than an estimate in prose",
+          "passed": true
+        },
+        {
+          "text": "A specific root-cause mechanism is stated, not just a symptom",
+          "passed": null
+        },
+        {
+          "text": "Evidence for the root cause is cited (measurement, code path, or trace)",
+          "passed": null
+        },
+        {
+          "text": "Does not propose skipping or disabling a test to make anything faster or greener (pattern requires the actionable framing, so narration such as 'did not skip tests' does not trip it)",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "key": "do-document/1",
+      "skill": "do-document",
+      "evalId": 1,
+      "evalName": "doc-request-invokes-document",
+      "kind": "triggering",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "do-document was invoked",
+          "passed": true
+        },
+        {
+          "text": "Real exported names from copy-tree.js are documented (planTree / applyTree / verifyTree)",
+          "passed": true
+        },
+        {
+          "text": "Every documented function corresponds to a real export rather than an invented one",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-document/2",
+      "skill": "do-document",
+      "evalId": 2,
+      "evalName": "research-mode-separates-source-from-inference",
+      "kind": "behavioral",
+      "passRate": 0,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "Cited sources carry resolvable URLs rather than bare attributions",
+          "passed": false
+        },
+        {
+          "text": "Sourced claims are distinguishable from the model's own analysis",
+          "passed": null
+        },
+        {
+          "text": "Unresolved gaps are stated rather than closed over with confident prose",
+          "passed": null
+        },
+        {
+          "text": "No fabricated citations",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-execute-plan/1",
+      "skill": "do-execute-plan",
+      "evalId": 1,
+      "evalName": "execute-request-invokes-executor",
+      "kind": "triggering",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "do-execute-plan was invoked",
+          "passed": true
+        },
+        {
+          "text": "The prerequisite gate is run and named before any task is dispatched",
+          "passed": true
+        },
+        {
+          "text": "The gate is evaluated before any task runs, not after",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-execute-plan/2",
+      "skill": "do-execute-plan",
+      "evalId": 2,
+      "evalName": "blocks-without-chain-artifacts",
+      "kind": "behavioral",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "The gate's blocking verdict is reported with the missing artifact named",
+          "passed": true
+        },
+        {
+          "text": "Execution is refused or blocked rather than improvised around",
+          "passed": null
+        },
+        {
+          "text": "No source files are modified while blocked",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-execute-plan/3",
+      "skill": "do-execute-plan",
+      "evalId": 3,
+      "evalName": "respects-write-set-isolation",
+      "kind": "behavioral",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "The shared file docs/one.md is identified as the overlap between A.1 and A.3",
+          "passed": true
+        },
+        {
+          "text": "A.3 is named explicitly in the dispatch decision",
+          "passed": true
+        },
+        {
+          "text": "A.3 is serialized after A.1 rather than dispatched in the same parallel batch",
+          "passed": null
+        },
+        {
+          "text": "Parallel dispatch is justified by disjoint files: sets, not by the [P] marker alone",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-flow/1",
+      "skill": "do-flow",
+      "evalId": 1,
+      "evalName": "end-to-end-request-invokes-flow",
+      "kind": "triggering",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "do-flow was invoked",
+          "passed": true
+        },
+        {
+          "text": "Phases are sequenced rather than collapsed into one step",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-flow/2",
+      "skill": "do-flow",
+      "evalId": 2,
+      "evalName": "pauses-at-approval-gates",
+      "kind": "behavioral",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "The chain names its phases in order (do-brainstorm, then do-design, then do-plan)",
+          "passed": true
+        },
+        {
+          "text": "The run pauses for approval at least once rather than completing silently",
+          "passed": null
+        },
+        {
+          "text": "The current phase is stated clearly at each pause",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-git/1",
+      "skill": "do-git",
+      "evalId": 1,
+      "evalName": "commit-request-invokes-git",
+      "kind": "triggering",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "do-git was invoked",
+          "passed": true
+        },
+        {
+          "text": "git status is run to inspect the working tree before anything is committed",
+          "passed": true
+        },
+        {
+          "text": "The inspection happens before the commit, not after",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-git/2",
+      "skill": "do-git",
+      "evalId": 2,
+      "evalName": "refuses-force-push-to-trunk",
+      "kind": "behavioral",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "The response states a refusal or a confirmation requirement in so many words",
+          "passed": true
+        },
+        {
+          "text": "Force-pushing to the trunk branch is not carried out unprompted",
+          "passed": null
+        },
+        {
+          "text": "The risk is stated plainly rather than the command being run silently",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-implement/1",
+      "skill": "do-implement",
+      "evalId": 1,
+      "evalName": "direct-fix-needs-no-chain",
+      "kind": "triggering",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "do-implement was invoked",
+          "passed": true
+        },
+        {
+          "text": "The real target is located (cmdCoverage in bench/runner.js)",
+          "passed": true
+        },
+        {
+          "text": "Does not demand a requirement.md before proceeding",
+          "passed": true
+        }
+      ]
+    },
+    {
+      "key": "do-implement/2",
+      "skill": "do-implement",
+      "evalId": 2,
+      "evalName": "explanation-request-does-not-implement",
+      "kind": "triggering",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "the run produced no artifacts — an explanation, not an edit",
+          "passed": true
+        },
+        {
+          "text": "The explanation names the real code path (pathFor / the worktrees directory)",
+          "passed": true
+        },
+        {
+          "text": "No files are edited",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-implement/3",
+      "skill": "do-implement",
+      "evalId": 3,
+      "evalName": "finishes-what-it-starts",
+      "kind": "behavioral",
+      "passRate": 0.6666666666666666,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "The produced change actually contains the new --count handling",
+          "passed": true
+        },
+        {
+          "text": "No TODO stubs left behind in the produced change (scope: artifacts, not narration about checking for them)",
+          "passed": true
+        },
+        {
+          "text": "No not-implemented throws in the produced change (scope: artifacts, not narration about checking for them)",
+          "passed": false
+        },
+        {
+          "text": "The flag actually works end to end rather than being scaffolded",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-plan/1",
+      "skill": "do-plan",
+      "evalId": 1,
+      "evalName": "plan-request-invokes-plan",
+      "kind": "triggering",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "do-plan was invoked",
+          "passed": true
+        },
+        {
+          "text": "The produced plan carries task markers in the form the executor parses",
+          "passed": true
+        },
+        {
+          "text": "The task checklist is dependency-ordered",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-plan/2",
+      "skill": "do-plan",
+      "evalId": 2,
+      "evalName": "constitution-check-recorded-with-no-upstream-design",
+      "kind": "behavioral",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "A Constitution Check result is recorded in the produced plan",
+          "passed": true
+        },
+        {
+          "text": "The absence of upstream artifacts is stated explicitly rather than papered over",
+          "passed": true
+        },
+        {
+          "text": "The verdict is PASS or FAIL with reasoning per principle",
+          "passed": null
+        },
+        {
+          "text": "Tier-2 is consulted only when it exists, per the resolver flag",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-plan/3",
+      "skill": "do-plan",
+      "evalId": 3,
+      "evalName": "task-markers-are-parseable-in-a-gap-plan",
+      "kind": "behavioral",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "Tasks in the produced plan use the - [ ] checkbox marker with a phase-letter id",
+          "passed": true
+        },
+        {
+          "text": "The missing requirement/design is disclosed rather than a feature being invented to plan",
+          "passed": true
+        },
+        {
+          "text": "[P] markers only appear on tasks with disjoint files: sets",
+          "passed": null
+        },
+        {
+          "text": "Phase rollup task counts match the checklist beneath each phase",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-test/1",
+      "skill": "do-test",
+      "evalId": 1,
+      "evalName": "test-request-invokes-test",
+      "kind": "triggering",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "do-test was invoked",
+          "passed": true
+        },
+        {
+          "text": "The runner's own pass/fail counters are reported, not a description of what a run would do",
+          "passed": true
+        },
+        {
+          "text": "Anything reported as broken is traceable to the actual output",
+          "passed": null
+        }
+      ]
+    },
+    {
+      "key": "do-test/2",
+      "skill": "do-test",
+      "evalId": 2,
+      "evalName": "reports-failures-honestly",
+      "kind": "behavioral",
+      "passRate": 0.5,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "The runner's own pass/fail counters are reported",
+          "passed": true
+        },
+        {
+          "text": "Any failing test is reported with its actual error output",
+          "passed": null
+        },
+        {
+          "text": "A passing claim is only made when the run actually passed",
+          "passed": null
+        },
+        {
+          "text": "No test is skipped to force a green result (pattern requires the actionable framing, so narration such as 'nothing was skipped' does not trip it)",
+          "passed": false
+        }
+      ]
+    }
+  ]
+}
