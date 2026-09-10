@@ -46,6 +46,10 @@ const ALLOWLIST = new Map([
     'CLI-only observability aggregation command (doflow stats) for operator inspection of local run ledger, not invoked by skill workflows',
   ],
   [
+    'indicators',
+    'CLI-only observability command (doflow indicators) for operator inspection of the local orchestration record: per-stage and per-gate intervals, stage outcomes and rerun counts, grouped by task class. Read-only and invoked by no skill workflow, for the same reason stats is not — it measures how a workflow progressed rather than participating in one',
+  ],
+  [
     'doctor',
     'CLI-only health diagnostic and smoke check command (doflow doctor) for human operators and environment setup, not invoked by skill workflows',
   ],
