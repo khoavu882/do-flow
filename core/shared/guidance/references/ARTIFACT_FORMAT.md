@@ -234,7 +234,8 @@ nested bullets, so items compare column-wise at a glance.
 
 ## 9. What the checker does and does not do
 
-Run `validate-artifacts.sh [--json] [--slug=<slug>] [<path>...]` after writing. Exit `0` clean,
+Run `"$DOFLOW" validate [--json] [--slug=<slug>] [<path>...]` after writing — the seam passes those
+flags through unchanged, and the helper behind the verb is not on `PATH` to be called by name. Exit `0` clean,
 `1` on findings, `0` plus a printed note when it cannot work out what to check (no active feature,
 resolver or `jq` unavailable).
 
