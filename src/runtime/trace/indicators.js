@@ -126,6 +126,23 @@ function runRows(record) {
   };
 }
 
+/** Median elapsed per stage id across runs of one class. Synthetic rows are excluded here and still
+ * listed in their run: averaging the moment a file was written into the figure most likely to be
+ * quoted would corrupt it. */
+function aggregateStages(runs) {
+  const perStage = new Map();
+  for (const run of runs) {
+    for (const row of run.stages) {
+      if (row.synthetic || row.elapsedMs === null || !row.stage) continue;
+      if (!perStage.has(row.stage)) perStage.set(row.stage, []);
+      perStage.get(row.stage).push(row.elapsedMs);
+    }
+  }
+  return [...perStage.entries()].map(([stage, values]) => ({
+    stage, runs: values.length, medianMs: median(values),
+  }));
+}
+
 /** Pure. Reads nothing and writes nothing; takes already-parsed records. */
 function buildIndicators({ records = [], unreadable = [], exists = true } = {}) {
   const runs = records.map(runRows);
@@ -137,21 +154,7 @@ function buildIndicators({ records = [], unreadable = [], exists = true } = {}) 
     byClass.get(key).runs.push(run);
   }
 
-  for (const group of byClass.values()) {
-    const perStage = new Map();
-    for (const run of group.runs) {
-      for (const row of run.stages) {
-        // Synthetic rows are excluded here and still listed in their run: averaging the moment a file
-        // was written into the figure most likely to be quoted would corrupt it.
-        if (row.synthetic || row.elapsedMs === null || !row.stage) continue;
-        if (!perStage.has(row.stage)) perStage.set(row.stage, []);
-        perStage.get(row.stage).push(row.elapsedMs);
-      }
-    }
-    group.stageAggregate = [...perStage.entries()].map(([stage, values]) => ({
-      stage, runs: values.length, medianMs: median(values),
-    }));
-  }
+  for (const group of byClass.values()) group.stageAggregate = aggregateStages(group.runs);
 
   return {
     view: 'indicators',
@@ -168,6 +171,26 @@ function buildIndicators({ records = [], unreadable = [], exists = true } = {}) 
       'No git, pull-request or continuous-integration indicator is computable here: the orchestration record holds none of that data.',
     ],
   };
+}
+
+/** One class block: its runs, each run's stage and gate rows, then the class median. */
+function printClass(group) {
+  console.log('─'.repeat(78));
+  console.log(`CLASS: ${group.taskClass}   (${group.runs.length} run(s))`);
+  for (const run of group.runs) {
+    console.log(`  ${run.taskId}  state=${run.state}  total ${formatMs(run.totalMs)}  reruns ${run.reruns}`);
+    for (const row of run.stages) {
+      console.log(`     stage ${String(row.stage).padEnd(24)} ${formatMs(row.elapsedMs).padStart(9)}  outcome=${row.outcome ?? 'not recorded'}${row.synthetic ? '  [backfilled/imported]' : ''}`);
+    }
+    for (const row of run.gates) {
+      console.log(`     wait  ${String(row.gate).padEnd(24)} ${formatMs(row.elapsedMs).padStart(9)}  decision=${row.decision ?? 'not recorded'}${row.forced ? '  [forced]' : ''}`);
+    }
+  }
+  if (!group.stageAggregate.length) return;
+  console.log(`  median per stage (${group.taskClass}, backfilled excluded):`);
+  for (const agg of group.stageAggregate) {
+    console.log(`     ${agg.stage.padEnd(24)} ${formatMs(agg.medianMs).padStart(9)}  over ${agg.runs} run(s)`);
+  }
 }
 
 function handleIndicatorsCommand({ json = false, projectRoot = process.cwd() } = {}) {
@@ -198,25 +221,7 @@ function handleIndicatorsCommand({ json = false, projectRoot = process.cwd() } =
     console.log(`Unreadable: ${view.unreadable.length} record(s) — ${view.unreadable.map((u) => u.file).join(', ')}`);
   }
 
-  for (const group of view.byClass) {
-    console.log('─'.repeat(78));
-    console.log(`CLASS: ${group.taskClass}   (${group.runs.length} run(s))`);
-    for (const run of group.runs) {
-      console.log(`  ${run.taskId}  state=${run.state}  total ${formatMs(run.totalMs)}  reruns ${run.reruns}`);
-      for (const row of run.stages) {
-        console.log(`     stage ${String(row.stage).padEnd(24)} ${formatMs(row.elapsedMs).padStart(9)}  outcome=${row.outcome ?? 'not recorded'}${row.synthetic ? '  [backfilled/imported]' : ''}`);
-      }
-      for (const row of run.gates) {
-        console.log(`     wait  ${String(row.gate).padEnd(24)} ${formatMs(row.elapsedMs).padStart(9)}  decision=${row.decision ?? 'not recorded'}${row.forced ? '  [forced]' : ''}`);
-      }
-    }
-    if (group.stageAggregate.length) {
-      console.log(`  median per stage (${group.taskClass}, backfilled excluded):`);
-      for (const agg of group.stageAggregate) {
-        console.log(`     ${agg.stage.padEnd(24)} ${formatMs(agg.medianMs).padStart(9)}  over ${agg.runs} run(s)`);
-      }
-    }
-  }
+  for (const group of view.byClass) printClass(group);
 
   console.log('─'.repeat(78));
   console.log('What this does not measure:');
