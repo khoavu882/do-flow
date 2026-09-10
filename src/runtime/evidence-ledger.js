@@ -28,6 +28,33 @@ const VALID_PROVENANCE = new Set(['extracted', 'inferred', 'asserted']);
  * it (NFR-003 applies here the same way it does to claims). */
 const EVIDENCE_STATUSES = new Set(['active', 'superseded']);
 
+/**
+ * Gate for a status arriving from disk. The set above was declared and exported while nothing read
+ * it, so the "mirrors claims.js" claim in the comment held for the declaration and not for the use.
+ *
+ * This throws where `claims.js` normalizes, and the asymmetry is deliberate: an unrecognized claim
+ * status falls back to `'hypothesis'`, the weakest state, so the worst case is a claim having to
+ * earn its support again. There is no equivalently safe default here. Treating an unreadable status
+ * as `'active'` would silently un-retire superseded evidence and feed it back into readiness — the
+ * exact failure `supersede` exists to prevent — and treating it as `'superseded'` would retire
+ * evidence nobody retired. With no safe direction, the honest move is to refuse the file and name
+ * the item, rather than pick one and be wrong in a way no output reveals.
+ *
+ * @param {object} item
+ * @param {string} file the ledger path, so the message says which file to look at
+ * @returns {object} the same item, once its status is one of the two
+ */
+function assertKnownStatus(item, file) {
+  const status = item?.status;
+  if (!EVIDENCE_STATUSES.has(status)) {
+    throw new Error(
+      `Evidence '${item?.id ?? '(no id)'}' in ${file} has status '${status}', which is not one of: `
+      + `${[...EVIDENCE_STATUSES].join(', ')}. Refusing to guess whether it is active.`,
+    );
+  }
+  return item;
+}
+
 /** A task id becomes a filename inside the state directory, so it must not be able to name a path.
  * `path.join(stateDir, `${taskId}.json`)` happily resolves `../../../etc/hosts` out of the state
  * dir entirely — read-only today only because nothing calls save(), and an arbitrary file write
@@ -262,6 +289,7 @@ class EvidenceLedger {
     const data = readTaskState(this.fsImpl, targetFile);
     if (data && Array.isArray(data.evidence)) {
       for (const item of data.evidence) {
+        assertKnownStatus(item, targetFile);
         this.evidenceMap.set(item.id, item);
         this.baseline.set(item.id, JSON.parse(JSON.stringify(item)));
       }
