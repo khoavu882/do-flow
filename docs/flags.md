@@ -33,8 +33,8 @@ phase, not a guard failure by itself.
 | --fix | do-diagnose | (boolean flag) | apply remediation after approval |
 | --focus | do-diagnose | quality \| security \| performance \| architecture | narrow analysis domain |
 | --from | do-flow | brainstorm \| design \| plan \| implement \| test \| review | override phase auto-detection |
-| --intent | do-brainstorm | path to an `agent-docs/intent/` file | seed discovery from a pre-branch intent |
 | --from-review | do-implement | (boolean flag) | work from review findings |
+| --intent | do-brainstorm | path to an `agent-docs/intent/` file | seed discovery from a pre-branch intent |
 | --review | do-execute-plan | boolean, `=false` to skip | post-execution review pass, on by default |
 | --scaffold | do-execute-plan | (boolean flag) | emit a reviewable code scaffold under the feature dir instead of executing |
 | --scope | do-execute-plan | next \| phase:N \| all \| resume | which pending work this run executes |

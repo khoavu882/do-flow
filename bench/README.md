@@ -1,6 +1,9 @@
 # `bench/` — skill evaluation harness
 
-This directory is local-only and ignored by Git. For native Codex/Claude discovery and session
+The corpus in this directory is TRACKED: the runner, the per-skill eval definitions, `config.json` and
+the sanitized baseline all ship with the repository, so the behavioral baseline is reproducible from a
+clean clone. Only `bench/runs/` and `bench/reports/` stay local, being artifacts of paid runs rather
+than corpus. `test/guards/evals.test.js` fails if the corpus stops being tracked. For native Codex/Claude discovery and session
 behavior, use the separate [native-session corpus](native/README.md). It starts from ordinary user
 messages and reports task outcomes and usage separately; the by-path skill benchmark below measures
 a different surface.

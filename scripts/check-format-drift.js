@@ -207,7 +207,9 @@ function renderHuman(report) {
     + (summary.excludedClaims ? ` (${summary.excludedClaims} claims allowlisted)` : '')
     + (summary.staleBaselineUrls ? ` (${summary.staleBaselineUrls} stale baseline entries)` : ''));
   out.push('');
-  const width = Math.max(...['STATUS', ...results.map((r) => r.status.length)]);
+  // 'STATUS' rather than 'STATUS'.length coerced to NaN here, and padEnd(NaN) is a no-op, so every
+  // column was flush-left regardless of status width.
+  const width = Math.max('STATUS'.length, ...results.map((r) => r.status.length));
   out.push(`${'STATUS'.padEnd(width)}  URL`);
   for (const row of results) {
     out.push(`${row.status.padEnd(width)}  ${row.url}`);

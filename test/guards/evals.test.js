@@ -272,3 +272,56 @@ test('G11: the bench harness is not wired into the default test command', () => 
     'npm test must not invoke the bench harness — it makes paid model calls',
   );
 });
+
+test('G11/034: an outputs-scoped assertion is graded from outputs/, not gated on a transcript', () => {
+  // Review finding. gradeAssertion decided `needsTranscript` from the assertion TYPE alone, while
+  // scopeFor() routes `in: 'outputs'` to the artifacts and never reads the transcript. A run that
+  // produced artifacts but no transcript.txt therefore failed every outputs-scoped assertion with
+  // "no transcript.txt saved for this run" — 15 of them across four skills in the shipped corpus —
+  // understating the pass rate and pointing a baseline delta at the wrong file.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-grade-'));
+  fs.mkdirSync(path.join(dir, 'outputs'));
+  fs.writeFileSync(path.join(dir, 'outputs', 'design.md'), 'a clean design with no forbidden token\n');
+  const ctx = runner.loadRunContext(dir);
+  ctx.cfg = runner.loadConfig();
+  ctx.skill = 'do-design';
+  assert.equal(ctx.hasTranscript, false, 'the fixture must have no transcript, which is the whole point');
+
+  const scoped = runner.gradeAssertion(
+    { text: 'no C4Context', type: 'output_not_matches', pattern: 'C4Context', in: 'outputs' }, ctx);
+  assert.equal(scoped.passed, true,
+    `an outputs-scoped assertion is decidable from the artifact alone; got: ${scoped.evidence}`);
+
+  // The other half: a transcript-scoped assertion with no transcript must still fail, or this fix
+  // would have removed the check instead of narrowing it.
+  const unscoped = runner.gradeAssertion({ text: 'transcript says X', type: 'output_matches', pattern: 'X' }, ctx);
+  assert.equal(unscoped.passed, false, 'a transcript-scoped assertion with no transcript must still fail');
+  assert.match(unscoped.evidence, /no transcript\.txt/);
+});
+
+test('G11/034: no shipped document claims the bench corpus is ignored by Git', () => {
+  // The corpus went local-only twice, and after re-tracking it three documents still said it was
+  // ignored — CLAUDE.md, bench/README.md and docs/architecture.md's repository map. Two survived the
+  // feature whose whole purpose was correcting that claim, because they sat in sections nobody was
+  // editing at the time.
+  const docs = [
+    path.join(REPO, 'bench', 'README.md'),
+    path.join(REPO, 'docs', 'architecture.md'),
+  ].filter((f) => fs.existsSync(f));
+  const offenders = [];
+  for (const doc of docs) {
+    // Inside bench/README.md every line is about bench by context — the original offending sentence
+    // said "This directory is local-only", naming bench nowhere. Requiring the word here is what let a
+    // first version of this guard pass on the very text it exists to catch.
+    const subjectIsBench = doc.includes(`${path.sep}bench${path.sep}`);
+    for (const [i, line] of fs.readFileSync(doc, 'utf8').split('\n').entries()) {
+      if (!subjectIsBench && !/bench/i.test(line)) continue;
+      // A claim that bench is ignored, as opposed to the true statement that runs/ and reports/ are.
+      if (/ignored by git|local-only/i.test(line) && !/runs\/|reports\//.test(line)) {
+        offenders.push(`${path.relative(REPO, doc)}:${i + 1} — ${line.trim().slice(0, 90)}`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, [],
+    'the corpus is tracked; only bench/runs/ and bench/reports/ are ignored:\n  ' + offenders.join('\n  '));
+});
