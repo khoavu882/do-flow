@@ -1,6 +1,6 @@
 {
   "name": "@khoavu882/doflow",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "DoFlow config installer — npx CLI for the registry-driven multi-harness install/update/remove lifecycle",
   "keywords": [
     "claude-code",
