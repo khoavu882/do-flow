@@ -437,3 +437,37 @@ test('G8: no skill documents the known-broken `../../bin/doflow-run` relative ca
     + 'directory, so this call always fails. Inline the walk-up resolver instead:\n  '
     + `${offenders.join('\n  ')}`);
 });
+
+test('G8: every npm script a CI workflow invokes is a script package.json declares', () => {
+  // The call side of the same indirection, for the one consumer no guard read: a GitHub workflow.
+  // This is not hypothetical. fc675ce deleted the whole scripts/ tree as collateral to an unrelated
+  // stage-entry-policy change, taking `scripts/check-format-drift.js` and the `drift` npm script
+  // with it, and left .github/workflows/drift.yml invoking `npm run drift`. Nothing noticed for
+  // three weeks of scheduled runs, because the suite reads skills, docs and src/ but never
+  // .github/.
+  //
+  // The failure was worse than a red job. npm exits 1 on a missing script, which is the same code
+  // drift.yml reads as DRIFTED, so the dead watcher took the issue-filing branch and opened a
+  // tracking issue (#58) claiming upstream drift with an empty claim list. A reference that cannot
+  // resolve does not reliably fail loudly — it can imitate a signal — which is why this is checked
+  // statically rather than left to the job's own exit code.
+  const WORKFLOWS = path.join(REPO, '.github', 'workflows');
+  const declared = new Set(Object.keys(JSON.parse(
+    fs.readFileSync(path.join(REPO, 'package.json'), 'utf8')).scripts || {}));
+
+  const dangling = [];
+  for (const entry of fs.existsSync(WORKFLOWS) ? fs.readdirSync(WORKFLOWS) : []) {
+    if (!/\.ya?ml$/.test(entry)) continue;
+    const text = fs.readFileSync(path.join(WORKFLOWS, entry), 'utf8');
+    // `npm run <script>` and `npm run <script> -- <args>`. Script names allow the `:` that npm
+    // conventionally uses for namespacing (`gen:capability-map`), so the class is deliberately
+    // wider than the names currently declared.
+    for (const [, script] of text.matchAll(/npm run ([A-Za-z0-9:_-]+)/g)) {
+      if (!declared.has(script)) dangling.push(`.github/workflows/${entry} -> npm run ${script}`);
+    }
+  }
+  const unique = [...new Set(dangling)].sort();
+  assert.deepEqual(unique, [],
+    'these workflow steps would fail with npm "Missing script", and a workflow that branches on '
+    + 'the exit code can read that 1 as a real signal:\n  ' + unique.join('\n  '));
+});
