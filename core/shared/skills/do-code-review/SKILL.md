@@ -190,20 +190,20 @@ python scripts/code_quality_checker.py . --language java
 python scripts/code_quality_checker.py /path/to/code --json
 ```
 
-**Universal thresholds:**
+**Universal thresholds:** declared in `review-policy.json`, never here. A guard fails the suite if a
+number from it reappears in any document. Read what a run applies from the run: `--json` carries a
+`policy` block naming the thresholds in force and the tiers that supplied them.
 
-| Issue | Threshold |
-|-------|-----------|
-| Long function | >50 lines |
-| Too many params | >5 |
-| High complexity | >10 branches |
-| God class | >20 methods |
-| Too many imports | >15 |
+Three tiers resolve into one, lowest precedence first: the analyzer's built-in literal, the shipped
+`review-policy.json` beside this file, then `agent-docs/review-policy.json` in the repository under
+review, which a project's tech lead owns. A per-repo file is **partial** — declare only what you are
+changing — and its absence is the ordinary state. A file that does not parse, names an unknown group,
+or gives a threshold a non-integer value stops the analyzer naming the file and the problem rather
+than reverting to defaults under a maintainer who believes their tuning applies. The policy also
+declares severities, the verdict bands below, and the globs a review excludes.
 
-Transcribed from the `THRESHOLDS` dict in `scripts/code_quality_checker.py`, in its order — that
-dict is the source of truth, so re-check it there rather than trusting this table. Those five are
-the whole set: the checker implements no file-length and no nesting-depth check, so do not report a
-finding against one.
+The per-repo tier is found by walking up from the analysed path, so a target outside any repository
+resolves none, which the `policy` block makes visible.
 
 Language-specific checks are defined in each `languages/*.md` file.
 
@@ -226,14 +226,10 @@ python scripts/review_report_generator.py . \
   --quality-analysis quality_results.json
 ```
 
-**Verdicts:**
-
-| Score | Verdict |
-|-------|---------|
-| 90+ with no high issues | Approve |
-| 75+ with ≤2 high issues | Approve with suggestions |
-| 50-74 | Request changes |
-| <50 or critical issues | Block |
+**Verdicts:** the bands live in `review-policy.json` under `verdictBands`, for the same reason the
+thresholds do. They are **declared, never applied**: they orient a reviewer reading a score, and
+nothing computes the verdict from one. A verdict may therefore disagree with the band a score falls
+in, provided the report says so and why.
 
 ---
 

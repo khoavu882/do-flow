@@ -21,6 +21,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared');
+const { loadRegistry, capabilityMapData } = require('../../src/registry');
 
 const BASH_DIR = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash');
 const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
@@ -202,10 +203,22 @@ test('G8: every repo path a doc names in backticks exists', () => {
   // read, wrong to copy — and the same class of error as a moved directory silently outliving its
   // documentation. Only backticked paths rooted at a known top-level directory are checked, so
   // prose and command examples are unaffected.
-  const roots = 'core|src|bin|test|docs';
+  // `bench` joined the list once bench/ became tracked content: it is as repo-rooted as the others.
+  //
+  // `scripts` is deliberately NOT in this list and must not be added to it. The segment is ambiguous
+  // by design in three different places: a skill writes `scripts/code_quality_checker.py` meaning its
+  // own bundled directory, the guidance tree writes `scripts/doflow/bash/...` meaning the *installed*
+  // root, and only a docs page means this repository's `scripts/`. Adding it here reports all three,
+  // so the rule below narrows it to docs/ instead — where a relative reading is not available and a
+  // dangling path is therefore unambiguous. That gap is how `scripts/generate-capability-map.js`
+  // survived in refactor-plan.md after the generator was deleted.
+  const roots = 'core|src|bin|test|docs|bench';
   const missing = [];
   for (const { rel, text } of consumerTexts()) {
-    for (const [, p] of text.matchAll(new RegExp(`\`((?:${roots})/[A-Za-z0-9_./-]*)\``, 'g'))) {
+    const pattern = rel.startsWith('docs/') || rel.startsWith(`docs${path.sep}`)
+      ? `\`((?:${roots}|scripts)/[A-Za-z0-9_./-]*)\``
+      : `\`((?:${roots})/[A-Za-z0-9_./-]*)\``;
+    for (const [, p] of text.matchAll(new RegExp(pattern, 'g'))) {
       const clean = p.replace(/\/$/, '');
       if (!fs.existsSync(path.join(REPO, clean))) missing.push(`${rel} -> ${p}`);
     }
@@ -214,8 +227,70 @@ test('G8: every repo path a doc names in backticks exists', () => {
   assert.deepEqual(unique, [], `these documented paths do not exist:\n  ${unique.join('\n  ')}`);
 });
 
-// The byte-for-byte capability-map guard left with its generator when scripts/ was removed:
-// docs/capability-map.md is hand-maintained again, so registry changes must update it by hand.
+test('G8: the capability matrix agrees with the registry, cell for cell', () => {
+  // The byte-for-byte guard left with its generator when scripts/generate-capability-map.js was
+  // removed, and so did `npm run gen:capability-map`. What stayed behind were the
+  // `<!-- BEGIN GENERATED:capability-matrix -->` markers, which tell every reader the region is
+  // machine-written, and the prose below the table, which says a hand edit "will drift from it".
+  // Both were true of a mechanism that no longer existed: the region became hand-maintained with
+  // nothing comparing it to the registry, which is precisely the drift the generator was introduced
+  // to remove. This guard restores the comparison without restoring the generator — `capabilityMapData`
+  // is still the registry's own projection, so the table is checked against it rather than regenerated.
+  const CAPABILITY_LABELS = {
+    Instructions: 'instructions',
+    Skills: 'skills',
+    Agents: 'agents',
+    Scripts: 'scripts',
+    Templates: 'templates',
+    Modes: 'modes',
+    Settings: 'settings',
+    Hooks: 'hooks',
+    MCP: 'mcp',
+    'Plugin / extension': 'plugin',
+  };
+
+  const doc = fs.readFileSync(path.join(REPO, 'docs/capability-map.md'), 'utf8');
+  const region = doc.match(
+    /<!-- BEGIN GENERATED:capability-matrix -->\n([\s\S]*?)<!-- END GENERATED:capability-matrix -->/,
+  );
+  assert.ok(region, 'the capability-matrix markers must stay: they are what this guard anchors on');
+
+  const rows = region[1].trim().split('\n').map((l) => l.split('|').slice(1, -1).map((c) => c.trim()));
+  const harnessColumns = rows[0].slice(1);
+  const body = rows.slice(2); // row 1 is the |---| separator
+
+  const byDisplayAndCapability = new Map();
+  for (const record of capabilityMapData(loadRegistry({ repoRoot: REPO }))) {
+    byDisplayAndCapability.set(`${record.displayName} ${record.capability}`, record);
+  }
+
+  const drift = [];
+  for (const row of body) {
+    const capability = CAPABILITY_LABELS[row[0]];
+    if (!capability) { drift.push(`row label "${row[0]}" maps to no registry capability`); continue; }
+    row.slice(1).forEach((cell, column) => {
+      const displayName = harnessColumns[column];
+      const record = byDisplayAndCapability.get(`${displayName} ${capability}`);
+      if (!record) { drift.push(`no registry row for ${displayName} / ${capability}`); return; }
+
+      // A cell is "Status" or "Status — `nativeTarget`". Both halves are registry facts.
+      const status = cell.split('—')[0].trim().toLowerCase();
+      if (status !== record.status) {
+        drift.push(`${displayName}/${capability}: table says "${status}", registry says "${record.status}"`);
+      }
+      const backticked = cell.match(/`([^`]+)`/);
+      const target = backticked ? backticked[1] : null;
+      if (target !== record.nativeTarget) {
+        drift.push(`${displayName}/${capability}: table target ${JSON.stringify(target)}, registry ${JSON.stringify(record.nativeTarget)}`);
+      }
+    });
+  }
+
+  assert.equal(body.length * harnessColumns.length, byDisplayAndCapability.size,
+    'the table must cover every registry harness/capability pair, with no extra cells');
+  assert.deepEqual(drift, [],
+    'docs/capability-map.md has drifted from core/registry/harnesses.json:\n  ' + drift.join('\n  '));
+});
 
 test('G8: every docs page is reachable from the mkdocs nav', () => {
   // capability-map.md shipped for several releases absent from nav, so it never appeared in the
@@ -436,4 +511,38 @@ test('G8: no skill documents the known-broken `../../bin/doflow-run` relative ca
     'a relative path resolves against the working directory (the project root), not the skill '
     + 'directory, so this call always fails. Inline the walk-up resolver instead:\n  '
     + `${offenders.join('\n  ')}`);
+});
+
+test('G8: every npm script a CI workflow invokes is a script package.json declares', () => {
+  // The call side of the same indirection, for the one consumer no guard read: a GitHub workflow.
+  // This is not hypothetical. fc675ce deleted the whole scripts/ tree as collateral to an unrelated
+  // stage-entry-policy change, taking `scripts/check-format-drift.js` and the `drift` npm script
+  // with it, and left .github/workflows/drift.yml invoking `npm run drift`. Nothing noticed for
+  // three weeks of scheduled runs, because the suite reads skills, docs and src/ but never
+  // .github/.
+  //
+  // The failure was worse than a red job. npm exits 1 on a missing script, which is the same code
+  // drift.yml reads as DRIFTED, so the dead watcher took the issue-filing branch and opened a
+  // tracking issue (#58) claiming upstream drift with an empty claim list. A reference that cannot
+  // resolve does not reliably fail loudly — it can imitate a signal — which is why this is checked
+  // statically rather than left to the job's own exit code.
+  const WORKFLOWS = path.join(REPO, '.github', 'workflows');
+  const declared = new Set(Object.keys(JSON.parse(
+    fs.readFileSync(path.join(REPO, 'package.json'), 'utf8')).scripts || {}));
+
+  const dangling = [];
+  for (const entry of fs.existsSync(WORKFLOWS) ? fs.readdirSync(WORKFLOWS) : []) {
+    if (!/\.ya?ml$/.test(entry)) continue;
+    const text = fs.readFileSync(path.join(WORKFLOWS, entry), 'utf8');
+    // `npm run <script>` and `npm run <script> -- <args>`. Script names allow the `:` that npm
+    // conventionally uses for namespacing (`gen:capability-map`), so the class is deliberately
+    // wider than the names currently declared.
+    for (const [, script] of text.matchAll(/npm run ([A-Za-z0-9:_-]+)/g)) {
+      if (!declared.has(script)) dangling.push(`.github/workflows/${entry} -> npm run ${script}`);
+    }
+  }
+  const unique = [...new Set(dangling)].sort();
+  assert.deepEqual(unique, [],
+    'these workflow steps would fail with npm "Missing script", and a workflow that branches on '
+    + 'the exit code can read that 1 as a real signal:\n  ' + unique.join('\n  '));
 });

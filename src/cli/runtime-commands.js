@@ -26,6 +26,7 @@ const {
 // (FR-013) supersedes the presence-check version, and one verb must have one implementation.
 const { handleDoctorCommand } = require('../runtime/health');
 const { handleTraceCommand, handleStatsCommand, handleDiscoverCommand } = require('../runtime/trace/ledger');
+const { handleIndicatorsCommand } = require('../runtime/trace/indicators');
 // The rest of the verb surface design §4.2 declares. `classify`, `workflow`, `route`, `claim`,
 // `context-pack`, `verify`, `recover` and `scaffold` each have exactly one implementation, in the
 // engine module named on the right; this file only dispatches to them.
@@ -146,6 +147,7 @@ function dispatchRuntimeCommand(o) {
     // finding the caller must act on.
     case 'trace': return handleTraceCommand({ json: o.json, days: o.days, global: o.global, projectRoot: evidenceRoot(o) });
     case 'stats': return handleStatsCommand({ json: o.json, days: o.days, global: o.global, projectRoot: evidenceRoot(o) });
+    case 'indicators': return handleIndicatorsCommand({ json: o.json, projectRoot: evidenceRoot(o) });
     case 'discover': return handleDiscoverCommand({ json: o.json, days: o.days, global: o.global, projectRoot: evidenceRoot(o) });
     // No REPO_ROOT: the scaffold's repo root is the *caller's* repo, reported by the resolver,
     // because the plan's `files:` paths are relative to it. Passing the DoFlow install here

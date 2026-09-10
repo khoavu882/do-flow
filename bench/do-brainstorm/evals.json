@@ -1,0 +1,87 @@
+{
+  "skill_name": "do-brainstorm",
+  "evals": [
+    {
+      "id": 1,
+      "kind": "triggering",
+      "name": "vague-idea-starts-discovery",
+      "prompt": "I'm thinking about building something to help me keep track of what I read.",
+      "expected_output": "do-brainstorm is invoked and Socratic discovery begins rather than implementation",
+      "files": [],
+      "assertions": [
+        {
+          "text": "do-brainstorm was invoked",
+          "type": "skill_resolved",
+          "skill": "do-brainstorm"
+        },
+        {
+          "text": "No code block appears in the discovery response itself (scope: transcript, because the response IS the artifact for a discovery-only turn)",
+          "type": "output_not_matches",
+          "pattern": "```(js|ts|python|go)"
+        },
+        {
+          "text": "Asks clarifying questions before proposing any solution",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "kind": "behavioral",
+      "name": "requirement-has-no-open-clarifications",
+      "prompt": "/do-brainstorm A CLI that summarises my git history into a weekly standup note",
+      "expected_output": "requirement.md written with zero [NEEDS CLARIFICATION] markers remaining",
+      "files": [],
+      "assertions": [
+        {
+          "text": "A requirement artifact carrying FR-### ids was produced",
+          "type": "output_matches",
+          "pattern": "FR-\\d{3}",
+          "in": "outputs"
+        },
+        {
+          "text": "No [NEEDS CLARIFICATION] marker survives in the written requirement",
+          "type": "output_not_matches",
+          "pattern": "\\[NEEDS CLARIFICATION",
+          "in": "outputs"
+        },
+        {
+          "text": "requirement.md was created in the feature directory",
+          "type": "manual"
+        },
+        {
+          "text": "Every deferred ambiguity appears in section 8 Assumptions with a rationale",
+          "type": "manual"
+        },
+        {
+          "text": "The functional requirements carry an index table above the detail",
+          "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "kind": "behavioral",
+      "name": "stays-in-what-why",
+      "prompt": "/do-brainstorm Add a caching layer so our dashboard loads faster",
+      "expected_output": "Requirement describes WHAT and WHY only, with no technology choices",
+      "files": [],
+      "assertions": [
+        {
+          "text": "A requirement artifact carrying FR-### ids was produced",
+          "type": "output_matches",
+          "pattern": "FR-\\d{3}",
+          "in": "outputs"
+        },
+        {
+          "text": "No specific cache technology (Redis, Memcached, etc.) is chosen",
+          "type": "manual"
+        },
+        {
+          "text": "Acceptance criteria are observable outcomes, not implementation steps",
+          "type": "manual"
+        }
+      ]
+    }
+  ]
+}

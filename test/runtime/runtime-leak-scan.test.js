@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { scanPaths, LEAK_PATTERNS } = require('../../src/runtime/leak-scan');
+const { scanPaths, handleLeakScanCommand, LEAK_PATTERNS } = require('../../src/runtime/leak-scan');
 
 function tmpRepo(files) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-leak-'));
@@ -112,4 +112,40 @@ test('extra excluded segments narrow the scan without replacing the artifact exc
     ['excluded', 'excluded'],
     'an excluded path is reported as unscanned, never dropped',
   );
+});
+
+test('the JSON report distinguishes a clean scan from a scan that examined nothing', () => {
+  // `--path` pointing at a directory is the ordinary way to reach this: the scan reads no file, so
+  // `findingsCount` is 0 and the exit code is 0, which is byte-identical to a genuinely clean run.
+  // `/do-code-review`'s process-leak step reads this JSON, so `scannedCount` has to travel with it.
+  const root = tmpRepo({ 'sub/ship.md': 'FR-001\n' });
+  const lines = [];
+  const realLog = console.log;
+  console.log = (line) => lines.push(line);
+  try {
+    handleLeakScanCommand({ paths: ['sub'], json: true, repoRoot: root });
+  } finally {
+    console.log = realLog;
+  }
+
+  const report = JSON.parse(lines.join('\n'));
+  assert.equal(report.findingsCount, 0, 'a directory yields no findings');
+  assert.equal(report.scannedCount, 0, 'and says so: nothing was examined');
+  assert.deepEqual(report.unscanned, [{ file: 'sub', reason: 'not-a-file' }]);
+});
+
+test('a genuinely clean scan reports a nonzero scannedCount beside its zero findings', () => {
+  const root = tmpRepo({ 'ship.md': 'A perfectly ordinary document.\n' });
+  const lines = [];
+  const realLog = console.log;
+  console.log = (line) => lines.push(line);
+  try {
+    handleLeakScanCommand({ paths: ['ship.md'], json: true, repoRoot: root });
+  } finally {
+    console.log = realLog;
+  }
+
+  const report = JSON.parse(lines.join('\n'));
+  assert.equal(report.findingsCount, 0);
+  assert.equal(report.scannedCount, 1, 'the pair is what separates this from the case above');
 });

@@ -45,6 +45,7 @@ These are `doflow` CLI commands, not slash-command skills. Installation and life
 | `doflow evidence --task-id <id> [--action list\|add] [--kind <k>] [--provenance extracted\|inferred\|asserted] [--provider <p>] [--capability <c>] [--locator <file[:line]\|uri>] [--content <text>] [--batch <file>] [--json]` | List a task's recorded evidence, or record it with `--action add`: one item from the flags, or a whole stage batch from `--batch` (a JSON array, or an object whose only key is `evidence`; `--batch=-` reads stdin — the `=` spelling is required, since a bare `-` reads as the next flag). Per item `kind`, `provenance` and `source` (`--provider` + `--capability`) are required and none is defaulted; `extracted` additionally requires a locator, `inferred` and `asserted` require content, and `generated-analysis`/`user-statement` may never be `extracted`. Freshness is measured at the write — HEAD commit and file hash — never accepted from the caller. A batch is validated whole, so one rejected item writes nothing. `--confidence`, `--score`, `--relevance` and every other score-shaped flag are refused by name: relevance is a property of a search, not of a fact |
 | `doflow trace [--days N] [--json]` | Trajectory of the current or most recent workflow, read from the run ledger |
 | `doflow stats [--days N] [--json]` | Aggregate local run-ledger usage: runs per verb, failures, duration percentiles |
+| `doflow indicators [--json]` | Per-stage and per-gate timings from the orchestration record, grouped by task class |
 | `doflow discover [--days N] [--json]` | Missed capability opportunities in recorded runs. Exits 1 when there is a finding; an analysis it cannot settle from the recorded metadata reports `UNKNOWN` rather than "clear" |
 | `doflow classify --task-class <id> [--calling-skill <skill-id>] [--rationale <text>] [--proposed-by <who>] [--json]` | Validate a proposed task class against the workflow registry and return its workflow. A class the registry does not declare is **rejected** with the valid set and a suggestion — never coerced to `feature`. With `--calling-skill`, it also checks that the class's workflow has a stage the caller can occupy, and rejects it when it does not; without it, fit is reported as `NOT_EVALUATED` rather than assumed. Exits 1 on a rejection, 2 when no class was proposed |
 | `doflow workflow --task-class <id> [--json]` | Resolve a class to its ordered stages, their gates, which stages mutate source, and which readiness templates gate them. Exits 2 on an unknown class |
@@ -83,6 +84,15 @@ than leaving a claim unaware of the evidence pointing at it.
 Every command in this table is also a verb on the runtime seam — `doflow-run <verb>` — which is how
 skills reach them. The two spellings run the same implementation; the seam additionally records a
 metadata line in the run ledger.
+
+`indicators` reads a different file from the three below it: the per-task orchestration records at
+`<config>/state/orchestration/<slug>.json`, which the workflow orchestrator writes as stages complete.
+That is why it is a separate verb rather than a mode of `stats` — a run-ledger record names no task,
+stage or class, so no extension of `stats` could group by any of them. It reports per-stage intervals,
+gate waits charged to no stage, recorded stage outcomes and rerun counts, grouped by task class, and it
+prints what it cannot measure: anything needing git, pull-request or CI data, and the fact that a stage
+figure is an interval since the previous recorded event rather than pure execution time. It writes
+nothing.
 
 `trace`, `stats` and `discover` read the run ledger at `<config>/state/runs/YYYY-MM-DD.jsonl`,
 which `doflow-run` appends to once per dispatched verb. They locate it the way the dispatcher does

@@ -52,7 +52,7 @@ are reported rather than imitated.
 | `src/helper/` | Cross-layer utilities with no harness-, install-, or runtime-specific domain: git commit lookup (`git.js`), managed-section merging (`marker-merge.js`), interactive prompts (`prompt.js`), `settings.json` merging (`settings-merge.js`, `settings-scope.js`), generic TOML parsing (`toml.js`), and the single computation of the package root (`repo-root.js`), which every layer shares and no layer should re-derive from its own depth |
 | `src/install/` | Installer-domain operations: backup/restore/prune (`backup.js`), scope and target resolution (`context.js`, `targets.js`), manifest read/write (`manifest.js`), external-tool detection and install (`tool-lifecycle.js`), and MCP server selection (`mcp.js`) |
 | `test/` | Installer, mapping, and runtime behavior tests organized into module directories mirroring `src/` (`adapters/`, `lifecycle/`, `runtime/`, `registry/`, `state/`, `helper/`, `install/`, `e2e/`), plus `test/guards/` for structural invariants about this repo's content |
-| `bench/` | Optional local skill-evaluation harness; ignored by Git and outside the source/test graph |
+| `bench/` | Skill-evaluation corpus, TRACKED so the baseline is reproducible from a clean clone; only `bench/runs/` and `bench/reports/` are ignored. Outside the default test command, whose dispatch step makes paid model calls |
 | `docs/` | User-facing and contributor documentation site |
 | `docs/capability-map.md` | Cross-harness capability contract, evidence, and verification criteria (hand-maintained since the generator script was removed) |
 
@@ -305,8 +305,18 @@ and `boundaries.test.js`, `harness-paths.test.js`, `cli-boundary.test.js` and
   name must reference `references/MODEL_SELECTION.md` for model-tier selection.
 - **G10** (`flag-index.test.js`) — `docs/flags.md` (the flag-first companion to `reference.md`'s
   skill-first table) stays in sync with every skill's `argument-hint`, forward and reverse.
-- **G11** — optional local skill evaluation under the ignored `bench/` directory is deliberately
-  outside the source graph and default test command.
+- **G11** (`evals.test.js`) — the skill-evaluation corpus under `bench/` is tracked, so a clean clone
+  can reproduce the behavioral baseline: the harness, the per-skill case files, the pinned-model
+  config and the sanitized baseline are all present, every shipped skill has a case file carrying
+  both triggering and behavioral cases, the case files are internally consistent, and the committed
+  baseline still describes the committed corpus (a case added without re-capturing the baseline
+  fails here, which `coverage` alone cannot see). It also holds the boundary that keeps the corpus
+  cheap: `npm test` scopes discovery to `test/` via the directory argument, so an unscoped
+  `node --test` cannot execute captured artifacts under `bench/runs/`; the harness keeps its own
+  `bench` script; and `npm test` never invokes the harness, whose dispatch step makes paid model
+  calls. Only `bench/runs/` and `bench/reports/` stay ignored. G11b, in the same file, holds skill
+  provenance: a run is told to load its skill from the sandbox by path, and a run that cannot prove
+  which `SKILL.md` it read is never graded as if it could.
 - **G11** (`scaffold.test.js`, same number, different guard) — a `--scaffold` run writes only under
   `agent-docs/doflow/<slug>/scaffold/`, is byte-identical on re-run, emits signatures rather than
   logic, leaves a hand-edited file alone, and reports what it skipped as prominently as what it

@@ -58,6 +58,186 @@ THRESHOLDS = {
     "max_declarative_depth": 8,
 }
 
+# Feature 030 — the review policy resolves from three tiers instead of living in prose.
+#
+# THRESHOLDS above stays the literal source for the built-in tier (IC-001): it is copied, never
+# duplicated, so the lowest tier cannot drift from the code that reads it. The shipped default
+# (review-policy.json beside this scripts/ directory) and an optional per-repo file overlay it, and
+# load_policy() writes the merged result back into THRESHOLDS before any analysis runs — which is why
+# the eight existing THRESHOLDS[...] reads need no edit and cannot be missed.
+#
+# Why a file at all: SKILL.md used to transcribe these numbers and drifted, listing five of six and
+# denying a nesting-depth check the analyzer performs for declarative files. A document that copies a
+# value is a copy that goes stale; a document that names a file is not.
+
+# The label each threshold is known by in documentation. Lives here rather than in the guard that
+# reads it, so adding a threshold does not mean editing the guard too.
+THRESHOLD_LABELS = {
+    "long_function_lines": "Long function",
+    "too_many_parameters": "Too many params",
+    "high_complexity": "High complexity",
+    "god_class_methods": "God class",
+    "max_imports": "Too many imports",
+    "max_declarative_depth": "Nesting depth",
+}
+
+DEFAULT_SEVERITIES = ["low", "medium", "high"]
+
+# Bands a reviewer reads a score against. Declared, never applied: the verdict stays a reading of the
+# code, and automating it would make a score authoritative over that reading.
+DEFAULT_VERDICT_BANDS = [
+    {"verdict": "Approve", "minScore": 90, "maxHighFindings": 0},
+    {"verdict": "Approve with suggestions", "minScore": 75, "maxHighFindings": 2},
+    {"verdict": "Request changes", "minScore": 50, "maxHighFindings": None},
+    {"verdict": "Block", "minScore": 0, "maxHighFindings": None},
+]
+
+# Empty because the analyzer excludes nothing today. Inventing a default exclusion here would change
+# behaviour under cover of a refactor.
+DEFAULT_EXCLUSIONS = []
+
+POLICY_GROUPS = ("thresholds", "thresholdLabels", "severities", "verdictBands", "exclusions")
+SHIPPED_POLICY_FILENAME = "review-policy.json"
+REPO_POLICY_RELPATH = Path("agent-docs") / "review-policy.json"
+
+
+def _policy_error(message: str) -> None:
+    """Stop rather than fall back. A policy that silently reverts to defaults applies one policy
+    while its author believes another is in force, which is worse than having no file."""
+    print(f"Error: {message}", file=sys.stderr)
+    sys.exit(2)
+
+
+def _check_thresholds(value, source: str) -> None:
+    if not isinstance(value, dict):
+        _policy_error(f"{source}: 'thresholds' must be an object")
+    for key, number in value.items():
+        if key not in THRESHOLDS:
+            _policy_error(f"{source}: unknown threshold '{key}' — the analyzer implements "
+                          f"{', '.join(sorted(THRESHOLDS))}")
+        # bool is an int in Python, and `true` is not a threshold.
+        if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+            _policy_error(f"{source}: threshold '{key}' must be a positive integer, got {number!r}")
+
+
+def _check_threshold_labels(value, source: str) -> None:
+    if not isinstance(value, dict) or any(
+            not isinstance(k, str) or not isinstance(v, str) for k, v in value.items()):
+        _policy_error(f"{source}: 'thresholdLabels' must be an object of strings")
+    for key in value:
+        if key not in THRESHOLDS:
+            _policy_error(f"{source}: label declared for unknown threshold '{key}'")
+
+
+def _check_string_list(group: str):
+    def check(value, source: str) -> None:
+        if not isinstance(value, list) or any(not isinstance(v, str) for v in value):
+            _policy_error(f"{source}: '{group}' must be a list of strings")
+    return check
+
+
+def _check_verdict_bands(value, source: str) -> None:
+    if not isinstance(value, list) or any(not isinstance(v, dict) for v in value):
+        _policy_error(f"{source}: 'verdictBands' must be a list of objects")
+
+
+# One validator per group, looked up rather than branched through. The first version of this was a
+# single nested ladder at complexity 27, which this skill's own analyzer flagged at high severity —
+# a validator whose shape is hard to read is the wrong place to economise.
+GROUP_VALIDATORS = {
+    "thresholds": _check_thresholds,
+    "thresholdLabels": _check_threshold_labels,
+    "severities": _check_string_list("severities"),
+    "exclusions": _check_string_list("exclusions"),
+    "verdictBands": _check_verdict_bands,
+}
+
+
+def _validate_policy_fragment(fragment: Dict, source: str) -> None:
+    if not isinstance(fragment, dict):
+        _policy_error(f"{source}: top level must be an object")
+    for group, value in fragment.items():
+        if group == "description":
+            continue
+        validator = GROUP_VALIDATORS.get(group)
+        if validator is None:
+            _policy_error(f"{source}: unknown policy group '{group}' "
+                          f"(known: {', '.join(POLICY_GROUPS)})")
+        validator(value, source)
+
+
+def _read_policy_file(path: Path) -> Dict:
+    try:
+        fragment = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as err:
+        _policy_error(f"{path}: does not parse as JSON — {err}")
+    _validate_policy_fragment(fragment, str(path))
+    return fragment
+
+
+def _trace_path(path: Path) -> str:
+    """Relative to the working directory where possible. The fixtures compare emitted JSON across
+    machines, and an absolute path would make every recorded output machine-specific — the same
+    reason finding locations are already emitted relative."""
+    try:
+        return str(path.relative_to(Path.cwd()))
+    except ValueError:
+        return str(path)
+
+
+def _walk_up_for_policy(start: Path) -> Optional[Path]:
+    current = start if start.is_dir() else start.parent
+    for directory in [current, *current.parents]:
+        candidate = directory / REPO_POLICY_RELPATH
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def find_repo_policy(start: Path) -> Optional[Path]:
+    """First agent-docs/review-policy.json found walking upward, mirroring the runtime seam's own
+    upward search for .doflow/. First hit wins, and the trace names which file won.
+
+    The analysed path is searched first, because when it sits in a repository that repository's own
+    policy is the one under review. Only when that search finds nothing does the working directory
+    get a turn — which is what makes `cd my-repo && ... /tmp/patch.py` apply my-repo's policy instead
+    of silently applying none. A target inside a policy-bearing repo is therefore never overridden by
+    wherever the reviewer happened to be standing."""
+    found = _walk_up_for_policy(start)
+    if found is not None:
+        return found
+    return _walk_up_for_policy(Path.cwd())
+
+
+def load_policy(start: Path):
+    """Resolve the policy from three tiers, lowest precedence first. Returns (policy, tiers)."""
+    policy = {
+        "thresholds": dict(THRESHOLDS),
+        "severities": list(DEFAULT_SEVERITIES),
+        "verdictBands": [dict(b) for b in DEFAULT_VERDICT_BANDS],
+        "exclusions": list(DEFAULT_EXCLUSIONS),
+        "thresholdLabels": dict(THRESHOLD_LABELS),
+    }
+    tiers = ["built-in"]
+
+    shipped = Path(__file__).resolve().parent.parent / SHIPPED_POLICY_FILENAME
+    for source in (shipped, find_repo_policy(start)):
+        if source is None or not source.is_file():
+            continue
+        fragment = _read_policy_file(source)
+        # Per key within a group, never deeper: groups hold scalars and flat lists, so there is no
+        # nested case, and validation above refuses a shape that would need one.
+        for group in POLICY_GROUPS:
+            if group not in fragment:
+                continue
+            if group in ("thresholds", "thresholdLabels"):
+                policy[group].update(fragment[group])
+            else:
+                policy[group] = fragment[group]
+        tiers.append(_trace_path(source))
+
+    return policy, tiers
+
 
 def get_file_extension(filepath: Path) -> str:
     """Get file extension."""
@@ -1063,7 +1243,6 @@ def check_shell_specific_smells(content: str) -> List[Dict]:
     smells = []
     lines = content.split("\n")
 
-    first_code = next((ln for ln in lines if ln.strip() and not ln.strip().startswith("#")), "")
     if lines and lines[0].startswith("#!") and "set -" not in content:
         smells.append({
             "type": "no_error_handling",
@@ -1444,10 +1623,19 @@ def main():
         print(f"Error: Path does not exist: {target}", file=sys.stderr)
         sys.exit(1)
 
+    # Resolve the policy before any analysis runs, and write the merged thresholds back into
+    # THRESHOLDS so every check reads the resolved values where it already read the dict (IC-004).
+    policy, policy_tiers = load_policy(target)
+    THRESHOLDS.update(policy["thresholds"])
+
     if target.is_file():
         analysis = analyze_file(target)
     else:
         analysis = analyze_directory(target, args.recursive, args.language)
+
+    # IC-005: every report states the policy it applied, so a surprising finding is traceable to the
+    # tier that produced it rather than guessed at.
+    analysis["policy"] = {"tiers": policy_tiers, "thresholds": dict(policy["thresholds"])}
 
     if args.json:
         output = json.dumps(analysis, indent=2, default=str)
@@ -1458,6 +1646,7 @@ def main():
         else:
             print(output)
     else:
+        print(f"Policy tiers applied: {' -> '.join(policy_tiers)}")
         print_report(analysis)
 
 

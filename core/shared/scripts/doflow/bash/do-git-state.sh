@@ -98,12 +98,6 @@ is_dirty() {
   [ "$status" -gt 0 ]
 }
 
-join_array() {
-  local IFS="$1"
-  shift
-  echo "$*"
-}
-
 # Which ref the integration branch resolves to decides whether a distance measured against it
 # means anything. The local branch was used unconditionally, so a develop that had not been pulled
 # made every distance wrong by however stale it was — observed live at 22 reported against 32.

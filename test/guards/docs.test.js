@@ -78,3 +78,91 @@ test('G6: design-template.md points §4 at specs.md and §5/§6 at data-model.md
   assert.ok(dsgTmpl.includes('data-model.md'), 'design template §5/§6 must point at data-model.md');
 });
 
+
+// G6/030 — the review policy and the documents describing it must agree, in both directions.
+//
+// SKILL.md used to transcribe the analyzer's THRESHOLDS dict and drifted: it listed five of six
+// entries and asserted the checker performed no nesting-depth check, which is false for declarative
+// files, so a reviewer following it would have suppressed a valid finding. The same paragraph
+// already warned that the dict was authoritative — a warning in prose is not a mechanism, which is
+// why this is a test.
+const REVIEW_POLICY = path.join(SKILLS, 'do-code-review', 'review-policy.json');
+const QUALITY_CHECKER = path.join(SKILLS, 'do-code-review', 'scripts', 'code_quality_checker.py');
+
+test('G6/030: no shipped review document restates a value the review policy declares', () => {
+  const policy = JSON.parse(fs.readFileSync(REVIEW_POLICY, 'utf8'));
+  // Labels come from the policy, not from a list here, so adding a threshold does not mean editing
+  // this guard as well — which would make the guard a third copy of the thing it is policing.
+  const labels = policy.thresholdLabels || {};
+
+  const docs = [];
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { walk(full); continue; }
+      if (entry.name.endsWith('.md')) docs.push(full);
+    }
+  }(path.join(SKILLS, 'do-code-review')));
+
+  const offenders = [];
+  for (const doc of docs) {
+    for (const line of fs.readFileSync(doc, 'utf8').split('\n')) {
+      const cells = line.split('|').map((c) => c.trim());
+      if (cells.length < 3) continue;           // not a table row
+      const first = cells[1];
+      const key = Object.keys(labels).find((k) => labels[k] === first);
+      if (!key) continue;
+      const stated = cells.slice(2).join(' ').match(/\d+/);
+      if (!stated) continue;
+      offenders.push(`${path.relative(REPO, doc)}: row '${first}' states ${stated[0]}, `
+        + `policy declares ${policy.thresholds[key]} — name review-policy.json instead of copying it`);
+    }
+  }
+  assert.deepEqual(offenders.sort(), [], offenders.join('\n  '));
+});
+
+test('G6/030: the review policy declares exactly the thresholds the analyzer implements', () => {
+  // The other direction. A threshold the analyzer reads but the policy omits resolves silently to a
+  // built-in, so tuning it appears to do nothing; one the policy declares but the analyzer never
+  // reads is a knob wired to nothing. The implemented set is read from the source rather than from a
+  // list here, for the same reason the labels are.
+  const policy = JSON.parse(fs.readFileSync(REVIEW_POLICY, 'utf8'));
+  const source = fs.readFileSync(QUALITY_CHECKER, 'utf8');
+  const block = source.match(/^THRESHOLDS = \{([\s\S]*?)^\}/m);
+  assert.ok(block, 'THRESHOLDS must remain a parseable literal — it is the built-in tier');
+  const implemented = [...block[1].matchAll(/^\s*"([a-z_]+)":/gm)].map((m) => m[1]).sort();
+
+  assert.deepEqual(Object.keys(policy.thresholds).sort(), implemented,
+    'review-policy.json must declare exactly the thresholds code_quality_checker.py implements');
+  assert.deepEqual(Object.keys(policy.thresholdLabels).sort(), implemented,
+    'every implemented threshold needs a documentation label, since the guard above matches on them');
+});
+
+// G6/031 — the intent template holds its shape. An intent is the one artifact written before any
+// branch exists, so nothing in the chain resolves it and no existing guard covers it:
+// artifact-conventions.test.js deliberately excludes it (see that file's TRANSCRIPTIONS comment)
+// because ARTIFACT_FORMAT.md governs chain artifacts carrying indexed sections and the Maturity and
+// Status vocabularies, and an intent carries none of those.
+const INTENT_TEMPLATE = path.join(REPO, 'core', 'shared', 'templates', 'doflow', 'intent-template.md');
+
+test('G6/031: the intent template carries the five sections an intent must answer', () => {
+  const text = fs.readFileSync(INTENT_TEMPLATE, 'utf8');
+  // Derived from the template's own numbered headings rather than restated here. A guard carrying its
+  // own copy of what an intent answers would be a second statement of it, and the two would drift —
+  // the same reasoning that put the review policy's threshold labels in the policy file.
+  const headings = [...text.matchAll(/^## \d+\. (.+)$/gm)].map((m) => m[1].trim());
+  assert.deepEqual(headings, ['Problem', 'Proposed outcome', 'Affected', 'Constraints', 'Open questions'],
+    'the intent template must carry exactly these five sections, in this order — a missing one leaves '
+    + `the next reader guessing what was meant; found: ${headings.join(', ') || '(none)'}`);
+});
+
+test('G6/031: the intent template acquires neither closed vocabulary', () => {
+  // Gaining a Maturity or Status field would silently bring the template into a vocabulary it sits
+  // outside of, and artifact-conventions.test.js excludes it on exactly that basis — so the exclusion
+  // would become wrong without anything saying so.
+  const text = fs.readFileSync(INTENT_TEMPLATE, 'utf8');
+  const found = ['Maturity', 'Status'].filter((field) => new RegExp(`\\*\\*${field}:\\*\\*`).test(text));
+  assert.deepEqual(found, [],
+    'an intent is not a chain artifact and carries neither vocabulary; if that changed deliberately, '
+    + `move it into artifact-conventions.test.js's TRANSCRIPTIONS instead of leaving both true: ${found.join(', ')}`);
+});

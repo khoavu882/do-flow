@@ -37,8 +37,10 @@ const LEAK_PATTERNS = [
 /** Occurrences inside the artifact tree are correct usage, so paths are excluded before matching. */
 const DEFAULT_EXCLUDED_SEGMENTS = ['agent-docs'];
 
-/** Why a named path produced no findings without being clean. */
-const UNSCANNED_REASONS = new Set(['excluded', 'unreadable', 'not-a-file']);
+// The reasons a named path produced no findings without being clean — 'excluded', 'unreadable' and
+// 'not-a-file' — are returned by `readScannable` below and are stated there. They were also declared
+// here as an exported Set that nothing read, including no test: a second place to keep the list
+// correct, with nothing to notice when the two disagreed.
 
 function isExcluded(relPath, excludedSegments) {
   const segments = relPath.split(path.sep);
@@ -149,7 +151,17 @@ function handleLeakScanCommand({ paths: targets, exclude, json = false, repoRoot
   const result = scanPaths({ paths: targets, repoRoot, excludedSegments });
 
   if (json) {
-    console.log(JSON.stringify({ ...result, findingsCount: result.findings.length }, null, 2));
+    // `scannedCount` sits next to `findingsCount` so the two are read together. With only
+    // `findingsCount`, a scan that examined nothing — every `--path` a directory, a typo, or
+    // excluded — serialized as `findingsCount: 0` and exit 0, which is the same shape as a genuinely
+    // clean scan. The human branch below already distinguishes them by printing the scanned count
+    // and the "Not scanned" list; the JSON branch did not, and `/do-code-review`'s process-leak step
+    // reads the JSON.
+    console.log(JSON.stringify({
+      ...result,
+      findingsCount: result.findings.length,
+      scannedCount: result.scanned.length,
+    }, null, 2));
   } else {
     console.log('\nDoFlow leak scan:');
     console.log('═'.repeat(78));
@@ -168,4 +180,4 @@ function handleLeakScanCommand({ paths: targets, exclude, json = false, repoRoot
   return finishRuntime(result.findings.length > 0 ? 1 : 0);
 }
 
-module.exports = { scanPaths, handleLeakScanCommand, LEAK_PATTERNS, UNSCANNED_REASONS };
+module.exports = { scanPaths, handleLeakScanCommand, LEAK_PATTERNS };

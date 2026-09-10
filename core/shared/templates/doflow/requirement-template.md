@@ -2,6 +2,7 @@
 
 **Feature:** [NNN-slug] · **Branch:** `feat/[NNN-slug]` · **Maturity:** Draft
 **Created:** [DATE] · **Owner:** [OWNER] · **Ticket:** [PBI/ticket ID, or "none"]
+**Intent:** [agent-docs/intent/<name>.md, or "none"]
 
 > WHAT and WHY only — no tech or implementation detail. Zero unresolved clarification markers at
 > hand-off — every ambiguity is resolved via `AskUserQuestion` before this file is written;

@@ -1,0 +1,47 @@
+{
+  "description": "Review policy DoFlow ships. The analyzer resolves three tiers, lowest precedence first: its built-in literal, this file, then agent-docs/review-policy.json in the repository under review. A project overrides individual values by declaring only those values in its own file; everything it omits resolves from here. Documentation must name this file rather than restate any value in it, and a guard in the default test suite fails when a shipped document carries a number declared here.",
+  "thresholds": {
+    "long_function_lines": 50,
+    "too_many_parameters": 5,
+    "high_complexity": 10,
+    "god_class_methods": 20,
+    "max_imports": 15,
+    "max_declarative_depth": 8
+  },
+  "thresholdLabels": {
+    "long_function_lines": "Long function",
+    "too_many_parameters": "Too many params",
+    "high_complexity": "High complexity",
+    "god_class_methods": "God class",
+    "max_imports": "Too many imports",
+    "max_declarative_depth": "Nesting depth"
+  },
+  "severities": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "verdictBands": [
+    {
+      "verdict": "Approve",
+      "minScore": 90,
+      "maxHighFindings": 0
+    },
+    {
+      "verdict": "Approve with suggestions",
+      "minScore": 75,
+      "maxHighFindings": 2
+    },
+    {
+      "verdict": "Request changes",
+      "minScore": 50,
+      "maxHighFindings": null
+    },
+    {
+      "verdict": "Block",
+      "minScore": 0,
+      "maxHighFindings": null
+    }
+  ],
+  "exclusions": []
+}
