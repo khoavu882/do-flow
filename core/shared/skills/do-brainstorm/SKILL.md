@@ -1,7 +1,7 @@
 ---
 name: do-brainstorm
 description: "Interactive requirements discovery through Socratic dialogue; seeds requirement.md in a branch-coupled feature dir as Phase 1 of the doflow chain. Use whenever an idea is still vague or early, requirements need discovery questions before design or planning begins, or the user says 'I have an idea', 'help me scope this feature', 'brainstorm what we need', or 'explore building X'. Always activate this skill before designing or planning new features to ensure requirements are grounded in WHAT and WHY without premature implementation choices."
-argument-hint: "[topic/idea] [--depth shallow|normal|deep]"
+argument-hint: "[topic/idea] [--intent <path>] [--depth shallow|normal|deep]"
 effort: high
 ---
 
@@ -15,8 +15,26 @@ session-end without a separate save step.
 
 ## Invocation
 ```text
-/do-brainstorm [topic/idea] [--depth shallow|normal|deep]
+/do-brainstorm [topic/idea] [--intent <path>] [--depth shallow|normal|deep]
 ```
+
+**`--intent <path>`** seeds this stage from a pre-branch intent. An intent lives at
+`agent-docs/intent/<kebab-description>.md`, outside the branch-coupled tree, and is written before any
+branch or feature exists — so it is the one input this skill may be given that did not come from the
+conversation. When the flag is present:
+
+- Read the file. Carry its Problem, Proposed outcome, Affected and Constraints into the requirement you
+  write, in §1, §2 and §4 respectively. Treat its **Open questions** as ambiguities for step 3's
+  clarification loop — they are the originator saying what they did not know, not answers to fold in.
+- Fill `requirement.md`'s `**Intent:**` header field with the path you read, so a reader can see where
+  the problem statement came from and judge whether it was reinterpreted.
+- Never move, rename, delete or rewrite the intent. It records what was asked; `requirement.md` records
+  what the project decided to do about it, and the two are allowed to diverge.
+- A path that does not exist is a mistake, not an absence: say so and stop, rather than proceeding as
+  though no intent had been named.
+
+Without the flag, nothing below changes and no intent is owed — discovery starting from a conversation
+alone is the ordinary case.
 
 ## Behavioral Flow
 

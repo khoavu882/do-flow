@@ -40,6 +40,19 @@ remains the chain's own implementation phase.
   disambiguate using the platform-specific `RULE_04_QUESTIONS.md` mechanism. Artifacts live in
   `<repo>/agent-docs/doflow/NNN-slug/`
   either way.
+- **Pre-chain intent — an input, not a phase.** An idea that has not been committed to yet goes in
+  `<repo>/agent-docs/intent/<kebab-description>.md`, from `templates/doflow/intent-template.md`. It is
+  deliberately outside everything the rule above describes: no branch, no slug, no feature directory,
+  nothing resolves its path, and it carries neither closed vocabulary because nothing has been decided.
+  Intents are **not numbered** — `NNN-` marks a feature that has started, and an intent that is never
+  built would consume a number and leave a gap.
+
+  It is **not a phase**, and adding it to the phase list would break it: a phase resolves against a
+  feature directory, which resolves against a branch, so the intent would come to require the branch it
+  exists to precede. Instead the discovery stage reads one when given its path, and records it in
+  `requirement.md`'s `**Intent:**` field — the argument that does so is declared in `/do-brainstorm`'s
+  own `argument-hint`, which is where a single-skill argument is owned. Discovery without an intent is
+  unchanged and is the ordinary case.
 - **One hard gate:** source edits are blocked when a feature is started but `requirement.md`,
   `design.md`, or `plan.md` is missing. Every other gate is advisory/skippable (solo,
   low-ceremony).
