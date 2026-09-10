@@ -116,7 +116,13 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
       const destDir = geminiDestDir(paths, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Gemini');
       const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, force: context?.force });
+      const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout,
+        // Was `force: context?.force`, ungated. Gemini was one of only two adapters forwarding force
+        // at all, so it looked like the reference implementation — but it handed force to the remove
+        // path too, where copy-tree deliberately stays strict: force heals drift on apply, and a
+        // hand-edited file is never deleted, forced or not (codex/index.js states the rule in full).
+        // Found by the guard written for the six adapters that forwarded nothing.
+        force: !removing && context?.force === true });
       conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
       for (const change of result.changes) {
         changes.push({
