@@ -108,38 +108,62 @@ def _policy_error(message: str) -> None:
     sys.exit(2)
 
 
+def _check_thresholds(value, source: str) -> None:
+    if not isinstance(value, dict):
+        _policy_error(f"{source}: 'thresholds' must be an object")
+    for key, number in value.items():
+        if key not in THRESHOLDS:
+            _policy_error(f"{source}: unknown threshold '{key}' — the analyzer implements "
+                          f"{', '.join(sorted(THRESHOLDS))}")
+        # bool is an int in Python, and `true` is not a threshold.
+        if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+            _policy_error(f"{source}: threshold '{key}' must be a positive integer, got {number!r}")
+
+
+def _check_threshold_labels(value, source: str) -> None:
+    if not isinstance(value, dict) or any(
+            not isinstance(k, str) or not isinstance(v, str) for k, v in value.items()):
+        _policy_error(f"{source}: 'thresholdLabels' must be an object of strings")
+    for key in value:
+        if key not in THRESHOLDS:
+            _policy_error(f"{source}: label declared for unknown threshold '{key}'")
+
+
+def _check_string_list(group: str):
+    def check(value, source: str) -> None:
+        if not isinstance(value, list) or any(not isinstance(v, str) for v in value):
+            _policy_error(f"{source}: '{group}' must be a list of strings")
+    return check
+
+
+def _check_verdict_bands(value, source: str) -> None:
+    if not isinstance(value, list) or any(not isinstance(v, dict) for v in value):
+        _policy_error(f"{source}: 'verdictBands' must be a list of objects")
+
+
+# One validator per group, looked up rather than branched through. The first version of this was a
+# single nested ladder at complexity 27, which this skill's own analyzer flagged at high severity —
+# a validator whose shape is hard to read is the wrong place to economise.
+GROUP_VALIDATORS = {
+    "thresholds": _check_thresholds,
+    "thresholdLabels": _check_threshold_labels,
+    "severities": _check_string_list("severities"),
+    "exclusions": _check_string_list("exclusions"),
+    "verdictBands": _check_verdict_bands,
+}
+
+
 def _validate_policy_fragment(fragment: Dict, source: str) -> None:
     if not isinstance(fragment, dict):
         _policy_error(f"{source}: top level must be an object")
     for group, value in fragment.items():
         if group == "description":
             continue
-        if group not in POLICY_GROUPS:
+        validator = GROUP_VALIDATORS.get(group)
+        if validator is None:
             _policy_error(f"{source}: unknown policy group '{group}' "
                           f"(known: {', '.join(POLICY_GROUPS)})")
-        if group == "thresholds":
-            if not isinstance(value, dict):
-                _policy_error(f"{source}: 'thresholds' must be an object")
-            for key, number in value.items():
-                if key not in THRESHOLDS:
-                    _policy_error(f"{source}: unknown threshold '{key}' — the analyzer implements "
-                                  f"{', '.join(sorted(THRESHOLDS))}")
-                if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
-                    _policy_error(f"{source}: threshold '{key}' must be a positive integer, "
-                                  f"got {number!r}")
-        elif group == "thresholdLabels":
-            if not isinstance(value, dict) or any(
-                    not isinstance(k, str) or not isinstance(v, str) for k, v in value.items()):
-                _policy_error(f"{source}: 'thresholdLabels' must be an object of strings")
-            for key in value:
-                if key not in THRESHOLDS:
-                    _policy_error(f"{source}: label declared for unknown threshold '{key}'")
-        elif group in ("severities", "exclusions"):
-            if not isinstance(value, list) or any(not isinstance(v, str) for v in value):
-                _policy_error(f"{source}: '{group}' must be a list of strings")
-        elif group == "verdictBands":
-            if not isinstance(value, list) or any(not isinstance(v, dict) for v in value):
-                _policy_error(f"{source}: 'verdictBands' must be a list of objects")
+        validator(value, source)
 
 
 def _read_policy_file(path: Path) -> Dict:
