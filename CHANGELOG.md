@@ -13,6 +13,25 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.5.2] - 2026-09-10
+
+### Fixed
+
+- `--force` was parsed, threaded onto the lifecycle view and into its adapter context, and consulted
+  by `planTree`'s conflict predicate — while six of the eight adapters omitted it from their own
+  `planTree` call. `planTree` declares `force = false` as a parameter default, so those calls silently
+  received `false` in place of the user's flag, and nothing errored because a missing optional
+  argument is legal JavaScript. The effect was that `doflow install --force` could not clear a single
+  conflict on claude, opencode, pi, kiro, copilot or antigravity, leaving no supported path to
+  reinstall over a tree whose ownership records had drifted — `reconcile`, the command written to heal
+  exactly that drift, is refused by the same gate. Forwarding now follows the codex form,
+  `!removing && context?.force === true`: force heals drift on apply, and a hand-edited file is never
+  deleted on removal, forced or not. `antigravity` additionally needed `force` threaded through
+  `planTrees`, whose signature did not carry the context the other adapters already had.
+- `gemini` forwarded `force` ungated, handing it to the remove path as well. It was one of only two
+  adapters forwarding the flag at all and so read as the reference implementation; the guard added
+  with this fix found it. That defect predates this change and would have outlived it.
+
 ## [1.5.1] - 2026-09-10
 
 ### Fixed
