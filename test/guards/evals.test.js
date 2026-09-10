@@ -102,6 +102,28 @@ test('G11: case files are well formed and internally consistent', () => {
   assert.deepEqual(problems, [], problems.join('\n'));
 });
 
+// Feature 028 (IC-004). Coverage above asks whether every skill has cases of both kinds; it cannot
+// see a case ADDED without the baseline being re-captured, because coverage still passes while the
+// committed baseline silently stops describing the committed corpus. This asserts the comparison the
+// harness exports rather than reimplementing it here: a maintainer running `npm run bench parity`
+// and this guard must evaluate the same code, or the two drift and the gate stops meaning anything.
+test('G11/028: the committed baseline still describes the committed corpus', () => {
+  const parity = runner.baselineParity(runner.loadConfig());
+  const differences = [
+    ...parity.missingFromBaseline.map((c) => `${c.key} in corpus, absent from baseline (${c.kind}: ${c.name})`),
+    ...parity.missingFromCorpus.map((c) => `${c.key} in baseline, absent from corpus (${c.kind}: ${c.name})`),
+    ...parity.changed.map((c) => `${c.key} differs: corpus ${c.corpus.kind}/${c.corpus.name} vs baseline ${c.baseline.kind}/${c.baseline.name}`),
+    ...(parity.countMismatch
+      ? [`case counts disagree: baseline.caseCount=${parity.countMismatch.baselineCaseCount}, `
+        + `baseline entries=${parity.countMismatch.baselineEntries}, corpus cases=${parity.countMismatch.corpusCases}`]
+      : []),
+  ];
+  assert.deepEqual(differences, [],
+    'the committed baseline no longer describes the committed corpus — re-capture it with '
+    + '`node bench/runner.js baseline --from <iteration>`:\n  ' + differences.join('\n  '));
+  assert.ok(parity.ok, 'baselineParity reported differences without listing any, which is a bug in the comparison itself');
+});
+
 // ---------------------------------------------------------------------------
 // G11b — skill provenance (plan task A.5).
 //

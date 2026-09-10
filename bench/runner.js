@@ -749,6 +749,7 @@ function cmdReport(cfg, opts) {
 const USAGE = `doflow bench — evaluation harness for the shipped skills
 
   node bench/runner.js coverage [--json]              which skills have triggering + behavioral cases
+  node bench/runner.js parity [--json]                does the committed baseline still describe the corpus
   node bench/runner.js list [--skill S] [--json]      enumerate cases
   node bench/runner.js plan --iteration N [--skill S] emit the subagent dispatch plan (JSON)
   node bench/runner.js grade --iteration N [--skill S] grade programmatic assertions of a finished run
@@ -790,6 +791,7 @@ function main() {
   const cfg = loadConfig();
   switch (cmd) {
     case 'coverage': return cmdCoverage(cfg, opts);
+    case 'parity': return cmdParity(cfg, opts);
     case 'list': return cmdList(cfg, opts);
     case 'plan': return cmdPlan(cfg, opts);
     case 'grade': return cmdGrade(cfg, opts);
@@ -800,6 +802,106 @@ function main() {
       console.log(USAGE);
       return 2;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Baseline parity (IC-002 of feature 028-bench-corpus-ci-gate).
+//
+// `coverage` asks whether every skill has cases of both kinds. It cannot see a case ADDED without
+// the baseline being re-captured: coverage still passes, and the committed baseline silently stops
+// describing the committed corpus. That is the drift this comparison exists to catch, and it is
+// computable from repository files alone — no dispatched run, no model call — which is what makes it
+// safe for the guard suite to assert on.
+//
+// Identity is the (skill, evalId) pair. Name and kind are compared as VALUES rather than as part of
+// identity, so renaming a case reports as one change rather than as a removal plus an addition.
+// `passRate` and `sourceStatus` are deliberately NOT compared: they record what a paid run measured,
+// and a gate that compared them would be asserting a measurement it never made.
+/** Compare the committed corpus against the committed baseline. Pure: reads files, writes nothing. */
+function baselineParity(cfg) {
+  const baselineFile = path.join(REPO_ROOT, cfg.baselineDir, 'baseline.json');
+  if (!fs.existsSync(baselineFile)) {
+    return {
+      ok: false,
+      missingFromBaseline: [],
+      missingFromCorpus: [],
+      changed: [],
+      countMismatch: { baselineCaseCount: null, baselineEntries: null, corpusCases: null,
+        note: `no baseline at ${path.relative(REPO_ROOT, baselineFile)}` },
+    };
+  }
+  const baseline = readJson(baselineFile);
+  const results = Array.isArray(baseline.results) ? baseline.results : [];
+
+  const corpus = new Map();
+  for (const skill of discoverSkills(cfg)) {
+    const cases = loadCases(cfg, skill);
+    if (!cases) continue;
+    for (const e of cases.evals || []) {
+      corpus.set(`${skill}/${e.id}`, { key: `${skill}/${e.id}`, skill, evalId: e.id, name: e.name, kind: e.kind });
+    }
+  }
+  const recorded = new Map();
+  for (const r of results) {
+    recorded.set(`${r.skill}/${r.evalId}`, { key: `${r.skill}/${r.evalId}`, skill: r.skill, evalId: r.evalId, name: r.evalName, kind: r.kind });
+  }
+
+  const missingFromBaseline = [...corpus.values()].filter((c) => !recorded.has(c.key));
+  const missingFromCorpus = [...recorded.values()].filter((r) => !corpus.has(r.key));
+  const changed = [];
+  for (const c of corpus.values()) {
+    const r = recorded.get(c.key);
+    if (!r) continue;
+    if (r.name !== c.name || r.kind !== c.kind) {
+      changed.push({ key: c.key, skill: c.skill, evalId: c.evalId,
+        corpus: { name: c.name, kind: c.kind }, baseline: { name: r.name, kind: r.kind } });
+    }
+  }
+
+  const declared = baseline.caseCount;
+  const countMismatch = (declared === results.length && declared === corpus.size)
+    ? null
+    : { baselineCaseCount: declared, baselineEntries: results.length, corpusCases: corpus.size };
+
+  // `ok` is true only when nothing differs at all. Reporting ok beside a populated array would let
+  // the gate pass on a corpus the comparison had already found to disagree.
+  return {
+    ok: missingFromBaseline.length === 0 && missingFromCorpus.length === 0
+      && changed.length === 0 && countMismatch === null,
+    missingFromBaseline,
+    missingFromCorpus,
+    changed,
+    countMismatch,
+  };
+}
+
+function cmdParity(cfg, opts) {
+  const parity = baselineParity(cfg);
+  if (opts.json) {
+    console.log(JSON.stringify(parity, null, 2));
+    return parity.ok ? 0 : 1;
+  }
+  if (parity.ok) {
+    console.log('ok  the committed baseline describes the committed corpus');
+    return 0;
+  }
+  // Name the cases, not just the fact of a difference: the output is what tells a maintainer what to
+  // fix, and "parity failed" sends them back to diffing two JSON files by hand.
+  for (const c of parity.missingFromBaseline) {
+    console.log(`GAP ${c.key} is in the corpus but not in the baseline (${c.kind}: ${c.name})`);
+  }
+  for (const c of parity.missingFromCorpus) {
+    console.log(`GAP ${c.key} is in the baseline but not in the corpus (${c.kind}: ${c.name})`);
+  }
+  for (const c of parity.changed) {
+    console.log(`GAP ${c.key} differs: corpus has ${c.corpus.kind}/${c.corpus.name}, baseline has ${c.baseline.kind}/${c.baseline.name}`);
+  }
+  if (parity.countMismatch) {
+    const m = parity.countMismatch;
+    console.log(`GAP case counts disagree: baseline.caseCount=${m.baselineCaseCount}, baseline entries=${m.baselineEntries}, corpus cases=${m.corpusCases}${m.note ? ` (${m.note})` : ''}`);
+  }
+  console.log('\nre-capture the baseline with `node bench/runner.js baseline --from <iteration>` once a run covers the new cases');
+  return 1;
 }
 
 if (require.main === module) {
@@ -816,6 +918,7 @@ module.exports = {
   loadRunContext,
   verifySkillSource,
   skillSourceSha256,
+  baselineParity,
   SKILL_RESOLUTION,
   RUN_SOURCE_FILE,
 };
