@@ -113,9 +113,14 @@ test('G11/028: the committed baseline still describes the committed corpus', () 
     ...parity.missingFromBaseline.map((c) => `${c.key} in corpus, absent from baseline (${c.kind}: ${c.name})`),
     ...parity.missingFromCorpus.map((c) => `${c.key} in baseline, absent from corpus (${c.kind}: ${c.name})`),
     ...parity.changed.map((c) => `${c.key} differs: corpus ${c.corpus.kind}/${c.corpus.name} vs baseline ${c.baseline.kind}/${c.baseline.name}`),
+    // `note` carries the reason when the three counts are all null — a baseline that is absent
+    // rather than disagreeing. Dropping it printed "null, null, null" here while `bench parity`
+    // printed the path, so one shared comparison was reported two different ways by its two
+    // callers. Rendering it the way cmdParity does is what keeps them in step.
     ...(parity.countMismatch
       ? [`case counts disagree: baseline.caseCount=${parity.countMismatch.baselineCaseCount}, `
-        + `baseline entries=${parity.countMismatch.baselineEntries}, corpus cases=${parity.countMismatch.corpusCases}`]
+        + `baseline entries=${parity.countMismatch.baselineEntries}, corpus cases=${parity.countMismatch.corpusCases}`
+        + `${parity.countMismatch.note ? ` (${parity.countMismatch.note})` : ''}`]
       : []),
   ];
   assert.deepEqual(differences, [],

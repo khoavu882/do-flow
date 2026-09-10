@@ -817,6 +817,47 @@ function main() {
 // identity, so renaming a case reports as one change rather than as a removal plus an addition.
 // `passRate` and `sourceStatus` are deliberately NOT compared: they record what a paid run measured,
 // and a gate that compared them would be asserting a measurement it never made.
+/** Every case the corpus holds, keyed by `<skill>/<evalId>`. A skill with no case file contributes
+ * nothing rather than an empty entry — `coverage` is what reports that gap, and counting it here as
+ * a present-but-empty skill would make parity report the same gap in a less useful shape. */
+function corpusCaseIndex(cfg) {
+  const index = new Map();
+  for (const skill of discoverSkills(cfg)) {
+    const cases = loadCases(cfg, skill);
+    if (!cases) continue;
+    for (const e of cases.evals || []) {
+      index.set(`${skill}/${e.id}`, { key: `${skill}/${e.id}`, skill, evalId: e.id, name: e.name, kind: e.kind });
+    }
+  }
+  return index;
+}
+
+/** Every case the baseline records, keyed the same way, so the two sides are directly comparable.
+ * `evalName` is renamed to `name` here deliberately: the baseline's field names are its own storage
+ * shape, and the comparison should not have to know which side it is looking at. */
+function baselineCaseIndex(results) {
+  const index = new Map();
+  for (const r of results) {
+    index.set(`${r.skill}/${r.evalId}`, { key: `${r.skill}/${r.evalId}`, skill: r.skill, evalId: r.evalId, name: r.evalName, kind: r.kind });
+  }
+  return index;
+}
+
+/** Cases present on both sides whose name or kind disagrees. Identity is the key, so a rename lands
+ * here as one change rather than in both missing-from lists as a removal plus an addition. */
+function changedCases(corpus, recorded) {
+  const changed = [];
+  for (const c of corpus.values()) {
+    const r = recorded.get(c.key);
+    if (!r) continue;
+    if (r.name !== c.name || r.kind !== c.kind) {
+      changed.push({ key: c.key, skill: c.skill, evalId: c.evalId,
+        corpus: { name: c.name, kind: c.kind }, baseline: { name: r.name, kind: r.kind } });
+    }
+  }
+  return changed;
+}
+
 /** Compare the committed corpus against the committed baseline. Pure: reads files, writes nothing. */
 function baselineParity(cfg) {
   const baselineFile = path.join(REPO_ROOT, cfg.baselineDir, 'baseline.json');
@@ -832,31 +873,12 @@ function baselineParity(cfg) {
   }
   const baseline = readJson(baselineFile);
   const results = Array.isArray(baseline.results) ? baseline.results : [];
-
-  const corpus = new Map();
-  for (const skill of discoverSkills(cfg)) {
-    const cases = loadCases(cfg, skill);
-    if (!cases) continue;
-    for (const e of cases.evals || []) {
-      corpus.set(`${skill}/${e.id}`, { key: `${skill}/${e.id}`, skill, evalId: e.id, name: e.name, kind: e.kind });
-    }
-  }
-  const recorded = new Map();
-  for (const r of results) {
-    recorded.set(`${r.skill}/${r.evalId}`, { key: `${r.skill}/${r.evalId}`, skill: r.skill, evalId: r.evalId, name: r.evalName, kind: r.kind });
-  }
+  const corpus = corpusCaseIndex(cfg);
+  const recorded = baselineCaseIndex(results);
 
   const missingFromBaseline = [...corpus.values()].filter((c) => !recorded.has(c.key));
   const missingFromCorpus = [...recorded.values()].filter((r) => !corpus.has(r.key));
-  const changed = [];
-  for (const c of corpus.values()) {
-    const r = recorded.get(c.key);
-    if (!r) continue;
-    if (r.name !== c.name || r.kind !== c.kind) {
-      changed.push({ key: c.key, skill: c.skill, evalId: c.evalId,
-        corpus: { name: c.name, kind: c.kind }, baseline: { name: r.name, kind: r.kind } });
-    }
-  }
+  const changed = changedCases(corpus, recorded);
 
   const declared = baseline.caseCount;
   const countMismatch = (declared === results.length && declared === corpus.size)
