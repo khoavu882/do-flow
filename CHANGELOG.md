@@ -13,6 +13,53 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.5.0] - 2026-09-10
+
+### Added
+
+- `doflow indicators` — workflow indicators derived from the orchestration record, exposed
+  through both dispatch layers. Reports per-stage latency, gate waits separately from machine
+  time, stage outcomes, backfilled stages and rerun counts, grouped per task class, and states
+  in its own output what it cannot measure. Deliberately not folded into `stats`: a run-ledger
+  record names no task, stage or class, so the question is not answerable from that file.
+- Pre-branch intent: discovery reads an intent document when given its path, with a shipped
+  template and the convention documented. Intents are unnumbered and sit outside the feature
+  directory — an intent never built would consume a feature number and leave a gap.
+- Review policy resolved from three tiers, with a generated `review-policy.json` artifact and a
+  fallback to the working directory when the target resolves no policy. The prose points at the
+  policy rather than re-transcribing its thresholds, and a guard prevents re-transcription.
+- The evaluation corpus under `bench/` is tracked again, with its guard restored and a `parity`
+  command gating the committed baseline against the committed corpus.
+- Offline validation for `bench/native`, which its README already claimed existed — including the
+  assertion that every case starts from a fixture that fails its own checks, since a case whose
+  fixture already passes cannot measure anything and reads as a genuine PASS in a live run.
+
+### Fixed
+
+- The upstream format-drift watcher had been deleted while its scheduled workflow still invoked
+  it. Restored, plus a guard that every `npm run` reference in a workflow resolves in
+  `package.json` — one check that would have caught three separate instances of this class.
+- A bench assertion-scope mismatch silently failed 15 shipped assertions across four skills
+  whenever a run produced artifacts but no transcript. The gate was narrowed by scope rather than
+  removed.
+- `leak-scan --path <directory>` read no file yet serialized `findingsCount: 0` and exited 0 —
+  indistinguishable from a genuinely clean scan for the JSON consumer. The report now carries
+  `scannedCount` beside it.
+- A tool-lifecycle wrapper could plan and execute an install in a single call, bypassing the
+  confirmation `doflow tools` requires between the two steps. Removed; nothing called it.
+
+### Changed
+
+- `docs/capability-map.md`'s generated regions are compared against the registry cell by cell
+  again. The generator, its npm script and the byte-for-byte guard had all been deleted while the
+  `BEGIN/END GENERATED` markers stayed, leaving two regions of a shipped page announcing
+  themselves as machine-written while hand-maintained with nothing checking them. The comparison
+  is restored without restoring the generator.
+- `docs/refactor-plan.md` is marked a historical record rather than open work, and records that
+  its stage numbering runs 1–5 then 7.
+- Guidance no longer tells readers to invoke a runtime helper by name; the seam's `validate` verb
+  takes the same flags and the helper is not on `PATH`.
+
 ## [1.4.0] - 2026-09-08
 
 ### Added
