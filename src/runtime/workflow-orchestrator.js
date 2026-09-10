@@ -15,6 +15,28 @@ const { updateTaskState, readTaskState } = require('./task-state');
 const { REPO_ROOT } = require('../helper/repo-root');
 
 const RUN_STATES = Object.freeze(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED']);
+
+/**
+ * Every write to `run.state` passes through here, so RUN_STATES is the closed set it is declared to
+ * be rather than a comment that happens to list four strings.
+ *
+ * It was the latter: the set was frozen and exported while all six state writes were bare literals,
+ * so `'COMPLETE'` for `'COMPLETED'` would have produced a run in a state no branch tests for — and
+ * every one of those branches reads `!== 'RUNNING'` or `=== 'COMPLETED'`, so the run would simply
+ * stop responding to stage completions with no error naming the cause. Throwing is right here
+ * precisely because the value is always a literal in this file: a failure can only be a typo
+ * introduced while editing, which is a defect to surface at once, never data to tolerate.
+ *
+ * @param {string} state
+ * @returns {string} the same state, once it is known to be one
+ */
+function runState(state) {
+  if (!RUN_STATES.includes(state)) {
+    throw new Error(`Unknown run state '${state}' (expected one of: ${RUN_STATES.join(', ')})`);
+  }
+  return state;
+}
+
 const GATE_DECISIONS = Object.freeze(['approve', 'reject']);
 /** What a completed stage established, separate from the fact it was walked past (review A1). */
 const STAGE_OUTCOMES = new Set(['passed', 'failed', 'unverified']);
@@ -110,7 +132,7 @@ class WorkflowOrchestrator {
       taskClass,
       workflowName: workflow.name ?? taskClass,
       terminalStage: workflow.terminalStage ?? null,
-      state: 'RUNNING',
+      state: runState('RUNNING'),
       cursor: 0,
       program,
       history: [{ at: iso(now), action: 'start', detail: `task-class=${taskClass}` }],
@@ -379,9 +401,9 @@ class WorkflowOrchestrator {
     node.decision = decision;
     run.history.push({ at: iso(now), action: 'decide-gate', node: node.id, detail: decision, note: note ?? null, forced: Boolean(forced) });
     if (decision === 'reject') {
-      run.state = 'REJECTED';
+      run.state = runState('REJECTED');
     } else {
-      run.state = 'RUNNING';
+      run.state = runState('RUNNING');
       run.cursor += 1;
       this.settleCursor(run);
     }
@@ -410,11 +432,11 @@ class WorkflowOrchestrator {
    * the run state from what is found there. Cursor always sits ON the node awaiting action. */
   settleCursor(run) {
     for (;;) {
-      if (run.cursor >= run.program.length) { run.state = 'COMPLETED'; return; }
+      if (run.cursor >= run.program.length) { run.state = runState('COMPLETED'); return; }
       const node = run.program[run.cursor];
       if (node.status === 'completed' || node.status === 'skipped' || node.status === 'approved') { run.cursor += 1; continue; }
-      if (node.type === 'gate' && node.status === 'pending') { run.state = 'AWAITING_GATE'; return; }
-      run.state = 'RUNNING';
+      if (node.type === 'gate' && node.status === 'pending') { run.state = runState('AWAITING_GATE'); return; }
+      run.state = runState('RUNNING');
       return;
     }
   }
