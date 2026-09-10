@@ -79,5 +79,19 @@
       "methods": 3,
       "lines": 40
     }
-  ]
+  ],
+  "policy": {
+    "tiers": [
+      "built-in",
+      "review-policy.json"
+    ],
+    "thresholds": {
+      "long_function_lines": 50,
+      "too_many_parameters": 5,
+      "high_complexity": 10,
+      "god_class_methods": 20,
+      "max_imports": 15,
+      "max_declarative_depth": 8
+    }
+  }
 }
