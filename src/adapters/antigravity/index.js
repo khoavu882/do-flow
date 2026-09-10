@@ -241,7 +241,7 @@ function treeDestFor(asset, paths, scope) {
   return path.join(paths.configDir, nativeDir);
 }
 
-function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot, fsImpl = fs }) {
+function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot, force = false, fsImpl = fs }) {
   const changes = [];
   const conflicts = [];
   const targets = [];
@@ -253,7 +253,13 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
   for (const { asset, destDir } of targets) {
     const sourceDir = sourceDirFor(asset, { repoRoot }, fsImpl, HARNESS);
     const previousResources = ledgerFileResources(neutralResources, HARNESS, asset.id);
-    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout });
+    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout,
+      // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
+      // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
+      // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file
+      // is never deleted on removal, forced or not. This adapter needed `force` threaded through
+      // planTrees as well, since its signature did not carry the context the others already had.
+      force: !removing && force === true });
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const change of result.changes) {
       changes.push({
@@ -428,7 +434,7 @@ function plan(options = {}, impl = {}) {
   const selectedServers = Array.isArray(options.mcp) ? options.mcp : [];
 
   const instructions = planInstructions({ paths, assets: options.assets, removing, repoRoot: context.repoRoot, fsImpl });
-  const trees = planTrees({ assets: options.assets, paths, scope, neutralResources, removing, repoRoot: context.repoRoot, fsImpl });
+  const trees = planTrees({ assets: options.assets, paths, scope, neutralResources, removing, repoRoot: context.repoRoot, force: context.force === true, fsImpl });
   const mcp = planMcp({ paths, selectedServers, neutralResources, removing, fsImpl });
   const hooksPlan = planHooks({ paths, scope, neutralResources, removing, fsImpl });
 

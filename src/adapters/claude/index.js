@@ -97,7 +97,12 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
       const destDir = copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourcePath(asset, context);
       const previousResources = ledgerFileResources(ledger?.resources, 'claude', asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', layout: asset.layout, transform: asset.transform });
+      const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', layout: asset.layout, transform: asset.transform,
+        // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
+        // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
+        // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file
+        // is never deleted on removal, forced or not.
+        force: !removing && context?.force === true, });
       conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
       for (const change of result.changes) {
         changes.push({
