@@ -128,12 +128,11 @@ function executeToolLifecycle({ plan, execFileSyncImpl = execFileSync, displayCo
   return { action: plan.action, notAttempted, results };
 }
 
-function runToolLifecycle(options = {}) {
-  const plan = planToolLifecycle(options);
-  const execution = executeToolLifecycle({ ...options, plan });
-  return { plan, ...execution };
-}
-
+// Deliberately no plan-then-execute convenience wrapper. One existed and nothing called it: the
+// only caller, `doflow tools`, plans and executes as two steps precisely so a confirmation lands
+// between them (`src/cli/commands/tools.js` refuses `--force` for that reason). A single call that
+// did both would be the one code path able to run an install command unconfirmed, so the gap is
+// the safety property rather than an omission to fill.
 module.exports = {
   SUPPORTED_PLATFORMS,
   isSupportedPlatform,
@@ -143,5 +142,4 @@ module.exports = {
   inspectPrerequisites,
   planToolLifecycle,
   executeToolLifecycle,
-  runToolLifecycle,
 };

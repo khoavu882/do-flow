@@ -1,5 +1,13 @@
 # Structure refactor plan
 
+> **Status: historical record, not open work.** Every stage on this page has landed except Stage 7,
+> which is deliberately unscheduled and is the only forward-looking item here. Stage 4 landed and was
+> then partly unwound — read its entry, not just its heading, because a stage marked landed describes
+> what a merged PR did and not necessarily what the tree still holds. There is no Stage 6: the
+> numbering runs 1–5 and then 7, and what the gap was is not recorded anywhere, so do not read the
+> jump as a missing document. Read the page for *why the structure is shaped as it is*, and for
+> Stage 7's rule about when a workspace split becomes justified. Nothing here is a task list to pick up.
+
 Contributor-facing execution map for the structure refactor approved after the 2026-08
 ecosystem study (anthropics/skills, opencode v2, gemini-cli, vercel-labs/skills, gh skill
 install, the config-sync family). Each stage is one independently revertible PR through the
@@ -72,20 +80,32 @@ pre/post refactor, ledger fingerprints equal. Rollback = revert restores hardcod
 
 ### Stage 4 — generate capability-map.md from the registry
 
-Status: **landed** (#35).
+Status: **landed (#35), then unwound — generation is gone and the check is back to comparison.**
 
 G8 exists because the capability map drifted from the registry by hand. Generation removes the
 class of error instead of detecting it.
 
-- scripts/generate-capability-map.js renders tables/matrices between managed markers;
-  prose outside markers is preserved untouched.
-- G8 flips from "cells match registry" to "run generator → git diff must be empty".
-- Adds npm script `gen:capability-map`.
-- Landed: `scripts/generate-capability-map.js` (npm run `gen:capability-map`) renders the
-  `capability-matrix` and `hook-event-matrix` regions between `<!-- BEGIN GENERATED:<region> -->`
-  / `<!-- END GENERATED:<region> -->` markers; prose outside markers is never machine-edited.
+- A generator rendered tables/matrices between managed markers; prose outside markers was
+  preserved untouched.
+- G8 flipped from "cells match registry" to "run generator → git diff must be empty".
+- Added an npm script to run it.
+- Landed as a generator under `scripts/` plus an npm script, rendering the `capability-matrix` and
+  `hook-event-matrix` regions between `<!-- BEGIN GENERATED:<region> -->` /
+  `<!-- END GENERATED:<region> -->` markers; prose outside markers was never machine-edited.
 
-Done when: regenerate produces zero diff; docs build strict-clean.
+**What the tree holds now.** The generator and its npm script were deleted in a later change, and
+the byte-for-byte guard went with them. The `BEGIN/END GENERATED` markers stayed in
+`docs/capability-map.md`, so for several releases two regions of a shipped page announced themselves
+as machine-written while being hand-maintained with nothing comparing them to the registry — the
+drift this stage was opened to remove, back again and harder to see. Neither the generator nor the
+npm script is named here as a path any more, because neither exists to be run.
+
+G8 is therefore back to comparison rather than regeneration, but it is no longer absent: `test/guards/reachability.test.js`
+checks every cell of the `capability-matrix` region against `capabilityMapData(loadRegistry())` —
+status and native target both — and fails naming the harness, the capability and the two
+disagreeing values. The markers now anchor that guard, which is the only reason to keep them.
+
+Done when: the per-cell comparison passes; docs build strict-clean.
 
 ### Stage 5 — upstream format-drift watcher
 

@@ -5,8 +5,12 @@ the host's native discovery. It complements the existing per-skill benchmark, wh
 loads a selected skill. Five cases cover routing, unnecessary pauses, authorization retained across
 turns, process restarts, and conflicting instructions in retrieved content.
 
-No live results have been captured for this corpus. Offline tests validate the broken fixtures and
-the grader; they do not establish native-host quality. Live sessions may incur model usage charges.
+No live results have been captured for this corpus. `test/bench/native-corpus.test.js` validates the
+broken fixtures and the grader offline — that every case starts from a fixture failing its own
+`checks`, that `expectedSkills` names skills that actually ship, that `prepare` describes the install
+rather than performing it, and that a run with no controller record grades `INCONCLUSIVE` rather than
+`PASS`. None of that establishes native-host quality; it establishes that a live run would measure
+something. Live sessions may incur model usage charges.
 
 ## Running a case
 

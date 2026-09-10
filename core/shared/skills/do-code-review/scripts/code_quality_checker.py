@@ -1243,7 +1243,6 @@ def check_shell_specific_smells(content: str) -> List[Dict]:
     smells = []
     lines = content.split("\n")
 
-    first_code = next((ln for ln in lines if ln.strip() and not ln.strip().startswith("#")), "")
     if lines and lines[0].startswith("#!") and "set -" not in content:
         smells.append({
             "type": "no_error_handling",
