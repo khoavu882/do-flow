@@ -416,6 +416,22 @@ function detectCommands(options = {}) {
     };
   }
 
+  // DERIVATIONS was declared and exported while nothing consulted it, and the value it names is
+  // written as a bare literal at twenty-three separate sites across the per-language detectors. That
+  // is precisely the shape where a typo survives: `derivation` is carried into the verification
+  // report and read there to say whether a command came from the project or was inferred on its
+  // behalf, so a misspelled one degrades into "not declared" silently rather than failing. Checking
+  // once here covers every producer, including the override branch above, without asking each of the
+  // twenty-three to remember.
+  for (const entry of Object.values(commands)) {
+    if (!DERIVATIONS.includes(entry.derivation)) {
+      throw new Error(
+        `Command role '${entry.role}' has derivation '${entry.derivation}', which is not one of: `
+        + `${DERIVATIONS.join(', ')}`,
+      );
+    }
+  }
+
   return {
     projectRoot,
     usable: true,

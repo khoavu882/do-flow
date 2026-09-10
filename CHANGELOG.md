@@ -13,6 +13,24 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.5.1] - 2026-09-10
+
+### Fixed
+
+- Five declared closed sets — `RUN_STATES`, `EVIDENCE_STATUSES`, `POLICY_STATUSES`,
+  `RESOLUTION_REASONS` and `DERIVATIONS` — were frozen, exported and read by nothing, while every
+  value they govern was written as a bare literal: documentation shaped like enforcement, and a
+  second source of truth nothing reconciled against the first. Each is now consulted where its own
+  module's risk lies. A typo in a run-state write produced a run that silently stopped responding to
+  stage completions, since every branch tests `!== 'RUNNING'` or `=== 'COMPLETED'`. A registry status
+  outside the policy set was carried onward as though it were real — that value is the one
+  `renderPolicy` does not compute. An unrecognised evidence status read from disk had no safe
+  default, because treating it as active would un-retire superseded evidence back into readiness and
+  treating it as superseded would retire evidence nobody retired, so it is now refused by name rather
+  than guessed at. An undefined resolution reason rendered identically to a defined one, hiding a
+  resolver defect as a fact about the file. And a misspelled command derivation degraded into "not
+  declared" without failing.
+
 ## [1.5.0] - 2026-09-10
 
 ### Added

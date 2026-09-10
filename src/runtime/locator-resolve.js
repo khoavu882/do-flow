@@ -139,7 +139,17 @@ function describeResolution(locator, result) {
     case 'symbol-absent':
       return `'${file}' contains no symbol '${locator.symbol}'`;
     default:
-      return `'${file}' did not resolve (${result.reason})`;
+      // RESOLUTION_REASONS was declared and exported while nothing read it, so this branch could not
+      // tell two very different situations apart: a reason this module legitimately produces but has
+      // no tailored sentence for, and a reason that exists only because something upstream wrote a
+      // string that is not a reason at all. Both rendered identically, and the second is a defect in
+      // `resolveLocator` rather than a fact about the locator being described. Consulting the set is
+      // what separates them. This function reports and must not throw — it runs while explaining why
+      // something else already failed — so an unknown reason is named as suspect, not raised.
+      return RESOLUTION_REASONS.has(result.reason)
+        ? `'${file}' did not resolve (${result.reason})`
+        : `'${file}' did not resolve, and the reason given ('${result.reason}') is not one this `
+          + 'resolver defines — treat it as a defect in resolveLocator rather than a fact about the file';
   }
 }
 
