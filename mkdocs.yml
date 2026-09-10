@@ -25,6 +25,7 @@ nav:
   - Reference: reference.md
   - Flags: flags.md
   - Capability Map: capability-map.md
+  - Enterprise governance: enterprise-governance.md
   - Distribution notes: distribution-notes.md
   - Architecture: architecture.md
   - Refactor plan: refactor-plan.md
