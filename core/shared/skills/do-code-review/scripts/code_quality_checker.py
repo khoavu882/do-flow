@@ -185,15 +185,28 @@ def _trace_path(path: Path) -> str:
         return str(path)
 
 
-def find_repo_policy(start: Path) -> Optional[Path]:
-    """First agent-docs/review-policy.json found walking upward, mirroring the runtime seam's own
-    upward search for .doflow/. First hit wins, and the trace names which file won."""
+def _walk_up_for_policy(start: Path) -> Optional[Path]:
     current = start if start.is_dir() else start.parent
     for directory in [current, *current.parents]:
         candidate = directory / REPO_POLICY_RELPATH
         if candidate.is_file():
             return candidate
     return None
+
+
+def find_repo_policy(start: Path) -> Optional[Path]:
+    """First agent-docs/review-policy.json found walking upward, mirroring the runtime seam's own
+    upward search for .doflow/. First hit wins, and the trace names which file won.
+
+    The analysed path is searched first, because when it sits in a repository that repository's own
+    policy is the one under review. Only when that search finds nothing does the working directory
+    get a turn — which is what makes `cd my-repo && ... /tmp/patch.py` apply my-repo's policy instead
+    of silently applying none. A target inside a policy-bearing repo is therefore never overridden by
+    wherever the reviewer happened to be standing."""
+    found = _walk_up_for_policy(start)
+    if found is not None:
+        return found
+    return _walk_up_for_policy(Path.cwd())
 
 
 def load_policy(start: Path):
