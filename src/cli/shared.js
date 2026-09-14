@@ -78,7 +78,7 @@ function reportRetiredMcp(retired) {
  * apply it. Called once per invocation, before any dry-run/confirm branching, so an interactive
  * prompt (install only, real TTY, no --force/--dry-run) fires at most once and its result can be
  * reused for both the dry-run preview and the real write.
- * @returns {{allServers:string[], selected:string[], changed:boolean, destDescription:string, apply:()=>void}|null}
+ * @returns {{allServers:string[], selected:string[], changed:boolean, recorded:string[]|null, destDescription:string, apply:()=>void}|null}
  *          null if the registry declares no MCP servers (nothing to resolve).
  */
 function resolveMcpForTool({ o, dirs, scope, cmd, registry }) {
@@ -96,7 +96,11 @@ function resolveMcpForTool({ o, dirs, scope, cmd, registry }) {
     if (scope.global) mergeGlobalMcpServers(os.homedir(), allServers, serverDefs);
     else writeProjectMcpJson(projectRoot, allServers, serverDefs);
   };
-  return { allServers, selected, changed, destDescription, apply };
+  // `recorded` is the prior selection itself, not just whether one existed, because `changed` alone
+  // cannot distinguish the two ways it can be false: a returning install that matches what the
+  // manifest already recorded, and a first-ever install whose selection happens to equal the whole
+  // catalog (the `?? allServers` baseline above). Only the first may be reported as unchanged.
+  return { allServers, selected, changed, recorded: manifestServers, destDescription, apply };
 }
 
 function printBackupTable(rows, backupRoot) {
