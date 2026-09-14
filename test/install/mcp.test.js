@@ -295,3 +295,51 @@ test('promptMcpCheckbox returns [] immediately for an empty server list, never e
     else delete process.stdout.isTTY;
   }
 });
+
+// ── resolveMcpForTool's `recorded`, and the note install prints from it ────────────────────────
+
+test('resolveMcpForTool reports the recorded selection so an unchanged one can be named', () => {
+  // `changed` alone cannot carry this: it is false both when a returning install matches the
+  // manifest and when a first-ever install happens to select the whole catalog, because the
+  // baseline falls back to allServers when no manifest exists. Only the first is "unchanged from
+  // the recorded selection", and install.js prints that note off `recorded` for exactly that reason.
+  const { resolveMcpForTool } = require('../../src/cli/shared');
+  const { writeManifest } = require('../../src/install/manifest');
+  const registry = loadRegistry({ repoRoot: path.resolve(__dirname, '../..') });
+  const all = readAllServers(registry);
+  assert.ok(all.length >= 2, 'this test needs at least two servers in the catalog');
+
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-mcp-note-'));
+  const claudeDir = path.join(home, '.claude');
+  fs.mkdirSync(claudeDir, { recursive: true });
+  const dirs = { claude: claudeDir };
+  const scope = { global: false, projectRoot: home };
+
+  // First-ever install: no manifest, so nothing is recorded even when the selection is everything.
+  const first = resolveMcpForTool({ o: { mcp: all, dryRun: true, force: true }, dirs, scope, cmd: 'install', registry });
+  assert.equal(first.recorded, null, 'no manifest means no recorded selection');
+  assert.equal(first.changed, false, 'and changed is false against the allServers baseline');
+
+  // Record a selection, then ask for the same one explicitly — the case a redundant --mcp produces.
+  writeManifest({
+    claudeDir, scriptVersion: 'test', operation: 'install', repoRoot: home,
+    tools: ['claude'], date: new Date(), sourceCommit: 'test', mcpServers: [all[0]],
+  });
+  const again = resolveMcpForTool({ o: { mcp: [all[0]], dryRun: true, force: true }, dirs, scope, cmd: 'install', registry });
+  assert.deepEqual(again.recorded, [all[0]], 'the prior selection is reported');
+  assert.equal(again.changed, false, 'asking for what was recorded changes nothing');
+
+  // A different selection must not read as unchanged.
+  const different = resolveMcpForTool({ o: { mcp: [all[1]], dryRun: true, force: true }, dirs, scope, cmd: 'install', registry });
+  assert.equal(different.changed, true);
+});
+
+test('install names an unchanged MCP selection only when one was actually recorded', () => {
+  // The note's condition, asserted against the source so the two print sites cannot drift apart or
+  // start claiming a record on a first-ever install.
+  const source = fs.readFileSync(path.resolve(__dirname, '../../src/cli/commands/install.js'), 'utf8');
+  assert.match(source, /const mcpNote = mcp && !mcp\.changed && mcp\.recorded \?/,
+    'the note must require a recorded selection, not merely an unchanged one');
+  const uses = [...source.matchAll(/\$\{mcpNote\}/g)];
+  assert.equal(uses.length, 2, 'both the dry-run and the real print site must carry the note');
+});
