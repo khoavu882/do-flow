@@ -63,7 +63,7 @@ declares no analysis stage is not a workflow to diagnose under: say so and re-pr
      `references/refactoring.md`.
    - `dependency-change` → map who uses the dependency and what the change reaches.
    - `--focus performance` → profile execution, detect hot paths, identify algorithmic complexity
-     ($O(n^2)$) or N+1 queries, within whichever class was accepted.
+     (O(n²)) or N+1 queries, within whichever class was accepted.
    - `--focus security` → static scan for secrets, unsanitized inputs, auth gaps, or vulnerability
      signatures. Consult `references/code_audit.md`.
    - `--focus quality|architecture` → narrow to maintainability or to boundary/structure concerns.
