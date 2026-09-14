@@ -155,7 +155,13 @@ function resourceFor(agent, scope, sourceVersion) {
 }
 
 /** Plan all writes before performing any, preserving unknown or user-modified same-name agents. */
-function planCodexAgents({ scope, codexDir, projectRoot, sourceDir, sourceVersion = 'unknown', managedResources = [], fsImpl = fs }) {
+/**
+ * @param {Object} options
+ * @param {boolean} [options.adopt=false] accept an agent file that exists with no ledger record,
+ *   recording ownership instead of refusing. See planCodexConfig for why this is not `force`: a
+ *   record that disagrees with the file on disk stays a conflict regardless of `adopt`.
+ */
+function planCodexAgents({ scope, codexDir, projectRoot, sourceDir, sourceVersion = 'unknown', managedResources = [], adopt = false, fsImpl = fs }) {
   const directory = agentDirectory({ scope, codexDir, projectRoot });
   const agents = discoverCodexAgents(sourceDir, fsImpl);
   const owned = new Map(managedResources.filter((resource) => isOwnedResource(resource, scope)).map((resource) => [resource.identity, resource]));
@@ -167,8 +173,12 @@ function planCodexAgents({ scope, codexDir, projectRoot, sourceDir, sourceVersio
     const identity = `agent:${agent.name}`;
     const record = owned.get(identity);
     const current = fsImpl.existsSync(file) ? fsImpl.readFileSync(file, 'utf8') : null;
-    if (current !== null && !record) conflicts.push(`Agent '${agent.name}' exists but is not owned by DoFlow`);
-    else if (current !== null && record.fingerprint !== fingerprint(current)) conflicts.push(`Agent '${agent.name}' was modified outside DoFlow`);
+    // The chain is written against an explicit `unowned` rather than gating the first branch on
+    // `adopt`, because falling through with `record` undefined would read `record.fingerprint` off
+    // nothing. The `record &&` guard on the drift branch is what makes the adopt path safe.
+    const unowned = current !== null && !record;
+    if (unowned && !adopt) conflicts.push(`Agent '${agent.name}' exists but is not owned by DoFlow`);
+    else if (current !== null && record && record.fingerprint !== fingerprint(current)) conflicts.push(`Agent '${agent.name}' was modified outside DoFlow`);
     else if (current === null || current !== agent.source) changes.push({ type: current === null ? 'create' : 'update', identity, file, content: agent.source });
     nextManagedResources.push(resourceFor(agent, scope, sourceVersion));
   }

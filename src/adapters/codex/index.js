@@ -348,10 +348,10 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     return { configResources, mcpCatalog, selectedMcp, agentsSourceDir, hooksSourceFile, hooksSourceDir, hooksConfig, hooksTrusted };
   }
 
-  function planConfigComponent({ native, neutralResources, context, configFile, removing }) {
+  function planConfigComponent({ native, neutralResources, context, configFile, removing, adopt = false }) {
     if (native.configResources === undefined) return undefined;
     const managedResources = nativeManagedResources(neutralResources, context, { kind: 'configuration-entry', target: configFile });
-    const component = planCodexConfig({ file: configFile, scope: context.scope, managedResources, desiredResources: removing ? [] : native.configResources });
+    const component = planCodexConfig({ file: configFile, scope: context.scope, managedResources, desiredResources: removing ? [] : native.configResources, adopt: !removing && adopt });
     component.scope = context.scope;
     component.desiredResources = removing ? [] : native.configResources;
     // The next ledger intentionally omits a removed record. Keep the pre-plan
@@ -371,16 +371,19 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
   /** Codex hooks.json is only replaced when the file on disk still matches the ledger's last-known
    * fingerprint — a foreign edit (or a record the ledger never owned) downgrades an otherwise-clean
    * plan to a conflict rather than silently overwriting it. */
-  function planHooksComponent({ native, neutralResources, context }) {
+  function planHooksComponent({ native, neutralResources, context, adopt = false }) {
     let hooks = planCodexHooks({ config: native.hooksConfig, sourceFile: native.hooksSourceFile,
       sourceHooksDir: native.hooksSourceDir, trusted: native.hooksTrusted, destinationContext: context });
     const hooksFile = hooks.destination;
     if (hooks.ok && fs.existsSync(hooksFile)) {
       const [record] = nativeManagedResources(neutralResources, context, { kind: 'hooks-file', target: hooksFile });
       const current = sha256(fs.readFileSync(hooksFile, 'utf8'));
-      if (!record) {
+      // `adopt` covers the no-record case only: the file is claimed into the ledger and planning
+      // proceeds. A record that disagrees with the bytes below is a different situation and stays a
+      // conflict — that one is `--force`'s business, not adoption's.
+      if (!record && !adopt) {
         hooks = { ...hooks, ok: false, status: 'conflict', changes: [], errors: ['Codex hooks.json exists but is not owned by the neutral ledger'] };
-      } else if (record.fingerprint !== current) {
+      } else if (record && record.fingerprint !== current) {
         hooks = { ...hooks, ok: false, status: 'conflict', changes: [], errors: ['Codex hooks.json was modified outside DoFlow'] };
       }
     }
@@ -389,7 +392,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
 
   /** Agents/hooks share one removing-vs-planning fork: removal always owns both via the neutral
    * ledger's own records, regardless of what native input the caller provided this run. */
-  function planAgentsAndHooksComponents({ native, neutralResources, context, agentsDirectory, removing, options }) {
+  function planAgentsAndHooksComponents({ native, neutralResources, context, agentsDirectory, removing, options, adopt = false }) {
     if (removing) {
       return {
         agents: ownedRemovalPlan(neutralResources, context, 'custom-agent', agentsDirectory),
@@ -399,10 +402,12 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     const components = {};
     if (native.agentsSourceDir !== undefined) {
       const managedResources = nativeManagedResources(neutralResources, context, { kind: 'custom-agent', directory: agentsDirectory });
-      components.agents = planCodexAgents({ ...context, managedResources, sourceDir: native.agentsSourceDir, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion });
+      // `...context` is the NARROW native context (scope/codexDir/paths) and carries no adopt, so
+      // it is passed explicitly. Reading it off that object is what silently did nothing.
+      components.agents = planCodexAgents({ ...context, managedResources, sourceDir: native.agentsSourceDir, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion, adopt });
     }
     if (native.hooksSourceFile !== undefined || native.hooksConfig !== undefined) {
-      components.hooks = planHooksComponent({ native, neutralResources, context });
+      components.hooks = planHooksComponent({ native, neutralResources, context, adopt });
     }
     return components;
   }
@@ -420,11 +425,14 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     const agentsDirectory = context.paths.agentsDirectory;
     const removing = options.context?.operation === 'remove';
     const components = {};
-    const configComponent = planConfigComponent({ native, neutralResources, context, configFile, removing });
+    // `options.context` is the lifecycle context; `context` is this adapter's narrow native one.
+    // copyTree below already reads force off the former — adopt is read the same way.
+    const adopt = options.context?.adopt === true;
+    const configComponent = planConfigComponent({ native, neutralResources, context, configFile, removing, adopt });
     if (configComponent) components.config = configComponent;
     const mcpComponent = planMcpComponent({ native, neutralResources, context, configFile, removing, options });
     if (mcpComponent) components.mcp = mcpComponent;
-    Object.assign(components, planAgentsAndHooksComponents({ native, neutralResources, context, agentsDirectory, removing, options }));
+    Object.assign(components, planAgentsAndHooksComponents({ native, neutralResources, context, agentsDirectory, removing, options, adopt }));
     const copyTree = planCopyTreeAssets({ assets: options.assets, context, neutralResources, removing,
       repoRoot: options.context?.repoRoot, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion,
       force: options.context?.force === true });

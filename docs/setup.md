@@ -221,6 +221,15 @@ and a no-op update leaves the lock byte-untouched.
   changed outside DoFlow is reported as a conflict unless you pass `--force` (or run reconcile,
   which is always forced), in which case the managed bytes are restored — that restore *is* the
   healing.
+- **Resources with no record at all are a different case, and need `--adopt`.** A file DoFlow wrote
+  before the neutral ledger existed has no record describing it, so it reports as *not owned* rather
+  than *modified* — and `--force` does not answer it, because forcing is about overriding a record
+  that disagrees, not about the absence of one. `doflow install --adopt` records ownership of such a
+  resource and then plans it like any other managed one. The two flags are orthogonal and compose: a
+  tree that is both unrecorded and drifted needs `--adopt --force`. Adoption never overrides a record
+  that contradicts the bytes on disk; that stays a conflict, which is what keeps it distinct from
+  `--force`.
+
 - **Moved projections leave tombstones.** When an asset's destination changes between versions
   (as Codex's skills move from `.codex/skills` to `.agents/skills` did), the old location is
   recorded in the ledger's tombstone log and the stale copy is swept automatically — but only if
