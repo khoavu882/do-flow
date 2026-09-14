@@ -13,6 +13,32 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.6.0] - 2026-09-14
+
+### Added
+
+- `doflow install --adopt` records ownership of a resource that exists with no ledger record, instead
+  of refusing it. Codex's three native components — config entries, agent files and `hooks.json` —
+  each refused such a resource and consulted no flag, so a tree written before the neutral ledger
+  existed had no way back into management: the condition blocking the install was the condition an
+  install had to run to clear, and `reconcile`, written to heal ownership drift, is refused by the
+  same gate. `--adopt` is orthogonal to `--force` rather than a stronger form of it — adopt answers
+  "there is no record", force answers "the record disagrees" — and the two compose. A codex dry-run
+  decomposes cleanly across them: 28 conflicts with neither flag, 7 with `--force`, 21 with
+  `--adopt`, 0 with both. Adoption never overrides a record that contradicts the bytes on disk; that
+  stays a conflict.
+
+### Changed
+
+- `core-implementer`'s agent specification gains a seven-rung laziness ladder, the root-cause rule,
+  and the working rules on unrequested abstractions and deliberate simplifications. The spec said
+  what the agent is for and would not do, but nothing about how much code to write. The climb runs
+  after understanding the problem, never instead of it: the smallest change in the wrong place is a
+  second bug, not a small diff.
+- `do-diagnose`'s complexity example drops its LaTeX delimiters. Agent specifications are handed to a
+  subagent as plain prose with no renderer, so the Unicode superscript is the correct form and the
+  skill was the outlier; both occurrences in the shared tree now agree.
+
 ## [1.5.2] - 2026-09-10
 
 ### Fixed
