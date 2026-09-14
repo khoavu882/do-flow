@@ -53,9 +53,14 @@ function cmdInstall(o) {
   const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds, force: o.force, adopt: o.adopt === true, permissions: o.permissions === true, statusline: o.statusline === true });
   if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
 
+  // Says so when an explicit --mcp asked for exactly what was already recorded. Without this the
+  // flag looks load-bearing on every install: the selection it names is also the one the manifest
+  // would have supplied on its own, and nothing in the output distinguished the two.
+  const mcpNote = mcp && !mcp.changed && mcp.recorded ? ' — unchanged from the recorded selection' : '';
+
   if (o.dryRun) {
     console.log(`[INFO] Install targets: ${targets.join(' ')}`);
-    if (mcp) console.log(`[DRY]  MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})`);
+    if (mcp) console.log(`[DRY]  MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})${mcpNote}`);
     printRegistryLifecycle(lifecycleView, '[DRY]');
     if (!o.noBackup) console.log(`[DRY]  Would create backup: ${backupRoot}/install_<timestamp>`);
     console.log(`[DRY]  Would write manifest: ${path.join(dirs.claude, '.install-manifest.json')}`);
@@ -106,7 +111,7 @@ function cmdInstall(o) {
     chmodHooksExecutable(dirs.claude);
     if (mcp) {
       mcp.apply();
-      console.log(`[INFO]   MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})`);
+      console.log(`[INFO]   MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})${mcpNote}`);
     }
   }
 
