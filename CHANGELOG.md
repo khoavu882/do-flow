@@ -13,6 +13,20 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.7.0] - 2026-09-14
+
+### Added
+
+- `doflow install` now says when an MCP selection is unchanged from the one already recorded. The
+  same line was printed whether the selection came from an explicit `--mcp`, from the manifest, or
+  from a genuine change, so a redundant `--mcp` was indistinguishable from a load-bearing one and the
+  flag read as required when it is only ever an override. The resolution order is unchanged —
+  explicit `--mcp`, else the recorded selection, else none on a first-ever non-interactive install —
+  and so is what gets installed; only the output admits the flag did nothing. The note requires a
+  *recorded* selection rather than merely an unchanged one, because a first-ever install whose
+  selection happens to equal the whole catalog is also "unchanged" against that baseline and has no
+  record to be unchanged from.
+
 ## [1.6.0] - 2026-09-14
 
 ### Added
