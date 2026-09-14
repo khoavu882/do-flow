@@ -47,7 +47,7 @@ function assertNoBackupRequiresForce(o) {
 }
 
 function parseArgs(argv) {
-  const o = { cmd: null, positional: [], targets: [], mcp: null, dryRun: false, force: false,
+  const o = { cmd: null, positional: [], targets: [], mcp: null, dryRun: false, force: false, adopt: false,
     noBackup: false, prune: 0, global: false, json: false, help: false, version: false,
     tools: null, action: 'status', days: null, slug: null,
     // Explicitly null, not absent. `handleReadinessCommand` declares defaults of `'feature'` and
@@ -61,6 +61,7 @@ function parseArgs(argv) {
       case '-v': case '--version': o.version = true; break;
       case '-n': case '--dry-run': o.dryRun = true; break;
       case '-f': case '--force': o.force = true; break;
+      case '--adopt': o.adopt = true; break;
       case '-g': case '--global': o.global = true; break;
       case '--no-backup': o.noBackup = true; break;
       case '--permissions': o.permissions = true; break;
@@ -358,6 +359,10 @@ Options:
                        runs. Applies to Claude and Codex when targeted.
   -n, --dry-run        Preview without writing
   -f, --force          Skip confirmation prompts
+      --adopt          Record ownership of resources that exist with no ledger record, instead
+                       of refusing them. Not --force: a resource whose record disagrees with
+                       the file is still a conflict. For a tree installed before the neutral
+                       ledger existed, which nothing else can re-adopt
       --no-backup      Skip backup (requires --force; ignored by rollback's safety snapshot)
       --prune <N>      Keep only N most recent backups (install, update)
       --days <N>       Run-ledger window in calendar days (trace, stats, discover)

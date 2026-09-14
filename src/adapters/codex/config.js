@@ -63,7 +63,16 @@ function isOwnedRecord(resource, scope) {
     (resource.kind === CONFIG_KIND || resource.kind === 'config-entry') && typeof resource.identity === 'string';
 }
 
-function planCodexConfig({ file, scope, managedResources = [], desiredResources = [] }) {
+/**
+ * @param {Object} options
+ * @param {boolean} [options.adopt=false] accept a config entry that exists with no ledger record,
+ *   recording ownership of it instead of refusing. Distinct from `force`, which overrides a record
+ *   that *disagrees* with the file: adoption only ever covers the no-record case, and a resource
+ *   whose record contradicts its bytes stays a conflict here whatever `adopt` says. Without this,
+ *   entries written before the neutral ledger existed could never be re-adopted — the condition
+ *   blocking the install was the same condition an install had to run to clear.
+ */
+function planCodexConfig({ file, scope, managedResources = [], desiredResources = [], adopt = false }) {
   const original = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
   let parsed;
   try { parsed = parseToml(original); } catch (error) {
@@ -81,10 +90,13 @@ function planCodexConfig({ file, scope, managedResources = [], desiredResources 
     const entry = parsed.entries.get(identity);
     const record = owned.get(identity);
     const wanted = desired.get(identity);
-    if (!record && entry) {
+    if (!record && entry && !adopt) {
       conflicts.push(`'${identity}' exists but is not owned by DoFlow`);
       continue;
     }
+    // Adopting: no `continue`, so the entry goes through ordinary planning below. Ownership is
+    // recorded either way — `nextManagedResources` is rebuilt from `desired` regardless of what was
+    // owned before — so adoption needs nothing beyond not refusing here.
     if (record && entry && record.fingerprint !== fingerprint(entry.value)) {
       conflicts.push(`'${identity}' was modified outside DoFlow`);
       continue;

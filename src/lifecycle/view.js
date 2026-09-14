@@ -46,7 +46,7 @@ function codexConfigResources(repoRoot, fsImpl) {
  * mutation path until every native adapter has CLI-level parity.
  * `registry` is loaded once per command (by the caller) and threaded through here rather than
  * reloaded — the same registry also resolves the Claude/Codex MCP catalog for that command. */
-function registryLifecycleView({ registry, scope, targets, mcpIds, operation, repoRoot, force = false, permissions = false, statusline = false, fsImpl = fs }) {
+function registryLifecycleView({ registry, scope, targets, mcpIds, operation, repoRoot, force = false, adopt = false, permissions = false, statusline = false, fsImpl = fs }) {
   const lifecycleScope = codexScope(scope);
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   const neutralStateRoot = stateRoot({ scope: lifecycleScope, projectRoot: scopeRoot, homeDir: scopeRoot });
@@ -70,6 +70,7 @@ function registryLifecycleView({ registry, scope, targets, mcpIds, operation, re
     geminiHooksSourceDir: path.join(repoRoot, 'core', 'harnesses', 'gemini', 'hooks'),
     operation,
     force,
+    adopt,
     permissions,
     statusline,
   } });
