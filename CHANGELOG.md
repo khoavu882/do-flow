@@ -13,6 +13,26 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.8.0] - 2026-09-16
+
+### Added
+
+- Chain artifacts now carry governed diagrams, with `doflow-run render-diagrams` as an optional
+  seam that renders a fenced Mermaid block to an image without touching the committed Markdown.
+  `DIAGRAM_GUIDE.md` sets per-type node and edge ceilings measured against a real corpus rather
+  than chosen for roundness, and `render-audit` regenerates `audit.md` from the orchestration
+  journal. The renderer is an optional dependency DoFlow never installs: absent, the verb reports
+  how to obtain it and exits 0, because a missing optional capability must not read as a broken run.
+
+- A feature may now author its C4 diagrams in PlantUML under `design/c4/` and have them projected
+  into `design.md` §2, via `doflow-run render-puml` and the new `plantuml` external tool. The
+  projection is lossy by design and refuses rather than degrades: a macro outside the recognized
+  set — 20 element, 4 boundary and 18 relationship macros, verified against PlantUML 1.2026.8
+  rather than transcribed from its docs — stops the projection naming the macro, file and line,
+  because a skipped macro would emit a diagram carrying fewer elements than its source with nothing
+  revealing the loss. Authoring C4 this way is opt-in per feature; a feature without `design/c4/`
+  writes §2's Mermaid by hand exactly as before.
+
 ## [1.7.0] - 2026-09-14
 
 ### Added
