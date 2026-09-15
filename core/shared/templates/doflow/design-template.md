@@ -42,6 +42,18 @@
      Skip a level with "N/A: [why]". For a trivial single-file change with no new external
      interaction, write "N/A: [why]" for the whole section. -->
 
+<!-- C4 Level 2 below sits inside the generated-block markers `doflow-run render-puml` replaces.
+     When this feature authors its C4 in PlantUML under design/c4/, edit container.puml and re-run
+     the verb; editing between the markers by hand is a change the next render discards.
+
+     A feature that authors no PlantUML writes the Mermaid here by hand, as it always did. The
+     markers are inert in that case — with no design/c4/ directory the verb reports and exits
+     before it opens this file — so leave them or delete them, whichever reads better.
+
+     The markers delimit LEVEL 2 ONLY. The projector emits one block per run, from container.puml
+     when it exists and context.puml otherwise, so a second marker pair would have nothing to fill.
+     Levels 1 and 3 are hand-written at every level of PlantUML adoption. -->
+
 ### C4 Level 1: System Context
 
 [Who/what uses this system, and which external systems it talks to. One box per actor or external
@@ -67,6 +79,8 @@ flowchart TB
 [Which deployable services/apps/data stores this feature spans, and how they talk. One box per
 independently deployable unit — internals of a single container belong at C4 Level 3.]
 
+<!-- generated from design/c4/container.puml by `doflow-run render-puml` -- do not edit by hand
+     source-hash: not-yet-rendered -->
 ```mermaid
 flowchart LR
     USER["[actor/user]"]
@@ -80,6 +94,7 @@ flowchart LR
     APP -->|"[reads/writes]"| DB
     APP -->|"[interaction]"| EXT
 ```
+<!-- end generated -->
 
 ### C4 Level 3: Component
 

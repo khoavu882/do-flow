@@ -73,15 +73,13 @@ edge ceiling exists for that failure and belongs only to the type that has it. T
 applies to `erDiagram` relations and `stateDiagram-v2` transitions: a reader tracks entities and
 states, and the links follow from them.
 
-**Where the numbers come from.** They were measured against 56 Mermaid diagrams in a completed
-feature, not chosen for roundness. Flowchart node counts were bimodal: eleven diagrams at six nodes
-or fewer, four at seventeen or more, and nothing in between twelve and sixteen. The ceiling sits in
-that empty band, so every diagram the corpus treated as reasonable stays legal and the four that
-should have been split are the ones flagged. Sequence lifelines ran three to thirteen with
-twenty-three of twenty-six at eight or fewer. Entity counts never exceeded six and state counts
-never exceeded seven, so those two ceilings are stated intent rather than a constraint the corpus
-tested. Re-measure against your own corpus before moving a ceiling, and move it with the count
-rather than by preference.
+**Where the numbers come from.** Measured against 56 Mermaid diagrams in a completed feature, not
+chosen for roundness. Flowchart node counts were bimodal — eleven diagrams at six or fewer, four at
+seventeen or more, nothing between twelve and sixteen — so the ceiling sits in that empty band and
+flags only the four that should have been split. Sequence lifelines ran three to thirteen, with
+twenty-three of twenty-six at eight or fewer. Entity and state counts never exceeded six and seven,
+so those ceilings are stated intent rather than a tested constraint. Re-measure against your own
+corpus before moving a ceiling, and move it with the count rather than by preference.
 
 ## 4. When a diagram is over budget
 
@@ -134,7 +132,22 @@ it carries.
 **Skipping a slot is `N/A: [why]`.** That escape is a format rule and is defined once, in
 `ARTIFACT_FORMAT.md` §4. A slot left silently empty cannot be told apart from an oversight.
 
-## 6. Anti-patterns
+## 6. Authored sources
+
+Some features author diagrams in PlantUML under `design/c4/` and commit the render. These apply on top of everything above.
+
+**C4 divides by level**: `context.puml`, `container.puml`, `component.puml`, one file each; a level not drawn has no file. The Mermaid in `design.md` §2 is generated from these, so editing it by hand
+is a change the next render discards.
+
+**The generated view drops seven things** — element type, technology, description, sprite, tag, link
+and the legend — keeping nodes, edges, labels and boundaries. Need any of the seven, open the image;
+that is why the generated block names its source.
+
+**A flow gets one lane per actor**, ordered by who acts first, with the failure branch reaching its
+own terminal. One file per flow, `flow-<name>.puml`, matching its `#### Flow: <name>` heading. Skip
+with `N/A: [why]` for a single-actor flow.
+
+## 7. Anti-patterns
 
 | Pattern | Why it fails |
 |---|---|
