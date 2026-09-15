@@ -156,6 +156,36 @@
           "@mermaid-js/mermaid-cli"
         ]
       }
+    },
+    {
+      "id": "plantuml",
+      "displayName": "PlantUML",
+      "officialEvidence": [
+        "https://plantuml.com/starting",
+        "https://github.com/plantuml-stdlib/C4-PlantUML/blob/master/README.md"
+      ],
+      "status": {
+        "commands": [
+          [
+            "plantuml",
+            "-version"
+          ]
+        ]
+      },
+      "install": {
+        "command": [
+          "brew",
+          "install",
+          "plantuml"
+        ]
+      },
+      "uninstall": {
+        "command": [
+          "brew",
+          "uninstall",
+          "plantuml"
+        ]
+      }
     }
   ]
 }

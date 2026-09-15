@@ -141,6 +141,26 @@ sequenceDiagram
 action, an idempotency requirement — state them in a sentence beneath the diagram rather than
 crowding the fence.]
 
+### Flow: [name]
+
+<!-- One "#### Flow: <name>" heading per end-to-end flow, each embedding its committed render from
+     design/c4/flow-<name>.png. The heading name matches its source file's stem, which is the only
+     index -- nothing maintains a manifest, because a manifest could disagree with the directory.
+
+     This slot carries NO inline text diagram, and that asymmetry is forced by grammar rather than
+     chosen: Mermaid has no lane primitive, and approximating lanes with subgraph grouping would
+     carry no lane semantics and so would misrepresent the diagram it stood in for. The authored
+     .puml remains readable text under review, so the flow's logic is still diffable.
+
+     `references/DIAGRAM_GUIDE.md` §6 governs the lane conventions. Skip with "N/A: [why]" when the
+     feature's flow involves a single actor. -->
+
+![End-to-end flow: [name]](design/c4/flow-[name].png)
+
+[One sentence: what triggers this flow and what it ends with. Any consequence the lanes cannot
+carry — a retry policy, a compensating action, an idempotency requirement — belongs here rather
+than crowded into the diagram.]
+
 ## 3. History
 
 <!-- Superseded data-model entries move here; the index row above stays as a tombstone with
