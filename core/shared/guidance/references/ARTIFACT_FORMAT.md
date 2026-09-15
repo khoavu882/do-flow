@@ -136,6 +136,19 @@ in place after a revision makes the artifact's own account of itself false.
 
 ## 4. Diagrams
 
+> **Slot registry.** This section says which artifact carries which diagram slot. What belongs
+> *inside* a slot — the permitted Mermaid types, the per-type complexity budget, the label,
+> direction and `subgraph` conventions, the over-budget split rule, and the anti-patterns — is
+> governed by `DIAGRAM_GUIDE.md`, which the authoring skills load on demand.
+
+| Artifact | Section | Slot |
+|---|---|---|
+| `requirement.md` | §1 | Scope boundary `flowchart` |
+| `design.md` | §2 | Three C4 levels, each a `flowchart` with `subgraph` boundaries |
+| `plan.md` | §8 | Phase and task dependency `flowchart` |
+| `data-model.md` | §1 | Conceptual domain map `flowchart`, then one `erDiagram` per bounded subdomain |
+| `data-model.md` | §2 | Interaction `sequenceDiagram` |
+
 ### Scope boundary — `requirement.md` §1
 
 A `flowchart` showing what is in scope, what is explicitly excluded, and what outcome each
@@ -150,12 +163,6 @@ with Mermaid `flowchart` plus `subgraph` blocks marking C4 boundaries. Each leve
 heading, written `### C4 Level 1: System Context`, `### C4 Level 2: Container` and
 `### C4 Level 3: Component`.
 
-> **Do not use the `C4Context` / `C4Container` diagram types.** They are experimental in Mermaid:
-> the layout engine offers no direction control and routes relationship arrows so labels collide
-> with arrowheads, and output varies across renderer versions — some decline to draw them at all.
-> `flowchart` is the most widely supported type, gives explicit `TB`/`LR` direction, and puts
-> relationship labels legibly on the arrow.
-
 | Level | Shows | Required? |
 |---|---|---|
 | C4 Level 1 | Actors and external systems. One box per actor or external system — no internals | yes |
@@ -167,9 +174,17 @@ like, so a bare `C3` in the same document is ambiguous between the third zoom le
 component. Spelling the level `C4 Level 3` keeps the C4 vocabulary explicit for a reviewer who
 cites levels by number while leaving the component IDs unambiguous.
 
-Put the interaction on the arrow — `-->|"reads"|` — and distinguish secondary or asynchronous
-relations with `-.->`. Skip a level with `N/A: [why]`; for C4 Level 3 that is normally
-`N/A: covered by §3 Components & Boundaries`.
+Skip a level with `N/A: [why]`; for C4 Level 3 that is normally
+`N/A: covered by §3 Components & Boundaries`. `DIAGRAM_GUIDE.md` §1 carries the reasoning that
+excludes the `C4Context` / `C4Container` diagram types in favour of `flowchart`.
+
+### Task dependency graph — `plan.md` §8
+
+A `flowchart` showing the phases, the dependency order between tasks, and which tasks carry the
+`[P]` parallel marker, so execution order is visible before the checklist is read. The per-task
+`- [ ]` checklist stays the single source of truth for tasks and the diagram is never parsed as a
+second inventory of them — the same rule §5 states for the phase rollup. Write `N/A: [why]` for a
+plan too small to have meaningful ordering.
 
 ## 5. plan.md — phase rollup
 

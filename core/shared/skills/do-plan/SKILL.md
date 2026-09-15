@@ -110,6 +110,7 @@ The template is `templates/doflow/plan-template.md` in the install step 1 resolv
    does.
 **Stop when** every `[NEEDS CLARIFICATION]` marker / open decision the contract names has an answer or a stated gap, **and** the last round produced no new `[NEEDS CLARIFICATION]` marker / open decision. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 Structure the artifact per the guidance tree's `references/ARTIFACT_FORMAT.md` — read it before filling the template; it names which of this artifact's sections take an index-then-detail table.
+Filling §8's task dependency graph, read the guidance tree's `references/DIAGRAM_GUIDE.md` first — §4 above names the slot, that file governs what goes in it: the `flowchart` node and edge ceilings, the direction convention, and the rule for splitting a graph that outgrows them.
    Its §5 governs §8's `### Task Summary` rollup — the per-task `- [ ]` checklist stays the single
    source of truth and is never mirrored into a per-task index.
    Read `references/ARTIFACT_VOICE.md` at the same point: it carries the prose rules the artifact's sentences follow, and the carve-outs where one of those rules meets a construct the checker parses.
