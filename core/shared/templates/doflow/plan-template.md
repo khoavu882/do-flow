@@ -101,6 +101,28 @@
 | A | 2 | [what this phase produces] | yes |
 | B | 1 | [what this phase produces] | no |
 
+### Dependency Graph
+
+<!-- Phases, the dependency order between tasks, and which tasks carry `[P]`. Orientation only:
+     the per-task `- [ ]` checklist below stays the single source of truth and this diagram is
+     never a second inventory of it. `references/DIAGRAM_GUIDE.md` governs the node and edge
+     ceilings and the direction convention; write "N/A: [why]" for a plan too small to have
+     meaningful ordering. -->
+
+```mermaid
+flowchart LR
+    subgraph PA["Phase A — [name]"]
+        A1["A.1 [P]<br/>[task]"]
+        A2["A.2<br/>[task]"]
+    end
+    subgraph PB["Phase B — [name]"]
+        B1["B.1 [P]<br/>[task]"]
+    end
+
+    A1 -->|"blocks"| A2
+    A2 --> PB
+```
+
 ### Phase A — [name]
 
 - [ ] A.1 [P] [US1] [task] — owner: [agent]; files: [paths]; depends-on: [service, optional]; external-contract: [doc path, optional]

@@ -10,15 +10,33 @@
       ],
       "status": {
         "commands": [
-          ["rtk", "--version"],
-          ["rtk", "gain"]
+          [
+            "rtk",
+            "--version"
+          ],
+          [
+            "rtk",
+            "gain"
+          ]
         ]
       },
       "install": {
-        "command": ["cargo", "install", "--git", "https://github.com/rtk-ai/rtk", "--branch", "master", "rtk"]
+        "command": [
+          "cargo",
+          "install",
+          "--git",
+          "https://github.com/rtk-ai/rtk",
+          "--branch",
+          "master",
+          "rtk"
+        ]
       },
       "uninstall": {
-        "command": ["cargo", "uninstall", "rtk"]
+        "command": [
+          "cargo",
+          "uninstall",
+          "rtk"
+        ]
       }
     },
     {
@@ -29,20 +47,40 @@
         "https://docs.astral.sh/uv/guides/tools/",
         "https://docs.astral.sh/uv/reference/cli/"
       ],
-      "prerequisites": ["uv"],
+      "prerequisites": [
+        "uv"
+      ],
       "status": {
         "commands": [
-          ["graphify", "--version"]
+          [
+            "graphify",
+            "--version"
+          ]
         ]
       },
       "install": {
-        "command": ["uv", "tool", "install", "graphifyy"]
+        "command": [
+          "uv",
+          "tool",
+          "install",
+          "graphifyy"
+        ]
       },
       "update": {
-        "command": ["uv", "tool", "upgrade", "graphifyy"]
+        "command": [
+          "uv",
+          "tool",
+          "upgrade",
+          "graphifyy"
+        ]
       },
       "uninstall": {
-        "command": ["uv", "tool", "uninstall", "graphifyy"]
+        "command": [
+          "uv",
+          "tool",
+          "uninstall",
+          "graphifyy"
+        ]
       }
     },
     {
@@ -51,20 +89,102 @@
       "officialEvidence": [
         "https://github.com/MinishLab/semble"
       ],
-      "prerequisites": ["uv"],
+      "prerequisites": [
+        "uv"
+      ],
       "status": {
         "commands": [
-          ["semble", "--version"]
+          [
+            "semble",
+            "--version"
+          ]
         ]
       },
       "install": {
-        "command": ["uv", "tool", "install", "semble"]
+        "command": [
+          "uv",
+          "tool",
+          "install",
+          "semble"
+        ]
       },
       "update": {
-        "command": ["uv", "tool", "upgrade", "semble"]
+        "command": [
+          "uv",
+          "tool",
+          "upgrade",
+          "semble"
+        ]
       },
       "uninstall": {
-        "command": ["uv", "tool", "uninstall", "semble"]
+        "command": [
+          "uv",
+          "tool",
+          "uninstall",
+          "semble"
+        ]
+      }
+    },
+    {
+      "id": "mermaid-cli",
+      "displayName": "Mermaid CLI",
+      "officialEvidence": [
+        "https://github.com/mermaid-js/mermaid-cli/blob/master/README.md",
+        "https://github.com/mermaid-js/mermaid/blob/develop/docs/config/usage.md"
+      ],
+      "status": {
+        "commands": [
+          [
+            "mmdc",
+            "--version"
+          ]
+        ]
+      },
+      "install": {
+        "command": [
+          "npm",
+          "install",
+          "-g",
+          "@mermaid-js/mermaid-cli"
+        ]
+      },
+      "uninstall": {
+        "command": [
+          "npm",
+          "uninstall",
+          "-g",
+          "@mermaid-js/mermaid-cli"
+        ]
+      }
+    },
+    {
+      "id": "plantuml",
+      "displayName": "PlantUML",
+      "officialEvidence": [
+        "https://plantuml.com/starting",
+        "https://github.com/plantuml-stdlib/C4-PlantUML/blob/master/README.md"
+      ],
+      "status": {
+        "commands": [
+          [
+            "plantuml",
+            "-version"
+          ]
+        ]
+      },
+      "install": {
+        "command": [
+          "brew",
+          "install",
+          "plantuml"
+        ]
+      },
+      "uninstall": {
+        "command": [
+          "brew",
+          "uninstall",
+          "plantuml"
+        ]
       }
     }
   ]

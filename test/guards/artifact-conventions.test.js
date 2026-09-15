@@ -230,6 +230,33 @@ test('G18: design-template.md\'s C4 headings match ARTIFACT_FORMAT.md §4\'s lev
     'ARTIFACT_FORMAT.md §4 level table', 'templates/doflow/design-template.md §2 headings');
 });
 
+// The generated-block markers are shared by three files that never import each other: the projector
+// emits them, render-puml.sh searches for them, and design-template.md must ship them so a fresh
+// artifact has a region to replace. Plan task D.2 was recorded complete with the template carrying
+// neither, which left the verb reporting ok:true and blockWritten:false on every new feature -- the
+// source-versus-view drift the verb exists to remove, arriving as silence. One check over all three
+// so it cannot be marked done again without being done.
+test('G18: design-template.md §2 ships the generated-block markers the runtime agrees on', () => {
+  const OPEN = '<!-- generated from';
+  const CLOSE = '<!-- end generated -->';
+  const runtimeUsers = [
+    ['the projector', 'src/runtime/c4-project.js'],
+    ['render-puml.sh', 'core/shared/scripts/doflow/bash/render-puml.sh'],
+  ];
+  for (const [label, rel] of runtimeUsers) {
+    const text = fs.readFileSync(path.join(REPO, rel), 'utf8');
+    assert.ok(text.includes(OPEN), `${label} no longer uses the open marker '${OPEN}'`);
+    assert.ok(text.includes(CLOSE), `${label} no longer uses the close marker '${CLOSE}'`);
+  }
+  const sec = section(template('design-template.md'), /^## 2\. /);
+  const open = sec.indexOf(OPEN);
+  assert.notEqual(open, -1, 'design-template.md §2 carries no open marker, so render-puml can never write its block');
+  const close = sec.indexOf(CLOSE);
+  assert.ok(close > open, 'the close marker must follow the open one, or the rewrite reads them as absent');
+  assert.equal(sec.slice(open + OPEN.length).indexOf(OPEN), -1,
+    'exactly one marked region: the projector emits one block per run, so a second pair could never be filled');
+});
+
 test('G18: no C4 level label collides with a design.md §3 component ID', () => {
   // `^C[0-9]+$` is what a component ID looks like (C1, C3). A level spelled that way is ambiguous
   // between the third zoom level and the third component -- the defect this feature removed.

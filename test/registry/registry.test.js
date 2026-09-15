@@ -21,7 +21,7 @@ test('loads and validates the complete multi-harness registry', () => {
   assert.equal(registry.validation.ok, true);
   assert.deepEqual(registry.harnesses.find((harness) => harness.id === 'codex').nativeProjection.config.resources,
     [{ kind: 'configuration-entry', identity: 'features.hooks', value: true }]);
-  assert.deepEqual(registry.externalTools.map((tool) => tool.id), ['rtk', 'graphify', 'semble']);
+  assert.deepEqual(registry.externalTools.map((tool) => tool.id), ['rtk', 'graphify', 'semble', 'mermaid-cli', 'plantuml']);
 });
 
 test('loads evidence-backed external tool definitions with argument-vector commands only', () => {
