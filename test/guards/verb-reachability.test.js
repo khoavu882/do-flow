@@ -30,6 +30,10 @@ const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin',
  */
 const ALLOWLIST = new Map([
   [
+    'render-diagrams',
+    'user-invoked by design (034 FR-011): renders a chain artifact\'s mermaid blocks to images on demand and must never run as part of a chain stage, so no skill can invoke it without breaking that requirement',
+  ],
+  [
     'review-package',
     'shell helper invoked by subagent/review orchestration scripts, not called directly as a top-level skill command',
   ],

@@ -145,6 +145,7 @@ The template is `templates/doflow/design-template.md` in the install step 1 reso
    clarification question was resolved via the defer escape hatch in Step 5, in which case record it
    there with a one-line rationale.
 Structure the artifact per the guidance tree's `references/ARTIFACT_FORMAT.md` — read it before filling the template; it names which of this artifact's sections take an index-then-detail table.
+Filling §2's C4 levels, read the guidance tree's `references/DIAGRAM_GUIDE.md` first — §4 above names the slots, that file governs what goes in them, including why the C4-native diagram types are excluded in favour of `flowchart` plus `subgraph`, and the node and edge ceilings a level must stay inside.
    Its §4 also governs the C4 diagrams — keep C4 as the conceptual zoom model but render every level
    with Mermaid `flowchart` plus `subgraph` boundaries; the experimental `C4Context` / `C4Container`
    types must not be used to ensure universal rendering compatibility across all markdown engines.
