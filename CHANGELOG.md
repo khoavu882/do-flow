@@ -13,6 +13,18 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.8.1] - 2026-09-17
+
+### Fixed
+
+- `code_quality_checker.py` review-policy resolution (`load_policy`, the three-tier
+  `review-policy.json` merge) is restored after an unreleased regression; `--json` output
+  reliably carries the `policy` block again.
+- The SessionStart hook (`session-context.sh`) no longer crashes on a repository with zero
+  commits: `git log | jq -R . | jq -s .` piped through a trailing `|| echo "[]"` fallback could
+  double-emit `[]\n[]` under `pipefail`, which `--argjson` rejected. The commit list now builds
+  from captured output in a single `jq` call.
+
 ## [1.8.0] - 2026-09-16
 
 ### Added
