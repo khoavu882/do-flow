@@ -262,7 +262,92 @@ def read_file_content(filepath: Path) -> str:
         return ""
 
 
-def strip_comments(content: str) -> str:
+# Only these languages have heredocs. Everything else spells `<<` as an operator — a stream insert
+# in C++, a bit shift in Java, an array append in Ruby's non-heredoc use — and must never be scanned
+# for one. See `_blank_heredocs` for what happens when it is.
+_HEREDOC_LANGUAGES = frozenset({"shell", "ruby", "php"})
+
+# A bare terminator must follow the delimiter immediately: `cat <<EOF`, never `cat << EOF`. That one
+# character of strictness is what separates a heredoc from `cout << total`, which always has the
+# space. The quoted forms may keep it, since `<< 'EOF'` is not a shift in any language.
+_HEREDOC_OPENER = re.compile(
+    r"""<<<?[-~]?(?:\s*(['"])([A-Za-z_][A-Za-z0-9_]*)\1|([A-Za-z_][A-Za-z0-9_]*))"""
+)
+
+
+def _heredoc_end(lines: List[str], start: int, word: str) -> Optional[int]:
+    """
+    Index of the line terminating a heredoc opened at `start`, or None if it never terminates.
+
+    Whitespace around the terminator is ignored, which is more lenient than any single language
+    allows. Leniency here can only end a body early, and ending early under-blanks — the safe
+    direction. Returning None is what makes an opener that is really an operator harmless.
+    """
+    for j in range(start + 1, len(lines)):
+        if lines[j].strip() == word:
+            return j
+    return None
+
+
+def _blank_heredocs(content: str) -> str:
+    """
+    Blank the body of every heredoc that actually terminates, preserving newlines.
+
+    A heredoc body is prose, SQL or JSON far more often than it is code, and the keyword scan
+    charges every `and`, `or`, `if` and `case` in it as a branch. A shell function whose entire
+    body is `cat <<'EOF' ... EOF` printing a usage message scored complexity 17 against a
+    threshold of 10 — a false `high_complexity` smell on a function with no branch at all.
+
+    Heredocs were previously parked as needing a tokenizer, alongside regex literals and PHP's
+    `<?php` boundary. That grouping was wrong for this one form: a heredoc *declares its own
+    terminator at the opener*, so finding the end needs no grammar, only the word the opener
+    already named. Recognising the opener is the bounded part, not recognising the end.
+
+    Bounded exactly like `_blank_spanning`, and in the same direction: an opener whose terminator
+    never appears in the remaining lines is treated as not an opener, leaving the text untouched.
+    Every bound below fails toward under-blanking, because over-blanking is what manufactures a
+    false pass.
+
+    Recognised: `<<WORD`, `<<-WORD`, `<<~WORD` (Ruby) and `<<<WORD` (PHP), quoted or bare. The
+    terminator is matched on its own line ignoring surrounding whitespace — more lenient than any
+    single language, which can only end a body early and so under-blank. Lines beginning with `#`
+    are skipped as openers, so a comment mentioning a heredoc cannot start one.
+
+    **Only called for `_HEREDOC_LANGUAGES`, and that gate is load-bearing rather than tidy.** An
+    earlier version ran for every language on the reasoning that a `<<` operator would find no
+    terminator and be left alone. That reasoning was wrong: it checked only that an opener with no
+    closer cannot blank to end-of-file, never that a *spurious* opener could meet a *spurious*
+    closer part-way down. `std::cout << total` followed anywhere below by a line reading `total`
+    blanked every branch between them, taking a C++ function from complexity 7 to 1 — a false pass,
+    the one failure this module treats as unacceptable. The gate removes the case; requiring a bare
+    terminator to touch the delimiter (`<<EOF`, never `<< EOF`) removes it a second time.
+
+    The opener's own line is code and is kept; only the body and the terminator line are blanked.
+    """
+    lines = content.split("\n")
+    out = list(lines)
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.lstrip().startswith("#"):
+            i += 1
+            continue
+        # A single command may open several bodies: `cmd <<A <<B`. They fill in the order opened.
+        words = [m.group(2) or m.group(3) for m in _HEREDOC_OPENER.finditer(line)]
+        cursor = i
+        for word in words:
+            end = _heredoc_end(lines, cursor, word)
+            if end is None:
+                # No terminator anywhere below: not a heredoc. Leave this line and stop here.
+                break
+            for j in range(cursor + 1, end + 1):
+                out[j] = " " * len(lines[j])
+            cursor = end
+        i = cursor + 1 if cursor > i else i + 1
+    return "\n".join(out)
+
+
+def strip_comments(content: str, language: Optional[str] = None) -> str:
     """
     Remove comment text so prose is not measured as code.
 
@@ -275,7 +360,14 @@ def strip_comments(content: str) -> str:
     Deliberately not handled: an "and"/"or" inside a string literal still counts. That is a separate
     defect from the reported one, and stripping strings correctly needs a real tokenizer.
     """
-    # Block comments first, preserving newline count so line numbers survive.
+    # Heredocs first of all: their bodies are arbitrary text, so a stray backtick or quote inside
+    # one would otherwise pair with real code below and let `_blank_spanning` erase across it.
+    # Gated on the language, and defaulting to *not* blanking: a caller that passes nothing gets the
+    # under-blanking behaviour, so a future call site that forgets the argument cannot reintroduce
+    # the false pass that gating exists to prevent.
+    if language in _HEREDOC_LANGUAGES:
+        content = _blank_heredocs(content)
+    # Block comments next, preserving newline count so line numbers survive.
     content = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), content, flags=re.DOTALL)
     # Multi-line forms first, since a line-scoped pass cannot see them. Each is blanked in place with
     # newlines preserved, so the line-scoped pass below then sees ordinary blank content.
@@ -327,8 +419,8 @@ def strip_string_literals(content: str) -> str:
 
     **This cannot be made fully correct without a tokenizer**, and none is available — the repository
     has zero runtime dependencies and Python's `tokenize` only understands Python. Regex literals in
-    JS, heredocs in Ruby and shell, PHP's `<?php` boundary and Python triple-quotes all need parse
-    context this does not have.
+    JS and PHP's `<?php` boundary need parse context this does not have. Triple-quotes and heredocs
+    do not, and are handled — see `_blank_spanning` and `_blank_heredocs`.
 
     So the rule is bounded rather than complete: scanning is **line-scoped**, and a quote that does
     not close on its own line is retroactively treated as not a string, leaving the rest of that line
@@ -340,12 +432,13 @@ def strip_string_literals(content: str) -> str:
     Length and newlines are preserved, so any line number derived from the result still lines up
     with the original file.
 
-    Two multi-line forms are handled by carrying state across lines: Python/JS triple-quoted blocks
-    and JS backtick templates. Both are bounded the same way — an opener with no closer anywhere in
-    the remaining text is treated as not an opener, so an odd quote can never blank the tail of a
-    file. Heredocs (shell, Ruby, PHP) are handled separately, by `_blank_heredocs`, before this
-    function ever runs — their terminator is an arbitrary caller-chosen word, so recognising one
-    needs a dedicated forward-scan this per-line, single-character-class scanner cannot do.
+    Three multi-line forms are handled by carrying state across lines, in `strip_comments`, which
+    runs first: Python/JS triple-quoted blocks, JS backtick templates (`_blank_spanning`) and
+    heredocs (`_blank_heredocs`). All three are bounded the same way — an opener with no closer
+    anywhere in the remaining text is treated as not an opener, so an odd quote can never blank the
+    tail of a file. A heredoc's terminator is caller-chosen but the opener declares it, so it needs
+    no parsing; what is still unhandled is JS regex literals and PHP's `<?php` boundary, where
+    finding the end genuinely does require the grammar.
     """
     out = []
     for line in content.split("\n"):
@@ -401,65 +494,14 @@ def trim_trailing_comment_block(body: str) -> str:
     return "\n".join(lines[:start]) if start < end else "\n".join(lines[:end])
 
 
-HEREDOC_LANGUAGES = {"shell", "ruby", "php"}
-
-
-def _blank_heredocs(content: str) -> str:
-    """
-    Blank shell/Ruby/PHP heredoc bodies so prose or unrelated keywords inside them are not counted
-    as control flow.
-
-    A heredoc's terminator is an arbitrary caller-chosen word, so recognising an opener is not
-    enough — the body is only real if that exact word later appears alone on its own line (leading
-    tabs stripped first for the `<<-` form). This must run on unmodified content, before
-    `strip_comments`/`strip_string_literals` touch anything: either of those could alter what a
-    terminator line looks like, or misinterpret a `#`/quote inside the still-live heredoc body.
-
-    Bounded the same way `strip_string_literals` bounds an unclosed quote: an opener whose
-    terminator never appears anywhere in the remaining file is treated as not a heredoc, so a
-    same-shaped but unrelated `<<word` (a C++ stream-insertion operator, a shift, a string that
-    merely mentions the syntax) never blanks real code on the strength of a coincidence.
-    """
-    lines = content.split("\n")
-    opener_re = re.compile(r"<<(-?)\s*([\"'`]?)(\w+)\2")
-    out = []
-    i, n = 0, len(lines)
-    while i < n:
-        line = lines[i]
-        match = opener_re.search(line)
-        if not match:
-            out.append(line)
-            i += 1
-            continue
-        dash, _quote, terminator = match.groups()
-        end = None
-        for j in range(i + 1, n):
-            candidate = lines[j].lstrip("\t") if dash else lines[j]
-            if candidate == terminator:
-                end = j
-                break
-        if end is None:
-            out.append(line)
-            i += 1
-            continue
-        out.append(line)
-        out.extend([""] * (end - i))  # blank every body line and the terminator line itself
-        i = end + 1
-    return "\n".join(out)
-
-
-def calculate_cyclomatic_complexity(content: str, language: str = "") -> int:
+def calculate_cyclomatic_complexity(content: str, language: Optional[str] = None) -> int:
     """
     Estimate cyclomatic complexity based on control flow keywords.
 
     Comments and string literals are stripped first: counting keywords in either made prose a
-    penalty. String stripping is bounded, not complete — see `strip_string_literals`. Heredoc
-    bodies (shell/Ruby/PHP only — see `_blank_heredocs`) are blanked before that, since they are
-    exactly the kind of prose-as-code false positive comment/string stripping cannot reach.
+    penalty. String stripping is bounded, not complete — see `strip_string_literals`.
     """
-    if language in HEREDOC_LANGUAGES:
-        content = _blank_heredocs(content)
-    content = strip_string_literals(strip_comments(content))
+    content = strip_string_literals(strip_comments(content, language))
     complexity = 1  # Base complexity
 
     # Control flow patterns that increase complexity
