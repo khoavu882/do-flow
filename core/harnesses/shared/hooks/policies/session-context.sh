@@ -57,9 +57,14 @@ if [[ -n "$CWD" ]] && is_git_worktree "$CWD"; then
   BRANCH=$(git_branch_of "$CWD" || echo "")
   SHA=$(git_short_sha_of "$CWD" || echo "")
 
-  # Last 5 commits as a JSON array of one-liner strings
-  COMMITS_JSON=$(run_with_timeout 1 -- git -C "$CWD" log --oneline -5 2>/dev/null \
-    | jq -R . | jq -s . 2>/dev/null || echo "[]")
+  # Last 5 commits as a JSON array of one-liner strings.
+  # Capture git's raw output first (never fatal under pipefail), then build
+  # the JSON array from that captured text in a single jq call whose failure
+  # replaces COMMITS_JSON via assignment rather than appending via echo —
+  # a trailing `|| echo "[]"` on the pipe would double-emit when git log
+  # fails (e.g. zero-commit repo) but jq still prints "[]" downstream.
+  COMMITS_RAW=$(run_with_timeout 1 -- git -C "$CWD" log --oneline -5 2>/dev/null || true)
+  COMMITS_JSON=$(printf '%s' "$COMMITS_RAW" | jq -Rs 'split("\n") | map(select(length > 0))' 2>/dev/null) || COMMITS_JSON="[]"
 
   # Count uncommitted (staged + unstaged) files
   UNCOMMITTED=$(git_uncommitted_count_of "$CWD" || echo "0")
