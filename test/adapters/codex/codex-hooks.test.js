@@ -126,6 +126,19 @@ test('the real core/harnesses/codex/hooks/hooks.json fixture is itself valid per
   assert.ok(result.events.includes('PreCompact'), 'hooks.json should wire PreCompact');
 });
 
+test('caps SessionEnd hook timeout at 3 seconds', () => {
+  const overLimit = validateHooksConfig({ hooks: {
+    SessionEnd: [{ hooks: [{ type: 'command', command: 'bash session-end.sh', timeout: 4 }] }],
+  } });
+  assert.equal(overLimit.ok, false);
+  assert.match(overLimit.errors[0], /timeout may not exceed 3 seconds for SessionEnd/);
+
+  const atLimit = validateHooksConfig({ hooks: {
+    SessionEnd: [{ hooks: [{ type: 'command', command: 'bash session-end.sh', timeout: 3 }] }],
+  } });
+  assert.equal(atLimit.ok, true);
+});
+
 test('post-edit-lint.impl.sh extracts every file path from a multi-file apply_patch, not just Edit/Write file_path', () => {
   // Regression test: apply_patch's tool_input is
   // {"command": "<raw patch>"}, not {"file_path": "..."} — a naive Edit/Write-only port would

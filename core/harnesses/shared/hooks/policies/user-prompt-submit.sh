@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # user-prompt-submit.sh — Canonical Policy Library: UserPromptSubmit hook
 #
-# 022-hooks-remaining-duplication: claude and codex's UserPromptSubmit hooks were byte-identical
-# (same payload shape, same additionalContext/sessionTitle output contract) — moved here as the
-# single canonical copy. Gemini has no UserPromptSubmit-equivalent event in its native hook set.
+# 022-hooks-remaining-duplication: claude and codex's UserPromptSubmit policies share the same
+# context-gathering behavior, while their native output envelopes differ. Gemini has no
+# UserPromptSubmit-equivalent event in its native hook set.
 #
 # On the FIRST prompt of a session: injects lightweight git context into the harness's LLM
-# context via additionalContext. Sets sessionTitle for window identification.
+# context via additionalContext. Claude also receives sessionTitle for window identification;
+# Codex receives its additionalContext under hookSpecificOutput with an explicit event name.
 #
 # On subsequent prompts: outputs nothing (clean, no token waste).
 #
@@ -41,51 +42,51 @@ GIT_CONTEXT_FILE="$SESSION_PATH/git-context.json"
 # Fallback if session-start.sh didn't run or failed
 if [[ ! -f "$GIT_CONTEXT_FILE" ]]; then
   touch "$INJECTED_FLAG"
-  printf '{"additionalContext":"Git context unavailable for this session."}\n'
-  exit 0
-fi
-
-GIT_JSON=$(cat "$GIT_CONTEXT_FILE")
-IS_GIT=$(json_field "$GIT_JSON" ".is_git_repo")
-
-if [[ "$IS_GIT" == "true" ]]; then
-  BRANCH=$(json_field "$GIT_JSON" ".branch")
-  SHA=$(json_field "$GIT_JSON" ".sha")
-  UNCOMMITTED=$(json_field "$GIT_JSON" ".uncommitted_count")
-  STASH=$(json_field "$GIT_JSON" ".stash_count")
-
-  # Build commit list as a single line (· separated)
-  COMMITS=$(echo "$GIT_JSON" | jq -r '.commits[]? // empty' | head -5 | paste -sd ' · ' -)
-
-  CONTEXT="Git context — branch: ${BRANCH:-unknown} | ${SHA:-unknown}"$'\n'
-  CONTEXT+="Last commits: ${COMMITS:-none}"$'\n'
-  CONTEXT+="Uncommitted files: ${UNCOMMITTED:-0}"
-  [[ "${STASH:-0}" -gt 0 ]] && CONTEXT+=" | Stashed: ${STASH}"
-
-  SESSION_TITLE="${BRANCH:-unknown} — ${SHA:-unknown}"
+  CONTEXT="Git context unavailable for this session."
+  SESSION_TITLE=""
 else
-  CONTEXT="Not a git repository."
-  SESSION_TITLE="no-git"
-fi
+  GIT_JSON=$(cat "$GIT_CONTEXT_FILE")
+  IS_GIT=$(json_field "$GIT_JSON" ".is_git_repo")
 
-# ── Prior compact summary: read and inject directly, no manual restore step ───
+  if [[ "$IS_GIT" == "true" ]]; then
+    BRANCH=$(json_field "$GIT_JSON" ".branch")
+    SHA=$(json_field "$GIT_JSON" ".sha")
+    UNCOMMITTED=$(json_field "$GIT_JSON" ".uncommitted_count")
+    STASH=$(json_field "$GIT_JSON" ".stash_count")
 
-PROJECT_DIR=$(ensure_project_dir "$CWD")
-COMPACT_FILE="$PROJECT_DIR/last-compact-summary.md"
-if [[ -f "$COMPACT_FILE" ]]; then
-  # Strip the YAML frontmatter (between the two `---` lines); keep the summary body only.
-  COMPACT_BODY=$(awk '/^---$/{n++; next} n>=2' "$COMPACT_FILE")
-  if [[ -n "$COMPACT_BODY" ]]; then
-    CONTEXT+=$'\n\n'"[Prior session summary]"$'\n'"$COMPACT_BODY"
+    # Build commit list as a single line (· separated)
+    COMMITS=$(echo "$GIT_JSON" | jq -r '.commits[]? // empty' | head -5 | paste -sd ' · ' -)
+
+    CONTEXT="Git context — branch: ${BRANCH:-unknown} | ${SHA:-unknown}"$'\n'
+    CONTEXT+="Last commits: ${COMMITS:-none}"$'\n'
+    CONTEXT+="Uncommitted files: ${UNCOMMITTED:-0}"
+    [[ "${STASH:-0}" -gt 0 ]] && CONTEXT+=" | Stashed: ${STASH}"
+
+    SESSION_TITLE="${BRANCH:-unknown} — ${SHA:-unknown}"
+  else
+    CONTEXT="Not a git repository."
+    SESSION_TITLE="no-git"
   fi
-fi
 
-# Check for uncommitted warning from prior session (one-time: delete after read —
-# nothing else in the framework reassigns this cleanup, so it happens here)
-if [[ -f "$PROJECT_DIR/uncommitted-warning.txt" ]]; then
-  WARNING=$(cat "$PROJECT_DIR/uncommitted-warning.txt")
-  CONTEXT+=$'\n'"[Prior session warning: ${WARNING}]"
-  rm -f "$PROJECT_DIR/uncommitted-warning.txt"
+  # ── Prior compact summary: read and inject directly, no manual restore step ───
+
+  PROJECT_DIR=$(ensure_project_dir "$CWD")
+  COMPACT_FILE="$PROJECT_DIR/last-compact-summary.md"
+  if [[ -f "$COMPACT_FILE" ]]; then
+    # Strip the YAML frontmatter (between the two `---` lines); keep the summary body only.
+    COMPACT_BODY=$(awk '/^---$/{n++; next} n>=2' "$COMPACT_FILE")
+    if [[ -n "$COMPACT_BODY" ]]; then
+      CONTEXT+=$'\n\n'"[Prior session summary]"$'\n'"$COMPACT_BODY"
+    fi
+  fi
+
+  # Check for uncommitted warning from prior session (one-time: delete after read —
+  # nothing else in the framework reassigns this cleanup, so it happens here)
+  if [[ -f "$PROJECT_DIR/uncommitted-warning.txt" ]]; then
+    WARNING=$(cat "$PROJECT_DIR/uncommitted-warning.txt")
+    CONTEXT+=$'\n'"[Prior session warning: ${WARNING}]"
+    rm -f "$PROJECT_DIR/uncommitted-warning.txt"
+  fi
 fi
 
 # ── Write injected flag ────────────────────────────────────────────────────────
@@ -94,11 +95,17 @@ touch "$INJECTED_FLAG"
 
 # ── Output JSON ───────────────────────────────────────────────────────────────
 
-# sessionTitle is included speculatively — may be unsupported by Claude Code.
-# If unsupported it is silently ignored; no harm caused.
-jq -n \
-  --arg ctx "$CONTEXT" \
-  --arg title "$SESSION_TITLE" \
-  '{"additionalContext": $ctx, "sessionTitle": $title}'
+if [[ "${DOFLOW_AGENT:-}" == "codex" ]]; then
+  jq -n \
+    --arg ctx "$CONTEXT" \
+    '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":$ctx}}'
+elif [[ -n "${SESSION_TITLE:-}" ]]; then
+  jq -n \
+    --arg ctx "$CONTEXT" \
+    --arg title "$SESSION_TITLE" \
+    '{"additionalContext": $ctx, "sessionTitle": $title}'
+else
+  jq -n --arg ctx "$CONTEXT" '{"additionalContext": $ctx}'
+fi
 
 exit 0
