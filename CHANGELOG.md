@@ -13,6 +13,13 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.8.2] - 2026-09-18
+
+### Fixed
+
+- Codex `UserPromptSubmit` hooks now emit the native `hookSpecificOutput` envelope instead of the
+  Claude-style top-level payload, preventing invalid user-prompt submit JSON.
+
 ## [1.8.1] - 2026-09-17
 
 ### Fixed
