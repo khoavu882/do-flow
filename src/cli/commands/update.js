@@ -7,7 +7,7 @@ const path = require('node:path');
 const { resolveTargets, toolDirs } = require('../../install/targets');
 const { resolveContext, printContext } = require('../../install/context');
 const { createBackup, pruneBackups } = require('../../install/backup');
-const { writeManifest, readManifest } = require('../../install/manifest');
+const { writeManifest, readInstallManifest } = require('../../install/manifest');
 const { confirm } = require('../../helper/prompt');
 const { sourceCommit } = require('../../helper/git');
 const { chmodHooksExecutable } = require('../../helper/settings-scope');
@@ -20,21 +20,22 @@ const {
   lockDocument, recordLock,
 } = require('../../lifecycle/view');
 const {
-  REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, reportRetiredMcp, resolveMcpForTool, buildAdapterRegistry,
+  REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, reportRetiredMcp, resolveMcpForTool, buildAdapterRegistry,
 } = require('../shared');
 
 function cmdUpdate(o) {
   const targets = resolveTargets(o.targets);
   const scope = scopeOf(o);
   const dirs = toolDirs(scope);
-  const backupRoot = path.join(dirs.claude, 'backups');
+  const lifecyclePaths = installPaths(scope);
+  const backupRoot = lifecyclePaths.backupRoot;
   const commit = sourceCommit(SCRIPT_DIR);
   printContext(resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: commit, ...scope }));
 
   // Never interactive here (resolveMcpForTool only prompts for cmd:'install') — update reuses the
   // manifest-remembered selection, or applies an explicit --mcp override, without re-prompting.
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
-  const existingManifest = readManifest(dirs.claude);
+  const existingManifest = readInstallManifest({ scopeRoot: lifecyclePaths.scopeRoot });
   const mcp = targets.includes('claude') ? resolveMcpForTool({ o, dirs, scope, cmd: 'update', registry }) : null;
   const mcpChanged = Boolean(mcp && mcp.changed);
   const codexCatalog = targets.includes('codex') ? readCodexMcpCatalog(registry) : null;
@@ -58,7 +59,7 @@ function cmdUpdate(o) {
     if (mcpChanged) console.log(`[DRY]  MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})`);
     printRegistryLifecycle(lifecycleView, '[DRY]');
     if (!o.noBackup && lifecycleChanged) console.log(`[DRY]  Would create partial backup: ${backupRoot}/update_<timestamp>`);
-    console.log(`[DRY]  Would write manifest: ${path.join(dirs.claude, '.install-manifest.json')}`);
+    console.log(`[DRY]  Would write manifest: ${lifecyclePaths.manifestPath}`);
     console.log('[DRY] Dry run complete');
     return;
   }
@@ -98,7 +99,7 @@ function cmdUpdate(o) {
   }
   if (targets.includes('claude')) chmodHooksExecutable(dirs.claude);
 
-  writeManifest({ claudeDir: dirs.claude, scriptVersion: pkg.version, operation: 'update', repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: targets, date: new Date(), mcpServers: mcpIds });
+  writeManifest({ scopeRoot: lifecyclePaths.scopeRoot, scriptVersion: pkg.version, operation: 'update', repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: targets, date: new Date(), mcpServers: mcpIds });
 
   const updateLock = recordLock(
     scope.global ? { scope: 'global', homeDir: os.homedir() } : { scope: 'project', projectRoot: path.resolve(scope.projectRoot) },

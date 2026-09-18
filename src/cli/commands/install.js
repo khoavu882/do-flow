@@ -6,7 +6,7 @@ const path = require('node:path');
 const { resolveTargets, toolDirs } = require('../../install/targets');
 const { resolveContext, printContext } = require('../../install/context');
 const { createBackup, pruneBackups } = require('../../install/backup');
-const { writeManifest, readManifest } = require('../../install/manifest');
+const { writeManifest, readInstallManifest } = require('../../install/manifest');
 const { confirm } = require('../../helper/prompt');
 const { sourceCommit } = require('../../helper/git');
 const { chmodHooksExecutable } = require('../../helper/settings-scope');
@@ -19,14 +19,15 @@ const {
   lockDocument, recordLock,
 } = require('../../lifecycle/view');
 const {
-  REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, reportRetiredMcp, resolveMcpForTool, buildAdapterRegistry,
+  REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, reportRetiredMcp, resolveMcpForTool, buildAdapterRegistry,
 } = require('../shared');
 
 function cmdInstall(o) {
   const targets = resolveTargets(o.targets);
   const scope = scopeOf(o);
   const dirs = toolDirs(scope);
-  const backupRoot = path.join(dirs.claude, 'backups');
+  const lifecyclePaths = installPaths(scope);
+  const backupRoot = lifecyclePaths.backupRoot;
   // Resolved once per invocation and threaded into resolveContext/createBackup/writeManifest below
   // — those three used to each spawn their own `git rev-parse` for the identical value.
   const commit = sourceCommit(SCRIPT_DIR);
@@ -34,7 +35,7 @@ function cmdInstall(o) {
   printContext(resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: commit, ...scope }));
 
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
-  const existingManifest = readManifest(dirs.claude);
+  const existingManifest = readInstallManifest({ scopeRoot: lifecyclePaths.scopeRoot });
   const mcp = targets.includes('claude') ? resolveMcpForTool({ o, dirs, scope, cmd: 'install', registry }) : null;
   const codexCatalog = targets.includes('codex') ? readCodexMcpCatalog(registry) : null;
   const codexMcpSelection = codexCatalog ? (mcp?.selected ?? resolveCodexMcpSelection({ cmd: 'install', requested: o.mcp,
@@ -63,7 +64,7 @@ function cmdInstall(o) {
     if (mcp) console.log(`[DRY]  MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})${mcpNote}`);
     printRegistryLifecycle(lifecycleView, '[DRY]');
     if (!o.noBackup) console.log(`[DRY]  Would create backup: ${backupRoot}/install_<timestamp>`);
-    console.log(`[DRY]  Would write manifest: ${path.join(dirs.claude, '.install-manifest.json')}`);
+    console.log(`[DRY]  Would write manifest: ${lifecyclePaths.manifestPath}`);
     console.log('[DRY] Dry run complete — no changes written');
     return;
   }
@@ -115,7 +116,7 @@ function cmdInstall(o) {
     }
   }
 
-  writeManifest({ claudeDir: dirs.claude, scriptVersion: pkg.version, operation: 'install', repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: targets, date: new Date(), mcpServers: mcpIds });
+  writeManifest({ scopeRoot: lifecyclePaths.scopeRoot, scriptVersion: pkg.version, operation: 'install', repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: targets, date: new Date(), mcpServers: mcpIds });
 
   // Pin what this install CHOSE. The ledger owns ownership; the lock owns selection — together
   // they make the next update's delta a reviewable fact instead of a surprise.

@@ -1,19 +1,20 @@
 'use strict';
 // `doflow rollback` — restore from a backup (interactive pick when the id is omitted). Always
 // takes a pre-rollback safety snapshot first, regardless of --no-backup.
-const path = require('node:path');
 const { resolveTargets, toolDirs } = require('../../install/targets');
 const { resolveContext, printContext } = require('../../install/context');
 const { createBackup, restoreBackup, listBackups } = require('../../install/backup');
 const { writeManifest } = require('../../install/manifest');
 const { confirm, promptLine } = require('../../helper/prompt');
 const { sourceCommit } = require('../../helper/git');
-const { REPO_ROOT, SCRIPT_DIR, pkg, printBackupTable } = require('../shared');
+const { REPO_ROOT, SCRIPT_DIR, pkg, installPaths, printBackupTable } = require('../shared');
 
 function cmdRollback(o) {
   const targets = resolveTargets(o.targets);
   const dirs = toolDirs({ global: o.global, projectRoot: '.' });
-  const backupRoot = path.join(dirs.claude, 'backups');
+  const scope = { global: o.global, projectRoot: '.' };
+  const lifecyclePaths = installPaths(scope);
+  const backupRoot = lifecyclePaths.backupRoot;
   const commit = sourceCommit(SCRIPT_DIR);
   printContext(resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: commit, global: o.global, projectRoot: '.' }));
 
@@ -53,7 +54,7 @@ function cmdRollback(o) {
     process.exit(1);
   }
 
-  writeManifest({ claudeDir: dirs.claude, scriptVersion: pkg.version, operation: 'rollback', repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: targets, date: new Date(), dryRun: o.dryRun });
+  writeManifest({ scopeRoot: lifecyclePaths.scopeRoot, scriptVersion: pkg.version, operation: 'rollback', repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: targets, date: new Date(), dryRun: o.dryRun });
 
   console.log(o.dryRun ? '[DRY] Dry run complete' : `[OK] Rollback to '${bid}' complete!`);
 }

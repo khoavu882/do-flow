@@ -223,6 +223,8 @@ test('project-scoped install (no -g, no path) resolves under cwd, not $HOME', ()
   const r = run(['install', projectDir, '--force', '--no-backup', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.ok(fs.existsSync(path.join(projectDir, '.claude', 'CLAUDE.md')));
+  assert.ok(fs.existsSync(path.join(projectDir, '.doflow', '.install-manifest.json')));
+  assert.ok(!fs.existsSync(path.join(projectDir, '.claude', '.install-manifest.json')));
   assert.ok(!fs.existsSync(path.join(home, '.claude')), 'must not also write to $HOME');
 });
 

@@ -332,9 +332,11 @@ In Antigravity, additionally verify `.agents/hooks/pre-implementation-gate.sh` a
 and any registered MCP servers in `.agents/mcp_config.json` (project) or
 `~/.gemini/config/mcp_config.json` (global).
 
-During the registry migration, verified ownership and recovery records are stored independently of
-the harness: `<project>/.doflow/state/` for project scope and `~/.doflow/state/` for user scope.
-Legacy backups and manifests remain compatible while this migration is in progress.
+Verified ownership and recovery records, lifecycle backups, and install metadata are stored
+independently of the harness: `<project>/.doflow/` for project scope and `~/.doflow/` for user
+scope. Backups live under `.doflow/backups/`, and the lifecycle manifest is
+`.doflow/.install-manifest.json`. Lifecycle commands use these scope-neutral paths exclusively;
+the explicit neutral-state importer is the only code that still reads historical `.claude` metadata.
 
 If a configuration update is wrong, restore the named backup with `doflow rollback`. MCP server
 registration is a surgical merge outside the installed directory and is intentionally not reverted

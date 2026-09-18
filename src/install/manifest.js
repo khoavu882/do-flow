@@ -7,9 +7,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { sourceCommit: gitSourceCommit } = require('../helper/git');
 
-// Compatibility bridge: the CLI and pre-registry installations still store
-// this record beneath .claude. Neutral state imports it read-only; do not move
-// or delete it until every installed client has migrated to src/state.
+// Explicit migration bridge: pre-registry installations stored this record beneath .claude.
+// Lifecycle commands use the scope-neutral .doflow location; only the neutral-state importer
+// calls the legacy reader below.
 const LEGACY_MANIFEST_FILE_NAME = '.install-manifest.json';
 const MANIFEST_FILE_NAME = LEGACY_MANIFEST_FILE_NAME;
 
@@ -17,8 +17,12 @@ function manifestPath(claudeDir) {
   return path.join(claudeDir, MANIFEST_FILE_NAME);
 }
 
+function canonicalManifestPath(scopeRoot) {
+  return path.join(path.resolve(scopeRoot), '.doflow', MANIFEST_FILE_NAME);
+}
+
 /**
- * @param {{claudeDir:string, scriptVersion:string, operation:string, repoRoot:string,
+ * @param {{scopeRoot?:string, claudeDir?:string, scriptVersion:string, operation:string, repoRoot:string,
  *           backupId?:string, tools:string[], date:Date, dryRun?:boolean, sourceCommit?:string,
  *           mcpServers?:string[]}} p
  *           `sourceCommit` lets a caller (bin/doflow.js) pass an already-resolved commit instead
@@ -30,8 +34,9 @@ function manifestPath(claudeDir) {
  *           Each record uses {target,scope,kind,identity,sourceVersion,fingerprint,selection,
  *           recoveryPoint}. Omit it to preserve a ledger written by a newer lifecycle command.
  */
-function writeManifest({ claudeDir, scriptVersion, operation, repoRoot, backupId = '', tools, date, dryRun = false, sourceCommit, mcpServers, managedResources }) {
-  const file = manifestPath(claudeDir);
+function writeManifest({ scopeRoot, claudeDir, scriptVersion, operation, repoRoot, backupId = '', tools, date, dryRun = false, sourceCommit, mcpServers, managedResources }) {
+  if (!scopeRoot && !claudeDir) throw new Error('scopeRoot is required for lifecycle metadata');
+  const file = scopeRoot ? canonicalManifestPath(scopeRoot) : manifestPath(claudeDir);
   if (dryRun) return file;
 
   // Preserve per-tool last_updated for tools NOT part of this operation (matches sync.sh's
@@ -39,9 +44,10 @@ function writeManifest({ claudeDir, scriptVersion, operation, repoRoot, backupId
   let existingTools = {};
   let existingMcpServers;
   let existingManagedResources;
-  if (fs.existsSync(file)) {
+  const existingFile = file;
+  if (existingFile && fs.existsSync(existingFile)) {
     try {
-      const existing = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const existing = JSON.parse(fs.readFileSync(existingFile, 'utf8'));
       existingTools = existing.tools || {};
       existingMcpServers = existing.mcp_servers;
       // `managedResources` is accepted as a short-lived compatibility alias for manifests
@@ -82,8 +88,7 @@ function writeManifest({ claudeDir, scriptVersion, operation, repoRoot, backupId
 }
 
 /** @returns {{operation:string,lastRun:string,sourceCommit:string,backupId:string,managedResources:object[]}|null} null if no manifest yet */
-function readManifest(claudeDir) {
-  const file = manifestPath(claudeDir);
+function readManifestFile(file) {
   if (!fs.existsSync(file)) return null;
   try {
     const m = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -109,4 +114,18 @@ function readManifest(claudeDir) {
   }
 }
 
-module.exports = { LEGACY_MANIFEST_FILE_NAME, MANIFEST_FILE_NAME, manifestPath, writeManifest, readManifest };
+/** Read only the canonical scope-neutral manifest used by lifecycle commands. */
+function readInstallManifest({ scopeRoot }) {
+  if (!scopeRoot) throw new Error('scopeRoot is required');
+  return readManifestFile(canonicalManifestPath(scopeRoot));
+}
+
+/** Read only the legacy path; neutral-state migration uses this deliberately. */
+function readManifest(claudeDir) {
+  return readManifestFile(manifestPath(claudeDir));
+}
+
+module.exports = {
+  LEGACY_MANIFEST_FILE_NAME, MANIFEST_FILE_NAME, manifestPath, canonicalManifestPath,
+  writeManifest, readManifest, readInstallManifest,
+};
