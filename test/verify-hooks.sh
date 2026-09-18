@@ -204,6 +204,37 @@ else
   fail "second prompt: unexpected injection: context='$HAS_CONTEXT2'"
 fi
 
+# Codex uses the same context policy but a different native output envelope.
+section "2b. Codex UserPromptSubmit contract"
+CODEX_HOOKS="$MIRROR/.codex/hooks"
+CODEX_SESS="verify-codex-sess-001"
+INPUT_CODEX="{\"session_id\":\"$CODEX_SESS\",\"cwd\":\"$CWD\"}"
+run_codex_hook() {
+  local script="$1"
+  local input="$2"
+  "${SANDBOXED[@]}" bash "$CODEX_HOOKS/$script" <<< "$input"
+}
+
+run_codex_hook session-start.sh "$INPUT_CODEX" > /dev/null 2>&1 || true
+CODEX_OUT=$(run_codex_hook user-prompt-submit.sh "$INPUT_CODEX" 2>/dev/null)
+if echo "$CODEX_OUT" | jq -e '
+  (keys == ["hookSpecificOutput"])
+  and (.hookSpecificOutput | (keys | sort) == ["additionalContext", "hookEventName"])
+  and (.hookSpecificOutput.hookEventName == "UserPromptSubmit")
+  and (.hookSpecificOutput.additionalContext | type == "string")
+' > /dev/null 2>&1; then
+  pass "Codex first prompt: emits the native UserPromptSubmit envelope"
+else
+  fail "Codex first prompt: invalid output envelope: $CODEX_OUT"
+fi
+
+CODEX_OUT2=$(run_codex_hook user-prompt-submit.sh "$INPUT_CODEX" 2>/dev/null)
+if [[ "$CODEX_OUT2" == "{}" ]]; then
+  pass "Codex second prompt: no re-injection (output: '$CODEX_OUT2')"
+else
+  fail "Codex second prompt: unexpected output: $CODEX_OUT2"
+fi
+
 # ══════════════════════════════════════════════════════════════════════════════
 section "3. Multi-session isolation"
 # ══════════════════════════════════════════════════════════════════════════════
