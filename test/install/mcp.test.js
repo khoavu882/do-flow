@@ -322,7 +322,7 @@ test('resolveMcpForTool reports the recorded selection so an unchanged one can b
 
   // Record a selection, then ask for the same one explicitly — the case a redundant --mcp produces.
   writeManifest({
-    claudeDir, scriptVersion: 'test', operation: 'install', repoRoot: home,
+    scopeRoot: home, scriptVersion: 'test', operation: 'install', repoRoot: home,
     tools: ['claude'], date: new Date(), sourceCommit: 'test', mcpServers: [all[0]],
   });
   const again = resolveMcpForTool({ o: { mcp: [all[0]], dryRun: true, force: true }, dirs, scope, cmd: 'install', registry });

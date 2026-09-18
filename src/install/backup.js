@@ -130,7 +130,6 @@ function restoreBackup({ bid, backupRoot, dirs, dryRun = false }) {
   }
 }
 
-/** List all backups under backupRoot, newest first, reading each `.manifest.json`. */
 function listBackups(backupRoot) {
   if (!fs.existsSync(backupRoot)) return [];
   const entries = fs.readdirSync(backupRoot, { withFileTypes: true })
@@ -155,7 +154,8 @@ function listBackups(backupRoot) {
 
 /** Delete all but the `keepN` most recently modified backup dirs. Returns ids pruned. */
 function pruneBackups(backupRoot, keepN, { dryRun = false } = {}) {
-  if (keepN <= 0 || !fs.existsSync(backupRoot)) return [];
+  if (keepN <= 0) return [];
+  if (!fs.existsSync(backupRoot)) return [];
   const dirs = fs.readdirSync(backupRoot, { withFileTypes: true })
     .filter((e) => e.isDirectory())
     .map((e) => path.join(backupRoot, e.name));

@@ -14,7 +14,7 @@ const {
   codexScope, registryLifecycleView, assertSafeRegistryPlan, lockDocument, recordLock,
 } = require('../../lifecycle/view');
 const { readLock } = require('../../state/lockfile');
-const { REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, buildAdapterRegistry } = require('../shared');
+const { REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, buildAdapterRegistry } = require('../shared');
 
 /** Classify desired-vs-observed drift for one lifecycle view. The plan IS the diff: its changes
  * are the operations needed to converge, its conflicts and prerequisites are the drift that must
@@ -54,6 +54,7 @@ function printReconcileReport(report, lock) {
 function cmdReconcile(o) {
   const scope = scopeOf(o);
   const dirs = toolDirs(scope);
+  const lifecyclePaths = installPaths(scope);
   const lockArgs = scope.global ? { scope: 'global', homeDir: os.homedir() } : { scope: 'project', projectRoot: path.resolve(scope.projectRoot) };
   const lock = readLock(lockArgs);
   if (!lock || !lock.targets.length) {
@@ -88,7 +89,7 @@ function cmdReconcile(o) {
   applyLifecycle({ plan: lifecycleView.plan, registry: lifecycleView.registry,
     adapters: buildAdapterRegistry(),
     stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
-  writeManifest({ claudeDir: dirs.claude, scriptVersion: pkg.version, operation: 'update', repoRoot: SCRIPT_DIR, sourceCommit: sourceCommit(SCRIPT_DIR), backupId: '', tools: targets, date: new Date(), mcpServers: mcpIds });
+  writeManifest({ scopeRoot: lifecyclePaths.scopeRoot, scriptVersion: pkg.version, operation: 'update', repoRoot: SCRIPT_DIR, sourceCommit: sourceCommit(SCRIPT_DIR), backupId: '', tools: targets, date: new Date(), mcpServers: mcpIds });
   console.log('[OK] Reconciliation complete — state converged onto doflow.lock.');
 }
 

@@ -8,7 +8,8 @@
 const os = require('node:os');
 const path = require('node:path');
 const { REPO_ROOT } = require('../helper/repo-root');
-const { readManifest } = require('../install/manifest');
+const { readInstallManifest } = require('../install/manifest');
+const { doflowPaths } = require('../install/paths');
 const {
   readAllServers, filterServerDefs, writeProjectMcpJson, mergeGlobalMcpServers,
   resolveMcpSelection, promptMcpCheckbox,
@@ -66,6 +67,11 @@ function scopeOf(o) {
   return { global: o.global, projectRoot: o.positional[0] || '.' };
 }
 
+function installPaths(scope) {
+  const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
+  return doflowPaths({ scopeRoot });
+}
+
 /** Surface a reconciled-away MCP server rather than dropping it silently: the user picked it once,
  * so its disappearance from their config should be explained, not discovered. */
 function reportRetiredMcp(retired) {
@@ -84,7 +90,8 @@ function reportRetiredMcp(retired) {
 function resolveMcpForTool({ o, dirs, scope, cmd, registry }) {
   const allServers = readAllServers(registry);
   if (!allServers.length) return null;
-  const manifestServers = readManifest(dirs.claude)?.mcpServers ?? null;
+  const lifecyclePaths = installPaths(scope);
+  const manifestServers = readInstallManifest({ scopeRoot: lifecyclePaths.scopeRoot })?.mcpServers ?? null;
   const interactive = cmd === 'install' && !o.dryRun && !o.force && Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY);
   const selected = resolveMcpSelection({ cmd, requested: o.mcp, allServers, manifestServers, interactive, promptFn: promptMcpCheckbox, onStale: reportRetiredMcp });
   const baseline = manifestServers ?? allServers;
@@ -112,6 +119,6 @@ function printBackupTable(rows, backupRoot) {
 }
 
 module.exports = {
-  REPO_ROOT, SCRIPT_DIR, pkg, buildAdapterRegistry, scopeOf,
+  REPO_ROOT, SCRIPT_DIR, pkg, buildAdapterRegistry, scopeOf, installPaths,
   reportRetiredMcp, resolveMcpForTool, printBackupTable,
 };

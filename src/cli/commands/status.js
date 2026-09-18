@@ -5,20 +5,21 @@
 const path = require('node:path');
 const { resolveTargets, toolDirs } = require('../../install/targets');
 const { resolveContext, printContext } = require('../../install/context');
-const { readManifest } = require('../../install/manifest');
+const { readInstallManifest } = require('../../install/manifest');
 const { sourceCommit } = require('../../helper/git');
 const { loadRegistry } = require('../../registry');
 const { readLedger } = require('../../state');
 const { verifyLifecycle } = require('../../lifecycle');
 const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../lifecycle/view');
-const { REPO_ROOT, SCRIPT_DIR, scopeOf } = require('../shared');
+const { REPO_ROOT, SCRIPT_DIR, installPaths, scopeOf } = require('../shared');
 
 function cmdStatus(o) {
   const targets = resolveTargets(o.targets);
   const scope = scopeOf(o);
   const dirs = toolDirs(scope);
+  const lifecyclePaths = installPaths(scope);
   const ctx = resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: sourceCommit(SCRIPT_DIR), ...scope });
-  const manifest = readManifest(dirs.claude);
+  const manifest = readInstallManifest({ scopeRoot: lifecyclePaths.scopeRoot });
   let registryView = null;
   try {
     const registry = loadRegistry({ repoRoot: REPO_ROOT });

@@ -220,11 +220,11 @@ to their own adapters; see the [capability map](capability-map.md) before claimi
 ## Neutral state and migration
 
 The lifecycle ledger is independent of a harness directory: project installations use
-`<project>/.doflow/state/`; user installations use `~/.doflow/state/`. It records only verified
-DoFlow-owned resources and recovery references. The same neutral state directory also holds what
-the runtime writes: per-task evidence and claims, and the date-partitioned run ledger the dispatcher
-appends to. Legacy manifests remain import sources during the migration, so existing installs can
-continue to update without rewriting foreign configuration.
+`<project>/.doflow/state/`; user installations use `~/.doflow/state/`. Lifecycle backups and the
+install manifest use sibling paths under `.doflow/` (`backups/` and `.install-manifest.json`). The
+same neutral state directory also holds what the runtime writes: per-task evidence and claims, and
+the date-partitioned run ledger the dispatcher appends to. Lifecycle commands no longer anchor
+metadata to `.claude`; the explicit neutral-state importer remains separate for historical state.
 
 Migration order is deliberate: declare registry ownership, introduce adapters and neutral state,
 route the CLI through lifecycle planning, then retire a compatibility path only after idempotency,

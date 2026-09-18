@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { backupId, createBackup, restoreBackup, listBackups, pruneBackups, assertSafeBackupId } = require('../../src/install/backup');
-const { writeManifest, readManifest, manifestPath } = require('../../src/install/manifest');
+const { writeManifest, readManifest, readInstallManifest, canonicalManifestPath, manifestPath } = require('../../src/install/manifest');
 
 const FIXED_DATE = new Date('2026-03-15T10:20:30');
 const REPO = path.resolve(__dirname, "../..");
@@ -152,6 +152,28 @@ test('manifest preserves other tools\' last_updated across incremental writes', 
   assert.strictEqual(read.operation, 'update');
   assert.ok(read.tools.codex.installed, 'codex entry from the earlier write must survive');
   assert.notStrictEqual(read.tools.claude.last_updated, read.tools.codex.last_updated);
+});
+
+test('canonical lifecycle manifest lives under .doflow', () => {
+  const root = scratchDir();
+  const projectRoot = path.join(root, 'project');
+  const claudeDir = path.join(projectRoot, '.claude');
+  const canonical = canonicalManifestPath(projectRoot);
+
+  writeManifest({ scopeRoot: projectRoot, claudeDir, scriptVersion: '2.0.0', operation: 'install', repoRoot: REPO, tools: ['codex'], date: FIXED_DATE });
+  assert.ok(fs.existsSync(canonical));
+  assert.ok(!fs.existsSync(manifestPath(claudeDir)), 'new lifecycle writes must not anchor metadata under .claude');
+  assert.equal(readInstallManifest({ scopeRoot: projectRoot }).operation, 'install');
+});
+
+test('canonical lifecycle manifest preserves metadata across incremental writes', () => {
+  const root = scratchDir();
+  const projectRoot = path.join(root, 'project');
+  writeManifest({ scopeRoot: projectRoot, scriptVersion: 'canonical', operation: 'install', repoRoot: REPO, tools: ['claude', 'codex'], date: FIXED_DATE });
+  writeManifest({ scopeRoot: projectRoot, scriptVersion: 'canonical', operation: 'update', repoRoot: REPO, tools: ['claude'], date: new Date('2026-03-16T00:00:00Z') });
+  const read = readInstallManifest({ scopeRoot: projectRoot });
+  assert.equal(read.operation, 'update');
+  assert.ok(read.tools.codex.installed);
 });
 
 test('readManifest returns null when no manifest exists yet', () => {
