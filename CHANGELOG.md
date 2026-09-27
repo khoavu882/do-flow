@@ -13,6 +13,13 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.8.3] - 2026-09-18
+
+### Changed
+
+- Lifecycle backups and install metadata now live under the scope-neutral `.doflow/` root instead
+  of a harness-specific directory. Native harness projections remain at their declared paths.
+
 ## [1.8.2] - 2026-09-18
 
 ### Fixed
