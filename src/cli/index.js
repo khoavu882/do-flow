@@ -336,12 +336,17 @@ Commands:
   outcome              Record a task's terminal state with its basis, or show it (--task-id)
   classify             Validate a proposed task class and return its workflow (--task-class)
   workflow             Resolve a task class to its stages, gates and readiness templates
+  orchestrate          Start or resume a run: complete stages, decide gates (--action)
+  retrieve             BM25 search over the installed guidance tree (--query)
+  model-role           Resolve a model role to ranked provider candidates (--role)
   route                Resolve an information need to a healthy provider (--intent)
   verify               Compile the verification contract and report against it (--task-id)
   recover              Classify a verification failure and plan the bounded retry (--error)
   trace                Trajectory of the current or most recent workflow (run ledger)
   stats                Aggregate local run-ledger usage
+  indicators           Per-stage and per-gate timings from the orchestration record
   discover             Missed capability opportunities in recorded runs
+  inventory            Shadowed copies, drift and unmanaged files across both install scopes
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
   leak-scan            Report DoFlow-internal identifiers in shipped files (--path, repeatable)
 

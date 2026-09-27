@@ -4,8 +4,26 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { backupId, createBackup, restoreBackup, listBackups, pruneBackups, assertSafeBackupId } = require('../../src/install/backup');
+const {
+  backupId, createBackup, restoreBackup, listBackups, pruneBackups, assertSafeBackupId,
+  backupReadRoots, BACKUP_ORIGIN_CURRENT, BACKUP_ORIGIN_LEGACY,
+} = require('../../src/install/backup');
 const { writeManifest, readManifest, readInstallManifest, canonicalManifestPath, manifestPath } = require('../../src/install/manifest');
+const { legacyBackupReadRoot, scopeRootFromCanonicalBackupRoot } = require('../../src/install/paths');
+// `installPaths` is the exact expression install.js/update.js/rollback.js use to pick a backup root,
+// so the tests below derive the write side from the installer's own resolver rather than restating a
+// literal path that could silently drift from it.
+const { installPaths } = require('../../src/cli/shared');
+
+/** A backup dir with a readable `.manifest.json`, planted directly at `root` (no createBackup). */
+function plantBackup(root, id, extra = {}) {
+  fs.mkdirSync(path.join(root, id), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, id, '.manifest.json'),
+    JSON.stringify({ id, operation: 'install', timestamp: `2026-01-01T00:00:00.000Z`, type: 'full', ...extra }),
+  );
+  return path.join(root, id);
+}
 
 const FIXED_DATE = new Date('2026-03-15T10:20:30');
 const REPO = path.resolve(__dirname, "../..");
@@ -179,4 +197,119 @@ test('canonical lifecycle manifest preserves metadata across incremental writes'
 test('readManifest returns null when no manifest exists yet', () => {
   const root = scratchDir();
   assert.strictEqual(readManifest(path.join(root, '.claude')), null);
+});
+
+// --- the two roots must agree -------------------------------------------------------------------
+// 7de6d5f moved the backup root from `<scopeRoot>/.claude/backups` into `<scopeRoot>/.doflow/backups`
+// and bridged only the install manifest, so every pre-move restore point became invisible to
+// list-backups/rollback while both sides stayed internally consistent. These tests assert the
+// agreement itself: the root the installer writes to is a root the restore path reads from, and the
+// legacy root stays readable but never writable or prunable.
+
+test('the root the installer writes to is a root the restore path reads from', () => {
+  const root = scratchDir();
+  const scope = { global: false, projectRoot: root };
+  const lifecyclePaths = installPaths(scope);          // write side: what install.js hands createBackup
+  const writeRoot = lifecyclePaths.backupRoot;
+
+  const claudeDir = path.join(root, '.claude');
+  fs.mkdirSync(claudeDir, { recursive: true });
+  fs.writeFileSync(path.join(claudeDir, 'CLAUDE.md'), 'hello');
+  const bid = createBackup({ operation: 'install', tools: ['claude'], dirs: { claude: claudeDir }, backupRoot: writeRoot, repoRoot: REPO, date: FIXED_DATE });
+
+  // Read side: the roots backup.js itself consults for this scope.
+  const readRoots = backupReadRoots(writeRoot);
+  assert.ok(
+    readRoots.some((r) => r.root === writeRoot && r.origin === BACKUP_ORIGIN_CURRENT),
+    'the installer\'s backup root must be read as the current root by the restore path',
+  );
+  assert.deepStrictEqual(
+    listBackups(writeRoot).map((r) => ({ id: r.id, origin: r.origin })),
+    [{ id: bid, origin: BACKUP_ORIGIN_CURRENT }],
+    'a backup written by the installer must be listed from the same root',
+  );
+
+  // The legacy bridge is derived by inverting the write side's own mapping, so a future move of the
+  // write root that this inverse no longer recognises orphans every legacy restore point silently.
+  assert.strictEqual(
+    scopeRootFromCanonicalBackupRoot(writeRoot), lifecyclePaths.scopeRoot,
+    'the read side must be able to recover the scope root from the installer\'s backup root',
+  );
+  assert.ok(
+    readRoots.some((r) => r.root === legacyBackupReadRoot({ scopeRoot: lifecyclePaths.scopeRoot }) && r.origin === BACKUP_ORIGIN_LEGACY),
+    'the legacy root must be one of the roots the restore path reads',
+  );
+});
+
+test('listBackups surfaces legacy-root restore points, tagged by origin', () => {
+  const root = scratchDir();
+  const scope = { global: false, projectRoot: root };
+  const lifecyclePaths = installPaths(scope);
+  const legacyRoot = legacyBackupReadRoot({ scopeRoot: lifecyclePaths.scopeRoot });
+
+  plantBackup(legacyRoot, 'install_2026-01-01_00-00-00');
+  plantBackup(lifecyclePaths.backupRoot, 'install_2026-06-01_00-00-00', { timestamp: '2026-06-01T00:00:00.000Z' });
+
+  const rows = listBackups(lifecyclePaths.backupRoot);
+  assert.strictEqual(rows.length, 2, 'both roots must be listed');
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  assert.strictEqual(byId.get('install_2026-01-01_00-00-00').origin, BACKUP_ORIGIN_LEGACY);
+  assert.strictEqual(byId.get('install_2026-01-01_00-00-00').backupRoot, legacyRoot);
+  assert.strictEqual(byId.get('install_2026-06-01_00-00-00').origin, BACKUP_ORIGIN_CURRENT);
+  assert.strictEqual(byId.get('install_2026-06-01_00-00-00').backupRoot, lifecyclePaths.backupRoot);
+});
+
+test('restoreBackup resolves an id that only exists in the legacy root', () => {
+  const root = scratchDir();
+  const scope = { global: false, projectRoot: root };
+  const lifecyclePaths = installPaths(scope);
+  const legacyRoot = legacyBackupReadRoot({ scopeRoot: lifecyclePaths.scopeRoot });
+  const dstDir = path.join(root, 'dst-claude');
+
+  // A legacy full backup: a tar.gz per tool plus its own manifest, exactly as createBackup wrote them.
+  const srcDir = path.join(root, 'src-claude');
+  fs.mkdirSync(srcDir, { recursive: true });
+  fs.writeFileSync(path.join(srcDir, 'CLAUDE.md'), 'legacy content');
+  const bid = 'install_2026-01-01_00-00-00';
+  plantBackup(legacyRoot, bid);
+  require('node:child_process').execFileSync('tar', ['-czf', path.join(legacyRoot, bid, 'claude.tar.gz'), '-C', srcDir, '.']);
+
+  restoreBackup({ bid, backupRoot: lifecyclePaths.backupRoot, dirs: { claude: dstDir } });
+  assert.strictEqual(fs.readFileSync(path.join(dstDir, 'CLAUDE.md'), 'utf8'), 'legacy content');
+});
+
+test('pruneBackups never touches the legacy root, and refuses to run against it', () => {
+  const root = scratchDir();
+  const scope = { global: false, projectRoot: root };
+  const lifecyclePaths = installPaths(scope);
+  const legacyRoot = legacyBackupReadRoot({ scopeRoot: lifecyclePaths.scopeRoot });
+
+  const legacyDir = plantBackup(legacyRoot, 'install_2026-01-01_00-00-00');
+  for (const id of ['install_2026-06-01_00-00-00', 'install_2026-06-02_00-00-00', 'install_2026-06-03_00-00-00']) {
+    plantBackup(lifecyclePaths.backupRoot, id, { timestamp: `${id.slice(8, 18).replace(/_/g, '')}T00:00:00.000Z` });
+  }
+  assert.strictEqual(listBackups(lifecyclePaths.backupRoot).length, 4, 'all four are visible before pruning');
+
+  const pruned = pruneBackups(lifecyclePaths.backupRoot, 1);
+  assert.ok(fs.existsSync(legacyDir), 'pruning must not delete a legacy-root backup');
+  assert.ok(fs.existsSync(path.join(legacyDir, '.manifest.json')), 'the legacy backup must be intact, not emptied');
+  assert.ok(!pruned.includes('install_2026-01-01_00-00-00'), 'a legacy backup must never be reported as pruned');
+  assert.strictEqual(pruned.length, 2, 'retention applies to the canonical root only');
+  assert.strictEqual(listBackups(lifecyclePaths.backupRoot).length, 2, 'one canonical survivor plus the untouched legacy backup');
+
+  // The positional (backupRoot, keepN) signature accepts any string, so a mistaken legacy root must
+  // fail loudly rather than delete a user's only restore points.
+  assert.throws(() => pruneBackups(legacyRoot, 1), /legacy backup root/);
+  assert.ok(fs.existsSync(legacyDir), 'the refused prune must have deleted nothing');
+});
+
+test('createBackup refuses to write into the legacy root', () => {
+  const root = scratchDir();
+  const legacyRoot = legacyBackupReadRoot({ scopeRoot: root });
+  assert.throws(
+    () => createBackup({ operation: 'install', tools: ['claude'], dirs: { claude: root }, backupRoot: legacyRoot, repoRoot: REPO, date: FIXED_DATE }),
+    /legacy backup root/,
+    'new backups must land only in the canonical root',
+  );
+  assert.ok(!fs.existsSync(legacyRoot), 'the refused write must not have created the legacy root');
 });

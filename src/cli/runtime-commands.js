@@ -45,6 +45,7 @@ const { handleVerifyCommand } = require('../runtime/verification/engine');
 const { handleLeakScanCommand } = require('../runtime/leak-scan');
 const { handleRecoverCommand } = require('../runtime/recovery');
 const { handleScaffoldCommand } = require('../runtime/scaffold/generate');
+const { handleInventoryCommand } = require('../runtime/inventory');
 const { finishRuntime, usageError } = require('../runtime/cli-result');
 const { REPO_ROOT } = require('./shared');
 
@@ -149,6 +150,12 @@ function dispatchRuntimeCommand(o) {
     case 'stats': return handleStatsCommand({ json: o.json, days: o.days, global: o.global, projectRoot: evidenceRoot(o) });
     case 'indicators': return handleIndicatorsCommand({ json: o.json, projectRoot: evidenceRoot(o) });
     case 'discover': return handleDiscoverCommand({ json: o.json, days: o.days, global: o.global, projectRoot: evidenceRoot(o) });
+    // Deliberately NOT evidenceRoot(o): this is the one verb that reads both scopes in one
+    // invocation (IC-001), so the project root is always the positional (default cwd) and never
+    // $HOME, and `-g` is forwarded to be refused by the handler rather than silently narrowing a
+    // report whose whole purpose is to be cross-scope. The global scope's own root is derived from
+    // the process home directory inside the lifecycle view (design R7) and is not an argument.
+    case 'inventory': return handleInventoryCommand({ json: o.json, global: o.global, targets: o.targets, repoRoot: REPO_ROOT, projectRoot: path.resolve(o.positional[0] || '.') });
     // No REPO_ROOT: the scaffold's repo root is the *caller's* repo, reported by the resolver,
     // because the plan's `files:` paths are relative to it. Passing the DoFlow install here
     // would detect the wrong language and mirror the wrong tree.

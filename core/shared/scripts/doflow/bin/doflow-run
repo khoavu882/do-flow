@@ -258,6 +258,7 @@ Observability:
   stats            aggregate run usage
   indicators       per-stage and per-gate timings from the orchestration record
   discover         missed opportunities in recorded runs
+  inventory        both scopes at once: shadowed assets, drift, unmanaged contenders
   capabilities     provider resolution
   doctor           installation and provider health
 EOF
@@ -357,7 +358,7 @@ shell_helper_for() {
 is_node_verb() {
   case "$1" in
     classify|workflow|route|evidence|claim|readiness|context-pack|retrieval-plan|outcome|scaffold|verify|recover|leak-scan|\
-trace|stats|indicators|discover|capabilities|doctor|orchestrate|retrieve|model-role) return 0 ;;
+trace|stats|indicators|discover|inventory|capabilities|doctor|orchestrate|retrieve|model-role) return 0 ;;
     *) return 1 ;;
   esac
 }

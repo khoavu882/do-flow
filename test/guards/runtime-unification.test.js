@@ -294,6 +294,62 @@ test('G12: every verb the dispatcher advertises on the Node arm has a CLI comman
     + `Implement the command, or remove the verb from the table:\n  ${unimplemented.join('\n  ')}`);
 });
 
+// ------------------------------------------- 5d. the CLI's own help documents every verb it serves
+
+// The gap that let `inventory` ship dispatching correctly while `doflow --help` denied it existed —
+// and, before it, `indicators`, `orchestrate`, `retrieve` and `model-role`. Section 4's help check
+// reads usage() out of the *dispatcher*, so it stayed green through all five: two help texts, one
+// guarded. A verb missing from `doflow --help` is undiscoverable to the operator, who has no reason
+// to read a shim they never invoke by name.
+//
+// Both sides are derived, because a hardcoded list here would be the same drift one level up. The
+// accepted set is the installer table the CLI itself exports plus the dispatcher's Node arm; the
+// documented set is parsed out of the HELP template that `--help` prints.
+const CLI_INDEX = path.join(REPO, 'src', 'cli', 'index.js');
+
+/** The command names the `Commands:` block of `doflow --help` advertises. A positional placeholder
+ * (`install [path]`) is part of the entry, not part of the name. */
+function documentedCliCommands() {
+  const cliText = fs.readFileSync(CLI_INDEX, 'utf8');
+  const block = cliText.match(/\nCommands:\r?\n([\s\S]*?)\r?\n\r?\n/);
+  assert.ok(block, "the HELP template's `Commands:` block must be parseable — it is the only command "
+    + 'list a `doflow` user ever sees');
+  return new Set([...block[1].matchAll(/^ {2}([a-z][a-z-]*)(?: \[[^\]]+\])?\s{2,}\S/gm)].map(([, name]) => name));
+}
+
+// Shell verbs are deliberately outside this check: the dispatcher serves them from bash/ and they
+// never reach `doflow`, so listing them in the CLI's help would advertise commands it does not
+// implement. Section 4 holds them to the dispatcher's own usage(), which is the help their callers
+// read.
+//
+// Empty by design. A Node verb that should legitimately stay out of `doflow --help` belongs here
+// with the reason it is hidden, in the shape test/guards/verb-reachability.test.js's ALLOWLIST uses —
+// never as a silent omission.
+const HIDDEN_FROM_CLI_HELP = new Map([]);
+
+test('G12: doflow --help documents every command the CLI accepts, and nothing it does not', () => {
+  const documented = documentedCliCommands();
+  const accepted = new Set([...Object.keys(require('../../src/cli').COMMANDS), ...nodeVerbs()]);
+
+  const undocumented = [...accepted]
+    .filter((name) => !documented.has(name) && !HIDDEN_FROM_CLI_HELP.has(name)).sort();
+  assert.deepEqual(undocumented, [],
+    '`doflow <name>` accepts these and `doflow --help` never mentions them, so the only way to learn '
+    + 'they exist is to read the dispatcher or the source. Add each to the HELP template in '
+    + `src/cli/index.js, or record it in HIDDEN_FROM_CLI_HELP with the reason:\n  ${undocumented.join('\n  ')}`);
+
+  const phantom = [...documented].filter((name) => !accepted.has(name)).sort();
+  assert.deepEqual(phantom, [],
+    'these are advertised by --help but served by neither the installer table nor the dispatcher\'s '
+    + `Node arm, so they fall through to the unknown-command message:\n  ${phantom.join('\n  ')}`);
+
+  const stale = [...HIDDEN_FROM_CLI_HELP.keys()]
+    .filter((name) => documented.has(name) || !accepted.has(name)).sort();
+  assert.deepEqual(stale, [],
+    'a HIDDEN_FROM_CLI_HELP entry that is now documented, or that names a command nothing serves, has '
+    + `stopped describing reality — delete it:\n  ${stale.join('\n  ')}`);
+});
+
 // ------------------------------------------------------------ 6. no skill goes around the seam
 
 // FR-004's mechanical half for the *runtime library* case. C.4's guard covers inlined resolver

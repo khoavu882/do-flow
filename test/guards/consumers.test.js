@@ -5,11 +5,17 @@
 // trigger: no harness evaluates it. Skills are the only mechanism all three harnesses actually
 // evaluate (via `description:`), so a lazy resource is reachable only if a skill — or an
 // always-loaded rule — reads it.
+//
+// `pointers/` is the exception the rule has to bend for: those files are projected by the registry,
+// not read by a skill, so their reachability test is a registry declaration (see below).
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { GUIDANCE, SKILLS, coreTextFiles } = require('./_shared');
+const { REPO, GUIDANCE, SKILLS, coreTextFiles } = require('./_shared');
+const { loadRegistry } = require('../../src/registry');
+
+const registry = loadRegistry({ repoRoot: REPO });
 
 function resourcesUnder(root) {
   const out = [];
@@ -64,6 +70,39 @@ test('G3: no consumer references a mode or reference file that does not exist', 
     }
   }
   assert.deepEqual(dangling, [], `consumers point at missing resources:\n  ${dangling.join('\n  ')}`);
+});
+
+/** `pointers/` is copy-tree'd into every install exactly as `modes/` and `references/` are, but a
+ * pointer's consumer is not a skill: nothing inside the guidance tree reads these, and the agent
+ * that does read one never sees it at this path. A pointer is an instruction file a harness adapter
+ * renders, so the only thing that can make one reachable is an `assets.json` entry naming it as a
+ * `source`. Riding along in guidance.context-layer's copy of the whole directory is not reachability
+ * — that is how a superseded pointer stayed on disk, and in every install, describing behaviour two
+ * adapters had already stopped implementing. */
+function pointerFiles() {
+  const abs = path.join(GUIDANCE, 'pointers');
+  if (!fs.existsSync(abs)) return [];
+  return fs.readdirSync(abs).filter((name) => name.endsWith('.md'))
+    .map((name) => path.relative(REPO, path.join(abs, name)).split(path.sep).join('/'));
+}
+
+/** Asset sources that name a single FILE, in the repo-relative forward-slash form assets.json writes
+ * them. Directory sources are excluded deliberately: guidance.context-layer's source is the whole
+ * guidance tree, and counting it would make every pointer trivially "declared" — the hole itself.
+ * The converse direction (a declared source that does not exist on disk) needs no test here;
+ * loadRegistry above already throws on it via validateRegistry's source check. */
+function declaredFileSources() {
+  return new Set(registry.assets
+    .map((asset) => asset.source)
+    .filter((source) => typeof source === 'string' && fs.statSync(path.resolve(REPO, source)).isFile())
+    .map((source) => source.split(path.sep).join('/')));
+}
+
+test('G3: every pointer file is named as a source by a registry asset', () => {
+  const declared = declaredFileSources();
+  const orphans = pointerFiles().filter((rel) => !declared.has(rel));
+  assert.deepEqual(orphans, [],
+    `pointers no assets.json entry projects (copy-tree'ing the guidance tree is not reachability):\n  ${orphans.join('\n  ')}`);
 });
 
 test('G3: every skill directory contains a SKILL.md', () => {
