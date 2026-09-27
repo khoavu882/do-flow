@@ -11,7 +11,12 @@ function cmdListBackups(o) {
   const scope = { global: o.global, projectRoot: '.' };
   const dirs = toolDirs(scope);
   const lifecyclePaths = installPaths(scope);
-  printBackupTable(listBackups(lifecyclePaths.backupRoot), lifecyclePaths.backupRoot);
+  const rows = listBackups(lifecyclePaths.backupRoot);
+  // listBackups now reads the canonical root AND the legacy pre-.doflow one, so the footer must name
+  // the roots the rows actually came from: reporting restore points as living in a directory that
+  // does not exist on this machine sends a user looking for recovery material to the wrong place.
+  const roots = [...new Set(rows.map((r) => r.backupRoot))];
+  printBackupTable(rows, roots.length ? roots.join(', ') : lifecyclePaths.backupRoot);
 }
 
 module.exports = cmdListBackups;

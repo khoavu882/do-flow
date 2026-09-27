@@ -13,6 +13,36 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.9.0] - 2026-09-27
+
+### Added
+
+- `doflow inventory` reports DoFlow's managed assets across the global and project scopes at once:
+  it joins the copies that describe one logical asset, judges each copy's currency against what the
+  current source would produce, names which copy a harness will actually load when two scopes hold
+  one, and flags unmanaged files that a wholesale-loaded directory makes operative. A copy the
+  report cannot judge is reported as unjudged rather than assumed current, and any finding the
+  caller must act on produces a non-zero exit.
+
+### Fixed
+
+- `doflow list-backups` and `doflow restore` find backups again that were written before lifecycle
+  metadata moved under `.doflow/`. The read path now covers the pre-`.doflow` root as well, while
+  writes stay canonical, so a rollback is no longer silently empty on an install that predates the
+  move.
+- The cross-OS test suite reads a file mode portably. The previous BSD/GNU `stat` fallback ran both
+  commands and concatenated their output, which failed every run of the suite since v1.7.0 and,
+  because the release workflow gates publishing on it, silently blocked v1.8.0 through v1.8.3 from
+  ever publishing.
+- The documented-path guard no longer requires the two deliberately git-ignored `bench/` output
+  directories to exist. It failed on every clean checkout while passing in any working tree where
+  the bench harness had run.
+
+### Changed
+
+- `do-execute-plan`'s steps 3 and 10 moved into reference files, and dead code was removed along
+  with the guard gaps that had let it stay unreferenced.
+
 ## [1.8.3] - 2026-09-18
 
 ### Changed

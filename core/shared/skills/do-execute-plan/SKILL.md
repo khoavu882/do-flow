@@ -75,63 +75,12 @@ Branch on the returned `outcome` field, not the exit code.
      is answered by the human who is asked, and this skill is where that question lands when nothing
      else has already asked it. Until it is decided, the state machine refuses this stage's own
      completion, so resolve it here rather than at step 10.
-   - `<slug>` is step 1's `feature_slug`; `<class>` is the class step 2's `classify` call accepted;
-     `<stage id>` is the id of the entry in that call's `workflow.stages[]` whose `skill` is
-     `do-execute-plan` (`implementation` in the `feature` workflow) — read it off that response,
-     never hardcode a guess. One call positions the run: it starts one when none exists yet (an
-     old-layout feature, or a chain that skipped straight here), backfills any earlier non-mutating
-     stage as a routine handoff (marked `backfilled` in the trail, distinct from a stage its own
-     skill actually completed), and stops on the node this skill must act on — or on any gate in the
-     way, `clarification`-kind included, since only a human or that gate's own owning skill may
-     decide it.
-     ```bash
-     "$DOFLOW" orchestrate --action catch-up --task-id "<slug>" --task-class "<class>" --stage "<stage id>" --note "entering implementation" --json
-     ```
-   - Branch on the response's `caughtUpTo` / `reason`, not on the exit code:
-   - **`reason` is `awaiting-gate:<gate id>`** — **first check `<gate id>` against step 2's
-     `<expected gate id>`.** They match in the ordinary case (`gate-a`, standing immediately before
-     this stage) — present `awaitingGate.prompt` to the user through `AskUserQuestion` as a plain
-     go/no-go, the same way step 1's prerequisite gate stops and asks rather than assuming. On yes:
-     ```bash
-     "$DOFLOW" orchestrate --action decide-gate --task-id "<slug>" --gate "<awaitingGate.gateId>" --decision approve --note "<the user's own answer, one line>" --json
-     ```
-     Then re-run the same `catch-up` call to land on this stage. If that re-run itself stops on
-     *another* `awaiting-gate:`, re-apply this same check from the top — do not assume one approval
-     clears the path; walk it exactly as far as it goes. On no: **stop the whole run here.** The gate
-     is terminal in the same sense step 1's prerequisite gate is — report that the gate was not
-     approved and dispatch nothing.
-     **They do not match** — this is a gate belonging to an earlier stage, not this one. `gate-0`,
-     left open by an aborted `/do-brainstorm` session, is exactly this case: it now surfaces here
-     (catch-up stops on every gate, `clarification`-kind included) instead of being silently
-     resolved on the way past. Report the gate id plainly and stop, the same way `do-design`,
-     `do-plan`, `do-test` and `do-brainstorm` already handle a gate that isn't theirs. Never approve
-     a gate this stage did not expect regardless of what the user answers — a "yes" given in an
-     implementation context is not an answer to a different stage's clarification prompt, and
-     `reject`'s "terminate the run outright" semantics are the wrong shape for a gate this stage has
-     no standing to decide either way.
-   - **`caughtUpTo` is this stage id** (`reason: reached-candidate`) — the run is positioned exactly
-     here and there is no gate to ask. That covers three cases at once and needs no special-casing
-     between them: `/do-flow` already recorded the user's answer to that gate while driving the
-     chain, this skill just recorded it in the branch above, or the accepted class declares no gate
-     at all — `feature` is the only shipped class that declares any. Never ask a gate the run does
-     not report as open; that is exactly the double-prompt this branch exists to prevent. Carry this
-     `caughtUpTo` value to step 10; it is the stage id that call completes.
-   - **`reason` is `blocked-on-mutating-stage:<id>`** — a *different* source-mutating stage sits
-     ahead of this one and its own skill has not executed it. Name `<id>`, report the block plainly,
-     and dispatch nothing.
-   - **`reason` starts with `already-completed:`** — this stage was already recorded on an earlier
-     run of this skill (a `--scope resume` after an interrupted run, say). Use `annotate` instead of
-     `complete-stage`:
-     ```bash
-     "$DOFLOW" orchestrate --action annotate --task-id "<slug>" --node "<stage id>" --note "<what changed on this re-run>" --json
-     ```
-   - **`reason` is `run-completed` or `run-rejected`** — the run is finished and takes no further
-     stage. Report it and stop.
-   - Positioning the run is advisory to the trail, not to the work: if the `catch-up` call itself
-     fails for a reason outside this flow's control (an unwritable local state directory, say),
-     report the failure plainly and continue — the hard prerequisite gate step 1 already enforced is
-     what governs whether this run may proceed. A user's explicit "no" above is not that case; it
-     stops the run.
+   - One `orchestrate --action catch-up` call positions the run, stopping either on this stage or
+     on any gate in the way; **branch on its `caughtUpTo` / `reason`, not on the exit code.** That
+     call and every branch off it — the expected gate, an earlier stage's gate, a blocking mutating
+     stage, an already-recorded stage, a finished run — are in this skill's own
+     `references/run_position.md`. Read it before running this step; carry the `caughtUpTo` it
+     lands on to step 10.
 
 4. **Readiness Evaluation (Contract State)**:
    - Evaluate a task's contract before dispatching it, run from the project the task belongs to.
@@ -266,75 +215,15 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
       not once per phase, since the stage hands off once however many phases it executed. The stage
       id is step 3's `caughtUpTo`, which the run is already positioned on; there is no second
       `catch-up` call and no `status` call to make here.
-    - **First: is this run a completion or a checkpoint?** Re-read `plan.md`'s task checklist and
-      count the task lines still unchecked. A real task line matches `^- \[ \] [A-Z]+\.[0-9]+` (a
-      phase letter, a dot, a number — `- [ ] B.2`); the pattern deliberately excludes the generic
-      `- [ ] All tasks checked` line in the plan's own "Completion criteria" section, which carries
-      no phase-letter id and is not a task.
-      ```bash
-      grep -cE '^- \[ \] [A-Z]+\.[0-9]+' "<plan path>"
-      ```
-      **Any such line remaining means this run's handoff is a checkpoint, not a completion** — the
-      normal outcome of a `--scope next` or `--scope phase:N` run, which finishes some of the plan by
-      design. Record the checkpoint and stop; do **not** attempt `complete-stage`, which would hand
-      the stage off while tasks nobody executed are still open:
-      ```bash
-      "$DOFLOW" orchestrate --action annotate --task-id "<slug>" --node "<stage id>" --note "<checkpoint: N of M tasks done, scope was --scope next|phase:X>" --json
-      ```
-      Only when zero such lines remain does the completion flow below run.
-    - **Then: give the readiness cascade its real inputs before completing.** This stage is the
-      workflow's `mutatesSource` stage, so `complete-stage` runs the cascade against the `feature`
-      contract, whose three requirements are `affected_components`, `verification_plan` and
-      `scope_clear` (`references/readiness_gate.md`). Two of them are satisfiable by a caller-stated
-      input; the third is not, and attempting the call without it returns `NEEDS_EVIDENCE`.
-      1. Batch **one** evidence item under the **feature slug** — deliberately different from every
-         other evidence call this skill makes, which key on a plan task id, because the cascade
-         grades the ledger under the slug. `kind` is `structural` or `semantic-retrieval`,
-         `provenance` is `extracted`, the `locator` points at `plan.md`,
-         `establishes` is `["affected_components"]` — the gate counts an item toward a requirement
-         only when the item names it — and `content` summarizes the
-         components and files this implementation actually touched, taken from `plan.md` §4
-         "Components & Changes" — which this run already read. That is what satisfies
-         `affected_components`; per `readiness_gate.md`'s own rule it cannot be satisfied by a
-         caller-stated flag, and asserting it as one would misrepresent what backs it.
-         ```bash
-         "$DOFLOW" evidence --task-id "<slug>" --action add --batch <batch>.json --json
-         ```
-         An `extracted` locator must resolve in this repository — the ledger refuses a batch whose
-         locator points at nothing, and refuses the batch whole rather than the item.
-      2. Then record the handoff, stating the other two — this is the genuine completion case (every
-         task checked), the one case where reaching this stage's candidate and recording it as done
-         are the same fact, so `handoff`'s always-complete-on-reach behavior is exactly right here
-         and cannot mismark unfinished work: the checkpoint branch above never reaches this call:
-         ```bash
-         "$DOFLOW" orchestrate --action handoff --task-id "<slug>" --task-class "<class>" --calling-skill do-execute-plan \
-           --verification-plan "<one line: how this was verified — plan.md §7 Validation Strategy, or the final phase's own results>" \
-           --scope "<one line: plan.md §1 Approach>" \
-           --note "<one line, e.g. tasks A.1–E.5 complete>" --result passed --json
-         ```
-         `--task-class` still matters here even though the run already carries one: a conflicting
-         value is refused, so passing it is a check, not a formality. `--verification-plan` and
-         `--scope` are inputs you **state**, not evidence the gate measured — the same
-         `callerAsserted` rule step 4 sets out. Pass them when they are true, and say in the report
-         which part of the verdict rests on a statement. `--result` reflects step 9's phase review
-         (and step 6's own check runs), never asserted as `passed` when a review finding was left
-         unfixed.
-    - **Report the resulting `disposition` plainly.** `completed` means the evidence item and both
-      stated inputs satisfied the cascade and the cursor advanced to the verification stage — check
-      its `awaitingGate`; `null` means no gate follows this stage in this workflow. `deferred` means
-      a gate, an unfinished mutating stage elsewhere, or a rejected run prevented it — report
-      `reason` plainly, this stage resolves no gate. If the cascade itself refuses (`NEEDS_EVIDENCE`
-      or similar surfaced through the failure), report exactly what is unmet and fix that — do not
-      re-run under a class that grades looser, never assert `READY` yourself, and do not swallow the
-      failure into an `annotate`. The `annotate` path above belongs to the unfinished-tasks case
-      alone; it is not a catch-all for an unexpected readiness failure here. Finish by rendering the
-      trail — the `--slug` value attaches with an `=`; a space-separated one is rejected with an
-      error rather than silently rendering the wrong feature's trail:
-      ```bash
-      "$DOFLOW" render-audit --slug="<slug>" --json
-      ```
-    - Same standing as step 8's `state.md` write: bookkeeping, not a gate. A failure here degrades
-      the trail, not the correctness of the work already done — report it and continue.
+    - **First: is this run a completion or a checkpoint?** Count `plan.md`'s still-unchecked task
+      lines with `grep -cE '^- \[ \] [A-Z]+\.[0-9]+'`. The task-id prefix is load-bearing: a bare
+      `^- \[ \]` also matches the plan's own `- [ ] All tasks checked` completion-criteria line, so
+      it reports a remaining task on a finished plan and records a checkpoint where a completion
+      was owed. Any genuinely remaining task makes this handoff a checkpoint (`annotate`, never
+      `complete-stage`); zero remaining is the completion flow. Both branches, their exact
+      commands, the evidence item the readiness cascade needs first, and how to report the
+      resulting `disposition`: this skill's own `references/handoff_record.md`. Read it before
+      running this step.
 
 **Stop when** every review finding the contract names has an answer or a stated gap, **and** the last round produced no new review finding. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 

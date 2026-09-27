@@ -816,10 +816,25 @@ eq "injected quote -> output parses as valid JSON with .ok == false, not overrid
    "$(jq -r '.ok' "$inj_out" 2>/dev/null)" "false"
 rm -f "$inj_out"
 
+# Portable file-mode read. The argument order here is load-bearing and must not be "tidied":
+# GNU coreutils is tried FIRST because on GNU `-f` is a *valid* flag with an unrelated meaning —
+# it prints filesystem status, not file mode — so `stat -f '%Lp'` succeeds on Linux and emits
+# `Namelen: 255  Type: ext4`, and a `||` fallback after it can never fire. BSD stat, by contrast,
+# rejects `-c` outright (exit 1), so GNU-first degrades correctly on macOS. The octal check is the
+# belt to that braces: whichever branch answered, a mode is three or four octal digits and anything
+# else means neither flavour was understood, which is a clearer failure than comparing prose to 644.
+file_mode() {
+  local m
+  m=$(stat -c '%a' "$1" 2>/dev/null) || m=$(stat -f '%Lp' "$1" 2>/dev/null) || m=''
+  case "$m" in
+    [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]) printf '%s' "$m" ;;
+    *) printf 'unreadable-mode(%s)' "$m" ;;
+  esac
+}
+
 # L1 regression: audit.md must land at 0644 regardless of the caller's umask.
 ( umask 077; "$RENDER_AUDIT" --slug="$AUDIT_SLUG" >/dev/null 2>&1 )
-eq "audit.md is written 0644 even under umask 077" \
-   "$(stat -f '%Lp' "$AUDIT_MD" 2>/dev/null || stat -c '%a' "$AUDIT_MD" 2>/dev/null)" "644"
+eq "audit.md is written 0644 even under umask 077" "$(file_mode "$AUDIT_MD")" "644"
 
 # L2 regression: a literal backslash in a note must round-trip as a doubled backslash, and a
 # backslash immediately preceding a pipe must not corrupt the pipe's own escaping.
