@@ -54,6 +54,10 @@ const ALLOWLIST = new Map([
     'CLI-only observability command (doflow indicators) for operator inspection of the local orchestration record: per-stage and per-gate intervals, stage outcomes and rerun counts, grouped by task class. Read-only and invoked by no skill workflow, for the same reason stats is not — it measures how a workflow progressed rather than participating in one',
   ],
   [
+    'inventory',
+    'CLI-only cross-scope install diagnostic (doflow inventory): reads both ownership ledgers in one invocation and reports shadowed assets, drift, withheld precedence verdicts and unmanaged contenders. Read-only and invoked by no skill workflow, for the same reason doctor is not — it answers a question about the install a user is standing in ("why did my edit have no effect"), not a question any chain stage asks. The one consumer a later feature may add is a session-start warning, which is explicitly out of scope for the feature that built it',
+  ],
+  [
     'doctor',
     'CLI-only health diagnostic and smoke check command (doflow doctor) for human operators and environment setup, not invoked by skill workflows',
   ],

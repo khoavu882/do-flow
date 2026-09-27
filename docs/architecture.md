@@ -279,18 +279,27 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-twenty-four test files; the nineteen listed below are the ones this inventory documents, and they
-carry seventeen distinct G-numbers because two numbers are used twice. Name the file, not the
-number, when you mean a specific guard — and note that the list is not the whole directory:
-`verb-reachability.test.js` owns G17 and is absent from it, which is why the list runs G16 then G18,
-and `boundaries.test.js`, `harness-paths.test.js`, `cli-boundary.test.js` and
-`frozen-behaviour.test.js` are absent too.
+twenty-eight test files (plus `_shared.js`, a helper rather than a test); the twenty-one listed
+below are the ones this inventory documents, and they carry nineteen distinct G-numbers because two
+numbers are used twice. Name the file, not the number, when you mean a specific guard: across the
+whole directory three numbers are claimed by two files each — G11 and G13, both pairs listed below,
+and G18, whose second claimant `adapter-force.test.js` is not. The collisions are historical rather
+than a convention; G21 is the highest number in use, so a new guard takes the next one above it
+instead of adding a fourth. The list is not the whole directory. The seven files absent from it are
+`verb-reachability.test.js`, which owns G17 and is why the list runs G16 then G18;
+`adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half of
+the G18 pair — between them the reason the list runs G18 then G20; and `boundaries.test.js`,
+`harness-paths.test.js`, `cli-boundary.test.js` and `frozen-behaviour.test.js`.
 
 - **G1** (`fields.test.js`) — every frontmatter key an asset declares is recognized by something.
 - **G2** (`paths.test.js`) — path reachability from `MCP_INDEX.md`-style generalizations.
 - **G3** (`consumers.test.js`) — every guidance-tree `modes/`/`references/` file has at least one
   skill or always-loaded rule that actually reads it (lazy-loading is only safe if something
-  loads it — a mode's own "Activation Triggers" prose is not itself a trigger).
+  loads it — a mode's own "Activation Triggers" prose is not itself a trigger). It also holds every
+  `pointers/` file to being named as a source by a registry asset: a pointer's consumer is a registry
+  entry rather than a skill, and copy-tree'ing the guidance directory is not reachability — that is
+  how an orphaned pointer shipped to five harnesses while naming a directory the install had
+  flattened away.
 - **G4** (`flags.test.js`) — `FLAGS.md` entries are wired to a real consumer and vice versa.
 - **G5** (`registry.test.js`) — the only guard that reads `src/` and `core/harnesses/` as data;
   checks registry claims against what's actually implemented.
@@ -337,9 +346,14 @@ and `boundaries.test.js`, `harness-paths.test.js`, `cli-boundary.test.js` and
   across the whole skill tree, and no skill reaching into the config directory for anything but that
   entrypoint.
 - **G16** (`module-reachability.test.js`) — every JavaScript module under `src/` is reachable from
-  something that `require()`s it by a static string literal, closing for `.js` modules the same gap
-  G8 already closes for shipped scripts (this is how four now-deleted `src/runtime/` modules
-  accumulated with no requirer anywhere before this guard existed).
+  something outside `test/`: a static relative `require()` in `bin/`, `src/` or `bench/`, or a path
+  named on one of the caller surfaces that invoke a module without requiring it (`package.json`
+  scripts, `core/shared/scripts`). It closes for `.js` modules the same gap G8 already closes for
+  shipped scripts (this is how four now-deleted `src/runtime/` modules accumulated with no requirer
+  anywhere before this guard existed) — and excluding `test/` closes the residual case, a module kept
+  alive solely by its own test, which is how one dead module survived thirteen months. Its companion
+  check, that every relative `require()` literal resolves, deliberately still reads `test/`: it asks
+  whether a specifier dangles, which is a different question.
 - **G18** (`artifact-conventions.test.js`) — `references/ARTIFACT_FORMAT.md` declares the artifact
   conventions and the four chain-artifact templates transcribe them, so the two can disagree
   silently; this compares them. Each template must carry a `**Maturity:**` header field and no
@@ -349,6 +363,31 @@ and `boundaries.test.js`, `harness-paths.test.js`, `cli-boundary.test.js` and
   appear in the template that owns each, and §10's four component labels must be transcribed into
   `design-template.md` §3 in order. Separately from the templates, the rule names
   `validate-artifacts.sh` implements must match the list §9 documents.
+- **G20** (`ownership-identity.test.js`) — `doflow inventory` treats two recorded resources as
+  copies of one logical asset when `(harness, ownershipIdentity)` agrees (IC-004), which makes two
+  properties of that identity load-bearing and neither was enforced anywhere: it must carry no
+  scope name and no destination path, or a global and a project copy stop joining and are reported
+  as two unrelated singletons; and no two resources in one plan may share a pair, or two resources
+  collapse into one asset holding two copies at the same scope, a shape the report cannot
+  represent. Both are checked twice over. Behaviourally, by planning every harness against
+  `mkdtemp` roots — two project roots of different length, then global against project — with
+  antigravity's `agents.shared` named as the sentinel, since it is the one asset whose destination
+  root genuinely differs by scope. Statically, by parsing every `ownershipIdentity` composition
+  site under `src/adapters/` and failing closed on any interpolation not listed with the reason it
+  is the same at both scopes. A plan against an empty root only exercises the create path, so the
+  scan covers the verify and remove sites the behavioral half never reaches.
+- **G21** (`wholesale-assets.test.js`) — `doflow inventory` reports an unmanaged neighbouring file
+  only in a directory the harness loads *wholesale*, and nothing in the registry records load
+  semantics, so `WHOLESALE_ASSETS` in `src/runtime/inventory/siblings.js` is derived by hand. This
+  pins it to what adapters actually do, so a harness that gains an apply-to-everything transform
+  cannot silently stop being inspected. The derived half runs every entry of `copy-tree.js`'s
+  `TRANSFORMS` table over a probe file and reads the frontmatter it produces — a projection whose
+  transform renders an apply-to-everything directive must appear in the constant — and the
+  constant may hold no entry that is neither derived this way nor recorded, nor one naming a
+  projection that no longer exists. The recorded half exists for Kiro, whose steering tree is
+  loaded wholesale with no transform to execute; that entry instead pins the two registry facts its
+  rationale rests on, and becomes removable if the registry ever declares load semantics per
+  projection.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

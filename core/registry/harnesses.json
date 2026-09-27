@@ -16,14 +16,53 @@
         "mcp": ".mcp.json"
       },
       "paths": {
-        "configDir": { "base": "root", "segments": [".claude"] },
-        "instructions": { "base": "root", "segments": [".claude", "CLAUDE.md"] },
-        "settings": { "base": "root", "segments": [".claude", "settings.json"] },
-        "keybindings": { "base": "root", "segments": [".claude", "keybindings.json"] },
-        "statuslineScript": { "base": "root", "segments": [".claude", "doflow-statusline.sh"] },
+        "configDir": {
+          "base": "root",
+          "segments": [
+            ".claude"
+          ]
+        },
+        "instructions": {
+          "base": "root",
+          "segments": [
+            ".claude",
+            "CLAUDE.md"
+          ]
+        },
+        "settings": {
+          "base": "root",
+          "segments": [
+            ".claude",
+            "settings.json"
+          ]
+        },
+        "keybindings": {
+          "base": "root",
+          "segments": [
+            ".claude",
+            "keybindings.json"
+          ]
+        },
+        "statuslineScript": {
+          "base": "root",
+          "segments": [
+            ".claude",
+            "doflow-statusline.sh"
+          ]
+        },
         "mcp": {
-          "project": { "base": "root", "segments": [".mcp.json"] },
-          "user": { "base": "root", "segments": [".claude.json"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              ".mcp.json"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".claude.json"
+            ]
+          }
         }
       },
       "capabilities": {
@@ -138,6 +177,19 @@
           ],
           "verification": "Install or inspect the plugin manifest."
         }
+      },
+      "scopePrecedence": {
+        "status": "established",
+        "order": [
+          "user",
+          "project"
+        ],
+        "evidence": [
+          "https://code.claude.com/docs/en/skills"
+        ],
+        "note": "The skills doc's \"Resolve skills that share a name\" table states a first-match-wins hierarchy for a same-named skill: \"Enterprise over personal, and personal over project\" -- with `deploy` in both `~/.claude/skills/` and the project's `.claude/skills/`, the personal one runs. Order lists DoFlow's two tracked scopes (user, project); the fuller vendor hierarchy also has an enterprise-managed tier consulted before user. The skills doc states a first-match-wins hierarchy, so the order lists the winner first: the user copy is used.",
+        "determinedOn": "2026-09-27",
+        "mode": "first-wins"
       }
     },
     {
@@ -156,14 +208,54 @@
         "mcp": ".codex/config.toml"
       },
       "paths": {
-        "configDir": { "base": "root", "segments": [".codex"] },
-        "configFile": { "base": "root", "segments": [".codex", "config.toml"] },
-        "agentsDirectory": { "base": "root", "segments": [".codex", "agents"] },
-        "hooksFile": { "base": "root", "segments": [".codex", "hooks.json"] },
-        "hooksDirectory": { "base": "root", "segments": [".codex", "hooks"] },
+        "configDir": {
+          "base": "root",
+          "segments": [
+            ".codex"
+          ]
+        },
+        "configFile": {
+          "base": "root",
+          "segments": [
+            ".codex",
+            "config.toml"
+          ]
+        },
+        "agentsDirectory": {
+          "base": "root",
+          "segments": [
+            ".codex",
+            "agents"
+          ]
+        },
+        "hooksFile": {
+          "base": "root",
+          "segments": [
+            ".codex",
+            "hooks.json"
+          ]
+        },
+        "hooksDirectory": {
+          "base": "root",
+          "segments": [
+            ".codex",
+            "hooks"
+          ]
+        },
         "instructions": {
-          "project": { "base": "root", "segments": ["AGENTS.md"] },
-          "user": { "base": "root", "segments": [".codex", "AGENTS.md"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              "AGENTS.md"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".codex",
+              "AGENTS.md"
+            ]
+          }
         }
       },
       "nativeProjection": {
@@ -309,6 +401,19 @@
           ],
           "verification": "Confirm the plugin is enabled by the host."
         }
+      },
+      "scopePrecedence": {
+        "status": "established",
+        "order": [
+          "user",
+          "project"
+        ],
+        "evidence": [
+          "https://learn.chatgpt.com/docs/agent-configuration/agents-md"
+        ],
+        "note": "AGENTS.md discovery is documented as: \"1. Global scope: In your Codex home directory ... Codex reads AGENTS.override.md if it exists. Otherwise, Codex reads AGENTS.md. 2. Project scope: Starting at the project root ...\", then \"Codex concatenates files from the root down ... Files closer to your current directory override earlier guidance because they appear later in the combined prompt.\" This URL is the current redirect target of https://developers.openai.com/codex/guides/agents-md (308 Permanent Redirect, same OpenAI docs property). Codex concatenates and states that files closer to the working directory override earlier guidance because they appear later, so the LAST scope consulted takes effect: the project copy wins despite being consulted second.",
+        "determinedOn": "2026-09-27",
+        "mode": "last-wins"
       }
     },
     {
@@ -325,15 +430,49 @@
       },
       "paths": {
         "configDir": {
-          "project": { "base": "root", "segments": [".agents"] },
-          "user": { "base": "root", "segments": [".gemini", "config"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              ".agents"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".gemini",
+              "config"
+            ]
+          }
         },
         "instruction": {
-          "project": { "base": "root", "segments": ["GEMINI.md"] },
-          "user": { "base": "root", "segments": [".gemini", "GEMINI.md"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              "GEMINI.md"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".gemini",
+              "GEMINI.md"
+            ]
+          }
         },
-        "settings": { "base": "root", "segments": [".gemini", "settings.json"] },
-        "hooksDirectory": { "base": "root", "segments": [".gemini", "hooks"] }
+        "settings": {
+          "base": "root",
+          "segments": [
+            ".gemini",
+            "settings.json"
+          ]
+        },
+        "hooksDirectory": {
+          "base": "root",
+          "segments": [
+            ".gemini",
+            "hooks"
+          ]
+        }
       },
       "capabilities": {
         "instructions": {
@@ -411,7 +550,7 @@
             },
             "UserPromptSubmit": {
               "status": "unavailable",
-              "note": "No Gemini equivalent; the nearest native hook is BeforeAgent, which fires once before planning and can block the turn or inject context \u2014 not a per-prompt pre-submission gate."
+              "note": "No Gemini equivalent; the nearest native hook is BeforeAgent, which fires once before planning and can block the turn or inject context — not a per-prompt pre-submission gate."
             },
             "Stop": {
               "status": "unavailable",
@@ -447,9 +586,22 @@
           "evidence": [
             "https://geminicli.com/docs/extensions/"
           ],
-          "note": "Extensions (gemini-extension.json) now package skills, hooks, sub-agents, and MCP; security.blockGitExtensions/allowedExtensions can gate Git-sourced installs. Context: Google sunset Gemini CLI for consumer tiers on 2026-06-18 \u2014 enterprise/paid-API use only; Antigravity CLI (GA 2026-05-19, antigravity.google/docs/gcli-migration) is the successor surface carrying skills/hooks/subagents/plugins.",
+          "note": "Extensions (gemini-extension.json) now package skills, hooks, sub-agents, and MCP; security.blockGitExtensions/allowedExtensions can gate Git-sourced installs. Context: Google sunset Gemini CLI for consumer tiers on 2026-06-18 — enterprise/paid-API use only; Antigravity CLI (GA 2026-05-19, antigravity.google/docs/gcli-migration) is the successor surface carrying skills/hooks/subagents/plugins.",
           "verification": "Verify extensions through the native host workflow."
         }
+      },
+      "scopePrecedence": {
+        "status": "established",
+        "order": [
+          "user",
+          "project"
+        ],
+        "evidence": [
+          "https://geminicli.com/docs/cli/gemini-md/"
+        ],
+        "note": "The CLI loads context files in the following order: (1) global context file at ~/.gemini/GEMINI.md, (2) environment/workspace context files (project directory and its parents), (3) just-in-time files read on demand from directories a tool touches. The page states this loading order but explicitly does not state a conflict-resolution rule -- contents are concatenated and sent to the model together. Order here reflects DoFlow's two tracked scopes; the documented third, finer-grained JIT tier is omitted. The load order is documented but the page explicitly states no conflict-resolution rule and describes contents being concatenated and sent together, so no copy can be said to win. Order established, winner not.",
+        "determinedOn": "2026-09-27",
+        "mode": "unestablished"
       }
     },
     {
@@ -467,24 +619,81 @@
       },
       "paths": {
         "configDir": {
-          "project": { "base": "root", "segments": [] },
-          "user": { "base": "root", "segments": [".config", "opencode"] }
+          "project": {
+            "base": "root",
+            "segments": []
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".config",
+              "opencode"
+            ]
+          }
         },
         "instruction": {
-          "project": { "base": "root", "segments": ["AGENTS.md"] },
-          "user": { "base": "root", "segments": [".config", "opencode", "AGENTS.md"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              "AGENTS.md"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".config",
+              "opencode",
+              "AGENTS.md"
+            ]
+          }
         },
         "config": {
-          "project": { "base": "root", "segments": ["opencode.json"] },
-          "user": { "base": "root", "segments": [".config", "opencode", "opencode.json"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              "opencode.json"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".config",
+              "opencode",
+              "opencode.json"
+            ]
+          }
         },
         "treeRoot": {
-          "project": { "base": "root", "segments": [".opencode"] },
-          "user": { "base": "root", "segments": [".config", "opencode"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              ".opencode"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".config",
+              "opencode"
+            ]
+          }
         },
         "agentsDirectory": {
-          "project": { "base": "root", "segments": [".opencode", "agents"] },
-          "user": { "base": "root", "segments": [".config", "opencode", "agents"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              ".opencode",
+              "agents"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".config",
+              "opencode",
+              "agents"
+            ]
+          }
         }
       },
       "capabilities": {
@@ -617,6 +826,19 @@
           "note": "DoFlow publishes no OpenCode plugin package; its content reaches OpenCode by registration rather than plugin distribution.",
           "verification": "Report that no plugin package is installed for OpenCode."
         }
+      },
+      "scopePrecedence": {
+        "status": "established",
+        "order": [
+          "project",
+          "user"
+        ],
+        "evidence": [
+          "https://opencode.ai/docs/rules"
+        ],
+        "note": "\"When opencode starts, it looks for rule files in this order: 1. Local files by traversing up from the current directory (AGENTS.md, CLAUDE.md) 2. Global file at ~/.config/opencode/AGENTS.md\", and \"The first matching file wins in each category.\" A community issue (anomalyco/opencode#9282, filed 2026-01-18) argues project and global files are actually combined rather than one overriding the other; this block records only the documented consultation order above, not that unresolved merge-vs-override dispute. The rules doc states the first matching file wins, so the order lists the winner first: the project copy is used.",
+        "determinedOn": "2026-09-27",
+        "mode": "first-wins"
       }
     },
     {
@@ -633,16 +855,52 @@
       },
       "paths": {
         "configDir": {
-          "project": { "base": "root", "segments": [".pi"] },
-          "user": { "base": "root", "segments": [".pi", "agent"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              ".pi"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".pi",
+              "agent"
+            ]
+          }
         },
         "settings": {
-          "project": { "base": "root", "segments": [".pi", "settings.json"] },
-          "user": { "base": "root", "segments": [".pi", "agent", "settings.json"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              ".pi",
+              "settings.json"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".pi",
+              "agent",
+              "settings.json"
+            ]
+          }
         },
         "instruction": {
-          "project": { "base": "root", "segments": ["AGENTS.md"] },
-          "user": { "base": "root", "segments": [".pi", "agent", "AGENTS.md"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              "AGENTS.md"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".pi",
+              "agent",
+              "AGENTS.md"
+            ]
+          }
         }
       },
       "capabilities": {
@@ -702,7 +960,7 @@
           "evidence": [
             "https://pi.dev/docs/latest/extensions"
           ],
-          "note": "Pi lifecycle hooks are TypeScript extension modules registered through pi.on(), executing arbitrary code with full permissions \u2014 a different trust model from the shell hooks DoFlow ships, so no hook projection is attempted.",
+          "note": "Pi lifecycle hooks are TypeScript extension modules registered through pi.on(), executing arbitrary code with full permissions — a different trust model from the shell hooks DoFlow ships, so no hook projection is attempted.",
           "verification": "Report that DoFlow installs no Pi extension and its shell hooks do not apply here.",
           "events": {
             "SessionStart": {
@@ -775,6 +1033,15 @@
           "note": "DoFlow publishes no Pi extension package; its content reaches Pi by registration rather than extension distribution.",
           "verification": "Report that no extension package is installed for Pi."
         }
+      },
+      "scopePrecedence": {
+        "status": "unestablished",
+        "evidence": [
+          "https://pi.dev/docs/latest/skills"
+        ],
+        "note": "The question was asked and the documentation is silent: the skills doc names both `.agents/skills/` (project, discovered walking up from the working directory) and `~/.agents/skills/` (user, under ~/.pi/agent) and states only that \"name collisions keep the first discovered skill and produce a warning\" -- it never states which location is discovered first, and no other primary Pi doc found in this pass states one either. Resolution mode is likewise unestablished: with no order documented there is nothing for a mode to qualify.",
+        "determinedOn": "2026-09-27",
+        "mode": "unestablished"
       }
     },
     {
@@ -791,26 +1058,86 @@
         "mcp": ".mcp.json"
       },
       "paths": {
-        "skillsConfigDir": { "base": "root", "segments": [".agents"] },
+        "skillsConfigDir": {
+          "base": "root",
+          "segments": [
+            ".agents"
+          ]
+        },
         "agentsConfigDir": {
-          "project": { "base": "root", "segments": [".github"] },
-          "user": { "base": "root", "segments": [".copilot"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              ".github"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".copilot"
+            ]
+          }
         },
         "ruleInstructionsConfigDir": {
-          "project": { "base": "root", "segments": [".github"] },
-          "user": { "base": "root", "segments": [".copilot"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              ".github"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".copilot"
+            ]
+          }
         },
-        "skills": { "base": "root", "segments": [".agents", "skills"] },
+        "skills": {
+          "base": "root",
+          "segments": [
+            ".agents",
+            "skills"
+          ]
+        },
         "agents": {
-          "project": { "base": "root", "segments": [".github", "agents"] },
-          "user": { "base": "root", "segments": [".copilot", "agents"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              ".github",
+              "agents"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".copilot",
+              "agents"
+            ]
+          }
         },
         "instruction": {
-          "project": { "base": "root", "segments": [".github", "copilot-instructions.md"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              ".github",
+              "copilot-instructions.md"
+            ]
+          }
         },
         "mcp": {
-          "project": { "base": "root", "segments": [".mcp.json"] },
-          "user": { "base": "root", "segments": [".copilot", "mcp-config.json"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              ".mcp.json"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".copilot",
+              "mcp-config.json"
+            ]
+          }
         }
       },
       "capabilities": {
@@ -826,7 +1153,7 @@
           "evidence": [
             "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills"
           ],
-          "verification": "Confirm Copilot CLI discovers the installed skill from .agents/skills (project) or ~/.agents/skills (personal) \u2014 the same SKILL.md + YAML frontmatter format DoFlow already authors, so no per-harness transformation is required."
+          "verification": "Confirm Copilot CLI discovers the installed skill from .agents/skills (project) or ~/.agents/skills (personal) — the same SKILL.md + YAML frontmatter format DoFlow already authors, so no per-harness transformation is required."
         },
         "agents": {
           "status": "supported",
@@ -873,7 +1200,7 @@
             "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/use-hooks",
             "https://docs.github.com/en/copilot/reference/hooks-reference"
           ],
-          "note": "Copilot CLI documented a full hook surface (2026): .github/hooks/*.json (repo) and ~/.copilot/hooks/ (user), shape {\"version\":1,\"hooks\":{\"<camelCase event>\":[entries]}}, command entries fail-closed on non-zero exit, preToolUse decides via stdout JSON {permissionDecision}. DoFlow wires NONE of it yet, deliberately: its shipped scripts are Claude-payload-coupled (tool names Edit|Write|MultiEdit, .session_id/.transcript_path stdin fields, CLAUDE_CONFIG_DIR/CLAUDE_PROJECT_DIR envs). Projecting them onto Copilot's unverified payload schemas would install hooks that silently misfire \u2014 recorded here instead of imitated.",
+          "note": "Copilot CLI documented a full hook surface (2026): .github/hooks/*.json (repo) and ~/.copilot/hooks/ (user), shape {\"version\":1,\"hooks\":{\"<camelCase event>\":[entries]}}, command entries fail-closed on non-zero exit, preToolUse decides via stdout JSON {permissionDecision}. DoFlow wires NONE of it yet, deliberately: its shipped scripts are Claude-payload-coupled (tool names Edit|Write|MultiEdit, .session_id/.transcript_path stdin fields, CLAUDE_CONFIG_DIR/CLAUDE_PROJECT_DIR envs). Projecting them onto Copilot's unverified payload schemas would install hooks that silently misfire — recorded here instead of imitated.",
           "verification": "Report that no Copilot hook is installed; revisit once payload schemas are verified in a live session.",
           "events": {
             "SessionStart": {
@@ -894,7 +1221,7 @@
             },
             "PostToolUseFailure": {
               "status": "different",
-              "note": "Native postToolUseFailure exists \u2014 a failure-only event Claude lacks a direct name for."
+              "note": "Native postToolUseFailure exists — a failure-only event Claude lacks a direct name for."
             },
             "Stop": {
               "status": "different",
@@ -938,6 +1265,19 @@
           "note": "Copilot CLI documents plugins (plugin.json manifest bundling agents, skills, hooks, .mcp.json and lsp.json; installed via 'copilot plugin install' or enabledPlugins in settings). Manifest discovery checks .plugin/plugin.json, plugin.json, .github/plugin/plugin.json, then .claude-plugin/plugin.json - there is no .copilot-plugin/ convention. DoFlow publishes a skills-only manifest at core/.plugin/plugin.json declaring only what activates there: agent specs are excluded (Copilot requires .agent.md; shared agent-specs are plain .md), hooks stay unprojected (Claude-payload-coupled), MCP registration stays installer-managed. Findings: docs/distribution-notes.md.",
           "verification": "Report that no Copilot plugin package is installed."
         }
+      },
+      "scopePrecedence": {
+        "status": "established",
+        "order": [
+          "project",
+          "user"
+        ],
+        "evidence": [
+          "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli"
+        ],
+        "note": "Confirmed for custom agents only: \"If you have custom agents with the same name in both locations, the one in your home directory will be used, rather than the one in the repository\" (user overrides project). The parallel add-skills page states no such rule for skills, and no page found states one for .github/copilot-instructions.md -- this order is not shown to generalize beyond custom agents, and the general customize-copilot overview page names no precedence word at all. The source states an outcome rather than a consultation order: the home-directory copy is used rather than the repository one. Encoded as the recorded consultation order with a last-wins mode, which yields the documented winner, the user copy. Confirmed for custom agents only.",
+        "determinedOn": "2026-09-27",
+        "mode": "last-wins"
       }
     },
     {
@@ -956,12 +1296,48 @@
         "mcp": ".kiro/settings/mcp.json"
       },
       "paths": {
-        "configDir": { "base": "root", "segments": [".kiro"] },
-        "steering": { "base": "root", "segments": [".kiro", "steering"] },
-        "skills": { "base": "root", "segments": [".kiro", "skills"] },
-        "agents": { "base": "root", "segments": [".kiro", "agents"] },
-        "hooks": { "base": "root", "segments": [".kiro", "hooks"] },
-        "mcp": { "base": "root", "segments": [".kiro", "settings", "mcp.json"] }
+        "configDir": {
+          "base": "root",
+          "segments": [
+            ".kiro"
+          ]
+        },
+        "steering": {
+          "base": "root",
+          "segments": [
+            ".kiro",
+            "steering"
+          ]
+        },
+        "skills": {
+          "base": "root",
+          "segments": [
+            ".kiro",
+            "skills"
+          ]
+        },
+        "agents": {
+          "base": "root",
+          "segments": [
+            ".kiro",
+            "agents"
+          ]
+        },
+        "hooks": {
+          "base": "root",
+          "segments": [
+            ".kiro",
+            "hooks"
+          ]
+        },
+        "mcp": {
+          "base": "root",
+          "segments": [
+            ".kiro",
+            "settings",
+            "mcp.json"
+          ]
+        }
       },
       "capabilities": {
         "instructions": {
@@ -976,7 +1352,7 @@
           "evidence": [
             "https://kiro.dev/docs/skills/"
           ],
-          "note": "Kiro has a dedicated skills system, separate from steering: a skill is a folder containing SKILL.md with YAML frontmatter (name, description) plus optional scripts/references/assets subdirectories, following the same open Agent Skills standard DoFlow already authors \u2014 no transformation needed. Scanned from .kiro/skills/ (workspace) and ~/.kiro/skills/ (global); workspace wins on a same-name conflict. This corrects an earlier declaration made before kiro.dev/docs/skills/ was found.",
+          "note": "Kiro has a dedicated skills system, separate from steering: a skill is a folder containing SKILL.md with YAML frontmatter (name, description) plus optional scripts/references/assets subdirectories, following the same open Agent Skills standard DoFlow already authors — no transformation needed. Scanned from .kiro/skills/ (workspace) and ~/.kiro/skills/ (global); workspace wins on a same-name conflict. This corrects an earlier declaration made before kiro.dev/docs/skills/ was found.",
           "verification": "Confirm the installed skill is discoverable under .kiro/skills/ (workspace) or ~/.kiro/skills/ (global)."
         },
         "agents": {
@@ -992,7 +1368,7 @@
           "evidence": [
             "https://kiro.dev/docs/skills/"
           ],
-          "note": "A skill's own scripts/ subdirectory travels with it inside .kiro/skills/, per the same bundled-with-skill pattern opencode/pi/copilot already use \u2014 not a standalone tree DoFlow projects separately.",
+          "note": "A skill's own scripts/ subdirectory travels with it inside .kiro/skills/, per the same bundled-with-skill pattern opencode/pi/copilot already use — not a standalone tree DoFlow projects separately.",
           "verification": "Confirm a bundled skill scripts/ directory is reachable from the installed .kiro/skills/ path."
         },
         "templates": {
@@ -1025,7 +1401,7 @@
             "https://kiro.dev/docs/hooks/",
             "https://kiro.dev/docs/hooks/actions/"
           ],
-          "note": "`.kiro/hooks/*.json` (flat `{version, hooks: [...]}` array, each entry naming its own `trigger`) is a confirmed, writable hook surface that activates automatically on session start \u2014 no trust/review prerequisite, unlike Codex's hooks.json. Confirmed trigger names: SessionStart, Stop, PreToolUse, PostToolUse, UserPromptSubmit, PreTaskExec, PostTaskExec, PostFileSave, PostFileCreate, PostFileDelete; PreToolUse/UserPromptSubmit/PreTaskExec are documented as blockable via a non-zero command exit code. DoFlow now projects a real doflow.json (kiro.hooks-scripts asset) wiring SessionStart, PreToolUse (x2: pre-implementation-gate and mcp-tool-guard), and Stop to the same shared session-start/stop-check implementations Claude and Codex reuse. Kiro's docs mark Stop as explicitly NOT blockable (only PreToolUse/UserPromptSubmit/PreTaskExec block via non-zero exit), so stop-check's stub-detection runs advisory-only on Kiro \u2014 exit 0 stdout is injected as context rather than enforced.",
+          "note": "`.kiro/hooks/*.json` (flat `{version, hooks: [...]}` array, each entry naming its own `trigger`) is a confirmed, writable hook surface that activates automatically on session start — no trust/review prerequisite, unlike Codex's hooks.json. Confirmed trigger names: SessionStart, Stop, PreToolUse, PostToolUse, UserPromptSubmit, PreTaskExec, PostTaskExec, PostFileSave, PostFileCreate, PostFileDelete; PreToolUse/UserPromptSubmit/PreTaskExec are documented as blockable via a non-zero command exit code. DoFlow now projects a real doflow.json (kiro.hooks-scripts asset) wiring SessionStart, PreToolUse (x2: pre-implementation-gate and mcp-tool-guard), and Stop to the same shared session-start/stop-check implementations Claude and Codex reuse. Kiro's docs mark Stop as explicitly NOT blockable (only PreToolUse/UserPromptSubmit/PreTaskExec block via non-zero exit), so stop-check's stub-detection runs advisory-only on Kiro — exit 0 stdout is injected as context rather than enforced.",
           "verification": "Confirm a projected hook file under .kiro/hooks/ is present, is well-formed JSON with the expected trigger names, and that a PreToolUse hook's non-zero exit actually blocks the tool call on the installed Kiro CLI."
         },
         "mcp": {
@@ -1043,6 +1419,20 @@
           "note": "No plugin or extension marketplace mechanism is documented in the steering, hooks, or MCP sources cited for this feature.",
           "verification": "Report the capability gap; do not attempt to install a plugin."
         }
+      },
+      "scopePrecedence": {
+        "status": "established",
+        "order": [
+          "project",
+          "user"
+        ],
+        "evidence": [
+          "https://kiro.dev/docs/skills/",
+          "https://kiro.dev/docs/steering/"
+        ],
+        "note": "Skills doc: \"Scanned from .kiro/skills/ (workspace) and ~/.kiro/skills/ (global); workspace wins on a same-name conflict.\" Steering doc likewise requires workspace files to win on conflict. Order lists workspace (project) before global (user), matching the scan order the skills doc states them in. The skills doc states the workspace copy wins on a same-name conflict, so the order lists the winner first: the project copy is used.",
+        "determinedOn": "2026-09-27",
+        "mode": "first-wins"
       }
     },
     {
@@ -1061,31 +1451,99 @@
       },
       "paths": {
         "configDir": {
-          "project": { "base": "root", "segments": [".agents"] },
-          "user": { "base": "root", "segments": [".gemini", "config"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              ".agents"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".gemini",
+              "config"
+            ]
+          }
         },
         "instruction": {
-          "project": { "base": "root", "segments": ["AGENTS.md"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              "AGENTS.md"
+            ]
+          }
         },
         "mcpFile": {
-          "project": { "base": "root", "segments": [".agents", "mcp_config.json"] },
-          "user": { "base": "root", "segments": [".gemini", "config", "mcp_config.json"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              ".agents",
+              "mcp_config.json"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".gemini",
+              "config",
+              "mcp_config.json"
+            ]
+          }
         },
         "skillsDir": {
-          "project": { "base": "root", "segments": [".agents", "skills"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              ".agents",
+              "skills"
+            ]
+          }
         },
         "agentsDir": {
-          "project": { "base": "root", "segments": [".agents", "agents"] },
-          "user": { "base": "root", "segments": [".gemini", "config", "agents"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              ".agents",
+              "agents"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".gemini",
+              "config",
+              "agents"
+            ]
+          }
         },
         "hooksJson": {
-          "project": { "base": "root", "segments": [".agents", "hooks.json"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              ".agents",
+              "hooks.json"
+            ]
+          }
         },
         "hookScript": {
-          "project": { "base": "root", "segments": [".agents", "hooks", "pre-implementation-gate.sh"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              ".agents",
+              "hooks",
+              "pre-implementation-gate.sh"
+            ]
+          }
         },
         "stopHookScript": {
-          "project": { "base": "root", "segments": [".agents", "hooks", "stop-check.sh"] }
+          "project": {
+            "base": "root",
+            "segments": [
+              ".agents",
+              "hooks",
+              "stop-check.sh"
+            ]
+          }
         }
       },
       "capabilities": {
@@ -1190,6 +1648,17 @@
           "note": "Local-path plugin installs only; DoFlow publishes none.",
           "verification": "Report that no plugin is installed."
         }
+      },
+      "scopePrecedence": {
+        "status": "unestablished",
+        "evidence": [
+          "https://antigravity.google/docs/skills/",
+          "https://antigravity.google/docs/subagents",
+          "https://antigravity.google/docs/cli/mcp"
+        ],
+        "note": "The question was asked across the three dual-scope asset types Antigravity documents (skills, subagents, MCP servers) and the documentation is silent on all three: each page names a workspace location and a global location but never states which wins on a same-name conflict. Separate from this: the skills capability above already records that DoFlow itself skips the global skills scope over an unresolved CLI-vs-desktop contradiction about that scope's own file format -- a dispute about the global location's shape, not about precedence between the two scopes. Resolution mode is likewise unestablished: with no order documented there is nothing for a mode to qualify.",
+        "determinedOn": "2026-09-27",
+        "mode": "unestablished"
       }
     }
   ]
