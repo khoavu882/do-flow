@@ -9,6 +9,36 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { sourceCommit: gitSourceCommit } = require('../helper/git');
+const {
+  legacyBackupReadRoot, isLegacyBackupReadRoot, scopeRootFromCanonicalBackupRoot,
+} = require('./paths');
+
+/** Where a listed/restorable backup was found. 'current' = the canonical `.doflow/backups` root the
+ * installer writes to; 'legacy' = the pre-7de6d5f `.claude/backups` root, readable only. Callers
+ * get this on every row so a legacy restore point is never presented as a current one. */
+const BACKUP_ORIGIN_CURRENT = 'current';
+const BACKUP_ORIGIN_LEGACY = 'legacy';
+
+/** The roots a READ (list/restore) consults for a scope, canonical first, legacy second.
+ * Order is the precedence rule too: an id present in both resolves to the canonical copy. */
+function backupReadRoots(backupRoot) {
+  const roots = [{ root: path.resolve(backupRoot), origin: BACKUP_ORIGIN_CURRENT }];
+  const scopeRoot = scopeRootFromCanonicalBackupRoot(backupRoot);
+  if (scopeRoot) {
+    const legacy = legacyBackupReadRoot({ scopeRoot });
+    if (legacy !== roots[0].root) roots.push({ root: legacy, origin: BACKUP_ORIGIN_LEGACY });
+  }
+  return roots;
+}
+
+/** Writes and deletes are canonical-only. The legacy root holds restore points DoFlow no longer
+ * manages and may be a user's sole recovery material, so a mutating call aimed at it is a bug to
+ * surface, not a path to follow. */
+function assertMutableBackupRoot(backupRoot, operation) {
+  if (isLegacyBackupReadRoot(backupRoot)) {
+    throw new Error(`Refusing to ${operation} in the legacy backup root (read-only): ${backupRoot}`);
+  }
+}
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
@@ -33,6 +63,7 @@ function backupId(op, date) {
  *           calling this module directly).
  */
 function createBackup({ operation, tools, dirs, backupRoot, repoRoot, partialFiles = [], dryRun = false, date, sourceCommit }) {
+  assertMutableBackupRoot(backupRoot, 'create a backup');
   let bid = backupId(operation, date);
   const isFull = partialFiles.length === 0;
 
@@ -101,10 +132,14 @@ function assertSafeBackupId(bid) {
 
 function restoreBackup({ bid, backupRoot, dirs, dryRun = false }) {
   assertSafeBackupId(bid);
-  const bkDir = path.join(backupRoot, bid);
-  if (!fs.existsSync(bkDir)) {
+  // An id the user picked from `list-backups` may live in either root, so resolve it the same way
+  // the listing found it. Restoring reads the backup and writes only into the tool dirs, so a
+  // legacy source is safe; nothing here mutates the directory it was read from.
+  const found = backupReadRoots(backupRoot).find((r) => fs.existsSync(path.join(r.root, bid)));
+  if (!found) {
     throw new Error(`Backup not found: ${bid}`);
   }
+  const bkDir = path.join(found.root, bid);
 
   let type = 'full';
   const manifestPath = path.join(bkDir, '.manifest.json');
@@ -130,30 +165,60 @@ function restoreBackup({ bid, backupRoot, dirs, dryRun = false }) {
   }
 }
 
-function listBackups(backupRoot) {
-  if (!fs.existsSync(backupRoot)) return [];
-  const entries = fs.readdirSync(backupRoot, { withFileTypes: true })
+/** One row per backup dir under `root`, tagged with where it came from. */
+function readBackupRows(root, origin) {
+  if (!fs.existsSync(root)) return [];
+  return fs.readdirSync(root, { withFileTypes: true })
     .filter((e) => e.isDirectory())
-    .map((e) => path.join(backupRoot, e.name));
+    .map((e) => {
+      const bkDir = path.join(root, e.name);
+      const manifestPath = path.join(bkDir, '.manifest.json');
+      const id = e.name;
+      if (fs.existsSync(manifestPath)) {
+        try {
+          const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+          return { id: m.id || id, operation: m.operation || 'unknown', type: m.type || '?', timestamp: m.timestamp || '-', origin, backupRoot: root };
+        } catch { /* fall through to unknown row */ }
+      }
+      return { id, operation: 'unknown', type: '?', timestamp: '-', origin, backupRoot: root };
+    });
+}
 
-  const rows = entries.map((bkDir) => {
-    const manifestPath = path.join(bkDir, '.manifest.json');
-    const id = path.basename(bkDir);
-    if (fs.existsSync(manifestPath)) {
-      try {
-        const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-        return { id: m.id || id, operation: m.operation || 'unknown', type: m.type || '?', timestamp: m.timestamp || '-' };
-      } catch { /* fall through to unknown row */ }
+/**
+ * List all restore points visible to this scope, newest first, reading each `.manifest.json`.
+ * Both the canonical root and the legacy pre-7de6d5f root are consulted, so restore points written
+ * before lifecycle metadata moved under `.doflow` stay visible. Every row carries `origin`
+ * ('current' | 'legacy') and the absolute `backupRoot` it was found in — the two sets are tagged,
+ * never blended into an indistinguishable list. A duplicate id resolves to the canonical copy,
+ * matching restoreBackup's precedence.
+ */
+function listBackups(backupRoot) {
+  const rows = [];
+  const seen = new Set();
+  for (const { root, origin } of backupReadRoots(backupRoot)) {
+    for (const row of readBackupRows(root, origin)) {
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      rows.push(row);
     }
-    return { id, operation: 'unknown', type: '?', timestamp: '-' };
-  });
+  }
 
   rows.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
   return rows;
 }
 
-/** Delete all but the `keepN` most recently modified backup dirs. Returns ids pruned. */
+/**
+ * Delete all but the `keepN` most recently modified backup dirs under the CANONICAL root. Returns
+ * ids pruned.
+ *
+ * Deliberately single-root: retention applies only to backups DoFlow itself wrote. It must never
+ * reach the legacy `.claude/backups` root — those are pre-migration restore points that may be a
+ * user's only recovery material, and deleting them as a side effect of a retention flag would turn
+ * a visibility bug into data loss. The guard below makes a mistaken call fail loudly instead of
+ * deleting, because the positional `(backupRoot, keepN)` signature accepts any string root.
+ */
 function pruneBackups(backupRoot, keepN, { dryRun = false } = {}) {
+  assertMutableBackupRoot(backupRoot, 'prune backups');
   if (keepN <= 0) return [];
   if (!fs.existsSync(backupRoot)) return [];
   const dirs = fs.readdirSync(backupRoot, { withFileTypes: true })
@@ -172,4 +237,7 @@ function pruneBackups(backupRoot, keepN, { dryRun = false } = {}) {
   return pruned;
 }
 
-module.exports = { backupId, createBackup, restoreBackup, listBackups, pruneBackups, assertSafeBackupId };
+module.exports = {
+  backupId, createBackup, restoreBackup, listBackups, pruneBackups, assertSafeBackupId,
+  backupReadRoots, BACKUP_ORIGIN_CURRENT, BACKUP_ORIGIN_LEGACY,
+};
