@@ -198,6 +198,43 @@ test('G8: every flag docs/reference.md documents for a skill exists in that skil
   assert.deepEqual(mismatches, [], `docs/reference.md documents flags that do not exist:\n  ${mismatches.join('\n  ')}`);
 });
 
+/**
+ * Of the given doc-spelled paths, the subset this repository itself declares as ignored output.
+ *
+ * G8 below reads every backticked repo path as a promise that the path exists. Two documented paths
+ * deliberately do not exist: `bench/runs/` and `bench/reports/`, which docs/architecture.md names
+ * precisely in order to say they are the ignored ones. So a correct sentence failed the guard — and
+ * only ever on a clean checkout, because a local bench run creates both directories. That is why it
+ * went unseen: it passed in every working tree that had ever run the harness.
+ *
+ * The exemption is derived rather than listed, so .gitignore stays the one place the answer lives.
+ * Two properties of that derivation are load-bearing:
+ *
+ * - The doc's own spelling goes to git verbatim, trailing slash included. `bench/runs/` is a
+ *   directory-only rule, so once the directory is absent `git check-ignore` answers "not ignored"
+ *   for the slash-less form. Normalizing before asking would make this exemption do nothing in
+ *   exactly the clean-checkout case it exists for. git answers with the slash stripped, so what is
+ *   sent and what is matched are deliberately different spellings of the same path.
+ * - Outside a git repository git exits 128 with no output, so nothing is exempted and the guard
+ *   keeps its original behavior. It fails closed, never open.
+ *
+ * One bound stated plainly: a path *inside* a declared-ignored directory is exempt as well, since
+ * that is what the ignore rule means. The guard stops checking within ignored output trees rather
+ * than checking them wrongly.
+ */
+function declaredIgnored(spelledPaths) {
+  if (spelledPaths.length === 0) return new Set();
+  const res = spawnSync('git', ['check-ignore', '--stdin'], {
+    cwd: REPO,
+    encoding: 'utf8',
+    input: spelledPaths.join('\n'),
+  });
+  if (res.error || typeof res.stdout !== 'string') return new Set();
+  return new Set(
+    res.stdout.split('\n').map((line) => line.trim().replace(/\/$/, '')).filter(Boolean),
+  );
+}
+
 test('G8: every repo path a doc names in backticks exists', () => {
   // architecture.md's structure table listed `bin/doflow`; the file is bin/doflow.js. Harmless to
   // read, wrong to copy — and the same class of error as a moved directory silently outliving its
@@ -213,16 +250,20 @@ test('G8: every repo path a doc names in backticks exists', () => {
   // dangling path is therefore unambiguous. That gap is how `scripts/generate-capability-map.js`
   // survived in refactor-plan.md after the generator was deleted.
   const roots = 'core|src|bin|test|docs|bench';
-  const missing = [];
+  const absent = [];
   for (const { rel, text } of consumerTexts()) {
     const pattern = rel.startsWith('docs/') || rel.startsWith(`docs${path.sep}`)
       ? `\`((?:${roots}|scripts)/[A-Za-z0-9_./-]*)\``
       : `\`((?:${roots})/[A-Za-z0-9_./-]*)\``;
     for (const [, p] of text.matchAll(new RegExp(pattern, 'g'))) {
       const clean = p.replace(/\/$/, '');
-      if (!fs.existsSync(path.join(REPO, clean))) missing.push(`${rel} -> ${p}`);
+      if (!fs.existsSync(path.join(REPO, clean))) absent.push({ rel, spelled: p, clean });
     }
   }
+  const ignored = declaredIgnored([...new Set(absent.map((a) => a.spelled))]);
+  const missing = absent
+    .filter((a) => !ignored.has(a.clean))
+    .map((a) => `${a.rel} -> ${a.spelled}`);
   const unique = [...new Set(missing)].sort();
   assert.deepEqual(unique, [], `these documented paths do not exist:\n  ${unique.join('\n  ')}`);
 });
