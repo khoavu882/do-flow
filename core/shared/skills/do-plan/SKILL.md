@@ -194,6 +194,10 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 12. **Stop** — report the plan path, Constitution Check result, the task count (`[P]`/sequential),
    and the derived branch name/repo count when the Repo Branch Plan is populated.
 
+## Embedded feature research
+
+For an external fact gap or explicit request, follow the conditional protocol in `../do-document/references/embedded-research.md` before stage completion.
+
 ## Boundaries
 **Will:** propose a task class and have the runtime validate it, read requirement + design + specs
 (when `has_specs`) + constitution, cite `specs.md`'s `IC-###` contracts in §5, write `plan.md`

@@ -143,6 +143,10 @@ not declare is not run here, however familiar it is from the `feature` chain.
    terminal stage completes, state `workflow.handoff` as the next step rather than continuing into
    it.
 
+## Conditional research within a feature
+
+Before a feature stage relies on an external fact that local or user evidence cannot establish, or when the developer explicitly asks a research question, let that stage follow `../do-document/references/embedded-research.md`. The stage opens a same-task `research-request`, records a source-linked finding or gap, then resumes itself without adding a seventh workflow stage. On resume, read request status and context pack. A blocking unanswered question prevents stage completion; neither research nor a retrieved page approves any existing gate. Do not trigger external search merely because a feature began.
+
 ## Boundaries
 **Will:**
 - Propose a task class, validate it through the runtime, and run the resolved workflow's stages in

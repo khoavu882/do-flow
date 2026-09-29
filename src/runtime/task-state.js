@@ -132,4 +132,4 @@ function updateTaskState({ fsImpl, file, build }) {
   }
 }
 
-module.exports = { updateTaskState, readTaskState, mergeRecords, SCHEMA_VERSION };
+module.exports = { acquireLock, updateTaskState, readTaskState, mergeRecords, SCHEMA_VERSION };

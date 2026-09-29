@@ -221,6 +221,10 @@ Before starting, read `modes/MODE_Brainstorming.md` in the shared guidance tree 
 the discovery posture it sets (question depth, when to stop eliciting). That file is loaded on demand through this skill — it has no other trigger,
 so skipping the read silently drops the posture it defines.
 
+## Embedded feature research
+
+For an external fact gap or explicit request, follow the conditional protocol in `../do-document/references/embedded-research.md` before stage completion.
+
 ## Boundaries
 **Will:** propose a task class and have the runtime validate it, run Socratic discovery, log each
 dialogue round to `intention/`, create the feature branch+dir (if needed), seed and fill

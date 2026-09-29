@@ -2,6 +2,7 @@
 
 const { EvidenceLedger } = require('./evidence-ledger');
 const { ClaimsManager } = require('./claims');
+const { ResearchRequestStore } = require('./research-request');
 const { finishRuntime, usageError } = require('./cli-result');
 
 class ContextPackCompiler {
@@ -16,6 +17,7 @@ class ContextPackCompiler {
       maxFiles: defaultOptions.maxFiles || 15,
       maxClaims: defaultOptions.maxClaims || 20,
       maxEvidenceItems: defaultOptions.maxEvidenceItems || 25,
+      maxResearchRequests: defaultOptions.maxResearchRequests || 20,
     };
   }
 
@@ -41,6 +43,7 @@ class ContextPackCompiler {
       acceptanceCriteria = [],
       evidenceLedger,
       claimsManager,
+      researchRequests = [],
     } = params;
 
     const limits = { ...this.options, ...budgetOverrides };
@@ -124,6 +127,13 @@ class ContextPackCompiler {
       structuralContext: structuralNodes.slice(0, 5),
       evidenceCount: freshEvidenceItems.length,
       evidenceSummary: freshEvidenceItems,
+      researchRequests: [...researchRequests]
+        .sort((a, b) => Number(b.blocking && b.status !== 'ANSWERED')
+          - Number(a.blocking && a.status !== 'ANSWERED'))
+        .slice(0, limits.maxResearchRequests).map(r => ({
+          id: r.id, stageId: r.stageId, question: r.question, status: r.status,
+          blocking: r.blocking, claimId: r.claimId, evidenceIds: r.evidenceIds, gap: r.gap,
+        })),
       budgetEnforcement: {
         totalFiles: relevantFiles.length,
         totalSupportedClaims: supportedClaims.length,
@@ -156,6 +166,17 @@ class ContextPackCompiler {
       md += `### Active Hypotheses (Unverified)\n`;
       for (const h of pack.claims.hypotheses) {
         md += `- ? ${h.statement}\n`;
+      }
+      md += '\n';
+    }
+
+    if (pack.researchRequests.length > 0) {
+      md += `### Feature Research Requests\n`;
+      for (const r of pack.researchRequests) {
+        md += `- ${r.status} ${r.blocking ? '(blocking)' : '(nonblocking)'} ${r.stageId}: ${r.question}`;
+        if (r.gap) md += ` — ${r.gap}`;
+        if (r.claimId) md += ` (claim: ${r.claimId})`;
+        md += '\n';
       }
       md += '\n';
     }
@@ -195,6 +216,7 @@ function handleContextPackCommand({ taskId, taskClass, objective, json = false, 
   const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root });
   claims.load(taskId);
   claims.evaluateAll();
+  const researchRequests = new ResearchRequestStore({ projectRoot: root }).list(taskId);
 
   const compiler = new ContextPackCompiler();
   const pack = compiler.compileContextPack({
@@ -206,12 +228,14 @@ function handleContextPackCommand({ taskId, taskClass, objective, json = false, 
     objective: objective || '',
     evidenceLedger: ledger,
     claimsManager: claims,
+    researchRequests,
   });
 
   const empty = pack.evidenceCount === 0
     && pack.claims.supported.length === 0
     && pack.claims.hypotheses.length === 0
-    && pack.claims.conflicts.length === 0;
+    && pack.claims.conflicts.length === 0
+    && pack.researchRequests.length === 0;
 
   if (json) console.log(JSON.stringify({ ...pack, empty }, null, 2));
   else {
