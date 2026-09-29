@@ -218,6 +218,12 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--scope', 'scope'],                // readiness: the stated scope boundary
   ['--invariants', 'invariants'],      // readiness: the invariants a refactor must preserve
   ['--objective', 'objective'],        // context-pack
+  ['--stage-id', 'stageId'],           // research-request: active feature stage
+  ['--question', 'question'],           // research-request: external question
+  ['--blocking', 'blocking'],           // research-request: true | false
+  ['--request-id', 'requestId'],       // research-request: request to resolve
+  ['--outcome', 'researchOutcome'],    // research-request: answered | unresolved
+  ['--gap', 'gap'],                     // research-request: unresolved reason
   ['--stage', 'stage'],                // retrieval-plan: the stage id declaring the plan;
                                        // outcome: the stage writing it, refused unless terminal
   ['--state', 'state'],                // outcome: the terminal state being recorded
@@ -306,6 +312,8 @@ function parseRuntimeFlag(arg, argv, i, o) {
     // both spellings, same behavior now.
     const parts = name === '--exclude' ? value.split(',').map((s) => s.trim()).filter(Boolean) : [value];
     (o[key] = o[key] || []).push(...parts);
+  } else if (name === '--evidence-id' && o.cmd === 'research-request') {
+    (o.evidenceIds = o.evidenceIds || []).push(value);
   } else {
     o[key] = value;
   }
@@ -337,6 +345,7 @@ Commands:
   classify             Validate a proposed task class and return its workflow (--task-class)
   workflow             Resolve a task class to its stages, gates and readiness templates
   orchestrate          Start or resume a run: complete stages, decide gates (--action)
+  research-request     Open, list or resolve a feature-stage research question (--task-id)
   retrieve             BM25 search over the installed guidance tree (--query)
   model-role           Resolve a model role to ranked provider candidates (--role)
   route                Resolve an information need to a healthy provider (--intent)

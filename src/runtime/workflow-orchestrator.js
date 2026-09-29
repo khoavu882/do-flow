@@ -12,6 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { WorkflowEngine } = require('./workflow-engine');
 const { updateTaskState, readTaskState } = require('./task-state');
+const { ResearchRequestStore } = require('./research-request');
 const { REPO_ROOT } = require('../helper/repo-root');
 
 const RUN_STATES = Object.freeze(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED']);
@@ -88,11 +89,13 @@ class WorkflowOrchestrator {
    *   gated stage. Unwired means such stages cannot be completed — fail closed, never open.
    * @param {object} [options.fsImpl]
    */
-  constructor({ repoRoot = REPO_ROOT, stateDir, engine, readinessEvaluate, fsImpl } = {}) {
+  constructor({ repoRoot = REPO_ROOT, projectRoot, stateDir, engine, readinessEvaluate, fsImpl } = {}) {
     this.fsImpl = fsImpl || fs;
     this.repoRoot = repoRoot;
+    this.projectRoot = projectRoot || (stateDir?.endsWith(path.join('.doflow', 'state', 'orchestration'))
+      ? path.resolve(stateDir, '../../..') : repoRoot);
     this.engine = engine || new WorkflowEngine({ repoRoot });
-    this.stateDir = stateDir || path.join(repoRoot, '.doflow', 'state', 'orchestration');
+    this.stateDir = stateDir || path.join(this.projectRoot, '.doflow', 'state', 'orchestration');
     this.readinessEvaluate = readinessEvaluate || null;
   }
 
@@ -106,7 +109,7 @@ class WorkflowOrchestrator {
     return readTaskState(this.fsImpl, file);
   }
 
-  writeRun(run, now) {
+  writeRun(run, now, beforeWrite) {
     run.updatedAt = iso(now);
     this.fsImpl.mkdirSync(this.stateDir, { recursive: true });
     const expectedRevision = run.revision || 0;
@@ -114,6 +117,7 @@ class WorkflowOrchestrator {
       if ((disk?.revision || 0) !== expectedRevision) {
         throw new Error(`Concurrent workflow update for '${run.taskId}'; reload the run before retrying. Nothing was written.`);
       }
+      if (beforeWrite) beforeWrite();
       return run;
     } });
     run.revision = expectedRevision + 1;
@@ -238,7 +242,12 @@ class WorkflowOrchestrator {
       backfilled: Boolean(backfilled), executionStatus: node.executionStatus, outcome: node.outcome,
     });
     this.advance(run, now);
-    this.writeRun(run, now);
+    this.writeRun(run, now, () => {
+      if (run.taskClass !== 'feature') return;
+      const request = new ResearchRequestStore({ projectRoot: this.projectRoot, fsImpl: this.fsImpl })
+        .blockingGap(taskId, stageId);
+      if (request) throw new Error(`Research request '${request.id}' blocks stage '${stageId}': ${request.failureReason || request.gap || request.status}`);
+    });
     return this.snapshot(run);
   }
 
@@ -476,7 +485,7 @@ function handleOrchestrateCommand({
   // and wrote $HOME — two roots disagreeing about where one task's state lives.
   const state = stateRoot || process.cwd();
   const orchestrator = new WorkflowOrchestrator({
-    repoRoot: root,
+    repoRoot: root, projectRoot: state,
     stateDir: path.join(state, '.doflow', 'state', 'orchestration'),
   });
   orchestrator.readinessEvaluate = (node, run) => {

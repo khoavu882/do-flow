@@ -35,6 +35,7 @@ const { handleClaimCommand } = require('../runtime/claims');
 const { handleClassifyCommand } = require('../runtime/task-classifier');
 const { handleWorkflowCommand } = require('../runtime/workflow-engine');
 const { handleOrchestrateCommand } = require('../runtime/workflow-orchestrator');
+const { handleResearchRequestCommand } = require('../runtime/research-request');
 const { handleRetrieveCommand } = require('../runtime/knowledge/retrieval');
 const { handleModelRoleCommand } = require('../runtime/model-router');
 const { handleRouteCommand } = require('../runtime/capability-router');
@@ -166,6 +167,7 @@ function dispatchRuntimeCommand(o) {
     case 'classify': return handleClassifyCommand({ taskClass: o.taskClass, rationale: o.rationale, proposedBy: o.proposedBy, callingSkill: o.callingSkill, json: o.json });
     case 'workflow': return handleWorkflowCommand({ taskClass: o.taskClass, json: o.json });
     case 'orchestrate': return handleOrchestrateCommand({ action: o.action, taskId: o.taskId, taskClass: o.taskClass, stage: o.stage, gate: o.gate, node: o.node, decision: o.decision, note: o.note, reason: o.reason, forced: o.forced, verificationPlan: o.verificationPlan, scope: o.scope, invariants: o.invariants, result: o.result, callingSkill: o.callingSkill, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
+    case 'research-request': return handleResearchRequestCommand({ action: o.action === 'status' ? 'list' : o.action, taskId: requireTaskId(o), stageId: o.stageId, question: o.question, reason: o.reason, blocking: o.blocking === undefined ? undefined : o.blocking === 'true' ? true : o.blocking === 'false' ? false : o.blocking, requestId: o.requestId, outcome: o.researchOutcome, claimId: o.claimId, evidenceIds: o.evidenceIds, gap: o.gap, json: o.json, projectRoot: evidenceRoot(o) });
     case 'retrieve': return handleRetrieveCommand({ query: o.query, top: o.top, json: o.json });
     case 'model-role': return handleModelRoleCommand({ role: o.role, exclude: o.exclude, json: o.json, repoRoot: REPO_ROOT });
     case 'route': return handleRouteCommand({ intent: o.intent, query: o.query, check: o.check, json: o.json, projectRoot: evidenceRoot(o) });

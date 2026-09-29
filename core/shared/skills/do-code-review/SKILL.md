@@ -358,6 +358,10 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
      this flow's control (an unwritable local state directory, say), report the failure plainly and
      continue — a missing `audit.md` entry changes nothing about the verdict already reported.
 
+## Embedded feature research
+
+For an external fact gap or explicit request, follow the conditional protocol in `../do-document/references/embedded-research.md` before stage completion.
+
 ## Boundaries
 
 **Will:** Analyze source and prose for complexity, risk, SOLID violations, and code/doc smells;
