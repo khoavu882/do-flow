@@ -227,6 +227,10 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 
 **Stop when** every review finding the contract names has an answer or a stated gap, **and** the last round produced no new review finding. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 
+## Embedded feature research
+
+For an external fact gap or explicit request, follow the conditional protocol in `../do-document/references/embedded-research.md` before stage completion.
+
 ## Boundaries
 **Will:** Propose a task class and have the runtime validate it, put the approval gate standing
 before this stage to the user — but only when the run still reports it open — and record their

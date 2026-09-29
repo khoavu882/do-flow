@@ -440,3 +440,22 @@ test('catch-up blocks on a mutating stage carrying a readiness template that onl
   assert.equal(s.reason, 'blocked-on-mutating-stage:implementation');
 });
 
+
+test('blocking research request refuses handoff and direct completion without cursor movement', t => {
+  const root = scratch();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const orch = new WorkflowOrchestrator({ repoRoot: REPO, projectRoot: root,
+    stateDir: path.join(root, '.doflow/state/orchestration'), readinessEvaluate: READY });
+  const { ResearchRequestStore } = require('../../src/runtime/research-request');
+  const store = new ResearchRequestStore({ projectRoot: root });
+  orch.start({ taskId: 'feature-gap', taskClass: 'feature' });
+  const request = store.open({ taskId: 'feature-gap', stageId: 'discovery',
+    question: 'What does upstream say?', reason: 'detected-gap' });
+  assert.throws(() => orch.completeStage({ taskId: 'feature-gap', stageId: 'discovery' }), new RegExp(request.id));
+  assert.throws(() => orch.handoff({ taskId: 'feature-gap', taskClass: 'feature',
+    callingSkill: 'do-brainstorm', note: 'attempt' }), /blocks stage/);
+  assert.equal(orch.status('feature-gap').current.id, 'discovery');
+  store.resolve({ taskId: 'feature-gap', requestId: request.id, outcome: 'unresolved', gap: 'No source' });
+  assert.throws(() => orch.completeStage({ taskId: 'feature-gap', stageId: 'discovery' }), /No source/);
+  assert.equal(orch.status('feature-gap').state, 'RUNNING');
+});

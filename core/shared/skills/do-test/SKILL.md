@@ -91,6 +91,10 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    `passed` means the contract was met, including an expected failure in a reproduction stage.
    Use `failed` when it was not met; missing verification is `unverified`, never an implied pass.
 
+## Embedded feature research
+
+For an external fact gap or explicit request, follow the conditional protocol in `../do-document/references/embedded-research.md` before stage completion.
+
 ## Boundaries
-**Will:** Compile the verification contract before running anything, run the tiers it names, report every tier's status including the ones that were never reached, report the coverage the detected runner emits, highlight failure traces, and record the stage handoff through `orchestrate`/`render-audit` when this run is part of a chain — against whichever of its own stage occurrences the run is actually positioned on, in a class that runs it twice.
-**Will Not:** Write new test files (handled during implementation), modify build configuration files, narrow the compiled tier set, report a verdict the contract did not produce, resolve a workflow gate, or start a workflow run for a standalone verification.
+**Will:** Run the compiled tiers, report every status (including unreached), coverage, and failure traces; hand off the current stage in a chain.
+**Will Not:** Write tests or build config, narrow tiers, invent a verdict, resolve gates, or start a standalone run.

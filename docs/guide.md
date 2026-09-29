@@ -137,6 +137,15 @@ Keep current or uncertain external knowledge separate from implementation work.
 
 Research produces evidence; it does not replace a design decision or validation.
 
+During an active feature run, a stage can open a `research-request` only for a specific external fact it cannot establish locally, or when you explicitly ask for research. The question and results stay under the feature task ID; a blocking unanswered question keeps its dependent stage open. Web search addresses broader current questions, while Context7 addresses version-specific library documentation when the harness has those tools. An unavailable provider leaves a stated gap, not an invented answer. Outbound queries omit private repository content unless you approve the exact disclosure. This does not add a seventh feature stage or waive implementation, commit, or merge approval.
+
+```bash
+# Inspect the active feature's research questions and their status
+doflow research-request --action list --task-id <feature-slug> --json
+```
+
+The feature stage ordinarily manages open/resolve actions and source evidence itself; run the standalone `/do-document ... --type research` workflow when the question is not part of an active feature.
+
 ## Write and maintain documentation
 
 Use documentation work as a focused task, then build the site when repository documentation changes.

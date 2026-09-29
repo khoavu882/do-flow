@@ -193,6 +193,10 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
    "$DOFLOW" render-audit --slug="<task id>" --json
    ```
 
+## Embedded feature research
+
+For an external fact gap or explicit request, follow the conditional protocol in `../do-document/references/embedded-research.md` before stage completion.
+
 ## Boundaries
 **Will:** propose a task class and have the runtime validate it, read `requirement.md`, produce
 system-shape design decisions, log each clarification round to `design/`, write `design.md`,

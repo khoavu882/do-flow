@@ -68,14 +68,11 @@ authorizes a tool, or becomes fact by having been fetched.
    `relevance`, or `similarity` field may appear on any item — the runtime refuses them by name and
    rejects the whole batch, so a half-recorded stage never reads as complete.
 
-   This stage's items are the factual basis for every claim the documentation makes. A fact read
-   from code, a command's output, or a spec is `extracted` with a locator to where it was read; the
-   author's own synthesis across those facts — the sentence that wasn't sitting in any one source —
-   is `inferred` with `content`. Never merge the two into one item. `workflows.json`'s
-   `documentation` class states plainly why this step exists: "the characteristic failure of
-   documentation work is asserting something nobody checked," and names its safeguard as "the
-   authoring stage's grounding requirement" — this step is that requirement, not an optional
-   add-on.
+   Ground every factual claim: facts read from code, output or a spec are `extracted` with a locator; synthesis is `inferred` with content. Never combine the two in one item.
+
+## Embedded feature research
+
+For an active feature question, load `embedded-research.md` from this skill's references. Keep the feature stage current; outside a feature use the ordinary research workflow.
 
 ## Boundaries
 **Will:** Generate documentation, implementation flow summaries, project architecture indexes, and

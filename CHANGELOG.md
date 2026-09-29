@@ -13,6 +13,12 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.10.0] - 2026-09-29
+
+### Added
+
+- Feature stages can record conditional, source-linked external research requests without adding a workflow stage. Blocking unanswered requests prevent stage completion; research results remain tied to the feature task.
+
 ## [1.9.0] - 2026-09-27
 
 ### Added
