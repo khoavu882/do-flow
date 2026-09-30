@@ -127,6 +127,8 @@ Filling §8's task dependency graph, read the guidance tree's `references/DIAGRA
    is a discipline this skill observes, not something a hook enforces.
 7. **Decompose into Tasks (section 8)** — dependency-ordered, `[US#]`-traced to the requirement's
    user stories, owner+files named per task, with checkpoints and completion criteria.
+   Read the guidance tree's `references/ORCHESTRATION.md` and
+   `references/MODEL_SELECTION.md` before assigning agent owners and write sets.
    `--depth shallow|normal|deep` is the single granularity knob: it sets how finely a phase is
    split into tasks and how much detail each task carries. Default `normal`.
    **Why explicit task scoping and `[P]` markers**: Specifying concrete file paths (`files: [...]`)

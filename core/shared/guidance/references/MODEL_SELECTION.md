@@ -1,22 +1,20 @@
 # Model Selection — choosing a tier per dispatch
 
-How a skill that dispatches subagents picks the model for each one. Loaded on demand by the skills
-that dispatch — it has no other trigger and is not part of any always-loaded context.
+Choose the lowest capable tier. Name it on every dispatch; omission may inherit the session model.
 
-**The rule:** use the lowest capability tier that can do the job, and name it explicitly on every
-dispatch.
+## Capability tiers
 
-## Tiers are capabilities, not model names
+Tiers are capabilities; models vary by harness.
 
-Tiers are described by capability because the available models differ per harness and turn over
-faster than shipped guidance does. A named model here would be stale advice at best, and wrong on
-any harness that never offered it.
-
-| Tier | What it is for |
+| Tier | Work |
 |---|---|
-| `light` | Transcription and mechanical work — the exact values to write are already in the task |
-| `standard` | Integration, pattern matching, debugging — judgement within a known shape |
-| `frontier` | Architecture, design decisions, broad codebase reasoning, final whole-scope review |
+| `light` | Verbatim extraction, classification, and mechanical edits. |
+| `standard` | Normal coding, debugging, writing, and integration; discovery, code search, evidence gathering, and doc edits unless verbatim. |
+| `frontier` | Architecture, difficult debugging, broad refactors, consequential analysis, and reviews. |
+
+Consequential: a verdict or decision gating money paths, a release or test gate, a history rewrite,
+a design choice, or unchecked user action. Gather evidence at `standard`; judge at `frontier`.
+Split mixed-tier tasks or use the higher tier.
 
 ## Choosing a tier for implementation
 
@@ -26,21 +24,30 @@ any harness that never offered it.
 | Touches several files, has integration concerns, must match existing patterns | `standard` |
 | Requires a design decision, or understanding a subsystem before changing it | `frontier` |
 
-## Choosing a tier for review
-
-Scale the reviewer to the diff's size, complexity and risk — never default it high. A small
-mechanical diff does not need the top tier; a subtle concurrency, auth, or data-migration change
-does. A re-review scoped to one small fix diff sits at `light`–`standard`. A final whole-scope
-review sits at `frontier`, not at whatever the session happens to be running.
-
 ## Turn count beats token price
 
 Wall-clock and context cost scale with how many turns a subagent takes, and the cheapest tier
 routinely takes several times the turns on multi-step work — costing more overall than the tier
-above it. So `standard` is the **floor** for reviewers, and for implementers working from a prose
-description rather than a fully specified task. Reserve `light` for the two cases where it genuinely
-wins: the task text already contains the exact code or values to write, or the change is a
-single-file mechanical fix.
+above it. So `standard` is the **floor** for implementers working from a prose description rather
+than a fully specified task. Reserve `light` for the two cases where it genuinely wins: the task
+text already contains the exact code or values to write, or the change is a single-file mechanical
+fix.
+
+## Reviews
+
+Review read-only at `frontier`, using neither the author's agent nor model. Report if unavailable.
+Review once per phase or fix batch. Re-review only for an open blocker tests cannot settle, after
+asking. For deep review, use two independent reviewers with different lenses; merge their findings.
+
+## Briefs and inheritance
+
+Give `light` and `standard` agents exact files, values or a `path:line` pattern, steps, a check
+command, and no open design choices. Give `frontier` agents intent, constraints, evidence, settled
+decisions, and choices they own.
+
+Include this line in any brief for an agent that may spawn agents:
+
+Tier policy: `light` verbatim; `standard` routine work/evidence; `frontier` design, hard debugging, broad refactors, consequential judgement/reviews. Name each tier; split mixed work or use higher.
 
 ## Escalation inside a fix loop
 
@@ -48,12 +55,6 @@ A fix round that follows a stuck implementer goes at least one tier above the ti
 loop surviving repeated resumes usually means the implementer cannot see its own problem — a fresh
 context and a capability bump are the same move, so make both at once rather than spending another
 round at the tier that already failed.
-
-## Always name the tier
-
-An omitted model inherits the session's model — typically the most capable and most expensive one
-available — which silently defeats everything above. A dispatch with no tier named is not "using the
-default"; it is opting out of this policy. Every dispatch names its tier.
 
 ## Where per-dispatch choice is unavailable
 

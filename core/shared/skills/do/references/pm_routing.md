@@ -21,3 +21,5 @@ Decomposition depth guidelines when `/do` processes multi-part, cross-domain req
 ## Behavioral Posture
 For complex multi-tool routing and orchestration, consult the guidance tree's
 `modes/MODE_Orchestration.md`.
+Before dispatching agents, read the guidance tree's `references/ORCHESTRATION.md` and
+`references/MODEL_SELECTION.md`.

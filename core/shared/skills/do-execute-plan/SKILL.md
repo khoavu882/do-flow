@@ -130,6 +130,8 @@ Branch on the returned `outcome` field, not the exit code.
      complete is worse than none.
 
 6. **Task Selection & Parallel Dispatch**:
+   - Read the guidance tree's `references/ORCHESTRATION.md` before dispatching agents;
+     it governs briefs, tools, running work, verification, and questions.
    - `--scope` selects what this run executes, and takes exactly one value: `next` (the next
      pending task, the default), `phase:N` (one phase), `all` (every pending task), or `resume`
      (pick up where an interrupted run stopped). Where an interrupted run stopped is read from the
