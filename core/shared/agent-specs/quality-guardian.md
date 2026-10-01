@@ -1,7 +1,6 @@
 ---
 name: quality-guardian
 description: "Specialist quality and security engineer for automated testing, security vulnerability auditing, static code review, and root-cause analysis"
-tools: Read, Grep, Glob, Bash
 model: inherit
 effort: medium
 ---
