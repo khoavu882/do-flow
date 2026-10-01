@@ -13,6 +13,17 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.11.0] - 2026-10-02
+
+### Added
+
+- Shared agent archetypes inherit the host's available tools, letting the orchestrator enable web
+  and documentation MCP research tools according to each task's evidence needs.
+
+### Fixed
+
+- Markdown review recognizes agent definitions that omit a fixed `tools:` allowlist.
+
 ## [1.10.0] - 2026-09-29
 
 ### Added
