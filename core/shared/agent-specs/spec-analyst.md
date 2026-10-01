@@ -1,7 +1,6 @@
 ---
 name: spec-analyst
 description: "Specialist agent for requirements discovery, user story breakdown, epic decomposition, acceptance criteria definition, and development estimation"
-tools: Read, Grep, Glob
 model: inherit
 effort: medium
 ---

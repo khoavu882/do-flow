@@ -56,7 +56,9 @@ of `SKILL.md` itself; splitting content out (not just trimming prose) is usually
 ### 2. Boundaries section (SKILL.md and agent-spec files)
 
 **Applies to:** `SKILL.md` files, and specialist agent-definition files — identified by
-frontmatter shape (`tools:` and `model:` keys present, no `argument-hint:`), not by a fixed path.
+frontmatter shape (`model:` plus either `tools:` or `effort:`, with no `argument-hint:`), not by a
+fixed path. This recognizes existing agent files that have `tools:` but no `effort:`, along with
+the current shared shape, where `tools:` is optional and the host provides the available tool pool.
 This repo keeps its own agent definitions under `core/shared/agent-specs/`, but every harness
 installs them under a differently-named directory (typically `agents/`), so the check deliberately
 does not hardcode a source-tree path — it works the same way against an installed copy in any

@@ -11,6 +11,20 @@ category: mode
 - Questions requiring current information
 - Complex research requirements
 
+## Model and tool selection
+
+- Gather sources and evidence at `standard` (Sonnet in Claude); use `frontier` (Opus in Claude) to
+  judge consequential evidence. Use `light` (Haiku in Claude) for narrow extraction or
+  classification. Follow `references/MODEL_SELECTION.md` and name the model/tier on every dispatch.
+- Use web search/fetch for current or broad public information. Use relevant documentation MCPs for
+  version-specific specifications and official implementation patterns. Enable both for research
+  agents when the host supports them; name required servers and tools in the dispatch brief.
+- For a specific library or framework, use Context7's `mcp__context7__resolve-library-id` and
+  `mcp__context7__query-docs` when connected; pin the version when the user or source provides one.
+- Prefer primary sources for specifications, fetch the passages that support each claim, and return
+  citations or resolvable locators. If a required tool is unavailable to the agent, have the
+  orchestrator retrieve the source or state the specific gap.
+
 ## The spine: broad, then narrow
 
 **Progressive depth.** One broad discovery pass over the whole scope first — the terminology, the

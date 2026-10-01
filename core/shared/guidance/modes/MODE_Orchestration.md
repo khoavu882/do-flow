@@ -12,6 +12,8 @@
 - **Resource Awareness**: Adapt approach based on system constraints
 - **Parallel Thinking**: Identify independent operations for concurrent execution
 - **Efficiency Focus**: Optimize tool usage for speed and effectiveness
+- **Explicit Model Selection**: Apply `references/MODEL_SELECTION.md` to every agent dispatch;
+  pass `model:` explicitly whenever the host supports per-call model selection.
 
 ## Tool Selection
 
@@ -21,6 +23,16 @@ intent-to-capability list lives in the `do` skill (`do/references/tool_matrix.md
 The router reports which provider is healthy on *this* machine. A written table cannot know that,
 which is why this mode no longer carries one.
 
+For research, current technical facts, specifications, and established implementation patterns, use
+web search/fetch and relevant documentation or retrieval MCP tools when available. Give research
+agents the needed tools and name the MCP server and tool in the brief. The orchestrator decides this
+for each task from its evidence needs; routine read-only research does not need a user decision.
+Shared agent archetypes omit fixed tool allowlists, so hosts that support inheritance give them the
+session's available tool pool; the host's own permissions and sandbox remain in force. Keep
+repository-local search and external research distinct, and return source citations or resolvable
+locators with the handoff. If the host does not expose a needed tool, the orchestrator gathers the
+source itself or reports the concrete access gap.
+
 ## Infrastructure Configuration Validation
 
 **Critical Rule**: Infrastructure and technical configuration changes MUST consult official documentation before making recommendations.
@@ -29,7 +41,8 @@ which is why this mode no longer carries one.
 - **Keywords**: Traefik, nginx, Apache, HAProxy, Caddy, Envoy, Docker, Kubernetes, Terraform, Ansible
 - **File Patterns**: `*.toml`, `*.conf`, `traefik.yml`, `nginx.conf`, `*.tf`, `Dockerfile`
 - **Required Actions**:
-  1. **WebFetch official documentation** before any technical recommendation
+  1. **WebSearch and WebFetch official documentation**, or use a relevant official documentation
+     MCP, before any technical recommendation
   2. Activate MODE_DeepResearch for infrastructure investigation
   3. BLOCK assumption-based configuration changes
 

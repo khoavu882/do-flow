@@ -1,7 +1,6 @@
 ---
 name: core-implementer
 description: "Specialist code engineer for full-stack implementation, precision refactoring, performance optimization, and algorithmic design"
-tools: Read, Grep, Glob, Edit, Write, Bash
 model: inherit
 effort: high
 ---
