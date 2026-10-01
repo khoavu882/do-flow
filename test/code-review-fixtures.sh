@@ -57,6 +57,51 @@ for f in assets/sample_*; do
   fi
 done
 
+# ── Agent-spec boundary classification ───────────────────────────────────────────────────────
+# Keep both the legacy tools+model shape and the current effort+model shape eligible for
+# Boundaries checks. The current shared shape may omit tools so the host supplies its tool pool.
+if python3 - "$PWD" <<'PY'
+import importlib.util
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+skill_dir = Path(sys.argv[1])
+checker_path = skill_dir / "scripts" / "doc_quality_checker.py"
+spec = importlib.util.spec_from_file_location("doc_quality_checker", checker_path)
+checker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(checker)
+
+cases = {
+    "legacy tools+model agent": [
+        "---", "name: reviewer", "description: Review code", "tools: Read, Grep",
+        "model: sonnet", "---", "# Reviewer",
+    ],
+    "current effort+model agent without tools": [
+        "---", "name: reviewer", "description: Review code", "model: inherit",
+        "effort: medium", "---", "# Reviewer",
+    ],
+}
+for name, lines in cases.items():
+    path = Path("agents") / "reviewer.md"
+    assert checker.is_agent_spec(path, lines), f"not recognized: {name}"
+    findings = checker.check_boundaries(path, lines)
+    assert any(f["rule"] == "missing_boundaries" for f in findings), name
+
+skill_lines = ["---", "name: review", "model: sonnet", "effort: medium",
+               "argument-hint: [path]", "---", "# Review"]
+assert not checker.is_agent_spec(Path("agents/review.md"), skill_lines), \
+    "skill argument-hint shape was misclassified as an agent"
+print("  \033[32m✓\033[0m legacy and current agent shapes receive Boundaries checks")
+PY
+then
+  pass=$((pass + 1))
+  checked=$((checked + 1))
+else
+  printf '  \033[31m✗\033[0m legacy and current agent shapes receive Boundaries checks\n'
+  fail=$((fail + 1))
+fi
+
 # ── Coverage honesty (FR-006, FR-008) ────────────────────────────────────────────────────────
 #
 # A directory-level property, so the per-file fixture loop above structurally cannot express it:

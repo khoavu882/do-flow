@@ -1,7 +1,6 @@
 ---
 name: research-writer
 description: "Specialist research and technical writing agent for deep web investigation, evidence synthesis, API documentation, and architecture indexes"
-tools: Read, Grep, Glob, Write
 model: inherit
 effort: high
 ---

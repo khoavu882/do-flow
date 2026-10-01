@@ -388,9 +388,9 @@ files by the same dispatch tables, states the same Review Contract, and returns 
 vocabulary. A dispatched review that reports differently from an in-session one is a defect, not a
 variant.
 
-Name the model tier explicitly on the dispatch — scale it to the diff's size and risk rather than
-inheriting the session's model. See the guidance tree's `references/MODEL_SELECTION.md`; a final
-whole-scope review sits at `frontier`, a re-review of one small fix diff at `light`–`standard`.
+Review read-only at `frontier`, with an agent and model different from the author; pass `model:`
+where supported. Re-review only an open blocker tests cannot settle, after asking. See
+`references/MODEL_SELECTION.md`.
 
 This is not the multi-task orchestration the boundary above rules out: one review, one subagent, one
 report back.

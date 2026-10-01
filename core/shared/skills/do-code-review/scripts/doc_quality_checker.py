@@ -95,14 +95,20 @@ def is_agent_spec(path: Path, lines: Optional[List[str]] = None) -> bool:
     copy would silently never match a directory-name-only check. Since DoFlow is designed to be
     installed anywhere, this checks the installed-shape name too, but path name alone is too
     generic (an unrelated project can have its own unrelated `agents/` folder) — content shape
-    is the tie-breaker: an agent-spec's frontmatter has `tools:` and `model:` but never
-    `argument-hint:` (that key belongs to a skill's own invocation contract, never an agent's)."""
+    is the tie-breaker: an agent-spec's frontmatter has `model:` and either `tools:` (the legacy
+    shape) or `effort:` (the current shared shape), but never `argument-hint:` (that key belongs
+    to a skill's own invocation contract, never an agent's). Its `tools:` field is optional in
+    the current shape; omitting it lets the host provide the agent's available tools."""
     if path.suffix.lower() != ".md" or path.parent.name not in ("agent-specs", "agents"):
         return False
     if lines is None:
         lines = read_file_content(path).splitlines()
     keys = set(frontmatter_keys(lines))
-    return "tools" in keys and "model" in keys and "argument-hint" not in keys
+    return (
+        "model" in keys
+        and ("tools" in keys or "effort" in keys)
+        and "argument-hint" not in keys
+    )
 
 
 def find_guidance_dir(start: Path) -> Optional[Path]:
