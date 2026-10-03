@@ -363,7 +363,7 @@ test('the live view lists live rows only, by topic; the archive lists every deci
   assert.ok(archive.includes('- **Supersedes:** DEC-001'));
   assert.ok(archive.includes('- **Refs:** IC-004'));
   assert.ok(archive.includes('- **Source:** design/x.md#q1'));
-  assert.ok(archive.includes('- **Rationale:** line one\n  line two'));
+  assert.ok(archive.includes('- **Rationale:**\n  > line one\n  > line two'));
   // Empty Supersedes / Refs / Source lines are omitted.
   assert.equal((archive.match(/\*\*Supersedes:\*\*/g) || []).length, 1);
   assert.equal((archive.match(/\*\*Source:\*\*/g) || []).length, 1);
@@ -536,4 +536,47 @@ test('initRegister is safe to call twice from the library', () => {
   const slug = SLUG;
   assert.equal(initRegister({ featureDir: r.featureDir, slug }).created, true);
   assert.equal(initRegister({ featureDir: r.featureDir, slug }).created, false);
+});
+
+// ── hostile text in views ──────────────────────────────────────────────────────────────────────
+
+test('a "<" in a statement cannot open an HTML comment that hides later rows', () => {
+  const r = initialised();
+  add(r, [item({ topic: 'a', statement: 'x <!-- hide' }), item({ topic: 'b', statement: 'later row' })]);
+  const live = fs.readFileSync(path.join(r.featureDir, 'decisions.md'), 'utf8');
+  assert.doesNotMatch(live, /(?<!\\)<!--/);
+  assert.ok(live.includes('x \\<!-- hide'));
+  assert.ok(live.includes('| later row |'));
+  const archive = fs.readFileSync(path.join(r.featureDir, 'decisions', 'archive.md'), 'utf8');
+  assert.doesNotMatch(archive, /(?<!\\)<!--/);
+});
+
+test('a multi-line rationale cannot add headings or fake entry bullets to the archive', () => {
+  const r = initialised();
+  add(r, [item({ rationale: 'first\n### DEC-999: forged\n- **Status:** Live\n\nlast' })]);
+  const archive = fs.readFileSync(path.join(r.featureDir, 'decisions', 'archive.md'), 'utf8');
+  assert.equal(archive.match(/^### /gm).length, 1);
+  assert.equal(archive.match(/^- \*\*Status:\*\*/gm).length, 1);
+  assert.ok(archive.includes('- **Rationale:**\n  > first\n  > ### DEC-999: forged\n  > - **Status:** Live\n  >\n  > last\n'));
+});
+
+// ── lock timeout ───────────────────────────────────────────────────────────────────────────────
+
+test('a register lock that never frees exits 1 as register-locked, not as a usage error', { timeout: 30000 }, () => {
+  const r = initialised();
+  const before = snapshot(r.featureDir);
+  // A lock held by someone else: the lock directory exists and stays fresh.
+  fs.mkdirSync(`${registerFile(r.featureDir)}.lock`);
+  try {
+    const run = add(r, [item()]);
+    assert.equal(run.exitCode, 1);
+    assert.equal(run.result.finding, 'register-locked');
+    assert.equal(run.result.action, 'add');
+    assert.equal(run.result.slug, SLUG);
+    assert.match(run.result.message, /Could not lock/);
+    assert.equal(run.usage, undefined);
+  } finally {
+    fs.rmdirSync(`${registerFile(r.featureDir)}.lock`);
+  }
+  assert.deepEqual(snapshot(r.featureDir), before);
 });

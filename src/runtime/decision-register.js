@@ -108,7 +108,21 @@ function liveOf(register) { return register.decisions.filter((d) => d.status ===
 
 // ── renderers ──────────────────────────────────────────────────────────────────────────────────
 
-function cell(text) { return String(text).replace(/\|/g, '\\|'); }
+/** `|` would end the cell; `<` could open an HTML comment that hides every later row. */
+function cell(text) { return String(text).replace(/\|/g, '\\|').replace(/</g, '\\<'); }
+
+/** Archive text is read by people and agents, never as HTML: `<` is escaped so `<!--` cannot hide later entries. */
+function plain(text) { return String(text).replace(/</g, '\\<'); }
+
+/**
+ * A one-line rationale reads inline. A longer one goes in a blockquote under the bullet, every line
+ * prefixed, so no line of it can start a heading or pose as one of the entry's own bullets.
+ */
+function rationaleLines(rationale) {
+  const parts = plain(rationale).split(/\r\n|[\n\r\u2028\u2029\u0085]/);
+  if (parts.length === 1) return [`- **Rationale:** ${parts[0]}`];
+  return ['- **Rationale:**', ...parts.map((l) => (l === '' ? '  >' : `  > ${l}`))];
+}
 
 /** IC-007. Size depends on the number of live topics, never on how many decisions were made. */
 function renderLiveView(register) {
@@ -136,13 +150,12 @@ function renderArchive(register) {
   for (const d of [...register.decisions].sort(byId)) {
     out.push('', `### ${d.id}: ${d.topic}`, '');
     out.push(`- **Status:** ${d.status === 'live' ? 'Live' : `Superseded → ${d.supersededBy}`}`);
-    out.push(`- **Decision:** ${d.statement}`);
+    out.push(`- **Decision:** ${plain(d.statement)}`);
     out.push(`- **By:** ${d.decidedBy} (${d.channel}) · **Stage:** ${d.stage} · **Date:** ${d.date}`);
     if (d.supersedes.length) out.push(`- **Supersedes:** ${d.supersedes.join(', ')}`);
     if (d.refs.length) out.push(`- **Refs:** ${d.refs.join(', ')}`);
-    if (d.source) out.push(`- **Source:** ${d.source}`);
-    // A multi-line rationale stays inside its list item.
-    out.push(`- **Rationale:** ${d.rationale.split('\n').join('\n  ')}`);
+    if (d.source) out.push(`- **Source:** ${plain(d.source)}`);
+    out.push(...rationaleLines(d.rationale));
   }
   return `${out.join('\n')}\n`;
 }
@@ -382,11 +395,12 @@ function readBatchFile(batchPath, fsImpl) {
  */
 function runDecision({ action = 'list', projectRoot, slug = null, flags = {}, now = new Date(), fsImpl = nodeFs }) {
   const act = action === 'status' ? 'list' : action;
+  let resolved = null;
   try {
     if (!VALID_ACTIONS.includes(act)) throw new DecisionUsageError(`unknown --action '${action}'. Valid: ${VALID_ACTIONS.join(', ')}`);
     const feature = resolveActiveFeature({ projectRoot, slug });
     if (feature.error) throw new DecisionUsageError(feature.message);
-    const resolved = { featureDir: feature.featureDir, slug: feature.paths.feature_slug };
+    resolved = { featureDir: feature.featureDir, slug: feature.paths.feature_slug };
     let result;
     if (act === 'init') {
       result = initRegister({ ...resolved, fsImpl });
@@ -413,7 +427,10 @@ function runDecision({ action = 'list', projectRoot, slug = null, flags = {}, no
     return { exitCode: result.finding ? 1 : 0, result };
   } catch (error) {
     if (error instanceof DecisionUsageError) return { exitCode: 2, usage: error.message };
-    if (error && /^Could not lock/.test(error.message || '')) return { exitCode: 2, usage: error.message };
+    // Another writer holds the register lock: a condition to retry, not a mistake in the call.
+    if (resolved && error && /^Could not lock/.test(error.message || '')) {
+      return { exitCode: 1, result: { action: act, slug: resolved.slug, featureDir: resolved.featureDir, finding: 'register-locked', message: error.message } };
+    }
     throw error;
   }
 }
