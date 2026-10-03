@@ -8,6 +8,7 @@ const { execFileSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { makeRepo, featureBranch, FIXTURES, SLUG, TRACKED_AT } = require('../helper/lifecycle-git-fixtures');
 const { foldEvents } = require('../../src/runtime/lifecycle/fold');
+const store = require('../../src/runtime/lifecycle/event-store');
 const { deriveStatuses, readGitFacts, bucketize, subjectNames } = require('../../src/runtime/lifecycle/status');
 
 const scratch = createScratch('doflow-status-');
@@ -22,7 +23,9 @@ function ev(type, data, at) {
 }
 const tracked = (slug = SLUG, at = TRACKED_AT) => ev('feature.tracked', { slug }, at);
 const record = (tag, features, excluded = [], at = '2026-10-20T00:00:00.000Z') => ev('release.recorded', { tag, commit: 'c', features: features.map((slug) => ({ slug, evidence: 'branch', ref: 'r' })), excluded }, at);
-const foldOf = (...events) => foldEvents(events);
+// A fixed clock after every fixture date: the fold leaves out events dated over 24 hours ahead of it (DEC-045).
+const CLOCK = new Date('2027-01-01T00:00:00.000Z');
+const foldOf = (...events) => foldEvents(events, { now: CLOCK });
 
 function derive(repo, fold, facts) {
   return deriveStatuses({ root: repo.dir, fold, facts });
@@ -114,6 +117,20 @@ test('a merge committed before the feature was tracked is not evidence', () => {
   const { repo } = FIXTURES.mergeCommit(scratch);
   const later = foldOf(tracked(SLUG, '2026-12-01T00:00:00.000Z'));
   assert.equal(statusOf(repo, later).status, 'in-progress');
+});
+
+test('a 2030-dated event file does not move the tracking bound or turn a later merge into in-progress', () => {
+  const { repo } = FIXTURES.mergeCommit(scratch);
+  const events = path.join(repo.dir, store.EVENTS_REL);
+  fs.mkdirSync(events, { recursive: true });
+  const at = '2030-01-01T00:00:00.000Z';
+  const id = `${at.replace(/[-:.]/g, '')}-aaaaaa`;
+  fs.writeFileSync(path.join(events, `${id}.json`), JSON.stringify({ v: 1, id, type: 'followup.added', at, by: 'agent', data: { id: 'FU-aaaaaa', statement: 'wrong clock', source: { kind: 'manual' } } }));
+  const trackedBefore = new Date(TRACKED_AT);
+  store.appendEvents(repo.dir, [{ type: 'feature.tracked', by: 'agent', data: { slug: SLUG } }], { now: trackedBefore });
+  const fold = store.readFold(repo.dir, { now: CLOCK });
+  assert.equal(fold.features[0].trackedAt, trackedBefore.toISOString());
+  assert.equal(derive(repo, fold).statuses[SLUG].status, 'finished');
 });
 
 test('the lower bound is floored to the second, so a same-second merge counts', () => {

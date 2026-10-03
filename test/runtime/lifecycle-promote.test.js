@@ -14,7 +14,7 @@ const scratch = createScratch('doflow-promote-');
 test.before(() => scratch.apply());
 test.after(() => { scratch.restore(); scratch.remove(); });
 
-const NOW = new Date('2026-10-07T10:15:00.000Z');
+const NOW = new Date('2026-10-02T10:15:00.000Z');
 let counter = 0;
 function plainRoot() {
   counter += 1;
@@ -51,7 +51,7 @@ test('promote writes the IC-024 file exactly, then one followup.promoted event',
   const expected = [
     '# Intent: Cart robustness',
     '',
-    '**Raised by:** user, through doflow-run followup --action promote · **Date:** 2026-10-07',
+    '**Raised by:** user, through doflow-run followup --action promote · **Date:** 2026-10-02',
     '',
     '## 1. Problem',
     '',
@@ -123,7 +123,7 @@ test('promotion only creates: an item already promoted cannot go to a second int
 test('only open known items can be promoted, and a refusal leaves no file behind', () => {
   const root = plainRoot();
   const a = addItem(root, 'one');
-  followup.settleFollowups({ root, ids: a, as: 'dismissed', reason: 'noise' });
+  followup.settleFollowups({ root, ids: a, as: 'dismissed', reason: 'noise', now: NOW });
   assert.equal(followup.promoteFollowups({ root, ids: a, title: 'X', now: NOW }).finding, 'illegal-transition');
   assert.equal(followup.promoteFollowups({ root, ids: 'FU-zzzzzz', title: 'X', now: NOW }).finding, 'unknown-id');
   assert.equal(fs.existsSync(intentDir(root)), false);
@@ -172,7 +172,7 @@ test('a promotion whose event write fails removes the intent file it just create
 
 test('renderIntent lists a source by its kind and fields', () => {
   const text = renderIntent({
-    title: 'T', by: 'agent', date: '2026-10-07',
+    title: 'T', by: 'agent', date: '2026-10-02',
     items: [
       { id: 'FU-aaaaaa', statement: 's1', source: { kind: 'run', taskClass: 'bug', taskId: 'fix-x', stage: 'review' } },
       { id: 'FU-bbbbbb', statement: 's2', source: { kind: 'manual' } },

@@ -94,13 +94,13 @@ function nextLines({ shown, open, items, intents, goals, maintain, pendingItems 
  * @param {boolean} [options.maintain] the `/do maintain` view: up to 50 items and `pending`
  * @param {string} [options.since] ISO time; with `maintain`, an open item with no settlement at or after it is pending
  */
-function buildOverview({ root, maintain = false, since, fsImpl = nodeFs }) {
+function buildOverview({ root, maintain = false, since, now = new Date(), fsImpl = nodeFs }) {
   let sinceMs = null;
   if (since !== undefined && since !== null) {
     sinceMs = Date.parse(since);
     if (!Number.isFinite(sinceMs)) throw new FollowupUsageError(`--since must be an ISO time such as 2026-10-05T09:00:00Z (got '${since}')`);
   }
-  const fold = readFold(root, { fsImpl });
+  const fold = readFold(root, { fsImpl, now });
   const derived = deriveStatuses({ root, fold });
   const followups = withDerivedDone(fold.followups, statusMap(derived));
   const open = followups.filter((item) => item.state === 'open');
@@ -158,7 +158,7 @@ function initFeature({ root, slug, take, intent, goal, now = new Date(), fsImpl 
     return refusal('init', 'no-feature-folder', `agent-docs/doflow/${slug} does not exist under the store root ${root}; a folder that exists only in a linked worktree does not count. Nothing was written.`);
   }
   const wanted = take === undefined || take === null ? [] : parseIds(take, '--take');
-  const fold = readFold(root, { fsImpl });
+  const fold = readFold(root, { fsImpl, now });
   const tracked = fold.features.find((f) => f.slug === slug);
   const ids = [...wanted];
   if (intent) {
@@ -189,10 +189,10 @@ function initFeature({ root, slug, take, intent, goal, now = new Date(), fsImpl 
 // ── status ─────────────────────────────────────────────────────────────────────────────────────
 
 /** IC-021 `status`: the derived status of one tracked feature. */
-function featureStatus({ root, slug, fsImpl = nodeFs }) {
+function featureStatus({ root, slug, now = new Date(), fsImpl = nodeFs }) {
   if (!slug) throw new FollowupUsageError('--slug is required for --action status');
   if (!isSafeSlug(slug)) throw new FollowupUsageError(invalidSlugRefusal(slug).message);
-  const fold = readFold(root, { fsImpl });
+  const fold = readFold(root, { fsImpl, now });
   if (!fold.features.some((f) => f.slug === slug)) {
     return refusal('status', 'untracked-feature', `${slug} is not a tracked feature, so no status is derived for it; run doflow-run lifecycle --action init --slug ${slug} first.`);
   }

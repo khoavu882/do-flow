@@ -77,8 +77,8 @@ function parseIds(raw, label = '--ids') {
 }
 
 /** The folded store, with a taken item shown `done` while its feature derives finished (IC-003, IC-021). */
-function loadFollowups(root, { hasBody, fsImpl = nodeFs, statuses } = {}) {
-  const fold = readFold(root, { hasBody, fsImpl });
+function loadFollowups(root, { hasBody, fsImpl = nodeFs, statuses, now = new Date() } = {}) {
+  const fold = readFold(root, { hasBody, fsImpl, now });
   const needsStatus = fold.followups.some((item) => item.state === 'taken');
   const derived = needsStatus ? (statuses || deriveStatuses({ root, fold })) : null;
   const followups = needsStatus ? withDerivedDone(fold.followups, Object.fromEntries(Object.entries(derived.statuses).map(([slug, s]) => [slug, s.status]))) : fold.followups;
@@ -192,7 +192,7 @@ function readBatchFile(file, fsImpl = nodeFs) {
 function addFollowups({ root, cwd = process.cwd(), items, defaults = {}, channel, now = new Date(), fsImpl = nodeFs }) {
   const by = channelBy(channel);
   const built = buildItems({ cwd, items, defaults });
-  const taken = new Set(readFold(root, { fsImpl }).followups.map((f) => f.id));
+  const taken = new Set(readFold(root, { fsImpl, now }).followups.map((f) => f.id));
   const drafts = built.map(({ statement, source }) => ({ type: 'followup.added', by, data: { id: newFollowupId(taken), statement, source } }));
   const out = appendEvents(root, drafts, { now, fsImpl });
   if (!out.ok) return refusalFrom('add', out);
@@ -208,9 +208,9 @@ function addFollowups({ root, cwd = process.cwd(), items, defaults = {}, channel
 // ── list ───────────────────────────────────────────────────────────────────────────────────────
 
 /** IC-006 `list`: `state` is open (default), taken, done, dismissed or all. */
-function listFollowups({ root, state = 'open', hasBody, fsImpl = nodeFs, statuses }) {
+function listFollowups({ root, state = 'open', hasBody, fsImpl = nodeFs, statuses, now = new Date() }) {
   if (state !== 'all' && !STATES.includes(state)) throw new FollowupUsageError(`--state must be one of ${[...STATES, 'all'].join(', ')} (got '${state}')`);
-  const { fold, followups } = loadFollowups(root, { hasBody, fsImpl, statuses });
+  const { fold, followups } = loadFollowups(root, { hasBody, fsImpl, statuses, now });
   const items = state === 'all' ? followups : followups.filter((item) => item.state === state);
   return { ok: true, action: 'list', state, count: items.length, items, conflicts: fold.conflicts, unreadable: fold.unreadable, next: [] };
 }
@@ -257,7 +257,7 @@ function promoteFollowups({ root, ids, title, channel, now = new Date(), fsImpl 
   if (problems.length) throw new FollowupUsageError(problems.join('; '));
   const by = channelBy(channel);
   // Check the items before the file exists, so a refusal leaves nothing behind; the event write checks again under the lock.
-  const { followups } = loadFollowups(root, { fsImpl });
+  const { followups } = loadFollowups(root, { fsImpl, now });
   const items = [];
   for (const id of list) {
     const item = followups.find((f) => f.id === id);

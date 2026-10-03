@@ -24,8 +24,12 @@ function byOrder(a, b) {
 function isText(value) { return typeof value === 'string' && value.trim() !== ''; }
 function isIdList(value) { return Array.isArray(value) && value.length > 0 && value.every(isText); }
 
-function newState() {
+/** DEC-045: an event dated further ahead than this stays out of the fold and is listed as a conflict. */
+const FUTURE_LIMIT_MS = 24 * 60 * 60 * 1000;
+
+function newState({ now = new Date() } = {}) {
   return {
+    cutoff: now.getTime() + FUTURE_LIMIT_MS,
     items: new Map(),
     final: new Set(),
     tracked: new Map(),
@@ -276,8 +280,14 @@ const EVENT_TYPES = Object.keys(APPLY);
  * conflicts to refuse before anything is written.
  * @returns {Array<{event:string,type:string,reason:string,code:string}>} the conflicts this event raised
  */
-function applyEvent(state, event) {
+function applyEvent(state, event, { checkFuture = true } = {}) {
   const at = Date.parse(event.at);
+  if (checkFuture && at > state.cutoff) {
+    // Left out of the stamping floor and of every tracking bound: one wrong clock must not move them.
+    const raised = [conflict(event, 'future-event', 'dated more than 24 hours in the future; left out of the fold')];
+    state.conflicts.push(...raised);
+    return raised;
+  }
   if (state.newestAt === null || at > state.newestAt) state.newestAt = at;
   const apply = APPLY[event.type];
   if (!apply) return [];
@@ -288,8 +298,8 @@ function applyEvent(state, event) {
 }
 
 /** @param {Array<Object>} events IC-002 envelopes, in any order */
-function foldInto(events) {
-  const state = newState();
+function foldInto(events, options = {}) {
+  const state = newState(options);
   for (const event of [...events].sort(byOrder)) applyEvent(state, event);
   return state;
 }
@@ -314,8 +324,8 @@ function finalize(state, { hasBody = () => false } = {}) {
 }
 
 /** @returns {ReturnType<typeof finalize>} */
-function foldEvents(events, options) {
-  return finalize(foldInto(events), options);
+function foldEvents(events, options = {}) {
+  return finalize(foldInto(events, options), options);
 }
 
 /**

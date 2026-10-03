@@ -8,6 +8,7 @@ const { execFileSync, spawn } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { projectRoot } = require('../../src/runtime/lifecycle/root');
 const store = require('../../src/runtime/lifecycle/event-store');
+const { foldEvents } = require('../../src/runtime/lifecycle/fold');
 
 const scratch = createScratch('doflow-store-');
 test.before(() => scratch.apply());
@@ -23,6 +24,8 @@ function repo(name) {
   git(dir, 'commit', '-q', '--allow-empty', '-m', 'init');
   return dir;
 }
+let boundsCount = 0;
+function plainRoot2(name) { boundsCount += 1; return plainDir(`${name}-${boundsCount}`); }
 function plainDir(name) {
   const dir = path.join(scratch.dir, name);
   fs.mkdirSync(dir, { recursive: true });
@@ -271,6 +274,72 @@ test('write: DoFlow touches no git state and writes no ignore rule', () => {
   assert.match(git(dir, 'status', '--porcelain'), /^\?\? agent-docs\/$/m);
   for (const name of ['.gitignore', '.gitattributes']) assert.equal(fs.existsSync(path.join(dir, name)), false);
   assert.equal(fs.existsSync(path.join(dir, '.git', 'info', 'exclude')) && /agent-docs/.test(fs.readFileSync(path.join(dir, '.git', 'info', 'exclude'), 'utf8')), false);
+});
+
+function eventFile(dir, event) {
+  const events = path.join(dir, store.EVENTS_REL);
+  fs.mkdirSync(events, { recursive: true });
+  fs.writeFileSync(path.join(events, `${event.id}.json`), JSON.stringify(event));
+}
+const stampOf = (at) => at.replace(/[-:.]/g, '');
+
+test('time bounds: an at that is not a strict UTC timestamp, or differs from the id prefix, is unreadable and later writes still work (DEC-045)', () => {
+  const dir = plainRoot2('bounds-strict');
+  const tracked = (id, at) => ({ v: 1, id, type: 'feature.tracked', at, by: 'agent', data: { slug: 'f1' } });
+  eventFile(dir, tracked('+275760-09-13T000000.000Z-aaaaaa', '+275760-09-13T00:00:00.000Z')); // name is not an id: ignored
+  eventFile(dir, tracked('99991231T235959999Z-aaaaab', '+010000-01-01T00:00:00.000Z'));
+  eventFile(dir, tracked('20261004T091200123Z-aaaaac', '2026-10-04T09:12:00.124Z'));       // prefix differs from at
+  eventFile(dir, tracked('20261004T091200123Z-aaaaad', '2026-10-04T09:12:00Z'));           // no milliseconds
+  eventFile(dir, tracked('20261304T091200123Z-aaaaae', '2026-13-04T09:12:00.123Z'));       // not a real month
+  eventFile(dir, tracked('20260230T091200123Z-aaaaaf', '2026-02-30T09:12:00.123Z'));       // not a real day
+  const { events, unreadable } = store.readEvents(dir);
+  assert.deepEqual(events, []);
+  assert.equal(unreadable.length, 5);
+  const out = store.appendEvents(dir, [added('FU-aaaaaa')], { now: new Date('2026-10-04T10:00:00.000Z') });
+  assert.equal(out.ok, true);
+  assert.equal(store.readFold(dir, { now: new Date('2026-10-04T10:00:00.000Z') }).followups.length, 1);
+});
+
+test('time bounds: an event dated over 24 hours ahead is left out of the stamp floor and the tracking bound, and listed as a conflict', () => {
+  const dir = plainRoot2('bounds-future');
+  const now = new Date('2026-10-04T10:00:00.000Z');
+  const at = '2030-01-01T00:00:00.000Z';
+  eventFile(dir, { v: 1, id: `${stampOf(at)}-aaaaaa`, type: 'followup.added', at, by: 'agent', data: { id: 'FU-bbbbbb', statement: 'from a wrong clock', source: { kind: 'manual' } } });
+  const out = store.appendEvents(dir, [{ type: 'feature.tracked', by: 'agent', data: { slug: 'f1' } }], { now });
+  assert.equal(out.written[0].event.at, now.toISOString(), 'the stamp is not pushed to 2030');
+  const fold = store.readFold(dir, { now });
+  assert.equal(fold.features[0].trackedAt, now.toISOString());
+  assert.deepEqual(fold.conflicts.map((c) => c.code), ['future-event']);
+  assert.deepEqual(fold.followups, [], 'the future event is not applied');
+  const near = new Date(now.getTime() + 23 * 3600 * 1000).toISOString();
+  eventFile(dir, { v: 1, id: `${stampOf(near)}-aaaaab`, type: 'followup.added', at: near, by: 'agent', data: { id: 'FU-cccccc', statement: 'a fast clock, within a day', source: { kind: 'manual' } } });
+  assert.deepEqual(store.readFold(dir, { now }).followups.map((f) => f.id), ['FU-cccccc']);
+  assert.equal(foldEvents([], { now }).conflicts.length, 0);
+});
+
+test('time bounds: a write that cannot produce a valid id fails with a finding and creates nothing', () => {
+  const dir = plainRoot2('bounds-invalid-id');
+  const badRandom = store.appendEvents(dir, [added('FU-aaaaaa')], { random: () => 'ABC!!!' });
+  assert.deepEqual([badRandom.ok, badRandom.finding], [false, 'invalid-id']);
+  const farFuture = store.appendEvents(dir, [added('FU-aaaaaa')], { now: new Date(8.64e15) });
+  assert.deepEqual([farFuture.ok, farFuture.finding], [false, 'invalid-id']);
+  assert.equal(fs.existsSync(path.join(dir, 'agent-docs')), false, 'a refused write creates no folder');
+  const last = store.appendEvents(dir, [added('FU-aaaaaa')], { now: new Date('9999-12-31T23:59:59.999Z') });
+  assert.equal(last.ok, true, 'the last valid stamp is the end of year 9999');
+  const beyond = store.appendEvents(dir, [added('FU-bbbbbb')], { now: new Date('9999-12-31T23:59:59.999Z') });
+  assert.equal(beyond.finding, 'invalid-id', 'one more millisecond would leave the id shape');
+  assert.equal(fs.readdirSync(path.join(dir, store.EVENTS_REL)).length, 1);
+});
+
+test('write: a batch whose second id cannot be made free writes nothing, not even the first event', () => {
+  const dir = plainRoot2('batch-collide');
+  const now = new Date('2026-10-04T09:12:00.000Z');
+  const events = path.join(dir, store.EVENTS_REL);
+  fs.mkdirSync(events, { recursive: true });
+  fs.writeFileSync(path.join(events, '20261004T091200001Z-000001.json'), 'taken'); // the second draft's stamp (+1 ms)
+  const refused = store.appendEvents(dir, [added('FU-aaaaaa'), added('FU-bbbbbb')], { now, random: () => '000001' });
+  assert.deepEqual([refused.ok, refused.finding, refused.written], [false, 'id-collision', []]);
+  assert.deepEqual(fs.readdirSync(events), ['20261004T091200001Z-000001.json']);
 });
 
 test('channel: question, gate and prompt are the user; default is the agent; anything else is unknown', () => {

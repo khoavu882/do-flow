@@ -43,10 +43,19 @@ function randomChars(length) {
 
 function idFor(at, random) { return `${at.replace(/[-:.]/g, '')}-${random(6)}`; }
 
+/** DEC-045: `at` is a strict UTC timestamp that is a real instant, so year 10000 and "+275760-..." never parse. */
+const STRICT_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+function isStrictAt(at) {
+  if (typeof at !== 'string' || !STRICT_AT.test(at)) return false;
+  const ms = Date.parse(at);
+  return Number.isFinite(ms) && new Date(ms).toISOString() === at;
+}
+
+/** An IC-002 envelope whose `at` is strict and equals the time prefix of its file id. */
 function isEnvelope(event, idFromName) {
   return event && typeof event === 'object' && event.v === 1 && event.id === idFromName
     && typeof event.type === 'string' && typeof event.by === 'string'
-    && typeof event.at === 'string' && Number.isFinite(Date.parse(event.at))
+    && isStrictAt(event.at) && idFromName.startsWith(`${event.at.replace(/[-:.]/g, '')}-`)
     && event.data && typeof event.data === 'object' && !Array.isArray(event.data);
 }
 
@@ -86,24 +95,27 @@ function readEvents(root, { fsImpl = nodeFs } = {}) {
  * @param {{hasBody?: Function, fsImpl?: Object}} [options]
  * @returns {Object} the fold result (see fold.js) plus `unreadable`
  */
-function readFold(root, { fsImpl = nodeFs, hasBody } = {}) {
+function readFold(root, { fsImpl = nodeFs, hasBody, now = new Date() } = {}) {
   const { events, unreadable } = readEvents(root, { fsImpl });
-  return { ...finalize(foldInto(events), { hasBody }), unreadable };
+  return { ...finalize(foldInto(events, { now }), { hasBody }), unreadable };
 }
 
-/** One try with `firstId`, then up to COLLISION_RETRIES more with fresh random characters. */
-function createExclusive(fsImpl, dir, build, firstId, random) {
-  for (let attempt = 0; attempt <= COLLISION_RETRIES; attempt += 1) {
-    const event = build(attempt === 0 ? firstId : null, random);
-    const file = path.join(dir, `${event.id}.json`);
-    try {
-      fsImpl.writeFileSync(file, `${JSON.stringify(event, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
-      return { event, file };
-    } catch (error) {
-      if (error.code !== 'EEXIST') throw error;
+/** Picks a free, valid id for each draft before any file is created, so a batch is all or nothing. */
+function allocateIds(fsImpl, dir, stamped, random) {
+  const chosen = new Set();
+  const ids = [];
+  for (const { at, id } of stamped) {
+    let candidate = id;
+    for (let attempt = 0; attempt <= COLLISION_RETRIES; attempt += 1) {
+      if (attempt > 0) candidate = idFor(at, random);
+      if (EVENT_ID.test(candidate) && !chosen.has(candidate) && !fsImpl.existsSync(path.join(dir, `${candidate}.json`))) break;
+      candidate = null;
     }
+    if (!candidate) return null;
+    chosen.add(candidate);
+    ids.push(candidate);
   }
-  return null;
+  return ids;
 }
 
 /**
@@ -116,7 +128,8 @@ function createExclusive(fsImpl, dir, build, firstId, random) {
  * @returns {{ok:true, written: Array<{id:string, file:string, event:Object}>}
  *   | {ok:false, finding:string, message:string, conflict?:Object, written?: Array}}
  *   `file` is root-relative with `/` separators. The findings are `illegal-transition` (any fold
- *   conflict, with its own `code` in `conflict.code`), `id-collision` and `store-locked`.
+ *   conflict, with its own `code` in `conflict.code`), `id-collision`, `invalid-id` (the clock or
+ *   the random source cannot produce an id of the IC-001 shape) and `store-locked`.
  */
 function appendEvents(root, drafts, { now = new Date(), fsImpl = nodeFs, random = randomChars } = {}) {
   const dir = eventsDir(root);
@@ -135,15 +148,16 @@ function appendEvents(root, drafts, { now = new Date(), fsImpl = nodeFs, random 
   try {
     const { stamped, refused } = planEvents(root, drafts, { now, fsImpl, random });
     if (refused) return refused;
+    const ids = allocateIds(fsImpl, dir, stamped, random);
+    if (!ids) return { ok: false, finding: 'id-collision', written: [], message: `could not find a free event id after ${COLLISION_RETRIES} tries. Nothing was written.` };
     const written = [];
-    for (const { draft, at, id } of stamped) {
-      const build = (first, rand) => ({ v: 1, id: first || idFor(at, rand), type: draft.type, at, by: draft.by, data: draft.data });
-      const made = createExclusive(fsImpl, dir, build, id, random);
-      if (!made) {
-        return { ok: false, finding: 'id-collision', written, message: `could not create a free event id after ${COLLISION_RETRIES} tries; ${written.length} of ${stamped.length} events were written.` };
-      }
-      written.push({ id: made.event.id, file: path.relative(root, made.file).split(path.sep).join('/'), event: made.event });
-    }
+    stamped.forEach(({ draft, at }, index) => {
+      const event = { v: 1, id: ids[index], type: draft.type, at, by: draft.by, data: draft.data };
+      const file = path.join(dir, `${event.id}.json`);
+      // The ids are free under the lock; the exclusive create only guards against a writer outside it.
+      fsImpl.writeFileSync(file, `${JSON.stringify(event, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
+      written.push({ id: event.id, file: path.relative(root, file).split(path.sep).join('/'), event });
+    });
     return { ok: true, written };
   } finally {
     release();
@@ -152,16 +166,21 @@ function appendEvents(root, drafts, { now = new Date(), fsImpl = nodeFs, random 
 
 /** Folds the store, stamps each draft and applies it; `refused` is the whole call's refusal when any is illegal. */
 function planEvents(root, drafts, { now, fsImpl, random }) {
-  const state = foldInto(readEvents(root, { fsImpl }).events);
+  const state = foldInto(readEvents(root, { fsImpl }).events, { now });
+  // An event dated far ahead is not in the fold (DEC-045), so it cannot push this stamp forward.
   let floor = state.newestAt === null ? -Infinity : state.newestAt + 1;
   const stamped = [];
   for (const draft of drafts) {
     const atMs = Math.max(now.getTime(), floor);
     floor = atMs + 1;
-    const at = new Date(atMs).toISOString();
+    let at;
+    try { at = new Date(atMs).toISOString(); } catch { at = null; }
     // The dry run draws the id the write will try first, so a conflict names the event it refuses.
-    const id = idFor(at, random);
-    const raised = applyEvent(state, { v: 1, id, type: draft.type, at, by: draft.by, data: draft.data });
+    const id = at && isStrictAt(at) ? idFor(at, random) : null;
+    if (!id || !EVENT_ID.test(id)) {
+      return { refused: { ok: false, finding: 'invalid-id', message: 'cannot build an event id of the form <UTC time>-<6 base32 characters> from the clock and the random source. Nothing was written.' } };
+    }
+    const raised = applyEvent(state, { v: 1, id, type: draft.type, at, by: draft.by, data: draft.data }, { checkFuture: false });
     if (raised.length) {
       return { refused: { ok: false, finding: 'illegal-transition', conflict: raised[0], message: `${raised[0].reason}. Nothing was written.` } };
     }
