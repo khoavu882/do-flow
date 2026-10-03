@@ -106,7 +106,14 @@ function resolveFeatureSlug({ cwd, slug }) {
   // A missing helper is an install problem, not "no feature": it must not read as a branch that names none.
   if (found.error === 'resolver-missing') throw new FollowupUsageError('the DoFlow helper scripts are missing from this install; reinstall DoFlow, or pass --slug, or --source run|release|manual');
   const resolved = found.error ? null : found.paths && found.paths.feature_slug;
-  return resolved && isSafeSlug(resolved) ? resolved : null;
+  if (!resolved || !isSafeSlug(resolved)) return null;
+  // A branch names a feature only when its folder exists; otherwise the item would cite a feature that does not (IC-002).
+  let isFolder = false;
+  try { isFolder = nodeFs.statSync(found.featureDir).isDirectory(); } catch { /* absent */ }
+  if (!isFolder) {
+    throw new FollowupUsageError(`branch '${found.paths.branch}' names '${resolved}', which has no feature folder (agent-docs/doflow/${resolved}); pass --slug <existing feature>, or --source run --task-class <class> --task-id <id>`);
+  }
+  return resolved;
 }
 
 function sourceFor(kind, fields, label, problems) {
@@ -348,10 +355,26 @@ function settleFollowups({ root, ids, as, reason, evidence, channel, now = new D
   if (!problems.length && as === 'done' && !cleanEvidence) problems.push('--evidence is required for --as done');
   if (problems.length) throw new FollowupUsageError(problems.join('; '));
   const by = channelBy(channel);
+  // `list` shows a taken item whose feature finished as `done`, but the fold still holds it `taken`: say what the user was shown.
+  const derivedDone = new Map(loadFollowups(root, { fsImpl, now }).followups.filter((item) => item.derived).map((item) => [item.id, item.takenBy]));
+  if (as !== 'kept') {
+    const shown = list.find((id) => derivedDone.has(id));
+    if (shown) {
+      return refusal('settle', 'illegal-transition', `${shown} is done because feature ${derivedDone.get(shown)} finished (derived from git and the release records, not recorded on the item); only an open item can be settled as ${as}. Nothing was written.`);
+    }
+  }
   const drafts = list.map((id) => ({ type: 'followup.settled', by, data: { id, as, reason: cleanReason, evidence: cleanEvidence } }));
   const out = appendEvents(root, drafts, { now, fsImpl });
   if (!out.ok) return refusalFrom('settle', out);
-  return { ok: true, action: 'settle', ids: list, as, events: out.written.map((w) => w.file), next: [] };
+  const reopened = as === 'kept' ? list.filter((id) => derivedDone.has(id)) : [];
+  return {
+    ok: true,
+    action: 'settle',
+    ids: list,
+    as,
+    events: out.written.map((w) => w.file),
+    next: reopened.map((id) => `${id} was shown as done because feature ${derivedDone.get(id)} finished; keeping it released it from that feature, so it is open again`),
+  };
 }
 
 /**

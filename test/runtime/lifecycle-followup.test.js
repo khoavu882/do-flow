@@ -110,6 +110,19 @@ test('add: the feature is resolved from the branch when --slug is absent', () =>
   assert.deepEqual(out.created[0].source, { kind: 'stage', feature: '051-from-branch', stage: 'design' });
 });
 
+test('add: a branch with no feature folder is refused with both ways forward, and --source run works there', () => {
+  const repo = FIXTURES.noTag(scratch).repo;
+  repo.checkout('-b', 'fix/cart-total');
+  const defaults = { stage: 'review' };
+  usage(() => addFollowups({ root: repo.dir, cwd: repo.dir, items: [{ statement: 'x' }], defaults }),
+    /branch 'fix\/cart-total' names 'cart-total', which has no feature folder.*--slug <existing feature>.*--source run --task-class <class> --task-id <id>/);
+  assert.equal(eventCount(repo.dir), 0, 'nothing was recorded against a feature that does not exist');
+  const out = addFollowups({ root: repo.dir, cwd: repo.dir, items: [{ statement: 'x' }], defaults: { ...defaults, source: 'run', taskClass: 'bug', taskId: 'cart-total' } });
+  assert.deepEqual(out.created[0].source, { kind: 'run', taskClass: 'bug', taskId: 'cart-total', stage: 'review' });
+  // An explicit --slug keeps its own validation: it is accepted without a folder, as before.
+  assert.equal(addFollowups({ root: repo.dir, cwd: repo.dir, items: [{ statement: 'y' }], defaults: { ...defaults, slug: '050-demo' } }).ok, true);
+});
+
 test('add: a runtime with no bash helpers anywhere says so, instead of "no feature resolved"', () => {
   // The shape of an installed runtime whose scripts directory is gone: bin/, src/ and core/registry/ only.
   const repoRoot = path.resolve(__dirname, '..', '..');
@@ -345,6 +358,46 @@ test('settle: a taken item can be released with kept; dismissing it is refused',
   assert.equal(settleFollowups({ root, ids: a, as: 'kept', reason: 'not in this feature' }).ok, true);
   const [item] = listFollowups({ root }).items;
   assert.deepEqual([item.state, item.takenBy], ['open', null]);
+});
+
+/** A follow-up taken by a feature that derives `finished`, so `list` shows it done while the fold holds it taken. */
+function derivedDoneItem(label) {
+  const merged = FIXTURES.mergeCommit(scratch);
+  const root = merged.repo.dir;
+  const id = add(root, label, { stage: 'review', slug: merged.slug }, { now: new Date(TRACKED_AT) }).created[0].id;
+  track(root, merged.slug, new Date(TRACKED_AT));
+  assert.equal(takeFollowups({ root, ids: id, slug: merged.slug, now: new Date(TRACKED_AT) }).ok, true);
+  assert.equal(listFollowups({ root, state: 'done' }).items.length, 1, 'list shows it done');
+  return { root, id, slug: merged.slug };
+}
+
+test('settle: an item shown done because its feature finished is refused as done or dismissed with that reason, not "is taken"', () => {
+  const { root, id, slug } = derivedDoneItem('shipped');
+  const before = eventCount(root);
+  for (const [as, extra] of [['done', { evidence: 'commit abc1234' }], ['dismissed', { reason: 'noise' }], ['fix', { reason: 'bug run x' }]]) {
+    const out = settleFollowups({ root, ids: id, as, ...extra });
+    assert.equal(out.ok, false, as);
+    assert.equal(out.finding, 'illegal-transition', as);
+    assert.match(out.message, new RegExp(`^${id} is done because feature ${slug} finished`), as);
+    assert.doesNotMatch(out.message, /is taken/, as);
+    assert.match(out.message, new RegExp(`only an open item can be settled as ${as}`), as);
+  }
+  assert.equal(eventCount(root), before, 'nothing was written');
+});
+
+test('settle: --as kept on an item shown done is allowed by IC-003 and the confirmation says what the user was shown', () => {
+  const { root, id, slug } = derivedDoneItem('shipped, kept');
+  const out = settleFollowups({ root, ids: id, as: 'kept', reason: 'the fix did not cover this' });
+  assert.equal(out.ok, true);
+  assert.equal(out.next.length, 1);
+  assert.match(out.next[0], new RegExp(`^${id} was shown as done because feature ${slug} finished; .* it is open again$`));
+  assert.deepEqual(listFollowups({ root }).items.map((i) => [i.id, i.state, i.takenBy]), [[id, 'open', null]]);
+  // An ordinary taken item (its feature has not finished) keeps the old wording and an empty next.
+  const plain = plainRoot();
+  const a = add(plain, 'a').created[0].id;
+  track(plain, '050-demo');
+  takeFollowups({ root: plain, ids: a, slug: '050-demo' });
+  assert.deepEqual(settleFollowups({ root: plain, ids: a, as: 'kept', reason: 'not in this feature' }).next, []);
 });
 
 test('settle: an unknown id is a refusal naming it; reason and evidence are masked', () => {
