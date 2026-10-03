@@ -70,12 +70,13 @@ after(() => scratch.remove());
 
 let n = 0;
 /** One spawn of bin/doflow.js in its own scratch HOME, XDG folder and working directory. */
-function run(args, { fault, env: extra = {}, dropHome = false } = {}) {
+function run(args, { fault, env: extra = {}, dropHome = false, setup } = {}) {
   const dir = path.join(scratch.dir, `run-${n++}`);
   const home = path.join(dir, 'home');
   const xdg = path.join(dir, 'xdg');
   const cwd = path.join(dir, 'project');
   for (const d of [home, xdg, cwd]) fs.mkdirSync(d, { recursive: true });
+  if (setup) setup(cwd);
   const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: xdg, DOFLOW_FAILURE_CAPTURE: '', DOFLOW_AGENT: '', DOFLOW_FAULT: '', ...extra };
   if (dropHome) { delete env.HOME; delete env.XDG_CONFIG_HOME; }
   if (fault) env.DOFLOW_FAULT = JSON.stringify(fault);
@@ -97,10 +98,12 @@ function onOff(args, fault, extra) {
 
 function assertIdentical({ on, off }) {
   assert.equal(on.status, off.status, 'exit status differs');
-  assert.equal(on.stdout, off.stdout, 'stdout differs');
+  // The two runs differ only in their scratch directory name (run-<n>), which some commands print.
+  const same = (text) => text.replace(/run-\d+/g, 'run-N');
+  assert.equal(same(on.stdout), same(off.stdout), 'stdout differs');
   // The uncaught crash prints a path-bearing stack; both runs use the same preload and binary, and
   // the two scratch directories only differ in the run-<n> segment, which never reaches the output.
-  assert.equal(on.stderr, off.stderr, 'stderr differs');
+  assert.equal(same(on.stderr), same(off.stderr), 'stderr differs');
 }
 
 describe('error-to-usage catch sites record a programming error and keep the usage result', () => {
@@ -305,4 +308,30 @@ describe('a CLI whose failure modules cannot be loaded runs as today (IC-016)', 
     assert.equal(run(['--version'], { fault: block }).status, 0);
     assert.equal(run(['failure', '--action', 'list'], { fault: block }).status, 1);
   });
+});
+
+describe('handlers that print their own [ERROR] and exit 1 still record a programming error (IC-016)', () => {
+  const sites = [
+    ['retrieve', ['retrieve', '--query', 'x'], { kind: 'export', module: 'src/runtime/knowledge/index-store.js', method: 'isFresh' },
+      (cwd) => { fs.mkdirSync(path.join(cwd, '.doflow', 'guidance'), { recursive: true }); fs.writeFileSync(path.join(cwd, '.doflow', 'guidance', 'a.md'), '# A\n\nhello\n'); }],
+    ['model-role', ['model-role', '--role', 'reasoning'], { kind: 'export', module: 'src/registry/index.js', method: 'loadRegistry' }, undefined],
+    ['rollback', ['rollback', 'no-such-backup', '-t', 'claude', '--force'], { kind: 'export', module: 'src/install/backup.js', method: 'restoreBackup' }, undefined],
+  ];
+  for (const [name, args, spec, setup] of sites) {
+    test(`${name}: one line recorded, output and exit status identical with capture off`, () => {
+      const pair = onOff(args, { ...spec, error: 'type' }, { setup });
+      assert.equal(pair.on.status, 1, pair.on.stderr);
+      assert.match(pair.on.stderr, /\[ERROR\] (retrieve: |model-role: )?injected "secret value" at attempt 42/);
+      assertIdentical(pair);
+      assert.equal(pair.on.lines.length, 1);
+      assert.deepEqual([pair.on.lines[0].command, pair.on.lines[0].kind, pair.on.lines[0].exit], [name, 'TypeError', 1]);
+      assert.equal(pair.off.lines.length, 0);
+    });
+    test(`${name}: a plain Error at the same site is not recorded`, () => {
+      const pair = onOff(args, { ...spec, error: 'plain' }, { setup });
+      assert.equal(pair.on.status, 1);
+      assertIdentical(pair);
+      assert.equal(pair.on.lines.length, 0);
+    });
+  }
 });

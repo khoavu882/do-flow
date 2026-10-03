@@ -20,6 +20,18 @@ function finishRuntime(code) {
 }
 
 /**
+ * Records a caught error in the failure store when it is a programming error (IC-010), silently and
+ * without changing anything the caller prints or exits with. For a handler that catches an error and
+ * reports it itself, so a bug in DoFlow is not swallowed by its own `[ERROR]` line.
+ * @param {*} error
+ * @param {string} command the verb or installer command name
+ * @param {number} exit the exit status the caller is about to produce
+ */
+function captureCaught(error, command, exit) {
+  try { require('./failure/capture').captureError(error, { command, exit }); } catch { /* capture is best-effort */ }
+}
+
+/**
  * Reports an argument the CLI cannot proceed without, in the caller's requested shape.
  *
  * `error` is the thrown error a catch site is turning into this usage result. When it is a
@@ -32,12 +44,10 @@ function finishRuntime(code) {
  * @returns {number} 2 (USAGE error exit code)
  */
 function usageError(verb, message, json, error) {
-  if (error !== undefined) {
-    try { require('./failure/capture').captureError(error, { command: verb, exit: 2 }); } catch { /* capture is best-effort */ }
-  }
+  if (error !== undefined) captureCaught(error, verb, 2);
   if (json) console.log(JSON.stringify({ ok: false, status: 'USAGE', exitCode: 2, error: 'usage', summary: message }, null, 2));
   else console.error(`doflow ${verb}: ${message}`);
   return finishRuntime(2);
 }
 
-module.exports = { finishRuntime, usageError };
+module.exports = { finishRuntime, usageError, captureCaught };

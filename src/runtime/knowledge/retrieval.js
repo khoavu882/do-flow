@@ -9,7 +9,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { buildIndex, loadIndex, isFresh } = require('./index-store');
-const { finishRuntime, usageError } = require('../cli-result');
+const { finishRuntime, usageError, captureCaught } = require('../cli-result');
 
 const BM25_K1 = 1.5;
 const BM25_B = 0.75;
@@ -163,6 +163,7 @@ function handleRetrieveCommand({ query, top, json = false, stateRoot } = {}) {
     }
     return finishRuntime(0);
   } catch (error) {
+    captureCaught(error, 'retrieve', 1);
     console.error(`[ERROR] retrieve: ${error.message}`);
     return finishRuntime(1);
   }
