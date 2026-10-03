@@ -4,6 +4,34 @@ const { EvidenceLedger } = require('./evidence-ledger');
 const { ClaimsManager } = require('./claims');
 const { ResearchRequestStore } = require('./research-request');
 const { finishRuntime, usageError } = require('./cli-result');
+const { resolveActiveFeature } = require('./feature-resolve');
+const { readRegister } = require('./decision-register');
+
+const NO_DECISIONS = Object.freeze({ available: false, live: [], liveCount: 0 });
+
+/**
+ * The live decisions of the feature the caller is working on (IC-012). The feature is resolved
+ * from the branch, or from `slug` when the task id is not the feature slug. A feature with no
+ * register, an unresolvable feature or an unreadable register all read as "not available": a
+ * context pack is a read, and a missing register must not stop a stage from getting its evidence.
+ * @param {{projectRoot:string, slug?:string|null}} options
+ * @returns {{available:boolean, live:Array<Object>, liveCount:number}}
+ */
+function loadLiveDecisions({ projectRoot, slug = null }) {
+  try {
+    const feature = resolveActiveFeature({ projectRoot, slug });
+    if (feature.error) return { ...NO_DECISIONS };
+    const register = readRegister(feature.featureDir);
+    if (!register) return { ...NO_DECISIONS };
+    const live = register.decisions
+      .filter((d) => d.status === 'live')
+      .sort((a, b) => (a.topic < b.topic ? -1 : a.topic > b.topic ? 1 : 0))
+      .map(({ id, topic, statement, decidedBy, stage }) => ({ id, topic, statement, decidedBy, stage }));
+    return { available: true, live, liveCount: live.length };
+  } catch {
+    return { ...NO_DECISIONS };
+  }
+}
 
 class ContextPackCompiler {
   /**
@@ -44,6 +72,7 @@ class ContextPackCompiler {
       evidenceLedger,
       claimsManager,
       researchRequests = [],
+      decisions = NO_DECISIONS,
     } = params;
 
     const limits = { ...this.options, ...budgetOverrides };
@@ -134,6 +163,7 @@ class ContextPackCompiler {
           id: r.id, stageId: r.stageId, question: r.question, status: r.status,
           blocking: r.blocking, claimId: r.claimId, evidenceIds: r.evidenceIds, gap: r.gap,
         })),
+      decisions: { available: decisions.available, live: [...decisions.live], liveCount: decisions.liveCount },
       budgetEnforcement: {
         totalFiles: relevantFiles.length,
         totalSupportedClaims: supportedClaims.length,
@@ -181,6 +211,12 @@ class ContextPackCompiler {
       md += '\n';
     }
 
+    if (pack.decisions && pack.decisions.liveCount > 0) {
+      md += `### Live decisions\n`;
+      for (const d of pack.decisions.live) md += `- ${d.id} (${d.topic}): ${d.statement}\n`;
+      md += '\n';
+    }
+
     if (pack.relevantFiles.length > 0) {
       md += `### Relevant File Locators\n`;
       for (const f of pack.relevantFiles) {
@@ -207,9 +243,10 @@ class ContextPackCompiler {
  * @param {string} [options.objective]
  * @param {boolean} [options.json=false]
  * @param {string} [options.stateRoot]
+ * @param {string} [options.slug] feature slug, when the task id is not the feature's own
  * @returns {number} exit code
  */
-function handleContextPackCommand({ taskId, taskClass, objective, json = false, stateRoot } = {}) {
+function handleContextPackCommand({ taskId, taskClass, objective, json = false, stateRoot, slug } = {}) {
   const root = stateRoot || process.cwd();
   const ledger = new EvidenceLedger({ repoRoot: root });
   ledger.load(taskId);
@@ -229,13 +266,15 @@ function handleContextPackCommand({ taskId, taskClass, objective, json = false, 
     evidenceLedger: ledger,
     claimsManager: claims,
     researchRequests,
+    decisions: loadLiveDecisions({ projectRoot: root, slug: slug || null }),
   });
 
   const empty = pack.evidenceCount === 0
     && pack.claims.supported.length === 0
     && pack.claims.hypotheses.length === 0
     && pack.claims.conflicts.length === 0
-    && pack.researchRequests.length === 0;
+    && pack.researchRequests.length === 0
+    && pack.decisions.liveCount === 0;
 
   if (json) console.log(JSON.stringify({ ...pack, empty }, null, 2));
   else {
@@ -248,4 +287,5 @@ function handleContextPackCommand({ taskId, taskClass, objective, json = false, 
 module.exports = {
   ContextPackCompiler,
   handleContextPackCommand,
+  loadLiveDecisions,
 };
