@@ -357,7 +357,7 @@ function compactDecisions({ featureDir, slug, repoRoot, paths, now = new Date(),
       return {
         ...base, status: result.status, finding: 'compaction-failed',
         message: result.failed.map((f) => f.message).join('; '),
-        artifact: result.failed[0].artifact, moved: result.moved, failed: result.failed,
+        artifact: result.failed[0].path, moved: result.moved, failed: result.failed,
       };
     }
     return { ...base, status: result.status, moved: result.moved, failed: [] };

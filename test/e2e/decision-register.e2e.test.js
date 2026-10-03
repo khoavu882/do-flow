@@ -268,7 +268,7 @@ test('5. compaction is lossless and idempotent (FR-012, FR-014, NFR-004)', { ski
   assert.strictEqual(first.status, 0, first.stdout + first.stderr);
   assert.strictEqual(first.json.status, 'compacted');
   assert.deepStrictEqual(first.json.moved.map((m) => m.artifact).sort(),
-    ['design/data-model.md', 'design/design.md', 'design/specs.md', 'intention/requirement.md', 'plan.md']);
+    ['data-model.md', 'design.md', 'plan.md', 'requirement.md', 'specs.md']);
 
   for (const [rel, [name, heading, lines]] of Object.entries(HISTORY_ARTIFACTS)) {
     const archive = read(path.join(dir, 'decisions', 'history', name));
@@ -320,7 +320,7 @@ test('6. compaction runs at handoff for a feature slug and is skipped for a plan
   assert.strictEqual(real.status, 0, real.stdout + real.stderr);
   assert.strictEqual(real.json.disposition, 'completed');
   assert.strictEqual(real.json.compaction.status, 'compacted');
-  assert.deepStrictEqual(real.json.compaction.moved.map((m) => [m.artifact, m.lines]), [['intention/requirement.md', 2]]);
+  assert.deepStrictEqual(real.json.compaction.moved.map((m) => [m.artifact, m.lines]), [['requirement.md', 2]]);
   assert.ok(read(path.join(dir, 'decisions', 'history', 'requirement.md')).includes('- 2026-10-02 second revision'));
   const liveView = read(path.join(dir, 'decisions.md'));
   assert.doesNotMatch(liveView, /DEC-001|narrow scope/, 'the superseded decision is absent from the live view at handoff');

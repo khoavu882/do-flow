@@ -331,7 +331,7 @@ test('045: a handoff that compacts one artifact and is refused by another report
   assert.equal(result.data.disposition, 'completed');
   assert.equal(result.data.compaction.status, 'partial');
   assert.deepEqual(result.data.compaction.moved.map((m) => m.artifact), ['plan.md']);
-  assert.deepEqual(result.data.compaction.failed.map((f) => f.artifact), ['intention/requirement.md']);
+  assert.deepEqual(result.data.compaction.failed.map((f) => [f.artifact, f.path]), [['requirement.md', 'intention/requirement.md']]);
   assert.equal(requirementOf(cwd, '076-x'), refused);
   assert.match(fs.readFileSync(path.join(featureDir, 'plan.md'), 'utf8'), /Earlier entries:/);
 });

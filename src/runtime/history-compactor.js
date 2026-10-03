@@ -188,8 +188,7 @@ function compactArtifact({ fsImpl, featureDir, file, date }) {
   for (const c of comments) body.push(...c, blank);
   body.push(pointerLine, end === lines.length ? '' : blank);
   writeAtomic(fsImpl, file, [...lines.slice(0, start + 1), ...body, ...lines.slice(end)].join('\n'));
-  // `artifact` is the feature-relative path, the same form `failed[].artifact` uses.
-  return { artifact: rel, path: rel, archive: archiveRel, lines: moved.length };
+  return { artifact: name, path: rel, archive: archiveRel, lines: moved.length };
 }
 
 /**
@@ -209,7 +208,7 @@ function compactArtifact({ fsImpl, featureDir, file, date }) {
  * Every artifact is attempted. One that cannot be compacted is left as it was and reported in
  * `failed`; it does not stop the others (IC-005).
  *
- * @returns {{status:'compacted'|'unchanged'|'partial', moved:Object[], failed:Array<{artifact:string, message:string}>}}
+ * @returns {{status:'compacted'|'unchanged'|'partial', moved:Object[], failed:Array<{artifact:string, path:string, message:string}>}}
  *   `partial` means at least one artifact failed
  */
 function compactHistory({ repoRoot, featureDir, paths, date, fsImpl = nodeFs }) {
@@ -225,7 +224,7 @@ function compactHistory({ repoRoot, featureDir, paths, date, fsImpl = nodeFs }) 
       result = compactArtifact({ fsImpl, featureDir, file, date: stamp });
     } catch (error) {
       const name = toPosix(path.relative(featureDir, file));
-      failed.push({ artifact: name, message: `could not compact ${name}: ${error.message}; the artifact was left unchanged` });
+      failed.push({ artifact: path.basename(file), path: name, message: `could not compact ${name}: ${error.message}; the artifact was left unchanged` });
       continue;
     }
     if (result) moved.push(result);

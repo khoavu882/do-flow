@@ -474,7 +474,7 @@ class WorkflowOrchestrator {
  * slug. This is housekeeping after a recorded handoff, so it reports and never throws: the
  * disposition and the exit code stay whatever the handoff itself decided.
  * @returns {{status:'compacted'|'unchanged'|'partial'|'skipped'|'failed', reason?:string, moved?:Array,
- *   failed?:Array<{artifact:string, message:string}>}} `partial` carries `failed`, one entry per refused artifact
+ *   failed?:Array<{artifact:string, path:string, message:string}>}} `partial` carries `failed`, one entry per refused artifact
  */
 function compactAfterHandoff({ taskId, projectRoot }) {
   try {

@@ -159,7 +159,7 @@ describe('Scenario: An unclosed comment after History does not stall compaction 
     assert.strictEqual(res.status, 0, res.stdout + res.stderr);
     assert.strictEqual(res.json.status, 'compacted');
     assert.deepStrictEqual(res.json.failed, []);
-    assert.deepStrictEqual(res.json.moved.map((m) => m.artifact), ['intention/requirement.md']);
+    assert.deepStrictEqual(res.json.moved.map((m) => m.artifact), ['requirement.md']);
     assert.strictEqual(read(path.join(dir, 'plan.md')), noHistory, 'no History section: untouched');
   });
 });

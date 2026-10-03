@@ -218,7 +218,7 @@ test('artifacts compacted around a failure stay compacted and the failure is rep
   const result = compactHistory({ ...f, date: DATE, fsImpl: failingRename(planArchive) });
   assert.equal(result.status, 'partial');
   assert.deepEqual(result.failed.map((x) => x.artifact), ['plan.md']);
-  assert.deepEqual(result.moved.map((x) => x.artifact), ['design/specs.md']);
+  assert.deepEqual(result.moved.map((x) => [x.artifact, x.path]), [['specs.md', 'design/specs.md']]);
 });
 
 // ── fenced code blocks ─────────────────────────────────────────────────────────────────────────
@@ -383,7 +383,8 @@ test('one refused artifact does not stop the others, and the refused one is byte
   const result = compactHistory({ ...f, date: DATE });
   assert.equal(result.status, 'partial');
   assert.deepEqual(result.moved.map((m) => m.artifact), ['plan.md']);
-  assert.deepEqual(result.failed.map((x) => x.artifact), ['intention/requirement.md']);
+  assert.deepEqual(result.failed.map((x) => [x.artifact, x.path]), [['requirement.md', 'intention/requirement.md']]);
+  assert.deepEqual(result.moved.map((m) => [m.artifact, m.path]), [['plan.md', 'plan.md']]);
   assert.ok(fs.readFileSync(requirement).equals(before));
   assert.ok(read(path.join(f.featureDir, 'plan.md')).includes('Earlier entries:'));
 });
