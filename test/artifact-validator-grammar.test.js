@@ -313,3 +313,156 @@ The replacement for IC-001.
   assert.deepEqual(rules(result), []);
   assert.equal(result.status, 0);
 });
+
+// ── 044-decision-register (IC-010): the `stale` rule and the archive-aware `history` rule ──────────
+// Both need a feature folder: the stale rule reads decisions/register.json through the resolver, so
+// these fixtures are real (scratch) git repos on a feat/ branch, and the validator runs from inside.
+
+function git(cwd, ...args) {
+  const run = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd, encoding: 'utf8' });
+  assert.equal(run.status, 0, `git ${args.join(' ')} failed: ${run.stderr}`);
+}
+
+const dec = (id, extra) => ({
+  id, topic: `topic-${id.slice(4)}`, statement: 's', decidedBy: 'user', channel: 'question', stage: 'design',
+  date: '2026-10-03', at: '2026-10-03T00:00:00.000Z', status: 'live', supersedes: [], supersededBy: null,
+  refs: [], source: '', rationale: 'r', ...extra,
+});
+
+/** A scratch repo holding feature 050-x (structured layout). `register` is the decisions array, or
+ * null for a feature with no register. `files` maps feature-relative paths to content. */
+function featureRepo(name, register, files) {
+  const repo = fs.mkdtempSync(path.join(scratch, `${name}-`));
+  const feature = path.join(repo, 'agent-docs', 'doflow', '050-x');
+  fs.mkdirSync(path.join(feature, 'intention'), { recursive: true });
+  fs.mkdirSync(path.join(feature, 'design'), { recursive: true });
+  fs.writeFileSync(path.join(feature, 'intention', 'requirement.md'), '# Requirement\n');
+  if (register) {
+    fs.mkdirSync(path.join(feature, 'decisions'), { recursive: true });
+    fs.writeFileSync(path.join(feature, 'decisions', 'register.json'),
+      JSON.stringify({ version: 1, slug: '050-x', nextId: register.length + 1, decisions: register }));
+  }
+  for (const [rel, body] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(feature, rel)), { recursive: true });
+    fs.writeFileSync(path.join(feature, rel), body);
+  }
+  git(repo, 'init', '-q', '-b', 'main');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'init');
+  git(repo, 'checkout', '-q', '-b', 'feat/050-x');
+  return { repo, feature };
+}
+
+function validateIn(repo, ...args) {
+  const run = spawnSync('bash', [VALIDATOR, '--json', ...args], { cwd: repo, encoding: 'utf8' });
+  assert.equal(run.error, undefined);
+  return { ...parseJson(run, args.join(' ')), status: run.status };
+}
+
+// DEC-001 was replaced by DEC-002, which was replaced by the live DEC-003; DEC-004 is untouched.
+const CHAIN = [
+  dec('DEC-001', { status: 'superseded', supersededBy: 'DEC-002' }),
+  dec('DEC-002', { status: 'superseded', supersededBy: 'DEC-003', supersedes: ['DEC-001'] }),
+  dec('DEC-003', { supersedes: ['DEC-002'] }),
+  dec('DEC-004'),
+];
+
+test('stale: a line citing a superseded decision is flagged with the live end of its chain', () => {
+  const { repo, feature } = featureRepo('stale-fires', CHAIN, {
+    'design/design.md': '# Design\n\n## 1. Choices\n\nThe wire carries the key. DEC-001\nThis one is fine. DEC-004\n',
+  });
+  const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
+  assert.deepEqual(result.findings.map((f) => [f.rule, f.id, f.message]),
+    [['stale', 'DEC-001', 'line 5 cites DEC-001, superseded by DEC-003']]);
+  assert.equal(result.status, 1);
+});
+
+test('stale: a line that also names a later decision in the chain is exempt', () => {
+  const { repo, feature } = featureRepo('stale-successor', CHAIN, {
+    'design/design.md': '# Design\n\n## 1. Choices\n\nWas DEC-001, now DEC-002.\nDEC-002 replaced DEC-001 and then DEC-003 replaced it.\n',
+  });
+  const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
+  // Line 5 names DEC-002 after DEC-001, but DEC-002 is itself superseded by DEC-003, which the
+  // line does not name: DEC-002 is flagged, DEC-001 is exempt.
+  assert.deepEqual(rules(result), ['stale DEC-002']);
+});
+
+test('stale: a token that merely contains a DEC id is not a citation', () => {
+  const { repo, feature } = featureRepo('stale-boundary', CHAIN, {
+    'design/design.md': '# Design\n\n## 1. Choices\n\nXDEC-001 and DEC-0011 and DEC-001a are not citations.\n',
+  });
+  const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
+  assert.deepEqual(rules(result), []);
+});
+
+test('stale: History sections and HTML comments are exempt', () => {
+  const { repo, feature } = featureRepo('stale-exempt', CHAIN, {
+    'design/design.md': [
+      '# Design', '', '## 1. Choices', '',
+      '<!-- DEC-001 cited inside a one-line comment -->',
+      '<!--', 'DEC-001 cited inside a block comment', '-->',
+      'Visible text. <!-- DEC-001 --> more text.', '',
+      '## 2. History', '', '- **DEC-001** replaced by DEC-003 in design.', 'DEC-001 was the first answer.', '',
+    ].join('\n'),
+  });
+  const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
+  assert.deepEqual(rules(result), []);
+});
+
+test('stale: a feature without a register gets no stale finding', () => {
+  const { repo, feature } = featureRepo('stale-no-register', null, {
+    'design/design.md': '# Design\n\n## 1. Choices\n\nThe wire carries the key. DEC-001\n',
+  });
+  const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
+  assert.deepEqual(rules(result), []);
+  assert.equal(result.status, 0);
+});
+
+test('stale: discovery mode covers data-model.md alongside the other artifacts', () => {
+  const { repo } = featureRepo('stale-discovery', CHAIN, {
+    'design/data-model.md': '# Data model\n\n## 1. Entities\n\nKeyed by number. DEC-001\n',
+    'plan.md': '# Plan\n\n## 1. Basis\n\nResting on DEC-004.\n',
+  });
+  const result = validateIn(repo);
+  assert.deepEqual(result.findings.map((f) => [path.basename(f.file), f.rule, f.id]),
+    [['data-model.md', 'stale', 'DEC-001']]);
+});
+
+test('stale: an explicit path outside the feature folder is not checked against its register', () => {
+  const { repo } = featureRepo('stale-outside', CHAIN, {});
+  const outside = path.join(repo, 'notes.md');
+  fs.writeFileSync(outside, '# Notes\n\n## 1. Choices\n\nCites DEC-001.\n');
+  assert.deepEqual(rules(validateIn(repo, outside)), []);
+});
+
+test('history: an ID that moved to the archive named by the History pointer still has a History entry', () => {
+  const body = (withPointer) => [
+    '# Specs', '',
+    '## 1. Contracts', '',
+    '| ID | Contract | Status |', '|---|---|---|', '| IC-001 | old | Superseded -> IC-002 |', '| IC-002 | new | Live |', '',
+    '**Detail**', '', '- **IC-001:** old.', '- **IC-002:** new.', '',
+    '## 2. History', '',
+    ...(withPointer ? ['Earlier entries: [decisions/history/specs.md](../decisions/history/specs.md).', ''] : []),
+  ].join('\n');
+  const archive = [
+    '# History archive: design/specs.md', '',
+    '## Compacted 2026-10-03 from design/specs.md §2', '',
+    '| Date | ID | Change |', '|---|---|---|', '| 2026-09-04 | IC-009 | other |', '',
+    '| ID | Change |', '|---|---|', '| IC-001 | replaced |', '',
+  ].join('\n');
+
+  const withPointer = featureRepo('history-pointer', CHAIN, { 'design/specs.md': body(true), 'decisions/history/specs.md': archive });
+  assert.deepEqual(rules(validateIn(withPointer.repo, path.join(withPointer.feature, 'design', 'specs.md'))), []);
+
+  const bulletArchive = archive.replace('| IC-001 | replaced |', '').concat('\n- **IC-001** — replaced.\n');
+  const withBullet = featureRepo('history-bullet', null, { 'design/specs.md': body(true), 'decisions/history/specs.md': bulletArchive });
+  assert.deepEqual(rules(validateIn(withBullet.repo, path.join(withBullet.feature, 'design', 'specs.md'))), []);
+
+  // No pointer: the archive file beside it is not consulted, so the rule still fires.
+  const noPointer = featureRepo('history-no-pointer', CHAIN, { 'design/specs.md': body(false), 'decisions/history/specs.md': archive });
+  assert.deepEqual(rules(validateIn(noPointer.repo, path.join(noPointer.feature, 'design', 'specs.md'))), ['history IC-001']);
+
+  // Pointer to an archive that does not exist: the rule still fires rather than failing open.
+  const missing = featureRepo('history-missing', CHAIN, { 'design/specs.md': body(true) });
+  assert.deepEqual(rules(validateIn(missing.repo, path.join(missing.feature, 'design', 'specs.md'))), ['history IC-001']);
+});

@@ -10,7 +10,11 @@
 #   parity     index IDs and Detail IDs match, in both directions
 #   status     every Status is "Live" or "Superseded -> <ref>"
 #   supersede  an ID-shaped <ref> resolves to an ID present in the same artifact
-#   history    a superseded ID has an entry in the History section
+#   history    a superseded ID has an entry in the History section (or in the archive file that
+#              the History section's "Earlier entries:" pointer names)
+#   stale      a line outside History and HTML comments cites a superseded DEC-### from the
+#              feature's decision register without also naming a decision that replaced it. Inert
+#              when the feature has no decisions/register.json.
 #   rollup     plan.md's phase rollup counts match its task checklist
 #
 # Grammar (see guidance/references/ARTIFACT_FORMAT.md) — deliberately prefix-agnostic, so
@@ -77,11 +81,41 @@ if [ "${#targets[@]}" -eq 0 ]; then
   root=$(printf '%s' "$json" | jq -r '.repo_root // empty')
   [ -n "$(printf '%s' "$json" | jq -r '.feature_slug // empty')" ] || note "no-active-feature"
 
-  for key in requirement design specs plan; do
+  for key in requirement design specs data_model plan; do
     p=$(printf '%s' "$json" | jq -r ".$key // empty")
     [ -n "$p" ] && [ -f "$root/$p" ] && targets+=("$root/$p")
   done
   [ "${#targets[@]}" -gt 0 ] || note "no-artifacts-present"
+elif command -v jq >/dev/null 2>&1; then
+  # Explicit paths skip discovery, but the stale rule still needs the feature's register. Resolve
+  # quietly: any failure here only leaves the rule inert, never changes what was asked for.
+  script_dir="$(cd "$(dirname "$0")" && pwd)"
+  RESOLVER="$script_dir/do-paths.sh"
+  [ -f "$RESOLVER" ] || RESOLVER="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh}"
+  json=""
+  if [ -f "$RESOLVER" ]; then
+    resolver_args=(--json)
+    [ -n "$slug_override" ] && resolver_args+=("--slug=$slug_override")
+    json=$(bash "$RESOLVER" "${resolver_args[@]}" 2>/dev/null) || json=""
+  fi
+  root=$(printf '%s' "$json" | jq -r '.repo_root // empty' 2>/dev/null)
+fi
+
+# ── decision register (stale rule) ──────────────────────────────────────────────────────────────
+# stale_map is "<id>:<successor>,<successor>;..." — every superseded decision with its chain, the
+# live end last. Empty when there is no register, so the rule is inert; a register jq cannot read
+# also leaves it empty (fail-open).
+stale_map=""; feat_abs=""
+if [ -n "${json:-}" ] && [ "$(printf '%s' "$json" | jq -r '.has_decisions // false' 2>/dev/null)" = "true" ]; then
+  reg_file="$root/$(printf '%s' "$json" | jq -r '.decisions_register')"
+  feat_abs="$root/$(printf '%s' "$json" | jq -r '.feature_dir')"
+  stale_map=$(jq -r '
+    .decisions as $d
+    | ($d | map({key: .id, value: .supersededBy}) | from_entries) as $next
+    | [ $d[] | select(.status == "superseded") | .id as $id
+        | {id: $id, chain: ([ $id | recurse($next[.] // empty) ] | .[1:])} ]
+    | map(select(.chain | length > 0) | .id + ":" + (.chain | join(",")))
+    | join(";")' "$reg_file" 2>/dev/null) || stale_map=""
 fi
 
 # ── check each target ─────────────────────────────────────────────────────────────────────────
@@ -92,14 +126,102 @@ for f in "${targets[@]}"; do
     findings="${findings}${f}"$'\t'"io"$'\t'"-"$'\t'"file not found"$'\n'
     continue
   fi
-  out=$(awk -v is_plan="$([ "$(basename "$f")" = "plan.md" ] && echo 1 || echo 0)" '
+  # The register belongs to one feature: an explicit path outside that feature folder must not be
+  # checked against it.
+  file_stale_map=""
+  if [ -n "$stale_map" ]; then
+    case "$(cd "$(dirname "$f")" 2>/dev/null && pwd -P)/" in
+      "$feat_abs"/*) file_stale_map="$stale_map" ;;
+    esac
+  fi
+  out=$(awk -v is_plan="$([ "$(basename "$f")" = "plan.md" ] && echo 1 || echo 0)" \
+    -v stale_map="$file_stale_map" -v dir="$(dirname "$f")" '
     # Inline markup is presentation, not value: "**Superseded → X**" and "`Live`" mean the same as
     # their bare forms, so emphasis is stripped before any comparison.
     function trim(s) { gsub(/[`*]/, "", s); gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
     function is_id(s) { return s ~ /^[A-Za-z]+-?[0-9]+$/ }
     function finding(rule, id, msg) { print rule "\t" id "\t" msg }
 
-    BEGIN { sec = 0; in_table = 0; in_rollup = 0; status_col = 0; phase = "" }
+    # Blanks the parts of a line that sit inside an HTML comment, tracking comments that span
+    # lines, so a comment block is never read as artifact text.
+    function strip_comments(s,   out, p) {
+      out = ""
+      while (s != "") {
+        if (in_comment) {
+          p = index(s, "-->")
+          if (!p) return out
+          s = substr(s, p + 3); in_comment = 0
+        } else {
+          p = index(s, "<!--")
+          if (!p) return out s
+          out = out substr(s, 1, p - 1); s = substr(s, p + 4); in_comment = 1
+        }
+      }
+      return out
+    }
+
+    # One finding per superseded DEC-### on the line, unless the same line also names a decision
+    # later in that decision chain (the line is then about the change, not a stale statement).
+    # awk has no \b, so a token counts only when no word character touches either end.
+    function check_stale(text, lineno,   pos, s, l, tok, before, after, num, cn, i, j, order, cited, named, ok) {
+      split("", order); split("", cited); split("", named); cn = 0; pos = 1
+      while (pos <= length(text) && match(substr(text, pos), /DEC-[0-9]+/)) {
+        s = pos + RSTART - 1; l = RLENGTH
+        tok = substr(text, s, l)
+        before = (s > 1) ? substr(text, s - 1, 1) : ""
+        after = substr(text, s + l, 1)
+        pos = s + l
+        if (before ~ /[A-Za-z0-9_]/ || after ~ /[A-Za-z_]/) continue
+        num = substr(tok, 5) + 0
+        named[num] = 1
+        if ((num in chain_end) && !(num in cited)) { cited[num] = tok; order[++cn] = num }
+      }
+      for (i = 1; i <= cn; i++) {
+        num = order[i]; ok = 0
+        for (j = 1; j <= chain_n[num]; j++) if (chain_m[num, j] in named) ok = 1
+        if (!ok) finding("stale", cited[num], "line " lineno " cites " cited[num] ", superseded by " chain_end[num])
+      }
+    }
+
+    # The pointer line in History names an archive file (relative to this artifact). IDs that
+    # moved there still count as History entries for the history rule.
+    function load_archive(line,   target, path, l, c, first) {
+      if (!match(line, /\]\([^)]+\)/)) return
+      target = substr(line, RSTART + 2, RLENGTH - 3)
+      path = (target ~ /^\//) ? target : dir "/" target
+      while ((getline l < path) > 0) {
+        if (l ~ /^[ \t]*\|/) {
+          if (l ~ /^[ \t]*\|[ :|-]*$/) continue
+          split(l, c, "|"); first = trim(c[2])
+          if (is_id(first)) hist[first] = 1
+        } else if (l ~ /^- \*\*[A-Za-z]+-?[0-9]+/) {
+          sub(/^- \*\*/, "", l)
+          if (match(l, /^[A-Za-z]+-?[0-9]+/)) hist[substr(l, 1, RLENGTH)] = 1
+        }
+      }
+      close(path)
+    }
+
+    BEGIN {
+      sec = 0; in_table = 0; in_rollup = 0; status_col = 0; phase = ""; in_comment = 0; cur_hist = 0
+      if (stale_map != "") {
+        nrec = split(stale_map, recs, ";")
+        for (r = 1; r <= nrec; r++) {
+          split(recs[r], kv, ":"); num = substr(kv[1], 5) + 0
+          nc = split(kv[2], ch, ",")
+          chain_end[num] = ch[nc]; chain_n[num] = nc
+          for (j = 1; j <= nc; j++) chain_m[num, j] = substr(ch[j], 5) + 0
+        }
+      }
+    }
+
+    # Runs on every line, before the structural rules below (which consume lines with "next").
+    {
+      vis = strip_comments($0)
+      if ($0 ~ /^## /) cur_hist = ($0 ~ /[Hh]istory/) ? 1 : 0
+      else if (cur_hist && vis ~ /^Earlier entries: \[decisions\/history\/[a-z-]+\.md\]/) load_archive(vis)
+      if (stale_map != "" && !cur_hist && vis != "") check_stale(vis, NR)
+    }
 
     # ── section boundaries ───────────────────────────────────────────────────────────────────
     /^## / {
