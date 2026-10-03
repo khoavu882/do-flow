@@ -30,6 +30,24 @@ Only handle an `awaitingGate` if the skill owns that gate and the handoff just c
 Follow the owning skill's decision rules; this API supplies no authorization. A deferral is not a
 rejection. The lower-level `decide-gate` action remains explicit.
 
+When `paths --json` reports `has_decisions: true`, do this before the handoff call:
+
+1. Register this stage's decisions (question answers, gate answers carrying a choice, decisions the
+   user typed as prompts, "Decide for me" defaults, agent resolutions) in one `"$DOFLOW" decision
+   --action add --batch <file> --json` call, channels `question|gate|prompt|default|resolution`.
+   Skip it when there are none. A value beginning with `-` is passed as `--flag=value`.
+2. Run `"$DOFLOW" validate`. Correct each `stale` finding in an artifact this stage owns, changing
+   only the flagged line; report findings in other artifacts without editing them.
+3. Record the handoff. It compacts History itself and reports `compaction`; its `--task-id` must be
+   the feature slug, not a plan task id, or compaction is skipped.
+
+| Stage | Owns |
+|---|---|
+| discovery | `intention/requirement.md` |
+| design | `design/design.md`, `design/specs.md`, `design/data-model.md` |
+| planning | `plan.md` |
+| implementation, verification, review | none; findings are reported |
+
 After recording work, regenerate the feature trail with `render-audit --slug="<task>" --json`.
 An external recording failure must be reported; it does not change the substantive findings or
 artifact correctness. A deferred workflow transition is still deferred, even when the artifact is

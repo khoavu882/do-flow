@@ -133,6 +133,8 @@ not declare is not run here, however familiar it is from the `feature` chain.
    - **`gate-0`** — only in the aborted-session branch above, where this skill patched
      `requirement.md` itself: once every surviving marker is resolved, `approve`. If any marker is
      still open, leave the gate alone.
+   When the answer carries a choice beyond approve or reject and the feature has a register, also
+   register it with `decision --action add --channel gate`.
    This call is advisory to the trail, not to the chain: if it fails for a reason outside this flow's
    control (an unwritable local state directory, say), report the failure plainly and carry the
    user's answer forward anyway — the answer is what governs whether the next stage runs, and the
