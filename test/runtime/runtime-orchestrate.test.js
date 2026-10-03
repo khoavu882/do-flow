@@ -229,3 +229,90 @@ test('M6: --forced on decide-gate requires --note, and is refused on an action t
   assert.notEqual(misusedForced.status, 0);
   assert.match(misusedForced.stderr, /'--forced' has no effect on action 'catch-up'/);
 });
+
+// ──────────────────────────────────────────────── 044: compaction after a recorded handoff (IC-013)
+
+const HISTORY_REQUIREMENT = [
+  '# Requirement', '', '## 1. Scope', '', 'Body.', '',
+  '## 2. History', '', '- **FR-001** was reworded after review.', '',
+].join('\n');
+
+/** A scratch project holding feature `slug` (structured layout). With `register`, the feature gets
+ * a decision register and a requirement.md whose History section has content to compact. */
+function featureProject(slug, { register = true } = {}) {
+  const cwd = project();
+  fs.mkdirSync(path.join(cwd, 'agent-docs', 'doflow', slug, 'intention'), { recursive: true });
+  if (register) {
+    const init = json(cwd, ['decision', '--action', 'init', '--slug', slug]);
+    assert.equal(init.status, 0, init.stderr);
+  }
+  fs.writeFileSync(path.join(cwd, 'agent-docs', 'doflow', slug, 'intention', 'requirement.md'), HISTORY_REQUIREMENT);
+  return cwd;
+}
+
+const handoff = (cwd, taskId, skill, extra = []) => json(cwd, ['orchestrate', '--action', 'handoff', '--task-id', taskId,
+  '--calling-skill', skill, '--note', 'recorded', ...extra]);
+const requirementOf = (cwd, slug) => fs.readFileSync(path.join(cwd, 'agent-docs', 'doflow', slug, 'intention', 'requirement.md'), 'utf8');
+
+test('044: compaction runs after a completed handoff and again as unchanged after an annotated one', () => {
+  const cwd = featureProject('070-x');
+  const deferred = handoff(cwd, '070-x', 'do-design', ['--task-class', 'feature']);
+  assert.equal(deferred.data.disposition, 'deferred');
+  assert.equal('compaction' in deferred.data, false, 'a deferred handoff recorded nothing and must not compact');
+  assert.equal(requirementOf(cwd, '070-x'), HISTORY_REQUIREMENT);
+
+  json(cwd, ['orchestrate', '--action', 'decide-gate', '--task-id', '070-x', '--gate', 'gate-0', '--decision', 'approve']);
+  const completed = handoff(cwd, '070-x', 'do-design');
+  assert.equal(completed.status, 0);
+  assert.equal(completed.data.disposition, 'completed');
+  assert.equal(completed.data.compaction.status, 'compacted');
+  assert.equal(completed.data.compaction.moved.length, 1);
+  assert.match(requirementOf(cwd, '070-x'), /^Earlier entries: \[decisions\/history\/requirement\.md\]/m);
+  assert.doesNotMatch(requirementOf(cwd, '070-x'), /was reworded after review/);
+
+  const annotated = handoff(cwd, '070-x', 'do-design');
+  assert.equal(annotated.data.disposition, 'annotated');
+  assert.equal(annotated.data.compaction.status, 'unchanged');
+});
+
+test('044: no compaction field after a standalone handoff', () => {
+  const cwd = featureProject('071-x');
+  const standalone = handoff(cwd, '071-x', 'do-test');
+  assert.equal(standalone.data.disposition, 'standalone');
+  assert.equal('compaction' in standalone.data, false);
+  assert.equal(requirementOf(cwd, '071-x'), HISTORY_REQUIREMENT);
+});
+
+test('044: a feature without a register, or a task id that is not a feature, reports skipped and still exits 0', () => {
+  const cwd = featureProject('072-x', { register: false });
+  const noRegister = handoff(cwd, '072-x', 'do-brainstorm', ['--task-class', 'feature']);
+  assert.equal(noRegister.status, 0);
+  assert.equal(noRegister.data.disposition, 'completed');
+  assert.equal(noRegister.data.compaction.status, 'skipped');
+  assert.match(noRegister.data.compaction.reason, /no decisions\/register\.json/);
+  assert.equal(requirementOf(cwd, '072-x'), HISTORY_REQUIREMENT);
+
+  const notFeature = handoff(project(), 'T-9', 'do-brainstorm', ['--task-class', 'feature']);
+  assert.equal(notFeature.status, 0);
+  assert.equal(notFeature.data.disposition, 'completed');
+  assert.equal(notFeature.data.compaction.status, 'skipped');
+  assert.ok(notFeature.data.compaction.reason);
+});
+
+test('044: a compaction that cannot run is reported as failed without changing the disposition or exit code', () => {
+  const cwd = featureProject('073-x');
+  fs.writeFileSync(path.join(cwd, 'agent-docs', 'doflow', '073-x', 'decisions', 'register.json'), '{ not json');
+  const result = handoff(cwd, '073-x', 'do-brainstorm', ['--task-class', 'feature']);
+  assert.equal(result.status, 0);
+  assert.equal(result.data.disposition, 'completed');
+  assert.equal(result.data.compaction.status, 'failed');
+  assert.match(result.data.compaction.reason, /not valid JSON/);
+  assert.equal(requirementOf(cwd, '073-x'), HISTORY_REQUIREMENT);
+});
+
+test('044: the human-readable handoff output names the compaction status', () => {
+  const cwd = featureProject('074-x');
+  const res = run(cwd, ['orchestrate', '--action', 'handoff', '--task-id', '074-x', '--task-class', 'feature', '--calling-skill', 'do-brainstorm', '--note', 'recorded']);
+  assert.equal(res.status, 0);
+  assert.match(res.stdout, /^Compaction: compacted$/m);
+});
