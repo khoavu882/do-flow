@@ -15,7 +15,8 @@ const REPO = path.resolve(__dirname, '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const RUN = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const scratch = createScratch('doflow-lcli-');
-test.after(() => scratch.remove());
+test.before(() => scratch.apply());
+test.after(() => { scratch.restore(); scratch.remove(); });
 
 let counter = 0;
 function newRepo(extra = {}) {

@@ -10,7 +10,8 @@ const { projectRoot } = require('../../src/runtime/lifecycle/root');
 const store = require('../../src/runtime/lifecycle/event-store');
 
 const scratch = createScratch('doflow-store-');
-test.after(() => scratch.remove());
+test.before(() => scratch.apply());
+test.after(() => { scratch.restore(); scratch.remove(); });
 
 function git(cwd, ...args) {
   return execFileSync('git', args, { cwd, env: scratch.env(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });

@@ -10,7 +10,8 @@ const followup = require('../../src/runtime/lifecycle/followup');
 const store = require('../../src/runtime/lifecycle/event-store');
 
 const scratch = createScratch('doflow-followup-');
-test.after(() => scratch.remove());
+test.before(() => scratch.apply());
+test.after(() => { scratch.restore(); scratch.remove(); });
 
 const { addFollowups, listFollowups, takeFollowups, settleFollowups, FollowupUsageError } = followup;
 let counter = 0;

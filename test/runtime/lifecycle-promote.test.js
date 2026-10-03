@@ -11,7 +11,8 @@ const store = require('../../src/runtime/lifecycle/event-store');
 const { INTENT_SECTIONS, kebabTitle, renderIntent } = require('../../src/runtime/lifecycle/intent-writer');
 
 const scratch = createScratch('doflow-promote-');
-test.after(() => scratch.remove());
+test.before(() => scratch.apply());
+test.after(() => { scratch.restore(); scratch.remove(); });
 
 const NOW = new Date('2026-10-07T10:15:00.000Z');
 let counter = 0;

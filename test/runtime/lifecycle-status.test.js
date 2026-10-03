@@ -11,7 +11,8 @@ const { foldEvents } = require('../../src/runtime/lifecycle/fold');
 const { deriveStatuses, readGitFacts, bucketize, subjectNames } = require('../../src/runtime/lifecycle/status');
 
 const scratch = createScratch('doflow-status-');
-test.after(() => scratch.remove());
+test.before(() => scratch.apply());
+test.after(() => { scratch.restore(); scratch.remove(); });
 
 let seq = 0;
 function ev(type, data, at) {
@@ -23,18 +24,8 @@ const tracked = (slug = SLUG, at = TRACKED_AT) => ev('feature.tracked', { slug }
 const record = (tag, features, excluded = [], at = '2026-10-20T00:00:00.000Z') => ev('release.recorded', { tag, commit: 'c', features: features.map((slug) => ({ slug, evidence: 'branch', ref: 'r' })), excluded }, at);
 const foldOf = (...events) => foldEvents(events);
 
-/** Runs `fn` with the scratch HOME, XDG and git identity in the process environment, then restores it:
- * the deriver spawns git and the git-state script with the inherited environment. */
-function withScratchEnv(fn) {
-  const next = scratch.env();
-  const saved = {};
-  for (const key of Object.keys(next)) { saved[key] = process.env[key]; process.env[key] = next[key]; }
-  try { return fn(); } finally {
-    for (const key of Object.keys(next)) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; }
-  }
-}
 function derive(repo, fold, facts) {
-  return withScratchEnv(() => deriveStatuses({ root: repo.dir, fold, facts }));
+  return deriveStatuses({ root: repo.dir, fold, facts });
 }
 function statusOf(repo, fold, slug = SLUG) { return derive(repo, fold).statuses[slug]; }
 const firstCommit = (repo) => repo.git('rev-list', '--max-parents=0', 'HEAD').split('\n')[0];
@@ -231,19 +222,17 @@ test('integration ref: develop, else main, else master, else origin/HEAD', () =>
     for (const b of branches.slice(1)) repo.git('branch', b);
     return repo;
   };
-  withScratchEnv(() => {
-    assert.equal(facts(withBranches('ref-develop', ['main', 'develop', 'master'])).integration_ref, 'develop');
-    assert.equal(facts(withBranches('ref-main', ['main', 'master'])).integration_ref, 'main');
-    assert.equal(facts(withBranches('ref-master', ['master'])).integration_ref, 'master');
-    const trunk = withBranches('ref-trunk', ['trunk']);
-    assert.equal(facts(trunk).integration_ref, null);
-    trunk.git('update-ref', 'refs/remotes/origin/trunk', 'HEAD');
-    trunk.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk');
-    assert.equal(facts(trunk).integration_ref, 'origin/HEAD');
-    const remoteOnly = withBranches('ref-remote-develop', ['trunk']);
-    remoteOnly.git('update-ref', 'refs/remotes/origin/develop', 'HEAD');
-    assert.equal(facts(remoteOnly).integration_ref, 'origin/develop');
-  });
+  assert.equal(facts(withBranches('ref-develop', ['main', 'develop', 'master'])).integration_ref, 'develop');
+  assert.equal(facts(withBranches('ref-main', ['main', 'master'])).integration_ref, 'main');
+  assert.equal(facts(withBranches('ref-master', ['master'])).integration_ref, 'master');
+  const trunk = withBranches('ref-trunk', ['trunk']);
+  assert.equal(facts(trunk).integration_ref, null);
+  trunk.git('update-ref', 'refs/remotes/origin/trunk', 'HEAD');
+  trunk.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk');
+  assert.equal(facts(trunk).integration_ref, 'origin/HEAD');
+  const remoteOnly = withBranches('ref-remote-develop', ['trunk']);
+  remoteOnly.git('update-ref', 'refs/remotes/origin/develop', 'HEAD');
+  assert.equal(facts(remoteOnly).integration_ref, 'origin/develop');
 });
 
 test('a repository with no integration ref, and a directory that is not a repository, derive unknown', () => {

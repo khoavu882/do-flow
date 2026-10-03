@@ -11,7 +11,7 @@ const path = require('node:path');
 
 /**
  * @param {string} [prefix]
- * @returns {{dir: string, home: string, xdg: string, env: (extra?: Object) => Object, remove: () => void}}
+ * @returns {{dir: string, home: string, xdg: string, env: (extra?: Object) => Object, apply: () => void, restore: () => void, remove: () => void}}
  *   `dir` is a real path (macOS reaches the temp folder through a symlink, and git reports the real one).
  */
 function createScratch(prefix = 'doflow-lifecycle-') {
@@ -20,6 +20,7 @@ function createScratch(prefix = 'doflow-lifecycle-') {
   const xdg = path.join(dir, 'xdg');
   fs.mkdirSync(home);
   fs.mkdirSync(xdg);
+  const saved = {};
   return {
     dir,
     home,
@@ -37,6 +38,23 @@ function createScratch(prefix = 'doflow-lifecycle-') {
         GIT_COMMITTER_EMAIL: 'test@example.com',
         ...extra,
       };
+    },
+    /** Puts the scratch environment into this process, for tests that call services in-process: a
+     * service that spawns git or bash inherits it, so it never reads the developer's HOME, XDG
+     * folder or global git config (DEC-041). `node --test` runs each file in its own process. */
+    apply() {
+      const next = this.env();
+      for (const key of Object.keys(next)) {
+        if (!(key in saved)) saved[key] = process.env[key];
+        process.env[key] = next[key];
+      }
+    },
+    /** Undoes `apply`. */
+    restore() {
+      for (const key of Object.keys(saved)) {
+        if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key];
+        delete saved[key];
+      }
     },
     remove() { fs.rmSync(dir, { recursive: true, force: true }); },
   };
