@@ -268,6 +268,22 @@ test('maintain: a kept item leaves pending while staying open; the list stops at
   assert.throws(() => buildOverview({ root, maintain: true, since: 'yesterday' }), FollowupUsageError);
 });
 
+test('maintain: promoting an item settles it for the pass and no promote line is offered for it', () => {
+  const root = path.join(scratch.dir, `promoted-${counter += 1}`);
+  fs.mkdirSync(root);
+  store.appendEvents(root, ['a', 'b', 'c'].map((s) => ({ type: 'followup.added', by: 'agent', data: { id: `FU-00000${s}`, statement: s, source: { kind: 'manual' } } })), { now: new Date('2026-10-01T00:00:00.000Z') });
+  const since = new Date(Date.now() - 1000).toISOString();
+  const r = run(root, ['followup', '--action', 'promote', '--ids', 'FU-00000a,FU-00000b', '--title', 'Two things', '--json']);
+  assert.equal(r.status, 0, r.stdout);
+  const o = buildOverview({ root, maintain: true, since });
+  assert.equal(o.pending, 1, 'the untouched item only');
+  assert.deepEqual(o.followups.items.filter((i) => i.pending).map((i) => i.id), ['FU-00000c']);
+  assert.ok(o.next.some((l) => l.includes('--action promote --ids FU-00000c')));
+  const allPromoted = buildOverview({ root: (() => { store.appendEvents(root, [{ type: 'followup.settled', by: 'user', data: { id: 'FU-00000c', as: 'kept', reason: 'x' } }]); return root; })(), maintain: true, since });
+  assert.equal(allPromoted.pending, 0);
+  assert.equal(allPromoted.next.some((l) => l.startsWith('Promote to a new intent')), false);
+});
+
 test('overview groups goals with progress, linked features by status, nudges and propose-done', () => {
   const built = FIXTURES.mergeCommit(scratch);
   const root = fs.realpathSync(built.repo.dir);

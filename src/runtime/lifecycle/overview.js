@@ -70,10 +70,11 @@ function nextLines({ shown, open, items, intents, goals, maintain, pendingItems 
   if (goals.length) next.push(`Link the new feature to a goal: add --goal ${goals[0].goal} to the init line`);
   if (maintain && pendingItems.length) {
     const id = pendingItems[0].id;
+    const unpromoted = pendingItems.find((i) => !i.promoted);
     next.push(
       `Keep open: doflow-run followup --action settle --ids ${id} --as kept --reason "<why it stays>" --channel question`,
       `Dismiss: doflow-run followup --action settle --ids ${id} --as dismissed --reason "<why>" --channel question`,
-      `Promote to a new intent: doflow-run followup --action promote --ids ${id} --title "<intent title>" --channel question`,
+      ...(unpromoted ? [`Promote to a new intent: doflow-run followup --action promote --ids ${unpromoted.id} --title "<intent title>" --channel question`] : []),
       `Start a fix: doflow-run followup --action settle --ids ${id} --as fix --reason "<where it is routed>" --channel question`,
       `Done outside a feature: doflow-run followup --action settle --ids ${id} --as done --evidence "<what shows it>" --channel question`,
     );
@@ -105,7 +106,8 @@ function buildOverview({ root, maintain = false, since, fsImpl = nodeFs }) {
   const open = followups.filter((item) => item.state === 'open');
   const limit = maintain ? MAINTAIN_SHOWN : DISCOVERY_SHOWN;
   const ordered = [...open].sort(byDiscoveryOrder);
-  const settledSince = (item) => item.history.some((h) => h.type === 'followup.settled' && (sinceMs === null || Date.parse(h.at) >= sinceMs));
+  // A promotion settles an item for the maintain loop as much as a settlement does: it stays open with an intent.
+  const settledSince = (item) => item.history.some((h) => (h.type === 'followup.settled' || h.type === 'followup.promoted') && (sinceMs === null || Date.parse(h.at) >= sinceMs));
   const pendingOf = (item) => !settledSince(item);
   const items = ordered.slice(0, limit).map((item) => shownItem(item, maintain ? pendingOf(item) : undefined));
 
