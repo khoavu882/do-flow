@@ -48,14 +48,52 @@ test('root: every linked worktree resolves to the first worktree of the clone', 
   assert.equal(projectRoot(dir), dir);
 });
 
-test('root: a bare repository skips its own bare entry for the first worktree', () => {
+test('root: a bare clone has no main working tree, so each linked worktree is its own root, stable as siblings come and go', () => {
   const bare = path.join(scratch.dir, 'bare.git');
   git(scratch.dir, 'init', '-q', '--bare', '-b', 'main', bare);
   const seed = repo('seed');
   git(seed, 'push', '-q', bare, 'main');
-  const wt = path.join(scratch.dir, 'bare-wt');
-  git(bare, 'worktree', 'add', '-q', wt, 'main');
-  assert.equal(projectRoot(wt), wt);
+  const one = path.join(scratch.dir, 'bare-wt1');
+  git(bare, 'worktree', 'add', '-q', one, 'main');
+  assert.equal(projectRoot(one), one);
+  const two = path.join(scratch.dir, 'bare-wt2');
+  git(bare, 'worktree', 'add', '-q', '-b', 'feat/two', two, 'main');
+  assert.equal(projectRoot(one), one, 'adding a sibling does not move the first worktree\'s root');
+  assert.equal(projectRoot(two), two);
+  fs.rmSync(one, { recursive: true });
+  assert.equal(projectRoot(two), two, 'a deleted, unpruned sibling is never chosen');
+  assert.equal(fs.existsSync(one), false, 'nothing was created at the deleted worktree');
+});
+
+test('root: a submodule resolves to its working tree, never into .git/modules', () => {
+  const sub = repo('sub-source');
+  const parent = repo('sub-parent');
+  git(parent, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', sub, 'vendor/sub');
+  const work = path.join(parent, 'vendor', 'sub');
+  assert.equal(projectRoot(work), work);
+  fs.mkdirSync(path.join(work, 'deep'));
+  assert.equal(projectRoot(path.join(work, 'deep')), work);
+  assert.ok(!projectRoot(work).includes(`${path.sep}.git${path.sep}`));
+});
+
+test('root: a repository with a separate git dir resolves to its working tree', () => {
+  const work = path.join(scratch.dir, 'sep-work');
+  const gitDir = path.join(scratch.dir, 'sep-gitdir');
+  fs.mkdirSync(work);
+  git(work, 'init', '-q', '-b', 'main', `--separate-git-dir=${gitDir}`);
+  git(work, 'commit', '-q', '--allow-empty', '-m', 'init');
+  assert.equal(projectRoot(work), work);
+  assert.notEqual(projectRoot(work), gitDir);
+});
+
+test('root: a main working tree that was moved away is not chosen; the current worktree is', () => {
+  const main = repo('moved-main');
+  const linked = path.join(scratch.dir, 'moved-linked');
+  git(main, 'worktree', 'add', '-q', '-b', 'feat/moved', linked);
+  const moved = path.join(scratch.dir, 'moved-main-away');
+  fs.renameSync(main, moved);
+  assert.equal(projectRoot(linked), linked);
+  assert.equal(fs.existsSync(main), false, 'the vanished path was not recreated');
 });
 
 test('root: outside a git repository the working directory is the root', () => {
