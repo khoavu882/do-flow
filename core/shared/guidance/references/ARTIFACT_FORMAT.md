@@ -262,7 +262,7 @@ file nobody looked at.
 
 Checked: index/detail parity both directions · `Status` vocabulary · ID-shaped supersede targets
 resolve · superseded items have a History entry · plan rollup counts match the checklist ·
-decision references are not stale.
+decision references are not stale · no unknown decision references (every cited `DEC-###` is in the register).
 
 Parity reads both detail-entry forms of §1: the `- **<ID>` bullet, and the `#### <ID>: <text>`
 heading whose ID also appears in that section's index table. A heading that merely looks ID-shaped

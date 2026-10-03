@@ -392,7 +392,7 @@ test('stale: a line that also names a later decision in the chain is exempt', ()
 
 test('stale: a token that merely contains a DEC id is not a citation', () => {
   const { repo, feature } = featureRepo('stale-boundary', CHAIN, {
-    'design/design.md': '# Design\n\n## 1. Choices\n\nXDEC-001 and DEC-0011 and DEC-001a are not citations.\n',
+    'design/design.md': '# Design\n\n## 1. Choices\n\nXDEC-001 and 1DEC-001 and DEC-001a are not citations.\n',
   });
   const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
   assert.deepEqual(rules(result), []);
@@ -577,4 +577,32 @@ test('history: a pointer leading outside decisions/history is ignored', () => {
   fs.writeFileSync(outside, archive);
   fs.writeFileSync(path.join(abs.feature, 'design', 'specs.md'), body(outside));
   assert.deepEqual(rules(validateIn(abs.repo, path.join(abs.feature, 'design', 'specs.md'))), ['history IC-001']);
+});
+
+test('unknown: a cited DEC id the register does not hold is flagged; known live and superseded ids are not', () => {
+  const { repo, feature } = featureRepo('unknown-fires', CHAIN, {
+    'design/design.md': [
+      '# Design', '', '## 1. Choices', '',
+      'Live and known. DEC-004',
+      'Superseded but known, named with its successor. DEC-001 DEC-003',
+      'Typo. DEC-099 and again DEC-099',
+      'Padded form of a known id. DEC-0004',
+      'Not an id. XDEC-098 DEC-097a',
+      '', '```', 'DEC-096 in a fence', '```',
+      '<!-- DEC-095 in a comment -->',
+      '', '## 2. History', '', '- **DEC-094** retired.', '',
+    ].join('\n'),
+  });
+  const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
+  assert.deepEqual(result.findings.map((f) => [f.rule, f.id, f.message]),
+    [['unknown', 'DEC-099', 'line 7 cites DEC-099, which is not in the decision register']]);
+  assert.equal(result.status, 1);
+});
+
+test('unknown: inert without a register, and active for a register holding no decisions', () => {
+  const body = { 'design/design.md': '# Design\n\n## 1. Choices\n\nCites DEC-001.\n' };
+  const none = featureRepo('unknown-no-register', null, body);
+  assert.deepEqual(rules(validateIn(none.repo, path.join(none.feature, 'design', 'design.md'))), []);
+  const empty = featureRepo('unknown-empty-register', [], body);
+  assert.deepEqual(rules(validateIn(empty.repo, path.join(empty.feature, 'design', 'design.md'))), ['unknown DEC-001']);
 });
