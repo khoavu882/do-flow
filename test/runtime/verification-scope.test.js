@@ -130,7 +130,7 @@ test('with no integration branch the working tree alone is compared and the tier
   commit(root, 'src/out.js');
   const tier = scopeTier(root);
   assert.equal(tier.status, 'PASS', 'committed work is invisible without a baseline');
-  assert.match(tier.reason, /only the working tree was compared/);
+  assert.match(tier.reason, /integration branch 'develop' not found; working tree only/);
   assert.equal(tier.scope.baseline.kind, 'working-tree');
 });
 
@@ -189,4 +189,25 @@ test('a moved file reports the file it left as well as the one it became', () =>
   assert.equal(tier.status, 'FAIL');
   assert.match(tier.reason, /lib\/legacy\.js/);
   assert.doesNotMatch(tier.reason, /docs\/guide\.md/);
+});
+
+test('DoFlow\'s own state under .doflow/ never counts as a changed file', () => {
+  const root = repo();   // this repo does not ignore .doflow/
+  const rec = spawnSync('node', [DOFLOW, 'outcome', '--task-id', 'A.1', '--action', 'record', '--task-class', 'bug', '--stage', 'review', '--state', 'INCONCLUSIVE', '--json'],
+    { cwd: root, env: { ...process.env, HOME: root }, encoding: 'utf8' });
+  assert.equal(rec.status, 0, rec.stdout + rec.stderr);
+  assert.match(git(root, 'status', '--porcelain'), /\.doflow\//, 'the record is an untracked change');
+  commit(root, '.doflow/state/other.json');
+  commit(root, 'src/in.js');
+  const tier = scopeTier(root);
+  assert.equal(tier.status, 'PASS', tier.reason);
+  assert.deepEqual(tier.scope.actual.files, ['src/in.js']);
+});
+
+test('plan paths written with a leading ./ match, and the files: field name is case-insensitive', () => {
+  assert.deepEqual(taskFilesFromPlan('- [ ] A.1 t — owner: o; Files: ./src/in.js, ././lib/x.js, ./d/\n- [ ] A.2 u; FILES: docs/a.md\n'),
+    ['src/in.js', 'lib/x.js', 'd/', 'docs/a.md']);
+  const root = repo({ plan: '- [ ] A.1 t — owner: o; Files: ./src/in.js\n' });
+  commit(root, 'src/in.js');
+  assert.equal(scopeTier(root).status, 'PASS');
 });

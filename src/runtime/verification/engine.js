@@ -482,14 +482,17 @@ class VerificationEngine {
     const status = git(['status', '--porcelain', '-z', '--no-renames', '--untracked-files=all']);
     if (status.reason) return { files: null, reason: status.reason };
     // `-z` porcelain entries are `XY <path>` separated by NUL.
-    const working = status.out.split('\0').filter(Boolean).map((entry) => entry.slice(3)).filter(Boolean);
+    // `.doflow/` is DoFlow's own state (records, journals): writing it is not changing the project,
+    // and a repo that does not ignore it would otherwise fail its own scope after any record.
+    const counts = (f) => f !== '.doflow' && !f.startsWith('.doflow/');
+    const working = status.out.split('\0').filter(Boolean).map((entry) => entry.slice(3)).filter(Boolean).filter(counts);
 
     if (base.reason) {
-      return { files: working, reason: null, baseline: { kind: 'working-tree', note: `${base.reason}; only the working tree was compared` } };
+      return { files: working, reason: null, baseline: { kind: 'working-tree', note: base.note || `${base.reason}; only the working tree was compared` } };
     }
     const diff = git(['diff', '--name-only', '--no-renames', '-z', `${base.mergeBase}...HEAD`]);
     if (diff.reason) return { files: null, reason: diff.reason };
-    const committed = diff.out.split('\0').filter(Boolean);
+    const committed = diff.out.split('\0').filter(Boolean).filter(counts);
     return {
       files: [...new Set([...committed, ...working])],
       reason: null,

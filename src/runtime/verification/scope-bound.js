@@ -19,9 +19,9 @@ const GIT_STATE = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'b
 /** `- [ ] A.1 ...` / `- [x] B.2 ...`: a checklist task line, as plan.md writes them. */
 const TASK_LINE = /^\s*-\s*\[[ xX]\]\s+[A-Za-z]+\.\d+\b/;
 
-/** `files:` as a field of its own: at the start of the line, after whitespace or after a `;`. A word
+/** `files:` (any case) as a field of its own: at the start of the line, after whitespace or after a `;`. A word
  * that merely ends in it (`profiles:`) is not the field. */
-const FILES_FIELD = /(?:^|[;\s])files:/g;
+const FILES_FIELD = /(?:^|[;\s])files:/gi;
 
 /**
  * Paths a plan's task lines name after `files:`, in order, without duplicates.
@@ -45,7 +45,8 @@ function taskFilesFromPlan(planText) {
       const semicolon = rest.indexOf(';');
       const field = semicolon === -1 ? rest : rest.slice(0, semicolon);
       for (const raw of field.split(',')) {
-        const entry = raw.trim().replace(/^`+|`+$/g, '').trim();
+        // A leading `./` is the same path: changed files are reported without it.
+        const entry = raw.trim().replace(/^`+|`+$/g, '').trim().replace(/^(\.\/)+/, '');
         if (entry) paths.push(entry);
       }
       const wraps = semicolon === -1 && field.trimEnd().endsWith(',')
@@ -97,7 +98,8 @@ function buildScopeBound({ projectRoot, slug = null }) {
 
 /**
  * The commit a change is measured from: the merge base of HEAD and the integration ref that
- * `do-git-state.sh` reports. `{ref, mergeBase}` when it resolves, else `{reason}` saying why not.
+ * `do-git-state.sh` reports. `{ref, mergeBase}` when it resolves, else `{reason, note?}` saying why not;
+ * `note` is the tier detail when the reason has wording of its own (a missing integration branch).
  * @param {Object} options
  * @param {string} options.cwd
  * @param {Function} [options.exec] spawnSync-compatible
@@ -117,6 +119,10 @@ function resolveIntegrationBase({ cwd, exec = spawnSync }) {
     try { ref = JSON.parse(state.stdout).integration_ref || null; } catch { /* reported below */ }
   }
   if (!ref) return { reason: 'no integration ref could be resolved' };
+  const exists = run('git', ['rev-parse', '--verify', '--quiet', ref]);
+  if (!exists || exists.error || exists.status !== 0) {
+    return { reason: `integration branch '${ref}' not found`, note: `integration branch '${ref}' not found; working tree only` };
+  }
   const base = run('git', ['merge-base', ref, 'HEAD']);
   const mergeBase = base && !base.error && base.status === 0 ? String(base.stdout || '').trim() : '';
   if (!mergeBase) return { reason: `no merge base with '${ref}'` };
