@@ -356,10 +356,18 @@ is the same ambiguity in a new costume, and neither section then governs.
 
 ## 12. Decision register citations
 
-Applies only where the feature folder holds `decisions/register.json`; without one, nothing here applies.
+> **Authoritative:** this section governs decision citations and compacted History.
+
+Applies only where the feature folder holds `decisions/register.json`; without one, nothing here
+applies.
 
 - A line that applies a registered decision cites it as a bare `DEC-###`.
 - `plan.md` §3 lists the `DEC-###` decisions the plan rests on and authors no `D#`.
-- A design §1 row ends its `Shape chosen` cell with its `DEC-###`. A §8 row that came from a "Decide for me" pick cites its `DEC-###` in `Basis`.
-- A line citing a superseded decision is a `stale` finding unless it also names a later decision in that chain (§9).
-- Compaction moves History content to `decisions/history/<artifact>.md` and leaves one pointer line, `Earlier entries: [decisions/history/<artifact>.md](<relative link>).`, matching `^Earlier entries: \[decisions/history/[a-z-]+\.md\]`. Index rows and tombstones stay.
+- A design §1 row ends its `Shape chosen` cell with its `DEC-###`. A §8 row that came from a
+  "Decide for me" pick cites its `DEC-###` in `Basis`.
+- A line citing a superseded decision is a `stale` finding unless it also names a later decision in
+  that chain (§9).
+- Compaction moves History content to `decisions/history/<artifact>.md` and leaves one pointer line,
+  `Earlier entries: [decisions/history/<artifact>.md](<relative link>).`, the link relative to the
+  artifact's own directory, matching `^Earlier entries: \[decisions/history/[a-z-]+\.md\]`. Index
+  rows and tombstones stay.

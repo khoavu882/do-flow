@@ -133,12 +133,16 @@ not declare is not run here, however familiar it is from the `feature` chain.
    - **`gate-0`** — only in the aborted-session branch above, where this skill patched
      `requirement.md` itself: once every surviving marker is resolved, `approve`. If any marker is
      still open, leave the gate alone.
-   When the answer carries a choice beyond approve or reject and the feature has a register, also
-   register it with `decision --action add --channel gate`.
    This call is advisory to the trail, not to the chain: if it fails for a reason outside this flow's
    control (an unwritable local state directory, say), report the failure plainly and carry the
    user's answer forward anyway — the answer is what governs whether the next stage runs, and the
    record of it is what keeps the next stage from asking again.
+
+   When the answer also carries a choice beyond approve or reject and the feature has a register,
+   register it too; the receiving stage's batch then leaves that gate answer out:
+   ```bash
+   "$DOFLOW" decision --action add --topic <key> --statement <text> --channel gate --stage <stage the gate follows> --rationale <text> --json
+   ```
 
 8. **Never skip a gate on an ambiguous answer** — an unanswered or unclear response to any
    `AskUserQuestion` means stop and ask again, per this repo's `RULE_04_QUESTIONS`. When the

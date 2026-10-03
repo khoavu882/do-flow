@@ -27,6 +27,7 @@ const NOT_FRAMEWORK_FLAGS = new Map([
   ['--slug', 'feature-override argument of do-paths.sh / do-prereqs.sh / validate-artifacts.sh, quoted in ARTIFACT_FORMAT.md'],
   ['--role', "the runtime claim verb's own argument (claim --action add --role root-cause), quoted in EVIDENCE_LEDGER.md"],
   ['--evidence-id', "the runtime evidence verb's own argument (evidence --action supersede --evidence-id ...), quoted in EVIDENCE_LEDGER.md"],
+  ['--batch', "the runtime decision verb's own argument (decision --action add --batch <file>.json), quoted in WORKFLOW_HANDOFF.md"],
   ['--replaced-by', "the runtime evidence verb's own argument (evidence --action supersede ... --replaced-by ...), quoted in EVIDENCE_LEDGER.md"],
 ]);
 

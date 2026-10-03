@@ -30,16 +30,20 @@ Only handle an `awaitingGate` if the skill owns that gate and the handoff just c
 Follow the owning skill's decision rules; this API supplies no authorization. A deferral is not a
 rejection. The lower-level `decide-gate` action remains explicit.
 
-When `paths --json` reports `has_decisions: true`, do this before the handoff call:
+Before the handoff call, run `"$DOFLOW" paths --json` again (not the stage's earlier result, which
+can predate the register) and, when it reports `has_decisions: true`:
 
-1. Register this stage's decisions (question answers, gate answers carrying a choice, decisions the
-   user typed as prompts, "Decide for me" defaults, agent resolutions) in one `"$DOFLOW" decision
-   --action add --json` call that takes a JSON batch file (the verb's `batch` flag), channels
-   `question|gate|prompt|default|resolution`. Skip it when there are none. A value beginning with a
-   dash is passed as `--<name>=<value>`.
-2. Run `"$DOFLOW" validate`. Correct each `stale` finding in an artifact this stage owns, changing
+1. Register this stage's decisions (question answers, gate answers carrying a choice that do-flow
+   has not already registered, decisions the user typed as prompts, "Decide for me" defaults, agent
+   resolutions) in one `"$DOFLOW" decision --action add --batch <file>.json --json` call. Each item
+   needs `topic` (kebab-case), `statement` (one line), `channel`
+   (`question|gate|prompt|default|resolution`), `stage` (the ownership-table stage name) and
+   `rationale`; `supersedes`, `refs` and `source` are optional. Skip the call when there are none.
+2. Write each returned `DEC-###` into the lines of this stage's own artifacts that apply it
+   (ARTIFACT_FORMAT.md §12).
+3. Run `"$DOFLOW" validate`. Correct each `stale` finding in an artifact this stage owns, changing
    only the flagged line; report findings in other artifacts without editing them.
-3. Record the handoff. It compacts History itself and reports `compaction`; its `--task-id` must be
+4. Record the handoff. It compacts History itself and reports `compaction`; its `--task-id` must be
    the feature slug, not a plan task id, or compaction is skipped.
 
 | Stage | Owns |
