@@ -431,6 +431,29 @@ test('stale: discovery mode covers data-model.md alongside the other artifacts',
     [['data-model.md', 'stale', 'DEC-001']]);
 });
 
+// FR-016: only a feature with a register gets data-model.md as a default target.
+const BAD_DATA_MODEL = [
+  '# Data model', '',
+  '## 1. Entities', '',
+  '| ID | Entity | Status |', '|---|---|---|', '| E-1 | Account | Live |', '',
+  '**Detail**', '', '- **E-2:** not in the index.', '',
+].join('\n');
+
+test('data-model.md is not a default target without a register, and is with one', () => {
+  const legacy = featureRepo('target-legacy', null, { 'design/data-model.md': BAD_DATA_MODEL, 'plan.md': '# Plan\n' });
+  const before = validateIn(legacy.repo);
+  assert.deepEqual(before.findings, []);
+  assert.equal(before.status, 0);
+  // Naming the file explicitly still checks it: only the default target set is gated.
+  assert.deepEqual(rules(validateIn(legacy.repo, path.join(legacy.feature, 'design', 'data-model.md'))).sort(), ['parity E-1', 'parity E-2']);
+
+  const registered = featureRepo('target-registered', CHAIN, { 'design/data-model.md': BAD_DATA_MODEL, 'plan.md': '# Plan\n' });
+  const after = validateIn(registered.repo);
+  assert.deepEqual(after.findings.map((f) => `${path.basename(f.file)} ${f.rule} ${f.id}`).sort(),
+    ['data-model.md parity E-1', 'data-model.md parity E-2']);
+  assert.equal(after.status, 1);
+});
+
 test('stale: an explicit path outside the feature folder is not checked against its register', () => {
   const { repo } = featureRepo('stale-outside', CHAIN, {});
   const outside = path.join(repo, 'notes.md');

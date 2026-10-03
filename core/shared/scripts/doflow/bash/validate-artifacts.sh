@@ -81,7 +81,11 @@ if [ "${#targets[@]}" -eq 0 ]; then
   root=$(printf '%s' "$json" | jq -r '.repo_root // empty')
   [ -n "$(printf '%s' "$json" | jq -r '.feature_slug // empty')" ] || note "no-active-feature"
 
-  for key in requirement design specs data_model plan; do
+  # data-model.md is a default target only for a feature that has a decision register, so a folder
+  # from before the register validates exactly as it always did (FR-016).
+  keys="requirement design specs plan"
+  [ "$(printf '%s' "$json" | jq -r '.has_decisions // false')" = "true" ] && keys="requirement design specs data_model plan"
+  for key in $keys; do
     p=$(printf '%s' "$json" | jq -r ".$key // empty")
     [ -n "$p" ] && [ -f "$root/$p" ] && targets+=("$root/$p")
   done
