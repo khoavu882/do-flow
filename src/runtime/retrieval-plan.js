@@ -40,6 +40,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { CapabilityRouter } = require('./capability-router');
 const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger');
+const { taskStoreDir } = require('./task-scope');
 const { probeFreshness } = require('./health');
 // One definition of the score refusal, applied at a second boundary. See the note on
 // EVIDENCE_SCORE_FIELDS in cli.js: relevance is a property of a search, not of a fact, and a plan
@@ -113,10 +114,12 @@ function resultForEmptyAnswer(freshnessState) {
  * it must never be able to name a path.
  * @param {string} projectRoot
  * @param {string} taskId
+ * @param {string|null} [slug] the feature the task belongs to, when not the branch's (task-scope.js)
  * @returns {string}
  */
-function planPath(projectRoot, taskId) {
-  return path.join(projectRoot, '.doflow', 'state', 'retrieval', `${assertSafeTaskId(taskId)}.json`);
+function planPath(projectRoot, taskId, slug = null) {
+  const dir = taskStoreDir({ projectRoot, store: 'retrieval', taskId: assertSafeTaskId(taskId), slug });
+  return path.join(dir, `${taskId}.json`);
 }
 
 /**
@@ -124,8 +127,8 @@ function planPath(projectRoot, taskId) {
  * @param {string} taskId
  * @returns {Object|null} the record, or null when no plan was declared
  */
-function readPlan(projectRoot, taskId) {
-  const file = planPath(projectRoot, taskId);
+function readPlan(projectRoot, taskId, slug = null) {
+  const file = planPath(projectRoot, taskId, slug);
   if (!fs.existsSync(file)) return null;
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -140,8 +143,8 @@ function readPlan(projectRoot, taskId) {
  * @param {Object} record
  * @returns {string} the file written
  */
-function writePlan(projectRoot, taskId, record) {
-  const file = planPath(projectRoot, taskId);
+function writePlan(projectRoot, taskId, record, slug = null) {
+  const file = planPath(projectRoot, taskId, slug);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
   return file;
@@ -236,7 +239,7 @@ function evidenceIdsFor(need, items) {
  *
  * @returns {number} exit code
  */
-function declarePlan({ router, projectRoot, taskId, stage, intents, json }) {
+function declarePlan({ router, projectRoot, taskId, stage, intents, json, slug }) {
   const needs = [];
   for (const intent of intents) {
     let resolution;
@@ -275,7 +278,7 @@ function declarePlan({ router, projectRoot, taskId, stage, intents, json }) {
     providers,
     needs,
   };
-  const file = writePlan(projectRoot, taskId, record);
+  const file = writePlan(projectRoot, taskId, record, slug);
 
   const unresolvable = needs.filter((need) => !need.provider).map((need) => need.intent);
   if (json) {
@@ -328,16 +331,16 @@ function declarePlan({ router, projectRoot, taskId, stage, intents, json }) {
  *
  * @returns {number} exit code
  */
-function reportPlan({ projectRoot, taskId, reached, json }) {
+function reportPlan({ projectRoot, taskId, reached, json, slug }) {
   let record;
   try {
-    record = readPlan(projectRoot, taskId);
+    record = readPlan(projectRoot, taskId, slug);
   } catch (error) {
     return usageError('retrieval-plan', error.message, json);
   }
   if (!record) {
     return usageError('retrieval-plan',
-      `no retrieval plan is declared for task '${taskId}' (looked in ${planPath(projectRoot, taskId)}). `
+      `no retrieval plan is declared for task '${taskId}' (looked in ${planPath(projectRoot, taskId, slug)}). `
       + 'Declare one with --action declare --need <intent> before the retrieval runs; a report over no '
       + 'plan would state that nothing was missed, which is not something an absent plan can establish', json);
   }
@@ -350,7 +353,7 @@ function reportPlan({ projectRoot, taskId, reached, json }) {
       + `Declared: ${[...declared].sort().join(', ')}`, json);
   }
 
-  const ledger = new EvidenceLedger({ repoRoot: projectRoot });
+  const ledger = new EvidenceLedger({ repoRoot: projectRoot, slug });
   try {
     ledger.load(taskId);
   } catch (error) {
@@ -366,7 +369,7 @@ function reportPlan({ projectRoot, taskId, reached, json }) {
   }
 
   record.reportedAt = new Date().toISOString();
-  const file = writePlan(projectRoot, taskId, record);
+  const file = writePlan(projectRoot, taskId, record, slug);
 
   // Derived views, computed at emit and never stored on a need — a need holds a provider id and
   // nothing about that provider's index (plan D7).
@@ -469,7 +472,7 @@ function parseIntents(raw) {
  * @returns {number} exit code
  */
 function handleRetrievalPlanCommand(options = {}) {
-  const { taskId, action = 'report', need, stage, json = false, repoRoot, stateRoot } = options;
+  const { taskId, action = 'report', need, stage, json = false, repoRoot, stateRoot, slug } = options;
 
   // NFR-001, at the boundary where a caller's input first becomes a record. `bin/doflow.js` already
   // refuses every score-shaped flag name on the command line; this is the same rule applied to the
@@ -516,10 +519,10 @@ function handleRetrievalPlanCommand(options = {}) {
     } catch (error) {
       return usageError('retrieval-plan', error.message, json);
     }
-    return declarePlan({ router, projectRoot, taskId, stage, intents, json });
+    return declarePlan({ router, projectRoot, taskId, stage, intents, json, slug });
   }
 
-  return reportPlan({ projectRoot, taskId, reached: new Set(intents), json });
+  return reportPlan({ projectRoot, taskId, reached: new Set(intents), json, slug });
 }
 
 module.exports = {

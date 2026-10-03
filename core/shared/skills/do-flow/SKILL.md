@@ -103,7 +103,9 @@ not declare is not run here, however familiar it is from the `feature` chain.
      normal path: `do-brainstorm` resolves ambiguities to zero via its own loop, so this fires only
      if a `[NEEDS CLARIFICATION]` marker survived an aborted session. Ask one question per marker
      (grouped if closely related), patch the answers into `requirement.md` directly, and do not
-     re-run `do-brainstorm`.
+     re-run `do-brainstorm`. Then follow steps 1-4 of the decision step in the guidance
+     tree's `references/WORKFLOW_HANDOFF.md` (stage `discovery`, channel `question`) so the answers
+     are registered and cited; do-brainstorm already recorded discovery's handoff, so record none.
    - **`gate-a`** (after planning) — the conversational checkpoint on top of the already-existing
      hard hook (`pre-implement-gate.sh`, which blocks source edits until `requirement.md`,
      `design.md` and `plan.md` exist and remains the real enforcement regardless of what happens

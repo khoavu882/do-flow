@@ -580,3 +580,52 @@ test('a register lock that never frees exits 1 as register-locked, not as a usag
   }
   assert.deepEqual(snapshot(r.featureDir), before);
 });
+
+// ── live-view cells keep a statement as one row showing the text as written (IC-007, FR-004) ──────
+
+/** Splits a table row the strict way (a pipe is escaped only after an odd run of backslashes) and
+ * decodes each cell, as a renderer would. */
+function renderedCells(row) {
+  const cells = [];
+  let current = '';
+  const body = row.slice(1, -1);
+  for (let i = 0; i < body.length; i += 1) {
+    if (body[i] === '\\' && i + 1 < body.length) { current += body[i + 1]; i += 1; continue; }
+    if (body[i] === '|') { cells.push(current.trim()); current = ''; continue; }
+    current += body[i];
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+test('a statement with backslashes and pipes renders as one row that shows the statement as written', () => {
+  const r = initialised();
+  const statements = ['a\\|b', 'C:\\temp\\', 'x \\\\| y', 'end with slash \\', 'plain | pipe <!-- not a comment'];
+  add(r, statements.map((statement, n) => item({ topic: `t${n}`, statement })));
+  const live = fs.readFileSync(path.join(r.featureDir, 'decisions.md'), 'utf8');
+  const rows = live.split('\n').filter((l) => l.startsWith('| DEC-'));
+  assert.equal(rows.length, statements.length, 'one row per statement');
+  rows.forEach((row, n) => {
+    const cells = renderedCells(row);
+    assert.equal(cells.length, 6, `row ${n} keeps six cells: ${row}`);
+    assert.equal(cells[2], statements[n]);
+  });
+});
+
+// ── a compaction that refuses one artifact still reports what the others did (IC-005) ───────────
+
+test('compact reports compaction-failed with failed[] and still carries moved and re-renders views', () => {
+  const r = repo();
+  assert.equal(runDecision({ action: 'init', projectRoot: r.root, now: FIXED }).exitCode, 0);
+  fs.writeFileSync(path.join(r.featureDir, 'plan.md'), PLAN);
+  const design = '# Design\n\n## 9. History\n\n- entry\n\n<!-- never closed\n';
+  fs.writeFileSync(path.join(r.featureDir, 'design.md'), design);
+  const run = runDecision({ action: 'compact', projectRoot: r.root, now: FIXED });
+  assert.equal(run.exitCode, 1);
+  assert.equal(run.result.finding, 'compaction-failed');
+  assert.equal(run.result.status, 'partial');
+  assert.deepEqual(run.result.moved.map((m) => m.artifact), ['plan.md']);
+  assert.deepEqual(run.result.failed.map((f) => f.artifact), ['design.md']);
+  assert.equal(fs.readFileSync(path.join(r.featureDir, 'design.md'), 'utf8'), design);
+  assert.ok(fs.readFileSync(path.join(r.featureDir, 'plan.md'), 'utf8').includes('Earlier entries:'));
+});

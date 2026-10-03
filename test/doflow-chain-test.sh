@@ -591,6 +591,51 @@ git tag -d nightly v0.1.0 >/dev/null
 eq "--next-version reports no base in a repository with no version tags" \
    "$($STATE --next-version | jq -r '.base_tag')" "null"
 
+# Regression (feature 045): the base tag came only from tags merged into HEAD, but the release
+# ritual tags the merge commit on the production branch and the integration branch gets it back
+# through a second merge that may not have happened yet. From the integration branch the newest
+# release tag was unreachable and an older one was proposed.
+git checkout -q -B integ-probe
+git commit -q --allow-empty -m "feat: integration-only work"
+git checkout -q main
+git commit -q --allow-empty -m "Merge release into production"
+git tag v1.5.0                       # on production; not reachable from integ-probe
+git checkout -q integ-probe
+PROD_TAG="$($STATE --next-version)"
+eq "--next-version finds a tag on the production merge commit from the integration branch" \
+   "$(echo "$PROD_TAG" | jq -r '.base_tag')" "v1.5.0"
+eq "--next-version without a manifest reports no warning" \
+   "$(echo "$PROD_TAG" | jq -r '.warning // "absent"')" "absent"
+git tag v1.4.0 integ-probe~1         # an older tag that IS reachable must not win over the newer one
+eq "--next-version still takes the highest version among reachable and production tags" \
+   "$($STATE --next-version | jq -r '.base_tag')" "v1.5.0"
+git tag -d v1.4.0 >/dev/null
+printf '{"version":"1.4.0"}\n' > package.json
+eq "--next-version warns when the manifest version differs from the base tag" \
+   "$($STATE --next-version | jq -r '.warning')" "manifest version 1.4.0 differs from base tag v1.5.0"
+printf '{"version":"1.5.0"}\n' > package.json
+eq "--next-version gives no warning when the manifest agrees with the base tag" \
+   "$($STATE --next-version | jq -r '.warning // "absent"')" "absent"
+eq "--next-version keeps its other keys with a manifest present" \
+   "$($STATE --next-version | jq -r 'keys | join(",")')" "base_tag,bump_kind,commits_count,current_version,is_prerelease,next_prerelease,next_prerelease_skipped,next_version"
+rm -f package.json
+
+# A local `main` that was never pulled is stale: the newest release may be reachable only from the
+# remote-tracking ref, and the union of both is what counts.
+git checkout -q main
+git commit -q --allow-empty -m "Merge release 1.6 into production"
+git tag v1.6.0
+git update-ref refs/remotes/origin/main HEAD
+git reset -q --hard HEAD~1           # local main falls behind origin/main
+git checkout -q integ-probe
+eq "--next-version also reads release tags reachable only from the remote-tracking production ref" \
+   "$($STATE --next-version | jq -r '.base_tag')" "v1.6.0"
+git update-ref -d refs/remotes/origin/main
+git tag -d v1.6.0 >/dev/null
+git tag -d v1.5.0 >/dev/null
+git checkout -q main
+git branch -q -D integ-probe
+
 # Test fingerprint mode (deterministic but unique per state)
 FINGERPRINT_1="$($STATE --fingerprint)"
 FINGERPRINT_2="$($STATE --fingerprint)"

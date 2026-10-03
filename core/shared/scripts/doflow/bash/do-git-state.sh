@@ -15,6 +15,10 @@ fi
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 resolved="$(bash "$script_dir/do-paths.sh" --json 2>/dev/null)"
 repo_root="$(printf '%s' "$resolved" | jq -r '.repo_root // empty')"
+# The resolver refuses a branch whose derived slug is unsafe and then prints no repo_root. This
+# helper does not need a feature, only the repository, so it asks git rather than reporting a
+# repository that exists as "not-a-git-repo".
+[ -z "$repo_root" ] && repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 
 trunk_names="main develop"
 feature_prefixes="feat feature"
@@ -184,6 +188,22 @@ do_state() {
     }'
 }
 
+# The production branch's refs, for finding release tags that were never merged back: the local
+# branch and its remote-tracking ref, both when both exist, because either may be the one that
+# holds the newest release (a local `main` that was not pulled is stale, a remote-tracking one that
+# was not fetched is too). `main` is the default; `master` is the older default the lifecycle
+# policy still names, used only when no `main` ref exists. Echoes one ref per line, possibly none.
+production_refs() {
+  local b ref found
+  for b in main master; do
+    found=""
+    for ref in "refs/heads/${b}" "refs/remotes/origin/${b}"; do
+      if git rev-parse --verify --quiet "$ref" >/dev/null 2>&1; then printf '%s\n' "${ref#refs/}"; found=1; fi
+    done
+    [ -n "$found" ] && return
+  done
+}
+
 # Splits a semver string into its numeric core and its pre-release label.
 # Echoes: "<major> <minor> <patch> <prerelease-or-empty>"
 parse_semver() {
@@ -244,7 +264,9 @@ next_free_prerelease() {
 }
 
 do_next_version() {
-  local base_tag current_version="0.0.0"
+  # Both start set: `set -u` makes a bare `local base_tag` an unbound variable on bash 4+ whenever
+  # no eligible tag exists (a repository with no release tags yet).
+  local base_tag="" current_version="0.0.0"
   # `git describe --tags --abbrev=0` answers "nearest reachable tag by commit distance", and every
   # version decision below needs "newest reachable tag by version". Those coincide only while
   # history is linear — and a release ritual merges twice, so the newest tag routinely sits further
@@ -253,9 +275,34 @@ do_next_version() {
   # superseded release.
   #
   # Sorting by version instead. The `v*` filter keeps a non-version tag from winning the sort, and
-  # --merged keeps the answer to tags this branch can actually see.
-  base_tag="$(git tag --merged HEAD --list 'v*' --sort=-v:refname 2>/dev/null | head -1 || true)"
+  # --merged keeps the answer to tags that are actually released work.
+  #
+  # "Merged" means into HEAD *or into the production branch*. A release ritual tags the merge commit
+  # on production, and the integration branch only gets that commit back through a second merge
+  # that may not have happened yet, so from the integration branch the newest release tag is
+  # unreachable and the proposal was based on an older one (v1.8.3 proposed while v1.12.0 was out).
+  # The tags are sorted by git as before; the union only decides which of them are eligible.
+  local eligible="" ref
+  eligible="$(git tag --merged HEAD --list 'v*' 2>/dev/null || true)"
+  while IFS= read -r ref; do
+    [ -z "$ref" ] && continue
+    eligible="${eligible}"$'\n'"$(git tag --merged "$ref" --list 'v*' 2>/dev/null || true)"
+  done <<< "$(production_refs)"
+  eligible="$(printf '%s\n' "$eligible" | sort -u | sed '/^$/d')"
+  if [ -n "$eligible" ]; then
+    base_tag="$(git tag --list 'v*' --sort=-v:refname 2>/dev/null | grep -Fx -f <(printf '%s\n' "$eligible") | head -1 || true)"
+  fi
   [ -n "$base_tag" ] && current_version="${base_tag#v}"
+
+  # The manifest is what a release publishes. A base tag that disagrees with it means the tag or
+  # the manifest is behind, which the caller should see before proposing a version from either.
+  local manifest_version="" warning=""
+  if [ -n "$base_tag" ] && [ -f package.json ]; then
+    manifest_version="$(jq -r '.version // empty' package.json 2>/dev/null || true)"
+    if [ -n "$manifest_version" ] && [ "$manifest_version" != "$current_version" ]; then
+      warning="manifest version ${manifest_version} differs from base tag ${base_tag}"
+    fi
+  fi
 
   local major minor patch prerelease
   read -r major minor patch prerelease <<< "$(parse_semver "$current_version")"
@@ -301,6 +348,7 @@ do_next_version() {
     --arg prerelease "$prerelease" \
     --arg bump_kind "$bump_kind" \
     --argjson commit_count "$commit_count" \
+    --arg warning "$warning" \
     '{
       base_tag:         (if $base_tag=="" then null else $base_tag end),
       current_version:  $current_version,
@@ -310,7 +358,7 @@ do_next_version() {
       next_prerelease_skipped: ($next_prerelease_skipped | tonumber),
       bump_kind:        $bump_kind,
       commits_count:    ($commit_count | tonumber)
-    }'
+    } + (if $warning != "" then {warning: $warning} else {} end)'
 }
 
 do_propagation_targets() {
@@ -369,6 +417,14 @@ do_branch_name() {
   
   [ -z "$class" ] && { printf '{"error":"missing-class"}\n'; exit 2; }
   [ -z "$slugs" ] && { printf '{"error":"missing-slug"}\n'; exit 2; }
+
+  # A slug becomes a branch name and then a directory under agent-docs/doflow/, so it must not be
+  # able to name a path or a flag (IC-009). Same shape do-paths.sh enforces for its own slugs.
+  # ASCII ranges whatever the locale: under a UTF-8 collation [A-Za-z] can admit "é".
+  if ! (export LC_ALL=C; [[ "$slugs" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && [[ "$slugs" != *..* ]]); then
+    jq -n --arg slug "$slugs" '{error: "invalid-slug", message: ("slug \"" + $slug + "\" is not a valid feature slug: use letters, digits, dot, underscore or dash, start with a letter or digit, and no \"..\""), hint: "use letters, digits, dot, underscore or dash, start with a letter or digit, and no \"..\""}'
+    exit 2
+  fi
   
   # Two vocabularies meet here and only one of them is a branch prefix.
   #

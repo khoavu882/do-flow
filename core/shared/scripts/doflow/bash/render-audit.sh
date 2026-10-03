@@ -67,7 +67,13 @@ RESOLVER="$script_dir/do-paths.sh"
 
 resolver_args=(--json)
 [ -n "$slug_override" ] && resolver_args+=("--slug=$slug_override")
-resolved_json=$(bash "$RESOLVER" "${resolver_args[@]}" 2>/dev/null) || note "resolver-error"
+rc=0; resolved_json=$(bash "$RESOLVER" "${resolver_args[@]}" 2>/dev/null) || rc=$?
+# An unsafe slug is refused, not noted: exit 2 with the resolver's error object (IC-009).
+if [ "$rc" -eq 2 ] && [ "$(printf '%s' "$resolved_json" | jq -r '.error // empty' 2>/dev/null)" = "invalid-slug" ]; then
+  if [ "$emit_json" = true ]; then printf '%s\n' "$resolved_json"; else printf 'render-audit: %s\n' "$(printf '%s' "$resolved_json" | jq -r '.message')" >&2; fi
+  exit 2
+fi
+[ "$rc" -eq 0 ] || note "resolver-error"
 
 repo_root=$(printf '%s' "$resolved_json" | jq -r '.repo_root // empty')
 feature_slug=$(printf '%s' "$resolved_json" | jq -r '.feature_slug // empty')

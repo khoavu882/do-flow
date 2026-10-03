@@ -621,3 +621,98 @@ test('history: a project path containing a backslash is read literally, not as a
   assert.ok(repo.includes('\\t'), 'the fixture path must contain a literal backslash');
   assert.deepEqual(rules(validateIn(repo, path.join(feature, 'design', 'specs.md'))), []);
 });
+
+// ── IC-006 (feature 045): path tokens are not citations; fenced "## " lines are gated by a register ─
+
+test('unknown and stale: a DEC token after "/" in a URL or a path is not a citation; a bare one still is', () => {
+  const { repo, feature } = featureRepo('path-token', CHAIN, {
+    'design/design.md': [
+      '# Design', '', '## 1. Choices', '',
+      'Link https://x.test/DEC-780 and file notes/DEC-781.md stay quiet.',
+      'A superseded id in a path, docs/DEC-001.md, is not stale either.',
+      '[linked](../decisions/DEC-782.md) is a link target.',
+      'Bare citation DEC-783 is unknown.',
+      'Bare superseded DEC-001 is stale.',
+      'Both on one line: notes/DEC-784.md then DEC-785.',
+      '',
+    ].join('\n'),
+  });
+  const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
+  assert.deepEqual(result.findings.map((f) => [f.rule, f.id]), [
+    ['unknown', 'DEC-783'],
+    ['stale', 'DEC-001'],
+    ['unknown', 'DEC-785'],
+  ]);
+});
+
+const FENCED_HISTORY_SPECS = [
+  '# Specs', '', '## 1. Contracts', '',
+  '```markdown', '## 9. History', '```', '',
+  '| ID | Contract | Status |', '|---|---|---|', '| IC-001 | old | Superseded -> IC-002 |', '| IC-002 | new | Live |', '',
+  '**Detail**', '', '- **IC-001:** old.', '- **IC-002:** new.', '',
+].join('\n');
+
+test('a fenced "## 9. History" example does not hide a missing History entry when the feature has a register', () => {
+  const { repo, feature } = featureRepo('fence-section-register', CHAIN, { 'design/specs.md': FENCED_HISTORY_SPECS });
+  assert.deepEqual(rules(validateIn(repo, path.join(feature, 'design', 'specs.md'))), ['history IC-001']);
+});
+
+test('without a register the structural section tracking is exactly what it was', () => {
+  const { repo, feature } = featureRepo('fence-section-legacy', null, { 'design/specs.md': FENCED_HISTORY_SPECS });
+  assert.deepEqual(rules(validateIn(repo, path.join(feature, 'design', 'specs.md'))), []);
+});
+
+test('unknown and stale: DEC-001/DEC-099 in prose is a pair of citations, only URL and path words are exempt', () => {
+  const { repo, feature } = featureRepo('slash-pair', CHAIN, {
+    'design/design.md': [
+      '# Design', '', '## 1. Choices', '',
+      'Pair DEC-004/DEC-099 in prose.',
+      'Parenthesised (DEC-004/DEC-098) too.',
+      'A superseded pair DEC-001/DEC-004 names DEC-004 but not the live end.',
+      'Still exempt: https://x.test/DEC-780 and notes/DEC-781.md and a/DEC-782.',
+      '',
+    ].join('\n'),
+  });
+  const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
+  assert.deepEqual(result.findings.map((f) => [f.rule, f.id]), [
+    ['unknown', 'DEC-099'], ['unknown', 'DEC-098'], ['stale', 'DEC-001'],
+  ]);
+});
+
+const FENCED_PLAN = [
+  '# Plan', '', '## 1. Summary', '',
+  '| Phase | Tasks |', '|---|---|', '| A | 1 |', '',
+  '## 2. Tasks', '',
+  '### Phase A', '',
+  '- [ ] A.1 real task', '',
+  '```markdown', '### Phase B', '- [ ] B.1 example', '- [ ] A.9 example', '## 3. History', '```', '',
+].join('\n');
+
+test('with a register, headings and checklist lines inside a fence do not feed the phase rollup', () => {
+  const { repo, feature } = featureRepo('fence-phase-register', CHAIN, { 'plan.md': FENCED_PLAN });
+  assert.deepEqual(rules(validateIn(repo, path.join(feature, 'plan.md'))), []);
+});
+
+test('without a register the phase rollup reads fenced lines exactly as it always did', () => {
+  const { repo, feature } = featureRepo('fence-phase-legacy', null, { 'plan.md': FENCED_PLAN });
+  assert.deepEqual(rules(validateIn(repo, path.join(feature, 'plan.md'))), ['rollup Phase B']);
+});
+
+test('unknown and stale: link targets, query strings and file names are exempt; chains and a sentence-final token are not', () => {
+  const { repo, feature } = featureRepo('token-shapes', CHAIN, {
+    'design/design.md': [
+      '# Design', '', '## 1. Choices', '',
+      'Link [n](DEC-097.md) and https://x.test?id=DEC-095 and a bare DEC-094.md stay quiet.',
+      'Superseded targets stay quiet too: [old](DEC-001.md) and https://x.test?id=DEC-001.',
+      'Chain DEC-090/DEC-091/DEC-092 checks all three.',
+      'Sentence-final citation DEC-099.',
+      'Mid-sentence DEC-098. Then more.',
+      '',
+    ].join('\n'),
+  });
+  const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
+  assert.deepEqual(result.findings.map((f) => [f.rule, f.id]), [
+    ['unknown', 'DEC-090'], ['unknown', 'DEC-091'], ['unknown', 'DEC-092'],
+    ['unknown', 'DEC-099'], ['unknown', 'DEC-098'],
+  ]);
+});
