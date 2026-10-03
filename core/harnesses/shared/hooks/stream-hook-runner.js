@@ -32,6 +32,150 @@ const MCP_TOOL_PATTERN = /^mcp_/i;
 const EDIT_TOOL_PATTERN = /^(replace_file_content|write_to_file|multi_replace_file_content|edit_file|write_file|create_file|replace_file|replace|Edit|Write|MultiEdit|apply_patch)$/i;
 const COMMAND_TOOL_PATTERN = /^(run_command|run_shell_command|Bash|bash)$/i;
 
+// ── Failure capture (feature 046: IC-010, IC-011, IC-014, IC-015, IC-018) ─────────────────────────
+//
+// Hook files are installed without DoFlow's runtime library, so this runner carries its own copy of
+// the IC-010 classifier and of the Node failure writer (src/runtime/failure/{classifier,home,capture}.js);
+// a test runs both classifier copies over one fixture set and requires equal answers. Capture is a
+// side channel at exactly two points, never changes the runner's stdout, stderr or exit status,
+// never throws, and is a no-op while capture is off or when no failure home can be resolved. A line
+// holds only names from DoFlow's own code and the working directory, never the payload.
+
+const CAPTURE_MAX_LINE_BYTES = 2048;
+const CAPTURE_ROTATE_AT_BYTES = 1048576;
+const CAPTURE_KEEP_ROTATED = 4;
+const CAPTURE_OFF_VALUES = ['off', '0', 'false', 'no'];
+const ROTATED_FILE = /^events-\d{8}T\d{6}Z-\d+\.jsonl$/;
+const PROGRAMMING_ERROR_NAMES = ['TypeError', 'RangeError', 'ReferenceError'];
+
+/** IC-010. Pure and total: never throws whatever it is handed. */
+function isProgrammingError(error) {
+  try {
+    if (error === null || typeof error !== 'object') return false;
+    if (error.code === 'EPIPE') return false;
+    if (error instanceof SyntaxError || error.name === 'SyntaxError') return false;
+    if (error instanceof TypeError || error instanceof RangeError || error instanceof ReferenceError) return true;
+    if (PROGRAMMING_ERROR_NAMES.includes(error.name)) return true;
+    if (error.name === 'AssertionError' || error.code === 'ERR_ASSERTION') return true;
+    if (error.code === 'MODULE_NOT_FOUND') return true;
+    return typeof error.code === 'string' && (typeof error.syscall === 'string' || typeof error.errno === 'number');
+  } catch {
+    return false;
+  }
+}
+
+/** IC-011: `$XDG_CONFIG_HOME/doflow/failures` when absolute, else `$HOME/.config/doflow/failures` when HOME is absolute, else null. */
+function failureHome(env) {
+  const xdg = env.XDG_CONFIG_HOME;
+  if (typeof xdg === 'string' && xdg !== '') return path.isAbsolute(xdg) ? path.join(xdg, 'doflow', 'failures') : null;
+  const home = env.HOME;
+  return typeof home === 'string' && path.isAbsolute(home) ? path.join(home, '.config', 'doflow', 'failures') : null;
+}
+
+/** IC-014: the environment first, then one stat of the sentinel file. */
+function captureIsOff(home, env) {
+  const setting = env.DOFLOW_FAILURE_CAPTURE;
+  if (typeof setting === 'string' && CAPTURE_OFF_VALUES.includes(setting.trim().toLowerCase())) return true;
+  try { return fs.statSync(path.join(home, 'off')).isFile(); } catch { return false; }
+}
+
+/** The first stack frame inside this hooks folder as `<path relative to it>:<function>`, no line number. */
+function runnerFrame(error) {
+  try {
+    const root = __dirname + path.sep;
+    for (const line of String(error.stack || '').split('\n')) {
+      const match = /^\s*at (?:async )?(?:(.+?) \()?(.+?):\d+:\d+\)?$/.exec(line);
+      if (!match) continue;
+      const file = match[2].replace(/^file:\/\//, '');
+      if (!file.startsWith(root) || file.includes(`${path.sep}node_modules${path.sep}`)) continue;
+      const fn = (match[1] || '').replace(/^new /, '').split('.').pop().replace(/\s.*$/, '') || '<anonymous>';
+      return `${path.relative(__dirname, file).split(path.sep).join('/')}:${fn}`;
+    }
+  } catch { /* no frame */ }
+  return null;
+}
+
+/** The package version in a checkout, else `script_version` of the nearest install manifest, else `unknown`. */
+function hookVersion(env) {
+  const valid = (v) => (typeof v === 'string' && /^[A-Za-z0-9._+-]{1,40}$/.test(v) ? v : null);
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', '..', '..', '..', 'package.json'), 'utf8'));
+    if (/doflow$/.test(pkg.name) && valid(pkg.version)) return pkg.version;
+  } catch { /* not a checkout */ }
+  const starts = [__dirname];
+  if (typeof env.HOME === 'string' && path.isAbsolute(env.HOME)) starts.push(env.HOME);
+  for (const start of starts) {
+    for (let dir = start; ; dir = path.dirname(dir)) {
+      try {
+        const version = valid(JSON.parse(fs.readFileSync(path.join(dir, '.doflow', '.install-manifest.json'), 'utf8')).script_version);
+        if (version) return version;
+      } catch { /* none here */ }
+      if (path.dirname(dir) === dir || start === env.HOME) break;
+    }
+  }
+  return 'unknown';
+}
+
+/** IC-015: at 1 MiB the live file is renamed and only the newest four rotated files are kept. */
+function rotateFailures(home) {
+  try {
+    const live = path.join(home, 'events.jsonl');
+    if (fs.statSync(live).size < CAPTURE_ROTATE_AT_BYTES) return;
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+    fs.renameSync(live, path.join(home, `events-${stamp}-${process.pid}.jsonl`));
+  } catch { return; }
+  try {
+    const rotated = fs.readdirSync(home).filter((name) => ROTATED_FILE.test(name)).sort();
+    for (const name of rotated.slice(0, Math.max(0, rotated.length - CAPTURE_KEEP_ROTATED))) {
+      try { fs.unlinkSync(path.join(home, name)); } catch { /* ignored */ }
+    }
+  } catch { /* ignored */ }
+}
+
+/**
+ * Appends one `source: "hook"` line (IC-011) with an empty `message` and `exit: null`. Silent and
+ * best-effort: every failure is swallowed.
+ * @param {{command: string, kind: string, frame?: string|null}} fields
+ * @param {Object} [env]
+ * @returns {boolean} whether a line was written
+ */
+function captureHookFailure({ command, kind, frame = null }, env = process.env) {
+  try {
+    const home = failureHome(env);
+    if (!home || captureIsOff(home, env)) return false;
+    let project = '';
+    try {
+      const cwd = process.cwd();
+      const hp = typeof env.HOME === 'string' ? env.HOME.replace(/\/+$/, '') : '';
+      project = hp && (cwd === hp || cwd.startsWith(`${hp}/`)) ? `~${cwd.slice(hp.length)}` : cwd;
+    } catch { project = ''; }
+    const record = {
+      v: 1,
+      at: new Date().toISOString(),
+      source: 'hook',
+      command: /^[a-z][a-z0-9-]{0,39}$/.test(command) ? command : 'unknown',
+      harness: /^[A-Za-z0-9._-]{1,40}$/.test(env.DOFLOW_AGENT || '') ? env.DOFLOW_AGENT : 'none',
+      version: hookVersion(env),
+      project: project.slice(0, 200),
+      kind: String(kind).slice(0, 80),
+      message: '',
+      frame: typeof frame === 'string' ? frame : null,
+      exit: null,
+    };
+    const bytes = (r) => Buffer.byteLength(JSON.stringify(r), 'utf8') + 1;
+    while (bytes(record) > CAPTURE_MAX_LINE_BYTES && record.project.length > 0) {
+      record.project = record.project.slice(0, Math.max(0, record.project.length - Math.max(8, bytes(record) - CAPTURE_MAX_LINE_BYTES)));
+    }
+    if (bytes(record) > CAPTURE_MAX_LINE_BYTES) return false;
+    fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+    rotateFailures(home);
+    fs.appendFileSync(path.join(home, 'events.jsonl'), `${JSON.stringify(record)}\n`, { flag: 'a', mode: 0o600 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Canonical script name -> pre-normalization per-harness file name, for the fallback search only.
 const LEGACY_SCRIPT_NAMES = {
   'session-context.sh': 'session-start.sh',
@@ -169,7 +313,15 @@ function delegateToPolicy(projectRoot, agent, scriptName, canonicalPayload) {
     // an execution fault, not a policy decision, and every sourced .sh policy in this library
     // fails open on its own uncertainty (`command -v jq || exit 0`); this delegator matches that
     // posture instead of turning an environment fault into a silent deny.
-    if (typeof err.status !== 'number') return { decision: 'allow' };
+    if (typeof err.status !== 'number') {
+      // A policy killed by a signal is a fault in DoFlow's own install worth recording (IC-018); a
+      // missing `bash` or a permission error is the user's environment and is not. Either way the
+      // decision is the same as it always was.
+      if (typeof err.signal === 'string' && err.signal) {
+        captureHookFailure({ command: scriptName.replace(/\.sh$/, ''), kind: 'policy-exec-fault' });
+      }
+      return { decision: 'allow' };
+    }
     const reason = err.stderr ? err.stderr.toString().trim() : (err.stdout ? err.stdout.toString().trim() : '');
     return {
       decision: 'deny',
@@ -337,6 +489,8 @@ async function main() {
       process.stdout.write(JSON.stringify(native) + '\n');
     }
   } catch (err) {
+    // Recorded silently when it is a programming error (IC-018); the output below is unchanged.
+    if (isProgrammingError(err)) captureHookFailure({ command: 'stream-hook-runner', kind: 'runner-exception', frame: runnerFrame(err) });
     process.stderr.write(`[stream-hook-runner error] ${err.message}\n`);
     process.stdout.write(JSON.stringify({ decision: 'allow' }) + '\n');
   }
@@ -356,4 +510,6 @@ module.exports = {
   resolvePolicyScript,
   classifyPreToolUsePolicy,
   sniffEventFromPayload,
+  isProgrammingError,
+  captureHookFailure,
 };
