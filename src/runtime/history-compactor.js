@@ -35,32 +35,63 @@ class CompactionError extends Error {
   }
 }
 
-/** Splits History body lines into what stays and what moves. */
-function classify(bodyLines) {
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
+
+/**
+ * Classifies every line as `text`, `fence` (a fence marker or a line inside a fenced block),
+ * `comment` (the first line of an HTML comment) or `comment-cont`. A `## ` line inside a fence or a
+ * comment is not a heading, and fence markers inside a comment (or the reverse) do not open
+ * anything, so a History example quoted in a code block cannot be mistaken for the real section.
+ * @returns {{kinds:string[], openFence:boolean}} `openFence` is true when a fence never closes
+ */
+function scan(lines) {
+  const kinds = new Array(lines.length);
+  let fence = null;
+  let comment = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (fence) {
+      kinds[i] = 'fence';
+      const close = /^ {0,3}(`+|~+)\s*$/.exec(line);
+      if (close && close[1][0] === fence.ch && close[1].length >= fence.len) fence = null;
+      continue;
+    }
+    if (comment) {
+      kinds[i] = 'comment-cont';
+      if (line.includes('-->')) comment = false;
+      continue;
+    }
+    const open = FENCE_OPEN.exec(line);
+    if (open) { kinds[i] = 'fence'; fence = { ch: open[1][0], len: open[1].length }; continue; }
+    const trimmed = line.trim();
+    if (trimmed.startsWith('<!--')) {
+      kinds[i] = 'comment';
+      if (!trimmed.includes('-->', 4)) comment = true;
+      continue;
+    }
+    kinds[i] = 'text';
+  }
+  return { kinds, openFence: fence !== null };
+}
+
+/** Splits History body lines into what stays and what moves. Fenced content moves intact. */
+function classify(bodyLines, kinds) {
   const comments = [];
   const moved = [];
   let pointer = null;
-  let inComment = false;
   let block = null;
-  for (const line of bodyLines) {
+  bodyLines.forEach((line, i) => {
+    const kind = kinds[i];
+    if (kind === 'comment-cont') { block.push(line); return; }
+    block = null;
+    if (kind === 'comment') { block = [line]; comments.push(block); return; }
+    if (kind === 'fence') { moved.push(line); return; }
     const trimmed = line.trim();
-    if (inComment) {
-      block.push(line);
-      if (trimmed.includes('-->')) { inComment = false; comments.push(block); block = null; }
-      continue;
-    }
-    if (trimmed === '') continue;
-    if (trimmed.startsWith('<!--')) {
-      if (trimmed.includes('-->', 4)) comments.push([line]);
-      else { inComment = true; block = [line]; }
-      continue;
-    }
-    if (POINTER.test(trimmed)) { if (pointer === null) pointer = line; continue; }
-    if (trimmed === INITIAL_VERSION) continue;
+    if (trimmed === '') return;
+    if (POINTER.test(trimmed)) { if (pointer === null) pointer = line; return; }
+    if (trimmed === INITIAL_VERSION) return;
     moved.push(line);
-  }
-  // An unterminated comment is kept where it is rather than guessed at.
-  if (block) comments.push(block);
+  });
   return { comments, moved, pointer };
 }
 
@@ -81,21 +112,39 @@ function toPosix(p) {
 }
 
 /**
+ * Whether the archive's most recent chunk is exactly this block. Only the last chunk counts: the
+ * crash this guards against (archive written, artifact not) always leaves the interrupted chunk
+ * last. The dated header is ignored, so a recovery on a later day does not append a second copy,
+ * and a block that merely prefixes an earlier chunk does not match.
+ */
+function lastChunkIs(archiveText, blockLF) {
+  const chunks = archiveText.replace(/\r\n/g, '\n').split(/\n(?=## Compacted )/);
+  const last = chunks[chunks.length - 1];
+  if (!last.startsWith('## Compacted ')) return false;
+  const bodyStart = last.indexOf('\n\n');
+  if (bodyStart === -1) return false;
+  return last.slice(bodyStart + 2).replace(/\n+$/, '') === blockLF;
+}
+
+/**
  * Compacts one artifact.
  * @returns {{artifact:string, path:string, archive:string, lines:number}|null} null when there was
  *   nothing to move
  */
 function compactArtifact({ fsImpl, featureDir, file, date }) {
   const text = fsImpl.readFileSync(file, 'utf8');
+  const crlf = text.includes('\r\n');
   const lines = text.split('\n');
-  const start = lines.findIndex((l) => HISTORY_HEADING.test(l));
+  const { kinds, openFence } = scan(lines);
+  const start = lines.findIndex((l, i) => kinds[i] === 'text' && HISTORY_HEADING.test(l));
   if (start === -1) return null;
+  if (openFence) throw new Error('a code fence is never closed, so the end of the History section cannot be told');
   const section = Number(HISTORY_HEADING.exec(lines[start])[1]);
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i += 1) {
-    if (ANY_H2.test(lines[i])) { end = i; break; }
+    if (kinds[i] === 'text' && ANY_H2.test(lines[i])) { end = i; break; }
   }
-  const { comments, moved, pointer } = classify(lines.slice(start + 1, end));
+  const { comments, moved, pointer } = classify(lines.slice(start + 1, end), kinds.slice(start + 1, end));
   if (moved.length === 0) return null;
 
   const name = path.basename(file);
@@ -103,21 +152,27 @@ function compactArtifact({ fsImpl, featureDir, file, date }) {
   const archiveFile = path.join(featureDir, 'decisions', 'history', name);
   const archiveRel = toPosix(path.relative(featureDir, archiveFile));
 
-  const block = moved.join('\n');
-  const chunk = `## Compacted ${date} from ${rel} §${section}\n\n${block}\n`;
+  // Chunks are built with LF and converted to the artifact's own line ending on write, so a CRLF
+  // artifact gets a CRLF archive and no file ends up mixed.
+  const eol = crlf ? '\r\n' : '\n';
+  const toEol = (t) => (crlf ? t.replace(/\n/g, '\r\n') : t);
+  const blockLF = moved.map((l) => l.replace(/\r$/, '')).join('\n');
+  const chunk = `## Compacted ${date} from ${rel} §${section}\n\n${blockLF}\n`;
   const existing = fsImpl.existsSync(archiveFile) ? fsImpl.readFileSync(archiveFile, 'utf8') : null;
-  if (existing === null || !existing.includes(chunk)) {
-    const base = existing === null ? `# History archive: ${rel}\n` : (existing.endsWith('\n') ? existing : `${existing}\n`);
-    writeAtomic(fsImpl, archiveFile, `${base}\n${chunk}`);
+  if (existing === null || !lastChunkIs(existing, blockLF)) {
+    const base = existing === null ? toEol(`# History archive: ${rel}\n`) : (existing.endsWith('\n') ? existing : `${existing}${eol}`);
+    writeAtomic(fsImpl, archiveFile, `${base}${eol}${toEol(chunk)}`);
   }
-  const verify = fsImpl.readFileSync(archiveFile, 'utf8');
-  if (!verify.includes(chunk)) throw new Error(`the moved block is not present in ${archiveRel} after the write`);
+  if (!lastChunkIs(fsImpl.readFileSync(archiveFile, 'utf8'), blockLF)) {
+    throw new Error(`the moved block is not present in ${archiveRel} after the write`);
+  }
 
   const link = toPosix(path.relative(path.dirname(file), archiveFile));
-  const pointerLine = pointer !== null ? pointer : `Earlier entries: [decisions/history/${name}](${link}).`;
-  const body = [''];
-  for (const c of comments) body.push(...c, '');
-  body.push(pointerLine, '');
+  const blank = crlf ? '\r' : '';
+  const pointerLine = pointer !== null ? pointer : `Earlier entries: [decisions/history/${name}](${link}).${blank}`;
+  const body = [blank];
+  for (const c of comments) body.push(...c, blank);
+  body.push(pointerLine, end === lines.length ? '' : blank);
   writeAtomic(fsImpl, file, [...lines.slice(0, start + 1), ...body, ...lines.slice(end)].join('\n'));
   return { artifact: name, path: rel, archive: archiveRel, lines: moved.length };
 }
@@ -132,6 +187,10 @@ function compactArtifact({ fsImpl, featureDir, file, date }) {
  *   `data_model`, `plan`, repo-root-relative or null)
  * @param {string} [options.date] YYYY-MM-DD stamped on the archive chunk; defaults to today (UTC)
  * @param {Object} [options.fsImpl] fs implementation (tests substitute one)
+ *
+ * Not locked: concurrent callers can interleave archive appends. Call it through
+ * `compactDecisions` / `runDecision` in decision-register.js, which hold the register lock.
+ *
  * @returns {{status:'compacted'|'unchanged', moved:Object[]}}
  * @throws {CompactionError} naming the artifact that failed; that artifact is left as it was
  */

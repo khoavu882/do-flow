@@ -219,3 +219,89 @@ test('artifacts compacted before a failure stay compacted and are reported on th
     (error) => error.artifact === 'plan.md' && error.moved.length === 1 && error.moved[0].artifact === 'specs.md',
   );
 });
+
+// ── fenced code blocks ─────────────────────────────────────────────────────────────────────────
+
+test('a History heading quoted inside a code fence is not the History section', () => {
+  const f = feature({ plan: ['plan.md', 'history-9-fenced-example.md'] });
+  const file = path.join(f.featureDir, 'plan.md');
+  const original = read(file);
+  const result = compactHistory({ ...f, date: DATE });
+  assert.equal(result.moved[0].lines, 1);
+  const after = read(file);
+  // The fenced example in section 1 is byte-identical; only the real History changed.
+  assert.equal(after.slice(0, after.lastIndexOf('## 9. History')), original.slice(0, original.lastIndexOf('## 9. History')));
+  assert.ok(after.includes('```markdown\n## 9. History\n\n- example line\n```'));
+  assert.ok(after.endsWith('## 9. History\n\nEarlier entries: [decisions/history/plan.md](decisions/history/plan.md).\n'));
+  const archive = read(path.join(f.featureDir, 'decisions', 'history', 'plan.md'));
+  assert.ok(archive.includes('\n\n- real\n'));
+  assert.ok(!archive.includes('example line'));
+});
+
+test('fenced content inside History moves whole, and a ## line in a fence does not end the section', () => {
+  const f = feature({ plan: ['plan.md', 'history-9-fenced-content.md'] });
+  const file = path.join(f.featureDir, 'plan.md');
+  compactHistory({ ...f, date: DATE });
+  const after = read(file);
+  assert.equal(after, [
+    '# Plan: demo', '', '## 9. History', '',
+    'Earlier entries: [decisions/history/plan.md](decisions/history/plan.md).', '',
+    '## 10. Appendix', '', 'Appendix text stays.', '',
+  ].join('\n'));
+  const archive = read(path.join(f.featureDir, 'decisions', 'history', 'plan.md'));
+  assert.ok(archive.includes('````markdown\n```\nnested fence line\n```\n\n## 10. Not a heading\n\nafter a blank line\n````\n'));
+  assert.ok(archive.includes('~~~\ntilde block\n\n## 11. Also not a heading\n~~~\n'));
+});
+
+test('a code fence that never closes is reported and the artifact is left unchanged', () => {
+  const f = feature({ plan: ['plan.md', 'history-9-open-fence.md'] });
+  const file = path.join(f.featureDir, 'plan.md');
+  const before = fs.readFileSync(file);
+  assert.throws(() => compactHistory({ ...f, date: DATE }), (e) => e instanceof CompactionError && e.artifact === 'plan.md' && /fence/.test(e.message));
+  assert.ok(fs.readFileSync(file).equals(before));
+  assert.ok(!fs.existsSync(path.join(f.featureDir, 'decisions')));
+});
+
+// ── dedupe of an interrupted run ───────────────────────────────────────────────────────────────
+
+test('a block that only prefixes an earlier chunk is still appended, so nothing is lost', () => {
+  const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
+  const file = path.join(f.featureDir, 'plan.md');
+  fs.writeFileSync(file, '# Plan\n\n## 9. History\n\n- one\n- two\n');
+  compactHistory({ ...f, date: DATE });
+  fs.appendFileSync(file, '- one\n');
+  const second = compactHistory({ ...f, date: DATE });
+  assert.equal(second.status, 'compacted');
+  const archive = read(path.join(f.featureDir, 'decisions', 'history', 'plan.md'));
+  assert.equal(archive.match(/^## Compacted /gm).length, 2);
+  assert.ok(archive.endsWith(`## Compacted ${DATE} from plan.md §9\n\n- one\n`));
+  assert.ok(!read(file).includes('- one'));
+});
+
+test('recovery on a later day does not append a second copy of an interrupted chunk', () => {
+  const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
+  const file = path.join(f.featureDir, 'plan.md');
+  assert.throws(() => compactHistory({ ...f, date: '2026-10-03', fsImpl: failingRename(file) }), CompactionError);
+  const result = compactHistory({ ...f, date: '2026-10-04' });
+  assert.equal(result.status, 'compacted');
+  const archive = read(path.join(f.featureDir, 'decisions', 'history', 'plan.md'));
+  assert.equal(archive.match(/^## Compacted /gm).length, 1);
+  assert.ok(read(file).includes('Earlier entries:'));
+});
+
+// ── line endings ───────────────────────────────────────────────────────────────────────────────
+
+test('a CRLF artifact is rewritten with CRLF throughout and gets a CRLF archive', () => {
+  const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
+  const file = path.join(f.featureDir, 'plan.md');
+  fs.writeFileSync(file, read(file).replace(/\n/g, '\r\n'));
+  compactHistory({ ...f, date: DATE });
+  const after = read(file);
+  assert.equal((after.match(/\n/g) || []).length, (after.match(/\r\n/g) || []).length);
+  assert.ok(after.endsWith('<!-- History template: one row per change; detail below. -->\r\n\r\nEarlier entries: [decisions/history/plan.md](decisions/history/plan.md).\r\n'));
+  const archive = read(path.join(f.featureDir, 'decisions', 'history', 'plan.md'));
+  assert.equal((archive.match(/\n/g) || []).length, (archive.match(/\r\n/g) || []).length);
+  assert.ok(archive.includes('- **T-001** — said X; changed because Y; now Z.\r\n'));
+  // A second run on the CRLF files changes nothing.
+  assert.equal(compactHistory({ ...f, date: DATE }).status, 'unchanged');
+});
