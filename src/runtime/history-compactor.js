@@ -24,17 +24,6 @@ const POINTER = /^Earlier entries: \[decisions\/history\/[a-z-]+\.md\]/;
 const INITIAL_VERSION = 'None — initial version.';
 const TARGET_KEYS = ['requirement', 'design', 'specs', 'data_model', 'plan'];
 
-/** Raised when one artifact could not be compacted. The artifact is left as it was. */
-class CompactionError extends Error {
-  constructor(message, artifact, moved) {
-    super(message);
-    this.name = 'CompactionError';
-    this.artifact = artifact;
-    /** Artifacts already compacted in this run before the failure. */
-    this.moved = moved || [];
-  }
-}
-
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
 
 /**
@@ -42,13 +31,15 @@ const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
  * `comment` (the first line of an HTML comment) or `comment-cont`. A `## ` line inside a fence or a
  * comment is not a heading, and fence markers inside a comment (or the reverse) do not open
  * anything, so a History example quoted in a code block cannot be mistaken for the real section.
- * @returns {{kinds:string[], openFence:boolean, openComment:boolean}} the last two are true when a
- *   fence or an HTML comment is never closed, so everything after it was swallowed
+ * @returns {{kinds:string[], openFence:boolean, openComment:boolean, openAt:number}} the middle two
+ *   are true when a fence or an HTML comment is never closed, so everything after it was swallowed;
+ *   `openAt` is the line index where that construct opened (-1 when none is left open)
  */
 function scan(lines) {
   const kinds = new Array(lines.length);
   let fence = null;
   let comment = false;
+  let openedAt = -1;
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     if (fence) {
@@ -63,16 +54,16 @@ function scan(lines) {
       continue;
     }
     const open = FENCE_OPEN.exec(line);
-    if (open) { kinds[i] = 'fence'; fence = { ch: open[1][0], len: open[1].length }; continue; }
+    if (open) { kinds[i] = 'fence'; fence = { ch: open[1][0], len: open[1].length }; openedAt = i; continue; }
     const trimmed = line.trim();
     if (trimmed.startsWith('<!--')) {
       kinds[i] = 'comment';
-      if (!trimmed.includes('-->', 4)) comment = true;
+      if (!trimmed.includes('-->', 4)) { comment = true; openedAt = i; }
       continue;
     }
     kinds[i] = 'text';
   }
-  return { kinds, openFence: fence !== null, openComment: comment };
+  return { kinds, openFence: fence !== null, openComment: comment, openAt: fence !== null || comment ? openedAt : -1 };
 }
 
 /**
@@ -146,18 +137,26 @@ function compactArtifact({ fsImpl, featureDir, file, date }) {
   const text = fsImpl.readFileSync(file, 'utf8');
   const crlf = text.includes('\r\n');
   const lines = text.split('\n');
-  const { kinds, openFence, openComment } = scan(lines);
-  // Refused before the heading is looked for: an unclosed fence or comment swallows everything
-  // after it, so neither the heading nor the section's end can be told.
-  if (openFence) throw new Error('a code fence is never closed, so the end of the History section cannot be told');
-  if (openComment) throw new Error('an HTML comment is never closed, so the end of the History section cannot be told');
+  const { kinds, openFence, openComment, openAt } = scan(lines);
+  const unclosed = openFence ? 'a code fence' : openComment ? 'an HTML comment' : null;
+  const refuse = () => {
+    throw new Error(`${unclosed} is never closed, so the end of the History section cannot be told`);
+  };
   const start = lines.findIndex((l, i) => kinds[i] === 'text' && HISTORY_HEADING.test(l));
-  if (start === -1) return null;
+  // An unclosed construct swallows everything after it. It matters only when it opens before the
+  // History section ends (FR-001): then the section's end cannot be told. A History heading it
+  // swallowed is such a case; one that simply is not there, or that closed before the construct
+  // opened, is not, and the construct is treated as absent.
+  if (start === -1) {
+    if (unclosed && lines.some((l, i) => i > openAt && HISTORY_HEADING.test(l))) refuse();
+    return null;
+  }
   const section = Number(HISTORY_HEADING.exec(lines[start])[1]);
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i += 1) {
     if (kinds[i] === 'text' && ANY_H2.test(lines[i])) { end = i; break; }
   }
+  if (unclosed && openAt < end) refuse();
   const name = path.basename(file);
   const archiveFile = path.join(featureDir, 'decisions', 'history', name);
   const link = toPosix(path.relative(path.dirname(file), archiveFile));
@@ -206,12 +205,16 @@ function compactArtifact({ fsImpl, featureDir, file, date }) {
  * Not locked: concurrent callers can interleave archive appends. Call it through
  * `compactDecisions` / `runDecision` in decision-register.js, which hold the register lock.
  *
- * @returns {{status:'compacted'|'unchanged', moved:Object[]}}
- * @throws {CompactionError} naming the artifact that failed; that artifact is left as it was
+ * Every artifact is attempted. One that cannot be compacted is left as it was and reported in
+ * `failed`; it does not stop the others (IC-005).
+ *
+ * @returns {{status:'compacted'|'unchanged'|'partial', moved:Object[], failed:Array<{artifact:string, message:string}>}}
+ *   `partial` means at least one artifact failed
  */
 function compactHistory({ repoRoot, featureDir, paths, date, fsImpl = nodeFs }) {
   const stamp = date || new Date().toISOString().slice(0, 10);
   const moved = [];
+  const failed = [];
   for (const key of TARGET_KEYS) {
     if (!paths || !paths[key]) continue;
     const file = path.resolve(repoRoot, paths[key]);
@@ -221,11 +224,12 @@ function compactHistory({ repoRoot, featureDir, paths, date, fsImpl = nodeFs }) 
       result = compactArtifact({ fsImpl, featureDir, file, date: stamp });
     } catch (error) {
       const name = toPosix(path.relative(featureDir, file));
-      throw new CompactionError(`could not compact ${name}: ${error.message}; the artifact was left unchanged`, name, moved);
+      failed.push({ artifact: name, message: `could not compact ${name}: ${error.message}; the artifact was left unchanged` });
+      continue;
     }
     if (result) moved.push(result);
   }
-  return { status: moved.length ? 'compacted' : 'unchanged', moved };
+  return { status: failed.length ? 'partial' : moved.length ? 'compacted' : 'unchanged', moved, failed };
 }
 
-module.exports = { compactHistory, CompactionError, HISTORY_HEADING, POINTER, INITIAL_VERSION };
+module.exports = { compactHistory, HISTORY_HEADING, POINTER, INITIAL_VERSION };

@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { compactHistory, CompactionError, POINTER } = require('../../src/runtime/history-compactor');
+const { compactHistory, POINTER } = require('../../src/runtime/history-compactor');
 
 const FIXTURES = path.join(__dirname, '..', 'fixtures', 'decision-register');
 const SLUG = '001-demo';
@@ -91,7 +91,7 @@ test('an initial-version History, with or without a template comment, is left al
     design: read(path.join(f.featureDir, 'design', 'design.md')),
   };
   const result = compactHistory({ ...f, date: DATE });
-  assert.deepEqual(result, { status: 'unchanged', moved: [] });
+  assert.deepEqual(result, { status: 'unchanged', moved: [], failed: [] });
   assert.equal(read(path.join(f.featureDir, 'design', 'data-model.md')), before.dm);
   assert.equal(read(path.join(f.featureDir, 'design', 'design.md')), before.design);
   assert.ok(!fs.existsSync(path.join(f.featureDir, 'decisions')));
@@ -107,7 +107,7 @@ test('a second run finds nothing to move and changes no byte', () => {
     read(path.join(f.featureDir, 'decisions', 'history', 'specs.md')),
   ];
   const second = compactHistory({ ...f, date: '2026-10-04' });
-  assert.deepEqual(second, { status: 'unchanged', moved: [] });
+  assert.deepEqual(second, { status: 'unchanged', moved: [], failed: [] });
   assert.deepEqual([
     read(path.join(f.featureDir, 'plan.md')),
     read(path.join(f.featureDir, 'design', 'specs.md')),
@@ -147,7 +147,7 @@ test('an artifact with no History section is left alone', () => {
   const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
   const file = path.join(f.featureDir, 'plan.md');
   fs.writeFileSync(file, '# Plan\n\nNo history here.\n');
-  assert.deepEqual(compactHistory({ ...f, date: DATE }), { status: 'unchanged', moved: [] });
+  assert.deepEqual(compactHistory({ ...f, date: DATE }), { status: 'unchanged', moved: [], failed: [] });
   assert.equal(read(file), '# Plan\n\nNo history here.\n');
 });
 
@@ -174,10 +174,11 @@ test('a failed archive append leaves the artifact byte-identical and names it', 
   const file = path.join(f.featureDir, 'plan.md');
   const before = fs.readFileSync(file);
   const archive = path.join(f.featureDir, 'decisions', 'history', 'plan.md');
-  assert.throws(
-    () => compactHistory({ ...f, date: DATE, fsImpl: failingRename(archive) }),
-    (error) => error instanceof CompactionError && error.artifact === 'plan.md' && /plan\.md/.test(error.message),
-  );
+  const result = compactHistory({ ...f, date: DATE, fsImpl: failingRename(archive) });
+  assert.equal(result.status, 'partial');
+  assert.equal(result.failed.length, 1);
+  assert.equal(result.failed[0].artifact, 'plan.md');
+  assert.match(result.failed[0].message, /plan\.md/);
   assert.ok(fs.readFileSync(file).equals(before));
   assert.ok(!fs.existsSync(archive));
   assert.deepEqual(fs.readdirSync(path.join(f.featureDir, 'decisions', 'history')), []);
@@ -193,7 +194,7 @@ test('an archive that does not hold the block after the write stops before the a
       return p.includes(`${path.sep}history${path.sep}`) ? '# History archive: plan.md\n' : fs.readFileSync(p, enc);
     },
   };
-  assert.throws(() => compactHistory({ ...f, date: DATE, fsImpl: lying }), CompactionError);
+  assert.equal(compactHistory({ ...f, date: DATE, fsImpl: lying }).failed[0].artifact, 'plan.md');
   assert.ok(fs.readFileSync(file).equals(before));
 });
 
@@ -201,7 +202,7 @@ test('a failed artifact rewrite keeps the block in the archive and the next run 
   const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
   const file = path.join(f.featureDir, 'plan.md');
   const before = fs.readFileSync(file);
-  assert.throws(() => compactHistory({ ...f, date: DATE, fsImpl: failingRename(file) }), CompactionError);
+  assert.equal(compactHistory({ ...f, date: DATE, fsImpl: failingRename(file) }).status, 'partial');
   assert.ok(fs.readFileSync(file).equals(before));
   const archive = path.join(f.featureDir, 'decisions', 'history', 'plan.md');
   assert.ok(fs.existsSync(archive));
@@ -211,13 +212,13 @@ test('a failed artifact rewrite keeps the block in the archive and the next run 
   assert.ok(read(file).includes('Earlier entries:'));
 });
 
-test('artifacts compacted before a failure stay compacted and are reported on the error', () => {
+test('artifacts compacted around a failure stay compacted and the failure is reported beside them', () => {
   const f = feature({ design: ['design/design.md', 'history-9-initial.md'], plan: ['plan.md', 'history-9-plan.md'], specs: ['design/specs.md', 'history-2-specs.md'] });
   const planArchive = path.join(f.featureDir, 'decisions', 'history', 'plan.md');
-  assert.throws(
-    () => compactHistory({ ...f, date: DATE, fsImpl: failingRename(planArchive) }),
-    (error) => error.artifact === 'plan.md' && error.moved.length === 1 && error.moved[0].artifact === 'specs.md',
-  );
+  const result = compactHistory({ ...f, date: DATE, fsImpl: failingRename(planArchive) });
+  assert.equal(result.status, 'partial');
+  assert.deepEqual(result.failed.map((x) => x.artifact), ['plan.md']);
+  assert.deepEqual(result.moved.map((x) => x.artifact), ['specs.md']);
 });
 
 // ── fenced code blocks ─────────────────────────────────────────────────────────────────────────
@@ -257,7 +258,9 @@ test('a code fence that never closes is reported and the artifact is left unchan
   const f = feature({ plan: ['plan.md', 'history-9-open-fence.md'] });
   const file = path.join(f.featureDir, 'plan.md');
   const before = fs.readFileSync(file);
-  assert.throws(() => compactHistory({ ...f, date: DATE }), (e) => e instanceof CompactionError && e.artifact === 'plan.md' && /fence/.test(e.message));
+  const result = compactHistory({ ...f, date: DATE });
+  assert.equal(result.status, 'partial');
+  assert.ok(result.failed[0].artifact === 'plan.md' && /fence/.test(result.failed[0].message));
   assert.ok(fs.readFileSync(file).equals(before));
   assert.ok(!fs.existsSync(path.join(f.featureDir, 'decisions')));
 });
@@ -281,7 +284,7 @@ test('a block that only prefixes an earlier chunk is still appended, so nothing 
 test('recovery on a later day does not append a second copy of an interrupted chunk', () => {
   const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
   const file = path.join(f.featureDir, 'plan.md');
-  assert.throws(() => compactHistory({ ...f, date: '2026-10-03', fsImpl: failingRename(file) }), CompactionError);
+  assert.equal(compactHistory({ ...f, date: '2026-10-03', fsImpl: failingRename(file) }).status, 'partial');
   const result = compactHistory({ ...f, date: '2026-10-04' });
   assert.equal(result.status, 'compacted');
   const archive = read(path.join(f.featureDir, 'decisions', 'history', 'plan.md'));
@@ -320,7 +323,7 @@ test('a fenced "## Compacted" line in History compacts once and a second run is 
   assert.equal(archive.split('\n').filter((l) => l.startsWith('## Compacted 2026-10-03')).length, 1);
   const snapshotAfter = [archive, read(file)];
   const second = compactHistory({ ...f, date: DATE });
-  assert.deepEqual(second, { status: 'unchanged', moved: [] });
+  assert.deepEqual(second, { status: 'unchanged', moved: [], failed: [] });
   assert.deepEqual([read(archiveFile), read(file)], snapshotAfter);
 });
 
@@ -328,7 +331,7 @@ test('an interrupted run whose block quotes a chunk header is still recognised o
   const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
   const file = path.join(f.featureDir, 'plan.md');
   fs.writeFileSync(file, '# Plan\n\n## 9. History\n\n```\n## Compacted 2026-01-01 from plan.md §9\n```\n');
-  assert.throws(() => compactHistory({ ...f, date: DATE, fsImpl: failingRename(file) }), CompactionError);
+  assert.equal(compactHistory({ ...f, date: DATE, fsImpl: failingRename(file) }).status, 'partial');
   compactHistory({ ...f, date: '2026-10-04' });
   const archive = read(path.join(f.featureDir, 'decisions', 'history', 'plan.md'));
   assert.equal(archive.split('\n').filter((l) => /^## Compacted 2026-10-0\d/.test(l)).length, 1);
@@ -363,7 +366,61 @@ test('an HTML comment that never closes is refused and the artifact is left unch
   const file = path.join(f.featureDir, 'plan.md');
   fs.writeFileSync(file, '# Plan\n\n## 9. History\n\n- entry\n\n<!-- never closed\n\n## 10. Appendix\n\nText.\n');
   const before = fs.readFileSync(file);
-  assert.throws(() => compactHistory({ ...f, date: DATE }), (e) => e instanceof CompactionError && e.artifact === 'plan.md' && /comment/.test(e.message));
+  const result = compactHistory({ ...f, date: DATE });
+  assert.equal(result.status, 'partial');
+  assert.ok(result.failed[0].artifact === 'plan.md' && /comment/.test(result.failed[0].message));
   assert.ok(fs.readFileSync(file).equals(before));
   assert.ok(!fs.existsSync(path.join(f.featureDir, 'decisions')));
+});
+
+// ── an unclosed construct matters only when it opens before History ends (FR-001, FR-002) ───────
+
+test('one refused artifact does not stop the others, and the refused one is byte-identical', () => {
+  const f = feature({ requirement: ['intention/requirement.md', 'history-9-plan.md'], plan: ['plan.md', 'history-9-plan.md'] });
+  const requirement = path.join(f.featureDir, 'intention', 'requirement.md');
+  fs.writeFileSync(requirement, '# Req\n\n## 9. History\n\n- entry\n\n<!-- never closed\n');
+  const before = fs.readFileSync(requirement);
+  const result = compactHistory({ ...f, date: DATE });
+  assert.equal(result.status, 'partial');
+  assert.deepEqual(result.moved.map((m) => m.artifact), ['plan.md']);
+  assert.deepEqual(result.failed.map((x) => x.artifact), ['intention/requirement.md']);
+  assert.ok(fs.readFileSync(requirement).equals(before));
+  assert.ok(read(path.join(f.featureDir, 'plan.md')).includes('Earlier entries:'));
+});
+
+test('an unclosed comment after the History section is ignored and History compacts', () => {
+  const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
+  const file = path.join(f.featureDir, 'plan.md');
+  fs.writeFileSync(file, '# Plan\n\n## 9. History\n\n- entry\n\n## 10. Appendix\n\n<!-- never closed\n\nText.\n');
+  const result = compactHistory({ ...f, date: DATE });
+  assert.equal(result.status, 'compacted');
+  assert.deepEqual(result.failed, []);
+  assert.equal(read(file), '# Plan\n\n## 9. History\n\nEarlier entries: [decisions/history/plan.md](decisions/history/plan.md).\n\n## 10. Appendix\n\n<!-- never closed\n\nText.\n');
+});
+
+test('an unclosed fence after the History section is ignored too', () => {
+  const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
+  const file = path.join(f.featureDir, 'plan.md');
+  fs.writeFileSync(file, '# Plan\n\n## 9. History\n\n- entry\n\n## 10. Appendix\n\n```\nnever closed\n');
+  assert.equal(compactHistory({ ...f, date: DATE }).status, 'compacted');
+});
+
+test('an artifact with no History section is unchanged whatever it leaves unclosed', () => {
+  const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
+  const file = path.join(f.featureDir, 'plan.md');
+  fs.writeFileSync(file, '# Plan\n\n<!-- never closed\n\n- text\n');
+  const before = fs.readFileSync(file);
+  assert.deepEqual(compactHistory({ ...f, date: DATE }), { status: 'unchanged', moved: [], failed: [] });
+  assert.ok(fs.readFileSync(file).equals(before));
+});
+
+test('an unclosed construct that opens before History, swallowing its heading, is refused', () => {
+  const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
+  const file = path.join(f.featureDir, 'plan.md');
+  fs.writeFileSync(file, '# Plan\n\n<!-- never closed\n\n## 9. History\n\n- entry\n');
+  const before = fs.readFileSync(file);
+  const result = compactHistory({ ...f, date: DATE });
+  assert.equal(result.status, 'partial');
+  assert.match(result.failed[0].message, /comment/);
+  assert.ok(fs.readFileSync(file).equals(before));
 });

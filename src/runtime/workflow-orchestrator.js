@@ -473,7 +473,8 @@ class WorkflowOrchestrator {
  * IC-013: fold the finished stage's History into the feature's archive. The task id is the feature
  * slug. This is housekeeping after a recorded handoff, so it reports and never throws: the
  * disposition and the exit code stay whatever the handoff itself decided.
- * @returns {{status:'compacted'|'unchanged'|'skipped'|'failed', reason?:string, moved?:Array}}
+ * @returns {{status:'compacted'|'unchanged'|'partial'|'skipped'|'failed', reason?:string, moved?:Array,
+ *   failed?:Array<{artifact:string, message:string}>}} `partial` carries `failed`, one entry per refused artifact
  */
 function compactAfterHandoff({ taskId, projectRoot }) {
   try {
@@ -486,7 +487,11 @@ function compactAfterHandoff({ taskId, projectRoot }) {
       featureDir: feature.featureDir, slug: feature.paths.feature_slug, repoRoot: feature.repoRoot, paths: feature.paths,
     });
     if (result.finding === 'no-register') return { status: 'skipped', reason: result.message };
-    if (result.finding) return { status: 'failed', reason: result.message, ...(result.moved ? { moved: result.moved } : {}) };
+    // Some artifacts compacted and some were refused: `partial`, with each refusal named (IC-005).
+    if (result.finding === 'compaction-failed') {
+      return { status: 'partial', reason: result.message, moved: result.moved, failed: result.failed };
+    }
+    if (result.finding) return { status: 'failed', reason: result.message };
     return { status: result.status, moved: result.moved };
   } catch (error) {
     return { status: 'failed', reason: error.message };
