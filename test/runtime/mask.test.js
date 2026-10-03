@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { mask, maskLine, maskBody, normalise, normaliseMessage } = require('../../src/runtime/mask');
 
-const HOME = '/Users/kai';
+const HOME = '/home/user';
 const opts = { home: HOME };
 const NPM = `npm_${'aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE3fG5'}`; // 36 letters and digits after the prefix
 
@@ -26,7 +26,7 @@ const FIXTURES = [
   ['prose with a key word', 'Fix auth: token refresh fails', ['line'], 'Fix auth: token refresh fails'],
   ['prose with a colon', 'Author: Jane', ['line', 'body'], 'Author: Jane'],
   ['git sha', 'e17bb1e0c3a94f2b8d6e5a7c9b1d3f5e7a9c1b3d', ['line', 'body'], 'e17bb1e0c3a94f2b8d6e5a7c9b1d3f5e7a9c1b3d'],
-  ['home path with a long segment', '/Users/kai/Workspace/046-lifecycle-loop-with-a-long-name/src/x.js', ['line', 'body'], '~/Workspace/046-lifecycle-loop-with-a-long-name/src/x.js'],
+  ['home path with a long segment', '/home/user/Workspace/046-lifecycle-loop-with-a-long-name/src/x.js', ['line', 'body'], '~/Workspace/046-lifecycle-loop-with-a-long-name/src/x.js'],
   ['camelCase frame', 'handleDecisionCommandWithRegisterCompaction', ['line', 'body'], 'handleDecisionCommandWithRegisterCompaction'],
 ];
 
@@ -68,9 +68,9 @@ test('URL credentials, emails and IPv4 addresses', () => {
 });
 
 test('the home prefix becomes ~ only at a path boundary', () => {
-  assert.equal(maskLine('/Users/kai', opts).text, '~');
-  assert.equal(maskLine('see /Users/kai/x and /Users/kaiser/x', opts).text, 'see ~/x and /Users/kaiser/x');
-  assert.equal(maskLine('/Users/kai/x', { home: null }).text, '/Users/kai/x');
+  assert.equal(maskLine('/home/user', opts).text, '~');
+  assert.equal(maskLine('see /home/user/x and /home/users/x', opts).text, 'see ~/x and /home/users/x');
+  assert.equal(maskLine('/home/user/x', { home: null }).text, '/home/user/x');
   assert.equal(maskLine('/x', { home: '/' }).text, '/x');
 });
 
@@ -118,7 +118,7 @@ test('a large body with a long unbroken run finishes quickly', () => {
 });
 
 test('normalise: paths, quoted text, digits, whitespace and length (rules 10 to 13)', () => {
-  assert.equal(normalise('open /Users/kai/app/src/x.js:12:3 failed'), 'open <path>:N:N failed');
+  assert.equal(normalise('open /home/user/app/src/x.js:12:3 failed'), 'open <path>:N:N failed');
   assert.equal(normalise('see ~/Workspace/app and ~'), 'see <path> and <path>');
   assert.equal(normalise('Cannot read properties of undefined (reading \'price\')'), 'Cannot read properties of undefined (reading "...")');
   assert.equal(normalise('a "b c" `d` \'e\' done'), 'a "..." "..." "..." done');
@@ -127,10 +127,10 @@ test('normalise: paths, quoted text, digits, whitespace and length (rules 10 to 
   assert.equal(normalise('a   b\n\tc  '), 'a b c');
   assert.equal(normalise('x'.repeat(300)).length, 200);
   assert.equal(normalise('a/b and and/or https://x.test/y'), 'a/b and and/or https://x.test/y');
-  assert.equal(normalise('C:\\Users\\kai\\x.js broke'), '<path> broke');
+  assert.equal(normalise('C:\\Users\\dev\\x.js broke'), '<path> broke');
   assert.equal(normalise(undefined), '');
 });
 
 test('normaliseMessage masks first, then normalises', () => {
-  assert.equal(normaliseMessage('failed for token=ab12cd34 in /Users/kai/app at line 12', opts), 'failed for token=<masked> in <path> at line N');
+  assert.equal(normaliseMessage('failed for token=ab12cd34 in /home/user/app at line 12', opts), 'failed for token=<masked> in <path> at line N');
 });
