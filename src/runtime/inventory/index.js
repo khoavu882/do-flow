@@ -689,7 +689,7 @@ function handleInventoryCommand({ repoRoot, projectRoot, targets, json = false, 
   } catch (error) {
     // IC-001 assigns an unreadable registry, an unparseable ledger and an undeclared harness alike
     // to exit 2. A scope with nothing recorded never reaches here — `readScopes` returns it empty.
-    return usageError('inventory', error.message, json);
+    return usageError('inventory', error.message, json, error);
   }
 
   if (json) console.log(JSON.stringify(report, null, 2));

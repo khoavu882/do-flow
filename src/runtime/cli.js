@@ -12,6 +12,8 @@ const { measureFreshness } = require('./freshness');
 const { evaluateTaskReadiness } = require('./readiness');
 const { loadRegistry } = require('../registry');
 const { REPO_ROOT } = require('../helper/repo-root');
+// One definition of the exit and usage helpers (design §4.2); `finish` is the local spelling of `finishRuntime`.
+const { finishRuntime: finish, usageError } = require('./cli-result');
 
 /**
  * Handles `doflow capabilities` command execution.
@@ -55,26 +57,6 @@ function handleCapabilitiesCommand({ json = false, check = false, repoRoot } = {
   }
   console.log('═'.repeat(78));
   console.log(`Mode: ${check ? 'Deep Smoke Check' : 'Fast Presence Check'} · Total Capabilities: ${report.length}\n`);
-}
-
-// ── uniform report contract, handler side ─────────────────────────────────────────────────────
-//
-// Both helpers mirror `bin/doflow.js`'s `finishRuntime` and `usageError` exactly. They are
-// duplicated rather than imported because `bin/doflow.js` is an executable script, not a module;
-// the alternative is a new shared file for six lines. If the contract there changes, it changes
-// here — design §4.2 is the single definition, not either copy.
-
-/** Sets the process exit code and returns it, for the `case 'x': return handleXCommand(...)` form. */
-function finish(code) {
-  process.exitCode = code;
-  return code;
-}
-
-/** Reports an argument the verb cannot proceed without: exit 2, in the caller's requested shape. */
-function usageError(verb, message, json) {
-  if (json) console.log(JSON.stringify({ ok: false, status: 'USAGE', exitCode: 2, error: 'usage', summary: message }, null, 2));
-  else console.error(`doflow ${verb}: ${message}`);
-  return finish(2);
 }
 
 /**
@@ -124,7 +106,7 @@ function handleReadinessCommand({
   try {
     report = evaluateTaskReadiness({ taskProfile: profile, repoRoot: root, projectRoot: state, mode });
   } catch (error) {
-    return usageError('readiness', error.message, json);
+    return usageError('readiness', error.message, json, error);
   }
 
   if (json) {
@@ -475,7 +457,7 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json }) {
   try {
     raws = batchPath ? readEvidenceBatch(batchPath) : [item];
   } catch (error) {
-    return usageError('evidence', error.message, json);
+    return usageError('evidence', error.message, json, error);
   }
   if (raws.length === 0) {
     return usageError('evidence', 'the batch holds no evidence items — a stage that established nothing '
@@ -490,7 +472,7 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json }) {
       validated.push(validateEvidenceItem(raw, taskId, root));
     } catch (error) {
       const where = raws.length > 1 ? `batch item ${index + 1} of ${raws.length}: ` : '';
-      return usageError('evidence', `${where}${error.message}`, json);
+      return usageError('evidence', `${where}${error.message}`, json, error);
     }
   }
 
@@ -508,7 +490,7 @@ function addEvidence({ ledger, root, taskId, item, batchPath, json }) {
     }
     stateFile = ledger.save(taskId);
   } catch (error) {
-    return usageError('evidence', error.message, json);
+    return usageError('evidence', error.message, json, error);
   }
 
   if (json) {
@@ -555,7 +537,7 @@ function supersedeEvidence({ ledger, taskId, evidenceId, replacedBy, json }) {
   try {
     status = ledger.supersedeEvidence(evidenceId, replacedBy);
   } catch (error) {
-    return usageError('evidence', error.message, json);
+    return usageError('evidence', error.message, json, error);
   }
   const stateFile = ledger.save(taskId);
   const record = ledger.getEvidence(evidenceId);
@@ -605,7 +587,7 @@ function handleEvidenceCommand({ taskId = 'default', action = 'list', item = nul
   try {
     ledger.load(taskId);
   } catch (error) {
-    return usageError('evidence', error.message, json);
+    return usageError('evidence', error.message, json, error);
   }
 
   if (action === 'add') return addEvidence({ ledger, root, taskId, item, batchPath, json });

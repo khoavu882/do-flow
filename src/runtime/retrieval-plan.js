@@ -249,7 +249,7 @@ function declarePlan({ router, projectRoot, taskId, stage, intents, json, slug }
       // A misspelled intent is a caller error, not an unresolvable need. Recording it as
       // declared-unresolvable would file a typo as a machine limitation and hide it until report.
       return usageError('retrieval-plan',
-        `${error.message}. Declared intents: ${Object.keys(router.routes).sort().join(', ')}`, json);
+        `${error.message}. Declared intents: ${Object.keys(router.routes).sort().join(', ')}`, json, error);
     }
     needs.push({
       intent,
@@ -336,7 +336,7 @@ function reportPlan({ projectRoot, taskId, reached, json, slug }) {
   try {
     record = readPlan(projectRoot, taskId, slug);
   } catch (error) {
-    return usageError('retrieval-plan', error.message, json);
+    return usageError('retrieval-plan', error.message, json, error);
   }
   if (!record) {
     return usageError('retrieval-plan',
@@ -357,7 +357,7 @@ function reportPlan({ projectRoot, taskId, reached, json, slug }) {
   try {
     ledger.load(taskId);
   } catch (error) {
-    return usageError('retrieval-plan', error.message, json);
+    return usageError('retrieval-plan', error.message, json, error);
   }
   const items = ledger.queryEvidence({ taskId });
 
@@ -480,7 +480,7 @@ function handleRetrievalPlanCommand(options = {}) {
   try {
     assertNoScoreFields(options, '');
   } catch (error) {
-    return usageError('retrieval-plan', error.message, json);
+    return usageError('retrieval-plan', error.message, json, error);
   }
 
   // `'status'` is the CLI's shared `--action` default, owned by `tools`. Every read-action verb
@@ -499,7 +499,7 @@ function handleRetrievalPlanCommand(options = {}) {
   try {
     assertSafeTaskId(taskId);
   } catch (error) {
-    return usageError('retrieval-plan', error.message, json);
+    return usageError('retrieval-plan', error.message, json, error);
   }
 
   const intents = parseIntents(need);
@@ -517,7 +517,7 @@ function handleRetrievalPlanCommand(options = {}) {
     try {
       router = new CapabilityRouter({ repoRoot: packageRoot });
     } catch (error) {
-      return usageError('retrieval-plan', error.message, json);
+      return usageError('retrieval-plan', error.message, json, error);
     }
     return declarePlan({ router, projectRoot, taskId, stage, intents, json, slug });
   }

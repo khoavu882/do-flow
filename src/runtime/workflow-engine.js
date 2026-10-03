@@ -533,7 +533,7 @@ function handleWorkflowCommand({ taskClass, json = false } = {}) {
   } catch (error) {
     // The engine's own message already names every valid class; restating it here would be a
     // second inventory to keep in step with the registry.
-    return usageError('workflow', error.message, json);
+    return usageError('workflow', error.message, json, error);
   }
 
   if (json) { console.log(JSON.stringify(workflow, null, 2)); return finishRuntime(0); }

@@ -218,7 +218,7 @@ function handleResearchRequestCommand({ action = 'list', taskId, stageId, questi
     else console.log(JSON.stringify(result));
     return finishRuntime(0);
   } catch (error) {
-    return usageError('research-request', error.message, json);
+    return usageError('research-request', error.message, json, error);
   }
 }
 

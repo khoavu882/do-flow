@@ -248,7 +248,7 @@ function recordOutcome({ projectRoot, packageRoot, taskId, taskClass, stage, sta
   try {
     workflow = new WorkflowEngine({ repoRoot: packageRoot }).resolveWorkflow(taskClass);
   } catch (error) {
-    return usageError('outcome', error.message, json);
+    return usageError('outcome', error.message, json, error);
   }
   const terminalStage = workflow.terminalStage;
   if (stage !== undefined && stage !== null && String(stage).trim() !== '' && String(stage).trim() !== terminalStage.id) {
@@ -265,7 +265,7 @@ function recordOutcome({ projectRoot, packageRoot, taskId, taskClass, stage, sta
     basisReadiness = statedVerdict(readiness, READINESS_STATES, '--readiness');
     basisVerification = statedVerdict(verification, VERIFICATION_STATUSES, '--verification');
   } catch (error) {
-    return usageError('outcome', error.message, json);
+    return usageError('outcome', error.message, json, error);
   }
 
   let evidenceCount;
@@ -274,7 +274,7 @@ function recordOutcome({ projectRoot, packageRoot, taskId, taskClass, stage, sta
     evidenceCount = countEvidence(projectRoot, taskId, slug);
     unreached = unreachedItems(projectRoot, taskId, basisVerification.value, slug);
   } catch (error) {
-    return usageError('outcome', error.message, json);
+    return usageError('outcome', error.message, json, error);
   }
 
   if (proposed === COMPLETED && evidenceCount === 0) {
@@ -334,7 +334,7 @@ function showOutcome({ projectRoot, taskId, json, slug }) {
   try {
     record = readOutcome(projectRoot, taskId, slug);
   } catch (error) {
-    return usageError('outcome', error.message, json);
+    return usageError('outcome', error.message, json, error);
   }
   if (!record) {
     const file = outcomePath(projectRoot, taskId, slug);
@@ -423,7 +423,7 @@ function handleOutcomeCommand(options = {}) {
   try {
     assertNoScoreFields(options, '');
   } catch (error) {
-    return usageError('outcome', error.message, json);
+    return usageError('outcome', error.message, json, error);
   }
 
   // `'status'` is the CLI's shared `--action` default, owned by `tools`. Every read-action verb
@@ -442,7 +442,7 @@ function handleOutcomeCommand(options = {}) {
   try {
     assertSafeTaskId(taskId);
   } catch (error) {
-    return usageError('outcome', error.message, json);
+    return usageError('outcome', error.message, json, error);
   }
 
   if (resolvedAction === 'record') {

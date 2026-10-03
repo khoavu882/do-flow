@@ -13,6 +13,7 @@ const {
 } = require('../runtime/cli');
 const { pkg } = require('./shared');
 const { dispatchRuntimeCommand } = require('./runtime-commands');
+const { captureError } = require('../runtime/failure/capture');
 
 const cmdInstall = require('./commands/install');
 const cmdUpdate = require('./commands/update');
@@ -449,6 +450,13 @@ External tools:
   -h, --help           Show help
   -v, --version        Show version`;
 
+// The names a failure may be recorded under (IC-011): the installer table and the verbs HELP lists,
+// so a record can only ever carry a name from DoFlow's own tables and never an argument value.
+const COMMAND_NAMES = new Set([...Object.keys(COMMANDS), ...[...HELP.matchAll(/^  ([a-z][a-z-]*) {2,}\S/gm)].map((m) => m[1])]);
+
+/** @param {*} name @returns {string} `name` when it is one of DoFlow's own command names, else `unknown` */
+function commandName(name) { return typeof name === 'string' && COMMAND_NAMES.has(name) ? name : 'unknown'; }
+
 /**
  * Run one CLI invocation. Same behavior as the pre-extraction monolith's main(): --version and
  * --help answer first, --no-backup-without-force is refused, then the command resolves either
@@ -465,6 +473,9 @@ function main(argv) {
     if (handler) return handler(o);
     return dispatchRuntimeCommand(o);
   } catch (error) {
+    // Recorded silently when it is a programming error (IC-016); the output and exit status below
+    // are the same whether or not anything was written.
+    captureError(error, { command: commandName(o.cmd), exit: 1 });
     // A lifecycle apply/remove can throw mid-mutation (fs error, TOCTOU ownership mismatch on a
     // multi-harness run) — surface a clean, actionable message instead of a raw stack trace, and
     // point at the recovery record applyLifecycle already wrote before rethrowing.
@@ -479,4 +490,4 @@ function main(argv) {
   }
 }
 
-module.exports = { main, COMMANDS };
+module.exports = { main, COMMANDS, commandName };

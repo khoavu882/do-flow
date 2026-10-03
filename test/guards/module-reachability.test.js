@@ -57,12 +57,7 @@ const PATH_CALLER_SURFACES = ['package.json', path.join('core', 'shared', 'scrip
  * vouching for a module the moment its caller goes — which an allowlist entry would not.
  * "Nothing calls it" is never a reason — that module is dead, and belongs deleted, not exempted.
  */
-const ALLOWLIST = new Set([
-  // TEMPORARY (feature 046, task B.1): the failure writer lands before its capture points. B.2
-  // requires it from bin/doflow.js and src/cli/index.js and empties this list. The classifier and
-  // the home module are reached through it.
-  'src/runtime/failure/capture.js',
-]);
+const ALLOWLIST = new Set([]);
 
 /** Every `.js` file under a source/test root. */
 function jsFilesUnder(root) {
