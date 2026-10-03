@@ -17,7 +17,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
-const { makeRepo } = require('../helper/lifecycle-git-fixtures');
+const { makeRepo, featureBranch } = require('../helper/lifecycle-git-fixtures');
 const { IS_WIN } = require('../helper-platform');
 
 const REPO = path.resolve(__dirname, '..', '..');
@@ -53,8 +53,8 @@ function install(h, target) {
   assert.equal(r.status, 0, `install -t ${target}: ${r.stderr}`);
 }
 
-function run(h, cwd, locator, args) {
-  const r = spawnSync('bash', [locator, ...args], { cwd, encoding: 'utf8', env: envFor(h) });
+function run(h, cwd, locator, args, { input = '' } = {}) {
+  const r = spawnSync('bash', [locator, ...args], { cwd, input, encoding: 'utf8', env: envFor(h) });
   let json = null;
   try { json = JSON.parse(r.stdout); } catch { /* human output */ }
   return { status: r.status, stdout: r.stdout, stderr: r.stderr, json };
@@ -91,6 +91,7 @@ describe('Codex target: the lifecycle verbs run through the codex-projected disp
     const overview = run(h, project.dir, locator, ['lifecycle', '--action', 'overview', '--json']);
     assert.equal(overview.status, 0, overview.stderr);
     assert.deepEqual([overview.json.ok, overview.json.mode], [true, 'discovery']);
+    assert.deepEqual([overview.json.releaseMode, overview.json.integrationRef], ['untagged', 'develop'], 'the installed runtime read the git facts');
     assert.deepEqual(overview.json.followups, { open: 0, shown: 0, items: [] });
 
     const list = run(h, project.dir, locator, ['followup', '--action', 'list', '--json']);
@@ -114,6 +115,38 @@ describe('Codex target: the lifecycle verbs run through the codex-projected disp
     const r = spawnSync('bash', ['-c', `${resolver}\nprintf '%s' "$DOFLOW"`], { cwd: project.dir, encoding: 'utf8', env: envFor(h) });
     assert.equal(r.status, 0, r.stderr);
     assert.equal(fs.realpathSync(r.stdout), fs.realpathSync(path.join(h.home, '.doflow', 'scripts', 'doflow', 'bin', 'doflow-run')));
+  });
+});
+
+// The installed Node runtime carries only bin/, src/ and core/registry/, so the git facts helper is the
+// one projected beside it (`<install>/.doflow/scripts/doflow/bash/do-git-state.sh`), not the checkout's.
+describe('An installed runtime reads the git facts the lifecycle verbs need (global and project-local shapes)', { skip: SKIP }, () => {
+  /** The facts every installed runtime must derive in a fresh scratch repository on develop. */
+  function assertGitFacts(h, dispatcher, label) {
+    const repo = makeRepo(scratch, `facts-${label}`);
+    const overview = run(h, repo.dir, dispatcher, ['lifecycle', '--action', 'overview', '--json']);
+    assert.equal(overview.status, 0, overview.stderr);
+    assert.deepEqual([overview.json.releaseMode, overview.json.integrationRef], ['untagged', 'develop'], `${label}: ${overview.stdout}`);
+    const release = run(h, repo.dir, dispatcher, ['lifecycle', '--action', 'release', '--tag', 'v1.0.0', '--json']);
+    assert.notEqual(release.json && release.json.finding, 'no-integration-ref', `${label}: ${release.stdout}`);
+    assert.equal(release.status, 0, `${label}: ${release.stdout}${release.stderr}`);
+  }
+
+  for (const target of ['claude', 'codex', 'gemini']) {
+    test(`${target}, global: the projected dispatcher derives the release mode and the integration ref`, () => {
+      const h = homeFor(`facts-${target}`);
+      install(h, target);
+      assertGitFacts(h, path.join(h.home, '.doflow', 'scripts', 'doflow', 'bin', 'doflow-run'), target);
+    });
+  }
+
+  test('claude, project-local: <project>/.doflow derives the same facts', () => {
+    const h = homeFor('facts-local');
+    const projectRoot = path.join(h.dir, 'install-root');
+    fs.mkdirSync(projectRoot);
+    const r = spawnSync(process.execPath, [CLI, 'install', projectRoot, '-f', '--no-backup', '-t', 'claude'], { cwd: h.dir, encoding: 'utf8', input: '\n', env: envFor(h) });
+    assert.equal(r.status, 0, r.stderr);
+    assertGitFacts(h, path.join(projectRoot, '.doflow', 'scripts', 'doflow', 'bin', 'doflow-run'), 'project-local');
   });
 });
 

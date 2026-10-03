@@ -9,7 +9,7 @@ const { createScratch } = require('../helper/scratch-env');
 const { makeRepo, featureBranch, FIXTURES, SLUG, TRACKED_AT } = require('../helper/lifecycle-git-fixtures');
 const { foldEvents } = require('../../src/runtime/lifecycle/fold');
 const store = require('../../src/runtime/lifecycle/event-store');
-const { deriveStatuses, readGitFacts, bucketize, subjectNames, behindNote } = require('../../src/runtime/lifecycle/status');
+const { deriveStatuses, readGitFacts, resolveGitStateHelper, bucketize, subjectNames, behindNote } = require('../../src/runtime/lifecycle/status');
 
 const scratch = createScratch('doflow-status-');
 test.before(() => scratch.apply());
@@ -331,4 +331,40 @@ test('the result carries the pinned integration sha and the full merge commit of
   assert.equal(derive(repo, foldOf()).integrationSha, repo.git('rev-parse', 'develop'), 'also with no tracked feature');
   const none = derive(repo, foldOf(tracked('099-unmerged')));
   assert.equal(none.evidenceCommits['099-unmerged'], null);
+});
+
+// ── where the git-facts helper lives (an installed runtime carries no core/) ───────────────────
+
+/** A runtime root under the scratch directory with the helper in the named layouts only. */
+function runtimeLayout(name, { checkout = false, install = false } = {}) {
+  const base = path.join(scratch.dir, `layout-${name}`);
+  const root = path.join(base, '.doflow', 'runtime');
+  const checkoutHelper = path.join(root, 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-git-state.sh');
+  const installHelper = path.join(base, '.doflow', 'scripts', 'doflow', 'bash', 'do-git-state.sh');
+  fs.mkdirSync(root, { recursive: true });
+  for (const [wanted, file] of [[checkout, checkoutHelper], [install, installHelper]]) {
+    if (!wanted) continue;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '#!/usr/bin/env bash\n');
+  }
+  return { root, checkoutHelper, installHelper };
+}
+
+test('resolveGitStateHelper: the checkout layout, the install layout, the checkout one first, else null', () => {
+  const onlyCheckout = runtimeLayout('checkout', { checkout: true });
+  assert.equal(resolveGitStateHelper(onlyCheckout.root), onlyCheckout.checkoutHelper);
+  const onlyInstall = runtimeLayout('install', { install: true });
+  assert.equal(resolveGitStateHelper(onlyInstall.root), onlyInstall.installHelper);
+  const both = runtimeLayout('both', { checkout: true, install: true });
+  assert.equal(resolveGitStateHelper(both.root), both.checkoutHelper);
+  assert.equal(resolveGitStateHelper(runtimeLayout('neither').root), null);
+  assert.equal(resolveGitStateHelper(onlyCheckout.root, () => false), null, 'the existence check is the injected one');
+});
+
+test('readGitFacts names the missing helper instead of a generic failure, and uses the sibling-layout helper', () => {
+  const repo = makeRepo(scratch, 'helper-missing');
+  assert.deepEqual(readGitFacts(repo.dir, runtimeLayout('missing').root), { error: 'git-state-helper-missing' });
+  const install = runtimeLayout('real-install', { install: true });
+  fs.copyFileSync(path.join(__dirname, '..', '..', 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-git-state.sh'), install.installHelper);
+  assert.equal(readGitFacts(repo.dir, install.root).integration_ref, 'develop');
 });

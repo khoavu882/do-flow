@@ -21,12 +21,25 @@
  * have one-second resolution, so the lower bound is floored to the second.
  */
 
+const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 const { REPO_ROOT } = require('../../helper/repo-root');
 
-const GIT_STATE = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-git-state.sh');
 const MAX_BUFFER = 256 * 1024 * 1024;
+
+/**
+ * Where `do-git-state.sh` is: inside the package (a checkout or a source install), else projected
+ * next to the runtime (`<install>/.doflow/runtime` sits beside `<install>/.doflow/scripts`, and the
+ * runtime carries only bin/, src/ and core/registry/). The first one that exists, or null.
+ */
+function resolveGitStateHelper(repoRoot = REPO_ROOT, existsImpl = fs.existsSync) {
+  const candidates = [
+    path.join(repoRoot, 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-git-state.sh'),
+    path.resolve(repoRoot, '..', 'scripts', 'doflow', 'bash', 'do-git-state.sh'),
+  ];
+  return candidates.find((candidate) => existsImpl(candidate)) || null;
+}
 
 function git(root, args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: MAX_BUFFER, stdio: ['ignore', 'pipe', 'ignore'] });
@@ -41,13 +54,16 @@ function isAncestor(root, a, b) {
 }
 
 /**
- * The facts from `do-git-state.sh --lifecycle`.
+ * The facts from `do-git-state.sh --lifecycle`, read in `root`; `runtimeRoot` is where the runtime
+ * lives, which only a test moves.
  * @returns {{integration_ref:string|null, feature_prefixes:string[], release_tags:string[], base_tag:string|null}
  *   |{error:string}}
  */
-function readGitFacts(root) {
+function readGitFacts(root, runtimeRoot = REPO_ROOT) {
+  const helper = resolveGitStateHelper(runtimeRoot);
+  if (!helper) return { error: 'git-state-helper-missing' };
   try {
-    const out = execFileSync('bash', [GIT_STATE, '--lifecycle'], { cwd: root, encoding: 'utf8', maxBuffer: MAX_BUFFER, stdio: ['ignore', 'pipe', 'ignore'] });
+    const out = execFileSync('bash', [helper, '--lifecycle'], { cwd: root, encoding: 'utf8', maxBuffer: MAX_BUFFER, stdio: ['ignore', 'pipe', 'ignore'] });
     const facts = JSON.parse(out);
     if (facts.error) return { error: facts.error };
     return facts;
@@ -226,4 +242,4 @@ function deriveStatuses({ root, fold, facts = readGitFacts(root) }) {
   }
 }
 
-module.exports = { deriveStatuses, readGitFacts, bucketize, subjectNames, behindNote };
+module.exports = { deriveStatuses, readGitFacts, resolveGitStateHelper, bucketize, subjectNames, behindNote };
