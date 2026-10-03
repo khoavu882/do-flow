@@ -161,12 +161,12 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    - Step 2's standalone exemption (`evidenceCount` 0) means there was never a task id to begin
      with — skip this step entirely; there is nothing to record against.
    - Otherwise, `<task id>` and the validated class are the same ones step 2 already resolved.
+     Before this call, when `paths --json` reports `has_decisions: true`, follow steps 1-4 of the
+     decision step in the guidance tree's `references/WORKFLOW_HANDOFF.md`.
      Record this skill's completion of the implementation stage:
      ```bash
      "$DOFLOW" orchestrate --action handoff --task-id "<task id>" --calling-skill do-implement --note "<one line: what was implemented>" --result <passed|failed> --json
      ```
-     When the feature has a decision register, first follow the decision step in the guidance
-     tree's `references/WORKFLOW_HANDOFF.md`.
      Use step 6's verification outcome for `--result`: `passed` when every check in the named set
      passed, `failed` when one did not — never omit it to imply a pass step 6 did not establish.
      The runtime selects this class's implementation stage — the only mutating stage a caller may

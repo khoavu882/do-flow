@@ -486,11 +486,12 @@ describe('Scenario: Review fix records its decisions (FR-005, FR-010, FR-011, IC
     assert.ok(handoff.includes('Hand off with the stage\'s decisions registered, or say which are not.'), 'positive wording');
     assert.ok(!handoff.includes('Never hand off'), 'the negative wording is gone');
 
-    const pointer = 'follow the decision step in the guidance tree\'s `references/WORKFLOW_HANDOFF.md`';
+    const pointer = 'follow steps 1-4 of the decision step in the guidance tree\'s `references/WORKFLOW_HANDOFF.md`';
     const implement = shipped('skills/do-implement/SKILL.md');
-    assert.ok(implement.includes(`When the feature has a decision register, first ${pointer}`), 'do-implement step 7');
+    assert.ok(implement.includes(pointer), 'do-implement step 7');
+    assert.ok(implement.indexOf(pointer) < implement.indexOf('--action handoff --task-id "<task id>" --calling-skill do-implement'), 'the pointer is read before the handoff call');
     const flow = shipped('skills/do-flow/SKILL.md');
-    assert.ok(flow.includes(`Then ${pointer} so the answers are registered and cited.`), 'do-flow gate-0 patch path');
+    assert.ok(flow.includes(pointer), 'do-flow gate-0 patch path');
   });
 });
 
