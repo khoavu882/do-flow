@@ -13,6 +13,7 @@
  */
 
 const nodeFs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { maskLine } = require('../mask');
 const { STAGES: CHAIN_STAGES } = require('../decision-register');
@@ -260,11 +261,16 @@ function reportFollowup({ root, statement, input, release, feature, channel, now
     if (error instanceof reportStore.ReportInputError) throw new FollowupUsageError(error.message);
     throw error;
   }
-  const body = reportStore.prepareBody(raw);
+  let body;
+  try { body = reportStore.prepareBody(raw, { home: env.HOME || os.homedir() }); } catch (error) {
+    if (error instanceof reportStore.ReportInputError) throw new FollowupUsageError(error.message);
+    throw error;
+  }
+  if (!/\S/.test(body.buffer.toString('utf8'))) throw new FollowupUsageError('the report body is empty');
   const excerpt = reportStore.excerptOf(body.buffer);
-  if (excerpt === '') throw new FollowupUsageError('the report body is empty');
   // The excerpt is stored in the project event, so it gets the statement's hygiene; a line break is allowed in it.
-  if (CONTROL.test(excerpt)) throw new FollowupUsageError('the first 2 KB of the report body contain a control or bidirectional-override character (an ANSI colour code, for example); remove it and file the report again');
+  // ANSI colour and title sequences were removed before masking; what is left is a real control or bidirectional character.
+  if (CONTROL.test(excerpt)) throw new FollowupUsageError('the first 2 KB of the report body contain a control or bidirectional-override character; remove it and file the report again');
 
   const taken = new Set(readFold(root, { fsImpl, now }).followups.map((f) => f.id));
   let id;

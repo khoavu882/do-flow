@@ -121,6 +121,9 @@ function handleFollowupCommand({ action, cwd, global = false, slug = null, json 
         if (flags[name] !== undefined && flags[name] !== false) throw new followup.FollowupUsageError(`--${name} applies to --action report only`);
       }
     }
+    for (const name of ['tag', 'confirm', 'exclude']) {
+      if (flags[name] !== undefined && flags[name] !== false) throw new followup.FollowupUsageError(`--${name} applies to the lifecycle verb's --action release only, not to followup`);
+    }
     const root = projectRoot(cwd || process.cwd());
     let result;
     if (action === 'report') {

@@ -448,7 +448,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --path, --exclude (repeatable)        leak-scan
       --ids, --as, --evidence, --title,
       --release, --source, --channel        followup (add, list, take, settle, promote)
-      --file, --stdin, --text, --feature    followup --action report (the body comes from exactly one)
+      --file <path|->, --stdin, --text,
+      --feature                             followup --action report (the body comes from exactly one; - is stdin)
       --take, --goal, --intent, --since,
       --maintain                            lifecycle (overview, init)
       --tag, --confirm, --feature,

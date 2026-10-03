@@ -182,7 +182,7 @@ test('statement and excerpt hygiene: control and bidirectional characters are re
   assert.throws(() => report(repo, { statement: 'two\nlines', input: { text: 'body' } }), /--statement must be one line/);
   assert.throws(() => report(repo, { statement: 'x'.repeat(300), input: { text: 'body' } }), /--statement/);
   assert.throws(() => report(repo, { statement: ' ', input: { text: 'body' } }), /--statement is empty/);
-  assert.throws(() => report(repo, { input: { text: '\u001b[31mred\u001b[0m' } }), /first 2 KB.*control/);
+  assert.throws(() => report(repo, { input: { text: 'bare \u001bX escape' } }), /first 2 KB.*control/);
   assert.throws(() => report(repo, { input: { text: 'ok⁦hidden⁩' } }), /first 2 KB.*control/);
   assert.throws(() => report(repo, { input: { text: '   \n' } }), /body is empty/);
   assert.throws(() => report(repo, { input: { text: 'b' }, release: '--x' }), /--release/);
@@ -258,4 +258,155 @@ test('the reports home sits beside the failure home for every environment shape 
     const failures = failureHome(env);
     assert.equal(reportStore.reportsHome(env), failures === null ? null : path.join(path.dirname(failures), 'reports'), JSON.stringify(env));
   }
+});
+
+// ── review round: R1 .. R8 ─────────────────────────────────────────────────────────────────────
+
+const ESC = '\u001b';
+
+test('R1: one 9.4 MB unbroken run exits 0 with a stored body of at most 1 MiB ending in the truncation marker', () => {
+  const repo = newRepo();
+  const file = path.join(scratch.dir, 'run.log');
+  fs.writeFileSync(file, `token dump ${'iVBORw0KGgo'.repeat(900000)}`);
+  assert.ok(fs.statSync(file).size > 9 * MiB);
+  const out = run(repo.dir, ['followup', '--action', 'report', '--statement', 'a long unbroken run', '--file', file, '--json']);
+  assert.equal(out.status, 0, out.stderr);
+  const stored = fs.readFileSync(bodyFile(repo, out.json.created[0].id), 'utf8');
+  assert.ok(Buffer.byteLength(stored) <= MiB);
+  assert.ok(stored.endsWith('[truncated by doflow at 1 MiB]'));
+  assert.ok(stored.startsWith('token dump'));
+});
+
+test('R1: a run with no whitespace at all keeps nothing but the marker; a mask failure is a one-line usage error', () => {
+  const repo = newRepo();
+  const out = report(repo, { input: { text: 'A'.repeat(2 * MiB) } });
+  assert.equal(fs.readFileSync(bodyFile(repo, out.created[0].id), 'utf8'), '\n[truncated by doflow at 1 MiB]');
+  const maskModule = require('../../src/runtime/mask');
+  const original = maskModule.maskBody;
+  maskModule.maskBody = () => { throw new RangeError('Maximum call stack size exceeded'); };
+  try {
+    assert.throws(() => reportStore.prepareBody('anything'), (error) => error instanceof reportStore.ReportInputError && !/\n/.test(error.message) && !/anything/.test(error.message));
+  } finally { maskModule.maskBody = original; }
+});
+
+test('R1: a 17 MiB file of multi-token lines is read only up to 16 MiB, and the stored body is still at most 1 MiB', () => {
+  const repo = newRepo();
+  const file = path.join(scratch.dir, 'lines.log');
+  const line = 'GET /api/cart/items?id=12345 200 12ms user=alice session ok trace 0123456789abcdef\n';
+  fs.writeFileSync(file, line.repeat(Math.ceil((17 * MiB) / line.length)));
+  assert.ok(fs.statSync(file).size > 17 * MiB);
+  assert.equal(Buffer.byteLength(reportStore.readReportText({ file })), reportStore.MAX_READ_BYTES, 'exactly 16 MiB were read');
+  const out = run(repo.dir, ['followup', '--action', 'report', '--statement', 'a very long log', '--file', file, '--json']);
+  assert.equal(out.status, 0, out.stderr);
+  const stored = fs.readFileSync(bodyFile(repo, out.json.created[0].id), 'utf8');
+  assert.ok(Buffer.byteLength(stored) <= MiB && stored.endsWith('[truncated by doflow at 1 MiB]'));
+  assert.ok(stored.split('\n').slice(0, -2).every((l) => l === line.trimEnd()), 'cut at a line end: no partial line is kept');
+});
+
+test('R2: coloured output is accepted and stored without the escape bytes, wherever the colour codes are', () => {
+  const repo = newRepo();
+  const late = `${'plain line\n'.repeat(400)}${ESC}[31mred after 2 KB${ESC}[0m\n${ESC}]0;window title\u0007done\n`;
+  const out = report(repo, { input: { text: `${ESC}[1;31mError:${ESC}[0m boom\n${late}` } });
+  const event = readEvent(repo, out.events[0]);
+  assert.match(event.data.excerpt, /^Error: boom/);
+  const stored = fs.readFileSync(bodyFile(repo, out.created[0].id), 'utf8');
+  assert.equal(stored.includes(ESC), false);
+  assert.match(stored, /red after 2 KB\ndone\n$/);
+  assert.equal(JSON.stringify(event).includes('\\u001b'), false);
+});
+
+test('R2: an escape sequence inside a token cannot hide it from masking, and a bidi character is still refused', () => {
+  const repo = newRepo();
+  const split = `${TOKEN.slice(0, 4)}${ESC}[0m${TOKEN.slice(4)}`;
+  const out = report(repo, { input: { text: `leaked ${split} here` } });
+  const stored = fs.readFileSync(bodyFile(repo, out.created[0].id), 'utf8');
+  assert.equal(stored.includes(TOKEN.slice(10)), false);
+  assert.match(stored, /leaked <masked> here/);
+  assert.throws(() => report(repo, { input: { text: 'ok‮bad' } }), /control or bidirectional/);
+  assert.throws(() => report(repo, { input: { text: `bare ${ESC}X escape` } }), /control or bidirectional/);
+});
+
+test('R3: the mask uses the injected environment\'s home, and the process home when HOME is unset', () => {
+  const repo = newRepo();
+  const otherHome = path.join(scratch.dir, 'other-home');
+  const injected = report(repo, { input: { text: `at ${otherHome}/app/main.js:3` }, env: { XDG_CONFIG_HOME: scratch.xdg, HOME: otherHome } });
+  assert.match(readEvent(repo, injected.events[0]).data.excerpt, /^at ~\/app\/main\.js:3$/);
+  const real = require('node:os').userInfo().homedir;
+  if (real.length > 1) {
+    const env = scratch.env();
+    delete env.HOME;
+    const out = run(repo.dir, ['followup', '--action', 'report', '--statement', 'no HOME', '--text', `at ${real}/app/main.js:3`, '--json'], { env });
+    assert.equal(out.status, 0, out.stderr);
+    assert.equal(readEvent(repo, out.json.events[0]).data.excerpt, 'at ~/app/main.js:3');
+  }
+});
+
+test('R4: a body that starts with whitespace is a report; an all-whitespace body is still empty', () => {
+  const repo = newRepo();
+  assert.equal(report(repo, { input: { text: `${' '.repeat(3000)}\nboom: it failed` } }).ok, true);
+  assert.equal(report(repo, { input: { text: '\n\n   error: boom' } }).ok, true);
+  assert.throws(() => report(repo, { input: { text: ' \n\t \n' } }), /body is empty/);
+});
+
+test('R5: --file - reads the body from stdin; --stdin with empty input is a usage error; the help names it', () => {
+  const repo = newRepo();
+  const out = run(repo.dir, ['followup', '--action', 'report', '--statement', 'from dash', '--file', '-', '--json'], { input: 'body via dash\n' });
+  assert.equal(out.status, 0, out.stderr);
+  assert.equal(fs.readFileSync(bodyFile(repo, out.json.created[0].id), 'utf8'), 'body via dash\n');
+  const empty = run(repo.dir, ['followup', '--action', 'report', '--statement', 'empty', '--stdin', '--json'], { input: '' });
+  assert.equal(empty.status, 2);
+  assert.match(empty.json.summary, /body is empty/);
+  assert.match(run(repo.dir, ['--help']).stdout, /--file <path\|->/);
+});
+
+test('R6: followup refuses the release-only flags with exit 2', () => {
+  const repo = newRepo();
+  for (const extra of [['--tag', 'v1.0.0'], ['--confirm'], ['--exclude', 'x']]) {
+    const out = run(repo.dir, ['followup', '--action', 'list', ...extra, '--json']);
+    assert.equal(out.status, 2, extra.join(' '));
+    assert.match(out.json.summary, /applies to the lifecycle verb's --action release only/);
+  }
+});
+
+test('R7: the body check ignores an id that is not a follow-up id, and works out the project key once', () => {
+  const repo = newRepo();
+  const out = report(repo, { input: { text: 'body' } });
+  const real = out.created[0].id;
+  let calls = 0;
+  const counting = Object.assign(Object.create(fs), { realpathSync: (...args) => { calls += 1; return fs.realpathSync(...args); } });
+  const has = reportStore.bodyChecker(repo.dir, { fsImpl: counting });
+  const folder = path.dirname(bodyFile(repo, real));
+  fs.writeFileSync(path.join(path.dirname(folder), 'escape.txt'), 'outside the project folder');
+  assert.equal(has({ id: real, bodyRef: `local:${real}` }), true);
+  assert.equal(has({ id: '../escape', bodyRef: 'local:../escape' }), false);
+  assert.equal(has({ id: 'FU-ZZZZZZ', bodyRef: 'local:FU-ZZZZZZ' }), false);
+  assert.equal(has({ id: real, bodyRef: null }), false);
+  assert.equal(calls, 1, 'one realpath for the checker, not one per item');
+});
+
+test('R8: the CLI with no resolvable home keeps the excerpt only; an id collision on the body file retries with a new id', () => {
+  const repo = newRepo();
+  const env = scratch.env();
+  delete env.HOME;
+  delete env.XDG_CONFIG_HOME;
+  const out = run(repo.dir, ['followup', '--action', 'report', '--statement', 'no home at all', '--text', 'a body with nowhere to go', '--json'], { env });
+  assert.equal(out.status, 0, out.stderr);
+  assert.equal(out.json.created[0].body, 'not-on-this-machine');
+  assert.match(out.json.next.join(' '), /body was not kept/);
+  assert.equal(readEvent(repo, out.json.events[0]).data.bodyRef, null);
+
+  let taken = 0;
+  const racing = Object.assign(Object.create(fs), {
+    writeFileSync(target, data, options) {
+      if (String(target).endsWith('.txt') && options && options.flag === 'wx' && taken < 2) { taken += 1; throw Object.assign(new Error('exists'), { code: 'EEXIST' }); }
+      return fs.writeFileSync(target, data, options);
+    },
+  });
+  const retried = report(repo, { input: { text: 'retry me' }, fsImpl: racing });
+  assert.equal(retried.ok, true);
+  assert.equal(taken, 2);
+  assert.equal(fs.readFileSync(bodyFile(repo, retried.created[0].id), 'utf8'), 'retry me');
+  const always = Object.assign(Object.create(fs), { writeFileSync(target, ...rest) { if (String(target).endsWith('.txt')) throw Object.assign(new Error('exists'), { code: 'EEXIST' }); return fs.writeFileSync(target, ...rest); } });
+  const refused = report(repo, { input: { text: 'never stored' }, fsImpl: always });
+  assert.deepEqual([refused.ok, refused.finding], [false, 'id-collision']);
 });

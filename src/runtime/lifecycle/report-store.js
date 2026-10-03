@@ -17,13 +17,18 @@
 const nodeFs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { maskBody } = require('../mask');
+const mask = require('../mask');
 
 /** A `--file` or `--stdin` source is read for at most this many bytes; the rest could not be kept anyway. */
 const MAX_READ_BYTES = 16 * 1024 * 1024;
 /** The most a stored body holds, marker line included. */
 const MAX_BODY_BYTES = 1024 * 1024;
 const TRUNCATED = '[truncated by doflow at 1 MiB]';
+/** Masking sees at most this much of a long body: the limit plus a margin that masking can shrink back into it. */
+const MASK_INPUT_BYTES = MAX_BODY_BYTES + 64 * 1024;
+const FU_ID = /^FU-[0-9a-hjkmnp-tv-z]{6}$/;
+/** CSI (`ESC [ ... final`) and OSC (`ESC ] ... BEL` or `ESC \`) sequences: terminal colour and title codes in a pasted log. */
+const ANSI = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
 /** The most of the masked body the project event carries. */
 const EXCERPT_BYTES = 2048;
 
@@ -58,11 +63,12 @@ function bodyPath(root, id, { env = process.env, fsImpl = nodeFs } = {}) {
 
 /** The `hasBody` the fold needs (IC-003): a report whose body file is on this machine. */
 function bodyChecker(root, { env = process.env, fsImpl = nodeFs } = {}) {
+  const home = reportsHome(env);
+  const folder = home === null ? null : path.join(home, projectKey(root, fsImpl));
   return (item) => {
-    if (item.bodyRef !== `local:${item.id}`) return false;
-    const file = bodyPath(root, item.id, { env, fsImpl });
-    if (file === null) return false;
-    try { return fsImpl.statSync(file).isFile(); } catch { return false; }
+    // The id comes from an event file, so it is checked before it becomes part of a path.
+    if (folder === null || !FU_ID.test(String(item.id)) || item.bodyRef !== `local:${item.id}`) return false;
+    try { return fsImpl.statSync(path.join(folder, `${item.id}.txt`)).isFile(); } catch { return false; }
   };
 }
 
@@ -82,11 +88,14 @@ function readCapped(fsImpl, fd, max) {
 
 /**
  * The raw report text from exactly one of `--file`, `--stdin` or `--text`. A file is read as text, at
- * most 16 MiB; a binary one (a NUL byte) is refused.
+ * most 16 MiB (`--file -` reads stdin); a binary one (a NUL byte) is refused.
  * @param {{file?: string, stdin?: boolean, text?: string}} source
  * @returns {string}
  */
-function readReportText({ file, stdin, text }, { fsImpl = nodeFs } = {}) {
+function readReportText({ file, stdin: stdinFlag, text }, { fsImpl = nodeFs } = {}) {
+  // `--file -` is stdin, as everywhere else a `-` stands for it.
+  const stdin = Boolean(stdinFlag) || file === '-';
+  if (file === '-') file = undefined;
   const given = [file !== undefined, Boolean(stdin), text !== undefined].filter(Boolean).length;
   if (given !== 1) throw new ReportInputError('give the report body with exactly one of --file <path>, --stdin or --text "<body>" (--file and --stdin also take text that starts with -)');
   if (text !== undefined) return String(text);
@@ -120,17 +129,43 @@ function boundary(buffer, limit) {
 }
 
 /**
+ * The text masking will see: ANSI sequences removed, then cut to the limit plus a margin so one very
+ * long input cannot make a mask rule recurse too deep. The cut is at the last line end in range, else the
+ * last whitespace, else nothing is kept (an unbroken run has no clean boundary), always on a UTF-8
+ * boundary; a token straddling the cut goes with the incomplete tail, never half-masked.
+ * @returns {{text: string, cut: boolean}}
+ */
+function boundMaskInput(raw) {
+  const stripped = raw.replace(ANSI, '');
+  const whole = Buffer.from(stripped, 'utf8');
+  if (whole.length <= MASK_INPUT_BYTES) return { text: stripped, cut: false };
+  const head = whole.subarray(0, boundary(whole, MASK_INPUT_BYTES));
+  let end = head.lastIndexOf(0x0a);
+  if (end < 0) for (let i = head.length - 1; i >= 0; i -= 1) if ([0x20, 0x09, 0x0d, 0x0b, 0x0c].includes(head[i])) { end = i; break; }
+  return { text: end < 0 ? '' : head.subarray(0, end).toString('utf8'), cut: true };
+}
+
+/**
  * Masks a report body with the body profile and keeps at most 1 MiB of it. A longer body is cut at a
- * UTF-8 boundary and ends with the marker line, so the stored text is never over the limit.
+ * UTF-8 boundary and ends with the marker line, so the stored text is never over the limit. A body
+ * the mask cannot process is refused as a caller mistake, with one line and no echo of the input.
+ * @param {string} raw
+ * @param {{home?: string}} [options] the home directory the mask replaces with `~`
  * @returns {{buffer: Buffer, masked: number, truncated: boolean}}
  */
-function prepareBody(raw) {
-  const { text, masked } = maskBody(raw);
-  const whole = Buffer.from(text, 'utf8');
-  if (whole.length <= MAX_BODY_BYTES) return { buffer: whole, masked, truncated: false };
+function prepareBody(raw, { home } = {}) {
+  const { text: bounded, cut } = boundMaskInput(raw);
+  let result;
+  try {
+    result = mask.maskBody(bounded, home === undefined ? undefined : { home });
+  } catch {
+    throw new ReportInputError('the report body could not be masked safely (its text is too irregular to process); cut it down or file the relevant part');
+  }
+  const whole = Buffer.from(result.text, 'utf8');
+  if (whole.length <= MAX_BODY_BYTES && !cut) return { buffer: whole, masked: result.masked, truncated: false };
   const marker = Buffer.from(`\n${TRUNCATED}`, 'utf8');
   const kept = whole.subarray(0, boundary(whole, MAX_BODY_BYTES - marker.length));
-  return { buffer: Buffer.concat([kept, marker]), masked, truncated: true };
+  return { buffer: Buffer.concat([kept, marker]), masked: result.masked, truncated: true };
 }
 
 /**
@@ -173,5 +208,5 @@ function removeBody(file, fsImpl = nodeFs) {
 
 module.exports = {
   readReportText, prepareBody, excerptOf, writeBody, removeBody, bodyChecker, bodyPath, reportsHome, projectKey,
-  ReportInputError, MAX_READ_BYTES, MAX_BODY_BYTES, EXCERPT_BYTES, TRUNCATED,
+  ReportInputError, MAX_READ_BYTES, MAX_BODY_BYTES, MASK_INPUT_BYTES, EXCERPT_BYTES, TRUNCATED,
 };
