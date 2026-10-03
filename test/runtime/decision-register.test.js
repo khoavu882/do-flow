@@ -194,6 +194,10 @@ for (const [name, patch, pattern] of [
   ['a topic over 48 characters', { topic: 'a'.repeat(49) }, /topic/],
   ['a statement over 280 characters', { statement: 'x'.repeat(STATEMENT_MAX + 1) }, /280/],
   ['a multi-line statement', { statement: 'one\ntwo' }, /one line/],
+  ['a statement with U+2028', { statement: 'one\u2028two' }, /one line/],
+  ['a statement with U+2029', { statement: 'one\u2029two' }, /one line/],
+  ['a statement with U+0085', { statement: 'one\u0085two' }, /one line/],
+  ['a topic with U+2028', { topic: 'one\u2028two' }, /one line/],
   ['an unknown channel', { channel: 'chat' }, /channel/],
   ['an unknown stage', { stage: 'testing' }, /stage/],
   ['a missing rationale', { rationale: '' }, /rationale/],
@@ -233,13 +237,32 @@ test('a batch that is not an array, not JSON, or unreadable is a usage error', (
   assert.equal(runDecision({ action: 'add', projectRoot: r.root, flags: { batch: path.join(r.root, 'missing.json') } }).exitCode, 2);
 });
 
-test('an empty batch is answered and writes nothing', () => {
+test('an empty batch is answered without taking the lock or rewriting the register', () => {
   const r = initialised();
   const before = snapshot(r.featureDir);
-  const run = add(r, []);
+  const stat = fs.statSync(registerFile(r.featureDir));
+  let touched = false;
+  const spying = { ...fs };
+  for (const fn of ['writeFileSync', 'renameSync', 'mkdirSync']) spying[fn] = (...a) => { touched = true; return fs[fn](...a); };
+  const run = add(r, [], { fsImpl: spying });
   assert.equal(run.exitCode, 0);
   assert.deepEqual(run.result.added, []);
+  assert.equal(touched, false);
   assert.deepEqual(snapshot(r.featureDir), before);
+  const after = fs.statSync(registerFile(r.featureDir));
+  assert.equal(after.mtimeMs, stat.mtimeMs);
+  assert.equal(after.ino, stat.ino);
+});
+
+test('--batch - reads the batch from stdin, as the evidence verb does', () => {
+  const r = initialised();
+  const stdin = (text) => ({ ...fs, readFileSync: (p, enc) => (p === 0 ? text : fs.readFileSync(p, enc)) });
+  const run = runDecision({ action: 'add', projectRoot: r.root, flags: { batch: '-' }, now: FIXED, fsImpl: stdin(JSON.stringify([item()])) });
+  assert.equal(run.exitCode, 0);
+  assert.deepEqual(run.result.added, [{ id: 'DEC-001', topic: 'wire-id' }]);
+  const bad = runDecision({ action: 'add', projectRoot: r.root, flags: { batch: '-' }, fsImpl: stdin('not json') });
+  assert.equal(bad.exitCode, 2);
+  assert.match(bad.usage, /not valid JSON/);
 });
 
 // ── supersession (FR-006) ──────────────────────────────────────────────────────────────────────

@@ -366,6 +366,7 @@ Commands:
   inventory            Shadowed copies, drift and unmanaged files across both install scopes
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
   decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
+                       (a value beginning with '-' must be written --flag=value)
   leak-scan            Report DoFlow-internal identifiers in shipped files (--path, repeatable)
 
 Scope (mutually exclusive — global wins if both given):
