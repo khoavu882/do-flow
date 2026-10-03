@@ -619,6 +619,19 @@ eq "--next-version gives no warning when the manifest agrees with the base tag" 
 eq "--next-version keeps its other keys with a manifest present" \
    "$($STATE --next-version | jq -r 'keys | join(",")')" "base_tag,bump_kind,commits_count,current_version,is_prerelease,next_prerelease,next_prerelease_skipped,next_version"
 rm -f package.json
+
+# A local `main` that was never pulled is stale: the newest release may be reachable only from the
+# remote-tracking ref, and the union of both is what counts.
+git checkout -q main
+git commit -q --allow-empty -m "Merge release 1.6 into production"
+git tag v1.6.0
+git update-ref refs/remotes/origin/main HEAD
+git reset -q --hard HEAD~1           # local main falls behind origin/main
+git checkout -q integ-probe
+eq "--next-version also reads release tags reachable only from the remote-tracking production ref" \
+   "$($STATE --next-version | jq -r '.base_tag')" "v1.6.0"
+git update-ref -d refs/remotes/origin/main
+git tag -d v1.6.0 >/dev/null
 git tag -d v1.5.0 >/dev/null
 git checkout -q main
 git branch -q -D integ-probe

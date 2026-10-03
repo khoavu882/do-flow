@@ -188,14 +188,19 @@ do_state() {
     }'
 }
 
-# The production branch's ref, for finding release tags that were never merged back: the local
-# branch where it exists, else its remote-tracking ref. `main` is the default; `master` is the
-# older default the lifecycle policy still names. Echoes nothing when neither exists.
-production_ref() {
-  local b
+# The production branch's refs, for finding release tags that were never merged back: the local
+# branch and its remote-tracking ref, both when both exist, because either may be the one that
+# holds the newest release (a local `main` that was not pulled is stale, a remote-tracking one that
+# was not fetched is too). `main` is the default; `master` is the older default the lifecycle
+# policy still names, used only when no `main` ref exists. Echoes one ref per line, possibly none.
+production_refs() {
+  local b ref found
   for b in main master; do
-    if git rev-parse --verify --quiet "refs/heads/${b}" >/dev/null 2>&1; then printf '%s\n' "$b"; return; fi
-    if git rev-parse --verify --quiet "refs/remotes/origin/${b}" >/dev/null 2>&1; then printf 'origin/%s\n' "$b"; return; fi
+    found=""
+    for ref in "refs/heads/${b}" "refs/remotes/origin/${b}"; do
+      if git rev-parse --verify --quiet "$ref" >/dev/null 2>&1; then printf '%s\n' "${ref#refs/}"; found=1; fi
+    done
+    [ -n "$found" ] && return
   done
 }
 
@@ -259,7 +264,9 @@ next_free_prerelease() {
 }
 
 do_next_version() {
-  local base_tag current_version="0.0.0"
+  # Both start set: `set -u` makes a bare `local base_tag` an unbound variable on bash 4+ whenever
+  # no eligible tag exists (a repository with no release tags yet).
+  local base_tag="" current_version="0.0.0"
   # `git describe --tags --abbrev=0` answers "nearest reachable tag by commit distance", and every
   # version decision below needs "newest reachable tag by version". Those coincide only while
   # history is linear — and a release ritual merges twice, so the newest tag routinely sits further
@@ -275,9 +282,13 @@ do_next_version() {
   # that may not have happened yet, so from the integration branch the newest release tag is
   # unreachable and the proposal was based on an older one (v1.8.3 proposed while v1.12.0 was out).
   # The tags are sorted by git as before; the union only decides which of them are eligible.
-  local production eligible
-  production="$(production_ref)"
-  eligible="$({ git tag --merged HEAD --list 'v*' 2>/dev/null; [ -n "$production" ] && git tag --merged "$production" --list 'v*' 2>/dev/null; } | sort -u)"
+  local eligible="" ref
+  eligible="$(git tag --merged HEAD --list 'v*' 2>/dev/null || true)"
+  while IFS= read -r ref; do
+    [ -z "$ref" ] && continue
+    eligible="${eligible}"$'\n'"$(git tag --merged "$ref" --list 'v*' 2>/dev/null || true)"
+  done <<< "$(production_refs)"
+  eligible="$(printf '%s\n' "$eligible" | sort -u | sed '/^$/d')"
   if [ -n "$eligible" ]; then
     base_tag="$(git tag --list 'v*' --sort=-v:refname 2>/dev/null | grep -Fx -f <(printf '%s\n' "$eligible") | head -1 || true)"
   fi
