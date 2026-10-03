@@ -13,7 +13,7 @@ const followup = require('./followup');
 const { buildOverview, initFeature, featureStatus } = require('./overview');
 const { releaseFeatures, recordMerged } = require('./release');
 
-const FOLLOWUP_ACTIONS = ['add', 'list', 'take', 'settle', 'promote'];
+const FOLLOWUP_ACTIONS = ['add', 'list', 'take', 'settle', 'promote', 'report'];
 const LIFECYCLE_ACTIONS = ['overview', 'init', 'release', 'status', 'merged'];
 
 function sourceText(source) {
@@ -31,6 +31,10 @@ function followupLines(result) {
     case 'take': lines.push(`${result.feature} took ${result.ids.join(', ')}`); break;
     case 'settle': lines.push(`settled ${result.ids.join(', ')} as ${result.as}`); break;
     case 'promote': lines.push(`created ${result.intent} from ${result.ids.join(', ')}`); break;
+    case 'report':
+      for (const c of result.created) lines.push(`reported ${c.id} (${sourceText(c.source)}): ${c.statement}`, `  body ${c.body} (${c.bodyBytes} bytes), excerpt ${c.excerptBytes} bytes, ${c.masked} value${c.masked === 1 ? '' : 's'} masked`);
+      for (const line of result.next) lines.push(`next: ${line}`);
+      break;
     default: break;
   }
   return lines;
@@ -100,21 +104,32 @@ function refuseGlobal(verb, global, json) {
 }
 
 /**
- * `followup` verb. Actions: add, list, take, settle, promote.
+ * `followup` verb. Actions: add, list, take, settle, promote, report.
  * @param {Object} options
  * @param {string} [options.action] absent when --action was not given
  * @param {string} options.cwd directory the verb runs from (the project, or a subfolder of it)
  * @param {Object} options.flags parsed flag values: statement, stage, source, taskClass, taskId, release,
- *   batch, channel, state, ids, as, reason, evidence, title
+ *   batch, channel, state, ids, as, reason, evidence, title; for report also file, stdin, text, feature
  */
 function handleFollowupCommand({ action, cwd, global = false, slug = null, json = false, flags = {} } = {}) {
   const refused = refuseGlobal('followup', global, json);
   if (refused !== null) return refused;
   return guarded('followup', json, () => {
     if (!FOLLOWUP_ACTIONS.includes(action)) throw new followup.FollowupUsageError(`--action is required: one of ${FOLLOWUP_ACTIONS.join(', ')} (got '${action}')`);
+    if (action !== 'report') {
+      for (const name of ['file', 'stdin', 'text', 'feature']) {
+        if (flags[name] !== undefined && flags[name] !== false) throw new followup.FollowupUsageError(`--${name} applies to --action report only`);
+      }
+    }
     const root = projectRoot(cwd || process.cwd());
     let result;
-    if (action === 'add') {
+    if (action === 'report') {
+      if (flags.statement === undefined) throw new followup.FollowupUsageError('--statement is required for --action report');
+      result = followup.reportFollowup({
+        root, statement: flags.statement, input: { file: flags.file, stdin: Boolean(flags.stdin), text: flags.text },
+        release: flags.release, feature: flags.feature, channel: flags.channel,
+      });
+    } else if (action === 'add') {
       const batch = flags.batch !== undefined;
       if (batch && flags.statement !== undefined) throw new followup.FollowupUsageError('--batch cannot be combined with --statement');
       if (!batch && flags.statement === undefined) throw new followup.FollowupUsageError('--statement is required for --action add (or pass --batch <file.json>)');

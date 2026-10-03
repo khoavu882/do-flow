@@ -74,6 +74,8 @@ function parseArgs(argv) {
       case '--maintain': o.maintain = true; break;
       // lifecycle --action release: record the previewed release instead of only previewing it.
       case '--confirm': o.confirm = true; break;
+      // followup --action report: the report body comes from stdin instead of --file or --text.
+      case '--stdin': o.stdin = true; break;
       // readiness: the caller declares a decision is owed by the user. A flag rather than an
       // inference, because nothing the runtime can see distinguishes "a decision is pending"
       // from "nobody has looked yet", and guessing would be the gate answering unasked.
@@ -215,6 +217,8 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--take', 'take'],                  // lifecycle --action init: comma-separated FU ids the feature takes
   ['--goal', 'goal'],                  // lifecycle --action init: the goal the feature serves
   ['--since', 'since'],                // lifecycle --action overview --maintain: ISO time the pass started
+  ['--file', 'file'],                  // followup --action report: the report body, read as text (at most 16 MiB)
+  ['--text', 'text'],                  // followup --action report: the report body inline (a value starting with - needs --text=...)
   ['--tag', 'tag'],                    // lifecycle --action release: the version tag (`--version` is the CLI's own flag)
   ['--fp', 'fp'],                      // failure --action settle: the 16 hex characters of an entry
   ['--set', 'set'],                    // failure --action capture: on | off
@@ -444,6 +448,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --path, --exclude (repeatable)        leak-scan
       --ids, --as, --evidence, --title,
       --release, --source, --channel        followup (add, list, take, settle, promote)
+      --file, --stdin, --text, --feature    followup --action report (the body comes from exactly one)
       --take, --goal, --intent, --since,
       --maintain                            lifecycle (overview, init)
       --tag, --confirm, --feature,

@@ -22,6 +22,7 @@ const { SETTLE_AS, withDerivedDone } = require('./fold');
 const { appendEvents, readFold, byFromChannel, randomChars } = require('./event-store');
 const { deriveStatuses } = require('./status');
 const { writeIntent, kebabTitle } = require('./intent-writer');
+const reportStore = require('./report-store');
 
 /** The decision register's stages plus the two lifecycle stages (IC-006). */
 const STAGES = [...CHAIN_STAGES, 'release', 'maintain'];
@@ -84,7 +85,7 @@ function parseIds(raw, label = '--ids') {
 
 /** The folded store, with a taken item shown `done` while its feature derives finished (IC-003, IC-021). */
 function loadFollowups(root, { hasBody, fsImpl = nodeFs, statuses, now = new Date() } = {}) {
-  const fold = readFold(root, { hasBody, fsImpl, now });
+  const fold = readFold(root, { hasBody: hasBody || reportStore.bodyChecker(root, { fsImpl }), fsImpl, now });
   const needsStatus = fold.followups.some((item) => item.state === 'taken');
   const derived = needsStatus ? (statuses || deriveStatuses({ root, fold })) : null;
   const followups = needsStatus ? withDerivedDone(fold.followups, Object.fromEntries(Object.entries(derived.statuses).map(([slug, s]) => [slug, s.status]))) : fold.followups;
@@ -211,6 +212,99 @@ function addFollowups({ root, cwd = process.cwd(), items, defaults = {}, channel
   };
 }
 
+// ── report ─────────────────────────────────────────────────────────────────────────────────────
+
+/** `--release` and `--feature` of a report: letters, digits, dot, underscore or dash, as for `--source release`. */
+function reportSource({ release, feature }) {
+  const problems = [];
+  const source = { kind: 'report' };
+  if (release !== undefined && release !== null) {
+    if (typeof release === 'string' && WORD.test(release)) source.release = release; else problems.push('--release must be letters, digits, dot, underscore or dash');
+  }
+  if (feature !== undefined && feature !== null) {
+    const list = Array.isArray(feature) ? feature : [feature];
+    if (list.length !== 1) problems.push('--feature takes one feature slug for a report');
+    else if (invalidSlugRefusal(list[0])) problems.push(invalidSlugRefusal(list[0]).message);
+    else source.feature = list[0];
+  }
+  if (problems.length) throw new FollowupUsageError(problems.join('; '));
+  return source;
+}
+
+/**
+ * IC-006 `report` (IC-005): masks the statement and the body, keeps the body on this machine, then
+ * writes one `followup.added` event with `source.kind: report` that carries only a reference, the
+ * size and a masked 2 KB excerpt. Nothing is written when any check fails; the body file is removed
+ * when its event cannot be written.
+ *
+ * With no resolvable home the body is not kept (IC-005): the event says `bodyRef: null` and the
+ * result says so in `next`.
+ *
+ * @param {Object} options
+ * @param {string} options.root the IC-001 root
+ * @param {string} options.statement one line, at most 280 characters after masking
+ * @param {{file?: string, stdin?: boolean, text?: string}} options.input exactly one source of the body
+ * @param {string} [options.release]
+ * @param {string|string[]} [options.feature]
+ */
+function reportFollowup({ root, statement, input, release, feature, channel, now = new Date(), fsImpl = nodeFs, env = process.env }) {
+  const by = channelBy(channel);
+  const source = reportSource({ release, feature });
+  const problems = [];
+  const rawStatement = String(statement ?? '');
+  const statementMasked = maskLine(rawStatement).masked;
+  const cleanStatement = oneLine(rawStatement, '--statement', problems);
+  if (problems.length) throw new FollowupUsageError(problems.join('; '));
+  let raw;
+  try { raw = reportStore.readReportText(input, { fsImpl }); } catch (error) {
+    if (error instanceof reportStore.ReportInputError) throw new FollowupUsageError(error.message);
+    throw error;
+  }
+  const body = reportStore.prepareBody(raw);
+  const excerpt = reportStore.excerptOf(body.buffer);
+  if (excerpt === '') throw new FollowupUsageError('the report body is empty');
+  // The excerpt is stored in the project event, so it gets the statement's hygiene; a line break is allowed in it.
+  if (CONTROL.test(excerpt)) throw new FollowupUsageError('the first 2 KB of the report body contain a control or bidirectional-override character (an ANSI colour code, for example); remove it and file the report again');
+
+  const taken = new Set(readFold(root, { fsImpl, now }).followups.map((f) => f.id));
+  let id;
+  let stored = { ok: false, reason: 'no-home' };
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    id = newFollowupId(taken);
+    stored = reportStore.writeBody(root, id, body.buffer, { env, fsImpl });
+    if (stored.reason !== 'exists') break;
+  }
+  if (!stored.ok && stored.reason !== 'no-home') {
+    return refusal('report', stored.reason === 'exists' ? 'id-collision' : 'body-not-written', `the report body could not be stored on this machine (${stored.message || 'name taken'}). Nothing was written.`);
+  }
+  const kept = stored.ok;
+  const data = { id, statement: cleanStatement, source, excerpt, bodyRef: kept ? `local:${id}` : null, bodyBytes: body.buffer.length };
+  let out;
+  try {
+    out = appendEvents(root, [{ type: 'followup.added', by, data }], { now, fsImpl });
+  } catch (error) {
+    if (kept) reportStore.removeBody(stored.file, fsImpl);
+    throw error;
+  }
+  if (!out.ok) {
+    if (kept) reportStore.removeBody(stored.file, fsImpl);
+    return refusalFrom('report', out);
+  }
+  const next = ['Settle it now or at /do maintain; to start a fix, route it as a bug run'];
+  if (!kept) next.push('No home folder resolves (set HOME or an absolute XDG_CONFIG_HOME), so the body was not kept; only the masked excerpt is in the event');
+  return {
+    ok: true,
+    action: 'report',
+    created: [{
+      id, statement: cleanStatement, source, state: 'open',
+      excerptBytes: Buffer.byteLength(excerpt, 'utf8'), bodyBytes: body.buffer.length,
+      body: kept ? 'on-this-machine' : 'not-on-this-machine', masked: statementMasked + body.masked,
+    }],
+    events: out.written.map((w) => w.file),
+    next,
+  };
+}
+
 // ── list ───────────────────────────────────────────────────────────────────────────────────────
 
 /** IC-006 `list`: `state` is open (default), taken, done, dismissed or all. */
@@ -289,7 +383,7 @@ function promoteFollowups({ root, ids, title, channel, now = new Date(), fsImpl 
 }
 
 module.exports = {
-  addFollowups, listFollowups, takeFollowups, settleFollowups, promoteFollowups,
+  addFollowups, reportFollowup, listFollowups, takeFollowups, settleFollowups, promoteFollowups,
   loadFollowups, readBatchFile, resolveFeatureSlug, parseIds, oneLine, channelBy,
   FollowupUsageError, STAGES, STATES, SOURCE_KINDS, STATEMENT_MAX,
 };
