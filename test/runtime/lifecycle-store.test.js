@@ -34,7 +34,7 @@ function plainDir(name) {
 
 const added = (id, extra = {}) => ({ type: 'followup.added', by: 'agent', data: { id, statement: `s ${id}`, source: { kind: 'manual' }, ...extra } });
 
-// ── root (IC-001, DEC-028) ─────────────────────────────────────────────────────────────────────
+// ── root (IC-001, DEC-043) ─────────────────────────────────────────────────────────────────────
 
 test('root: a plain repository is its own root, from any subfolder', () => {
   const dir = repo('plain');

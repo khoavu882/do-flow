@@ -230,7 +230,7 @@ test('worked example: release finishes what it shipped (requirement scenario, IC
   assert.deepEqual(st(folds(record('v1.14.0', slugs.slice(0, 2)), record('v1.15.0', [slugs[2]]))), { [slugs[0]]: 'finished', [slugs[1]]: 'finished', [slugs[2]]: 'finished' });
 });
 
-// ── the integration ref and unknown (DEC-029) ──────────────────────────────────────────────────
+// ── the integration ref and unknown (DEC-044) ──────────────────────────────────────────────────
 
 test('integration ref: develop, else main, else master, else origin/HEAD', () => {
   const facts = (repo) => readGitFacts(repo.dir);

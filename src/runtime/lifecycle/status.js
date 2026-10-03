@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Feature status deriver (IC-021, DEC-022, DEC-029, DEC-030, DEC-035). A tracked feature is
+ * Feature status deriver (IC-021, DEC-022, DEC-044, DEC-030, DEC-035). A tracked feature is
  * `finished`, `awaiting-release`, `in-progress` or `unknown`, derived on every read from git and the
  * release records, and never written. A later read can change a status (design R9).
  *

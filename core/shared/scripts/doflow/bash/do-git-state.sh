@@ -475,7 +475,7 @@ do_branch_name() {
 }
 
 # The git facts the lifecycle verbs need, in one place so Node never derives them a second way
-# (feature 046, DEC-029, DEC-035). Read-only.
+# (feature 046, DEC-044, DEC-035). Read-only.
 #   integration_ref  develop, else main, else master, else origin/HEAD: the first that resolves, a
 #                    local branch before its origin/ tracking ref; null when none does. Unlike
 #                    resolve_integration_ref this never prefers the remote, because the lifecycle

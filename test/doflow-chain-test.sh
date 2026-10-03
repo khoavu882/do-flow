@@ -636,7 +636,7 @@ git tag -d v1.5.0 >/dev/null
 git checkout -q main
 git branch -q -D integ-probe
 
-# Feature 046 (DEC-029, DEC-035): --lifecycle carries the integration ref, the feature branch
+# Feature 046 (DEC-044, DEC-035): --lifecycle carries the integration ref, the feature branch
 # prefixes, the release tags and the base tag in one JSON object, so Node never derives them a second
 # way. develop wins, then main, then master; a local branch comes before its origin/ tracking ref.
 git checkout -q main
