@@ -661,3 +661,39 @@ test('without a register the structural section tracking is exactly what it was'
   const { repo, feature } = featureRepo('fence-section-legacy', null, { 'design/specs.md': FENCED_HISTORY_SPECS });
   assert.deepEqual(rules(validateIn(repo, path.join(feature, 'design', 'specs.md'))), []);
 });
+
+test('unknown and stale: DEC-001/DEC-099 in prose is a pair of citations, only URL and path words are exempt', () => {
+  const { repo, feature } = featureRepo('slash-pair', CHAIN, {
+    'design/design.md': [
+      '# Design', '', '## 1. Choices', '',
+      'Pair DEC-004/DEC-099 in prose.',
+      'Parenthesised (DEC-004/DEC-098) too.',
+      'A superseded pair DEC-001/DEC-004 names DEC-004 but not the live end.',
+      'Still exempt: https://x.test/DEC-780 and notes/DEC-781.md and a/DEC-782.',
+      '',
+    ].join('\n'),
+  });
+  const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
+  assert.deepEqual(result.findings.map((f) => [f.rule, f.id]), [
+    ['unknown', 'DEC-099'], ['unknown', 'DEC-098'], ['stale', 'DEC-001'],
+  ]);
+});
+
+const FENCED_PLAN = [
+  '# Plan', '', '## 1. Summary', '',
+  '| Phase | Tasks |', '|---|---|', '| A | 1 |', '',
+  '## 2. Tasks', '',
+  '### Phase A', '',
+  '- [ ] A.1 real task', '',
+  '```markdown', '### Phase B', '- [ ] B.1 example', '- [ ] A.9 example', '## 3. History', '```', '',
+].join('\n');
+
+test('with a register, headings and checklist lines inside a fence do not feed the phase rollup', () => {
+  const { repo, feature } = featureRepo('fence-phase-register', CHAIN, { 'plan.md': FENCED_PLAN });
+  assert.deepEqual(rules(validateIn(repo, path.join(feature, 'plan.md'))), []);
+});
+
+test('without a register the phase rollup reads fenced lines exactly as it always did', () => {
+  const { repo, feature } = featureRepo('fence-phase-legacy', null, { 'plan.md': FENCED_PLAN });
+  assert.deepEqual(rules(validateIn(repo, path.join(feature, 'plan.md'))), ['rollup Phase B']);
+});

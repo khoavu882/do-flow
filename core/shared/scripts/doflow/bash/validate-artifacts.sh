@@ -198,7 +198,7 @@ for f in "${targets[@]}"; do
     # superseded DEC-### on the line, unless the same line also names a decision
     # later in that decision chain (the line is then about the change, not a stale statement).
     # awk has no \b, so a token counts only when no word character touches either end.
-    function check_stale(text, lineno,   pos, s, l, tok, before, after, num, cn, i, j, order, cited, named, flagged, ok) {
+    function check_stale(text, lineno,   pos, s, l, tok, before, after, num, cn, i, j, order, cited, named, flagged, ok, word) {
       split("", order); split("", cited); split("", named); split("", flagged); cn = 0; pos = 1
       while (pos <= length(text) && match(substr(text, pos), /DEC-[0-9]+/)) {
         s = pos + RSTART - 1; l = RLENGTH
@@ -206,9 +206,15 @@ for f in "${targets[@]}"; do
         before = (s > 1) ? substr(text, s - 1, 1) : ""
         after = substr(text, s + l, 1)
         pos = s + l
+        if (before ~ /[A-Za-z0-9_]/ || after ~ /[A-Za-z_]/) continue
         # A token after "/" sits in a URL or a file path (https://x/DEC-780, notes/DEC-781.md), not in
-        # prose, so it is no citation: neither `stale` nor `unknown` reports it.
-        if (before ~ /[A-Za-z0-9_]/ || before == "/" || after ~ /[A-Za-z_]/) continue
+        # prose, so it is no citation: neither `stale` nor `unknown` reports it. The slash must
+        # belong to such a word: when the word before it is itself a DEC token (DEC-001/DEC-099) the
+        # pair is prose and both halves are checked.
+        if (before == "/") {
+          word = substr(text, 1, s - 2); sub(/^.*[ \t]/, "", word); sub(/^[(\[{"`<*_]+/, "", word)
+          if (word !~ /^DEC-[0-9]+$/) continue
+        }
         num = substr(tok, 5) + 0
         named[num] = 1
         if (reg_ok && !(num in known) && !(num in flagged)) {
@@ -301,11 +307,14 @@ for f in "${targets[@]}"; do
       }
     }
 
+    # With a register the fence state above gates every structural rule below: a heading, table row,
+    # detail entry or checklist line inside a fenced example is an example, so a quoted
+    # "## 9. History" or "### Phase A" cannot open a section or change a count. The fenced line still
+    # ends a table. Without a register the structural tracking is exactly what it always was.
+    reg_ok && in_fence { in_table = 0; in_rollup = 0; next }
+
     # ── section boundaries ───────────────────────────────────────────────────────────────────
-    # With a register the fence state above also gates this rule: a "## " line inside a fenced
-    # example opens no section, so a quoted "## 9. History" cannot hide the sections after it.
-    # Without a register the tracking is unchanged.
-    /^## / && !(reg_ok && in_fence) {
+    /^## / {
       sec++
       in_table = 0; in_rollup = 0; status_col = 0
       is_hist[sec] = ($0 ~ /[Hh]istory/) ? 1 : 0
