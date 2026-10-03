@@ -19,7 +19,8 @@
      design while this decision stands as written, and names what has to happen first when it cannot.
      A reviewer who reads only this table knows what is being decided, who decided it, and what
      stands between the design and approval. Replace the table with "N/A: [why]" when the feature is
-     too small to carry decisions worth tabling. -->
+     too small to carry decisions worth tabling. With a decision register, end Shape chosen with its
+     DEC-###: see ARTIFACT_FORMAT.md §12. -->
 
 | Decision | Shape chosen | Owner | Blocks approval? |
 |---|---|---|---|
@@ -169,6 +170,8 @@ The data-flow shape is governed by `./data-model.md` §2.
 - **R1** → [why this shape was chosen, or why the risk is accepted and what it costs if it lands].
 
 ## 8. Assumptions
+
+<!-- With a decision register, a row from a "Decide for me" pick cites its DEC-### in Basis: see ARTIFACT_FORMAT.md §12. -->
 
 | ID | Assumption | Affects | Basis |
 |---|---|---|---|

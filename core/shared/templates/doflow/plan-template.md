@@ -26,6 +26,7 @@
 
 ## 3. Research & Decisions
 
+<!-- With a decision register, list the DEC-### this plan rests on instead of D#: see ARTIFACT_FORMAT.md §12. -->
 - **D1:** [decision] — resolves [NEEDS CLARIFICATION: …]; rationale: [evidence].
 
 ## 4. Components & Changes

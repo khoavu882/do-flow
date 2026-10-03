@@ -134,6 +134,8 @@ record the revision here. `None — initial version.` MUST NOT remain once any i
 added, changed or superseded — that line is a claim that the body has never moved, and leaving it
 in place after a revision makes the artifact's own account of itself false.
 
+A feature with a decision register compacts History mechanically; see §12.
+
 ## 4. Diagrams
 
 > **Slot registry.** This section says which artifact carries which diagram slot. What belongs
@@ -351,3 +353,13 @@ callout exists to prevent.
 
 Exactly one section may carry the callout for a given subject. Two callouts over the same subject
 is the same ambiguity in a new costume, and neither section then governs.
+
+## 12. Decision register citations
+
+Applies only where the feature folder holds `decisions/register.json`; without one, nothing here applies.
+
+- A line that applies a registered decision cites it as a bare `DEC-###`.
+- `plan.md` §3 lists the `DEC-###` decisions the plan rests on and authors no `D#`.
+- A design §1 row ends its `Shape chosen` cell with its `DEC-###`. A §8 row that came from a "Decide for me" pick cites its `DEC-###` in `Basis`.
+- A line citing a superseded decision is a `stale` finding unless it also names a later decision in that chain (§9).
+- Compaction moves History content to `decisions/history/<artifact>.md` and leaves one pointer line, `Earlier entries: [decisions/history/<artifact>.md](<relative link>).`, matching `^Earlier entries: \[decisions/history/[a-z-]+\.md\]`. Index rows and tombstones stay.
