@@ -186,6 +186,18 @@ test('add: readBatchFile reads a JSON array and refuses anything else', () => {
   usage(() => followup.readBatchFile(path.join(root, 'missing.json')), /cannot read --batch/);
 });
 
+test('add: readBatchFile refuses a device, a FIFO and a file over 16 MiB without reading them', { skip: process.platform === 'win32' }, () => {
+  const root = plainRoot();
+  usage(() => followup.readBatchFile('/dev/zero'), /cannot read --batch \/dev\/zero: not a regular file/);
+  const fifo = path.join(root, 'batch.fifo');
+  spawnSync('mkfifo', [fifo]);
+  usage(() => followup.readBatchFile(fifo), /not a regular file/);
+  const big = path.join(root, 'big.json');
+  fs.closeSync(fs.openSync(big, 'w'));
+  fs.truncateSync(big, 16 * 1024 * 1024 + 1);
+  usage(() => followup.readBatchFile(big), /larger than 16 MiB/);
+});
+
 // ── list ───────────────────────────────────────────────────────────────────────────────────────
 
 test('list: defaults to open; reads of an empty store give an empty list and create nothing', () => {

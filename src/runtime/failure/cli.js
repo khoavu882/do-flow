@@ -16,7 +16,7 @@ const { failureHome, captureSwitch, sentinelPath } = require('./home');
 const { rotateIfDue } = require('./capture');
 const store = require('./store');
 const { projectRoot } = require('../lifecycle/root');
-const { appendEvents, readFold, randomChars } = require('../lifecycle/event-store');
+const { appendEvents, readFold, randomChars, StoreUnsafeError } = require('../lifecycle/event-store');
 
 const ACTIONS = ['list', 'settle', 'capture'];
 const STATEMENT_MAX = 280;
@@ -157,7 +157,7 @@ function handleFailureCommand({ action, cwd, json = false, all = false, flags = 
     else if (action === 'settle') result = settleFailure({ fp: flags.fp, as: flags.as, reason: flags.reason, cwd });
     else result = captureState({ set: flags.set });
   } catch (error) {
-    if (error instanceof FailureUsageError) return usageError('failure', error.message, json);
+    if (error instanceof FailureUsageError || error instanceof StoreUnsafeError) return usageError('failure', error.message, json);
     throw error;
   }
   if (json) console.log(JSON.stringify(result, null, 2));

@@ -10,6 +10,7 @@
 const { finishRuntime, usageError } = require('../cli-result');
 const { projectRoot } = require('./root');
 const followup = require('./followup');
+const { StoreUnsafeError } = require('./event-store');
 const { buildOverview, initFeature, featureStatus } = require('./overview');
 const { releaseFeatures, recordMerged } = require('./release');
 const goal = require('./goal');
@@ -61,7 +62,7 @@ function overviewLines(r) {
   if (r.mode === 'maintain') lines.push(`pending: ${r.pending}`);
   if (r.note) lines.push(`note: ${r.note}`);
   if (r.conflicts.length) lines.push(`${r.conflicts.length} event conflict${r.conflicts.length === 1 ? '' : 's'} (see --json)`);
-  if (r.unreadable.length) lines.push(`unreadable event files: ${r.unreadable.join(', ')}`);
+  if (r.unreadable.length) lines.push(`unreadable event files: ${r.unreadable.map((n) => (r.unreadableReasons && r.unreadableReasons[n] ? `${n} (${r.unreadableReasons[n]})` : n)).join(', ')}`);
   for (const line of r.next) lines.push(`next: ${line}`);
   return lines;
 }
@@ -126,7 +127,7 @@ function guarded(verb, json, fn) {
   try {
     return fn();
   } catch (error) {
-    if (error instanceof followup.FollowupUsageError) return usageError(verb, error.message, json);
+    if (error instanceof followup.FollowupUsageError || error instanceof StoreUnsafeError) return usageError(verb, error.message, json);
     throw error;
   }
 }

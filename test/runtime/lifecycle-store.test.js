@@ -345,3 +345,94 @@ test('write: a batch whose second id cannot be made free writes nothing, not eve
 test('channel: question, gate and prompt are the user; default is the agent; anything else is unknown', () => {
   assert.deepEqual(['question', 'gate', 'prompt', 'default', undefined, 'bogus'].map((c) => store.byFromChannel(c)), ['user', 'user', 'user', 'agent', 'agent', null]);
 });
+
+// ── hostile store entries: only regular files of bounded size are read ───────────────────────────
+
+const POSIX = process.platform !== 'win32';
+const EVENT_FILE = '20261003T000000000Z-aaaaaa.json';
+const validEvent = (extra = {}) => ({
+  v: 1, id: '20261003T000000000Z-aaaaaa', type: 'followup.added', at: '2026-10-03T00:00:00.000Z', by: 'agent',
+  data: { id: 'FU-aaaaaa', statement: 'a statement', source: { kind: 'manual' }, ...extra },
+});
+function storeWith(name) {
+  const root = plainDir(name);
+  const dir = path.join(root, store.EVENTS_REL);
+  fs.mkdirSync(dir, { recursive: true });
+  return { root, dir, file: path.join(dir, EVENT_FILE) };
+}
+function expectSkipped(root, reason) {
+  const read = store.readEvents(root);
+  assert.deepEqual(read.events, []);
+  assert.deepEqual(read.unreadable, [EVENT_FILE]);
+  assert.match(read.reasons[EVENT_FILE], reason);
+  const folded = store.readFold(root);
+  assert.deepEqual(folded.unreadable, [EVENT_FILE]);
+  assert.match(folded.unreadableReasons[EVENT_FILE], reason);
+}
+
+test('hostile store: a symlink to /dev/zero is skipped as unreadable, never read', { skip: !POSIX }, () => {
+  const s = storeWith('hostile-zero');
+  fs.symlinkSync('/dev/zero', s.file);
+  expectSkipped(s.root, /not a regular file/);
+});
+
+test('hostile store: a symlink to a valid event outside the store is not followed', { skip: !POSIX }, () => {
+  const s = storeWith('hostile-outside');
+  const outside = path.join(scratch.dir, 'hostile-outside-event.json');
+  fs.writeFileSync(outside, JSON.stringify(validEvent({ statement: 'OUTSIDE' })));
+  fs.symlinkSync(outside, s.file);
+  expectSkipped(s.root, /not a regular file/);
+});
+
+test('hostile store: a FIFO is skipped as unreadable and does not block the read', { skip: !POSIX }, () => {
+  const s = storeWith('hostile-fifo');
+  execFileSync('mkfifo', [s.file]);
+  expectSkipped(s.root, /not a regular file/);
+});
+
+test('hostile store: a folder named like an event is unreadable', () => {
+  const s = storeWith('hostile-folder');
+  fs.mkdirSync(s.file);
+  expectSkipped(s.root, /not a regular file/);
+});
+
+test('hostile store: a file over 256 KiB is unreadable; the largest legitimate event (100 items of 280 characters) is read', () => {
+  const big = storeWith('hostile-big');
+  fs.writeFileSync(big.file, `${JSON.stringify(validEvent())}${' '.repeat(store.MAX_EVENT_BYTES)}`);
+  expectSkipped(big.root, /larger than 256 KiB/);
+
+  const goal = storeWith('legit-goal');
+  const items = Array.from({ length: 100 }, (_, i) => ({ id: `I-${i + 1}`, text: 'x'.repeat(280) }));
+  const event = { v: 1, id: '20261003T000000000Z-aaaaaa', type: 'goal.added', at: '2026-10-03T00:00:00.000Z', by: 'agent', data: { goal: 'G-aaaaaa', outcome: 'o', items } };
+  fs.writeFileSync(goal.file, `${JSON.stringify(event, null, 2)}\n`);
+  assert.ok(fs.statSync(goal.file).size < store.MAX_EVENT_BYTES / 2);
+  assert.deepEqual(store.readEvents(goal.root).events.map((e) => e.id), [event.id]);
+});
+
+test('hostile store: a symlinked events folder is refused for a read and for a write, naming the path; nothing lands outside', { skip: !POSIX }, () => {
+  const root = plainDir('hostile-dirlink');
+  const elsewhere = path.join(scratch.dir, 'hostile-dirlink-elsewhere');
+  fs.mkdirSync(elsewhere);
+  fs.writeFileSync(path.join(elsewhere, EVENT_FILE), JSON.stringify(validEvent({ statement: 'OUTSIDE' })));
+  fs.mkdirSync(path.join(root, store.LIFECYCLE_REL), { recursive: true });
+  const link = path.join(root, store.EVENTS_REL);
+  fs.symlinkSync(elsewhere, link);
+  const refused = (error) => error instanceof store.StoreUnsafeError && error.message.includes(link);
+  assert.throws(() => store.readEvents(root), refused);
+  assert.throws(() => store.readFold(root), refused);
+  assert.throws(() => store.appendEvents(root, [added('FU-bbbbbb')]), refused);
+  assert.deepEqual(fs.readdirSync(elsewhere), [EVENT_FILE], 'the write went nowhere');
+});
+
+test('hostile store: a symlinked lifecycle folder is refused for a read and for a write', { skip: !POSIX }, () => {
+  const root = plainDir('hostile-lifelink');
+  const elsewhere = path.join(scratch.dir, 'hostile-lifelink-elsewhere');
+  fs.mkdirSync(path.join(elsewhere, 'events'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'agent-docs'));
+  const link = path.join(root, store.LIFECYCLE_REL);
+  fs.symlinkSync(elsewhere, link);
+  const refused = (error) => error instanceof store.StoreUnsafeError && error.message.includes(link);
+  assert.throws(() => store.readEvents(root), refused);
+  assert.throws(() => store.appendEvents(root, [added('FU-bbbbbb')]), refused);
+  assert.deepEqual(fs.readdirSync(path.join(elsewhere, 'events')), []);
+});

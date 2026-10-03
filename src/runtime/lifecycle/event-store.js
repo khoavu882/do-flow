@@ -24,6 +24,8 @@ const ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz';
 /** `<UTC YYYYMMDDTHHMMSSmmmZ>-<6 lowercase Crockford base32 characters>`. */
 const EVENT_ID = /^[0-9]{8}T[0-9]{9}Z-[0-9a-hjkmnp-tv-z]{6}$/;
 const COLLISION_RETRIES = 5;
+/** The largest legitimate event is a goal with 100 items of 280 characters (about 30 KiB); a file over this is not one. */
+const MAX_EVENT_BYTES = 256 * 1024;
 /** The decision register's channel vocabulary: who the caller says is acting. */
 const CHANNEL_BY = { question: 'user', gate: 'user', prompt: 'user', default: 'agent' };
 
@@ -59,34 +61,82 @@ function isEnvelope(event, idFromName) {
     && event.data && typeof event.data === 'object' && !Array.isArray(event.data);
 }
 
+/** The store folders are the project's own: a symlink at either one could send a read or a write outside the repository. */
+class StoreUnsafeError extends Error {}
+
+function assertStoreFolders(root, fsImpl) {
+  for (const rel of [LIFECYCLE_REL, EVENTS_REL]) {
+    const folder = path.join(root, rel);
+    let link = false;
+    try { link = fsImpl.lstatSync(folder).isSymbolicLink(); } catch { /* absent: nothing to follow */ }
+    if (link) throw new StoreUnsafeError(`${folder} is a symbolic link; the lifecycle store is never read or written through one`);
+  }
+}
+
+/**
+ * One event file's text, or `{reason}` when it must not be read: not a regular file (a symlink, a
+ * FIFO, a device, a folder), larger than MAX_EVENT_BYTES, or gone. A symlink is refused by `lstat`
+ * and again by `O_NOFOLLOW` where the platform has it; `O_NONBLOCK` keeps a FIFO swapped in after
+ * the `lstat` from blocking the open, and the descriptor is checked again before any read.
+ */
+function readEventFile(fsImpl, file) {
+  const flags = nodeFs.constants;
+  let fd;
+  try {
+    if (!fsImpl.lstatSync(file).isFile()) return { reason: 'not a regular file' };
+    fd = fsImpl.openSync(file, flags.O_RDONLY | (flags.O_NOFOLLOW || 0) | (flags.O_NONBLOCK || 0));
+    const st = fsImpl.fstatSync(fd);
+    if (!st.isFile()) return { reason: 'not a regular file' };
+    if (st.size > MAX_EVENT_BYTES) return { reason: `larger than ${MAX_EVENT_BYTES / 1024} KiB` };
+    const buffer = Buffer.allocUnsafe(MAX_EVENT_BYTES + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const n = fsImpl.readSync(fd, buffer, length, buffer.length - length, null);
+      if (n === 0) break;
+      length += n;
+    }
+    return length > MAX_EVENT_BYTES ? { reason: `larger than ${MAX_EVENT_BYTES / 1024} KiB` } : { text: buffer.toString('utf8', 0, length) };
+  } catch (error) {
+    return { reason: error.code || 'unreadable' };
+  } finally {
+    if (fd !== undefined) { try { fsImpl.closeSync(fd); } catch { /* read already done */ } }
+  }
+}
+
 /**
  * Reads every event file. A missing folder is an empty store; a file whose name is not an event id
- * is ignored; a matching file that is not an IC-002 envelope (including one still being written) is
- * skipped and named in `unreadable`.
- * @returns {{events: Object[], unreadable: string[]}}
+ * is ignored; a matching entry that is not a regular file of at most MAX_EVENT_BYTES, or is not an
+ * IC-002 envelope (including one still being written), is skipped and named in `unreadable`, with
+ * the reason in `reasons[name]` when it is not simply a corrupt file. A symlinked store folder
+ * throws StoreUnsafeError.
+ * @returns {{events: Object[], unreadable: string[], reasons: Object<string,string>}}
  */
 function readEvents(root, { fsImpl = nodeFs } = {}) {
+  assertStoreFolders(root, fsImpl);
   const dir = eventsDir(root);
   let names;
   try {
     names = fsImpl.readdirSync(dir);
   } catch (error) {
-    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return { events: [], unreadable: [] };
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return { events: [], unreadable: [], reasons: {} };
     throw error;
   }
   const events = [];
   const unreadable = [];
+  const reasons = {};
   for (const name of names.sort()) {
     const match = /^(.+)\.json$/.exec(name);
     if (!match || !EVENT_ID.test(match[1])) continue;
+    const read = readEventFile(fsImpl, path.join(dir, name));
+    if (read.reason) { unreadable.push(name); reasons[name] = read.reason; continue; }
     try {
-      const event = JSON.parse(fsImpl.readFileSync(path.join(dir, name), 'utf8'));
+      const event = JSON.parse(read.text);
       if (isEnvelope(event, match[1])) events.push(event); else unreadable.push(name);
     } catch {
       unreadable.push(name);
     }
   }
-  return { events, unreadable };
+  return { events, unreadable, reasons };
 }
 
 /**
@@ -96,8 +146,8 @@ function readEvents(root, { fsImpl = nodeFs } = {}) {
  * @returns {Object} the fold result (see fold.js) plus `unreadable`
  */
 function readFold(root, { fsImpl = nodeFs, hasBody, now = new Date() } = {}) {
-  const { events, unreadable } = readEvents(root, { fsImpl });
-  return { ...finalize(foldInto(events, { now }), { hasBody }), unreadable };
+  const { events, unreadable, reasons } = readEvents(root, { fsImpl });
+  return { ...finalize(foldInto(events, { now }), { hasBody }), unreadable, unreadableReasons: reasons };
 }
 
 /** Picks a free, valid id for each draft before any file is created, so a batch is all or nothing. */
@@ -190,6 +240,6 @@ function planEvents(root, drafts, { now, fsImpl, random }) {
 }
 
 module.exports = {
-  appendEvents, readEvents, readFold, byFromChannel, randomChars,
+  appendEvents, readEvents, readFold, byFromChannel, randomChars, StoreUnsafeError, MAX_EVENT_BYTES,
   EVENT_ID, EVENTS_REL, LIFECYCLE_REL, ALPHABET, COLLISION_RETRIES,
 };

@@ -193,6 +193,7 @@ function buildOverview({ root, maintain = false, since, now = new Date(), fsImpl
     features: derived.features,
     conflicts: fold.conflicts,
     unreadable: fold.unreadable,
+    unreadableReasons: fold.unreadableReasons,
     // Failure entries come from the machine-wide failure store, which only the DoFlow repository's own
     // maintain view reads (IC-023); nothing in the project store feeds it. Read-only: the overview
     // never rotates the failure files, which is the `failure` verb's step.

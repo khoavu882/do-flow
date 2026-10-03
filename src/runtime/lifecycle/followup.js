@@ -188,15 +188,25 @@ function buildItems({ cwd, items, defaults }) {
 }
 
 /**
- * Reads a `--batch` file: a JSON array of `{statement, stage, source}` objects.
+ * Reads a `--batch` file: a JSON array of `{statement, stage, source}` objects. Like `--file`, it
+ * must be a regular file of at most 16 MiB, so a device or a FIFO is refused, never read.
  * @returns {Object[]}
  */
 function readBatchFile(file, fsImpl = nodeFs) {
   let parsed;
+  let fd;
   try {
-    parsed = JSON.parse(fsImpl.readFileSync(path.resolve(file), 'utf8'));
+    const target = path.resolve(file);
+    if (!fsImpl.statSync(target).isFile()) throw new Error('not a regular file');
+    fd = fsImpl.openSync(target, nodeFs.constants.O_RDONLY | (nodeFs.constants.O_NONBLOCK || 0));
+    const st = fsImpl.fstatSync(fd);
+    if (!st.isFile()) throw new Error('not a regular file');
+    if (st.size > reportStore.MAX_READ_BYTES) throw new Error('larger than 16 MiB');
+    parsed = JSON.parse(fsImpl.readFileSync(fd, 'utf8'));
   } catch (error) {
     throw new FollowupUsageError(`cannot read --batch ${file}: ${error.message}`);
+  } finally {
+    if (fd !== undefined) { try { fsImpl.closeSync(fd); } catch { /* read already done */ } }
   }
   if (!Array.isArray(parsed) || parsed.length === 0) throw new FollowupUsageError(`--batch ${file} must hold a non-empty JSON array of {statement, stage, source} objects`);
   return parsed;
@@ -327,7 +337,7 @@ function listFollowups({ root, state = 'open', hasBody, fsImpl = nodeFs, statuse
   if (state !== 'all' && !STATES.includes(state)) throw new FollowupUsageError(`--state must be one of ${[...STATES, 'all'].join(', ')} (got '${state}')`);
   const { fold, followups } = loadFollowups(root, { hasBody, fsImpl, statuses, now });
   const items = state === 'all' ? followups : followups.filter((item) => item.state === state);
-  return { ok: true, action: 'list', state, count: items.length, items, conflicts: fold.conflicts, unreadable: fold.unreadable, next: [] };
+  return { ok: true, action: 'list', state, count: items.length, items, conflicts: fold.conflicts, unreadable: fold.unreadable, unreadableReasons: fold.unreadableReasons, next: [] };
 }
 
 // ── take, settle, promote ──────────────────────────────────────────────────────────────────────

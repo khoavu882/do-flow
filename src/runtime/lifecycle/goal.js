@@ -210,7 +210,7 @@ function listGoals({ root, goal, now = new Date(), fsImpl = nodeFs }) {
     }
   }
   for (const g of goals.filter((x) => x.conflicts)) next.push(...goalConflictNext(g.goal, g.conflicts));
-  const result = { ok: true, action: 'list', goals, conflicts: fold.conflicts, unreadable: fold.unreadable, next };
+  const result = { ok: true, action: 'list', goals, conflicts: fold.conflicts, unreadable: fold.unreadable, unreadableReasons: fold.unreadableReasons, next };
   if (statuses.reason) result.reason = statuses.reason;
   return result;
 }

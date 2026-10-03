@@ -375,3 +375,60 @@ test('service functions refuse bad input as usage errors', () => {
   fs.mkdirSync(path.join(root, 'agent-docs', 'doflow', 'ok'), { recursive: true });
   assert.throws(() => initFeature({ root, slug: 'ok', take: 'nope' }), FollowupUsageError);
 });
+
+// ── hostile repositories: a verb answers promptly and never reads or writes outside the store ───
+
+/** Runs the CLI with a time limit, so a hang fails the test instead of the suite. */
+function runLimited(cwd, args) {
+  const r = spawnSync(process.execPath, [CLI, ...args], { cwd, env: scratch.env(), encoding: 'utf8', timeout: 20000 });
+  assert.notEqual(r.status, null, `timed out: ${args.join(' ')}`);
+  let json = null;
+  try { json = JSON.parse(r.stdout); } catch { /* human output */ }
+  return { status: r.status, stdout: r.stdout, stderr: r.stderr, json };
+}
+const NAME = '20261003T000000000Z-aaaaaa.json';
+const POSIX = process.platform !== 'win32';
+
+test('a symlink to /dev/zero in the store is listed as unreadable with its reason; every verb answers', { skip: !POSIX }, () => {
+  const { repo } = newRepo();
+  const events = path.join(repo.dir, store.EVENTS_REL);
+  fs.mkdirSync(events, { recursive: true });
+  fs.symlinkSync('/dev/zero', path.join(events, NAME));
+  const listed = runLimited(repo.dir, ['followup', '--action', 'list', '--json']);
+  assert.equal(listed.status, 0);
+  assert.deepEqual([listed.json.items, listed.json.unreadable, listed.json.unreadableReasons[NAME]], [[], [NAME], 'not a regular file']);
+  const overview = runLimited(repo.dir, ['lifecycle']);
+  assert.equal(overview.status, 0);
+  assert.ok(overview.stdout.includes(`unreadable event files: ${NAME} (not a regular file)`), overview.stdout);
+  assert.equal(runLimited(repo.dir, ['goal', '--action', 'list', '--json']).json.unreadable[0], NAME);
+});
+
+test('a symlinked events folder exits 2 naming the path, for a read and a write, in text and json; nothing lands outside', { skip: !POSIX }, () => {
+  const { repo } = newRepo();
+  const elsewhere = path.join(scratch.dir, `elsewhere-${counter}`);
+  fs.mkdirSync(elsewhere);
+  fs.mkdirSync(path.join(repo.dir, store.LIFECYCLE_REL), { recursive: true });
+  const link = path.join(repo.dir, store.EVENTS_REL);
+  fs.symlinkSync(elsewhere, link);
+  for (const args of [['followup', '--action', 'list'], ['followup', '--action', 'add', '--source', 'manual', '--statement', 'x'],
+    ['lifecycle'], ['goal', '--action', 'add', '--goal', 'g', '--statement', 'x', '--item', 'y']]) {
+    const text = runLimited(repo.dir, args);
+    assert.equal(text.status, 2, args.join(' '));
+    assert.ok(text.stderr.includes(link), text.stderr);
+    const json = runLimited(repo.dir, [...args, '--json']);
+    assert.equal(json.status, 2);
+    assert.deepEqual([json.json.ok, json.json.error, json.json.summary.includes(link)], [false, 'usage', true]);
+  }
+  assert.deepEqual(fs.readdirSync(elsewhere), []);
+});
+
+test('followup add --batch refuses /dev/zero and a FIFO with exit 2, at once', { skip: !POSIX }, () => {
+  const { repo } = newRepo();
+  const base = ['followup', '--action', 'add', '--stage', 'review', '--slug', SLUG];
+  const zero = runLimited(repo.dir, [...base, '--batch', '/dev/zero']);
+  assert.equal(zero.status, 2);
+  assert.match(zero.stderr, /cannot read --batch \/dev\/zero: not a regular file/);
+  const fifo = path.join(repo.dir, 'batch.fifo');
+  spawnSync('mkfifo', [fifo]);
+  assert.equal(runLimited(repo.dir, [...base, '--batch', fifo]).status, 2);
+});
