@@ -66,7 +66,7 @@ function goalView(goal, features, statuses) {
   return {
     goal: goal.goal, outcome: goal.outcome,
     items: { met, total: goal.items.length },
-    proposeDone: goal.items.length > 0 && met === goal.items.length,
+    proposeDone: goal.status === 'open' && goal.items.length > 0 && met === goal.items.length,
     features: buckets,
     nudges,
   };
@@ -225,4 +225,4 @@ function featureStatus({ root, slug, now = new Date(), fsImpl = nodeFs }) {
   return result;
 }
 
-module.exports = { buildOverview, initFeature, featureStatus, DISCOVERY_SHOWN, MAINTAIN_SHOWN };
+module.exports = { buildOverview, initFeature, featureStatus, goalView, DISCOVERY_SHOWN, MAINTAIN_SHOWN };

@@ -76,6 +76,10 @@ function parseArgs(argv) {
       case '--confirm': o.confirm = true; break;
       // followup --action report: the report body comes from stdin instead of --file or --text.
       case '--stdin': o.stdin = true; break;
+      // goal --action check: record the item as not met (evidence is still required, as the reason).
+      case '--unmet': o.unmet = true; break;
+      // goal --action link: move a feature that already serves another goal.
+      case '--replace': o.replace = true; break;
       // readiness: the caller declares a decision is owed by the user. A flag rather than an
       // inference, because nothing the runtime can see distinguishes "a decision is pending"
       // from "nobody has looked yet", and guessing would be the gate answering unasked.
@@ -218,7 +222,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--goal', 'goal'],                  // lifecycle --action init: the goal the feature serves
   ['--since', 'since'],                // lifecycle --action overview --maintain: ISO time the pass started
   ['--file', 'file'],                  // followup --action report: the report body, read as text (at most 16 MiB)
-  ['--text', 'text'],                  // followup --action report: the report body inline (a value starting with - needs --text=...)
+  ['--text', 'text'],                  // followup --action report: the report body inline (a value starting with - needs --text=...) · goal --action item: the checklist item
   ['--tag', 'tag'],                    // lifecycle --action release: the version tag (`--version` is the CLI's own flag)
   ['--fp', 'fp'],                      // failure --action settle: the 16 hex characters of an entry
   ['--set', 'set'],                    // failure --action capture: on | off
@@ -280,6 +284,7 @@ const RUNTIME_LIST_FLAGS = new Map([
   ['--path', 'paths'],                 // leak-scan: the files to scan, one per occurrence
   ['--exclude', 'exclude'],            // leak-scan: extra path segments to skip · lifecycle --action release: slugs left out
   ['--feature', 'feature'],            // lifecycle --action release: a feature slug to add, one per occurrence
+  ['--item', 'item'],                  // goal --action add: a checklist item, one per occurrence · goal --action check: the one item id (C3)
 ]);
 
 /** Non-negative integer arguments. */
@@ -390,6 +395,7 @@ Commands:
   decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
   followup             Record, list, take, settle or promote what a feature left unfinished (--action add|list|take|settle|promote)
   lifecycle            Open follow-ups, feature tracking and status for the project (--action overview|init|status)
+  goal                 Add, check, link, list or close a goal and its checklist (--action add|item|check|link|list|done)
   failure              List, settle or switch off the failures DoFlow captured on this machine (--action list|settle|capture)
                        (a value beginning with '-' must be written --flag=value)
   leak-scan            Report DoFlow-internal identifiers in shipped files (--path, repeatable)
@@ -424,6 +430,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        verify: report|contract · retrieval-plan: declare|report
                        outcome: record|show · tools: see above
                        followup: add|list|take|settle|promote · lifecycle: overview|init|status
+                       goal: add|item|check|link|list|done
                        failure: list|settle|capture
       --rationale, --proposed-by, --calling-skill    classify
       --intent, --query, --check            route
@@ -452,6 +459,9 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --feature                             followup --action report (the body comes from exactly one; - is stdin)
       --take, --goal, --intent, --since,
       --maintain                            lifecycle (overview, init)
+      --goal, --statement, --item (repeatable),
+      --text, --evidence, --unmet, --slug,
+      --replace, --reason, --channel        goal (add, item, check, link, list, done)
       --tag, --confirm, --feature,
       --exclude (repeatable), --reason      lifecycle (release, merged)
       --fp, --as, --reason, --set, --all    failure (list, settle, capture)

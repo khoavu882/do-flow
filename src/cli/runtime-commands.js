@@ -47,7 +47,7 @@ const { handleLeakScanCommand } = require('../runtime/leak-scan');
 const { handleRecoverCommand } = require('../runtime/recovery');
 const { handleScaffoldCommand } = require('../runtime/scaffold/generate');
 const { handleDecisionCommand } = require('../runtime/decision-register');
-const { handleFollowupCommand, handleLifecycleCommand } = require('../runtime/lifecycle/cli');
+const { handleFollowupCommand, handleLifecycleCommand, handleGoalCommand } = require('../runtime/lifecycle/cli');
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options) { return require('../runtime/failure/cli').handleFailureCommand(options); }
 const { handleInventoryCommand } = require('../runtime/inventory');
@@ -196,6 +196,7 @@ function dispatchRuntimeCommand(o) {
     // the handlers refuse), so the working directory is the starting point, not a scope switch.
     case 'followup': return handleFollowupCommand({ action: o.actionGiven ? o.action : undefined, cwd: evidenceRoot(o), global: o.global, slug: o.slug, json: o.json, flags: { statement: o.statement, stage: o.stage, source: o.source, taskClass: o.taskClass, taskId: o.taskId, release: o.release, batch: o.batchPath, channel: o.channel, state: o.state, ids: o.ids, as: o.as, reason: o.reason, evidence: o.evidence, title: o.title, file: o.file, stdin: o.stdin, text: o.text, feature: o.feature, tag: o.tag, confirm: o.confirm, exclude: o.exclude } });
     case 'lifecycle': return handleLifecycleCommand({ action: o.actionGiven ? o.action : undefined, cwd: evidenceRoot(o), global: o.global, slug: o.slug, json: o.json, flags: { take: o.take, intent: o.intent, goal: o.goal, maintain: o.maintain, since: o.since, tag: o.tag, confirm: o.confirm, feature: o.feature, exclude: o.exclude, reason: o.reason, channel: o.channel } });
+    case 'goal': return handleGoalCommand({ action: o.actionGiven ? o.action : undefined, cwd: evidenceRoot(o), global: o.global, slug: o.slug, json: o.json, flags: { goal: o.goal, statement: o.statement, item: o.item, text: o.text, evidence: o.evidence, unmet: o.unmet, replace: o.replace, reason: o.reason, channel: o.channel } });
     // The failure store is per machine, so `-g` changes nothing and the working directory only matters
     // to `settle --as imported`, which looks for the DoFlow repository from there.
     case 'failure': return handleFailureCommand({ action: o.actionGiven ? o.action : undefined, cwd: path.resolve(o.positional[0] || '.'), json: o.json, all: o.all, flags: { fp: o.fp, as: o.as, reason: o.reason, set: o.set } });

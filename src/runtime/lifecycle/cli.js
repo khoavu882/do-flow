@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * The `followup` and `lifecycle` verb handlers (IC-006, IC-007, IC-008, IC-009). Both work on the
+ * The `followup`, `lifecycle` and `goal` verb handlers (IC-006 to IC-009, IC-022). All work on the
  * project store at the IC-001 root, so `-g` is refused with exit 2. `--json` prints the result
  * object unmodified; exit 0 = answered or written, 1 = a refusal, 2 = usage. A refusal is returned
  * by the service and printed here, never thrown, so it cannot reach failure capture (NFR-005).
@@ -12,9 +12,16 @@ const { projectRoot } = require('./root');
 const followup = require('./followup');
 const { buildOverview, initFeature, featureStatus } = require('./overview');
 const { releaseFeatures, recordMerged } = require('./release');
+const goal = require('./goal');
 
 const FOLLOWUP_ACTIONS = ['add', 'list', 'take', 'settle', 'promote', 'report'];
 const LIFECYCLE_ACTIONS = ['overview', 'init', 'release', 'status', 'merged'];
+const GOAL_ACTIONS = ['add', 'item', 'check', 'link', 'list', 'done'];
+/** The flags each goal action takes, besides --goal, --channel and --json; any other one given is a usage error. */
+const GOAL_FLAGS = {
+  add: ['statement', 'item'], item: ['text'], check: ['item', 'evidence', 'unmet'],
+  link: ['slug', 'replace'], list: [], done: ['reason'],
+};
 
 function sourceText(source) {
   return [source.kind, source.feature, source.taskClass, source.taskId, source.release, source.stage, source.ref].filter(Boolean).join(' ');
@@ -81,7 +88,31 @@ function lifecycleLines(result) {
   }
 }
 
-/** Prints a result and sets the exit status; shared by both verbs. */
+function goalLines(r) {
+  const met = (g) => `${g.progress.met}/${g.progress.total} items met`;
+  switch (r.action) {
+    case 'add': return [`added goal ${r.goal}: ${r.outcome}`, ...r.items.map((i) => `  ${i.id}  ${i.text}`), ...r.next.map((n) => `next: ${n}`)];
+    case 'item': return [`added ${r.item.id} to ${r.goal}: ${r.item.text}`, ...r.next.map((n) => `next: ${n}`)];
+    case 'check': return [`${r.goal} ${r.item}: ${r.met ? 'met' : 'unmet'} (${r.evidence}); ${r.progress.met}/${r.progress.total} items met${r.proposeDone ? ' (propose done)' : ''}`, ...r.next.map((n) => `next: ${n}`)];
+    case 'link': return [r.linked === 'already' ? `${r.slug} already serves ${r.goal}` : `${r.slug} now serves ${r.goal}${r.replaced ? ` (was ${r.replaced})` : ''}`];
+    case 'done': return [`${r.goal} is done${r.unmet.length ? ` with ${r.unmet.join(', ')} unmet: ${r.reason}` : ''}`];
+    default: {
+      const lines = r.goals.length === 0 ? ['No goals.'] : [];
+      for (const g of r.goals) {
+        lines.push(`${g.goal}  ${g.status}  ${met(g)}${g.proposeDone ? ' (propose done)' : ''}  ${g.outcome}`);
+        for (const i of g.items) lines.push(`  ${i.id}  ${i.met ? 'met' : 'open'}  ${i.text}${i.evidence ? `  (${i.evidence})` : ''}`);
+        for (const [label, list] of [['finished', g.features.finished], ['awaiting release', g.features.awaitingRelease], ['in progress', g.features.inProgress], ['unknown', g.features.unknown]]) {
+          if (list.length) lines.push(`  ${label}: ${list.join(', ')}`);
+        }
+        for (const n of g.nudges) lines.push(`  ${n}`);
+      }
+      if (r.reason) lines.push(`note: ${r.reason}`);
+      return [...lines, ...r.next.map((n) => `next: ${n}`)];
+    }
+  }
+}
+
+/** Prints a result and sets the exit status; shared by the verbs. */
 function emit(result, json, lines) {
   if (json) console.log(JSON.stringify(result, null, 2));
   else if (result.ok === false) console.log(`${result.finding}: ${result.message}`);
@@ -186,4 +217,34 @@ function handleLifecycleCommand({ action, cwd, global = false, slug = null, json
   });
 }
 
-module.exports = { handleFollowupCommand, handleLifecycleCommand, FOLLOWUP_ACTIONS, LIFECYCLE_ACTIONS };
+/**
+ * `goal` verb. Actions: add, item, check, link, list, done.
+ * @param {Object} options.flags parsed flag values: goal, statement, item (a list), text, evidence, unmet,
+ *   replace, reason, channel; `--slug` arrives as `slug`
+ */
+function handleGoalCommand({ action, cwd, global = false, slug = null, json = false, flags = {} } = {}) {
+  const refused = refuseGlobal('goal', global, json);
+  if (refused !== null) return refused;
+  return guarded('goal', json, () => {
+    if (!GOAL_ACTIONS.includes(action)) throw new followup.FollowupUsageError(`--action is required: one of ${GOAL_ACTIONS.join(', ')} (got '${action}')`);
+    const given = { ...flags, slug: slug === null ? undefined : slug };
+    for (const name of ['statement', 'item', 'text', 'evidence', 'unmet', 'replace', 'reason', 'slug']) {
+      if (!GOAL_FLAGS[action].includes(name) && given[name] !== undefined && given[name] !== false) {
+        throw new followup.FollowupUsageError(`--${name} does not apply to --action ${action}`);
+      }
+    }
+    if (action !== 'list' && flags.goal === undefined) throw new followup.FollowupUsageError(`--goal is required for --action ${action}`);
+    const root = projectRoot(cwd || process.cwd());
+    const base = { root, goal: flags.goal };
+    let result;
+    if (action === 'add') result = goal.addGoal({ ...base, statement: flags.statement, items: flags.item, channel: flags.channel });
+    else if (action === 'item') result = goal.addItem({ ...base, text: flags.text, channel: flags.channel });
+    else if (action === 'check') result = goal.checkItem({ ...base, item: flags.item, evidence: flags.evidence, unmet: Boolean(flags.unmet), channel: flags.channel });
+    else if (action === 'link') result = goal.linkFeature({ ...base, slug, replace: Boolean(flags.replace), channel: flags.channel });
+    else if (action === 'done') result = goal.doneGoal({ ...base, reason: flags.reason, channel: flags.channel });
+    else result = goal.listGoals({ root, goal: flags.goal });
+    return emit(result, json, goalLines);
+  });
+}
+
+module.exports = { handleFollowupCommand, handleLifecycleCommand, handleGoalCommand, FOLLOWUP_ACTIONS, LIFECYCLE_ACTIONS, GOAL_ACTIONS };
