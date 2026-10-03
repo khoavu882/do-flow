@@ -384,7 +384,7 @@ describe('rotation under concurrency (IC-015)', () => {
     while (fs.readdirSync(scratch.dir).filter((f) => f.startsWith(path.basename(gate) + '.ready-')).length < 24) await new Promise((r) => setTimeout(r, 20));
     fs.writeFileSync(`${gate}.go`, '');
     const results = await pending;
-    assert.ok(results.every((r) => r.code === 0 && r.out === '200'), 'every capture was written');
+    assert.ok(results.every((r) => r.code === 0 && r.out === '200'), `every capture was written: ${JSON.stringify(results.filter((r) => r.code !== 0 || r.out !== '200'))}`);
     let prefill = 0;
     const seen = new Set();
     const rotated = [];
@@ -398,8 +398,9 @@ describe('rotation under concurrency (IC-015)', () => {
       }
     }
     assert.ok(rotated.length >= 1, 'a rotation happened');
-    assert.equal(prefill, count, 'every prefill line is still readable');
-    assert.equal(seen.size, 4800, 'every new line is present');
+    const listing = fs.readdirSync(home).map((name) => `${name}:${fs.statSync(path.join(home, name)).size}`).join(' ');
+    assert.equal(prefill, count, `every prefill line is still readable (${listing})`);
+    assert.equal(seen.size, 4800, `every new line is present (${listing})`);
     const full = rotated.filter((name) => fs.statSync(path.join(home, name)).size >= ROTATE_AT_BYTES);
     assert.ok(full.length >= 1 && full.length <= 4, 'the real rotated files are all there');
   });
@@ -543,5 +544,26 @@ describe('switch parsing parity with the bash writers', () => {
   test('the Node reading trims the ends only and ignores case', () => {
     const off = SWITCH_INPUTS.filter((v) => captureIsOff('/nonexistent-home', { DOFLOW_FAILURE_CAPTURE: v }));
     assert.deepEqual(off, [' off ', 'OFF', '\toff', 'Off\t', 'no', ' No ', '0 ', ' 0', 'false ', 'FALSE\n']);
+  });
+});
+
+describe('a process that rotates twice in one second', () => {
+  test('never renames onto its own earlier rotated file', () => {
+    const { env } = freshEnv('rot-twice');
+    const home = failureHome(env);
+    fs.mkdirSync(home, { recursive: true });
+    const live = path.join(home, 'events.jsonl');
+    const big = () => { fs.writeFileSync(live, 'first-rotation\n'); fs.truncateSync(live, ROTATE_AT_BYTES); };
+    big();
+    assert.equal(rotateIfDue(home), true);
+    const [first] = fs.readdirSync(home).filter((n) => /^events-/.test(n));
+    fs.writeFileSync(live, 'second-rotation\n');
+    fs.truncateSync(live, ROTATE_AT_BYTES);
+    assert.equal(rotateIfDue(home), true);
+    const rotated = fs.readdirSync(home).filter((n) => /^events-\d{8}T\d{6}Z-\d+\.jsonl$/.test(n));
+    assert.equal(rotated.length, 2, 'both rotated files exist');
+    assert.ok(rotated.includes(first));
+    const heads = rotated.map((n) => fs.readFileSync(path.join(home, n), 'utf8').slice(0, 15)).sort();
+    assert.deepEqual(heads, ['first-rotation\n', 'second-rotation'].map((h) => h.padEnd(15, '\u0000').slice(0, 15)).sort());
   });
 });

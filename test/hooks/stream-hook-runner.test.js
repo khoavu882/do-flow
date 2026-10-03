@@ -359,14 +359,28 @@ test('stream-hook-runner capture: the sentinel and the environment switch turn c
 
 const PRE_BASH = JSON.stringify({ tool_name: 'run_shell_command', tool_input: { command: 'ls' } });
 
-test('stream-hook-runner capture: policy-exec-fault when the policy is killed by a signal; the decision is unchanged', () => {
+test('stream-hook-runner capture: policy-exec-fault:<signal> when the policy is killed by a signal; the decision is unchanged', () => {
   const runner = runnerWithPolicy('kill -9 $$');
   const { on, a } = capPair(runner, ['PreToolUse'], PRE_BASH);
   assert.equal(a.status, 0);
   assert.equal(a.stdout, '{"decision":"allow"}\n');
   const [line] = capLines(on);
   assert.equal(capLines(on).length, 1);
-  assert.deepEqual([line.source, line.command, line.kind, line.message, line.frame, line.exit], ['hook', 'pre-bash-guard', 'policy-exec-fault', '', null, null]);
+  assert.deepEqual([line.source, line.command, line.kind, line.message, line.frame, line.exit], ['hook', 'pre-bash-guard', 'policy-exec-fault:SIGKILL', '', null, null]);
+});
+
+test('stream-hook-runner capture: SIGTERM, SIGINT and SIGPIPE are not recorded; other signals get their own kind', () => {
+  for (const signal of ['TERM', 'INT', 'PIPE']) {
+    const { on, a } = capPair(runnerWithPolicy(`kill -${signal} $$`), ['PreToolUse'], PRE_BASH);
+    assert.equal(a.stdout, '{"decision":"allow"}\n', signal);
+    assert.equal(capLines(on).length, 0, `SIG${signal} is not a fault`);
+  }
+  const segv = capPair(runnerWithPolicy('kill -SEGV $$'), ['PreToolUse'], PRE_BASH);
+  const kill = capPair(runnerWithPolicy('kill -KILL $$'), ['PreToolUse'], PRE_BASH);
+  const [a] = capLines(segv.on);
+  const [b] = capLines(kill.on);
+  assert.deepEqual([a.kind, b.kind], ['policy-exec-fault:SIGSEGV', 'policy-exec-fault:SIGKILL']);
+  assert.notEqual(fingerprint(a), fingerprint(b), 'a SEGV and a KILL do not share a fingerprint');
 });
 
 test('stream-hook-runner capture: a policy deny, an allow and a missing bash are not recorded, and the output is identical', () => {

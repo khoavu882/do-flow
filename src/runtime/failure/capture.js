@@ -133,9 +133,16 @@ function prune(home, now = Date.now()) {
  */
 function rotateIfDue(home) {
   const live = eventsPath(home);
-  const rotated = path.join(home, `events-${stamp(new Date())}-${process.pid}.jsonl`);
   try {
     if (fs.statSync(live).size < ROTATE_AT_BYTES) return false;
+  } catch { return false; }
+  // The name carries the second and the pid, so a process that rotates twice inside one second would
+  // rename onto its own earlier file and destroy it: take the next free second instead.
+  let rotated = path.join(home, `events-${stamp(new Date())}-${process.pid}.jsonl`);
+  for (let i = 1; i < 120 && fs.existsSync(rotated); i++) {
+    rotated = path.join(home, `events-${stamp(new Date(Date.now() + i * 1000))}-${process.pid}.jsonl`);
+  }
+  try {
     fs.renameSync(live, rotated);
   } catch { return false; }
   let size = 0;

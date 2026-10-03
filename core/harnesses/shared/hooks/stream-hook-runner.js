@@ -135,10 +135,16 @@ function hookVersion(env) {
  */
 function rotateFailures(home) {
   const live = path.join(home, 'events.jsonl');
-  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-  const rotatedPath = path.join(home, `events-${stamp}-${process.pid}.jsonl`);
   try {
     if (fs.statSync(live).size < CAPTURE_ROTATE_AT_BYTES) return;
+  } catch { return; }
+  // Never rename onto an earlier rotated file of this process (same second, same pid): take the next free second.
+  const stampAt = (ms) => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  let rotatedPath = path.join(home, `events-${stampAt(Date.now())}-${process.pid}.jsonl`);
+  for (let i = 1; i < 120 && fs.existsSync(rotatedPath); i++) {
+    rotatedPath = path.join(home, `events-${stampAt(Date.now() + i * 1000)}-${process.pid}.jsonl`);
+  }
+  try {
     fs.renameSync(live, rotatedPath);
   } catch { return; }
   try {
@@ -350,8 +356,10 @@ function delegateToPolicy(projectRoot, agent, scriptName, canonicalPayload) {
       // A policy killed by a signal is a fault in DoFlow's own install worth recording (IC-018); a
       // missing `bash` or a permission error is the user's environment and is not. Either way the
       // decision is the same as it always was.
-      if (typeof err.signal === 'string' && err.signal) {
-        captureHookFailure({ command: scriptName.replace(/\.sh$/, ''), kind: 'policy-exec-fault' });
+      // SIGTERM, SIGINT and SIGPIPE are the user or the harness stopping the process (DEC-031), not
+      // a fault. Any other signal is recorded under its own kind, so a SEGV and a KILL do not share a fingerprint.
+      if (typeof err.signal === 'string' && err.signal && !['SIGTERM', 'SIGINT', 'SIGPIPE'].includes(err.signal)) {
+        captureHookFailure({ command: scriptName.replace(/\.sh$/, ''), kind: `policy-exec-fault:${err.signal}` });
       }
       return { decision: 'allow' };
     }
