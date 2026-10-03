@@ -218,7 +218,7 @@ test('artifacts compacted around a failure stay compacted and the failure is rep
   const result = compactHistory({ ...f, date: DATE, fsImpl: failingRename(planArchive) });
   assert.equal(result.status, 'partial');
   assert.deepEqual(result.failed.map((x) => x.artifact), ['plan.md']);
-  assert.deepEqual(result.moved.map((x) => x.artifact), ['specs.md']);
+  assert.deepEqual(result.moved.map((x) => x.artifact), ['design/specs.md']);
 });
 
 // ── fenced code blocks ─────────────────────────────────────────────────────────────────────────

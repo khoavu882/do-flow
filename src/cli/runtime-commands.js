@@ -49,7 +49,7 @@ const { handleScaffoldCommand } = require('../runtime/scaffold/generate');
 const { handleDecisionCommand } = require('../runtime/decision-register');
 const { handleInventoryCommand } = require('../runtime/inventory');
 const { finishRuntime, usageError } = require('../runtime/cli-result');
-const { setDefaultSlug } = require('../runtime/task-scope');
+const { setDefaultSlug, invalidSlugRefusal } = require('../runtime/task-scope');
 const { REPO_ROOT } = require('./shared');
 
 /** Where `readiness`/`evidence` read and write per-task state. Mirrors scopeOf()'s rules so these
@@ -127,6 +127,15 @@ const TASK_STORE_VERBS = new Set(['evidence', 'claim', 'readiness', 'context-pac
  * @param {Object} o parsed arguments
  */
 function dispatchRuntimeCommand(o) {
+  // A slug becomes a directory name and a state key, so one that could name a path is refused
+  // here, once, for every verb that reads `--slug`, before any of them reads or writes state
+  // (FR-013, IC-009). A well-formed slug that names no feature is the verbs' own business.
+  const refusal = invalidSlugRefusal(o.slug);
+  if (refusal) {
+    if (o.json) console.log(JSON.stringify(refusal, null, 2));
+    else console.error(`doflow ${o.cmd}: ${refusal.error}: ${refusal.message}`);
+    return finishRuntime(2);
+  }
   // `--slug` names the feature a task-store verb's records belong to (task-scope.js). Set once
   // here so the verbs whose handlers build their own ledger (readiness, evidence) route the same
   // way as the ones that take `slug` directly. The orchestration journal is keyed by slug already.

@@ -67,6 +67,19 @@ note() {
   exit 0
 }
 
+# The resolver refuses a slug that could name a path (IC-009). That refusal is the caller's mistake,
+# not an unrunnable checker, so it is passed on as the refusal it is — exit 2 with the resolver's
+# own error object — rather than folded into the fail-open notes above.
+refuse_invalid_slug() {
+  [ "$(printf '%s' "$1" | jq -r '.error // empty' 2>/dev/null)" = "invalid-slug" ] || return 0
+  if [ "$emit_json" = true ]; then
+    printf '%s\n' "$1"
+  else
+    printf 'validate-artifacts: %s\n' "$(printf '%s' "$1" | jq -r '.message')" >&2
+  fi
+  exit 2
+}
+
 # ── locate targets ────────────────────────────────────────────────────────────────────────────
 if [ "${#targets[@]}" -eq 0 ]; then
   command -v jq >/dev/null 2>&1 || note "jq-absent"
@@ -78,7 +91,9 @@ if [ "${#targets[@]}" -eq 0 ]; then
 
   resolver_args=(--json)
   [ -n "$slug_override" ] && resolver_args+=("--slug=$slug_override")
-  json=$(bash "$RESOLVER" "${resolver_args[@]}" 2>/dev/null) || note "resolver-error"
+  rc=0; json=$(bash "$RESOLVER" "${resolver_args[@]}" 2>/dev/null) || rc=$?
+  [ "$rc" -eq 2 ] && refuse_invalid_slug "$json"
+  [ "$rc" -eq 0 ] || note "resolver-error"
 
   root=$(printf '%s' "$json" | jq -r '.repo_root // empty')
   [ -n "$(printf '%s' "$json" | jq -r '.feature_slug // empty')" ] || note "no-active-feature"
@@ -102,7 +117,9 @@ elif command -v jq >/dev/null 2>&1; then
   if [ -f "$RESOLVER" ]; then
     resolver_args=(--json)
     [ -n "$slug_override" ] && resolver_args+=("--slug=$slug_override")
-    json=$(bash "$RESOLVER" "${resolver_args[@]}" 2>/dev/null) || json=""
+    rc=0; json=$(bash "$RESOLVER" "${resolver_args[@]}" 2>/dev/null) || rc=$?
+    [ "$rc" -eq 2 ] && refuse_invalid_slug "$json"
+    [ "$rc" -eq 0 ] || json=""
   fi
   root=$(printf '%s' "$json" | jq -r '.repo_root // empty' 2>/dev/null)
 fi

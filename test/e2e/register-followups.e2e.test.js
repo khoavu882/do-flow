@@ -159,7 +159,7 @@ describe('Scenario: An unclosed comment after History does not stall compaction 
     assert.strictEqual(res.status, 0, res.stdout + res.stderr);
     assert.strictEqual(res.json.status, 'compacted');
     assert.deepStrictEqual(res.json.failed, []);
-    assert.deepStrictEqual(res.json.moved.map((m) => m.artifact), ['requirement.md']);
+    assert.deepStrictEqual(res.json.moved.map((m) => m.artifact), ['intention/requirement.md']);
     assert.strictEqual(read(path.join(dir, 'plan.md')), noHistory, 'no History section: untouched');
   });
 });
@@ -572,21 +572,33 @@ describe('Scenario: Unsafe feature name refused (FR-013, IC-009)', { skip: SKIP 
       for (const action of ['init', 'list']) {
         const dec = run(repo, ['decision', '--action', action, '--slug', slug, '--json']);
         assert.strictEqual(dec.status, 2, `decision ${action} ${slug}: ${dec.stdout}`);
-        assert.match(dec.json.summary, /invalid-slug/);
+        assert.strictEqual(dec.json.error, 'invalid-slug', `decision ${action} ${slug}`);
+        assert.deepStrictEqual(Object.keys(dec.json).sort(), ['error', 'hint', 'message']);
       }
     }
     assert.deepStrictEqual(tree(repo), before.repo, 'nothing written in the repo');
     assert.deepStrictEqual(fs.readdirSync(SCRATCH).sort(), before.scratch, 'nothing written beside the repo');
   });
 
-  test('a task-store verb given an unsafe slug names no feature and writes nothing outside the state directory', () => {
+  test('task-store verbs, verify and validate refuse an unsafe slug and write nothing outside the state directory', () => {
     const repo = makeRepo({ branch: 'feat/046-safe', seed: { 'a.js': 'x\n' } });
     initRegister(repo, '046-safe');
     const before = fs.readdirSync(SCRATCH).sort();
-    const res = run(repo, ['evidence', '--task-id', 'A.1', '--slug', '../../x', '--action', 'add', '--kind', 'exact-search',
-      '--provenance', 'extracted', '--provider', 'semble', '--capability', 'code.exact-search', '--locator', 'a.js', '--json']);
-    assert.strictEqual(res.status, 0, res.stdout + res.stderr);
-    assert.ok(fs.existsSync(path.join(repo, '.doflow', 'state', 'evidence', 'A.1.json')), 'recorded flat: no feature was named');
+    const stateBefore = fs.existsSync(path.join(repo, '.doflow', 'state')) ? tree(path.join(repo, '.doflow', 'state')) : [];
+    for (const slug of BAD) {
+      const res = run(repo, ['evidence', '--task-id', 'A.1', '--slug', slug, '--action', 'add', '--kind', 'exact-search',
+        '--provenance', 'extracted', '--provider', 'semble', '--capability', 'code.exact-search', '--locator', 'a.js', '--json']);
+      assert.strictEqual(res.status, 2, `evidence ${slug}: ${res.stdout}${res.stderr}`);
+      assert.deepStrictEqual(Object.keys(res.json).sort(), ['error', 'hint', 'message']);
+      assert.strictEqual(res.json.error, 'invalid-slug');
+      const verify = run(repo, ['verify', '--task-id', 'A.1', '--slug', slug, '--json']);
+      assert.strictEqual(verify.status, 2, `verify ${slug}`);
+      const validate = run(repo, ['validate', `--slug=${slug}`, '--json']);
+      assert.strictEqual(validate.status, 2, `validate ${slug}: ${validate.stdout}${validate.stderr}`);
+      assert.strictEqual(validate.json.error, 'invalid-slug');
+    }
+    const stateAfter = fs.existsSync(path.join(repo, '.doflow', 'state')) ? tree(path.join(repo, '.doflow', 'state')) : [];
+    assert.deepStrictEqual(stateAfter, stateBefore, 'no record was written under any name');
     assert.deepStrictEqual(fs.readdirSync(SCRATCH).sort(), before);
     assert.ok(!fs.existsSync(path.join(SCRATCH, 'x')) && !fs.existsSync(path.join(repo, '..', '..', 'x')));
   });

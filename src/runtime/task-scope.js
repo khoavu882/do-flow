@@ -14,6 +14,23 @@ const { resolveActiveFeature } = require('./feature-resolve');
 // moved, renamed or rewritten (FR-007) and a namespaced read never falls back to the flat file.
 
 const SAFE_SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const SLUG_RULE = 'use letters, digits, dot, underscore or dash, start with a letter or digit, and no ".."';
+
+/** The one shape check for a feature slug (IC-009); do-paths.sh applies the same rule in bash. */
+function isSafeSlug(slug) {
+  return typeof slug === 'string' && SAFE_SLUG.test(slug) && !slug.includes('..');
+}
+
+/**
+ * The refusal for a slug that fails the shape check, in the shape do-paths.sh prints, or null when
+ * the slug is fine or was not given.
+ * @param {*} slug
+ * @returns {{error: 'invalid-slug', message: string, hint: string}|null}
+ */
+function invalidSlugRefusal(slug) {
+  if (typeof slug !== 'string' || slug === '' || isSafeSlug(slug)) return null;
+  return { error: 'invalid-slug', message: `slug "${slug}" is not a valid feature slug: ${SLUG_RULE}`, hint: SLUG_RULE };
+}
 
 /** (projectRoot, slug) -> { slug, hasRegister } | { reason }. One resolver spawn per key per process. */
 const featureCache = new Map();
@@ -53,8 +70,7 @@ function featureFor(projectRoot, slug) {
   try {
     if (hasFeatureFolderAbove(projectRoot)) {
       const found = resolveActiveFeature({ projectRoot, slug: slug || null });
-      if (!found.error && found.paths && SAFE_SLUG.test(found.paths.feature_slug || '')
-        && !found.paths.feature_slug.includes('..')) {
+      if (!found.error && found.paths && isSafeSlug(found.paths.feature_slug)) {
         value = { slug: found.paths.feature_slug, hasRegister: found.paths.has_decisions === true };
       }
     }
@@ -95,4 +111,4 @@ function taskStoreDir({ projectRoot, store, taskId, slug = null }) {
   return namespace ? path.join(base, namespace) : base;
 }
 
-module.exports = { resolveTaskScope, taskStoreDir, setDefaultSlug, clearTaskScopeCache };
+module.exports = { resolveTaskScope, taskStoreDir, setDefaultSlug, clearTaskScopeCache, isSafeSlug, invalidSlugRefusal };

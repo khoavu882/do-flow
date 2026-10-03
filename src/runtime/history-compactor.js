@@ -188,7 +188,8 @@ function compactArtifact({ fsImpl, featureDir, file, date }) {
   for (const c of comments) body.push(...c, blank);
   body.push(pointerLine, end === lines.length ? '' : blank);
   writeAtomic(fsImpl, file, [...lines.slice(0, start + 1), ...body, ...lines.slice(end)].join('\n'));
-  return { artifact: name, path: rel, archive: archiveRel, lines: moved.length };
+  // `artifact` is the feature-relative path, the same form `failed[].artifact` uses.
+  return { artifact: rel, path: rel, archive: archiveRel, lines: moved.length };
 }
 
 /**

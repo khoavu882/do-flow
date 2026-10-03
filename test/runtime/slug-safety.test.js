@@ -90,3 +90,82 @@ test('git-state --branch-name refuses an unsafe slug with exit 2 and accepts the
     assert.equal(res.data.name, `feat/${slug}`);
   }
 });
+
+// ── every runtime verb that reads --slug refuses it the same way, before touching any state ──────────
+
+const DOFLOW = path.join(__dirname, '..', '..', 'bin', 'doflow.js');
+const VALIDATE = path.join(BASH, 'validate-artifacts.sh');
+
+const VERBS = [
+  ['evidence', '--task-id', 'A.1', '--action', 'add', '--kind', 'exact-search', '--provenance', 'extracted', '--provider', 'semble', '--capability', 'code.exact-search', '--locator', 'a.js'],
+  ['claim', '--task-id', 'A.1', '--action', 'add', '--statement', 'x'],
+  ['readiness', '--task-id', 'A.1', '--task-class', 'bug'],
+  ['context-pack', '--task-id', 'A.1'],
+  ['research-request', '--task-id', 'A.1', '--action', 'list'],
+  ['outcome', '--task-id', 'A.1'],
+  ['retrieval-plan', '--task-id', 'A.1', '--action', 'declare', '--need', 'locate-known-symbol', '--stage', 'design'],
+  ['verify', '--task-id', 'A.1'],
+  ['scaffold'],
+  ['decision', '--action', 'init'],
+  ['orchestrate', '--action', 'status', '--task-id', 'A.1'],
+];
+
+function tree(root) {
+  const out = [];
+  (function walk(dir) {
+    for (const name of fs.readdirSync(dir).sort()) {
+      if (name === '.git') continue;
+      const p = path.join(dir, name);
+      out.push(path.relative(root, p));
+      if (fs.statSync(p).isDirectory()) walk(p);
+    }
+  }(root));
+  return out;
+}
+
+test('every verb that takes --slug refuses an unsafe one with the resolver\'s JSON and writes nothing', () => {
+  const root = repo();
+  fs.writeFileSync(path.join(root, 'a.js'), 'x\n');
+  const before = tree(root);
+  for (const slug of ['../../x', 'a/b', '..', 'a..b', '.hidden', 'a b']) {
+    for (const verb of VERBS) {
+      const res = spawnSync('node', [DOFLOW, ...verb, '--slug', slug, '--json'], { cwd: root, encoding: 'utf8', env: { ...process.env, HOME: root } });
+      assert.equal(res.status, 2, `${verb[0]} --slug ${slug}: ${res.stdout}${res.stderr}`);
+      const body = JSON.parse(res.stdout);
+      assert.deepEqual(Object.keys(body).sort(), ['error', 'hint', 'message']);
+      assert.equal(body.error, 'invalid-slug');
+      assert.match(body.message, /not a valid feature slug/);
+    }
+  }
+  assert.deepEqual(tree(root), before, 'no state was read into existence or written');
+});
+
+test('without --json the refusal is the usual one-line error on stderr, exit 2', () => {
+  const root = repo();
+  const res = spawnSync('node', [DOFLOW, 'evidence', '--task-id', 'A.1', '--slug', 'a/b'], { cwd: root, encoding: 'utf8', env: { ...process.env, HOME: root } });
+  assert.equal(res.status, 2);
+  assert.match(res.stderr, /^doflow evidence: invalid-slug: slug "a\/b" is not a valid feature slug/);
+  assert.equal(res.stdout, '');
+});
+
+test('a well-formed slug that names no feature keeps today\'s behaviour', () => {
+  const root = repo();
+  const res = spawnSync('node', [DOFLOW, 'evidence', '--task-id', 'A.1', '--slug', '099-nothing', '--action', 'list', '--json'],
+    { cwd: root, encoding: 'utf8', env: { ...process.env, HOME: root } });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+});
+
+test('validate refuses an unsafe --slug with exit 2, with and without explicit paths', () => {
+  const root = repo();
+  fs.writeFileSync(path.join(root, 'x.md'), '# x\n');
+  for (const args of [['--slug=../../x'], ['--slug=a/b', 'x.md']]) {
+    const json = run(VALIDATE, ['--json', ...args], root);
+    assert.equal(json.status, 2, args.join(' '));
+    assert.equal(json.data.error, 'invalid-slug');
+    const plain = spawnSync('bash', [VALIDATE, ...args], { cwd: root, encoding: 'utf8' });
+    assert.equal(plain.status, 2);
+    assert.match(plain.stderr, /not a valid feature slug/);
+  }
+  const ok = run(VALIDATE, ['--json', '--slug=099-nothing'], root);
+  assert.equal(ok.status, 0);
+});
