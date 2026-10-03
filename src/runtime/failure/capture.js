@@ -20,6 +20,7 @@ const { isProgrammingError, errorKind } = require('./classifier');
 const { failureHome, captureIsOff, eventsPath } = require('./home');
 
 const MAX_LINE_BYTES = 2048;
+const MAX_RAW_MESSAGE = 4096;
 const ROTATE_AT_BYTES = 1048576;
 const KEEP_ROTATED = 4;
 const ROTATED = /^events-\d{8}T\d{6}Z-\d+\.jsonl$/;
@@ -183,6 +184,14 @@ function captureFailure(fields, env = process.env) {
   }
 }
 
+/** The error's message cut to 4096 characters before any masking, so no input makes the rules do unbounded work. */
+function rawMessage(error) {
+  try {
+    const message = error.message;
+    return typeof message === 'string' ? message.slice(0, MAX_RAW_MESSAGE) : '';
+  } catch { return ''; }
+}
+
 /**
  * Records a caught error when it is a programming error (IC-010). The caller keeps doing whatever it
  * did before: this returns a boolean and nothing else changes.
@@ -201,7 +210,7 @@ function captureError(error, context = {}, env = process.env) {
       source: 'cli',
       command: context.command,
       kind: context.uncaught ? `uncaught:${kind}` : kind,
-      message: normaliseMessage(error.message, { home: env.HOME }),
+      message: normaliseMessage(rawMessage(error), { home: env.HOME }),
       frame: doflowFrame(error),
       exit: context.exit,
     }, env);

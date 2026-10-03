@@ -293,6 +293,8 @@ test('stream-hook-runner capture: the runner\'s classifier copy answers like src
     new (class RefusalError extends Error {})('x'),
     'boom', null, undefined, 42, { message: 'x' }, {},
     { get code() { throw new Error('no'); }, get name() { throw new Error('no'); } },
+    Object.defineProperty(new TypeError('x'), 'name', { get() { throw new Error('no'); } }),
+    Object.defineProperty(new RangeError('x'), 'code', { get() { throw new Error('no'); } }),
   ];
   for (const fixture of fixtures) {
     assert.equal(runnerModule.isProgrammingError(fixture), nodeClassifier.isProgrammingError(fixture), String(fixture && fixture.message));

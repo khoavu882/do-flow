@@ -29,6 +29,7 @@ const spec = JSON.parse(process.env.DOFLOW_FAULT);
 const repo = ${JSON.stringify(REPO)};
 function make() {
   switch (spec.error) {
+    case 'huge': return new TypeError('x'.repeat(8000000));
     case 'plain': return new Error('injected refusal');
     case 'syntax': return new SyntaxError('injected syntax error');
     case 'epipe': return Object.assign(new Error('write EPIPE'), { code: 'EPIPE', syscall: 'write', errno: -32 });
@@ -70,7 +71,7 @@ function run(args, { fault, env: extra = {}, dropHome = false } = {}) {
   if (dropHome) { delete env.HOME; delete env.XDG_CONFIG_HOME; }
   if (fault) env.DOFLOW_FAULT = JSON.stringify(fault);
   const nodeArgs = fault ? ['--require', PRELOAD, BIN, ...args] : [BIN, ...args];
-  const result = spawnSync(process.execPath, nodeArgs, { cwd, env, encoding: 'utf8' });
+  const result = spawnSync(process.execPath, nodeArgs, { cwd, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const failures = path.join(env.XDG_CONFIG_HOME || '', 'doflow', 'failures');
   const file = path.join(failures, 'events.jsonl');
   const lines = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
@@ -161,6 +162,15 @@ describe('main() catch', () => {
     assert.equal(on.lines.length, 1);
     assert.equal(on.lines[0].kind, 'ENOENT');
     assert.equal(on.lines[0].message, 'ENOENT: no such file or directory, open "..."');
+  });
+
+  test('an 8 million character message is recorded truncated and the CLI output and status are unchanged', () => {
+    const pair = onOff(['status', '--json'], stub('huge'));
+    assert.equal(pair.on.status, 1);
+    assertIdentical(pair);
+    assert.ok(pair.on.stderr.startsWith('[ERROR] xxxx'), 'the CLI prints the message as before');
+    assert.equal(pair.on.lines.length, 1);
+    assert.ok(pair.on.lines[0].message.length <= 200);
   });
 
   for (const error of ['plain', 'syntax', 'epipe']) {

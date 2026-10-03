@@ -11,21 +11,35 @@
 
 const CLASS_NAMES = new Set(['TypeError', 'RangeError', 'ReferenceError']);
 
+/** Reads one property without ever throwing: a throwing getter reads as undefined. */
+function read(error, key) {
+  try { return error[key]; } catch { return undefined; }
+}
+
+/** `error instanceof Class`, never throwing. */
+function isA(error, Class) {
+  try { return error instanceof Class; } catch { return false; }
+}
+
 /**
+ * The `instanceof` checks come first and every property read is guarded, so a getter that throws
+ * never drops a real TypeError.
  * @param {*} error
  * @returns {boolean}
  */
 function isProgrammingError(error) {
   try {
     if (error === null || typeof error !== 'object') return false;
+    const code = read(error, 'code');
+    const name = read(error, 'name');
     // A broken pipe on stdout or stderr is the reader going away, not a bug (DEC-031).
-    if (error.code === 'EPIPE') return false;
-    if (error instanceof SyntaxError || error.name === 'SyntaxError') return false;
-    if (error instanceof TypeError || error instanceof RangeError || error instanceof ReferenceError) return true;
-    if (CLASS_NAMES.has(error.name)) return true;
-    if (error.name === 'AssertionError' || error.code === 'ERR_ASSERTION') return true;
-    if (error.code === 'MODULE_NOT_FOUND') return true;
-    return typeof error.code === 'string' && (typeof error.syscall === 'string' || typeof error.errno === 'number');
+    if (code === 'EPIPE') return false;
+    if (isA(error, SyntaxError) || name === 'SyntaxError') return false;
+    if (isA(error, TypeError) || isA(error, RangeError) || isA(error, ReferenceError)) return true;
+    if (CLASS_NAMES.has(name)) return true;
+    if (name === 'AssertionError' || code === 'ERR_ASSERTION') return true;
+    if (code === 'MODULE_NOT_FOUND') return true;
+    return typeof code === 'string' && (typeof read(error, 'syscall') === 'string' || typeof read(error, 'errno') === 'number');
   } catch {
     return false;
   }
@@ -38,11 +52,14 @@ function isProgrammingError(error) {
  * @returns {string}
  */
 function errorKind(error) {
-  try {
-    if (CLASS_NAMES.has(error.name) || error.name === 'AssertionError') return error.name;
-    if (typeof error.code === 'string') return error.code;
-    if (typeof error.name === 'string' && error.name) return error.name;
-  } catch { /* fall through */ }
+  for (const Class of [TypeError, RangeError, ReferenceError]) {
+    if (isA(error, Class)) return Class.name;
+  }
+  const name = read(error, 'name');
+  const code = read(error, 'code');
+  if (CLASS_NAMES.has(name) || name === 'AssertionError') return name;
+  if (typeof code === 'string') return code;
+  if (typeof name === 'string' && name) return name;
   return 'Error';
 }
 

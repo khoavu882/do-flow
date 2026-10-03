@@ -441,3 +441,34 @@ describe('rotation under concurrency (IC-015)', () => {
     assert.ok(!left.includes('events-20250101T000000Z-9.jsonl'), 'the oldest by mtime goes, though its name sorts after the next one');
   });
 });
+
+describe('hostile errors and big messages', () => {
+  const hostileName = () => Object.defineProperty(new TypeError('boom'), 'name', { get() { throw new Error('no'); } });
+
+  test('a TypeError whose name getter throws is still a programming error and is recorded as TypeError', () => {
+    const error = hostileName();
+    assert.equal(isProgrammingError(error), true);
+    assert.equal(errorKind(error), 'TypeError');
+    const { env } = freshEnv('hostile-name');
+    assert.equal(captureError(error, { command: 'verify', exit: 1 }, env), true);
+    assert.equal(readLines(failureHome(env))[0].kind, 'TypeError');
+  });
+  test('a TypeError whose code or message getter throws is still recorded', () => {
+    const error = new TypeError('x');
+    Object.defineProperty(error, 'code', { get() { throw new Error('no'); } });
+    Object.defineProperty(error, 'message', { get() { throw new Error('no'); } });
+    const { env } = freshEnv('hostile-getters');
+    assert.equal(captureError(error, { command: 'verify', exit: 1 }, env), true);
+    const [line] = readLines(failureHome(env));
+    assert.deepEqual([line.kind, line.message], ['TypeError', '']);
+  });
+  test('an 8 million character message is recorded, truncated, not dropped, and quickly', () => {
+    const { env } = freshEnv('huge');
+    const started = Date.now();
+    assert.equal(captureError(new TypeError(`token=ab12cd34 ${'x'.repeat(8e6)}`), { command: 'verify', exit: 1 }, env), true);
+    assert.ok(Date.now() - started < 2000, 'bounded work');
+    const [line] = readLines(failureHome(env));
+    assert.ok(line.message.startsWith('token=<masked> xxxx'));
+    assert.ok(line.message.length <= 200);
+  });
+});

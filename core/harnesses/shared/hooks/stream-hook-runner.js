@@ -48,17 +48,28 @@ const CAPTURE_OFF_VALUES = ['off', '0', 'false', 'no'];
 const ROTATED_FILE = /^events-\d{8}T\d{6}Z-\d+\.jsonl$/;
 const PROGRAMMING_ERROR_NAMES = ['TypeError', 'RangeError', 'ReferenceError'];
 
-/** IC-010. Pure and total: never throws whatever it is handed. */
+/** Reads one property without ever throwing (a throwing getter reads as undefined). */
+function readProp(error, key) {
+  try { return error[key]; } catch { return undefined; }
+}
+
+function isInstance(error, Class) {
+  try { return error instanceof Class; } catch { return false; }
+}
+
+/** IC-010. Pure and total: never throws whatever it is handed. Kept equal to src/runtime/failure/classifier.js. */
 function isProgrammingError(error) {
   try {
     if (error === null || typeof error !== 'object') return false;
-    if (error.code === 'EPIPE') return false;
-    if (error instanceof SyntaxError || error.name === 'SyntaxError') return false;
-    if (error instanceof TypeError || error instanceof RangeError || error instanceof ReferenceError) return true;
-    if (PROGRAMMING_ERROR_NAMES.includes(error.name)) return true;
-    if (error.name === 'AssertionError' || error.code === 'ERR_ASSERTION') return true;
-    if (error.code === 'MODULE_NOT_FOUND') return true;
-    return typeof error.code === 'string' && (typeof error.syscall === 'string' || typeof error.errno === 'number');
+    const code = readProp(error, 'code');
+    const name = readProp(error, 'name');
+    if (code === 'EPIPE') return false;
+    if (isInstance(error, SyntaxError) || name === 'SyntaxError') return false;
+    if (isInstance(error, TypeError) || isInstance(error, RangeError) || isInstance(error, ReferenceError)) return true;
+    if (PROGRAMMING_ERROR_NAMES.includes(name)) return true;
+    if (name === 'AssertionError' || code === 'ERR_ASSERTION') return true;
+    if (code === 'MODULE_NOT_FOUND') return true;
+    return typeof code === 'string' && (typeof readProp(error, 'syscall') === 'string' || typeof readProp(error, 'errno') === 'number');
   } catch {
     return false;
   }
