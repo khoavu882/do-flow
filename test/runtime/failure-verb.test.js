@@ -422,3 +422,27 @@ describe('overview failures field (IC-007)', () => {
     assert.equal(fs.existsSync(path.join(m.project, 'agent-docs')), false);
   });
 });
+
+describe('overview text form lists failures', () => {
+  const text = (m, args) => spawnSync(process.execPath, [BIN, 'lifecycle', ...args], { cwd: m.project, env: m.env, encoding: 'utf8' });
+
+  test('maintain text in the DoFlow repository prints the failures and the settle next line', () => {
+    const m = machine('ov-text');
+    m.markDoflowRepo();
+    writeEvents(m, [line()]);
+    const r = text(m, ['--maintain']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /^failures: 1 new or regressed$/m);
+    assert.ok(r.stdout.includes(`  ${fpOf()}  new  x1  decision TypeError: Cannot read properties of undefined (reading "...")  (last seen 2026-10-03T10:00:00.000Z, 1.14.0)`));
+    assert.match(r.stdout, /^next: Settle a failure entry: doflow-run failure --action settle --fp <fp>/m);
+  });
+  test('discovery text and other projects print no failures line', () => {
+    const m = machine('ov-text-none');
+    m.markDoflowRepo();
+    writeEvents(m, [line()]);
+    assert.ok(!/failures:/.test(text(m, []).stdout));
+    const other = machine('ov-text-other');
+    writeEvents(other, [line()]);
+    assert.ok(!/failures:/.test(text(other, ['--maintain']).stdout));
+  });
+});

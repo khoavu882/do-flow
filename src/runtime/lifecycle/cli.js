@@ -38,6 +38,10 @@ function followupLines(result) {
 function overviewLines(r) {
   const lines = [`${r.mode} overview: ${r.followups.open} open follow-up${r.followups.open === 1 ? '' : 's'}, ${r.followups.shown} shown (release mode ${r.releaseMode}${r.integrationRef ? `, integration ref ${r.integrationRef}` : ''})`];
   for (const i of r.followups.items) lines.push(`  ${i.id}  (${sourceText(i.source)}, ${i.added})${i.promoted ? ` promoted to ${i.intent}` : ''}${i.pending === false ? ' settled this run' : ''}  ${i.statement}`);
+  if (Array.isArray(r.failures)) {
+    lines.push(`failures: ${r.failures.length} new or regressed`);
+    for (const f of r.failures) lines.push(`  ${f.fp}  ${f.status}  x${f.count}  ${f.command} ${f.kind}${f.message ? `: ${f.message}` : ''}  (last seen ${f.lastSeen}, ${f.lastVersion})`);
+  }
   for (const g of r.goals) lines.push(`goal ${g.goal}: ${g.items.met}/${g.items.total} items met${g.proposeDone ? ' (propose done)' : ''}`, ...g.nudges.map((n) => `  ${n}`));
   const f = r.features;
   const names = [['finished', f.finished], ['awaiting release', f.awaitingRelease], ['in progress', f.inProgress], ['unknown', f.unknown]].filter(([, list]) => list.length);
