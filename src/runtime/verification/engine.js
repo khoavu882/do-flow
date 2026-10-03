@@ -437,11 +437,11 @@ class VerificationEngine {
   observeChangedFiles(changedFiles, bound = null) {
     if (Array.isArray(changedFiles)) return { files: changedFiles.filter((f) => typeof f === 'string'), reason: null };
 
-    const fromBase = bound && bound.baseline === 'integration';
-    const base = fromBase ? resolveIntegrationBase({ cwd: this.cwd, exec: this.exec }) : null;
+    if (bound && bound.baseline === 'integration') return this.observeFromBase();
+
     let res;
     try {
-      res = this.exec(fromBase ? 'git status --porcelain --untracked-files=all' : 'git status --porcelain', {
+      res = this.exec('git status --porcelain', {
         shell: true,
         cwd: this.cwd,
         encoding: 'utf8',
@@ -454,23 +454,42 @@ class VerificationEngine {
       const detail = (res && res.error && res.error.message) || (res && truncate(res.stderr)) || 'git returned a non-zero status';
       return { files: null, reason: `Could not observe the changed files: ${detail}` };
     }
-    const working = parsePorcelain(res.stdout);
-    if (!fromBase) return { files: working, reason: null };
+    return { files: parsePorcelain(res.stdout), reason: null };
+  }
+
+  /**
+   * The bounded observation (IC-004): files committed since the merge base with the integration ref,
+   * plus the working tree. Paths are read NUL-separated and unquoted, so a name with a space or
+   * non-ASCII characters is the name the plan wrote, and renames are not collapsed, so a moved file
+   * reports both where it was and where it went.
+   * @private
+   */
+  observeFromBase() {
+    const base = resolveIntegrationBase({ cwd: this.cwd, exec: this.exec });
+    const git = (args) => {
+      let res;
+      try {
+        res = this.exec('git', ['-c', 'core.quotePath=false', ...args], { cwd: this.cwd, encoding: 'utf8', timeout: 30000 });
+      } catch (error) {
+        return { reason: `Could not observe the changed files: ${error.message}` };
+      }
+      if (!res || res.error || res.status !== 0) {
+        const detail = (res && res.error && res.error.message) || (res && truncate(res.stderr)) || 'git returned a non-zero status';
+        return { reason: `Could not observe the changed files: ${detail}` };
+      }
+      return { out: String(res.stdout || '') };
+    };
+    const status = git(['status', '--porcelain', '-z', '--no-renames', '--untracked-files=all']);
+    if (status.reason) return { files: null, reason: status.reason };
+    // `-z` porcelain entries are `XY <path>` separated by NUL.
+    const working = status.out.split('\0').filter(Boolean).map((entry) => entry.slice(3)).filter(Boolean);
 
     if (base.reason) {
       return { files: working, reason: null, baseline: { kind: 'working-tree', note: `${base.reason}; only the working tree was compared` } };
     }
-    let diff;
-    try {
-      diff = this.exec('git', ['diff', '--name-only', `${base.mergeBase}...HEAD`], { cwd: this.cwd, encoding: 'utf8', timeout: 30000 });
-    } catch (error) {
-      return { files: null, reason: `Could not observe the changed files: ${error.message}` };
-    }
-    if (!diff || diff.error || diff.status !== 0) {
-      const detail = (diff && diff.error && diff.error.message) || (diff && truncate(diff.stderr)) || 'git returned a non-zero status';
-      return { files: null, reason: `Could not observe the changed files: ${detail}` };
-    }
-    const committed = String(diff.stdout || '').split('\n').map((f) => f.trim()).filter(Boolean);
+    const diff = git(['diff', '--name-only', '--no-renames', '-z', `${base.mergeBase}...HEAD`]);
+    if (diff.reason) return { files: null, reason: diff.reason };
+    const committed = diff.out.split('\0').filter(Boolean);
     return {
       files: [...new Set([...committed, ...working])],
       reason: null,

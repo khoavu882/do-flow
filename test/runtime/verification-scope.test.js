@@ -34,16 +34,22 @@ function git(cwd, ...args) {
 }
 
 /** A repo with `develop` as the integration branch and a feature branch checked out. */
-function repo({ plan = PLAN } = {}) {
+function repo({ plan = PLAN, register = true } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-vscope-')));
   git(root, 'init', '-q', '-b', 'develop');
   fs.mkdirSync(path.join(root, 'src'), { recursive: true });
   fs.writeFileSync(path.join(root, 'src', 'in.js'), 'module.exports = 1;\n');
+  fs.mkdirSync(path.join(root, 'lib'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'lib', 'legacy.js'), 'module.exports = 2;\n');
   if (plan !== null) {
     const dir = path.join(root, 'agent-docs', 'doflow', SLUG);
     fs.mkdirSync(path.join(dir, 'intention'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'intention', 'requirement.md'), '# req\n');
     fs.writeFileSync(path.join(dir, 'plan.md'), plan);
+    if (register) {
+      fs.mkdirSync(path.join(dir, 'decisions'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'decisions', 'register.json'), '{"version":1,"slug":"x","nextId":1,"decisions":[]}\n');
+    }
   }
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'base');
@@ -132,4 +138,55 @@ test('a feature with no plan keeps the tier UNRESOLVED', () => {
   const root = repo({ plan: null });
   commit(root, 'src/out.js');
   assert.equal(scopeTier(root).status, 'UNRESOLVED');
+});
+
+// ── review follow-ups: register opt-in, files: field matching, path quoting, renames ──────────────
+
+test('a feature from before the register keeps the tier UNRESOLVED even with a plan', () => {
+  const root = repo({ register: false });
+  assert.equal(buildScopeBound({ projectRoot: root }), null);
+  commit(root, 'src/out.js');
+  assert.equal(scopeTier(root).status, 'UNRESOLVED');
+});
+
+test('files: is the last field on the line, not any word that ends in it', () => {
+  assert.deepEqual(taskFilesFromPlan('- [ ] A.4 mentions profiles: x and files: in prose — owner: o; files: i.js, j.js\n'), ['i.js', 'j.js']);
+  assert.deepEqual(taskFilesFromPlan('- [ ] A.5 about profiles: only\n'), []);
+});
+
+test('a files: list that ends with a comma continues on the next indented line', () => {
+  const plan = [
+    '- [ ] A.1 wrapped — owner: o; files: a.js, b.js,',
+    '    c.js, d/,',
+    '    e.js; depends A.0',
+    '- [ ] A.2 next — files: f.js',
+    '',
+  ].join('\n');
+  assert.deepEqual(taskFilesFromPlan(plan), ['a.js', 'b.js', 'c.js', 'd/', 'e.js', 'f.js']);
+  // A non-indented line after a trailing comma is not a continuation.
+  assert.deepEqual(taskFilesFromPlan('- [ ] A.1 x — files: a.js,\nnot indented\n'), ['a.js']);
+});
+
+test('paths with spaces and non-ASCII characters are compared as written, not as git quotes them', () => {
+  const plan = '- [ ] A.1 t — owner: o; files: docs/my file.md, docs/é.md\n';
+  const root = repo({ plan });
+  commit(root, 'docs/my file.md');
+  commit(root, 'docs/é.md');
+  assert.equal(scopeTier(root).status, 'PASS');
+  commit(root, 'docs/other file.md');
+  const tier = scopeTier(root);
+  assert.equal(tier.status, 'FAIL');
+  assert.match(tier.reason, /docs\/other file\.md/);
+  assert.doesNotMatch(tier.reason, /"/);
+});
+
+test('a moved file reports the file it left as well as the one it became', () => {
+  const root = repo();
+  fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
+  git(root, 'mv', 'lib/legacy.js', 'docs/guide.md');   // destination is in bound, source is not
+  git(root, 'commit', '-q', '-m', 'move');
+  const tier = scopeTier(root);
+  assert.equal(tier.status, 'FAIL');
+  assert.match(tier.reason, /lib\/legacy\.js/);
+  assert.doesNotMatch(tier.reason, /docs\/guide\.md/);
 });
