@@ -150,6 +150,81 @@ describe('An installed runtime reads the git facts the lifecycle verbs need (glo
   });
 });
 
+// The handoff line and the change-scope tier read two bash helpers (do-paths.sh, do-git-state.sh). The
+// installed runtime carries neither inside itself, so both come from `<install>/.doflow/scripts`
+// (FR-004, DEC-048). The handoff line is run word for word as WORKFLOW_HANDOFF.md prints it, with no --slug.
+describe('An installed runtime finds its bash helpers: the handoff line and the change-scope tier', { skip: SKIP }, () => {
+  const FEATURE = '060-thing';
+  const PLAN = `# Plan\n\n- [ ] A.1 Do it - owner: core-implementer; files: src/in.js\n`;
+
+  /** A scratch repository on `feat/060-thing` whose feature folder exists; `withPlan` adds the plan and register. */
+  function featureRepo(label, { withPlan = false } = {}) {
+    const repo = makeRepo(scratch, `handoff-${label}`);
+    repo.dir = fs.realpathSync(repo.dir);
+    const dir = path.join(repo.dir, 'agent-docs', 'doflow', FEATURE);
+    fs.mkdirSync(path.join(dir, 'intention'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'intention', 'requirement.md'), '# req\n');
+    if (withPlan) {
+      fs.writeFileSync(path.join(dir, 'plan.md'), PLAN);
+      fs.mkdirSync(path.join(dir, 'decisions'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'decisions', 'register.json'), '{"version":1,"slug":"x","nextId":1,"decisions":[]}\n');
+      fs.mkdirSync(path.join(repo.dir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repo.dir, 'src', 'in.js'), 'module.exports = 1;\n');
+    }
+    repo.git('add', '-A');
+    repo.git('commit', '-q', '-m', 'feature folder');
+    repo.checkout('-b', `feat/${FEATURE}`);
+    return repo;
+  }
+
+  /** The handoff line, verbatim, through the projected dispatcher; no --slug. */
+  function assertHandoffLine(h, dispatcher, label) {
+    const repo = featureRepo(label);
+    const r = run(h, repo.dir, dispatcher, ['followup', '--action', 'add', '--stage', 'review', '--statement', 'x', '--json']);
+    assert.equal(r.status, 0, `${label}: ${r.stdout}${r.stderr}`);
+    assert.deepEqual(r.json.created.map((i) => [i.source.kind, i.source.feature, i.source.stage]), [['stage', FEATURE, 'review']], label);
+  }
+
+  /** `verify` reaches the change-scope tier: the plan bound (do-paths.sh) and the merge base (do-git-state.sh). */
+  function assertChangeScope(h, dispatcher, label) {
+    const repo = featureRepo(`${label}-scope`, { withPlan: true });
+    fs.writeFileSync(path.join(repo.dir, 'src', 'in.js'), 'module.exports = 2;\n');
+    repo.git('add', 'src/in.js');
+    repo.git('commit', '-q', '-m', 'change');
+    const r = run(h, repo.dir, dispatcher, ['verify', '--task-id', 'A.1', '--risk', 'LOW', '--json']);
+    const tier = r.json && r.json.tiers.find((t) => t.id === 'change-scope');
+    assert.ok(tier, `${label}: ${r.stdout}${r.stderr}`);
+    assert.equal(tier.status, 'PASS', `${label}: ${JSON.stringify(tier)}`);
+    assert.equal(tier.scope.baseline.kind, 'merge-base', label);
+    assert.equal(tier.scope.bound.source, `agent-docs/doflow/${FEATURE}/plan.md`, label);
+  }
+
+  for (const target of ['claude', 'codex', 'gemini']) {
+    const dispatcherOf = (h) => path.join(h.home, '.doflow', 'scripts', 'doflow', 'bin', 'doflow-run');
+    test(`${target}, global: the handoff line records a stage item for the branch's feature`, () => {
+      const h = homeFor(`handoff-${target}`);
+      install(h, target);
+      assertHandoffLine(h, dispatcherOf(h), target);
+    });
+    test(`${target}, global: verify finds the plan bound and the merge base`, () => {
+      const h = homeFor(`scope-${target}`);
+      install(h, target);
+      assertChangeScope(h, dispatcherOf(h), target);
+    });
+  }
+
+  test('claude, project-local: <project>/.doflow does the same for both', () => {
+    const h = homeFor('handoff-local');
+    const projectRoot = path.join(h.dir, 'install-root');
+    fs.mkdirSync(projectRoot);
+    const r = spawnSync(process.execPath, [CLI, 'install', projectRoot, '-f', '--no-backup', '-t', 'claude'], { cwd: h.dir, encoding: 'utf8', input: '\n', env: envFor(h) });
+    assert.equal(r.status, 0, r.stderr);
+    const dispatcher = path.join(projectRoot, '.doflow', 'scripts', 'doflow', 'bin', 'doflow-run');
+    assertHandoffLine(h, dispatcher, 'project-local');
+    assertChangeScope(h, dispatcher, 'project-local');
+  });
+});
+
 // The lifecycle code paths F.1 never ran installed: release, report, goal and failure, through the
 // codex-projected dispatcher against a scratch repository with develop, a tag and a merged feature.
 describe('Codex target: release, report, goal and failure run from the installed runtime (DEC-024)', { skip: SKIP }, () => {

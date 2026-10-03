@@ -103,6 +103,8 @@ function resolveFeatureSlug({ cwd, slug }) {
     return slug;
   }
   const found = resolveActiveFeature({ projectRoot: cwd });
+  // A missing helper is an install problem, not "no feature": it must not read as a branch that names none.
+  if (found.error === 'resolver-missing') throw new FollowupUsageError('the DoFlow helper scripts are missing from this install; reinstall DoFlow, or pass --slug, or --source run|release|manual');
   const resolved = found.error ? null : found.paths && found.paths.feature_slug;
   return resolved && isSafeSlug(resolved) ? resolved : null;
 }

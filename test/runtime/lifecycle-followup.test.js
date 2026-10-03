@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { FIXTURES, TRACKED_AT } = require('../helper/lifecycle-git-fixtures');
 const followup = require('../../src/runtime/lifecycle/followup');
@@ -107,6 +108,23 @@ test('add: the feature is resolved from the branch when --slug is absent', () =>
   fs.writeFileSync(path.join(repo.dir, 'agent-docs/doflow/051-from-branch/intention/requirement.md'), '# r\n');
   const out = addFollowups({ root: repo.dir, cwd: repo.dir, items: [{ statement: 'from the branch' }], defaults: { stage: 'design' } });
   assert.deepEqual(out.created[0].source, { kind: 'stage', feature: '051-from-branch', stage: 'design' });
+});
+
+test('add: a runtime with no bash helpers anywhere says so, instead of "no feature resolved"', () => {
+  // The shape of an installed runtime whose scripts directory is gone: bin/, src/ and core/registry/ only.
+  const repoRoot = path.resolve(__dirname, '..', '..');
+  const tree = path.join(scratch.dir, 'runtime-without-helpers', 'runtime');
+  fs.mkdirSync(path.join(tree, 'core'), { recursive: true });
+  for (const part of ['bin', 'src']) fs.cpSync(path.join(repoRoot, part), path.join(tree, part), { recursive: true });
+  fs.cpSync(path.join(repoRoot, 'core', 'registry'), path.join(tree, 'core', 'registry'), { recursive: true });
+  const repo = FIXTURES.noTag(scratch).repo;
+  repo.checkout('-b', 'feat/051-from-branch');
+  fs.mkdirSync(path.join(repo.dir, 'agent-docs/doflow/051-from-branch'), { recursive: true });
+  const r = spawnSync(process.execPath, [path.join(tree, 'bin', 'doflow.js'), 'followup', '--action', 'add', '--stage', 'review', '--statement', 'x', '--json'], { cwd: repo.dir, encoding: 'utf8', env: scratch.env() });
+  assert.equal(r.status, 2, r.stdout + r.stderr);
+  assert.match(r.stdout, /the DoFlow helper scripts are missing from this install/);
+  assert.doesNotMatch(r.stdout, /no feature resolved/);
+  assert.equal(eventCount(repo.dir), 0);
 });
 
 test('add: a batch writes one event per item; an item stage overrides the default; an item source object is honoured', () => {

@@ -25,20 +25,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 const { REPO_ROOT } = require('../../helper/repo-root');
+const { resolveBashHelper } = require('../../helper/bash-helper');
 
 const MAX_BUFFER = 256 * 1024 * 1024;
 
-/**
- * Where `do-git-state.sh` is: inside the package (a checkout or a source install), else projected
- * next to the runtime (`<install>/.doflow/runtime` sits beside `<install>/.doflow/scripts`, and the
- * runtime carries only bin/, src/ and core/registry/). The first one that exists, or null.
- */
+/** Where `do-git-state.sh` is: the shared resolver (package copy first, else the one projected beside the runtime). */
 function resolveGitStateHelper(repoRoot = REPO_ROOT, existsImpl = fs.existsSync) {
-  const candidates = [
-    path.join(repoRoot, 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-git-state.sh'),
-    path.resolve(repoRoot, '..', 'scripts', 'doflow', 'bash', 'do-git-state.sh'),
-  ];
-  return candidates.find((candidate) => existsImpl(candidate)) || null;
+  return resolveBashHelper('do-git-state.sh', repoRoot, existsImpl);
 }
 
 function git(root, args) {

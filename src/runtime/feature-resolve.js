@@ -1,18 +1,17 @@
 'use strict';
 
-const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { REPO_ROOT } = require('../helper/repo-root');
+const { resolveBashHelper } = require('../helper/bash-helper');
 
 // `resolveActiveFeature` was moved here from `scaffold/generate.js` (which had it from
 // bin/doflow.js) so the scaffold and the decision register ask the same resolver. The root comes
 // from src/helper/repo-root.js rather than from counting this file's own depth: this code has
 // already moved twice, and a miscounted expression would keep resolving, to the wrong directory.
 
-/** The one resolver. Ships inside the package (`files: ["bin/","src/","core/"]`), so it is beside
- *  this module in a checkout, a project `node_modules/`, and a global npm install alike. */
-const PATHS_HELPER = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-paths.sh');
+/** The one resolver: beside this module in a checkout, a project `node_modules/` and a global npm install,
+ *  else the copy projected next to an installed runtime (an installed runtime carries no `core/shared`). */
+const PATHS_HELPER = resolveBashHelper('do-paths.sh');
 
 /**
  * Which feature is active, answered by `do-paths.sh` rather than by walking `agent-docs/` here.
@@ -31,10 +30,11 @@ const PATHS_HELPER = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow',
  *   so a caller needs no second resolver call.
  */
 function resolveActiveFeature({ projectRoot, slug = null }) {
-  if (!fs.existsSync(PATHS_HELPER)) {
-    return { error: 'resolver-missing', message: `the feature resolver is missing from this install: ${PATHS_HELPER}` };
+  const helper = resolveBashHelper('do-paths.sh');
+  if (!helper) {
+    return { error: 'resolver-missing', message: 'the feature resolver (do-paths.sh) is missing from this install' };
   }
-  const args = [PATHS_HELPER, '--json', '--require', 'feature'];
+  const args = [helper, '--json', '--require', 'feature'];
   if (slug) args.push(`--slug=${slug}`);
 
   let stdout;

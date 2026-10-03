@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { resolveActiveFeature } = require('../feature-resolve');
-const { REPO_ROOT } = require('../../helper/repo-root');
+const { resolveBashHelper } = require('../../helper/bash-helper');
 
 // The change-scope bound of a planned feature, and the baseline a change is measured from
 // (feature 045, IC-003 / IC-004).
@@ -13,8 +13,6 @@ const { REPO_ROOT } = require('../../helper/repo-root');
 // implementation. Nothing declared one, so the tier read UNRESOLVED for every feature. The plan
 // already names the files each task will touch, so the bound is derived from it; there is no
 // extra step an agent has to remember.
-
-const GIT_STATE = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-git-state.sh');
 
 /** `- [ ] A.1 ...` / `- [x] B.2 ...`: a checklist task line, as plan.md writes them. */
 const TASK_LINE = /^\s*-\s*\[[ xX]\]\s+[A-Za-z]+\.\d+\b/;
@@ -113,12 +111,13 @@ function resolveIntegrationBase({ cwd, exec = spawnSync }) {
       return { error };
     }
   };
-  const state = run('bash', [GIT_STATE, '--json']);
+  const gitState = resolveBashHelper('do-git-state.sh');
+  const state = gitState ? run('bash', [gitState, '--json']) : null;
   let ref = null;
   if (state && !state.error && state.status === 0) {
     try { ref = JSON.parse(state.stdout).integration_ref || null; } catch { /* reported below */ }
   }
-  if (!ref) return { reason: 'no integration ref could be resolved' };
+  if (!ref) return { reason: gitState ? 'no integration ref could be resolved' : 'the DoFlow helper scripts are missing from this install (do-git-state.sh)' };
   const exists = run('git', ['rev-parse', '--verify', '--quiet', ref]);
   if (!exists || exists.error || exists.status !== 0) {
     return { reason: `integration branch '${ref}' not found`, note: `integration branch '${ref}' not found; working tree only` };
