@@ -187,7 +187,7 @@ Secrets are masked before anything is written, on a best-effort basis: it is a s
 
 ### Failure capture and its off switch
 
-When a DoFlow command ends in an internal error, or the dispatcher or a guard hook crashes, DoFlow appends one masked line to a file on this machine. A bad flag, a refusal, a hook that denies a command and a missing tool on your machine are not recorded. Capture never changes a command's output or exit status. Turn it off with:
+When a DoFlow command ends in an internal error, or the dispatcher or a guard hook crashes, DoFlow appends one masked line to a file on this machine. A bad flag, a refusal, a hook that denies a command, a missing `jq` and a missing `bash` are not recorded. Some environment errors, such as a permission error on a folder or a missing program, are recorded because they look like internal errors; `/do maintain` lets you settle them as noise. Capture never changes a command's output or exit status. Turn it off with:
 
 ```bash
 doflow failure --action capture --set off      # creates the file `off` in the failures folder
@@ -285,10 +285,13 @@ $ doflow goal --action add --goal fast-search --statement "Search feels instant"
 added goal fast-search: Search feels instant
   C1  Accents work
   C2  Index is cached
+next: Link a feature that serves it: doflow-run goal --action link --goal fast-search --slug <slug>
+next: Record a met item with evidence: doflow-run goal --action check --goal fast-search --item C1 --evidence "<what shows it>"
 $ doflow goal --action link --goal fast-search --slug 011-accents
 011-accents now serves fast-search
 $ doflow goal --action check --goal fast-search --item C1 --evidence 011-accents
 fast-search C1: met (011-accents); 1/2 items met
+next: Record a met item with evidence: doflow-run goal --action check --goal fast-search --item C2 --evidence "<what shows it>"
 $ doflow goal --action done --goal fast-search --channel default
 not-user: only the user marks a goal done: pass --channel question, gate or prompt once the user has said so (got 'default'). Nothing was written.
 $ doflow goal --action done --goal fast-search --channel question --reason "caching is out of scope"

@@ -262,8 +262,8 @@ writer of `settlements.jsonl`.
 
 The runtime is projected to `claude`, `codex` and `gemini` only (the `scripts.doflow` and
 `runtime.*` assets, DEC-024). The other five harnesses get skills and the locator shim but no
-`doflow-run`, so the follow-up, capture and maintain lines do nothing there and the skill lines say
-so. Extending the runtime to them is a separate piece of work, recorded as a follow-up in the local
+`doflow-run`, so the follow-up, capture and maintain lines do nothing there: an installed skill's
+resolver stops with a message naming where it looked for a runtime. Extending the runtime to them is a separate piece of work, recorded as a follow-up in the local
 store. Nothing in the loop depends on one harness's own commands; a goal is DoFlow's record, whatever
 a harness's own `goal` command does.
 
