@@ -709,6 +709,27 @@ eq "FR-008: old-shaped feature dir -> plan path unchanged" \
    "$($PATHS --slug=902-fr008-regression | jq -r '.plan')" \
    "agent-docs/doflow/902-fr008-regression/plan.md"
 
+# 044-decision-register (IC-011): decisions / decisions_register / has_decisions track the register file.
+eq "decisions: feature without a register -> has_decisions:false" \
+   "$($PATHS --slug=901-structured-fixture | jq -r '.has_decisions')" "false"
+eq "decisions: feature without a register -> decisions path still emitted" \
+   "$($PATHS --slug=901-structured-fixture | jq -r '.decisions')" \
+   "agent-docs/doflow/901-structured-fixture/decisions.md"
+eq "decisions: feature without a register -> decisions_register path still emitted" \
+   "$($PATHS --slug=901-structured-fixture | jq -r '.decisions_register')" \
+   "agent-docs/doflow/901-structured-fixture/decisions/register.json"
+mkdir -p agent-docs/doflow/901-structured-fixture/decisions
+echo '{"version":1,"slug":"901-structured-fixture","nextId":1,"decisions":[]}' > agent-docs/doflow/901-structured-fixture/decisions/register.json
+eq "decisions: feature with a register -> has_decisions:true" \
+   "$($PATHS --slug=901-structured-fixture | jq -r '.has_decisions')" "true"
+eq "decisions: feature with a register -> decisions_register path" \
+   "$($PATHS --slug=901-structured-fixture | jq -r '.decisions_register')" \
+   "agent-docs/doflow/901-structured-fixture/decisions/register.json"
+eq "decisions: legacy-layout feature -> has_decisions:false" \
+   "$($PATHS --slug=900-legacy-fixture | jq -r '.has_decisions')" "false"
+eq "decisions: no feature resolved -> null, null, false" \
+   "$($PATHS | jq -c '[.decisions, .decisions_register, .has_decisions]')" "[null,null,false]"
+
 # ==============================================================================
 # E.3: render-audit.sh fixtures (023-structured-feature-trail, FR-004/FR-005/FR-006)
 # ==============================================================================
