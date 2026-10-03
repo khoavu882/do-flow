@@ -38,7 +38,10 @@ doflow_capture_failure() {
     esac
   fi
 
-  setting="$(printf '%s' "${DOFLOW_FAILURE_CAPTURE:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" || return 0
+  # Case-insensitive, whitespace trimmed at the ends only: the same reading the Node writer has.
+  setting="$(printf '%s' "${DOFLOW_FAILURE_CAPTURE:-}" | tr '[:upper:]' '[:lower:]')" || return 0
+  setting="${setting#"${setting%%[![:space:]]*}"}"
+  setting="${setting%"${setting##*[![:space:]]}"}"
   case "$setting" in
     off|0|false|no) return 0 ;;
   esac
@@ -87,6 +90,8 @@ doflow_capture_failure() {
   fi
 
   (umask 077; mkdir -p "$home") || return 0
+  # Only ever append to a regular file: opening a FIFO for append would block forever.
+  [ ! -e "$home/events.jsonl" ] || [ -f "$home/events.jsonl" ] || return 0
   ( umask 077; printf '%s\n' "$line" >>"$home/events.jsonl" ) || return 0
   return 0
 }

@@ -12,6 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
+const { captureIsOff } = require('../../src/runtime/failure/home');
 
 const POLICIES = path.resolve(__dirname, '..', '..', 'core', 'harnesses', 'shared', 'hooks', 'policies');
 const HAS_JQ = spawnSync('jq', ['--version']).status === 0;
@@ -331,5 +332,32 @@ describe('what the guard policies must not do (DEC-018, DEC-032)', () => {
   });
   test('the helper file is executable like its siblings', { skip: process.platform === 'win32' }, () => {
     assert.ok((fs.statSync(path.join(POLICIES, 'capture-failure.sh')).mode & 0o111) !== 0);
+  });
+});
+
+describe('switch parsing parity and FIFOs (hook helper)', () => {
+  const SWITCH_INPUTS = [' off ', ' o f f', 'OFF', '\toff', 'Off\t', 'o\tff', 'no', ' No ', '0 ', ' 0', 'fal se', 'false ', 'o ff', 'of f', 'on', '1', ' on ', 'fa lse', ' n o ', 'FALSE\n'];
+  const HELPER = path.join(POLICIES, 'capture-failure.sh');
+
+  test('the helper reads DOFLOW_FAILURE_CAPTURE exactly as the Node writer does', () => {
+    for (const value of SWITCH_INPUTS) {
+      const m = machine('parity', { patterns: false });
+      spawnSync(BASH, ['-c', '. "$1"; doflow_capture_failure pre-bash-guard patterns-missing', 'x', HELPER],
+        { cwd: m.cwd, env: { ...process.env, HOME: m.home, XDG_CONFIG_HOME: m.xdg, DOFLOW_FAILURE_CAPTURE: value }, encoding: 'utf8' });
+      assert.equal(lines(m).length === 0, captureIsOff('/nonexistent-home', { DOFLOW_FAILURE_CAPTURE: value }), JSON.stringify(value));
+    }
+  });
+
+  test('a FIFO at events.jsonl neither hangs the guard nor changes its output or status', { skip: (process.platform === 'win32') || (!HAS_JQ && 'jq is not installed') }, () => {
+    const m = machine('fifo', { patterns: false });
+    fs.mkdirSync(m.failures, { recursive: true });
+    assert.equal(spawnSync('mkfifo', [m.events]).status, 0);
+    const started = Date.now();
+    const r = spawnSync(BASH, [path.join(m.pol, 'pre-bash-guard.sh')], {
+      cwd: m.cwd, env: { ...process.env, HOME: m.home, XDG_CONFIG_HOME: m.xdg, DOFLOW_FAILURE_CAPTURE: '' }, input: bash('Bash', 'rm -rf /'), encoding: 'utf8', timeout: 20000,
+    });
+    assert.ok(Date.now() - started < 15000, 'returned promptly');
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /Catastrophic delete blocked/);
   });
 });

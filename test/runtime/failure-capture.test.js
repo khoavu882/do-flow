@@ -536,3 +536,12 @@ describe('one fingerprint for one bug (normalise before masking)', () => {
     assert.ok(!normaliseMessage(`key ${'aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3z'}`).includes('aB3d'));
   });
 });
+
+describe('switch parsing parity with the bash writers', () => {
+  const SWITCH_INPUTS = [' off ', ' o f f', 'OFF', '\toff', 'Off\t', 'o\tff', 'no', ' No ', '0 ', ' 0', 'fal se', 'false ', 'o ff', 'of f', 'on', '1', ' on ', 'fa lse', ' n o ', 'FALSE\n'];
+
+  test('the Node reading trims the ends only and ignores case', () => {
+    const off = SWITCH_INPUTS.filter((v) => captureIsOff('/nonexistent-home', { DOFLOW_FAILURE_CAPTURE: v }));
+    assert.deepEqual(off, [' off ', 'OFF', '\toff', 'Off\t', 'no', ' No ', '0 ', ' 0', 'false ', 'FALSE\n']);
+  });
+});

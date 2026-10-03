@@ -13,6 +13,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync, execFileSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
+const { captureIsOff } = require('../../src/runtime/failure/home');
 
 const DISPATCHER = path.resolve(__dirname, '..', '..', 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const BASH = fs.existsSync('/bin/bash') ? '/bin/bash' : 'bash';
@@ -364,5 +365,28 @@ describe('the run ledger and the dispatcher itself', () => {
   });
   test('the shipped file parses under bash -n', () => {
     assert.equal(spawnSync(BASH, ['-n', DISPATCHER]).status, 0);
+  });
+});
+
+describe('switch parsing parity and FIFOs', () => {
+  const SWITCH_INPUTS = [' off ', ' o f f', 'OFF', '\toff', 'Off\t', 'o\tff', 'no', ' No ', '0 ', ' 0', 'fal se', 'false ', 'o ff', 'of f', 'on', '1', ' on ', 'fa lse', ' n o ', 'FALSE\n'];
+
+  test('the dispatcher reads DOFLOW_FAILURE_CAPTURE exactly as the Node writer does', () => {
+    for (const value of SWITCH_INPUTS) {
+      const t = tree('parity');
+      dispatch(t, ['paths'], { env: { FAKE_EXIT: '139', DOFLOW_FAILURE_CAPTURE: value } });
+      const bashOff = lines(t).length === 0;
+      assert.equal(bashOff, captureIsOff('/nonexistent-home', { DOFLOW_FAILURE_CAPTURE: value }), JSON.stringify(value));
+    }
+  });
+
+  test('a FIFO at events.jsonl neither hangs the dispatcher nor changes its output or status', { skip: process.platform === 'win32' }, () => {
+    const t = tree('fifo');
+    fs.mkdirSync(t.failures, { recursive: true });
+    assert.equal(spawnSync('mkfifo', [t.events]).status, 0);
+    const started = Date.now();
+    const r = spawnSync(BASH, [t.script, 'paths'], { cwd: t.cwd, env: { ...baseEnv(t), FAKE_EXIT: '139' }, encoding: 'utf8', timeout: 20000 });
+    assert.ok(Date.now() - started < 15000, 'returned promptly');
+    assert.deepEqual([r.status, r.stdout, r.stderr], [139, 'helper-out\n', 'helper-err\n']);
   });
 });
