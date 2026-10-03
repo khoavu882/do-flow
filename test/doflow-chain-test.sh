@@ -636,6 +636,46 @@ git tag -d v1.5.0 >/dev/null
 git checkout -q main
 git branch -q -D integ-probe
 
+# Feature 046 (DEC-029, DEC-035): --lifecycle carries the integration ref, the feature branch
+# prefixes, the release tags and the base tag in one JSON object, so Node never derives them a second
+# way. develop wins, then main, then master; a local branch comes before its origin/ tracking ref.
+git checkout -q main
+LIFE="$($STATE --lifecycle)"
+eq "--lifecycle keeps exactly its four keys" \
+   "$(echo "$LIFE" | jq -r 'keys | join(",")')" "base_tag,feature_prefixes,integration_ref,release_tags"
+eq "--lifecycle names develop as the integration ref when it exists" \
+   "$(echo "$LIFE" | jq -r '.integration_ref')" "develop"
+eq "--lifecycle reports the feature branch prefixes" \
+   "$(echo "$LIFE" | jq -r '.feature_prefixes | join(",")')" "feat,feature"
+eq "--lifecycle reports no release tags and no base tag in a repository with none" \
+   "$(echo "$LIFE" | jq -r '(.release_tags | length | tostring) + "," + (.base_tag // "null")')" "0,null"
+git branch -q -m develop develop-parked
+eq "--lifecycle falls back to main without a develop" \
+   "$($STATE --lifecycle | jq -r '.integration_ref')" "main"
+git branch -q -m main main-parked   # master already exists in this repository
+eq "--lifecycle falls back to master without develop or main" \
+   "$($STATE --lifecycle | jq -r '.integration_ref')" "master"
+git branch -q -m master master-parked
+eq "--lifecycle reports null when no integration branch resolves" \
+   "$($STATE --lifecycle | jq -r '.integration_ref')" "null"
+git update-ref refs/remotes/origin/main HEAD
+eq "--lifecycle accepts the remote-tracking ref when the local branch is missing" \
+   "$($STATE --lifecycle | jq -r '.integration_ref')" "origin/main"
+git update-ref -d refs/remotes/origin/main
+git branch -q -m master-parked master
+git branch -q -m main-parked main
+git branch -q -m develop-parked develop
+git tag v1.0.0
+git tag 1.2.3
+git tag v2.0.0-rc.1
+git tag vnext
+LIFE_TAGS="$($STATE --lifecycle)"
+eq "--lifecycle lists only tags that match the release-tag pattern" \
+   "$(echo "$LIFE_TAGS" | jq -r '.release_tags | join(",")')" "v1.0.0,v2.0.0-rc.1"
+eq "--lifecycle reports the same base tag --next-version proposes from" \
+   "$(echo "$LIFE_TAGS" | jq -r '.base_tag')" "$($STATE --next-version | jq -r '.base_tag')"
+git tag -d v1.0.0 1.2.3 v2.0.0-rc.1 vnext >/dev/null
+
 # Test fingerprint mode (deterministic but unique per state)
 FINGERPRINT_1="$($STATE --fingerprint)"
 FINGERPRINT_2="$($STATE --fingerprint)"

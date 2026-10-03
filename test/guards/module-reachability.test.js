@@ -64,6 +64,7 @@ const ALLOWLIST = new Set([
   'src/runtime/mask.js',
   'src/runtime/lifecycle/root.js',
   'src/runtime/lifecycle/event-store.js',
+  'src/runtime/lifecycle/status.js',
 ]);
 
 /** Every `.js` file under a source/test root. */

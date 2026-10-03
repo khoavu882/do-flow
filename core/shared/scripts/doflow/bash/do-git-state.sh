@@ -36,6 +36,7 @@ for arg in "$@"; do
     --next-version)             mode="next-version" ;;
     --propagation-targets)      mode="propagation-targets" ;;
     --fingerprint)              mode="fingerprint" ;;
+    --lifecycle)                mode="lifecycle" ;;
     --branch-name)              mode="branch-name" ;;
     --class=*)                  class_name="${arg#--class=}" ;;
     --slug=*)                   slug="${arg#--slug=}" ;;
@@ -263,6 +264,24 @@ next_free_prerelease() {
   printf '%s-%s.%s %s\n' "$core" "$label" "$candidate" "$skipped"
 }
 
+# The newest release tag reachable from HEAD or from the production branch, by version order;
+# empty when there is none. do_next_version bases its proposal on it and the lifecycle output
+# reports it, so the two never disagree. The reasoning behind "newest by version" and "reachable
+# from production too" is in do_next_version's comments below.
+find_base_tag() {
+  local base_tag="" eligible="" ref
+  eligible="$(git tag --merged HEAD --list 'v*' 2>/dev/null || true)"
+  while IFS= read -r ref; do
+    [ -z "$ref" ] && continue
+    eligible="${eligible}"$'\n'"$(git tag --merged "$ref" --list 'v*' 2>/dev/null || true)"
+  done <<< "$(production_refs)"
+  eligible="$(printf '%s\n' "$eligible" | sort -u | sed '/^$/d')"
+  if [ -n "$eligible" ]; then
+    base_tag="$(git tag --list 'v*' --sort=-v:refname 2>/dev/null | grep -Fx -f <(printf '%s\n' "$eligible") | head -1 || true)"
+  fi
+  printf '%s\n' "$base_tag"
+}
+
 do_next_version() {
   # Both start set: `set -u` makes a bare `local base_tag` an unbound variable on bash 4+ whenever
   # no eligible tag exists (a repository with no release tags yet).
@@ -282,16 +301,7 @@ do_next_version() {
   # that may not have happened yet, so from the integration branch the newest release tag is
   # unreachable and the proposal was based on an older one (v1.8.3 proposed while v1.12.0 was out).
   # The tags are sorted by git as before; the union only decides which of them are eligible.
-  local eligible="" ref
-  eligible="$(git tag --merged HEAD --list 'v*' 2>/dev/null || true)"
-  while IFS= read -r ref; do
-    [ -z "$ref" ] && continue
-    eligible="${eligible}"$'\n'"$(git tag --merged "$ref" --list 'v*' 2>/dev/null || true)"
-  done <<< "$(production_refs)"
-  eligible="$(printf '%s\n' "$eligible" | sort -u | sed '/^$/d')"
-  if [ -n "$eligible" ]; then
-    base_tag="$(git tag --list 'v*' --sort=-v:refname 2>/dev/null | grep -Fx -f <(printf '%s\n' "$eligible") | head -1 || true)"
-  fi
+  base_tag="$(find_base_tag)"
   [ -n "$base_tag" ] && current_version="${base_tag#v}"
 
   # The manifest is what a release publishes. A base tag that disagrees with it means the tag or
@@ -464,11 +474,54 @@ do_branch_name() {
   jq -n --arg name "$branch_name" '{name: $name}'
 }
 
+# The git facts the lifecycle verbs need, in one place so Node never derives them a second way
+# (feature 046, DEC-029, DEC-035). Read-only.
+#   integration_ref  develop, else main, else master, else origin/HEAD: the first that resolves, a
+#                    local branch before its origin/ tracking ref; null when none does. Unlike
+#                    resolve_integration_ref this never prefers the remote, because the lifecycle
+#                    views must agree with the release preview about one pinned ref.
+#   feature_prefixes the branch prefixes a feature branch is named with
+#   release_tags     v* tags that match the release-tag pattern (vX.Y.Z with an optional pre-release)
+#   base_tag         the same base tag --next-version proposes from, or null
+lifecycle_integration_ref() {
+  local name
+  for name in develop main master; do
+    if git rev-parse --verify --quiet "refs/heads/${name}" >/dev/null 2>&1; then printf '%s\n' "$name"; return; fi
+    if git rev-parse --verify --quiet "refs/remotes/origin/${name}" >/dev/null 2>&1; then printf 'origin/%s\n' "$name"; return; fi
+  done
+  if git rev-parse --verify --quiet "refs/remotes/origin/HEAD" >/dev/null 2>&1; then printf 'origin/HEAD\n'; return; fi
+  printf '\n'
+}
+
+do_lifecycle() {
+  local integration="" tags="" base_tag=""
+  integration="$(lifecycle_integration_ref)"
+  tags="$(git tag --list 'v*' 2>/dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || true)"
+  base_tag="$(find_base_tag)"
+
+  local prefixes_json="" tags_json=""
+  prefixes_json="$(printf '%s\n' $feature_prefixes | jq -R . | jq -s .)"
+  tags_json="$(printf '%s' "$tags" | jq -R -s 'split("\n") | map(select(length > 0))')"
+
+  jq -n \
+    --arg integration "$integration" \
+    --arg base_tag "$base_tag" \
+    --argjson prefixes "$prefixes_json" \
+    --argjson tags "$tags_json" \
+    '{
+      integration_ref:  (if $integration=="" then null else $integration end),
+      feature_prefixes: $prefixes,
+      release_tags:     $tags,
+      base_tag:         (if $base_tag=="" then null else $base_tag end)
+    }'
+}
+
 case "$mode" in
   state)              do_state ;;
   next-version)       do_next_version ;;
   propagation-targets) do_propagation_targets ;;
   fingerprint)        do_fingerprint ;;
+  lifecycle)          do_lifecycle ;;
   branch-name)        do_branch_name ;;
   *)                  printf '{"error":"unknown-mode","mode":"%s"}\n' "$mode"; exit 2 ;;
 esac
