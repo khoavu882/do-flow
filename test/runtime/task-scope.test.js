@@ -15,7 +15,10 @@ const { spawnSync } = require('node:child_process');
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 
-const { resolveTaskScope, clearTaskScopeCache } = require('../../src/runtime/task-scope');
+const { resolveTaskScope, clearTaskScopeCache, setDefaultSlug } = require('../../src/runtime/task-scope');
+
+// The `--slug` default and the per-root cache are process-wide; every test leaves them as it found them.
+test.afterEach(() => { setDefaultSlug(null); clearTaskScopeCache(); });
 
 const WITH = '046-with-register';
 const WITHOUT = '047-no-register';
@@ -168,4 +171,54 @@ test('with no --slug the feature comes from the branch', () => {
     '--provider', 'git.native', '--capability', 'history.search', '--locator', 'a.js']);
   assert.equal(written.status, 0, written.stderr);
   assert.ok(fs.existsSync(path.join(evidenceDir(root), WITH, 'A.2.json')));
+});
+
+// ── readiness reads the task's own feature only ────────────────────────────────────────────────────
+
+/** Evidence that satisfies the bug template's `affected_code` requirement for task A.1. */
+function addLocatingEvidence(root, slug) {
+  const res = json(root, ['evidence', '--task-id', 'A.1', '--slug', slug, '--action', 'add',
+    '--kind', 'exact-search', '--provenance', 'extracted', '--provider', 'semble',
+    '--capability', 'code.exact-search', '--locator', 'a.js', '--establishes', 'affected_code']);
+  assert.equal(res.status, 0, res.stderr || res.stdout);
+}
+
+const affectedCode = (res) => res.data.requirements.find((r) => r.id === 'affected_code');
+
+test('readiness for a task id shared by two features sees only its own feature\'s evidence', () => {
+  const root = project('readiness');
+  addLocatingEvidence(root, WITHOUT);          // the legacy feature's flat A.1
+  const readiness = (...extra) => json(root, ['readiness', '--task-id', 'A.1', '--task-class', 'bug', ...extra]);
+
+  assert.equal(affectedCode(readiness('--slug', WITHOUT)).satisfied, true, 'the legacy feature reads its own record');
+  const other = affectedCode(readiness('--slug', WITH));
+  assert.equal(other.satisfied, false, 'the register feature must not borrow it');
+  assert.deepEqual(other.evidenceIds, []);
+
+  addLocatingEvidence(root, WITH);
+  assert.equal(affectedCode(readiness('--slug', WITH)).satisfied, true);
+  assert.equal(fs.readdirSync(path.join(evidenceDir(root), WITH)).includes('A.1.json'), true);
+});
+
+test('readiness resolves the feature from the branch when no --slug is given', () => {
+  const root = project('readiness-branch');
+  addLocatingEvidence(root, WITHOUT);
+  const git = (...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  git('init', '-q');
+  git('checkout', '-q', '-b', `feat/${WITH}`);
+  git('add', '-A');
+  git('-c', 'user.name=t', '-c', 'user.email=t@example.test', 'commit', '-q', '-m', 'init');
+  const res = json(root, ['readiness', '--task-id', 'A.1', '--task-class', 'bug']);
+  assert.equal(affectedCode(res).satisfied, false, 'on the register feature\'s branch the flat record is not visible');
+});
+
+test('an ambient --slug default routes a store, and clearing it restores the branch lookup', () => {
+  const root = project('ambient');
+  const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
+  setDefaultSlug(WITH);
+  assert.equal(resolveTaskScope({ projectRoot: root, taskId: 'A.1' }).namespace, WITH);
+  const ledger = new EvidenceLedger({ repoRoot: root });
+  assert.equal(ledger.fileFor('A.1'), path.join(evidenceDir(root), WITH, 'A.1.json'));
+  setDefaultSlug(null);
+  assert.equal(new EvidenceLedger({ repoRoot: root }).fileFor('A.1'), path.join(evidenceDir(root), 'A.1.json'));
 });
