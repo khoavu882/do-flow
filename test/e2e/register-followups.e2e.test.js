@@ -466,7 +466,7 @@ describe('Scenario: Change scope is answerable after planning (FR-008, FR-009)',
 // ── US4: guidance (IC-010) and the decision path ───────────────────────────────────────────────────
 
 describe('Scenario: Review fix records its decisions (FR-005, FR-010, FR-011, IC-010)', { skip: SKIP }, () => {
-  test('a do-implement run on a register feature registers, cites, validates clean and finishes', () => {
+  test('a do-implement run on a register feature registers with refs, names the id in the handoff note and edits no other stage\'s artifact', () => {
     const slug = '046-implement';
     const repo = makeRepo({ branch: `feat/${slug}` });
     initRegister(repo, slug);
@@ -475,20 +475,30 @@ describe('Scenario: Review fix records its decisions (FR-005, FR-010, FR-011, IC
       'intention/requirement.md': '# Req\n\n## 1. Overview\n\ntext\n\n## 9. History\n\nNone — initial version.\n',
       'design/design.md': '# Design\n\n## 1. Choices\n\nThe fix keeps the old retry policy.\n\n## 9. History\n\nNone — initial version.\n',
     });
-    const added = addBatch(repo, 'implement', [{ topic: 'retry', statement: 'keep the old retry policy', stage: 'implementation', channel: 'default' }]);
+    const owned = ['intention/requirement.md', 'design/design.md'];
+    const before = owned.map((rel) => fs.readFileSync(path.join(dir, rel)));
+
+    // The implementation stage owns no artifact: the decision cites what it applies to through `refs`.
+    const added = addBatch(repo, 'implement', [{
+      topic: 'retry', statement: 'keep the old retry policy', stage: 'implementation', channel: 'default', refs: ['FR-001', 'IC-004'],
+    }]);
     assert.strictEqual(added.status, 0, added.stdout + added.stderr);
     const id = added.json.added[0].id;
-    const designFile = path.join(dir, 'design', 'design.md');
-    fs.writeFileSync(designFile, read(designFile).replace('keeps the old retry policy.', `keeps the old retry policy (${id}).`));
-
+    const live = decision(repo, ['--action', 'list']);
+    assert.deepStrictEqual(live.json.decisions.find((d) => d.id === id).refs, ['FR-001', 'IC-004']);
     assert.match(read(path.join(dir, 'decisions.md')), new RegExp(`\\| ${id} \\| retry \\|`));
+
+    // ... and the handoff note names the id. Any stage's handoff stores its note the same way; do-implement's own
+    // needs a satisfied readiness contract, which is not what this scenario is about.
+    const handoff = run(repo, ['orchestrate', '--action', 'handoff', '--task-id', slug, '--task-class', 'feature',
+      '--calling-skill', 'do-plan', '--note', `kept the retry policy (${id})`, '--result', 'passed', '--json']);
+    assert.strictEqual(handoff.status, 0, handoff.stdout + handoff.stderr);
+    assert.match(read(path.join(repo, '.doflow', 'state', 'orchestration', `${slug}.json`)), new RegExp(`kept the retry policy \\(${id}\\)`));
+
     const validated = run(repo, ['validate', '--json']);
     assert.strictEqual(validated.status, 0, validated.stdout + validated.stderr);
     assert.deepStrictEqual(validated.json.findings, []);
-    // do-implement has no chain stage to hand off from; its decision step ends with the register compacted.
-    const compact = decision(repo, ['--action', 'compact']);
-    assert.strictEqual(compact.status, 0, compact.stdout + compact.stderr);
-    assert.deepStrictEqual(compact.json.failed, []);
+    owned.forEach((rel, i) => assert.ok(fs.readFileSync(path.join(dir, rel)).equals(before[i]), `${rel} is byte-identical`));
   });
 
   test('IC-010: the three shipped files carry the decision-step lines', () => {
@@ -502,10 +512,20 @@ describe('Scenario: Review fix records its decisions (FR-005, FR-010, FR-011, IC
 
     const pointer = 'follow steps 1-4 of the decision step in the guidance tree\'s `references/WORKFLOW_HANDOFF.md`';
     const implement = shipped('skills/do-implement/SKILL.md');
-    assert.ok(implement.includes(pointer), 'do-implement step 7');
+    // FR-010: the pointer is in step 5, which every run reaches, not in step 7 (skipped for a standalone run),
+    // and it is read before the handoff call.
+    const step5 = implement.slice(implement.indexOf('5. **Implement**'), implement.indexOf('6. **Verify'));
+    assert.ok(step5.includes(pointer), 'do-implement step 5 carries the decision-step pointer');
+    assert.ok(step5.includes('has_decisions: true'));
+    const step7 = implement.slice(implement.indexOf('7. **Record the handoff'), implement.indexOf('8. **Report'));
+    assert.ok(!step7.includes(pointer), 'step 7 does not carry it');
     assert.ok(implement.indexOf(pointer) < implement.indexOf('--action handoff --task-id "<task id>" --calling-skill do-implement'), 'the pointer is read before the handoff call');
+    // FR-011: the gate-0 patch path itself, not anywhere in the file.
     const flow = shipped('skills/do-flow/SKILL.md');
-    assert.ok(flow.includes(pointer), 'do-flow gate-0 patch path');
+    const gate0 = flow.slice(flow.indexOf('- **`gate-0`** (after discovery'), flow.indexOf('- **`gate-a`**'));
+    assert.ok(gate0.length > 0 && gate0.includes('patch the answers into `requirement.md`'), 'the gate-0 bullet was located');
+    assert.ok(gate0.includes(pointer), 'do-flow gate-0 patch path');
+    assert.ok(gate0.includes('(stage `discovery`, channel `question`)'));
   });
 });
 
