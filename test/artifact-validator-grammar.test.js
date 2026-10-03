@@ -697,3 +697,22 @@ test('without a register the phase rollup reads fenced lines exactly as it alway
   const { repo, feature } = featureRepo('fence-phase-legacy', null, { 'plan.md': FENCED_PLAN });
   assert.deepEqual(rules(validateIn(repo, path.join(feature, 'plan.md'))), ['rollup Phase B']);
 });
+
+test('unknown and stale: link targets, query strings and file names are exempt; chains and a sentence-final token are not', () => {
+  const { repo, feature } = featureRepo('token-shapes', CHAIN, {
+    'design/design.md': [
+      '# Design', '', '## 1. Choices', '',
+      'Link [n](DEC-097.md) and https://x.test?id=DEC-095 and a bare DEC-094.md stay quiet.',
+      'Superseded targets stay quiet too: [old](DEC-001.md) and https://x.test?id=DEC-001.',
+      'Chain DEC-090/DEC-091/DEC-092 checks all three.',
+      'Sentence-final citation DEC-099.',
+      'Mid-sentence DEC-098. Then more.',
+      '',
+    ].join('\n'),
+  });
+  const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
+  assert.deepEqual(result.findings.map((f) => [f.rule, f.id]), [
+    ['unknown', 'DEC-090'], ['unknown', 'DEC-091'], ['unknown', 'DEC-092'],
+    ['unknown', 'DEC-099'], ['unknown', 'DEC-098'],
+  ]);
+});
