@@ -169,3 +169,39 @@ test('validate refuses an unsafe --slug with exit 2, with and without explicit p
   const ok = run(VALIDATE, ['--json', '--slug=099-nothing'], root);
   assert.equal(ok.status, 0);
 });
+
+// ── the bash callers of the resolver pass the refusal through instead of failing open (IC-009) ───────
+
+const CALLERS = [
+  ['do-prereqs.sh', ['--require-plan']],
+  ['render-audit.sh', []],
+  ['render-puml.sh', []],
+  ['render-diagrams.sh', []],
+  ['do-task-brief.sh', ['--task=A.1']],
+  ['do-parallel-check.sh', ['--phase=A']],
+  ['do-exec-paths.sh', ['--task=A.1']],
+];
+
+test('every bash caller of do-paths refuses an unsafe --slug with exit 2 and the resolver\'s error object', () => {
+  const root = repo();
+  const before = tree(root);
+  for (const [script, extra] of CALLERS) {
+    for (const slug of ['../../x', 'a/b']) {
+      const res = run(path.join(BASH, script), [...extra, `--slug=${slug}`, '--json'], root);
+      assert.equal(res.status, 2, `${script} --slug=${slug}: ${res.stdout}`);
+      assert.equal(res.data.error, 'invalid-slug', script);
+      assert.match(res.data.message, /not a valid feature slug/);
+    }
+    const plain = spawnSync('bash', [path.join(BASH, script), ...extra, '--slug=../../x'], { cwd: root, encoding: 'utf8' });
+    assert.equal(plain.status, 2, `${script} without --json`);
+  }
+  assert.deepEqual(tree(root), before, 'nothing was written');
+});
+
+test('a well-formed slug that names no feature keeps each caller\'s existing behaviour', () => {
+  const root = repo();
+  const prereqs = run(path.join(BASH, 'do-prereqs.sh'), ['--require-plan', '--slug=099-nothing'], root);
+  assert.equal(prereqs.status, 2);
+  assert.notEqual(prereqs.data.error, 'invalid-slug');
+  assert.equal(run(path.join(BASH, 'render-audit.sh'), ['--json', '--slug=099-nothing'], root).status, 0);
+});

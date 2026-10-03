@@ -94,6 +94,11 @@ if [ ! -f "$resolver" ]; then
 fi
 
 resolved="$(bash "$resolver" --json ${slug_override:+--slug="$slug_override"} 2>/dev/null)"
+resolved_rc=$?
+# An unsafe slug is refused with the resolver's own error object (IC-009), not read as an empty feature.
+if [ "$resolved_rc" -eq 2 ] && [ "$(printf '%s' "$resolved" | jq -r '.error // empty' 2>/dev/null)" = "invalid-slug" ]; then
+  printf '%s\n' "$resolved"; exit 2
+fi
 repo_root="$(printf '%s' "$resolved" | jq -r '.repo_root // empty')"
 feature_dir="$(printf '%s' "$resolved" | jq -r '.feature_dir // empty')"
 

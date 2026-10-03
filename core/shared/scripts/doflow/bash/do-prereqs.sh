@@ -31,7 +31,13 @@ RESOLVER="$script_dir/do-paths.sh"
 
 RESOLVER_ARGS=(--json)
 [ -n "$slug_override" ] && RESOLVER_ARGS+=("--slug=$slug_override")
-json=$("$RESOLVER" "${RESOLVER_ARGS[@]}" 2>/dev/null) || { echo '{"ok":true,"note":"resolver-error-skip-gate"}'; exit 0; }
+rc=0; json=$("$RESOLVER" "${RESOLVER_ARGS[@]}" 2>/dev/null) || rc=$?
+# A slug that could name a path is the caller's mistake, not an unrunnable resolver: the gate refuses
+# it with the resolver's own error rather than skipping itself (IC-009).
+if [ "$rc" -eq 2 ] && [ "$(printf '%s' "$json" | jq -r '.error // empty' 2>/dev/null)" = "invalid-slug" ]; then
+  printf '%s\n' "$json"; exit 2
+fi
+[ "$rc" -eq 0 ] || { echo '{"ok":true,"note":"resolver-error-skip-gate"}'; exit 0; }
 slug=$(echo "$json" | jq -r '.feature_slug // empty')
 candidate_slugs=$(echo "$json" | jq -c '.candidate_slugs // []')
 has_requirement=$(echo "$json" | jq -r '.has_requirement')

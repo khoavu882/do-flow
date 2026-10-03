@@ -46,6 +46,11 @@ fi
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 resolved="$(bash "$script_dir/do-paths.sh" --json ${slug_override:+--slug="$slug_override"} 2>/dev/null)"
+resolved_rc=$?
+# An unsafe slug is refused with the resolver's own error object (IC-009), not read as an empty feature.
+if [ "$resolved_rc" -eq 2 ] && [ "$(printf '%s' "$resolved" | jq -r '.error // empty' 2>/dev/null)" = "invalid-slug" ]; then
+  printf '%s\n' "$resolved"; exit 2
+fi
 repo_root="$(printf '%s' "$resolved" | jq -r '.repo_root // empty')"
 plan_rel="$(printf '%s' "$resolved" | jq -r '.plan // empty')"
 has_plan="$(printf '%s' "$resolved" | jq -r '.has_plan // false')"
