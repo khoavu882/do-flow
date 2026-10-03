@@ -62,6 +62,8 @@ const ALLOWLIST = new Set([
   // verb wiring in A.5 requires the top of the chain, so each commit would otherwise fail this guard
   // on the newest module. A.5 requires them all and empties this list.
   'src/runtime/mask.js',
+  'src/runtime/lifecycle/root.js',
+  'src/runtime/lifecycle/event-store.js',
 ]);
 
 /** Every `.js` file under a source/test root. */
