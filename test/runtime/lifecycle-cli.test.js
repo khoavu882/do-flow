@@ -283,7 +283,8 @@ test('maintain: a kept item leaves pending while staying open; the list stops at
   store.appendEvents(root, [{ type: 'followup.settled', by: 'user', data: { id: 'FU-000001', as: 'kept', reason: 'still wanted' } }], { now: new Date(Date.now() + 5000) });
   const second = buildOverview({ root, maintain: true, since: startedAt });
   assert.deepEqual([second.followups.open, second.pending], [52, 51]);
-  assert.equal(second.followups.items.find((i) => i.id === 'FU-000001').pending, false);
+  // Pending items come first (IC-007), so the settled one drops behind the 51 pending and out of the 50 shown.
+  assert.deepEqual([second.followups.items.some((i) => i.id === 'FU-000001'), second.followups.items.every((i) => i.pending)], [false, true]);
   assert.throws(() => buildOverview({ root, maintain: true, since: 'yesterday' }), FollowupUsageError);
 });
 

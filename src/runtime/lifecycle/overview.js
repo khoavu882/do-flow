@@ -120,10 +120,11 @@ function buildOverview({ root, maintain = false, since, now = new Date(), fsImpl
   const followups = withDerivedDone(fold.followups, statusMap(derived));
   const open = followups.filter((item) => item.state === 'open');
   const limit = maintain ? MAINTAIN_SHOWN : DISCOVERY_SHOWN;
-  const ordered = [...open].sort(byDiscoveryOrder);
   // A promotion settles an item for the maintain loop as much as a settlement does: it stays open with an intent.
   const settledSince = (item) => item.history.some((h) => (h.type === 'followup.settled' || h.type === 'followup.promoted') && (sinceMs === null || Date.parse(h.at) >= sinceMs));
   const pendingOf = (item) => !settledSince(item);
+  // Maintain shows pending items first (IC-007), so a loop over more than MAINTAIN_SHOWN items reaches the rest.
+  const ordered = [...open].sort((a, b) => (maintain ? pendingOf(b) - pendingOf(a) : 0) || byDiscoveryOrder(a, b));
   const items = ordered.slice(0, limit).map((item) => shownItem(item, maintain ? pendingOf(item) : undefined));
 
   const intentGroups = new Map();
