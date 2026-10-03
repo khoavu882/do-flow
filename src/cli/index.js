@@ -70,6 +70,8 @@ function parseArgs(argv) {
       case '--check': o.check = true; break;
       // decision --action list: every decision by id, not just the live ones.
       case '--all': o.all = true; break;
+      // lifecycle --action overview: the /do maintain view, with a larger list and a pending count.
+      case '--maintain': o.maintain = true; break;
       // readiness: the caller declares a decision is owed by the user. A flag rather than an
       // inference, because nothing the runtime can see distinguishes "a decision is pending"
       // from "nobody has looked yet", and guessing would be the gate answering unasked.
@@ -92,7 +94,7 @@ function parseArgs(argv) {
       case '--action': {
         const val = argv[i + 1];
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
-        o.action = val; i++; break;
+        o.action = val; o.actionGiven = true; i++; break;
       }
       case '--task-class': {
         const val = argv[i + 1];
@@ -201,6 +203,16 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--supersedes', 'supersedes'],      // comma-separated DEC-### ids this decision replaces
   ['--refs', 'refs'],                  // comma-separated ids the decision touches, e.g. FR-001,IC-002
   ['--source', 'source'],              // where the decision was stated, e.g. design/design-02-question.md#question-1
+  // followup and lifecycle (feature 046). `--statement`, `--stage`, `--slug`, `--batch`, `--reason`,
+  // `--channel`, `--state`, `--source`, `--intent`, `--task-class` and `--task-id` above are shared.
+  ['--ids', 'ids'],                    // followup: comma-separated FU-xxxxxx ids to take, settle or promote
+  ['--as', 'as'],                      // followup --action settle: kept | dismissed | fix | done
+  ['--evidence', 'evidence'],          // followup --action settle --as done: what shows it was done
+  ['--title', 'title'],                // followup --action promote: the new intent's title
+  ['--release', 'release'],            // followup --action add --source release: the release tag
+  ['--take', 'take'],                  // lifecycle --action init: comma-separated FU ids the feature takes
+  ['--goal', 'goal'],                  // lifecycle --action init: the goal the feature serves
+  ['--since', 'since'],                // lifecycle --action overview --maintain: ISO time the pass started
   ['--proposed-by', 'proposedBy'],     // classify: which worker proposed it
   ['--calling-skill', 'callingSkill'],  // classify: which skill is asking, for the fit check
   ['--intent', 'intent'],              // route: the information need being resolved
@@ -366,6 +378,8 @@ Commands:
   inventory            Shadowed copies, drift and unmanaged files across both install scopes
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
   decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
+  followup             Record, list, take, settle or promote what a feature left unfinished (--action add|list|take|settle|promote)
+  lifecycle            Open follow-ups, feature tracking and status for the project (--action overview|init|status)
                        (a value beginning with '-' must be written --flag=value)
   leak-scan            Report DoFlow-internal identifiers in shipped files (--path, repeatable)
 
@@ -398,6 +412,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --action         claim: list|add|link|retract|supersede · evidence: list|add|supersede
                        verify: report|contract · retrieval-plan: declare|report
                        outcome: record|show · tools: see above
+                       followup: add|list|take|settle|promote · lifecycle: overview|init|status
       --rationale, --proposed-by, --calling-skill    classify
       --intent, --query, --check            route
       --statement, --claim-id,
@@ -419,6 +434,10 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --readiness, --verification           outcome --action record
       --risk, --plan-path                   verify
       --path, --exclude (repeatable)        leak-scan
+      --ids, --as, --evidence, --title,
+      --release, --source, --channel        followup (add, list, take, settle, promote)
+      --take, --goal, --intent, --since,
+      --maintain                            lifecycle (overview, init)
       --error, --failed-check,
       --iteration, --agent                  recover
       --json           Machine-readable output (status)

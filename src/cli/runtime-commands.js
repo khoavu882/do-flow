@@ -47,6 +47,7 @@ const { handleLeakScanCommand } = require('../runtime/leak-scan');
 const { handleRecoverCommand } = require('../runtime/recovery');
 const { handleScaffoldCommand } = require('../runtime/scaffold/generate');
 const { handleDecisionCommand } = require('../runtime/decision-register');
+const { handleFollowupCommand, handleLifecycleCommand } = require('../runtime/lifecycle/cli');
 const { handleInventoryCommand } = require('../runtime/inventory');
 const { finishRuntime, usageError } = require('../runtime/cli-result');
 const { setDefaultSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope');
@@ -189,6 +190,10 @@ function dispatchRuntimeCommand(o) {
     // The feature is resolved from the working directory (or --slug) by the same resolver
     // `scaffold` uses; the flags are the caller's own statements, validated by the register module.
     case 'decision': return handleDecisionCommand({ action: o.action, projectRoot: evidenceRoot(o), slug: o.slug, json: o.json, flags: { topic: o.topic, statement: o.statement, channel: o.channel, stage: o.stage, rationale: o.rationale, supersedes: o.supersedes, refs: o.refs, source: o.source, batch: o.batchPath, all: o.all } });
+    // Feature 046: the project's follow-up store lives at the repository root (never `-g`, which
+    // the handlers refuse), so the working directory is the starting point, not a scope switch.
+    case 'followup': return handleFollowupCommand({ action: o.actionGiven ? o.action : undefined, cwd: evidenceRoot(o), global: o.global, slug: o.slug, json: o.json, flags: { statement: o.statement, stage: o.stage, source: o.source, taskClass: o.taskClass, taskId: o.taskId, release: o.release, batch: o.batchPath, channel: o.channel, state: o.state, ids: o.ids, as: o.as, reason: o.reason, evidence: o.evidence, title: o.title } });
+    case 'lifecycle': return handleLifecycleCommand({ action: o.actionGiven ? o.action : undefined, cwd: evidenceRoot(o), global: o.global, slug: o.slug, json: o.json, flags: { take: o.take, intent: o.intent, goal: o.goal, maintain: o.maintain, since: o.since } });
     // The rest of design §4.2's Node arm. REPO_ROOT locates the registries that ship with the
     // package (workflows, capabilities, verification); evidenceRoot(o) locates the caller's own
     // state and source tree, following the same scope rules as every other command.

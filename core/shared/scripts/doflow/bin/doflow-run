@@ -249,6 +249,8 @@ Workflow and evidence:
   outcome          record a task's terminal state with its basis, or show what was recorded
   scaffold         emit the code scaffold the active feature's artifacts imply
   decision         register, list or compact the active feature's decisions
+  followup         record, list, take, settle or promote what a feature left unfinished
+  lifecycle        open follow-ups, feature tracking and status for the project
 
 Verification and recovery:
   verify           compile the contract, run checks, emit the report
@@ -359,7 +361,7 @@ shell_helper_for() {
 # command list; an unbuilt verb is dispatched and the CLI answers for itself.
 is_node_verb() {
   case "$1" in
-    classify|workflow|route|evidence|claim|readiness|context-pack|retrieval-plan|outcome|scaffold|decision|verify|recover|leak-scan|\
+    classify|workflow|route|evidence|claim|readiness|context-pack|retrieval-plan|outcome|scaffold|decision|followup|lifecycle|verify|recover|leak-scan|\
 trace|stats|indicators|discover|inventory|capabilities|doctor|orchestrate|research-request|retrieve|model-role) return 0 ;;
     *) return 1 ;;
   esac

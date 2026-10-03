@@ -57,13 +57,7 @@ const PATH_CALLER_SURFACES = ['package.json', path.join('core', 'shared', 'scrip
  * vouching for a module the moment its caller goes — which an allowlist entry would not.
  * "Nothing calls it" is never a reason — that module is dead, and belongs deleted, not exempted.
  */
-const ALLOWLIST = new Set([
-  // TEMPORARY (feature 046, tasks A.1 to A.4): the lifecycle modules land bottom-up and only the
-  // verb wiring in A.5 requires the top of the chain, so each commit would otherwise fail this guard
-  // on the newest module. A.5 requires them all and empties this list.
-  'src/runtime/lifecycle/root.js',
-  'src/runtime/lifecycle/followup.js',
-]);
+const ALLOWLIST = new Set([]);
 
 /** Every `.js` file under a source/test root. */
 function jsFilesUnder(root) {
