@@ -20,6 +20,105 @@
 
 set -euo pipefail
 
+# ------------------------------------------------------------------------------ failure capture
+
+# DoFlow's own failures, recorded on this machine (feature 046, IC-011, IC-014, IC-017). A side
+# channel: it never changes what the dispatcher prints or the status it exits with, never blocks
+# anything, and is silent. It runs in a subshell with all output discarded and ends in `|| true`, so
+# `set -euo pipefail` never stops on it; nothing in it can reach the dispatcher's own options or
+# variables. Appends one JSON line of at most 1000 bytes (longer appends from concurrent writers can
+# interleave) and never rotates: rotation is done by the Node writers only (IC-015, DEC-019). It is
+# a no-op when no failure home can be resolved (HOME unset, or XDG_CONFIG_HOME relative) and while
+# capture is off (the `off` sentinel file wins; DOFLOW_FAILURE_CAPTURE=off|0|false|no also turns it
+# off). The line carries only names from DoFlow's own tables and the working directory: never an
+# argument, stdin or the environment.
+#   capture_failure <command> <kind> <exit status>
+CAPTURE_VERB=""
+
+capture_failure_write() {
+  local command="${1:-}" kind="${2:-}" status="${3:-}"
+  local home="" setting="" version="" candidate="" project="" harness="" at="" line="" cwd="" hp=""
+  export LC_ALL=C
+
+  if [ -n "${XDG_CONFIG_HOME:-}" ]; then
+    case "$XDG_CONFIG_HOME" in
+      /*) home="$XDG_CONFIG_HOME/doflow/failures" ;;
+      *) return 0 ;;
+    esac
+  else
+    case "${HOME:-}" in
+      /*) home="$HOME/.config/doflow/failures" ;;
+      *) return 0 ;;
+    esac
+  fi
+
+  setting="$(printf '%s' "${DOFLOW_FAILURE_CAPTURE:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" || return 0
+  case "$setting" in
+    off|0|false|no) return 0 ;;
+  esac
+  [ -f "$home/off" ] && return 0
+
+  # The command is a verb the dispatcher has already matched against its own tables, or `dispatcher`.
+  [[ "$command" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || command="dispatcher"
+  [[ "$kind" =~ ^[A-Za-z][A-Za-z0-9._:-]{0,39}$ ]] || return 0
+  [[ "$status" =~ ^[0-9]{1,3}$ ]] || status="null"
+
+  harness="${DOFLOW_AGENT:-}"
+  [[ "$harness" =~ ^[A-Za-z0-9._-]{1,40}$ ]] || harness="none"
+
+  # script_version of the nearest install manifest: the project install first, then the global one.
+  for candidate in "${CONFIG_DIR:-}" "${HOME:-}/.doflow"; do
+    [ -n "$candidate" ] && [ -f "$candidate/.install-manifest.json" ] || continue
+    version="$(sed -n 's/^[[:space:]]*"script_version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$candidate/.install-manifest.json" | head -n 1)" || version=""
+    [ -n "$version" ] && break
+  done
+  [[ "$version" =~ ^[A-Za-z0-9._+-]{1,40}$ ]] || version="unknown"
+
+  # The working directory, home prefix written as `~`, cut to 200 bytes, control characters turned
+  # into spaces and every quote and backslash escaped, so the line stays one valid JSON string.
+  cwd="$(pwd 2>/dev/null)" || cwd=""
+  hp="${HOME:-}"
+  hp="${hp%/}"
+  if [ -n "$hp" ]; then
+    case "$cwd" in
+      "$hp") cwd="~" ;;
+      "$hp"/*) cwd="~${cwd#"$hp"}" ;;
+    esac
+  fi
+  project="$(printf '%s' "${cwd:0:200}" | tr '\001-\037\177' ' ')" || project=""
+  project="${project//\\/\\\\}"
+  project="${project//\"/\\\"}"
+
+  at="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" || return 0
+  line="{\"v\":1,\"at\":\"$at\",\"source\":\"dispatcher\",\"command\":\"$command\",\"harness\":\"$harness\",\"version\":\"$version\",\"project\":\"$project\",\"kind\":\"$kind\",\"message\":\"\",\"frame\":null,\"exit\":$status}"
+  if [ "${#line}" -gt 999 ]; then
+    line="{\"v\":1,\"at\":\"$at\",\"source\":\"dispatcher\",\"command\":\"$command\",\"harness\":\"$harness\",\"version\":\"$version\",\"project\":\"\",\"kind\":\"$kind\",\"message\":\"\",\"frame\":null,\"exit\":$status}"
+  fi
+
+  umask 077
+  mkdir -p "$home" || return 0
+  printf '%s\n' "$line" >>"$home/events.jsonl" || return 0
+}
+
+capture_failure() {
+  ( capture_failure_write "$@" ) >/dev/null 2>&1 || true
+  return 0
+}
+
+# After a verb ran: a status outside {0, 1, 2} is a crash worth recording (a signal, a runtime that
+# died), minus what is not DoFlow's fault (DEC-031): 127 (command not found), 130, 141 and 143
+# (interrupted, broken pipe, terminated) and the task-not-found status 3 of `task-brief`. A Node
+# crash exits 1 and is recorded by the CLI itself, so it is never counted twice.
+capture_exit_status() {
+  local verb="${1:-}" status="${2:-0}"
+  case "$status" in
+    0|1|2|127|130|141|143) return 0 ;;
+    3) [ "$verb" = "task-brief" ] && return 0 ;;
+  esac
+  capture_failure "$verb" "exit-$status" "$status"
+  return 0
+}
+
 # ---------------------------------------------------------------------------- self-resolution
 
 # `readlink -f` is GNU-only and arrived late on BSD; resolve the chain by hand so the dispatcher
@@ -30,6 +129,7 @@ resolve_real_dir() {
   while [ -L "$src" ]; do
     hops=$((hops + 1))
     if [ "$hops" -gt 40 ]; then
+      capture_failure "dispatcher" "symlink-loop" 2
       printf 'doflow-run: symlink loop resolving %s\n' "$1" >&2
       exit 2
     fi
@@ -199,6 +299,11 @@ done
 # contract.
 fail() {
   local code="$1" reason="$2" message="$3" escaped
+  # A broken DoFlow install is worth recording; the other reasons are the caller's mistake or the
+  # user's environment (DEC-031) and are not.
+  case "$reason" in
+    helper-missing|helpers-not-found) capture_failure "${CAPTURE_VERB:-dispatcher}" "$reason" "$code" ;;
+  esac
   if [ "$wants_json" = true ]; then
     # Messages quote resolved paths, and a path is allowed to contain a quote or a backslash;
     # unescaped, one such path turns an error report into unparseable JSON.
@@ -453,6 +558,7 @@ main() {
     fail 2 "unknown-verb" "unknown verb '$verb' — run 'doflow-run --help' for the verb list"
   fi
 
+  CAPTURE_VERB="$verb"
   argc=$#
   started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   started_ms="$(now_ms)"
@@ -468,6 +574,7 @@ main() {
 
   ended_ms="$(now_ms)"
   trace_run "$verb" "$rc" "$(( ended_ms - started_ms ))" "$argc" "$started_at" || true
+  capture_exit_status "$verb" "$rc"
 
   exit "$rc"
 }
