@@ -42,7 +42,8 @@ const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
  * `comment` (the first line of an HTML comment) or `comment-cont`. A `## ` line inside a fence or a
  * comment is not a heading, and fence markers inside a comment (or the reverse) do not open
  * anything, so a History example quoted in a code block cannot be mistaken for the real section.
- * @returns {{kinds:string[], openFence:boolean}} `openFence` is true when a fence never closes
+ * @returns {{kinds:string[], openFence:boolean, openComment:boolean}} the last two are true when a
+ *   fence or an HTML comment is never closed, so everything after it was swallowed
  */
 function scan(lines) {
   const kinds = new Array(lines.length);
@@ -71,11 +72,15 @@ function scan(lines) {
     }
     kinds[i] = 'text';
   }
-  return { kinds, openFence: fence !== null };
+  return { kinds, openFence: fence !== null, openComment: comment };
 }
 
-/** Splits History body lines into what stays and what moves. Fenced content moves intact. */
-function classify(bodyLines, kinds) {
+/**
+ * Splits History body lines into what stays and what moves. Fenced content moves intact. Only the
+ * exact canonical pointer for this artifact is the pointer; any other line, including one that
+ * merely looks like a pointer, moves, so no text is dropped.
+ */
+function classify(bodyLines, kinds, canonicalPointer) {
   const comments = [];
   const moved = [];
   let pointer = null;
@@ -88,7 +93,7 @@ function classify(bodyLines, kinds) {
     if (kind === 'fence') { moved.push(line); return; }
     const trimmed = line.trim();
     if (trimmed === '') return;
-    if (POINTER.test(trimmed)) { if (pointer === null) pointer = line; return; }
+    if (trimmed === canonicalPointer) { if (pointer === null) pointer = line; return; }
     if (trimmed === INITIAL_VERSION) return;
     moved.push(line);
   });
@@ -116,14 +121,20 @@ function toPosix(p) {
  * crash this guards against (archive written, artifact not) always leaves the interrupted chunk
  * last. The dated header is ignored, so a recovery on a later day does not append a second copy,
  * and a block that merely prefixes an earlier chunk does not match.
+ *
+ * A chunk header is a `## Compacted` line `scan()` classifies as text: a moved block may quote such
+ * a line inside a code fence, and that must not be read as the start of a chunk. The dedupe and the
+ * post-write confirmation both use this one predicate.
  */
 function lastChunkIs(archiveText, blockLF) {
-  const chunks = archiveText.replace(/\r\n/g, '\n').split(/\n(?=## Compacted )/);
-  const last = chunks[chunks.length - 1];
-  if (!last.startsWith('## Compacted ')) return false;
-  const bodyStart = last.indexOf('\n\n');
-  if (bodyStart === -1) return false;
-  return last.slice(bodyStart + 2).replace(/\n+$/, '') === blockLF;
+  const lines = archiveText.replace(/\r\n/g, '\n').split('\n');
+  const { kinds } = scan(lines);
+  let header = -1;
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (kinds[i] === 'text' && lines[i].startsWith('## Compacted ')) { header = i; break; }
+  }
+  if (header === -1 || lines[header + 1] !== '') return false;
+  return lines.slice(header + 2).join('\n').replace(/\n+$/, '') === blockLF;
 }
 
 /**
@@ -135,21 +146,26 @@ function compactArtifact({ fsImpl, featureDir, file, date }) {
   const text = fsImpl.readFileSync(file, 'utf8');
   const crlf = text.includes('\r\n');
   const lines = text.split('\n');
-  const { kinds, openFence } = scan(lines);
+  const { kinds, openFence, openComment } = scan(lines);
+  // Refused before the heading is looked for: an unclosed fence or comment swallows everything
+  // after it, so neither the heading nor the section's end can be told.
+  if (openFence) throw new Error('a code fence is never closed, so the end of the History section cannot be told');
+  if (openComment) throw new Error('an HTML comment is never closed, so the end of the History section cannot be told');
   const start = lines.findIndex((l, i) => kinds[i] === 'text' && HISTORY_HEADING.test(l));
   if (start === -1) return null;
-  if (openFence) throw new Error('a code fence is never closed, so the end of the History section cannot be told');
   const section = Number(HISTORY_HEADING.exec(lines[start])[1]);
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i += 1) {
     if (kinds[i] === 'text' && ANY_H2.test(lines[i])) { end = i; break; }
   }
-  const { comments, moved, pointer } = classify(lines.slice(start + 1, end), kinds.slice(start + 1, end));
+  const name = path.basename(file);
+  const archiveFile = path.join(featureDir, 'decisions', 'history', name);
+  const link = toPosix(path.relative(path.dirname(file), archiveFile));
+  const canonicalPointer = `Earlier entries: [decisions/history/${name}](${link}).`;
+  const { comments, moved, pointer } = classify(lines.slice(start + 1, end), kinds.slice(start + 1, end), canonicalPointer);
   if (moved.length === 0) return null;
 
-  const name = path.basename(file);
   const rel = toPosix(path.relative(featureDir, file));
-  const archiveFile = path.join(featureDir, 'decisions', 'history', name);
   const archiveRel = toPosix(path.relative(featureDir, archiveFile));
 
   // Chunks are built with LF and converted to the artifact's own line ending on write, so a CRLF
@@ -167,9 +183,8 @@ function compactArtifact({ fsImpl, featureDir, file, date }) {
     throw new Error(`the moved block is not present in ${archiveRel} after the write`);
   }
 
-  const link = toPosix(path.relative(path.dirname(file), archiveFile));
   const blank = crlf ? '\r' : '';
-  const pointerLine = pointer !== null ? pointer : `Earlier entries: [decisions/history/${name}](${link}).${blank}`;
+  const pointerLine = pointer !== null ? pointer : `${canonicalPointer}${blank}`;
   const body = [blank];
   for (const c of comments) body.push(...c, blank);
   body.push(pointerLine, end === lines.length ? '' : blank);

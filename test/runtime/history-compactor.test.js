@@ -305,3 +305,65 @@ test('a CRLF artifact is rewritten with CRLF throughout and gets a CRLF archive'
   // A second run on the CRLF files changes nothing.
   assert.equal(compactHistory({ ...f, date: DATE }).status, 'unchanged');
 });
+
+// ── review fixes ───────────────────────────────────────────────────────────────────────────────
+
+test('a fenced "## Compacted" line in History compacts once and a second run is unchanged', () => {
+  const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
+  const file = path.join(f.featureDir, 'plan.md');
+  fs.writeFileSync(file, '# Plan\n\n## 9. History\n\n```\n## Compacted 2026-01-01 from plan.md §9\n\nquoted\n```\n\n- tail\n');
+  const first = compactHistory({ ...f, date: DATE });
+  assert.equal(first.status, 'compacted');
+  const archiveFile = path.join(f.featureDir, 'decisions', 'history', 'plan.md');
+  const archive = read(archiveFile);
+  assert.equal(archive.match(/^## Compacted /gm).length, 2); // one real header, one quoted in the fence
+  assert.equal(archive.split('\n').filter((l) => l.startsWith('## Compacted 2026-10-03')).length, 1);
+  const snapshotAfter = [archive, read(file)];
+  const second = compactHistory({ ...f, date: DATE });
+  assert.deepEqual(second, { status: 'unchanged', moved: [] });
+  assert.deepEqual([read(archiveFile), read(file)], snapshotAfter);
+});
+
+test('an interrupted run whose block quotes a chunk header is still recognised on re-run', () => {
+  const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
+  const file = path.join(f.featureDir, 'plan.md');
+  fs.writeFileSync(file, '# Plan\n\n## 9. History\n\n```\n## Compacted 2026-01-01 from plan.md §9\n```\n');
+  assert.throws(() => compactHistory({ ...f, date: DATE, fsImpl: failingRename(file) }), CompactionError);
+  compactHistory({ ...f, date: '2026-10-04' });
+  const archive = read(path.join(f.featureDir, 'decisions', 'history', 'plan.md'));
+  assert.equal(archive.split('\n').filter((l) => /^## Compacted 2026-10-0\d/.test(l)).length, 1);
+});
+
+test('a second pointer-shaped line is content and moves, only the canonical pointer stays', () => {
+  const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
+  const file = path.join(f.featureDir, 'plan.md');
+  const canonical = 'Earlier entries: [decisions/history/plan.md](decisions/history/plan.md).';
+  const other = 'Earlier entries: [decisions/history/other.md](elsewhere/other.md). Real text after it.';
+  fs.writeFileSync(file, `# Plan\n\n## 9. History\n\n${canonical}\n\n${other}\n\n- entry\n`);
+  const result = compactHistory({ ...f, date: DATE });
+  assert.equal(result.moved[0].lines, 2);
+  assert.equal(read(file), `# Plan\n\n## 9. History\n\n${canonical}\n`);
+  const archive = read(path.join(f.featureDir, 'decisions', 'history', 'plan.md'));
+  assert.ok(archive.includes(`${other}\n- entry\n`));
+  // A History holding only the canonical pointer is already compacted.
+  assert.equal(compactHistory({ ...f, date: DATE }).status, 'unchanged');
+});
+
+test('a History holding only a non-canonical pointer line moves it and gets the canonical one', () => {
+  const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
+  const file = path.join(f.featureDir, 'plan.md');
+  fs.writeFileSync(file, '# Plan\n\n## 9. History\n\nEarlier entries: [decisions/history/plan.md](wrong/link.md).\n');
+  assert.equal(compactHistory({ ...f, date: DATE }).status, 'compacted');
+  assert.ok(read(file).endsWith('Earlier entries: [decisions/history/plan.md](decisions/history/plan.md).\n'));
+  assert.ok(read(path.join(f.featureDir, 'decisions', 'history', 'plan.md')).includes('(wrong/link.md)'));
+});
+
+test('an HTML comment that never closes is refused and the artifact is left unchanged', () => {
+  const f = feature({ plan: ['plan.md', 'history-9-plan.md'] });
+  const file = path.join(f.featureDir, 'plan.md');
+  fs.writeFileSync(file, '# Plan\n\n## 9. History\n\n- entry\n\n<!-- never closed\n\n## 10. Appendix\n\nText.\n');
+  const before = fs.readFileSync(file);
+  assert.throws(() => compactHistory({ ...f, date: DATE }), (e) => e instanceof CompactionError && e.artifact === 'plan.md' && /comment/.test(e.message));
+  assert.ok(fs.readFileSync(file).equals(before));
+  assert.ok(!fs.existsSync(path.join(f.featureDir, 'decisions')));
+});
