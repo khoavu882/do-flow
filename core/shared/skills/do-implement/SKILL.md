@@ -165,6 +165,8 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      ```bash
      "$DOFLOW" orchestrate --action handoff --task-id "<task id>" --calling-skill do-implement --note "<one line: what was implemented>" --result <passed|failed> --json
      ```
+     When the feature has a decision register, first follow the decision step in the guidance
+     tree's `references/WORKFLOW_HANDOFF.md`.
      Use step 6's verification outcome for `--result`: `passed` when every check in the named set
      passed, `failed` when one did not — never omit it to imply a pass step 6 did not establish.
      The runtime selects this class's implementation stage — the only mutating stage a caller may
