@@ -71,7 +71,7 @@ function featureFor(projectRoot, slug) {
     if (hasFeatureFolderAbove(projectRoot)) {
       const found = resolveActiveFeature({ projectRoot, slug: slug || null });
       if (!found.error && found.paths && isSafeSlug(found.paths.feature_slug)) {
-        value = { slug: found.paths.feature_slug, hasRegister: found.paths.has_decisions === true };
+        value = { slug: found.paths.feature_slug, hasRegister: found.paths.has_decisions === true, exists: fs.existsSync(found.featureDir) };
       }
     }
   } catch { /* a resolver failure is "no feature", never an exception */ }
@@ -97,6 +97,20 @@ function resolveTaskScope({ projectRoot, taskId, slug = null }) {
 }
 
 /**
+ * Whether an explicit slug, already known to be well-formed, names no feature folder here. The
+ * records then go to the shared task store, which is today's behaviour and is worth one line to the
+ * caller because the slug they typed did nothing.
+ * @param {Object} options
+ * @param {string} options.projectRoot
+ * @param {string} options.slug
+ * @returns {boolean}
+ */
+function slugNamesNoFeature({ projectRoot, slug }) {
+  const feature = featureFor(projectRoot, slug);
+  return Boolean(feature.reason) || feature.exists === false;
+}
+
+/**
  * The directory a task's record file for one store lives in (IC-002).
  * @param {Object} options
  * @param {string} options.projectRoot
@@ -111,4 +125,4 @@ function taskStoreDir({ projectRoot, store, taskId, slug = null }) {
   return namespace ? path.join(base, namespace) : base;
 }
 
-module.exports = { resolveTaskScope, taskStoreDir, setDefaultSlug, clearTaskScopeCache, isSafeSlug, invalidSlugRefusal };
+module.exports = { resolveTaskScope, taskStoreDir, setDefaultSlug, clearTaskScopeCache, isSafeSlug, invalidSlugRefusal, slugNamesNoFeature };

@@ -49,7 +49,7 @@ const { handleScaffoldCommand } = require('../runtime/scaffold/generate');
 const { handleDecisionCommand } = require('../runtime/decision-register');
 const { handleInventoryCommand } = require('../runtime/inventory');
 const { finishRuntime, usageError } = require('../runtime/cli-result');
-const { setDefaultSlug, invalidSlugRefusal } = require('../runtime/task-scope');
+const { setDefaultSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope');
 const { REPO_ROOT } = require('./shared');
 
 /** Where `readiness`/`evidence` read and write per-task state. Mirrors scopeOf()'s rules so these
@@ -139,7 +139,14 @@ function dispatchRuntimeCommand(o) {
   // `--slug` names the feature a task-store verb's records belong to (task-scope.js). Set once
   // here so the verbs whose handlers build their own ledger (readiness, evidence) route the same
   // way as the ones that take `slug` directly. The orchestration journal is keyed by slug already.
-  if (TASK_STORE_VERBS.has(o.cmd)) setDefaultSlug(o.slug);
+  // Reset on every dispatch, so one invocation's slug can never carry into the next in-process call.
+  setDefaultSlug(TASK_STORE_VERBS.has(o.cmd) ? o.slug : null);
+  // A well-formed slug that names no feature changes nothing (the records go to the shared task
+  // store), but the caller typed it expecting an effect, so say so once, on stderr only.
+  if (TASK_STORE_VERBS.has(o.cmd) && typeof o.slug === 'string' && o.slug !== ''
+    && slugNamesNoFeature({ projectRoot: evidenceRoot(o), slug: o.slug })) {
+    console.error(`doflow ${o.cmd}: note: --slug '${o.slug}' names no feature; using the shared task store`);
+  }
   switch (o.cmd) {
     // REPO_ROOT locates the capability registry; projectRoot is the tree whose index freshness
     // and build/test commands are being reported on, which follows the usual scope rules.
