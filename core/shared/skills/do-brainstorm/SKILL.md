@@ -131,6 +131,10 @@ workflow never reads.
    Then, on **every** path: `mkdir -p agent-docs/doflow/<slug>/intention`. A branch-derived slug
    names a directory that usually does not exist yet, so this is not only the new-feature case, and
    the stage's own subdirectory holds both its dialogue logs and its output.
+   Then run `"$DOFLOW" decision --action init --slug="<slug>" --json`: `created: false` means the
+   register already exists; exit 1 with finding `predates-register` means a folder from before the
+   register, so continue without one; exit 2 means stop and report, because a new feature must not
+   continue without a register.
 5. **Write `requirement.md`** — copy the requirement template into the feature dir and fill the
    tokens from the dialogue. It goes at `agent-docs/doflow/<slug>/intention/requirement.md`: a
    fresh feature dir holds nothing yet, so step 1's `layout` still reads `legacy` and its
@@ -172,7 +176,8 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
    and `generated-analysis`, neither of which may ever be `extracted`, because that pairing is
    exactly how the user's words and your reading of them stop being distinguishable. Add every
    conclusion this stage reached as a claim in the same pass.
-8. **Record the handoff** — one call positions the run (starting one when none exists yet, so this
+8. **Record the handoff** — first follow the decision step in the guidance tree's
+   `references/WORKFLOW_HANDOFF.md`. One call positions the run (starting one when none exists yet, so this
    stage never has to decide between `start` and completing it for itself), records this stage's
    completion or a rerun annotation, and returns the disposition:
    ```bash

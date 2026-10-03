@@ -13,6 +13,22 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.12.0] - 2026-10-03
+
+### Added
+
+- Decision register for features: `doflow decision` (`init`, `add`, `list`, `compact`) records every
+  decision made during a feature in `decisions/register.json`, with `decisions.md` showing only the
+  current decision per topic and `decisions/archive.md` keeping superseded decisions and rationale.
+- Stage handoffs compact the History sections of requirement, design, specs, data-model and plan
+  into `decisions/history/`, leaving a pointer, so later stages load current text only.
+- `validate` reports `stale` and `unknown` decision references in features with a register; the
+  resolver reports `decisions`, `decisions_register` and `has_decisions`; the context pack carries
+  the live decisions.
+- Chain skills register each stage's decisions before handing off, and `do-brainstorm` creates the
+  register for new features. Features created before this release get no register and validate
+  exactly as before.
+
 ## [1.11.0] - 2026-10-02
 
 ### Added

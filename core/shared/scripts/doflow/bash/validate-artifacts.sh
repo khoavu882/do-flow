@@ -10,7 +10,13 @@
 #   parity     index IDs and Detail IDs match, in both directions
 #   status     every Status is "Live" or "Superseded -> <ref>"
 #   supersede  an ID-shaped <ref> resolves to an ID present in the same artifact
-#   history    a superseded ID has an entry in the History section
+#   history    a superseded ID has an entry in the History section (or in the archive file that
+#              the History section's "Earlier entries:" pointer names)
+#   stale      a line outside History and HTML comments cites a superseded DEC-### from the
+#              feature's decision register without also naming a decision that replaced it. Inert
+#              when the feature has no decisions/register.json.
+#   unknown    a line outside History, comments and code fences cites a DEC-### that is not in the
+#              feature's decision register. Inert without a register.
 #   rollup     plan.md's phase rollup counts match its task checklist
 #
 # Grammar (see guidance/references/ARTIFACT_FORMAT.md) — deliberately prefix-agnostic, so
@@ -77,11 +83,59 @@ if [ "${#targets[@]}" -eq 0 ]; then
   root=$(printf '%s' "$json" | jq -r '.repo_root // empty')
   [ -n "$(printf '%s' "$json" | jq -r '.feature_slug // empty')" ] || note "no-active-feature"
 
-  for key in requirement design specs plan; do
+  # data-model.md is a default target only for a feature that has a decision register, so a folder
+  # from before the register validates exactly as it always did (FR-016).
+  keys="requirement design specs plan"
+  [ "$(printf '%s' "$json" | jq -r '.has_decisions // false')" = "true" ] && keys="requirement design specs data_model plan"
+  for key in $keys; do
     p=$(printf '%s' "$json" | jq -r ".$key // empty")
     [ -n "$p" ] && [ -f "$root/$p" ] && targets+=("$root/$p")
   done
   [ "${#targets[@]}" -gt 0 ] || note "no-artifacts-present"
+elif command -v jq >/dev/null 2>&1; then
+  # Explicit paths skip discovery, but the stale rule still needs the feature's register. Resolve
+  # quietly: any failure here only leaves the rule inert, never changes what was asked for.
+  script_dir="$(cd "$(dirname "$0")" && pwd)"
+  RESOLVER="$script_dir/do-paths.sh"
+  [ -f "$RESOLVER" ] || RESOLVER="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh}"
+  json=""
+  if [ -f "$RESOLVER" ]; then
+    resolver_args=(--json)
+    [ -n "$slug_override" ] && resolver_args+=("--slug=$slug_override")
+    json=$(bash "$RESOLVER" "${resolver_args[@]}" 2>/dev/null) || json=""
+  fi
+  root=$(printf '%s' "$json" | jq -r '.repo_root // empty' 2>/dev/null)
+fi
+
+# ── decision register (stale rule) ──────────────────────────────────────────────────────────────
+# stale_map is "<id>:<successor>,<successor>;..." — every superseded decision with its chain, the
+# live end last. Empty when there is no register, so the rule is inert; a register jq cannot read
+# also leaves it empty (fail-open).
+stale_map=""; known_ids=""; reg_ok=0; feat_abs=""
+# The feature folder is canonicalised physically: the resolver reports a logical root in a non-git
+# directory, while each file below is compared by its physical path. A symlink or /tmp vs
+# /private/tmp on one side only would make the containment test silently fail.
+if [ -n "${json:-}" ] && [ -n "$(printf '%s' "$json" | jq -r '.feature_dir // empty' 2>/dev/null)" ]; then
+  feat_abs=$(cd "$root/$(printf '%s' "$json" | jq -r '.feature_dir')" 2>/dev/null && pwd -P) || feat_abs=""
+fi
+if [ -n "$feat_abs" ] && [ "$(printf '%s' "$json" | jq -r '.has_decisions // false' 2>/dev/null)" = "true" ]; then
+  reg_file="$root/$(printf '%s' "$json" | jq -r '.decisions_register')"
+  # limit() bounds each chain at the decision count, so a hand-edited register whose supersededBy
+  # links form a cycle still terminates; a decision is never its own successor.
+  stale_map=$(jq -r '
+    .decisions as $d
+    | ($d | map({key: .id, value: .supersededBy}) | from_entries) as $next
+    | [ $d[] | select(.status == "superseded") | .id as $id
+        | {id: $id, chain: ([ limit($d | length; $id | recurse($next[.] // empty)) ] | .[1:] | map(select(. != $id)))} ]
+    | map(select(.chain | length > 0) | .id + ":" + (.chain | join(",")))
+    | join(";")' "$reg_file" 2>/dev/null) || stale_map=""
+  # Every id the register holds, as numbers ("1,2,3"): the unknown rule needs the whole set, and is
+  # active only when the register could be read.
+  if known_ids=$(jq -r '[.decisions[].id | ltrimstr("DEC-") | tonumber] | join(",")' "$reg_file" 2>/dev/null); then
+    reg_ok=1
+  else
+    known_ids=""
+  fi
 fi
 
 # ── check each target ─────────────────────────────────────────────────────────────────────────
@@ -92,14 +146,158 @@ for f in "${targets[@]}"; do
     findings="${findings}${f}"$'\t'"io"$'\t'"-"$'\t'"file not found"$'\n'
     continue
   fi
-  out=$(awk -v is_plan="$([ "$(basename "$f")" = "plan.md" ] && echo 1 || echo 0)" '
+  # The register belongs to one feature: an explicit path outside that feature folder must not be
+  # checked against it.
+  file_stale_map=""; file_reg_ok=0; file_known_ids=""; hist_root=""
+  if [ -n "$feat_abs" ]; then
+    case "$(cd "$(dirname "$f")" 2>/dev/null && pwd -P)/" in
+      "$feat_abs"/*)
+        file_stale_map="$stale_map"; file_reg_ok="$reg_ok"; file_known_ids="$known_ids"
+        # The only place a History pointer may lead: the feature's own archive directory.
+        hist_root=$(cd "$feat_abs/decisions/history" 2>/dev/null && pwd -P) || hist_root=""
+        ;;
+    esac
+  fi
+  # Paths reach awk through the environment: -v would process backslash escapes inside them.
+  out=$(DF_ART_DIR="$(dirname "$f")" DF_HIST_ROOT="$hist_root" awk -v is_plan="$([ "$(basename "$f")" = "plan.md" ] && echo 1 || echo 0)" \
+    -v stale_map="$file_stale_map" -v reg_ok="$file_reg_ok" -v known_ids="$file_known_ids" -v sq="'" '
     # Inline markup is presentation, not value: "**Superseded → X**" and "`Live`" mean the same as
     # their bare forms, so emphasis is stripped before any comparison.
     function trim(s) { gsub(/[`*]/, "", s); gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
     function is_id(s) { return s ~ /^[A-Za-z]+-?[0-9]+$/ }
     function finding(rule, id, msg) { print rule "\t" id "\t" msg }
 
-    BEGIN { sec = 0; in_table = 0; in_rollup = 0; status_col = 0; phase = "" }
+    # Blanks the parts of a line that sit inside an HTML comment, tracking comments that span
+    # lines, so a comment block is never read as artifact text. Mirrors the compactor: only a
+    # comment opening at the start of a line continues past it.
+    function strip_comments(s,   out, p, rest) {
+      out = ""
+      while (s != "") {
+        if (in_comment) {
+          p = index(s, "-->")
+          if (!p) return out
+          s = substr(s, p + 3); in_comment = 0
+        } else {
+          p = index(s, "<!--")
+          if (!p) return out s
+          rest = substr(s, p + 4)
+          if (out == "" && substr(s, 1, p - 1) ~ /^[ \t]*$/) {
+            # A comment that starts the line may run on over later lines.
+            s = rest; in_comment = 1
+          } else if (index(rest, "-->")) {
+            # Mid-line, it counts only when it also closes on this line; a lone `<!--` quoted in
+            # prose is text and must not hide the rest of the file.
+            out = out substr(s, 1, p - 1); s = substr(rest, index(rest, "-->") + 3)
+          } else return out s
+        }
+      }
+      return out
+    }
+
+    # One `unknown` finding per DEC-### the register does not hold, then one `stale` finding per
+    # superseded DEC-### on the line, unless the same line also names a decision
+    # later in that decision chain (the line is then about the change, not a stale statement).
+    # awk has no \b, so a token counts only when no word character touches either end.
+    function check_stale(text, lineno,   pos, s, l, tok, before, after, num, cn, i, j, order, cited, named, flagged, ok) {
+      split("", order); split("", cited); split("", named); split("", flagged); cn = 0; pos = 1
+      while (pos <= length(text) && match(substr(text, pos), /DEC-[0-9]+/)) {
+        s = pos + RSTART - 1; l = RLENGTH
+        tok = substr(text, s, l)
+        before = (s > 1) ? substr(text, s - 1, 1) : ""
+        after = substr(text, s + l, 1)
+        pos = s + l
+        if (before ~ /[A-Za-z0-9_]/ || after ~ /[A-Za-z_]/) continue
+        num = substr(tok, 5) + 0
+        named[num] = 1
+        if (reg_ok && !(num in known) && !(num in flagged)) {
+          flagged[num] = 1
+          finding("unknown", tok, "line " lineno " cites " tok ", which is not in the decision register")
+        }
+        if ((num in chain_end) && !(num in cited)) { cited[num] = tok; order[++cn] = num }
+      }
+      for (i = 1; i <= cn; i++) {
+        num = order[i]; ok = 0
+        for (j = 1; j <= chain_n[num]; j++) if (chain_m[num, j] in named) ok = 1
+        if (!ok) finding("stale", cited[num], "line " lineno " cites " cited[num] ", superseded by " chain_end[num])
+      }
+    }
+
+    # The pointer line in History names an archive file (relative to this artifact). IDs that
+    # moved there still count as History entries for the history rule.
+    # True when the directory holding `path` resolves, physically, inside <feature>/decisions/history.
+    # A pointer is data from the artifact; it must not make the validator read arbitrary files.
+    function under_hist_root(path,   d, cmd, real) {
+      if (hist_root == "" || index(path, sq)) return 0
+      d = path; sub(/\/[^\/]*$/, "", d)
+      if (d == "") d = "/"
+      cmd = "cd " sq d sq " 2>/dev/null && pwd -P"
+      real = ""
+      cmd | getline real
+      close(cmd)
+      return real != "" && index(real "/", hist_root "/") == 1
+    }
+
+    function load_archive(line,   target, path, l, c, first) {
+      if (!match(line, /\]\([^)]+\)/)) return
+      target = substr(line, RSTART + 2, RLENGTH - 3)
+      path = (target ~ /^\//) ? target : dir "/" target
+      if (!under_hist_root(path)) return
+      while ((getline l < path) > 0) {
+        if (l ~ /^[ \t]*\|/) {
+          if (l ~ /^[ \t]*\|[ :|-]*$/) continue
+          split(l, c, "|"); first = trim(c[2])
+          if (is_id(first)) hist[first] = 1
+        } else if (l ~ /^- \*\*[A-Za-z]+-?[0-9]+/) {
+          sub(/^- \*\*/, "", l)
+          if (match(l, /^[A-Za-z]+-?[0-9]+/)) hist[substr(l, 1, RLENGTH)] = 1
+        }
+      }
+      close(path)
+    }
+
+    BEGIN {
+      dir = ENVIRON["DF_ART_DIR"]; hist_root = ENVIRON["DF_HIST_ROOT"]
+      sec = 0; in_table = 0; in_rollup = 0; status_col = 0; phase = ""; in_comment = 0; cur_hist = 0; fence_ch = ""; fence_len = 0
+      if (reg_ok) {
+        nk = split(known_ids, kn, ",")
+        for (k = 1; k <= nk; k++) if (kn[k] != "") known[kn[k] + 0] = 1
+      }
+      if (stale_map != "") {
+        nrec = split(stale_map, recs, ";")
+        for (r = 1; r <= nrec; r++) {
+          split(recs[r], kv, ":"); num = substr(kv[1], 5) + 0
+          nc = split(kv[2], ch, ",")
+          chain_end[num] = ch[nc]; chain_n[num] = nc
+          for (j = 1; j <= nc; j++) chain_m[num, j] = substr(ch[j], 5) + 0
+        }
+      }
+    }
+
+    # Runs on every line, before the structural rules below (which consume lines with "next").
+    # Fenced code is an example, not artifact text: it neither opens a section nor cites anything.
+    # Fence rules follow the compactor: a run of 3+ backticks or tildes, up to 3 spaces in, closed by
+    # a bare run of the same character at least as long.
+    {
+      in_fence = 0
+      t = $0; sub(/[ \t]+$/, "", t)
+      if (fence_ch != "") {
+        in_fence = 1
+        if (t ~ /^ ? ? ?(`+|~+)$/) {
+          sub(/^ +/, "", t)
+          if (substr(t, 1, 1) == fence_ch && length(t) >= fence_len) fence_ch = ""
+        }
+      } else if (t ~ /^ ? ? ?(```|~~~)/) {
+        in_fence = 1
+        sub(/^ +/, "", t); fence_ch = substr(t, 1, 1); fence_len = 0
+        while (substr(t, fence_len + 1, 1) == fence_ch) fence_len++
+      }
+      if (!in_fence) {
+        vis = strip_comments($0)
+        if ($0 ~ /^## /) cur_hist = ($0 ~ /[Hh]istory/) ? 1 : 0
+        else if (cur_hist && vis ~ /^Earlier entries: \[decisions\/history\/[a-z-]+\.md\]/) load_archive(vis)
+        if ((stale_map != "" || reg_ok) && !cur_hist && vis != "") check_stale(vis, NR)
+      }
+    }
 
     # ── section boundaries ───────────────────────────────────────────────────────────────────
     /^## / {

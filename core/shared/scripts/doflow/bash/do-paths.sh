@@ -136,6 +136,7 @@ if [ -n "$slug_override" ]; then
 fi
 
 feature_dir=""; requirement=""; design=""; specs=""; data_model=""; plan=""; state=""; audit=""
+decisions=""; decisions_register=""; has_decisions=false
 has_requirement=false; has_design=false; has_plan=false; has_specs=false; has_data_model=false
 layout="legacy"
 intention_next_round=""; design_next_round=""; plan_next_round=""
@@ -143,6 +144,8 @@ if [ -n "$feature_slug" ]; then
   feature_dir="$specs_rel/$feature_slug"
   abs="$repo_root/$feature_dir"
   state="$feature_dir/state.md"; audit="$feature_dir/audit.md"
+  decisions="$feature_dir/decisions.md"; decisions_register="$feature_dir/decisions/register.json"
+  [ -f "$abs/decisions/register.json" ] && has_decisions=true
   # ── layout: computed ONCE from a single file's presence, then used to pick
   # every path field below — never detected per-field (design.md R4). This is
   # what makes a self-contradictory mix of old/new paths for the same feature
@@ -272,6 +275,7 @@ jq -n \
   --argjson candidate_slugs "$candidate_slugs_json" \
   --arg requirement "$requirement" --arg design "$design" --arg specs "$specs" --arg data_model "$data_model" --arg plan "$plan" \
   --arg state "$state" --arg audit "$audit" \
+  --arg decisions "$decisions" --arg decisions_register "$decisions_register" --argjson has_decisions "$has_decisions" \
   --argjson has_requirement "$has_requirement" --argjson has_design "$has_design" --argjson has_plan "$has_plan" \
   --argjson has_specs "$has_specs" --argjson has_data_model "$has_data_model" \
   --arg layout "$layout" \
@@ -298,6 +302,9 @@ jq -n \
     plan:               (if $plan=="" then null else $plan end),
     state:              (if $state=="" then null else $state end),
     audit:              (if $audit=="" then null else $audit end),
+    decisions:          (if $decisions=="" then null else $decisions end),
+    decisions_register: (if $decisions_register=="" then null else $decisions_register end),
+    has_decisions:      $has_decisions,
     has_requirement:    $has_requirement,
     has_design:         $has_design,
     has_specs:          $has_specs,

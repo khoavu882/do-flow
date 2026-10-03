@@ -14,6 +14,8 @@ const { WorkflowEngine } = require('./workflow-engine');
 const { updateTaskState, readTaskState } = require('./task-state');
 const { ResearchRequestStore } = require('./research-request');
 const { REPO_ROOT } = require('../helper/repo-root');
+const { resolveActiveFeature } = require('./feature-resolve');
+const { compactDecisions } = require('./decision-register');
 
 const RUN_STATES = Object.freeze(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED']);
 
@@ -467,6 +469,30 @@ class WorkflowOrchestrator {
   }
 }
 
+/**
+ * IC-013: fold the finished stage's History into the feature's archive. The task id is the feature
+ * slug. This is housekeeping after a recorded handoff, so it reports and never throws: the
+ * disposition and the exit code stay whatever the handoff itself decided.
+ * @returns {{status:'compacted'|'unchanged'|'skipped'|'failed', reason?:string, moved?:Array}}
+ */
+function compactAfterHandoff({ taskId, projectRoot }) {
+  try {
+    const feature = resolveActiveFeature({ projectRoot, slug: taskId });
+    if (feature.error) return { status: 'skipped', reason: feature.message };
+    // A task id such as a plan task (`B.1`) resolves on a feature branch to a folder that was
+    // never created; say that, rather than blaming a missing register.
+    if (!fs.existsSync(feature.featureDir)) return { status: 'skipped', reason: `no feature folder for task id "${taskId}"` };
+    const result = compactDecisions({
+      featureDir: feature.featureDir, slug: feature.paths.feature_slug, repoRoot: feature.repoRoot, paths: feature.paths,
+    });
+    if (result.finding === 'no-register') return { status: 'skipped', reason: result.message };
+    if (result.finding) return { status: 'failed', reason: result.message, ...(result.moved ? { moved: result.moved } : {}) };
+    return { status: result.status, moved: result.moved };
+  } catch (error) {
+    return { status: 'failed', reason: error.message };
+  }
+}
+
 /** CLI handler for `doflow orchestrate`. The run journal lives in the CALLER's project state
  * (like evidence), while templates come from this install — same two-roots split readiness uses.
  * The cascade gate wires the real ReadinessEngine: completing a source-mutating gated stage
@@ -570,9 +596,14 @@ function handleOrchestrateCommand({
       default:
         return usageError('orchestrate', `unknown action '${action}'; valid: start | status | handoff | catch-up | complete-stage | skip-stage | decide-gate | annotate`, json);
     }
+    // Only a handoff that recorded work compacts; `deferred` and `standalone` recorded nothing.
+    if (action === 'handoff' && (snapshot.disposition === 'completed' || snapshot.disposition === 'annotated')) {
+      snapshot = { ...snapshot, compaction: compactAfterHandoff({ taskId, projectRoot: state }) };
+    }
     if (json) { console.log(JSON.stringify(snapshot, null, 2)); return finishRuntime(0); }
     console.log(`Workflow ${snapshot.taskId} [${snapshot.taskClass}] — ${snapshot.state}`);
     if (snapshot.disposition) console.log(`Handoff: ${snapshot.disposition}`);
+    if (snapshot.compaction) console.log(`Compaction: ${snapshot.compaction.status}${snapshot.compaction.reason ? ` — ${snapshot.compaction.reason}` : ''}`);
     if (snapshot.progress) console.log(`Progress: ${snapshot.progress.done}/${snapshot.progress.total}`);
     if (snapshot.current) {
       console.log(snapshot.awaitingGate

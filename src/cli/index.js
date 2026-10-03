@@ -68,6 +68,8 @@ function parseArgs(argv) {
       case '--statusline': o.statusline = true; break;
       case '--json': o.json = true; break;
       case '--check': o.check = true; break;
+      // decision --action list: every decision by id, not just the live ones.
+      case '--all': o.all = true; break;
       // readiness: the caller declares a decision is owed by the user. A flag rather than an
       // inference, because nothing the runtime can see distinguishes "a decision is pending"
       // from "nobody has looked yet", and guessing would be the gate answering unasked.
@@ -192,7 +194,13 @@ const RUNTIME_STRING_FLAGS = new Map([
   // `scaffold`. The resolver's own ambiguous-feature error tells the caller to "re-run with
   // --slug=<chosen>"; without this flag that hint would name an argument this CLI rejects.
   ['--slug', 'slug'],
-  ['--rationale', 'rationale'],        // classify: why this class was proposed
+  ['--rationale', 'rationale'],        // classify: why this class was proposed · decision --action add: why it was decided
+  // decision --action add. `--statement`, `--stage`, `--slug` and `--batch` above are shared.
+  ['--topic', 'topic'],                // the subject key a decision is live on
+  ['--channel', 'channel'],            // question | gate | prompt | default | resolution
+  ['--supersedes', 'supersedes'],      // comma-separated DEC-### ids this decision replaces
+  ['--refs', 'refs'],                  // comma-separated ids the decision touches, e.g. FR-001,IC-002
+  ['--source', 'source'],              // where the decision was stated, e.g. design/design-02-question.md#question-1
   ['--proposed-by', 'proposedBy'],     // classify: which worker proposed it
   ['--calling-skill', 'callingSkill'],  // classify: which skill is asking, for the fit check
   ['--intent', 'intent'],              // route: the information need being resolved
@@ -357,6 +365,8 @@ Commands:
   discover             Missed capability opportunities in recorded runs
   inventory            Shadowed copies, drift and unmanaged files across both install scopes
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
+  decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
+                       (a value beginning with '-' must be written --flag=value)
   leak-scan            Report DoFlow-internal identifiers in shipped files (--path, repeatable)
 
 Scope (mutually exclusive — global wins if both given):

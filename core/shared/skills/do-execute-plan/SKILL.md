@@ -213,6 +213,8 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
      completion summary rather than passing silently.
 
 10. **Record the Handoff**:
+    - Before recording it, follow the decision step in the guidance tree's
+      `references/WORKFLOW_HANDOFF.md`.
     - Once per `/do-execute-plan` invocation, at the last `state.md` checkpoint this run writes —
       not once per phase, since the stage hands off once however many phases it executed. The stage
       id is step 3's `caughtUpTo`, which the run is already positioned on; there is no second

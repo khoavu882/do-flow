@@ -177,8 +177,8 @@ Filling §8's task dependency graph, read the guidance tree's `references/DIAGRA
     ```
 Item schema, provenance rules, and the refused-field list: the guidance tree's `references/EVIDENCE_LEDGER.md`. Read it before writing the batch.
     This stage's items are §3 "Research & Decisions" of the `plan.md` you just wrote: per decision,
-    what was found, where it came from, and its locator. Add each `D#` decision as a claim in the
-    same pass.
+    what was found, where it came from, and its locator. Add each §3 decision as a claim in the same pass: by `D#`, or, with a register, new
+    planning decisions by statement (their `DEC-###` IDs are written back at the handoff step).
 11. **Record the handoff** — read the guidance tree's `references/WORKFLOW_HANDOFF.md`.
    Use the feature slug as `<task id>`; if no feature is active, this is standalone and there is
    no workflow handoff. After completing this skill's work:

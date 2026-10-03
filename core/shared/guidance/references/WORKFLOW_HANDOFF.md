@@ -1,5 +1,40 @@
 # Recording a workflow handoff
 
+## Decisions first
+
+Before the handoff call, run `"$DOFLOW" paths --json` again (not the stage's earlier result, which
+can predate the register) and, when it reports `has_decisions: true`:
+
+1. List the live decisions with `"$DOFLOW" decision --action list --json`. A decision that changes a
+   live one reuses its topic and names it in `supersedes`; a new topic key is for a genuinely new
+   subject only.
+2. Register this stage's decisions (question answers, gate answers carrying a choice, decisions the
+   user typed as prompts, "Decide for me" defaults, agent resolutions) in one
+   `"$DOFLOW" decision --action add --batch <file>.json --json` call. Leave out an item already live
+   with the same statement, such as a gate answer do-flow registered. Each item needs `topic`
+   (kebab-case), `statement` (one line), `channel` (`question|gate|prompt|default|resolution`),
+   `stage` (the ownership-table stage name) and `rationale`; `supersedes`, `refs` and `source` are
+   optional. Skip the call when there are none. On exit 1 `topic-conflict`, add `supersedes` for the
+   named live decision or drop the duplicate item, then retry; on exit 1 `register-locked`, retry
+   once; on exit 2, fix the named item and retry. Never hand off with the stage's decisions
+   unregistered without saying so.
+3. Write each returned `DEC-###` into the lines of this stage's own artifacts that apply it
+   (ARTIFACT_FORMAT.md §12).
+4. Run `"$DOFLOW" validate`. Correct each `stale` or `unknown` finding in an artifact this stage
+   owns, changing only the flagged line; report findings in other artifacts without editing them.
+5. Record the handoff below. It compacts History itself and reports `compaction`; its `--task-id`
+   must be the feature slug, not a plan task id, or compaction is skipped. A do-execute-plan
+   checkpoint (`annotate`) does not compact; the next completed handoff does.
+
+| Stage | Owns |
+|---|---|
+| discovery | `intention/requirement.md` |
+| design | `design/design.md`, `design/specs.md`, `design/data-model.md` |
+| planning | `plan.md` |
+| implementation, verification, review | none; findings are reported |
+
+## The handoff call
+
 After a skill finishes its work, call the resolved runtime seam:
 
 ```bash

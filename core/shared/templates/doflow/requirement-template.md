@@ -104,6 +104,8 @@ checked for its absence, and a template that quotes it makes every correct artif
 
 ## 8. Assumptions
 
+<!-- With a decision register, a row from a "Decide for me" pick cites its DEC-### in Basis: see ARTIFACT_FORMAT.md §12. -->
+
 | ID | Assumption | Affects | Basis |
 |---|---|---|---|
 | A1 | [assumption stated] | FR-001 | [why this default, or "user deferred"] |
