@@ -248,6 +248,7 @@ Workflow and evidence:
   retrieval-plan   declare the needs a stage will resolve, then report every declared item
   outcome          record a task's terminal state with its basis, or show what was recorded
   scaffold         emit the code scaffold the active feature's artifacts imply
+  decision         register, list or compact the active feature's decisions
 
 Verification and recovery:
   verify           compile the contract, run checks, emit the report
@@ -358,7 +359,7 @@ shell_helper_for() {
 # command list; an unbuilt verb is dispatched and the CLI answers for itself.
 is_node_verb() {
   case "$1" in
-    classify|workflow|route|evidence|claim|readiness|context-pack|retrieval-plan|outcome|scaffold|verify|recover|leak-scan|\
+    classify|workflow|route|evidence|claim|readiness|context-pack|retrieval-plan|outcome|scaffold|decision|verify|recover|leak-scan|\
 trace|stats|indicators|discover|inventory|capabilities|doctor|orchestrate|research-request|retrieve|model-role) return 0 ;;
     *) return 1 ;;
   esac

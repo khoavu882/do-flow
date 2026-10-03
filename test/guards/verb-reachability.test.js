@@ -70,6 +70,10 @@ const ALLOWLIST = new Map([
     'knowledge-fabric search verb: operator/diagnostic entry over the installed guidance index; skills adopt it through retrieval declarations rather than naming it directly, so it is allowlisted with that rationale',
   ],
   [
+    'decision',
+    'temporary allowlist entry (feature 044, design D3, plan task A.4): the decision register verb lands before the skill prose that calls it; plan task C.2 adds the do-brainstorm reference that runs `decision --action init` and removes this entry',
+  ],
+  [
     'model-role',
     'advisory model routing verb: resolves a role from models.json to availability-annotated provider candidates; consumed by skills and orchestration snapshots at adoption time rather than named directly by any skill today',
   ],

@@ -46,6 +46,7 @@ const { handleVerifyCommand } = require('../runtime/verification/engine');
 const { handleLeakScanCommand } = require('../runtime/leak-scan');
 const { handleRecoverCommand } = require('../runtime/recovery');
 const { handleScaffoldCommand } = require('../runtime/scaffold/generate');
+const { handleDecisionCommand } = require('../runtime/decision-register');
 const { handleInventoryCommand } = require('../runtime/inventory');
 const { finishRuntime, usageError } = require('../runtime/cli-result');
 const { REPO_ROOT } = require('./shared');
@@ -161,6 +162,9 @@ function dispatchRuntimeCommand(o) {
     // because the plan's `files:` paths are relative to it. Passing the DoFlow install here
     // would detect the wrong language and mirror the wrong tree.
     case 'scaffold': return handleScaffoldCommand({ json: o.json, projectRoot: evidenceRoot(o), slug: o.slug });
+    // The feature is resolved from the working directory (or --slug) by the same resolver
+    // `scaffold` uses; the flags are the caller's own statements, validated by the register module.
+    case 'decision': return handleDecisionCommand({ action: o.action, projectRoot: evidenceRoot(o), slug: o.slug, json: o.json, flags: { topic: o.topic, statement: o.statement, channel: o.channel, stage: o.stage, rationale: o.rationale, supersedes: o.supersedes, refs: o.refs, source: o.source, batch: o.batchPath, all: o.all } });
     // The rest of design §4.2's Node arm. REPO_ROOT locates the registries that ship with the
     // package (workflows, capabilities, verification); evidenceRoot(o) locates the caller's own
     // state and source tree, following the same scope rules as every other command.
