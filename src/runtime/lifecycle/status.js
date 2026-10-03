@@ -157,6 +157,8 @@ function behindNote(ref, behind) {
  * @param {Object} options.fold a fold result (tracked features, merge confirmations, release records)
  * @param {Object} [options.facts] `readGitFacts` output, for a caller that already has it
  * @returns {{releaseMode:'tagged'|'untagged'|'unknown', integrationRef:string|null, integrationBehind:number, reason:string|null,
+ *   integrationSha:string|null (the commit the ref was pinned to; absent when nothing was derived),
+ *   evidenceCommits:Object<string,string|null> (slug to the full merge commit of its evidence; absent when nothing was derived),
  *   statuses:Object<string,{status:string, evidence:{kind:string,ref:string|null}|null, release:string|null}>,
  *   features:Object<string,string[]>, notDetected:string[]}}
  */
@@ -170,7 +172,11 @@ function deriveStatuses({ root, fold, facts = readGitFacts(root) }) {
   const ref = facts.integration_ref;
   const releaseMode = facts.release_tags.length > 0 ? 'tagged' : 'untagged';
   const behind = Number(facts.integration_local_behind_remote) || 0;
-  if (tracked.length === 0) return result(releaseMode, ref, null, {}, [], behind);
+  if (tracked.length === 0) {
+    let sha = null;
+    try { sha = git(root, ['rev-parse', '--verify', `${ref}^{commit}`]).trim(); } catch { /* the ref does not name a commit */ }
+    return { ...result(releaseMode, ref, null, {}, [], behind), integrationSha: sha, evidenceCommits: {} };
+  }
 
   try {
     // Pin the ref once: every query below names the same commit.
@@ -184,6 +190,7 @@ function deriveStatuses({ root, fold, facts = readGitFacts(root) }) {
     const unrecordedTags = new Set(facts.release_tags.filter((tag) => !recordedTags.has(tag)));
 
     const statuses = {};
+    const evidenceCommits = {};
     const notDetected = [];
     for (const feature of tracked) {
       const lowerBound = Math.floor(Date.parse(feature.trackedAt) / 1000);
@@ -191,6 +198,7 @@ function deriveStatuses({ root, fold, facts = readGitFacts(root) }) {
         slug: feature.slug, lowerBound, merges, tips, prefixes: facts.feature_prefixes, confirmed: mergedSlugs.has(feature.slug),
       });
       const shown = evidence && { kind: evidence.kind, ref: evidence.ref };
+      evidenceCommits[feature.slug] = evidence ? evidence.commit : null;
       let status;
       let release = null;
       if (releaseMode === 'untagged') {
@@ -210,7 +218,9 @@ function deriveStatuses({ root, fold, facts = readGitFacts(root) }) {
       if (status === 'in-progress') notDetected.push(feature.slug);
       statuses[feature.slug] = { status, evidence: shown, release };
     }
-    return result(releaseMode, ref, null, statuses, notDetected, behind);
+    // `integrationSha` and `evidenceCommits` are for the release preview, which must use the very commit
+    // pinned here (DEC-044) and the full merge commit an evidence names, not its 7-character `ref`.
+    return { ...result(releaseMode, ref, null, statuses, notDetected, behind), integrationSha: pinned, evidenceCommits };
   } catch (error) {
     return unknown(`git could not answer: ${String(error.message).split('\n')[0]}`);
   }

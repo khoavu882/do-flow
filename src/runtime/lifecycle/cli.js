@@ -61,7 +61,7 @@ function overviewLines(r) {
 
 function releaseLines(r) {
   const lines = [`${r.recorded ? 'recorded' : 'preview of'} release ${r.tag} (previous ${r.previousTag || 'none'}, bound ${r.bound})`];
-  for (const c of r.candidates) lines.push(`  ships ${c.slug}  (${c.evidence}${c.ref ? ` ${c.ref}` : ''})`);
+  for (const c of r.candidates) if (!r.excluded.includes(c.slug)) lines.push(`  ships ${c.slug}  (${c.evidence}${c.ref ? ` ${c.ref}` : ''})`);
   if (r.added.length) lines.push(`added: ${r.added.join(', ')}`);
   if (r.excluded.length) lines.push(`excluded: ${r.excluded.join(', ')}`);
   if (r.notDetected.length) lines.push(`not detected: ${r.notDetected.join(', ')}`);

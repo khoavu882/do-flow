@@ -182,16 +182,35 @@ test('recording the same tag twice takes the union, and a slug in both lists is 
   assert.deepEqual(fold.releases[0].excluded, [slugs[1]]);
 });
 
-test('the previous tag and its range: a feature merged before it is not a candidate again', () => {
-  const { repo, early, late } = twoReleases(scratch);
-  track(repo, early); track(repo, late);
-  // v1.0.0 was recorded without `early` (the user left it out); it must not come back as a candidate for v2.0.0.
-  assert.equal(releaseFeatures({ root: repo.dir, tag: 'v1.0.0', confirm: true, exclude: [early], now: new Date('2026-10-05T00:00:00.000Z') }).recorded, true);
+test('G1: a feature a record excluded is still offered by the next release; only a record, another tag or no evidence drops a candidate', () => {
+  const repo = makeRepo(scratch, 'g1');
+  const [x, y, z] = ['050-x', '051-y', '052-z'];
+  for (const slug of [x, y, z]) track(repo, slug);
+  repo.mergeNoFf(featureBranch(repo, x, 1));
+  repo.mergeNoFf(featureBranch(repo, y, 1));
+  repo.tag('v1.0.0');
+  const first = releaseFeatures({ root: repo.dir, tag: 'v1.0.0', confirm: true, exclude: [x], now: new Date('2026-10-05T00:00:00.000Z') });
+  assert.deepEqual(first.candidates.map((c) => c.slug), [x, y]);
+  repo.mergeNoFf(featureBranch(repo, z, 1));
   repo.tag('v2.0.0');
   const out = release(repo, { tag: 'v2.0.0' });
   assert.equal(out.previousTag, 'v1.0.0');
-  assert.deepEqual(slugsOf(out), [late]);
+  assert.deepEqual(slugsOf(out), [x, z], '050-x is not recorded as released and has evidence; 051-y is named by the v1.0.0 record');
   assert.deepEqual(out.notDetected, []);
+});
+
+test('G1: a non-release v* tag (vnext) is never the previous tag and never drops a candidate', () => {
+  const repo = makeRepo(scratch, 'g1-vnext');
+  const [a, b] = ['053-a', '054-b'];
+  track(repo, a); track(repo, b);
+  repo.mergeNoFf(featureBranch(repo, a, 1));
+  repo.tag('v1.0.0');
+  repo.mergeNoFf(featureBranch(repo, b, 1));
+  repo.tag('vnext');
+  assert.equal(readGitFacts(repo.dir).base_tag, 'vnext', 'git-state itself proposes the non-release tag as its base');
+  const out = release(repo, { tag: 'v2.0.0' });
+  assert.equal(out.previousTag, 'v1.0.0');
+  assert.deepEqual(slugsOf(out), [b], 'a is contained in the unrecorded v1.0.0; b merged before vnext is still offered');
 });
 
 test('containment in another v* tag with no record still finishes a feature, so it is not a candidate', () => {
@@ -313,4 +332,104 @@ test('the verb: merged through the CLI, and lifecycle refuses -g for the new act
   assert.deepEqual([out.status, out.json.status], [0, 'finished']);
   assert.equal(run(repo.dir, ['lifecycle', '--action', 'merged', '--slug', SLUG, '--reason', 'x', '--json']).status, 1);
   assert.equal(run(repo.dir, ['lifecycle', '--action', 'release', '--tag', 'v1.0.0', '-g', '--json']).status, 2);
+});
+
+// ── review round: G2 .. G6 ─────────────────────────────────────────────────────────────────────
+
+test('G2: a hotfix merged only into the tag\'s branch (develop is the integration ref) is a candidate, not notDetected', () => {
+  const repo = makeRepo(scratch, 'g2-hotfix');
+  const slug = '111-hot';
+  track(repo, slug);
+  repo.git('branch', 'main', 'develop');
+  repo.checkout('-b', `feat/${slug}`, 'main');
+  repo.commit('hotfix work');
+  repo.mergeNoFf(`feat/${slug}`, 'main');
+  repo.git('branch', '-q', '-D', `feat/${slug}`);
+  repo.tag('v1.0.1');
+  repo.checkout('develop');
+  const out = release(repo, { tag: 'v1.0.1' });
+  assert.equal(out.integrationRef, 'develop');
+  assert.deepEqual(out.candidates.map((c) => [c.slug, c.evidence]), [[slug, 'merge-subject']]);
+  assert.deepEqual(out.notDetected, []);
+  assert.equal(releaseFeatures({ root: repo.dir, tag: 'v1.0.1', confirm: true, now: CLOCK }).recorded, true);
+});
+
+test('G2: the evidence uses the full merge commit, so a 7-character abbreviation that is ambiguous cannot misresolve it', () => {
+  const { repo } = FIXTURES.deletedBranch(scratch);
+  track(repo, SLUG);
+  const { deriveStatuses } = require('../../src/runtime/lifecycle/status');
+  const derived = deriveStatuses({ root: repo.dir, fold: store.readFold(repo.dir, { now: CLOCK }) });
+  assert.match(derived.evidenceCommits[SLUG], /^[0-9a-f]{40}$/);
+  assert.equal(derived.evidenceCommits[SLUG].slice(0, 7), derived.statuses[SLUG].evidence.ref);
+  assert.equal(derived.integrationSha, repo.git('rev-parse', 'develop'));
+});
+
+for (const deleted of [false, true]) {
+  test(`G3: a feature merged twice, first before the tag, is a candidate for that tag (git-flow: tag on main; ${deleted ? 'branch deleted: subject evidence' : 'branch kept: branch evidence'})`, () => {
+    const repo = makeRepo(scratch, `g3-${deleted}`);
+    const slug = '070-twice';
+    track(repo, slug);
+    const branch = featureBranch(repo, slug, 1);
+    repo.mergeNoFf(branch);
+    // The release is cut on main by merging develop; the feature's merge is then NOT on main's first-parent chain.
+    repo.git('branch', 'main', 'develop~1');
+    repo.mergeNoFf('develop', 'main');
+    repo.tag('v1.0.0');
+    repo.checkout(branch);
+    repo.commit('more work after the release');
+    repo.mergeNoFf(branch);
+    if (deleted) repo.git('branch', '-q', '-D', branch);
+    const out = release(repo, { tag: 'v1.0.0' });
+    assert.equal(out.integrationRef, 'develop');
+    assert.deepEqual(slugsOf(out), [slug]);
+    assert.equal(out.candidates[0].evidence, deleted ? 'merge-subject' : 'branch');
+    assert.deepEqual(out.notDetected, []);
+  });
+}
+
+test('G3: a feature whose only merge is after the tag stays notDetected for that tag', () => {
+  const repo = makeRepo(scratch, 'g3-after');
+  const slug = '071-late';
+  track(repo, slug);
+  repo.commit('release content');
+  repo.tag('v1.0.0');
+  repo.mergeNoFf(featureBranch(repo, slug, 1));
+  assert.deepEqual(release(repo, { tag: 'v1.0.0' }).notDetected, [slug]);
+});
+
+test('G4: the preview is bound to the commit the status view pinned, with the same ref name', () => {
+  const repo = makeRepo(scratch, 'g4');
+  track(repo, SLUG);
+  const { deriveStatuses } = require('../../src/runtime/lifecycle/status');
+  const derived = deriveStatuses({ root: repo.dir, fold: store.readFold(repo.dir, { now: CLOCK }) });
+  assert.equal(derived.integrationRef, 'develop');
+  assert.equal(derived.integrationSha, repo.git('rev-parse', 'develop'));
+  const empty = deriveStatuses({ root: repo.dir, fold: { features: [], merged: [], releases: [] } });
+  assert.equal(empty.integrationSha, derived.integrationSha, 'the pinned sha is reported with no tracked feature too');
+  assert.equal(release(repo, { tag: 'v1.0.0' }).bound, 'develop');
+});
+
+test('G5: --exclude of an untracked slug is refused in the preview and on confirm, and nothing is written', () => {
+  const { repo } = FIXTURES.mergeCommit(scratch);
+  track(repo, SLUG);
+  repo.tag('v1.0.0');
+  const before = eventFiles(repo);
+  for (const confirm of [false, true]) {
+    const out = release(repo, { tag: 'v1.0.0', exclude: ['999-typo'], confirm });
+    assert.deepEqual([out.ok, out.finding], [false, 'untracked-feature']);
+    assert.match(out.message, /999-typo.*excluded.*Nothing was written\.$/);
+  }
+  assert.deepEqual(eventFiles(repo), before);
+  const cli = run(repo.dir, ['lifecycle', '--action', 'release', '--tag', 'v1.0.0', '--exclude', '999-typo', '--confirm', '--json']);
+  assert.deepEqual([cli.status, cli.json.finding], [1, 'untracked-feature']);
+});
+
+test('G6: a candidate that is also excluded is printed as excluded only', () => {
+  const { repo } = FIXTURES.mergeCommit(scratch);
+  repo.dir = fs.realpathSync(repo.dir);
+  track(repo, SLUG);
+  repo.tag('v1.0.0');
+  const text = run(repo.dir, ['lifecycle', '--action', 'release', '--tag', 'v1.0.0', '--exclude', SLUG]).stdout;
+  assert.match(text, new RegExp(`excluded: ${SLUG}`));
+  assert.doesNotMatch(text, /ships /);
 });

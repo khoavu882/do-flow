@@ -318,3 +318,17 @@ test('git-state --lifecycle reports the base tag the release ritual uses', () =>
   assert.deepEqual(out.feature_prefixes, ['feat', 'feature']);
   assert.equal(out.integration_ref, 'develop');
 });
+
+// ── the release preview's inputs (review round G2, G4) ─────────────────────────────────────────
+
+test('the result carries the pinned integration sha and the full merge commit of each evidence, beside the unchanged fields', () => {
+  const { repo, branch } = FIXTURES.mergeCommit(scratch);
+  const out = derive(repo, foldOf(tracked()));
+  assert.equal(out.integrationSha, repo.git('rev-parse', 'develop'));
+  assert.match(out.evidenceCommits[SLUG], /^[0-9a-f]{40}$/);
+  assert.equal(out.evidenceCommits[SLUG], repo.git('rev-parse', 'develop'), 'the merge commit is develop\'s tip');
+  assert.deepEqual(out.statuses[SLUG].evidence, { kind: 'branch', ref: branch }, 'the evidence keeps its two fields');
+  assert.equal(derive(repo, foldOf()).integrationSha, repo.git('rev-parse', 'develop'), 'also with no tracked feature');
+  const none = derive(repo, foldOf(tracked('099-unmerged')));
+  assert.equal(none.evidenceCommits['099-unmerged'], null);
+});

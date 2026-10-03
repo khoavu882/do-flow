@@ -13,18 +13,26 @@
  * Candidate choice reuses `deriveStatuses` with the release tags minus the tag being recorded: a
  * feature then reads `finished` only when a record names it or an OTHER unrecorded `v*` tag contains
  * its merge (DEC-030), which is the "ignore containment in `--tag`" rule without a change to status.js.
+ * A feature is dropped for exactly three reasons (IC-020): a release record names it, another
+ * unrecorded `v*` tag contains it, or no evidence of its merge reaches X.
  *
- * Accepted ceiling: `deriveStatuses` hands back the evidence as `{kind, ref}`, not the merge commit,
- * so "evidence into X" is tested on the branch tip (`branch`) or the merge commit (`merge-subject`).
- * A branch whose tip reached X by another route than the merge that introduced it to the integration
- * ref would count; no flow of this tool makes that happen.
+ * Evidence into X is looked for in two places: the derivation against the pinned integration ref
+ * (the normal case: features merge into develop, the tag is cut from it) and, when the tag exists, a
+ * second derivation against the tag's own first-parent chain (a hotfix merged only into the
+ * production branch). Each gives the full merge commit, which must be an ancestor of X. When a branch
+ * was merged more than once, the newest merge may lie after the tag; an earlier merge of the same
+ * branch (or of a merge naming the slug) that X contains then counts. Accepted ceiling: that search
+ * walks the integration ref's first-parent merges committed since the feature was tracked.
+ *
+ * `evidence.commit` and the pinned sha come from `deriveStatuses` (`evidenceCommits`, `integrationSha`),
+ * so this module neither re-resolves the integration ref nor an abbreviated sha.
  */
 
 const nodeFs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const { isSafeSlug, invalidSlugRefusal } = require('../task-scope');
 const { appendEvents, readFold } = require('./event-store');
-const { deriveStatuses, readGitFacts, behindNote } = require('./status');
+const { deriveStatuses, readGitFacts, behindNote, subjectNames } = require('./status');
 const { FollowupUsageError, oneLine, channelBy } = require('./followup');
 
 /** The release-tag pattern of IC-020, the one `git-state` filters by. */
@@ -45,20 +53,49 @@ function isAncestor(root, a, b) {
   return spawnSync('git', ['merge-base', '--is-ancestor', a, b], { cwd: root, stdio: 'ignore' }).status === 0;
 }
 
-/** The commit a derived evidence names: a branch tip, a merge commit, or null for a user confirmation. */
-function evidenceCommit(root, evidence) {
-  if (evidence.kind === 'branch') return commitOf(root, `refs/heads/${evidence.ref}`) || commitOf(root, `refs/remotes/${evidence.ref}`);
-  if (evidence.kind === 'merge-subject') return commitOf(root, evidence.ref);
+/** The tip of the branch a `branch` evidence names (`feat/x` or `origin/feat/x`). */
+function branchTip(root, ref) {
+  return commitOf(root, `refs/heads/${ref}`) || commitOf(root, `refs/remotes/${ref}`);
+}
+
+/** First-parent merges of the pinned integration ref that X contains, newest first. */
+function mergesInto(root, integrationSha, bound) {
+  const parse = (out) => (out || '').split('\n').filter(Boolean).map((line) => {
+    const [sha, parents, ct, ...subject] = line.split('\t');
+    return { sha, parents: parents.split(' ').filter(Boolean), ct: Number(ct), subject: subject.join('\t') };
+  });
+  const all = parse(gitOut(root, ['log', '--first-parent', '--merges', '--format=%H%x09%P%x09%ct%x09%s', integrationSha]));
+  const outside = new Set((gitOut(root, ['rev-list', '--first-parent', '--merges', integrationSha, '--not', bound]) || '').split('\n').filter(Boolean));
+  return all.filter((merge) => !outside.has(merge.sha));
+}
+
+/**
+ * Evidence of an earlier merge of a branch that was merged more than once: a merge X contains, committed
+ * since tracking, whose subject names the slug or whose non-first parent is an ancestor of the branch tip.
+ */
+function earlierMerge(root, { slug, evidence, lowerBound, merges, bound }) {
+  const tip = evidence.kind === 'branch' ? branchTip(root, evidence.ref) : null;
+  if (tip && isAncestor(root, tip, bound)) return { ...evidence };
+  for (const merge of merges()) {
+    if (merge.ct < lowerBound) continue;
+    const [first, ...others] = merge.parents;
+    // The merged side is this branch's own when it is an ancestor of the tip and the merge itself is not: a
+    // branch cut from the integration ref after that merge has the merge in its history and did not make it.
+    if (tip && others.some((parent) => isAncestor(root, parent, tip) && !isAncestor(root, parent, first)) && !isAncestor(root, merge.sha, tip)) return { ...evidence };
+    if (subjectNames(merge.subject, slug)) return { kind: 'merge-subject', ref: merge.sha.slice(0, 7) };
+  }
   return null;
 }
 
 /**
- * The tag a release follows: the base tag `git-state` proposes versions from, other than `tag`, when
- * it lies in X's history; else the newest `v*` tag other than `tag` merged into X (git's version order).
+ * The tag a release follows (it only feeds the output): the base tag `git-state` proposes versions
+ * from, other than `tag`, when it is a release tag lying in X's history; else the newest release tag
+ * other than `tag` merged into X (git's version order). A `v*` tag that is not a release (`vnext`)
+ * never qualifies.
  */
 function previousTagOf(root, { tag, facts, bound }) {
-  if (facts.base_tag && facts.base_tag !== tag && isAncestor(root, `refs/tags/${facts.base_tag}`, bound)) return facts.base_tag;
   const known = new Set(facts.release_tags);
+  if (facts.base_tag && facts.base_tag !== tag && known.has(facts.base_tag) && isAncestor(root, `refs/tags/${facts.base_tag}`, bound)) return facts.base_tag;
   const merged = gitOut(root, ['tag', '--list', 'v*', '--sort=-v:refname', '--merged', bound]);
   return (merged || '').split('\n').find((name) => name && name !== tag && known.has(name)) || null;
 }
@@ -91,38 +128,49 @@ function releaseFeatures({ root, tag, confirm = false, features, exclude, channe
 
   const fold = readFold(root, { fsImpl, now });
   const trackedSlugs = new Set(fold.features.map((f) => f.slug));
-  const untracked = added.filter((slug) => !trackedSlugs.has(slug));
+  // An exclusion is permanent for its tag, so a mistyped slug must not be recorded any more than a mistyped addition.
+  const untracked = [...new Set([...added, ...excluded])].filter((slug) => !trackedSlugs.has(slug));
   if (untracked.length) {
-    return refusal('release', 'untracked-feature', `${untracked.join(', ')} ${untracked.length === 1 ? 'is' : 'are'} not tracked, so ${untracked.length === 1 ? 'it' : 'they'} cannot be added to a release; run doflow-run lifecycle --action init --slug <slug> first. Nothing was written.`);
+    return refusal('release', 'untracked-feature', `${untracked.join(', ')} ${untracked.length === 1 ? 'is' : 'are'} not tracked, so ${untracked.length === 1 ? 'it' : 'they'} cannot be added to or excluded from a release; run doflow-run lifecycle --action init --slug <slug> first. Nothing was written.`);
   }
 
-  // X: the tag's commit once it exists, else the integration ref, which the status view pins too (DEC-044).
-  const tagCommit = commitOf(root, `refs/tags/${tag}`);
-  const bound = tagCommit || commitOf(root, facts.integration_ref);
-  if (!bound) return refusal('release', 'no-integration-ref', `${facts.integration_ref} does not resolve to a commit. Nothing was written.`);
-  const previousTag = previousTagOf(root, { tag, facts, bound });
-  const previousCommit = previousTag && commitOf(root, `refs/tags/${previousTag}`);
-
   // DEC-030: containment in the tag being recorded never finishes a feature before its record exists.
-  const derived = deriveStatuses({ root, fold, facts: { ...facts, release_tags: facts.release_tags.filter((name) => name !== tag) } });
-  if (derived.releaseMode === 'unknown') return refusal('release', 'no-integration-ref', `${derived.reason}. Nothing was written.`);
+  const otherTags = { ...facts, release_tags: facts.release_tags.filter((name) => name !== tag) };
+  const derived = deriveStatuses({ root, fold, facts: otherTags });
+  if (derived.releaseMode === 'unknown' || !derived.integrationSha) return refusal('release', 'no-integration-ref', `${derived.reason || `${facts.integration_ref} does not resolve to a commit`}. Nothing was written.`);
+
+  // X: the tag's commit once it exists, else the commit the status view pinned the integration ref to (DEC-044).
+  const tagCommit = commitOf(root, `refs/tags/${tag}`);
+  const bound = tagCommit || derived.integrationSha;
+  const previousTag = previousTagOf(root, { tag, facts, bound });
+  // A hotfix merged only into the tag's own history has no evidence on the integration chain: derive against the tag as well.
+  const atTag = tagCommit && tagCommit !== derived.integrationSha ? deriveStatuses({ root, fold, facts: { ...otherTags, integration_ref: tagCommit } }) : null;
 
   const recorded = new Set(fold.releases.flatMap((release) => release.features.map((f) => f.slug)));
+  const tagged = derived.releaseMode === 'tagged';
+  let merges = null;
+  const mergesOfX = () => { if (merges === null) merges = mergesInto(root, derived.integrationSha, bound); return merges; };
   const candidates = [];
   const notDetected = [];
   for (const feature of fold.features) {
-    if (recorded.has(feature.slug)) continue;
-    const entry = derived.statuses[feature.slug];
+    const { slug } = feature;
+    if (recorded.has(slug)) continue;
+    const entry = derived.statuses[slug];
+    const hotfix = atTag && atTag.statuses[slug];
     // With another v* tag in play, `finished` here means an unrecorded tag already contains the merge.
-    if (derived.releaseMode === 'tagged' && entry.status === 'finished') continue;
+    if (tagged && (entry.status === 'finished' || (hotfix && hotfix.status === 'finished'))) continue;
     const evidence = entry.evidence;
-    if (!evidence) { notDetected.push(feature.slug); continue; }
-    if (evidence.kind !== 'confirmed') {
-      const commit = evidenceCommit(root, evidence);
-      if (!commit || !isAncestor(root, commit, bound)) { notDetected.push(feature.slug); continue; }
-      if (previousCommit && isAncestor(root, commit, previousCommit)) continue; // merged before the previous release
+    let found = null;
+    if (evidence) {
+      const commit = derived.evidenceCommits[slug];
+      if (evidence.kind === 'confirmed' || (commit && isAncestor(root, commit, bound))) found = evidence;
     }
-    candidates.push({ slug: feature.slug, evidence: evidence.kind, ref: evidence.ref });
+    if (!found && hotfix && hotfix.evidence) found = hotfix.evidence;
+    if (!found && evidence) {
+      const lowerBound = Math.floor(Date.parse(feature.trackedAt) / 1000);
+      found = earlierMerge(root, { slug, evidence, lowerBound, merges: mergesOfX, bound });
+    }
+    if (found) candidates.push({ slug, evidence: found.kind, ref: found.ref }); else notDetected.push(slug);
   }
 
   const shipped = [...candidates];
