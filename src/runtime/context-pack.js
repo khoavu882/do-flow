@@ -259,12 +259,12 @@ class ContextPackCompiler {
  */
 function handleContextPackCommand({ taskId, taskClass, objective, json = false, stateRoot, slug } = {}) {
   const root = stateRoot || process.cwd();
-  const ledger = new EvidenceLedger({ repoRoot: root });
+  const ledger = new EvidenceLedger({ repoRoot: root, slug });
   ledger.load(taskId);
-  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root });
+  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root, slug });
   claims.load(taskId);
   claims.evaluateAll();
-  const researchRequests = new ResearchRequestStore({ projectRoot: root }).list(taskId);
+  const researchRequests = new ResearchRequestStore({ projectRoot: root, slug }).list(taskId);
 
   const compiler = new ContextPackCompiler();
   const pack = compiler.compileContextPack({

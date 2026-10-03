@@ -41,6 +41,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger');
+const { taskStoreDir } = require('./task-scope');
 // The two verdict vocabularies, imported from the modules that own them rather than respelled
 // here. A second copy would let this file accept a readiness state readiness itself has retired.
 const { READINESS_STATES } = require('./readiness');
@@ -90,10 +91,12 @@ const NOT_RECORDED = 'NOT_RECORDED';
  * it must never be able to name a path.
  * @param {string} projectRoot
  * @param {string} taskId
+ * @param {string|null} [slug] the feature the task belongs to, when not the branch's (task-scope.js)
  * @returns {string}
  */
-function outcomePath(projectRoot, taskId) {
-  return path.join(projectRoot, '.doflow', 'state', 'outcome', `${assertSafeTaskId(taskId)}.json`);
+function outcomePath(projectRoot, taskId, slug = null) {
+  const dir = taskStoreDir({ projectRoot, store: 'outcome', taskId: assertSafeTaskId(taskId), slug });
+  return path.join(dir, `${taskId}.json`);
 }
 
 /**
@@ -101,8 +104,8 @@ function outcomePath(projectRoot, taskId) {
  * @param {string} taskId
  * @returns {Object|null} the record, or null when no outcome was recorded
  */
-function readOutcome(projectRoot, taskId) {
-  const file = outcomePath(projectRoot, taskId);
+function readOutcome(projectRoot, taskId, slug = null) {
+  const file = outcomePath(projectRoot, taskId, slug);
   if (!fs.existsSync(file)) return null;
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -117,8 +120,8 @@ function readOutcome(projectRoot, taskId) {
  * @param {Object} record
  * @returns {string} the file written
  */
-function writeOutcome(projectRoot, taskId, record) {
-  const file = outcomePath(projectRoot, taskId);
+function writeOutcome(projectRoot, taskId, record, slug = null) {
+  const file = outcomePath(projectRoot, taskId, slug);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
   return file;
@@ -137,8 +140,8 @@ function writeOutcome(projectRoot, taskId, record) {
  * @param {string} taskId
  * @returns {number}
  */
-function countEvidence(projectRoot, taskId) {
-  const ledger = new EvidenceLedger({ repoRoot: projectRoot });
+function countEvidence(projectRoot, taskId, slug = null) {
+  const ledger = new EvidenceLedger({ repoRoot: projectRoot, slug });
   ledger.load(taskId);
   return ledger.queryEvidence({ taskId }).length;
 }
@@ -159,9 +162,9 @@ function countEvidence(projectRoot, taskId) {
  * @param {string} verification the stated verification verdict, or NOT_RECORDED
  * @returns {Array<string>}
  */
-function unreachedItems(projectRoot, taskId, verification) {
+function unreachedItems(projectRoot, taskId, verification, slug = null) {
   const items = [];
-  const file = planPath(projectRoot, taskId);
+  const file = planPath(projectRoot, taskId, slug);
   if (fs.existsSync(file)) {
     let plan;
     try {
@@ -221,7 +224,7 @@ function statedVerdict(value, vocabulary, flag) {
  *
  * @returns {number} exit code
  */
-function recordOutcome({ projectRoot, packageRoot, taskId, taskClass, stage, state, readiness, verification, json }) {
+function recordOutcome({ projectRoot, packageRoot, taskId, taskClass, stage, state, readiness, verification, json, slug }) {
   if (state === undefined || state === null || String(state).trim() === '') {
     return usageError('outcome',
       `--action record needs --state <state>. Valid: ${OUTCOME_STATES.join(', ')}`, json);
@@ -268,8 +271,8 @@ function recordOutcome({ projectRoot, packageRoot, taskId, taskClass, stage, sta
   let evidenceCount;
   let unreached;
   try {
-    evidenceCount = countEvidence(projectRoot, taskId);
-    unreached = unreachedItems(projectRoot, taskId, basisVerification.value);
+    evidenceCount = countEvidence(projectRoot, taskId, slug);
+    unreached = unreachedItems(projectRoot, taskId, basisVerification.value, slug);
   } catch (error) {
     return usageError('outcome', error.message, json);
   }
@@ -306,7 +309,7 @@ function recordOutcome({ projectRoot, packageRoot, taskId, taskClass, stage, sta
     // inputs must say which is which, or the next reader treats both as measurements.
     statedByCaller,
   };
-  const file = writeOutcome(projectRoot, taskId, record);
+  const file = writeOutcome(projectRoot, taskId, record, slug);
 
   if (json) {
     console.log(JSON.stringify({ action: 'record', ...record, stateFile: file }, null, 2));
@@ -326,15 +329,15 @@ function recordOutcome({ projectRoot, packageRoot, taskId, taskClass, stage, sta
  *
  * @returns {number} exit code
  */
-function showOutcome({ projectRoot, taskId, json }) {
+function showOutcome({ projectRoot, taskId, json, slug }) {
   let record;
   try {
-    record = readOutcome(projectRoot, taskId);
+    record = readOutcome(projectRoot, taskId, slug);
   } catch (error) {
     return usageError('outcome', error.message, json);
   }
   if (!record) {
-    const file = outcomePath(projectRoot, taskId);
+    const file = outcomePath(projectRoot, taskId, slug);
     if (json) {
       console.log(JSON.stringify({
         action: 'show', taskId, state: null, stateFile: file,
@@ -352,10 +355,10 @@ function showOutcome({ projectRoot, taskId, json }) {
   }
 
   if (json) {
-    console.log(JSON.stringify({ action: 'show', ...record, stateFile: outcomePath(projectRoot, taskId) }, null, 2));
+    console.log(JSON.stringify({ action: 'show', ...record, stateFile: outcomePath(projectRoot, taskId, slug) }, null, 2));
     return finishRuntime(0);
   }
-  printOutcome(record, outcomePath(projectRoot, taskId), 'recorded at');
+  printOutcome(record, outcomePath(projectRoot, taskId, slug), 'recorded at');
   return finishRuntime(0);
 }
 
@@ -411,7 +414,7 @@ function printOutcome(record, file, verb) {
 function handleOutcomeCommand(options = {}) {
   const {
     taskId, action = 'show', state, taskClass, stage, readiness, verification,
-    json = false, repoRoot, stateRoot,
+    json = false, repoRoot, stateRoot, slug,
   } = options;
 
   // NFR-001, at the boundary where a caller's input first becomes a record. `bin/doflow.js` already
@@ -444,10 +447,10 @@ function handleOutcomeCommand(options = {}) {
 
   if (resolvedAction === 'record') {
     return recordOutcome({
-      projectRoot, packageRoot, taskId, taskClass, stage, state, readiness, verification, json,
+      projectRoot, packageRoot, taskId, taskClass, stage, state, readiness, verification, json, slug,
     });
   }
-  return showOutcome({ projectRoot, taskId, json });
+  return showOutcome({ projectRoot, taskId, json, slug });
 }
 
 module.exports = {

@@ -10,18 +10,21 @@ can predate the register) and, when it reports `has_decisions: true`:
    subject only.
 2. Register this stage's decisions (question answers, gate answers carrying a choice, decisions the
    user typed as prompts, "Decide for me" defaults, agent resolutions) in one
-   `"$DOFLOW" decision --action add --batch <file>.json --json` call. Leave out an item already live
-   with the same statement, such as a gate answer do-flow registered. Each item needs `topic`
-   (kebab-case), `statement` (one line), `channel` (`question|gate|prompt|default|resolution`),
-   `stage` (the ownership-table stage name) and `rationale`; `supersedes`, `refs` and `source` are
-   optional. Skip the call when there are none. On exit 1 `topic-conflict`, add `supersedes` for the
-   named live decision or drop the duplicate item, then retry; on exit 1 `register-locked`, retry
-   once; on exit 2, fix the named item and retry. Never hand off with the stage's decisions
-   unregistered without saying so.
+   `"$DOFLOW" decision --action add --batch <file>.json --json` call. Drop an item that only
+   rewords a live decision, such as a gate answer do-flow registered; it is neither registered nor
+   used to supersede. Each item needs `topic` (kebab-case), `statement` (one line), `channel`
+   (`question|gate|prompt|default|resolution`), `stage` (the ownership-table stage name) and
+   `rationale`; `supersedes`, `refs` and `source` are optional. Skip the call when there are none.
+   On exit 1 `topic-conflict`, drop the item if it only rewords the named live decision; otherwise
+   add `supersedes` for it, then retry. On exit 1 `register-locked`, retry once; on exit 2, fix the
+   named item and retry. Hand off with the stage's decisions registered, or say which are not.
 3. Write each returned `DEC-###` into the lines of this stage's own artifacts that apply it
-   (ARTIFACT_FORMAT.md §12).
+   (ARTIFACT_FORMAT.md §12). A stage that owns no artifact puts the identifiers of what each
+   decision applies to (FR/IC ids) in the item's `refs` and names the returned `DEC-###` ids in the
+   handoff `--note`; it edits no artifact another stage owns.
 4. Run `"$DOFLOW" validate`. Correct each `stale` or `unknown` finding in an artifact this stage
-   owns, changing only the flagged line; report findings in other artifacts without editing them.
+   owns, changing only the flagged line (an `unknown` one takes the right identifier from the live
+   list); report findings in other artifacts without editing them.
 5. Record the handoff below. It compacts History itself and reports `compaction`; its `--task-id`
    must be the feature slug, not a plan task id, or compaction is skipped. A do-execute-plan
    checkpoint (`annotate`) does not compact; the next completed handoff does.

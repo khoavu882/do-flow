@@ -49,6 +49,7 @@ const { handleScaffoldCommand } = require('../runtime/scaffold/generate');
 const { handleDecisionCommand } = require('../runtime/decision-register');
 const { handleInventoryCommand } = require('../runtime/inventory');
 const { finishRuntime, usageError } = require('../runtime/cli-result');
+const { setDefaultSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope');
 const { REPO_ROOT } = require('./shared');
 
 /** Where `readiness`/`evidence` read and write per-task state. Mirrors scopeOf()'s rules so these
@@ -115,6 +116,9 @@ function evidenceItemFromFlags(o) {
   return item;
 }
 
+/** Verbs that read or write per-task records, and so accept `--slug` (IC-002). */
+const TASK_STORE_VERBS = new Set(['evidence', 'claim', 'readiness', 'context-pack', 'research-request', 'outcome', 'retrieval-plan']);
+
 /**
  * Forward one parsed invocation to its runtime verb's implementation, or exit 1 naming an unknown
  * command. Argument shaping stays here (requireTaskClass/requireTaskId/evidenceItemFromFlags
@@ -123,6 +127,26 @@ function evidenceItemFromFlags(o) {
  * @param {Object} o parsed arguments
  */
 function dispatchRuntimeCommand(o) {
+  // A slug becomes a directory name and a state key, so one that could name a path is refused
+  // here, once, for every verb that reads `--slug`, before any of them reads or writes state
+  // (FR-013, IC-009). A well-formed slug that names no feature is the verbs' own business.
+  const refusal = invalidSlugRefusal(o.slug);
+  if (refusal) {
+    if (o.json) console.log(JSON.stringify(refusal, null, 2));
+    else console.error(`doflow ${o.cmd}: ${refusal.error}: ${refusal.message}`);
+    return finishRuntime(2);
+  }
+  // `--slug` names the feature a task-store verb's records belong to (task-scope.js). Set once
+  // here so the verbs whose handlers build their own ledger (readiness, evidence) route the same
+  // way as the ones that take `slug` directly. The orchestration journal is keyed by slug already.
+  // Reset on every dispatch, so one invocation's slug can never carry into the next in-process call.
+  setDefaultSlug(TASK_STORE_VERBS.has(o.cmd) ? o.slug : null);
+  // A well-formed slug that names no feature changes nothing (the records go to the shared task
+  // store), but the caller typed it expecting an effect, so say so once, on stderr only.
+  if (TASK_STORE_VERBS.has(o.cmd) && typeof o.slug === 'string' && o.slug !== ''
+    && slugNamesNoFeature({ projectRoot: evidenceRoot(o), slug: o.slug })) {
+    console.error(`doflow ${o.cmd}: note: --slug '${o.slug}' names no feature; using the shared task store`);
+  }
   switch (o.cmd) {
     // REPO_ROOT locates the capability registry; projectRoot is the tree whose index freshness
     // and build/test commands are being reported on, which follows the usual scope rules.
@@ -171,15 +195,15 @@ function dispatchRuntimeCommand(o) {
     case 'classify': return handleClassifyCommand({ taskClass: o.taskClass, rationale: o.rationale, proposedBy: o.proposedBy, callingSkill: o.callingSkill, json: o.json });
     case 'workflow': return handleWorkflowCommand({ taskClass: o.taskClass, json: o.json });
     case 'orchestrate': return handleOrchestrateCommand({ action: o.action, taskId: o.taskId, taskClass: o.taskClass, stage: o.stage, gate: o.gate, node: o.node, decision: o.decision, note: o.note, reason: o.reason, forced: o.forced, verificationPlan: o.verificationPlan, scope: o.scope, invariants: o.invariants, result: o.result, callingSkill: o.callingSkill, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
-    case 'research-request': return handleResearchRequestCommand({ action: o.action === 'status' ? 'list' : o.action, taskId: requireTaskId(o), stageId: o.stageId, question: o.question, reason: o.reason, blocking: o.blocking === undefined ? undefined : o.blocking === 'true' ? true : o.blocking === 'false' ? false : o.blocking, requestId: o.requestId, outcome: o.researchOutcome, claimId: o.claimId, evidenceIds: o.evidenceIds, gap: o.gap, json: o.json, projectRoot: evidenceRoot(o) });
+    case 'research-request': return handleResearchRequestCommand({ slug: o.slug, action: o.action === 'status' ? 'list' : o.action, taskId: requireTaskId(o), stageId: o.stageId, question: o.question, reason: o.reason, blocking: o.blocking === undefined ? undefined : o.blocking === 'true' ? true : o.blocking === 'false' ? false : o.blocking, requestId: o.requestId, outcome: o.researchOutcome, claimId: o.claimId, evidenceIds: o.evidenceIds, gap: o.gap, json: o.json, projectRoot: evidenceRoot(o) });
     case 'retrieve': return handleRetrieveCommand({ query: o.query, top: o.top, json: o.json });
     case 'model-role': return handleModelRoleCommand({ role: o.role, exclude: o.exclude, json: o.json, repoRoot: REPO_ROOT });
     case 'route': return handleRouteCommand({ intent: o.intent, query: o.query, check: o.check, json: o.json, projectRoot: evidenceRoot(o) });
-    case 'claim': return handleClaimCommand({ taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, replacedBy: o.replacedBy, relation: o.relation, role: o.role, json: o.json, stateRoot: evidenceRoot(o) });
+    case 'claim': return handleClaimCommand({ slug: o.slug, taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, replacedBy: o.replacedBy, relation: o.relation, role: o.role, json: o.json, stateRoot: evidenceRoot(o) });
     case 'context-pack': return handleContextPackCommand({ taskId: requireTaskId(o), taskClass: o.taskClass, objective: o.objective, json: o.json, stateRoot: evidenceRoot(o), slug: o.slug });
-    case 'retrieval-plan': return handleRetrievalPlanCommand({ taskId: requireTaskId(o), action: o.action, need: o.need, stage: o.stage, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
-    case 'outcome': return handleOutcomeCommand({ taskId: requireTaskId(o), action: o.action, state: o.state, taskClass: o.taskClass, stage: o.stage, readiness: o.readiness, verification: o.verification, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
-    case 'verify': return handleVerifyCommand({ taskId: requireTaskId(o), action: o.action, risk: o.risk, planPath: o.planPath, json: o.json, projectRoot: evidenceRoot(o) });
+    case 'retrieval-plan': return handleRetrievalPlanCommand({ slug: o.slug, taskId: requireTaskId(o), action: o.action, need: o.need, stage: o.stage, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
+    case 'outcome': return handleOutcomeCommand({ slug: o.slug, taskId: requireTaskId(o), action: o.action, state: o.state, taskClass: o.taskClass, stage: o.stage, readiness: o.readiness, verification: o.verification, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
+    case 'verify': return handleVerifyCommand({ slug: o.slug, taskId: requireTaskId(o), action: o.action, risk: o.risk, planPath: o.planPath, json: o.json, projectRoot: evidenceRoot(o) });
     case 'leak-scan': return handleLeakScanCommand({ paths: o.paths, exclude: o.exclude, json: o.json, repoRoot: evidenceRoot(o) });
     case 'recover': return handleRecoverCommand({ errorMessage: o.errorMessage, failedChecks: o.failedChecks, iteration: o.iteration, agent: o.agent, json: o.json });
     default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);

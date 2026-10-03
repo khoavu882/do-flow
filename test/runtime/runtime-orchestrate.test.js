@@ -320,6 +320,22 @@ test('044: a compaction that cannot run is reported as failed without changing t
   assert.equal(requirementOf(cwd, '073-x'), HISTORY_REQUIREMENT);
 });
 
+test('045: a handoff that compacts one artifact and is refused by another reports partial with failed', () => {
+  const cwd = featureProject('076-x');
+  const featureDir = path.join(cwd, 'agent-docs', 'doflow', '076-x');
+  const refused = `${HISTORY_REQUIREMENT}\n<!-- never closed\n`;
+  fs.writeFileSync(path.join(featureDir, 'intention', 'requirement.md'), refused);
+  fs.writeFileSync(path.join(featureDir, 'plan.md'), '# Plan\n\n## 9. History\n\n- one change\n');
+  const result = handoff(cwd, '076-x', 'do-brainstorm', ['--task-class', 'feature']);
+  assert.equal(result.status, 0, 'housekeeping never changes the exit code');
+  assert.equal(result.data.disposition, 'completed');
+  assert.equal(result.data.compaction.status, 'partial');
+  assert.deepEqual(result.data.compaction.moved.map((m) => m.artifact), ['plan.md']);
+  assert.deepEqual(result.data.compaction.failed.map((f) => [f.artifact, f.path]), [['requirement.md', 'intention/requirement.md']]);
+  assert.equal(requirementOf(cwd, '076-x'), refused);
+  assert.match(fs.readFileSync(path.join(featureDir, 'plan.md'), 'utf8'), /Earlier entries:/);
+});
+
 test('044: the human-readable handoff output names the compaction status', () => {
   const cwd = featureProject('074-x');
   const res = run(cwd, ['orchestrate', '--action', 'handoff', '--task-id', '074-x', '--task-class', 'feature', '--calling-skill', 'do-brainstorm', '--note', 'recorded']);

@@ -17,7 +17,7 @@ const nodeFs = require('node:fs');
 const path = require('node:path');
 const { acquireLock } = require('./task-state');
 const { resolveActiveFeature } = require('./feature-resolve');
-const { compactHistory, CompactionError } = require('./history-compactor');
+const { compactHistory } = require('./history-compactor');
 const { finishRuntime, usageError } = require('./cli-result');
 
 const REGISTER_VERSION = 1;
@@ -108,8 +108,9 @@ function liveOf(register) { return register.decisions.filter((d) => d.status ===
 
 // ── renderers ──────────────────────────────────────────────────────────────────────────────────
 
-/** `|` would end the cell; `<` could open an HTML comment that hides every later row. */
-function cell(text) { return String(text).replace(/\|/g, '\\|').replace(/</g, '\\<'); }
+/** `\` is escaped first, so a statement ending in one cannot escape the pipe that closes the cell
+ * (IC-007); `|` would end the cell; `<` could open an HTML comment that hides every later row. */
+function cell(text) { return String(text).replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/</g, '\\<'); }
 
 /** Archive text is read by people and agents, never as HTML: `<` is escaped so `<!--` cannot hide later entries. */
 function plain(text) { return String(text).replace(/</g, '\\<'); }
@@ -348,15 +349,18 @@ function compactDecisions({ featureDir, slug, repoRoot, paths, now = new Date(),
   const release = acquireLock(fsImpl, registerFile(featureDir));
   try {
     const register = readRegister(featureDir, fsImpl);
-    let result;
-    try {
-      result = compactHistory({ repoRoot, featureDir, paths, date: now.toISOString().slice(0, 10), fsImpl });
-    } catch (error) {
-      if (!(error instanceof CompactionError)) throw error;
-      return { ...base, finding: 'compaction-failed', message: error.message, artifact: error.artifact, moved: error.moved };
+    const result = compactHistory({ repoRoot, featureDir, paths, date: now.toISOString().slice(0, 10), fsImpl });
+    // The views are re-rendered when anything moved, including in a partial run: the artifacts
+    // that did compact are changed whatever happened to the others.
+    if (result.moved.length) renderViews(fsImpl, featureDir, register);
+    if (result.failed.length) {
+      return {
+        ...base, status: result.status, finding: 'compaction-failed',
+        message: result.failed.map((f) => f.message).join('; '),
+        artifact: result.failed[0].path, moved: result.moved, failed: result.failed,
+      };
     }
-    if (result.status === 'compacted') renderViews(fsImpl, featureDir, register);
-    return { ...base, status: result.status, moved: result.moved };
+    return { ...base, status: result.status, moved: result.moved, failed: [] };
   } finally {
     release();
   }
@@ -447,7 +451,7 @@ function humanLines(result) {
     if (result.decisions.length === 0) lines.push('No decisions.');
     for (const d of result.decisions) lines.push(`${d.id}  ${d.topic}  ${d.statement}  [${d.decidedBy}, ${d.stage}${d.status === 'live' ? '' : `, superseded by ${d.supersededBy}`}]`);
   }
-  if (result.action === 'compact' && !result.finding) {
+  if (result.action === 'compact') {
     if (result.status === 'unchanged') lines.push('nothing to compact');
     for (const m of result.moved || []) lines.push(`moved ${m.lines} line${m.lines === 1 ? '' : 's'} from ${m.path} to ${m.archive}`);
   }

@@ -67,6 +67,19 @@ note() {
   exit 0
 }
 
+# The resolver refuses a slug that could name a path (IC-009). That refusal is the caller's mistake,
+# not an unrunnable checker, so it is passed on as the refusal it is — exit 2 with the resolver's
+# own error object — rather than folded into the fail-open notes above.
+refuse_invalid_slug() {
+  [ "$(printf '%s' "$1" | jq -r '.error // empty' 2>/dev/null)" = "invalid-slug" ] || return 0
+  if [ "$emit_json" = true ]; then
+    printf '%s\n' "$1"
+  else
+    printf 'validate-artifacts: %s\n' "$(printf '%s' "$1" | jq -r '.message')" >&2
+  fi
+  exit 2
+}
+
 # ── locate targets ────────────────────────────────────────────────────────────────────────────
 if [ "${#targets[@]}" -eq 0 ]; then
   command -v jq >/dev/null 2>&1 || note "jq-absent"
@@ -78,7 +91,9 @@ if [ "${#targets[@]}" -eq 0 ]; then
 
   resolver_args=(--json)
   [ -n "$slug_override" ] && resolver_args+=("--slug=$slug_override")
-  json=$(bash "$RESOLVER" "${resolver_args[@]}" 2>/dev/null) || note "resolver-error"
+  rc=0; json=$(bash "$RESOLVER" "${resolver_args[@]}" 2>/dev/null) || rc=$?
+  [ "$rc" -eq 2 ] && refuse_invalid_slug "$json"
+  [ "$rc" -eq 0 ] || note "resolver-error"
 
   root=$(printf '%s' "$json" | jq -r '.repo_root // empty')
   [ -n "$(printf '%s' "$json" | jq -r '.feature_slug // empty')" ] || note "no-active-feature"
@@ -102,7 +117,9 @@ elif command -v jq >/dev/null 2>&1; then
   if [ -f "$RESOLVER" ]; then
     resolver_args=(--json)
     [ -n "$slug_override" ] && resolver_args+=("--slug=$slug_override")
-    json=$(bash "$RESOLVER" "${resolver_args[@]}" 2>/dev/null) || json=""
+    rc=0; json=$(bash "$RESOLVER" "${resolver_args[@]}" 2>/dev/null) || rc=$?
+    [ "$rc" -eq 2 ] && refuse_invalid_slug "$json"
+    [ "$rc" -eq 0 ] || json=""
   fi
   root=$(printf '%s' "$json" | jq -r '.repo_root // empty' 2>/dev/null)
 fi
@@ -198,7 +215,7 @@ for f in "${targets[@]}"; do
     # superseded DEC-### on the line, unless the same line also names a decision
     # later in that decision chain (the line is then about the change, not a stale statement).
     # awk has no \b, so a token counts only when no word character touches either end.
-    function check_stale(text, lineno,   pos, s, l, tok, before, after, num, cn, i, j, order, cited, named, flagged, ok) {
+    function check_stale(text, lineno,   pos, s, l, tok, before, after, num, cn, i, j, order, cited, named, flagged, ok, word, ws, we) {
       split("", order); split("", cited); split("", named); split("", flagged); cn = 0; pos = 1
       while (pos <= length(text) && match(substr(text, pos), /DEC-[0-9]+/)) {
         s = pos + RSTART - 1; l = RLENGTH
@@ -207,6 +224,19 @@ for f in "${targets[@]}"; do
         after = substr(text, s + l, 1)
         pos = s + l
         if (before ~ /[A-Za-z0-9_]/ || after ~ /[A-Za-z_]/) continue
+        # A token in a URL, a file path or a file name is not prose and cites nothing, so neither
+        # `stale` nor `unknown` reports it. Three shapes: its whitespace-delimited word holds "://"
+        # (https://x.test?id=DEC-095); a letter follows a "." (DEC-094.md, [n](DEC-097.md)); or a "/"
+        # precedes it, unless the segment before that slash is itself a DEC token (DEC-001/DEC-002 is
+        # prose and every half is checked). A sentence-final "DEC-099." is still a citation.
+        if (before == "/") {
+          word = substr(text, 1, s - 2); sub(/^.*[\/ \t]/, "", word); sub(/^[(\[{"`<*_]+/, "", word)
+          if (word !~ /^DEC-[0-9]+$/) continue
+        }
+        if (after == "." && substr(text, s + l + 1, 1) ~ /[A-Za-z]/) continue
+        ws = s; while (ws > 1 && substr(text, ws - 1, 1) !~ /[ \t]/) ws--
+        we = s + l; while (we <= length(text) && substr(text, we, 1) !~ /[ \t]/) we++
+        if (index(substr(text, ws, we - ws), "://")) continue
         num = substr(tok, 5) + 0
         named[num] = 1
         if (reg_ok && !(num in known) && !(num in flagged)) {
@@ -298,6 +328,12 @@ for f in "${targets[@]}"; do
         if ((stale_map != "" || reg_ok) && !cur_hist && vis != "") check_stale(vis, NR)
       }
     }
+
+    # With a register the fence state above gates every structural rule below: a heading, table row,
+    # detail entry or checklist line inside a fenced example is an example, so a quoted
+    # "## 9. History" or "### Phase A" cannot open a section or change a count. The fenced line still
+    # ends a table. Without a register the structural tracking is exactly what it always was.
+    reg_ok && in_fence { in_table = 0; in_rollup = 0; next }
 
     # ── section boundaries ───────────────────────────────────────────────────────────────────
     /^## / {

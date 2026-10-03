@@ -13,6 +13,45 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.13.0] - 2026-10-03
+
+### Changed
+
+- Features with a decision register keep their task records (evidence, claims, research, outcome,
+  retrieval plans and context packs) in a per-feature folder, `.doflow/state/<store>/<slug>/`, so
+  two features that use the same task id no longer read each other's records. The task-store verbs
+  accept `--slug`. Features without a register keep the flat layout. **A feature that already had a
+  register under 1.12.0 no longer reads the flat records it wrote before this release.** Those files
+  stay on disk untouched.
+- For features with a register, `verify`'s change-scope tier is now bounded by the files the plan's
+  tasks list plus the feature folder, measured from the merge base with the integration branch.
+  A changed file outside that bound fails the tier, so `verify` exits 1; nothing is blocked from
+  being written or committed. Paths under `.doflow/` never count. Features without a register keep
+  an unresolved change-scope tier.
+- `git-state --next-version` takes its base from the highest `v*` tag merged into HEAD or into the
+  production branch (local or remote-tracking), so a release tagged on a `main` merge commit is
+  found from `develop`. The result gains a `warning` key when `package.json` disagrees with that
+  tag.
+
+### Fixed
+
+- Every verb that takes a feature slug, in the runtime and in the bash helpers (`paths`, `prereqs`,
+  `validate`, `render-audit`, `task-brief`, `parallel-check` and the rest), refuses one that is not
+  letters, digits, dot, underscore or dash (starting with a letter or digit, no `..`) with exit 2
+  and `{"error":"invalid-slug",...}`, before reading or writing anything. A slug derived from the
+  branch names the branch in the message. An explicit `--slug` that names no feature is noted on
+  stderr.
+- `decision --action compact` attempts every artifact and reports the ones it could not compact in
+  `failed[]`, with status `partial`, instead of stopping at the first. An unclosed fence or comment
+  after the History section no longer refuses compaction.
+- `validate` no longer reports a decision id inside a URL, a link target, a query string or a file
+  name as stale or unknown; ids joined by `/` in prose are still checked. With a register, headings
+  and checklist lines inside fenced examples are ignored.
+- `decisions.md` escapes backslashes in a statement, so each decision renders as one table row.
+- Handoff guidance: the decision step drops reworded copies of live decisions, fixes an `unknown`
+  finding from the live list, and runs in `do-implement` on every run and on `do-flow`'s
+  clarification path.
+
 ## [1.12.0] - 2026-10-03
 
 ### Added
