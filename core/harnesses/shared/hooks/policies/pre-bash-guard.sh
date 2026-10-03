@@ -62,47 +62,189 @@ COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/nul
 
 PATTERNS_FILE="$(dirname "$0")/blocked-patterns.conf"
 
-# ── Quoted text is not a command ──────────────────────────────────────────────
+# ASCII-only patterns: the C locale keeps bash's substring/pattern operations
+# byte-wise (much faster than multibyte-aware in a UTF-8 locale).
+export LC_ALL=C
+
+# ── Quoted text, comments and heredoc bodies are not commands ────────────────
 # scrub_quotes <text> -> sets SCRUBBED. Anchored shell-command patterns must
-# not fire on text that is merely an argument (a commit message, an echo).
+# not fire on text that is merely data (a commit message, an echo, a comment,
+# a heredoc body). One linear pass, line by line, pure bash, no forks:
 #   - quoted text containing whitespace or ; & | is blanked to "" (it could
-#     otherwise fake a command position, e.g.  echo "done && rm -rf /x")
-#   - a quoted word with none of those (e.g. "/" or "$HOME") is kept, unquoted,
+#     otherwise fake a command position, e.g.  echo "done && rm -rf /x");
+#     a quoted word with none of those ("/", "$HOME", $'/') is kept, unquoted,
 #     so  rm -rf "/"  is still seen as a target
-#   - the argument of sh|bash|zsh -c and eval IS executed, so it is kept and
-#     placed in command position (wrapped in ";"), and scrubbed again inside.
-# An unterminated quote leaves the rest of the text as is. Pure bash, no forks.
-_EXEC_CTX='(^|[[:space:];&|(])([^[:space:]]*/)?(ba|z|da|k)?sh[[:space:]]+(-[[:alnum:]]+[[:space:]]+)*-[[:alnum:]]*c[[:space:]]+$|(^|[[:space:];&|(])eval[[:space:]]+$'
-scrub_quotes() {
-  local rest=$1 out="" pre c body inner closed
+#   - the argument of sh|bash|zsh -c and eval IS executed: it is kept and put
+#     in command position (wrapped in ";"), scrubbed again inside
+#   - inside double quotes, $( ... ) and `...` bodies also run: kept the same way
+#   - a # that starts a word comments out the rest of the line
+#   - a heredoc body (<<WORD, <<-WORD, quoted or not) is data and is dropped,
+#     except when the heredoc feeds a shell (bash <<EOF), whose body runs
+#   - a backslash-newline joins the two lines (outside a heredoc body)
+#   - a backslash-escaped character is literal; an unterminated quote keeps the
+#     rest of the text as is (errs toward blocking)
+# Nesting depth is capped; beyond the cap the raw text is used (errs toward
+# blocking). Text with no quote, # or << (or no command word at all) is
+# returned unchanged without scanning.
+_EXEC_CTX='(^|[[:space:];&|(])(([^[:space:]]*/)?(ba|z|da|k)?sh[[:space:]]+(-[[:alnum:]]+[[:space:]]+)*-[[:alnum:]]*c|eval)[[:space:]]+$'
+_SH_HERE='(^|[[:space:];&|(])([^[:space:]]*/)?(ba|z|da|k)?sh([[:space:]]+-[[:alnum:]]+)*[[:space:]]*$'
+_HD_WORD="^(-?)[[:space:]]*[\"']?\\\\?([A-Za-z_][A-Za-z0-9_.-]*)"
+SCRUB_DEPTH=0
+
+# Closes the quote scrub_quotes just read (uses its locals: out qc qin qexec).
+_scrub_close_quote() {
+  local rest pre body acc depth ch
+  if [ "$qexec" = 1 ]; then
+    [ "$qc" = '"' ] && qin=${qin//\\\"/\"}      # \" inside "..." is a quote of the inner command
+    scrub_quotes "$qin"; cur+="; $SCRUBBED ; "
+    return
+  fi
+  case $qin in
+    *[[:space:]\;\&\|]*) ;;
+    *) cur+=$qin; return ;;
+  esac
+  cur+=$qc$qc
+  [ "$qc" = '"' ] || return
+  case $qin in *'$('*|*\`*) ;; *) return ;; esac
+  rest=$qin
   while :; do
-    pre=${rest%%[\'\"\\]*}
-    if [ "$pre" = "$rest" ]; then out+=$rest; break; fi
-    out+=$pre; rest=${rest#"$pre"}
-    c=${rest:0:1}
-    if [ "$c" = '\' ]; then out+=${rest:0:2}; rest=${rest:2}; continue; fi
-    body=${rest:1}; inner=""; closed=0
-    if [ "$c" = "'" ]; then
-      case $body in *\'*) inner=${body%%\'*}; rest=${body#*\'}; closed=1 ;; esac
-    else
-      while :; do
-        pre=${body%%[\"\\]*}
-        [ "$pre" = "$body" ] && break
-        inner+=$pre; body=${body#"$pre"}
-        if [ "${body:0:1}" = '\' ]; then inner+=${body:0:2}; body=${body:2}; continue; fi
-        rest=${body:1}; closed=1; break
-      done
-    fi
-    if [ "$closed" = 0 ]; then out+=$c$body; break; fi   # unterminated: keep as is
-    if [[ $out =~ $_EXEC_CTX ]]; then
-      scrub_quotes "$inner"; out+="; $SCRUBBED ; "
-    elif [[ $inner == *[[:space:]\;\&\|]* ]]; then
-      out+=$c$c
-    else
-      out+=$inner
-    fi
+    pre=${rest%%[\`\$\\]*}
+    [ "$pre" = "$rest" ] && break
+    rest=${rest#"$pre"}
+    case ${rest:0:1} in
+      '\') rest=${rest:2} ;;
+      '`')
+        body=${rest:1}
+        case $body in *\`*) acc=${body%%\`*}; rest=${body#*\`} ;; *) acc=$body; rest="" ;; esac
+        scrub_quotes "$acc"; cur+="; $SCRUBBED ; " ;;
+      *)
+        if [ "${rest:1:1}" = "(" ]; then
+          body=${rest:2}; acc=""; depth=1
+          while [ -n "$body" ]; do
+            pre=${body%%[()]*}
+            if [ "$pre" = "$body" ]; then acc+=$body; body=""; break; fi
+            acc+=$pre; ch=${body:${#pre}:1}; body=${body:$((${#pre} + 1))}
+            if [ "$ch" = "(" ]; then depth=$((depth + 1)); acc+=$ch
+            else depth=$((depth - 1)); [ "$depth" -eq 0 ] && break; acc+=$ch; fi
+          done
+          rest=$body
+          scrub_quotes "$acc"; cur+="; $SCRUBBED ; "
+        else
+          rest=${rest:1}
+        fi ;;
+    esac
   done
-  SCRUBBED=$out
+}
+
+scrub_quotes() {
+  local text=$1
+  case $text in
+    *[\'\"#]*|*'<<'*|*'\'$'\n'*) ;;
+    *) SCRUBBED=$text; return ;;
+  esac
+  case $text in
+    *rm[[:space:]]*|*git[[:space:]]*|*curl[[:space:]]*|*wget[[:space:]]*|*chmod[[:space:]]*|*dd[[:space:]]*|*eval*|*sh[[:space:]]*) ;;
+    *) SCRUBBED=$text; return ;;
+  esac
+  if [ "$SCRUB_DEPTH" -ge 8 ]; then SCRUBBED=$text; return; fi
+  SCRUB_DEPTH=$((SCRUB_DEPTH + 1))
+
+  local out="" cur="" line L first=1 qc="" qin="" qexec=0 qansi=0 hd_word="" hd_dash=0
+  local pre c tail w d
+  while IFS= read -r line; do
+    if [ -z "$hd_word" ]; then                # backslash-newline joins lines
+      while [[ $line == *[!\\]'\' || $line == '\' ]] && IFS= read -r w; do line="${line%?} $w"; done
+    fi
+    L=$line
+    if [ -n "$qc" ]; then
+      qin+=$'\n'
+    else
+      [ "$first" = 1 ] || cur+=$'\n'
+      if [ -n "$hd_word" ]; then              # inside a heredoc body: skip the line
+        if [ "$hd_dash" = 1 ]; then while [ "${L:0:1}" = $'\t' ]; do L=${L:1}; done; fi
+        [ "$L" = "$hd_word" ] && hd_word=""
+        first=0; continue
+      fi
+    fi
+    first=0
+    # A very long line is scanned in ~1 KB segments (quote state carries over),
+    # so the per-token slicing below never copies a huge remainder: stays linear.
+    while [ -n "$line" ]; do
+    if [ ${#line} -gt 2048 ]; then
+      L=${line:0:1024}; line=${line:1024}
+      while [[ $L == *'\' || $L == *'<' ]] && [ -n "$line" ]; do L+=${line:0:1}; line=${line:1}; done
+    else
+      L=$line; line=""
+    fi
+    while [ -n "$L" ]; do
+      if [ ${#cur} -gt 512 ]; then             # keep the tail buffer small
+        out+=${cur:0:$((${#cur} - 128))}; cur=${cur: -128}
+      fi
+      if [ -n "$qc" ]; then                    # inside a quote: look for the close
+        if [ "$qc" = "'" ] && [ "$qansi" = 0 ]; then
+          case $L in
+            *\'*) qin+=${L%%\'*}; L=${L#*\'}; _scrub_close_quote; qc="" ;;
+            *) qin+=$L; L="" ;;
+          esac
+        else
+          if [ "$qc" = '"' ]; then pre=${L%%[\"\\]*}; else pre=${L%%[\'\\]*}; fi
+          if [ "$pre" = "$L" ]; then
+            qin+=$L; L=""
+          else
+            qin+=$pre; L=${L#"$pre"}
+            if [ "${L:0:1}" = '\' ]; then
+              qin+=${L:0:2}; L=${L:2}
+            else
+              L=${L:1}; _scrub_close_quote; qc=""
+            fi
+          fi
+        fi
+        continue
+      fi
+      pre=${L%%[\'\"\\#<]*}
+      if [ "$pre" = "$L" ]; then cur+=$L; L=""; break; fi
+      cur+=$pre; L=${L#"$pre"}
+      c=${L:0:1}
+      case $c in
+        '\') cur+=${L:0:2}; L=${L:2} ;;
+        '#')
+          case ${cur: -1} in
+            ""|[[:space:]\;\&\|\(]) L="" ;;
+            *) cur+=$c; L=${L:1} ;;
+          esac ;;
+        '<')
+          if [ "${L:0:3}" = '<<<' ]; then
+            cur+='<<<'; L=${L:3}
+          elif [ "${L:0:2}" = '<<' ]; then
+            cur+='<<'; L=${L:2}
+            case $out$cur in
+              *'(('*) ;;
+              *)
+                if [[ $L =~ $_HD_WORD ]]; then
+                  d=${BASH_REMATCH[1]}; w=${BASH_REMATCH[2]}
+                  if [ ${#cur} -gt 122 ]; then tail=${cur: -122}; else tail=$cur; fi
+                  tail=${tail%??}
+                  [[ $tail =~ $_SH_HERE ]] || { hd_word=$w; [ -n "$d" ] && hd_dash=1 || hd_dash=0; }
+                fi ;;
+            esac
+          else
+            cur+='<'; L=${L:1}
+          fi ;;
+        *)                                     # opening quote
+          qc=$c; qin=""; qexec=0; qansi=0; L=${L:1}
+          if [ "$c" = "'" ] && [ "${cur: -1}" = '$' ]; then
+            cur=${cur%?}; qansi=1
+          else
+            if [ ${#cur} -gt 100 ]; then tail=${cur: -100}; else tail=$cur; fi
+            [[ $tail =~ $_EXEC_CTX ]] && qexec=1
+          fi ;;
+      esac
+    done
+    done
+  done <<< "$text"
+  [ -n "$qc" ] && cur+=$qc$qin                  # unterminated quote: keep as is
+  SCRUB_DEPTH=$((SCRUB_DEPTH - 1))
+  SCRUBBED=$out$cur
 }
 scrub_quotes "$COMMAND"
 SHELL_TEXT=$SCRUBBED
@@ -118,7 +260,7 @@ _END='([[:space:];&|]|$)'
 DESTRUCTIVE_COMMAND_PATTERN="(^|[[:space:];&|(\`])rm${_RM_ARGS}[[:space:]]+(${_RM_FLAG}${_RM_ARGS}[[:space:]]+${_RM_TARGET}${_END}|${_RM_TARGET}${_RM_ARGS}[[:space:]]+${_RM_FLAG}${_END})"
 
 if [ ! -f "$PATTERNS_FILE" ]; then
-  if (printf '%s\n' "$SHELL_TEXT" | grep -qiE -- "$DESTRUCTIVE_COMMAND_PATTERN" 2>/dev/null); then
+  if grep -qiE -- "$DESTRUCTIVE_COMMAND_PATTERN" <<<"$SHELL_TEXT" 2>/dev/null; then
     echo "[pre-bash-guard] Catastrophic delete blocked — recursive rm of root, home or a system directory." >&2
     exit 2
   fi
@@ -135,16 +277,16 @@ while IFS=$'\t' read -r pattern reason exclude || [ -n "$pattern" ]; do
   case "$pattern" in \#*) continue ;; esac
 
   # Match pattern against command (case-insensitive, POSIX extended regex).
-  # Wrap in subshell so a bad regex exits the subshell, not the script.
+  # A bad regex makes grep exit 2, which "if" reads as no match (fail open).
   # "--" stops grep from treating a pattern beginning with '-' (e.g. an
   # exclude pattern like "--force-with-lease") as an option flag.
   # Anchored shell-command patterns (they begin with the "(^|" command-position
-  # anchor) match the quote-scrubbed text; every other pattern (the SQL ones)
+  # anchor) match the scrubbed text; every other pattern (the SQL ones)
   # matches the full text, so statements inside quoted psql -c / heredocs are
   # still caught.
   case "$pattern" in '(^|'*) target=$SHELL_TEXT ;; *) target=$COMMAND ;; esac
   matched=false
-  if (printf '%s\n' "$target" | grep -qiE -- "$pattern" 2>/dev/null); then
+  if grep -qiE -- "$pattern" <<<"$target" 2>/dev/null; then
     matched=true
   fi
 
@@ -153,7 +295,7 @@ while IFS=$'\t' read -r pattern reason exclude || [ -n "$pattern" ]; do
   # which POSIX ERE cannot express — e.g. "--force-with-lease" excludes the
   # "git push --force" block).
   if [ "$matched" = "true" ] && [ -n "$exclude" ]; then
-    if (printf '%s\n' "$target" | grep -qiE -- "$exclude" 2>/dev/null); then
+    if grep -qiE -- "$exclude" <<<"$target" 2>/dev/null; then
       matched=false
     fi
   fi

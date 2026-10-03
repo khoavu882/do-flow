@@ -512,8 +512,38 @@ run_rm_cases() {
   check_policy "$mode" "$script" deny "echo x | xargs sh -c 'rm -rf /'" "root"
 }
 
+# Comments, heredoc bodies, command substitution, $'..', line continuation.
+run_scrub_cases() {
+  local mode="$1" script="$2"
+  # an apostrophe in a comment or heredoc body must not hide a following command
+  check_policy "$mode" "$script" deny $'# don\'t\nrm -rf /\necho \'x\'' "root"
+  check_policy "$mode" "$script" deny $'cat <<EOF\nit\'s\nEOF\nrm -rf /\necho \'x\'' "root"
+  check_policy "$mode" "$script" deny $'cat <<EOF\nhi\nEOF\nrm -rf /' "root"
+  check_policy "$mode" "$script" deny $'cat <<-EOF\n\tx\n\tEOF\nrm -rf /' "root"
+  check_policy "$mode" "$script" deny $'echo $((1 << n))\nrm -rf /\nn' "root"
+  # comment text and heredoc bodies are data
+  check_policy "$mode" "$script" allow $'# rm -rf /\nls'
+  check_policy "$mode" "$script" allow $'cat <<EOF\nDo not run rm -rf / ever\nEOF'
+  check_policy "$mode" "$script" allow $'cat <<\'EOF\'\nrm -rf /\nEOF'
+  check_policy "$mode" "$script" allow $'git commit -m "$(cat <<\'EOF\'\nfix: x\n\nrm -rf /\nEOF\n)"'
+  # a heredoc that feeds a shell runs its body
+  check_policy "$mode" "$script" deny $'bash <<\'EOF\'\nrm -rf /\nEOF' "root"
+  check_policy "$mode" "$script" deny $'sh <<EOF\nrm -rf /\nEOF' "root"
+  check_policy "$mode" "$script" deny 'bash -c "bash -c \"rm -rf /\""' "root"
+  # command substitution inside double quotes runs
+  check_policy "$mode" "$script" deny 'echo "$(rm -rf /)"' "root"
+  check_policy "$mode" "$script" deny 'echo "`rm -rf /`"' "root"
+  check_policy "$mode" "$script" deny 'x="$(rm -rf ~)"' "home"
+  check_policy "$mode" "$script" allow 'echo "$(date) and `date`"'
+  # $'..' is a quoted word; backslash-newline joins lines
+  check_policy "$mode" "$script" deny "rm -rf \$'/'" "root"
+  check_policy "$mode" "$script" deny $'rm -rf \\\n/' "root"
+}
+
 run_rm_cases conf "$POLICY_DIR/pre-bash-guard.sh"
 run_rm_cases floor "$FLOOR_DIR/pre-bash-guard.sh"
+run_scrub_cases conf "$POLICY_DIR/pre-bash-guard.sh"
+run_scrub_cases floor "$FLOOR_DIR/pre-bash-guard.sh"
 
 # Conf-only cases: the other anchored patterns must ignore quoted text, still
 # run through bash -c / sh -c, and the previously-correct cases must stay correct.
@@ -534,6 +564,38 @@ check_policy conf "$P" deny  'dd if=/dev/zero of=/dev/null' "dd from block devic
 check_policy conf "$P" deny  "psql -c 'DROP TABLE users'" "Destructive DDL"
 check_policy conf "$P" deny  "psql -c 'DELETE FROM users;'" "Unscoped DELETE"
 check_policy conf "$P" deny  "psql -c 'TRUNCATE TABLE users'" "Irreversible truncate"
+# SQL patterns read the raw text, so a heredoc body is still caught
+check_policy conf "$P" deny  $'psql <<EOF\nDROP TABLE x;\nEOF' "Destructive DDL"
+check_policy conf "$P" deny  'echo "$(git reset --hard)"' "Destructive reset"
+
+# Scrubber speed: it must stay linear. Generous bound so it never flakes; the
+# implementation runs these in well under 300 ms.
+time_policy() {  # <label> <command>  -> prints seconds, fails above 3 s
+  local label="$1" command="$2" payload tf secs
+  payload=$(jq -n --arg cmd "$command" '{"tool_name":"Bash","tool_input":{"command":$cmd}}')
+  tf=$(mktemp)
+  TIMEFORMAT=%R
+  { time bash "$P" <<<"$payload" >/dev/null 2>&1; } 2>"$tf"
+  secs=$(tail -n 1 "$tf"); rm -f "$tf"
+  if awk -v s="$secs" 'BEGIN { exit !(s < 3) }'; then
+    _pass "speed: $label took ${secs}s (< 3s)"
+  else
+    _fail "speed: $label took ${secs}s (>= 3s)"
+  fi
+}
+HEREDOC_800="cat > f.js <<'EOF'"
+for i in $(seq 800); do
+  HEREDOC_800+=$'\n'"const x$i = format(\"it's $i\", 'a', \"b\"); // don't perform term $i"
+done
+HEREDOC_800+=$'\nEOF\nrm -f f.tmp'   # an rm token, so the scrubber really runs
+time_policy "800-line heredoc" "$HEREDOC_800"
+BODY_57K=""; BODY_57K_ONE=""   # (a ${var//\n/ } on 57 KB is itself quadratic in bash 3.2)
+for i in $(seq 1100); do
+  BODY_57K+="x = \"a$i\" + 'b$i' + \"c\" + 'd'; form($i)"$'\n'
+  BODY_57K_ONE+="x = \"a$i\" + 'b$i' + \"c\" + 'd'; form($i) "
+done
+time_policy "57 KB body, ~$(( 1100 * 8 )) quotes (multi-line)" "echo start && cat > f.txt <<EOF"$'\n'"$BODY_57K"$'EOF\nrm -f f.tmp'
+time_policy "57 KB body, ~$(( 1100 * 8 )) quotes (one line)" "echo $BODY_57K_ONE; rm -f f.tmp"
 rm -rf "$FLOOR_DIR"
 
 # ── 3. stop-check.sh — stub detection pattern ────────────────────────────────
