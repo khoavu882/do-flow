@@ -151,7 +151,7 @@ test('write: a name collision retries with new characters, at most five times, t
   const refused = store.appendEvents(dir2, [added('FU-aaaaaa')], { now, random: () => { calls += 1; return '000001'; } });
   assert.equal(refused.ok, false);
   assert.equal(refused.finding, 'id-collision');
-  assert.equal(calls, 1 + store.COLLISION_RETRIES, 'one draw for the dry run, then five retries');
+  assert.equal(calls, 2 + store.COLLISION_RETRIES, 'one draw for each of the two checks, then five retries');
 });
 
 test('write: an event never overwrites or edits an existing file', () => {
@@ -177,6 +177,13 @@ test('write: an illegal event is refused before anything is written, the whole c
   assert.match(refused.message, /Nothing was written/);
   assert.equal(fs.readdirSync(path.join(dir, store.EVENTS_REL)).length, 1);
   assert.deepEqual(store.readFold(dir).followups.map((f) => f.id), ['FU-aaaaaa']);
+});
+
+test('write: a refused write on a fresh project creates no folder and takes no lock', () => {
+  const dir = plainDir('write-refused-fresh');
+  const refused = store.appendEvents(dir, [{ type: 'followup.taken', by: 'agent', data: { ids: ['FU-aaaaaa'], feature: 'f1' } }]);
+  assert.equal(refused.finding, 'illegal-transition');
+  assert.equal(fs.existsSync(path.join(dir, 'agent-docs')), false);
 });
 
 test('write: a lock that cannot be taken refuses with store-locked and writes nothing', () => {

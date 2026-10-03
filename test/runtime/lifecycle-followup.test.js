@@ -226,6 +226,13 @@ test('take: needs a tracked feature, open items and known ids; refusals write no
   assert.deepEqual(listFollowups({ root, state: 'taken' }).items.map((i) => i.takenBy), ['050-demo', '050-demo']);
 });
 
+test('a refused take or settle on a fresh project leaves no store folder behind', () => {
+  const root = plainRoot();
+  assert.equal(takeFollowups({ root, ids: 'FU-aaaaaa', slug: '050-demo' }).ok, false);
+  assert.equal(settleFollowups({ root, ids: 'FU-aaaaaa', as: 'kept', reason: 'x' }).ok, false);
+  assert.equal(fs.existsSync(path.join(root, 'agent-docs')), false);
+});
+
 test('take: one illegal id refuses the whole call', () => {
   const root = plainRoot();
   const a = add(root, 'a').created[0].id;

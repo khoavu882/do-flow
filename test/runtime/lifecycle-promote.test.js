@@ -137,8 +137,7 @@ test('a title must be one line with a letter or digit; ids and title are require
   usage(() => followup.promoteFollowups({ root, ids: a, title: 'two\nlines', now: NOW }), /must be one line/);
   usage(() => followup.promoteFollowups({ root, ids: a, title: 'z'.repeat(81), now: NOW }), /limit is 80/);
   usage(() => followup.promoteFollowups({ root, title: 'X', now: NOW }), /--ids is required/);
-  const symbols = followup.promoteFollowups({ root, ids: a, title: '!!!', now: NOW });
-  assert.equal(symbols.finding, 'invalid-title');
+  usage(() => followup.promoteFollowups({ root, ids: a, title: '!!!', now: NOW }), /must hold a letter or a digit/);
   assert.equal(fs.existsSync(intentDir(root)), false);
 });
 

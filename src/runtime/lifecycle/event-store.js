@@ -120,6 +120,10 @@ function createExclusive(fsImpl, dir, build, firstId, random) {
  */
 function appendEvents(root, drafts, { now = new Date(), fsImpl = nodeFs, random = randomChars } = {}) {
   const dir = eventsDir(root);
+  // A write that would be refused leaves nothing behind, not even the store folder (IC-001: created
+  // on the first write), so the check runs once before the folder and the lock and again under the lock.
+  const early = planEvents(root, drafts, { now, fsImpl, random });
+  if (early.refused) return early.refused;
   fsImpl.mkdirSync(dir, { recursive: true });
   let release;
   try {
@@ -129,26 +133,8 @@ function appendEvents(root, drafts, { now = new Date(), fsImpl = nodeFs, random 
     throw error;
   }
   try {
-    const { events } = readEvents(root, { fsImpl });
-    const state = foldInto(events);
-    let floor = state.newestAt === null ? -Infinity : state.newestAt + 1;
-    const stamped = [];
-    for (const draft of drafts) {
-      const atMs = Math.max(now.getTime(), floor);
-      floor = atMs + 1;
-      const at = new Date(atMs).toISOString();
-      // The dry run draws the id the write will try first, so a conflict names the event it refuses.
-      const id = idFor(at, random);
-      const probe = { v: 1, id, type: draft.type, at, by: draft.by, data: draft.data };
-      const raised = applyEvent(state, probe);
-      if (raised.length) {
-        return {
-          ok: false, finding: 'illegal-transition', conflict: raised[0],
-          message: `${raised[0].reason}. Nothing was written.`,
-        };
-      }
-      stamped.push({ draft, at, id });
-    }
+    const { stamped, refused } = planEvents(root, drafts, { now, fsImpl, random });
+    if (refused) return refused;
     const written = [];
     for (const { draft, at, id } of stamped) {
       const build = (first, rand) => ({ v: 1, id: first || idFor(at, rand), type: draft.type, at, by: draft.by, data: draft.data });
@@ -162,6 +148,26 @@ function appendEvents(root, drafts, { now = new Date(), fsImpl = nodeFs, random 
   } finally {
     release();
   }
+}
+
+/** Folds the store, stamps each draft and applies it; `refused` is the whole call's refusal when any is illegal. */
+function planEvents(root, drafts, { now, fsImpl, random }) {
+  const state = foldInto(readEvents(root, { fsImpl }).events);
+  let floor = state.newestAt === null ? -Infinity : state.newestAt + 1;
+  const stamped = [];
+  for (const draft of drafts) {
+    const atMs = Math.max(now.getTime(), floor);
+    floor = atMs + 1;
+    const at = new Date(atMs).toISOString();
+    // The dry run draws the id the write will try first, so a conflict names the event it refuses.
+    const id = idFor(at, random);
+    const raised = applyEvent(state, { v: 1, id, type: draft.type, at, by: draft.by, data: draft.data });
+    if (raised.length) {
+      return { refused: { ok: false, finding: 'illegal-transition', conflict: raised[0], message: `${raised[0].reason}. Nothing was written.` } };
+    }
+    stamped.push({ draft, at, id });
+  }
+  return { stamped };
 }
 
 module.exports = {

@@ -21,7 +21,7 @@ const { resolveActiveFeature } = require('../feature-resolve');
 const { SETTLE_AS, withDerivedDone } = require('./fold');
 const { appendEvents, readFold, byFromChannel, randomChars } = require('./event-store');
 const { deriveStatuses } = require('./status');
-const { writeIntent } = require('./intent-writer');
+const { writeIntent, kebabTitle } = require('./intent-writer');
 
 /** The decision register's stages plus the two lifecycle stages (IC-006). */
 const STAGES = [...CHAIN_STAGES, 'release', 'maintain'];
@@ -253,6 +253,7 @@ function promoteFollowups({ root, ids, title, channel, now = new Date(), fsImpl 
   const list = parseIds(ids);
   const problems = [];
   const cleanTitle = oneLine(title, '--title', problems, { max: 80 });
+  if (cleanTitle && !kebabTitle(cleanTitle)) problems.push('--title must hold a letter or a digit');
   if (problems.length) throw new FollowupUsageError(problems.join('; '));
   const by = channelBy(channel);
   // Check the items before the file exists, so a refusal leaves nothing behind; the event write checks again under the lock.
