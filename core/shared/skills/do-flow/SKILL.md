@@ -138,10 +138,11 @@ not declare is not run here, however familiar it is from the `feature` chain.
    user's answer forward anyway — the answer is what governs whether the next stage runs, and the
    record of it is what keeps the next stage from asking again.
 
-   When the answer also carries a choice beyond approve or reject and the feature has a register,
-   register it too; the receiving stage's batch then leaves that gate answer out:
+   When the answer also carries a choice beyond approve or reject and `paths --json` reports
+   `has_decisions: true`, register it too, once `decision --action list`
+   shows no live decision with that statement; the receiving stage's batch then leaves it out:
    ```bash
-   "$DOFLOW" decision --action add --topic <key> --statement <text> --channel gate --stage <stage the gate follows> --rationale <text> --json
+   "$DOFLOW" decision --action add --topic "<key>" --statement "<text>" --channel gate --stage "<stage the gate follows>" --rationale "<text>" --json
    ```
 
 8. **Never skip a gate on an ambiguous answer** — an unanswered or unclear response to any

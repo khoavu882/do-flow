@@ -366,7 +366,7 @@ applies.
 - A design §1 row ends its `Shape chosen` cell with its `DEC-###`. A §8 row that came from a
   "Decide for me" pick cites its `DEC-###` in `Basis`.
 - A line citing a superseded decision is a `stale` finding unless it also names a later decision in
-  that chain (§9).
+  that chain, and a cited `DEC-###` absent from the register is an `unknown` finding (§9).
 - Compaction moves History content to `decisions/history/<artifact>.md` and leaves one pointer line,
   `Earlier entries: [decisions/history/<artifact>.md](<relative link>).`, the link relative to the
   artifact's own directory, matching `^Earlier entries: \[decisions/history/[a-z-]+\.md\]`. Index
