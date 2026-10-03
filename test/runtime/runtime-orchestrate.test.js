@@ -299,6 +299,16 @@ test('044: a feature without a register, or a task id that is not a feature, rep
   assert.ok(notFeature.data.compaction.reason);
 });
 
+test('044: a plan task id on a feature branch reports a missing feature folder, not a missing register', () => {
+  const cwd = featureProject('075-x');
+  execFileSync('git', ['-C', cwd, 'checkout', '-q', '-b', 'feat/075-x'], { stdio: 'ignore' });
+  const result = handoff(cwd, 'B.1', 'do-brainstorm', ['--task-class', 'feature']);
+  assert.equal(result.status, 0);
+  assert.equal(result.data.disposition, 'completed');
+  assert.deepEqual(result.data.compaction, { status: 'skipped', reason: 'no feature folder for task id "B.1"' });
+  assert.equal(requirementOf(cwd, '075-x'), HISTORY_REQUIREMENT);
+});
+
 test('044: a compaction that cannot run is reported as failed without changing the disposition or exit code', () => {
   const cwd = featureProject('073-x');
   fs.writeFileSync(path.join(cwd, 'agent-docs', 'doflow', '073-x', 'decisions', 'register.json'), '{ not json');

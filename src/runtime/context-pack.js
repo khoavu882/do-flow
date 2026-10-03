@@ -12,16 +12,24 @@ const NO_DECISIONS = Object.freeze({ available: false, live: [], liveCount: 0 })
 /**
  * The live decisions of the feature the caller is working on (IC-012). The feature is resolved
  * from the branch, or from `slug` when the task id is not the feature slug. A feature with no
- * register, an unresolvable feature or an unreadable register all read as "not available": a
- * context pack is a read, and a missing register must not stop a stage from getting its evidence.
+ * register or an unresolvable feature reads as "not available"; an unreadable register does too,
+ * with a `reason`. Neither throws: a context pack is a read, and a missing register must not stop
+ * a stage from getting its evidence.
  * @param {{projectRoot:string, slug?:string|null}} options
- * @returns {{available:boolean, live:Array<Object>, liveCount:number}}
+ * @returns {{available:boolean, live:Array<Object>, liveCount:number, reason?:string}}
  */
 function loadLiveDecisions({ projectRoot, slug = null }) {
   try {
     const feature = resolveActiveFeature({ projectRoot, slug });
     if (feature.error) return { ...NO_DECISIONS };
-    const register = readRegister(feature.featureDir);
+    let register;
+    try {
+      register = readRegister(feature.featureDir);
+    } catch (error) {
+      // The register exists but cannot be trusted. Stay unavailable, but say why, so a stage
+      // sees the corruption instead of reading "no decisions".
+      return { ...NO_DECISIONS, reason: `register unreadable: ${error.message}` };
+    }
     if (!register) return { ...NO_DECISIONS };
     const live = register.decisions
       .filter((d) => d.status === 'live')
@@ -163,7 +171,10 @@ class ContextPackCompiler {
           id: r.id, stageId: r.stageId, question: r.question, status: r.status,
           blocking: r.blocking, claimId: r.claimId, evidenceIds: r.evidenceIds, gap: r.gap,
         })),
-      decisions: { available: decisions.available, live: [...decisions.live], liveCount: decisions.liveCount },
+      decisions: {
+        available: decisions.available, live: [...decisions.live], liveCount: decisions.liveCount,
+        ...(decisions.reason ? { reason: decisions.reason } : {}),
+      },
       budgetEnforcement: {
         totalFiles: relevantFiles.length,
         totalSupportedClaims: supportedClaims.length,

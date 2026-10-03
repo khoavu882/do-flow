@@ -88,7 +88,15 @@ test('an unresolvable feature never throws', (t) => {
 test('an unreadable register reads as unavailable rather than failing the pack', (t) => {
   const root = fixture(t);
   fs.writeFileSync(path.join(root, 'agent-docs', 'doflow', '060-x', 'decisions', 'register.json'), '{ not json');
-  assert.deepEqual(packOf(root).pack.decisions, { available: false, live: [], liveCount: 0 });
+  const { decisions } = packOf(root).pack;
+  assert.equal(decisions.available, false);
+  assert.deepEqual(decisions.live, []);
+  assert.equal(decisions.liveCount, 0);
+  assert.match(decisions.reason, /^register unreadable: .*not valid JSON/);
+});
+
+test('a missing register carries no reason', (t) => {
+  assert.equal('reason' in packOf(fixture(t, { withRegister: false })).pack.decisions, false);
 });
 
 test('the markdown form has a Live decisions section only when there are live decisions', () => {

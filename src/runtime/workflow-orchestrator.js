@@ -479,6 +479,9 @@ function compactAfterHandoff({ taskId, projectRoot }) {
   try {
     const feature = resolveActiveFeature({ projectRoot, slug: taskId });
     if (feature.error) return { status: 'skipped', reason: feature.message };
+    // A task id such as a plan task (`B.1`) resolves on a feature branch to a folder that was
+    // never created; say that, rather than blaming a missing register.
+    if (!fs.existsSync(feature.featureDir)) return { status: 'skipped', reason: `no feature folder for task id "${taskId}"` };
     const result = compactDecisions({
       featureDir: feature.featureDir, slug: feature.paths.feature_slug, repoRoot: feature.repoRoot, paths: feature.paths,
     });
