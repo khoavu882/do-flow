@@ -106,14 +106,21 @@ fi
 # live end last. Empty when there is no register, so the rule is inert; a register jq cannot read
 # also leaves it empty (fail-open).
 stale_map=""; feat_abs=""
-if [ -n "${json:-}" ] && [ "$(printf '%s' "$json" | jq -r '.has_decisions // false' 2>/dev/null)" = "true" ]; then
+# The feature folder is canonicalised physically: the resolver reports a logical root in a non-git
+# directory, while each file below is compared by its physical path. A symlink or /tmp vs
+# /private/tmp on one side only would make the containment test silently fail.
+if [ -n "${json:-}" ] && [ -n "$(printf '%s' "$json" | jq -r '.feature_dir // empty' 2>/dev/null)" ]; then
+  feat_abs=$(cd "$root/$(printf '%s' "$json" | jq -r '.feature_dir')" 2>/dev/null && pwd -P) || feat_abs=""
+fi
+if [ -n "$feat_abs" ] && [ "$(printf '%s' "$json" | jq -r '.has_decisions // false' 2>/dev/null)" = "true" ]; then
   reg_file="$root/$(printf '%s' "$json" | jq -r '.decisions_register')"
-  feat_abs="$root/$(printf '%s' "$json" | jq -r '.feature_dir')"
+  # limit() bounds each chain at the decision count, so a hand-edited register whose supersededBy
+  # links form a cycle still terminates; a decision is never its own successor.
   stale_map=$(jq -r '
     .decisions as $d
     | ($d | map({key: .id, value: .supersededBy}) | from_entries) as $next
     | [ $d[] | select(.status == "superseded") | .id as $id
-        | {id: $id, chain: ([ $id | recurse($next[.] // empty) ] | .[1:])} ]
+        | {id: $id, chain: ([ limit($d | length; $id | recurse($next[.] // empty)) ] | .[1:] | map(select(. != $id)))} ]
     | map(select(.chain | length > 0) | .id + ":" + (.chain | join(",")))
     | join(";")' "$reg_file" 2>/dev/null) || stale_map=""
 fi
@@ -128,14 +135,18 @@ for f in "${targets[@]}"; do
   fi
   # The register belongs to one feature: an explicit path outside that feature folder must not be
   # checked against it.
-  file_stale_map=""
-  if [ -n "$stale_map" ]; then
+  file_stale_map=""; hist_root=""
+  if [ -n "$feat_abs" ]; then
     case "$(cd "$(dirname "$f")" 2>/dev/null && pwd -P)/" in
-      "$feat_abs"/*) file_stale_map="$stale_map" ;;
+      "$feat_abs"/*)
+        file_stale_map="$stale_map"
+        # The only place a History pointer may lead: the feature's own archive directory.
+        hist_root=$(cd "$feat_abs/decisions/history" 2>/dev/null && pwd -P) || hist_root=""
+        ;;
     esac
   fi
   out=$(awk -v is_plan="$([ "$(basename "$f")" = "plan.md" ] && echo 1 || echo 0)" \
-    -v stale_map="$file_stale_map" -v dir="$(dirname "$f")" '
+    -v stale_map="$file_stale_map" -v dir="$(dirname "$f")" -v hist_root="$hist_root" -v sq="'" '
     # Inline markup is presentation, not value: "**Superseded → X**" and "`Live`" mean the same as
     # their bare forms, so emphasis is stripped before any comparison.
     function trim(s) { gsub(/[`*]/, "", s); gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
@@ -143,8 +154,9 @@ for f in "${targets[@]}"; do
     function finding(rule, id, msg) { print rule "\t" id "\t" msg }
 
     # Blanks the parts of a line that sit inside an HTML comment, tracking comments that span
-    # lines, so a comment block is never read as artifact text.
-    function strip_comments(s,   out, p) {
+    # lines, so a comment block is never read as artifact text. Mirrors the compactor: only a
+    # comment opening at the start of a line continues past it.
+    function strip_comments(s,   out, p, rest) {
       out = ""
       while (s != "") {
         if (in_comment) {
@@ -154,7 +166,15 @@ for f in "${targets[@]}"; do
         } else {
           p = index(s, "<!--")
           if (!p) return out s
-          out = out substr(s, 1, p - 1); s = substr(s, p + 4); in_comment = 1
+          rest = substr(s, p + 4)
+          if (out == "" && substr(s, 1, p - 1) ~ /^[ \t]*$/) {
+            # A comment that starts the line may run on over later lines.
+            s = rest; in_comment = 1
+          } else if (index(rest, "-->")) {
+            # Mid-line, it counts only when it also closes on this line; a lone `<!--` quoted in
+            # prose is text and must not hide the rest of the file.
+            out = out substr(s, 1, p - 1); s = substr(rest, index(rest, "-->") + 3)
+          } else return out s
         }
       }
       return out
@@ -185,10 +205,24 @@ for f in "${targets[@]}"; do
 
     # The pointer line in History names an archive file (relative to this artifact). IDs that
     # moved there still count as History entries for the history rule.
+    # True when the directory holding `path` resolves, physically, inside <feature>/decisions/history.
+    # A pointer is data from the artifact; it must not make the validator read arbitrary files.
+    function under_hist_root(path,   d, cmd, real) {
+      if (hist_root == "" || index(path, sq)) return 0
+      d = path; sub(/\/[^\/]*$/, "", d)
+      if (d == "") d = "/"
+      cmd = "cd " sq d sq " 2>/dev/null && pwd -P"
+      real = ""
+      cmd | getline real
+      close(cmd)
+      return real != "" && index(real "/", hist_root "/") == 1
+    }
+
     function load_archive(line,   target, path, l, c, first) {
       if (!match(line, /\]\([^)]+\)/)) return
       target = substr(line, RSTART + 2, RLENGTH - 3)
       path = (target ~ /^\//) ? target : dir "/" target
+      if (!under_hist_root(path)) return
       while ((getline l < path) > 0) {
         if (l ~ /^[ \t]*\|/) {
           if (l ~ /^[ \t]*\|[ :|-]*$/) continue
@@ -203,7 +237,7 @@ for f in "${targets[@]}"; do
     }
 
     BEGIN {
-      sec = 0; in_table = 0; in_rollup = 0; status_col = 0; phase = ""; in_comment = 0; cur_hist = 0
+      sec = 0; in_table = 0; in_rollup = 0; status_col = 0; phase = ""; in_comment = 0; cur_hist = 0; fence_ch = ""; fence_len = 0
       if (stale_map != "") {
         nrec = split(stale_map, recs, ";")
         for (r = 1; r <= nrec; r++) {
@@ -216,11 +250,29 @@ for f in "${targets[@]}"; do
     }
 
     # Runs on every line, before the structural rules below (which consume lines with "next").
+    # Fenced code is an example, not artifact text: it neither opens a section nor cites anything.
+    # Fence rules follow the compactor: a run of 3+ backticks or tildes, up to 3 spaces in, closed by
+    # a bare run of the same character at least as long.
     {
-      vis = strip_comments($0)
-      if ($0 ~ /^## /) cur_hist = ($0 ~ /[Hh]istory/) ? 1 : 0
-      else if (cur_hist && vis ~ /^Earlier entries: \[decisions\/history\/[a-z-]+\.md\]/) load_archive(vis)
-      if (stale_map != "" && !cur_hist && vis != "") check_stale(vis, NR)
+      in_fence = 0
+      t = $0; sub(/[ \t]+$/, "", t)
+      if (fence_ch != "") {
+        in_fence = 1
+        if (t ~ /^ ? ? ?(`+|~+)$/) {
+          sub(/^ +/, "", t)
+          if (substr(t, 1, 1) == fence_ch && length(t) >= fence_len) fence_ch = ""
+        }
+      } else if (t ~ /^ ? ? ?(```|~~~)/) {
+        in_fence = 1
+        sub(/^ +/, "", t); fence_ch = substr(t, 1, 1); fence_len = 0
+        while (substr(t, fence_len + 1, 1) == fence_ch) fence_len++
+      }
+      if (!in_fence) {
+        vis = strip_comments($0)
+        if ($0 ~ /^## /) cur_hist = ($0 ~ /[Hh]istory/) ? 1 : 0
+        else if (cur_hist && vis ~ /^Earlier entries: \[decisions\/history\/[a-z-]+\.md\]/) load_archive(vis)
+        if (stale_map != "" && !cur_hist && vis != "") check_stale(vis, NR)
+      }
     }
 
     # ── section boundaries ───────────────────────────────────────────────────────────────────
