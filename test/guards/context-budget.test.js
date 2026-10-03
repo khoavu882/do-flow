@@ -132,9 +132,9 @@ test('G13: the DoFlow-authored always-loaded set stays within its byte ceiling',
 // feature measured 207,705 before handoff consolidation and 197,864 after (2026-09-07).
 // Other current totals: dependency-change 80,020; bug/refactor 65,062; documentation 53,473;
 // operations 40,213; review 38,515; research 33,294; trivial-edit 21,663.
-// Measured 2026-10-03: feature 221,530 after feature 044's decision-register guidance (+2,437 over 219,093).
+// Measured 2026-10-03: feature 222,216 after feature 044's decision-register guidance (+3,123 over 219,093).
 const TASK_CONTEXT_RAILS = new Map([
-  ['feature', 222000], // rebased for previously uncounted shared guidance, not new prose
+  ['feature', 223000], // 044 raise is new prose (decision-register guidance); the 220000 base was a rebase
   ['dependency-change', 85000],
   ['bug', 70000],
   ['refactor', 70000],
