@@ -34,8 +34,9 @@ When `paths --json` reports `has_decisions: true`, do this before the handoff ca
 
 1. Register this stage's decisions (question answers, gate answers carrying a choice, decisions the
    user typed as prompts, "Decide for me" defaults, agent resolutions) in one `"$DOFLOW" decision
-   --action add --batch <file> --json` call, channels `question|gate|prompt|default|resolution`.
-   Skip it when there are none. A value beginning with `-` is passed as `--flag=value`.
+   --action add --json` call that takes a JSON batch file (the verb's `batch` flag), channels
+   `question|gate|prompt|default|resolution`. Skip it when there are none. A value beginning with a
+   dash is passed as `--<name>=<value>`.
 2. Run `"$DOFLOW" validate`. Correct each `stale` finding in an artifact this stage owns, changing
    only the flagged line; report findings in other artifacts without editing them.
 3. Record the handoff. It compacts History itself and reports `compaction`; its `--task-id` must be
