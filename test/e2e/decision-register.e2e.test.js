@@ -21,6 +21,15 @@ after(() => { fs.rmSync(SCRATCH, { recursive: true, force: true }); });
 
 let repoCounter = 0;
 
+/** A minimal, explicit environment: no inherited DOFLOW_CLI, GIT_* or provider keys (NFR-001). */
+function baseEnv() {
+  return {
+    PATH: process.env.PATH, HOME, USERPROFILE: HOME, TMPDIR: SCRATCH,
+    GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.com',
+    GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.com',
+  };
+}
+
 /** A scratch git repo with one commit, on branch feat/<slug>. Returns { repo, slug, dir }. */
 function makeRepo(slug = '044-scratch') {
   const repo = path.join(SCRATCH, `repo-${repoCounter++}`);
@@ -28,8 +37,7 @@ function makeRepo(slug = '044-scratch') {
   const git = (...args) => {
     const r = spawnSync('git', args, {
       cwd: repo, encoding: 'utf8',
-      env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null',
-        GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.com' },
+      env: { ...baseEnv(), GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
     });
     assert.strictEqual(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
   };
@@ -43,7 +51,7 @@ function makeRepo(slug = '044-scratch') {
 function run(repo, args, { input } = {}) {
   const r = spawnSync('bash', [DOFLOW_RUN, ...args], {
     cwd: repo,
-    env: { ...process.env, HOME, USERPROFILE: HOME, DOFLOW_CONFIG_DIR: path.join(repo, '.doflow') },
+    env: { ...baseEnv(), DOFLOW_CONFIG_DIR: path.join(repo, '.doflow') },
     input: input ?? '',
     encoding: 'utf8',
   });
@@ -117,7 +125,9 @@ test('1. live view keeps only the latest decision on a topic; the archive keeps 
 
   const archive = read(path.join(dir, 'decisions', 'archive.md'));
   assert.match(archive, /### DEC-001: wire-id/);
-  assert.match(archive, /Superseded → DEC-002/);
+  const block = (id) => archive.split(/^### /m).find((b) => b.startsWith(`${id}:`)) || '';
+  assert.match(block('DEC-001'), /^- \*\*Status:\*\* Superseded → DEC-002$/m);
+  assert.match(block('DEC-002'), /^- \*\*Status:\*\* Live$/m);
   assert.match(archive, /### DEC-002: wire-id/);
   assert.match(archive, /because Wire carries the UUID\b/, 'the replaced decision keeps its rationale');
 });
@@ -144,6 +154,16 @@ test('2. manual-prompt and gate decisions are captured as user decisions through
     'channels-q': 'user', 'approval-gate': 'user', 'typed-prompt': 'user',
     'picked-default': 'agent', 'settled-open': 'agent',
   });
+
+  // The stage hands off after its one batch call; every channel's decision is in the register.
+  const handoff = run(repo, ['orchestrate', '--action', 'handoff', '--task-id', path.basename(dir), '--task-class', 'feature',
+    '--calling-skill', 'do-brainstorm', '--note', 'discovery done', '--json']);
+  assert.strictEqual(handoff.status, 0, handoff.stdout + handoff.stderr);
+  assert.ok(handoff.json.compaction, 'handoff reports a compaction field');
+  const afterHandoff = register(dir).decisions;
+  assert.deepStrictEqual(afterHandoff.map((d) => [d.topic, d.channel]).sort(),
+    [['approval-gate', 'gate'], ['channels-q', 'question'], ['picked-default', 'default'], ['settled-open', 'resolution'], ['typed-prompt', 'prompt']]);
+  assert.ok(afterHandoff.every((d) => d.status === 'live'));
 
   // Same contract from stdin (`--batch -`).
   const stdinBatch = JSON.stringify([item('from-stdin', 'prompt')]);
@@ -238,10 +258,11 @@ test('5. compaction is lossless and idempotent (FR-012, FR-014, NFR-004)', { ski
   assert.strictEqual(decision(repo, ['--action', 'init']).status, 0);
   const files = historyArtifacts();
   writeFiles(dir, files);
-  assert.strictEqual(add(repo, 'anything', 'one decision so the views are populated').status, 0);
+  assert.strictEqual(add(repo, 'anything', 'first take').status, 0);
+  assert.strictEqual(add(repo, 'anything', 'second take', ['--supersedes', 'DEC-001']).status, 0);
 
   const outside = {};
-  for (const rel of Object.keys(files)) outside[rel] = files[rel].split('## ')[0];
+  for (const rel of Object.keys(files)) outside[rel] = files[rel].slice(0, files[rel].indexOf(HISTORY_ARTIFACTS[rel][1]));
 
   const first = decision(repo, ['--action', 'compact']);
   assert.strictEqual(first.status, 0, first.stdout + first.stderr);
@@ -271,17 +292,26 @@ test('5. compaction is lossless and idempotent (FR-012, FR-014, NFR-004)', { ski
   assert.deepStrictEqual(snapshot(path.join(dir, 'decisions')), archivesAfterFirst, 'a second run changes no archive');
   assert.deepStrictEqual(Object.keys(files).map((rel) => read(path.join(dir, rel))), artifactsAfterFirst, 'a second run changes no artifact');
 
+  const archiveMd = read(path.join(dir, 'decisions', 'archive.md'));
+  assert.match(archiveMd, /^### DEC-001: anything$/m, 'the superseded id is still in the archive after compaction');
+  assert.match(archiveMd, /Superseded → DEC-002/);
+
   const validate = run(repo, ['validate', '--json']);
-  const history = (validate.json?.findings || []).filter((f) => f.rule === 'history');
-  assert.deepStrictEqual(history, [], `history rule must stay clean after compaction: ${validate.stdout}`);
+  assert.ok(validate.json, `validate must emit JSON: ${validate.stdout}${validate.stderr}`);
+  assert.strictEqual(validate.status, 0, validate.stdout + validate.stderr);
+  assert.ok(Array.isArray(validate.json.findings) || validate.json.ok === true, validate.stdout);
+  const bad = (validate.json.findings || []).filter((f) => f.rule === 'history' || f.rule === 'stale');
+  assert.deepStrictEqual(bad, [], `no history or stale finding after compaction: ${validate.stdout}`);
 });
 
 test('6. compaction runs at handoff for a feature slug and is skipped for a plan task id (FR-013, IC-013)', { skip: SKIP }, () => {
   const { repo, slug, dir } = makeRepo();
   assert.strictEqual(decision(repo, ['--action', 'init']).status, 0);
   writeFiles(dir, {
-    'intention/requirement.md': '# Requirement\n\n## 1. Overview\n\nText.\n\n## 9. History\n\n- 2026-10-01 first revision\n- 2026-10-02 second revision\n',
+    'intention/requirement.md': '# Requirement\n\n## 1. Overview\n\nText.\n\n## 9. History\n\n<!-- kept -->\n\n- 2026-10-01 first revision\n- 2026-10-02 second revision\n',
   });
+  assert.strictEqual(add(repo, 'scope', 'narrow scope').json.added[0].id, 'DEC-001');
+  assert.strictEqual(add(repo, 'scope', 'wide scope', ['--supersedes', 'DEC-001']).status, 0);
 
   const handoff = (taskId) => run(repo, ['orchestrate', '--action', 'handoff', '--task-id', taskId, '--task-class', 'feature',
     '--calling-skill', 'do-brainstorm', '--note', 'discovery done', '--json']);
@@ -292,6 +322,13 @@ test('6. compaction runs at handoff for a feature slug and is skipped for a plan
   assert.strictEqual(real.json.compaction.status, 'compacted');
   assert.deepStrictEqual(real.json.compaction.moved.map((m) => [m.artifact, m.lines]), [['requirement.md', 2]]);
   assert.ok(read(path.join(dir, 'decisions', 'history', 'requirement.md')).includes('- 2026-10-02 second revision'));
+  const liveView = read(path.join(dir, 'decisions.md'));
+  assert.doesNotMatch(liveView, /DEC-001|narrow scope/, 'the superseded decision is absent from the live view at handoff');
+  assert.match(liveView, /\| DEC-002 \| scope \| wide scope \|/);
+  const hist = read(path.join(dir, 'intention', 'requirement.md'));
+  const histBody = hist.slice(hist.indexOf('## 9. History')).split('\n').slice(1).filter((l) => l.trim() !== '');
+  assert.deepStrictEqual(histBody, ['<!-- kept -->', 'Earlier entries: [decisions/history/requirement.md](../decisions/history/requirement.md).'],
+    'History holds only the comment and the pointer line');
   assert.ok(fs.existsSync(path.join(repo, '.doflow', 'state')), 'the journal lands under the scratch repo');
 
   const planTask = handoff('B.1');
@@ -347,6 +384,15 @@ test('8. existing features are untouched (FR-016)', { skip: SKIP }, () => {
     assert.strictEqual(handoff.status, 0, `${layout}: ${handoff.stdout}${handoff.stderr}`);
     assert.strictEqual(handoff.json.compaction.status, 'skipped', layout);
 
+    const validated = run(repo, ['validate', '--json']);
+    assert.ok([0, 1].includes(validated.status), `${layout} validate: ${validated.stdout}${validated.stderr}`);
+    const pack = run(repo, ['context-pack', '--task-id', slug, '--json']);
+    // An empty pack exits 1 by the CLI's existing `empty` contract; a legacy folder holds no decisions to change that.
+    assert.ok(pack.json, `${layout} context-pack: ${pack.stdout}${pack.stderr}`);
+    assert.strictEqual(pack.status, pack.json.empty ? 1 : 0, `${layout} context-pack exit follows empty`);
+    assert.strictEqual(pack.json.decisions.available, false, layout);
+    assert.deepStrictEqual(pack.json.decisions.live, []);
+
     assert.deepStrictEqual(snapshot(dir), before, `${layout}: file listing and bytes identical before and after`);
     assert.ok(!fs.existsSync(path.join(dir, 'decisions')) && !fs.existsSync(path.join(dir, 'decisions.md')), `${layout}: no register files appear`);
   }
@@ -366,4 +412,42 @@ test('9. fifty supersessions on one topic leave exactly one live row (NFR-003)',
   assert.strictEqual(register(dir).decisions.length, 51);
   assert.strictEqual(register(dir).decisions.filter((d) => d.status === 'live').length, 1);
   assert.strictEqual((read(path.join(dir, 'decisions', 'archive.md')).match(/^### DEC-/gm) || []).length, 51, 'nothing is lost to the archive');
+});
+
+test('10. the active stage fixes only its own flagged line (FR-010)', { skip: SKIP }, () => {
+  const { repo, dir } = makeRepo();
+  assert.strictEqual(decision(repo, ['--action', 'init']).status, 0);
+  const design = ['# Design', '', '## 1. Overview', '', 'Shared line stays.', 'The store follows DEC-001 here.', 'Another untouched line.', '',
+    '## 9. History', '', 'None — initial version.', ''].join('\n');
+  const plan = ['# Plan', '', '## 1. Basis', '', 'The tasks rest on DEC-001.', '', '## 9. History', '', 'None — initial version.', ''].join('\n');
+  writeFiles(dir, {
+    'intention/requirement.md': '# Requirement\n\n## 1. Overview\n\nText.\n\n## 9. History\n\nNone — initial version.\n',
+    'design/design.md': design, 'plan.md': plan,
+  });
+  assert.strictEqual(add(repo, 'store', 'sqlite').json.added[0].id, 'DEC-001');
+  assert.strictEqual(add(repo, 'store', 'postgres', ['--supersedes', 'DEC-001']).json.added[0].id, 'DEC-002');
+
+  const first = run(repo, ['validate', '--json']);
+  assert.strictEqual(first.status, 1, first.stdout + first.stderr);
+  const stale = first.json.findings.filter((f) => f.rule === 'stale');
+  assert.deepStrictEqual(stale.map((f) => [path.basename(f.file), f.id]), [['design.md', 'DEC-001'], ['plan.md', 'DEC-001']]);
+
+  // The design stage owns design.md only: correct the flagged line by its reported number.
+  const designFinding = stale.find((f) => path.basename(f.file) === 'design.md');
+  const lineNo = Number(/^line (\d+) /.exec(designFinding.message)[1]);
+  const lines = design.split('\n');
+  assert.ok(lines[lineNo - 1].includes('DEC-001'));
+  const fixedLines = [...lines];
+  fixedLines[lineNo - 1] = lines[lineNo - 1].replace('DEC-001', 'DEC-002');
+  fs.writeFileSync(path.join(dir, 'design', 'design.md'), fixedLines.join('\n'));
+
+  const second = run(repo, ['validate', '--json']);
+  assert.strictEqual(second.status, 1, second.stdout + second.stderr);
+  assert.deepStrictEqual(second.json.findings.map((f) => [path.basename(f.file), f.rule, f.id]), [['plan.md', 'stale', 'DEC-001']],
+    'design.md is clean; the plan-owned finding is still reported, not edited');
+
+  const after = read(path.join(dir, 'design', 'design.md')).split('\n');
+  assert.strictEqual(after.length, lines.length);
+  after.forEach((l, i) => { if (i !== lineNo - 1) assert.strictEqual(l, lines[i], `design.md line ${i + 1} unchanged`); });
+  assert.strictEqual(read(path.join(dir, 'plan.md')), plan, 'plan.md bytes unchanged');
 });
