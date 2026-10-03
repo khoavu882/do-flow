@@ -38,7 +38,16 @@ function make() {
     default: return new TypeError('injected "secret value" at attempt 42');
   }
 }
-if (spec.kind === 'proto') {
+if (spec.kind === 'block') {
+  // Every module under src/runtime/failure/ is unresolvable, as in a half-updated install.
+  const load = Module._load;
+  Module._load = function patched(request, parent, isMain) {
+    let file = '';
+    try { file = Module._resolveFilename(request, parent, isMain); } catch { /* not ours */ }
+    if (file.startsWith(path.join(repo, 'src', 'runtime', 'failure') + path.sep)) throw Object.assign(new Error('Cannot find module ' + request), { code: 'MODULE_NOT_FOUND' });
+    return load.apply(this, arguments);
+  };
+} else if (spec.kind === 'proto') {
   require(path.join(repo, spec.module))[spec.cls].prototype[spec.method] = function injected() { throw make(); };
 } else if (spec.kind === 'console') {
   console.log = function injected() { throw make(); };
@@ -274,5 +283,26 @@ describe('what capture must never change', () => {
     assert.equal(result.status, 0);
     assert.equal(result.stdout, `${require('../../package.json').version}\n`);
     assert.equal(result.stderr, '');
+  });
+});
+
+describe('a CLI whose failure modules cannot be loaded runs as today (IC-016)', () => {
+  const block = { kind: 'block' };
+  for (const args of [['--version'], ['workflow', '--task-class', 'feature', '--json'], ['lifecycle', '--maintain', '--json'], ['followup', '--action', 'list', '--json'], ['workflow', '--task-class', 'no-such-class', '--json']]) {
+    test(`${args.join(' ')}: same output and status as with the modules present`, () => {
+      const plain = run(args);
+      const blocked = run(args, { fault: block });
+      assert.equal(blocked.status, plain.status);
+      assert.equal(blocked.stdout.replace(/"generatedAt":[^,}]*/g, ''), plain.stdout.replace(/"generatedAt":[^,}]*/g, ''));
+      assert.equal(blocked.stderr, plain.stderr);
+    });
+  }
+  test('an internal error with the modules unloadable still prints [ERROR] and exits 1', () => {
+    const r = run(['status', '--json'], { fault: { kind: 'stub', module: 'src/cli/commands/status.js', error: 'type' } });
+    assert.equal(r.status, 1);
+  });
+  test('the failure verb itself reports the load fault only when asked for', () => {
+    assert.equal(run(['--version'], { fault: block }).status, 0);
+    assert.equal(run(['failure', '--action', 'list'], { fault: block }).status, 1);
   });
 });

@@ -48,7 +48,8 @@ const { handleRecoverCommand } = require('../runtime/recovery');
 const { handleScaffoldCommand } = require('../runtime/scaffold/generate');
 const { handleDecisionCommand } = require('../runtime/decision-register');
 const { handleFollowupCommand, handleLifecycleCommand } = require('../runtime/lifecycle/cli');
-const { handleFailureCommand } = require('../runtime/failure/cli');
+// Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
+function handleFailureCommand(options) { return require('../runtime/failure/cli').handleFailureCommand(options); }
 const { handleInventoryCommand } = require('../runtime/inventory');
 const { finishRuntime, usageError } = require('../runtime/cli-result');
 const { setDefaultSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope');

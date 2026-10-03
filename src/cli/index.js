@@ -13,7 +13,6 @@ const {
 } = require('../runtime/cli');
 const { pkg } = require('./shared');
 const { dispatchRuntimeCommand } = require('./runtime-commands');
-const { captureError } = require('../runtime/failure/capture');
 
 const cmdInstall = require('./commands/install');
 const cmdUpdate = require('./commands/update');
@@ -480,7 +479,8 @@ function main(argv) {
   } catch (error) {
     // Recorded silently when it is a programming error (IC-016); the output and exit status below
     // are the same whether or not anything was written.
-    captureError(error, { command: commandName(o.cmd), exit: 1 });
+    // Required here, not at load, so a CLI whose failure modules cannot be loaded still runs as today.
+    try { require('../runtime/failure/capture').captureError(error, { command: commandName(o.cmd), exit: 1 }); } catch { /* best-effort */ }
     // A lifecycle apply/remove can throw mid-mutation (fs error, TOCTOU ownership mismatch on a
     // multi-harness run) — surface a clean, actionable message instead of a raw stack trace, and
     // point at the recovery record applyLifecycle already wrote before rethrowing.

@@ -14,7 +14,11 @@ const { withDerivedDone } = require('./fold');
 const { appendEvents, readFold } = require('./event-store');
 const { deriveStatuses, bucketize, behindNote } = require('./status');
 const { FollowupUsageError, parseIds } = require('./followup');
-const failureStore = require('../failure/store');
+
+/** The failure store, or null when its module cannot be loaded: the overview then reports no failures. */
+function failureStoreOrNull() {
+  try { return require('../failure/store'); } catch { return null; }
+}
 
 const DISCOVERY_SHOWN = 15;
 const MAINTAIN_SHOWN = 50;
@@ -23,6 +27,13 @@ const refusal = (action, finding, message) => ({ ok: false, action, finding, mes
 
 function statusMap(derived) {
   return Object.fromEntries(Object.entries(derived.statuses).map(([slug, entry]) => [slug, entry.status]));
+}
+
+/** The new and regressed failure entries inside the DoFlow repository, else null. */
+function failureEntries(root) {
+  const failureStore = failureStoreOrNull();
+  if (failureStore === null || !failureStore.isDoflowRepo(root)) return null;
+  return failureStore.loadEntries().entries.filter((e) => failureStore.SHOWN_BY_DEFAULT.has(e.status)).map(failureStore.listedEntry);
 }
 
 /** Reports first, then the oldest first; the id keeps equal instants in a stable order. */
@@ -137,9 +148,7 @@ function buildOverview({ root, maintain = false, since, now = new Date(), fsImpl
     // Failure entries come from the machine-wide failure store, which only the DoFlow repository's own
     // maintain view reads (IC-023); nothing in the project store feeds it. Read-only: the overview
     // never rotates the failure files, which is the `failure` verb's step.
-    failures: maintain && failureStore.isDoflowRepo(root)
-      ? failureStore.loadEntries().entries.filter((e) => failureStore.SHOWN_BY_DEFAULT.has(e.status)).map(failureStore.listedEntry)
-      : null,
+    failures: maintain ? failureEntries(root) : null,
   };
   if (derived.reason) result.reason = derived.reason;
   if (derived.integrationBehind > 0) Object.assign(result, { integrationBehind: derived.integrationBehind, note: behindNote(derived.integrationRef, derived.integrationBehind) });
