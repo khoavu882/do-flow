@@ -290,6 +290,6 @@ function promoteFollowups({ root, ids, title, channel, now = new Date(), fsImpl 
 
 module.exports = {
   addFollowups, listFollowups, takeFollowups, settleFollowups, promoteFollowups,
-  loadFollowups, readBatchFile, resolveFeatureSlug, parseIds,
+  loadFollowups, readBatchFile, resolveFeatureSlug, parseIds, oneLine, channelBy,
   FollowupUsageError, STAGES, STATES, SOURCE_KINDS, STATEMENT_MAX,
 };

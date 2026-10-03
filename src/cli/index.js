@@ -72,6 +72,8 @@ function parseArgs(argv) {
       case '--all': o.all = true; break;
       // lifecycle --action overview: the /do maintain view, with a larger list and a pending count.
       case '--maintain': o.maintain = true; break;
+      // lifecycle --action release: record the previewed release instead of only previewing it.
+      case '--confirm': o.confirm = true; break;
       // readiness: the caller declares a decision is owed by the user. A flag rather than an
       // inference, because nothing the runtime can see distinguishes "a decision is pending"
       // from "nobody has looked yet", and guessing would be the gate answering unasked.
@@ -213,6 +215,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--take', 'take'],                  // lifecycle --action init: comma-separated FU ids the feature takes
   ['--goal', 'goal'],                  // lifecycle --action init: the goal the feature serves
   ['--since', 'since'],                // lifecycle --action overview --maintain: ISO time the pass started
+  ['--tag', 'tag'],                    // lifecycle --action release: the version tag (`--version` is the CLI's own flag)
   ['--fp', 'fp'],                      // failure --action settle: the 16 hex characters of an entry
   ['--set', 'set'],                    // failure --action capture: on | off
   ['--proposed-by', 'proposedBy'],     // classify: which worker proposed it
@@ -271,7 +274,8 @@ const RUNTIME_LIST_FLAGS = new Map([
   // have to be re-spelled as one string to be declared.
   ['--need', 'need'],
   ['--path', 'paths'],                 // leak-scan: the files to scan, one per occurrence
-  ['--exclude', 'exclude'],            // leak-scan: extra path segments to skip, on top of agent-docs/
+  ['--exclude', 'exclude'],            // leak-scan: extra path segments to skip · lifecycle --action release: slugs left out
+  ['--feature', 'feature'],            // lifecycle --action release: a feature slug to add, one per occurrence
 ]);
 
 /** Non-negative integer arguments. */
@@ -442,6 +446,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --release, --source, --channel        followup (add, list, take, settle, promote)
       --take, --goal, --intent, --since,
       --maintain                            lifecycle (overview, init)
+      --tag, --confirm, --feature,
+      --exclude (repeatable), --reason      lifecycle (release, merged)
       --fp, --as, --reason, --set, --all    failure (list, settle, capture)
       --error, --failed-check,
       --iteration, --agent                  recover

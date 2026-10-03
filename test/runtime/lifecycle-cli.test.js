@@ -75,9 +75,9 @@ test('followup needs an action; an unknown one names the valid set; lifecycle na
   assert.equal(none.status, 2);
   assert.match(none.json.summary, /add, list, take, settle, promote/);
   assert.equal(run(repo.dir, ['followup', '--action', 'report', '--json']).status, 2);
-  const life = run(repo.dir, ['lifecycle', '--action', 'release', '--json']);
+  const life = run(repo.dir, ['lifecycle', '--action', 'bogus', '--json']);
   assert.equal(life.status, 2);
-  assert.match(life.json.summary, /overview, init, status/);
+  assert.match(life.json.summary, /overview, init, release, status, merged/);
   assert.equal(run(repo.dir, ['lifecycle', '--action', 'status', '--json']).status, 2, 'status needs a slug');
 });
 

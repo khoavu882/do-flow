@@ -11,9 +11,10 @@ const { finishRuntime, usageError } = require('../cli-result');
 const { projectRoot } = require('./root');
 const followup = require('./followup');
 const { buildOverview, initFeature, featureStatus } = require('./overview');
+const { releaseFeatures, recordMerged } = require('./release');
 
 const FOLLOWUP_ACTIONS = ['add', 'list', 'take', 'settle', 'promote'];
-const LIFECYCLE_ACTIONS = ['overview', 'init', 'status'];
+const LIFECYCLE_ACTIONS = ['overview', 'init', 'release', 'status', 'merged'];
 
 function sourceText(source) {
   return [source.kind, source.feature, source.taskClass, source.taskId, source.release, source.stage, source.ref].filter(Boolean).join(' ');
@@ -54,10 +55,24 @@ function overviewLines(r) {
   return lines;
 }
 
+function releaseLines(r) {
+  const lines = [`${r.recorded ? 'recorded' : 'preview of'} release ${r.tag} (previous ${r.previousTag || 'none'}, bound ${r.bound})`];
+  for (const c of r.candidates) lines.push(`  ships ${c.slug}  (${c.evidence}${c.ref ? ` ${c.ref}` : ''})`);
+  if (r.added.length) lines.push(`added: ${r.added.join(', ')}`);
+  if (r.excluded.length) lines.push(`excluded: ${r.excluded.join(', ')}`);
+  if (r.notDetected.length) lines.push(`not detected: ${r.notDetected.join(', ')}`);
+  if (r.followupsDone.length) lines.push(`follow-ups done: ${r.followupsDone.join(', ')}`);
+  if (r.note) lines.push(`note: ${r.note}`);
+  for (const line of r.next) lines.push(`next: ${line}`);
+  return lines;
+}
+
 function lifecycleLines(result) {
   switch (result.action) {
     case 'init': return [`${result.slug}: tracked ${result.tracked}${result.taken.length ? `, took ${result.taken.join(', ')}` : ''}${result.goal ? `, serves ${result.goal}` : ''}`, ...result.next];
     case 'status': return [`${result.slug}: ${result.status}${result.evidence ? ` (${result.evidence.kind}${result.evidence.ref ? ` ${result.evidence.ref}` : ''})` : ''}${result.release ? `, release ${result.release}` : ''}`, ...(result.note ? [`note: ${result.note}`] : [])];
+    case 'release': return releaseLines(result);
+    case 'merged': return [`${result.slug}: merge confirmed, now ${result.status}`];
     default: return result.mode ? overviewLines(result) : [];
   }
 }
@@ -123,8 +138,9 @@ function handleFollowupCommand({ action, cwd, global = false, slug = null, json 
 }
 
 /**
- * `lifecycle` verb. Actions: overview, init, status.
- * @param {Object} options.flags parsed flag values: take, intent, goal, maintain, since
+ * `lifecycle` verb. Actions: overview, init, release, status, merged.
+ * @param {Object} options.flags parsed flag values: take, intent, goal, maintain, since, tag, confirm,
+ *   feature, exclude, reason, channel
  */
 function handleLifecycleCommand({ action, cwd, global = false, slug = null, json = false, flags = {} } = {}) {
   const refused = refuseGlobal('lifecycle', global, json);
@@ -135,10 +151,18 @@ function handleLifecycleCommand({ action, cwd, global = false, slug = null, json
     if (!LIFECYCLE_ACTIONS.includes(act)) throw new followup.FollowupUsageError(`--action is required: one of ${LIFECYCLE_ACTIONS.join(', ')} (got '${action}')`);
     if (flags.maintain && act !== 'overview') throw new followup.FollowupUsageError('--maintain applies to --action overview only');
     if (flags.since !== undefined && !flags.maintain) throw new followup.FollowupUsageError('--since applies to --action overview --maintain only');
+    if (act !== 'release') {
+      for (const name of ['tag', 'confirm', 'feature', 'exclude']) {
+        if (flags[name] !== undefined && flags[name] !== false) throw new followup.FollowupUsageError(`--${name} applies to --action release only`);
+      }
+    }
+    if (flags.reason !== undefined && act !== 'merged') throw new followup.FollowupUsageError('--reason applies to --action merged only');
     const root = projectRoot(cwd || process.cwd());
     let result;
     if (act === 'overview') result = buildOverview({ root, maintain: Boolean(flags.maintain), since: flags.since });
     else if (act === 'init') result = initFeature({ root, slug, take: flags.take, intent: flags.intent, goal: flags.goal });
+    else if (act === 'release') result = releaseFeatures({ root, tag: flags.tag, confirm: Boolean(flags.confirm), features: flags.feature, exclude: flags.exclude, channel: flags.channel });
+    else if (act === 'merged') result = recordMerged({ root, slug, reason: flags.reason, channel: flags.channel });
     else result = featureStatus({ root, slug });
     return emit(result, json, lifecycleLines);
   });

@@ -195,7 +195,7 @@ function dispatchRuntimeCommand(o) {
     // Feature 046: the project's follow-up store lives at the repository root (never `-g`, which
     // the handlers refuse), so the working directory is the starting point, not a scope switch.
     case 'followup': return handleFollowupCommand({ action: o.actionGiven ? o.action : undefined, cwd: evidenceRoot(o), global: o.global, slug: o.slug, json: o.json, flags: { statement: o.statement, stage: o.stage, source: o.source, taskClass: o.taskClass, taskId: o.taskId, release: o.release, batch: o.batchPath, channel: o.channel, state: o.state, ids: o.ids, as: o.as, reason: o.reason, evidence: o.evidence, title: o.title } });
-    case 'lifecycle': return handleLifecycleCommand({ action: o.actionGiven ? o.action : undefined, cwd: evidenceRoot(o), global: o.global, slug: o.slug, json: o.json, flags: { take: o.take, intent: o.intent, goal: o.goal, maintain: o.maintain, since: o.since } });
+    case 'lifecycle': return handleLifecycleCommand({ action: o.actionGiven ? o.action : undefined, cwd: evidenceRoot(o), global: o.global, slug: o.slug, json: o.json, flags: { take: o.take, intent: o.intent, goal: o.goal, maintain: o.maintain, since: o.since, tag: o.tag, confirm: o.confirm, feature: o.feature, exclude: o.exclude, reason: o.reason, channel: o.channel } });
     // The failure store is per machine, so `-g` changes nothing and the working directory only matters
     // to `settle --as imported`, which looks for the DoFlow repository from there.
     case 'failure': return handleFailureCommand({ action: o.actionGiven ? o.action : undefined, cwd: path.resolve(o.positional[0] || '.'), json: o.json, all: o.all, flags: { fp: o.fp, as: o.as, reason: o.reason, set: o.set } });

@@ -159,4 +159,20 @@ const FIXTURES = {
   },
 };
 
-module.exports = { makeRepo, featureBranch, FIXTURES, SLUG, TRACKED_AT };
+/**
+ * A v-tag history for the release tests: `early` merges (10-02) and is tagged `v1.0.0`, `late`
+ * merges after the tag (10-04). Both slugs are meant to be tracked at TRACKED_AT. Left on develop.
+ */
+function twoReleases(scratch) {
+  const repo = makeRepo(scratch, 'two-releases');
+  const early = '050-early';
+  const late = '051-late';
+  repo.at('2026-10-02T10:00:00.000Z');
+  repo.mergeNoFf(featureBranch(repo, early, 1));
+  repo.tag('v1.0.0');
+  repo.at('2026-10-04T10:00:00.000Z');
+  repo.mergeNoFf(featureBranch(repo, late, 1));
+  return { repo, early, late };
+}
+
+module.exports = { makeRepo, featureBranch, FIXTURES, twoReleases, SLUG, TRACKED_AT };
