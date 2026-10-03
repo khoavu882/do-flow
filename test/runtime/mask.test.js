@@ -111,6 +111,40 @@ test('non-string input is coerced and an unknown profile throws', () => {
   assert.throws(() => mask('x', 'both', opts), TypeError);
 });
 
+test('rule 5 measures a 40-character value on its own, after = : or _', () => {
+  const key = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+  assert.equal(maskLine(`x=${key}`, opts).text, 'x=<masked>');
+  assert.equal(maskLine(`AWS_KEY=${key}`, opts).text, 'AWS_KEY=<masked>');
+  assert.equal(maskBody(`key:${key} tail`, opts).text, 'key:<masked> tail');
+  assert.equal(maskLine(`AWS_${key}`, opts).text, 'AWS_<masked>');
+  const longer = `${key}Q`;
+  const shorter = key.slice(1);
+  assert.equal(longer.length, 41);
+  assert.equal(shorter.length, 39);
+  assert.equal(maskLine(longer, opts).text, longer, '41 characters with one digit is not the key shape');
+  assert.equal(maskLine(shorter, opts).text, shorter, '39 characters with one digit is not the key shape');
+  assert.equal(maskLine(`x=${longer}`, opts).text, `x=${longer}`);
+  assert.equal(maskLine('e17bb1e0c3a94f2b8d6e5a7c9b1d3f5e7a9c1b3d', opts).text, 'e17bb1e0c3a94f2b8d6e5a7c9b1d3f5e7a9c1b3d');
+});
+
+test('key-name matching is bounded: repeated key words and a 1 MB body finish quickly in both profiles', () => {
+  for (const input of ['token.'.repeat(16 * 1024 / 6), `${'token.'.repeat(200)} x`.repeat(80), 'secret-'.repeat(50000), `${'a'.repeat(100)}token${'b'.repeat(100)}=1 `.repeat(2000)]) {
+    for (const profile of ['line', 'body']) {
+      const started = Date.now();
+      mask(input, profile, opts);
+      assert.ok(Date.now() - started < 500, `${profile} took ${Date.now() - started} ms on ${input.length} characters`);
+    }
+  }
+  const started = Date.now();
+  maskBody('token.'.repeat(Math.ceil(1_000_000 / 6)), opts);
+  assert.ok(Date.now() - started < 500);
+});
+
+test('a key name over 64 characters on a side is not treated as a key', () => {
+  assert.equal(maskLine(`${'a'.repeat(70)}token=ab12cd34`, opts).text, `${'a'.repeat(70)}token=ab12cd34`);
+  assert.equal(maskLine(`my_${'a'.repeat(20)}_token=ab12cd34`, opts).text, `my_${'a'.repeat(20)}_token=<masked>`);
+});
+
 test('a large body with a long unbroken run finishes quickly', () => {
   const started = Date.now();
   maskBody(`${'a'.repeat(1_000_000)}\n${'password=x '.repeat(10_000)}`, opts);

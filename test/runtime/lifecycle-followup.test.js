@@ -68,6 +68,7 @@ test('add: an empty, multi-line or over-long statement is refused with exit-2 us
   usage(() => add(root, '   '), /statement is empty/);
   usage(() => add(root, 'two\nlines'), /must be one line/);
   usage(() => add(root, 'y'.repeat(281)), /limit is 280/);
+  usage(() => add(root, 'y'.repeat(1121)), /statement is 1121 characters; the limit is 280/);
   assert.equal(add(root, 'z'.repeat(280)).ok, true);
   assert.equal(eventCount(root), 1);
 });

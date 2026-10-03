@@ -47,6 +47,9 @@ function refusalFrom(action, failed) {
 
 /** Masks a free-text field and checks it is one non-empty line of at most `max` characters. */
 function oneLine(raw, label, problems, { max = STATEMENT_MAX } = {}) {
+  // The length is checked before masking as well, so the masking patterns never see more than a bounded input.
+  const rawLength = String(raw ?? '').length;
+  if (rawLength > max * 4) { problems.push(`${label} is ${rawLength} characters; the limit is ${max}`); return null; }
   const text = maskLine(raw).text.trim();
   if (text === '') { problems.push(`${label} is empty`); return null; }
   if (LINE_BREAK.test(text)) { problems.push(`${label} must be one line`); return null; }

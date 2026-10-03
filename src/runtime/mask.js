@@ -20,8 +20,9 @@ const IP = '<ip>';
 
 /** Key names whose value is a secret. One list for rules 4 and 7. */
 const KEY_WORDS = 'password|passwd|secret|token|apikey|api_key|api-key|access_key|client_secret|private_key|credential|cookie|session_id';
-/** A key: a word-start (so a long word is scanned once), the key list inside any identifier. */
-const KEY_NAME = `(?<![A-Za-z0-9_-])[A-Za-z0-9_.-]*(?:${KEY_WORDS})[A-Za-z0-9_.-]*`;
+/** A key: a whole identifier of at most about 130 characters with the key list inside it. Both runs
+ * are bounded, so no input makes the match cost more than that per word start (a long word is tried once). */
+const KEY_NAME = `(?<![A-Za-z0-9_.-])[A-Za-z0-9_.-]{0,64}?(?:${KEY_WORDS})[A-Za-z0-9_.-]{0,64}(?![A-Za-z0-9_.-])`;
 
 const TOKEN_SHAPES = [
   /(?:AKIA|ASIA)[0-9A-Z]{16}/g,
@@ -65,15 +66,25 @@ function isPathRun(run, before) {
   return run.split('/').every((part) => part.length < 32);
 }
 
-function looksLikeSecretRun(run) {
+function looksLikeSecretRun(run, minDigits) {
   const digits = (run.match(/[0-9]/g) || []).length;
   const upper = (run.match(/[A-Z]/g) || []).length;
   const lower = (run.match(/[a-z]/g) || []).length;
-  // Deviation from IC-012 rule 5 as written ("at least two digits"): a cloud secret access key is
-  // exactly 40 base64 characters and the spec's own fixture `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`
-  // holds one digit, so a 40-character run needs one. A git SHA is lower-case hex and still survives.
-  const needDigits = run.length === 40 ? 1 : 2;
-  return digits >= needDigits && upper >= 2 && lower >= 2;
+  return digits >= minDigits && upper >= 2 && lower >= 2;
+}
+
+// Deviation from IC-012 rule 5 as written ("at least two digits"): a cloud secret access key is
+// exactly 40 base64 characters and the spec's own fixture `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`
+// holds one digit, so a 40-character value needs one. The value is measured on its own, after any
+// `=`, `:` or `_` it is glued to, so `KEY=<40 characters>` is masked like the bare key. A git SHA is
+// lower-case hex and still survives. Known limit (DEC-047): the path exemption below lets a key that
+// starts with `/` through.
+const KEY_VALUE_40 = /(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{40}(?![A-Za-z0-9+/])/g;
+
+/** Masks the 40-character values inside a run that did not qualify as a whole. */
+function mask40(run, before) {
+  return run.replace(KEY_VALUE_40, (value, index) => (
+    looksLikeSecretRun(value, 1) && !isPathRun(value, index === 0 ? before : run[index - 1]) ? MASKED : value));
 }
 
 function isMasked(value) { return value.replace(/^["']|["']$/g, '') === MASKED; }
@@ -108,7 +119,7 @@ function mask(text, profile, options = {}) {
     isMasked(value) || value.startsWith(MASKED) || !/[^A-Za-z]/.test(value) ? match : `${key}${separator}${MASKED}`));
   // 5. Long secret-looking runs that are not paths.
   out = out.replace(LONG_RUN, (run, offset) => (
-    looksLikeSecretRun(run) && !isPathRun(run, out[offset - 1]) ? MASKED : run));
+    looksLikeSecretRun(run, 2) && !isPathRun(run, out[offset - 1]) ? MASKED : mask40(run, out[offset - 1])));
   // 6. Email addresses and IPv4 addresses.
   out = out.replace(EMAIL_ADDRESS, EMAIL).replace(IPV4, IP);
 
