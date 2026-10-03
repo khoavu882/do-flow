@@ -272,7 +272,7 @@ function capPair(runner, args, stdin, options = {}) {
 function runnerWithPolicy(body) {
   const dir = fs.mkdtempSync(path.join(capScratch.dir, 'hooks-'));
   fs.cpSync(HOOKS_DIR, dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'policies', 'pre-bash-guard.sh'), `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(dir, 'policies', 'pre-bash-guard.sh'), `#!/usr/bin/env bash\ncat >/dev/null   # read the payload like a real policy: a script that exits first makes the runner's stdin write fail with EPIPE\n${body}\n`, { mode: 0o755 });
   return path.join(dir, 'stream-hook-runner.js');
 }
 
