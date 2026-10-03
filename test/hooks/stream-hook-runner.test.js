@@ -400,6 +400,7 @@ test('stream-hook-runner capture: captureHookFailure writes the IC-011 line, cap
   // Rotation and retention.
   for (const stampName of ['20250101T000000Z-1', '20250102T000000Z-1', '20250103T000000Z-1', '20250104T000000Z-1', '20250105T000000Z-1']) {
     fs.writeFileSync(path.join(m.failures, `events-${stampName}.jsonl`), '');
+    fs.truncateSync(path.join(m.failures, `events-${stampName}.jsonl`), 1048576);
   }
   fs.truncateSync(m.events, 1048576);
   assert.equal(runnerModule.captureHookFailure({ command: 'mcp-tool-guard', kind: 'policy-file-missing' }, env), true);

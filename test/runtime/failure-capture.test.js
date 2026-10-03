@@ -332,7 +332,7 @@ describe('rotation and retention (IC-015)', () => {
     const home = homeOf(env);
     fs.mkdirSync(home, { recursive: true });
     const old = ['20250101T000000Z-1', '20250102T000000Z-1', '20250103T000000Z-1', '20250104T000000Z-1', '20250105T000000Z-1'];
-    for (const stampName of old) fs.writeFileSync(path.join(home, `events-${stampName}.jsonl`), '');
+    for (const stampName of old) big(path.join(home, `events-${stampName}.jsonl`));
     fs.writeFileSync(path.join(home, 'settlements.jsonl'), '');
     big(path.join(home, 'events.jsonl'));
     assert.equal(rotateIfDue(home), true);
@@ -355,6 +355,7 @@ describe('rotation under concurrency (IC-015)', () => {
   const MODULE = process.env.DOFLOW_TEST_CAPTURE_MODULE || path.join(REPO, 'src/runtime/failure/capture');
   // Each worker loads the module, reports ready and spins until the start file exists, so all of them
   // meet the full live file at the same moment.
+  const big = (file) => { fs.writeFileSync(file, ''); fs.truncateSync(file, ROTATE_AT_BYTES); };
   const worker = (env, id, gate) => new Promise((resolve) => {
     const child = spawn(process.execPath, ['-e', `
       const fs = require('node:fs');
@@ -396,30 +397,73 @@ describe('rotation under concurrency (IC-015)', () => {
         if (row.kind === 'Prefill') prefill++; else seen.add(row.message);
       }
     }
-    assert.ok(rotated.length >= 1 && rotated.length <= 4, `rotated files: ${rotated.length}`);
+    assert.ok(rotated.length >= 1, 'a rotation happened');
     assert.equal(prefill, count, 'every prefill line is still readable');
     assert.equal(seen.size, 4800, 'every new line is present');
-    for (const name of rotated) assert.ok(fs.statSync(path.join(home, name)).size >= ROTATE_AT_BYTES, `${name} is a real rotated file, not a stub`);
+    const full = rotated.filter((name) => fs.statSync(path.join(home, name)).size >= ROTATE_AT_BYTES);
+    assert.ok(full.length >= 1 && full.length <= 4, 'the real rotated files are all there');
   });
 
-  test('a rename that takes a not-full file merges it back and prunes nothing', () => {
+  /** Makes the next stat of `live` report a full file, as it did for a process that lost the race. */
+  function staleStat(live) {
+    const realStat = fs.statSync;
+    let used = false;
+    fs.statSync = function patched(file, ...rest) {
+      const result = realStat.call(this, file, ...rest);
+      if (file !== live || used) return result;
+      used = true;
+      return new Proxy(result, { get: (t, k) => (k === 'size' ? ROTATE_AT_BYTES : t[k]) });
+    };
+    return () => { fs.statSync = realStat; };
+  }
+
+  test('a rename that takes a not-full file links it back as the live file and prunes nothing', () => {
     const { env } = freshEnv('rot-stub');
     const home = failureHome(env);
     fs.mkdirSync(home, { recursive: true });
-    for (const stampName of ['20250101T000000Z-1', '20250102T000000Z-1', '20250103T000000Z-1', '20250104T000000Z-1']) {
-      fs.writeFileSync(path.join(home, `events-${stampName}.jsonl`), 'real\n');
-    }
-    // Simulate the loser: the stat saw a full file, but the file renamed is the fresh small one.
+    for (const stampName of ['20250101T000000Z-1', '20250102T000000Z-1', '20250103T000000Z-1', '20250104T000000Z-1']) big(path.join(home, `events-${stampName}.jsonl`));
     const live = path.join(home, 'events.jsonl');
     fs.writeFileSync(live, 'fresh-1\nfresh-2\n');
-    const realStat = fs.statSync;
-    fs.statSync = function patched(file, ...rest) {
-      const result = realStat.call(this, file, ...rest);
-      return file === live && !patched.once ? (patched.once = true, new Proxy(result, { get: (t, k) => (k === 'size' ? ROTATE_AT_BYTES : t[k]) })) : result;
-    };
-    try { assert.equal(rotateIfDue(home), false); } finally { fs.statSync = realStat; }
-    assert.equal(fs.readFileSync(live, 'utf8'), 'fresh-1\nfresh-2\n', 'the stub is back in the live file');
+    const restore = staleStat(live);
+    try { assert.equal(rotateIfDue(home), false); } finally { restore(); }
+    assert.equal(fs.readFileSync(live, 'utf8'), 'fresh-1\nfresh-2\n', 'the file is the live file again');
     assert.equal(fs.readdirSync(home).filter((n) => /^events-/.test(n)).length, 4, 'no real rotated file was pruned');
+  });
+
+  test('a small file renamed while the live file was recreated stays as a rotated file, and no full file is pruned for it', () => {
+    const { env } = freshEnv('rot-stub-kept');
+    const home = failureHome(env);
+    fs.mkdirSync(home, { recursive: true });
+    for (const stampName of ['20250101T000000Z-1', '20250102T000000Z-1', '20250103T000000Z-1', '20250104T000000Z-1']) big(path.join(home, `events-${stampName}.jsonl`));
+    const live = path.join(home, 'events.jsonl');
+    fs.writeFileSync(live, 'stub-line\n');
+    const restoreStat = staleStat(live);
+    const realRename = fs.renameSync;
+    fs.renameSync = function patched(from, to) {
+      realRename.call(this, from, to);
+      fs.writeFileSync(live, 'other-writer\n');   // another writer recreates the live file at once
+    };
+    try { assert.equal(rotateIfDue(home), false); } finally { fs.renameSync = realRename; restoreStat(); }
+    assert.equal(fs.readFileSync(live, 'utf8'), 'other-writer\n');
+    const rotated = fs.readdirSync(home).filter((n) => /^events-/.test(n));
+    assert.equal(rotated.length, 5, 'the four full files and the small one');
+    assert.ok(rotated.some((n) => fs.readFileSync(path.join(home, n), 'utf8') === 'stub-line\n'), 'the stub keeps its line');
+  });
+
+  test('a small rotated file is removed once it is an hour old, never before', () => {
+    const { env } = freshEnv('rot-stub-age');
+    const home = failureHome(env);
+    fs.mkdirSync(home, { recursive: true });
+    const young = path.join(home, 'events-20250101T000000Z-1.jsonl');
+    const old = path.join(home, 'events-20250102T000000Z-1.jsonl');
+    fs.writeFileSync(young, 'young\n');
+    fs.writeFileSync(old, 'old\n');
+    const past = new Date(Date.now() - 2 * 3600 * 1000);
+    fs.utimesSync(old, past, past);
+    big(path.join(home, 'events.jsonl'));
+    assert.equal(rotateIfDue(home), true);
+    assert.ok(fs.existsSync(young));
+    assert.ok(!fs.existsSync(old));
   });
 
   test('pruning orders by modification time, not by name alone', () => {
@@ -429,12 +473,11 @@ describe('rotation under concurrency (IC-015)', () => {
     const names = ['events-20250101T000000Z-9.jsonl', 'events-20250101T000000Z-1.jsonl', 'events-20250102T000000Z-1.jsonl', 'events-20250103T000000Z-1.jsonl', 'events-20250104T000000Z-1.jsonl'];
     names.forEach((name, i) => {
       const file = path.join(home, name);
-      fs.writeFileSync(file, '');
+      big(file);
       const t = new Date(Date.now() - (100 - i) * 1000);
       fs.utimesSync(file, t, t);
     });
-    fs.writeFileSync(path.join(home, 'events.jsonl'), '');
-    fs.truncateSync(path.join(home, 'events.jsonl'), ROTATE_AT_BYTES);
+    big(path.join(home, 'events.jsonl'));
     assert.equal(rotateIfDue(home), true);
     const left = fs.readdirSync(home).filter((n) => /^events-/.test(n));
     assert.equal(left.length, 4);

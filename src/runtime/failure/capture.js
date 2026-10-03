@@ -23,6 +23,7 @@ const MAX_LINE_BYTES = 2048;
 const MAX_RAW_MESSAGE = 4096;
 const ROTATE_AT_BYTES = 1048576;
 const KEEP_ROTATED = 4;
+const PARTIAL_KEEP_MS = 60 * 60 * 1000;
 const ROTATED = /^events-\d{8}T\d{6}Z-\d+\.jsonl$/;
 const COMMAND_NAME = /^[a-z][a-z0-9-]{0,39}$/;
 
@@ -90,44 +91,43 @@ function buildLine(record) {
 
 const stamp = (date) => date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 
-/**
- * Moves what is in `stub` onto the end of the live file and removes it. Used when a rename took a
- * file that was not full: another writer had just rotated and created a fresh live file, and this
- * process, which had measured the old one, renamed the fresh one. Growth during the copy is picked up.
- */
-function mergeBack(stub, live) {
-  try {
-    let offset = 0;
-    for (;;) {
-      const size = fs.statSync(stub).size;
-      if (size <= offset) break;
-      const fd = fs.openSync(stub, 'r');
-      try {
-        const buffer = Buffer.alloc(size - offset);
-        const read = fs.readSync(fd, buffer, 0, buffer.length, offset);
-        fs.appendFileSync(live, buffer.subarray(0, read), { flag: 'a', mode: 0o600 });
-        offset += read;
-      } finally { fs.closeSync(fd); }
-    }
-    fs.unlinkSync(stub);
-  } catch { /* best-effort: a stub left behind is still a readable rotated file */ }
-}
-
-/** Rotated files, newest last: by modification time, then by name (names alone tie inside one second). */
+/** Rotated files with their size and modification time, oldest last-modified first (names alone tie inside one second). */
 function rotatedFiles(home) {
   return fs.readdirSync(home).filter((name) => ROTATED.test(name)).map((name) => {
+    let size = 0;
     let mtime = 0;
-    try { mtime = fs.statSync(path.join(home, name)).mtimeMs; } catch { /* gone */ }
-    return { name, mtime };
-  }).sort((a, b) => a.mtime - b.mtime || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)).map((entry) => entry.name);
+    try { const st = fs.statSync(path.join(home, name)); size = st.size; mtime = st.mtimeMs; } catch { /* gone */ }
+    return { name, size, mtime };
+  }).sort((a, b) => a.mtime - b.mtime || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
+/**
+ * Removes rotated files beyond the newest four full ones, and partial ones (see rotateIfDue) once
+ * they are an hour old. A partial file never counts toward the four, so it cannot push a real one out.
+ */
+function prune(home, now = Date.now()) {
+  const files = rotatedFiles(home);
+  const full = files.filter((f) => f.size >= ROTATE_AT_BYTES);
+  const doomed = [
+    ...full.slice(0, Math.max(0, full.length - KEEP_ROTATED)),
+    ...files.filter((f) => f.size < ROTATE_AT_BYTES && now - f.mtime > PARTIAL_KEEP_MS),
+  ];
+  for (const f of doomed) {
+    try { fs.unlinkSync(path.join(home, f.name)); } catch { /* ignored */ }
+  }
 }
 
 /**
  * Rotation (IC-015): at 1 MiB the live file is renamed to `events-<UTC time>-<pid>.jsonl`, and the
  * rotated files beyond the newest four are deleted. A failed rename or delete is ignored, so a
- * process that lost the race simply appends to whatever is there. A rename that took a file smaller
- * than the limit lost a race against another rotation and took the fresh live file: it is merged back
- * and nothing is pruned, so a real rotated file is never pushed out by a stub.
+ * process that lost the race simply appends to whatever is there.
+ *
+ * A process that measured the old live file may rename the fresh one another writer just created
+ * (it holds less than 1 MiB). That file is linked back as the live file when nobody has recreated it
+ * (same inode, so a writer still holding it loses nothing); when the live file exists again it stays
+ * as a small rotated file, which readers read like any other and which is never counted toward the
+ * four kept, so a real rotated file is never pushed out by one. Nothing is ever copied or deleted
+ * here except by prune, so no line is lost to the race.
  * @param {string} home the failure home
  * @returns {boolean} whether this call rotated a full file
  */
@@ -140,13 +140,11 @@ function rotateIfDue(home) {
   } catch { return false; }
   let size = 0;
   try { size = fs.statSync(rotated).size; } catch { return false; }
-  if (size < ROTATE_AT_BYTES) { mergeBack(rotated, live); return false; }
-  try {
-    const names = rotatedFiles(home);
-    for (const name of names.slice(0, Math.max(0, names.length - KEEP_ROTATED))) {
-      try { fs.unlinkSync(path.join(home, name)); } catch { /* ignored */ }
-    }
-  } catch { /* ignored */ }
+  if (size < ROTATE_AT_BYTES) {
+    try { fs.linkSync(rotated, live); fs.unlinkSync(rotated); } catch { /* the live file exists again: the small file stays */ }
+    return false;
+  }
+  try { prune(home); } catch { /* ignored */ }
   return true;
 }
 

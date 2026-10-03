@@ -127,26 +127,12 @@ function hookVersion(env) {
   return 'unknown';
 }
 
-/** Moves what is in `stub` onto the end of the live file and removes it (see src/runtime/failure/capture.js). */
-function mergeBackFailures(stub, live) {
-  try {
-    let offset = 0;
-    for (;;) {
-      const size = fs.statSync(stub).size;
-      if (size <= offset) break;
-      const fd = fs.openSync(stub, 'r');
-      try {
-        const buffer = Buffer.alloc(size - offset);
-        const read = fs.readSync(fd, buffer, 0, buffer.length, offset);
-        fs.appendFileSync(live, buffer.subarray(0, read), { flag: 'a', mode: 0o600 });
-        offset += read;
-      } finally { fs.closeSync(fd); }
-    }
-    fs.unlinkSync(stub);
-  } catch { /* best-effort */ }
-}
-
-/** IC-015: at 1 MiB the live file is renamed and only the newest four rotated files are kept; a rename that took a not-full file (lost race) is merged back. */
+/**
+ * IC-015: at 1 MiB the live file is renamed and only the newest four full rotated files are kept. A
+ * rename that took a not-full file (a lost race) is linked back as the live file, or kept as a small
+ * rotated file that never counts toward the four and is removed after an hour. Same rules as
+ * src/runtime/failure/capture.js.
+ */
 function rotateFailures(home) {
   const live = path.join(home, 'events.jsonl');
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
@@ -156,16 +142,25 @@ function rotateFailures(home) {
     fs.renameSync(live, rotatedPath);
   } catch { return; }
   try {
-    if (fs.statSync(rotatedPath).size < CAPTURE_ROTATE_AT_BYTES) { mergeBackFailures(rotatedPath, live); return; }
+    if (fs.statSync(rotatedPath).size < CAPTURE_ROTATE_AT_BYTES) {
+      try { fs.linkSync(rotatedPath, live); fs.unlinkSync(rotatedPath); } catch { /* the live file exists again: the small file stays */ }
+      return;
+    }
   } catch { return; }
   try {
-    const rotated = fs.readdirSync(home).filter((name) => ROTATED_FILE.test(name)).map((name) => {
+    const files = fs.readdirSync(home).filter((name) => ROTATED_FILE.test(name)).map((name) => {
+      let size = 0;
       let mtime = 0;
-      try { mtime = fs.statSync(path.join(home, name)).mtimeMs; } catch { /* gone */ }
-      return { name, mtime };
-    }).sort((x, y) => x.mtime - y.mtime || (x.name < y.name ? -1 : x.name > y.name ? 1 : 0)).map((entry) => entry.name);
-    for (const name of rotated.slice(0, Math.max(0, rotated.length - CAPTURE_KEEP_ROTATED))) {
-      try { fs.unlinkSync(path.join(home, name)); } catch { /* ignored */ }
+      try { const st = fs.statSync(path.join(home, name)); size = st.size; mtime = st.mtimeMs; } catch { /* gone */ }
+      return { name, size, mtime };
+    }).sort((x, y) => x.mtime - y.mtime || (x.name < y.name ? -1 : x.name > y.name ? 1 : 0));
+    const full = files.filter((f) => f.size >= CAPTURE_ROTATE_AT_BYTES);
+    const doomed = [
+      ...full.slice(0, Math.max(0, full.length - CAPTURE_KEEP_ROTATED)),
+      ...files.filter((f) => f.size < CAPTURE_ROTATE_AT_BYTES && Date.now() - f.mtime > 60 * 60 * 1000),
+    ];
+    for (const f of doomed) {
+      try { fs.unlinkSync(path.join(home, f.name)); } catch { /* ignored */ }
     }
   } catch { /* ignored */ }
 }
