@@ -214,6 +214,8 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--take', 'take'],                  // lifecycle --action init: comma-separated FU ids the feature takes
   ['--goal', 'goal'],                  // lifecycle --action init: the goal the feature serves
   ['--since', 'since'],                // lifecycle --action overview --maintain: ISO time the pass started
+  ['--fp', 'fp'],                      // failure --action settle: the 16 hex characters of an entry
+  ['--set', 'set'],                    // failure --action capture: on | off
   ['--proposed-by', 'proposedBy'],     // classify: which worker proposed it
   ['--calling-skill', 'callingSkill'],  // classify: which skill is asking, for the fit check
   ['--intent', 'intent'],              // route: the information need being resolved
@@ -381,6 +383,7 @@ Commands:
   decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
   followup             Record, list, take, settle or promote what a feature left unfinished (--action add|list|take|settle|promote)
   lifecycle            Open follow-ups, feature tracking and status for the project (--action overview|init|status)
+  failure              List, settle or switch off the failures DoFlow captured on this machine (--action list|settle|capture)
                        (a value beginning with '-' must be written --flag=value)
   leak-scan            Report DoFlow-internal identifiers in shipped files (--path, repeatable)
 
@@ -414,6 +417,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        verify: report|contract · retrieval-plan: declare|report
                        outcome: record|show · tools: see above
                        followup: add|list|take|settle|promote · lifecycle: overview|init|status
+                       failure: list|settle|capture
       --rationale, --proposed-by, --calling-skill    classify
       --intent, --query, --check            route
       --statement, --claim-id,
@@ -439,6 +443,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --release, --source, --channel        followup (add, list, take, settle, promote)
       --take, --goal, --intent, --since,
       --maintain                            lifecycle (overview, init)
+      --fp, --as, --reason, --set, --all    failure (list, settle, capture)
       --error, --failed-check,
       --iteration, --agent                  recover
       --json           Machine-readable output (status)

@@ -14,6 +14,7 @@ const { withDerivedDone } = require('./fold');
 const { appendEvents, readFold } = require('./event-store');
 const { deriveStatuses, bucketize, behindNote } = require('./status');
 const { FollowupUsageError, parseIds } = require('./followup');
+const failureStore = require('../failure/store');
 
 const DISCOVERY_SHOWN = 15;
 const MAINTAIN_SHOWN = 50;
@@ -60,7 +61,7 @@ function goalView(goal, features, statuses) {
   };
 }
 
-function nextLines({ shown, open, items, intents, goals, maintain, pendingItems }) {
+function nextLines({ shown, open, items, intents, goals, maintain, pendingItems, failures }) {
   const next = [];
   if (shown < open) next.push('List the rest: doflow-run followup --action list');
   if (items.length) next.push(`Take items into the new feature when its folder exists: doflow-run lifecycle --action init --slug <slug> --take ${items[0].id}`);
@@ -78,6 +79,9 @@ function nextLines({ shown, open, items, intents, goals, maintain, pendingItems 
       `Start a fix: doflow-run followup --action settle --ids ${id} --as fix --reason "<where it is routed>" --channel question`,
       `Done outside a feature: doflow-run followup --action settle --ids ${id} --as done --evidence "<what shows it>" --channel question`,
     );
+  }
+  if (failures && failures.length) {
+    next.push('Settle a failure entry: doflow-run failure --action settle --fp <fp> --as noise|fixed|imported --reason "<why>"');
   }
   if (maintain) {
     for (const goal of goals.filter((g) => g.proposeDone)) {
@@ -131,13 +135,16 @@ function buildOverview({ root, maintain = false, since, now = new Date(), fsImpl
     conflicts: fold.conflicts,
     unreadable: fold.unreadable,
     // Failure entries come from the machine-wide failure store, which only the DoFlow repository's own
-    // maintain view reads (IC-023); nothing in the project store feeds it.
-    failures: null,
+    // maintain view reads (IC-023); nothing in the project store feeds it. Read-only: the overview
+    // never rotates the failure files, which is the `failure` verb's step.
+    failures: maintain && failureStore.isDoflowRepo(root)
+      ? failureStore.loadEntries().entries.filter((e) => failureStore.SHOWN_BY_DEFAULT.has(e.status)).map(failureStore.listedEntry)
+      : null,
   };
   if (derived.reason) result.reason = derived.reason;
   if (derived.integrationBehind > 0) Object.assign(result, { integrationBehind: derived.integrationBehind, note: behindNote(derived.integrationRef, derived.integrationBehind) });
   if (maintain) result.pending = open.filter(pendingOf).length;
-  result.next = nextLines({ shown: items.length, open: open.length, items, intents, goals, maintain, pendingItems: items.filter((i) => i.pending) });
+  result.next = nextLines({ shown: items.length, open: open.length, items, intents, goals, maintain, pendingItems: items.filter((i) => i.pending), failures: result.failures });
   return result;
 }
 
