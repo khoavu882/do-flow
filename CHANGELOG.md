@@ -13,6 +13,23 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.13.1] - 2026-10-03
+
+### Fixed
+
+- The shared Bash safety policy (`pre-bash-guard`, used by the Claude, Codex, Gemini and Kiro
+  targets) no longer blocks a recursive delete of a path under `/tmp`, `/private/tmp` or
+  `/var/folders`. It blocks recursive `rm` only when a target is the filesystem root, the home
+  directory (`~`, `$HOME`, `${HOME}`) or a system directory (`/Users`, `/etc`, `/usr`, `/var`,
+  `/private` and similar), in any flag spelling (`-r -f`, `-fr`, `--recursive --force`).
+- Text inside quotes or a comment that merely mentions a dangerous command, such as a commit
+  message or an `echo`, no longer trips the guard; a command run through `bash -c`, `sh -c`,
+  `eval`, `$(...)` or backticks, including inside double quotes, is still checked.
+- The normal pattern mode and the built-in fallback now apply the same recursive-`rm` rule,
+  including after `sudo`, `env`, `command`, `time`, `nohup`, `xargs`, a pipe or `&`.
+- The guard's cost no longer grows with the size of the command: an 800-line heredoc takes about
+  90 ms, not 13 s.
+
 ## [1.13.0] - 2026-10-03
 
 ### Changed
