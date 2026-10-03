@@ -90,26 +90,63 @@ function buildLine(record) {
 const stamp = (date) => date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 
 /**
+ * Moves what is in `stub` onto the end of the live file and removes it. Used when a rename took a
+ * file that was not full: another writer had just rotated and created a fresh live file, and this
+ * process, which had measured the old one, renamed the fresh one. Growth during the copy is picked up.
+ */
+function mergeBack(stub, live) {
+  try {
+    let offset = 0;
+    for (;;) {
+      const size = fs.statSync(stub).size;
+      if (size <= offset) break;
+      const fd = fs.openSync(stub, 'r');
+      try {
+        const buffer = Buffer.alloc(size - offset);
+        const read = fs.readSync(fd, buffer, 0, buffer.length, offset);
+        fs.appendFileSync(live, buffer.subarray(0, read), { flag: 'a', mode: 0o600 });
+        offset += read;
+      } finally { fs.closeSync(fd); }
+    }
+    fs.unlinkSync(stub);
+  } catch { /* best-effort: a stub left behind is still a readable rotated file */ }
+}
+
+/** Rotated files, newest last: by modification time, then by name (names alone tie inside one second). */
+function rotatedFiles(home) {
+  return fs.readdirSync(home).filter((name) => ROTATED.test(name)).map((name) => {
+    let mtime = 0;
+    try { mtime = fs.statSync(path.join(home, name)).mtimeMs; } catch { /* gone */ }
+    return { name, mtime };
+  }).sort((a, b) => a.mtime - b.mtime || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)).map((entry) => entry.name);
+}
+
+/**
  * Rotation (IC-015): at 1 MiB the live file is renamed to `events-<UTC time>-<pid>.jsonl`, and the
  * rotated files beyond the newest four are deleted. A failed rename or delete is ignored, so a
- * process that lost the race simply appends to whatever is there.
+ * process that lost the race simply appends to whatever is there. A rename that took a file smaller
+ * than the limit lost a race against another rotation and took the fresh live file: it is merged back
+ * and nothing is pruned, so a real rotated file is never pushed out by a stub.
  * @param {string} home the failure home
- * @returns {boolean} whether this call renamed the file
+ * @returns {boolean} whether this call rotated a full file
  */
 function rotateIfDue(home) {
-  let renamed = false;
+  const live = eventsPath(home);
+  const rotated = path.join(home, `events-${stamp(new Date())}-${process.pid}.jsonl`);
   try {
-    if (fs.statSync(eventsPath(home)).size < ROTATE_AT_BYTES) return false;
-    fs.renameSync(eventsPath(home), path.join(home, `events-${stamp(new Date())}-${process.pid}.jsonl`));
-    renamed = true;
+    if (fs.statSync(live).size < ROTATE_AT_BYTES) return false;
+    fs.renameSync(live, rotated);
   } catch { return false; }
+  let size = 0;
+  try { size = fs.statSync(rotated).size; } catch { return false; }
+  if (size < ROTATE_AT_BYTES) { mergeBack(rotated, live); return false; }
   try {
-    const rotated = fs.readdirSync(home).filter((name) => ROTATED.test(name)).sort();
-    for (const name of rotated.slice(0, Math.max(0, rotated.length - KEEP_ROTATED))) {
+    const names = rotatedFiles(home);
+    for (const name of names.slice(0, Math.max(0, names.length - KEEP_ROTATED))) {
       try { fs.unlinkSync(path.join(home, name)); } catch { /* ignored */ }
     }
   } catch { /* ignored */ }
-  return renamed;
+  return true;
 }
 
 /**

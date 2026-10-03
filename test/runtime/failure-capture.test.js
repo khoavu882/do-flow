@@ -8,7 +8,7 @@ const { test, describe, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawnSync, spawn } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { isProgrammingError, errorKind } = require('../../src/runtime/failure/classifier');
 const { failureHome, captureSwitch, captureIsOff } = require('../../src/runtime/failure/home');
@@ -16,6 +16,7 @@ const { captureFailure, captureError, rotateIfDue, MAX_LINE_BYTES, ROTATE_AT_BYT
 
 const REPO = path.resolve(__dirname, '..', '..');
 const scratch = createScratch('doflow-failure-capture-');
+let n = 0;
 after(() => scratch.remove());
 
 const homeOf = (env) => failureHome(env);
@@ -347,5 +348,96 @@ describe('rotation and retention (IC-015)', () => {
     fs.mkdirSync(home, { recursive: true });
     assert.equal(rotateIfDue(home), false, 'no live file to rename');
     assert.equal(captureFailure({ source: 'cli', command: 'verify', kind: 'TypeError' }, env), true);
+  });
+});
+
+describe('rotation under concurrency (IC-015)', () => {
+  const MODULE = process.env.DOFLOW_TEST_CAPTURE_MODULE || path.join(REPO, 'src/runtime/failure/capture');
+  // Each worker loads the module, reports ready and spins until the start file exists, so all of them
+  // meet the full live file at the same moment.
+  const worker = (env, id, gate) => new Promise((resolve) => {
+    const child = spawn(process.execPath, ['-e', `
+      const fs = require('node:fs');
+      const { captureFailure } = require(${JSON.stringify(MODULE)});
+      fs.writeFileSync(${JSON.stringify(gate)} + '.ready-${id}', '');
+      while (!fs.existsSync(${JSON.stringify(gate)} + '.go')) { /* spin */ }
+      let written = 0;
+      for (let j = 0; j < 200; j++) if (captureFailure({ source: 'cli', command: 'verify', kind: 'TypeError', message: 'p${id}-n' + j })) written++;
+      process.stdout.write(String(written));
+    `], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.on('close', (code) => resolve({ code, out }));
+  });
+
+  test('24 processes appending across a rotation lose no line, tear no line and never stop capturing', async () => {
+    const { env } = freshEnv('rot-race');
+    const home = failureHome(env);
+    fs.mkdirSync(home, { recursive: true });
+    const prefillLine = `${JSON.stringify({ v: 1, at: '2026-10-01T00:00:00.000Z', source: 'cli', command: 'verify', harness: 'none', version: '1', project: '', kind: 'Prefill', message: 'x'.repeat(150), frame: null, exit: 1 })}\n`;
+    // Exactly at the limit, so every worker finds rotation due on its first capture.
+    const count = Math.ceil(ROTATE_AT_BYTES / prefillLine.length);
+    fs.writeFileSync(path.join(home, 'events.jsonl'), prefillLine.repeat(count));
+    const gate = path.join(scratch.dir, `gate-${n++}`);
+    const pending = Promise.all(Array.from({ length: 24 }, (_, i) => worker(env, i, gate)));
+    while (fs.readdirSync(scratch.dir).filter((f) => f.startsWith(path.basename(gate) + '.ready-')).length < 24) await new Promise((r) => setTimeout(r, 20));
+    fs.writeFileSync(`${gate}.go`, '');
+    const results = await pending;
+    assert.ok(results.every((r) => r.code === 0 && r.out === '200'), 'every capture was written');
+    let prefill = 0;
+    const seen = new Set();
+    const rotated = [];
+    for (const name of fs.readdirSync(home)) {
+      if (!/^events(-.*)?\.jsonl$/.test(name)) continue;
+      if (name !== 'events.jsonl') rotated.push(name);
+      for (const raw of fs.readFileSync(path.join(home, name), 'utf8').split('\n')) {
+        if (raw === '') continue;
+        const row = JSON.parse(raw);  // a torn line throws here
+        if (row.kind === 'Prefill') prefill++; else seen.add(row.message);
+      }
+    }
+    assert.ok(rotated.length >= 1 && rotated.length <= 4, `rotated files: ${rotated.length}`);
+    assert.equal(prefill, count, 'every prefill line is still readable');
+    assert.equal(seen.size, 4800, 'every new line is present');
+    for (const name of rotated) assert.ok(fs.statSync(path.join(home, name)).size >= ROTATE_AT_BYTES, `${name} is a real rotated file, not a stub`);
+  });
+
+  test('a rename that takes a not-full file merges it back and prunes nothing', () => {
+    const { env } = freshEnv('rot-stub');
+    const home = failureHome(env);
+    fs.mkdirSync(home, { recursive: true });
+    for (const stampName of ['20250101T000000Z-1', '20250102T000000Z-1', '20250103T000000Z-1', '20250104T000000Z-1']) {
+      fs.writeFileSync(path.join(home, `events-${stampName}.jsonl`), 'real\n');
+    }
+    // Simulate the loser: the stat saw a full file, but the file renamed is the fresh small one.
+    const live = path.join(home, 'events.jsonl');
+    fs.writeFileSync(live, 'fresh-1\nfresh-2\n');
+    const realStat = fs.statSync;
+    fs.statSync = function patched(file, ...rest) {
+      const result = realStat.call(this, file, ...rest);
+      return file === live && !patched.once ? (patched.once = true, new Proxy(result, { get: (t, k) => (k === 'size' ? ROTATE_AT_BYTES : t[k]) })) : result;
+    };
+    try { assert.equal(rotateIfDue(home), false); } finally { fs.statSync = realStat; }
+    assert.equal(fs.readFileSync(live, 'utf8'), 'fresh-1\nfresh-2\n', 'the stub is back in the live file');
+    assert.equal(fs.readdirSync(home).filter((n) => /^events-/.test(n)).length, 4, 'no real rotated file was pruned');
+  });
+
+  test('pruning orders by modification time, not by name alone', () => {
+    const { env } = freshEnv('rot-mtime');
+    const home = failureHome(env);
+    fs.mkdirSync(home, { recursive: true });
+    const names = ['events-20250101T000000Z-9.jsonl', 'events-20250101T000000Z-1.jsonl', 'events-20250102T000000Z-1.jsonl', 'events-20250103T000000Z-1.jsonl', 'events-20250104T000000Z-1.jsonl'];
+    names.forEach((name, i) => {
+      const file = path.join(home, name);
+      fs.writeFileSync(file, '');
+      const t = new Date(Date.now() - (100 - i) * 1000);
+      fs.utimesSync(file, t, t);
+    });
+    fs.writeFileSync(path.join(home, 'events.jsonl'), '');
+    fs.truncateSync(path.join(home, 'events.jsonl'), ROTATE_AT_BYTES);
+    assert.equal(rotateIfDue(home), true);
+    const left = fs.readdirSync(home).filter((n) => /^events-/.test(n));
+    assert.equal(left.length, 4);
+    assert.ok(!left.includes('events-20250101T000000Z-9.jsonl'), 'the oldest by mtime goes, though its name sorts after the next one');
   });
 });

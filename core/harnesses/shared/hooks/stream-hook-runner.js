@@ -116,16 +116,43 @@ function hookVersion(env) {
   return 'unknown';
 }
 
-/** IC-015: at 1 MiB the live file is renamed and only the newest four rotated files are kept. */
-function rotateFailures(home) {
+/** Moves what is in `stub` onto the end of the live file and removes it (see src/runtime/failure/capture.js). */
+function mergeBackFailures(stub, live) {
   try {
-    const live = path.join(home, 'events.jsonl');
+    let offset = 0;
+    for (;;) {
+      const size = fs.statSync(stub).size;
+      if (size <= offset) break;
+      const fd = fs.openSync(stub, 'r');
+      try {
+        const buffer = Buffer.alloc(size - offset);
+        const read = fs.readSync(fd, buffer, 0, buffer.length, offset);
+        fs.appendFileSync(live, buffer.subarray(0, read), { flag: 'a', mode: 0o600 });
+        offset += read;
+      } finally { fs.closeSync(fd); }
+    }
+    fs.unlinkSync(stub);
+  } catch { /* best-effort */ }
+}
+
+/** IC-015: at 1 MiB the live file is renamed and only the newest four rotated files are kept; a rename that took a not-full file (lost race) is merged back. */
+function rotateFailures(home) {
+  const live = path.join(home, 'events.jsonl');
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  const rotatedPath = path.join(home, `events-${stamp}-${process.pid}.jsonl`);
+  try {
     if (fs.statSync(live).size < CAPTURE_ROTATE_AT_BYTES) return;
-    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-    fs.renameSync(live, path.join(home, `events-${stamp}-${process.pid}.jsonl`));
+    fs.renameSync(live, rotatedPath);
   } catch { return; }
   try {
-    const rotated = fs.readdirSync(home).filter((name) => ROTATED_FILE.test(name)).sort();
+    if (fs.statSync(rotatedPath).size < CAPTURE_ROTATE_AT_BYTES) { mergeBackFailures(rotatedPath, live); return; }
+  } catch { return; }
+  try {
+    const rotated = fs.readdirSync(home).filter((name) => ROTATED_FILE.test(name)).map((name) => {
+      let mtime = 0;
+      try { mtime = fs.statSync(path.join(home, name)).mtimeMs; } catch { /* gone */ }
+      return { name, mtime };
+    }).sort((x, y) => x.mtime - y.mtime || (x.name < y.name ? -1 : x.name > y.name ? 1 : 0)).map((entry) => entry.name);
     for (const name of rotated.slice(0, Math.max(0, rotated.length - CAPTURE_KEEP_ROTATED))) {
       try { fs.unlinkSync(path.join(home, name)); } catch { /* ignored */ }
     }
