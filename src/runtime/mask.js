@@ -158,9 +158,15 @@ function normalise(text) {
   return out.replace(/\s+/g, ' ').trim().slice(0, 200);                                 // 13
 }
 
-/** A failure message as stored: line-profile masking, then normalisation. */
+/**
+ * A failure message as stored: paths first (rule 10), then line-profile masking, then the rest of
+ * normalisation. Paths go first so the same bug at differently shaped paths gives one fingerprint:
+ * a path with a long mixed-case segment would otherwise be masked by rule 5 as `<masked>` while a
+ * short one becomes `<path>`.
+ */
 function normaliseMessage(text, options) {
-  return normalise(maskLine(text, options).text);
+  const paths = (text == null ? '' : String(text)).replace(ABSOLUTE_PATH, '<path>');
+  return normalise(maskLine(paths, options).text);
 }
 
 module.exports = { mask, maskLine, maskBody, normalise, normaliseMessage, MASKED };

@@ -515,3 +515,24 @@ describe('hostile errors and big messages', () => {
     assert.ok(line.message.length <= 200);
   });
 });
+
+describe('one fingerprint for one bug (normalise before masking)', () => {
+  const { fingerprint } = require('../../src/runtime/failure/store');
+  const { normaliseMessage } = require('../../src/runtime/mask');
+  const fpFor = (message) => {
+    const { env } = freshEnv('fp');
+    captureError(new TypeError(message), { command: 'verify', exit: 1 }, env);
+    return fingerprint(readLines(failureHome(env))[0]);
+  };
+
+  test('the same error at a short path and at a path with a 32+ character mixed-case segment folds to one fingerprint', () => {
+    const shortPath = '/srv/app/config.json';
+    const longPath = `/srv/${'aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3z'}/config.json`;
+    assert.equal(fpFor(`cannot read ${shortPath}`), fpFor(`cannot read ${longPath}`));
+    assert.equal(normaliseMessage(`cannot read ${longPath}`), 'cannot read <path>');
+  });
+  test('a secret that is not a path is still masked', () => {
+    assert.equal(normaliseMessage('failed token=ab12cd34 at /srv/app/x.js'), 'failed token=<masked> at <path>');
+    assert.ok(!normaliseMessage(`key ${'aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3z'}`).includes('aB3d'));
+  });
+});
