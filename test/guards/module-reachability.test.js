@@ -61,10 +61,8 @@ const ALLOWLIST = new Set([
   // TEMPORARY (feature 046, tasks A.1 to A.4): the lifecycle modules land bottom-up and only the
   // verb wiring in A.5 requires the top of the chain, so each commit would otherwise fail this guard
   // on the newest module. A.5 requires them all and empties this list.
-  'src/runtime/mask.js',
   'src/runtime/lifecycle/root.js',
-  'src/runtime/lifecycle/event-store.js',
-  'src/runtime/lifecycle/status.js',
+  'src/runtime/lifecycle/followup.js',
 ]);
 
 /** Every `.js` file under a source/test root. */
