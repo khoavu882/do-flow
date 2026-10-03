@@ -540,10 +540,32 @@ run_scrub_cases() {
   check_policy "$mode" "$script" deny $'rm -rf \\\n/' "root"
 }
 
+# Conf mode and floor mode share one command-position rule for rm: every case
+# below used to be judged differently by the two.
+run_rm_position_cases() {
+  local mode="$1" script="$2" c
+  for c in 'sudo rm -rf /' 'sudo -E rm -rf /' 'env X=1 rm -rf /' 'env -i FOO=1 rm -rf /' 'command rm -rf /' \
+           'time rm -rf /' 'nohup rm -rf /' 'exec rm -rf /' 'eval rm -rf /' 'echo a | xargs rm -rf /' \
+           'ls | rm -rf /' 'ls & rm -rf /' '\rm -rf /' '/bin/rm -rf /' '/usr/bin/rm -rf /' \
+           'rm -rf /**' '(rm -rf /)' '`rm -rf /`' 'echo $(rm -rf /)' 'if true; then rm -rf /; fi'; do
+    check_policy "$mode" "$script" deny "$c" "root"
+  done
+  check_policy "$mode" "$script" deny 'sudo rm -rf ~' "home"
+  check_policy "$mode" "$script" deny 'sudo rm -rf ~/**' "home"
+  check_policy "$mode" "$script" deny 'xargs rm -rf /etc' "system directory"
+  # not an rm command at all: git rm, an rm that is only an argument
+  for c in 'git rm -r --cached /etc' 'git rm -rf /' 'echo rm -rf /' 'echo "rm -rf /"' \
+           'ls rm -rf /' 'sudo ls /' 'git commit -m "x" && git rm -r --cached /etc'; do
+    check_policy "$mode" "$script" allow "$c"
+  done
+}
+
 run_rm_cases conf "$POLICY_DIR/pre-bash-guard.sh"
 run_rm_cases floor "$FLOOR_DIR/pre-bash-guard.sh"
 run_scrub_cases conf "$POLICY_DIR/pre-bash-guard.sh"
 run_scrub_cases floor "$FLOOR_DIR/pre-bash-guard.sh"
+run_rm_position_cases conf "$POLICY_DIR/pre-bash-guard.sh"
+run_rm_position_cases floor "$FLOOR_DIR/pre-bash-guard.sh"
 
 # Conf-only cases: the other anchored patterns must ignore quoted text, still
 # run through bash -c / sh -c, and the previously-correct cases must stay correct.

@@ -253,15 +253,29 @@ SHELL_TEXT=$SCRUBBED
 # rm (any flag spelling, flag before or after the target) of a catastrophic
 # target — the same rule as the rm lines in blocked-patterns.conf. Subpaths
 # such as /tmp/x are not blocked.
+_CMDPOS='(^|[;&|(`])[[:space:]]*'
+_WRAP='((sudo|command|time|nohup|exec|env|xargs|eval|then|do|else)([[:space:]]+(-[^[:space:];&|]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*))*[[:space:]]+)*'
+_PATHRM='(\\|/(usr/)?bin/)?rm'
 _RM_FLAG='(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)'
 _RM_ARGS='([[:space:]]+[^[:space:];&|]+)*'
-_RM_TARGET='(/+\*?|~(/\*?)?|\$HOME(/\*?)?|\$\{HOME\}(/\*?)?|/(Users|home|etc|usr|bin|sbin|var|opt|System|Library|Applications|private|root|boot|lib|dev|proc)(/\*?)?)'
-_END='([[:space:];&|]|$)'
-DESTRUCTIVE_COMMAND_PATTERN="(^|[[:space:];&|(\`])rm${_RM_ARGS}[[:space:]]+(${_RM_FLAG}${_RM_ARGS}[[:space:]]+${_RM_TARGET}${_END}|${_RM_TARGET}${_RM_ARGS}[[:space:]]+${_RM_FLAG}${_END})"
+_END='([[:space:];&|)`]|$)'
+_RM_PREFIX="${_CMDPOS}${_WRAP}${_PATHRM}${_RM_ARGS}[[:space:]]+"
+# _floor_rm_hits <target-regex> : does the scrubbed command recursively rm it?
+_floor_rm_hits() {
+  grep -qiE -- "${_RM_PREFIX}(${_RM_FLAG}${_RM_ARGS}[[:space:]]+($1)${_END}|($1)${_RM_ARGS}[[:space:]]+${_RM_FLAG}${_END})" <<<"$SHELL_TEXT" 2>/dev/null
+}
 
 if [ ! -f "$PATTERNS_FILE" ]; then
-  if grep -qiE -- "$DESTRUCTIVE_COMMAND_PATTERN" <<<"$SHELL_TEXT" 2>/dev/null; then
-    echo "[pre-bash-guard] Catastrophic delete blocked — recursive rm of root, home or a system directory." >&2
+  if _floor_rm_hits '/+\*{0,2}'; then
+    echo "[pre-bash-guard] Catastrophic delete blocked — recursive rm of the root directory (/)" >&2
+    exit 2
+  fi
+  if _floor_rm_hits '(~|\$HOME|\$\{HOME\})(/\*{0,2})?'; then
+    echo "[pre-bash-guard] Catastrophic delete blocked — recursive rm of the home directory" >&2
+    exit 2
+  fi
+  if _floor_rm_hits '/(Users|home|etc|usr|bin|sbin|var|opt|System|Library|Applications|private|root|boot|lib|dev|proc)(/\*{0,2})?'; then
+    echo "[pre-bash-guard] Catastrophic delete blocked — recursive rm of a system directory" >&2
     exit 2
   fi
   # No patterns file beyond the hardcoded floor — allow everything else
