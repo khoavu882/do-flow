@@ -135,6 +135,8 @@ test('G13: the DoFlow-authored always-loaded set stays within its byte ceiling',
 // Measured 2026-10-03: review 40,280 (do-test and do-code-review load WORKFLOW_HANDOFF.md's decision step).
 // Measured 2026-10-03: feature 223,149, documentation 55,650, review 40,991 after the review fixes to the
 // decision step (+3,056 feature over 219,093); the step is shared guidance, so every class that loads it grew.
+// Measured 2026-10-03: review 41,098 after the handoff decision step's reworded-copy and unknown hints
+// (do-code-review 30,516 + do-test 10,582; +107 over 40,991).
 // Measured 2026-10-03: feature 222,216 after feature 044's decision-register guidance (+3,123 over 219,093).
 const TASK_CONTEXT_RAILS = new Map([
   ['feature', 224000], // 044 raise is new prose (decision-register guidance); the 220000 base was a rebase
@@ -143,7 +145,7 @@ const TASK_CONTEXT_RAILS = new Map([
   ['refactor', 70000],
   ['documentation', 56000],
   ['operations', 45000],
-  ['review', 41000],
+  ['review', 42000],
   ['research', 35000],
   ['trivial-edit', 30000],
 ]);
