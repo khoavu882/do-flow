@@ -59,6 +59,18 @@ test('the dispatcher routes both verbs to the Node CLI', () => {
   assert.match(run(repo.dir, ['--help'], { runner: 'run' }).stdout + run(repo.dir, ['help'], { runner: 'run' }).stdout, /followup/);
 });
 
+test('--help lists every action and the flags the parser takes, for followup, lifecycle and goal', () => {
+  const { repo } = newRepo();
+  const { FOLLOWUP_ACTIONS, LIFECYCLE_ACTIONS, GOAL_ACTIONS } = require('../../src/runtime/lifecycle/cli');
+  const help = run(repo.dir, ['--help']).stdout;
+  assert.ok(help.includes(`(--action ${FOLLOWUP_ACTIONS.join('|')})`), 'followup verb line');
+  assert.ok(help.includes(`(--action ${LIFECYCLE_ACTIONS.join('|')})`), 'lifecycle verb line');
+  assert.ok(help.includes(`goal: ${GOAL_ACTIONS.join('|')}`), 'goal in the --action table');
+  assert.ok(help.includes(`followup: ${FOLLOWUP_ACTIONS.join('|')}`), 'followup in the --action table');
+  assert.ok(help.includes(`lifecycle: ${LIFECYCLE_ACTIONS.join('|')}`), 'lifecycle in the --action table');
+  for (const word of ['report', 'release', 'merged', '--file', '--stdin', '--text', '--tag', '--confirm', '--feature', '--exclude', '--reason']) assert.ok(help.includes(word), word);
+});
+
 test('-g is refused with exit 2 and the usage shape, for both verbs', () => {
   const { repo } = newRepo();
   for (const verb of ['followup', 'lifecycle']) {

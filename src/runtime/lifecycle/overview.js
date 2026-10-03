@@ -11,7 +11,7 @@ const nodeFs = require('node:fs');
 const path = require('node:path');
 const { isSafeSlug, invalidSlugRefusal } = require('../task-scope');
 const { withDerivedDone } = require('./fold');
-const { appendEvents, readFold } = require('./event-store');
+const { appendEvents, readFold, readEvents } = require('./event-store');
 const { deriveStatuses, bucketize, behindNote } = require('./status');
 const { FollowupUsageError, parseIds } = require('./followup');
 
@@ -53,8 +53,52 @@ function shownItem(item, pending) {
   return shown;
 }
 
+/**
+ * The fold's conflicts raised by goal events, by the goal they name. The fold's conflict carries only
+ * the event id, so the goal comes from the event; a dropped `goal.item-added` also carries the item id
+ * and its text, which is data from another clone, shown but never put into a `next` line. A dropped item
+ * whose text the goal now holds (the user re-added it) is no longer reported.
+ * @returns {Map<string, Array<Object>>}
+ */
+function goalConflicts(root, fold, fsImpl = nodeFs) {
+  const byGoal = new Map();
+  const raised = fold.conflicts.filter((c) => typeof c.type === 'string' && c.type.startsWith('goal.'));
+  if (raised.length === 0) return byGoal;
+  const events = new Map(readEvents(root, { fsImpl }).events.map((e) => [e.id, e]));
+  for (const c of raised) {
+    const event = events.get(c.event);
+    const goal = event && event.data && event.data.goal;
+    if (typeof goal !== 'string') continue;
+    const entry = { ...c };
+    if (c.type === 'goal.item-added' && event.data.item) {
+      // Event files are never removed, so the dropped item is resolved once the goal holds an item with that text.
+      const held = fold.goals.find((g) => g.goal === goal);
+      if (held && held.items.some((i) => i.text === String(event.data.item.text ?? ''))) continue;
+      Object.assign(entry, { item: event.data.item.id, text: event.data.item.text });
+    }
+    if (!byGoal.has(goal)) byGoal.set(goal, []);
+    byGoal.get(goal).push(entry);
+  }
+  return byGoal;
+}
+
+/** One `next` line per kind of goal conflict, telling the user how to resolve it. */
+function goalConflictNext(goalId, conflicts) {
+  const next = [];
+  if (conflicts.some((c) => c.type === 'goal.item-added')) {
+    next.push(`An item added to ${goalId} from another clone was dropped because its id was already taken; re-add it under a new text: doflow-run goal --action item --goal ${goalId} --text "<the item>"`);
+  }
+  if (conflicts.some((c) => c.type === 'goal.added')) {
+    next.push(`Another clone added goal ${goalId} first and its record won; re-add yours under a different goal id: doflow-run goal --action add --goal <new-id> --statement "<outcome>"`);
+  }
+  if (conflicts.some((c) => c.type !== 'goal.item-added' && c.type !== 'goal.added')) {
+    next.push(`An event for ${goalId} from another clone was dropped (see conflicts); redo it with doflow-run goal --action list as the current state`);
+  }
+  return next;
+}
+
 /** Progress, linked features by status and the nudges of one open goal (IC-022). */
-function goalView(goal, features, statuses) {
+function goalView(goal, features, statuses, conflicts = []) {
   const linked = features.filter((f) => f.goal === goal.goal).map((f) => f.slug);
   const buckets = bucketize(Object.fromEntries(linked.map((slug) => [slug, statuses.statuses[slug] || { status: 'unknown' }])), linked);
   const met = goal.items.filter((i) => i.met).length;
@@ -69,6 +113,7 @@ function goalView(goal, features, statuses) {
     proposeDone: goal.status === 'open' && goal.items.length > 0 && met === goal.items.length,
     features: buckets,
     nudges,
+    ...(conflicts.length ? { conflicts } : {}),
   };
 }
 
@@ -80,6 +125,7 @@ function nextLines({ shown, open, items, intents, goals, maintain, pendingItems,
     next.push(`Start from a promoted intent: /do-brainstorm --intent ${intents[0].path}, then doflow-run lifecycle --action init --slug <slug> --intent ${intents[0].path}`);
   }
   if (goals.length) next.push(`Link the new feature to a goal: add --goal ${goals[0].goal} to the init line`);
+  for (const g of goals.filter((x) => x.conflicts)) next.push(...goalConflictNext(g.goal, g.conflicts));
   if (maintain && pendingItems.length) {
     const id = pendingItems[0].id;
     const unpromoted = pendingItems.find((i) => !i.promoted);
@@ -133,7 +179,8 @@ function buildOverview({ root, maintain = false, since, now = new Date(), fsImpl
     intentGroups.get(item.intent).push(item.id);
   }
   const intents = [...intentGroups].map(([intentPath, ids]) => ({ path: intentPath, items: ids }));
-  const goals = fold.goals.filter((g) => g.status === 'open').map((g) => goalView(g, fold.features, derived));
+  const conflictsByGoal = goalConflicts(root, fold, fsImpl);
+  const goals = fold.goals.filter((g) => g.status === 'open').map((g) => goalView(g, fold.features, derived, conflictsByGoal.get(g.goal)));
 
   const result = {
     ok: true,
@@ -226,4 +273,4 @@ function featureStatus({ root, slug, now = new Date(), fsImpl = nodeFs }) {
   return result;
 }
 
-module.exports = { buildOverview, initFeature, featureStatus, goalView, DISCOVERY_SHOWN, MAINTAIN_SHOWN };
+module.exports = { buildOverview, initFeature, featureStatus, goalView, goalConflicts, goalConflictNext, DISCOVERY_SHOWN, MAINTAIN_SHOWN };

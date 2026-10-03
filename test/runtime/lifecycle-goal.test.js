@@ -291,6 +291,57 @@ test('the maintain overview asks the user to close a goal whose items are all me
   assert.ok(view.next.some((l) => /goal --action done --goal public-api-v2 --channel question/.test(l)));
 });
 
+test('two clones that add an item to one goal leave a dropped item that list and the overview report, with how to resolve it', () => {
+  const repo = newRepo();
+  addGoal(repo, { items: ['one', 'two'], now: new Date('2026-10-01T09:00:00.000Z') });
+  // What the merge of two clones' event files looks like: both clones chose the next free id, C3.
+  const clone = (id, at, text) => fs.writeFileSync(path.join(repo.dir, store.EVENTS_REL, `${id}.json`), `${JSON.stringify({
+    v: 1, id, at, type: 'goal.item-added', by: 'agent', data: { goal: 'public-api-v2', item: { id: 'C3', text } },
+  })}\n`);
+  clone('20261001T090100000Z-aaaaaa', '2026-10-01T09:01:00.000Z', 'from clone A');
+  clone('20261001T090200000Z-bbbbbb', '2026-10-01T09:02:00.000Z', 'from clone B');
+
+  const listed = goals.listGoals({ root: repo.dir });
+  const [g] = listed.goals;
+  assert.deepEqual(g.items.map((i) => [i.id, i.text]), [['C1', 'one'], ['C2', 'two'], ['C3', 'from clone A']], 'the first one won');
+  assert.equal(g.conflicts.length, 1);
+  assert.deepEqual([g.conflicts[0].event, g.conflicts[0].type, g.conflicts[0].code, g.conflicts[0].item, g.conflicts[0].text],
+    ['20261001T090200000Z-bbbbbb', 'goal.item-added', 'illegal-transition', 'C3', 'from clone B']);
+  assert.equal(listed.conflicts.length, 1, 'the top-level conflicts are unchanged');
+  const line = listed.next.find((n) => /dropped/.test(n));
+  assert.match(line, /re-add it under a new text: doflow-run goal --action item --goal public-api-v2 --text "<the item>"/);
+  assert.doesNotMatch(listed.next.join('\n'), /from clone B/, 'text from another clone is data, never in a next line');
+
+  const overview = buildOverview({ root: repo.dir });
+  assert.deepEqual(overview.goals[0].conflicts, g.conflicts);
+  assert.ok(overview.next.includes(line));
+
+  // The text form of both reads shows the conflict.
+  const text = run(repo.dir, ['goal', '--action', 'list']);
+  assert.match(text.stdout, /conflict: public-api-v2 already has item C3 \(dropped text: "from clone B"\)/);
+  assert.match(text.stdout, /next: .*re-add it under a new text/);
+  assert.match(run(repo.dir, ['lifecycle', '--action', 'overview']).stdout, /conflict: public-api-v2 already has item C3/);
+
+  // Re-adding the item resolves it as far as the user is concerned; the event files stay as they are.
+  assert.equal(goals.addItem({ root: repo.dir, goal: 'public-api-v2', text: 'from clone B' }).item.id, 'C4');
+  const after = goals.listGoals({ root: repo.dir });
+  assert.equal(after.goals[0].conflicts, undefined);
+  assert.equal(after.next.some((n) => /dropped/.test(n)), false);
+  assert.equal(after.conflicts.length, 1, 'the fold still records the dropped event');
+});
+
+test('two clones that add the same goal: the second goal.added is reported against the goal', () => {
+  const repo = newRepo();
+  addGoal(repo, { now: new Date('2026-10-01T09:00:00.000Z') });
+  const id = '20261001T090100000Z-cccccc';
+  fs.writeFileSync(path.join(repo.dir, store.EVENTS_REL, `${id}.json`), `${JSON.stringify({
+    v: 1, id, at: '2026-10-01T09:01:00.000Z', type: 'goal.added', by: 'agent', data: { goal: 'public-api-v2', outcome: 'other', items: [{ id: 'C1', text: 'x' }] },
+  })}\n`);
+  const [g] = goals.listGoals({ root: repo.dir }).goals;
+  assert.deepEqual(g.conflicts.map((c) => [c.type, c.code]), [['goal.added', 'goal-exists']]);
+  assert.match(goals.listGoals({ root: repo.dir }).next.join('\n'), /re-add yours under a different goal id/);
+});
+
 // ── verb wiring ────────────────────────────────────────────────────────────────────────────────
 
 test('goal runs end to end through the CLI and the dispatcher, with a repeatable --item', () => {

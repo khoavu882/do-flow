@@ -54,7 +54,7 @@ function overviewLines(r) {
     lines.push(`failures: ${r.failures.length} new or regressed`);
     for (const f of r.failures) lines.push(`  ${f.fp}  ${f.status}  x${f.count}  ${f.command} ${f.kind}${f.message ? `: ${f.message}` : ''}  (last seen ${f.lastSeen}, ${f.lastVersion})`);
   }
-  for (const g of r.goals) lines.push(`goal ${g.goal}: ${g.items.met}/${g.items.total} items met${g.proposeDone ? ' (propose done)' : ''}`, ...g.nudges.map((n) => `  ${n}`));
+  for (const g of r.goals) lines.push(`goal ${g.goal}: ${g.items.met}/${g.items.total} items met${g.proposeDone ? ' (propose done)' : ''}`, ...g.nudges.map((n) => `  ${n}`), ...(g.conflicts || []).map((c) => `  conflict: ${c.reason}${c.text ? ` (dropped text: ${JSON.stringify(c.text)})` : ''}`));
   const f = r.features;
   const names = [['finished', f.finished], ['awaiting release', f.awaitingRelease], ['in progress', f.inProgress], ['unknown', f.unknown]].filter(([, list]) => list.length);
   for (const [label, list] of names) lines.push(`${label}: ${list.join(', ')}`);
@@ -105,6 +105,7 @@ function goalLines(r) {
           if (list.length) lines.push(`  ${label}: ${list.join(', ')}`);
         }
         for (const n of g.nudges) lines.push(`  ${n}`);
+        for (const c of g.conflicts || []) lines.push(`  conflict: ${c.reason}${c.text ? ` (dropped text: ${JSON.stringify(c.text)})` : ''}`);
       }
       if (r.reason) lines.push(`note: ${r.reason}`);
       return [...lines, ...r.next.map((n) => `next: ${n}`)];

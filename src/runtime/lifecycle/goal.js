@@ -18,7 +18,7 @@ const { isSafeSlug, invalidSlugRefusal } = require('../task-scope');
 const { appendEvents, readFold } = require('./event-store');
 const { deriveStatuses } = require('./status');
 const { FollowupUsageError, oneLine, channelBy } = require('./followup');
-const { goalView } = require('./overview');
+const { goalView, goalConflicts, goalConflictNext } = require('./overview');
 
 const GOAL_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const GOAL_ID_MAX = 40;
@@ -180,12 +180,13 @@ function linkFeature({ root, goal, slug, replace = false, channel, now = new Dat
 // ── list ───────────────────────────────────────────────────────────────────────────────────────
 
 /** IC-022 progress for one goal: items, `progress`, `proposeDone`, linked features by status and the nudges. */
-function progressView(goal, fold, statuses) {
-  const view = goalView(goal, fold.features, statuses);
+function progressView(goal, fold, statuses, conflicts = []) {
+  const view = goalView(goal, fold.features, statuses, conflicts);
   return {
     goal: goal.goal, outcome: goal.outcome, status: goal.status,
     items: goal.items.map((i) => ({ id: i.id, text: i.text, met: i.met, evidence: i.evidence })),
     progress: view.items, proposeDone: view.proposeDone, features: view.features, nudges: view.nudges,
+    ...(view.conflicts ? { conflicts: view.conflicts } : {}),
     ...(goal.status === 'done' ? { reason: goal.reason } : {}),
   };
 }
@@ -198,7 +199,8 @@ function listGoals({ root, goal, now = new Date(), fsImpl = nodeFs }) {
   if (id !== null && shown.length === 0) return unknownGoal('list', fold, id);
   const linked = new Set(fold.features.filter((f) => shown.some((g) => g.goal === f.goal)).map((f) => f.slug));
   const statuses = linked.size ? deriveStatuses({ root, fold }) : { statuses: {} };
-  const goals = shown.map((g) => progressView(g, fold, statuses));
+  const conflictsByGoal = goalConflicts(root, fold, fsImpl);
+  const goals = shown.map((g) => progressView(g, fold, statuses, conflictsByGoal.get(g.goal)));
   const next = [];
   for (const g of goals.filter((x) => x.status === 'open')) {
     if (g.proposeDone) next.push(doneLine(g.goal));
@@ -207,6 +209,7 @@ function listGoals({ root, goal, now = new Date(), fsImpl = nodeFs }) {
       if (unchecked) next.push(checkLine(g.goal, unchecked.id));
     }
   }
+  for (const g of goals.filter((x) => x.conflicts)) next.push(...goalConflictNext(g.goal, g.conflicts));
   const result = { ok: true, action: 'list', goals, conflicts: fold.conflicts, unreadable: fold.unreadable, next };
   if (statuses.reason) result.reason = statuses.reason;
   return result;

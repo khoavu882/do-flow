@@ -393,8 +393,8 @@ Commands:
   inventory            Shadowed copies, drift and unmanaged files across both install scopes
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
   decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
-  followup             Record, list, take, settle or promote what a feature left unfinished (--action add|list|take|settle|promote)
-  lifecycle            Open follow-ups, feature tracking and status for the project (--action overview|init|status)
+  followup             Record, list, take, settle, promote or report what a feature left unfinished (--action add|list|take|settle|promote|report)
+  lifecycle            Open follow-ups, feature tracking, releases and status for the project (--action overview|init|release|status|merged)
   goal                 Add, check, link, list or close a goal and its checklist (--action add|item|check|link|list|done)
   failure              List, settle or switch off the failures DoFlow captured on this machine (--action list|settle|capture)
                        (a value beginning with '-' must be written --flag=value)
@@ -429,7 +429,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --action         claim: list|add|link|retract|supersede · evidence: list|add|supersede
                        verify: report|contract · retrieval-plan: declare|report
                        outcome: record|show · tools: see above
-                       followup: add|list|take|settle|promote · lifecycle: overview|init|status
+                       followup: add|list|take|settle|promote|report
+                       lifecycle: overview|init|release|status|merged
                        goal: add|item|check|link|list|done
                        failure: list|settle|capture
       --rationale, --proposed-by, --calling-skill    classify
