@@ -1,7 +1,7 @@
 'use strict';
 // slug-safety.test.js — a feature slug becomes a directory name and a state key, so the resolver and
 // the branch-name verb refuse one that could name a path (feature 045, IC-009; FR-013).
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -12,8 +12,13 @@ const BASH = path.join(__dirname, '..', '..', 'core', 'shared', 'scripts', 'dofl
 const PATHS = path.join(BASH, 'do-paths.sh');
 const GIT_STATE = path.join(BASH, 'do-git-state.sh');
 
+/** Every scratch repository this file makes is removed when it finishes. */
+const made = [];
+after(() => { for (const dir of made) fs.rmSync(dir, { recursive: true, force: true }); });
+
 function repo(branch = 'main') {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-slug-')));
+  made.push(root);
   const git = (...args) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', ...args], { cwd: root, encoding: 'utf8' });
   git('init', '-q', '-b', 'main');
   git('commit', '-q', '--allow-empty', '-m', 'init');

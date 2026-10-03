@@ -5,8 +5,9 @@
 // model and no network: HOME is redirected to a scratch directory, DOFLOW_CONFIG_DIR points into the
 // scratch repo, and every feature folder lives in a throwaway repo under os.tmpdir().
 //
-// Two comparisons read the v1.12.0 tag when the clone has it (validator output, hook wiring). Each
-// also carries a literal expectation that needs no tag, so a shallow CI clone still asserts.
+// Three comparisons read the v1.12.0 tag (validator output twice, hook wiring). Each also carries a
+// literal expectation that needs no tag. A missing tag fails under CI (CI fetches full history) and
+// marks the test skipped, with the reason, on a local clone.
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -98,6 +99,19 @@ function addBatch(repo, name, items) {
 /** Whether this clone has the v1.12.0 tag to compare against. */
 function hasTag(tag) {
   return spawnSync('git', ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}`], { cwd: REPO }).status === 0;
+}
+
+/**
+ * Gate for a comparison against a tagged release. With the tag it returns true. Without it, CI fails
+ * (the workflow fetches full history, so a missing tag there means the comparison silently stopped
+ * running), and a local run marks the test skipped with the reason instead of passing quietly.
+ */
+function haveTagOrSkip(t, tag) {
+  if (hasTag(tag)) return true;
+  const reason = `the ${tag} tag is absent from this clone, so the comparison against it did not run (git fetch --tags)`;
+  if (process.env.CI) assert.fail(reason);
+  t.skip(reason);
+  return false;
 }
 
 function gitShow(rev, file) {
@@ -222,14 +236,14 @@ describe('Scenario: Older folders unchanged — a fenced History example (FR-014
     assert.deepStrictEqual(res.json.findings.map((f) => [f.rule, f.id]), [['history', 'IC-001']]);
   });
 
-  test('without a register the same folder validates clean, byte-identical to the v1.12.0 validator', () => {
+  test('without a register the same folder validates clean, byte-identical to the v1.12.0 validator', (t) => {
     const slug = '012-pre-register';
     const repo = makeRepo({ branch: `feat/${slug}` });
     writeFiles(featureDir(repo, slug), { ...MIN, 'design/specs.md': specs });
     const now = run(repo, ['validate', '--json']);
     assert.strictEqual(now.status, 0, now.stdout + now.stderr);
     assert.deepStrictEqual(now.json.findings, []);
-    if (hasTag('v1.12.0')) assert.strictEqual(now.stdout, v1120Validate(repo), 'identical to v1.12.0 output');
+    if (haveTagOrSkip(t, 'v1.12.0')) assert.strictEqual(now.stdout, v1120Validate(repo), 'identical to v1.12.0 output');
   });
 });
 
@@ -619,7 +633,9 @@ describe('RK5: slugs that work today are still accepted', { skip: SKIP }, () => 
 
   test('every feature folder under agent-docs/doflow/ of this checkout passes `paths --slug` (skipped when absent: gitignored)', (t) => {
     const root = path.join(REPO, 'agent-docs', 'doflow');
-    if (!fs.existsSync(root)) { t.diagnostic('agent-docs/doflow absent (gitignored); hardcoded shapes cover this'); return; }
+    // agent-docs/ is gitignored, so a clean CI checkout never has it: skipped with the reason rather
+    // than passing silently, and not a CI failure (the hardcoded shapes above cover the same rule).
+    if (!fs.existsSync(root)) { t.skip('agent-docs/doflow is absent (gitignored); the hardcoded shapes cover this'); return; }
     const names = fs.readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
     const repo = makeRepo({ branch: 'feat/046-shapes' });
     for (const slug of names) {
@@ -693,12 +709,12 @@ describe('NFR-001: a pre-register folder behaves as under v1.12.0', { skip: SKIP
     assert.strictEqual(t.status, 'UNRESOLVED', JSON.stringify(t));
   });
 
-  test('validate reports no stale or unknown finding, and the fenced "## 9. History" does not gate', () => {
+  test('validate reports no stale or unknown finding, and the fenced "## 9. History" does not gate', (t) => {
     const res = run(repo, ['validate', '--json']);
     assert.strictEqual(res.status, 0, res.stdout + res.stderr);
     assert.deepStrictEqual(res.json.findings, []);
     assert.ok(!res.json.findings.some((f) => f.rule === 'stale' || f.rule === 'unknown' || f.rule === 'history'));
-    if (hasTag('v1.12.0')) assert.strictEqual(res.stdout, v1120Validate(repo), 'byte-identical to the v1.12.0 validator');
+    if (haveTagOrSkip(t, 'v1.12.0')) assert.strictEqual(res.stdout, v1120Validate(repo), 'byte-identical to the v1.12.0 validator');
   });
 
   test('decision verbs still refuse the folder and write no register', () => {
@@ -726,7 +742,7 @@ describe('NFR-004: no write-time hook or refusal was added', { skip: SKIP }, () 
     const hookFiles = () => spawnSync('git', ['ls-files', 'core'], { cwd: REPO, encoding: 'utf8' }).stdout
       .split('\n').filter((f) => /(^|\/)hooks\//.test(f) || /hooks\.json$/.test(f)).sort();
     assert.ok(hookFiles().length >= 15, 'the checkout ships its hook files');
-    if (!hasTag('v1.12.0')) { t.diagnostic('v1.12.0 tag absent; wiring asserted literally above only'); return; }
+    if (!haveTagOrSkip(t, 'v1.12.0')) return;
     const tagged = spawnSync('git', ['ls-tree', '-r', '--name-only', 'v1.12.0', 'core'], { cwd: REPO, encoding: 'utf8' }).stdout
       .split('\n').filter((f) => /(^|\/)hooks\//.test(f) || /hooks\.json$/.test(f)).sort();
     assert.deepStrictEqual(hookFiles(), tagged, 'no hook file was added or removed since v1.12.0');

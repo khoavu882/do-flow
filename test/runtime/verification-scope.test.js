@@ -5,7 +5,7 @@
 //
 // Every scenario runs `doflow verify` in a scratch git repository. The out-of-bound change is
 // committed, so `git status` is clean: only the merge-base baseline can see it, which is the point.
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -33,9 +33,14 @@ function git(cwd, ...args) {
   return res.stdout;
 }
 
+/** Every scratch repository this file makes is removed when it finishes. */
+const made = [];
+after(() => { for (const dir of made) fs.rmSync(dir, { recursive: true, force: true }); });
+
 /** A repo with `develop` as the integration branch and a feature branch checked out. */
 function repo({ plan = PLAN, register = true } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-vscope-')));
+  made.push(root);
   git(root, 'init', '-q', '-b', 'develop');
   fs.mkdirSync(path.join(root, 'src'), { recursive: true });
   fs.writeFileSync(path.join(root, 'src', 'in.js'), 'module.exports = 1;\n');
