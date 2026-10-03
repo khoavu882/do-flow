@@ -24,6 +24,10 @@ intent-specific preview content (its steps 2–3).
    - `git push origin release/v<version> v<version>`
    - Back-merge: merge the release branch back to the integration branch
 
+   Also preview the shipped features with `"$DOFLOW" lifecycle --action release --tag v<version>`
+   (it writes nothing). After the tag is created, rerun it with `--confirm`. The record is local;
+   DoFlow never stages, commits or pushes it.
+
 ## Version Manifest Rewrite
 
 For each manifest file declared in policy:

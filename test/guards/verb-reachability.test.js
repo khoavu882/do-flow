@@ -70,22 +70,6 @@ const ALLOWLIST = new Map([
     'knowledge-fabric search verb: operator/diagnostic entry over the installed guidance index; skills adopt it through retrieval declarations rather than naming it directly, so it is allowlisted with that rationale',
   ],
   [
-    'followup',
-    'temporary allowlist entry (feature 046, DEC-037, plan task A.5): the follow-up verb lands before the skill prose that calls it; plan task E.1 adds the `do` skill line that spells `doflow-run followup` and removes this entry',
-  ],
-  [
-    'goal',
-    'temporary allowlist entry (feature 046, DEC-037, plan task D.1): the goal verb lands before the skill prose that calls it; plan task E.1 adds the `do` skill line that spells `doflow-run goal` and removes this entry',
-  ],
-  [
-    'lifecycle',
-    'temporary allowlist entry (feature 046, DEC-037, plan task A.5): the lifecycle verb lands before the skill prose that calls it; plan task E.1 adds the `do` skill line that spells `doflow-run lifecycle` and removes this entry',
-  ],
-  [
-    'failure',
-    'temporary allowlist entry (feature 046, DEC-037, plan task B.3): the failure verb lands before the skill prose that calls it; plan task E.1 adds the `do` skill line that spells `doflow-run failure` and removes this entry',
-  ],
-  [
     'model-role',
     'advisory model routing verb: resolves a role from models.json to availability-annotated provider candidates; consumed by skills and orchestration snapshots at adoption time rather than named directly by any skill today',
   ],
