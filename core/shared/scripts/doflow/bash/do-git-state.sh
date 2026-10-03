@@ -420,7 +420,8 @@ do_branch_name() {
 
   # A slug becomes a branch name and then a directory under agent-docs/doflow/, so it must not be
   # able to name a path or a flag (IC-009). Same shape do-paths.sh enforces for its own slugs.
-  if ! [[ "$slugs" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || [[ "$slugs" == *..* ]]; then
+  # ASCII ranges whatever the locale: under a UTF-8 collation [A-Za-z] can admit "é".
+  if ! (export LC_ALL=C; [[ "$slugs" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && [[ "$slugs" != *..* ]]); then
     jq -n --arg slug "$slugs" '{error: "invalid-slug", message: ("slug \"" + $slug + "\" is not a valid feature slug: use letters, digits, dot, underscore or dash, start with a letter or digit, and no \"..\""), hint: "use letters, digits, dot, underscore or dash, start with a letter or digit, and no \"..\""}'
     exit 2
   fi

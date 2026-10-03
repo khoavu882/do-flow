@@ -141,11 +141,21 @@ fi
 # derived from the branch. Exit 2 like the other refusals; the message is also in `hint`, which is
 # the field every caller of the other error objects already reads.
 if [ -n "$feature_slug" ]; then
-  if ! [[ "$feature_slug" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || [[ "$feature_slug" == *..* ]]; then
-    jq -n --arg slug "$feature_slug" \
-      '{error:"invalid-slug",
-        message:("slug \"" + $slug + "\" is not a valid feature slug: use letters, digits, dot, underscore or dash, start with a letter or digit, and no \"..\""),
-        hint:"use letters, digits, dot, underscore or dash, start with a letter or digit, and no \"..\""}'
+  slug_ok=true
+  # The ranges are ASCII whatever the caller's locale: under a UTF-8 collation [A-Za-z] can admit
+  # letters such as "é", which the rule exists to refuse.
+  (export LC_ALL=C; [[ "$feature_slug" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && [[ "$feature_slug" != *..* ]]) || slug_ok=false
+  if [ "$slug_ok" = false ]; then
+    rule='use letters, digits, dot, underscore or dash, start with a letter or digit, and no ".."'
+    # A slug the caller did not type is traced to where it came from, so a branch name is not blamed
+    # on a flag nobody passed.
+    if [ -z "$slug_override" ] && [ "$is_git_repo" = true ] && [ -n "$branch" ]; then
+      subject="branch '$branch' gives slug '$feature_slug', which is not a valid feature slug"
+    else
+      subject="slug \"$feature_slug\" is not a valid feature slug"
+    fi
+    jq -n --arg subject "$subject" --arg rule "$rule" \
+      '{error:"invalid-slug", message:($subject + ": " + $rule), hint:$rule}'
     exit 2
   fi
 fi

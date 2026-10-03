@@ -205,3 +205,16 @@ test('a well-formed slug that names no feature keeps each caller\'s existing beh
   assert.notEqual(prereqs.data.error, 'invalid-slug');
   assert.equal(run(path.join(BASH, 'render-audit.sh'), ['--json', '--slug=099-nothing'], root).status, 0);
 });
+
+test('a refused slug that came from the branch names the branch; a typed one names the slug', () => {
+  const root = repo('feat/012-café');
+  const derived = run(PATHS, ['--json'], root);
+  assert.equal(derived.status, 2);
+  assert.deepEqual(Object.keys(derived.data).sort(), ['error', 'hint', 'message']);
+  assert.match(derived.data.message, /^branch 'feat\/012-café' gives slug '012-café', which is not a valid feature slug: /);
+  const typed = run(PATHS, ['--json', '--slug=café'], root);
+  assert.match(typed.data.message, /^slug "café" is not a valid feature slug: /);
+  // The ASCII rule holds under a UTF-8 locale too.
+  const utf8 = spawnSync('bash', [PATHS, '--json', '--slug=café'], { cwd: root, encoding: 'utf8', env: { ...process.env, LC_ALL: 'en_US.UTF-8' } });
+  assert.equal(utf8.status, 2);
+});
