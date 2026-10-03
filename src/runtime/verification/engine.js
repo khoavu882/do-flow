@@ -26,6 +26,7 @@ const { detectCommands, applyTargetPattern } = require('../command-detect');
 const { RecoveryManager } = require('../recovery');
 const { finishRuntime, usageError } = require('../cli-result');
 const { REPO_ROOT } = require('../../helper/repo-root');
+const { buildScopeBound, resolveIntegrationBase } = require('./scope-bound');
 const {
   VerificationContractRunner,
   FATAL_CHECK_MARKERS,
@@ -52,6 +53,13 @@ const VERIFICATION_STATUSES = Object.freeze(['PASS', 'FAIL', 'INCONCLUSIVE']);
  * @param {*} value
  * @returns {Array<string>}
  */
+/** A stderr excerpt for a message. (Referenced by the observation errors below without ever being
+ * defined, so a non-zero `git status` with no spawn error threw a ReferenceError instead of reporting.) */
+function truncate(text, max = 200) {
+  const flat = String(text || '').trim();
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
 function toStringArray(value) {
   return Array.isArray(value) ? value.filter((v) => typeof v === 'string' && v !== '') : [];
 }
@@ -136,7 +144,9 @@ class VerificationEngine {
    * @param {string} [input.targetPattern] scopes the targeted-tests tier
    * @param {Array<{name: string, command: string, timeoutMs?: number}>} [input.structuralChecks]
    * @param {Array<{id: string, description?: string, command?: string}>} [input.requirements]
-   * @param {{maxFiles?: number, allowedPaths?: Array<string>}} [input.scope]
+   * @param {{maxFiles?: number, allowedPaths?: Array<string>, source?: string, baseline?: 'integration'}} [input.scope]
+   *   `baseline: 'integration'` measures the change from the merge base with the integration ref
+   *   (a bound derived from a plan, scope-bound.js); without it only the working tree is observed.
    * @returns {Object} the contract
    */
   compileContract(input = {}) {
@@ -406,7 +416,12 @@ class VerificationEngine {
     }
     return {
       resolution: 'RESOLVED',
-      bound: { maxFiles, allowedPaths },
+      bound: {
+        maxFiles,
+        allowedPaths,
+        ...(typeof scope.source === 'string' ? { source: scope.source } : {}),
+        ...(scope.baseline === 'integration' ? { baseline: 'integration' } : {}),
+      },
       reason: null,
     };
   }
@@ -414,14 +429,19 @@ class VerificationEngine {
   /**
    * Observes which files the change actually touched.
    * @private
-   * @returns {{ files: Array<string>|null, reason: string|null }}
+   * @param {Array<string>} [changedFiles] caller-supplied files, which win over any observation
+   * @param {Object} [bound] a bound with `baseline: 'integration'` adds the files committed since the
+   *   merge base with the integration ref to the working tree's
+   * @returns {{ files: Array<string>|null, reason: string|null, baseline?: Object }}
    */
-  observeChangedFiles(changedFiles) {
+  observeChangedFiles(changedFiles, bound = null) {
     if (Array.isArray(changedFiles)) return { files: changedFiles.filter((f) => typeof f === 'string'), reason: null };
 
+    const fromBase = bound && bound.baseline === 'integration';
+    const base = fromBase ? resolveIntegrationBase({ cwd: this.cwd, exec: this.exec }) : null;
     let res;
     try {
-      res = this.exec('git status --porcelain', {
+      res = this.exec(fromBase ? 'git status --porcelain --untracked-files=all' : 'git status --porcelain', {
         shell: true,
         cwd: this.cwd,
         encoding: 'utf8',
@@ -434,7 +454,28 @@ class VerificationEngine {
       const detail = (res && res.error && res.error.message) || (res && truncate(res.stderr)) || 'git returned a non-zero status';
       return { files: null, reason: `Could not observe the changed files: ${detail}` };
     }
-    return { files: parsePorcelain(res.stdout), reason: null };
+    const working = parsePorcelain(res.stdout);
+    if (!fromBase) return { files: working, reason: null };
+
+    if (base.reason) {
+      return { files: working, reason: null, baseline: { kind: 'working-tree', note: `${base.reason}; only the working tree was compared` } };
+    }
+    let diff;
+    try {
+      diff = this.exec('git', ['diff', '--name-only', `${base.mergeBase}...HEAD`], { cwd: this.cwd, encoding: 'utf8', timeout: 30000 });
+    } catch (error) {
+      return { files: null, reason: `Could not observe the changed files: ${error.message}` };
+    }
+    if (!diff || diff.error || diff.status !== 0) {
+      const detail = (diff && diff.error && diff.error.message) || (diff && truncate(diff.stderr)) || 'git returned a non-zero status';
+      return { files: null, reason: `Could not observe the changed files: ${detail}` };
+    }
+    const committed = String(diff.stdout || '').split('\n').map((f) => f.trim()).filter(Boolean);
+    return {
+      files: [...new Set([...committed, ...working])],
+      reason: null,
+      baseline: { kind: 'merge-base', ref: base.ref, mergeBase: base.mergeBase },
+    };
   }
 
   /**
@@ -635,7 +676,7 @@ class VerificationEngine {
   /** @private */
   evaluateScopeTier(tier, changedFiles) {
     const bound = tier.bound || { maxFiles: null, allowedPaths: [] };
-    const { files, reason } = this.observeChangedFiles(changedFiles);
+    const { files, reason, baseline } = this.observeChangedFiles(changedFiles, bound);
     if (files === null) {
       return {
         status: 'UNRESOLVED',
@@ -654,10 +695,16 @@ class VerificationEngine {
     }
 
     const withinBound = violations.length === 0;
+    // A bound measured from the working tree alone (no integration ref) says so: committed work
+    // is invisible to it, which is a limit of the answer, not a clean result.
+    const note = baseline && baseline.note ? baseline.note : null;
+    const verdictReason = withinBound
+      ? note
+      : `Change exceeded its declared scope — ${violations.join('; ')}.${note ? ` (${note})` : ''}`;
     return {
       status: withinBound ? 'PASS' : 'FAIL',
-      reason: withinBound ? null : `Change exceeded its declared scope — ${violations.join('; ')}.`,
-      scope: { bound, actual: { fileCount: files.length, files }, withinBound, violations },
+      reason: verdictReason,
+      scope: { bound, actual: { fileCount: files.length, files }, withinBound, violations, ...(baseline ? { baseline } : {}) },
     };
   }
 
@@ -884,15 +931,20 @@ class VerificationEngine {
  * @param {string} [options.planPath] a `plan.md` whose command override beats detection
  * @param {boolean} [options.json=false]
  * @param {string} [options.projectRoot]
+ * @param {string} [options.slug] the feature whose plan bounds the change; the branch's when omitted
  * @returns {number} exit code
  */
-function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot } = {}) {
+function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null } = {}) {
   const cwd = projectRoot || process.cwd();
   let engine;
   let contract;
   try {
     engine = new VerificationEngine({ cwd, repoRoot: REPO_ROOT });
-    contract = engine.compileContract({ taskId, riskLevel: risk, projectRoot: cwd, planPath });
+    // The bound comes from the feature's plan (IC-003); a project with no feature or no plan keeps
+    // the old behaviour, where the change-scope tier is UNRESOLVED.
+    const bound = buildScopeBound({ projectRoot: cwd, slug });
+    const scope = bound ? { allowedPaths: bound.allowedPaths, source: bound.source, baseline: 'integration' } : undefined;
+    contract = engine.compileContract({ taskId, riskLevel: risk, projectRoot: cwd, planPath, scope });
   } catch (error) {
     return usageError('verify', error.message, json);
   }
