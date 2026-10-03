@@ -171,7 +171,8 @@ function listedEntry(entry) {
 function loadEntries({ env = process.env } = {}) {
   const home = failureHome(env);
   const counts = Object.fromEntries(STATUSES.map((status) => [status, 0]));
-  if (!home) return { home: null, capture: captureSwitch(null, env).effective, entries: [], counts, skippedLines: 0 };
+  // With no failure home nothing is captured, whatever the switch says.
+  if (!home) return { home: null, capture: 'off', entries: [], counts, skippedLines: 0 };
   const { events, skippedLines: eventSkips } = readEvents(home);
   const { settlements, skippedLines: settlementSkips } = readSettlements(home);
   const entries = foldEntries(events, settlements);

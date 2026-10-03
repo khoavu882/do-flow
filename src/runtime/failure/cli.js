@@ -88,17 +88,21 @@ function settleFailure({ fp, as, reason, cwd, env = process.env, now = new Date(
     store.appendSettlement(home, { fp, as, reason: cleaned, now });
     return { ok: true, action: 'settle', fp, as, reason: cleaned, followup: null };
   }
-  if (entry.settlement && entry.settlement.as === 'imported') {
-    return refusal('settle', 'already-imported', `${fp} was already imported as ${entry.settlement.followup}. Nothing was written.`);
-  }
-  const taken = new Set(readFold(root, { now }).followups.map((f) => f.id));
+  // Deduplicated on the project's own follow-ups, whatever the settlements say: a follow-up that
+  // already comes from this fingerprint is never created twice, even after a noise or fixed settlement.
+  const followups = readFold(root, { now }).followups;
+  const existing = followups.find((f) => f.source && f.source.kind === 'failure' && f.source.ref === fp);
+  if (existing) return refusal('settle', 'already-imported', `${fp} was already imported as ${existing.id}. Nothing was written.`);
+  const taken = new Set(followups.map((f) => f.id));
   let id;
   do { id = `FU-${randomChars(6)}`; } while (taken.has(id));
   const statement = importedStatement(entry);
   const source = { kind: 'failure', ref: fp };
-  const out = appendEvents(root, [{ type: 'followup.added', by: 'agent', data: { id, statement, source } }], { now });
-  if (!out.ok) return refusal('settle', out.finding, out.message);
+  // The settlement goes first: if the follow-up write then fails, a retry finds no follow-up in the
+  // project and creates exactly one, so a failure between the two steps can never duplicate it.
   store.appendSettlement(home, { fp, as, reason: cleaned, followup: id, now });
+  const out = appendEvents(root, [{ type: 'followup.added', by: 'agent', data: { id, statement, source } }], { now });
+  if (!out.ok) return refusal('settle', out.finding, `${out.message} The settlement was recorded without a follow-up; run the same command again.`);
   return {
     ok: true, action: 'settle', fp, as,
     followup: { id, statement, source, state: 'open' },
@@ -118,7 +122,8 @@ function captureState({ set, env = process.env, now = new Date() }) {
     fs.rmSync(sentinelPath(home), { force: true });
   }
   const state = captureSwitch(home, env);
-  const result = { ok: true, action: 'capture', effective: state.effective, sentinel: state.sentinel, env: state.env };
+  // With no failure home nothing is captured, whatever the switch says.
+  const result = { ok: true, action: 'capture', effective: home === null ? 'off' : state.effective, sentinel: state.sentinel, env: state.env };
   if (home === null) result.home = null;
   return result;
 }
@@ -126,13 +131,13 @@ function captureState({ set, env = process.env, now = new Date() }) {
 // ── verb ───────────────────────────────────────────────────────────────────────────────────────
 
 function lines(result) {
+  if (result.home === null) return ['home: none (capture skipped)', 'capture: off'];
   if (result.action === 'list') {
     const out = [`capture ${result.capture}: ${result.entries.length} entr${result.entries.length === 1 ? 'y' : 'ies'} listed (new ${result.counts.new}, regressed ${result.counts.regressed}, noise ${result.counts.noise}, fixed ${result.counts.fixed}, imported ${result.counts.imported})`];
     for (const e of result.entries) out.push(`${e.fp}  ${e.status}  x${e.count}  ${e.command} ${e.kind}${e.message ? `: ${e.message}` : ''}  (last seen ${e.lastSeen}, ${e.lastVersion})`);
     if (result.skippedLines) out.push(`${result.skippedLines} unreadable line${result.skippedLines === 1 ? '' : 's'} skipped`);
     return [...out, ...result.next.map((n) => `next: ${n}`)];
   }
-  if (result.home === null) return ['No failure folder can be resolved (HOME is unset or XDG_CONFIG_HOME is relative); nothing is captured or read.'];
   if (result.action === 'settle') return [`${result.fp} settled as ${result.as}${result.followup ? `, follow-up ${result.followup.id}` : ''}`];
   return [`capture ${result.effective}${result.sentinel ? ' (switched off on this machine)' : ''}${result.env ? ` (DOFLOW_FAILURE_CAPTURE=${result.env})` : ''}`];
 }

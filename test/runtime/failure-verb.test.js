@@ -446,3 +446,52 @@ describe('overview text form lists failures', () => {
     assert.ok(!/failures:/.test(text(other, ['--maintain']).stdout));
   });
 });
+
+describe('import dedupe and no-home text (review fixes)', () => {
+  const follow = (m) => JSON.parse(spawnSync(process.execPath, [BIN, 'followup', '--action', 'list', '--state', 'all', '--json'], { cwd: m.project, env: m.env, encoding: 'utf8' }).stdout).items;
+
+  test('import, settle as noise, import again: the second import is refused and exactly one follow-up exists', () => {
+    const m = machine('dedupe');
+    m.markDoflowRepo();
+    writeEvents(m, [line()]);
+    assert.equal(run(m, ['--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json']).status, 0);
+    assert.equal(run(m, ['--action', 'settle', '--fp', fpOf(), '--as', 'noise', '--reason', 'seen it', '--json']).status, 0);
+    const again = run(m, ['--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json']);
+    assert.equal(again.status, 1);
+    assert.equal(again.json.finding, 'already-imported');
+    assert.equal(follow(m).filter((i) => i.source.kind === 'failure').length, 1);
+  });
+
+  test('a failure between the settlement and the follow-up leaves no duplicate on retry', () => {
+    const m = machine('dedupe-retry');
+    m.markDoflowRepo();
+    writeEvents(m, [line()]);
+    // The events folder cannot be created while a file sits where its parent should be.
+    fs.mkdirSync(path.join(m.project, 'agent-docs'));
+    fs.writeFileSync(path.join(m.project, 'agent-docs', 'lifecycle'), 'in the way');
+    const failed = run(m, ['--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json']);
+    assert.notEqual(failed.status, 0, 'the follow-up write failed');
+    fs.rmSync(path.join(m.project, 'agent-docs', 'lifecycle'));
+    const retry = run(m, ['--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json']);
+    assert.equal(retry.status, 0, retry.stderr + retry.stdout);
+    assert.equal(follow(m).filter((i) => i.source.kind === 'failure').length, 1);
+    const settlements = fs.readFileSync(path.join(m.failures, 'settlements.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.equal(settlements[settlements.length - 1].followup, retry.json.followup.id, 'the last settlement names the follow-up that exists');
+  });
+
+  const noHome = (m) => { const env = { ...m.env }; delete env.HOME; delete env.XDG_CONFIG_HOME; return env; };
+
+  test('text mode without a resolvable home says so and reports capture off, for list, capture and settle', () => {
+    const m = machine('nohome-text');
+    for (const args of [['--action', 'list'], ['--action', 'capture'], ['--action', 'settle', '--fp', '0123456789abcdef', '--as', 'noise', '--reason', 'r']]) {
+      const r = spawnSync(process.execPath, [BIN, 'failure', ...args], { cwd: m.project, env: noHome(m), encoding: 'utf8' });
+      assert.equal(r.status, 0, args.join(' '));
+      assert.match(r.stdout, /^home: none \(capture skipped\)$/m, args.join(' '));
+      assert.ok(!/capture on/.test(r.stdout), args.join(' '));
+    }
+    const list = spawnSync(process.execPath, [BIN, 'failure', '--action', 'list', '--json'], { cwd: m.project, env: noHome(m), encoding: 'utf8' });
+    assert.deepEqual([JSON.parse(list.stdout).home, JSON.parse(list.stdout).capture], [null, 'off']);
+    const cap = spawnSync(process.execPath, [BIN, 'failure', '--action', 'capture', '--json'], { cwd: m.project, env: noHome(m), encoding: 'utf8' });
+    assert.deepEqual([JSON.parse(cap.stdout).home, JSON.parse(cap.stdout).effective], [null, 'off']);
+  });
+});
