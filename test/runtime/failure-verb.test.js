@@ -122,6 +122,37 @@ describe('entries and statuses (IC-013)', () => {
   });
 });
 
+describe('print-safe output', () => {
+  // ESC, BEL, a clear-screen, a right-to-left override, an isolate, an RLM and a C1 control.
+  const HOSTILE = 'm\u001b]0;pwned\u0007n\u001b[2Jo\u202ep\u2067q\u200fr\u009bs';
+  const UNSAFE = /[\u0000-\u0009\u000B-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069\u2028\u2029]/;
+  test('a forged failure line prints clean in list, text and json, and the fingerprint is the stored text\'s', () => {
+    const m = machine('hostile');
+    const forged = line({ message: HOSTILE, project: `~/p${HOSTILE}`, kind: `K${HOSTILE}` });
+    writeEvents(m, [forged]);
+    const text = run(m, ['--action', 'list']);
+    const json = run(m, ['--action', 'list', '--json']);
+    for (const r of [text, json]) {
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(UNSAFE.test(r.stdout), false, JSON.stringify(r.stdout));
+    }
+    assert.match(text.stdout, /Km\uFFFD\]0;pwned\uFFFDn\uFFFD\[2Jo\uFFFDp/);
+    assert.equal(json.json.entries[0].fp, store.fingerprint(forged), 'a settlement made before this change still matches');
+    assert.equal(UNSAFE.test(JSON.stringify(json.json)), false);
+    const all = run(m, ['--action', 'list', '--all', '--json']);
+    assert.equal(UNSAFE.test(JSON.stringify(all.json)), false);
+  });
+  test('the overview in the DoFlow repository prints a forged failure clean', () => {
+    const m = machine('hostile-overview');
+    m.markDoflowRepo();
+    writeEvents(m, [line({ message: HOSTILE })]);
+    const r = spawnSync(process.execPath, [BIN, 'lifecycle', '--maintain'], { cwd: m.project, env: m.env, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /failures: 1 new or regressed/);
+    assert.equal(UNSAFE.test(r.stdout), false, JSON.stringify(r.stdout));
+  });
+});
+
 describe('reading the files (IC-015)', () => {
   test('rotated files are read oldest first, then the live file; bad lines are skipped and counted', () => {
     const m = machine('read');

@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { mask, maskLine, maskBody, normalise, normaliseMessage } = require('../../src/runtime/mask');
+const { mask, maskLine, maskBody, normalise, normaliseMessage, printSafe } = require('../../src/runtime/mask');
 
 const HOME = '/home/user';
 const opts = { home: HOME };
@@ -167,4 +167,18 @@ test('normalise: paths, quoted text, digits, whitespace and length (rules 10 to 
 
 test('normaliseMessage masks first, then normalises', () => {
   assert.equal(normaliseMessage('failed for token=ab12cd34 in /home/user/app at line 12', opts), 'failed for token=<masked> in <path> at line N');
+});
+
+test('printSafe: controls and bidi marks become U+FFFD, line breaks a space, tab stays; other values pass through', () => {
+  assert.equal(printSafe('a\u001b[2Jb\u0007c\u202ed\u2067e\u200ff\u009bg\u007fh'), 'a\uFFFD[2Jb\uFFFDc\uFFFDd\uFFFDe\uFFFDf\uFFFDg\uFFFDh');
+  assert.equal(printSafe('a\nb\r\nc\u2028d\te'), 'a b  c d\te');
+  assert.equal(printSafe('plain text, accents \u00e9 and CJK \u4e2d'), 'plain text, accents \u00e9 and CJK \u4e2d');
+  assert.deepEqual(printSafe({ a: ['x\u001b', 3, null], b: { c: 'y\u202e' }, n: 1 }), { a: ['x\uFFFD', 3, null], b: { c: 'y\uFFFD' }, n: 1 });
+  assert.equal(printSafe(7), 7);
+  assert.equal(printSafe(null), null);
+});
+
+test('printSafe with keepLineBreaks leaves line breaks and still replaces controls', () => {
+  assert.equal(printSafe('a\nb\u001bc\r\nd', { keepLineBreaks: true }), 'a\nb\uFFFDc\r\nd');
+  assert.deepEqual(printSafe(['x\ny\u0007'], { keepLineBreaks: true }), ['x\ny\uFFFD']);
 });

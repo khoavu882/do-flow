@@ -432,3 +432,48 @@ test('followup add --batch refuses /dev/zero and a FIFO with exit 2, at once', {
   spawnSync('mkfifo', [fifo]);
   assert.equal(runLimited(repo.dir, [...base, '--batch', fifo]).status, 2);
 });
+
+// ── print-safe output: a forged event never reaches the terminal raw ───────────────────────────
+
+const HOSTILE = 'x\u001b]0;pwned\u0007y\u001b[2Jz\u202ew\u2067v\u200fu\u0085t\u009bs';
+/** Anything a terminal would act on, or that reorders text; the line feed that ends each output line is fine. */
+const UNSAFE = /[\u0000-\u0009\u000B-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069\u2028\u2029]/;
+let forged = 0;
+function forge(repo, type, data) {
+  forged += 1;
+  const compact = `20261003T0000000${String(forged).padStart(2, '0')}Z`;
+  const at = `2026-10-03T00:00:00.0${String(forged).padStart(2, '0')}Z`;
+  const id = `${compact}-aaaaa${'abcdefghjkmnpqrstvwxyz'[forged]}`;
+  const dir = path.join(repo.dir, store.EVENTS_REL);
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${id}.json`);
+  fs.writeFileSync(file, `${JSON.stringify({ v: 1, id, type, at, by: 'agent', data })}\n`);
+  return file;
+}
+function assertClean(r, label) {
+  assert.equal(r.status, 0, `${label}: ${r.stderr}`);
+  assert.equal(UNSAFE.test(r.stdout), false, `${label} printed a control or bidi character: ${JSON.stringify(r.stdout)}`);
+  assert.equal(UNSAFE.test(r.stderr), false, `${label} stderr`);
+}
+
+test('forged events with escapes and bidi marks print clean in list, overview and goal list, text and json', () => {
+  const { repo } = newRepo();
+  const files = [
+    forge(repo, 'followup.added', { id: 'FU-aaaaaa', statement: `stmt ${HOSTILE}`, source: { kind: 'stage', feature: `feat${HOSTILE}`, stage: 'review' } }),
+    forge(repo, 'followup.added', { id: 'FU-bbbbbb', statement: `second ${HOSTILE}\nsecond line`, source: { kind: 'manual' } }),
+    forge(repo, 'goal.added', { goal: 'G-aaaaaa', outcome: `outcome ${HOSTILE}`, items: [{ id: 'I-1', text: `item ${HOSTILE}` }] }),
+    forge(repo, 'goal.checked', { goal: 'G-aaaaaa', item: 'I-1', met: true, evidence: `evidence ${HOSTILE}` }),
+  ];
+  const before = files.map((f) => fs.readFileSync(f, 'utf8'));
+  for (const args of [['followup', '--action', 'list'], ['lifecycle'], ['lifecycle', '--maintain'], ['goal', '--action', 'list']]) {
+    const text = run(repo.dir, args);
+    assertClean(text, args.join(' '));
+    const json = run(repo.dir, [...args, '--json']);
+    assertClean({ ...json, stdout: json.stdout.replace(/\\u[0-9a-f]{4}/g, '') }, `${args.join(' ')} --json`);
+    assert.equal(UNSAFE.test(JSON.stringify(json.json)), false, `${args.join(' ')} --json strings`);
+  }
+  assert.match(run(repo.dir, ['followup', '--action', 'list']).stdout, /stmt x\uFFFD\]0;pwned\uFFFDy\uFFFD\[2Jz\uFFFDw/);
+  assert.match(run(repo.dir, ['followup', '--action', 'list']).stdout, /second x.*y.*second line/);
+  assert.match(run(repo.dir, ['goal', '--action', 'list']).stdout, /evidence x\uFFFD/);
+  assert.deepEqual(files.map((f) => fs.readFileSync(f, 'utf8')), before, 'the stored files are not changed');
+});

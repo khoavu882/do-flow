@@ -11,6 +11,7 @@ const { finishRuntime, usageError } = require('../cli-result');
 const { projectRoot } = require('./root');
 const followup = require('./followup');
 const { StoreUnsafeError } = require('./event-store');
+const { printSafe } = require('../mask');
 const { buildOverview, initFeature, featureStatus } = require('./overview');
 const { releaseFeatures, recordMerged } = require('./release');
 const goal = require('./goal');
@@ -117,8 +118,8 @@ function goalLines(r) {
 /** Prints a result and sets the exit status; shared by the verbs. */
 function emit(result, json, lines) {
   if (json) console.log(JSON.stringify(result, null, 2));
-  else if (result.ok === false) console.log(`${result.finding}: ${result.message}`);
-  else for (const line of lines(result)) console.log(line);
+  else if (result.ok === false) console.log(printSafe(`${result.finding}: ${result.message}`));
+  else for (const line of lines(result)) console.log(printSafe(line));
   return finishRuntime(result.ok === false ? 1 : 0);
 }
 

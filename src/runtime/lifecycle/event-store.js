@@ -16,6 +16,7 @@ const nodeFs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { acquireLock } = require('../task-state');
+const { printSafe } = require('../mask');
 const { foldInto, finalize, applyEvent } = require('./fold');
 
 const LIFECYCLE_REL = path.join('agent-docs', 'lifecycle');
@@ -103,6 +104,13 @@ function readEventFile(fsImpl, file) {
   }
 }
 
+/** The event with every string print-safe; a report excerpt is multi-line by design, so it keeps its line breaks (cli.js removes them when printing). */
+function cleanEvent(event) {
+  const clean = printSafe(event);
+  if (typeof event.data.excerpt === 'string') clean.data.excerpt = printSafe(event.data.excerpt, { keepLineBreaks: true });
+  return clean;
+}
+
 /**
  * Reads every event file. A missing folder is an empty store; a file whose name is not an event id
  * is ignored; a matching entry that is not a regular file of at most MAX_EVENT_BYTES, or is not an
@@ -131,7 +139,8 @@ function readEvents(root, { fsImpl = nodeFs } = {}) {
     if (read.reason) { unreadable.push(name); reasons[name] = read.reason; continue; }
     try {
       const event = JSON.parse(read.text);
-      if (isEnvelope(event, match[1])) events.push(event); else unreadable.push(name);
+      // Someone else's file is shown as it is read, so its text is made print-safe here (stored bytes are not changed).
+      if (isEnvelope(event, match[1])) events.push(cleanEvent(event)); else unreadable.push(name);
     } catch {
       unreadable.push(name);
     }

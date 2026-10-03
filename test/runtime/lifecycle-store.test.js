@@ -436,3 +436,12 @@ test('hostile store: a symlinked lifecycle folder is refused for a read and for 
   assert.throws(() => store.appendEvents(root, [added('FU-bbbbbb')]), refused);
   assert.deepEqual(fs.readdirSync(path.join(elsewhere, 'events')), []);
 });
+
+test('print-safe fold: strings read from an event are cleaned in memory, the excerpt keeps its line breaks, the file is untouched', () => {
+  const s = storeWith('printsafe');
+  const raw = `${JSON.stringify(validEvent({ statement: 'one\u001b[2J\ntwo\u202e', excerpt: 'line1\u0007\nline2' }))}\n`;
+  fs.writeFileSync(s.file, raw);
+  const [event] = store.readEvents(s.root).events;
+  assert.deepEqual([event.data.statement, event.data.excerpt], ['one\uFFFD[2J two\uFFFD', 'line1\uFFFD\nline2']);
+  assert.equal(fs.readFileSync(s.file, 'utf8'), raw);
+});

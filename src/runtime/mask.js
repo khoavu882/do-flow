@@ -169,4 +169,38 @@ function normaliseMessage(text, options) {
   return normalise(maskLine(paths, options).text);
 }
 
-module.exports = { mask, maskLine, maskBody, normalise, normaliseMessage, MASKED };
+/** Line breaks, which print-safe text turns into a space. */
+const PRINT_LINE_BREAK = /[\r\n\u2028\u2029]/g;
+/** C0 and C1 controls except tab (the line breaks are replaced first), and the bidirectional marks and overrides. */
+const PRINT_CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
+const REPLACEMENT = '\uFFFD';
+
+/**
+ * Makes stored text safe to show a terminal (DEC-046): a control character (ESC, BEL, C1 included) or a
+ * bidirectional mark or override becomes U+FFFD, and a line break becomes a space; tab is kept. A
+ * string is cleaned, an array or a plain object is cleaned member by member (keys are left alone),
+ * and any other value comes back unchanged. It never alters what is stored: call it on the way out.
+ *
+ * `keepLineBreaks` leaves CR, LF, U+2028 and U+2029 as they are, for data that is multi-line by design
+ * (a report excerpt). That data must still go through the plain form before it is printed as text; as a
+ * JSON string a line break is escaped, so it is safe there.
+ * @template T
+ * @param {T} value
+ * @param {{keepLineBreaks?: boolean}} [options]
+ * @returns {T}
+ */
+function printSafe(value, options = {}) {
+  if (typeof value === 'string') {
+    const spaced = options.keepLineBreaks ? value : value.replace(PRINT_LINE_BREAK, ' ');
+    return spaced.replace(PRINT_CONTROL, REPLACEMENT);
+  }
+  if (Array.isArray(value)) return value.map((item) => printSafe(item, options));
+  if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    const out = {};
+    for (const key of Object.keys(value)) out[key] = printSafe(value[key], options);
+    return out;
+  }
+  return value;
+}
+
+module.exports = { mask, maskLine, maskBody, normalise, normaliseMessage, printSafe, MASKED };

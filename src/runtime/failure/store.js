@@ -17,6 +17,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { failureHome, captureSwitch, eventsPath } = require('./home');
+const { printSafe } = require('../mask');
 
 const ROTATED = /^events-\d{8}T\d{6}Z-\d+\.jsonl$/;
 const SETTLEMENTS = 'settlements.jsonl';
@@ -131,7 +132,10 @@ function foldEntries(events, settlements) {
     for (let i = ordered.length - 1; i >= 0 && projects.length < PROJECTS_KEPT; i--) {
       if (ordered[i].project && !projects.includes(ordered[i].project)) projects.push(ordered[i].project);
     }
-    entries.push({
+    // The file is machine-wide and may hold lines someone else wrote: the fingerprint is taken over the
+    // stored text, and every string an entry shows is made print-safe, so a listing and --json never carry
+    // a terminal escape.
+    entries.push(printSafe({
       fp,
       status: statusOf(settlement, since),
       count: ordered.length,
@@ -149,7 +153,7 @@ function foldEntries(events, settlements) {
       harnesses: [...new Set(ordered.map((e) => e.harness))].sort(),
       exitCodes: [...new Set(ordered.map((e) => e.exit).filter((x) => x !== null))].sort((a, b) => a - b),
       settlement: settlement && { as: settlement.as, at: settlement.at, reason: settlement.reason, followup: settlement.followup },
-    });
+    }));
   }
   return entries.sort((a, b) => (a.lastSeen < b.lastSeen ? 1 : a.lastSeen > b.lastSeen ? -1 : a.fp < b.fp ? -1 : 1));
 }

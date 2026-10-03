@@ -11,7 +11,7 @@
 
 const fs = require('node:fs');
 const { finishRuntime, usageError } = require('../cli-result');
-const { maskLine } = require('../mask');
+const { maskLine, printSafe } = require('../mask');
 const { failureHome, captureSwitch, sentinelPath } = require('./home');
 const { rotateIfDue } = require('./capture');
 const store = require('./store');
@@ -161,8 +161,8 @@ function handleFailureCommand({ action, cwd, json = false, all = false, flags = 
     throw error;
   }
   if (json) console.log(JSON.stringify(result, null, 2));
-  else if (result.ok === false) console.log(`${result.finding}: ${result.message}`);
-  else for (const line of lines(result)) console.log(line);
+  else if (result.ok === false) console.log(printSafe(`${result.finding}: ${result.message}`));
+  else for (const line of lines(result)) console.log(printSafe(line));
   return finishRuntime(result.ok === false ? 1 : 0);
 }
 
