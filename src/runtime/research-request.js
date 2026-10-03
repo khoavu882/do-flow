@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const { acquireLock, updateTaskState, readTaskState } = require('./task-state');
 const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger');
 const { ClaimsManager } = require('./claims');
+const { taskStoreDir } = require('./task-scope');
 const { FreshnessValidator } = require('./freshness');
 const { resolveLocator } = require('./locator-resolve');
 const { finishRuntime, usageError } = require('./cli-result');
@@ -33,14 +34,17 @@ function hasLocatedSource(item, projectRoot) {
 }
 
 class ResearchRequestStore {
-  constructor({ projectRoot = process.cwd(), fsImpl = fs } = {}) {
+  constructor({ projectRoot = process.cwd(), fsImpl = fs, slug = null } = {}) {
     this.projectRoot = projectRoot;
     this.fsImpl = fsImpl;
+    this.slug = slug;
     this.stateDir = path.join(projectRoot, '.doflow', 'state', 'research');
   }
 
+  /** The feature's namespace directory when the task has one (task-scope.js), else the flat store. */
   file(taskId) {
-    return path.join(this.stateDir, `${assertSafeTaskId(taskId)}.json`);
+    const dir = taskStoreDir({ projectRoot: this.projectRoot, store: 'research', taskId: assertSafeTaskId(taskId), slug: this.slug });
+    return path.join(dir, `${taskId}.json`);
   }
 
   runFile(taskId) {
@@ -130,10 +134,10 @@ class ResearchRequestStore {
     } else {
       if (gap) throw new Error('answered cannot carry a gap');
       if (!claimId || evidenceIds.length === 0) throw new Error('answered requires a claim and evidence IDs');
-      const ledger = new EvidenceLedger({ repoRoot: this.projectRoot });
+      const ledger = new EvidenceLedger({ repoRoot: this.projectRoot, slug: this.slug });
       ledger.load(taskId);
       new FreshnessValidator({ repoRoot: this.projectRoot }).validateLedgerFreshness(ledger);
-      const claims = new ClaimsManager({ repoRoot: this.projectRoot, evidenceLedger: ledger });
+      const claims = new ClaimsManager({ repoRoot: this.projectRoot, evidenceLedger: ledger, slug: this.slug });
       claims.load(taskId); claims.evaluateAll();
       const claim = claims.getClaim(claimId);
       if (!claim || claim.taskId !== taskId || claim.status !== 'supported') {
@@ -174,10 +178,10 @@ class ResearchRequestStore {
   }
 
   validateAnswer(taskId, request) {
-    const ledger = new EvidenceLedger({ repoRoot: this.projectRoot });
+    const ledger = new EvidenceLedger({ repoRoot: this.projectRoot, slug: this.slug });
     ledger.load(taskId);
     new FreshnessValidator({ repoRoot: this.projectRoot }).validateLedgerFreshness(ledger);
-    const claims = new ClaimsManager({ repoRoot: this.projectRoot, evidenceLedger: ledger });
+    const claims = new ClaimsManager({ repoRoot: this.projectRoot, evidenceLedger: ledger, slug: this.slug });
     claims.load(taskId); claims.evaluateAll();
     const claim = claims.getClaim(request.claimId);
     if (!claim || claim.taskId !== taskId) {
@@ -200,9 +204,9 @@ class ResearchRequestStore {
 }
 
 function handleResearchRequestCommand({ action = 'list', taskId, stageId, question, reason,
-  blocking, requestId, outcome, claimId, evidenceIds, gap, json = false, projectRoot } = {}) {
+  blocking, requestId, outcome, claimId, evidenceIds, gap, json = false, projectRoot, slug } = {}) {
   try {
-    const store = new ResearchRequestStore({ projectRoot });
+    const store = new ResearchRequestStore({ projectRoot, slug });
     let result;
     switch (action) {
       case 'open': result = store.open({ taskId, stageId, question, reason, blocking }); break;

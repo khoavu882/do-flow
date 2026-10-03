@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { REPO_ROOT } = require('../helper/repo-root');
 const { updateTaskState, readTaskState, mergeRecords } = require('./task-state');
+const { taskStoreDir } = require('./task-scope');
 
 const VALID_EVIDENCE_KINDS = new Set([
   'exact-search',
@@ -74,16 +75,26 @@ class EvidenceLedger {
   /**
    * @param {Object} [options]
    * @param {string} [options.repoRoot]
-   * @param {string} [options.stateDir]
+   * @param {string} [options.stateDir] a fixed directory; when given, no feature namespace applies
+   * @param {string} [options.slug] feature whose namespace the records live under (see task-scope.js)
    * @param {Object} [options.fsImpl]
    */
   constructor(options = {}) {
     this.fsImpl = options.fsImpl || fs;
     this.repoRoot = options.repoRoot || REPO_ROOT;
-    this.stateDir = options.stateDir || path.join(this.repoRoot, '.doflow', 'state', 'evidence');
+    this.fixedStateDir = options.stateDir || null;
+    this.slug = options.slug || null;
+    this.stateDir = this.fixedStateDir || path.join(this.repoRoot, '.doflow', 'state', 'evidence');
     this.evidenceMap = new Map();
     this.baseline = new Map();
     this.seq = 0;
+  }
+
+  /** Where this task's evidence file lives: the feature's namespace when it has one (IC-002). */
+  fileFor(taskId) {
+    const dir = this.fixedStateDir
+      || taskStoreDir({ projectRoot: this.repoRoot, store: 'evidence', taskId, slug: this.slug });
+    return path.join(dir, `${assertSafeTaskId(taskId)}.json`);
   }
 
   /**
@@ -263,7 +274,7 @@ class EvidenceLedger {
    * @returns {string} filePath
    */
   save(taskId = 'default') {
-    const targetFile = path.join(this.stateDir, `${assertSafeTaskId(taskId)}.json`);
+    const targetFile = this.fileFor(taskId);
     let merged;
     const file = updateTaskState({
       fsImpl: this.fsImpl, file: targetFile,
@@ -285,7 +296,7 @@ class EvidenceLedger {
    * @returns {number} count of loaded items
    */
   load(taskId = 'default') {
-    const targetFile = path.join(this.stateDir, `${assertSafeTaskId(taskId)}.json`);
+    const targetFile = this.fileFor(taskId);
     const data = readTaskState(this.fsImpl, targetFile);
     if (data && Array.isArray(data.evidence)) {
       for (const item of data.evidence) {

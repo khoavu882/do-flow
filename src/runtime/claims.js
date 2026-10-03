@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 // Shared with EvidenceLedger so both stores enforce one definition of a safe task id.
 const { assertSafeTaskId, EvidenceLedger } = require('./evidence-ledger');
 const { updateTaskState, readTaskState, mergeRecords } = require('./task-state');
+const { taskStoreDir } = require('./task-scope');
 const { finishRuntime, usageError } = require('./cli-result');
 const { REPO_ROOT } = require('../helper/repo-root');
 
@@ -39,17 +40,27 @@ class ClaimsManager {
    * @param {Object} [options]
    * @param {Object} [options.evidenceLedger]
    * @param {string} [options.repoRoot]
-   * @param {string} [options.stateDir]
+   * @param {string} [options.stateDir] a fixed directory; when given, no feature namespace applies
+   * @param {string} [options.slug] feature whose namespace the records live under (see task-scope.js)
    * @param {Object} [options.fsImpl]
    */
   constructor(options = {}) {
     this.fsImpl = options.fsImpl || fs;
     this.evidenceLedger = options.evidenceLedger || null;
     this.repoRoot = options.repoRoot || REPO_ROOT;
-    this.stateDir = options.stateDir || path.join(this.repoRoot, '.doflow', 'state', 'evidence');
+    this.fixedStateDir = options.stateDir || null;
+    this.slug = options.slug || null;
+    this.stateDir = this.fixedStateDir || path.join(this.repoRoot, '.doflow', 'state', 'evidence');
     this.claimsMap = new Map();
     this.baseline = new Map();
     this.seq = 0;
+  }
+
+  /** Where this task's claims file lives: beside its evidence, in the feature's namespace when it has one. */
+  fileFor(taskId) {
+    const dir = this.fixedStateDir
+      || taskStoreDir({ projectRoot: this.repoRoot, store: 'evidence', taskId, slug: this.slug });
+    return path.join(dir, `${assertSafeTaskId(taskId)}_claims.json`);
   }
 
   generateId() {
@@ -301,7 +312,7 @@ class ClaimsManager {
    * @returns {string} filePath
    */
   save(taskId = 'default') {
-    const targetFile = path.join(this.stateDir, `${assertSafeTaskId(taskId)}_claims.json`);
+    const targetFile = this.fileFor(taskId);
     let merged;
     const file = updateTaskState({
       fsImpl: this.fsImpl,
@@ -324,7 +335,7 @@ class ClaimsManager {
    * @returns {number}
    */
   load(taskId = 'default') {
-    const targetFile = path.join(this.stateDir, `${assertSafeTaskId(taskId)}_claims.json`);
+    const targetFile = this.fileFor(taskId);
     const data = readTaskState(this.fsImpl, targetFile);
     if (data && Array.isArray(data.claims)) {
       for (const item of data.claims) {
@@ -360,13 +371,14 @@ class ClaimsManager {
  * @param {string} [options.relation='supports'] `link`
  * @param {boolean} [options.json=false]
  * @param {string} [options.stateRoot]
+ * @param {string} [options.slug] feature the task belongs to, when not the branch's
  * @returns {number} exit code
  */
-function handleClaimCommand({ taskId, action = 'list', statement, claimId, evidenceId, replacedBy, relation = 'supports', role, json = false, stateRoot } = {}) {
+function handleClaimCommand({ taskId, action = 'list', statement, claimId, evidenceId, replacedBy, relation = 'supports', role, json = false, stateRoot, slug } = {}) {
   const root = stateRoot || process.cwd();
-  const ledger = new EvidenceLedger({ repoRoot: root });
+  const ledger = new EvidenceLedger({ repoRoot: root, slug });
   ledger.load(taskId);
-  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root });
+  const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: root, slug });
   claims.load(taskId);
 
   let result;
