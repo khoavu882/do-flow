@@ -359,8 +359,8 @@ Workflow and evidence:
   outcome          record a task's terminal state with its basis, or show what was recorded
   scaffold         emit the code scaffold the active feature's artifacts imply
   decision         register, list or compact the active feature's decisions
-  followup         record, list, take, settle or promote what a feature left unfinished
-  lifecycle        open follow-ups, feature tracking and status for the project
+  followup         record, list, take, settle, promote or report what a feature left unfinished
+  lifecycle        open follow-ups, feature tracking, status and release records for the project
   goal             add, check, link, list or close a goal and its checklist
   failure          list, settle or switch off the failures DoFlow captured on this machine
 
