@@ -621,3 +621,43 @@ test('history: a project path containing a backslash is read literally, not as a
   assert.ok(repo.includes('\\t'), 'the fixture path must contain a literal backslash');
   assert.deepEqual(rules(validateIn(repo, path.join(feature, 'design', 'specs.md'))), []);
 });
+
+// ── IC-006 (feature 045): path tokens are not citations; fenced "## " lines are gated by a register ─
+
+test('unknown and stale: a DEC token after "/" in a URL or a path is not a citation; a bare one still is', () => {
+  const { repo, feature } = featureRepo('path-token', CHAIN, {
+    'design/design.md': [
+      '# Design', '', '## 1. Choices', '',
+      'Link https://x.test/DEC-780 and file notes/DEC-781.md stay quiet.',
+      'A superseded id in a path, docs/DEC-001.md, is not stale either.',
+      '[linked](../decisions/DEC-782.md) is a link target.',
+      'Bare citation DEC-783 is unknown.',
+      'Bare superseded DEC-001 is stale.',
+      'Both on one line: notes/DEC-784.md then DEC-785.',
+      '',
+    ].join('\n'),
+  });
+  const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
+  assert.deepEqual(result.findings.map((f) => [f.rule, f.id]), [
+    ['unknown', 'DEC-783'],
+    ['stale', 'DEC-001'],
+    ['unknown', 'DEC-785'],
+  ]);
+});
+
+const FENCED_HISTORY_SPECS = [
+  '# Specs', '', '## 1. Contracts', '',
+  '```markdown', '## 9. History', '```', '',
+  '| ID | Contract | Status |', '|---|---|---|', '| IC-001 | old | Superseded -> IC-002 |', '| IC-002 | new | Live |', '',
+  '**Detail**', '', '- **IC-001:** old.', '- **IC-002:** new.', '',
+].join('\n');
+
+test('a fenced "## 9. History" example does not hide a missing History entry when the feature has a register', () => {
+  const { repo, feature } = featureRepo('fence-section-register', CHAIN, { 'design/specs.md': FENCED_HISTORY_SPECS });
+  assert.deepEqual(rules(validateIn(repo, path.join(feature, 'design', 'specs.md'))), ['history IC-001']);
+});
+
+test('without a register the structural section tracking is exactly what it was', () => {
+  const { repo, feature } = featureRepo('fence-section-legacy', null, { 'design/specs.md': FENCED_HISTORY_SPECS });
+  assert.deepEqual(rules(validateIn(repo, path.join(feature, 'design', 'specs.md'))), []);
+});

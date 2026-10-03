@@ -206,7 +206,9 @@ for f in "${targets[@]}"; do
         before = (s > 1) ? substr(text, s - 1, 1) : ""
         after = substr(text, s + l, 1)
         pos = s + l
-        if (before ~ /[A-Za-z0-9_]/ || after ~ /[A-Za-z_]/) continue
+        # A token after "/" sits in a URL or a file path (https://x/DEC-780, notes/DEC-781.md), not in
+        # prose, so it is no citation: neither `stale` nor `unknown` reports it.
+        if (before ~ /[A-Za-z0-9_]/ || before == "/" || after ~ /[A-Za-z_]/) continue
         num = substr(tok, 5) + 0
         named[num] = 1
         if (reg_ok && !(num in known) && !(num in flagged)) {
@@ -300,7 +302,10 @@ for f in "${targets[@]}"; do
     }
 
     # ── section boundaries ───────────────────────────────────────────────────────────────────
-    /^## / {
+    # With a register the fence state above also gates this rule: a "## " line inside a fenced
+    # example opens no section, so a quoted "## 9. History" cannot hide the sections after it.
+    # Without a register the tracking is unchanged.
+    /^## / && !(reg_ok && in_fence) {
       sec++
       in_table = 0; in_rollup = 0; status_col = 0
       is_hist[sec] = ($0 ~ /[Hh]istory/) ? 1 : 0
