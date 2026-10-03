@@ -31,8 +31,10 @@ const STATEMENT_MAX = 280;
 const FU_ID = /^FU-[0-9a-hjkmnp-tv-z]{6}$/;
 const WORD = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
 const LINE_BREAK = /[\r\n\u2028\u2029\u0085]/;
+/** DEC-046: C0 and C1 controls (tab allowed; line breaks are caught first) and the bidirectional overrides. */
+const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069]/;
 /** Refusal findings a fold conflict maps to; every other conflict is an `illegal-transition`. */
-const CONFLICT_FINDINGS = new Set(['unknown-id', 'untracked-feature', 'intent-exists']);
+const CONFLICT_FINDINGS = new Set(['unknown-id', 'untracked-feature', 'intent-exists', 'reason-required', 'evidence-required']);
 
 /** A caller mistake (exit 2). */
 class FollowupUsageError extends Error {}
@@ -53,6 +55,7 @@ function oneLine(raw, label, problems, { max = STATEMENT_MAX } = {}) {
   const text = maskLine(raw).text.trim();
   if (text === '') { problems.push(`${label} is empty`); return null; }
   if (LINE_BREAK.test(text)) { problems.push(`${label} must be one line`); return null; }
+  if (CONTROL.test(text)) { problems.push(`${label} contains a control or bidirectional-override character`); return null; }
   if (text.length > max) { problems.push(`${label} is ${text.length} characters; the limit is ${max}`); return null; }
   return text;
 }
@@ -118,7 +121,7 @@ function sourceFor(kind, fields, label, problems) {
     return taskClass && taskId && { kind, taskClass, taskId, stage: fields.stage };
   }
   if (kind === 'release') {
-    if (fields.release === undefined || fields.release === null) return { kind };
+    if (fields.release === undefined || fields.release === null) { problems.push(`${label}: --release <tag> is required for --source release`); return null; }
     const release = word(fields.release, '--release');
     return release && { kind, release };
   }
@@ -238,7 +241,8 @@ function settleFollowups({ root, ids, as, reason, evidence, channel, now = new D
   const problems = [];
   const cleanReason = reason === undefined ? null : oneLine(reason, '--reason', problems);
   const cleanEvidence = evidence === undefined ? null : oneLine(evidence, '--evidence', problems);
-  if (!problems.length && as !== 'done' && !cleanReason) problems.push(`--reason is required for --as ${as}`);
+  // `kept` needs a reason only when it releases a taken item or reopens a dismissed one; the fold knows the state.
+  if (!problems.length && (as === 'dismissed' || as === 'fix') && !cleanReason) problems.push(`--reason is required for --as ${as}`);
   if (!problems.length && as === 'done' && !cleanEvidence) problems.push('--evidence is required for --as done');
   if (problems.length) throw new FollowupUsageError(problems.join('; '));
   const by = channelBy(channel);
@@ -256,7 +260,6 @@ function promoteFollowups({ root, ids, title, channel, now = new Date(), fsImpl 
   const list = parseIds(ids);
   const problems = [];
   const cleanTitle = oneLine(title, '--title', problems, { max: 80 });
-  if (cleanTitle && !kebabTitle(cleanTitle)) problems.push('--title must hold a letter or a digit');
   if (problems.length) throw new FollowupUsageError(problems.join('; '));
   const by = channelBy(channel);
   // Check the items before the file exists, so a refusal leaves nothing behind; the event write checks again under the lock.
@@ -269,15 +272,20 @@ function promoteFollowups({ root, ids, title, channel, now = new Date(), fsImpl 
     if (item.intent) return refusal('promote', 'intent-exists', `${id} was already promoted to ${item.intent}. Nothing was written.`);
     items.push(item);
   }
-  const written = writeIntent(root, { title: cleanTitle, by, date: now.toISOString().slice(0, 10), items }, { fsImpl });
+  // A title with no ASCII letter or digit still promotes, under a name built from the first item's id (DEC-046).
+  const fallbackName = kebabTitle(cleanTitle) ? null : `followups-${list[0].toLowerCase()}`;
+  const written = writeIntent(root, { title: cleanTitle, fallbackName, by, date: now.toISOString().slice(0, 10), items }, { fsImpl });
   if (!written.ok) return refusal('promote', written.finding, written.message);
-  const out = appendEvents(root, [{ type: 'followup.promoted', by, data: { ids: list, intent: written.path } }], { now, fsImpl });
-  if (!out.ok) {
-    // The file is the one this call just created exclusively, so removing it undoes the half-done promotion.
-    try { fsImpl.rmSync(written.file, { force: true }); } catch { /* the refusal below still stands */ }
-    return refusalFrom('promote', out);
+  let committed = false;
+  try {
+    const out = appendEvents(root, [{ type: 'followup.promoted', by, data: { ids: list, intent: written.path } }], { now, fsImpl });
+    if (!out.ok) return refusalFrom('promote', out);
+    committed = true;
+    return { ok: true, action: 'promote', intent: written.path, ids: list, events: out.written.map((w) => w.file), next: [] };
+  } finally {
+    // The file is the one this call just created exclusively, so removing it undoes a half-done promotion on every failure path.
+    if (!committed) { try { fsImpl.rmSync(written.file, { force: true }); } catch { /* the failure being reported stands */ } }
   }
-  return { ok: true, action: 'promote', intent: written.path, ids: list, events: out.written.map((w) => w.file), next: [] };
 }
 
 module.exports = {

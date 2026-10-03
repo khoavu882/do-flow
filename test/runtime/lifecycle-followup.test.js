@@ -90,7 +90,7 @@ test('add: a run source needs --task-class and --task-id; release and manual nee
   usage(() => add(root, 'x', { stage: 'review', source: 'run', taskClass: 'bug' }), /--task-id/);
   usage(() => add(root, 'x', { stage: 'review', source: 'run' }), /--task-class/);
   assert.deepEqual(add(root, 'found at release', { source: 'release', release: 'v2.3.0' }).created[0].source, { kind: 'release', release: 'v2.3.0' });
-  assert.deepEqual(add(root, 'found at release', { source: 'release' }).created[0].source, { kind: 'release' });
+  usage(() => add(root, 'found at release', { source: 'release' }), /--release <tag> is required for --source release/);
   assert.deepEqual(add(root, 'known item', { source: 'manual' }).created[0].source, { kind: 'manual' });
   usage(() => add(root, 'x', { source: 'telepathy' }), /source must be one of/);
 });
@@ -268,7 +268,7 @@ test('settle: each --as value and its required field (IC-003)', () => {
   assert.equal(by[f].state, 'open');
   assert.equal(by[f].fix, 'bug run fix-x');
   assert.equal(by[o].state, 'done');
-  usage(() => settleFollowups({ root, ids: k, as: 'kept' }), /--reason is required for --as kept/);
+  assert.equal(settleFollowups({ root, ids: k, as: 'kept' }).ok, true, 'kept on an open item needs no reason (IC-003)');
   usage(() => settleFollowups({ root, ids: k, as: 'dismissed' }), /--reason is required/);
   usage(() => settleFollowups({ root, ids: k, as: 'fix' }), /--reason is required/);
   usage(() => settleFollowups({ root, ids: k, as: 'done', reason: 'x' }), /--evidence is required for --as done/);
@@ -291,6 +291,31 @@ test('settle: one event per id; a done item accepts nothing later; a dismissed o
   assert.match(late.message, /accepts no later event/);
   const by = JSON.parse(fs.readFileSync(path.join(root, both.events[0]), 'utf8'));
   assert.equal(by.by, 'user');
+});
+
+test('settle: releasing a taken item or reopening a dismissed one with kept needs a reason, refused as reason-required', () => {
+  const root = plainRoot();
+  const [a, b] = [add(root, 'a').created[0].id, add(root, 'b').created[0].id];
+  track(root, '050-demo');
+  takeFollowups({ root, ids: a, slug: '050-demo' });
+  settleFollowups({ root, ids: b, as: 'dismissed', reason: 'noise' });
+  for (const id of [a, b]) {
+    const out = settleFollowups({ root, ids: id, as: 'kept' });
+    assert.deepEqual([out.ok, out.finding], [false, 'reason-required']);
+    assert.match(out.message, /Nothing was written/);
+  }
+});
+
+test('input hygiene: control and bidirectional-override characters are refused by field, tab is allowed (DEC-046)', () => {
+  const root = plainRoot();
+  for (const bad of ['a\u0000b', 'a\u001bb', 'a\u007fb', 'a\u0090b', 'a\u202Eb', 'a\u2066b', 'a\u2069b']) {
+    usage(() => add(root, bad), /statement contains a control or bidirectional-override character/);
+  }
+  assert.equal(add(root, 'with\ta tab').ok, true);
+  const id = listFollowups({ root }).items[0].id;
+  usage(() => settleFollowups({ root, ids: id, as: 'dismissed', reason: 'x\u202Ey' }), /--reason contains a control/);
+  usage(() => settleFollowups({ root, ids: id, as: 'done', evidence: 'x\u0007y' }), /--evidence contains a control/);
+  assert.equal(eventCount(root), 1);
 });
 
 test('settle: a taken item can be released with kept; dismissing it is refused', () => {

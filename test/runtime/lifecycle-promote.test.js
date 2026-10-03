@@ -137,8 +137,27 @@ test('a title must be one line with a letter or digit; ids and title are require
   usage(() => followup.promoteFollowups({ root, ids: a, title: 'two\nlines', now: NOW }), /must be one line/);
   usage(() => followup.promoteFollowups({ root, ids: a, title: 'z'.repeat(81), now: NOW }), /limit is 80/);
   usage(() => followup.promoteFollowups({ root, title: 'X', now: NOW }), /--ids is required/);
-  usage(() => followup.promoteFollowups({ root, ids: a, title: '!!!', now: NOW }), /must hold a letter or a digit/);
+  usage(() => followup.promoteFollowups({ root, ids: a, title: 'a\u202Eb', now: NOW }), /--title contains a control/);
   assert.equal(fs.existsSync(intentDir(root)), false);
+});
+
+test('a title with no ASCII letter or digit still promotes, under a name built from the first item id (DEC-046)', () => {
+  const root = plainRoot();
+  const a = addItem(root, 'one');
+  const out = followup.promoteFollowups({ root, ids: a, title: '\u65e5\u672c\u8a9e!!!', now: NOW });
+  assert.equal(out.ok, true);
+  assert.equal(out.intent, `agent-docs/intent/followups-${a.toLowerCase()}.md`);
+  assert.match(fs.readFileSync(path.join(root, out.intent), 'utf8'), /^# Intent: \u65e5\u672c\u8a9e!!!$/m);
+});
+
+test('a thrown event write removes the intent file too, and releases the lock', () => {
+  const root = plainRoot();
+  const a = addItem(root, 'one');
+  const throwingFs = { ...fs, writeFileSync: (file, ...rest) => { if (String(file).includes(`${path.sep}events${path.sep}`)) throw new Error('disk full'); return fs.writeFileSync(file, ...rest); } };
+  assert.throws(() => followup.promoteFollowups({ root, ids: a, title: 'Doomed', now: NOW, fsImpl: throwingFs }), /disk full/);
+  assert.equal(fs.existsSync(path.join(intentDir(root), 'doomed.md')), false);
+  assert.equal(fs.existsSync(path.join(root, 'agent-docs', 'lifecycle', 'events.lock')), false);
+  assert.equal(followup.promoteFollowups({ root, ids: a, title: 'Doomed', now: NOW }).ok, true, 'the same title works afterwards');
 });
 
 test('the title is masked before it is written to the file name or heading', () => {

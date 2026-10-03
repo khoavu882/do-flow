@@ -65,7 +65,7 @@ function renderIntent({ title, by, date, items }) {
  */
 function writeIntent(root, intent, { fsImpl = nodeFs } = {}) {
   const title = String(intent.title ?? '').trim();
-  const name = kebabTitle(title);
+  const name = kebabTitle(title) || intent.fallbackName || '';
   if (!name || title.length > TITLE_MAX || /[\r\n\u2028\u2029\u0085]/.test(title)) {
     return { ok: false, finding: 'invalid-title', message: `the title must be one line of at most ${TITLE_MAX} characters with a letter or digit in it. Nothing was written.` };
   }

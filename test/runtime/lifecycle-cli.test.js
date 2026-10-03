@@ -112,7 +112,8 @@ test('followup add, list, settle: the IC-006 result shapes and exit codes', () =
   assert.equal(run(repo.dir, ['followup', '--action', 'list', '--json']).json.count, 0);
   assert.equal(run(repo.dir, ['followup', '--action', 'list', '--state', 'dismissed', '--json']).json.count, 1);
   const noReason = run(repo.dir, ['followup', '--action', 'settle', '--ids', id, '--as', 'kept', '--json']);
-  assert.equal(noReason.status, 2);
+  assert.deepEqual([noReason.status, noReason.json.finding], [1, 'reason-required'], 'reopening a dismissed item needs a reason');
+  assert.equal(run(repo.dir, ['followup', '--action', 'settle', '--ids', id, '--as', 'fix', '--json']).status, 2);
 });
 
 test('followup add --batch writes every item; an invalid item writes nothing and exits 2', () => {

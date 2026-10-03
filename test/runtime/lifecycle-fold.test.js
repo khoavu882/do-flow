@@ -73,9 +73,16 @@ test('settle as kept: reason required, releases a taken item, reopens a dismisse
   const recorded = foldEvents([...base, settled('FU-aaaaaa', 'kept', T(3), { reason: 'later' })]);
   assert.equal(itemOf(recorded, 'FU-aaaaaa').state, 'open');
   assert.equal(itemOf(recorded, 'FU-aaaaaa').history.at(-1).type, 'followup.settled');
-  const noReason = foldEvents([...base, settled('FU-aaaaaa', 'kept', T(3))]);
-  assert.equal(noReason.conflicts[0].code, 'reason-required');
-  assert.equal(itemOf(noReason, 'FU-aaaaaa').history.length, 1);
+  // IC-003: no reason needed on an open item; one is needed to release a taken item or reopen a dismissed one.
+  const openNoReason = foldEvents([...base, settled('FU-aaaaaa', 'kept', T(3))]);
+  assert.deepEqual(openNoReason.conflicts, []);
+  assert.equal(itemOf(openNoReason, 'FU-aaaaaa').history.length, 2);
+  const takenNoReason = foldEvents([...base, taken(['FU-aaaaaa'], 'f1', T(3)), settled('FU-aaaaaa', 'kept', T(4))]);
+  assert.equal(takenNoReason.conflicts[0].code, 'reason-required');
+  assert.equal(itemOf(takenNoReason, 'FU-aaaaaa').state, 'taken');
+  const dismissedNoReason = foldEvents([...base, settled('FU-aaaaaa', 'dismissed', T(3), { reason: 'x' }), settled('FU-aaaaaa', 'kept', T(4))]);
+  assert.equal(dismissedNoReason.conflicts[0].code, 'reason-required');
+  assert.equal(itemOf(dismissedNoReason, 'FU-aaaaaa').state, 'dismissed');
 });
 
 test('settle as dismissed needs an open item and a reason', () => {

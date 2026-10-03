@@ -109,7 +109,8 @@ function settleOne(state, event, id) {
   const refuse = (reason) => conflict(event, 'illegal-transition', reason);
   switch (d.as) {
     case 'kept':
-      if (!isText(d.reason)) return conflict(event, 'reason-required', `settling ${id} as kept needs a reason`);
+      // IC-003: a reason is required when a taken item is released or a dismissed one reopens, not for an open one.
+      if (item.state !== 'open' && !isText(d.reason)) return conflict(event, 'reason-required', `settling ${id} as kept needs a reason`);
       if (item.state === 'taken') item.takenBy = null;
       item.state = 'open';
       break;
