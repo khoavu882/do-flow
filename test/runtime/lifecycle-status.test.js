@@ -9,7 +9,7 @@ const { createScratch } = require('../helper/scratch-env');
 const { makeRepo, featureBranch, FIXTURES, SLUG, TRACKED_AT } = require('../helper/lifecycle-git-fixtures');
 const { foldEvents } = require('../../src/runtime/lifecycle/fold');
 const store = require('../../src/runtime/lifecycle/event-store');
-const { deriveStatuses, readGitFacts, bucketize, subjectNames } = require('../../src/runtime/lifecycle/status');
+const { deriveStatuses, readGitFacts, bucketize, subjectNames, behindNote } = require('../../src/runtime/lifecycle/status');
 
 const scratch = createScratch('doflow-status-');
 test.before(() => scratch.apply());
@@ -266,6 +266,24 @@ test('a repository with no integration ref, and a directory that is not a reposi
   assert.equal(none.releaseMode, 'unknown');
   assert.equal(none.statuses[SLUG].status, 'unknown');
   assert.match(none.reason, /git facts unavailable|no integration ref/);
+});
+
+test('a local integration branch behind its origin counterpart is reported with a count and a note, without a fetch (DEC-044)', () => {
+  const { repo } = FIXTURES.mergeCommit(scratch);
+  assert.equal(derive(repo, foldOf(tracked())).integrationBehind, 0);
+  repo.checkout('-b', 'remote-side', 'develop');
+  repo.commit('only on origin 1');
+  repo.commit('only on origin 2');
+  repo.git('update-ref', 'refs/remotes/origin/develop', 'HEAD');
+  repo.checkout('develop');
+  repo.git('branch', '-q', '-D', 'remote-side');
+  const out = derive(repo, foldOf(tracked()));
+  assert.equal(out.integrationBehind, 2);
+  assert.equal(out.integrationRef, 'develop', 'the local branch stays the pinned ref');
+  assert.equal(behindNote('develop', 2), 'local develop is 2 commits behind origin/develop; a merge that exists only on origin is not seen until you pull');
+  assert.match(behindNote('develop', 1), /1 commit behind/);
+  assert.equal(behindNote('develop', 0), null);
+  assert.equal(derive(repo, foldOf()).integrationBehind, 2, 'also with no tracked feature');
 });
 
 test('with no tracked feature the deriver answers the release mode without reading history', () => {

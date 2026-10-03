@@ -229,6 +229,24 @@ test('status derives from git: a tracked, merged feature is finished; evidence a
   assert.deepEqual(overview.features.finished, [SLUG]);
 });
 
+test('status and overview carry integrationBehind and a note only when the local integration branch trails origin', () => {
+  const built = FIXTURES.mergeCommit(scratch);
+  const root = fs.realpathSync(built.repo.dir);
+  store.appendEvents(root, [{ type: 'feature.tracked', by: 'agent', data: { slug: SLUG } }], { now: new Date(TRACKED_AT) });
+  const quiet = run(root, ['lifecycle', '--action', 'status', '--slug', SLUG, '--json']).json;
+  assert.equal('integrationBehind' in quiet || 'note' in quiet, false);
+  built.repo.checkout('-b', 'remote-side', 'develop');
+  built.repo.commit('only on origin');
+  built.repo.git('update-ref', 'refs/remotes/origin/develop', 'HEAD');
+  built.repo.checkout('develop');
+  const status = run(root, ['lifecycle', '--action', 'status', '--slug', SLUG, '--json']).json;
+  assert.equal(status.integrationBehind, 1);
+  assert.match(status.note, /^local develop is 1 commit behind origin\/develop/);
+  const overview = run(root, ['lifecycle', '--json']).json;
+  assert.deepEqual([overview.integrationBehind, overview.note], [1, status.note]);
+  assert.match(run(root, ['lifecycle']).stdout, /^note: local develop is 1 commit behind/m);
+});
+
 // ── overview ───────────────────────────────────────────────────────────────────────────────────
 
 test('overview shows 15 of 17 items, reports first then oldest first, and the List the rest line', () => {

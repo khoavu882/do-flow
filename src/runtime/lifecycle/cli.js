@@ -43,6 +43,7 @@ function overviewLines(r) {
   const names = [['finished', f.finished], ['awaiting release', f.awaitingRelease], ['in progress', f.inProgress], ['unknown', f.unknown]].filter(([, list]) => list.length);
   for (const [label, list] of names) lines.push(`${label}: ${list.join(', ')}`);
   if (r.mode === 'maintain') lines.push(`pending: ${r.pending}`);
+  if (r.note) lines.push(`note: ${r.note}`);
   if (r.conflicts.length) lines.push(`${r.conflicts.length} event conflict${r.conflicts.length === 1 ? '' : 's'} (see --json)`);
   if (r.unreadable.length) lines.push(`unreadable event files: ${r.unreadable.join(', ')}`);
   for (const line of r.next) lines.push(`next: ${line}`);
@@ -52,7 +53,7 @@ function overviewLines(r) {
 function lifecycleLines(result) {
   switch (result.action) {
     case 'init': return [`${result.slug}: tracked ${result.tracked}${result.taken.length ? `, took ${result.taken.join(', ')}` : ''}${result.goal ? `, serves ${result.goal}` : ''}`, ...result.next];
-    case 'status': return [`${result.slug}: ${result.status}${result.evidence ? ` (${result.evidence.kind}${result.evidence.ref ? ` ${result.evidence.ref}` : ''})` : ''}${result.release ? `, release ${result.release}` : ''}`];
+    case 'status': return [`${result.slug}: ${result.status}${result.evidence ? ` (${result.evidence.kind}${result.evidence.ref ? ` ${result.evidence.ref}` : ''})` : ''}${result.release ? `, release ${result.release}` : ''}`, ...(result.note ? [`note: ${result.note}`] : [])];
     default: return result.mode ? overviewLines(result) : [];
   }
 }

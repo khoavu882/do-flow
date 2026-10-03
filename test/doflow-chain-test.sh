@@ -641,8 +641,17 @@ git branch -q -D integ-probe
 # way. develop wins, then main, then master; a local branch comes before its origin/ tracking ref.
 git checkout -q main
 LIFE="$($STATE --lifecycle)"
-eq "--lifecycle keeps exactly its four keys" \
-   "$(echo "$LIFE" | jq -r 'keys | join(",")')" "base_tag,feature_prefixes,integration_ref,release_tags"
+eq "--lifecycle keeps exactly its five keys" \
+   "$(echo "$LIFE" | jq -r 'keys | join(",")')" "base_tag,feature_prefixes,integration_local_behind_remote,integration_ref,release_tags"
+eq "--lifecycle reports the local integration branch as not behind without an origin counterpart" \
+   "$(echo "$LIFE" | jq -r '.integration_local_behind_remote')" "0"
+git update-ref refs/remotes/origin/develop HEAD
+EXPECTED_BEHIND="$(git rev-list --count develop..origin/develop)"
+eq "--lifecycle counts how far the local integration branch trails origin (no fetch)" \
+   "$($STATE --lifecycle | jq -r '.integration_local_behind_remote')" "$EXPECTED_BEHIND"
+eq "--lifecycle still names the local branch when origin is ahead" \
+   "$($STATE --lifecycle | jq -r '.integration_ref')" "develop"
+git update-ref -d refs/remotes/origin/develop
 eq "--lifecycle names develop as the integration ref when it exists" \
    "$(echo "$LIFE" | jq -r '.integration_ref')" "develop"
 eq "--lifecycle reports the feature branch prefixes" \

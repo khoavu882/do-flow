@@ -138,8 +138,15 @@ function bucketize(statuses, slugs = Object.keys(statuses)) {
   return buckets;
 }
 
-function result(releaseMode, integrationRef, reason, statuses, notDetected = []) {
-  return { releaseMode, integrationRef, reason, statuses, features: bucketize(statuses), notDetected };
+function result(releaseMode, integrationRef, reason, statuses, notDetected = [], behind = 0) {
+  return { releaseMode, integrationRef, integrationBehind: behind, reason, statuses, features: bucketize(statuses), notDetected };
+}
+
+/** The one-line note a stale local integration branch earns (DEC-044), or null. */
+function behindNote(ref, behind) {
+  return behind > 0
+    ? `local ${ref} is ${behind} commit${behind === 1 ? '' : 's'} behind origin/${ref}; a merge that exists only on origin is not seen until you pull`
+    : null;
 }
 
 /**
@@ -149,7 +156,7 @@ function result(releaseMode, integrationRef, reason, statuses, notDetected = [])
  * @param {string} options.root the IC-001 root, where git is run
  * @param {Object} options.fold a fold result (tracked features, merge confirmations, release records)
  * @param {Object} [options.facts] `readGitFacts` output, for a caller that already has it
- * @returns {{releaseMode:'tagged'|'untagged'|'unknown', integrationRef:string|null, reason:string|null,
+ * @returns {{releaseMode:'tagged'|'untagged'|'unknown', integrationRef:string|null, integrationBehind:number, reason:string|null,
  *   statuses:Object<string,{status:string, evidence:{kind:string,ref:string|null}|null, release:string|null}>,
  *   features:Object<string,string[]>, notDetected:string[]}}
  */
@@ -162,7 +169,8 @@ function deriveStatuses({ root, fold, facts = readGitFacts(root) }) {
 
   const ref = facts.integration_ref;
   const releaseMode = facts.release_tags.length > 0 ? 'tagged' : 'untagged';
-  if (tracked.length === 0) return result(releaseMode, ref, null, {});
+  const behind = Number(facts.integration_local_behind_remote) || 0;
+  if (tracked.length === 0) return result(releaseMode, ref, null, {}, [], behind);
 
   try {
     // Pin the ref once: every query below names the same commit.
@@ -202,10 +210,10 @@ function deriveStatuses({ root, fold, facts = readGitFacts(root) }) {
       if (status === 'in-progress') notDetected.push(feature.slug);
       statuses[feature.slug] = { status, evidence: shown, release };
     }
-    return result(releaseMode, ref, null, statuses, notDetected);
+    return result(releaseMode, ref, null, statuses, notDetected, behind);
   } catch (error) {
     return unknown(`git could not answer: ${String(error.message).split('\n')[0]}`);
   }
 }
 
-module.exports = { deriveStatuses, readGitFacts, bucketize, subjectNames };
+module.exports = { deriveStatuses, readGitFacts, bucketize, subjectNames, behindNote };

@@ -481,6 +481,11 @@ do_branch_name() {
 #                    resolve_integration_ref this never prefers the remote, because the lifecycle
 #                    views must agree with the release preview about one pinned ref.
 #   feature_prefixes the branch prefixes a feature branch is named with
+#   integration_local_behind_remote  how many commits origin/<integration> is ahead of the local
+#                    integration branch (0 when it has no origin counterpart or is itself origin/...);
+#                    the same field --state reports, so a merge that only exists on the remote is
+#                    visible as the staleness it is. No fetch is run: the answer is as fresh as the
+#                    last one.
 #   release_tags     v* tags that match the release-tag pattern (vX.Y.Z with an optional pre-release)
 #   base_tag         the same base tag --next-version proposes from, or null
 lifecycle_integration_ref() {
@@ -499,6 +504,16 @@ do_lifecycle() {
   tags="$(git tag --list 'v*' 2>/dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || true)"
   base_tag="$(find_base_tag)"
 
+  local behind=0
+  case "$integration" in
+    ""|origin/*) ;;
+    *)
+      if git rev-parse --verify --quiet "refs/remotes/origin/${integration}" >/dev/null 2>&1; then
+        behind="$(git rev-list --count "${integration}..origin/${integration}" 2>/dev/null || echo 0)"
+      fi
+      ;;
+  esac
+
   local prefixes_json="" tags_json=""
   prefixes_json="$(printf '%s\n' $feature_prefixes | jq -R . | jq -s .)"
   tags_json="$(printf '%s' "$tags" | jq -R -s 'split("\n") | map(select(length > 0))')"
@@ -506,10 +521,12 @@ do_lifecycle() {
   jq -n \
     --arg integration "$integration" \
     --arg base_tag "$base_tag" \
+    --arg behind "$behind" \
     --argjson prefixes "$prefixes_json" \
     --argjson tags "$tags_json" \
     '{
       integration_ref:  (if $integration=="" then null else $integration end),
+      integration_local_behind_remote: ($behind | tonumber),
       feature_prefixes: $prefixes,
       release_tags:     $tags,
       base_tag:         (if $base_tag=="" then null else $base_tag end)

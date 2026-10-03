@@ -12,7 +12,7 @@ const path = require('node:path');
 const { isSafeSlug, invalidSlugRefusal } = require('../task-scope');
 const { withDerivedDone } = require('./fold');
 const { appendEvents, readFold } = require('./event-store');
-const { deriveStatuses, bucketize } = require('./status');
+const { deriveStatuses, bucketize, behindNote } = require('./status');
 const { FollowupUsageError, parseIds } = require('./followup');
 
 const DISCOVERY_SHOWN = 15;
@@ -135,6 +135,7 @@ function buildOverview({ root, maintain = false, since, now = new Date(), fsImpl
     failures: null,
   };
   if (derived.reason) result.reason = derived.reason;
+  if (derived.integrationBehind > 0) Object.assign(result, { integrationBehind: derived.integrationBehind, note: behindNote(derived.integrationRef, derived.integrationBehind) });
   if (maintain) result.pending = open.filter(pendingOf).length;
   result.next = nextLines({ shown: items.length, open: open.length, items, intents, goals, maintain, pendingItems: items.filter((i) => i.pending) });
   return result;
@@ -204,6 +205,7 @@ function featureStatus({ root, slug, now = new Date(), fsImpl = nodeFs }) {
     takenItems: fold.followups.filter((item) => item.takenBy === slug && item.state === 'taken').map((item) => item.id),
   };
   if (derived.reason) result.reason = derived.reason;
+  if (derived.integrationBehind > 0) Object.assign(result, { integrationBehind: derived.integrationBehind, note: behindNote(derived.integrationRef, derived.integrationBehind) });
   return result;
 }
 
