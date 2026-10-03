@@ -158,8 +158,9 @@ for f in "${targets[@]}"; do
         ;;
     esac
   fi
-  out=$(awk -v is_plan="$([ "$(basename "$f")" = "plan.md" ] && echo 1 || echo 0)" \
-    -v stale_map="$file_stale_map" -v dir="$(dirname "$f")" -v reg_ok="$file_reg_ok" -v known_ids="$file_known_ids" -v hist_root="$hist_root" -v sq="'" '
+  # Paths reach awk through the environment: -v would process backslash escapes inside them.
+  out=$(DF_ART_DIR="$(dirname "$f")" DF_HIST_ROOT="$hist_root" awk -v is_plan="$([ "$(basename "$f")" = "plan.md" ] && echo 1 || echo 0)" \
+    -v stale_map="$file_stale_map" -v reg_ok="$file_reg_ok" -v known_ids="$file_known_ids" -v sq="'" '
     # Inline markup is presentation, not value: "**Superseded → X**" and "`Live`" mean the same as
     # their bare forms, so emphasis is stripped before any comparison.
     function trim(s) { gsub(/[`*]/, "", s); gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
@@ -255,6 +256,7 @@ for f in "${targets[@]}"; do
     }
 
     BEGIN {
+      dir = ENVIRON["DF_ART_DIR"]; hist_root = ENVIRON["DF_HIST_ROOT"]
       sec = 0; in_table = 0; in_rollup = 0; status_col = 0; phase = ""; in_comment = 0; cur_hist = 0; fence_ch = ""; fence_len = 0
       if (reg_ok) {
         nk = split(known_ids, kn, ",")

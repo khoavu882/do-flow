@@ -606,3 +606,18 @@ test('unknown: inert without a register, and active for a register holding no de
   const empty = featureRepo('unknown-empty-register', [], body);
   assert.deepEqual(rules(validateIn(empty.repo, path.join(empty.feature, 'design', 'design.md'))), ['unknown DEC-001']);
 });
+
+test('history: a project path containing a backslash is read literally, not as an escape sequence', () => {
+  // A directory named with a literal "\t": awk -v would turn that into a tab and miss the archive.
+  const { repo, feature } = featureRepo('bs\\tdir', CHAIN, {
+    'design/specs.md': [
+      '# Specs', '', '## 1. Contracts', '',
+      '| ID | Contract | Status |', '|---|---|---|', '| IC-001 | old | Superseded -> IC-002 |', '| IC-002 | new | Live |', '',
+      '**Detail**', '', '- **IC-001:** old.', '- **IC-002:** new.', '',
+      '## 2. History', '', 'Earlier entries: [decisions/history/specs.md](../decisions/history/specs.md).', '',
+    ].join('\n'),
+    'decisions/history/specs.md': '# History archive: design/specs.md\n\n- **IC-001** — replaced.\n',
+  });
+  assert.ok(repo.includes('\\t'), 'the fixture path must contain a literal backslash');
+  assert.deepEqual(rules(validateIn(repo, path.join(feature, 'design', 'specs.md'))), []);
+});
