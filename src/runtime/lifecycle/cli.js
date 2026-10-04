@@ -58,8 +58,13 @@ function overviewLines(r) {
   }
   for (const g of r.goals) lines.push(`goal ${g.goal}: ${g.items.met}/${g.items.total} items met${g.proposeDone ? ' (propose done)' : ''}`, ...g.nudges.map((n) => `  ${n}`), ...(g.conflicts || []).map((c) => `  conflict: ${c.reason}${c.text ? ` (dropped text: ${JSON.stringify(c.text)})` : ''}`));
   const f = r.features;
-  const names = [['finished', f.finished], ['awaiting release', f.awaitingRelease], ['in progress', f.inProgress], ['unknown', f.unknown]].filter(([, list]) => list.length);
-  for (const [label, list] of names) lines.push(`${label}: ${list.join(', ')}`);
+  // The finished and awaiting-release lists only grow, so the text shows their bounded form.
+  const bounded = (key) => (r.featuresShown && r.featuresShown[key]) || { count: f[key].length, shown: f[key], more: 0 };
+  const names = [['finished', bounded('finished')], ['awaiting release', bounded('awaitingRelease')],
+    ['in progress', { count: f.inProgress.length, shown: f.inProgress, more: 0 }], ['unknown', { count: f.unknown.length, shown: f.unknown, more: 0 }]].filter(([, b]) => b.count);
+  for (const [label, b] of names) {
+    lines.push(`${label}: ${b.shown.join(', ')}${b.more ? ` (+${b.more} more; --json lists them all, lifecycle --action status --slug <slug> shows one)` : ''}`);
+  }
   if (r.mode === 'maintain') lines.push(`pending: ${r.pending}`);
   if (r.note) lines.push(`note: ${r.note}`);
   if (r.conflicts.length) lines.push(`${r.conflicts.length} event conflict${r.conflicts.length === 1 ? '' : 's'} (see --json)`);

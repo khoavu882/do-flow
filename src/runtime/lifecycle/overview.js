@@ -22,6 +22,8 @@ function failureStoreOrNull() {
 
 const DISCOVERY_SHOWN = 15;
 const MAINTAIN_SHOWN = 50;
+/** Slugs shown per finished or awaiting-release bucket: those lists only grow, and the overview runs on every brainstorm. */
+const FEATURES_SHOWN = 10;
 
 const refusal = (action, finding, message) => ({ ok: false, action, finding, message });
 
@@ -51,6 +53,12 @@ function shownItem(item, pending) {
   };
   if (pending !== undefined) shown.pending = pending;
   return shown;
+}
+
+/** A bucket for display: the true count and the most recently tracked slugs, in tracking order. */
+function shownBucket(slugs) {
+  const shown = slugs.slice(-FEATURES_SHOWN);
+  return { count: slugs.length, shown, more: slugs.length - shown.length };
 }
 
 /**
@@ -191,6 +199,8 @@ function buildOverview({ root, maintain = false, since, now = new Date(), fsImpl
     intents,
     goals,
     features: derived.features,
+    // The bounded form of the two buckets that only grow; `features` keeps every slug (IC-007).
+    featuresShown: { finished: shownBucket(derived.features.finished), awaitingRelease: shownBucket(derived.features.awaitingRelease) },
     conflicts: fold.conflicts,
     unreadable: fold.unreadable,
     unreadableReasons: fold.unreadableReasons,
@@ -274,4 +284,4 @@ function featureStatus({ root, slug, now = new Date(), fsImpl = nodeFs }) {
   return result;
 }
 
-module.exports = { buildOverview, initFeature, featureStatus, goalView, goalConflicts, goalConflictNext, DISCOVERY_SHOWN, MAINTAIN_SHOWN };
+module.exports = { buildOverview, initFeature, featureStatus, goalView, goalConflicts, goalConflictNext, DISCOVERY_SHOWN, MAINTAIN_SHOWN, FEATURES_SHOWN };
