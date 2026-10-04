@@ -192,6 +192,45 @@ describe('Node writer (IC-011, IC-015)', () => {
     assert.equal(readLines(homeOf(env))[0].project, '~/work/app');
   });
 
+  /** The project label a capture from `cwd` stores, under `env`. */
+  function projectFrom(cwd, env) {
+    const result = spawnSync(process.execPath, ['-e', `
+      const { captureError } = require(${JSON.stringify(path.join(REPO, 'src/runtime/failure/capture'))});
+      captureError(new TypeError('x'), { command: 'verify', exit: 1 });
+    `], { cwd, env, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return readLines(failureHomeOf(env))[0].project;
+  }
+  const failureHomeOf = (env) => path.join(env.XDG_CONFIG_HOME, 'doflow', 'failures');
+
+  test('project: with HOME unset and XDG set, a folder under no known home is stored as its name only', () => {
+    const { dir, env } = freshEnv('project-nohome');
+    const cwd = path.join(dir, 'deep', 'client-app');
+    fs.mkdirSync(cwd, { recursive: true });
+    delete env.HOME;
+    const project = projectFrom(cwd, env);
+    assert.equal(project, 'client-app');
+    assert.equal(fs.readFileSync(path.join(failureHomeOf(env), 'events.jsonl'), 'utf8').includes(dir), false);
+  });
+
+  test('project: with HOME reached through a symlink, the physical cwd still becomes ~', { skip: process.platform === 'win32' }, () => {
+    const { dir, env } = freshEnv('project-link');
+    const physical = path.join(dir, 'physical-home');
+    fs.mkdirSync(path.join(physical, 'work', 'app'), { recursive: true });
+    const link = path.join(dir, 'linked-home');
+    fs.symlinkSync(physical, link);
+    env.HOME = link;
+    assert.equal(projectFrom(path.join(physical, 'work', 'app'), env), '~/work/app');
+    assert.equal(projectFrom(path.join(link, 'work', 'app'), env), '~/work/app', 'the lexical spelling still matches');
+  });
+
+  test('project: a directory outside HOME, with HOME set, keeps its masked path', () => {
+    const { dir, env } = freshEnv('project-outside');
+    const cwd = path.join(dir, 'elsewhere');
+    fs.mkdirSync(cwd);
+    assert.equal(projectFrom(cwd, env), cwd);
+  });
+
   test('command is a name or unknown, never an argument value', () => {
     const { env } = freshEnv('command');
     captureFailure({ source: 'cli', command: '/example/arg value', kind: 'TypeError' }, env);

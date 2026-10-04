@@ -182,3 +182,12 @@ test('printSafe with keepLineBreaks leaves line breaks and still replaces contro
   assert.equal(printSafe('a\nb\u001bc\r\nd', { keepLineBreaks: true }), 'a\nb\uFFFDc\r\nd');
   assert.deepEqual(printSafe(['x\ny\u0007'], { keepLineBreaks: true }), ['x\ny\uFFFD']);
 });
+
+test('the home prefix needs a left boundary: it starts the text or follows whitespace, a quote, =, :, ( or [', () => {
+  const home = { home: '/var/folders/x' };
+  assert.equal(maskLine('see /private/var/folders/x/y here', home).text, 'see /private/var/folders/x/y here');
+  assert.equal(maskLine('/a/var/folders/x/y', home).text, '/a/var/folders/x/y');
+  assert.equal(maskLine('at /var/folders/x/y "/var/folders/x" \'/var/folders/x\' k=/var/folders/x (/var/folders/x) [/var/folders/x] p:/var/folders/x', home).text,
+    'at ~/y "~" \'~\' k=~ (~) [~] p:~');
+  assert.equal(maskLine('/var/folders/x/y', home).text, '~/y');
+});

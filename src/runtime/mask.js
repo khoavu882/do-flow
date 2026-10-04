@@ -107,7 +107,9 @@ function mask(text, profile, options = {}) {
 
   // 0. The home directory prefix.
   const home = homeOf(options);
-  if (home) out = out.replace(new RegExp(`${escapeRegExp(home)}(?=$|[/\\s"'\`:;,)\\]}])`, 'g'), '~');
+  // The prefix starts the text or follows a character that cannot be part of a path component, so
+  // `/private/var/x` is not cut at a home of `/var/x`.
+  if (home) out = out.replace(new RegExp(`(?<![^\\s"'\`=:(\\[])${escapeRegExp(home)}(?=$|[/\\s"'\`:;,)\\]}])`, 'g'), '~');
   // 1. PEM blocks, to the end of the text when the END line is missing.
   out = out.replace(PEM, MASKED);
   // 2. Token shapes.

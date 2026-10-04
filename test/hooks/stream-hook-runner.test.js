@@ -435,6 +435,26 @@ test('stream-hook-runner capture: a FIFO at the failure file is skipped at once,
   assert.equal(child.stdout.trim(), 'false');
 });
 
+test('stream-hook-runner capture: the project label is ~ for a symlinked HOME, and a bare folder name with no HOME', { skip: process.platform === 'win32' }, () => {
+  const m = capMachine('proj');
+  const physical = path.join(m.dir, 'physical-home');
+  fs.mkdirSync(path.join(physical, 'app'), { recursive: true });
+  const link = path.join(m.dir, 'linked-home');
+  fs.symlinkSync(physical, link);
+  const capture = (cwd, env) => {
+    fs.rmSync(m.events, { force: true });
+    const child = require('node:child_process').spawnSync(process.execPath, ['-e',
+      `console.log(require(${JSON.stringify(RUNNER)}).captureHookFailure({ command: 'pre-bash-guard', kind: 'x' }))`], { cwd, env, encoding: 'utf8', timeout: 10000 });
+    assert.equal(child.stdout.trim(), 'true', child.stderr);
+    return capLines(m)[0].project;
+  };
+  const base = { ...process.env, XDG_CONFIG_HOME: m.xdg, DOFLOW_FAILURE_CAPTURE: '' };
+  assert.equal(capture(path.join(physical, 'app'), { ...base, HOME: link }), '~/app');
+  const noHome = { ...base };
+  delete noHome.HOME;
+  assert.equal(capture(path.join(physical, 'app'), noHome), 'app');
+});
+
 test('stream-hook-runner capture: a runner line and a bash-style line with the same fields share one fingerprint', () => {
   const m = capMachine('fp');
   const env = { ...process.env, HOME: m.home, XDG_CONFIG_HOME: m.xdg, DOFLOW_FAILURE_CAPTURE: '' };

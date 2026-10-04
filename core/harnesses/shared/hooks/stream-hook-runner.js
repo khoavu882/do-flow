@@ -19,6 +19,7 @@
 
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const geminiAdapter = require('./adapters/gemini');
@@ -172,6 +173,26 @@ function rotateFailures(home) {
 }
 
 /**
+ * The working directory with the home prefix as `~`, matching HOME as given, its real path and
+ * `os.homedir()`; under no known home, when HOME is not usable, only the folder name. Same rule as
+ * projectName in src/runtime/failure/capture.js (this file ships without src/).
+ */
+function hookProject(cwd, env) {
+  const homes = [];
+  const add = (value) => {
+    if (typeof value !== 'string' || !path.isAbsolute(value)) return;
+    const home = value.replace(/\/+$/, '');
+    if (home.length > 1 && !homes.includes(home)) homes.push(home);
+  };
+  add(env.HOME);
+  if (typeof env.HOME === 'string' && path.isAbsolute(env.HOME)) { try { add(fs.realpathSync(env.HOME)); } catch { /* HOME does not exist */ } }
+  try { add(os.homedir()); add(fs.realpathSync(os.homedir())); } catch { /* no home known to the system */ }
+  const home = homes.find((h) => cwd === h || cwd.startsWith(`${h}/`));
+  if (home) return `~${cwd.slice(home.length)}`;
+  return typeof env.HOME === 'string' && path.isAbsolute(env.HOME) ? cwd : path.basename(cwd);
+}
+
+/**
  * Appends one line only when `file` is absent or a regular file: a FIFO there would block the open
  * until something reads it and stall a guarded tool call. Same rule as appendRegular in
  * src/runtime/failure/capture.js (this file ships without src/).
@@ -201,11 +222,7 @@ function captureHookFailure({ command, kind, frame = null }, env = process.env) 
     const home = failureHome(env);
     if (!home || captureIsOff(home, env)) return false;
     let project = '';
-    try {
-      const cwd = process.cwd();
-      const hp = typeof env.HOME === 'string' ? env.HOME.replace(/\/+$/, '') : '';
-      project = hp && (cwd === hp || cwd.startsWith(`${hp}/`)) ? `~${cwd.slice(hp.length)}` : cwd;
-    } catch { project = ''; }
+    try { project = hookProject(process.cwd(), env); } catch { project = ''; }
     const record = {
       v: 1,
       at: new Date().toISOString(),

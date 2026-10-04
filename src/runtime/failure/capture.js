@@ -13,6 +13,7 @@
  */
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root');
 const { normaliseMessage, maskLine } = require('../mask');
@@ -44,10 +45,33 @@ function harnessName(env) {
   return typeof raw === 'string' && /^[A-Za-z0-9._-]{1,40}$/.test(raw) ? raw : 'none';
 }
 
-/** The working directory with the home prefix written as `~`, masked like any other free text. */
+/** The absolute, non-root homes to compare a working directory with: HOME as given, its real path, and `os.homedir()`. */
+function homeCandidates(env) {
+  const out = [];
+  const add = (value) => {
+    if (typeof value !== 'string' || !path.isAbsolute(value)) return;
+    const home = value.replace(/\/+$/, '');
+    if (home.length > 1 && !out.includes(home)) out.push(home);
+  };
+  add(env.HOME);
+  if (typeof env.HOME === 'string' && path.isAbsolute(env.HOME)) { try { add(fs.realpathSync(env.HOME)); } catch { /* HOME does not exist */ } }
+  try { add(os.homedir()); add(fs.realpathSync(os.homedir())); } catch { /* no home known to the system */ }
+  return out;
+}
+
+/**
+ * The working directory as stored: the home prefix written as `~` whichever way home is spelled (a
+ * symlinked HOME makes `process.cwd()` the physical path), masked like any other free text. A
+ * directory under no known home, when `HOME` itself is not usable, is stored as its folder name only,
+ * so an absolute path with a user name in it never reaches the file.
+ */
 function projectName(env) {
   let cwd;
   try { cwd = process.cwd(); } catch { return ''; }
+  const home = homeCandidates(env).find((h) => cwd === h || cwd.startsWith(`${h}/`));
+  if (home) return maskLine(`~${cwd.slice(home.length)}`, { home: null }).text.slice(0, 200);
+  const homeGiven = typeof env.HOME === 'string' && path.isAbsolute(env.HOME);
+  if (!homeGiven) return maskLine(path.basename(cwd), { home: null }).text.slice(0, 200);
   return maskLine(cwd, { home: env.HOME }).text.slice(0, 200);
 }
 
