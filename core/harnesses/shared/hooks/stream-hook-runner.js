@@ -172,6 +172,24 @@ function rotateFailures(home) {
 }
 
 /**
+ * Appends one line only when `file` is absent or a regular file: a FIFO there would block the open
+ * until something reads it and stall a guarded tool call. Same rule as appendRegular in
+ * src/runtime/failure/capture.js (this file ships without src/).
+ */
+function appendRegularLine(file, line) {
+  const c = fs.constants;
+  let fd;
+  try {
+    fd = fs.openSync(file, c.O_WRONLY | c.O_APPEND | c.O_CREAT | (c.O_NOFOLLOW || 0) | (c.O_NONBLOCK || 0), 0o600);
+    if (!fs.fstatSync(fd).isFile()) return false;
+    fs.writeSync(fd, line);
+    return true;
+  } catch { return false; } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* nothing more to do */ } }
+  }
+}
+
+/**
  * Appends one `source: "hook"` line (IC-011) with an empty `message` and `exit: null`. Silent and
  * best-effort: every failure is swallowed.
  * @param {{command: string, kind: string, frame?: string|null}} fields
@@ -208,8 +226,7 @@ function captureHookFailure({ command, kind, frame = null }, env = process.env) 
     if (bytes(record) > CAPTURE_MAX_LINE_BYTES) return false;
     fs.mkdirSync(home, { recursive: true, mode: 0o700 });
     rotateFailures(home);
-    fs.appendFileSync(path.join(home, 'events.jsonl'), `${JSON.stringify(record)}\n`, { flag: 'a', mode: 0o600 });
-    return true;
+    return appendRegularLine(path.join(home, 'events.jsonl'), `${JSON.stringify(record)}\n`);
   } catch {
     return false;
   }

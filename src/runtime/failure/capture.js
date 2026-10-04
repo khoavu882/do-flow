@@ -156,6 +156,26 @@ function rotateIfDue(home) {
 }
 
 /**
+ * Appends one line to `file` only when it is absent or a regular file. A FIFO, a device or a symlink
+ * there is skipped silently: opening a FIFO for writing blocks until something reads it, which would
+ * hang the command capture is meant to observe. `O_NONBLOCK` fails such an open at once and the
+ * descriptor is checked before the write, so a file swapped in after any earlier check is still safe.
+ * @returns {boolean} whether the line was written
+ */
+function appendRegular(file, line) {
+  const c = fs.constants;
+  let fd;
+  try {
+    fd = fs.openSync(file, c.O_WRONLY | c.O_APPEND | c.O_CREAT | (c.O_NOFOLLOW || 0) | (c.O_NONBLOCK || 0), 0o600);
+    if (!fs.fstatSync(fd).isFile()) return false;
+    fs.writeSync(fd, line);
+    return true;
+  } catch { return false; } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* nothing more to do */ } }
+  }
+}
+
+/**
  * Appends one failure line. Every failure to do so is swallowed.
  * @param {{source: string, command: string, kind: string, message?: string, frame?: string|null, exit?: number|null}} fields
  *   `message` must already be normalised (see captureError).
@@ -182,8 +202,7 @@ function captureFailure(fields, env = process.env) {
     if (line === null) return false;
     fs.mkdirSync(home, { recursive: true, mode: 0o700 });
     rotateIfDue(home);
-    fs.appendFileSync(eventsPath(home), line, { flag: 'a', mode: 0o600 });
-    return true;
+    return appendRegular(eventsPath(home), line);
   } catch {
     return false;
   }
@@ -224,4 +243,4 @@ function captureError(error, context = {}, env = process.env) {
   }
 }
 
-module.exports = { captureFailure, captureError, rotateIfDue, doflowFrame, MAX_LINE_BYTES, ROTATE_AT_BYTES, KEEP_ROTATED };
+module.exports = { appendRegular, captureFailure, captureError, rotateIfDue, doflowFrame, MAX_LINE_BYTES, ROTATE_AT_BYTES, KEEP_ROTATED };

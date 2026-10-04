@@ -54,10 +54,24 @@ function asEvent(value) {
   };
 }
 
-/** Parses a JSON-lines file into `{rows, skipped}`; a missing file is empty. */
+/**
+ * Parses a JSON-lines file into `{rows, skipped, unreadable}`. A missing file is empty. A file that is
+ * not a regular file (a FIFO would block the read, a device never ends, a symlink may leave the folder)
+ * or cannot be read is `unreadable`, and nothing is read from it.
+ */
 function readLines(file, accept) {
+  const c = fs.constants;
   let text;
-  try { text = fs.readFileSync(file, 'utf8'); } catch { return { rows: [], skipped: 0 }; }
+  let fd;
+  try {
+    fd = fs.openSync(file, c.O_RDONLY | (c.O_NOFOLLOW || 0) | (c.O_NONBLOCK || 0));
+    if (!fs.fstatSync(fd).isFile()) return { rows: [], skipped: 0, unreadable: true };
+    text = fs.readFileSync(fd, 'utf8');
+  } catch (error) {
+    return { rows: [], skipped: 0, unreadable: error.code !== 'ENOENT' };
+  } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* read already done */ } }
+  }
   const rows = [];
   let skipped = 0;
   for (const line of text.split('\n')) {
@@ -66,25 +80,27 @@ function readLines(file, accept) {
     try { row = accept(JSON.parse(line)); } catch { row = null; }
     if (row) rows.push(row); else skipped += 1;
   }
-  return { rows, skipped };
+  return { rows, skipped, unreadable: false };
 }
 
 /**
  * Every retained event: rotated files oldest first, then the live file (IC-015).
  * @param {string} home
- * @returns {{events: Object[], skippedLines: number}}
+ * @returns {{events: Object[], skippedLines: number, unreadable: string[]}} `unreadable` names the files that were not read
  */
 function readEvents(home) {
   let rotated = [];
   try { rotated = fs.readdirSync(home).filter((name) => ROTATED.test(name)).sort(); } catch { /* no folder yet */ }
   const events = [];
   let skippedLines = 0;
+  const unreadable = [];
   for (const file of [...rotated.map((name) => path.join(home, name)), eventsPath(home)]) {
     const read = readLines(file, asEvent);
     events.push(...read.rows);
     skippedLines += read.skipped;
+    if (read.unreadable) unreadable.push(path.basename(file));
   }
-  return { events, skippedLines };
+  return { events, skippedLines, unreadable };
 }
 
 function asSettlement(value) {
@@ -93,10 +109,10 @@ function asSettlement(value) {
   return { at: value.at, fp: value.fp, as: value.as, reason: typeof value.reason === 'string' ? value.reason : null, followup: typeof value.followup === 'string' ? value.followup : null };
 }
 
-/** @returns {{settlements: Object[], skippedLines: number}} in file order, which is time order */
+/** @returns {{settlements: Object[], skippedLines: number, unreadable: string[]}} in file order, which is time order */
 function readSettlements(home) {
   const read = readLines(settlementsPath(home), asSettlement);
-  return { settlements: read.rows, skippedLines: read.skipped };
+  return { settlements: read.rows, skippedLines: read.skipped, unreadable: read.unreadable ? [SETTLEMENTS] : [] };
 }
 
 /** The IC-013 status of an entry from its latest settlement and the events seen after it. */
@@ -170,18 +186,18 @@ function listedEntry(entry) {
  * Reads the store and folds it. With no resolvable failure home nothing is read.
  * @param {Object} [options]
  * @param {Object} [options.env] defaults to process.env
- * @returns {{home: string|null, capture: 'on'|'off', entries: Object[], counts: Object, skippedLines: number}}
+ * @returns {{home: string|null, capture: 'on'|'off', entries: Object[], counts: Object, skippedLines: number, unreadable: string[]}}
  */
 function loadEntries({ env = process.env } = {}) {
   const home = failureHome(env);
   const counts = Object.fromEntries(STATUSES.map((status) => [status, 0]));
   // With no failure home nothing is captured, whatever the switch says.
-  if (!home) return { home: null, capture: 'off', entries: [], counts, skippedLines: 0 };
-  const { events, skippedLines: eventSkips } = readEvents(home);
-  const { settlements, skippedLines: settlementSkips } = readSettlements(home);
+  if (!home) return { home: null, capture: 'off', entries: [], counts, skippedLines: 0, unreadable: [] };
+  const { events, skippedLines: eventSkips, unreadable: eventFiles } = readEvents(home);
+  const { settlements, skippedLines: settlementSkips, unreadable: settlementFiles } = readSettlements(home);
   const entries = foldEntries(events, settlements);
   for (const entry of entries) counts[entry.status] += 1;
-  return { home, capture: captureSwitch(home, env).effective, entries, counts, skippedLines: eventSkips + settlementSkips };
+  return { home, capture: captureSwitch(home, env).effective, entries, counts, skippedLines: eventSkips + settlementSkips, unreadable: [...eventFiles, ...settlementFiles] };
 }
 
 /**

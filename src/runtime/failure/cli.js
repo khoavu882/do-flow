@@ -58,6 +58,7 @@ function listFailures({ all = false, env = process.env } = {}) {
   result.entries = shown;
   result.counts = loaded.counts;
   result.skippedLines = loaded.skippedLines;
+  result.unreadable = loaded.unreadable;
   result.next = shown.length
     ? ['Settle each entry: doflow-run failure --action settle --fp <fp> --as noise|fixed|imported --reason "<why>"']
     : [];
@@ -135,6 +136,7 @@ function lines(result) {
   if (result.action === 'list') {
     const out = [`capture ${result.capture}: ${result.entries.length} entr${result.entries.length === 1 ? 'y' : 'ies'} listed (new ${result.counts.new}, regressed ${result.counts.regressed}, noise ${result.counts.noise}, fixed ${result.counts.fixed}, imported ${result.counts.imported})`];
     for (const e of result.entries) out.push(`${e.fp}  ${e.status}  x${e.count}  ${e.command} ${e.kind}${e.message ? `: ${e.message}` : ''}  (last seen ${e.lastSeen}, ${e.lastVersion})`);
+    if (result.unreadable.length) out.push(`unreadable failure files (not read): ${result.unreadable.join(', ')}`);
     if (result.skippedLines) out.push(`${result.skippedLines} unreadable line${result.skippedLines === 1 ? '' : 's'} skipped`);
     return [...out, ...result.next.map((n) => `next: ${n}`)];
   }

@@ -44,7 +44,7 @@ function writeEvents(m, lines, file = 'events.jsonl') {
 }
 
 function run(m, args, { env = {}, cwd = m.project } = {}) {
-  const result = spawnSync(process.execPath, [BIN, 'failure', ...args], { cwd, env: { ...m.env, ...env }, encoding: 'utf8' });
+  const result = spawnSync(process.execPath, [BIN, 'failure', ...args], { cwd, env: { ...m.env, ...env }, encoding: 'utf8', timeout: 60000 });
   let json = null;
   try { json = JSON.parse(result.stdout); } catch { /* text output */ }
   return { status: result.status, stdout: result.stdout, stderr: result.stderr, json };
@@ -165,8 +165,32 @@ describe('reading the files (IC-015)', () => {
   });
   test('a missing folder reads as empty', () => {
     const m = machine('empty');
-    assert.deepEqual(store.readEvents(m.failures), { events: [], skippedLines: 0 });
+    assert.deepEqual(store.readEvents(m.failures), { events: [], skippedLines: 0, unreadable: [] });
     assert.equal(fs.existsSync(m.failures), false, 'reading creates nothing');
+  });
+});
+
+describe('a FIFO at the failure file', { skip: process.platform === 'win32' }, () => {
+  test('list reports the file unreadable at once, in text and json; nothing is read from it', () => {
+    const m = machine('fifo');
+    fs.mkdirSync(m.failures, { recursive: true });
+    spawnSync('mkfifo', [path.join(m.failures, 'events.jsonl')]);
+    const started = Date.now();
+    const json = run(m, ['--action', 'list', '--json']);
+    const text = run(m, ['--action', 'list']);
+    assert.ok(Date.now() - started < 10000);
+    assert.equal(json.status, 0, json.stderr);
+    assert.deepEqual([json.json.unreadable, json.json.entries], [['events.jsonl'], []]);
+    assert.match(text.stdout, /unreadable failure files \(not read\): events\.jsonl/);
+  });
+  test('a symlink to /dev/zero at the failure file is unreadable too', () => {
+    const m = machine('zero');
+    fs.mkdirSync(m.failures, { recursive: true });
+    fs.symlinkSync('/dev/zero', path.join(m.failures, 'events.jsonl'));
+    assert.deepEqual(run(m, ['--action', 'list', '--json']).json.unreadable, ['events.jsonl']);
+  });
+  test('a missing file is simply empty, not unreadable', () => {
+    assert.deepEqual(run(machine('missing'), ['--action', 'list', '--json']).json.unreadable, []);
   });
 });
 
@@ -175,7 +199,7 @@ describe('failure --action list', () => {
     const m = machine('list-empty');
     const r = run(m, ['--action', 'list', '--json']);
     assert.equal(r.status, 0);
-    assert.deepEqual(r.json, { ok: true, action: 'list', capture: 'on', entries: [], counts: { new: 0, regressed: 0, noise: 0, fixed: 0, imported: 0 }, skippedLines: 0, next: [] });
+    assert.deepEqual(r.json, { ok: true, action: 'list', capture: 'on', entries: [], counts: { new: 0, regressed: 0, noise: 0, fixed: 0, imported: 0 }, skippedLines: 0, unreadable: [], next: [] });
     assert.equal(fs.existsSync(m.failures), false);
   });
   test('shows new and regressed entries by default and every status with --all', () => {

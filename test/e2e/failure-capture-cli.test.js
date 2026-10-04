@@ -10,7 +10,7 @@ const { test, describe, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawnSync, execFileSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 
 const REPO = path.resolve(__dirname, '..', '..');
@@ -81,10 +81,10 @@ function run(args, { fault, env: extra = {}, dropHome = false, setup } = {}) {
   if (dropHome) { delete env.HOME; delete env.XDG_CONFIG_HOME; }
   if (fault) env.DOFLOW_FAULT = JSON.stringify(fault);
   const nodeArgs = fault ? ['--require', PRELOAD, BIN, ...args] : [BIN, ...args];
-  const result = spawnSync(process.execPath, nodeArgs, { cwd, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const result = spawnSync(process.execPath, nodeArgs, { cwd, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 60000 });
   const failures = path.join(env.XDG_CONFIG_HOME || '', 'doflow', 'failures');
   const file = path.join(failures, 'events.jsonl');
-  const lines = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+  const lines = fs.existsSync(file) && fs.statSync(file).isFile() ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
   return { status: result.status, stdout: result.stdout, stderr: result.stderr, lines, failures, xdg };
 }
 
@@ -150,6 +150,25 @@ describe('error-to-usage catch sites record a programming error and keep the usa
     const result = run(['workflow', '--task-class', 'no-such-class', '--json']);
     assert.equal(result.status, 2);
     assert.equal(result.lines.length, 0);
+  });
+});
+
+describe('a FIFO at the failure file never blocks the command', { skip: process.platform === 'win32' }, () => {
+  /** Makes `<xdg>/doflow/failures/events.jsonl` a FIFO, from the project directory the run starts in. */
+  const fifo = (cwd) => {
+    const dir = path.join(cwd, '..', 'xdg', 'doflow', 'failures');
+    fs.mkdirSync(dir, { recursive: true });
+    execFileSync('mkfifo', [path.join(dir, 'events.jsonl')]);
+  };
+  test('a crashing verb returns promptly with the same stdout, stderr and exit status as capture off, and records nothing', () => {
+    const fault = { kind: 'stub', module: 'src/cli/commands/status.js', error: 'type' };
+    const started = Date.now();
+    const on = run(['status', '--json'], { fault, setup: fifo });
+    assert.ok(Date.now() - started < 10000, 'the verb did not hang');
+    const off = run(['status', '--json'], { fault, setup: fifo, env: { DOFLOW_FAILURE_CAPTURE: 'off' } });
+    assert.equal(on.status, 1);
+    assertIdentical({ on, off });
+    assert.equal(on.lines.length, 0);
   });
 });
 

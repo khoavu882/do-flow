@@ -423,6 +423,18 @@ test('stream-hook-runner capture: captureHookFailure writes the IC-011 line, cap
   assert.equal(capLines(m).length, 1, 'the new live file holds the one new line');
 });
 
+test('stream-hook-runner capture: a FIFO at the failure file is skipped at once, never opened for a blocking write', { skip: process.platform === 'win32' }, () => {
+  const m = capMachine('fifo');
+  fs.mkdirSync(m.failures, { recursive: true });
+  require('node:child_process').execFileSync('mkfifo', [m.events]);
+  const env = { ...process.env, HOME: m.home, XDG_CONFIG_HOME: m.xdg, DOFLOW_FAILURE_CAPTURE: '' };
+  // In a child process with a time limit: a blocking open would hang this test, not just fail it.
+  const child = require('node:child_process').spawnSync(process.execPath, ['-e',
+    `console.log(require(${JSON.stringify(RUNNER)}).captureHookFailure({ command: 'pre-bash-guard', kind: 'x' }))`], { env, encoding: 'utf8', timeout: 10000 });
+  assert.equal(child.status, 0, child.stderr);
+  assert.equal(child.stdout.trim(), 'false');
+});
+
 test('stream-hook-runner capture: a runner line and a bash-style line with the same fields share one fingerprint', () => {
   const m = capMachine('fp');
   const env = { ...process.env, HOME: m.home, XDG_CONFIG_HOME: m.xdg, DOFLOW_FAILURE_CAPTURE: '' };
