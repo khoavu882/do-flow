@@ -21,8 +21,11 @@
  * second derivation against the tag's own first-parent chain (a hotfix merged only into the
  * production branch). Each gives the full merge commit, which must be an ancestor of X. When a branch
  * was merged more than once, the newest merge may lie after the tag; an earlier merge of the same
- * branch (or of a merge naming the slug) that X contains then counts. Accepted ceiling: that search
- * walks the integration ref's first-parent merges committed since the feature was tracked.
+ * branch (or of a merge naming the slug) that X contains then counts. The ancestry questions about X
+ * are answered from one graph read (`readHistory`) of the pinned ref, X and the evidence branch tips,
+ * so the preview costs a fixed number of git calls however many features and merges there are.
+ * Accepted ceiling: the search for an earlier merge walks, in memory, the integration ref's
+ * first-parent merges inside X once per feature that needs it.
  *
  * `evidence.commit` and the pinned sha come from `deriveStatuses` (`evidenceCommits`, `integrationSha`),
  * so this module neither re-resolves the integration ref nor an abbreviated sha.
@@ -32,7 +35,7 @@ const nodeFs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const { isSafeSlug, invalidSlugRefusal } = require('../task-scope');
 const { appendEvents, readFold } = require('./event-store');
-const { deriveStatuses, readGitFacts, behindNote, subjectNames } = require('./status');
+const { deriveStatuses, readGitFacts, behindNote, subjectNames, readMerges, readBranchTips, readHistory } = require('./status');
 const { FollowupUsageError, oneLine, channelBy } = require('./followup');
 
 /** The release-tag pattern of IC-020, the one `git-state` filters by. */
@@ -53,35 +56,20 @@ function isAncestor(root, a, b) {
   return spawnSync('git', ['merge-base', '--is-ancestor', a, b], { cwd: root, stdio: 'ignore' }).status === 0;
 }
 
-/** The tip of the branch a `branch` evidence names (`feat/x` or `origin/feat/x`). */
-function branchTip(root, ref) {
-  return commitOf(root, `refs/heads/${ref}`) || commitOf(root, `refs/remotes/${ref}`);
-}
-
-/** First-parent merges of the pinned integration ref that X contains, newest first. */
-function mergesInto(root, integrationSha, bound) {
-  const parse = (out) => (out || '').split('\n').filter(Boolean).map((line) => {
-    const [sha, parents, ct, ...subject] = line.split('\t');
-    return { sha, parents: parents.split(' ').filter(Boolean), ct: Number(ct), subject: subject.join('\t') };
-  });
-  const all = parse(gitOut(root, ['log', '--first-parent', '--merges', '--format=%H%x09%P%x09%ct%x09%s', integrationSha]));
-  const outside = new Set((gitOut(root, ['rev-list', '--first-parent', '--merges', integrationSha, '--not', bound]) || '').split('\n').filter(Boolean));
-  return all.filter((merge) => !outside.has(merge.sha));
-}
-
 /**
  * Evidence of an earlier merge of a branch that was merged more than once: a merge X contains, committed
  * since tracking, whose subject names the slug or whose non-first parent is an ancestor of the branch tip.
+ * `merges` are the pinned ref's first-parent merges inside X, newest first; `history` holds X and the tip.
  */
-function earlierMerge(root, { slug, evidence, lowerBound, merges, bound }) {
-  const tip = evidence.kind === 'branch' ? branchTip(root, evidence.ref) : null;
-  if (tip && isAncestor(root, tip, bound)) return { ...evidence };
-  for (const merge of merges()) {
+function earlierMerge({ slug, evidence, tip, lowerBound, merges, bound, history }) {
+  if (tip && history.isAncestor(tip, bound)) return { ...evidence };
+  for (const merge of merges) {
     if (merge.ct < lowerBound) continue;
-    const [first, ...others] = merge.parents;
     // The merged side is this branch's own when it is an ancestor of the tip and the merge itself is not: a
     // branch cut from the integration ref after that merge has the merge in its history and did not make it.
-    if (tip && others.some((parent) => isAncestor(root, parent, tip) && !isAncestor(root, parent, first)) && !isAncestor(root, merge.sha, tip)) return { ...evidence };
+    // A parent outside the first parent's history is one this merge introduced.
+    const own = (parent) => history.introducer(parent) === merge.sha && history.isAncestor(parent, tip);
+    if (tip && merge.parents.slice(1).some(own) && !history.isAncestor(merge.sha, tip)) return { ...evidence };
     if (subjectNames(merge.subject, slug)) return { kind: 'merge-subject', ref: merge.sha.slice(0, 7) };
   }
   return null;
@@ -115,14 +103,15 @@ function slugList(raw, label) {
  * @param {string[]} [options.features] `--feature` slugs to add
  * @param {string[]} [options.exclude] `--exclude` slugs to leave out
  * @param {string} [options.channel]
+ * @param {Object} [options.facts] `readGitFacts` output, for a caller that already has it
  */
-function releaseFeatures({ root, tag, confirm = false, features, exclude, channel, now = new Date(), fsImpl = nodeFs }) {
+function releaseFeatures({ root, tag, confirm = false, features, exclude, channel, now = new Date(), fsImpl = nodeFs, facts: givenFacts }) {
   if (typeof tag !== 'string' || !RELEASE_TAG.test(tag)) throw new FollowupUsageError(`--tag is required and must look like v1.2.3 or v1.2.3-rc.1 (got '${tag ?? ''}')`);
   const added = slugList(features, '--feature');
   const excluded = slugList(exclude, '--exclude');
   const by = channelBy(channel);
 
-  const facts = readGitFacts(root);
+  const facts = givenFacts || readGitFacts(root);
   if (facts.error) return refusal('release', 'no-integration-ref', `git facts are unavailable (${facts.error}), so no release can be previewed or recorded. Nothing was written.`);
   if (!facts.integration_ref) return refusal('release', 'no-integration-ref', 'no integration ref resolves (develop, main, master, origin/HEAD), so no release can be previewed or recorded. Nothing was written.');
 
@@ -148,8 +137,21 @@ function releaseFeatures({ root, tag, confirm = false, features, exclude, channe
 
   const recorded = new Set(fold.releases.flatMap((release) => release.features.map((f) => f.slug)));
   const tagged = derived.releaseMode === 'tagged';
-  let merges = null;
-  const mergesOfX = () => { if (merges === null) merges = mergesInto(root, derived.integrationSha, bound); return merges; };
+  // While X is the pinned commit, every evidence commit is in its history. Once X is a tag elsewhere, one
+  // graph read of the pinned ref, X and the evidence branch tips answers every ancestry question about X.
+  let read = null;
+  const readOfX = () => {
+    if (read) return read;
+    const branchRefs = new Set(fold.features.map((f) => derived.statuses[f.slug].evidence).filter((e) => e && e.kind === 'branch').map((e) => e.ref));
+    // Local branches are listed first, so a ref resolves as refs/heads/<ref> before refs/remotes/<ref>.
+    const tips = new Map();
+    for (const t of readBranchTips(root)) if (branchRefs.has(t.short) && !tips.has(t.short)) tips.set(t.short, t.sha);
+    const history = readHistory(root, derived.integrationSha, [bound, ...tips.values()]);
+    const merges = readMerges(root, derived.integrationSha).filter((m) => history.isAncestor(m.sha, bound)).reverse();
+    read = { history, merges, tips };
+    return read;
+  };
+  const inX = (commit) => bound === derived.integrationSha || readOfX().history.isAncestor(commit, bound);
   const candidates = [];
   const notDetected = [];
   for (const feature of fold.features) {
@@ -163,12 +165,14 @@ function releaseFeatures({ root, tag, confirm = false, features, exclude, channe
     let found = null;
     if (evidence) {
       const commit = derived.evidenceCommits[slug];
-      if (evidence.kind === 'confirmed' || (commit && isAncestor(root, commit, bound))) found = evidence;
+      if (evidence.kind === 'confirmed' || (commit && inX(commit))) found = evidence;
     }
     if (!found && hotfix && hotfix.evidence) found = hotfix.evidence;
     if (!found && evidence) {
+      const { history, merges, tips } = readOfX();
+      const tip = evidence.kind === 'branch' ? tips.get(evidence.ref) || null : null;
       const lowerBound = Math.floor(Date.parse(feature.trackedAt) / 1000);
-      found = earlierMerge(root, { slug, evidence, lowerBound, merges: mergesOfX, bound });
+      found = earlierMerge({ slug, evidence, tip, lowerBound, merges, bound, history });
     }
     if (found) candidates.push({ slug, evidence: found.kind, ref: found.ref }); else notDetected.push(slug);
   }

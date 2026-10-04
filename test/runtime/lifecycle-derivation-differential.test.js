@@ -10,6 +10,22 @@
 // The histories are generated from a fixed seed and written with one `git fast-import` each; dates
 // only move forward, so no ancestry walk meets clock skew. Services run in process under a scratch
 // HOME, XDG_CONFIG_HOME and git config (DEC-041).
+//
+// The spawn budget at the end counts the processes the services start, through a counter wrapped
+// around `child_process` here, before any module that destructures it is loaded. Production code
+// counts nothing. The counter sees `bash do-git-state.sh` as one process; the git calls that script
+// makes are its own, a fixed number per call.
+
+const childProcess = require('node:child_process');
+
+const spawned = { counting: false, calls: [] };
+for (const name of ['execFileSync', 'spawnSync', 'execSync', 'spawn', 'execFile', 'exec', 'fork']) {
+  const original = childProcess[name];
+  childProcess[name] = function counted(...args) {
+    if (spawned.counting) spawned.calls.push(Array.isArray(args[1]) ? `${args[0]} ${args[1][0]}` : String(args[0]));
+    return original.apply(this, args);
+  };
+}
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -19,6 +35,7 @@ const { historyBuilder } = require('../helper/lifecycle-git-fixtures');
 const store = require('../../src/runtime/lifecycle/event-store');
 const { deriveStatuses, readGitFacts, bucketize, subjectNames, behindNote } = require('../../src/runtime/lifecycle/status');
 const { releaseFeatures } = require('../../src/runtime/lifecycle/release');
+const { buildOverview } = require('../../src/runtime/lifecycle/overview');
 
 const scratch = createScratch('doflow-differential-');
 test.before(() => scratch.apply());
@@ -39,8 +56,19 @@ function refGitOut(root, args) {
   return run.status === 0 ? run.stdout.trim() : null;
 }
 
+// A history never changes once written, so the reference reads each fact of a repository once.
+const readOnce = new Map();
+function once(key, read) {
+  if (!readOnce.has(key)) readOnce.set(key, read());
+  return readOnce.get(key);
+}
+
 /** `a` is `b` or an ancestor of it: a walk over the parents of every commit a ref reaches. */
 function exactAncestry(root) {
+  return once(`ancestry ${root}`, () => readAncestry(root));
+}
+
+function readAncestry(root) {
   const parents = new Map();
   for (const line of refGit(root, ['rev-list', '--all', '--parents']).split('\n').filter(Boolean)) {
     const [sha, ...rest] = line.split(' ');
@@ -65,6 +93,10 @@ function exactAncestry(root) {
 }
 
 function refMerges(root, ref) {
+  return once(`merges ${root} ${ref}`, () => readRefMerges(root, ref)).slice();
+}
+
+function readRefMerges(root, ref) {
   return refGit(root, ['log', '--first-parent', '--merges', '--format=%H%x09%P%x09%ct%x09%s', ref]).split('\n').filter(Boolean).map((line) => {
     const [sha, parents, ct, ...subject] = line.split('\t');
     return { sha, parents: parents.split(' ').filter(Boolean), ct: Number(ct), subject: subject.join('\t') };
@@ -72,6 +104,10 @@ function refMerges(root, ref) {
 }
 
 function refTips(root) {
+  return once(`tips ${root}`, () => readRefTips(root));
+}
+
+function readRefTips(root) {
   const tips = [];
   for (const line of refGit(root, ['for-each-ref', '--format=%(refname)%09%(objectname)', 'refs/heads', 'refs/remotes']).split('\n').filter(Boolean)) {
     const [refname, sha] = line.split('\t');
@@ -224,7 +260,7 @@ function seeded(seed) {
 const KINDS = ['merge', 'squash', 'rebase', 'fast-forward', 'cherry-pick', 'older-commits', 'twice', 'hotfix', 'unmerged', 'empty-branch'];
 const SETUPS = ['develop', 'develop-main', 'main-only', 'origin-develop', 'stale-origin'];
 /** What the brief asks the family to cover; each must appear in at least one history. */
-const REQUIRED = [...KINDS, ...SETUPS, 'deleted-branch', 'origin-only-branch', 'vnext-tag', 'non-v-tag', 'no-release-tag', 'several-tags',
+const REQUIRED = [...KINDS, ...SETUPS, 'empty-branch-at-merge', 'redundant-merge', 'deleted-branch', 'origin-only-branch', 'vnext-tag', 'non-v-tag', 'no-release-tag', 'several-tags',
   'annotated-tag', 'recorded', 'excluded', 'confirmed', 'tracked-after-merge', 'preview-existing-tag', 'preview-new-tag'];
 
 /**
@@ -249,6 +285,7 @@ function scenario(index, rng) {
   const tracked = [];
   const track = (slug) => { events.push({ type: 'feature.tracked', data: { slug }, at: h.iso() }); tracked.push(slug); };
   const releaseTags = [];
+  const between = []; // tags cut between two merges of one branch: the preview prefers them
   let [major, minor, patch] = [1, chance(0.5) ? 8 : 0, 0];
   const cut = (onProd = Boolean(prod)) => {
     minor += 1 + Math.floor(rng() * 3);
@@ -287,6 +324,11 @@ function scenario(index, rng) {
       h.tag(name, prod);
       releaseTags.push(name);
     } else {
+      if (kind === 'empty-branch' && chance(0.6)) {
+        // Cut from develop after a merge made since tracking: the tip is that merge, on the chain itself.
+        covers.add('empty-branch-at-merge');
+        h.branch(`chore/${slug}`, integ).commit(`chore/${slug}`, `chore before ${slug}`).merge(integ, `chore/${slug}`).deleteBranch(`chore/${slug}`);
+      }
       h.branch(branch, integ);
       if (kind !== 'empty-branch') work();
       if (chance(0.3)) h.commit(integ, `unrelated work ${i}`);
@@ -296,7 +338,13 @@ function scenario(index, rng) {
       else if (kind === 'cherry-pick') h.commit(integ, `work 1 on ${slug}`);
       else if (kind === 'older-commits') { h.wait(3600); track(slug); h.wait(600); h.merge(integ, branch); } else if (kind === 'twice') {
         h.merge(integ, branch);
-        if (chance(0.6)) cut();
+        const redundant = chance(0.5);
+        if (redundant) {
+          // A second merge of the same, already merged tip: its merged side is not new history.
+          covers.add('redundant-merge');
+          h.merge(integ, branch);
+        }
+        if (redundant || chance(0.6)) { cut(); between.push(releaseTags[releaseTags.length - 1]); }
         work(1);
         h.merge(integ, branch);
       }
@@ -325,7 +373,7 @@ function scenario(index, rng) {
   if (releaseTags.length === 0) covers.add('no-release-tag');
   if (releaseTags.length >= 2) covers.add('several-tags');
   let tag;
-  if (releaseTags.length && chance(0.65)) { tag = pick(releaseTags); covers.add('preview-existing-tag'); } else { tag = `v${major + 1}.0.0`; covers.add('preview-new-tag'); }
+  if (releaseTags.length && chance(0.65)) { tag = between.length && chance(0.7) ? pick(between) : pick(releaseTags); covers.add('preview-existing-tag'); } else { tag = `v${major + 1}.0.0`; covers.add('preview-new-tag'); }
   return { h, events, tag, covers };
 }
 
@@ -361,4 +409,61 @@ test(`differential: ${HISTORIES} generated histories derive the same statuses an
   // The family is not trivial: every status and every evidence kind turns up.
   const wanted = ['finished:branch', 'finished:merge-subject', 'finished:confirmed', 'awaiting-release:branch', 'awaiting-release:merge-subject', 'in-progress:none'];
   assert.deepEqual(wanted.filter((o) => !outcomes.has(o)), [], `outcomes seen: ${[...outcomes].sort().join(' ')}`);
+});
+
+// ── the spawn budget ───────────────────────────────────────────────────────────────────────────
+
+/** The processes `fn` starts, by command and first argument. */
+function spawnsOf(fn) {
+  spawned.calls = [];
+  spawned.counting = true;
+  try { fn(); } finally { spawned.counting = false; }
+  return spawned.calls;
+}
+
+/**
+ * `count` features each merged with --no-ff into develop, all tracked before any work: v0.9.0 is cut at
+ * a quarter and v1.0.0 at half, so v1.0.0 lies behind the tip.
+ */
+function manyFeatures(count) {
+  const h = historyBuilder();
+  h.commit('develop', 'init');
+  const slugs = Array.from({ length: count }, (_, i) => `${String(300 + i)}-many`);
+  const events = slugs.map((slug) => ({ type: 'feature.tracked', data: { slug }, at: h.iso() }));
+  h.wait(60);
+  slugs.forEach((slug, i) => {
+    h.branch(`feat/${slug}`, 'develop').commit(`feat/${slug}`, `work on ${slug}`).merge('develop', `feat/${slug}`);
+    if (i + 1 === Math.floor(count / 4)) h.tag('v0.9.0', 'develop');
+    if (i + 1 === Math.floor(count / 2)) h.tag('v1.0.0', 'develop', { annotated: true });
+  });
+  const repo = h.write(scratch, `many-${count}`);
+  writeEvents(repo.dir, events);
+  return { repo, slugs };
+}
+
+test('spawn budget: the overview and the release preview start a fixed number of processes, whatever the number of features', () => {
+  const RELEASE_TAGS = 3;
+  const budget = 30 + 3 * RELEASE_TAGS;
+  const measured = {};
+  for (const count of [8, 40]) {
+    const { repo, slugs } = manyFeatures(count);
+    const root = repo.dir;
+    const overview = () => buildOverview({ root, now: CLOCK });
+    const counts = {};
+    let preview;
+    counts.overview = spawnsOf(overview);
+    counts['preview behind the tip'] = spawnsOf(() => { preview = releaseFeatures({ root, tag: 'v1.0.0', now: CLOCK }); });
+    assert.deepEqual(preview.candidates.map((c) => c.slug), slugs.slice(count / 4, count / 2), 'v1.0.0 ships what merged after v0.9.0, which finishes the earlier ones');
+    assert.deepEqual(preview.notDetected, slugs.slice(count / 2), 'every later merge was searched for and lies after the tag');
+    repo.git('tag', 'v1.1.0', 'develop');
+    counts['preview at the tip'] = spawnsOf(() => { preview = releaseFeatures({ root, tag: 'v1.1.0', now: CLOCK }); });
+    assert.deepEqual(preview.candidates.map((c) => c.slug), slugs.slice(count / 2));
+    writeEvents(root, [{ type: 'release.recorded', data: { tag: 'v1.0.0', commit: 'c', features: slugs.slice(0, count / 2).map((slug) => ({ slug, evidence: 'branch', ref: 'r' })), excluded: [] }, at: '2026-12-01T00:00:00.000Z' }]);
+    counts['overview after a record'] = spawnsOf(overview);
+    for (const [name, calls] of Object.entries(counts)) {
+      assert.ok(calls.length <= budget, `${name} with ${count} features started ${calls.length} processes (budget ${budget}): ${calls.join(', ')}`);
+    }
+    measured[count] = Object.fromEntries(Object.entries(counts).map(([name, calls]) => [name, calls.length]));
+  }
+  assert.deepEqual(measured[40], measured[8], 'five times the features start no more processes');
 });
