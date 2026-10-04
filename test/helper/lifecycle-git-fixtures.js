@@ -175,4 +175,94 @@ function twoReleases(scratch) {
   return { repo, early, late };
 }
 
-module.exports = { makeRepo, featureBranch, FIXTURES, twoReleases, SLUG, TRACKED_AT };
+/**
+ * A history modelled in memory and written by one `git fast-import`, for tests that need many
+ * repositories (the derivation differential, the spawn budget): a scripted repository costs a git
+ * spawn per step, this one costs two in all. The clock only moves forward, so every parent is older
+ * than its child and no ancestry walk meets clock skew. Commits change no file; only the graph,
+ * the subjects and the dates matter here.
+ *
+ * Branch methods take short names (`develop`, `feat/x`); `remote(name)` makes `origin/<name>` point
+ * where the branch points. Nothing touches disk until `write`.
+ * @param {{initial?: string, start?: string}} [options] the branch HEAD names, and the first commit's instant
+ */
+function historyBuilder({ initial = 'develop', start = '2026-10-01T08:00:00.000Z' } = {}) {
+  let clock = Math.floor(Date.parse(start) / 1000) - 60;
+  let marks = 0;
+  const lines = [];
+  const heads = new Map();
+  const remotes = new Map();
+  const tags = [];
+  const data = (text) => `data ${Buffer.byteLength(`${text}\n`)}\n${text}\n`;
+  function newCommit(parents, subject) {
+    if (parents.length === 0 && marks > 0) throw new Error('historyBuilder: only the first commit may be a root commit');
+    clock += 60;
+    marks += 1;
+    lines.push(`commit refs/fixture/scratch\nmark :${marks}\ncommitter Test <test@example.com> ${clock} +0000\n${data(subject)}`);
+    if (parents[0]) lines.push(`from :${parents[0]}\n`);
+    for (const parent of parents.slice(1)) lines.push(`merge :${parent}\n`);
+    return marks;
+  }
+  const at = (ref) => {
+    const mark = heads.get(ref) ?? remotes.get(ref);
+    if (mark === undefined) throw new Error(`historyBuilder: no branch ${ref}`);
+    return mark;
+  };
+  const h = {
+    /** Seconds since the epoch of the last commit. */
+    get now() { return clock; },
+    /** The instant just after the last commit, as ISO, moved on by `seconds`. */
+    iso(seconds = 30) { return new Date((clock + seconds) * 1000).toISOString(); },
+    /** Moves the clock forward by `seconds` without a commit. */
+    wait(seconds) { clock += seconds; return h; },
+    has(branch) { return heads.has(branch); },
+    commit(branch, subject) {
+      heads.set(branch, newCommit(heads.has(branch) ? [heads.get(branch)] : [], subject));
+      return h;
+    },
+    branch(name, from) { heads.set(name, at(from)); return h; },
+    /** A merge commit with `from` as its second parent (`git merge --no-ff`). */
+    merge(into, from, subject = `Merge branch '${from}' into ${into}`) {
+      heads.set(into, newCommit([at(into), at(from)], subject));
+      return h;
+    },
+    /** `into` moves to where `from` points (`git merge --ff-only`). */
+    fastForward(into, from) { heads.set(into, at(from)); return h; },
+    /** `count` new commits on top of `onto`, which `branch` then points at (`git rebase onto`). */
+    rebase(branch, onto, count, subject = `rebased work on ${branch}`) {
+      let tip = at(onto);
+      for (let i = 1; i <= count; i += 1) tip = newCommit([tip], `${subject} ${i}`);
+      heads.set(branch, tip);
+      return h;
+    },
+    deleteBranch(name) { heads.delete(name); return h; },
+    remote(name, from = name) { remotes.set(`origin/${name}`, at(from)); return h; },
+    tag(name, ref, { annotated = false } = {}) { clock += 60; tags.push({ name, mark: at(ref), annotated, when: clock }); return h; },
+    /**
+     * Writes the history into a new repository under the scratch directory.
+     * @returns {{dir: string, git: (...args: string[]) => string}}
+     */
+    write(scratch, name) {
+      repoCount += 1;
+      const dir = path.join(scratch.dir, `${name}-${repoCount}`);
+      fs.mkdirSync(dir, { recursive: true });
+      const git = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: scratch.env() }).trim();
+      git('init', '-q', '-b', initial);
+      const refs = [];
+      for (const [branch, mark] of heads) refs.push(`reset refs/heads/${branch}\nfrom :${mark}\n`);
+      for (const [branch, mark] of remotes) refs.push(`reset refs/remotes/${branch}\nfrom :${mark}\n`);
+      for (const t of tags) {
+        refs.push(t.annotated
+          ? `tag ${t.name}\nfrom :${t.mark}\ntagger Test <test@example.com> ${t.when} +0000\n${data(`release ${t.name}`)}`
+          : `reset refs/tags/${t.name}\nfrom :${t.mark}\n`);
+      }
+      // A reset with no `from` leaves the working ref unwritten.
+      const stream = `${lines.join('')}${refs.join('')}reset refs/fixture/scratch\n`;
+      execFileSync('git', ['fast-import', '--quiet', '--date-format=raw'], { cwd: dir, input: stream, stdio: ['pipe', 'pipe', 'pipe'], env: scratch.env() });
+      return { dir, git };
+    },
+  };
+  return h;
+}
+
+module.exports = { makeRepo, featureBranch, FIXTURES, twoReleases, historyBuilder, SLUG, TRACKED_AT };
