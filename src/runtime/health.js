@@ -21,6 +21,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { CapabilityRouter } = require('./capability-router');
 const { loadRegistry } = require('../registry');
+const { evaluateReach } = require('./reach');
 const { REPO_ROOT } = require('../helper/repo-root');
 
 /** Answered a probe. */
@@ -500,6 +501,7 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
   });
 
   const freshness = Object.values(probes).map((probe) => probe.freshness).filter(Boolean);
+  const reach = evaluateReach({ registry, projectRoot, fsImpl });
 
   // A finding is a thing to act on now: something installed that does not work. An absent optional
   // provider is not a finding (NFR-002 makes degradation normal), and a stale index still answers,
@@ -511,6 +513,9 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
     ...capabilities
       .filter((capability) => capability.status === 'DEGRADED')
       .map((capability) => ({ kind: 'capability-degraded', subject: capability.capability, detail: 'every installed provider for this capability failed its probe' })),
+    ...reach.rows
+      .filter((row) => row.state === 'NO-REACH')
+      .map((row) => ({ kind: 'runtime-no-reach', subject: `${row.harness}:${row.scope}`, detail: `${row.reason}; fix: ${row.fix}` })),
   ];
   const warnings = [
     ...freshness
@@ -522,6 +527,8 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
     ...Object.values(probes)
       .filter((probe) => probe.status === UNVERIFIED)
       .map((probe) => ({ kind: 'provider-unverified', subject: probe.id, detail: probe.detail })),
+    ...reach.unreadable
+      .map((item) => ({ kind: 'reach-ledger-unreadable', subject: item.scope, detail: item.detail })),
     ...(project.commands.status === 'DETECTED' ? [] : [{ kind: 'project-commands', subject: 'build/test', detail: project.commands.reason }]),
   ];
 
@@ -537,7 +544,12 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
 
   return {
     identity,
-    harnesses: registry.harnesses.map((harness) => ({ id: harness.id, displayName: harness.displayName, status: 'PASS' })),
+    harnesses: registry.harnesses.map((harness) => ({
+      id: harness.id,
+      displayName: harness.displayName,
+      status: 'PASS',
+      reach: reach.rows.filter((row) => row.harness === harness.id).map(({ harness: _harness, ...row }) => row),
+    })),
     externalTools,
     capabilities,
     providers: Object.values(probes),
@@ -558,10 +570,12 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
 /**
  * Records the report's exit code and hands it back to the caller.
  *
- * Design §4.2: 0 = answered, 1 = a finding the caller must act on. Only an installed provider
- * that does not answer is a finding — an absent optional provider is the graceful degradation
- * NFR-002 requires, and a stale index still answers, so both leave the code at 0 and appear as
- * warnings. Setting `process.exitCode` rather than calling `process.exit` lets stdout flush.
+ * Design §4.2: 0 = answered, 1 = a finding the caller must act on. An installed provider that
+ * does not answer is a finding, and so is an installed harness whose skills cannot reach a runtime
+ * (`runtime-no-reach`). An absent optional provider is the graceful degradation NFR-002 requires,
+ * and a stale index still answers, so both leave the code at 0 and appear as warnings; so do a
+ * harness with no skills at a scope (N/A) and an unreadable ledger. Setting `process.exitCode`
+ * rather than calling `process.exit` lets stdout flush.
  * @param {number} code
  * @returns {number}
  */
@@ -580,6 +594,12 @@ const STATUS_MARK = Object.freeze({
   UNAVAILABLE: '○ UNAVAILABLE',
 });
 
+const REACH_MARK = Object.freeze({
+  REACHED: '✓ REACHED',
+  'NO-REACH': '✗ NO-REACH',
+  'N/A': '○ N/A',
+});
+
 const FRESHNESS_MARK = Object.freeze({
   FRESH: '✓ FRESH',
   STALE: '▲ STALE',
@@ -592,7 +612,8 @@ const FRESHNESS_MARK = Object.freeze({
  * @param {boolean} [options.json=false]
  * @param {string} [options.repoRoot]
  * @param {string} [options.projectRoot]
- * @returns {number} process exit code — 1 when a provider is installed but does not answer
+ * @returns {number} process exit code — 1 when a provider is installed but does not answer, or an
+ *   installed harness's skills cannot reach a runtime
  */
 function handleDoctorCommand({ json = false, repoRoot, projectRoot = process.cwd(), ...rest } = {}) {
   const report = buildHealthReport({ repoRoot, projectRoot, ...rest });
@@ -613,7 +634,15 @@ function handleDoctorCommand({ json = false, repoRoot, projectRoot = process.cwd
   console.log(`  connected         ${identity.connectedCapabilities.length ? identity.connectedCapabilities.join(', ') : 'no capability has an answering provider'}`);
 
   console.log('\n[Harness Adapters]');
-  for (const harness of report.harnesses) console.log(`  ${harness.displayName.padEnd(28)} PASS`);
+  for (const harness of report.harnesses) console.log(`  ${harness.displayName.padEnd(28)} adapter PASS`);
+
+  console.log('\n[Runtime Reach]');
+  const reachLines = report.harnesses.flatMap((harness) => harness.reach.map((row) => {
+    const detail = { REACHED: row.root, 'NO-REACH': `fix: ${row.fix}`, 'N/A': row.reason }[row.state];
+    return `  ${harness.id.padEnd(14)}${row.scope.padEnd(9)}${(REACH_MARK[row.state] || row.state).padEnd(13)}${detail}`;
+  }));
+  if (reachLines.length) for (const line of reachLines) console.log(line);
+  else console.log('  No harness has DoFlow ledger rows in this project or in the home directory.');
 
   console.log('\n[Capability Providers]');
   for (const probe of report.providers) {

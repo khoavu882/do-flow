@@ -5,7 +5,7 @@
 // settings/MCP/extensions as first-class native-surface results for the lifecycle UI.
 const fs = require('node:fs');
 const path = require('node:path');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
 const { planGeminiHooks, deployGeminiHooks, planRemoveGeminiHooks, deployRemoveGeminiHooks } = require('./hooks');
 
@@ -112,17 +112,19 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
     const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir, fsImpl });
     const changes = [];
     const conflicts = [];
+    const treeResults = [];
     for (const asset of copyTreeAssets(assets)) {
       const destDir = geminiDestDir(paths, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Gemini');
       const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout,
         // Was `force: context?.force`, ungated. Gemini was one of only two adapters forwarding force
         // at all, so it looked like the reference implementation — but it handed force to the remove
         // path too, where copy-tree deliberately stays strict: force heals drift on apply, and a
         // hand-edited file is never deleted, forced or not (codex/index.js states the rule in full).
         // Found by the guard written for the six adapters that forwarded nothing.
         force: !removing && context?.force === true });
+      treeResults.push(result);
       conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
       for (const change of result.changes) {
         changes.push({
@@ -134,7 +136,7 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
         });
       }
     }
-    return { changes, conflicts };
+    return { changes, conflicts, notices: siblingReplacedNotices(treeResults) };
   }
 
   function applyCopyTreeAssets(changes, { fsImpl = fs } = {}) {
@@ -225,7 +227,7 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
     const hooks = planHooksChange({ removing, found, context, assets, fsImpl });
     changes.push(...hooks.changes); conflicts.push(...hooks.conflicts);
     return {
-      changes, conflicts, prerequisites: [],
+      changes, conflicts, prerequisites: [], notices: copyTree.notices,
       surfaces: {
         instructions: { status: 'supported', target: found.paths.instruction },
         settings: { status: found.settings.error ? 'invalid' : 'supported', target: found.paths.settings },

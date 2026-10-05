@@ -267,6 +267,13 @@ function retainedChanges(changes) {
     .map((change) => ({ harness: change.harness, assetId: change.assetId, target: change.target, retainedFor: change.retainedFor }));
 }
 
+/** An adapter's non-blocking notes: one line of at most 200 characters each. A malformed entry is
+ * dropped rather than failing the plan, because a notice must never change whether an install runs. */
+function adapterNotices(result) {
+  return (Array.isArray(result.notices) ? result.notices : [])
+    .filter((notice) => typeof notice === 'string' && notice.length <= 200 && !/[\u0000-\u001f\u007f]/.test(notice));
+}
+
 function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpIds, ledger, context = {} }) {
   assertScope(scope);
   if (!registry) throw new Error('registry is required');
@@ -274,7 +281,7 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpIds, 
   const baseLedger = ledger ?? defaultLedger({ scope, scopeRoot });
   const harnessPlans = normalizeTargets(registry, targets).map((harness) => {
     if (!harness.scopes.includes(registryScope(scope))) {
-      return { harness: harness.id, assets: [], changes: [], conflicts: [`Harness '${harness.id}' does not support ${scope} scope`], prerequisites: [], skipped: true };
+      return { harness: harness.id, assets: [], changes: [], conflicts: [`Harness '${harness.id}' does not support ${scope} scope`], prerequisites: [], notices: [], skipped: true };
     }
     const assets = selectAssets(registry, { harness: harness.id });
     const policies = renderPolicies(registry, { harness: harness.id });
@@ -289,7 +296,7 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpIds, 
     const prerequisites = [...(result.prerequisites || []), ...changes.map((change) => change.prerequisite).filter(Boolean)];
     const requiredNativeResources = result.requiredNativeResources ?? changes;
     if (!Array.isArray(requiredNativeResources)) throw new Error(`Adapter '${harness.id}' returned invalid requiredNativeResources`);
-    return { harness: harness.id, adapter: harness.adapter, assets, mcp: selectedMcp, policies, adapterInput, discovery, changes, requiredNativeResources, conflicts, prerequisites, skipped: false };
+    return { harness: harness.id, adapter: harness.adapter, assets, mcp: selectedMcp, policies, adapterInput, discovery, changes, requiredNativeResources, conflicts, prerequisites, notices: adapterNotices(result), skipped: false };
   });
   // Only once every harness's plan is known: whether a file may be deleted depends on the rows
   // the WHOLE plan leaves standing, which no single harness's plan can see.
@@ -298,7 +305,8 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpIds, 
   const conflicts = annotated.flatMap((item) => item.conflicts.map((reason) => ({ harness: item.harness, reason })));
   const prerequisites = annotated.flatMap((item) => item.prerequisites.map((prerequisite) => ({ harness: item.harness, prerequisite })));
   const requiredNativeResources = annotated.flatMap((item) => item.requiredNativeResources || []);
-  return Object.freeze({ scope, scopeRoot, mcp: selectedMcp, ledger: baseLedger, targets: annotated, changes, requiredNativeResources, conflicts, prerequisites,
+  const notices = annotated.flatMap((item) => item.notices.map((notice) => ({ harness: item.harness, notice })));
+  return Object.freeze({ scope, scopeRoot, mcp: selectedMcp, ledger: baseLedger, targets: annotated, changes, requiredNativeResources, conflicts, prerequisites, notices,
     retained: retainedChanges(changes), safe: conflicts.length === 0 && prerequisites.length === 0 });
 }
 

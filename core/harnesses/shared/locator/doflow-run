@@ -38,12 +38,10 @@
 # Plain POSIX sh, no bashisms: this runs before anything else DoFlow ships, on whatever shell the
 # harness hands it.
 
-# Where the dispatcher actually lands, not where design.md §4.1/§5.1 originally drew it. Those
-# sections said `<config>/bin/doflow-run`, but the dispatcher ships inside the `scripts.doflow`
-# asset (`core/shared/scripts` -> `<config>/scripts`), so it installs one level deeper. Correcting
-# the search path here rather than adding a second asset to match the diagram: `../.doflow/bin`
-# would resolve wrong for opencode-global (`~/.config/.doflow`) and pi-global (`~/.pi/.doflow`),
-# so the diagram was the thing that was wrong. design.md is amended to match.
+# The dispatcher ships inside the `scripts.doflow` asset (`core/shared/scripts`), so it sits at
+# `scripts/doflow/bin/doflow-run` under the shared tree. Every harness projects that tree to its
+# scope root (`<project>/.doflow` or `$HOME/.doflow`), so this one path holds for all eight,
+# Antigravity at global scope excepted (it projects no runtime there).
 REL='scripts/doflow/bin/doflow-run'
 dispatcher=''
 
@@ -80,8 +78,8 @@ doflow-run: no DoFlow runtime found. Searched for '$REL' in, in order:
   2. nearest .doflow/ above the working directory -> ${PWD:-(unknown)}
   3. \$HOME/.doflow            -> ${HOME:-(unset)}/.doflow
 Install the runtime into one of them:
-  npx @khoavu882/doflow install        # project-local, creates ./.doflow
-  npx @khoavu882/doflow install -g     # global, creates \$HOME/.doflow
+  npx @khoavu882/doflow install -t <harness>      # project-local, creates ./.doflow
+  npx @khoavu882/doflow install -t <harness> -g   # global, creates \$HOME/.doflow
 EOF
   exit 2
 fi

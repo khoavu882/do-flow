@@ -1,0 +1,4 @@
+{"role":"user","content":"add foo"}
+{"role":"assistant","content":"Added foo with a complete implementation."}
+{"role":"user","content":"now add bar"}
+{"role":"assistant","content":"def bar():\n    # TODO: implement this\n    pass"}

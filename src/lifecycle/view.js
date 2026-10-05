@@ -85,8 +85,15 @@ function printRegistryLifecycle(view, prefix = '[PLAN]') {
     if (hookChange?.nativePlan?.trust?.required) {
       console.log(`${prefix}   ${target.harness} hooks trust: ${hookChange.nativePlan.trust.status} (review required in ${target.harness})`);
     }
+    for (const notice of target.notices ?? []) console.log(`${prefix}   ${target.harness}: ${notice}`);
   }
   console.log(`${prefix} Neutral state: ${view.stateRoot}${readLedger(view.stateRoot) ? ' (existing ledger)' : ' (not yet created)'}`);
+}
+
+/** Prints the plan's notices after a real run. Independent of whether anything changed: a no-op
+ * reinstall of a harness that has a gap must still say so. */
+function printPlanNotices(view) {
+  for (const { harness, notice } of view.plan.notices) console.log(`[INFO] ${harness}: ${notice}`);
 }
 
 /** Harnesses whose native resources are reconciled through the registry/lifecycle path (all of
@@ -144,6 +151,6 @@ function recordLock(scopeArgs, document, { fsImpl = fs } = {}) {
 }
 
 module.exports = {
-  codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan,
+  codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, LIFECYCLE_HARNESSES, assertSafeRegistryPlan,
   lockDocument, recordLock,
 };

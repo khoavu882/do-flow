@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { discoverTree, planTree, applyTree, removeTree, verifyTree } = require('../../src/adapters/copy-tree');
+const { discoverTree, planTree, applyTree, removeTree, verifyTree, sharedTreeDestDir, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../../src/adapters/copy-tree');
 
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-copy-tree-')); }
 
@@ -403,6 +403,109 @@ test('planTree still refuses a destination edited to content matching neither so
     'widening known-good must not stop real tampering being caught');
 });
 
+// Several harnesses claim one `.doflow` runtime file, so a sibling from another release can leave
+// bytes that match neither this source nor this harness's own row. Its ledger row recorded them.
+function siblingFixture() {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'a.md': 'MINE' });
+  const destDir = path.join(root, 'dest');
+  fs.mkdirSync(destDir, { recursive: true });
+  const target = path.join(destDir, 'a.md');
+  const siblingRows = [{ harness: 'sibling', assetId: 'runtime.lib', kind: 'copy-tree-file', target, fingerprint: sha256('THEIRS') }];
+  return { sourceDir, destDir, target, siblingRows };
+}
+
+test('planTree accepts content a sibling harness recorded at that target', () => {
+  const { sourceDir, destDir, target, siblingRows } = siblingFixture();
+  fs.writeFileSync(target, 'THEIRS');
+  const { changes, conflicts } = planTree({ sourceDir, destDir, siblingFingerprints: ledgerSiblingFingerprints(siblingRows, 'mine') });
+  assert.deepEqual(conflicts, []);
+  assert.equal(changes.length, 1);
+  assert.equal(changes[0].fingerprint, sha256('MINE'));
+});
+
+test('planTree names the sibling whose recorded bytes it replaced, and only then', () => {
+  const { sourceDir, destDir, target, siblingRows } = siblingFixture();
+  const siblingFingerprints = ledgerSiblingFingerprints(siblingRows, 'mine');
+  fs.writeFileSync(target, 'THEIRS');
+  assert.deepEqual(planTree({ sourceDir, destDir, siblingFingerprints }).siblingReplaced, ['sibling']);
+  assert.deepEqual(planTree({ sourceDir, destDir, siblingFingerprints, force: true }).siblingReplaced, ['sibling'], 'a forced run still replaces the sibling\'s bytes');
+  fs.writeFileSync(target, 'HAND EDITED');
+  assert.deepEqual(planTree({ sourceDir, destDir, siblingFingerprints, force: true }).siblingReplaced, [], 'a hand edit is no sibling\'s');
+  fs.writeFileSync(target, 'MINE');
+  assert.deepEqual(planTree({ sourceDir, destDir, siblingFingerprints }).siblingReplaced, [], 'bytes equal to the source need no sibling');
+  assert.deepEqual(planTree({ sourceDir, destDir, siblingFingerprints, operation: 'remove' }).siblingReplaced, []);
+});
+
+test('siblingReplacedNotices is one line naming every sibling, or nothing', () => {
+  assert.deepEqual(siblingReplacedNotices([{ siblingReplaced: [] }, { siblingReplaced: [] }]), []);
+  assert.deepEqual(siblingReplacedNotices([{ siblingReplaced: ['pi'] }]),
+    ['replaced shared runtime files written by pi; reinstall that harness to restore them']);
+  const [notice] = siblingReplacedNotices([{ siblingReplaced: ['pi', 'codex'] }, { siblingReplaced: ['pi'] }]);
+  assert.equal(notice, 'replaced shared runtime files written by codex, pi; reinstall those harnesses to restore them');
+  assert.ok(notice.length <= 200);
+});
+
+test('planTree refuses content no row recorded, with the unchanged text, even when siblings recorded others', () => {
+  const { sourceDir, destDir, target, siblingRows } = siblingFixture();
+  fs.writeFileSync(target, 'HAND EDITED');
+  const { changes, conflicts } = planTree({ sourceDir, destDir, siblingFingerprints: ledgerSiblingFingerprints(siblingRows, 'mine') });
+  assert.deepEqual(conflicts, ['a.md was modified outside DoFlow']);
+  assert.deepEqual(changes, []);
+});
+
+test('a sibling fingerprint recorded for another target does not excuse this one', () => {
+  const { sourceDir, destDir, target, siblingRows } = siblingFixture();
+  fs.writeFileSync(target, 'THEIRS');
+  const elsewhere = siblingRows.map((row) => ({ ...row, target: path.join(destDir, 'other.md') }));
+  assert.deepEqual(planTree({ sourceDir, destDir, siblingFingerprints: ledgerSiblingFingerprints(elsewhere, 'mine') }).conflicts,
+    ['a.md was modified outside DoFlow']);
+});
+
+test('own-row behaviour is unchanged by siblingFingerprints', () => {
+  const { sourceDir, destDir, target, siblingRows } = siblingFixture();
+  fs.writeFileSync(target, 'OLD');
+  const previousResources = [{ relPath: 'a.md', target, fingerprint: sha256('OLD') }];
+  const siblingFingerprints = ledgerSiblingFingerprints(siblingRows, 'mine');
+  const withSiblings = planTree({ sourceDir, destDir, previousResources, siblingFingerprints });
+  assert.deepEqual(withSiblings, planTree({ sourceDir, destDir, previousResources }));
+  assert.deepEqual(withSiblings.conflicts, []);
+  assert.equal(withSiblings.changes[0].operation, 'update');
+});
+
+test('an omitted siblingFingerprints behaves as before', () => {
+  const { sourceDir, destDir, target } = siblingFixture();
+  fs.writeFileSync(target, 'THEIRS');
+  assert.deepEqual(planTree({ sourceDir, destDir }).conflicts, ['a.md was modified outside DoFlow']);
+});
+
+test('planTree refuses a sibling row of a non-runtime asset, with the unchanged text', () => {
+  const { sourceDir, destDir, target, siblingRows } = siblingFixture();
+  fs.writeFileSync(target, 'THEIRS');
+  for (const assetId of ['skills.core', 'guidance.context-layer', 'templates.core', 'hooks.core']) {
+    const rows = siblingRows.map((row) => ({ ...row, assetId }));
+    assert.deepEqual(planTree({ sourceDir, destDir, siblingFingerprints: ledgerSiblingFingerprints(rows, 'mine') }).conflicts,
+      ['a.md was modified outside DoFlow'], assetId);
+  }
+});
+
+test('ledgerSiblingFingerprints indexes only other harnesses\' runtime copy-tree-file rows with a target and fingerprint', () => {
+  const row = { harness: 'sibling', assetId: 'runtime.lib', kind: 'copy-tree-file', target: '/t/a', fingerprint: 'f1' };
+  const index = ledgerSiblingFingerprints([
+    row,
+    { ...row, harness: 'sibling-two', fingerprint: 'f2' },
+    { ...row, harness: 'mine', fingerprint: 'own' },
+    { ...row, kind: 'native-config', fingerprint: 'cfg' },
+    { ...row, assetId: 'skills.core', fingerprint: 'skill' },
+    { ...row, assetId: 'scripts.doflow', harness: 'sibling-three', fingerprint: 'f3' },
+    { ...row, target: undefined },
+    { ...row, fingerprint: undefined },
+  ], 'mine');
+  assert.deepEqual([...index.keys()], ['/t/a']);
+  assert.deepEqual([...index.get('/t/a')].sort(), [['f1', 'sibling'], ['f2', 'sibling-two'], ['f3', 'sibling-three']]);
+  assert.equal(ledgerSiblingFingerprints(undefined, 'mine').size, 0);
+});
+
 test('a declared transform changes both the fingerprint and the written bytes, deterministically', () => {
   const root = scratch();
   const sourceDir = seedSource(root, { 'rule.md': '# body\n' });
@@ -445,4 +548,19 @@ test('doflow-output-style layout renames MODE_*.md and the transform wraps it as
   applyTree({ changes: planned.changes, transform: 'claude-output-styles' });
   const text = fs.readFileSync(path.join(destDir, 'doflow-orchestration.md'), 'utf8');
   assert.match(text, /^---\nname: DoFlow: Orchestration\ndescription: "route tools well"\nkeep-coding-instructions: true\n---/);
+});
+
+test('sharedTreeDestDir puts a ../.doflow nativeDir at the scope root and returns null for any other', () => {
+  const root = path.join(path.sep, 'scope');
+  assert.equal(sharedTreeDestDir(root, '../.doflow'), path.join(root, '.doflow'));
+  assert.equal(sharedTreeDestDir(root, '../.doflow/runtime/bin'), path.join(root, '.doflow', 'runtime', 'bin'));
+  assert.equal(sharedTreeDestDir(root, 'skills'), null);
+  assert.equal(sharedTreeDestDir(root, '../.doflowish'), null);
+  assert.equal(sharedTreeDestDir(root, undefined), null);
+});
+
+test('sharedTreeDestDir refuses a nativeDir that climbs out of .doflow', () => {
+  const root = path.join(path.sep, 'scope');
+  assert.throws(() => sharedTreeDestDir(root, '../.doflow/../x'), /shared-tree nativeDir escapes \.doflow: \.\.\/\.doflow\/\.\.\/x/);
+  assert.throws(() => sharedTreeDestDir(root, '../.doflow/..'), /escapes \.doflow/);
 });

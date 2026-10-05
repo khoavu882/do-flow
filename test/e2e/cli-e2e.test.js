@@ -29,6 +29,9 @@ function run(args, { home, input, env } = {}) {
     // non-blocking pseudo-TTY attached and make the CLI retry EAGAIN as if a user were typing.
     input: input || '\n',
     encoding: 'utf8',
+    // Once kiro also carries the runtime, `status --json` over several harnesses prints more than
+    // the 1 MiB default on macOS temporary paths, and spawnSync fails with ENOBUFS.
+    maxBuffer: 16 * 1024 * 1024,
   });
 }
 

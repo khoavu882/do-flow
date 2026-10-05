@@ -19,7 +19,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, ledgerFileResources, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
 
 const HARNESS = 'antigravity';
@@ -35,6 +35,9 @@ function readJsonObject(file, { fsImpl = fs } = {}) {
 // mcp-server alike). The antigravity projection shares that same pointer asset, so its rows do too.
 const POINTER_ASSET_ID = 'guidance.codex-pointer';
 const HOOKS_ASSET_ID = 'hooks.antigravity';
+// Printed by install and update at global scope, where Antigravity gets no skills to serve.
+const GLOBAL_SCOPE_NOTICE = 'no skills at global scope (the user-scope skills location is unresolved), so DoFlow skills and runtime are not installed here; install per project with: npx @khoavu882/doflow install -t antigravity';
+const SHARED_RUNTIME_ASSET_IDS = new Set(['scripts.doflow', 'runtime.cli', 'runtime.lib', 'runtime.registry']);
 // One owned hooks.json group per DoFlow policy (the Kiro doflow.json precedent): the two gates
 // stay independently removable/enablable, and a user's own groups are never touched. The Stop
 // registration is matcher-free — Antigravity documents handlers sitting directly under the event
@@ -60,7 +63,7 @@ function hookScriptTarget(identity, paths) {
   return identity === 'pre-implementation-gate.sh' ? paths.hookScript : paths.stopHookScript;
 }
 
-function planHooks({ paths, scope, neutralResources, removing, fsImpl = fs }) {
+function planHooks({ paths, scope, neutralResources, removing, repoRoot, fsImpl = fs }) {
   const changes = [];
   const conflicts = [];
   if (scope !== 'project') {
@@ -69,7 +72,7 @@ function planHooks({ paths, scope, neutralResources, removing, fsImpl = fs }) {
     return { changes, conflicts };
   }
   const target = paths.hooksJson;
-  const scriptSource = sourceDirFor({ source: 'core/harnesses/antigravity/hooks' }, { repoRoot: process.cwd() }, fsImpl, HARNESS);
+  const scriptSource = sourceDirFor({ source: 'core/harnesses/antigravity/hooks' }, { repoRoot }, fsImpl, HARNESS);
 
   const previousHookRows = (neutralResources || []).filter((r) => r.harness === HARNESS && r.assetId === HOOKS_ASSET_ID && r.kind === 'hooks-json');
   const previousScriptRows = (neutralResources || []).filter((r) => r.harness === HARNESS && r.assetId === HOOKS_ASSET_ID && r.kind === 'copy-tree-file');
@@ -223,6 +226,11 @@ function treeDestFor(asset, paths, scope) {
     // registry's own nativeDir (.agents/skills) is root-relative, so this joins the ROOT.
     return scope === 'project' ? path.join(paths.root, nativeDir) : null;
   }
+  if (SHARED_RUNTIME_ASSET_IDS.has(asset.id)) {
+    // Project-only, like skills: a global install has no skills location for the runtime to serve,
+    // so planting a shared tree under ~/.doflow would be unreachable from this harness.
+    return scope === 'project' ? path.join(paths.root, nativeDir.replace(/^\.\.\//, '')) : null;
+  }
   if (asset.id === 'rules.antigravity' || asset.id === 'workflows.antigravity') {
     // Workspace-scope surfaces under .agents/: Antigravity documents workspace rules
     // (.agents/rules) and workflows (.agents/workflows) with no user-scope home — a global
@@ -244,6 +252,7 @@ function treeDestFor(asset, paths, scope) {
 function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot, force = false, fsImpl = fs }) {
   const changes = [];
   const conflicts = [];
+  const treeResults = [];
   const targets = [];
   for (const asset of copyTreeAssets(assets)) {
     const destDir = treeDestFor(asset, paths, scope);
@@ -253,13 +262,14 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
   for (const { asset, destDir } of targets) {
     const sourceDir = sourceDirFor(asset, { repoRoot }, fsImpl, HARNESS);
     const previousResources = ledgerFileResources(neutralResources, HARNESS, asset.id);
-    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout,
+    const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(neutralResources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout,
       // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
       // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
       // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file
       // is never deleted on removal, forced or not. This adapter needed `force` threaded through
       // planTrees as well, since its signature did not carry the context the others already had.
       force: !removing && force === true });
+    treeResults.push(result);
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const change of result.changes) {
       changes.push({
@@ -271,7 +281,7 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
       });
     }
   }
-  return { changes, conflicts, targets };
+  return { changes, conflicts, targets, notices: siblingReplacedNotices(treeResults) };
 }
 
 function runTreeChanges(changes, mode) {
@@ -436,7 +446,7 @@ function plan(options = {}, impl = {}) {
   const instructions = planInstructions({ paths, assets: options.assets, removing, repoRoot: context.repoRoot, fsImpl });
   const trees = planTrees({ assets: options.assets, paths, scope, neutralResources, removing, repoRoot: context.repoRoot, force: context.force === true, fsImpl });
   const mcp = planMcp({ paths, selectedServers, neutralResources, removing, fsImpl });
-  const hooksPlan = planHooks({ paths, scope, neutralResources, removing, fsImpl });
+  const hooksPlan = planHooks({ paths, scope, neutralResources, removing, repoRoot: context.repoRoot, fsImpl });
 
   const changes = [...instructions.changes, ...trees.changes, ...mcp.changes, ...hooksPlan.changes];
   const conflicts = [...instructions.conflicts, ...trees.conflicts, ...hooksPlan.conflicts];
@@ -445,6 +455,7 @@ function plan(options = {}, impl = {}) {
     conflicts,
     prerequisites: [],
     requiredNativeResources: changes,
+    notices: [...(scope === 'global' && !removing ? [GLOBAL_SCOPE_NOTICE] : []), ...trees.notices],
   };
 }
 

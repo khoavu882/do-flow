@@ -1,13 +1,14 @@
 'use strict';
 
-// lifecycle-loop-install.e2e.test.js: the 046 lifecycle verbs reached the way a Codex user reaches
-// them, and the documented behaviour on a harness the runtime is not projected to (DEC-024, NFR-004).
+// lifecycle-loop-install.e2e.test.js: the lifecycle verbs reached the way a Codex user reaches
+// them, and the documented behaviour when nothing is installed.
 //
-// The runtime is projected to claude, codex and gemini; the other five harnesses get skills and a
-// locator but no `.doflow/scripts`, so their installed skill prose stops at its own resolver.
-// Both halves are real installs into scratch homes, executed through the projected locator and the
-// resolver block the installed skill carries. The Codex CLI itself is never invoked: the harness
-// only matters here as the place the files are projected to. No network and no model call.
+// Every harness projects the runtime wherever it projects skills, so a skill's resolver reaches the
+// dispatcher after an install. The first halves are real installs into scratch homes, executed
+// through the projected locator and the resolver block the installed skill carries; the last half
+// runs the checkout's own resolver and locator with nothing installed, where the skill stops. The
+// Codex CLI itself is never invoked: the harness only matters here as the place the files are
+// projected to. No network and no model call.
 //
 // Every spawn runs under a scratch HOME and XDG_CONFIG_HOME and with no global git config (DEC-041).
 
@@ -17,6 +18,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
+const { resolverOf, filesUnder } = require('../helper/skill-resolver');
 const { makeRepo, featureBranch } = require('../helper/lifecycle-git-fixtures');
 const { IS_WIN } = require('../helper-platform');
 
@@ -62,20 +64,12 @@ function run(h, cwd, locator, args, { input = '' } = {}) {
 
 /** The skill file a harness installed, found by walking its home. */
 function installedSkill(h, name) {
-  const hit = fs.readdirSync(h.home, { recursive: true }).find((f) => f.split(path.sep).slice(-3).join('/') === `skills/${name}/SKILL.md`);
+  const hit = filesUnder(h.home).find((f) => f.split(path.sep).slice(-3).join('/') === `skills/${name}/SKILL.md`);
   assert.ok(hit, `no installed ${name} skill under ${h.home}`);
   return path.join(h.home, hit);
 }
 
-/** The runtime resolver block of an installed skill: the fenced bash block that ends in the "no runtime found" exit. */
-function resolverOf(skillFile) {
-  const blocks = fs.readFileSync(skillFile, 'utf8').split('```bash\n').slice(1).map((b) => b.split('\n```')[0]);
-  const block = blocks.find((b) => b.includes('no runtime found'));
-  assert.ok(block, `${skillFile} carries no runtime resolver`);
-  return block;
-}
-
-describe('Codex target: the lifecycle verbs run through the codex-projected dispatcher (DEC-024, NFR-004)', { skip: SKIP }, () => {
+describe('Codex target: the lifecycle verbs run through the codex-projected dispatcher', { skip: SKIP }, () => {
   const h = homeFor('codex');
   const project = makeRepo(scratch, 'codex-project');
   const locator = path.join(h.home, '.codex', 'bin', 'doflow-run');
@@ -227,7 +221,7 @@ describe('An installed runtime finds its bash helpers: the handoff line and the 
 
 // The lifecycle code paths F.1 never ran installed: release, report, goal and failure, through the
 // codex-projected dispatcher against a scratch repository with develop, a tag and a merged feature.
-describe('Codex target: release, report, goal and failure run from the installed runtime (DEC-024)', { skip: SKIP }, () => {
+describe('Codex target: release, report, goal and failure run from the installed runtime', { skip: SKIP }, () => {
   const h = homeFor('codex-verbs');
   const locator = path.join(h.home, '.codex', 'bin', 'doflow-run');
   const repo = makeRepo(scratch, 'codex-verbs-project');
@@ -282,7 +276,7 @@ describe('Codex target: release, report, goal and failure run from the installed
     const [item] = filed.created;
     assert.deepEqual([item.state, item.body, item.source.kind], ['open', 'on-this-machine', 'report']);
     const reports = path.join(h.xdg, 'doflow', 'reports');
-    const bodies = fs.readdirSync(reports, { recursive: true }).filter((f) => f.endsWith('.txt'));
+    const bodies = filesUnder(reports).filter((f) => f.endsWith('.txt'));
     assert.equal(bodies.length, 1, `one body under ${reports}`);
     assert.match(fs.readFileSync(path.join(reports, bodies[0]), 'utf8'), /TypeError: smoke/);
     assert.ok(item.excerptBytes > 0, 'the event carries the bounded excerpt, the body stays here');
@@ -312,35 +306,30 @@ describe('Codex target: release, report, goal and failure run from the installed
   });
 });
 
-describe('A harness without the runtime: the skill stops at its resolver, before any lifecycle verb (DEC-024)', { skip: SKIP }, () => {
-  // opencode is one of the five harnesses that do not get the runtime; the behaviour is the same for each.
-  const h = homeFor('opencode');
-  const project = makeRepo(scratch, 'opencode-project');
+describe('No install anywhere: the skill stops at its resolver, before any lifecycle verb', { skip: SKIP }, () => {
+  // A fresh home and project with nothing installed. The skill text and the locator are the
+  // checkout's own copies, because there is no install to take them from.
+  const h = homeFor('no-install');
+  const project = makeRepo(scratch, 'no-install-project');
 
-  test('the opencode install carries the skill and a locator but no runtime', () => {
-    install(h, 'opencode');
-    assert.ok(installedSkill(h, 'do'));
-    assert.equal(fs.existsSync(path.join(h.home, '.doflow', 'scripts')), false, 'no dispatcher is projected');
-    assert.equal(fs.existsSync(path.join(h.home, '.doflow', 'runtime')), false, 'no Node runtime is projected');
-  });
-
-  test('the installed skill resolver finds no runtime, prints the install hint and exits 2 before a lifecycle verb runs', () => {
-    const resolver = resolverOf(installedSkill(h, 'do'));
+  test('the skill resolver finds no runtime, prints the install hint and exits 2 before a lifecycle verb runs', () => {
+    const resolver = resolverOf(path.join(REPO, 'core', 'shared', 'skills', 'do', 'SKILL.md'));
     // What the skill does after its resolver: the lifecycle verb. It must never be reached.
     const script = `${resolver}\necho VERB-REACHED\n"$DOFLOW" lifecycle --action overview --json\n`;
     const r = spawnSync('bash', ['-c', script], { cwd: project.dir, encoding: 'utf8', env: envFor(h) });
     assert.equal(r.status, 2, `${r.stdout}${r.stderr}`);
-    assert.match(r.stderr, /doflow: no runtime found in any \.doflow\/ above .*nor at .*Run: npx @khoavu882\/doflow install/);
+    assert.match(r.stderr, /doflow: no runtime found in any \.doflow\/ above .*nor at .*Run: npx @khoavu882\/doflow install -t <harness>$/m);
     assert.equal(r.stdout, '', 'no verb ran, so nothing was printed');
     assert.equal(fs.existsSync(path.join(project.dir, 'agent-docs')), false, 'and nothing was written');
   });
 
-  test("the harness's own locator reports the same missing runtime instead of running a verb", () => {
-    const locator = path.join(h.home, '.config', 'opencode', 'bin', 'doflow-run');
+  test('the locator reports the same missing runtime instead of running a verb', () => {
+    const locator = path.join(REPO, 'core', 'harnesses', 'shared', 'locator', 'doflow-run');
     const r = run(h, project.dir, locator, ['lifecycle', '--action', 'overview', '--json']);
     assert.equal(r.status, 2);
     assert.match(r.stderr, /no DoFlow runtime found/);
-    assert.match(r.stderr, /npx @khoavu882\/doflow install/);
+    assert.ok(r.stderr.includes('npx @khoavu882/doflow install -t <harness>      # project-local, creates ./.doflow'), r.stderr);
+    assert.ok(r.stderr.includes('npx @khoavu882/doflow install -t <harness> -g   # global, creates $HOME/.doflow'), r.stderr);
     assert.equal(r.stdout, '');
   });
 });

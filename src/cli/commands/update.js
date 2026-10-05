@@ -16,7 +16,7 @@ const { promptMcpCheckbox } = require('../../install/mcp');
 const { loadRegistry } = require('../../registry');
 const { applyLifecycle } = require('../../lifecycle');
 const {
-  codexScope, registryLifecycleView, printRegistryLifecycle, assertSafeRegistryPlan,
+  codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, assertSafeRegistryPlan,
   lockDocument, recordLock,
 } = require('../../lifecycle/view');
 const {
@@ -49,6 +49,7 @@ function cmdUpdate(o) {
   const lifecycleChanged = Boolean(lifecycleView.plan.changes.length);
 
   if (!mcpChanged && !lifecycleChanged) {
+    printPlanNotices(lifecycleView);
     console.log('[OK] Already up to date — no changes detected');
     return;
   }
@@ -97,6 +98,7 @@ function cmdUpdate(o) {
       console.log(`[INFO] ${target.harness}: lifecycle verified (${owned} owned resource(s))`);
     }
   }
+  printPlanNotices(lifecycleView);
   if (targets.includes('claude')) chmodHooksExecutable(dirs.claude);
 
   writeManifest({ scopeRoot: lifecyclePaths.scopeRoot, scriptVersion: pkg.version, operation: 'update', repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: targets, date: new Date(), mcpServers: mcpIds });

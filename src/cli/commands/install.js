@@ -15,7 +15,7 @@ const { promptMcpCheckbox } = require('../../install/mcp');
 const { loadRegistry } = require('../../registry');
 const { applyLifecycle, applyMcpIndex } = require('../../lifecycle');
 const {
-  codexScope, registryLifecycleView, printRegistryLifecycle, assertSafeRegistryPlan,
+  codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, assertSafeRegistryPlan,
   lockDocument, recordLock,
 } = require('../../lifecycle/view');
 const {
@@ -103,6 +103,7 @@ function cmdInstall(o) {
     // to the resolved selection silently does nothing whenever the rest of the tree is current.
     applyMcpIndex({ scopeRoot: lifecycleView.plan.scopeRoot, selectedMcp: lifecycleView.plan.mcp, mode: 'apply' });
   }
+  printPlanNotices(lifecycleView);
 
   if (targets.includes('claude')) {
     // A npm-packaged tarball does not reliably preserve the executable bit on arbitrary files

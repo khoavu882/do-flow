@@ -445,8 +445,14 @@ test('NFR-001/NFR-002: install and dispatch succeed with python3 and every optio
   const routed = runtime(locator, ['capabilities', '--json'], { home, cwd: root, env: { ...env, DOFLOW_CLI: CLI } });
   assert.equal(routed.status, 0, routed.stderr);
 
-  const doctor = cli(['doctor'], { home, env });
-  assert.equal(doctor.status, 0, `doctor must report degraded capability, not exit non-zero:\n${doctor.stderr}`);
+  // Pinned to the install's own root, so reach is judged there and not at whatever the cwd holds.
+  const doctor = cli(['doctor', root, '--json'], { home, env });
+  assert.equal(doctor.status, 0, `doctor must report degraded capability, not exit non-zero:\n${doctor.stderr}${doctor.stdout}`);
+  for (const harness of JSON.parse(doctor.stdout).harnesses) {
+    const row = harness.reach.find((entry) => entry.scope === 'project');
+    assert.equal(row?.state, 'REACHED', `${harness.id}: the project install must be reachable`);
+    assert.ok(samePath(row.root, path.join(fs.realpathSync(root), '.doflow')), `${harness.id}: reached through ${row.root}`);
+  }
 });
 
 // ----------------------------------------- 046: promote reaches the same file in every shape
@@ -521,4 +527,48 @@ test('046: promote writes the same intent from a global install, from a director
   const locator = path.join(home, '.claude', 'bin', 'doflow-run');
   intentByShape.global = promoteThrough(locator, { home, cwd }).text;
   assert.equal(intentByShape.global, intentByShape.checkout, 'a global install writes the checkout\'s intent');
+});
+
+// ----------------------------------------- 048: removing one claimant keeps what another still owns
+//
+// Harnesses at one scope root record the same target paths for the shared tree. Removing one
+// claimant releases its own rows and deletes a file only when no surviving row claims it, so the other harness keeps a working runtime until it is removed too (NFR-002).
+
+const SHARED_TREE_FILES = [
+  ['.doflow', 'runtime', 'bin', 'doflow.js'],
+  ['.doflow', 'scripts', 'doflow', 'bin', 'doflow-run'],
+  ['.doflow', 'guidance', 'DOFLOW_CORE.md'],
+];
+
+/** Installs `first` then `second`, removes `second` and then `first`, and checks the shared tree at each step. */
+function assertRemovalKeepsClaimedFiles({ tag, scope, first, second }) {
+  const root = scratch(tag);
+  const home = path.join(root, 'home');
+  const treeRoot = scope === 'global' ? home : root;
+  const place = scope === 'global' ? ['-g'] : [root];
+  const run = (verb, target) => cli([verb, ...place, '-f', '--no-backup', '-t', target], { home, env: lifecycleEnv(home) });
+  const present = (parts) => fs.existsSync(path.join(treeRoot, ...parts));
+
+  for (const target of [first, second]) {
+    const installed = run('install', target);
+    assert.equal(installed.status, 0, `install -t ${target}: ${installed.stderr}`);
+  }
+  for (const parts of SHARED_TREE_FILES) assert.ok(present(parts), `${parts.join('/')} is installed`);
+
+  const removedSecond = run('remove', second);
+  assert.equal(removedSecond.status, 0, removedSecond.stderr);
+  assert.match(removedSecond.stdout, new RegExp(`${second}: retained \\d+ shared resource\\(s\\) still claimed by ${first}`));
+  for (const parts of SHARED_TREE_FILES) assert.ok(present(parts), `${parts.join('/')} is kept while ${first} still claims it`);
+
+  const removedFirst = run('remove', first);
+  assert.equal(removedFirst.status, 0, removedFirst.stderr);
+  for (const parts of SHARED_TREE_FILES) assert.equal(present(parts), false, `${parts.join('/')} is removed with the last claimant`);
+}
+
+test('048: project scope, removing pi keeps the shared tree codex still claims, and removing codex reclaims it', () => {
+  assertRemovalKeepsClaimedFiles({ tag: 'retain-proj', scope: 'project', first: 'codex', second: 'pi' });
+});
+
+test('048: global scope, removing pi keeps the shared tree claude still claims, and removing claude reclaims it', () => {
+  assertRemovalKeepsClaimedFiles({ tag: 'retain-global', scope: 'global', first: 'claude', second: 'pi' });
 });

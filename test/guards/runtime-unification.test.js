@@ -21,9 +21,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { REPO } = require('./_shared');
 const { loadRegistry } = require('../../src/registry');
+const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view');
 
 const SCRIPTS = path.join(REPO, 'core', 'shared', 'scripts');
 const DISPATCHER = path.join(SCRIPTS, 'doflow', 'bin', 'doflow-run');
@@ -106,6 +108,52 @@ test('G12: the locator asset claims every harness, consistently, inside each har
   }
 });
 
+// ---------------------------------------------------- 2b. the shared tree lands at the scope root
+
+// IC-011 4(a). A `../.doflow` nativeDir means "the harness-neutral shared tree at the scope root".
+// Harnesses whose own config dir sits two levels under that root (pi, opencode) reach it through a
+// different resolution than the rest, so the registry alone cannot say where a plan lands. Plan
+// every harness in both scopes and compare the targets with the root the resolver walks to.
+// Planning is read-only and the roots are mkdtemp directories, never $HOME or the repository.
+const RUNTIME_ASSET_IDS = ['scripts.doflow', 'runtime.cli', 'runtime.lib', 'runtime.registry'];
+
+function plannedChanges(scope, home) {
+  const original = os.homedir;
+  os.homedir = () => home;
+  try {
+    return registryLifecycleView({ registry, repoRoot: REPO, targets: LIFECYCLE_HARNESSES, mcpIds: [], scope }).plan.changes;
+  } finally { os.homedir = original; }
+}
+
+test('G12: every ../.doflow asset plans under <scope root>/.doflow in both scopes (IC-011 4a)', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-reach-home-'));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-reach-project-'));
+  const plans = {
+    project: { root: project, changes: plannedChanges({ global: false, projectRoot: project }, home) },
+    global: { root: home, changes: plannedChanges({ global: true }, home) },
+  };
+  const shared = registry.assets.flatMap((asset) => Object.entries(asset.nativeDir || {})
+    .filter(([, dir]) => dir === '../.doflow' || dir.startsWith('../.doflow/'))
+    .map(([harness]) => ({ id: asset.id, harness })));
+  assert.ok(shared.length > 0, 'the registry declares no ../.doflow asset, so this guard checks nothing');
+
+  for (const [scope, { root, changes }] of Object.entries(plans)) {
+    const sharedRoot = path.join(root, '.doflow') + path.sep;
+    for (const { id, harness } of shared) {
+      const targets = changes.filter((c) => c.harness === harness && c.assetId === id).map((c) => c.target);
+      if (harness === 'antigravity' && scope === 'global' && RUNTIME_ASSET_IDS.includes(id)) {
+        assert.deepEqual(targets, [], `antigravity plans no ${id} at global scope (no skills there to serve)`);
+        continue;
+      }
+      assert.ok(targets.length > 0, `${harness} ${scope}: ${id} planned no target, so its placement is unchecked`);
+      const stray = targets.filter((target) => !target.startsWith(sharedRoot));
+      assert.deepEqual(stray.slice(0, 3), [],
+        `${harness} ${scope}: ${id} has a ../.doflow nativeDir but plans outside ${sharedRoot}; the resolver `
+        + 'walks to <scope root>/.doflow and would not find it');
+    }
+  }
+});
+
 // ------------------------------------------------------- 3. dispatcher / locator path agreement
 
 // THE guard this task exists for. The locator hardcodes one config-relative path; the registry
@@ -140,6 +188,20 @@ test('G12: the path the locator searches for is where the registry projects the 
   const uses = (locatorText.match(/\$REL/g) || []).length;
   assert.ok(uses >= 3,
     `all three resolution steps (design §4.1) must interpolate $REL; found ${uses} uses`);
+});
+
+// The doctor's reach check stats the same path the locator and the skill resolver look for. A
+// fourth spelling that drifts would make doctor report REACHED for a tree no skill can find.
+test('G12: the reach evaluator, the locator and the skill resolver search for the same dispatcher path (IC-011 4b)', () => {
+  const { REACH_DISPATCHER_REL } = require('../../src/runtime/reach');
+  const [, locatorRel] = locatorText.match(/^REL='([^']+)'$/m) || [];
+  assert.equal(REACH_DISPATCHER_REL, locatorRel, 'src/runtime/reach.js and the locator shim name different dispatcher paths');
+
+  const skill = fs.readFileSync(path.join(REPO, 'core', 'shared', 'skills', 'do-git', 'SKILL.md'), 'utf8');
+  const spelled = [...skill.matchAll(/\.doflow\/(scripts\/[^"\s]+)/g)].map((match) => match[1]);
+  assert.ok(spelled.length >= 3, `the resolver block spells the dispatcher path ${spelled.length} time(s); expected the walk, the DOFLOW assignment and the home fallback`);
+  assert.deepEqual([...new Set(spelled)], [REACH_DISPATCHER_REL],
+    'the skill resolver block searches a different dispatcher path than src/runtime/reach.js');
 });
 
 // ------------------------------------------------------------------- 4. verb-table integrity
