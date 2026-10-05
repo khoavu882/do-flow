@@ -5,7 +5,7 @@
 // settings/MCP/extensions as first-class native-surface results for the lifecycle UI.
 const fs = require('node:fs');
 const path = require('node:path');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
 const { planGeminiHooks, deployGeminiHooks, planRemoveGeminiHooks, deployRemoveGeminiHooks } = require('./hooks');
 
@@ -116,7 +116,7 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
       const destDir = geminiDestDir(paths, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Gemini');
       const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout,
         // Was `force: context?.force`, ungated. Gemini was one of only two adapters forwarding force
         // at all, so it looked like the reference implementation — but it handed force to the remove
         // path too, where copy-tree deliberately stays strict: force heals drift on apply, and a

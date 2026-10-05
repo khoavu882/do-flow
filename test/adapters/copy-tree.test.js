@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { discoverTree, planTree, applyTree, removeTree, verifyTree, sharedTreeDestDir } = require('../../src/adapters/copy-tree');
+const { discoverTree, planTree, applyTree, removeTree, verifyTree, sharedTreeDestDir, ledgerSiblingFingerprints } = require('../../src/adapters/copy-tree');
 
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-copy-tree-')); }
 
@@ -401,6 +401,75 @@ test('planTree still refuses a destination edited to content matching neither so
   assert.equal(changes.length, 0);
   assert.match(conflicts[0], /a\.md was modified outside DoFlow/,
     'widening known-good must not stop real tampering being caught');
+});
+
+// Several harnesses claim one `.doflow` file, so a sibling from another release can leave bytes
+// that match neither this source nor this harness's own row. Its ledger row recorded them.
+function siblingFixture() {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'a.md': 'MINE' });
+  const destDir = path.join(root, 'dest');
+  fs.mkdirSync(destDir, { recursive: true });
+  const target = path.join(destDir, 'a.md');
+  const siblingRows = [{ harness: 'sibling', kind: 'copy-tree-file', target, fingerprint: sha256('THEIRS') }];
+  return { sourceDir, destDir, target, siblingRows };
+}
+
+test('planTree accepts content a sibling harness recorded at that target', () => {
+  const { sourceDir, destDir, target, siblingRows } = siblingFixture();
+  fs.writeFileSync(target, 'THEIRS');
+  const { changes, conflicts } = planTree({ sourceDir, destDir, siblingFingerprints: ledgerSiblingFingerprints(siblingRows, 'mine') });
+  assert.deepEqual(conflicts, []);
+  assert.equal(changes.length, 1);
+  assert.equal(changes[0].fingerprint, sha256('MINE'));
+});
+
+test('planTree refuses content no row recorded, with the unchanged text, even when siblings recorded others', () => {
+  const { sourceDir, destDir, target, siblingRows } = siblingFixture();
+  fs.writeFileSync(target, 'HAND EDITED');
+  const { changes, conflicts } = planTree({ sourceDir, destDir, siblingFingerprints: ledgerSiblingFingerprints(siblingRows, 'mine') });
+  assert.deepEqual(conflicts, ['a.md was modified outside DoFlow']);
+  assert.deepEqual(changes, []);
+});
+
+test('a sibling fingerprint recorded for another target does not excuse this one', () => {
+  const { sourceDir, destDir, target, siblingRows } = siblingFixture();
+  fs.writeFileSync(target, 'THEIRS');
+  const elsewhere = siblingRows.map((row) => ({ ...row, target: path.join(destDir, 'other.md') }));
+  assert.deepEqual(planTree({ sourceDir, destDir, siblingFingerprints: ledgerSiblingFingerprints(elsewhere, 'mine') }).conflicts,
+    ['a.md was modified outside DoFlow']);
+});
+
+test('own-row behaviour is unchanged by siblingFingerprints', () => {
+  const { sourceDir, destDir, target, siblingRows } = siblingFixture();
+  fs.writeFileSync(target, 'OLD');
+  const previousResources = [{ relPath: 'a.md', target, fingerprint: sha256('OLD') }];
+  const siblingFingerprints = ledgerSiblingFingerprints(siblingRows, 'mine');
+  const withSiblings = planTree({ sourceDir, destDir, previousResources, siblingFingerprints });
+  assert.deepEqual(withSiblings, planTree({ sourceDir, destDir, previousResources }));
+  assert.deepEqual(withSiblings.conflicts, []);
+  assert.equal(withSiblings.changes[0].operation, 'update');
+});
+
+test('an omitted siblingFingerprints behaves as before', () => {
+  const { sourceDir, destDir, target } = siblingFixture();
+  fs.writeFileSync(target, 'THEIRS');
+  assert.deepEqual(planTree({ sourceDir, destDir }).conflicts, ['a.md was modified outside DoFlow']);
+});
+
+test('ledgerSiblingFingerprints indexes only other harnesses\' copy-tree-file rows with a target and fingerprint', () => {
+  const row = { harness: 'sibling', kind: 'copy-tree-file', target: '/t/a', fingerprint: 'f1' };
+  const index = ledgerSiblingFingerprints([
+    row,
+    { ...row, harness: 'sibling-two', fingerprint: 'f2' },
+    { ...row, harness: 'mine', fingerprint: 'own' },
+    { ...row, kind: 'native-config', fingerprint: 'cfg' },
+    { ...row, target: undefined },
+    { ...row, fingerprint: undefined },
+  ], 'mine');
+  assert.deepEqual([...index.keys()], ['/t/a']);
+  assert.deepEqual([...index.get('/t/a')].sort(), ['f1', 'f2']);
+  assert.equal(ledgerSiblingFingerprints(undefined, 'mine').size, 0);
 });
 
 test('a declared transform changes both the fingerprint and the written bytes, deterministically', () => {

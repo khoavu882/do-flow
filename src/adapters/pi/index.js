@@ -21,7 +21,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, fingerprint, sourceDirFor } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, fingerprint, sourceDirFor } = require('../copy-tree');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
 
 const HARNESS = 'pi';
@@ -82,7 +82,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {
       const destDir = sharedTreeDestDir(paths.root, asset.nativeDir) ?? copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Pi');
       const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout,
         // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
         // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
         // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file

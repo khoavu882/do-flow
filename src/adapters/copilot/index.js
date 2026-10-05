@@ -24,7 +24,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeDestDir, ledgerFileResources, fingerprint, readJson, sourceDirFor, resolveTransform } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, fingerprint, readJson, sourceDirFor, resolveTransform } = require('../copy-tree');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
 
 const HARNESS = 'copilot';
@@ -143,7 +143,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
       const destDir = copyTreeDestDir(destRoot, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Copilot');
       const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: layout || asset.layout, transform: asset.transform,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: layout || asset.layout, transform: asset.transform,
         // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
         // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
         // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file

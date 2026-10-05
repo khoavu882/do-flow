@@ -11,7 +11,7 @@ const { configPath, fingerprint: configFingerprint, parseToml, planCodexConfig, 
 const { renderServer, planCodexMcp, applyCodexMcp } = require('./mcp');
 const { agentDirectory, discoverCodexAgents, planCodexAgents, applyCodexAgents } = require('./agents');
 const { planCodexHooks, deployCodexHooks } = require('./hooks');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints } = require('../copy-tree');
 const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../helper/marker-merge');
 const { nativeMcpCatalog } = require('../../registry');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
@@ -276,7 +276,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
       const destDir = copyTreeDestDir(codexConfigDir(context), asset);
       const sourceDir = sourceDirFor(asset, repoRoot);
       const previousResources = ledgerFileResources(neutralResources, HARNESS, asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', layout: asset.layout,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(neutralResources, HARNESS), operation: removing ? 'remove' : 'apply', layout: asset.layout,
         // `force` is the CLI's --force reaching the one conflict class a plan can actually
         // downgrade: a ledger-owned destination whose bytes were edited underneath us. With force,
         // that is drift to heal rather than a refusal — exactly what `doflow reconcile` (always

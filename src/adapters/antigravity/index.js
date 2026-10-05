@@ -19,7 +19,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, ledgerFileResources, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, ledgerFileResources, ledgerSiblingFingerprints, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
 
 const HARNESS = 'antigravity';
@@ -261,7 +261,7 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
   for (const { asset, destDir } of targets) {
     const sourceDir = sourceDirFor(asset, { repoRoot }, fsImpl, HARNESS);
     const previousResources = ledgerFileResources(neutralResources, HARNESS, asset.id);
-    const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout,
+    const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(neutralResources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout,
       // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
       // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
       // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file

@@ -168,7 +168,7 @@ function discoverTree({ sourceDir, destDir, fsImpl = fs, layout, transform }) {
  * `operation: 'remove'` skips the source tree entirely and only proposes removals for every
  * previously-owned file, mirroring Codex's `ownedRemovalPlan`.
  */
-function planTree({ sourceDir, destDir, previousResources = [], operation = 'apply', fsImpl = fs, layout, transform, force = false }) {
+function planTree({ sourceDir, destDir, previousResources = [], operation = 'apply', fsImpl = fs, layout, transform, force = false, siblingFingerprints = new Map() }) {
   const prevByPath = new Map(previousResources.map((resource) => [resource.relPath, resource]));
   const changes = [];
   const conflicts = [];
@@ -241,7 +241,8 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
       // than `prev !== undefined` alone, as before) is strictly more precise: a relocated asset's
       // old row describes different bytes at a different path, so it must not be consulted here.
       const current = sha256(fsImpl.readFileSync(file.destAbs));
-      const knownGood = force || current === file.fingerprint || (sameLocation && current === prev.fingerprint);
+      const knownGood = force || current === file.fingerprint || (sameLocation && current === prev.fingerprint)
+        || (siblingFingerprints.get(file.destAbs)?.has(current) ?? false);
       if (!knownGood) { conflicts.push(`${file.relPath} was modified outside DoFlow`); continue; }
       // A true no-op requires the DESTINATION bytes to equal the incoming source. Comparing only
       // ledger-vs-source fingerprints here (the previous form) let a forced run over a hand-edited
@@ -393,6 +394,20 @@ function sharedTreeDestDir(rootDir, nativeDir) {
   return dest;
 }
 
+/** Fingerprints other harnesses recorded for each shared target, so an update accepts a tree a
+ * sibling wrote (several harnesses claim one `.doflow` file) while bytes no ledger row recorded
+ * are still refused as a hand edit. */
+function ledgerSiblingFingerprints(resources, harness) {
+  const byTarget = new Map();
+  for (const resource of resources || []) {
+    if (resource.kind !== 'copy-tree-file' || resource.harness === harness) continue;
+    if (typeof resource.target !== 'string' || typeof resource.fingerprint !== 'string') continue;
+    if (!byTarget.has(resource.target)) byTarget.set(resource.target, new Set());
+    byTarget.get(resource.target).add(resource.fingerprint);
+  }
+  return byTarget;
+}
+
 /** Narrow a harness's flat neutral-resource list to one asset's previously-owned copy-tree files. */
 function ledgerFileResources(resources, harness, assetId) {
   return (resources || [])
@@ -400,4 +415,4 @@ function ledgerFileResources(resources, harness, assetId) {
     .map((resource) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
-module.exports = { discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, resolveLayout, LAYOUTS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };
+module.exports = { discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, resolveLayout, LAYOUTS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };
