@@ -110,7 +110,10 @@ projection. Kiro's `hooks` capability is Supported — DoFlow projects a real `.
 file wiring `SessionStart`, two `PreToolUse` hooks, and `Stop` — but the registry does not yet break
 that support down into a per-event map, so Kiro's column here is also a dash pending that data;
 see the `hooks` capability note in `core/registry/harnesses.json` and the verification row below for
-Kiro's actual wired events instead of this table. Antigravity's hooks are supported with a documented
+Kiro's actual wired events instead of this table. Kiro's hooks are not in Kiro v3's
+untrusted-workspace exclusion list (custom agents, steering, MCP configuration, skills, workflows);
+an untrusted workspace asks before every shell command, and whether that covers hook commands is
+undocumented. Antigravity's hooks are supported with a documented
 native contract; its column shows the one event DoFlow wires today (PreToolUse) as Supported and
 the other four as the Different statuses recorded in the registry.
 

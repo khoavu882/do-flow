@@ -1156,9 +1156,10 @@
         "instructions": {
           "status": "supported",
           "evidence": [
-            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot",
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-custom-instructions"
           ],
-          "verification": "Confirm .github/copilot-instructions.md is loaded by Copilot CLI; no documented global-instructions equivalent exists beyond the shared, generic AGENTS.md file."
+          "verification": "Confirm .github/copilot-instructions.md is loaded by Copilot CLI. A user-level ~/.copilot/copilot-instructions.md (or $COPILOT_HOME/copilot-instructions.md) also exists upstream; DoFlow writes nothing there."
         },
         "skills": {
           "status": "supported",
@@ -1411,9 +1412,10 @@
           "status": "supported",
           "evidence": [
             "https://kiro.dev/docs/hooks/",
-            "https://kiro.dev/docs/hooks/actions/"
+            "https://kiro.dev/docs/hooks/actions/",
+            "https://kiro.dev/docs/permissions/"
           ],
-          "note": "`.kiro/hooks/*.json` (flat `{version, hooks: [...]}` array, each entry naming its own `trigger`) is a confirmed, writable hook surface that activates automatically on session start — no trust/review prerequisite, unlike Codex's hooks.json. Confirmed trigger names: SessionStart, Stop, PreToolUse, PostToolUse, UserPromptSubmit, PreTaskExec, PostTaskExec, PostFileSave, PostFileCreate, PostFileDelete; PreToolUse/UserPromptSubmit/PreTaskExec are documented as blockable via a non-zero command exit code. DoFlow now projects a real doflow.json (kiro.hooks-scripts asset) wiring SessionStart, PreToolUse (x2: pre-implementation-gate and mcp-tool-guard), and Stop to the same shared session-start/stop-check implementations Claude and Codex reuse. Kiro's docs mark Stop as explicitly NOT blockable (only PreToolUse/UserPromptSubmit/PreTaskExec block via non-zero exit), so stop-check's stub-detection runs advisory-only on Kiro — exit 0 stdout is injected as context rather than enforced.",
+          "note": "`.kiro/hooks/*.json` (flat `{version, hooks: [...]}` array, each entry naming its own `trigger`) is a confirmed, writable hook surface that is not in Kiro v3's untrusted-workspace exclusion list (custom agents, steering, MCP configuration, skills, workflows); an untrusted workspace asks before every shell command, and whether that covers hook commands is undocumented. Confirmed trigger names: SessionStart, Stop, PreToolUse, PostToolUse, UserPromptSubmit, PreTaskExec, PostTaskExec, PostFileSave, PostFileCreate, PostFileDelete; PreToolUse/UserPromptSubmit/PreTaskExec are documented as blockable via a non-zero command exit code. DoFlow now projects a real doflow.json (kiro.hooks-scripts asset) wiring SessionStart, PreToolUse (x2: pre-implementation-gate and mcp-tool-guard), and Stop to the same shared session-start/stop-check implementations Claude and Codex reuse. Kiro's docs mark Stop as explicitly NOT blockable (only PreToolUse/UserPromptSubmit/PreTaskExec block via non-zero exit), so stop-check's stub-detection runs advisory-only on Kiro — exit 0 stdout is injected as context rather than enforced.",
           "verification": "Confirm a projected hook file under .kiro/hooks/ is present, is well-formed JSON with the expected trigger names, and that a PreToolUse hook's non-zero exit actually blocks the tool call on the installed Kiro CLI."
         },
         "mcp": {
