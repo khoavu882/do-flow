@@ -234,9 +234,12 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
       const r = await spawn(cell, process.execPath, [CLI, verb, 'proj', ...(verb === 'update' ? [] : ['-f']), '-t', harness], cell.dir, 'y\n');
       assert.equal(r.status, 0, `${verb} -t ${harness}: ${r.stdout}${r.stderr}`);
       assert.ok(!/modified outside DoFlow/.test(r.stdout + r.stderr), `${verb} -t ${harness}: ${r.stdout}${r.stderr}`);
+      return r;
     };
 
-    await step('update', 'pi');
+    const updated = await step('update', 'pi');
+    const notices = `${updated.stdout}\n${updated.stderr}`.split('\n').filter((line) => line.includes('replaced shared runtime files'));
+    assert.deepEqual(notices, ['[INFO] pi: replaced shared runtime files written by claude; reinstall that harness to restore them'], `${updated.stdout}${updated.stderr}`);
     for (const rel of new Set([...filesUnder(mirror), ...filesUnder(path.join(REPO, 'src'))])) {
       assert.ok(!differs(rel), `${rel} differs from this checkout after the update`);
     }

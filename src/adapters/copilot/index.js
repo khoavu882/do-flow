@@ -24,7 +24,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, fingerprint, readJson, sourceDirFor, resolveTransform } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor, resolveTransform } = require('../copy-tree');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
 
 const HARNESS = 'copilot';
@@ -139,6 +139,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
   function planTreeAssets({ assets, renderer, destRoot, layout, context, ledger, removing, fsImpl = fs }) {
     const changes = [];
     const conflicts = [];
+    const treeResults = [];
     for (const asset of treeAssetsFor(assets, renderer)) {
       const destDir = copyTreeDestDir(destRoot, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Copilot');
@@ -149,6 +150,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
         // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file
         // is never deleted on removal, forced or not.
         force: !removing && context?.force === true, });
+      treeResults.push(result);
       conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
       for (const change of result.changes) {
         changes.push({
@@ -161,7 +163,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
         });
       }
     }
-    return { changes, conflicts };
+    return { changes, conflicts, notices: siblingReplacedNotices(treeResults) };
   }
 
   function applyCopyTreeAssets(changes, { fsImpl = fs } = {}) {
@@ -288,7 +290,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
       }
     }
 
-    return { changes, conflicts, paths: found.paths };
+    return { changes, conflicts, notices: skills.notices, paths: found.paths };
   }
 
   function writeChange(change, fsImpl) {

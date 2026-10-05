@@ -19,7 +19,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, ledgerFileResources, ledgerSiblingFingerprints, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
 
 const HARNESS = 'antigravity';
@@ -252,6 +252,7 @@ function treeDestFor(asset, paths, scope) {
 function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot, force = false, fsImpl = fs }) {
   const changes = [];
   const conflicts = [];
+  const treeResults = [];
   const targets = [];
   for (const asset of copyTreeAssets(assets)) {
     const destDir = treeDestFor(asset, paths, scope);
@@ -268,6 +269,7 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
       // is never deleted on removal, forced or not. This adapter needed `force` threaded through
       // planTrees as well, since its signature did not carry the context the others already had.
       force: !removing && force === true });
+    treeResults.push(result);
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
     for (const change of result.changes) {
       changes.push({
@@ -279,7 +281,7 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
       });
     }
   }
-  return { changes, conflicts, targets };
+  return { changes, conflicts, targets, notices: siblingReplacedNotices(treeResults) };
 }
 
 function runTreeChanges(changes, mode) {
@@ -453,7 +455,7 @@ function plan(options = {}, impl = {}) {
     conflicts,
     prerequisites: [],
     requiredNativeResources: changes,
-    ...(scope === 'global' && !removing ? { notices: [GLOBAL_SCOPE_NOTICE] } : {}),
+    notices: [...(scope === 'global' && !removing ? [GLOBAL_SCOPE_NOTICE] : []), ...trees.notices],
   };
 }
 

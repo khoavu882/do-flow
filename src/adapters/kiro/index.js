@@ -15,7 +15,7 @@
 // https://kiro.dev/docs/hooks/
 const fs = require('node:fs');
 const path = require('node:path');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
 
 const HARNESS = 'kiro';
@@ -75,6 +75,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
     const paths = nativePaths({ scope, scopeRoot });
     const changes = [];
     const conflicts = [];
+    const treeResults = [];
     for (const asset of kiroTreeAssets(assets)) {
       const destDir = copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Kiro');
@@ -85,6 +86,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
         // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file
         // is never deleted on removal, forced or not.
         force: !removing && context?.force === true, });
+      treeResults.push(result);
       conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
       for (const change of result.changes) {
         changes.push({
@@ -96,7 +98,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
         });
       }
     }
-    return { changes, conflicts };
+    return { changes, conflicts, notices: siblingReplacedNotices(treeResults) };
   }
 
   function applyCopyTreeAssets(changes, { fsImpl = fs } = {}) {
@@ -235,7 +237,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
     }
 
     return {
-      changes, conflicts, prerequisites: [],
+      changes, conflicts, prerequisites: [], notices: copyTree.notices,
       surfaces: {
         instructions: { status: 'supported', target: found.paths.steering },
         skills: { status: 'supported', target: found.paths.skills },

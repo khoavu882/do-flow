@@ -21,7 +21,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, fingerprint, sourceDirFor } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, sourceDirFor } = require('../copy-tree');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
 
 const HARNESS = 'pi';
@@ -78,6 +78,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {
     const paths = nativePaths({ scope, scopeRoot });
     const changes = [];
     const conflicts = [];
+    const treeResults = [];
     for (const asset of copyTreeAssets(assets)) {
       const destDir = sharedTreeDestDir(paths.root, asset.nativeDir) ?? copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Pi');
@@ -88,6 +89,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {
         // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file
         // is never deleted on removal, forced or not.
         force: !removing && context?.force === true, });
+      treeResults.push(result);
       conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
       for (const change of result.changes) {
         changes.push({
@@ -99,7 +101,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {
         });
       }
     }
-    return { changes, conflicts };
+    return { changes, conflicts, notices: siblingReplacedNotices(treeResults) };
   }
 
   function applyCopyTreeAssets(changes, { fsImpl = fs } = {}) {
@@ -163,7 +165,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {
     changes.push(...copyTree.changes);
     conflicts.push(...copyTree.conflicts);
 
-    return { changes, conflicts, paths: found.paths };
+    return { changes, conflicts, notices: copyTree.notices, paths: found.paths };
   }
 
   function writeChange(change, fsImpl) {

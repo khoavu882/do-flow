@@ -11,7 +11,7 @@ const { configPath, fingerprint: configFingerprint, parseToml, planCodexConfig, 
 const { renderServer, planCodexMcp, applyCodexMcp } = require('./mcp');
 const { agentDirectory, discoverCodexAgents, planCodexAgents, applyCodexAgents } = require('./agents');
 const { planCodexHooks, deployCodexHooks } = require('./hooks');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../copy-tree');
 const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../helper/marker-merge');
 const { nativeMcpCatalog } = require('../../registry');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
@@ -272,6 +272,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
   function planCopyTreeAssets({ assets, context, neutralResources, removing, repoRoot, sourceVersion, force = false }) {
     const changes = [];
     const conflicts = [];
+    const treeResults = [];
     for (const asset of copyTreeAssets(assets)) {
       const destDir = copyTreeDestDir(codexConfigDir(context), asset);
       const sourceDir = sourceDirFor(asset, repoRoot);
@@ -283,6 +284,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
         // forced) and `update --force` need. Removal stays strict by design: a hand-edited file is
         // never deleted, forced or not.
         force: !removing && force === true });
+      treeResults.push(result);
       conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
       for (const change of result.changes) {
         changes.push({
@@ -294,7 +296,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
         });
       }
     }
-    return { changes, conflicts };
+    return { changes, conflicts, notices: siblingReplacedNotices(treeResults) };
   }
 
   function applyCopyTreeAssets(changes) {
@@ -459,7 +461,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
       ...copyTree.changes.map((change) => ({ harness: HARNESS, component: 'copyTree', target: change.target, operation: change.operation, identity: change.identity })),
       ...instructions.changes.map((change) => ({ harness: HARNESS, component: 'instructions', target: change.target, operation: change.operation, identity: change.identity })),
     ];
-    return { harness: HARNESS, scope: options.scope, ok: failures.length === 0, safe: failures.length === 0, components, failures, changes, requiredNativeResources };
+    return { harness: HARNESS, scope: options.scope, ok: failures.length === 0, safe: failures.length === 0, components, failures, changes, requiredNativeResources, notices: copyTree.notices };
   }
 
   /** Apply only native plans emitted by this adapter. MCP is first because it and

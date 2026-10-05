@@ -391,6 +391,6 @@ test('global scope carries the no-skills notice, project scope and removal carry
   assert.ok(notice.length <= 200 && !/[\u0000-\u001f]/.test(notice), 'a notice is one line of at most 200 characters');
 
   const removing = { ...global, context: { ...global.context, operation: 'remove' } };
-  assert.equal(adapter.plan(removing).notices, undefined, 'removal prints no notice');
-  assert.equal(adapter.plan(harnessInput(registry, { scopeRoot: scratch() })).notices, undefined, 'project scope has skills, so no notice');
+  assert.deepEqual(adapter.plan(removing).notices, [], 'removal prints no notice');
+  assert.deepEqual(adapter.plan(harnessInput(registry, { scopeRoot: scratch() })).notices, [], 'project scope has skills, so no notice');
 });

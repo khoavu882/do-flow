@@ -167,11 +167,14 @@ function discoverTree({ sourceDir, destDir, fsImpl = fs, layout, transform }) {
  * conflict-safety Codex's adapter already applies to agents and hooks.
  * `operation: 'remove'` skips the source tree entirely and only proposes removals for every
  * previously-owned file, mirroring Codex's `ownedRemovalPlan`.
+ * `siblingReplaced` lists the harnesses whose recorded bytes this plan replaces: the file matches
+ * neither the source nor this harness's own record, only a sibling's (forced or not).
  */
 function planTree({ sourceDir, destDir, previousResources = [], operation = 'apply', fsImpl = fs, layout, transform, force = false, siblingFingerprints = new Map() }) {
   const prevByPath = new Map(previousResources.map((resource) => [resource.relPath, resource]));
   const changes = [];
   const conflicts = [];
+  const siblingReplaced = new Set();
 
   // Fingerprints the CURRENT source would write, keyed by destination. Resolved lazily and only
   // when a recorded fingerprint has already failed to match, so the common removal path still
@@ -213,7 +216,7 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
 
   if (operation === 'remove') {
     for (const prev of previousResources) proposeRemoval(prev);
-    return { changes, conflicts };
+    return { changes, conflicts, siblingReplaced: [] };
   }
 
   const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout, transform });
@@ -241,9 +244,11 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
       // than `prev !== undefined` alone, as before) is strictly more precise: a relocated asset's
       // old row describes different bytes at a different path, so it must not be consulted here.
       const current = sha256(fsImpl.readFileSync(file.destAbs));
-      const knownGood = force || current === file.fingerprint || (sameLocation && current === prev.fingerprint)
-        || (siblingFingerprints.get(file.destAbs)?.has(current) ?? false);
+      const ownRecord = current === file.fingerprint || (sameLocation && current === prev.fingerprint);
+      const sibling = ownRecord ? undefined : siblingFingerprints.get(file.destAbs)?.get(current);
+      const knownGood = force || ownRecord || sibling !== undefined;
       if (!knownGood) { conflicts.push(`${file.relPath} was modified outside DoFlow`); continue; }
+      if (sibling !== undefined) siblingReplaced.add(sibling);
       // A true no-op requires the DESTINATION bytes to equal the incoming source. Comparing only
       // ledger-vs-source fingerprints here (the previous form) let a forced run over a hand-edited
       // destination — force ⇒ knownGood — fall through and silently ignore exactly the drift it
@@ -256,7 +261,7 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
   for (const prev of previousResources) {
     if (!satisfiedAtSameLocation.has(prev.relPath)) proposeRemoval(prev);
   }
-  return { changes, conflicts };
+  return { changes, conflicts, siblingReplaced: [...siblingReplaced].sort() };
 }
 
 /** Write every create/update change. Preserves the source file's mode (so a hook script's +x
@@ -394,18 +399,30 @@ function sharedTreeDestDir(rootDir, nativeDir) {
   return dest;
 }
 
-/** Fingerprints other harnesses recorded for each shared target, so an update accepts a tree a
- * sibling wrote (several harnesses claim one `.doflow` file) while bytes no ledger row recorded
- * are still refused as a hand edit. */
+/** The assets that project the one runtime tree several harnesses claim at a scope root. */
+const SHARED_RUNTIME_ASSETS = new Set(['scripts.doflow', 'runtime.cli', 'runtime.lib', 'runtime.registry']);
+
+/** For each shared runtime target, the fingerprints other harnesses recorded and which harness
+ * recorded each, so an update accepts a runtime tree a sibling wrote (several harnesses claim one
+ * `.doflow` file) while bytes no runtime row recorded are still refused as a hand edit. */
 function ledgerSiblingFingerprints(resources, harness) {
   const byTarget = new Map();
   for (const resource of resources || []) {
-    if (resource.kind !== 'copy-tree-file' || resource.harness === harness) continue;
+    if (resource.kind !== 'copy-tree-file' || resource.harness === harness || !SHARED_RUNTIME_ASSETS.has(resource.assetId)) continue;
     if (typeof resource.target !== 'string' || typeof resource.fingerprint !== 'string') continue;
-    if (!byTarget.has(resource.target)) byTarget.set(resource.target, new Set());
-    byTarget.get(resource.target).add(resource.fingerprint);
+    if (!byTarget.has(resource.target)) byTarget.set(resource.target, new Map());
+    const byFingerprint = byTarget.get(resource.target);
+    if (!byFingerprint.has(resource.fingerprint)) byFingerprint.set(resource.fingerprint, resource.harness);
   }
   return byTarget;
+}
+
+/** The one-line plan notice for a plan whose copy-tree results replaced sibling-written files, or
+ * an empty list when none did. */
+function siblingReplacedNotices(results) {
+  const harnesses = [...new Set(results.flatMap((result) => result.siblingReplaced))].sort();
+  if (!harnesses.length) return [];
+  return [`replaced shared runtime files written by ${harnesses.join(', ')}; reinstall ${harnesses.length > 1 ? 'those harnesses' : 'that harness'} to restore them`];
 }
 
 /** Narrow a harness's flat neutral-resource list to one asset's previously-owned copy-tree files. */
@@ -415,4 +432,4 @@ function ledgerFileResources(resources, harness, assetId) {
     .map((resource) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
-module.exports = { discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, resolveLayout, LAYOUTS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };
+module.exports = { discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };

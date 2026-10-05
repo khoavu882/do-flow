@@ -14,7 +14,7 @@
 // https://opencode.ai/docs/rules
 const fs = require('node:fs');
 const path = require('node:path');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, fingerprint, readJson, sourceDirFor, resolveTransform } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor, resolveTransform } = require('../copy-tree');
 
 // Only the marker constants: marker-merge.js reads and writes files itself, which cannot be used
 // from plan(), whose contract is to compute changes without touching disk. The gemini adapter
@@ -180,6 +180,7 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
     const treeConfigDir = copyTreeConfigDir(paths);
     const changes = [];
     const conflicts = [];
+    const treeResults = [];
     for (const asset of opencodeTreeAssets(assets)) {
       const destDir = asset.renderer === 'opencode-agents' ? agentsDestDir(paths) : sharedTreeDestDir(paths.root, asset.nativeDir) ?? copyTreeDestDir(treeConfigDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'OpenCode');
@@ -190,6 +191,7 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
         // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file
         // is never deleted on removal, forced or not.
         force: !removing && context?.force === true, });
+      treeResults.push(result);
       conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
       for (const change of result.changes) {
         changes.push({
@@ -202,7 +204,7 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
         });
       }
     }
-    return { changes, conflicts };
+    return { changes, conflicts, notices: siblingReplacedNotices(treeResults) };
   }
 
   function applyCopyTreeAssets(changes, { fsImpl = fs } = {}) {
@@ -308,7 +310,7 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
     changes.push(...copyTree.changes);
     conflicts.push(...copyTree.conflicts);
 
-    return { changes, conflicts, paths: found.paths };
+    return { changes, conflicts, notices: copyTree.notices, paths: found.paths };
   }
 
   function writeChange(change, fsImpl) {

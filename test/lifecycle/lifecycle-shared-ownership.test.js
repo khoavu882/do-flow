@@ -23,7 +23,7 @@ const { spawnSync } = require('node:child_process');
 const { createAdapterRegistry } = require('../../src/adapters');
 const { defaultLedger } = require('../../src/state');
 const { planLifecycle, applyLifecycle, removeLifecycle, markRetainedRemovals, retentionSummary } = require('../../src/lifecycle');
-const { planTree, applyTree, removeTree, ledgerFileResources, ledgerSiblingFingerprints } = require('../../src/adapters/copy-tree');
+const { planTree, applyTree, removeTree, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../../src/adapters/copy-tree');
 const { interpreterSpawn, withinPath, msysArgConvGuards } = require('../helper-platform');
 
 const REPO = path.resolve(__dirname, "../..");
@@ -273,19 +273,20 @@ test('copy-tree removal reads no source when the recorded fingerprint already ma
 /** A harness driving the real copy-tree engine over one shared tree from its own source. Two of
  * them stand for two releases of the same shared files: each writes its release, and each must
  * accept what the other left behind without accepting a hand edit. */
-function copyTreeAdapter(id, { sourceDir, destDir }) {
+function copyTreeAdapter(id, assetId, { sourceDir, destDir }) {
   const sha = (file) => require('node:crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex');
   return {
     discover() { return {}; },
     render() { return 'native'; },
     plan({ ledger }) {
-      const result = planTree({ sourceDir, destDir, previousResources: ledgerFileResources(ledger.resources, id, 'shared.tree'),
+      const result = planTree({ sourceDir, destDir, previousResources: ledgerFileResources(ledger.resources, id, assetId),
         siblingFingerprints: ledgerSiblingFingerprints(ledger.resources, id) });
       return {
-        conflicts: result.conflicts.map((reason) => `shared.tree: ${reason}`),
+        conflicts: result.conflicts.map((reason) => `${assetId}: ${reason}`),
+        notices: siblingReplacedNotices([result]),
         changes: result.changes.map((change) => ({
-          assetId: 'shared.tree', target: change.target, source: change.source, operation: change.operation,
-          ownershipIdentity: `doflow:${id}:shared.tree:${change.relPath}`, kind: 'copy-tree-file', identity: change.relPath,
+          assetId, target: change.target, source: change.source, operation: change.operation,
+          ownershipIdentity: `doflow:${id}:${assetId}:${change.relPath}`, kind: 'copy-tree-file', identity: change.relPath,
           afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: 'test', projection: { renderer: 'fake' },
         })),
       };
@@ -295,14 +296,15 @@ function copyTreeAdapter(id, { sourceDir, destDir }) {
     verify() {
       const target = path.join(destDir, 'run');
       return { ok: true, statuses: [], resources: fs.existsSync(target) ? [{
-        assetId: 'shared.tree', target, identity: 'run', kind: 'copy-tree-file',
-        ownershipIdentity: `doflow:${id}:shared.tree:run`, fingerprint: sha(target), sourceVersion: 'test', projection: { renderer: 'fake' },
+        assetId, target, identity: 'run', kind: 'copy-tree-file',
+        ownershipIdentity: `doflow:${id}:${assetId}:run`, fingerprint: sha(target), sourceVersion: 'test', projection: { renderer: 'fake' },
       }] : [] };
     },
   };
 }
 
-test('two claimants from different releases install and update over each other, and a hand edit is still refused', () => {
+/** Two claimants of one asset's tree, from different releases: alpha writes `new`, beta writes `old`. */
+function twoReleases(assetId) {
   const root = scratch('mixed');
   const destDir = path.join(root, 'shared');
   const releases = { alpha: 'new\n', beta: 'old\n' };
@@ -311,34 +313,55 @@ test('two claimants from different releases install and update over each other, 
     const sourceDir = path.join(root, `src-${id}`);
     fs.mkdirSync(sourceDir, { recursive: true });
     fs.writeFileSync(path.join(sourceDir, 'run'), content);
-    adapters[id] = copyTreeAdapter(id, { sourceDir, destDir });
+    adapters[id] = copyTreeAdapter(id, assetId, { sourceDir, destDir });
   }
   const registryAdapters = createAdapterRegistry(adapters);
+  const assetRegistry = { ...registry, assets: [{ ...registry.assets[0], id: assetId }] };
   const stateRoot = path.join(root, '.doflow', 'state');
-  const sha = (text) => require('node:crypto').createHash('sha256').update(text).digest('hex');
   let ledger = defaultLedger({ scope: 'project', scopeRoot: root });
-  const plan = (harness) => planLifecycle({ registry, adapters: registryAdapters, scope: 'project', scopeRoot: root, targets: [harness], ledger });
+  const plan = (harness) => planLifecycle({ registry: assetRegistry, adapters: registryAdapters, scope: 'project', scopeRoot: root, targets: [harness], ledger });
   const apply = (harness) => {
     const planned = plan(harness);
     assert.deepEqual(planned.conflicts, [], `${harness} must be accepted`);
-    ledger = applyLifecycle({ plan: planned, registry, adapters: registryAdapters, stateRoot, ledger }).ledger;
+    ledger = applyLifecycle({ plan: planned, registry: assetRegistry, adapters: registryAdapters, stateRoot, ledger }).ledger;
   };
   const rowOf = (harness) => ledger.resources.find((resource) => resource.harness === harness).fingerprint;
-  const run = path.join(destDir, 'run');
+  return { plan, apply, rowOf, run: path.join(destDir, 'run') };
+}
+
+const sha = (text) => require('node:crypto').createHash('sha256').update(text).digest('hex');
+
+test('two claimants of the runtime tree from different releases install and update over each other, a hand edit is still refused, and the replacement is noticed once', () => {
+  const { plan, apply, rowOf, run } = twoReleases('runtime.lib');
 
   apply('beta');
   assert.equal(fs.readFileSync(run, 'utf8'), 'old\n');
-  apply('alpha');   // a tree beta wrote, matching neither alpha's source nor any alpha row
+  assert.deepEqual(plan('beta').notices, [], 'a harness replacing nothing a sibling wrote prints no notice');
+  const replacing = plan('alpha');   // a tree beta wrote, matching neither alpha's source nor any alpha row
+  assert.deepEqual(replacing.notices, [{ harness: 'alpha', notice: 'replaced shared runtime files written by beta; reinstall that harness to restore them' }]);
+  assert.equal(replacing.safe, true, 'a notice never blocks');
+  apply('alpha');
   assert.equal(fs.readFileSync(run, 'utf8'), 'new\n');
+  assert.deepEqual(plan('alpha').notices, [], 'nothing left to replace, so nothing to say');
   assert.equal(rowOf('beta'), sha('old\n'), 'a sibling\'s row keeps the fingerprint it recorded');
   assert.equal(rowOf('alpha'), sha('new\n'));
-  apply('beta');    // a tree alpha wrote, from the other direction
+  assert.equal(plan('beta').notices.length, 1, 'beta replaces what alpha wrote, from the other direction');
+  apply('beta');
   assert.equal(rowOf('beta'), sha('old\n'));
   assert.equal(rowOf('alpha'), sha('new\n'), 'only the updating harness\'s row changes');
 
   fs.writeFileSync(run, 'hand edited\n');
   for (const harness of ['alpha', 'beta']) {
-    assert.deepEqual(plan(harness).conflicts.map((conflict) => conflict.reason), ['shared.tree: run was modified outside DoFlow']);
+    assert.deepEqual(plan(harness).conflicts.map((conflict) => conflict.reason), ['runtime.lib: run was modified outside DoFlow']);
+  }
+});
+
+test('a sibling row of a skills, guidance, template or hook asset does not excuse a differing file', () => {
+  for (const assetId of ['skills.core', 'guidance.context-layer', 'shared.tree']) {
+    const { plan, apply, run } = twoReleases(assetId);
+    apply('beta');
+    assert.equal(fs.readFileSync(run, 'utf8'), 'old\n');
+    assert.deepEqual(plan('alpha').conflicts.map((conflict) => conflict.reason), [`${assetId}: run was modified outside DoFlow`], assetId);
   }
 });
 
