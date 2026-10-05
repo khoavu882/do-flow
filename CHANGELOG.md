@@ -13,6 +13,132 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.14.0] - 2026-10-05
+
+### Added
+
+- Four runtime verbs keep what a feature leaves behind: `followup`, `lifecycle`, `goal` and
+  `failure`, reached through `doflow-run <verb>` (and `doflow <verb>`). They are available wherever
+  the DoFlow runtime is installed, which is the Claude Code, Codex and Gemini CLI targets today.
+- `/do maintain` in the `do` skill walks every open report, follow-up and (inside the DoFlow
+  repository) captured failure, and settles each with the user's answer: keep, dismiss, promote,
+  start a fix, or done with evidence. It adds no skill and no task class, and edits no source file.
+- A project follow-up list. `followup --action add|list|take|settle|promote|report` records what a
+  feature deferred, with its source (the feature and stage, a run, a release, a report or a manual
+  entry), a state (`open`, `taken`, `done`, `dismissed`) and the date added. Discovery
+  (`do-brainstorm`) shows the open follow-ups before it asks a question; `lifecycle --action init`
+  tracks the new feature and takes the chosen items; a taken item shows `done` once its feature is
+  finished. `promote` turns items into a new intent under `agent-docs/intent/` and never touches an
+  existing one. The handoff step records each deferral in the same step with
+  `followup --action add --stage <stage> --statement "<one line>"`, taking the feature from the
+  branch; an installed runtime finds the helper that resolves it next to the runtime. On a branch
+  whose feature has no folder, such as a bug or refactor run, the call writes nothing, exits 2 and
+  asks for `--slug <feature>` or `--source run --task-class <class> --task-id <id>`.
+- The lifecycle store. One write-once JSON file per change under `agent-docs/lifecycle/events/`
+  at the repository root (the first real working tree, so linked worktrees share it). There is no
+  marker file: every read folds the events in time order, so two clones holding the same files agree.
+  Feature status (`in-progress`, `awaiting-release`, `finished`) is derived from git on every read
+  and is never written. A read costs a fixed number of git processes, not a number per feature.
+  Measured by the implementer at 25, 100 and 300 features: about 22 git processes for the overview
+  and 30 for a preview behind the tip, independent of the number of features. Counted from Node
+  alone, a call starts 6 git processes for the overview, 16 for a preview behind the tip and 8 for
+  a preview at the tip, at any number of features. The overview prints the newest 10
+  finished and awaiting-release features with a count of the rest; `--json` keeps every one.
+- Release detection. `lifecycle --action release --tag vX.Y.Z` previews the tracked features a
+  release ships and writes nothing; after the tag exists, `--confirm` records the release locally, which
+  finishes those features and the follow-ups they took. `--feature` adds a feature git could not
+  detect and `--exclude` removes one. `lifecycle --action status` shows one feature's derived status
+  and `lifecycle --action merged` records a merge git cannot show. The release ritual previews it.
+- Reports. `followup --action report` files a product problem as a follow-up. The full body stays on
+  this machine, masked and capped at 1 MiB, under `${XDG_CONFIG_HOME:-$HOME/.config}/doflow/reports/`;
+  the project store keeps only the id, a masked 2 KB excerpt and the size.
+- Goals. `goal --action add|item|check|link|list|done` keeps one outcome and its checklist as
+  DoFlow's own record, independent of any harness command of the same name. A feature may serve one
+  goal and none has to. The agent proposes that a goal is done when every item is met; only a user
+  channel (`question`, `gate`, `prompt`) closes it, and a goal with unmet items needs a reason.
+- Machine-local failure capture. When a DoFlow command ends in an internal error (a programming
+  error, a system error with a code, an escaped throw), the dispatcher crashes, or a guard hook
+  fails open because its own install is broken, one masked line is appended to
+  `${XDG_CONFIG_HOME:-$HOME/.config}/doflow/failures/events.jsonl`. `failure --action list` folds the lines
+  into entries by fingerprint (new, regressed, noise, fixed, imported); `settle` records a verdict,
+  and in the DoFlow repository `--as imported` makes a follow-up. Capture is on by default; turn it
+  off with `failure --action capture --set off` (creates an `off` file) or
+  `DOFLOW_FAILURE_CAPTURE=off` (the file wins over the variable). Nothing is sent anywhere.
+- `do-git-state.sh --lifecycle` reports the integration ref, feature branch prefixes, release tags
+  and base tag for the lifecycle verbs, so bash and Node resolve them one way.
+- What you need to know:
+
+  - DoFlow never stages, commits or pushes `agent-docs/lifecycle/` or `agent-docs/intent/`, and writes
+    no `.gitignore`, `.gitattributes` or `.git/info/exclude` rule for them. What to do with the folder is
+    the user's decision.
+  - Failure capture and report bodies stay on the machine that produced them. No part of this feature
+    makes a network call. The verbs run local `git`, and `bash` for DoFlow's own `do-git-state.sh` and
+    `do-paths.sh` helpers.
+  - Stored text is shown print-safe. A follow-up, goal or failure line can come from another clone or a
+    hand edit, so control characters (terminal escapes included) and bidirectional marks in it are shown
+    as U+FFFD and line breaks as a space, both in the JSON a verb returns and in each printed line; a
+    report excerpt keeps its line breaks in JSON. Nothing stored is changed.
+  - The verbs treat a repository's files as untrusted. An event file is read only when it is a regular
+    file of at most 256 KiB, never through a symlink, FIFO or device, and anything else is listed as
+    unreadable with the reason; a symlinked `agent-docs/lifecycle` or `events` folder is refused with
+    exit 2. Writes to the store take a lock. `--batch` and `--file` read only regular files of at most
+    16 MiB. A report body has terminal escape sequences removed and is cut to a bounded size before it
+    is masked. A FIFO or other non-regular file where a failure file should be is skipped by every
+    capture writer and listed by `failure --action list`, so it never hangs a command or a hook. The
+    project label in a failure line written by the Node CLI or the hook runner never carries the home
+    path, whichever way home is spelled.
+  - Nothing in the loop blocks an edit, a write or a commit, and capture never changes a command's
+    output or exit status.
+  - The loop runs on the Claude Code, Codex and Gemini CLI targets, which carry the runtime. On the
+    other five targets the skills read but `doflow-run` is not projected, so the lines do nothing there.
+    Extending the runtime to them is recorded as a follow-up.
+- Known limits:
+
+  - A merge git cannot show is not detected as shipped: squash merges, rebase then fast-forward, plain
+    fast-forwards and cherry-picks give no evidence. They appear under `notDetected` in the release
+    preview and are added with `--feature <slug>` or confirmed with `lifecycle --action merged`.
+  - Release detection and pre-release tags: an unrecorded pre-release tag such as `v1.0.0-rc.1` can take
+    its features out of the final release, and recording a release after a later tag exists credits the
+    features to that later tag. The rule is not settled.
+  - Masking is best-effort, not a guarantee. A random 40-character key that starts with `/` can stay
+    unmasked (about 0.6% of such keys), and forms such as `curl -u user:pw`, `mysql -psecret` and
+    `password hunter2` can survive into a one-line statement or an excerpt. The machine-local report body
+    is the protection for what a report carries.
+  - The lifecycle events folder has no compaction step and grows with use. A feature folder that exists
+    only in a linked worktree is not tracked. An orphan report body is left if the process dies between
+    the body write and the event write.
+  - Goal checklist ids (`C1`, `C2`, ...) are numbered on each clone, so two clones adding an item at
+    once can pick the same id. The first in event order wins; the other is shown under the goal's
+    conflicts, with its text and a line saying how to add it again.
+  - The bash failure writers (the dispatcher and the hook helper) only append and never rotate. The
+    failure file is rotated the next time a Node writer or `failure --action list` runs.
+  - `failure --action settle` appends to `settlements.jsonl` with a plain append, so a FIFO placed at
+    that path blocks the settle until something reads it. Capture and every listing are not affected.
+  - The bash failure writers write `~` only for a working directory under `HOME` as spelled; with a
+    symlinked `HOME` or `HOME` unset they store the path as it is.
+  - What ran on the Codex target: a real install into a scratch home, with the lifecycle verbs run through the
+    projected Codex dispatcher and the release, report, goal and failure verbs run through the installed
+    runtime. The Codex CLI itself and any model were never invoked, and no Gemini target run was made.
+    Untested: a model driving the verbs on any target, and a project whose `v*` tags mix pre-releases.
+
+### Changed
+
+- `/do-execute-plan` no longer runs the per-phase quality review by default; pass `--review` to run it
+  (`--review=false` is gone). Documented in `docs/flags.md` and `docs/reference.md`.
+- No older behaviour changes. A feature, workflow run or folder created before this release works
+  as under 1.13.0, and its earlier follow-ups are not collected. An end-to-end test extracts the
+  v1.13.0 runtime with `git archive`, runs the chain verbs against it and against this checkout's
+  runtime, and requires the same bytes apart from time and generated ids; it skips, naming the
+  tag, when the `v1.13.0` tag is not in the clone. It compares the checkout, not an installed copy.
+- `git-state --next-version` now takes its base tag from one shared function, `find_base_tag`, which
+  the lifecycle output also uses; the proposal it prints is unchanged.
+- The loaded-context rails in `test/guards/context-budget.test.js` were raised for the new guidance
+  lines: the `feature` class from 224,000 to 225,000 bytes (the overview and init lines in
+  `do-brainstorm` and the follow-up line in the handoff step) and the `documentation` class from
+  56,000 to 57,000 (the handoff line). The always-loaded guidance did not grow.
+- `src/runtime/cli.js` and `src/runtime/cli-result.js` usage helpers take an optional error so a
+  programming error caught on a usage path is captured; the usage output and exit status are unchanged.
+
 ## [1.13.1] - 2026-10-03
 
 ### Fixed
