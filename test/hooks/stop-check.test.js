@@ -32,6 +32,10 @@ function stop(harness, payload) {
   return { code: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 
+// Each call gets its own session: a blocked message is not blocked a second time in the same session.
+let sidSeq = 0;
+const sid = () => `s${sidSeq++}`;
+
 let seq = 0;
 function transcript(lines) {
   const file = path.join(scratch.dir, `t${seq++}.jsonl`);
@@ -48,24 +52,24 @@ const SHAPES = [['claude', 3], ['codex', 2], ['legacy', 2]];
 for (const [shape, cleanLines] of SHAPES) {
   const lines = fixtureLines(shape);
   test(`${shape} transcript shape: a TODO in the last assistant turn exits 2`, () => {
-    const r = stop('claude', { session_id: 's1', transcript_path: transcript(lines) });
+    const r = stop('claude', { session_id: sid(), transcript_path: transcript(lines) });
     assert.equal(r.code, 2);
     assert.match(r.stderr, /TODO|stub/);
   });
   test(`${shape} transcript shape: a clean last assistant turn exits 0`, () => {
-    const r = stop('claude', { session_id: 's1', transcript_path: transcript(lines.slice(0, cleanLines)) });
+    const r = stop('claude', { session_id: sid(), transcript_path: transcript(lines.slice(0, cleanLines)) });
     assert.equal(r.code, 0);
   });
 }
 
 test('payload last_assistant_message with a TODO exits 2 without a transcript', () => {
-  assert.equal(stop('claude', { session_id: 's1', last_assistant_message: '// TODO: finish' }).code, 2);
+  assert.equal(stop('claude', { session_id: sid(), last_assistant_message: '// TODO: finish' }).code, 2);
 });
 
 test('a present last_assistant_message key, even null, wins over a transcript that has a TODO', () => {
   const t = transcript(fixtureLines('legacy'));
-  assert.equal(stop('claude', { session_id: 's1', transcript_path: t, last_assistant_message: null }).code, 0);
-  assert.equal(stop('claude', { session_id: 's1', transcript_path: t, last_assistant_message: '' }).code, 0);
+  assert.equal(stop('claude', { session_id: sid(), transcript_path: t, last_assistant_message: null }).code, 0);
+  assert.equal(stop('claude', { session_id: sid(), transcript_path: t, last_assistant_message: '' }).code, 0);
 });
 
 test('stop_hook_active exits 0 even with a TODO, and still drains the lint queue', () => {
@@ -81,31 +85,31 @@ test('stop_hook_active exits 0 even with a TODO, and still drains the lint queue
 
 test('a partial last line is skipped and the last complete clean turn decides', () => {
   const lines = fixtureLines('claude').slice(0, 3);
-  const r = stop('claude', { session_id: 's1', transcript_path: transcript([...lines, '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"# TO']) });
+  const r = stop('claude', { session_id: sid(), transcript_path: transcript([...lines, '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"# TO']) });
   assert.equal(r.code, 0);
 });
 
 test('a tool_use-only final entry leaves the last text turn in charge', () => {
   const toolOnly = '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"# TODO"}}]}}';
-  assert.equal(stop('claude', { session_id: 's1', transcript_path: transcript([...fixtureLines('claude').slice(0, 3), toolOnly]) }).code, 0);
+  assert.equal(stop('claude', { session_id: sid(), transcript_path: transcript([...fixtureLines('claude').slice(0, 3), toolOnly]) }).code, 0);
 });
 
 test('a foreign transcript schema exits 0 (fail open)', () => {
   for (const line of ['{"message":"no role field here, # TODO"}', '{"foo":["# TODO"]}', '[1,2]', 'not json']) {
-    assert.equal(stop('claude', { session_id: 's1', transcript_path: transcript([line]) }).code, 0, line);
+    assert.equal(stop('claude', { session_id: sid(), transcript_path: transcript([line]) }).code, 0, line);
   }
 });
 
 test('a missing transcript file or path exits 0', () => {
-  assert.equal(stop('claude', { session_id: 's1', transcript_path: path.join(scratch.dir, 'absent.jsonl') }).code, 0);
-  assert.equal(stop('claude', { session_id: 's1' }).code, 0);
+  assert.equal(stop('claude', { session_id: sid(), transcript_path: path.join(scratch.dir, 'absent.jsonl') }).code, 0);
+  assert.equal(stop('claude', { session_id: sid() }).code, 0);
 });
 
 test('codex front door: a stub exits 2 with the reason on stderr, clean prints {} and exits 0', () => {
-  const stub = stop('codex', { session_id: 's1', transcript_path: transcript(fixtureLines('codex')) });
+  const stub = stop('codex', { session_id: sid(), transcript_path: transcript(fixtureLines('codex')) });
   assert.equal(stub.code, 2);
   assert.match(stub.stderr, /TODO|stub/);
-  const clean = stop('codex', { session_id: 's1', transcript_path: transcript(fixtureLines('codex').slice(0, 2)) });
+  const clean = stop('codex', { session_id: sid(), transcript_path: transcript(fixtureLines('codex').slice(0, 2)) });
   assert.equal(clean.code, 0);
   assert.equal(clean.stdout.trim(), '{}');
 });
@@ -115,10 +119,31 @@ test('codex front door: a crashing policy prints {} and exits 0', () => {
   const original = fs.readFileSync(policy);
   fs.writeFileSync(policy, '#!/usr/bin/env bash\nexit 1\n');
   try {
-    const r = stop('codex', { session_id: 's1', last_assistant_message: '# TODO: x' });
+    const r = stop('codex', { session_id: sid(), last_assistant_message: '# TODO: x' });
     assert.equal(r.code, 0);
     assert.equal(r.stdout.trim(), '{}');
   } finally {
     fs.writeFileSync(policy, original);
   }
+});
+
+test('a large message with an early marker still exits 2', () => {
+  const r = stop('claude', { session_id: sid(), last_assistant_message: `# TODO: x\n${'a'.repeat(100000)}` });
+  assert.equal(r.code, 2);
+});
+
+test('the same blocked message blocks once; a different message blocks again', () => {
+  const session = sid();
+  const say = (text) => stop('claude', { session_id: session, last_assistant_message: text });
+  assert.equal(say('# TODO: one').code, 2);
+  assert.equal(say('# TODO: one').code, 0, 'the unchanged continuation is let through');
+  assert.equal(say('# TODO: two').code, 2, 'new text is judged afresh');
+});
+
+test('without a session_id the once-only guard is keyed by the transcript', () => {
+  const t = transcript(fixtureLines('legacy'));
+  const run = (file) => stop('claude', { transcript_path: file });
+  assert.equal(run(t).code, 2);
+  assert.equal(run(t).code, 0);
+  assert.equal(run(transcript(fixtureLines('legacy'))).code, 2, 'another conversation is not excused');
 });

@@ -12,9 +12,10 @@
 #      last assistant message in the JSONL transcript (Claude Code, Codex and
 #      flat {role,content} shapes), then checks for unfinished-work markers.
 #      Exits non-zero if stubs are found (blocks the session from stopping).
-#      Runs independently of (1) — it only needs a transcript path, not a
-#      session_id, so it still fires for a harness that has no edited-files
-#      queue.
+#      Runs independently of (1) — it needs only the payload field or a
+#      transcript path, not a session_id, so it still fires for a harness that
+#      has no edited-files queue. A given message blocks once: harnesses without
+#      stop_hook_active (Antigravity, Kiro) have no other loop guard.
 #   3. Process-leak scan: DoFlow's own identifiers (FR-###, agent-docs/, chain
 #      artifact names) reaching files that ship. Warns, never blocks.
 #
@@ -196,7 +197,19 @@ fi
 # non-word character or end-of-string instead, so "TODOX" doesn't match.
 STUB_PATTERN='(#|//)[[:space:]]*(TODO|FIXME)([^[:alnum:]_]|$)|raise NotImplementedError|throw new Error\(.*[Nn]ot [Ii]mplemented|(#|//)[[:space:]]*stub([^[:alnum:]_]|$)'
 
-if echo "$LAST_ASSISTANT_CONTENT" | grep -qiE -- "$STUB_PATTERN" 2>/dev/null; then
+if grep -qiE -- "$STUB_PATTERN" <<<"$LAST_ASSISTANT_CONTENT" 2>/dev/null; then
+  # Block a given message once: the continuation that follows is judged on new text, and a
+  # harness with no stop_hook_active would otherwise be blocked on this one forever. State is
+  # per session, or per transcript when the harness sends no session_id; any failure here
+  # leaves the block in force only for this call.
+  GUARD_KEY="$SESSION_ID"
+  [ -z "$GUARD_KEY" ] && GUARD_KEY="t$(printf '%s' "$TRANSCRIPT_PATH" | cksum | cut -d' ' -f1)"
+  GUARD_FILE="$(ensure_session_dir "$GUARD_KEY" 2>/dev/null)/stop-last-blocked" || GUARD_FILE=""
+  MESSAGE_SUM=$(printf '%s' "$LAST_ASSISTANT_CONTENT" | cksum 2>/dev/null) || MESSAGE_SUM=""
+  if [ -n "$MESSAGE_SUM" ] && [ -n "$GUARD_FILE" ] && [ "$(cat "$GUARD_FILE" 2>/dev/null)" = "$MESSAGE_SUM" ]; then
+    exit 0
+  fi
+  [ -n "$MESSAGE_SUM" ] && [ -n "$GUARD_FILE" ] && { printf '%s\n' "$MESSAGE_SUM" > "$GUARD_FILE"; } 2>/dev/null || true
   echo "[stop-check] The last response contains an unfinished-work marker (TODO/FIXME/stub comment or a not-implemented raise/throw)." >&2
   exit 2
 fi

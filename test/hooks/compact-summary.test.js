@@ -34,9 +34,9 @@ function project(branch) {
   return fs.realpathSync(dir);
 }
 
-function hook(harness, script, payload) {
+function hook(harness, script, payload, env = {}) {
   const r = spawnSync('bash', [path.join(mirror, `.${harness}`, 'hooks', script)], {
-    input: JSON.stringify(payload), env: scratch.env(), encoding: 'utf8',
+    input: JSON.stringify(payload), env: scratch.env(env), encoding: 'utf8',
   });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout;
@@ -47,9 +47,9 @@ function compact(sessionId, cwd, summary) {
 }
 
 /** One prompt of a session: session-start on its first call, then the prompt hook. Returns the injected context. */
-function prompt(harness, sessionId, cwd, { first = true } = {}) {
+function prompt(harness, sessionId, cwd, { first = true, env } = {}) {
   if (first) hook(harness, 'session-start.sh', { session_id: sessionId, cwd, source: 'startup' });
-  const out = JSON.parse(hook(harness, 'user-prompt-submit.sh', { session_id: sessionId, cwd }) || '{}');
+  const out = JSON.parse(hook(harness, 'user-prompt-submit.sh', { session_id: sessionId, cwd }, env) || '{}');
   return out.additionalContext ?? out.hookSpecificOutput?.additionalContext ?? '';
 }
 
@@ -60,13 +60,6 @@ function summaryFileFor(cwd) {
   const file = path.join(SUMMARY_DIR, hash, 'last-compact-summary.md');
   return fs.existsSync(file) ? file : undefined;
 }
-
-test('a second prompt in the same session gets nothing', () => {
-  const cwd = project();
-  compact('A', cwd, 'SUMMARY-ONE');
-  assert.match(prompt('claude', 'B', cwd), /SUMMARY-ONE/);
-  assert.equal(prompt('claude', 'B', cwd, { first: false }), '');
-});
 
 test('a fresh Claude session gets the summary once and the file is consumed; a later Codex session gets nothing', () => {
   const cwd = project();
@@ -110,4 +103,67 @@ test('the header names the compaction time and branch from the file, and omits w
   const ctx = prompt('claude', 'I', noBranch);
   assert.match(ctx, /^\[Prior session summary, compacted \d{4}-\d\d-\d\dT[\d:]+Z\]$/m);
   assert.doesNotMatch(ctx, /unknown/);
+});
+
+/** A `jq` ahead of the real one on PATH that runs `before` (bash) on every call, then execs the real jq. */
+function fakeJq(before) {
+  const bin = path.join(scratch.dir, `bin${seq++}`);
+  fs.mkdirSync(bin);
+  const real = spawnSync('sh', ['-c', 'command -v jq'], { encoding: 'utf8' }).stdout.trim();
+  fs.writeFileSync(path.join(bin, 'jq'), `#!/usr/bin/env bash\n${before}\nexec "${real}" "$@"\n`, { mode: 0o755 });
+  return { PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+}
+const REJECT_RAWFILE = 'for a in "$@"; do [ "$a" = --rawfile ] && exit 2; done';
+
+test('a jq without --rawfile support does not fail the hook and does not wedge the next prompt', () => {
+  const cwd = project();
+  compact('A', cwd, 'SUMMARY-NORAW');
+  assert.doesNotMatch(prompt('claude', 'J', cwd, { env: fakeJq(REJECT_RAWFILE) }), /SUMMARY-NORAW/);
+  assert.equal(prompt('claude', 'J', cwd, { first: false }), '');
+  assert.ok(prompt('claude', 'K', cwd), 'a later session still gets its context');
+});
+
+test('an unreadable summary file does not fail the hook', { skip: process.getuid?.() === 0 }, () => {
+  const cwd = project();
+  compact('A', cwd, 'SUMMARY-LOCKED');
+  fs.chmodSync(summaryFileFor(cwd), 0o000);
+  assert.doesNotMatch(prompt('claude', 'L', cwd), /SUMMARY-LOCKED/);
+  assert.equal(prompt('claude', 'L', cwd, { first: false }), '');
+});
+
+test('a symlinked summary file is not followed', () => {
+  const cwd = project();
+  compact('A', cwd, 'placeholder');
+  const file = summaryFileFor(cwd);
+  const target = path.join(scratch.dir, 'secret.md');
+  fs.writeFileSync(target, '---\nsession_id: A\n---\n\nSYMLINK-SECRET\n');
+  fs.rmSync(file);
+  fs.symlinkSync(target, file);
+  assert.doesNotMatch(prompt('claude', 'M', cwd), /SYMLINK-SECRET/);
+});
+
+test('the file is claimed before it is read: a summary written meanwhile survives', () => {
+  const cwd = project();
+  compact('A', cwd, 'SUMMARY-OLD');
+  const file = summaryFileFor(cwd);
+  const writeNewer = `for a in "$@"; do [ "$a" = --rawfile ] && printf -- '---\\nsession_id: Z\\n---\\n\\nSUMMARY-NEWER\\n' > "${file}"; done`;
+  assert.match(prompt('claude', 'N', cwd, { env: fakeJq(writeNewer) }), /SUMMARY-OLD/);
+  assert.match(fs.readFileSync(file, 'utf8'), /SUMMARY-NEWER/);
+});
+
+test('a CRLF summary written by the session itself is still recognised and skipped', () => {
+  const cwd = project();
+  compact('A', cwd, 'SUMMARY-CRLF');
+  const file = summaryFileFor(cwd);
+  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/\n/g, '\r\n'));
+  assert.doesNotMatch(prompt('claude', 'A', cwd), /SUMMARY-CRLF/);
+  assert.ok(summaryFileFor(cwd));
+});
+
+test('an oversized summary file is read in bounded form and cut to the cap', () => {
+  const cwd = project();
+  compact('A', cwd, 'y'.repeat(1000000));
+  const ctx = prompt('claude', 'O', cwd);
+  assert.ok(ctx.length < 5000, `context is ${ctx.length} characters`);
+  assert.match(ctx, /\[summary truncated: first 4000 of at least \d+ characters\]$/);
 });

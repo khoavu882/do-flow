@@ -559,7 +559,7 @@ printf '%s\n' '{"type":"response_item","payload":{"type":"message","role":"user"
 printf '%s\n' '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"def foo():\n    # TODO: implement this\n    pass"}]}}' >> "$T4"
 
 EXIT4=$("${SANDBOXED[@]}" bash "$MIRROR/.codex/hooks/stop-check.sh" \
-  <<< "{\"session_id\":\"$SESS\",\"transcript_path\":\"$T4\"}" 2>/dev/null >&2; echo $?)
+  <<< "{\"session_id\":\"verify-sess-codex-stop\",\"transcript_path\":\"$T4\"}" 2>/dev/null >&2; echo $?)
 if [[ "$EXIT4" == "2" ]]; then
   pass "Codex rollout shape: TODO in last assistant → exit 2 (front door keeps the block)"
 else
