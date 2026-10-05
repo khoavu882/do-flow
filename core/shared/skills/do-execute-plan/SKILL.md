@@ -1,7 +1,7 @@
 ---
 name: do-execute-plan
 description: "Execute plan.md's task checklist: subagent-driven orchestration over named specialist archetypes (system-architect, core-implementer, quality-guardian) with prerequisite gates, readiness contracts, and parallel execution. Use whenever requirement.md, design.md, and plan.md exist and the next step is building the plan's tasks through subagents, or when the user says 'execute the plan', 'run the plan', 'start building', or 'implement phase N'. Always activate this skill to orchestrate multi-task implementation plans with write-set isolation."
-argument-hint: "[--scope next|phase:N|all|resume] [--review[=false]] [--scaffold]"
+argument-hint: "[--scope next|phase:N|all|resume] [--review] [--scaffold]"
 effort: high
 ---
 
@@ -11,7 +11,7 @@ Phase 4 of the DoFlow chain. Executes the task checklist in `plan.md` using spec
 
 ## Invocation
 ```text
-/do-execute-plan [--scope next|phase:N|all|resume] [--review[=false]] [--scaffold]
+/do-execute-plan [--scope next|phase:N|all|resume] [--review] [--scaffold]
 ```
 
 ## Behavioral Flow
@@ -207,10 +207,10 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
    - This is bookkeeping, not a gate: a write failure here degrades resumability, not correctness —
      report it and continue rather than treating it as a task failure.
 
-9. **Phase Quality Review** (`--review`):
-   - Review each phase upon completion for spec compliance before advancing. This runs by default;
-     `--review=false` is the only way to skip it, and skipping it is reported in the phase's
-     completion summary rather than passing silently.
+9. **Phase Quality Review** (`--review`, opt-in):
+   - Off by default. With `--review`, review each phase on completion for spec compliance before
+     advancing. Without it no per-phase review runs: the completion summary says "per-phase review:
+     not requested"; review at `/do-code-review` after the test stage (or the caller's final review).
 
 10. **Record the Handoff**:
     - Before recording it, follow the decision step in the guidance tree's

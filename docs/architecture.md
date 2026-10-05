@@ -164,6 +164,131 @@ four-state verdict — `READY`, `NEEDS_EVIDENCE`, `NEEDS_USER_DECISION`, `BLOCKE
 item named, never a numeric confidence. Verification is risk-scaled: the tiers that run and the
 number of recovery attempts allowed are both derived from the risk level, not chosen per invocation.
 
+## The lifecycle loop
+
+Four runtime verbs, `followup`, `lifecycle`, `goal` and `failure`, keep what a feature leaves
+behind. They are wired the way `decision` is: a flag-table entry and help line in `src/cli/index.js`,
+one `case` in `src/cli/runtime-commands.js`, an `is_node_verb` entry and usage line in the
+dispatcher, a row in [Reference](reference.md), and the literal `doflow-run <verb>` in
+`core/shared/skills/do/SKILL.md`. For how it reads to a user, see [How DoFlow
+works](how-doflow-work.md#after-the-chain-the-lifecycle-loop).
+
+### Module map
+
+| Path | Owns |
+|---|---|
+| `src/runtime/mask.js` | Best-effort masking and failure-message normalisation, in two profiles (line and body). Used by the follow-up service, the report store and the failure writer |
+| `src/runtime/lifecycle/root.js` | The project root a store is keyed by: the first real working tree in `git worktree list`, else the current worktree's root, else the working directory |
+| `src/runtime/lifecycle/event-store.js` | Write-once event files under `agent-docs/lifecycle/events/`: id and `at` stamping, exclusive create, the store lock, the pre-write fold check |
+| `src/runtime/lifecycle/fold.js` | The pure fold of events into follow-ups, tracked features, goals and release records, with conflicts. No file or git access |
+| `src/runtime/lifecycle/followup.js`, `goal.js` | The follow-up and goal services; each returns a result object and never prints |
+| `src/runtime/lifecycle/intent-writer.js` | Creates a new intent for `followup --action promote`, from headings fixed in code |
+| `src/runtime/lifecycle/report-store.js` | The machine-local report body and its masked excerpt |
+| `src/runtime/lifecycle/status.js` | Feature status derived from git and release records, never written |
+| `src/runtime/lifecycle/overview.js`, `release.js` | `overview`, `init`, `status`; `release` and `merged` |
+| `src/runtime/lifecycle/cli.js` | The `followup`, `lifecycle` and `goal` handlers: flag checks, text output, exit codes |
+| `src/runtime/failure/home.js`, `classifier.js` | Where the failure home is and whether capture is on; the programming-error classifier |
+| `src/runtime/failure/capture.js`, `store.js`, `cli.js` | The Node writer with rotation; the reader, fingerprints and settlements; the `failure` handler |
+
+### The store
+
+One directory, one file per change. Root rules, the write-once guarantee and the fold order are in the
+module headers of `root.js`, `event-store.js` and `fold.js`; the event types are:
+
+| Type | `data` fields |
+|---|---|
+| `followup.added` | `id`, `statement`, `source`; for a report also `excerpt`, `bodyRef`, `bodyBytes` |
+| `followup.taken` | `ids`, `feature` |
+| `followup.settled` | `id`, `as` (`kept`, `dismissed`, `fix`, `done`), `reason`, `evidence` |
+| `followup.promoted` | `ids`, `intent` (root-relative path) |
+| `feature.tracked` | `slug` |
+| `feature.merged` | `slug`, `reason` |
+| `goal.added` | `goal`, `outcome`, `items` |
+| `goal.item-added` | `goal`, `item` |
+| `goal.checked` | `goal`, `item`, `met`, `evidence` |
+| `goal.linked` | `goal`, `slug`, `replace` |
+| `goal.done` | `goal`, `reason` |
+| `release.recorded` | `tag`, `commit`, `features`, `excluded` |
+
+Every event carries `v`, `id`, `type`, `at`, `by` and `data`. A file whose name is not an event id is
+ignored; one that does not parse is skipped and listed as `unreadable`; a transition that is illegal
+at its place in the order is not applied and is listed as a conflict. A write is refused with
+`store-locked` when the store lock cannot be taken in time. Nothing in the store is ever edited or deleted by DoFlow, and
+nothing in it is staged, committed or ignored by DoFlow.
+
+### Release detection
+
+A feature's status is derived from the **integration ref**: the first that exists of `develop`,
+`origin/develop`, `main`, `origin/main`, `master`, `origin/master` and `origin/HEAD` (DEC-044). The
+release preview and the status view take it from one function, `lifecycle_integration_ref` in
+`do-git-state.sh`, so a preview before the tag and the overview agree; code that needs the ref calls
+that function and never resolves it a second way. When the pinned ref is a local branch behind its
+`origin` counterpart the result carries `integrationBehind` and a note, and the status is still
+derived from the local ref. A project with no `v*` tag finishes features at merge; with one, a
+feature finishes when a release record names it, or when its merge is contained in a tag that has no record.
+
+The Node runtime finds `do-git-state.sh` inside the package, else in the `bash` folder of the scripts
+installed beside its runtime (DEC-048), and reports `git-state-helper-missing` when neither exists. The
+runtime that is installed carries only `bin/`, `src/` and `core/registry/`, so a path under
+`core/shared/` does not exist there. `scope-bound.js` and `feature-resolve.js` still use the older
+pattern; that is recorded as a follow-up, not fixed here.
+
+### Failure capture
+
+Capture is a side channel that must not be noticed by the command it observes: it writes no byte to
+stdout or stderr, never throws, takes no lock and never changes an exit status. Every writer
+appends one JSON line to `events.jsonl` under `${XDG_CONFIG_HOME:-$HOME/.config}/doflow/failures/`,
+and is a no-op when no absolute home resolves or the switch is off (the `off` file, or
+`DOFLOW_FAILURE_CAPTURE` set to `off`, `0`, `false` or `no`). Only Node rotates the file.
+
+| Capture point | Records | Is not recorded |
+|---|---|---|
+| `main()` catch in `src/cli/index.js`, the usage-error catch sites in `src/runtime/cli.js` and the three exit-1 catch-and-convert sites | An error the classifier calls a programming error: `TypeError`, `RangeError`, `ReferenceError`, an assertion, `MODULE_NOT_FOUND`, a Node system error with a code | A bad flag, a refusal or finding, `EPIPE`, a plain `Error`, a `SyntaxError`, an `AggregateError`, an error class a verb defines and catches |
+| `uncaughtExceptionMonitor`, registered in `bin/doflow.js` before the CLI loads | The same classes, as `uncaught:<kind>` | The same exclusions |
+| Dispatcher: `helper-missing`, `helpers-not-found`, a symlink loop, a verb status outside 0, 1 and 2 | The reason or `exit-<n>`; no message | 127, 130, 141, 143, status 3 from `task-brief`, caller mistakes (`no-verb`, `unknown-verb`, `node-not-found`, `cli-not-found`, `unlinked-checkout`, `stale-runtime`), a missing `jq` |
+| Hook helper `capture-failure.sh`, called by `pre-bash-guard.sh` (`patterns-missing`) and `mcp-tool-guard.sh` (`policy-file-missing`) | A guard that fails open because its own install is broken | A deny, a missing `jq` |
+| `stream-hook-runner.js`: `runner-exception`, `policy-exec-fault:<signal>` | A runner crash; a policy killed by a signal other than `SIGINT`, `SIGTERM` or `SIGPIPE` | A missing `bash`, a permission error |
+
+An environment error such as `EACCES` on the project store matches the system-error rule and is
+recorded; `/do maintain` settles it as noise. The hook runner carries its own copy of the writer and
+of the classifier, because hook files are installed without the runtime library, and a test requires
+the two classifiers to agree. A policy calls the helper only inside a subshell and a branch where it
+already fails open, so no option or variable of the helper reaches the policy. A bash line is kept at
+or under 1000 bytes and a Node line at or under 2048, so concurrent appends do not interleave.
+Fingerprints are computed by the reader, never by a writer, and `failure --action settle` is the only
+writer of `settlements.jsonl`.
+
+### Harness reach
+
+The runtime is projected to `claude`, `codex` and `gemini` only (the `scripts.doflow` and
+`runtime.*` assets, DEC-024). The other five harnesses get skills and the locator shim but no
+`doflow-run`, so the follow-up, capture and maintain lines do nothing there: an installed skill's
+resolver stops with a message naming where it looked for a runtime. Extending the runtime to them is a separate piece of work, recorded as a follow-up in the local
+store. Nothing in the loop depends on one harness's own commands; a goal is DoFlow's record, whatever
+a harness's own `goal` command does.
+
+### Guards this feature touched
+
+- **G4** (`flags.test.js`): `--stage` and `--statement` are the runtime `followup` verb's own
+  arguments, quoted in `WORKFLOW_HANDOFF.md`, so they are on the `NOT_FRAMEWORK_FLAGS` list with that
+  reason. A new runtime-verb flag quoted in guidance goes on the same list; do not add it to `FLAGS.md`.
+- **G13** (`context-budget.test.js`): the loaded-context rails of the `feature` class (224,000 to
+  225,000 bytes) and the `documentation` class (56,000 to 57,000) were raised for the lifecycle
+  lines in `do-brainstorm` and the follow-up line in `WORKFLOW_HANDOFF.md` (the `documentation` rail
+  only for the second, which `do-test` and `do-code-review` load). When a rail fails, measure
+  it, record the measured value and the reason beside the rail, and raise it deliberately in its own
+  commit; do not trim an unrelated file to fit. The `dependency-change` rail has little headroom.
+- **G16** (`module-reachability.test.js`): every module in `src/runtime/lifecycle/`, `src/runtime/failure/`
+  and `mask.js` must be reached by a static `require()` literal. The failure modules are required
+  lazily (in `bin/doflow.js` inside a `try`, in `runtime-commands.js` inside a function), so the CLI runs
+  without them; keep the `require('<literal path>')` form when you add one.
+- **G17** (`verb-reachability.test.js`): each of the four verbs must be spelled `doflow-run <verb>` in
+  a skill file; the `do` skill line does it, so no allowlist entry exists. Spell a new verb in a skill
+  or the guard fails.
+
+When one of these fails, the stale side is almost always a skill line, a flag list or a rail, not the
+guard; fix that side.
+
 ## Ownership and projection boundary
 
 Every target has three distinct ownership domains:
@@ -300,7 +425,7 @@ the G18 pair — between them the reason the list runs G18 then G20; and `bounda
   entry rather than a skill, and copy-tree'ing the guidance directory is not reachability — that is
   how an orphaned pointer shipped to five harnesses while naming a directory the install had
   flattened away.
-- **G4** (`flags.test.js`) — `FLAGS.md` entries are wired to a real consumer and vice versa.
+- **G4** (`flags.test.js`) — `FLAGS.md` entries are wired to a real consumer and vice versa. A flag that is a runtime verb's own argument (such as `--stage` and `--statement` of `followup`) is listed with its reason rather than added to `FLAGS.md`.
 - **G5** (`registry.test.js`) — the only guard that reads `src/` and `core/harnesses/` as data;
   checks registry claims against what's actually implemented.
 - **G6** (`docs.test.js`) — documented inventories match reality: the skill list in
@@ -339,7 +464,7 @@ the G18 pair — between them the reason the list runs G18 then G20; and `bounda
 - **G13** (`context-budget.test.js`, same number, different guard) — the DoFlow-authored
   always-loaded set stays within its byte ceiling and every import in it resolves; and every task
   class stays within its loaded-context rail (SKILL.md entries plus named references, summed over
-  the class's resolved workflow skills — a coarse drift rail, not a byte-exact pin).
+  the class's resolved workflow skills — a coarse drift rail, not a byte-exact pin). A rail is raised deliberately, in its own commit, with the measured value beside it.
 - **G14** (`agent-specs.test.js`) — an agent specification references no file outside itself, since
   a dispatched agent has no working directory to resolve one against.
 - **G15** (`skill-seam.test.js`) — one path to the runtime entrypoint, one spelling of the resolver

@@ -34,6 +34,14 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 "$DOFLOW" paths --json
 ```
 
+   - `/do maintain` (`$1` is `maintain`): note the start time `T`, run
+     `doflow-run lifecycle --action overview --maintain --since T --json` (`doflow-run` is the
+     `$DOFLOW` resolved above), and settle each pending item with the question tool through the
+     `doflow-run followup`, `doflow-run goal` or `doflow-run failure` command its `next` lines give.
+     Rerun with the same `--since T` until nothing is pending. A product problem the user reports
+     goes to `doflow-run followup --action report`; a large goal they state, to
+     `doflow-run goal --action add`. It edits no source file.
+
 2. **Multi-Part / Ambiguous Request Routing (`--depth`)**:
    - When a request bundles 2+ unrelated asks across different files or domains, verify referenced files exist first.
    - Decompose into independent or sequenced work packages, then propose **one task class per

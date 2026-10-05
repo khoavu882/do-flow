@@ -35,7 +35,7 @@ phase, not a guard failure by itself.
 | --from | do-flow | brainstorm \| design \| plan \| implement \| test \| review | override phase auto-detection |
 | --from-review | do-implement | (boolean flag) | work from review findings |
 | --intent | do-brainstorm | path to an `agent-docs/intent/` file | seed discovery from a pre-branch intent |
-| --review | do-execute-plan | boolean, `=false` to skip | post-execution review pass, on by default |
+| --review | do-execute-plan | (boolean flag) | opt-in post-phase review pass, off by default |
 | --scaffold | do-execute-plan | (boolean flag) | emit a reviewable code scaffold under the feature dir instead of executing |
 | --scope | do-execute-plan | next \| phase:N \| all \| resume | which pending work this run executes |
 | --type | do-design | architecture \| api \| component \| database | design artifact type |

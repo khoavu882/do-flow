@@ -140,12 +140,16 @@ test('G13: the DoFlow-authored always-loaded set stays within its byte ceiling',
 // Measured 2026-10-03: bug and refactor 70,099 after do-implement gained its decision-step pointer in step 5
 // (do-code-review 24,923 + do-diagnose 19,063 + do-implement 15,288 + do-test 10,825).
 // Measured 2026-10-03: feature 222,216 after feature 044's decision-register guidance (+3,123 over 219,093).
+// Measured 2026-10-03: feature 224,157 after feature 046's lifecycle lines (+658 over 223,499 before them:
+// do-brainstorm's overview and init lines, 448, plus the follow-up line in WORKFLOW_HANDOFF.md, 210).
+// Measured 2026-10-03: documentation 56,210 after the follow-up line in WORKFLOW_HANDOFF.md (+210 over 56,000;
+// do-test and do-code-review load it).
 const TASK_CONTEXT_RAILS = new Map([
-  ['feature', 224000], // 044 raise is new prose (decision-register guidance); the 220000 base was a rebase
+  ['feature', 225000], // 046 raise is new prose (lifecycle overview and init lines, follow-up line in the handoff step)
   ['dependency-change', 85000],
   ['bug', 71000],
   ['refactor', 71000],
-  ['documentation', 56000],
+  ['documentation', 57000],
   ['operations', 45000],
   ['review', 42000],
   ['research', 35000],

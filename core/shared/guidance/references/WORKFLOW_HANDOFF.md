@@ -36,6 +36,10 @@ can predate the register) and, when it reports `has_decisions: true`:
 | planning | `plan.md` |
 | implementation, verification, review | none; findings are reported |
 
+With or without a register, record in this step each finding left unfixed, item named out of scope
+and gate answer that defers work:
+`"$DOFLOW" followup --action add --stage <stage> --statement "<one line>"`.
+
 ## The handoff call
 
 After a skill finishes its work, call the resolved runtime seam:

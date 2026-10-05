@@ -76,8 +76,9 @@ surface the error — do not proceed with a partial grouping.
 
 ## 4. Phase-level quality review
 
-Once every group in a phase reports complete, run an integrated phase quality review before
-advancing. A finding that does not clear on the first fix goes to
+Only when `--review` was given: once every group in a phase reports complete, run an integrated
+phase quality review before advancing. Without it, a group's completion goes straight to the
+evidence and `state.md` steps. A finding that does not clear on the first fix goes to
 `"$DOFLOW" recover --error "<what failed>" --failed-check "<check id>" --iteration <n> --json`.
 Exit 0 means a bounded retry is available (`canRetry: true`); exit 1 means the loop must stop —
 report where it stopped and why, quoting the returned `reason`. The bound is the runtime's

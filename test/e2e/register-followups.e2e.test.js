@@ -765,7 +765,11 @@ describe('NFR-004: no write-time hook or refusal was added', { skip: SKIP }, () 
     if (!haveTagOrSkip(t, 'v1.12.0')) return;
     const tagged = spawnSync('git', ['ls-tree', '-r', '--name-only', 'v1.12.0', 'core'], { cwd: REPO, encoding: 'utf8' }).stdout
       .split('\n').filter((f) => /(^|\/)hooks\//.test(f) || /hooks\.json$/.test(f)).sort();
-    assert.deepStrictEqual(hookFiles(), tagged, 'no hook file was added or removed since v1.12.0');
+    // Feature 046 adds exactly one file: the failure capture helper (IC-018, DEC-032). It is sourced
+    // inside the two guard policies' existing fail-open branches and has no wiring entry, so the
+    // no-write-time-hook intent holds; the wiring comparison below stays strict.
+    const failureCaptureHelper = 'core/harnesses/shared/hooks/policies/capture-failure.sh';
+    assert.deepStrictEqual(hookFiles().filter((f) => f !== failureCaptureHelper), tagged, 'no hook file was added or removed since v1.12.0');
     const old = JSON.parse(gitShow('v1.12.0', 'core/harnesses/claude/settings/settings.json'));
     assert.deepStrictEqual(settings.hooks, old.hooks, 'the claude hook wiring is unchanged since v1.12.0');
   });

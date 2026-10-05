@@ -55,8 +55,9 @@ out. `readiness_gate.md`, referenced below, sits beside this file.
      `--scope` are inputs you **state**, not evidence the gate measured — the same
      `callerAsserted` rule step 4 sets out. Pass them when they are true, and say in the report
      which part of the verdict rests on a statement. `--result` reflects step 9's phase review
-     (and step 6's own check runs), never asserted as `passed` when a review finding was left
-     unfixed.
+     (when it ran) and step 6's own check runs, never asserted as `passed` when a review finding
+     was left unfixed. Without `--review` the result rests on the verification the run did, and the
+     note says the per-phase review was not requested.
 - **Report the resulting `disposition` plainly.** `completed` means the evidence item and both
   stated inputs satisfied the cascade and the cursor advanced to the verification stage — check
   its `awaitingGate`; `null` means no gate follows this stage in this workflow. `deferred` means

@@ -365,6 +365,53 @@ trap - EXIT
 pass "mcp-policy.conf restored to shipped (empty) state after policy-matching test"
 
 # ══════════════════════════════════════════════════════════════════════════════
+section "4b2. capture-failure.sh (failure capture helper, feature 046)"
+# ══════════════════════════════════════════════════════════════════════════════
+
+CAP_POLICIES="$MIRROR/.doflow/shared/hooks/policies"
+CAP_HELPER="$CAP_POLICIES/capture-failure.sh"
+CAP_XDG="$TEST_HOME/.config"
+CAP_EVENTS="$CAP_XDG/doflow/failures/events.jsonl"
+
+if [[ -x "$CAP_HELPER" ]]; then
+  pass "capture-failure.sh ships beside the policies and is executable"
+else
+  fail "capture-failure.sh missing or not executable in the policy folder"
+fi
+
+rm -rf "$CAP_XDG/doflow/failures"
+CAP_OUT=$(env HOME="$TEST_HOME" XDG_CONFIG_HOME="$CAP_XDG" DOFLOW_FAILURE_CAPTURE="" \
+  bash -c 'set -uo pipefail; . "$1"; doflow_capture_failure pre-bash-guard patterns-missing; echo "status=$?"' x "$CAP_HELPER" 2>&1) || true
+if [[ "$CAP_OUT" == "status=0" ]]; then
+  pass "helper sourced under the guards' own options: status 0, no stdout or stderr"
+else
+  fail "helper printed or failed: $CAP_OUT"
+fi
+
+if [[ "$(jq -r '[.v,.source,.command,.kind,.message,(.frame|tostring),(.exit|tostring)]|join("|")' "$CAP_EVENTS" 2>/dev/null)" == "1|hook|pre-bash-guard|patterns-missing||null|null" ]]; then
+  pass "helper appended one IC-011 hook line"
+else
+  fail "helper line missing or malformed: $(cat "$CAP_EVENTS" 2>/dev/null)"
+fi
+
+rm -rf "$CAP_XDG/doflow/failures"
+env HOME="$TEST_HOME" XDG_CONFIG_HOME="$CAP_XDG" DOFLOW_FAILURE_CAPTURE=off \
+  bash -c '. "$1"; doflow_capture_failure pre-bash-guard patterns-missing' x "$CAP_HELPER" >/dev/null 2>&1 || true
+if [[ ! -e "$CAP_XDG/doflow/failures" ]]; then
+  pass "DOFLOW_FAILURE_CAPTURE=off: nothing written, no folder created"
+else
+  fail "capture off still created the failure folder"
+fi
+
+env -u HOME -u XDG_CONFIG_HOME bash -c '. "$1"; doflow_capture_failure pre-bash-guard patterns-missing' x "$CAP_HELPER" >/dev/null 2>&1 || true
+if [[ ! -e "$CAP_XDG/doflow/failures" ]]; then
+  pass "HOME unset: skipped, nothing written"
+else
+  fail "capture ran with HOME unset"
+fi
+rm -rf "$CAP_XDG/doflow/failures"
+
+# ══════════════════════════════════════════════════════════════════════════════
 section "4c. skill-config-audit.sh"
 # ══════════════════════════════════════════════════════════════════════════════
 

@@ -435,7 +435,7 @@ function handleRouteCommand({ intent, query, check = false, json = false, projec
   try {
     resolution = router.resolveIntent(intent, { query, path: projectRoot || '.' }, { deepCheck: check });
   } catch (error) {
-    return usageError('route', `${error.message}. Declared intents: ${Object.keys(router.routes).join(', ')}`, json);
+    return usageError('route', `${error.message}. Declared intents: ${Object.keys(router.routes).join(', ')}`, json, error);
   }
 
   if (json) console.log(JSON.stringify(resolution, null, 2));

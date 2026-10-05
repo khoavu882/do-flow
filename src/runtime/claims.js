@@ -427,7 +427,7 @@ function handleClaimCommand({ taskId, action = 'list', statement, claimId, evide
       return usageError('claim', `unknown --action '${action}'. Valid: list, add, link, retract, supersede`, json);
     }
   } catch (error) {
-    return usageError('claim', error.message, json);
+    return usageError('claim', error.message, json, error);
   }
 
   if (json) { console.log(JSON.stringify(result, null, 2)); }

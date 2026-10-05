@@ -70,6 +70,16 @@ function parseArgs(argv) {
       case '--check': o.check = true; break;
       // decision --action list: every decision by id, not just the live ones.
       case '--all': o.all = true; break;
+      // lifecycle --action overview: the /do maintain view, with a larger list and a pending count.
+      case '--maintain': o.maintain = true; break;
+      // lifecycle --action release: record the previewed release instead of only previewing it.
+      case '--confirm': o.confirm = true; break;
+      // followup --action report: the report body comes from stdin instead of --file or --text.
+      case '--stdin': o.stdin = true; break;
+      // goal --action check: record the item as not met (evidence is still required, as the reason).
+      case '--unmet': o.unmet = true; break;
+      // goal --action link: move a feature that already serves another goal.
+      case '--replace': o.replace = true; break;
       // readiness: the caller declares a decision is owed by the user. A flag rather than an
       // inference, because nothing the runtime can see distinguishes "a decision is pending"
       // from "nobody has looked yet", and guessing would be the gate answering unasked.
@@ -92,7 +102,7 @@ function parseArgs(argv) {
       case '--action': {
         const val = argv[i + 1];
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
-        o.action = val; i++; break;
+        o.action = val; o.actionGiven = true; i++; break;
       }
       case '--task-class': {
         const val = argv[i + 1];
@@ -201,6 +211,21 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--supersedes', 'supersedes'],      // comma-separated DEC-### ids this decision replaces
   ['--refs', 'refs'],                  // comma-separated ids the decision touches, e.g. FR-001,IC-002
   ['--source', 'source'],              // where the decision was stated, e.g. design/design-02-question.md#question-1
+  // followup and lifecycle (feature 046). `--statement`, `--stage`, `--slug`, `--batch`, `--reason`,
+  // `--channel`, `--state`, `--source`, `--intent`, `--task-class` and `--task-id` above are shared.
+  ['--ids', 'ids'],                    // followup: comma-separated FU-xxxxxx ids to take, settle or promote
+  ['--as', 'as'],                      // followup --action settle: kept | dismissed | fix | done
+  ['--evidence', 'evidence'],          // followup --action settle --as done: what shows it was done
+  ['--title', 'title'],                // followup --action promote: the new intent's title
+  ['--release', 'release'],            // followup --action add --source release: the release tag
+  ['--take', 'take'],                  // lifecycle --action init: comma-separated FU ids the feature takes
+  ['--goal', 'goal'],                  // lifecycle --action init: the goal the feature serves
+  ['--since', 'since'],                // lifecycle --action overview --maintain: ISO time the pass started
+  ['--file', 'file'],                  // followup --action report: the report body, read as text (at most 16 MiB)
+  ['--text', 'text'],                  // followup --action report: the report body inline (a value starting with - needs --text=...) · goal --action item: the checklist item
+  ['--tag', 'tag'],                    // lifecycle --action release: the version tag (`--version` is the CLI's own flag)
+  ['--fp', 'fp'],                      // failure --action settle: the 16 hex characters of an entry
+  ['--set', 'set'],                    // failure --action capture: on | off
   ['--proposed-by', 'proposedBy'],     // classify: which worker proposed it
   ['--calling-skill', 'callingSkill'],  // classify: which skill is asking, for the fit check
   ['--intent', 'intent'],              // route: the information need being resolved
@@ -257,7 +282,9 @@ const RUNTIME_LIST_FLAGS = new Map([
   // have to be re-spelled as one string to be declared.
   ['--need', 'need'],
   ['--path', 'paths'],                 // leak-scan: the files to scan, one per occurrence
-  ['--exclude', 'exclude'],            // leak-scan: extra path segments to skip, on top of agent-docs/
+  ['--exclude', 'exclude'],            // leak-scan: extra path segments to skip · lifecycle --action release: slugs left out
+  ['--feature', 'feature'],            // lifecycle --action release: a feature slug to add, one per occurrence
+  ['--item', 'item'],                  // goal --action add: a checklist item, one per occurrence · goal --action check: the one item id (C3)
 ]);
 
 /** Non-negative integer arguments. */
@@ -366,6 +393,10 @@ Commands:
   inventory            Shadowed copies, drift and unmanaged files across both install scopes
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
   decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
+  followup             Record, list, take, settle, promote or report what a feature left unfinished (--action add|list|take|settle|promote|report)
+  lifecycle            Open follow-ups, feature tracking, releases and status for the project (--action overview|init|release|status|merged)
+  goal                 Add, check, link, list or close a goal and its checklist (--action add|item|check|link|list|done)
+  failure              List, settle or switch off the failures DoFlow captured on this machine (--action list|settle|capture)
                        (a value beginning with '-' must be written --flag=value)
   leak-scan            Report DoFlow-internal identifiers in shipped files (--path, repeatable)
 
@@ -398,6 +429,10 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --action         claim: list|add|link|retract|supersede · evidence: list|add|supersede
                        verify: report|contract · retrieval-plan: declare|report
                        outcome: record|show · tools: see above
+                       followup: add|list|take|settle|promote|report
+                       lifecycle: overview|init|release|status|merged
+                       goal: add|item|check|link|list|done
+                       failure: list|settle|capture
       --rationale, --proposed-by, --calling-skill    classify
       --intent, --query, --check            route
       --statement, --claim-id,
@@ -419,6 +454,18 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --readiness, --verification           outcome --action record
       --risk, --plan-path                   verify
       --path, --exclude (repeatable)        leak-scan
+      --ids, --as, --evidence, --title,
+      --release, --source, --channel        followup (add, list, take, settle, promote)
+      --file <path|->, --stdin, --text,
+      --feature                             followup --action report (the body comes from exactly one; - is stdin)
+      --take, --goal, --intent, --since,
+      --maintain                            lifecycle (overview, init)
+      --goal, --statement, --item (repeatable),
+      --text, --evidence, --unmet, --slug,
+      --replace, --reason, --channel        goal (add, item, check, link, list, done)
+      --tag, --confirm, --feature,
+      --exclude (repeatable), --reason      lifecycle (release, merged)
+      --fp, --as, --reason, --set, --all    failure (list, settle, capture)
       --error, --failed-check,
       --iteration, --agent                  recover
       --json           Machine-readable output (status)
@@ -429,6 +476,13 @@ External tools:
                        --force is intentionally unavailable: every mutation is separately confirmed
   -h, --help           Show help
   -v, --version        Show version`;
+
+// The names a failure may be recorded under (IC-011): the installer table and the verbs HELP lists,
+// so a record can only ever carry a name from DoFlow's own tables and never an argument value.
+const COMMAND_NAMES = new Set([...Object.keys(COMMANDS), ...[...HELP.matchAll(/^  ([a-z][a-z-]*) {2,}\S/gm)].map((m) => m[1])]);
+
+/** @param {*} name @returns {string} `name` when it is one of DoFlow's own command names, else `unknown` */
+function commandName(name) { return typeof name === 'string' && COMMAND_NAMES.has(name) ? name : 'unknown'; }
 
 /**
  * Run one CLI invocation. Same behavior as the pre-extraction monolith's main(): --version and
@@ -446,6 +500,10 @@ function main(argv) {
     if (handler) return handler(o);
     return dispatchRuntimeCommand(o);
   } catch (error) {
+    // Recorded silently when it is a programming error (IC-016); the output and exit status below
+    // are the same whether or not anything was written.
+    // Required here, not at load, so a CLI whose failure modules cannot be loaded still runs as today.
+    try { require('../runtime/failure/capture').captureError(error, { command: commandName(o.cmd), exit: 1 }); } catch { /* best-effort */ }
     // A lifecycle apply/remove can throw mid-mutation (fs error, TOCTOU ownership mismatch on a
     // multi-harness run) — surface a clean, actionable message instead of a raw stack trace, and
     // point at the recovery record applyLifecycle already wrote before rethrowing.
@@ -460,4 +518,4 @@ function main(argv) {
   }
 }
 
-module.exports = { main, COMMANDS };
+module.exports = { main, COMMANDS, commandName };

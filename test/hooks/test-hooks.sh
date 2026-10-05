@@ -658,6 +658,80 @@ else
   assert_no_match "ignores: 'FIXME' in English prose"    "FIXME is now resolved"            "$STUB_PATTERN"
 fi
 
+# ── 4. failure capture — a broken install is recorded, nothing the policy says changes ────────
+# (feature 046, IC-018). The shipped policy folder is copied to a scratch directory so its pattern
+# files can be removed, and every run pins HOME and XDG_CONFIG_HOME to scratch folders so nothing
+# reaches the real failure list.
+
+echo ""
+echo "4. failure capture (fail-open branches)"
+echo "────────────────────────────────────────"
+
+CAP_TMP="$(mktemp -d)"
+CAP_POLICIES="$CAP_TMP/policies"
+CAP_HOME="$CAP_TMP/home"
+CAP_XDG="$CAP_TMP/xdg"
+CAP_EVENTS="$CAP_XDG/doflow/failures/events.jsonl"
+mkdir -p "$CAP_HOME" "$CAP_XDG"
+cp -R "$REPO_ROOT/core/harnesses/shared/hooks/policies" "$CAP_POLICIES"
+rm -f "$CAP_POLICIES/blocked-patterns.conf" "$CAP_POLICIES/mcp-policy.conf"
+
+# cap_run <capture value> <policy> <stdin> -> CAP_RESULT="<exit>|<stdout>|<stderr>" (HOME and XDG pinned)
+cap_run() {
+  local mode="$1" policy="$2" input="$3" code=0
+  # `|| code=$?`: lib.sh, sourced above, leaves errexit on, and a deny exits non-zero.
+  printf '%s' "$input" | env HOME="$CAP_HOME" XDG_CONFIG_HOME="$CAP_XDG" DOFLOW_FAILURE_CAPTURE="$mode" \
+    bash "$CAP_POLICIES/$policy" >"$CAP_TMP/out" 2>"$CAP_TMP/err" || code=$?
+  CAP_RESULT="$code|$(cat "$CAP_TMP/out")|$(cat "$CAP_TMP/err")"
+}
+cap_lines() { if [[ -f "$CAP_EVENTS" ]]; then wc -l <"$CAP_EVENTS" | tr -d ' '; else echo 0; fi; }
+
+BASH_LS='{"tool_name":"Bash","tool_input":{"command":"ls"}}'
+BASH_RM='{"tool_name":"Bash","tool_input":{"command":"rm -rf /"}}'
+MCP_CALL='{"tool_name":"mcp__srv__tool"}'
+
+for CASE in "pre-bash-guard.sh|$BASH_LS|allowed command" "pre-bash-guard.sh|$BASH_RM|floor deny" "mcp-tool-guard.sh|$MCP_CALL|mcp call"; do
+  CAP_POLICY="${CASE%%|*}"; CAP_REST="${CASE#*|}"; CAP_INPUT="${CAP_REST%%|*}"; CAP_NAME="${CAP_REST#*|}"
+  rm -rf "$CAP_XDG/doflow"
+  cap_run off "$CAP_POLICY" "$CAP_INPUT"; CAP_OFF="$CAP_RESULT"
+  assert_eq "capture off: $CAP_POLICY $CAP_NAME writes nothing" "no" "$([[ -e "$CAP_XDG/doflow" ]] && echo yes || echo no)"
+  cap_run "" "$CAP_POLICY" "$CAP_INPUT"; CAP_ON="$CAP_RESULT"
+  assert_eq "capture on: $CAP_POLICY $CAP_NAME output and exit status identical to capture off" "$CAP_OFF" "$CAP_ON"
+  assert_eq "capture on: $CAP_POLICY $CAP_NAME records one line" "1" "$(cap_lines)"
+done
+
+rm -rf "$CAP_XDG/doflow"
+cap_run "" pre-bash-guard.sh "$BASH_LS"
+assert_eq "pre-bash-guard records patterns-missing as a hook line" "hook|pre-bash-guard|patterns-missing|null" \
+  "$(jq -r '[.source,.command,.kind,(.exit|tostring)]|join("|")' "$CAP_EVENTS")"
+rm -rf "$CAP_XDG/doflow"
+cap_run "" mcp-tool-guard.sh "$MCP_CALL"
+assert_eq "mcp-tool-guard records policy-file-missing as a hook line" "hook|mcp-tool-guard|policy-file-missing|null" \
+  "$(jq -r '[.source,.command,.kind,(.exit|tostring)]|join("|")' "$CAP_EVENTS")"
+
+# Malformed and empty stdin never reach the fail-open branch: same output as capture off, nothing recorded.
+for BAD_INPUT in "not json at all" ""; do
+  rm -rf "$CAP_XDG/doflow"
+  cap_run off pre-bash-guard.sh "$BAD_INPUT"; CAP_OFF="$CAP_RESULT"
+  cap_run "" pre-bash-guard.sh "$BAD_INPUT"; CAP_ON="$CAP_RESULT"
+  assert_eq "malformed stdin '$BAD_INPUT': output identical with capture on and off" "$CAP_OFF" "$CAP_ON"
+  assert_eq "malformed stdin '$BAD_INPUT': nothing recorded" "0" "$(cap_lines)"
+done
+
+# HOME unset and no XDG_CONFIG_HOME: capture is skipped and the guard answers as before.
+rm -rf "$CAP_XDG/doflow"
+CAP_NOHOME_ON="$(printf '%s' "$BASH_RM" | env -u HOME -u XDG_CONFIG_HOME bash "$CAP_POLICIES/pre-bash-guard.sh" 2>&1; echo "exit=$?")"
+CAP_NOHOME_OFF="$(printf '%s' "$BASH_RM" | env -u HOME -u XDG_CONFIG_HOME DOFLOW_FAILURE_CAPTURE=off bash "$CAP_POLICIES/pre-bash-guard.sh" 2>&1; echo "exit=$?")"
+assert_eq "HOME unset: guard output and exit status identical with capture on and off" "$CAP_NOHOME_OFF" "$CAP_NOHOME_ON"
+assert_eq "HOME unset: guard still denies the floor case" "exit=2" "$(printf '%s' "$CAP_NOHOME_ON" | tail -1)"
+
+# The shipped pattern files are present in a normal install: no line, and the deny is as before.
+rm -rf "$CAP_XDG/doflow"
+printf '%s' "$BASH_RM" | env HOME="$CAP_HOME" XDG_CONFIG_HOME="$CAP_XDG" bash "$REPO_ROOT/core/harnesses/shared/hooks/policies/pre-bash-guard.sh" >/dev/null 2>&1 || true
+assert_eq "shipped policy folder: a deny writes no failure line" "0" "$(cap_lines)"
+
+rm -rf "$CAP_TMP"
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 echo ""
