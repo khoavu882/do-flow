@@ -266,6 +266,10 @@ _floor_rm_hits() {
 }
 
 if [ ! -f "$PATTERNS_FILE" ]; then
+  # The pattern file ships with DoFlow, so a missing one means a broken install: record it on this
+  # machine (feature 046, IC-018) and go on exactly as before. Subshell, output discarded: nothing
+  # the helper does can reach this policy's options, variables, output or exit status.
+  ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure pre-bash-guard patterns-missing ) >/dev/null 2>&1 || true
   if _floor_rm_hits '/+\*{0,2}'; then
     echo "[pre-bash-guard] Catastrophic delete blocked — recursive rm of the root directory (/)" >&2
     exit 2

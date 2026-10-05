@@ -7,6 +7,7 @@ const { createBackup, restoreBackup, listBackups } = require('../../install/back
 const { writeManifest } = require('../../install/manifest');
 const { confirm, promptLine } = require('../../helper/prompt');
 const { sourceCommit } = require('../../helper/git');
+const { captureCaught } = require('../../runtime/cli-result');
 const { REPO_ROOT, SCRIPT_DIR, pkg, installPaths, printBackupTable } = require('../shared');
 
 function cmdRollback(o) {
@@ -49,6 +50,7 @@ function cmdRollback(o) {
   try {
     restoreBackup({ bid, backupRoot, dirs: targetDirs, dryRun: o.dryRun });
   } catch (e) {
+    captureCaught(e, 'rollback', 1);
     console.error(`[ERROR] ${e.message}`);
     console.error('[ERROR] Use --list-backups to see available backups');
     process.exit(1);

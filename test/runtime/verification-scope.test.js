@@ -14,7 +14,8 @@ const { spawnSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
-const { buildScopeBound, taskFilesFromPlan } = require('../../src/runtime/verification/scope-bound');
+const { buildScopeBound, taskFilesFromPlan, resolveIntegrationBase } = require('../../src/runtime/verification/scope-bound');
+const resolveIntegrationBaseOf = (cwd) => resolveIntegrationBase({ cwd });
 
 const SLUG = '050-scope-demo';
 
@@ -94,6 +95,20 @@ test('buildScopeBound adds the feature folder and reports the plan as its source
 test('buildScopeBound is null with no plan, and with a plan that names no task files', () => {
   assert.equal(buildScopeBound({ projectRoot: repo({ plan: null }) }), null);
   assert.equal(buildScopeBound({ projectRoot: repo({ plan: '# Plan\n\n- [ ] A.1 no files here\n' }) }), null);
+});
+
+test('a runtime with no bash helpers reports them missing as the baseline reason, not a missing integration ref', () => {
+  const tree = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-vscope-rt-')), 'runtime');
+  made.push(path.dirname(tree));
+  fs.mkdirSync(path.join(tree, 'core'), { recursive: true });
+  for (const part of ['bin', 'src']) fs.cpSync(path.join(REPO, part), path.join(tree, part), { recursive: true });
+  fs.cpSync(path.join(REPO, 'core', 'registry'), path.join(tree, 'core', 'registry'), { recursive: true });
+  const code = `const { resolveIntegrationBase } = require(${JSON.stringify(path.join(tree, 'src', 'runtime', 'verification', 'scope-bound'))});`
+    + 'console.log(JSON.stringify(resolveIntegrationBase({ cwd: process.cwd() })));';
+  const res = spawnSync(process.execPath, ['-e', code], { cwd: repo(), env: { ...process.env, HOME: tree }, encoding: 'utf8' });
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(JSON.parse(res.stdout).reason, /the DoFlow helper scripts are missing from this install/);
+  assert.match(JSON.stringify(resolveIntegrationBaseOf(repo())), /mergeBase/, 'the same call from this checkout resolves');
 });
 
 test('a committed change inside the bound passes', () => {

@@ -19,6 +19,7 @@
 
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const geminiAdapter = require('./adapters/gemini');
@@ -31,6 +32,222 @@ const antigravityAdapter = require('./adapters/antigravity');
 const MCP_TOOL_PATTERN = /^mcp_/i;
 const EDIT_TOOL_PATTERN = /^(replace_file_content|write_to_file|multi_replace_file_content|edit_file|write_file|create_file|replace_file|replace|Edit|Write|MultiEdit|apply_patch)$/i;
 const COMMAND_TOOL_PATTERN = /^(run_command|run_shell_command|Bash|bash)$/i;
+
+// ── Failure capture (feature 046: IC-010, IC-011, IC-014, IC-015, IC-018) ─────────────────────────
+//
+// Hook files are installed without DoFlow's runtime library, so this runner carries its own copy of
+// the IC-010 classifier and of the Node failure writer (src/runtime/failure/{classifier,home,capture}.js);
+// a test runs both classifier copies over one fixture set and requires equal answers. Capture is a
+// side channel at exactly two points, never changes the runner's stdout, stderr or exit status,
+// never throws, and is a no-op while capture is off or when no failure home can be resolved. A line
+// holds only names from DoFlow's own code and the working directory, never the payload.
+
+const CAPTURE_MAX_LINE_BYTES = 2048;
+const CAPTURE_ROTATE_AT_BYTES = 1048576;
+const CAPTURE_KEEP_ROTATED = 4;
+const CAPTURE_OFF_VALUES = ['off', '0', 'false', 'no'];
+const ROTATED_FILE = /^events-\d{8}T\d{6}Z-\d+\.jsonl$/;
+const PROGRAMMING_ERROR_NAMES = ['TypeError', 'RangeError', 'ReferenceError'];
+
+/** Reads one property without ever throwing (a throwing getter reads as undefined). */
+function readProp(error, key) {
+  try { return error[key]; } catch { return undefined; }
+}
+
+function isInstance(error, Class) {
+  try { return error instanceof Class; } catch { return false; }
+}
+
+/** IC-010. Pure and total: never throws whatever it is handed. Kept equal to src/runtime/failure/classifier.js. */
+function isProgrammingError(error) {
+  try {
+    if (error === null || typeof error !== 'object') return false;
+    const code = readProp(error, 'code');
+    const name = readProp(error, 'name');
+    if (code === 'EPIPE') return false;
+    if (isInstance(error, SyntaxError) || name === 'SyntaxError') return false;
+    if (isInstance(error, TypeError) || isInstance(error, RangeError) || isInstance(error, ReferenceError)) return true;
+    if (PROGRAMMING_ERROR_NAMES.includes(name)) return true;
+    if (name === 'AssertionError' || code === 'ERR_ASSERTION') return true;
+    if (code === 'MODULE_NOT_FOUND') return true;
+    return typeof code === 'string' && (typeof readProp(error, 'syscall') === 'string' || typeof readProp(error, 'errno') === 'number');
+  } catch {
+    return false;
+  }
+}
+
+/** IC-011: `$XDG_CONFIG_HOME/doflow/failures` when absolute, else `$HOME/.config/doflow/failures` when HOME is absolute, else null. */
+function failureHome(env) {
+  const xdg = env.XDG_CONFIG_HOME;
+  if (typeof xdg === 'string' && xdg !== '') return path.isAbsolute(xdg) ? path.join(xdg, 'doflow', 'failures') : null;
+  const home = env.HOME;
+  return typeof home === 'string' && path.isAbsolute(home) ? path.join(home, '.config', 'doflow', 'failures') : null;
+}
+
+/** IC-014: the environment first, then one stat of the sentinel file. */
+function captureIsOff(home, env) {
+  const setting = env.DOFLOW_FAILURE_CAPTURE;
+  if (typeof setting === 'string' && CAPTURE_OFF_VALUES.includes(setting.trim().toLowerCase())) return true;
+  try { return fs.statSync(path.join(home, 'off')).isFile(); } catch { return false; }
+}
+
+/** The first stack frame inside this hooks folder as `<path relative to it>:<function>`, no line number. */
+function runnerFrame(error) {
+  try {
+    const root = __dirname + path.sep;
+    for (const line of String(error.stack || '').split('\n')) {
+      const match = /^\s*at (?:async )?(?:(.+?) \()?(.+?):\d+:\d+\)?$/.exec(line);
+      if (!match) continue;
+      const file = match[2].replace(/^file:\/\//, '');
+      if (!file.startsWith(root) || file.includes(`${path.sep}node_modules${path.sep}`)) continue;
+      const fn = (match[1] || '').replace(/^new /, '').split('.').pop().replace(/\s.*$/, '') || '<anonymous>';
+      return `${path.relative(__dirname, file).split(path.sep).join('/')}:${fn}`;
+    }
+  } catch { /* no frame */ }
+  return null;
+}
+
+/** The package version in a checkout, else `script_version` of the nearest install manifest, else `unknown`. */
+function hookVersion(env) {
+  const valid = (v) => (typeof v === 'string' && /^[A-Za-z0-9._+-]{1,40}$/.test(v) ? v : null);
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', '..', '..', '..', 'package.json'), 'utf8'));
+    if (/doflow$/.test(pkg.name) && valid(pkg.version)) return pkg.version;
+  } catch { /* not a checkout */ }
+  const starts = [__dirname];
+  if (typeof env.HOME === 'string' && path.isAbsolute(env.HOME)) starts.push(env.HOME);
+  for (const start of starts) {
+    for (let dir = start; ; dir = path.dirname(dir)) {
+      try {
+        const version = valid(JSON.parse(fs.readFileSync(path.join(dir, '.doflow', '.install-manifest.json'), 'utf8')).script_version);
+        if (version) return version;
+      } catch { /* none here */ }
+      if (path.dirname(dir) === dir || start === env.HOME) break;
+    }
+  }
+  return 'unknown';
+}
+
+/**
+ * IC-015: at 1 MiB the live file is renamed and only the newest four full rotated files are kept. A
+ * rename that took a not-full file (a lost race) is linked back as the live file, or kept as a small
+ * rotated file that never counts toward the four and is removed after an hour. Same rules as
+ * src/runtime/failure/capture.js.
+ */
+function rotateFailures(home) {
+  const live = path.join(home, 'events.jsonl');
+  try {
+    if (fs.statSync(live).size < CAPTURE_ROTATE_AT_BYTES) return;
+  } catch { return; }
+  // Never rename onto an earlier rotated file of this process (same second, same pid): take the next free second.
+  const stampAt = (ms) => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  let rotatedPath = path.join(home, `events-${stampAt(Date.now())}-${process.pid}.jsonl`);
+  for (let i = 1; i < 120 && fs.existsSync(rotatedPath); i++) {
+    rotatedPath = path.join(home, `events-${stampAt(Date.now() + i * 1000)}-${process.pid}.jsonl`);
+  }
+  try {
+    fs.renameSync(live, rotatedPath);
+  } catch { return; }
+  try {
+    if (fs.statSync(rotatedPath).size < CAPTURE_ROTATE_AT_BYTES) {
+      try { fs.linkSync(rotatedPath, live); fs.unlinkSync(rotatedPath); } catch { /* the live file exists again: the small file stays */ }
+      return;
+    }
+  } catch { return; }
+  try {
+    const files = fs.readdirSync(home).filter((name) => ROTATED_FILE.test(name)).map((name) => {
+      let size = 0;
+      let mtime = 0;
+      try { const st = fs.statSync(path.join(home, name)); size = st.size; mtime = st.mtimeMs; } catch { /* gone */ }
+      return { name, size, mtime };
+    }).sort((x, y) => x.mtime - y.mtime || (x.name < y.name ? -1 : x.name > y.name ? 1 : 0));
+    const full = files.filter((f) => f.size >= CAPTURE_ROTATE_AT_BYTES);
+    const doomed = [
+      ...full.slice(0, Math.max(0, full.length - CAPTURE_KEEP_ROTATED)),
+      ...files.filter((f) => f.size < CAPTURE_ROTATE_AT_BYTES && Date.now() - f.mtime > 60 * 60 * 1000),
+    ];
+    for (const f of doomed) {
+      try { fs.unlinkSync(path.join(home, f.name)); } catch { /* ignored */ }
+    }
+  } catch { /* ignored */ }
+}
+
+/**
+ * The working directory with the home prefix as `~`, matching HOME as given, its real path and
+ * `os.homedir()`; under no known home, when HOME is not usable, only the folder name. Same rule as
+ * projectName in src/runtime/failure/capture.js (this file ships without src/).
+ */
+function hookProject(cwd, env) {
+  const homes = [];
+  const add = (value) => {
+    if (typeof value !== 'string' || !path.isAbsolute(value)) return;
+    const home = value.replace(/\/+$/, '');
+    if (home.length > 1 && !homes.includes(home)) homes.push(home);
+  };
+  add(env.HOME);
+  if (typeof env.HOME === 'string' && path.isAbsolute(env.HOME)) { try { add(fs.realpathSync(env.HOME)); } catch { /* HOME does not exist */ } }
+  try { add(os.homedir()); add(fs.realpathSync(os.homedir())); } catch { /* no home known to the system */ }
+  const home = homes.find((h) => cwd === h || cwd.startsWith(`${h}/`));
+  if (home) return `~${cwd.slice(home.length)}`;
+  return typeof env.HOME === 'string' && path.isAbsolute(env.HOME) ? cwd : path.basename(cwd);
+}
+
+/**
+ * Appends one line only when `file` is absent or a regular file: a FIFO there would block the open
+ * until something reads it and stall a guarded tool call. Same rule as appendRegular in
+ * src/runtime/failure/capture.js (this file ships without src/).
+ */
+function appendRegularLine(file, line) {
+  const c = fs.constants;
+  let fd;
+  try {
+    fd = fs.openSync(file, c.O_WRONLY | c.O_APPEND | c.O_CREAT | (c.O_NOFOLLOW || 0) | (c.O_NONBLOCK || 0), 0o600);
+    if (!fs.fstatSync(fd).isFile()) return false;
+    fs.writeSync(fd, line);
+    return true;
+  } catch { return false; } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* nothing more to do */ } }
+  }
+}
+
+/**
+ * Appends one `source: "hook"` line (IC-011) with an empty `message` and `exit: null`. Silent and
+ * best-effort: every failure is swallowed.
+ * @param {{command: string, kind: string, frame?: string|null}} fields
+ * @param {Object} [env]
+ * @returns {boolean} whether a line was written
+ */
+function captureHookFailure({ command, kind, frame = null }, env = process.env) {
+  try {
+    const home = failureHome(env);
+    if (!home || captureIsOff(home, env)) return false;
+    let project = '';
+    try { project = hookProject(process.cwd(), env); } catch { project = ''; }
+    const record = {
+      v: 1,
+      at: new Date().toISOString(),
+      source: 'hook',
+      command: /^[a-z][a-z0-9-]{0,39}$/.test(command) ? command : 'unknown',
+      harness: /^[A-Za-z0-9._-]{1,40}$/.test(env.DOFLOW_AGENT || '') ? env.DOFLOW_AGENT : 'none',
+      version: hookVersion(env),
+      project: project.slice(0, 200),
+      kind: String(kind).slice(0, 80),
+      message: '',
+      frame: typeof frame === 'string' ? frame : null,
+      exit: null,
+    };
+    const bytes = (r) => Buffer.byteLength(JSON.stringify(r), 'utf8') + 1;
+    while (bytes(record) > CAPTURE_MAX_LINE_BYTES && record.project.length > 0) {
+      record.project = record.project.slice(0, Math.max(0, record.project.length - Math.max(8, bytes(record) - CAPTURE_MAX_LINE_BYTES)));
+    }
+    if (bytes(record) > CAPTURE_MAX_LINE_BYTES) return false;
+    fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+    rotateFailures(home);
+    return appendRegularLine(path.join(home, 'events.jsonl'), `${JSON.stringify(record)}\n`);
+  } catch {
+    return false;
+  }
+}
 
 // Canonical script name -> pre-normalization per-harness file name, for the fallback search only.
 const LEGACY_SCRIPT_NAMES = {
@@ -169,7 +386,17 @@ function delegateToPolicy(projectRoot, agent, scriptName, canonicalPayload) {
     // an execution fault, not a policy decision, and every sourced .sh policy in this library
     // fails open on its own uncertainty (`command -v jq || exit 0`); this delegator matches that
     // posture instead of turning an environment fault into a silent deny.
-    if (typeof err.status !== 'number') return { decision: 'allow' };
+    if (typeof err.status !== 'number') {
+      // A policy killed by a signal is a fault in DoFlow's own install worth recording (IC-018); a
+      // missing `bash` or a permission error is the user's environment and is not. Either way the
+      // decision is the same as it always was.
+      // SIGTERM, SIGINT and SIGPIPE are the user or the harness stopping the process (DEC-031), not
+      // a fault. Any other signal is recorded under its own kind, so a SEGV and a KILL do not share a fingerprint.
+      if (typeof err.signal === 'string' && err.signal && !['SIGTERM', 'SIGINT', 'SIGPIPE'].includes(err.signal)) {
+        captureHookFailure({ command: scriptName.replace(/\.sh$/, ''), kind: `policy-exec-fault:${err.signal}` });
+      }
+      return { decision: 'allow' };
+    }
     const reason = err.stderr ? err.stderr.toString().trim() : (err.stdout ? err.stdout.toString().trim() : '');
     return {
       decision: 'deny',
@@ -337,6 +564,8 @@ async function main() {
       process.stdout.write(JSON.stringify(native) + '\n');
     }
   } catch (err) {
+    // Recorded silently when it is a programming error (IC-018); the output below is unchanged.
+    if (isProgrammingError(err)) captureHookFailure({ command: 'stream-hook-runner', kind: 'runner-exception', frame: runnerFrame(err) });
     process.stderr.write(`[stream-hook-runner error] ${err.message}\n`);
     process.stdout.write(JSON.stringify({ decision: 'allow' }) + '\n');
   }
@@ -356,4 +585,6 @@ module.exports = {
   resolvePolicyScript,
   classifyPreToolUsePolicy,
   sniffEventFromPayload,
+  isProgrammingError,
+  captureHookFailure,
 };

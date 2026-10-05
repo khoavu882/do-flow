@@ -146,6 +146,58 @@ of the fact; the ledger records locators, never scores.
 bound on how many times a failed check may be retried; the runtime classifies the failure and
 returns the action, so no agent picks its own retry count.
 
+## After the chain: the lifecycle loop
+
+The chain ends with a reviewed change, but a feature rarely ends with nothing left over. The
+lifecycle loop is what happens around the chain: the feature leaves follow-ups, the next feature
+starts from them, a release finishes what shipped, and a maintain step settles what is still open.
+
+```mermaid
+flowchart LR
+    F[Feature] --> T[Test] --> R[Review] --> S[Ship] --> L[Release] --> M[Maintain]
+    F -. leaves follow-ups .-> Store[(Lifecycle store)]
+    R -. leaves follow-ups .-> Store
+    Store -. overview before discovery .-> F
+    L -. records what shipped .-> Store
+    M -. settles each open item .-> Store
+```
+
+**Four verbs, one store.** `followup` records and settles deferred work, `lifecycle` shows the
+project's overview, tracks features and records releases, `goal` keeps an outcome and its
+checklist, and `failure` lists what DoFlow captured about itself on this machine. They go through
+the same dispatcher as every other verb, so a skill calls `doflow-run followup` and nothing
+else. `/do maintain` is the entry in the `do` skill that walks the open items; it adds no skill and no task class.
+
+**The store is a folder of events, not a file.** Each change writes one small JSON file under
+`agent-docs/lifecycle/events/`, created once and never edited, renamed or deleted. There is no
+marker file and no running state: every read lists the events, orders them by time and id, and
+folds them into the current picture. Two clones that hold the same files therefore produce the same
+answer, and two people recording at the same time never write the same file. The price is that a
+read grows with the number of events, which is small for this use. A transition that is illegal at
+its place in the order, such as taking an item that was dismissed, is refused on write and listed as
+a conflict if it arrives from another clone.
+
+**Derived versus recorded.** The store records what people and agents did: an item added, taken,
+settled or promoted, a feature tracked, a release recorded, a goal checked. It does not record a
+feature's status. Whether a feature is `in-progress`, `awaiting-release` or `finished` is derived
+from git on every read, from merge evidence into the integration branch and from the release
+record, so a status can never be stale and a later read can change it. A taken follow-up shows as
+done only while its feature derives as finished. Because the status is a fold over facts that
+existed before it, a feature created before the loop is simply untracked: nothing is derived for it
+and it keeps working as it did.
+
+**Decisions only the user makes.** DoFlow proposes and the user decides. A goal is closed only
+through a user channel (`question`, `gate` or `prompt`); the default channel is refused, and a goal
+with unmet items needs a reason. The agent may propose that a goal is done when every item is met,
+and may nudge when a linked feature is finished while an item is unchecked, but it cannot close it.
+Dismissing an item and reopening a dismissed one also need a reason, and every event records
+whether the user or the agent acted.
+
+**What it will not do.** DoFlow never stages, commits or pushes the lifecycle folder and writes no
+ignore rule for it; nothing in the loop makes a network call; and no part of it blocks an edit, a
+write or a commit. Failure capture is machine-local, masked and switchable off, and it never
+changes the output or exit status of the command it observes.
+
 ## One seam between skills and the runtime
 
 Every runtime call a skill can make goes through a single dispatcher,

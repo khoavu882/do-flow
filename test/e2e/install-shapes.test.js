@@ -15,7 +15,7 @@
 // shapes is therefore asserted, not assumed (plan RK7).
 //
 // Serves FR-001, FR-002, FR-003, NFR-001, NFR-002, NFR-005, NFR-007.
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -447,4 +447,78 @@ test('NFR-001/NFR-002: install and dispatch succeed with python3 and every optio
 
   const doctor = cli(['doctor'], { home, env });
   assert.equal(doctor.status, 0, `doctor must report degraded capability, not exit non-zero:\n${doctor.stderr}`);
+});
+
+// ----------------------------------------- 046: promote reaches the same file in every shape
+//
+// `followup --action promote` is the one lifecycle verb that writes a file a person then opens (an
+// intent under agent-docs/intent/), and it is served by the Node runtime through the dispatcher. The
+// defect class this file exists to catch applies to it directly: the verb is correct in a checkout,
+// and a project-local or global install must project everything it needs to write the same file.
+// Each shape runs add, add, promote and list through its own locator and dispatcher, and the intent
+// file, once ids and the date are normalised, must be the same text in all three.
+
+/** Keeps the lifecycle verbs off the developer's own config and git setup, whatever the shape. */
+function lifecycleEnv(home) {
+  return { XDG_CONFIG_HOME: path.join(home, 'xdg'), GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', DOFLOW_FAILURE_CAPTURE: '' };
+}
+
+const PROMOTE_STATEMENTS = ['Cart total ignores a removed discount', 'Cart badge counts removed lines'];
+
+/** add, add, promote through `exe` in `cwd`; returns the intent's path and text as the verb wrote them. */
+function promoteThrough(exe, { home, cwd }) {
+  const env = lifecycleEnv(home);
+  const verb = (args) => {
+    const r = runtime(exe, ['followup', ...args, '--json'], { home, cwd, env });
+    assert.equal(r.status, 0, `followup ${args.join(' ')} -> ${r.status}\n${r.stdout}${r.stderr}`);
+    return JSON.parse(r.stdout);
+  };
+  const ids = PROMOTE_STATEMENTS.map((statement) => verb(['--action', 'add', '--stage', 'review', '--slug', '046-shapes', '--statement', statement]).created[0].id);
+  const promoted = verb(['--action', 'promote', '--ids', ids.join(','), '--title', 'Cart robustness', '--channel', 'question']);
+  assert.equal(promoted.intent, 'agent-docs/intent/cart-robustness.md', 'the intent is under the project, named from the title');
+  assert.deepEqual(promoted.ids.slice().sort(), ids.slice().sort());
+
+  const file = path.join(cwd, promoted.intent);
+  assert.ok(fs.existsSync(file), `no intent file at ${file}`);
+  const text = fs.readFileSync(file, 'utf8');
+  for (const [i, id] of ids.entries()) assert.ok(text.includes(`- ${id}: ${PROMOTE_STATEMENTS[i]}`), `the intent names ${id}`);
+
+  // The follow-ups are settled: each shows the intent it went to, and stays open.
+  const listed = verb(['--action', 'list']);
+  assert.deepEqual(listed.items.map((i) => [i.id, i.state, i.intent]).sort(), ids.map((id) => [id, 'open', promoted.intent]).sort());
+  assert.equal(fs.readdirSync(path.join(cwd, 'agent-docs', 'lifecycle', 'events')).length, 3, 'two additions and one promotion are events in the project');
+  return { text: text.replace(/FU-[0-9a-z]{6}/g, 'FU-ID').replace(/\*\*Date:\*\* \d{4}-\d\d-\d\d/, '**Date:** DATE'), ids };
+}
+
+const intentByShape = {};
+const promoteDirs = [];
+/** A scratch directory these cases remove when the file is done. */
+function promoteScratch(tag) { const dir = scratch(tag); promoteDirs.push(dir); return dir; }
+after(() => { for (const dir of promoteDirs) fs.rmSync(dir, { recursive: true, force: true }); });
+
+test('046: promote writes the intent from a source checkout', () => {
+  const cwd = promoteScratch('promote-src');
+  intentByShape.checkout = promoteThrough(SOURCE_DISPATCHER, { home: promoteScratch('promote-srch'), cwd }).text;
+  assert.match(intentByShape.checkout, /^# Intent: Cart robustness/);
+});
+
+test('046: promote writes the same intent from a project-local install, through its projected locator', () => {
+  const root = promoteScratch('promote-proj');
+  const home = path.join(root, 'home');
+  const installed = cli(['install', root, '-f', '--no-backup', '-t', 'claude'], { home, env: lifecycleEnv(home) });
+  assert.equal(installed.status, 0, installed.stderr);
+  const locator = path.join(root, '.claude', 'bin', 'doflow-run');
+  intentByShape.project = promoteThrough(locator, { home, cwd: root }).text;
+  assert.equal(intentByShape.project, intentByShape.checkout, 'a project-local install writes the checkout\'s intent');
+});
+
+test('046: promote writes the same intent from a global install, from a directory with no project install', () => {
+  const home = promoteScratch('promote-globalhome');
+  const installed = cli(['install', '-g', '-f', '--no-backup', '-t', 'claude'], { home, env: lifecycleEnv(home) });
+  assert.equal(installed.status, 0, installed.stderr);
+  // Outside $HOME, so the walk-up finds no project install and the global fallback is what answers.
+  const cwd = promoteScratch('promote-elsewhere');
+  const locator = path.join(home, '.claude', 'bin', 'doflow-run');
+  intentByShape.global = promoteThrough(locator, { home, cwd }).text;
+  assert.equal(intentByShape.global, intentByShape.checkout, 'a global install writes the checkout\'s intent');
 });

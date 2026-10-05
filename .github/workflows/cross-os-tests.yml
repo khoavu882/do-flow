@@ -42,7 +42,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          # Full history and tags: test/e2e/register-followups.e2e.test.js compares against the v1.12.0 tag.
+          # Full history and tags: test/e2e/register-followups.e2e.test.js compares against the v1.12.0 tag,
+          # and test/e2e/lifecycle-loop.e2e.test.js against v1.13.0 (it skips, naming the tag, when it is absent).
           fetch-depth: 0
 
       - name: Setup Node

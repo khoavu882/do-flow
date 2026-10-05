@@ -60,7 +60,12 @@ shopt -u nocasematch 2>/dev/null || true
 POLICY_FILE="$(dirname "$0")/mcp-policy.conf"
 
 # If policy file is missing, allow everything (fail open — don't block the agent).
-[ -f "$POLICY_FILE" ] || exit 0
+if [ ! -f "$POLICY_FILE" ]; then
+  # The policy file ships with DoFlow, so a missing one means a broken install: record it on this
+  # machine (feature 046, IC-018) and fail open exactly as before. Subshell, output discarded.
+  ( . "$(dirname "$0")/capture-failure.sh"; doflow_capture_failure mcp-tool-guard policy-file-missing ) >/dev/null 2>&1 || true
+  exit 0
+fi
 
 # ── Pattern matching ──────────────────────────────────────────────────────────
 

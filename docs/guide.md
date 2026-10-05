@@ -157,6 +157,153 @@ mkdocs build --strict
 
 For this repository, keep one canonical home for each topic: installation in [Setup](setup.md), workflows here, complete lookup material in [Reference](reference.md), and system concepts in [Overview](overview.md).
 
+## Keep track of what is left
+
+A feature rarely finishes everything it found. The lifecycle loop gives deferred work one place to
+live, so the next feature can start from it instead of from someone's memory.
+
+- **Follow-ups are recorded when work is deferred.** A stage that leaves something undone records it with its one-line statement and where it came from.
+- **The next feature starts from them.** Discovery shows the open follow-ups before it asks you anything; you pick the ones the new feature takes, and DoFlow marks them taken by that feature.
+- **A follow-up can become an intent.** Promoting one or more items creates a new intent file that names them, and each promoted item shows the intent it went to.
+- **A release finishes what it shipped.** After you tag a release, `lifecycle release --confirm` records which features it carried; those features, and the follow-ups they took, become done. The release ritual previews it for you before the tag.
+- **Problems in the product can be reported.** A report is an open follow-up with a body that stays on your machine.
+- **Goals are optional.** A goal is one outcome with a checklist; a feature may serve one, and no feature has to.
+- **`/do maintain` goes through everything open.** It lists reports, open follow-ups and (in the DoFlow repository) DoFlow's own captured failures, and you settle each one: keep, dismiss, promote, start a fix, or mark done.
+
+DoFlow proposes and you decide. A goal is closed only when you say so, and an item is dismissed only with a reason you give.
+
+### Where it is stored
+
+Everything lives under `agent-docs/lifecycle/` at the root of your repository, as one small JSON file per change. DoFlow never stages, commits or pushes that folder and adds no ignore rule for it, so you decide what to do with it: commit it to share the list with your team, or add it to `.gitignore` to keep it to yourself. Linked worktrees share the store of the main working tree.
+
+The machine-local pieces are kept outside the repository, under `${XDG_CONFIG_HOME:-$HOME/.config}/doflow/`:
+
+| What | Where | Sent anywhere |
+|---|---|---|
+| Failures DoFlow captured about itself | `failures/` | Never. Recorded on this machine only |
+| The full body of a report | `reports/` | Never. The project store keeps only the id, a masked excerpt and the size |
+
+Secrets are masked before anything is written, on a best-effort basis: it is a safeguard, not a guarantee, so do not paste credentials into a report.
+
+### Failure capture and its off switch
+
+When a DoFlow command ends in an internal error, or the dispatcher or a guard hook crashes, DoFlow appends one masked line to a file on this machine. A bad flag, a refusal, a hook that denies a command, a missing `jq` and a missing `bash` are not recorded. Some environment errors, such as a permission error on a folder or a missing program, are recorded because they look like internal errors; `/do maintain` lets you settle them as noise. Capture never changes a command's output or exit status. Turn it off with:
+
+```bash
+doflow failure --action capture --set off      # creates the file `off` in the failures folder
+doflow failure --action capture --set on       # removes it
+DOFLOW_FAILURE_CAPTURE=off doflow ...          # off for one command or shell; cannot turn capture on over the file
+```
+
+Failures are for the people who maintain DoFlow: inside the DoFlow repository, `/do maintain` lists new and regressed entries and lets you import one as a follow-up. Elsewhere they are only listed by `doflow failure --action list`.
+
+### A worked example
+
+This was run in a scratch repository with a `develop` branch, a `v1.0.0` tag and empty feature folders under `agent-docs/doflow/`. The agent runs the same verbs through `doflow-run`; `doflow` is the same command for you. Item ids are random, so yours will differ.
+
+Feature `010-search` is tracked and, during review, leaves two follow-ups. Then it merges.
+
+```console
+$ doflow lifecycle --action init --slug 010-search
+010-search: tracked new
+$ doflow followup --action add --slug 010-search --stage review --statement "Search ignores accents in the query"
+added FU-88ggkq (stage 010-search review): Search ignores accents in the query
+$ doflow followup --action add --slug 010-search --stage review --statement "Search index is rebuilt on every start"
+added FU-w1as7v (stage 010-search review): Search index is rebuilt on every start
+```
+
+The next feature starts from the overview, then takes the first item:
+
+```console
+$ doflow lifecycle
+discovery overview: 2 open follow-ups, 2 shown (release mode tagged, integration ref develop)
+  FU-88ggkq  (stage 010-search review, 2026-10-03)  Search ignores accents in the query
+  FU-w1as7v  (stage 010-search review, 2026-10-03)  Search index is rebuilt on every start
+awaiting release: 010-search
+next: Take items into the new feature when its folder exists: doflow-run lifecycle --action init --slug <slug> --take FU-88ggkq
+$ doflow lifecycle --action init --slug 011-accents --take FU-88ggkq
+011-accents: tracked new, took FU-88ggkq
+$ doflow followup --action list --state taken
+FU-88ggkq  taken by 011-accents  (stage 010-search review, 2026-10-03)  Search ignores accents in the query
+```
+
+Both features merge into `develop`. Before the tag exists, `release` is a preview and writes nothing; after `git tag v1.1.0`, `--confirm` records it:
+
+```console
+$ doflow lifecycle --action release --tag v1.1.0
+preview of release v1.1.0 (previous v1.0.0, bound develop)
+  ships 010-search  (branch feat/010-search)
+  ships 011-accents  (branch feat/011-accents)
+follow-ups done: FU-88ggkq
+next: After git tag v1.1.0: doflow-run lifecycle --action release --tag v1.1.0 --confirm (add --feature <slug> for a feature listed under notDetected that shipped)
+$ doflow lifecycle --action release --tag v1.1.0 --confirm
+recorded release v1.1.0 (previous v1.0.0, bound v1.1.0)
+  ships 010-search  (branch feat/010-search)
+  ships 011-accents  (branch feat/011-accents)
+follow-ups done: FU-88ggkq
+$ doflow followup --action list --state all
+FU-88ggkq  done by 011-accents  (stage 010-search review, 2026-10-03)  Search ignores accents in the query
+FU-w1as7v  open  (stage 010-search review, 2026-10-03)  Search index is rebuilt on every start
+```
+
+A user reports a problem, and `/do maintain` starts from the overview (here `FU-2sb0xv` is the report):
+
+```console
+$ doflow followup --action report --release v1.1.0 --statement "Search crashes on an empty query" --text "TypeError: query is undefined at search.js:12"
+reported FU-2sb0xv (report v1.1.0): Search crashes on an empty query
+  body on-this-machine (45 bytes), excerpt 45 bytes, 0 values masked
+next: Settle it now or at /do maintain; to start a fix, route it as a bug run
+$ doflow lifecycle --maintain
+maintain overview: 2 open follow-ups, 2 shown (release mode tagged, integration ref develop)
+  FU-2sb0xv  (report v1.1.0, 2026-10-03)  Search crashes on an empty query
+  FU-w1as7v  (stage 010-search review, 2026-10-03)  Search index is rebuilt on every start
+finished: 010-search, 011-accents
+pending: 2
+next: Take items into the new feature when its folder exists: doflow-run lifecycle --action init --slug <slug> --take FU-2sb0xv
+next: Keep open: doflow-run followup --action settle --ids FU-2sb0xv --as kept --reason "<why it stays>" --channel question
+next: Dismiss: doflow-run followup --action settle --ids FU-2sb0xv --as dismissed --reason "<why>" --channel question
+next: Promote to a new intent: doflow-run followup --action promote --ids FU-2sb0xv --title "<intent title>" --channel question
+next: Start a fix: doflow-run followup --action settle --ids FU-2sb0xv --as fix --reason "<where it is routed>" --channel question
+next: Done outside a feature: doflow-run followup --action settle --ids FU-2sb0xv --as done --evidence "<what shows it>" --channel question
+```
+
+`/do maintain` asks you about each item and runs the matching line. Here the report is dismissed and the other item is promoted, which creates `agent-docs/intent/search-startup-speed.md` and lets the next feature start from it:
+
+```console
+$ doflow followup --action promote --ids FU-w1as7v --title "Search startup speed" --channel question
+created agent-docs/intent/search-startup-speed.md from FU-w1as7v
+$ doflow followup --action settle --ids FU-2sb0xv --as dismissed --reason "cannot reproduce" --channel question
+settled FU-2sb0xv as dismissed
+$ doflow lifecycle --action init --slug 012-startup --intent agent-docs/intent/search-startup-speed.md
+012-startup: tracked new, took FU-w1as7v
+```
+
+A goal records an outcome and a checklist, and only you close it:
+
+```console
+$ doflow goal --action add --goal fast-search --statement "Search feels instant" --item "Accents work" --item "Index is cached"
+added goal fast-search: Search feels instant
+  C1  Accents work
+  C2  Index is cached
+next: Link a feature that serves it: doflow-run goal --action link --goal fast-search --slug <slug>
+next: Record a met item with evidence: doflow-run goal --action check --goal fast-search --item C1 --evidence "<what shows it>"
+$ doflow goal --action link --goal fast-search --slug 011-accents
+011-accents now serves fast-search
+$ doflow goal --action check --goal fast-search --item C1 --evidence 011-accents
+fast-search C1: met (011-accents); 1/2 items met
+next: Record a met item with evidence: doflow-run goal --action check --goal fast-search --item C2 --evidence "<what shows it>"
+$ doflow goal --action done --goal fast-search --channel default
+not-user: only the user marks a goal done: pass --channel question, gate or prompt once the user has said so (got 'default'). Nothing was written.
+$ doflow goal --action done --goal fast-search --channel question --reason "caching is out of scope"
+fast-search is done with C2 unmet: caching is out of scope
+```
+
+### Limits worth knowing
+
+- A merge git cannot show (a squash, a rebase, a fast-forward or a cherry-pick) is not detected as shipped. List the feature with `--feature <slug>` when you record the release, or confirm the merge with `doflow lifecycle --action merged --slug <slug> --reason "<line>"`.
+- Features created before the loop existed keep working as they did; their earlier follow-ups are not collected.
+- The loop runs wherever the DoFlow runtime is installed, which is Claude Code, Codex and Gemini CLI today. On the other harnesses the skills still read, but the commands are not there.
+
 ## Work across supported tools
 
 | Environment | Start point | What to expect |

@@ -9,7 +9,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { loadRegistry } = require('../registry');
-const { finishRuntime, usageError } = require('./cli-result');
+const { finishRuntime, usageError, captureCaught } = require('./cli-result');
 const { REPO_ROOT } = require('../helper/repo-root');
 
 /** The machine-level command each provider's backend answers to. A provider without a local CLI
@@ -119,7 +119,7 @@ function handleModelRoleCommand({ role, exclude, json = false, repoRoot } = {}) 
   if (!role) return usageError('model-role', '--role is required (one of the roles in core/registry/models.json)', json);
   const registry = (() => {
     try { return loadRegistry({ repoRoot: repoRoot || REPO_ROOT }); }
-    catch (error) { console.error(`[ERROR] model-role: ${error.message}`); return finishRuntime(1); }
+    catch (error) { captureCaught(error, 'model-role', 1); console.error(`[ERROR] model-role: ${error.message}`); return finishRuntime(1); }
   })();
   if (!registry) return undefined;
   const available = new Set(availableProviderIds());
@@ -141,6 +141,7 @@ function handleModelRoleCommand({ role, exclude, json = false, repoRoot } = {}) 
     }
     return finishRuntime(0);
   } catch (error) {
+    captureCaught(error, 'model-role', 1);
     console.error(`[ERROR] model-role: ${error.message}`);
     return finishRuntime(1);
   }

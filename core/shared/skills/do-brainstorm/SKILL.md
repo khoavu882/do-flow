@@ -56,6 +56,10 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 "$DOFLOW" paths --json
 ```
 
+   Before the first question, run `"$DOFLOW" lifecycle --action overview --json` and show its
+   follow-ups and goals with their sources. Propose closing a goal whose `proposeDone` is true; on a
+   yes run `"$DOFLOW" goal --action done --goal <goal> --channel question`.
+
    If `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root — e.g.
    doflow installed at a multi-service container root — with 2+ `agent-docs/doflow/` feature dirs
    and no branch to disambiguate), this is NOT "no active feature" — it's an unresolved choice.
@@ -135,6 +139,8 @@ workflow never reads.
    register already exists; exit 1 with finding `predates-register` means a folder from before the
    register, so continue without one; exit 2 means stop and report, because a new feature must not
    continue without a register.
+   Then run `"$DOFLOW" lifecycle --action init --slug="<slug>"` with the `--take`, `--intent` and
+   `--goal` the user picked from the overview; report a refusal and continue.
 5. **Write `requirement.md`** — copy the requirement template into the feature dir and fill the
    tokens from the dialogue. It goes at `agent-docs/doflow/<slug>/intention/requirement.md`: a
    fresh feature dir holds nothing yet, so step 1's `layout` still reads `legacy` and its

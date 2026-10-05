@@ -968,7 +968,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
     const scope = bound ? { allowedPaths: bound.allowedPaths, source: bound.source, baseline: 'integration' } : undefined;
     contract = engine.compileContract({ taskId, riskLevel: risk, projectRoot: cwd, planPath, scope });
   } catch (error) {
-    return usageError('verify', error.message, json);
+    return usageError('verify', error.message, json, error);
   }
 
   if (action === 'contract') {
