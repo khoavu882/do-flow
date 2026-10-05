@@ -272,13 +272,14 @@ function behindNote(ref, behind) {
  *   evidenceCommits:Object<string,string|null> (slug to the full merge commit of its evidence; absent when nothing was derived),
  *   statuses:Object<string,{status:string, evidence:{kind:string,ref:string|null}|null, release:string|null}>,
  *   features:Object<string,string[]>, notDetected:string[],
- *   failure?:'git-state-failed' (git itself failed while deriving: an environment fault the caller refuses on)}}
+ *   failure?:string (git, or the git-facts helper, failed while deriving: `git-state-failed`, `bash-not-found`,
+ *   `git-state-helper-missing`; an environment fault, so every status is `unknown`)}}
  */
 function deriveStatuses({ root, fold, facts = readGitFacts(root) }) {
   const tracked = fold.features;
   const unknown = (reason) => result('unknown', facts.integration_ref ?? null, reason,
     Object.fromEntries(tracked.map((f) => [f.slug, { status: 'unknown', evidence: null, release: null }])));
-  if (facts.error) return unknown(`git facts unavailable: ${facts.error}`);
+  if (facts.error) return { ...unknown(`git facts unavailable: ${facts.error}`), failure: facts.error };
   if (!facts.integration_ref) return unknown('no integration ref resolves (develop, main, master, origin/HEAD)');
 
   const ref = facts.integration_ref;
@@ -342,7 +343,7 @@ function deriveStatuses({ root, fold, facts = readGitFacts(root) }) {
     return { ...result(releaseMode, ref, null, statuses, notDetected, behind), integrationSha: pinned, evidenceCommits };
   } catch (error) {
     // A git failure is an environment fault, not a DoFlow defect: it is reported, never thrown.
-    // `failure` lets a caller refuse instead of showing the unknown statuses as an answer.
+    // `failure` tells a caller git itself failed, which it reports (overview) or refuses on (release, merged).
     return { ...unknown(`git could not answer (git-state-failed): ${String(error.message).split('\n')[0]}`), failure: 'git-state-failed' };
   }
 }

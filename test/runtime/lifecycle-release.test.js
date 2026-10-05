@@ -462,6 +462,8 @@ test('a git failure while reading the history of X, or of the integration ref, r
   const cli = spawnSync(process.execPath, [CLI, 'lifecycle', '--action', 'release', '--tag', 'v1.0.0', '--json'], { cwd: repo.dir, env: { ...scratch.env(), ...git.env(tagSha) }, encoding: 'utf8' });
   assert.equal(cli.status, 1, cli.stderr);
   assert.equal(JSON.parse(cli.stdout).finding, 'no-integration-ref');
+  const merged = withEnv(git.env('any'), () => recordMerged({ root: repo.dir, slug: SLUG, reason: 'by hand', now: CLOCK }));
+  assert.deepEqual([merged.ok, merged.finding], [false, 'no-integration-ref'], 'merged refuses too');
   assert.deepEqual(eventFiles(repo), before, 'nothing was written');
   assert.deepEqual(slugsOf(release(repo, { tag: 'v1.0.0' })), [SLUG], 'with a working git the same preview answers');
 });

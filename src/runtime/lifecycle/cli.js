@@ -65,6 +65,7 @@ function overviewLines(r) {
   for (const [label, b] of names) {
     lines.push(`${label}: ${b.shown.join(', ')}${b.more ? ` (+${b.more} more; --json lists them all, lifecycle --action status --slug <slug> shows one)` : ''}`);
   }
+  if (r.gitError) lines.push(`git unavailable (${r.gitError}): feature statuses are unknown`);
   if (r.mode === 'maintain') lines.push(`pending: ${r.pending}`);
   if (r.note) lines.push(`note: ${r.note}`);
   if (r.conflicts.length) lines.push(`${r.conflicts.length} event conflict${r.conflicts.length === 1 ? '' : 's'} (see --json)`);
