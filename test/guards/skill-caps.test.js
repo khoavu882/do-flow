@@ -9,6 +9,9 @@
 //      the guardrails in `## Boundaries` must start inside the window.
 //   3. Re-attached skills share a 25,000-token budget (`context-window.md`), so the SKILL.md
 //      files a task class's workflow invokes must fit it together.
+//   4. The skill listing as a whole is capped at 2% of the model's context window, or 8,000
+//      characters when the window is unknown (Codex, https://learn.chatgpt.com/docs/build-skills,
+//      accessed 2026-10-05); over it the host shortens descriptions or drops skills from the listing.
 // Tokens are estimated at 4 bytes per token: 5,000 tokens = 20,000 B, 25,000 tokens = 100,000 B.
 // The whole file is counted against the per-skill cap, the conservative reading.
 const { test } = require('node:test');
@@ -18,6 +21,9 @@ const path = require('node:path');
 const { REPO, skillFiles, SKILLS } = require('./_shared');
 
 const MAX_LISTING_CHARS = 1536;
+// "at most 2% of the model's context window, or 8,000 characters when the context window is unknown"
+// (https://learn.chatgpt.com/docs/build-skills, accessed 2026-10-05). The only vendor figure held here.
+const MAX_LISTING_TOTAL_CHARS = 8000;
 const MAX_SKILL_BYTES = 20000;
 // Tighter than the size cap: the guardrails must sit well inside the window, not on its edge, so a
 // skill that grows toward the cap trips this before its Boundaries are at risk.
@@ -56,6 +62,29 @@ function sizeAndBoundaries(text) {
   };
 }
 
+/** Listing characters summed over `entries` ({ name, text }); `names` is reported, never compared. */
+function listingTotals(entries) {
+  const perSkill = entries.map(({ name, text }) => ({ name, chars: listingChars(text) }));
+  const description = entries.reduce((n, { text }) => n + frontmatterValue(text, 'description').length, 0);
+  const whenToUse = entries.reduce((n, { text }) => n + frontmatterValue(text, 'when_to_use').length, 0);
+  return {
+    description,
+    whenToUse,
+    names: entries.reduce((n, { name }) => n + name.length, 0),
+    total: description + whenToUse,
+    perSkill,
+  };
+}
+
+/** The failure message for a listing past the total budget, or '' when it fits. */
+function listingOverBudget({ description, whenToUse, total, perSkill }) {
+  if (total <= MAX_LISTING_TOTAL_CHARS) return '';
+  const largest = perSkill.slice().sort((a, b) => b.chars - a.chars).slice(0, 5)
+    .map(({ name, chars }) => `${name}=${chars}`).join(', ');
+  return `skill listing total ${total} characters (description ${description} + when_to_use ${whenToUse}) is over the `
+    + `${MAX_LISTING_TOTAL_CHARS}-character fallback budget; per-skill cap ${MAX_LISTING_CHARS} (G22). Largest: ${largest}`;
+}
+
 const sum = (sizes) => sizes.reduce((total, bytes) => total + bytes, 0);
 
 test('G22: every skill listing (description + when_to_use) fits 1,536 characters', () => {
@@ -67,6 +96,19 @@ test('G22: every skill listing (description + when_to_use) fits 1,536 characters
     }
   }
   assert.deepEqual(over, [], `skill listings past the cap:\n  ${over.join('\n  ')}`);
+});
+
+test('G22: the skill listing as a whole fits the 8,000-character fallback budget', (t) => {
+  const entries = skillFiles().map(({ name, file }) => ({ name, text: fs.readFileSync(file, 'utf8') }));
+  assert.ok(entries.length > 0, 'no skills parsed; the total below would measure nothing');
+  const totals = listingTotals(entries);
+  const empty = totals.perSkill.filter(({ chars }) => chars === 0)
+    .map(({ name }) => `${name}: 0 characters (cap ${MAX_LISTING_CHARS}; 0 means the frontmatter did not parse)`);
+  assert.deepEqual(empty, [], `skill listings past the cap:\n  ${empty.join('\n  ')}`);
+  const { description, whenToUse, total, names } = totals;
+  t.diagnostic(`skill listing: ${description} description + ${whenToUse} when_to_use = ${total} of ${MAX_LISTING_TOTAL_CHARS} `
+    + `characters; per-skill cap ${MAX_LISTING_CHARS}; names ${names}`);
+  assert.equal(listingOverBudget(totals), '');
 });
 
 test('G22: every SKILL.md is within 20,000 bytes and starts ## Boundaries by byte 19,000', () => {
@@ -128,4 +170,20 @@ test('G22: positive controls — the measures see an oversized fixture', () => {
     `fixture is ${late.bytes} bytes with Boundaries at ${late.boundaries}`);
 
   assert.ok(sum([60000, 40001]) > MAX_CLASS_BYTES);
+});
+
+test('G22: controls — the listing total sees an over-budget fixture', () => {
+  const six = Array.from({ length: 6 }, (_, i) => ({
+    name: `skill-${i}`, text: `---\nname: x\ndescription: ${'a'.repeat(1400)}\n---\n`,
+  }));
+  const totals = listingTotals(six);
+  assert.equal(totals.total, 8400);
+  assert.ok(totals.total > MAX_LISTING_TOTAL_CHARS);
+  assert.match(listingOverBudget(totals), /^skill listing total 8400 characters \(description 8400 \+ when_to_use 0\) is over the 8000-character/);
+  assert.equal(listingOverBudget(listingTotals(six.slice(0, 5))), '');
+
+  const whenOnly = listingTotals([{ name: 'w', text: `---\nname: w\ndescription: d\nwhen_to_use: ${'b'.repeat(8001)}\n---\n` }]);
+  assert.equal(whenOnly.whenToUse, 8001);
+  assert.equal(whenOnly.total, 8002);
+  assert.ok(listingOverBudget(whenOnly) !== '');
 });
