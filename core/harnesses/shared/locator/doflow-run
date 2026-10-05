@@ -1,5 +1,5 @@
 #!/bin/sh
-# DoFlow locator shim — projected to all seven harnesses by the `locator.doflow` asset in
+# DoFlow locator shim — projected to all eight harnesses by the `locator.doflow` asset in
 # core/registry/assets.json (design.md §3 C2, §4.1).
 #
 # Its ONLY job is to find the single dispatcher (at $REL below, under the config dir) and exec it

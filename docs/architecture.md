@@ -316,7 +316,7 @@ declares target capability and ownership inputs, and is not itself a native conf
 
 | Content | Where it lives | Why it is shared |
 |---|---|---|
-| `DOFLOW_CORE.md`, `PRINCIPLES.md`, `FLAGS.md`, `VERSION`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | One `guidance.context-layer` copy-tree asset mirrors this whole tree, byte-for-byte, into `.doflow/guidance/` for every scope — regardless of which harnesses are targeted |
+| `DOFLOW_CORE.md`, `PRINCIPLES.md`, `FLAGS.md`, `VERSION`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | One `guidance.context-layer` copy-tree asset mirrors this whole tree, byte-for-byte, into `.doflow/guidance/` for every scope, on the harnesses its `appliesTo` names (Claude Code, Codex, Gemini CLI, Kiro and Antigravity) |
 | `MCP_INDEX.md` (`.doflow/guidance/` only, no `core/` source) | Written directly by `applyLifecycle` (`src/lifecycle/index.js`) | The one file in `.doflow/guidance/` that varies per install (the resolved MCP selection) — deliberately outside `guidance.context-layer`'s copy-tree source so its per-install content never conflicts with that asset's byte-for-byte mirror; imported unconditionally from `DOFLOW_CORE.md` |
 
 > **Path anchor (load-bearing).** Every `@import` in `DOFLOW_CORE.md`, and every `doc` value in
@@ -404,12 +404,12 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-twenty-eight test files (plus `_shared.js`, a helper rather than a test); the twenty-one listed
-below are the ones this inventory documents, and they carry nineteen distinct G-numbers because two
+twenty-nine test files (plus `_shared.js`, a helper rather than a test); the twenty-two listed
+below are the ones this inventory documents, and they carry twenty distinct G-numbers because two
 numbers are used twice. Name the file, not the number, when you mean a specific guard: across the
 whole directory three numbers are claimed by two files each — G11 and G13, both pairs listed below,
 and G18, whose second claimant `adapter-force.test.js` is not. The collisions are historical rather
-than a convention; G21 is the highest number in use, so a new guard takes the next one above it
+than a convention; G22 is the highest number in use, so a new guard takes the next one above it
 instead of adding a fourth. The list is not the whole directory. The seven files absent from it are
 `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then G18;
 `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half of
@@ -513,6 +513,10 @@ the G18 pair — between them the reason the list runs G18 then G20; and `bounda
   loaded wholesale with no transform to execute; that entry instead pins the two registry facts its
   rationale rests on, and becomes removable if the registry ever declares load semantics per
   projection.
+- **G22** (`skill-caps.test.js`) — every `SKILL.md` stays inside the host's skill limits: listing text
+  (`description` plus `when_to_use`) at most 1,536 characters, the file at most 20,000 bytes with
+  `## Boundaries` starting inside them (the post-compaction window), and each task class's workflow
+  skills at most 100,000 bytes together.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.
