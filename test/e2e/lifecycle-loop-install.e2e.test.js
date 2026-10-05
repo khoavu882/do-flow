@@ -18,6 +18,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
+const { resolverOf } = require('../helper/skill-resolver');
 const { makeRepo, featureBranch } = require('../helper/lifecycle-git-fixtures');
 const { IS_WIN } = require('../helper-platform');
 
@@ -66,14 +67,6 @@ function installedSkill(h, name) {
   const hit = fs.readdirSync(h.home, { recursive: true }).find((f) => f.split(path.sep).slice(-3).join('/') === `skills/${name}/SKILL.md`);
   assert.ok(hit, `no installed ${name} skill under ${h.home}`);
   return path.join(h.home, hit);
-}
-
-/** The runtime resolver block of an installed skill: the fenced bash block that ends in the "no runtime found" exit. */
-function resolverOf(skillFile) {
-  const blocks = fs.readFileSync(skillFile, 'utf8').split('```bash\n').slice(1).map((b) => b.split('\n```')[0]);
-  const block = blocks.find((b) => b.includes('no runtime found'));
-  assert.ok(block, `${skillFile} carries no runtime resolver`);
-  return block;
 }
 
 describe('Codex target: the lifecycle verbs run through the codex-projected dispatcher (DEC-024, NFR-004)', { skip: SKIP }, () => {
@@ -325,7 +318,7 @@ describe('No install anywhere: the skill stops at its resolver, before any lifec
     const script = `${resolver}\necho VERB-REACHED\n"$DOFLOW" lifecycle --action overview --json\n`;
     const r = spawnSync('bash', ['-c', script], { cwd: project.dir, encoding: 'utf8', env: envFor(h) });
     assert.equal(r.status, 2, `${r.stdout}${r.stderr}`);
-    assert.match(r.stderr, /doflow: no runtime found in any \.doflow\/ above .*nor at .*Run: npx @khoavu882\/doflow install/);
+    assert.match(r.stderr, /doflow: no runtime found in any \.doflow\/ above .*nor at .*Run: npx @khoavu882\/doflow install -t <harness>$/m);
     assert.equal(r.stdout, '', 'no verb ran, so nothing was printed');
     assert.equal(fs.existsSync(path.join(project.dir, 'agent-docs')), false, 'and nothing was written');
   });
@@ -335,7 +328,8 @@ describe('No install anywhere: the skill stops at its resolver, before any lifec
     const r = run(h, project.dir, locator, ['lifecycle', '--action', 'overview', '--json']);
     assert.equal(r.status, 2);
     assert.match(r.stderr, /no DoFlow runtime found/);
-    assert.match(r.stderr, /npx @khoavu882\/doflow install/);
+    assert.ok(r.stderr.includes('npx @khoavu882/doflow install -t <harness>      # project-local, creates ./.doflow'), r.stderr);
+    assert.ok(r.stderr.includes('npx @khoavu882/doflow install -t <harness> -g   # global, creates $HOME/.doflow'), r.stderr);
     assert.equal(r.stdout, '');
   });
 });
