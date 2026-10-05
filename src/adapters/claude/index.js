@@ -10,7 +10,7 @@ const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = re
 const { selectMcpServers } = require('../../registry');
 const { GLOBAL_HOOK_PREFIX, PROJECT_HOOK_PREFIX } = require('../../helper/settings-scope');
 const { mergeSettings, settingsContains, settingsContainsAny, stripManagedSettings } = require('../../helper/settings-merge');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, resolveTransform } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveTransform } = require('../copy-tree');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
 
 const INSTRUCTION_RENDERER = 'claude-instructions';
@@ -93,16 +93,18 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     const paths = nativePaths({ scope, scopeRoot });
     const changes = [];
     const conflicts = [];
+    const treeResults = [];
     for (const asset of claudeTreeAssets(assets)) {
       const destDir = copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourcePath(asset, context);
       const previousResources = ledgerFileResources(ledger?.resources, 'claude', asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', layout: asset.layout, transform: asset.transform,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, 'claude'), operation: removing ? 'remove' : 'apply', layout: asset.layout, transform: asset.transform,
         // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
         // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
         // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file
         // is never deleted on removal, forced or not.
         force: !removing && context?.force === true, });
+      treeResults.push(result);
       conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
       for (const change of result.changes) {
         changes.push({
@@ -115,7 +117,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
         });
       }
     }
-    return { changes, conflicts };
+    return { changes, conflicts, notices: siblingReplacedNotices(treeResults) };
   }
 
   function applyCopyTreeAssets(changes) {
@@ -465,7 +467,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     changes.push(...copyTree.changes); conflicts.push(...copyTree.conflicts);
     const settings = planSettingsAsset({ assets, scope, scopeRoot, context, ledger, removing });
     changes.push(...settings.changes); conflicts.push(...settings.conflicts);
-    return { changes, conflicts, prerequisites: [] };
+    return { changes, conflicts, prerequisites: [], notices: copyTree.notices };
   }
 
   function apply({ changes, scope, scopeRoot, context = {} }) {
