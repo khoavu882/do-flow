@@ -528,3 +528,48 @@ test('046: promote writes the same intent from a global install, from a director
   intentByShape.global = promoteThrough(locator, { home, cwd }).text;
   assert.equal(intentByShape.global, intentByShape.checkout, 'a global install writes the checkout\'s intent');
 });
+
+// ----------------------------------------- 048: removing one claimant keeps what another still owns
+//
+// Pi and the three harnesses that already carried the runtime record the same target paths for the
+// shared tree. Removing one claimant releases its own rows and deletes a file only when no surviving
+// row claims it, so the other harness keeps a working runtime until it is removed too (NFR-002).
+
+const SHARED_TREE_FILES = [
+  ['.doflow', 'runtime', 'bin', 'doflow.js'],
+  ['.doflow', 'scripts', 'doflow', 'bin', 'doflow-run'],
+  ['.doflow', 'guidance', 'DOFLOW_CORE.md'],
+];
+
+/** Installs `first` then `second`, removes `second` and then `first`, and checks the shared tree at each step. */
+function assertRemovalKeepsClaimedFiles({ tag, scope, first, second }) {
+  const root = scratch(tag);
+  const home = path.join(root, 'home');
+  const treeRoot = scope === 'global' ? home : root;
+  const place = scope === 'global' ? ['-g'] : [root];
+  const run = (verb, target) => cli([verb, ...place, '-f', '--no-backup', '-t', target], { home, env: lifecycleEnv(home) });
+  const present = (parts) => fs.existsSync(path.join(treeRoot, ...parts));
+
+  for (const target of [first, second]) {
+    const installed = run('install', target);
+    assert.equal(installed.status, 0, `install -t ${target}: ${installed.stderr}`);
+  }
+  for (const parts of SHARED_TREE_FILES) assert.ok(present(parts), `${parts.join('/')} is installed`);
+
+  const removedSecond = run('remove', second);
+  assert.equal(removedSecond.status, 0, removedSecond.stderr);
+  assert.match(removedSecond.stdout, new RegExp(`${second}: retained \\d+ shared resource\\(s\\) still claimed by ${first}`));
+  for (const parts of SHARED_TREE_FILES) assert.ok(present(parts), `${parts.join('/')} is kept while ${first} still claims it`);
+
+  const removedFirst = run('remove', first);
+  assert.equal(removedFirst.status, 0, removedFirst.stderr);
+  for (const parts of SHARED_TREE_FILES) assert.equal(present(parts), false, `${parts.join('/')} is removed with the last claimant`);
+}
+
+test('048: project scope, removing pi keeps the shared tree codex still claims, and removing codex reclaims it', () => {
+  assertRemovalKeepsClaimedFiles({ tag: 'retain-proj', scope: 'project', first: 'codex', second: 'pi' });
+});
+
+test('048: global scope, removing pi keeps the shared tree claude still claims, and removing claude reclaims it', () => {
+  assertRemovalKeepsClaimedFiles({ tag: 'retain-global', scope: 'global', first: 'claude', second: 'pi' });
+});
