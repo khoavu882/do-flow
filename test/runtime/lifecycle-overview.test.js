@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
-const { makeRepo, historyBuilder } = require('../helper/lifecycle-git-fixtures');
+const { makeRepo, historyBuilder, failingGit } = require('../helper/lifecycle-git-fixtures');
 const store = require('../../src/runtime/lifecycle/event-store');
 const { buildOverview, FEATURES_SHOWN } = require('../../src/runtime/lifecycle/overview');
 const { addFollowups, settleFollowups } = require('../../src/runtime/lifecycle/followup');
@@ -108,4 +108,17 @@ test('the text overview prints at most ten slugs per bounded bucket and says how
   const line = (label) => out.stdout.split('\n').find((l) => l.startsWith(`${label}: `));
   assert.equal(line('finished'), `finished: ${slugs.slice(2, 12).join(', ')} (+2 more; --json lists them all, lifecycle --action status --slug <slug> shows one)`);
   assert.equal(line('in progress'), `in progress: ${slugs.slice(12).join(', ')}`, 'the in-progress bucket is not bounded');
+});
+
+test('a git failure while deriving statuses refuses the overview with git-state-failed (exit 1), and never throws', () => {
+  const { root } = trackedRepo('overview-git-fails', { merged: 2 });
+  const git = failingGit(scratch);
+  const cli = (extra) => spawnSync(process.execPath, [path.join(__dirname, '..', '..', 'bin', 'doflow.js'), 'lifecycle', '--action', 'overview', '--json'], { cwd: root, env: { ...scratch.env(), ...extra }, encoding: 'utf8' });
+  const out = cli(git.env('any'));
+  assert.equal(out.status, 1, out.stderr);
+  const refused = JSON.parse(out.stdout);
+  assert.deepEqual([refused.ok, refused.action, refused.finding], [false, 'overview', 'no-integration-ref']);
+  assert.match(refused.message, /git-state-failed.*rev-list/);
+  assert.doesNotMatch(out.stderr, /Error|at /, 'no stack trace');
+  assert.equal(cli({}).status, 0, 'with a working git the same overview answers');
 });

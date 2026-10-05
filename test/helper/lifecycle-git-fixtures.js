@@ -265,4 +265,29 @@ function historyBuilder({ initial = 'develop', start = '2026-10-01T08:00:00.000Z
   return h;
 }
 
-module.exports = { makeRepo, featureBranch, FIXTURES, twoReleases, historyBuilder, SLUG, TRACKED_AT };
+/**
+ * A `git` that fails `git rev-list --parents` (the derivation's graph read) and passes every other call
+ * to the real git: put `dir` first on PATH. With `DOFLOW_TEST_GIT_FAIL=any` every such read fails; with a
+ * sha, only a read whose revisions on stdin include it.
+ * @returns {{dir: string, env: (fail: string) => Object}} `env(fail)` is the PATH and switch to set
+ */
+function failingGit(scratch) {
+  const real = execFileSync('bash', ['-c', 'command -v git'], { encoding: 'utf8', env: scratch.env() }).trim();
+  const dir = path.join(scratch.dir, 'failing-git');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'git'), `#!/usr/bin/env bash
+if [ "$1" = rev-list ] && [ "$2" = --parents ]; then
+  input="$(cat)"
+  if [ "$DOFLOW_TEST_GIT_FAIL" = any ] || printf '%s\\n' "$input" | grep -q "^$DOFLOW_TEST_GIT_FAIL"; then
+    echo "fatal: injected read failure" >&2
+    exit 128
+  fi
+  printf '%s\\n' "$input" | "${real}" "$@"
+  exit $?
+fi
+exec "${real}" "$@"
+`, { mode: 0o755 });
+  return { dir, env: (fail) => ({ PATH: `${dir}${path.delimiter}${process.env.PATH}`, DOFLOW_TEST_GIT_FAIL: fail }) };
+}
+
+module.exports = { makeRepo, featureBranch, FIXTURES, twoReleases, historyBuilder, failingGit, SLUG, TRACKED_AT };

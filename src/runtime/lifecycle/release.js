@@ -154,27 +154,33 @@ function releaseFeatures({ root, tag, confirm = false, features, exclude, channe
   const inX = (commit) => bound === derived.integrationSha || readOfX().history.isAncestor(commit, bound);
   const candidates = [];
   const notDetected = [];
-  for (const feature of fold.features) {
-    const { slug } = feature;
-    if (recorded.has(slug)) continue;
-    const entry = derived.statuses[slug];
-    const hotfix = atTag && atTag.statuses[slug];
-    // With another v* tag in play, `finished` here means an unrecorded tag already contains the merge.
-    if (tagged && (entry.status === 'finished' || (hotfix && hotfix.status === 'finished'))) continue;
-    const evidence = entry.evidence;
-    let found = null;
-    if (evidence) {
-      const commit = derived.evidenceCommits[slug];
-      if (evidence.kind === 'confirmed' || (commit && inX(commit))) found = evidence;
+  // A git failure while reading X's history is an environment fault: a refusal, never a throw that would
+  // reach failure capture (NFR-005), as the status derivation reports its own as `unknown`.
+  try {
+    for (const feature of fold.features) {
+      const { slug } = feature;
+      if (recorded.has(slug)) continue;
+      const entry = derived.statuses[slug];
+      const hotfix = atTag && atTag.statuses[slug];
+      // With another v* tag in play, `finished` here means an unrecorded tag already contains the merge.
+      if (tagged && (entry.status === 'finished' || (hotfix && hotfix.status === 'finished'))) continue;
+      const evidence = entry.evidence;
+      let found = null;
+      if (evidence) {
+        const commit = derived.evidenceCommits[slug];
+        if (evidence.kind === 'confirmed' || (commit && inX(commit))) found = evidence;
+      }
+      if (!found && hotfix && hotfix.evidence) found = hotfix.evidence;
+      if (!found && evidence) {
+        const { history, merges, tips } = readOfX();
+        const tip = evidence.kind === 'branch' ? tips.get(evidence.ref) || null : null;
+        const lowerBound = Math.floor(Date.parse(feature.trackedAt) / 1000);
+        found = earlierMerge({ slug, evidence, tip, lowerBound, merges, bound, history });
+      }
+      if (found) candidates.push({ slug, evidence: found.kind, ref: found.ref }); else notDetected.push(slug);
     }
-    if (!found && hotfix && hotfix.evidence) found = hotfix.evidence;
-    if (!found && evidence) {
-      const { history, merges, tips } = readOfX();
-      const tip = evidence.kind === 'branch' ? tips.get(evidence.ref) || null : null;
-      const lowerBound = Math.floor(Date.parse(feature.trackedAt) / 1000);
-      found = earlierMerge({ slug, evidence, tip, lowerBound, merges, bound, history });
-    }
-    if (found) candidates.push({ slug, evidence: found.kind, ref: found.ref }); else notDetected.push(slug);
+  } catch (error) {
+    return refusal('release', 'no-integration-ref', `git could not answer while reading the history of ${tagCommit ? tag : facts.integration_ref} (git-state-failed): ${String(error.message).split('\n')[0]}. Nothing was written.`);
   }
 
   const shipped = [...candidates];

@@ -171,6 +171,9 @@ function buildOverview({ root, maintain = false, since, now = new Date(), fsImpl
   }
   const fold = readFold(root, { fsImpl, now });
   const derived = deriveStatuses({ root, fold });
+  // git failing while it answers is an environment fault: a refusal (exit 1), never a throw into failure capture.
+  // Outside a repository or with no integration ref the overview still answers, with `unknown` statuses.
+  if (derived.failure) return refusal('overview', 'no-integration-ref', `${derived.reason}; no overview was produced. Nothing was written.`);
   const followups = withDerivedDone(fold.followups, statusMap(derived));
   const open = followups.filter((item) => item.state === 'open');
   const limit = maintain ? MAINTAIN_SHOWN : DISCOVERY_SHOWN;

@@ -271,7 +271,8 @@ function behindNote(ref, behind) {
  *   integrationSha:string|null (the commit the ref was pinned to; absent when nothing was derived),
  *   evidenceCommits:Object<string,string|null> (slug to the full merge commit of its evidence; absent when nothing was derived),
  *   statuses:Object<string,{status:string, evidence:{kind:string,ref:string|null}|null, release:string|null}>,
- *   features:Object<string,string[]>, notDetected:string[]}}
+ *   features:Object<string,string[]>, notDetected:string[],
+ *   failure?:'git-state-failed' (git itself failed while deriving: an environment fault the caller refuses on)}}
  */
 function deriveStatuses({ root, fold, facts = readGitFacts(root) }) {
   const tracked = fold.features;
@@ -340,7 +341,9 @@ function deriveStatuses({ root, fold, facts = readGitFacts(root) }) {
     // pinned here (DEC-044) and the full merge commit an evidence names, not its 7-character `ref`.
     return { ...result(releaseMode, ref, null, statuses, notDetected, behind), integrationSha: pinned, evidenceCommits };
   } catch (error) {
-    return unknown(`git could not answer: ${String(error.message).split('\n')[0]}`);
+    // A git failure is an environment fault, not a DoFlow defect: it is reported, never thrown.
+    // `failure` lets a caller refuse instead of showing the unknown statuses as an answer.
+    return { ...unknown(`git could not answer (git-state-failed): ${String(error.message).split('\n')[0]}`), failure: 'git-state-failed' };
   }
 }
 

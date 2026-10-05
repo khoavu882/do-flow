@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
-const { makeRepo, featureBranch, FIXTURES, twoReleases, SLUG, TRACKED_AT } = require('../helper/lifecycle-git-fixtures');
+const { makeRepo, featureBranch, FIXTURES, twoReleases, failingGit, SLUG, TRACKED_AT } = require('../helper/lifecycle-git-fixtures');
 const store = require('../../src/runtime/lifecycle/event-store');
 const { buildOverview, featureStatus } = require('../../src/runtime/lifecycle/overview');
 const { addFollowups, takeFollowups, loadFollowups, FollowupUsageError } = require('../../src/runtime/lifecycle/followup');
@@ -432,4 +432,36 @@ test('G6: a candidate that is also excluded is printed as excluded only', () => 
   const text = run(repo.dir, ['lifecycle', '--action', 'release', '--tag', 'v1.0.0', '--exclude', SLUG]).stdout;
   assert.match(text, new RegExp(`excluded: ${SLUG}`));
   assert.doesNotMatch(text, /ships /);
+});
+
+// ── a git failure is a refusal, not a crash ────────────────────────────────────────────────────
+
+/** Runs `fn` with `extra` in this process's environment, then puts the environment back. */
+function withEnv(extra, fn) {
+  const saved = Object.fromEntries(Object.keys(extra).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, extra);
+  try { return fn(); } finally {
+    for (const [key, value] of Object.entries(saved)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
+}
+
+test('a git failure while reading the history of X, or of the integration ref, refuses the preview with git-state-failed', () => {
+  const { repo } = FIXTURES.mergeCommit(scratch);
+  repo.dir = fs.realpathSync(repo.dir);
+  track(repo, SLUG);
+  repo.tag('v1.0.0');
+  repo.commit('after the tag');
+  const tagSha = repo.git('rev-parse', 'v1.0.0^{commit}');
+  const git = failingGit(scratch);
+  const before = eventFiles(repo);
+  for (const fail of [tagSha, 'any']) {
+    const out = withEnv(git.env(fail), () => release(repo, { tag: 'v1.0.0' }));
+    assert.deepEqual([out.ok, out.finding], [false, 'no-integration-ref'], `fail ${fail}`);
+    assert.match(out.message, /git-state-failed.*rev-list.*Nothing was written\.$/);
+  }
+  const cli = spawnSync(process.execPath, [CLI, 'lifecycle', '--action', 'release', '--tag', 'v1.0.0', '--json'], { cwd: repo.dir, env: { ...scratch.env(), ...git.env(tagSha) }, encoding: 'utf8' });
+  assert.equal(cli.status, 1, cli.stderr);
+  assert.equal(JSON.parse(cli.stdout).finding, 'no-integration-ref');
+  assert.deepEqual(eventFiles(repo), before, 'nothing was written');
+  assert.deepEqual(slugsOf(release(repo, { tag: 'v1.0.0' })), [SLUG], 'with a working git the same preview answers');
 });
