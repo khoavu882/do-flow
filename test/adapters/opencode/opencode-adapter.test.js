@@ -227,3 +227,40 @@ test('agents.shared projects transformed OpenCode markdown agents and reclaims t
 function verifiedLedger(verified) {
   return { resources: verified.resources.map((r) => ({ ...r, harness: 'opencode', kind: r.kind || 'copy-tree-file' })) };
 }
+
+function sharedTreeAsset(repoRoot, nativeDir = '../.doflow/scripts') {
+  fs.mkdirSync(path.join(repoRoot, 'tree-src'), { recursive: true });
+  fs.writeFileSync(path.join(repoRoot, 'tree-src', 'run.sh'), '#!/bin/sh\n');
+  return { id: 'scripts.doflow', renderer: 'copy-tree', capability: 'scripts', source: 'tree-src', nativeDir };
+}
+
+test('a ../.doflow asset lands at <scope root>/.doflow in both scopes and verifies there', () => {
+  const adapter = createOpenCodeAdapter();
+  for (const scope of ['project', 'global']) {
+    const repoRoot = scratch(); const root = scratch();
+    const asset = sharedTreeAsset(repoRoot);
+    const context = { repoRoot, homeDir: root };
+    const planned = adapter.plan({ scope, scopeRoot: root, assets: [asset], context, ledger: { resources: [] } });
+    assert.deepEqual(planned.changes.filter((c) => c.kind === 'copy-tree-file').map((c) => c.target), [path.join(root, '.doflow', 'scripts', 'run.sh')], scope);
+    adapter.apply({ changes: planned.changes });
+    const verified = adapter.verify({ scope, scopeRoot: root, assets: [asset], context });
+    const status = verified.statuses.find((s) => s.capability === 'scripts');
+    assert.equal(status.status, 'managed', scope);
+    assert.equal(status.target, path.join(root, '.doflow', 'scripts'), scope);
+  }
+});
+
+test('a nativeDir that is not ../.doflow keeps the opencode tree root as its base', () => {
+  const adapter = createOpenCodeAdapter();
+  const repoRoot = scratch(); const root = scratch();
+  const planned = adapter.plan({ scope: 'global', scopeRoot: root, assets: [sharedTreeAsset(repoRoot, 'skills')],
+    context: { repoRoot, homeDir: root }, ledger: { resources: [] } });
+  assert.deepEqual(planned.changes.filter((c) => c.kind === 'copy-tree-file').map((c) => c.target), [path.join(root, '.config', 'opencode', 'skills', 'run.sh')]);
+});
+
+test('a ../.doflow nativeDir that escapes .doflow fails the plan before any write', () => {
+  const repoRoot = scratch(); const root = scratch();
+  assert.throws(() => createOpenCodeAdapter().plan({ scope: 'project', scopeRoot: root, assets: [sharedTreeAsset(repoRoot, '../.doflow/../x')],
+    context: { repoRoot, homeDir: root }, ledger: { resources: [] } }), /shared-tree nativeDir escapes \.doflow/);
+  assert.equal(fs.existsSync(path.join(root, '.doflow')), false);
+});

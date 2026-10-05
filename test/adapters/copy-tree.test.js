@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { discoverTree, planTree, applyTree, removeTree, verifyTree } = require('../../src/adapters/copy-tree');
+const { discoverTree, planTree, applyTree, removeTree, verifyTree, sharedTreeDestDir } = require('../../src/adapters/copy-tree');
 
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-copy-tree-')); }
 
@@ -445,4 +445,19 @@ test('doflow-output-style layout renames MODE_*.md and the transform wraps it as
   applyTree({ changes: planned.changes, transform: 'claude-output-styles' });
   const text = fs.readFileSync(path.join(destDir, 'doflow-orchestration.md'), 'utf8');
   assert.match(text, /^---\nname: DoFlow: Orchestration\ndescription: "route tools well"\nkeep-coding-instructions: true\n---/);
+});
+
+test('sharedTreeDestDir puts a ../.doflow nativeDir at the scope root and returns null for any other', () => {
+  const root = path.join(path.sep, 'scope');
+  assert.equal(sharedTreeDestDir(root, '../.doflow'), path.join(root, '.doflow'));
+  assert.equal(sharedTreeDestDir(root, '../.doflow/runtime/bin'), path.join(root, '.doflow', 'runtime', 'bin'));
+  assert.equal(sharedTreeDestDir(root, 'skills'), null);
+  assert.equal(sharedTreeDestDir(root, '../.doflowish'), null);
+  assert.equal(sharedTreeDestDir(root, undefined), null);
+});
+
+test('sharedTreeDestDir refuses a nativeDir that climbs out of .doflow', () => {
+  const root = path.join(path.sep, 'scope');
+  assert.throws(() => sharedTreeDestDir(root, '../.doflow/../x'), /shared-tree nativeDir escapes \.doflow: \.\.\/\.doflow\/\.\.\/x/);
+  assert.throws(() => sharedTreeDestDir(root, '../.doflow/..'), /escapes \.doflow/);
 });

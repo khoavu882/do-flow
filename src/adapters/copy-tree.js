@@ -380,6 +380,19 @@ function copyTreeDestDir(configDir, asset) {
   return path.join(configDir, asset.nativeDir || '');
 }
 
+/** Destination of a `../.doflow` shared-tree asset at the scope root (`<project>/.doflow`, or
+ * `$HOME/.doflow` globally), for harnesses whose tree root sits more than one level under the scope
+ * root. Returns null for any other nativeDir, so the caller falls back to `copyTreeDestDir`. */
+function sharedTreeDestDir(rootDir, nativeDir) {
+  if (nativeDir !== '../.doflow' && !String(nativeDir || '').startsWith('../.doflow/')) return null;
+  const sharedRoot = path.join(rootDir, '.doflow');
+  const dest = path.join(rootDir, '.doflow', nativeDir.slice('../.doflow'.length));
+  if (dest !== sharedRoot && !dest.startsWith(`${sharedRoot}${path.sep}`)) {
+    throw new Error(`shared-tree nativeDir escapes .doflow: ${nativeDir}`);
+  }
+  return dest;
+}
+
 /** Narrow a harness's flat neutral-resource list to one asset's previously-owned copy-tree files. */
 function ledgerFileResources(resources, harness, assetId) {
   return (resources || [])
@@ -387,4 +400,4 @@ function ledgerFileResources(resources, harness, assetId) {
     .map((resource) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
-module.exports = { discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, resolveLayout, LAYOUTS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };
+module.exports = { discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, resolveLayout, LAYOUTS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };

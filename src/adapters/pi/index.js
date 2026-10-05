@@ -21,7 +21,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, fingerprint, sourceDirFor } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, fingerprint, sourceDirFor } = require('../copy-tree');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
 
 const HARNESS = 'pi';
@@ -79,7 +79,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {
     const changes = [];
     const conflicts = [];
     for (const asset of copyTreeAssets(assets)) {
-      const destDir = copyTreeDestDir(paths.configDir, asset);
+      const destDir = sharedTreeDestDir(paths.root, asset.nativeDir) ?? copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Pi');
       const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
       const result = planTree({ sourceDir, destDir, previousResources, operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout,
@@ -120,7 +120,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {
     const resources = [];
     const conflicts = [];
     for (const asset of copyTreeAssets(assets)) {
-      const destDir = copyTreeDestDir(paths.configDir, asset);
+      const destDir = sharedTreeDestDir(paths.root, asset.nativeDir) ?? copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Pi');
       const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout });
       conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
