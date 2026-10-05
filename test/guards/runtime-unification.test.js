@@ -16,7 +16,7 @@
 // runtime locator is projected into every harness, inside that harness own directory' and 'the
 // locator source is executable'. Those run the real adapter projection, which is the right place
 // for them, so this file deliberately does NOT duplicate them. What it adds is the declaration
-// side those tests take as given: that the registry claims all seven in a self-consistent way,
+// side those tests take as given: that the registry claims all eight in a self-consistent way,
 // and that the path the locator searches for is the path the registry projects to.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -87,7 +87,7 @@ test('G12: exactly one dispatcher and one locator exist, and the retired entrypo
 
 test('G12: the locator asset claims every harness, consistently, inside each harness own directory', () => {
   const locator = assetById('locator.doflow');
-  assert.ok(locator, 'the locator.doflow asset is what puts a runtime entrypoint on all seven harnesses');
+  assert.ok(locator, 'the locator.doflow asset is what puts a runtime entrypoint on all eight harnesses');
 
   const allHarnesses = registry.harnesses.map((h) => h.id).sort();
   assert.deepEqual([...locator.appliesTo].sort(), allHarnesses,

@@ -13,6 +13,23 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.14.2] - 2026-10-05
+
+### Changed
+
+- `do-code-review` keeps its guardrails inside the compaction window. Its `SKILL.md` was 22,393 bytes, so `## Boundaries` started past the 5,000-token window that is re-injected after compaction and was dropped there. The maintainer-only sections (adding a language, regression fixtures) moved to its README and the directory tree was removed; the file is now 18,840 bytes with `## Boundaries` at byte 16,784. No review rule, threshold or step changed.
+- `RULE_02_WORKFLOW.md` asks for a task list "when the session offers one" instead of naming `TodoWrite`, a Claude Code tool, for all eight harnesses.
+- Documentation says eight harnesses where it meant eight, and `docs/architecture.md` states the five harnesses the guidance layer applies to (Claude Code, Codex, Gemini CLI, Kiro and Antigravity).
+
+### Added
+
+- Guard G22 (`test/guards/skill-caps.test.js`) enforces the skill size caps: a skill's `description` plus `when_to_use` at most 1,536 characters, each `SKILL.md` at most 20,000 bytes with `## Boundaries` starting by byte 19,000, and each workflow's skills at most 100,000 bytes in total (estimates at 4 bytes per token). Each assertion has a control that proves it can fail.
+
+### Fixed
+
+- The dispatch guard (G9) built its archetype pattern with a `.md` suffix that skills never write, so it matched nothing in any skill; it now matches the bare names and has a control.
+- The loaded-context rails are unchanged and every class measures lower: `feature` 221,311 of 225,000 bytes, `review` 38,192 of 42,000, `dependency-change` 81,609 of 85,000.
+
 ## [1.14.1] - 2026-10-05
 
 ### Changed

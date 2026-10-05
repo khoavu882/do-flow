@@ -3,7 +3,7 @@
 // G13 — always-loaded context budget (feature 008, design C13 / FR-019, FR-020, risk RK4).
 //
 // Everything reachable from DOFLOW_CORE.md is loaded into *every* session on *every* one of the
-// seven harnesses, before the user has typed anything. It is the only content in this repo whose
+// eight harnesses, before the user has typed anything. It is the only content in this repo whose
 // cost is paid unconditionally, so it is the only content that needs a hard ceiling rather than
 // review judgement. Phase D must add stopping rules and evidence discipline to this set, which
 // means the existing prose has to give up roughly what the new material costs; this guard is what
@@ -108,7 +108,7 @@ test('G13: the DoFlow-authored always-loaded set stays within its byte ceiling',
   const total = files.reduce((sum, { bytes }) => sum + bytes, 0);
   assert.ok(total <= CEILING_BYTES,
     `always-loaded guidance is ${total} bytes, ${total - CEILING_BYTES} over the `
-    + `${CEILING_BYTES}-byte ceiling. This content loads in every session on all seven harnesses.\n`
+    + `${CEILING_BYTES}-byte ceiling. This content loads in every session on all eight harnesses.\n`
     + `${breakdown(files, total)}\n`
     + '  Restructuring this prose is expected and allowed; growing the total is not. Trade bytes\n'
     + '  out of the files above, or — if the ceiling genuinely cannot hold — raise CEILING_BYTES\n'
