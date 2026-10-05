@@ -35,6 +35,8 @@ function readJsonObject(file, { fsImpl = fs } = {}) {
 // mcp-server alike). The antigravity projection shares that same pointer asset, so its rows do too.
 const POINTER_ASSET_ID = 'guidance.codex-pointer';
 const HOOKS_ASSET_ID = 'hooks.antigravity';
+// Printed by install and update at global scope, where Antigravity gets no skills to serve.
+const GLOBAL_SCOPE_NOTICE = 'no skills at global scope (the user-scope skills location is unresolved), so DoFlow skills and runtime are not installed here; install per project with: npx @khoavu882/doflow install -t antigravity';
 const SHARED_RUNTIME_ASSET_IDS = new Set(['scripts.doflow', 'runtime.cli', 'runtime.lib', 'runtime.registry']);
 // One owned hooks.json group per DoFlow policy (the Kiro doflow.json precedent): the two gates
 // stay independently removable/enablable, and a user's own groups are never touched. The Stop
@@ -451,6 +453,7 @@ function plan(options = {}, impl = {}) {
     conflicts,
     prerequisites: [],
     requiredNativeResources: changes,
+    ...(scope === 'global' && !removing ? { notices: [GLOBAL_SCOPE_NOTICE] } : {}),
   };
 }
 

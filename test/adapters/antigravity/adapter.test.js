@@ -380,3 +380,17 @@ test('the four runtime assets plan under <project>/.doflow at project scope and 
   assert.deepEqual(runtimeTargets(globalPlan), [], 'global scope plans no runtime target');
   assert.ok(!fs.existsSync(path.join(home, '.doflow')));
 });
+
+test('global scope carries the no-skills notice, project scope and removal carry none', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const global = harnessInput(registry, { scope: 'global', scopeRoot: scratch() });
+  const [notice, ...rest] = adapter.plan(global).notices;
+  assert.deepEqual(rest, []);
+  assert.match(notice, /^no skills at global scope \(the user-scope skills location is unresolved\)/);
+  assert.match(notice, /install per project with: npx @khoavu882\/doflow install -t antigravity$/);
+  assert.ok(notice.length <= 200 && !/[\u0000-\u001f]/.test(notice), 'a notice is one line of at most 200 characters');
+
+  const removing = { ...global, context: { ...global.context, operation: 'remove' } };
+  assert.equal(adapter.plan(removing).notices, undefined, 'removal prints no notice');
+  assert.equal(adapter.plan(harnessInput(registry, { scopeRoot: scratch() })).notices, undefined, 'project scope has skills, so no notice');
+});
