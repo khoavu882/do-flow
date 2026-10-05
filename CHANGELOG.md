@@ -13,6 +13,12 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.14.1] - 2026-10-05
+
+### Changed
+
+- Skills and agents write clean context. `ARTIFACT_VOICE.md` gains a "Dead context" rule: a status section states only what is true now and is rewritten in place, a resolved blocker or finished phase leaves the page, a fact lives in one artifact that others cite, and an agent's report holds outcomes, evidence locators, deviations and open questions without restating the brief. The state template, the `state.md` step of `/do-execute-plan` and the five agent specs carry the same rule; the specs gain a one-line "Hand-back" section. The loaded-context rails are unchanged (the `feature` class measures 224,670 bytes against its 225,000 rail).
+
 ## [1.14.0] - 2026-10-05
 
 ### Added

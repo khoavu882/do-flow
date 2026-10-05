@@ -2,13 +2,14 @@
 
 **Feature:** [NNN-slug] · **Plan:** [PLAN_PATH] · **Status:** In Progress · **Updated:** [DATE]
 
-> Execution state for `/do-execute-plan`. Updated after each task/phase validation — reflects
-> what has actually happened, not what's intended (that's `plan.md`'s job).
+> Execution state for `/do-execute-plan`: what happened, not the intent (`plan.md`'s job). Rewrite
+> Status, Blocked, Findings and Next Action in place so each states only what is true now; delete
+> what no longer applies.
 >
-> The **Plan:** field above is this file's identity, not decoration: a record naming a different
-> plan is another run's progress, so leave it alone and start a fresh one rather than reading it as
-> your own. On resume, trust this file and `git log` over recollection — conversation memory does
-> not survive a compact, and a controller that lost its place can re-dispatch work already done.
+> The **Plan:** field above is this file's identity: a record naming a different plan is another
+> run's progress, so leave it alone and start a fresh one rather than reading it as your own. On
+> resume, trust this file and `git log` over recollection: conversation memory does not survive a
+> compact, and a lost place can mean re-dispatching finished work.
 
 ## Repo Branch Status
 > Populate/update as `/do-execute-plan` first touches each repo — lazily, only when that repo's

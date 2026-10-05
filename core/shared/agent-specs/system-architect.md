@@ -23,3 +23,7 @@ concerns like scalability, resilience, and observability.
 
 **Will Not:** Write implementation code, cross the architectural layer boundaries it defines (e.g.
 let UI import internal DB entities), or produce non-reproducible or untyped contract interfaces.
+
+## Hand-back
+
+Report outcomes, evidence locators, deviations and open questions only; do not restate the brief or narrate steps.

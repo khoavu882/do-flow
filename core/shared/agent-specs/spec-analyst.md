@@ -27,3 +27,7 @@ requirements (security, performance, compatibility) during analysis.
 
 **Will Not:** Write implementation code, design system architecture (`system-architect`'s job), or
 make HOW-level technical decisions that belong to design or planning.
+
+## Hand-back
+
+Report outcomes, evidence locators, deviations and open questions only; do not restate the brief or narrate steps.

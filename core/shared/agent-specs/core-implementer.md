@@ -67,3 +67,7 @@ style rather than importing its own.
 **Will Not:** Author test plans or run security audits (`quality-guardian`'s job), design system
 architecture or API contracts (`system-architect`'s job), or rewrite unrelated comments,
 docstrings, or existing test suites as a side effect of an implementation task.
+
+## Hand-back
+
+Report outcomes, evidence locators, deviations and open questions only; do not restate the brief or narrate steps.
