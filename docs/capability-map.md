@@ -51,26 +51,29 @@ below say what blocks each projection).
 
 The `Scripts` row above reads Supported for all eight harnesses, but that is a statement about the
 capability, not about which script assets each harness receives. Two distinct assets in
-`core/registry/assets.json` use it, and they do **not** claim the same set of harnesses. The
-difference decides whether a given install can reach the DoFlow runtime at all, so it is recorded
-here rather than left to be inferred from the row.
+`core/registry/assets.json` use it, and they place files differently. The difference decides whether
+a given install can reach the DoFlow runtime, so it is recorded here rather than left to be inferred
+from the row.
 
 | Asset | Ships | `appliesTo` | `nativeDir` |
 |---|---|---|---|
 | `locator.doflow` | `core/harnesses/shared/locator/doflow-run` — a verb-free shim that finds and `exec`s the dispatcher | All eight harnesses | `bin`, inside each harness's own directory (for Claude: `.claude/bin/doflow-run` at project scope, `~/.claude/bin/doflow-run` at global scope) |
-| `scripts.doflow` | `core/shared/scripts/doflow/` — the dispatcher itself plus every shell helper it serves verbs from | `claude`, `codex`, `gemini` | `../.doflow/scripts`, so all three project into the **same** shared tree at `<config>/.doflow/scripts` |
+| `scripts.doflow` | `core/shared/scripts/doflow/` — the dispatcher itself plus every shell helper it serves verbs from | All eight harnesses | `../.doflow/scripts`, so all eight project into the **same** shared tree at `<scope root>/.doflow/scripts` (the `runtime.*` assets land beside it at `<scope root>/.doflow/runtime`) |
 
 Three consequences follow, all of them intentional:
 
-- **A harness can hold a locator with nothing behind it.** Installing only for OpenCode, Pi, Copilot
-  CLI, or Kiro projects the locator but no dispatcher. The locator then searches
-  `$DOFLOW_CONFIG_DIR`, the nearest `.doflow/` above the working directory, and `$HOME/.doflow`, and
-  exits 2 with one message naming all three. That is the designed failure — one actionable error
-  rather than a silently broken skill — and it resolves as soon as any project-local or global
-  install of the shared tree exists.
-- **The shared tree is co-owned.** Claude, Codex, and Gemini project the dispatcher to one
-  destination, so it is not owned by whichever harness was installed last. Removing a single target
-  must reclaim only what no other installed harness still claims.
+- **Reach is a property of the root, not of the harness.** A skill finds the dispatcher by the
+  nearest `.doflow/` above the working directory, then `$HOME/.doflow`, and the dispatcher needs
+  `runtime/bin/doflow.js` beside it. A harness counts as reached through a tree another harness
+  installed in the same root. When nothing is found, the resolver and the locator exit 2 with one
+  message naming every path searched and `install -t <harness>`. `doflow doctor` applies the same
+  rule per installed harness and scope in its `[Runtime Reach]` section. Antigravity has no skills at
+  global scope, so its global install projects no runtime and doctor reports `N/A` there.
+- **The shared tree is co-owned.** All eight harnesses project the dispatcher, the runtime and
+  `guidance.context-layer` (Kiro keeps steering files instead) to one destination per scope, so it is
+  not owned by whichever harness was installed last. Removing a single target must reclaim only what
+  no other installed harness still claims, and an update accepts a shared file whose content another
+  harness recorded at that path.
 - **The locator deliberately does not live in the shared tree.** It is the one asset whose
   `nativeDir` must stay inside the harness's own directory;
   `test/guards/runtime-unification.test.js` fails if any locator `nativeDir` escapes into

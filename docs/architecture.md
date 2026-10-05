@@ -128,11 +128,11 @@ real project root.
 **The locator is a shim, not a second dispatcher.** `core/harnesses/shared/locator/doflow-run` is
 projected into each harness's own `bin/` directory by the `locator.doflow` asset. It holds no verb
 table — it finds the dispatcher and `exec`s it — so adding a verb never edits eight files. Note the
-asymmetry, because it decides what a single-harness install can actually do: `locator.doflow`
-applies to all eight harnesses, while `scripts.doflow`, which carries the dispatcher itself, applies
-to `claude`, `codex`, and `gemini`, all three projecting into the same shared
-`<project>/.doflow/scripts`. A harness that receives only the locator gets the documented exit-2
-message naming every path searched, rather than a silent failure.
+placement, because it decides what a single-harness install can actually do: `locator.doflow` and
+`scripts.doflow`, which carries the dispatcher itself, apply to all eight harnesses, and every
+harness projects the dispatcher into the same shared `<scope root>/.doflow/scripts`. A tree that is
+missing from every searched path gets the documented exit-2 message naming each one and the
+`install -t <harness>` command that provides it, rather than a silent failure.
 
 **Tracing is free because it happens at the seam.** The dispatcher appends one metadata record per
 dispatched verb to a date-partitioned append-only run ledger under neutral state. No skill has to
@@ -260,12 +260,16 @@ writer of `settlements.jsonl`.
 
 ### Harness reach
 
-The runtime is projected to `claude`, `codex` and `gemini` only (the `scripts.doflow` and
-`runtime.*` assets, DEC-024). The other five harnesses get skills and the locator shim but no
-`doflow-run`, so the follow-up, capture and maintain lines do nothing there: an installed skill's
-resolver stops with a message naming where it looked for a runtime. Extending the runtime to them is a separate piece of work, recorded as a follow-up in the local
-store. Nothing in the loop depends on one harness's own commands; a goal is DoFlow's record, whatever
-a harness's own `goal` command does.
+The runtime reaches every harness at every scope where it gets skills: a standalone install of any
+of the eight projects the `scripts.doflow` and `runtime.*` assets to `<scope root>/.doflow`, so the
+follow-up, capture and maintain lines run after installing one harness alone. Pi, OpenCode and
+GitHub Copilot CLI also receive the shared guidance tree at `<scope root>/.doflow/guidance`, which
+the pointer in their instructions names; Kiro keeps its steering files. Antigravity has no skills at
+global scope, so its global install projects no runtime and prints a notice; install it per
+project. `doflow doctor` prints a `[Runtime Reach]` section with one line per installed harness and
+scope: `REACHED`, `NO-REACH` with the install command that fixes it, or `N/A`. Nothing in the loop
+depends on one harness's own commands; a goal is DoFlow's record, whatever a harness's own `goal`
+command does.
 
 ### Guards this feature touched
 
