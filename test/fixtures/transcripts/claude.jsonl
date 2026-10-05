@@ -1,0 +1,6 @@
+{"type":"user","message":{"role":"user","content":"add foo"},"uuid":"u1","sessionId":"fixture"}
+{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"thinking","thinking":"plan"}]},"uuid":"a1","sessionId":"fixture"}
+{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"Added foo with a complete implementation."}]},"uuid":"a2","sessionId":"fixture"}
+{"type":"user","message":{"role":"user","content":"now add bar"},"uuid":"u2","sessionId":"fixture"}
+{"type":"assistant","message":{"id":"m2","role":"assistant","content":[{"type":"thinking","thinking":"plan"}]},"uuid":"a3","sessionId":"fixture"}
+{"type":"assistant","message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"def bar():\n    # TODO: implement this\n    pass"}]},"uuid":"a4","sessionId":"fixture"}

@@ -492,10 +492,16 @@ fi
 section "6. stop-check.sh (stub detection)"
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Claude Code writes one entry per content block: {type, message:{role, content}}. user turns
+# carry a plain string, assistant turns a content-block array.
 make_transcript() {
   local role="$1"
   local content="$2"
-  printf '{"role":"%s","content":"%s"}\n' "$role" "$content"
+  if [[ "$role" == "assistant" ]]; then
+    printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"%s"}]}}\n' "$content"
+  else
+    printf '{"type":"user","message":{"role":"user","content":"%s"}}\n' "$content"
+  fi
 }
 
 # Test 6a: last assistant has TODO → exit 2
@@ -507,7 +513,7 @@ make_transcript "assistant" "Sure, added to the list." >> "$T1"
 make_transcript "user" "Implement the function" >> "$T1"
 make_transcript "assistant" "def foo():\n    # TODO: implement this\n    pass" >> "$T1"
 
-EXIT1=$(HOME="$TEST_HOME" bash "$HOOKS/stop-check.sh" \
+EXIT1=$("${SANDBOXED[@]}" bash "$HOOKS/stop-check.sh" \
   <<< "{\"session_id\":\"$SESS\",\"transcript_path\":\"$T1\"}" 2>/dev/null; echo $?)
 if [[ "$EXIT1" == "2" ]]; then
   pass "TODO in last assistant → exit 2 (stub detected)"
@@ -522,7 +528,7 @@ T2="$T2.jsonl"
 make_transcript "user" "Add a TODO comment to the code" >> "$T2"
 make_transcript "assistant" "Done. Full implementation complete, no stubs." >> "$T2"
 
-EXIT2=$(HOME="$TEST_HOME" bash "$HOOKS/stop-check.sh" \
+EXIT2=$("${SANDBOXED[@]}" bash "$HOOKS/stop-check.sh" \
   <<< "{\"session_id\":\"$SESS\",\"transcript_path\":\"$T2\"}" 2>/dev/null; echo $?)
 if [[ "$EXIT2" == "0" ]]; then
   pass "TODO only in user message → exit 0 (no false positive)"
@@ -537,12 +543,27 @@ T3="$T3.jsonl"
 make_transcript "user" "implement auth" >> "$T3"
 make_transcript "assistant" "def authenticate(user):\n    raise NotImplementedError" >> "$T3"
 
-EXIT3=$(HOME="$TEST_HOME" bash "$HOOKS/stop-check.sh" \
+EXIT3=$("${SANDBOXED[@]}" bash "$HOOKS/stop-check.sh" \
   <<< "{\"session_id\":\"$SESS\",\"transcript_path\":\"$T3\"}" 2>/dev/null; echo $?)
 if [[ "$EXIT3" == "2" ]]; then
   pass "raise NotImplementedError → exit 2"
 else
   fail "raise NotImplementedError → expected exit 2, got $EXIT3"
+fi
+
+# Test 6d: Codex rollout shape through the Codex front door → exit 2
+T4=$(mktemp "$REPO_ROOT/tmp/transcript-XXXXXX")
+mv "$T4" "$T4.jsonl"
+T4="$T4.jsonl"
+printf '%s\n' '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"implement foo"}]}}' >> "$T4"
+printf '%s\n' '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"def foo():\n    # TODO: implement this\n    pass"}]}}' >> "$T4"
+
+EXIT4=$("${SANDBOXED[@]}" bash "$MIRROR/.codex/hooks/stop-check.sh" \
+  <<< "{\"session_id\":\"$SESS\",\"transcript_path\":\"$T4\"}" 2>/dev/null >&2; echo $?)
+if [[ "$EXIT4" == "2" ]]; then
+  pass "Codex rollout shape: TODO in last assistant → exit 2 (front door keeps the block)"
+else
+  fail "Codex rollout shape: TODO in last assistant → expected exit 2, got $EXIT4"
 fi
 
 # Cleanup transcript temp files
