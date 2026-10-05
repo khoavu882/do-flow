@@ -18,7 +18,7 @@
       "displayName": "Codex CLI models",
       "kind": "hosted",
       "evidence": [
-        "https://developers.openai.com/codex/models"
+        "https://learn.chatgpt.com/docs/models"
       ],
       "tiers": [
         "capable",

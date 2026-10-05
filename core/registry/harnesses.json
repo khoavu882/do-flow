@@ -287,49 +287,49 @@
         "instructions": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/agent-configuration/agents-md"
+            "https://learn.chatgpt.com/docs/agent-configuration/agents-md"
           ],
           "verification": "Confirm the managed AGENTS.md section is applied at the project root (or ~/.codex/AGENTS.md globally)."
         },
         "skills": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/build-skills"
+            "https://learn.chatgpt.com/docs/build-skills"
           ],
           "verification": "Confirm Codex discovers the installed skill from .agents/skills (repo scope) or ~/.agents/skills (user scope); Codex never scans .codex/skills."
         },
         "agents": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/agent-configuration/subagents"
+            "https://learn.chatgpt.com/docs/agent-configuration/subagents"
           ],
           "verification": "Delegate a test task to a custom agent."
         },
         "scripts": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/concepts/customization"
+            "https://learn.chatgpt.com/docs/customization/overview"
           ],
           "verification": "Confirm referenced scripts exist."
         },
         "templates": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/concepts/customization"
+            "https://learn.chatgpt.com/docs/customization/overview"
           ],
           "verification": "Confirm a skill can read its template."
         },
         "modes": {
           "status": "unavailable",
           "evidence": [
-            "https://developers.openai.com/codex/concepts/customization"
+            "https://learn.chatgpt.com/docs/customization/overview"
           ],
           "verification": "Report the capability gap; do not render a native mode."
         },
         "settings": {
           "status": "different",
           "evidence": [
-            "https://developers.openai.com/codex/config-file/config-advanced"
+            "https://learn.chatgpt.com/docs/config-file/config-advanced"
           ],
           "prerequisites": [
             "trusted-project"
@@ -339,7 +339,7 @@
         "hooks": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/hooks"
+            "https://learn.chatgpt.com/docs/hooks"
           ],
           "prerequisites": [
             "trusted-project",
@@ -380,21 +380,33 @@
             },
             "PermissionDenied": {
               "status": "unavailable",
-              "note": "Codex exposes no permission-decision event."
+              "note": "Codex documents PermissionRequest before an approval prompt and no event after a denial."
+            },
+            "PermissionRequest": {
+              "status": "different",
+              "note": "Native PermissionRequest runs before an approval prompt; DoFlow projects no policy to it on Codex."
+            },
+            "PostCompact": {
+              "status": "different",
+              "note": "Native PostCompact exists; DoFlow's post-compact policy is not projected to Codex."
+            },
+            "Interrupt": {
+              "status": "different",
+              "note": "Native Interrupt runs when a turn is interrupted, not for subagents; no DoFlow policy maps to it."
             }
           }
         },
         "mcp": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/extend/mcp"
+            "https://learn.chatgpt.com/docs/extend/mcp"
           ],
           "verification": "Confirm selected MCP servers connect."
         },
         "plugin": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/build-plugins"
+            "https://learn.chatgpt.com/docs/build-plugins"
           ],
           "prerequisites": [
             "user-activation"
@@ -411,7 +423,7 @@
         "evidence": [
           "https://learn.chatgpt.com/docs/agent-configuration/agents-md"
         ],
-        "note": "AGENTS.md discovery is documented as: \"1. Global scope: In your Codex home directory ... Codex reads AGENTS.override.md if it exists. Otherwise, Codex reads AGENTS.md. 2. Project scope: Starting at the project root ...\", then \"Codex concatenates files from the root down ... Files closer to your current directory override earlier guidance because they appear later in the combined prompt.\" This URL is the current redirect target of https://developers.openai.com/codex/guides/agents-md (308 Permanent Redirect, same OpenAI docs property). Codex concatenates and states that files closer to the working directory override earlier guidance because they appear later, so the LAST scope consulted takes effect: the project copy wins despite being consulted second.",
+        "note": "AGENTS.md discovery is documented as: \"1. Global scope: In your Codex home directory ... Codex reads AGENTS.override.md if it exists. Otherwise, Codex reads AGENTS.md. 2. Project scope: Starting at the project root ...\", then \"Codex concatenates files from the root down ... Files closer to your current directory override earlier guidance because they appear later in the combined prompt.\" This URL replaced the former OpenAI developers-site AGENTS.md guide (308 Permanent Redirect, same OpenAI docs property). Codex concatenates and states that files closer to the working directory override earlier guidance because they appear later, so the LAST scope consulted takes effect: the project copy wins despite being consulted second.",
         "determinedOn": "2026-09-27",
         "mode": "last-wins"
       }
