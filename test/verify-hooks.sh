@@ -492,10 +492,16 @@ fi
 section "6. stop-check.sh (stub detection)"
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Claude Code writes one entry per content block: {type, message:{role, content}}. user turns
+# carry a plain string, assistant turns a content-block array.
 make_transcript() {
   local role="$1"
   local content="$2"
-  printf '{"role":"%s","content":"%s"}\n' "$role" "$content"
+  if [[ "$role" == "assistant" ]]; then
+    printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"%s"}]}}\n' "$content"
+  else
+    printf '{"type":"user","message":{"role":"user","content":"%s"}}\n' "$content"
+  fi
 }
 
 # Test 6a: last assistant has TODO → exit 2
@@ -507,7 +513,7 @@ make_transcript "assistant" "Sure, added to the list." >> "$T1"
 make_transcript "user" "Implement the function" >> "$T1"
 make_transcript "assistant" "def foo():\n    # TODO: implement this\n    pass" >> "$T1"
 
-EXIT1=$(HOME="$TEST_HOME" bash "$HOOKS/stop-check.sh" \
+EXIT1=$("${SANDBOXED[@]}" bash "$HOOKS/stop-check.sh" \
   <<< "{\"session_id\":\"$SESS\",\"transcript_path\":\"$T1\"}" 2>/dev/null; echo $?)
 if [[ "$EXIT1" == "2" ]]; then
   pass "TODO in last assistant → exit 2 (stub detected)"
@@ -522,7 +528,7 @@ T2="$T2.jsonl"
 make_transcript "user" "Add a TODO comment to the code" >> "$T2"
 make_transcript "assistant" "Done. Full implementation complete, no stubs." >> "$T2"
 
-EXIT2=$(HOME="$TEST_HOME" bash "$HOOKS/stop-check.sh" \
+EXIT2=$("${SANDBOXED[@]}" bash "$HOOKS/stop-check.sh" \
   <<< "{\"session_id\":\"$SESS\",\"transcript_path\":\"$T2\"}" 2>/dev/null; echo $?)
 if [[ "$EXIT2" == "0" ]]; then
   pass "TODO only in user message → exit 0 (no false positive)"
@@ -537,12 +543,27 @@ T3="$T3.jsonl"
 make_transcript "user" "implement auth" >> "$T3"
 make_transcript "assistant" "def authenticate(user):\n    raise NotImplementedError" >> "$T3"
 
-EXIT3=$(HOME="$TEST_HOME" bash "$HOOKS/stop-check.sh" \
+EXIT3=$("${SANDBOXED[@]}" bash "$HOOKS/stop-check.sh" \
   <<< "{\"session_id\":\"$SESS\",\"transcript_path\":\"$T3\"}" 2>/dev/null; echo $?)
 if [[ "$EXIT3" == "2" ]]; then
   pass "raise NotImplementedError → exit 2"
 else
   fail "raise NotImplementedError → expected exit 2, got $EXIT3"
+fi
+
+# Test 6d: Codex rollout shape through the Codex front door → exit 2
+T4=$(mktemp "$REPO_ROOT/tmp/transcript-XXXXXX")
+mv "$T4" "$T4.jsonl"
+T4="$T4.jsonl"
+printf '%s\n' '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"implement foo"}]}}' >> "$T4"
+printf '%s\n' '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"def foo():\n    # TODO: implement this\n    pass"}]}}' >> "$T4"
+
+EXIT4=$("${SANDBOXED[@]}" bash "$MIRROR/.codex/hooks/stop-check.sh" \
+  <<< "{\"session_id\":\"verify-sess-codex-stop\",\"transcript_path\":\"$T4\"}" 2>/dev/null >&2; echo $?)
+if [[ "$EXIT4" == "2" ]]; then
+  pass "Codex rollout shape: TODO in last assistant → exit 2 (front door keeps the block)"
+else
+  fail "Codex rollout shape: TODO in last assistant → expected exit 2, got $EXIT4"
 fi
 
 # Cleanup transcript temp files
@@ -587,7 +608,7 @@ section "8. post-compact.sh"
 # ══════════════════════════════════════════════════════════════════════════════
 
 INPUT_POSTCOMPACT="{\"session_id\":\"$SESS\",\"cwd\":\"$CWD\",\"trigger\":\"manual\",\"compact_summary\":\"Verification session: implemented hooks system.\"}"
-HOME="$TEST_HOME" bash "$HOOKS/post-compact.sh" <<< "$INPUT_POSTCOMPACT" > /dev/null 2>&1
+"${SANDBOXED[@]}" bash "$HOOKS/post-compact.sh" <<< "$INPUT_POSTCOMPACT" > /dev/null 2>&1
 
 SUMMARY_FILE="$SESS_ENV/projects/$CWD_HASH/last-compact-summary.md"
 if [[ -f "$SUMMARY_FILE" ]]; then
@@ -614,6 +635,26 @@ if [[ "$TMP_REMNANTS" -eq 0 ]]; then
   pass "no tmp remnants from atomic write"
 else
   fail "$TMP_REMNANTS tmp file(s) left behind by atomic write"
+fi
+
+# The summary is for the session that follows: the compacting session skips it, the next one
+# receives it once and consumes the file. Both are fresh sessions, so their first prompt is live.
+"${SANDBOXED[@]}" bash "$HOOKS/post-compact.sh" > /dev/null 2>&1 \
+  <<< "{\"session_id\":\"verify-sess-own\",\"cwd\":\"$CWD\",\"trigger\":\"manual\",\"compact_summary\":\"Own-session summary text.\"}"
+for sid in verify-sess-own verify-sess-next; do
+  hook_out session-start.sh "{\"session_id\":\"$sid\",\"cwd\":\"$CWD\"}" > /dev/null 2>&1 || true
+done
+OWN_CTX=$(hook_out user-prompt-submit.sh "{\"session_id\":\"verify-sess-own\",\"cwd\":\"$CWD\"}" | jq -r '.additionalContext // empty' 2>/dev/null)
+if [[ -n "$OWN_CTX" && "$OWN_CTX" != *"Own-session summary text"* && -f "$SUMMARY_FILE" ]]; then
+  pass "compacting session skips its own summary and leaves the file"
+else
+  fail "compacting session: summary injected or file removed"
+fi
+NEXT_CTX=$(hook_out user-prompt-submit.sh "{\"session_id\":\"verify-sess-next\",\"cwd\":\"$CWD\"}" | jq -r '.additionalContext // empty' 2>/dev/null)
+if [[ "$NEXT_CTX" == *"[Prior session summary"* && "$NEXT_CTX" == *"Own-session summary text"* && ! -f "$SUMMARY_FILE" ]]; then
+  pass "next session receives the summary once and the file is consumed"
+else
+  fail "next session: summary missing or file not consumed"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -734,7 +775,7 @@ fi
 
 # post-compact.sh should update compacted_at in meta.json
 INPUT_POSTCOMPACT2="{\"session_id\":\"$META_SESS\",\"cwd\":\"$CWD\",\"trigger\":\"manual\",\"compact_summary\":\"meta test compaction\"}"
-HOME="$TEST_HOME" bash "$HOOKS/post-compact.sh" <<< "$INPUT_POSTCOMPACT2" > /dev/null 2>&1
+"${SANDBOXED[@]}" bash "$HOOKS/post-compact.sh" <<< "$INPUT_POSTCOMPACT2" > /dev/null 2>&1
 
 META_COMPACTED=$(jq -r '.compacted_at // empty' "$META_FILE" 2>/dev/null)
 if [[ "$META_COMPACTED" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T ]]; then

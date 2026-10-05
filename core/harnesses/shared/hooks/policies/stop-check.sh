@@ -8,12 +8,14 @@
 #      list. Only runs when the incoming payload carries a session_id — a
 #      harness with no edited-files queue of its own (e.g. Antigravity, which
 #      wires no PostToolUse editor hook yet) simply has nothing to drain here.
-#   2. Stub detection: parses the JSONL transcript to extract ONLY the last
-#      assistant message content, then checks for unfinished-work markers.
+#   2. Stub detection: takes the payload's last_assistant_message, or else the
+#      last assistant message in the JSONL transcript (Claude Code, Codex and
+#      flat {role,content} shapes), then checks for unfinished-work markers.
 #      Exits non-zero if stubs are found (blocks the session from stopping).
-#      Runs independently of (1) — it only needs a transcript path, not a
-#      session_id, so it still fires for a harness that has no edited-files
-#      queue.
+#      Runs independently of (1) — it needs only the payload field or a
+#      transcript path, not a session_id, so it still fires for a harness that
+#      has no edited-files queue. A given message blocks once: harnesses without
+#      stop_hook_active (Antigravity, Kiro) have no other loop guard.
 #   3. Process-leak scan: DoFlow's own identifiers (FR-###, agent-docs/, chain
 #      artifact names) reaching files that ship. Warns, never blocks.
 #
@@ -152,18 +154,39 @@ fi
 
 # ── 2. Stub detection ─────────────────────────────────────────────────────────
 
-# Only parse transcript if we have a path to it
-[ -z "$TRANSCRIPT_PATH" ] && exit 0
-[ -f "$TRANSCRIPT_PATH" ] || exit 0
+# A stop that continues an earlier block has already been asked to finish once;
+# re-blocking it would loop, so only the lint queue above runs for it.
+[ "$(printf '%s' "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null)" = "true" ] && exit 0
 
-# Extract last assistant message content from JSONL.
-# tail-scan is O(constant) regardless of transcript size — the last assistant
-# entry is always near the end of the file. 200 lines covers any realistic
-# single response without loading the entire (potentially multi-MB) transcript.
-LAST_ASSISTANT_CONTENT=$(
-  tail -n 200 "$TRANSCRIPT_PATH" \
-    | jq -rs '[.[] | select(.role == "assistant")] | last | .content // ""' 2>/dev/null
-)
+# The payload's own last_assistant_message is the response being stopped on. A present key
+# (even null or empty) is authoritative: the transcript is only read when the key is absent.
+# jq filter for the transcript fallback: one JSON object per line, assistant text from three
+# shapes — Claude Code (.message with text blocks), Codex rollout (response_item .payload with
+# output_text blocks) and the flat {role,content} line. A partial or foreign line yields "".
+read -r -d '' LAST_ASSISTANT_JQ <<'JQ' || true
+def text: if type == "string" then .
+  elif type == "array" then [ .[]? | objects | select(.type == "text" or .type == "output_text") | .text | strings ] | join("\n")
+  else "" end;
+[ inputs | fromjson? | objects
+  | if ((.message | objects | .role) // null) == "assistant" then .message.content
+    elif .type == "response_item" and ((.payload | objects | .role) // null) == "assistant" then .payload.content
+    elif .role == "assistant" then .content
+    else empty end
+  | text | select(length > 0) ] | last // ""
+JQ
+
+if printf '%s' "$INPUT" | jq -e 'has("last_assistant_message")' >/dev/null 2>&1; then
+  LAST_ASSISTANT_CONTENT=$(printf '%s' "$INPUT" | jq -r '.last_assistant_message // ""' 2>/dev/null || true)
+else
+  # Only parse transcript if we have a path to it
+  [ -z "$TRANSCRIPT_PATH" ] && exit 0
+  [ -f "$TRANSCRIPT_PATH" ] || exit 0
+
+  # tail-scan is O(constant) regardless of transcript size — the last assistant
+  # entry is always near the end of the file. 200 lines covers any realistic
+  # single response without loading the entire (potentially multi-MB) transcript.
+  LAST_ASSISTANT_CONTENT=$(tail -n 200 "$TRANSCRIPT_PATH" | jq -Rnr "$LAST_ASSISTANT_JQ" 2>/dev/null || true)
+fi
 
 [ -z "$LAST_ASSISTANT_CONTENT" ] && exit 0
 
@@ -174,8 +197,20 @@ LAST_ASSISTANT_CONTENT=$(
 # non-word character or end-of-string instead, so "TODOX" doesn't match.
 STUB_PATTERN='(#|//)[[:space:]]*(TODO|FIXME)([^[:alnum:]_]|$)|raise NotImplementedError|throw new Error\(.*[Nn]ot [Ii]mplemented|(#|//)[[:space:]]*stub([^[:alnum:]_]|$)'
 
-if echo "$LAST_ASSISTANT_CONTENT" | grep -qiE -- "$STUB_PATTERN" 2>/dev/null; then
-  echo "[stop-check] Unfinished stub or TODO detected in last response — please complete the implementation before stopping." >&2
+if grep -qiE -- "$STUB_PATTERN" <<<"$LAST_ASSISTANT_CONTENT" 2>/dev/null; then
+  # Block a given message once: the continuation that follows is judged on new text, and a
+  # harness with no stop_hook_active would otherwise be blocked on this one forever. State is
+  # per session, or per transcript when the harness sends no session_id; any failure here
+  # leaves the block in force only for this call.
+  GUARD_KEY="$SESSION_ID"
+  [ -z "$GUARD_KEY" ] && GUARD_KEY="t$(printf '%s' "$TRANSCRIPT_PATH" | cksum | cut -d' ' -f1)"
+  GUARD_FILE="$(ensure_session_dir "$GUARD_KEY" 2>/dev/null)/stop-last-blocked" || GUARD_FILE=""
+  MESSAGE_SUM=$(printf '%s' "$LAST_ASSISTANT_CONTENT" | cksum 2>/dev/null) || MESSAGE_SUM=""
+  if [ -n "$MESSAGE_SUM" ] && [ -n "$GUARD_FILE" ] && [ "$(cat "$GUARD_FILE" 2>/dev/null)" = "$MESSAGE_SUM" ]; then
+    exit 0
+  fi
+  [ -n "$MESSAGE_SUM" ] && [ -n "$GUARD_FILE" ] && { printf '%s\n' "$MESSAGE_SUM" > "$GUARD_FILE"; } 2>/dev/null || true
+  echo "[stop-check] The last response contains an unfinished-work marker (TODO/FIXME/stub comment or a not-implemented raise/throw)." >&2
   exit 2
 fi
 

@@ -68,15 +68,50 @@ else
     SESSION_TITLE="no-git"
   fi
 
-  # ── Prior compact summary: read and inject directly, no manual restore step ───
+  # ── Prior compact summary: injected once into the next session, then consumed ─
+  # post-compact.sh writes this file for the session that follows a compaction. The session
+  # that compacted already holds the summary, so it skips the file and leaves it in place.
+  # Any other session claims the file with an atomic rename first (a summary written meanwhile
+  # is a new file and survives), reads a bounded prefix of the claimed copy and removes it. No
+  # step here may fail the hook: on any error the summary is simply not injected.
 
   PROJECT_DIR=$(ensure_project_dir "$CWD")
   COMPACT_FILE="$PROJECT_DIR/last-compact-summary.md"
-  if [[ -f "$COMPACT_FILE" ]]; then
-    # Strip the YAML frontmatter (between the two `---` lines); keep the summary body only.
-    COMPACT_BODY=$(awk '/^---$/{n++; next} n>=2' "$COMPACT_FILE")
-    if [[ -n "$COMPACT_BODY" ]]; then
-      CONTEXT+=$'\n\n'"[Prior session summary]"$'\n'"$COMPACT_BODY"
+  COMPACT_CLAIM="$PROJECT_DIR/.last-compact-summary.claimed.$SESSION_ID"
+  COMPACT_CAP=4000
+  COMPACT_READ=65536   # bytes: enough for the cap even at four bytes per character
+  compact_field() {
+    printf '%s\n' "$COMPACT_HEAD" | awk -v k="$1:" '/^---$/{n++; if (n == 2) exit; next} n == 1 && index($0, k) == 1 {sub(/^[^:]*:[ ]*/, ""); print; exit}' || true
+  }
+  if [[ -f "$COMPACT_FILE" && ! -L "$COMPACT_FILE" ]]; then
+    COMPACT_HEAD=$(head -c "$COMPACT_READ" "$COMPACT_FILE" 2>/dev/null | tr -d '\r') || COMPACT_HEAD=''
+    if [[ "$(compact_field session_id)" != "$SESSION_ID" ]] && mv "$COMPACT_FILE" "$COMPACT_CLAIM" 2>/dev/null; then
+      COMPACT_SIZE=$(wc -c < "$COMPACT_CLAIM" 2>/dev/null) || COMPACT_SIZE=0
+      COMPACT_HEAD=$(head -c "$COMPACT_READ" "$COMPACT_CLAIM" 2>/dev/null | tr -d '\r') || COMPACT_HEAD=''
+      rm -f "$COMPACT_CLAIM"
+      # Strip the YAML frontmatter (between the first two `---` lines) and the blank line after it;
+      # keep the summary body only.
+      COMPACT_BODY=$(printf '%s\n' "$COMPACT_HEAD" | awk '/^---$/ && n < 2 {n++; next} n >= 2 && (started || $0 != "") {started = 1; print}') || COMPACT_BODY=''
+      COMPACT_LEN=''
+      if [[ -n "$COMPACT_BODY" ]]; then
+        # --rawfile, not stdin or --arg: jq 1.7's raw stdin reader miscounts multibyte text across
+        # buffer boundaries, and --arg would hit the per-argument size limit on a large summary.
+        COMPACT_LEN=$(jq -n --rawfile b <(printf '%s' "$COMPACT_BODY") '$b | length' 2>/dev/null) || COMPACT_BODY=''
+      fi
+      if [[ -n "$COMPACT_BODY" && "$COMPACT_LEN" -gt "$COMPACT_CAP" ]]; then
+        COMPACT_BODY=$(jq -nr --rawfile b <(printf '%s' "$COMPACT_BODY") "\$b[0:$COMPACT_CAP]" 2>/dev/null) || COMPACT_BODY=''
+        COMPACT_MORE=''
+        [[ "$COMPACT_SIZE" -gt "$COMPACT_READ" ]] && COMPACT_MORE='at least '
+        [[ -n "$COMPACT_BODY" ]] && COMPACT_BODY+=$'\n'"[summary truncated: first ${COMPACT_CAP} of ${COMPACT_MORE}${COMPACT_LEN} characters]"
+      fi
+      if [[ -n "$COMPACT_BODY" ]]; then
+        COMPACT_AT=$(compact_field compacted_at); COMPACT_AT=${COMPACT_AT//]/}
+        COMPACT_BRANCH=$(compact_field branch); COMPACT_BRANCH=${COMPACT_BRANCH//]/}
+        COMPACT_HEADER="Prior session summary"
+        [[ -n "$COMPACT_AT" && "$COMPACT_AT" != "unknown" ]] && COMPACT_HEADER+=", compacted ${COMPACT_AT}"
+        [[ -n "$COMPACT_BRANCH" && "$COMPACT_BRANCH" != "unknown" ]] && COMPACT_HEADER+=" on branch ${COMPACT_BRANCH}"
+        CONTEXT+=$'\n\n'"[${COMPACT_HEADER}]"$'\n'"$COMPACT_BODY"
+      fi
     fi
   fi
 
