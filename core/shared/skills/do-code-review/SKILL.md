@@ -215,7 +215,7 @@ in, provided the report says so and why.
 D=$PWD; while [ "$D" != / ] && [ ! -x "$D/.doflow/scripts/doflow/bin/doflow-run" ]; do D=$(dirname "$D"); done
 DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
 [ -x "$DOFLOW" ] || DOFLOW="$HOME/.doflow/scripts/doflow/bin/doflow-run"
-[ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install" >&2; exit 2; }
+[ -x "$DOFLOW" ] || { echo "doflow: no runtime found in any .doflow/ above $PWD, nor at $HOME/.doflow. Run: npx @khoavu882/doflow install -t <harness>" >&2; exit 2; }
 ```
 
    Run every command below from the project root — the walk-up starts at `$PWD`. On exit 2, print
