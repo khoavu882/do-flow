@@ -340,3 +340,43 @@ SHIM_TEST('stop-check shim fails open on every ambiguity', () => {
     assert.equal(outcome.stdout, '', `${name}: must stay silent`);
   }
 });
+
+const RUNTIME_ASSETS = [
+  { id: 'scripts.doflow', source: 'core/shared/scripts', nativeDir: '../.doflow/scripts' },
+  { id: 'runtime.cli', source: 'bin', nativeDir: '../.doflow/runtime/bin' },
+  { id: 'runtime.lib', source: 'src', nativeDir: '../.doflow/runtime/src' },
+  { id: 'runtime.registry', source: 'core/registry', nativeDir: '../.doflow/runtime/core/registry' },
+].map((asset) => ({ ...asset, renderer: 'copy-tree', capability: 'scripts' }));
+
+test('project plan reads its hook source from context.repoRoot, not the working directory', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const root = scratch();
+  const input = harnessInput(registry, { scopeRoot: root });
+  const cwd = process.cwd();
+  process.chdir(root);
+  let planned;
+  try { planned = adapter.plan(input); } finally { process.chdir(cwd); }
+  assert.equal(planned.conflicts.length, 0);
+  assert.ok(planned.changes.some((c) => c.assetId === 'hooks.antigravity' && c.kind === 'hooks-json'));
+  assert.ok(planned.changes.some((c) => c.assetId === 'hooks.antigravity' && c.identity === 'stop-check.sh'));
+});
+
+test('the four runtime assets plan under <project>/.doflow at project scope and nothing at global scope', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const runtimeIds = new Set(RUNTIME_ASSETS.map((asset) => asset.id));
+  const runtimeTargets = (planned) => planned.changes.filter((c) => runtimeIds.has(c.assetId)).map((c) => c.target);
+
+  const project = scratch();
+  const projectInput = harnessInput(registry, { scopeRoot: project });
+  const projectTargets = runtimeTargets(adapter.plan({ ...projectInput, assets: [...projectInput.assets, ...RUNTIME_ASSETS] }));
+  assert.ok(projectTargets.length > 0, 'project scope plans the runtime');
+  assert.ok(projectTargets.every((target) => target.startsWith(path.join(project, '.doflow') + path.sep)), 'every runtime target sits under <project>/.doflow');
+  assert.ok(projectTargets.includes(path.join(project, '.doflow', 'runtime', 'bin', 'doflow.js')));
+  assert.ok(projectTargets.includes(path.join(project, '.doflow', 'scripts', 'doflow', 'bin', 'doflow-run')));
+
+  const home = scratch();
+  const globalInput = harnessInput(registry, { scope: 'global', scopeRoot: home });
+  const globalPlan = adapter.plan({ ...globalInput, assets: [...globalInput.assets, ...RUNTIME_ASSETS] });
+  assert.deepEqual(runtimeTargets(globalPlan), [], 'global scope plans no runtime target');
+  assert.ok(!fs.existsSync(path.join(home, '.doflow')));
+});
