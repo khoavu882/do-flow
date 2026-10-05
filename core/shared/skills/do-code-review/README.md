@@ -1,8 +1,8 @@
 # do-code-review
 
 Code review automation for TypeScript, JavaScript, Python, Go, Swift, Kotlin, C#, .NET, Java, C,
-C++, Rust, Ruby, PHP, Dart/Flutter and markdown/prose. All three bundled scripts (`pr_analyzer.py`,
-`code_quality_checker.py`, `review_report_generator.py`, under `scripts/`) are stdlib-only — no
+C++, Rust, Ruby, PHP, Dart/Flutter and markdown/prose. All four bundled scripts (`pr_analyzer.py`,
+`code_quality_checker.py`, `doc_quality_checker.py`, `review_report_generator.py`, under `scripts/`) are stdlib-only — no
 `pip install` required.
 
 Everything else — dispatch tables, thresholds, verdict table — is in

@@ -11,9 +11,6 @@ Automated code review tools for analyzing pull requests, detecting code quality 
 
 ## How This Skill Is Organized
 
-`content-types/` is a sibling of `languages/`, not a subdirectory of it — it dispatches by content
-type (prose vs. code) rather than by programming language; see `content-types/markdown.md`.
-
 ### Loading order for every review
 
 1. This file (`SKILL.md`) — tools and thresholds

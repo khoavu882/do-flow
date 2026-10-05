@@ -1,7 +1,7 @@
 # Workflow Rules
 
 ## Planning
-- **Parallel by default** — sequential only for hard dependencies; a task list once past 3 tasks, when the harness offers one
+- **Parallel by default** — sequential only for hard dependencies; a task list once past 3 tasks, when the session offers one
 - Validate before execution, verify after; run lint/typecheck before marking complete
 - Check deps (package.json) and existing patterns before any changes
 - Feature delivery follows the doflow chain — see `references/DOFLOW_CHAIN.md` for the phase-gated
@@ -9,8 +9,8 @@
 
 <important if="planning or starting a multi-step task">
 ## Planning Efficiency
-- Explicitly identify concurrent vs sequential operations during planning
-- Map dependencies clearly; batch tool calls; estimate parallelization gains
+- Identify concurrent vs sequential operations
+- Map dependencies; batch tool calls; estimate parallelization gains
 </important>
 
 ## Implementation Completeness

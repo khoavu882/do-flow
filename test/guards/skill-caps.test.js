@@ -19,6 +19,9 @@ const { REPO, skillFiles, SKILLS } = require('./_shared');
 
 const MAX_LISTING_CHARS = 1536;
 const MAX_SKILL_BYTES = 20000;
+// Tighter than the size cap: the guardrails must sit well inside the window, not on its edge, so a
+// skill that grows toward the cap trips this before its Boundaries are at risk.
+const MAX_BOUNDARIES_OFFSET = 19000;
 const MAX_CLASS_BYTES = 100000;
 
 /** Top-level frontmatter value for `key`: one line, or that line plus indented continuations. */
@@ -66,14 +69,14 @@ test('G22: every skill listing (description + when_to_use) fits 1,536 characters
   assert.deepEqual(over, [], `skill listings past the cap:\n  ${over.join('\n  ')}`);
 });
 
-test('G22: every SKILL.md is within 20,000 bytes and keeps ## Boundaries inside them', () => {
+test('G22: every SKILL.md is within 20,000 bytes and starts ## Boundaries by byte 19,000', () => {
   const over = [];
   for (const { name, file } of skillFiles()) {
     const { bytes, boundaries } = sizeAndBoundaries(fs.readFileSync(file, 'utf8'));
     if (bytes > MAX_SKILL_BYTES) over.push(`${name}: ${bytes} bytes (cap ${MAX_SKILL_BYTES})`);
     if (boundaries === null) over.push(`${name}: no "## Boundaries" heading`);
-    else if (boundaries > MAX_SKILL_BYTES) {
-      over.push(`${name}: ## Boundaries starts at byte ${boundaries} (cap ${MAX_SKILL_BYTES})`);
+    else if (boundaries > MAX_BOUNDARIES_OFFSET) {
+      over.push(`${name}: ## Boundaries starts at byte ${boundaries} (cap ${MAX_BOUNDARIES_OFFSET})`);
     }
   }
   assert.deepEqual(over, [],
@@ -94,6 +97,10 @@ test('G22: the SKILL.md files of each task class workflow fit 100,000 bytes toge
     const parts = skills.map((skill) => ({
       skill, bytes: Buffer.byteLength(fs.readFileSync(path.join(SKILLS, skill, 'SKILL.md'), 'utf8'), 'utf8'),
     }));
+    if (cls === 'feature') {
+      assert.ok(skills.includes('do-code-review') && skills.includes('do-brainstorm'),
+        `the feature class resolved [${skills.join(', ')}]; stage.skill no longer names its skills, so the sums measure nothing`);
+    }
     const total = sum(parts.map((part) => part.bytes));
     if (total > MAX_CLASS_BYTES) {
       over.push(`${cls}: ${total} bytes (cap ${MAX_CLASS_BYTES}): ${parts.map((p) => `${p.skill}=${p.bytes}`).join(', ')}`);
@@ -114,6 +121,11 @@ test('G22: positive controls — the measures see an oversized fixture', () => {
   assert.ok(bytes > MAX_SKILL_BYTES, `fixture is ${bytes} bytes`);
   assert.ok(boundaries > MAX_SKILL_BYTES, `fixture Boundaries at ${boundaries}`);
   assert.equal(sizeAndBoundaries('# x\nno guardrails\n').boundaries, null);
+
+  const lateHeading = `# x\n${'a'.repeat(19500)}\n## Boundaries\n`;
+  const late = sizeAndBoundaries(lateHeading);
+  assert.ok(late.bytes <= MAX_SKILL_BYTES && late.boundaries > MAX_BOUNDARIES_OFFSET,
+    `fixture is ${late.bytes} bytes with Boundaries at ${late.boundaries}`);
 
   assert.ok(sum([60000, 40001]) > MAX_CLASS_BYTES);
 });
