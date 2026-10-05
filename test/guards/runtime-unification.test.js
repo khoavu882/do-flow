@@ -190,6 +190,20 @@ test('G12: the path the locator searches for is where the registry projects the 
     `all three resolution steps (design §4.1) must interpolate $REL; found ${uses} uses`);
 });
 
+// The doctor's reach check stats the same path the locator and the skill resolver look for. A
+// fourth spelling that drifts would make doctor report REACHED for a tree no skill can find.
+test('G12: the reach evaluator, the locator and the skill resolver search for the same dispatcher path (IC-011 4b)', () => {
+  const { REACH_DISPATCHER_REL } = require('../../src/runtime/reach');
+  const [, locatorRel] = locatorText.match(/^REL='([^']+)'$/m) || [];
+  assert.equal(REACH_DISPATCHER_REL, locatorRel, 'src/runtime/reach.js and the locator shim name different dispatcher paths');
+
+  const skill = fs.readFileSync(path.join(REPO, 'core', 'shared', 'skills', 'do-git', 'SKILL.md'), 'utf8');
+  const spelled = [...skill.matchAll(/\.doflow\/(scripts\/[^"\s]+)/g)].map((match) => match[1]);
+  assert.ok(spelled.length >= 3, `the resolver block spells the dispatcher path ${spelled.length} time(s); expected the walk, the DOFLOW assignment and the home fallback`);
+  assert.deepEqual([...new Set(spelled)], [REACH_DISPATCHER_REL],
+    'the skill resolver block searches a different dispatcher path than src/runtime/reach.js');
+});
+
 // ------------------------------------------------------------------- 4. verb-table integrity
 
 /** The dispatcher's own two case blocks are the verb table; parse them rather than restating it.

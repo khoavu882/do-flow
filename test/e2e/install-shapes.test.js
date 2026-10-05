@@ -445,8 +445,14 @@ test('NFR-001/NFR-002: install and dispatch succeed with python3 and every optio
   const routed = runtime(locator, ['capabilities', '--json'], { home, cwd: root, env: { ...env, DOFLOW_CLI: CLI } });
   assert.equal(routed.status, 0, routed.stderr);
 
-  const doctor = cli(['doctor'], { home, env });
-  assert.equal(doctor.status, 0, `doctor must report degraded capability, not exit non-zero:\n${doctor.stderr}`);
+  // Pinned to the install's own root, so reach is judged there and not at whatever the cwd holds.
+  const doctor = cli(['doctor', root, '--json'], { home, env });
+  assert.equal(doctor.status, 0, `doctor must report degraded capability, not exit non-zero:\n${doctor.stderr}${doctor.stdout}`);
+  for (const harness of JSON.parse(doctor.stdout).harnesses) {
+    const row = harness.reach.find((entry) => entry.scope === 'project');
+    assert.equal(row?.state, 'REACHED', `${harness.id}: the project install must be reachable`);
+    assert.ok(samePath(row.root, path.join(fs.realpathSync(root), '.doflow')), `${harness.id}: reached through ${row.root}`);
+  }
 });
 
 // ----------------------------------------- 046: promote reaches the same file in every shape
