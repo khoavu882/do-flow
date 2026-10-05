@@ -130,7 +130,8 @@ projected into each harness's own `bin/` directory by the `locator.doflow` asset
 table — it finds the dispatcher and `exec`s it — so adding a verb never edits eight files. Note the
 placement, because it decides what a single-harness install can actually do: `locator.doflow` and
 `scripts.doflow`, which carries the dispatcher itself, apply to all eight harnesses, and every
-harness projects the dispatcher into the same shared `<scope root>/.doflow/scripts`. A tree that is
+harness projects the dispatcher into the same shared `<scope root>/.doflow/scripts`, except
+Antigravity at global scope, which has no skills there and projects no runtime (see Harness reach). A tree that is
 missing from every searched path gets the documented exit-2 message naming each one and the
 `install -t <harness>` command that provides it, rather than a silent failure.
 

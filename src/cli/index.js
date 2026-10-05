@@ -12,6 +12,7 @@ const {
   EVIDENCE_SCORE_FIELDS, scoreFieldRefusal,
 } = require('../runtime/cli');
 const { pkg } = require('./shared');
+const { VALID: VALID_TARGETS, DEFAULT_TARGETS } = require('../install/targets');
 const { dispatchRuntimeCommand } = require('./runtime-commands');
 
 const cmdInstall = require('./commands/install');
@@ -401,14 +402,16 @@ Commands:
   leak-scan            Report DoFlow-internal identifiers in shipped files (--path, repeatable)
 
 Scope (mutually exclusive — global wins if both given):
-  -g, --global         Install to \$HOME/.{claude,codex,gemini}
+  -g, --global         Install to each target's user-level directory under \$HOME (e.g. \$HOME/.claude),
+                       and the shared runtime to \$HOME/.doflow
   [path]               Project-scoped install root (default: '.', i.e. cwd); e.g.
-                       'doflow install ../my-app' -> ../my-app/.claude/, .codex/, .gemini/
+                       'doflow install ../my-app' -> each target's project files, plus
+                       ../my-app/.doflow
                        (rollback's one positional slot is the backup id instead — its scope is
                        always -g or cwd, no custom project path)
 
 Options:
-  -t, --target <list>  Comma-separated: claude,codex,gemini (default: all)
+  -t, --target <list>  Comma-separated: ${VALID_TARGETS.join(',')} (default: ${DEFAULT_TARGETS.join(',')})
       --mcp <list>     Comma-separated MCP server names to install (default: all; omit to be
                        prompted interactively on a real terminal). Remembered for later 'update'
                        runs. Applies to Claude and Codex when targeted.
