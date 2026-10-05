@@ -68,16 +68,36 @@ else
     SESSION_TITLE="no-git"
   fi
 
-  # ── Prior compact summary: read and inject directly, no manual restore step ───
+  # ── Prior compact summary: injected once into the next session, then consumed ─
+  # post-compact.sh writes this file for the session that follows a compaction. The session
+  # that compacted already holds the summary, so it skips the file and leaves it in place.
 
   PROJECT_DIR=$(ensure_project_dir "$CWD")
   COMPACT_FILE="$PROJECT_DIR/last-compact-summary.md"
-  if [[ -f "$COMPACT_FILE" ]]; then
-    # Strip the YAML frontmatter (between the two `---` lines); keep the summary body only.
-    COMPACT_BODY=$(awk '/^---$/{n++; next} n>=2' "$COMPACT_FILE")
+  COMPACT_CAP=4000
+  frontmatter_value() {
+    awk -v k="$1:" '/^---$/{n++; if (n == 2) exit; next} n == 1 && index($0, k) == 1 {sub(/^[^:]*:[ ]*/, ""); print; exit}' "$COMPACT_FILE"
+  }
+  if [[ -f "$COMPACT_FILE" && "$(frontmatter_value session_id)" != "$SESSION_ID" ]]; then
+    # Strip the YAML frontmatter (between the first two `---` lines) and the blank line after it;
+    # keep the summary body only.
+    COMPACT_BODY=$(awk '/^---$/ && n < 2 {n++; next} n >= 2 && (started || $0 != "") {started = 1; print}' "$COMPACT_FILE")
     if [[ -n "$COMPACT_BODY" ]]; then
-      CONTEXT+=$'\n\n'"[Prior session summary]"$'\n'"$COMPACT_BODY"
+      # --rawfile, not stdin or --arg: jq 1.7's raw stdin reader miscounts multibyte text across
+      # buffer boundaries, and --arg would hit the per-argument size limit on a large summary.
+      COMPACT_LEN=$(jq -n --rawfile b <(printf '%s' "$COMPACT_BODY") '$b | length')
+      if [[ "$COMPACT_LEN" -gt "$COMPACT_CAP" ]]; then
+        COMPACT_BODY=$(jq -nr --rawfile b <(printf '%s' "$COMPACT_BODY") "\$b[0:$COMPACT_CAP]")
+        COMPACT_BODY+=$'\n'"[summary truncated: first ${COMPACT_CAP} of ${COMPACT_LEN} characters]"
+      fi
+      COMPACT_AT=$(frontmatter_value compacted_at)
+      COMPACT_BRANCH=$(frontmatter_value branch)
+      COMPACT_HEADER="Prior session summary"
+      [[ -n "$COMPACT_AT" && "$COMPACT_AT" != "unknown" ]] && COMPACT_HEADER+=", compacted ${COMPACT_AT}"
+      [[ -n "$COMPACT_BRANCH" && "$COMPACT_BRANCH" != "unknown" ]] && COMPACT_HEADER+=" on branch ${COMPACT_BRANCH}"
+      CONTEXT+=$'\n\n'"[${COMPACT_HEADER}]"$'\n'"$COMPACT_BODY"
     fi
+    rm -f "$COMPACT_FILE"
   fi
 
   # Check for uncommitted warning from prior session (one-time: delete after read —

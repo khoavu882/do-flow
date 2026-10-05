@@ -608,7 +608,7 @@ section "8. post-compact.sh"
 # ══════════════════════════════════════════════════════════════════════════════
 
 INPUT_POSTCOMPACT="{\"session_id\":\"$SESS\",\"cwd\":\"$CWD\",\"trigger\":\"manual\",\"compact_summary\":\"Verification session: implemented hooks system.\"}"
-HOME="$TEST_HOME" bash "$HOOKS/post-compact.sh" <<< "$INPUT_POSTCOMPACT" > /dev/null 2>&1
+"${SANDBOXED[@]}" bash "$HOOKS/post-compact.sh" <<< "$INPUT_POSTCOMPACT" > /dev/null 2>&1
 
 SUMMARY_FILE="$SESS_ENV/projects/$CWD_HASH/last-compact-summary.md"
 if [[ -f "$SUMMARY_FILE" ]]; then
@@ -635,6 +635,26 @@ if [[ "$TMP_REMNANTS" -eq 0 ]]; then
   pass "no tmp remnants from atomic write"
 else
   fail "$TMP_REMNANTS tmp file(s) left behind by atomic write"
+fi
+
+# The summary is for the session that follows: the compacting session skips it, the next one
+# receives it once and consumes the file. Both are fresh sessions, so their first prompt is live.
+"${SANDBOXED[@]}" bash "$HOOKS/post-compact.sh" > /dev/null 2>&1 \
+  <<< "{\"session_id\":\"verify-sess-own\",\"cwd\":\"$CWD\",\"trigger\":\"manual\",\"compact_summary\":\"Own-session summary text.\"}"
+for sid in verify-sess-own verify-sess-next; do
+  hook_out session-start.sh "{\"session_id\":\"$sid\",\"cwd\":\"$CWD\"}" > /dev/null 2>&1 || true
+done
+OWN_CTX=$(hook_out user-prompt-submit.sh "{\"session_id\":\"verify-sess-own\",\"cwd\":\"$CWD\"}" | jq -r '.additionalContext // empty' 2>/dev/null)
+if [[ -n "$OWN_CTX" && "$OWN_CTX" != *"Own-session summary text"* && -f "$SUMMARY_FILE" ]]; then
+  pass "compacting session skips its own summary and leaves the file"
+else
+  fail "compacting session: summary injected or file removed"
+fi
+NEXT_CTX=$(hook_out user-prompt-submit.sh "{\"session_id\":\"verify-sess-next\",\"cwd\":\"$CWD\"}" | jq -r '.additionalContext // empty' 2>/dev/null)
+if [[ "$NEXT_CTX" == *"[Prior session summary"* && "$NEXT_CTX" == *"Own-session summary text"* && ! -f "$SUMMARY_FILE" ]]; then
+  pass "next session receives the summary once and the file is consumed"
+else
+  fail "next session: summary missing or file not consumed"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -755,7 +775,7 @@ fi
 
 # post-compact.sh should update compacted_at in meta.json
 INPUT_POSTCOMPACT2="{\"session_id\":\"$META_SESS\",\"cwd\":\"$CWD\",\"trigger\":\"manual\",\"compact_summary\":\"meta test compaction\"}"
-HOME="$TEST_HOME" bash "$HOOKS/post-compact.sh" <<< "$INPUT_POSTCOMPACT2" > /dev/null 2>&1
+"${SANDBOXED[@]}" bash "$HOOKS/post-compact.sh" <<< "$INPUT_POSTCOMPACT2" > /dev/null 2>&1
 
 META_COMPACTED=$(jq -r '.compacted_at // empty' "$META_FILE" 2>/dev/null)
 if [[ "$META_COMPACTED" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T ]]; then
