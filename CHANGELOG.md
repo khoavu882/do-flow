@@ -13,6 +13,29 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.15.0] - 2026-10-05
+
+### Added
+
+- The `doflow-run` verbs and the guidance tree reach Pi, OpenCode, GitHub Copilot CLI, Kiro and Antigravity after a standalone install, at project scope and, where the harness has skills, at global scope. Antigravity global installs no skills and no runtime and prints a notice saying so.
+- `doflow doctor` reports static runtime reach per harness and scope: a `[Runtime Reach]` section, additive `harnesses[].reach[]` JSON, and exit 1 when an installed harness cannot reach the runtime. The doctor text line now reads `adapter PASS`.
+- An offline smoke test (`test/e2e/runtime-reach.e2e.test.js`) installs all eight harnesses into scratch directories and runs the installed resolver, shim and read verbs under an emptied environment.
+
+### Changed
+
+- The "no runtime found" hint names the harness: `install -t <harness>`. The install help lists all eight targets and the real default (`claude`).
+- A shared runtime file is accepted as known-good when a sibling harness's ledger row recorded its bytes; replacing it prints a notice. Only the four runtime assets qualify, and a hand-edited or foreign file is still refused.
+
+### Fixed
+
+- `stop-check.sh` never fired on Claude Code or Codex: it read a top-level role their transcripts do not write. It now reads the payload's `last_assistant_message` or the real transcript shape, honours `stop_hook_active`, blocks a given message once, and the Codex front door passes exit 2 through.
+- The compact summary was re-injected into every new session with no expiry. It is now injected once, claimed atomically, cut to 4,000 characters, and can no longer fail a prompt.
+- An Antigravity project install no longer needs the current directory to be the checkout.
+
+### Known limits
+
+- Installs of the five harnesses made before this release report no runtime reach until `doflow update -t <harness>`.
+
 ## [1.14.2] - 2026-10-05
 
 ### Changed
