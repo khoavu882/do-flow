@@ -1,13 +1,14 @@
 'use strict';
 
 // lifecycle-loop-install.e2e.test.js: the 046 lifecycle verbs reached the way a Codex user reaches
-// them, and the documented behaviour on a harness the runtime is not projected to (DEC-024, NFR-004).
+// them, and the documented behaviour when nothing is installed (DEC-024, NFR-004).
 //
-// The runtime is projected to claude, codex and gemini; the other five harnesses get skills and a
-// locator but no `.doflow/scripts`, so their installed skill prose stops at its own resolver.
-// Both halves are real installs into scratch homes, executed through the projected locator and the
-// resolver block the installed skill carries. The Codex CLI itself is never invoked: the harness
-// only matters here as the place the files are projected to. No network and no model call.
+// Every harness projects the runtime wherever it projects skills, so a skill's resolver reaches the
+// dispatcher after an install. The first halves are real installs into scratch homes, executed
+// through the projected locator and the resolver block the installed skill carries; the last half
+// runs the checkout's own resolver and locator with nothing installed, where the skill stops. The
+// Codex CLI itself is never invoked: the harness only matters here as the place the files are
+// projected to. No network and no model call.
 //
 // Every spawn runs under a scratch HOME and XDG_CONFIG_HOME and with no global git config (DEC-041).
 
@@ -312,20 +313,14 @@ describe('Codex target: release, report, goal and failure run from the installed
   });
 });
 
-describe('A harness without the runtime: the skill stops at its resolver, before any lifecycle verb (DEC-024)', { skip: SKIP }, () => {
-  // opencode is one of the five harnesses that do not get the runtime; the behaviour is the same for each.
-  const h = homeFor('opencode');
-  const project = makeRepo(scratch, 'opencode-project');
+describe('No install anywhere: the skill stops at its resolver, before any lifecycle verb (DEC-024)', { skip: SKIP }, () => {
+  // A fresh home and project with nothing installed. The skill text and the locator are the
+  // checkout's own copies, because there is no install to take them from.
+  const h = homeFor('no-install');
+  const project = makeRepo(scratch, 'no-install-project');
 
-  test('the opencode install carries the skill and a locator but no runtime', () => {
-    install(h, 'opencode');
-    assert.ok(installedSkill(h, 'do'));
-    assert.equal(fs.existsSync(path.join(h.home, '.doflow', 'scripts')), false, 'no dispatcher is projected');
-    assert.equal(fs.existsSync(path.join(h.home, '.doflow', 'runtime')), false, 'no Node runtime is projected');
-  });
-
-  test('the installed skill resolver finds no runtime, prints the install hint and exits 2 before a lifecycle verb runs', () => {
-    const resolver = resolverOf(installedSkill(h, 'do'));
+  test('the skill resolver finds no runtime, prints the install hint and exits 2 before a lifecycle verb runs', () => {
+    const resolver = resolverOf(path.join(REPO, 'core', 'shared', 'skills', 'do', 'SKILL.md'));
     // What the skill does after its resolver: the lifecycle verb. It must never be reached.
     const script = `${resolver}\necho VERB-REACHED\n"$DOFLOW" lifecycle --action overview --json\n`;
     const r = spawnSync('bash', ['-c', script], { cwd: project.dir, encoding: 'utf8', env: envFor(h) });
@@ -335,8 +330,8 @@ describe('A harness without the runtime: the skill stops at its resolver, before
     assert.equal(fs.existsSync(path.join(project.dir, 'agent-docs')), false, 'and nothing was written');
   });
 
-  test("the harness's own locator reports the same missing runtime instead of running a verb", () => {
-    const locator = path.join(h.home, '.config', 'opencode', 'bin', 'doflow-run');
+  test('the locator reports the same missing runtime instead of running a verb', () => {
+    const locator = path.join(REPO, 'core', 'harnesses', 'shared', 'locator', 'doflow-run');
     const r = run(h, project.dir, locator, ['lifecycle', '--action', 'overview', '--json']);
     assert.equal(r.status, 2);
     assert.match(r.stderr, /no DoFlow runtime found/);
