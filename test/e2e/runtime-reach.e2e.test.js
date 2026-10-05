@@ -14,7 +14,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn: spawnProcess, spawnSync } = require('node:child_process');
-const { resolverOf } = require('../helper/skill-resolver');
+const { resolverOf, filesUnder } = require('../helper/skill-resolver');
 const { IS_WIN } = require('../helper-platform');
 
 const REPO = path.resolve(__dirname, '..', '..');
@@ -70,8 +70,8 @@ function emptyEnv(cell) {
   };
 }
 
-/** Resolves with `{status, stdout, stderr}`; async so the cells of one describe overlap. */
-function spawn(cell, file, args, cwd) {
+/** Resolves with `{status, stdout, stderr}`; async so the cells of one describe overlap. `input` is what the child reads on stdin. */
+function spawn(cell, file, args, cwd, input = '\n') {
   return new Promise((resolve, reject) => {
     const child = spawnProcess(file, args, { cwd, env: emptyEnv(cell) });
     let stdout = '';
@@ -80,7 +80,7 @@ function spawn(cell, file, args, cwd) {
     child.stderr.setEncoding('utf8').on('data', (chunk) => { stderr += chunk; });
     child.on('error', reject);
     child.on('close', (status) => resolve({ status, stdout, stderr }));
-    child.stdin.end('\n');
+    child.stdin.end(input);
   });
 }
 
@@ -100,13 +100,6 @@ function parseJson(text) {
 }
 
 const real = fs.realpathSync;
-
-/** Every file under `dir`, as paths relative to it. */
-function filesUnder(dir) {
-  return fs.readdirSync(dir, { recursive: true, withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => path.relative(dir, path.join(entry.parentPath ?? entry.path, entry.name)));
-}
 
 function ancestorWithDoflow(start) {
   for (let dir = start; ; dir = path.dirname(dir)) {
@@ -187,8 +180,10 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
     const installed = await install(cell, 'global', 'antigravity');
     assert.equal(installed.status, 0, installed.stderr);
     assert.match(installed.stdout + installed.stderr, /antigravity: no skills at global scope \(the user-scope skills location is unresolved\), so DoFlow skills and runtime are not installed here; install per project with: npx @khoavu882\/doflow install -t antigravity/);
-    assert.equal(fs.existsSync(path.join(cell.home, '.agents', 'skills')), false);
-    assert.equal(fs.existsSync(path.join(cell.home, '.gemini', 'config', 'skills')), false);
+    // The skills directories of data-model §1: `.agents/skills` (project) and the user config dir's `skills`.
+    for (const skills of [path.join(cell.home, '.agents', 'skills'), path.join(cell.home, '.gemini', 'config', 'skills'), path.join(cell.proj, '.agents', 'skills')]) {
+      assert.equal(fs.existsSync(skills), false, `${skills} exists`);
+    }
     assert.equal(fs.existsSync(path.join(cell.home, '.doflow', 'runtime')), false);
   });
 
@@ -229,17 +224,20 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
     assert.equal(older.status, 0, `${LEGACY_TAG} install: ${older.stderr}`);
 
     const mirror = path.join(cell.proj, '.doflow', 'runtime', 'src');
-    const differs = (rel) => !fs.existsSync(path.join(REPO, 'src', rel)) || !fs.readFileSync(path.join(mirror, rel)).equals(fs.readFileSync(path.join(REPO, 'src', rel)));
-    assert.ok(filesUnder(mirror).some(differs), `the ${LEGACY_TAG} runtime equals this checkout's; the mixed-version cell proves nothing`);
+    const differs = (rel) => !fs.existsSync(path.join(mirror, rel)) || !fs.existsSync(path.join(REPO, 'src', rel))
+      || !fs.readFileSync(path.join(mirror, rel)).equals(fs.readFileSync(path.join(REPO, 'src', rel)));
+    assert.ok([...filesUnder(mirror), ...filesUnder(path.join(REPO, 'src'))].some(differs), `the ${LEGACY_TAG} runtime equals this checkout's; the mixed-version cell proves nothing`);
 
+    // `update` runs without -f: force would make every file known-good and hide the sibling-fingerprint
+    // acceptance this cell exists to prove. The confirmation prompt is answered on stdin.
     const step = async (verb, harness) => {
-      const r = await spawn(cell, process.execPath, [CLI, verb, 'proj', '-f', '-t', harness], cell.dir);
+      const r = await spawn(cell, process.execPath, [CLI, verb, 'proj', ...(verb === 'update' ? [] : ['-f']), '-t', harness], cell.dir, 'y\n');
       assert.equal(r.status, 0, `${verb} -t ${harness}: ${r.stdout}${r.stderr}`);
       assert.ok(!/modified outside DoFlow/.test(r.stdout + r.stderr), `${verb} -t ${harness}: ${r.stdout}${r.stderr}`);
     };
 
     await step('update', 'pi');
-    for (const rel of filesUnder(mirror)) {
+    for (const rel of new Set([...filesUnder(mirror), ...filesUnder(path.join(REPO, 'src'))])) {
       assert.ok(!differs(rel), `${rel} differs from this checkout after the update`);
     }
     await step('update', 'claude');

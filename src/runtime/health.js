@@ -574,7 +574,8 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
  * does not answer is a finding, and so is an installed harness whose skills cannot reach a runtime
  * (`runtime-no-reach`). An absent optional provider is the graceful degradation NFR-002 requires,
  * and a stale index still answers, so both leave the code at 0 and appear as warnings; so do a
- * harness with no skills at a scope (N/A) and an unreadable ledger. Setting `process.exitCode` rather than calling `process.exit` lets stdout flush.
+ * harness with no skills at a scope (N/A) and an unreadable ledger. Setting `process.exitCode`
+ * rather than calling `process.exit` lets stdout flush.
  * @param {number} code
  * @returns {number}
  */

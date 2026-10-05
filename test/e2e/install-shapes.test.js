@@ -531,9 +531,8 @@ test('046: promote writes the same intent from a global install, from a director
 
 // ----------------------------------------- 048: removing one claimant keeps what another still owns
 //
-// Pi and the three harnesses that already carried the runtime record the same target paths for the
-// shared tree. Removing one claimant releases its own rows and deletes a file only when no surviving
-// row claims it, so the other harness keeps a working runtime until it is removed too (NFR-002).
+// Harnesses at one scope root record the same target paths for the shared tree. Removing one
+// claimant releases its own rows and deletes a file only when no surviving row claims it, so the other harness keeps a working runtime until it is removed too (NFR-002).
 
 const SHARED_TREE_FILES = [
   ['.doflow', 'runtime', 'bin', 'doflow.js'],

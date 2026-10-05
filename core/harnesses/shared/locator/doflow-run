@@ -38,12 +38,10 @@
 # Plain POSIX sh, no bashisms: this runs before anything else DoFlow ships, on whatever shell the
 # harness hands it.
 
-# Where the dispatcher actually lands, not where design.md §4.1/§5.1 originally drew it. Those
-# sections said `<config>/bin/doflow-run`, but the dispatcher ships inside the `scripts.doflow`
-# asset (`core/shared/scripts` -> `<config>/scripts`), so it installs one level deeper. Correcting
-# the search path here rather than adding a second asset to match the diagram. Every harness
-# projects the shared tree to its scope root (`<project>/.doflow` or `$HOME/.doflow`), so this one
-# path holds for all eight.
+# The dispatcher ships inside the `scripts.doflow` asset (`core/shared/scripts`), so it sits at
+# `scripts/doflow/bin/doflow-run` under the shared tree. Every harness projects that tree to its
+# scope root (`<project>/.doflow` or `$HOME/.doflow`), so this one path holds for all eight,
+# Antigravity at global scope excepted (it projects no runtime there).
 REL='scripts/doflow/bin/doflow-run'
 dispatcher=''
 

@@ -90,40 +90,52 @@ test('the dry-run printer shows each notice under its harness line', () => {
 
 // ---- the Antigravity global notice, through the real CLI ----
 
-function cli(args) {
-  return spawnSync(process.execPath, [CLI, ...args], { cwd: scratch.dir, encoding: 'utf8', input: '\n', env: scratch.env() });
+/** A scratch of this test's own, removed with the file's. */
+function ownScratch() {
+  const own = createScratch('doflow-notices-cli-');
+  after(() => own.remove());
+  return own;
+}
+
+function cli(own, args) {
+  return spawnSync(process.execPath, [CLI, ...args], { cwd: own.dir, encoding: 'utf8', input: '\n', env: own.env() });
 }
 
 test('install -g -t antigravity prints the notice, exits 0, and prints it again on a no-op reinstall', () => {
-  const first = cli(['install', '-g', '-f', '--no-backup', '-t', 'antigravity']);
+  const own = ownScratch();
+  const first = cli(own, ['install', '-g', '-f', '--no-backup', '-t', 'antigravity']);
   assert.equal(first.status, 0, first.stderr);
   assert.ok(first.stdout.split('\n').includes(`[INFO] antigravity: ${NOTICE}`), first.stdout);
 
-  const again = cli(['install', '-g', '-f', '--no-backup', '-t', 'antigravity']);
+  const again = cli(own, ['install', '-g', '-f', '--no-backup', '-t', 'antigravity']);
   assert.equal(again.status, 0, again.stderr);
   assert.ok(again.stdout.split('\n').includes(`[INFO] antigravity: ${NOTICE}`), 'a reinstall with nothing to change still says so');
-  assert.equal(fs.existsSync(path.join(scratch.home, '.doflow', 'runtime')), false, 'global scope projects no runtime');
+  assert.equal(fs.existsSync(path.join(own.home, '.doflow', 'runtime')), false, 'global scope projects no runtime');
 });
 
 test('update -g -t antigravity prints the notice when there is nothing to update', () => {
-  const update = cli(['update', '-g', '-f', '--no-backup', '-t', 'antigravity']);
+  const own = ownScratch();
+  assert.equal(cli(own, ['install', '-g', '-f', '--no-backup', '-t', 'antigravity']).status, 0);
+  const update = cli(own, ['update', '-g', '-f', '--no-backup', '-t', 'antigravity']);
   assert.equal(update.status, 0, update.stderr);
   assert.match(update.stdout, /Already up to date/);
   assert.ok(update.stdout.split('\n').includes(`[INFO] antigravity: ${NOTICE}`), update.stdout);
 });
 
 test('install --dry-run -g -t antigravity prints the notice under the harness line', () => {
-  const dry = cli(['install', '-g', '--dry-run', '-t', 'antigravity']);
+  const dry = cli(ownScratch(), ['install', '-g', '--dry-run', '-t', 'antigravity']);
   assert.equal(dry.status, 0, dry.stderr);
   assert.ok(dry.stdout.split('\n').includes(`[DRY]   antigravity: ${NOTICE}`), dry.stdout);
 });
 
 test('a project install and a global removal of antigravity print no notice', () => {
-  const project = cli(['install', scratch.dir, '-f', '--no-backup', '-t', 'antigravity']);
+  const own = ownScratch();
+  const project = cli(own, ['install', own.dir, '-f', '--no-backup', '-t', 'antigravity']);
   assert.equal(project.status, 0, project.stderr);
   assert.ok(!project.stdout.includes('no skills at global scope'), project.stdout);
 
-  const removal = cli(['remove', '-g', '-f', '-t', 'antigravity']);
+  assert.equal(cli(own, ['install', '-g', '-f', '--no-backup', '-t', 'antigravity']).status, 0);
+  const removal = cli(own, ['remove', '-g', '-f', '-t', 'antigravity']);
   assert.equal(removal.status, 0, removal.stderr);
   assert.ok(!removal.stdout.includes('no skills at global scope'), removal.stdout);
 });

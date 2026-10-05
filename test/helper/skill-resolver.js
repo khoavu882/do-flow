@@ -1,9 +1,11 @@
 'use strict';
 
 // The runtime resolver block a skill carries, read back out of a SKILL.md so a test can run the exact
-// text an agent would. Nothing runs at require time.
+// text an agent would, and a recursive file listing for finding the installed skill. Nothing runs at
+// require time.
 
 const fs = require('node:fs');
+const path = require('node:path');
 const assert = require('node:assert/strict');
 
 /** The runtime resolver block of a skill: the fenced bash block that ends in the "no runtime found" exit. */
@@ -14,4 +16,12 @@ function resolverOf(skillFile) {
   return block;
 }
 
-module.exports = { resolverOf };
+/** Every file under `dir`, as paths relative to it. */
+function filesUnder(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (
+    entry.isDirectory()
+      ? filesUnder(path.join(dir, entry.name)).map((rel) => path.join(entry.name, rel))
+      : entry.isFile() ? [entry.name] : []));
+}
+
+module.exports = { resolverOf, filesUnder };
