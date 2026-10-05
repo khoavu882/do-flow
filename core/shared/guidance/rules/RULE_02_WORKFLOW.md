@@ -1,7 +1,7 @@
 # Workflow Rules
 
 ## Planning
-- **Parallel by default** — sequential only for hard dependencies; TodoWrite once past 3 tasks
+- **Parallel by default** — sequential only for hard dependencies; a task list once past 3 tasks, when the harness offers one
 - Validate before execution, verify after; run lint/typecheck before marking complete
 - Check deps (package.json) and existing patterns before any changes
 - Feature delivery follows the doflow chain — see `references/DOFLOW_CHAIN.md` for the phase-gated
