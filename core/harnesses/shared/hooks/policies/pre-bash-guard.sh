@@ -261,7 +261,7 @@ _END='([[:space:];&|)`]|$)'
 _RM_PREFIX="${_CMDPOS}${_WRAP}${_PATHRM}${_RM_ARGS}[[:space:]]+"
 # _floor_rm_hits <target-regex> : does the scrubbed command recursively rm it?
 _floor_rm_hits() {
-  grep -qE -- "${_RM_PREFIX}(${_RM_FLAG}${_RM_ARGS}[[:space:]]+($1)${_END}|($1)${_RM_ARGS}[[:space:]]+${_RM_FLAG}${_END})" <<<"$SHELL_TEXT" 2>/dev/null
+  grep -qiE -- "${_RM_PREFIX}(${_RM_FLAG}${_RM_ARGS}[[:space:]]+($1)${_END}|($1)${_RM_ARGS}[[:space:]]+${_RM_FLAG}${_END})" <<<"$SHELL_TEXT" 2>/dev/null
 }
 
 if [ ! -f "$PATTERNS_FILE" ]; then
@@ -293,8 +293,8 @@ while IFS=$'\t' read -r pattern reason exclude || [ -n "$pattern" ]; do
   [ -z "$pattern" ] && continue
   case "$pattern" in \#*) continue ;; esac
 
-  # Match pattern against command (POSIX extended regex; case-insensitive for the SQL patterns,
-  # case-sensitive for the anchored shell-command ones, as a shell is).
+  # Match pattern against command (case-insensitive, POSIX extended regex: the default macOS
+  # filesystem is case-insensitive, so RM and GIT run there).
   # A bad regex makes grep exit 2, which "if" reads as no match (fail open).
   # "--" stops grep from treating a pattern beginning with '-' (e.g. an
   # exclude pattern like "--force-with-lease") as an option flag.
@@ -302,9 +302,9 @@ while IFS=$'\t' read -r pattern reason exclude || [ -n "$pattern" ]; do
   # anchor) match the scrubbed text; every other pattern (the SQL ones)
   # matches the full text, so statements inside quoted psql -c / heredocs are
   # still caught.
-  case "$pattern" in '(^|'*) target=$SHELL_TEXT; gflags=-qE ;; *) target=$COMMAND; gflags=-qiE ;; esac
+  case "$pattern" in '(^|'*) target=$SHELL_TEXT ;; *) target=$COMMAND ;; esac
   matched=false
-  if grep $gflags -- "$pattern" <<<"$target" 2>/dev/null; then
+  if grep -qiE -- "$pattern" <<<"$target" 2>/dev/null; then
     matched=true
   fi
 
@@ -313,7 +313,7 @@ while IFS=$'\t' read -r pattern reason exclude || [ -n "$pattern" ]; do
   # which POSIX ERE cannot express — e.g. "--force-with-lease" excludes the
   # "git push --force" block).
   if [ "$matched" = "true" ] && [ -n "$exclude" ]; then
-    if grep $gflags -- "$exclude" <<<"$target" 2>/dev/null; then
+    if grep -qiE -- "$exclude" <<<"$target" 2>/dev/null; then
       matched=false
     fi
   fi
