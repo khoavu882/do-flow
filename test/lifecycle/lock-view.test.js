@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { loadRegistry } = require('../../src/registry');
-const { lockDocument, recordLock } = require('../../src/lifecycle/view');
+const { lockDocument, lockDelta, recordLock } = require('../../src/lifecycle/view');
 const { readLock, lockPath, defaultLock } = require('../../src/state/lockfile');
 
 const REPO = path.resolve(__dirname, '..', '..');
@@ -72,4 +72,39 @@ test('recordLock tolerates a pre-existing legacy-free empty directory (defaultLo
   const result = recordLock(projectArgs(project),
     { ...defaultLock({ scope: 'project', scopeRoot: project }), generatedAt: 'x', sourceVersion: null, targets: [], assets: [], mcpSelections: {} });
   assert.deepEqual(result, { changed: true, summary: 'created' });
+});
+
+test('recordLock leaves an unchanged lock byte for byte on a re-run', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const project = scratch();
+  const args = projectArgs(project);
+  const pin = (now) => lockDocument({
+    registry, scope: 'project', scopeRoot: project, targets: ['claude', 'codex'],
+    mcpSelections: { claude: ['context7'] }, now,
+  });
+  recordLock(args, pin(new Date('2026-10-01T00:00:00Z')));
+  const bytes = fs.readFileSync(lockPath(args));
+  // A later timestamp is not a change: the file keeps the first run's bytes.
+  assert.deepEqual(recordLock(args, pin(new Date('2026-10-02T00:00:00Z'))), { changed: false, summary: 'unchanged' });
+  assert.deepEqual(fs.readFileSync(lockPath(args)), bytes);
+});
+
+test('lockDelta names created, unchanged, cleared and counted changes', () => {
+  const project = scratch();
+  const base = { ...defaultLock({ scope: 'project', scopeRoot: project }), sourceVersion: '1', targets: [{ harness: 'claude' }] };
+  assert.deepEqual(lockDelta(null, base), { changed: true, summary: 'created' });
+  assert.deepEqual(lockDelta(base, { ...base, generatedAt: 'later' }), { changed: false, summary: 'unchanged' });
+  assert.deepEqual(lockDelta(base, null), { changed: true, summary: 'cleared' });
+  assert.deepEqual(lockDelta(null, null), { changed: false, summary: 'unchanged' });
+  assert.deepEqual(lockDelta(base, { ...base, mcpSelections: { claude: [] } }), { changed: true, summary: '1 change(s)' });
+});
+
+test('recordLock with no lock to pin removes the file, and is silent when there was none', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const project = scratch();
+  const args = projectArgs(project);
+  recordLock(args, lockDocument({ registry, scope: 'project', scopeRoot: project, targets: ['codex'] }));
+  assert.deepEqual(recordLock(args, null), { changed: true, summary: 'cleared' });
+  assert.equal(fs.existsSync(lockPath(args)), false);
+  assert.deepEqual(recordLock(args, null), { changed: false, summary: 'unchanged' });
 });

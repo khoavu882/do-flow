@@ -20,7 +20,7 @@ const { createAntigravityAdapter } = require('../adapters/antigravity');
 const { planLifecycle } = require('./index');
 const { stateRoot, readLedger, defaultLedger } = require('../state');
 const { selectAssets } = require('../registry');
-const { defaultLock, readLock, writeLock, diffLocks } = require('../state/lockfile');
+const { defaultLock, readLock, writeLock, diffLocks, removeLock } = require('../state/lockfile');
 // Tolerant because the projected runtime under `.doflow/runtime/` ships bin/, src/ and
 // core/registry/ but no package.json — see the `runtime.*` assets in core/registry/assets.json.
 // A hard require here would make every Node-backed verb fail in an install, which is the exact
@@ -134,14 +134,13 @@ function lockDocument({ registry, scope, scopeRoot, targets, mcpSelections = {},
   };
 }
 
-/** Persist the lock for a completed command and describe the reviewable delta against whatever was
- * pinned before. A first pin reads "created"; identical re-pins stay silent-ish ("unchanged") so
- * routine updates don't manufacture noise. */
-function recordLock(scopeArgs, document, { fsImpl = fs } = {}) {
-  const previous = readLock(scopeArgs, { fsImpl });
-  writeLock(scopeArgs, document, { fsImpl });
+/** Describe the reviewable delta between the pinned lock and the next one: "created" for a first
+ * pin, "unchanged" when nothing pinned differs, "cleared" when nothing remains pinned, else a count
+ * of the changed rows. */
+function lockDelta(previous, next) {
+  if (!next) return previous ? { changed: true, summary: 'cleared' } : { changed: false, summary: 'unchanged' };
   if (!previous) return { changed: true, summary: 'created' };
-  const diff = diffLocks(previous, document);
+  const diff = diffLocks(previous, next);
   if (diff.clean) return { changed: false, summary: 'unchanged' };
   const count = ['targets', 'assets']
     .flatMap((section) => Object.values(diff[section]).map((list) => list.length))
@@ -150,7 +149,19 @@ function recordLock(scopeArgs, document, { fsImpl = fs } = {}) {
   return { changed: true, summary: `${count} change(s)` };
 }
 
+/** Persist the lock for a completed command and return its delta against what was pinned before.
+ * An unchanged lock is left byte for byte, so routine re-runs neither rewrite the file nor
+ * manufacture noise; a `null` lock removes the file. */
+function recordLock(scopeArgs, next, { fsImpl = fs } = {}) {
+  const delta = lockDelta(readLock(scopeArgs, { fsImpl }), next);
+  if (delta.changed) {
+    if (next) writeLock(scopeArgs, next, { fsImpl });
+    else removeLock(scopeArgs, { fsImpl });
+  }
+  return delta;
+}
+
 module.exports = {
   codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, LIFECYCLE_HARNESSES, assertSafeRegistryPlan,
-  lockDocument, recordLock,
+  lockDocument, lockDelta, recordLock,
 };
