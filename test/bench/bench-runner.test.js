@@ -391,7 +391,7 @@ function quiet(fn) {
   }
 }
 
-function gradedFixture(name) {
+function gradedFixture(name, { withoutSkill = null } = {}) {
   const cfg = { ...runner.loadConfig(), reportsDir: path.join(scratch.dir, name, 'reports') };
   const runsRoot = path.join(scratch.dir, name, 'runs');
   const baselineFile = path.join(scratch.dir, name, 'baseline', 'baseline.json');
@@ -402,6 +402,14 @@ function gradedFixture(name) {
     fs.writeFileSync(path.join(runDir(e), 'transcript.txt'), 'ran');
   }
   fs.writeFileSync(path.join(runDir(first), 'timing.json'), '{"total_tokens": 1500, "duration_ms": 90}');
+  // `second` is behavioral, so it is the case that has a without-skill run.
+  if (withoutSkill) {
+    const dir = `${runDir(second)}--without-skill`;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'transcript.txt'), withoutSkill.transcript || 'ran');
+    fs.writeFileSync(path.join(dir, 'skill_source.json'), JSON.stringify(withoutSkill.record));
+    fs.writeFileSync(path.join(dir, 'timing.json'), '{"total_tokens": 400, "duration_ms": 30}');
+  }
   return { cfg, runsRoot, baselineFile, first, second, runDir, opts: { iteration: 'it', runsRoot, baselineFile } };
 }
 
@@ -409,7 +417,7 @@ test('F7: grade records split and usage, and the summary counts the unknown runs
   const f = gradedFixture('f7-grade');
   const run = quiet(() => runner.cmdGrade(f.cfg, f.opts));
   assert.equal(run.status, 0);
-  assert.match(run.out, /graded 2 run\(s\); \d+ assertion\(s\) left for the grader subagent; usage unknown for 1 run\(s\)/);
+  assert.match(run.out, /graded 2 run\(s\) \(2 with-skill, 0 without-skill\); \d+ assertion\(s\) left for the grader subagent; usage unknown for 1 run\(s\)/);
   const g1 = JSON.parse(fs.readFileSync(path.join(f.runDir(f.first), 'grading.json'), 'utf8'));
   const g2 = JSON.parse(fs.readFileSync(path.join(f.runDir(f.second), 'grading.json'), 'utf8'));
   assert.equal(g1.split, f.first.split);
@@ -554,4 +562,198 @@ test('F6: the report carries the ceiling over both arms, and a breach only warns
   const unknown = quiet(() => runner.cmdReport(f.cfg, f.opts));
   assert.equal(unknown.status, 0);
   assert.match(unknown.out, /ceiling: not exceeded by the 1 run\(s\) with known usage; 1 run\(s\) unknown/);
+});
+
+// --- without-skill arm (F1 withheld rows, F4 arm part, F6 arm part, F7 arm part) ----------------
+
+function withheldRun(name, { record, transcript = 'ran', output = null }) {
+  const dir = path.join(scratch.dir, `withheld-${name}`);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'transcript.txt'), transcript);
+  if (record !== undefined) fs.writeFileSync(path.join(dir, runner.RUN_SOURCE_FILE), typeof record === 'string' ? record : JSON.stringify(record));
+  if (output !== null) {
+    fs.mkdirSync(path.join(dir, 'outputs'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'outputs', 'notes.md'), output);
+  }
+  return runner.loadRunContext(dir);
+}
+
+test('F1: every skill_* assertion is undecided in the without-skill arm, and other types still grade', () => {
+  const ctx = withheldRun('arm', { record: { skill: 'x', withheld: true } });
+  ctx.arm = 'without-skill';
+  for (const type of ['skill_resolved', 'skill_invoked', 'skill_not_invoked', 'skill_not_routed']) {
+    const g = runner.gradeAssertion({ text: type, type, skill: 'x' }, ctx);
+    assert.equal(g.passed, null, type);
+    assert.match(g.evidence, /^withheld arm: /, type);
+  }
+  assert.equal(runner.gradeAssertion(NOT_ROUTED, ctx).evidence, 'withheld arm: no description was judged');
+  assert.equal(runner.gradeAssertion({ text: 't', type: 'output_matches', pattern: 'ran' }, ctx).passed, true);
+  assert.deepEqual(runner.ARMS, ['with-skill', 'without-skill']);
+});
+
+test('F1: withheld provenance is withheld, leaked or unrecorded', () => {
+  const status = (name, spec) => runner.classifyWithheld('x', withheldRun(name, spec)).status;
+  assert.equal(status('ok', { record: { skill: 'x', withheld: true } }), 'withheld');
+  assert.equal(status('absent', {}), 'unrecorded');
+  assert.equal(status('malformed', { record: '{nope' }), 'unrecorded');
+  assert.equal(status('no-flag', { record: { skill: 'x' } }), 'leaked');
+  assert.equal(status('false-flag', { record: { skill: 'x', withheld: false } }), 'leaked');
+  const withPath = runner.classifyWithheld('x', withheldRun('path', { record: { skill: 'x', withheld: true, path: '/srv/skills/x/SKILL.md' } }));
+  assert.equal(withPath.status, 'leaked');
+  assert.equal(withPath.recordedPath, '/srv/skills/x/SKILL.md');
+  assert.equal(status('transcript', { record: { skill: 'x', withheld: true }, transcript: 'I opened core/shared/skills/x/SKILL.md' }), 'leaked');
+  assert.equal(status('outputs', { record: { skill: 'x', withheld: true }, output: 'see ~/.claude/skills/x/SKILL.md' }), 'leaked');
+  assert.equal(status('other-skill', { record: { skill: 'x', withheld: true }, transcript: 'read skills/y/SKILL.md' }), 'withheld');
+});
+
+test('F4: --arm without-skill adds one run per behavioral case, placed after its with-skill run', () => {
+  const cfg = runner.loadConfig();
+  const cases = corpusCases();
+  const behavioral = cases.filter((c) => c.kind === 'behavioral');
+  const plan = runner.buildPlan(cfg, { iteration: 'fixture', arm: 'without-skill' });
+  assert.equal(plan.runCount, cases.length + behavioral.length);
+  assert.equal(plan.filters.arm, 'without-skill');
+  const without = plan.runs.filter((r) => r.arm === 'without-skill');
+  assert.equal(without.length, behavioral.length);
+  assert.ok(without.every((r) => r.kind === 'behavioral'));
+  plan.runs.forEach((r, i) => {
+    if (r.arm !== 'without-skill') return;
+    const pair = plan.runs[i - 1];
+    assert.deepEqual([pair.arm, pair.skill, pair.evalId], ['with-skill', r.skill, r.evalId]);
+    assert.equal(r.sandbox.id, `${pair.sandbox.id}-noskill`);
+    assert.equal(r.outputDir, `${pair.outputDir}--without-skill`);
+    assert.equal(r.skills.resolution, 'withheld');
+    assert.equal(r.skills.skillFile, undefined);
+    assert.equal(r.skills.sourceSha256, undefined);
+    assert.deepEqual(r.skills.withheldPaths, [
+      path.join(r.sandbox.workingDir, '.claude', 'skills', r.skill),
+      path.join(r.sandbox.workingDir, 'core', 'shared', 'skills', r.skill),
+    ]);
+    assert.ok(r.sandbox.create.includes(`m.createSandbox('${r.sandbox.id}')`));
+    assert.ok(r.sandbox.create.includes(`'.claude/skills/${r.skill}','core/shared/skills/${r.skill}'`));
+    assert.ok(r.sandbox.create.includes(`withheld=${r.skill}`));
+    assert.equal(r.saveOutputs.includes('routing.json'), false);
+  });
+  assert.equal(runner.buildPlan(cfg, { iteration: 'fixture' }).runs.some((r) => r.arm === 'without-skill'), false);
+});
+
+test('F4: --split filters both arms', () => {
+  const cases = corpusCases().filter((c) => c.split === 'heldout');
+  const plan = runner.buildPlan(runner.loadConfig(), { iteration: 'fixture', split: 'heldout', arm: 'without-skill' });
+  assert.equal(plan.runCount, cases.length + cases.filter((c) => c.kind === 'behavioral').length);
+  assert.ok(plan.runs.every((r) => r.split === 'heldout'));
+});
+
+test('F4: an invalid --arm value, or --arm on another command, exits 2 with the stated message', () => {
+  for (const args of [['plan', '--iteration', 'x', '--arm', 'with-skill'], ['plan', '--iteration', 'x', '--arm']]) {
+    const bad = runCli(...args);
+    assert.equal(bad.status, 2);
+    assert.equal(bad.stderr.trim(), 'bench: --arm must be without-skill');
+    assert.equal(bad.stdout, '');
+  }
+  for (const cmd of ['coverage', 'list', 'grade', 'report', 'baseline', 'parity']) {
+    const other = runCli(cmd, '--arm', 'without-skill');
+    assert.equal(other.status, 2, cmd);
+    assert.equal(other.stderr.trim(), `bench ${cmd}: --arm is not accepted`);
+  }
+});
+
+test('F5: a without-skill run is projected from the baseline withoutSkillResults', () => {
+  const base = runner.loadConfig();
+  const [first, second] = runner.loadCases(base, 'do-git').evals;
+  const baselineFile = path.join(scratch.dir, 'f5-arm-baseline.json');
+  fs.writeFileSync(baselineFile, JSON.stringify({
+    results: [{ key: `do-git/${first.id}`, usage: { total_tokens: 100 } }, { key: `do-git/${second.id}`, usage: { total_tokens: 200 } }],
+    withoutSkillResults: [{ key: `do-git/${second.id}`, usage: { total_tokens: 700 } }],
+  }));
+  const plan = runner.buildPlan(
+    { ...base, costCeiling: { unit: 'total_tokens', maxTokensPerRun: 1000 } },
+    { iteration: 'it', skill: 'do-git', arm: 'without-skill', baselineFile },
+  );
+  const c = plan.costCeiling;
+  // do-git has three with-skill runs (one unknown) plus the one without-skill run of its behavioral case.
+  assert.deepEqual([plan.runCount, c.budget, c.projectedKnownTokens, c.projectedUnknownRuns, c.breached], [4, 4000, 1000, 1, null]);
+});
+
+test('F6: armDelta pairs behavioral cases where both arms are decided, verified and withheld', () => {
+  const r = (key, passRate, sourceStatus) => ({ ...result(key, key, 'behavioral', 'train', { passRate, sourceStatus }), skill: key.split('/')[0] });
+  const input = (withResults, withoutResults) => ({
+    baseline: { commit: 'abc', model: 'm', results: [] }, withResults, withoutResults,
+    cfg: { model: 'm', costCeiling: CEILING }, iteration: 'it', commit: 'def',
+  });
+  const report = runner.buildReport(input(
+    [r('a/1', 1, 'verified'), r('a/2', 0.5, 'verified'), r('b/1', 1, 'verified'), r('c/1', 1, 'verified'), r('d/1', null, 'verified'), r('e/1', 1, 'verified')],
+    [r('a/1', 0.5, 'withheld'), r('a/2', 0, 'withheld'), r('b/1', 0, 'leaked'), r('d/1', 0, 'withheld'), r('e/1', 0.5, 'unrecorded')],
+  ));
+  const by = Object.fromEntries(report.armDelta.map((a) => [a.skill, a]));
+  assert.deepEqual(report.armDelta.map((a) => a.skill), ['a', 'b', 'c', 'd', 'e']);
+  assert.deepEqual(by.a, { skill: 'a', pairedCases: ['a/1', 'a/2'], withSkill: 0.75, withoutSkill: 0.25, delta: 0.5, reason: null });
+  for (const k of ['b', 'd', 'e']) {
+    assert.deepEqual([by[k].pairedCases, by[k].withSkill, by[k].withoutSkill, by[k].delta, by[k].reason],
+      [[], null, null, null, 'no case with both arms decided, verified and withheld'], k);
+  }
+  assert.equal(by.c.reason, 'no without-skill results');
+  assert.equal(runner.buildReport(input([], [r('f/1', 1, 'withheld')])).armDelta[0].reason, 'no with-skill results');
+  assert.deepEqual(runner.buildReport(input([r('a/1', 1, 'verified')], [])).armDelta.map((a) => a.reason), ['no without-skill results']);
+  assert.deepEqual(runner.buildReport(input([], [])).armDelta, []);
+  const same = () => runner.buildReport(input([r('a/1', 1, 'verified')], [r('a/1', 0, 'withheld')]));
+  assert.deepEqual(same(), same());
+});
+
+test('F6: a triggering result never enters armDelta', () => {
+  const t = result('a/1', 'a', 'triggering', 'train');
+  const report = runner.buildReport({
+    baseline: { commit: 'abc', model: 'm', results: [] }, withResults: [t], withoutResults: [{ ...t }],
+    cfg: { model: 'm', costCeiling: CEILING }, iteration: 'it', commit: 'def',
+  });
+  assert.deepEqual(report.armDelta, []);
+});
+
+test('F7: grade, baseline and report carry the without-skill arm', () => {
+  const f = gradedFixture('f7-arm', { withoutSkill: { record: { skill: 'do-git', withheld: true } } });
+  const grade = quiet(() => runner.cmdGrade(f.cfg, f.opts));
+  assert.equal(grade.status, 0);
+  assert.match(grade.out, /graded 3 run\(s\) \(2 with-skill, 1 without-skill\);/);
+  assert.doesNotMatch(grade.err, /without-skill run\(s\) are not withheld/);
+  const g = JSON.parse(fs.readFileSync(`${f.runDir(f.second)}--without-skill/grading.json`, 'utf8'));
+  assert.equal(g.arm, 'without-skill');
+  assert.equal(g.skill_source.status, 'withheld');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(f.runDir(f.first), 'grading.json'), 'utf8')).arm, 'with-skill');
+
+  quiet(() => runner.cmdBaseline(f.cfg, { from: 'it', runsRoot: f.runsRoot, baselineFile: f.baselineFile }));
+  const written = JSON.parse(fs.readFileSync(f.baselineFile, 'utf8'));
+  assert.equal(written.caseCount, 2);
+  assert.deepEqual(written.withoutSkillResults.map((r) => [r.key, r.sourceStatus, r.split, r.usage]),
+    [[`do-git/${f.second.id}`, 'withheld', f.second.split, { total_tokens: 400, duration_ms: 30 }]]);
+  assert.equal(written.usageSummary.withoutSkill.knownTokens, 400);
+  assert.equal(written.usageSummary.withSkill.knownTokens, 1500);
+
+  const rep = quiet(() => runner.cmdReport(f.cfg, f.opts));
+  assert.equal(rep.status, 0);
+  assert.match(rep.out, /usage without-skill: 400 total_tokens over 1 run\(s\); unknown for 0 run\(s\)/);
+  assert.match(rep.out, /\| skill \| paired \| with \| without \| delta \|/);
+  const json = JSON.parse(fs.readFileSync(path.join(f.cfg.reportsDir, 'it-vs-baseline.json'), 'utf8'));
+  assert.equal(json.armDelta[0].skill, 'do-git');
+});
+
+test('F7: a leaked without-skill run is graded leaked, warned about and kept out of the delta', () => {
+  const f = gradedFixture('f7-leak', { withoutSkill: { record: { skill: 'do-git', withheld: true }, transcript: 'read core/shared/skills/do-git/SKILL.md' } });
+  const grade = quiet(() => runner.cmdGrade(f.cfg, f.opts));
+  assert.equal(grade.status, 0);
+  assert.match(grade.err, /1 of 1 without-skill run\(s\) are not withheld/);
+  assert.match(grade.err, new RegExp(`do-git/${f.second.id} \\(without-skill\\): leaked`));
+  quiet(() => runner.cmdBaseline(f.cfg, { from: 'it', runsRoot: f.runsRoot, baselineFile: f.baselineFile }));
+  assert.equal(JSON.parse(fs.readFileSync(f.baselineFile, 'utf8')).withoutSkillResults[0].sourceStatus, 'leaked');
+  const rep = quiet(() => runner.cmdReport(f.cfg, f.opts));
+  assert.equal(rep.status, 0);
+  assert.match(rep.out, /\| do-git \| 0 \| — \| — \| — \|/);
+});
+
+test('F7: a stray without-skill directory for a triggering case is not graded', () => {
+  const f = gradedFixture('f7-stray');
+  const stray = `${f.runDir(f.first)}--without-skill`;
+  fs.mkdirSync(stray, { recursive: true });
+  const grade = quiet(() => runner.cmdGrade(f.cfg, f.opts));
+  assert.match(grade.out, /graded 2 run\(s\) \(2 with-skill, 0 without-skill\);/);
+  assert.equal(fs.existsSync(path.join(stray, 'grading.json')), false);
 });

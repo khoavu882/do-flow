@@ -324,6 +324,64 @@ test('G11b: every planned run is told to load its skill from the sandbox, by pat
   assert.deepEqual(problems, [], problems.join('\n'));
 });
 
+// A without-skill run is only a measurement of what the skill adds if the skill really is withheld:
+// the right run kind, a withheld resolution, an instruction that forbids reading and invoking it, a
+// create step that deletes the sandbox copies, and a sandbox and output directory of its own so it
+// cannot overwrite its with-skill pair. A bare plan must hold none, so the arm is always opted into.
+function withoutSkillProblems(armPlan, barePlan) {
+  const problems = [];
+  const withSkill = (r) => armPlan.runs.find((x) => x.arm === 'with-skill' && x.skill === r.skill && x.evalId === r.evalId);
+  for (const run of armPlan.runs.filter((r) => r.arm === 'without-skill')) {
+    const where = `${run.skill}/${run.evalId}`;
+    const pair = withSkill(run);
+    if (run.kind !== 'behavioral') problems.push(`${where}: a without-skill run must be behavioral, got ${run.kind}`);
+    if (!run.skills || run.skills.resolution !== 'withheld') problems.push(`${where}: resolution is not withheld`);
+    const instruction = (run.skills && run.skills.instruction) || '';
+    if (!/do not invoke/i.test(instruction)) problems.push(`${where}: the instruction does not forbid invoking the skill`);
+    if (!/do not read/i.test(instruction)) problems.push(`${where}: the instruction does not forbid reading the skill`);
+    const create = (run.sandbox && run.sandbox.create) || '';
+    if (!/createSandbox\(/.test(create)) problems.push(`${where}: sandbox.create does not create a sandbox`);
+    for (const p of (run.skills && run.skills.withheldPaths) || []) {
+      const rel = path.relative(run.sandbox.workingDir, p).split(path.sep).join('/');
+      if (!create.includes(rel)) problems.push(`${where}: sandbox.create does not delete ${rel}`);
+    }
+    if (!run.skills || (run.skills.withheldPaths || []).length !== 2) problems.push(`${where}: expected the two withheld paths`);
+    if (!pair) problems.push(`${where}: no with-skill run to pair with`);
+    else {
+      if (run.sandbox.id === pair.sandbox.id) problems.push(`${where}: shares its sandbox id with the with-skill run`);
+      if (run.outputDir === pair.outputDir) problems.push(`${where}: shares its outputDir with the with-skill run`);
+    }
+  }
+  if (barePlan.runs.some((r) => r.arm === 'without-skill')) problems.push('a bare plan holds a without-skill run');
+  return problems;
+}
+
+test('G11b: without-skill runs withhold the skill and stay apart from their with-skill pair', () => {
+  const cfg = runner.loadConfig();
+  const armPlan = runner.buildPlan(cfg, { iteration: 'guard', arm: 'without-skill' });
+  assert.ok(armPlan.runs.some((r) => r.arm === 'without-skill'), 'the arm plan holds no without-skill run');
+  const problems = withoutSkillProblems(armPlan, runner.buildPlan(cfg, { iteration: 'guard' }));
+  assert.deepEqual(problems, [], problems.join('\n'));
+});
+
+test('G11b control: a without-skill run that does not withhold the skill is reported', () => {
+  const cfg = runner.loadConfig();
+  const bare = runner.buildPlan(cfg, { iteration: 'guard' });
+  const armPlan = JSON.parse(JSON.stringify(runner.buildPlan(cfg, { iteration: 'guard', arm: 'without-skill' })));
+  const broken = armPlan.runs.find((r) => r.arm === 'without-skill');
+  const pair = armPlan.runs[armPlan.runs.indexOf(broken) - 1];
+  broken.kind = 'triggering';
+  broken.skills.resolution = 'sandbox-path';
+  broken.skills.instruction = 'Handle the request.';
+  broken.sandbox.create = 'echo no sandbox';
+  broken.sandbox.id = pair.sandbox.id;
+  broken.outputDir = pair.outputDir;
+  const problems = withoutSkillProblems(armPlan, { runs: [broken] });
+  for (const fragment of ['must be behavioral', 'not withheld', 'forbid invoking', 'forbid reading', 'does not create a sandbox', 'does not delete', 'shares its sandbox id', 'shares its outputDir', 'a bare plan holds']) {
+    assert.ok(problems.some((p) => p.includes(fragment)), `the guard did not report: ${fragment}`);
+  }
+});
+
 test('G11b: the plan states why bare-name invocation is not an option', () => {
   const r = runner.SKILL_RESOLUTION;
   assert.equal(r.rule, 'sandbox-path');

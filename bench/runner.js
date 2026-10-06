@@ -42,6 +42,14 @@ const RUN_ROUTING_FILE = 'routing.json';
 /** What the orchestrating agent writes beside a run's records: the usage its task notification reported. */
 const RUN_TIMING_FILE = 'timing.json';
 
+/** The two ways a case is run. `without-skill` withholds the skill under test to measure what the
+ * skill adds, and is only emitted on request for behavioral cases. */
+const ARMS = ['with-skill', 'without-skill'];
+
+/** The suffixes that keep a without-skill run's directory and sandbox apart from its with-skill pair. */
+const WITHOUT_SKILL_DIR_SUFFIX = '--without-skill';
+const WITHOUT_SKILL_SANDBOX_SUFFIX = '-noskill';
+
 /** The two sides of the corpus. Every case carries one; a baseline capture freezes it. */
 const SPLITS = ['train', 'heldout'];
 
@@ -222,6 +230,13 @@ const PROGRAMMATIC = {
       ? { passed: false, evidence: `${RUN_ROUTING_FILE}: ${a.skill} routed, the request should not route here` }
       : { passed: true, evidence: `${RUN_ROUTING_FILE}: ${a.skill} not routed` };
   },
+};
+
+const WITHHELD_UNDECIDED = {
+  skill_resolved: 'withheld arm: the skill was withheld from this run',
+  skill_invoked: 'withheld arm: the skill was withheld from this run',
+  skill_not_invoked: 'withheld arm: the skill was withheld from this run',
+  skill_not_routed: 'withheld arm: no description was judged',
 };
 
 /** Every assertion type the runner decides or defers. A case file naming any other type would grade
@@ -469,6 +484,44 @@ function verifySkillSource(cfg, skill, ctx) {
   };
 }
 
+/**
+ * Decide, from what a without-skill run recorded, whether the skill really was withheld from it.
+ *
+ * The sandbox no longer holds the skill, but `~/.claude/skills/` is outside it and a by-name lookup
+ * reaches it, so withholding is checked rather than assumed. A run that reads the skill's SKILL.md
+ * anywhere is `leaked` and its pass rate is not a without-skill measurement; one that saved no
+ * record is `unrecorded`, never `withheld`, because silence is not proof.
+ */
+function classifyWithheld(skill, ctx) {
+  const rec = ctx.skillSource;
+  if (!rec || rec.malformed) {
+    return {
+      status: 'unrecorded',
+      recordedPath: null,
+      evidence: rec
+        ? `${RUN_SOURCE_FILE} is not valid JSON — cannot tell whether the skill was withheld`
+        : `no ${RUN_SOURCE_FILE} saved — cannot tell whether the skill was withheld`,
+    };
+  }
+  const recordedPath = rec.path === undefined ? null : rec.path;
+  if (rec.withheld !== true || recordedPath !== null) {
+    return {
+      status: 'leaked',
+      recordedPath,
+      evidence: recordedPath !== null
+        ? `${RUN_SOURCE_FILE} records a path (${recordedPath}): the run read a skill file`
+        : `${RUN_SOURCE_FILE} does not record withheld: true`,
+    };
+  }
+  const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const read = new RegExp(`skills/${escaped}/SKILL\\.md`);
+  const where = read.test(ctx.transcript) ? 'transcript' : read.test(ctx.outputsText) ? 'outputs' : null;
+  if (where) {
+    return { status: 'leaked', recordedPath: null, evidence: `the ${where} names skills/${skill}/SKILL.md: the run reached the skill` };
+  }
+  return { status: 'withheld', recordedPath: null, evidence: `${RUN_SOURCE_FILE} records withheld: true and no skills/${skill}/SKILL.md was read` };
+}
+
 function gradeAssertion(assertion, ctx) {
   const kind = assertion.type || 'manual';
   if (kind === 'manual') {
@@ -477,6 +530,11 @@ function gradeAssertion(assertion, ctx) {
   const fn = PROGRAMMATIC[kind];
   if (!fn) {
     return { text: assertion.text, passed: null, evidence: `unknown assertion type "${kind}"` };
+  }
+  // A without-skill run has no description to judge and no skill to have read, so a verdict on any of
+  // these would be invented. They are left undecided, and the rest of the case grades as usual.
+  if (ctx.arm === 'without-skill' && WITHHELD_UNDECIDED[kind]) {
+    return { text: assertion.text, passed: null, evidence: WITHHELD_UNDECIDED[kind] };
   }
   // Scope, not just type. scopeFor() routes `in: 'outputs'` to the artifacts under outputs/ and never
   // reads the transcript, so gating those on hasTranscript failed 15 shipped assertions across four
@@ -573,6 +631,47 @@ const SKILL_RESOLUTION = {
   gradedAs: 'bench grade classifies each run verified | global-fallback | mismatch | unrecorded; anything but verified is flagged, and an absent record is never treated as a pass',
 };
 
+/**
+ * The same case run with the skill under test withheld. The create step deletes the skill's copies
+ * from the sandbox after `createSandbox` projected them, so the bench carries no change to the
+ * worktree code. `~/.claude/skills` is outside any sandbox and cannot be removed this way; a run
+ * that reaches it is caught at grading as `leaked`, not prevented here.
+ */
+function withoutSkillRun(cfg, skill, e, withSkill) {
+  const sandboxId = `${withSkill.sandbox.id}${WITHOUT_SKILL_SANDBOX_SUFFIX}`;
+  const workingDir = path.join('.doflow', 'worktrees', sandboxId);
+  const skillDirs = [path.posix.join(...SANDBOX_SKILLS_DIR.split(path.sep), skill), path.posix.join(cfg.skillsRoot, skill)];
+  return {
+    skill,
+    evalId: e.id,
+    evalName: e.name,
+    kind: e.kind,
+    split: e.split,
+    arm: 'without-skill',
+    prompt: e.prompt,
+    expectedOutput: e.expected_output,
+    model: cfg.model,
+    sandbox: {
+      required: true,
+      id: sandboxId,
+      create: `node -e "${WT_REQUIRE}const r=m.createSandbox('${sandboxId}');const fs=require('fs'),p=require('path');for(const d of [${skillDirs.map((d) => `'${d}'`).join(',')}])fs.rmSync(p.join(r.path,d),{recursive:true,force:true});console.log(r.path+' withheld=${skill}')"`,
+      remove: `node -e "${WT_REQUIRE}m.remove('${sandboxId}')"`,
+      workingDir,
+    },
+    skills: {
+      resolution: 'withheld',
+      skill,
+      withheldPaths: skillDirs.map((d) => path.join(workingDir, d)),
+      instruction:
+        `The skill ${skill} is withheld for this run. Do NOT read any file under a skills/${skill}/ directory (in this sandbox, in ${cfg.skillsRoot} or in ~/.claude/skills), ` +
+        `and do NOT invoke /${skill} or the Skill tool for it. Handle the request without it. Write ${RUN_SOURCE_FILE} as {"skill": "${skill}", "withheld": true}.`,
+      mustRecord: RUN_SOURCE_FILE,
+    },
+    outputDir: `${withSkill.outputDir}${WITHOUT_SKILL_DIR_SUFFIX}`,
+    saveOutputs: ['transcript.txt', 'invoked_skills.json', RUN_SOURCE_FILE, RUN_TIMING_FILE, 'outputs/'],
+  };
+}
+
 const CEILING_ENFORCEMENT =
   'The orchestrating agent stops dispatching once the recorded total_tokens of this iteration reach budget; runs not dispatched are reported as not run.';
 
@@ -597,6 +696,7 @@ function buildPlan(cfg, opts) {
         evalName: e.name,
         kind: e.kind,
         split: e.split,
+        arm: 'with-skill',
         prompt: e.prompt,
         expectedOutput: e.expected_output,
         model: cfg.model,
@@ -628,17 +728,19 @@ function buildPlan(cfg, opts) {
         outputDir: path.join(cfg.benchRoot, 'runs', opts.iteration, skill, `eval-${e.id}-${e.name}`),
         saveOutputs: ['transcript.txt', 'invoked_skills.json', RUN_SOURCE_FILE, RUN_TIMING_FILE, 'outputs/', ...(e.kind === 'triggering' ? [RUN_ROUTING_FILE] : [])],
       });
+      if (opts.arm === 'without-skill' && e.kind === 'behavioral') runs.push(withoutSkillRun(cfg, skill, e, runs[runs.length - 1]));
     }
   }
   // Each run is projected at what the committed baseline recorded for the same case. A case with no
   // baseline result, or a result with no usage, is unknown rather than free.
   const baselineFile = baselineFileOf(cfg, opts);
   const baseline = fs.existsSync(baselineFile) ? readJson(baselineFile) : null;
-  const recorded = new Map((baseline && Array.isArray(baseline.results) ? baseline.results : []).map((r) => [r.key, r]));
+  const recordedBy = (field) => new Map((baseline && Array.isArray(baseline[field]) ? baseline[field] : []).map((r) => [r.key, r]));
+  const recorded = { 'with-skill': recordedBy('results'), 'without-skill': recordedBy('withoutSkillResults') };
   const projection = ceilingState(
     ceiling,
     runs.map((r) => {
-      const hit = recorded.get(`${r.skill}/${r.evalId}`);
+      const hit = recorded[r.arm].get(`${r.skill}/${r.evalId}`);
       return { total_tokens: validTokens(hit && hit.usage ? hit.usage.total_tokens : null), duration_ms: null };
     }),
   );
@@ -724,51 +826,74 @@ function cmdGrade(cfg, opts) {
   let graded = 0;
   let manual = 0;
   let usageUnknown = 0;
+  const counts = { 'with-skill': 0, 'without-skill': 0 };
   const unverified = [];
+  const unwithheld = [];
   const skills = opts.skill ? [opts.skill] : discoverSkills(cfg);
   for (const skill of skills) {
     const cases = loadCases(cfg, skill);
     if (!cases) continue;
     for (const e of cases.evals) {
-      const runDir = path.join(iterRoot, skill, `eval-${e.id}-${e.name}`);
-      if (!fs.existsSync(runDir)) continue;
-      const ctx = loadRunContext(runDir);
-      // skill_resolved needs both to reach verifySkillSource; attached here rather than threaded
-      // through loadRunContext, which is also used by callers that have no case in hand.
-      ctx.cfg = cfg;
-      ctx.skill = skill;
-      ctx.sourceAt = sourceAt;
-      const expectations = (e.assertions || []).map((a) => gradeAssertion(a, ctx));
-      manual += expectations.filter((x) => x.passed === null).length;
-      const decided = expectations.filter((x) => x.passed !== null);
-      // Provenance is recorded beside the expectations rather than inside them: a run that measured
-      // the wrong skill has an invalid pass rate, not a lower one, and folding it into the rate
-      // would silently reprice every case in the committed baseline.
-      const skillSource = verifySkillSource(cfg, skill, ctx);
-      if (skillSource.status !== 'verified') unverified.push(`${skill}/${e.id}: ${skillSource.status} — ${skillSource.evidence}`);
-      const usage = readUsage(runDir);
-      if (usage.status !== 'recorded') usageUnknown += 1;
-      writeJson(path.join(runDir, 'grading.json'), {
-        skill,
-        eval_id: e.id,
-        eval_name: e.name,
-        split: e.split,
-        skill_source: skillSource,
-        expectations,
-        pass_rate: decided.length ? decided.filter((x) => x.passed).length / decided.length : null,
-        usage,
-      });
-      graded += 1;
+      for (const arm of ARMS) {
+        // Only a behavioral case has a without-skill run, so a stray directory for a triggering case
+        // is not graded as one.
+        if (arm === 'without-skill' && e.kind !== 'behavioral') continue;
+        const runDir = path.join(iterRoot, skill, `eval-${e.id}-${e.name}${arm === 'without-skill' ? WITHOUT_SKILL_DIR_SUFFIX : ''}`);
+        if (!fs.existsSync(runDir)) continue;
+        const ctx = loadRunContext(runDir);
+        // skill_resolved needs both to reach verifySkillSource; attached here rather than threaded
+        // through loadRunContext, which is also used by callers that have no case in hand.
+        ctx.cfg = cfg;
+        ctx.skill = skill;
+        ctx.sourceAt = sourceAt;
+        ctx.arm = arm;
+        const expectations = (e.assertions || []).map((a) => gradeAssertion(a, ctx));
+        manual += expectations.filter((x) => x.passed === null).length;
+        const decided = expectations.filter((x) => x.passed !== null);
+        // Provenance is recorded beside the expectations rather than inside them: a run that measured
+        // the wrong skill has an invalid pass rate, not a lower one, and folding it into the rate
+        // would silently reprice every case in the committed baseline.
+        let skillSource;
+        if (arm === 'without-skill') {
+          skillSource = classifyWithheld(skill, ctx);
+          if (skillSource.status !== 'withheld') unwithheld.push(`${skill}/${e.id} (without-skill): ${skillSource.status} — ${skillSource.evidence}`);
+        } else {
+          skillSource = verifySkillSource(cfg, skill, ctx);
+          if (skillSource.status !== 'verified') unverified.push(`${skill}/${e.id}: ${skillSource.status} — ${skillSource.evidence}`);
+        }
+        const usage = readUsage(runDir);
+        if (usage.status !== 'recorded') usageUnknown += 1;
+        writeJson(path.join(runDir, 'grading.json'), {
+          skill,
+          eval_id: e.id,
+          eval_name: e.name,
+          arm,
+          split: e.split,
+          skill_source: skillSource,
+          expectations,
+          pass_rate: decided.length ? decided.filter((x) => x.passed).length / decided.length : null,
+          usage,
+        });
+        graded += 1;
+        counts[arm] += 1;
+      }
     }
   }
-  console.log(`graded ${graded} run(s); ${manual} assertion(s) left for the grader subagent; usage unknown for ${usageUnknown} run(s)`);
+  console.log(`graded ${graded} run(s) (${counts['with-skill']} with-skill, ${counts['without-skill']} without-skill); ${manual} assertion(s) left for the grader subagent; usage unknown for ${usageUnknown} run(s)`);
   if (unverified.length) {
     console.warn(
-      `\nwarning: ${unverified.length} of ${graded} run(s) cannot prove they measured this repo's skills.\n` +
+      `\nwarning: ${unverified.length} of ${counts['with-skill']} with-skill run(s) cannot prove they measured this repo's skills.\n` +
         `A run with no verified ${RUN_SOURCE_FILE} may have resolved ~/.claude/skills/ instead, whose\n` +
         'contents differ from this tree — its pass rate is not evidence about the source under test.',
     );
     for (const u of unverified) console.warn(`  ${u}`);
+  }
+  if (unwithheld.length) {
+    console.warn(
+      `\nwarning: ${unwithheld.length} of ${counts['without-skill']} without-skill run(s) are not withheld.\n` +
+        'A run that may have reached the skill is not a without-skill measurement.',
+    );
+    for (const u of unwithheld) console.warn(`  ${u}`);
   }
   return 0;
 }
@@ -783,6 +908,7 @@ function cmdBaseline(cfg, opts) {
     return 2;
   }
   const results = collectResults(cfg, iterRoot);
+  const withoutSkillResults = collectResults(cfg, iterRoot, 'without-skill');
   const clean = workingTreeClean();
   const unverified = results.filter((r) => r.sourceStatus !== 'verified');
   // The commit the runs MEASURED, not HEAD at freeze time. Those differ whenever a baseline is
@@ -804,8 +930,9 @@ function cmdBaseline(cfg, opts) {
     // inferred from the capture date.
     sourceVerifiedCount: results.length - unverified.length,
     sourceUnverified: unverified.map((r) => `${r.key}: ${r.sourceStatus}`),
-    usageSummary: { withSkill: summarizeUsage(results.map((r) => r.usage)), withoutSkill: summarizeUsage([]) },
+    usageSummary: { withSkill: summarizeUsage(results.map((r) => r.usage)), withoutSkill: summarizeUsage(withoutSkillResults.map((r) => r.usage)) },
     results,
+    withoutSkillResults,
   };
   writeJson(baselineFileOf(cfg, opts), baseline);
   if (clean === false) {
@@ -817,7 +944,7 @@ function cmdBaseline(cfg, opts) {
         'Such a baseline is a record of some run, but not a pre-rewrite reference for this tree.',
     );
   }
-  console.log(`baseline written: ${results.length} case(s) at commit ${baseline.commit || 'unknown'}`);
+  console.log(`baseline written: ${results.length} case(s)${withoutSkillResults.length ? ` and ${withoutSkillResults.length} without-skill result(s)` : ''} at commit ${baseline.commit || 'unknown'}`);
   return 0;
 }
 
@@ -828,13 +955,15 @@ function resultUsage(g) {
   return { total_tokens: u.total_tokens ?? null, duration_ms: u.duration_ms ?? null };
 }
 
-function collectResults(cfg, iterRoot) {
+function collectResults(cfg, iterRoot, arm = 'with-skill') {
   const results = [];
   for (const skill of discoverSkills(cfg)) {
     const cases = loadCases(cfg, skill);
     if (!cases) continue;
     for (const e of cases.evals) {
-      const gradingFile = path.join(iterRoot, skill, `eval-${e.id}-${e.name}`, 'grading.json');
+      if (arm === 'without-skill' && e.kind !== 'behavioral') continue;
+      const dir = `eval-${e.id}-${e.name}${arm === 'without-skill' ? WITHOUT_SKILL_DIR_SUFFIX : ''}`;
+      const gradingFile = path.join(iterRoot, skill, dir, 'grading.json');
       if (!fs.existsSync(gradingFile)) continue;
       const g = readJson(gradingFile);
       results.push({
@@ -854,6 +983,42 @@ function collectResults(cfg, iterRoot) {
     }
   }
   return results;
+}
+
+/**
+ * What the skill adds on behavioral cases, per skill: the mean pass rate with it against without it,
+ * over the cases where both arms are decided and each arm's provenance holds (the with-skill run
+ * `verified`, the without-skill run `withheld`). A case that fails either condition is left out, not
+ * counted as 0, so a leaked or unrecorded run cannot move the delta.
+ */
+function armDeltas(withResults, withoutResults) {
+  const behavioral = (rs) => rs.filter((r) => r.kind === 'behavioral');
+  const withB = behavioral(withResults);
+  const withoutB = behavioral(withoutResults);
+  const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  return [...new Set([...withB, ...withoutB].map((r) => r.skill))].sort().map((skill) => {
+    const w = withB.filter((r) => r.skill === skill);
+    const wo = withoutB.filter((r) => r.skill === skill);
+    const paired = w.flatMap((r) => {
+      const other = wo.find((o) => o.key === r.key);
+      const ok = other && r.passRate !== null && other.passRate !== null
+        && r.sourceStatus === 'verified' && other.sourceStatus === 'withheld';
+      return ok ? [{ key: r.key, withSkill: r.passRate, withoutSkill: other.passRate }] : [];
+    });
+    if (paired.length === 0) {
+      return {
+        skill,
+        pairedCases: [],
+        withSkill: null,
+        withoutSkill: null,
+        delta: null,
+        reason: wo.length === 0 ? 'no without-skill results' : w.length === 0 ? 'no with-skill results' : 'no case with both arms decided, verified and withheld',
+      };
+    }
+    const withSkill = mean(paired.map((p) => p.withSkill));
+    const withoutSkill = mean(paired.map((p) => p.withoutSkill));
+    return { skill, pairedCases: paired.map((p) => p.key), withSkill, withoutSkill, delta: withSkill - withoutSkill, reason: null };
+  });
 }
 
 /**
@@ -911,6 +1076,7 @@ function buildReport({ baseline, withResults, withoutResults = [], cfg, iteratio
       withoutSkill: summarizeUsage(withoutResults.map(resultUsage)),
     },
     ceiling: ceilingState(loadCeiling(cfg), [...withResults, ...withoutResults].map(resultUsage)),
+    armDelta: armDeltas(withResults, withoutResults),
   };
 }
 
@@ -942,7 +1108,8 @@ function cmdReport(cfg, opts) {
     console.error(`bench report: no runs found at ${path.relative(REPO_ROOT, currentRoot)}`);
     return 2;
   }
-  const report = buildReport({ baseline, withResults: collectResults(cfg, currentRoot), cfg, iteration: against, commit: currentCommit() });
+  const withoutResults = collectResults(cfg, currentRoot, 'without-skill');
+  const report = buildReport({ baseline, withResults: collectResults(cfg, currentRoot), withoutResults, cfg, iteration: against, commit: currentCommit() });
   const { rows } = report;
   const outFile = path.resolve(REPO_ROOT, cfg.reportsDir, `${against}-vs-baseline.json`);
   writeJson(outFile, report);
@@ -964,6 +1131,10 @@ function cmdReport(cfg, opts) {
   if (report.pendingNote) console.log(report.pendingNote);
   const u = report.usage.withSkill;
   console.log(`usage: ${u.knownTokens} total_tokens over ${u.knownTokenRuns} run(s); unknown for ${u.unknownTokenRuns} run(s)`);
+  if (withoutResults.length) {
+    const w = report.usage.withoutSkill;
+    console.log(`usage without-skill: ${w.knownTokens} total_tokens over ${w.knownTokenRuns} run(s); unknown for ${w.unknownTokenRuns} run(s)`);
+  }
   const c = report.ceiling;
   const knownRuns = report.usage.withSkill.knownTokenRuns + report.usage.withoutSkill.knownTokenRuns;
   if (c.breached === true) {
@@ -979,6 +1150,15 @@ function cmdReport(cfg, opts) {
         `${cfg.skillsRoot}. Treat those deltas as unmeasured, not as "no change".`,
     );
   }
+  if (withoutResults.length) {
+    const fmt = (v) => (v === null ? '—' : v.toFixed(2));
+    console.log('\n| skill | paired | with | without | delta |');
+    console.log('|---|---|---|---|---|');
+    for (const a of report.armDelta) {
+      const d = a.delta === null ? '—' : (a.delta > 0 ? '+' : '') + a.delta.toFixed(2);
+      console.log(`| ${a.skill} | ${a.pairedCases.length} | ${fmt(a.withSkill)} | ${fmt(a.withoutSkill)} | ${d} |`);
+    }
+  }
   console.log(`report: ${path.relative(REPO_ROOT, outFile)}`);
   // Drift is reported, never blocking (requirement A1) — a regression is information, not a gate.
   return 0;
@@ -992,7 +1172,7 @@ const USAGE = `doflow bench — evaluation harness for the shipped skills
   node bench/runner.js parity [--json]                does the committed baseline still describe the corpus
   node bench/runner.js list [--skill S] [--split train|heldout] [--json]
                                                       enumerate cases
-  node bench/runner.js plan --iteration N [--skill S] [--split train|heldout]
+  node bench/runner.js plan --iteration N [--skill S] [--split train|heldout] [--arm without-skill]
                                                       emit the subagent dispatch plan (JSON)
   node bench/runner.js grade --iteration N [--skill S] grade programmatic assertions of a finished run
   node bench/runner.js baseline [--from N]            freeze an iteration as the committed baseline
@@ -1015,6 +1195,13 @@ function parseArgs(argv) {
       opts.split = argv[++i];
       if (!SPLITS.includes(opts.split)) {
         console.error('bench: --split must be train or heldout');
+        process.exit(2);
+      }
+    }
+    else if (a === '--arm') {
+      opts.arm = argv[++i];
+      if (opts.arm !== 'without-skill') {
+        console.error('bench: --arm must be without-skill');
         process.exit(2);
       }
     }
@@ -1041,6 +1228,10 @@ function main() {
   // the failure the unknown-option refusal above exists to prevent.
   if (opts.split && cmd !== 'plan' && cmd !== 'list') {
     console.error(`bench ${cmd}: --split is not accepted`);
+    return 2;
+  }
+  if (opts.arm && cmd !== 'plan') {
+    console.error(`bench ${cmd}: --arm is not accepted`);
     return 2;
   }
   const cfg = loadConfig();
@@ -1220,10 +1411,12 @@ module.exports = {
   buildReport,
   readUsage,
   summarizeUsage,
+  classifyWithheld,
   SKILL_RESOLUTION,
   RUN_SOURCE_FILE,
   RUN_ROUTING_FILE,
   RUN_TIMING_FILE,
   ASSERTION_TYPES,
   SPLITS,
+  ARMS,
 };
