@@ -15,53 +15,6 @@ function readAllServers(registry) {
   return nativeMcpCatalog(selectMcpServers(registry)).allServers;
 }
 
-/**
-  * Decide which MCP servers to install, in precedence order:
-  *   1. --mcp <list>|all|none — explicit, always wins, always persisted ('all'/'none' are
-  *                              keywords and cannot be mixed with server names)
-  *   2. interactive checkbox  — install only, real TTY, no --force/--dry-run
-  *   3. remembered manifest   — update (or a forced/non-interactive install) reuses the last pick
-  *   4. none                  — first-ever install without a TTY defaults to an EMPTY selection
-  *                              (safe by default: third-party servers are opt-in). Interactive
-  *                              installs still get the checkbox pre-seeded with the catalog.
- * `promptFn` is injected so this stays unit-testable without a real TTY.
- * @param {{cmd:string, requested:string[]|null, allServers:string[], manifestServers:string[]|null,
- *           interactive:boolean, promptFn:(servers:string[], seed:string[])=>string[]|null}} p
- * @returns {string[]}
- */
-function resolveMcpSelection({ cmd, requested, allServers, manifestServers, interactive, promptFn, onStale }) {
-  if (requested) return parseMcpFlag(requested, allServers);
-
-  // `requested` is user intent, so an unknown name above is a typo and must be fatal. The manifest
-  // selection is *persisted resolved state* (see src/manifest.js), so an id the registry no longer
-  // declares means the project retired that server between installs — a normal upgrade, not user
-  // error. Passing it through unfiltered reached selectMcpServers() in src/registry/index.js,
-  // which throws, so removing chrome-devtools and playwright from core/registry/mcp.json (d1bf9e8)
-  // made `install` and `update` fatally fail for every install predating that commit, with no hint
-  // that `--mcp <survivors>` was the way out. cmdStatus already tolerated the same state because
-  // it happens to wrap the call in try/catch; reconcile here so every caller behaves that way.
-  const remembered = manifestServers ?? null;
-  const known = remembered?.filter((s) => allServers.includes(s)) ?? null;
-  const retired = remembered?.filter((s) => !allServers.includes(s)) ?? [];
-  if (retired.length && onStale) onStale(retired);
-
-  if (cmd === 'install' && interactive) {
-    // Seed the checkbox from reconciled state too — pre-ticking a server that no longer exists
-    // would offer the user a choice the registry cannot honor.
-    const seed = known ?? allServers;
-    const picked = promptFn(allServers, seed);
-    if (picked !== null) return picked; // [] is a deliberate "no servers" choice, honored as-is
-  }
-
-  // An explicitly empty remembered selection stays empty: the user chose "no servers", and a
-  // catalog reshuffle must not resurrect third-party processes behind their back. Likewise the
-  // first-ever non-interactive default is now NONE — third-party servers are opt-in
-  // (--mcp all|<names>); interactive installs remain the discovery path via the pre-seeded
-  // checkbox above.
-  if (known && known.length === 0) return [];
-  return known ?? [];
-}
-
 /** Parse `--mcp`: `all` and `none` are keywords that cannot be mixed with names or each other, an
  * empty list and an unknown name are errors, names are deduplicated. `null` when the flag is absent. */
 function parseMcpFlag(requested, catalogIds) {
@@ -268,7 +221,6 @@ function promptMcpCheckbox(servers, initialSelected, message = 'Select MCP serve
 
 module.exports = {
   readAllServers,
-  resolveMcpSelection,
   parseMcpFlag,
   resolveMcpSelections,
   recordedMcpSelections,

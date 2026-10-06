@@ -14,7 +14,8 @@ const {
   codexScope, registryLifecycleView, assertSafeRegistryPlan, lockDocument, recordLock,
 } = require('../../lifecycle/view');
 const { readLock } = require('../../state/lockfile');
-const { REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, mcpAdoptableFor, buildAdapterRegistry } = require('../shared');
+const { recordedMcpSelections } = require('../../install/mcp');
+const { REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, scopeSelectionState, buildAdapterRegistry } = require('../shared');
 
 /** Classify desired-vs-observed drift for one lifecycle view. The plan IS the diff: its changes
  * are the operations needed to converge, its conflicts and prerequisites are the drift that must
@@ -67,10 +68,11 @@ function cmdReconcile(o) {
   const targets = lock.targets.map((entry) => entry.harness);
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
   printContext(resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: sourceCommit(SCRIPT_DIR), ...scope }));
-  // MCP selections ride exactly as pinned — reconcile never re-prompts and never widens them.
-  const mcpIds = [...new Set(Object.entries(lock.mcpSelections ?? {}).flatMap(([harness, ids]) => (targets.includes(harness) ? ids : [])))];
-  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds,
-    mcpAdoptable: mcpAdoptableFor({ registry, scope, targets }), force: true });
+  // Each harness converges onto its own pinned selection — reconcile never re-prompts and never
+  // lends one harness's servers to another.
+  const recorded = recordedMcpSelections({ registry, lock, ledger: scopeSelectionState(scope).ledger, targets });
+  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets,
+    mcpSelections: recorded.selections, mcpAdoptable: recorded.adoptable, retainedMcpIds: [], force: true });
   if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
 
   const report = reconcileReport(lifecycleView);
@@ -90,7 +92,7 @@ function cmdReconcile(o) {
   applyLifecycle({ plan: lifecycleView.plan, registry: lifecycleView.registry,
     adapters: buildAdapterRegistry(),
     stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
-  writeManifest({ scopeRoot: lifecyclePaths.scopeRoot, scriptVersion: pkg.version, operation: 'update', repoRoot: SCRIPT_DIR, sourceCommit: sourceCommit(SCRIPT_DIR), backupId: '', tools: targets, date: new Date(), mcpServers: mcpIds });
+  writeManifest({ scopeRoot: lifecyclePaths.scopeRoot, scriptVersion: pkg.version, operation: 'update', repoRoot: SCRIPT_DIR, sourceCommit: sourceCommit(SCRIPT_DIR), backupId: '', tools: targets, date: new Date() });
   console.log('[OK] Reconciliation complete — state converged onto doflow.lock.');
 }
 

@@ -46,13 +46,13 @@ function seedScope({ scope, scopeRoot, assetId }) {
 
 function readGlobal(homeDir) {
   return withHomeDir(homeDir, () => registryLifecycleView({
-    registry, repoRoot: REPO, scope: { global: true }, targets: ['claude'], mcpIds: [],
+    registry, repoRoot: REPO, scope: { global: true }, targets: ['claude'],
   }));
 }
 
 function readProject(projectRoot) {
   return registryLifecycleView({
-    registry, repoRoot: REPO, scope: { global: false, projectRoot }, targets: ['claude'], mcpIds: [],
+    registry, repoRoot: REPO, scope: { global: false, projectRoot }, targets: ['claude'],
   });
 }
 
@@ -122,7 +122,7 @@ test('a global scope descriptor takes its root from os.homedir(), not from the d
   seedScope({ scope: 'project', scopeRoot: projectRoot, assetId: 'project.only.asset' });
 
   const view = withHomeDir(homeDir, () => registryLifecycleView({
-    registry, repoRoot: REPO, scope: { global: true, projectRoot }, targets: ['claude'], mcpIds: [],
+    registry, repoRoot: REPO, scope: { global: true, projectRoot }, targets: ['claude'],
   }));
 
   assert.equal(view.stateRoot, path.join(homeDir, '.doflow', 'state'), 'projectRoot is ignored for a global descriptor');

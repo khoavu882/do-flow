@@ -45,8 +45,8 @@ function codexConfigResources(repoRoot, fsImpl) {
  * the capability and neutral-ledger view observable without changing the proven copy/backup
  * mutation path until every native adapter has CLI-level parity.
  * `registry` is loaded once per command (by the caller) and threaded through here rather than
- * reloaded — the same registry also resolves the Claude/Codex MCP catalog for that command. */
-function registryLifecycleView({ registry, scope, targets, mcpIds, mcpAdoptable = {}, operation, repoRoot, force = false, adopt = false, permissions = false, statusline = false, fsImpl = fs }) {
+ * reloaded — the same registry also resolves every harness's MCP selection for that command. */
+function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, mcpAdoptable = {}, retainedMcpIds = [], operation, repoRoot, force = false, adopt = false, permissions = false, statusline = false, fsImpl = fs }) {
   const lifecycleScope = codexScope(scope);
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   const neutralStateRoot = stateRoot({ scope: lifecycleScope, projectRoot: scopeRoot, homeDir: scopeRoot });
@@ -60,7 +60,7 @@ function registryLifecycleView({ registry, scope, targets, mcpIds, mcpAdoptable 
     opencode: createOpenCodeAdapter({ declaredPaths: declared.opencode }), pi: createPiAdapter({ declaredPaths: declared.pi }),
     copilot: createCopilotAdapter({ declaredPaths: declared.copilot }), kiro: createKiroAdapter({ declaredPaths: declared.kiro }),
     antigravity: createAntigravityAdapter({ declaredPaths: declared.antigravity }) });
-  const plan = planLifecycle({ registry, adapters, scope: lifecycleScope, scopeRoot, targets, mcpIds, mcpAdoptable, ledger, context: {
+  const plan = planLifecycle({ registry, adapters, scope: lifecycleScope, scopeRoot, targets, mcpSelections, mcpAdoptable, retainedMcpIds, ledger, context: {
     repoRoot, projectRoot: scopeRoot, homeDir: os.homedir(), sourceVersion: pkg.version,
     codexConfigResources: codexConfigResources(repoRoot, fsImpl),
     codexAgentsSourceDir: path.join(repoRoot, 'core', 'harnesses', 'codex', 'agents'),

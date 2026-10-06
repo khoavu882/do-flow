@@ -1,6 +1,6 @@
 'use strict';
 // `doflow update` — incremental refresh: diff the pinned/selected state against what is on disk
-// and apply only what changed. Never re-prompts for MCP (reuses the manifest-remembered selection).
+// and apply only what changed. Never re-prompts for MCP (reuses each harness's recorded selection).
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -11,8 +11,7 @@ const { writeManifest, readInstallManifest } = require('../../install/manifest')
 const { confirm } = require('../../helper/prompt');
 const { sourceCommit } = require('../../helper/git');
 const { chmodHooksExecutable } = require('../../helper/settings-scope');
-const { readCodexMcpCatalog, resolveCodexMcpSelection } = require('../../adapters/codex/mcp');
-const { promptMcpCheckbox } = require('../../install/mcp');
+const { resolveMcpSelections } = require('../../install/mcp');
 const { loadRegistry } = require('../../registry');
 const { applyLifecycle } = require('../../lifecycle');
 const {
@@ -20,7 +19,8 @@ const {
   lockDocument, recordLock,
 } = require('../../lifecycle/view');
 const {
-  REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, reportRetiredMcp, resolveMcpForTool, mcpAdoptableFor, buildAdapterRegistry,
+  REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, reportRetiredMcp, scopeSelectionState, printMcpSelection, plannedMcpSelections,
+  buildAdapterRegistry,
 } = require('../shared');
 
 function cmdUpdate(o) {
@@ -32,21 +32,22 @@ function cmdUpdate(o) {
   const commit = sourceCommit(SCRIPT_DIR);
   printContext(resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: commit, ...scope }));
 
-  // Never interactive here (resolveMcpForTool only prompts for cmd:'install') — update reuses the
-  // manifest-remembered selection, or applies an explicit --mcp override, without re-prompting.
+  // Never interactive: update reuses each harness's recorded selection, or applies an explicit --mcp
+  // override, without re-prompting.
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
   const existingManifest = readInstallManifest({ scopeRoot: lifecyclePaths.scopeRoot });
-  const mcp = targets.includes('claude') ? resolveMcpForTool({ o, dirs, scope, cmd: 'update', registry }) : null;
-  const mcpChanged = Boolean(mcp && mcp.changed);
-  const codexCatalog = targets.includes('codex') ? readCodexMcpCatalog(registry) : null;
-  const codexMcpSelection = codexCatalog ? (mcp?.selected ?? resolveCodexMcpSelection({ cmd: 'update', requested: o.mcp,
-    allServers: codexCatalog.allServers, manifestServers: existingManifest?.mcpServers ?? null, interactive: false, promptFn: promptMcpCheckbox, onStale: reportRetiredMcp })) : [];
-  const mcpIds = mcp?.selected ?? (codexCatalog ? codexMcpSelection : undefined);
+  const { lock, ledger } = scopeSelectionState(scope);
+  const selection = resolveMcpSelections({
+    cmd: 'update', requested: o.mcp, targets, registry, lock, ledger, manifestServers: existingManifest?.mcpServers ?? null,
+    interactive: false, onStale: reportRetiredMcp,
+  });
   // One lifecycle view across every requested target — computed unconditionally (not only under
   // --dry-run) so its safety gate and its plan are the exact same object the real apply below uses.
-  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds,
-    mcpAdoptable: mcpAdoptableFor({ registry, scope, targets }), force: o.force, permissions: o.permissions === true, statusline: o.statusline === true });
+  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets,
+    mcpSelections: selection.selections, mcpAdoptable: selection.adoptable, retainedMcpIds: selection.retainedMcpIds,
+    force: o.force, permissions: o.permissions === true, statusline: o.statusline === true });
   if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
+  printMcpSelection(lifecycleView, selection.sources, { requested: o.mcp, prefix: o.dryRun ? '[DRY]' : '[INFO]' });
   const lifecycleChanged = Boolean(lifecycleView.plan.changes.length);
   // A target whose every change is an MCP entry stays out of the backup: ~/.claude.json also holds
   // Claude Code's own state, which a rollback must never restore over newer state. An entry's ledger
@@ -56,16 +57,15 @@ function cmdUpdate(o) {
   const backupTargets = [...new Set(lifecycleView.plan.changes.map((change) => change.target))]
     .filter((target) => typeof target === 'string' && !changesTo(target).every((change) => change.kind === 'mcp-server'));
 
-  if (!mcpChanged && !lifecycleChanged) {
+  if (!lifecycleChanged) {
     printPlanNotices(lifecycleView);
     console.log('[OK] Already up to date — no changes detected');
     return;
   }
 
-  console.log(`[INFO] Found${mcpChanged ? ' MCP server selection change' : ''}${mcpChanged && lifecycleChanged ? ' +' : ''}${lifecycleChanged ? ` ${lifecycleView.plan.changes.length} native change(s)` : ''}`);
+  console.log(`[INFO] Found ${lifecycleView.plan.changes.length} native change(s)`);
 
   if (o.dryRun) {
-    if (mcpChanged) console.log(`[DRY]  MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})`);
     printRegistryLifecycle(lifecycleView, '[DRY]');
     if (!o.noBackup && backupTargets.length) console.log(`[DRY]  Would create partial backup: ${backupRoot}/update_<timestamp>`);
     console.log(`[DRY]  Would write manifest: ${lifecyclePaths.manifestPath}`);
@@ -73,7 +73,7 @@ function cmdUpdate(o) {
     return;
   }
 
-  if (!confirm(`Update${mcpChanged ? ' MCP server selection' : ''}${mcpChanged && lifecycleChanged ? ' +' : ''}${lifecycleChanged ? ' native resources' : ''} in: ${targets.join(' ')}?`, o.force)) {
+  if (!confirm(`Update native resources in: ${targets.join(' ')}?`, o.force)) {
     // Exit 1, not 0: a declined prompt is a decision, and it must not share an exit code with a
     // completed run. With no stdin the prompt auto-declines, so `doflow install <path>` in a script
     // or CI step printed "Aborted.", wrote zero files, and reported success. It also silently
@@ -89,7 +89,6 @@ function cmdUpdate(o) {
     console.error(`[INFO]  Backup created: ${bid}`);
   }
 
-  if (mcpChanged) console.log(`[INFO] claude: MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})`);
   if (lifecycleView.plan.changes.length) {
     const result = applyLifecycle({ plan: lifecycleView.plan, registry: lifecycleView.registry,
       adapters: buildAdapterRegistry(),
@@ -103,13 +102,13 @@ function cmdUpdate(o) {
   printPlanNotices(lifecycleView);
   if (targets.includes('claude')) chmodHooksExecutable(dirs.claude);
 
-  writeManifest({ scopeRoot: lifecyclePaths.scopeRoot, scriptVersion: pkg.version, operation: 'update', repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: targets, date: new Date(), mcpServers: mcpIds });
+  writeManifest({ scopeRoot: lifecyclePaths.scopeRoot, scriptVersion: pkg.version, operation: 'update', repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: targets, date: new Date() });
 
   const updateLock = recordLock(
     scope.global ? { scope: 'global', homeDir: os.homedir() } : { scope: 'project', projectRoot: path.resolve(scope.projectRoot) },
     lockDocument({
       registry, scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot), targets,
-      mcpSelections: { claude: mcp?.selected ?? [], codex: codexCatalog ? codexMcpSelection : [] },
+      mcpSelections: plannedMcpSelections(lifecycleView),
     }),
   );
   console.log(`[INFO] doflow.lock: ${updateLock.summary}`);

@@ -29,17 +29,20 @@
  *   IC-001 makes `targets` a restriction to named harnesses, so a harness outside it is not part of
  *   what was asked. Returning the whole ledger here made every unrequested harness's copy read as
  *   current, which is the one thing this reader must not let a consumer conclude.
- * - **The plan is computed with the selections the scope recorded.** `planLifecycle` derives the
- *   MCP servers a harness should carry from the ids handed to it, so an empty list is not a neutral
+ * - **The plan is computed with the selections the scope recorded.** `planLifecycle` gives each
+ *   harness the MCP servers handed to it for that harness, so an empty list is not a neutral
  *   default: it is a positive statement that no server was chosen, and the plan then proposes to
- *   remove every registered one. `doflow reconcile` reads those ids from the scope's own
- *   `doflow.lock` (`src/cli/commands/reconcile.js`); this reader reads them the same way, from each
- *   scope's own lock, so the plan a currency judgement is derived from is the plan the repair
- *   command would produce.
+ *   remove every one the harness owns. `doflow reconcile` and `doflow status` derive each
+ *   harness's selection from the scope's own `doflow.lock` and ledger through
+ *   `recordedMcpSelections` (`src/install/mcp.js`); this reader calls the same function per scope,
+ *   so the plan a currency judgement is derived from is the plan the repair command would produce.
  */
 
+const os = require('node:os');
 const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../lifecycle/view');
 const { readLock } = require('../../state/lockfile');
+const { stateRoot, readLedger } = require('../../state');
+const { recordedMcpSelections } = require('../../install/mcp');
 
 /**
  * @typedef {Object} ScopeSnapshot The `SCOPE_SNAPSHOT` entity of the feature's data model.
@@ -78,19 +81,6 @@ function snapshot(scope, view, targets) {
 }
 
 /**
- * The MCP servers this scope's install chose, flattened to the id list `planLifecycle` consumes.
- *
- * Deliberately the same derivation as `src/cli/commands/reconcile.js`: ids drawn from the scope's
- * own lock, kept only for harnesses this read requested. A scope with no lock, or a lock recording
- * no selection, yields an empty list — which is then a read fact about that scope rather than this
- * reader's assumption.
- */
-function mcpSelection(lock, targets) {
-  return [...new Set(Object.entries(lock?.mcpSelections ?? {})
-    .flatMap(([harness, ids]) => (targets.includes(harness) && Array.isArray(ids) ? ids : [])))];
-}
-
-/**
  * Read the recorded state of both scopes within one invocation.
  *
  * @param {Object} options
@@ -119,10 +109,16 @@ function readScopes({ registry, repoRoot, projectRoot, targets = LIFECYCLE_HARNE
     global: readLock({ scope: 'global' }),
     project: readLock({ scope: 'project', projectRoot }),
   };
-  const read = (scope) => registryLifecycleView({
-    registry, repoRoot, targets: wanted, mcpIds: mcpSelection(resolved?.[scope], wanted),
-    scope: scope === 'global' ? { global: true } : { global: false, projectRoot },
-  });
+  const read = (scope) => {
+    // Each scope's own ledger, at the root the view itself reads it from.
+    const ledger = readLedger(scope === 'global'
+      ? stateRoot({ scope: 'global', homeDir: os.homedir() }) : stateRoot({ scope: 'project', projectRoot }));
+    const recorded = recordedMcpSelections({ registry, lock: resolved?.[scope] ?? null, ledger, targets: wanted });
+    return registryLifecycleView({
+      registry, repoRoot, targets: wanted, mcpSelections: recorded.selections, mcpAdoptable: recorded.adoptable,
+      scope: scope === 'global' ? { global: true } : { global: false, projectRoot },
+    });
+  };
   const global = snapshot('global', read('global'), wanted);
   const project = snapshot('project', read('project'), wanted);
   return { global, project, scopes: [global, project] };

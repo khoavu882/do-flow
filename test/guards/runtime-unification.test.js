@@ -121,7 +121,7 @@ function plannedChanges(scope, home) {
   const original = os.homedir;
   os.homedir = () => home;
   try {
-    return registryLifecycleView({ registry, repoRoot: REPO, targets: LIFECYCLE_HARNESSES, mcpIds: [], scope }).plan.changes;
+    return registryLifecycleView({ registry, repoRoot: REPO, targets: LIFECYCLE_HARNESSES, mcpSelections: {}, scope }).plan.changes;
   } finally { os.homedir = original; }
 }
 

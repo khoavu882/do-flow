@@ -816,10 +816,23 @@ test('doflow status reports the persisted MCP server selection', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   let r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'context7,sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
-  r = run(['status', '-g', '--json'], { home });
+  r = run(['status', '-g', '--json', '--target', 'claude,codex,gemini'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   const status = JSON.parse(r.stdout);
-  assert.deepStrictEqual(status.manifest.mcpServers.sort(), ['context7', 'sequential-thinking']);
+  assert.deepStrictEqual(status.mcpSelections, { claude: ['context7', 'sequential-thinking'], codex: null },
+    'each MCP-capable target reports its own doflow.lock row, null when it has none; gemini takes no servers');
+
+  r = run(['status', '-g', '--target', 'claude,codex,gemini'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^ {2}MCP selections: {7}claude context7, sequential-thinking; codex not recorded$/m);
+});
+
+test('T1: --mcp help says the default is none and reaches every harness that takes MCP servers', () => {
+  const r = run(['--help']);
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stdout, /--mcp <list> {5}Comma-separated MCP server names, or all or none, for every targeted/);
+  assert.match(r.stdout, /harness that takes MCP servers \(all but gemini\)\. Default: none, or the/);
+  assert.doesNotMatch(r.stdout, /default: all|Applies to Claude and Codex/);
 });
 
 // --- Multi-harness lifecycle wiring (claude/codex/gemini all reconcile through the same
@@ -1038,7 +1051,7 @@ test('Pi MCP: a global install merges into a hand-written ~/.pi/agent/mcp.json a
   const handWritten = '{\n  "mcpServers": { "mine": { "command": "my-server" } },\n  "other": 1\n}\n';
   fs.writeFileSync(mcpFile, handWritten);
 
-  let r = run(['install', '-g', '--force', '--no-backup', '-t', 'pi'], { home });
+  let r = run(['install', '-g', '--force', '--no-backup', '-t', 'pi', '--mcp', 'all'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   const installed = JSON.parse(fs.readFileSync(mcpFile, 'utf8'));
   assert.deepStrictEqual(Object.keys(installed.mcpServers).sort(), ['context7', 'mine', 'sequential-thinking']);
@@ -1055,7 +1068,7 @@ test('Pi MCP: a global install merges into a hand-written ~/.pi/agent/mcp.json a
 test('Pi MCP: a project install writes <project>/.pi/mcp.json with both catalog servers and prints the trust notice', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
-  const r = run(['install', project, '--force', '--no-backup', '-t', 'pi'], { home });
+  const r = run(['install', project, '--force', '--no-backup', '-t', 'pi', '--mcp', 'all'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
 
   const mcpJson = JSON.parse(fs.readFileSync(path.join(project, '.pi', 'mcp.json'), 'utf8'));
@@ -1079,7 +1092,7 @@ test('Pi MCP: an update with a narrower --mcp selection drops the deselected ser
 test('Pi MCP: PI_CODING_AGENT_DIR redirects mcp.json while skills stay under ~/.pi/agent', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-agentdir-'));
-  const r = run(['install', '-g', '--force', '--no-backup', '-t', 'pi'], { home, env: { PI_CODING_AGENT_DIR: agentDir } });
+  const r = run(['install', '-g', '--force', '--no-backup', '-t', 'pi', '--mcp', 'all'], { home, env: { PI_CODING_AGENT_DIR: agentDir } });
   assert.strictEqual(r.status, 0, r.stderr);
 
   const mcpJson = JSON.parse(fs.readFileSync(path.join(agentDir, 'mcp.json'), 'utf8'));
@@ -1087,5 +1100,5 @@ test('Pi MCP: PI_CODING_AGENT_DIR redirects mcp.json while skills stay under ~/.
   assert.ok(!fs.existsSync(path.join(home, '.pi', 'agent', 'mcp.json')), 'the default location must stay untouched');
   assert.ok(fs.existsSync(path.join(home, '.pi', 'agent', 'skills')), 'skills do not follow PI_CODING_AGENT_DIR');
   assert.ok(r.stdout.includes('PI_CODING_AGENT_DIR is set: Pi reads its whole agent dir from it, but DoFlow moves only mcp.json there; skills and AGENTS.md stay in ~/.pi/agent.'), r.stdout);
-  assert.ok(r.stdout.includes('MCP: servers selected for Pi: context7, sequential-thinking; --mcp narrows this only when claude or codex is also targeted.'), r.stdout);
+  assert.ok(r.stdout.includes('[INFO] MCP selection: pi: context7, sequential-thinking (--mcp)'), r.stdout);
 });

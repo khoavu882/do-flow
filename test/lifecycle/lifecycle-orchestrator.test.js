@@ -211,7 +211,7 @@ test('install with a non-empty MCP selection writes MCP_INDEX.md containing only
   const adapters = createAdapterRegistry({ fake: adapter });
   const scopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-mcpindex-'));
   const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-state-'));
-  const plan = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpIds: ['context7', 'sequential-thinking'] });
+  const plan = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpSelections: { fake: ['context7', 'sequential-thinking'] } });
   applyLifecycle({ plan, registry: mcpRegistry, adapters, stateRoot });
 
   const indexFile = mcpIndexPath(scopeRoot);
@@ -227,14 +227,14 @@ test('update with a changed MCP selection overwrites MCP_INDEX.md with the new s
   const scopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-mcpindex-'));
   const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-state-'));
 
-  const planA = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpIds: ['context7'] });
+  const planA = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpSelections: { fake: ['context7'] } });
   const resultA = applyLifecycle({ plan: planA, registry: mcpRegistry, adapters, stateRoot });
   const indexFile = mcpIndexPath(scopeRoot);
   assert.match(fs.readFileSync(indexFile, 'utf8'), /--c7/);
 
   // Simulate `doflow update` after the user changed their MCP selection: same scopeRoot/stateRoot,
-  // plan+apply run again with a different selection, no prompt involved — purely a function of mcpIds.
-  const planB = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpIds: ['sequential-thinking'], ledger: resultA.ledger });
+  // plan+apply run again with a different selection, no prompt involved — purely a function of the selection.
+  const planB = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpSelections: { fake: ['sequential-thinking'] }, ledger: resultA.ledger });
   applyLifecycle({ plan: planB, registry: mcpRegistry, adapters, stateRoot, ledger: resultA.ledger });
 
   const content = fs.readFileSync(indexFile, 'utf8');
@@ -247,7 +247,7 @@ test('an empty MCP selection leaves MCP_INDEX.md absent rather than writing an e
   const adapters = createAdapterRegistry({ fake: adapter });
   const scopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-mcpindex-'));
   const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-state-'));
-  const plan = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpIds: [] });
+  const plan = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpSelections: { fake: [] } });
   applyLifecycle({ plan, registry: mcpRegistry, adapters, stateRoot });
 
   assert.ok(!fs.existsSync(mcpIndexPath(scopeRoot)));
@@ -259,14 +259,14 @@ test('remove deletes MCP_INDEX.md regardless of what selection would otherwise a
   const scopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-mcpindex-'));
   const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-state-'));
 
-  const installPlan = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpIds: ['context7'] });
+  const installPlan = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpSelections: { fake: ['context7'] } });
   const installResult = applyLifecycle({ plan: installPlan, registry: mcpRegistry, adapters, stateRoot });
   const indexFile = mcpIndexPath(scopeRoot);
   assert.ok(fs.existsSync(indexFile), 'precondition: install produced the index file');
 
-  const removed = removeLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpIds: ['context7'], stateRoot, ledger: installResult.ledger });
+  const removed = removeLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpSelections: { fake: ['context7'] }, stateRoot, ledger: installResult.ledger });
   assert.equal(removed.verification.ok, true);
-  assert.ok(!fs.existsSync(indexFile), 'remove deletes the index file even though mcpIds still resolves to a non-empty selection');
+  assert.ok(!fs.existsSync(indexFile), 'remove deletes the index file even though the selection is non-empty');
 });
 
 // --- hookWiringStatus: the general per-harness hook-wiring status (task 006-D.2) ---

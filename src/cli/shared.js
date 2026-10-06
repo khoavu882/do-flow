@@ -8,9 +8,7 @@
 const os = require('node:os');
 const path = require('node:path');
 const { REPO_ROOT } = require('../helper/repo-root');
-const { readInstallManifest } = require('../install/manifest');
 const { doflowPaths } = require('../install/paths');
-const { readAllServers, resolveMcpSelection, promptMcpCheckbox, adoptableMcpIds } = require('../install/mcp');
 const { stateRoot, readLedger } = require('../state');
 const { readLock } = require('../state/lockfile');
 const { createAdapterRegistry } = require('../adapters');
@@ -78,39 +76,41 @@ function reportRetiredMcp(retired) {
   console.error('        They were removed from DoFlow; your saved selection is being reconciled.');
 }
 
-/**
- * Resolve the MCP server selection for a 'claude' target; the Claude adapter writes it. Called once
- * per invocation, before any dry-run/confirm branching, so an interactive prompt (install only,
- * real TTY, no --force/--dry-run) fires at most once and its result serves both the dry-run preview
- * and the real run.
- * @returns {{allServers:string[], selected:string[], changed:boolean, recorded:string[]|null, destDescription:string}|null}
- *          null if the registry declares no MCP servers (nothing to resolve).
- */
-function resolveMcpForTool({ o, dirs, scope, cmd, registry }) {
-  const allServers = readAllServers(registry);
-  if (!allServers.length) return null;
-  const lifecyclePaths = installPaths(scope);
-  const manifestServers = readInstallManifest({ scopeRoot: lifecyclePaths.scopeRoot })?.mcpServers ?? null;
-  const interactive = cmd === 'install' && !o.dryRun && !o.force && Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY);
-  const selected = resolveMcpSelection({ cmd, requested: o.mcp, allServers, manifestServers, interactive, promptFn: promptMcpCheckbox, onStale: reportRetiredMcp });
-  const baseline = manifestServers ?? allServers;
-  const changed = [...baseline].sort().join(',') !== [...selected].sort().join(',');
-  const projectRoot = path.dirname(dirs.claude); // == os.homedir() when scope.global, by construction
-  const destDescription = scope.global ? '~/.claude.json (mcpServers)' : path.join(projectRoot, '.mcp.json');
-  // `recorded` is the prior selection itself, not just whether one existed, because `changed` alone
-  // cannot distinguish the two ways it can be false: a returning install that matches what the
-  // manifest already recorded, and a first-ever install whose selection happens to equal the whole
-  // catalog (the `?? allServers` baseline above). Only the first may be reported as unchanged.
-  return { allServers, selected, changed, recorded: manifestServers, destDescription };
+/** The scope's doflow.lock and ledger, as the MCP selection functions in src/install/mcp.js read them. */
+function scopeSelectionState(scope) {
+  const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
+  return {
+    lock: readLock(scope.global ? { scope: 'global', homeDir: scopeRoot } : { scope: 'project', projectRoot: scopeRoot }),
+    ledger: readLedger(stateRoot({ scope: scope.global ? 'global' : 'project', projectRoot: scopeRoot, homeDir: scopeRoot })),
+  };
 }
 
-/** Per targeted harness, the servers whose existing entries its adapter may take as DoFlow's while
- * it holds no MCP row (src/install/mcp.js#adoptableMcpIds), from this scope's lock and ledger. */
-function mcpAdoptableFor({ registry, scope, targets }) {
-  const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
-  const lock = readLock(scope.global ? { scope: 'global', homeDir: scopeRoot } : { scope: 'project', projectRoot: scopeRoot });
-  const ledger = readLedger(stateRoot({ scope: scope.global ? 'global' : 'project', projectRoot: scopeRoot, homeDir: scopeRoot }));
-  return adoptableMcpIds({ registry, lock, ledger, harnesses: targets });
+const MCP_SOURCE_WORDS = Object.freeze({ flag: '--mcp', prompt: 'prompt', recorded: 'recorded', kept: 'kept', manifest: 'remembered', default: 'default' });
+
+/** The one line a run names its MCP selections in, from what the plan resolved for each harness:
+ * harnesses with the same servers and source share a group, groups follow target order. Prints
+ * nothing when no target takes MCP servers, except that an explicit --mcp is said to do nothing. */
+function printMcpSelection(view, sources, { requested, prefix = '[INFO]' } = {}) {
+  const groups = [];
+  for (const target of view.plan.targets) {
+    if (target.skipped || !Array.isArray(target.mcpSelected) || !(target.harness in sources)) continue;
+    const ids = target.mcpSelected.join(', ') || 'none';
+    const source = MCP_SOURCE_WORDS[sources[target.harness]];
+    const group = groups.find((item) => item.ids === ids && item.source === source);
+    if (group) group.harnesses.push(target.harness);
+    else groups.push({ harnesses: [target.harness], ids, source });
+  }
+  if (groups.length) {
+    console.log(`${prefix} MCP selection: ${groups.map((group) => `${group.harnesses.join(', ')}: ${group.ids} (${group.source})`).join('; ')}`);
+  } else if (requested) {
+    console.log(`${prefix} MCP: no targeted harness takes MCP servers; --mcp has no effect.`);
+  }
+}
+
+/** What each planned harness that takes MCP servers will hold, as doflow.lock records it. */
+function plannedMcpSelections(view) {
+  return Object.fromEntries(view.plan.targets.filter((target) => !target.skipped && Array.isArray(target.mcpSelected))
+    .map((target) => [target.harness, target.mcpSelected]));
 }
 
 function printBackupTable(rows, backupRoot) {
@@ -123,5 +123,5 @@ function printBackupTable(rows, backupRoot) {
 
 module.exports = {
   REPO_ROOT, SCRIPT_DIR, pkg, buildAdapterRegistry, scopeOf, installPaths,
-  reportRetiredMcp, resolveMcpForTool, mcpAdoptableFor, printBackupTable,
+  reportRetiredMcp, scopeSelectionState, printMcpSelection, plannedMcpSelections, printBackupTable,
 };

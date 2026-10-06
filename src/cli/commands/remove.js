@@ -12,7 +12,8 @@ const {
   assertSafeRegistryPlan, lockDocument, recordLock,
 } = require('../../lifecycle/view');
 const { removeLock } = require('../../state/lockfile');
-const { REPO_ROOT, scopeOf, mcpAdoptableFor, buildAdapterRegistry } = require('../shared');
+const { adoptableMcpIds } = require('../../install/mcp');
+const { REPO_ROOT, scopeOf, scopeSelectionState, buildAdapterRegistry } = require('../shared');
 
 function cmdRemove(o) {
   const targets = resolveTargets(o.targets);
@@ -26,8 +27,10 @@ function cmdRemove(o) {
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
   // Read before the removal rewrites the ledger: an entry DoFlow wrote before it kept MCP rows is
   // removed only while it still equals DoFlow's own rendering.
-  const mcpAdoptable = mcpAdoptableFor({ registry, scope, targets: lifecycleTargets });
-  const view = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets: lifecycleTargets, mcpIds: [], mcpAdoptable, operation: 'remove',
+  const { lock, ledger } = scopeSelectionState(scope);
+  const mcpAdoptable = adoptableMcpIds({ registry, lock, ledger, harnesses: lifecycleTargets });
+  // No selection: every removed harness's MCP selection is none, so it removes what it owns.
+  const view = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets: lifecycleTargets, mcpAdoptable, operation: 'remove',
     permissions: o.permissions === true, statusline: o.statusline === true });
   if (!view.plan.safe) { assertSafeRegistryPlan(view); return; }
   if (o.dryRun) {
@@ -46,7 +49,7 @@ function cmdRemove(o) {
   const result = removeLifecycle({ registry: view.registry,
     adapters: buildAdapterRegistry(),
     scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot),
-    targets: lifecycleTargets, mcpIds: [], mcpAdoptable, stateRoot: view.stateRoot, ledger: view.ledger,
+    targets: lifecycleTargets, mcpAdoptable, stateRoot: view.stateRoot, ledger: view.ledger,
     context: view.plan.targets[0].adapterInput.context });
   // Shared destinations (one .doflow/scripts tree for claude/codex/gemini, one .agents for
   // gemini/copilot) mean a removal can legitimately leave files standing. Saying only "removed"

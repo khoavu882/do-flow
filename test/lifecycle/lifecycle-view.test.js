@@ -26,7 +26,7 @@ test('registryLifecycleView computes a fresh-install plan for every requested ha
   const registry = loadRegistry({ repoRoot: REPO });
   const projectRoot = scratchProject();
   const view = registryLifecycleView({
-    registry, repoRoot: REPO, scope: { global: false, projectRoot }, targets: ['claude', 'codex', 'gemini'], mcpIds: [],
+    registry, repoRoot: REPO, scope: { global: false, projectRoot }, targets: ['claude', 'codex', 'gemini'],
   });
   assert.equal(view.registry, registry);
   assert.equal(typeof view.stateRoot, 'string');
@@ -40,7 +40,7 @@ test('registryLifecycleView narrows to only the requested targets', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   const projectRoot = scratchProject();
   const view = registryLifecycleView({
-    registry, repoRoot: REPO, scope: { global: false, projectRoot }, targets: ['claude'], mcpIds: [],
+    registry, repoRoot: REPO, scope: { global: false, projectRoot }, targets: ['claude'],
   });
   assert.deepEqual(view.plan.targets.map((target) => target.harness), ['claude']);
 });

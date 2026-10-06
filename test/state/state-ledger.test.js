@@ -47,8 +47,11 @@ test('legacy manifest migration imports explicit ownership once and leaves the l
   writeManifest({
     claudeDir: claude, scriptVersion: '2.4.4', operation: 'install', repoRoot: REPO,
     backupId: 'install_2026-07-24_12-34-56', tools: ['claude', 'codex'], date: DATE,
-    mcpServers: ['context7'], managedResources: [{ target: 'codex', scope: 'project', kind: 'mcp-server', identity: 'context7', sourceVersion: '2.4.4', fingerprint: 'abc', selection: true }],
+    managedResources: [{ target: 'codex', scope: 'project', kind: 'mcp-server', identity: 'context7', sourceVersion: '2.4.4', fingerprint: 'abc', selection: true }],
   });
+  // writeManifest no longer writes an MCP list; a legacy manifest carried one.
+  const legacyFile = path.join(claude, '.install-manifest.json');
+  fs.writeFileSync(legacyFile, `${JSON.stringify({ ...JSON.parse(fs.readFileSync(legacyFile, 'utf8')), mcp_servers: ['context7'] }, null, 2)}\n`);
   const legacyBefore = fs.readFileSync(path.join(claude, '.install-manifest.json'), 'utf8');
   const root = stateRoot({ scope: 'project', projectRoot: project });
   const first = migrateLegacyManifest({ root, scope: 'project', scopeRoot: project, claudeDir: claude, now: DATE });

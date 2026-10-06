@@ -1,11 +1,9 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
-const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const {
-  readAllServers, resolveMcpSelection, promptMcpCheckbox, parseMcpFlag, resolveMcpSelections, recordedMcpSelections, adoptableMcpIds,
+  readAllServers, promptMcpCheckbox, parseMcpFlag, resolveMcpSelections, recordedMcpSelections, adoptableMcpIds,
 } = require('../../src/install/mcp');
 const { loadRegistry } = require('../../src/registry');
 
@@ -18,153 +16,6 @@ test('readAllServers returns the registry MCP catalog\'s server names in declara
 });
 
 // Writing Claude's MCP files is the Claude adapter's job: test/adapters/claude/claude-mcp.test.js.
-
-test('resolveMcpSelection: --mcp <list> wins outright and dedupes', () => {
-  const all = ['a', 'b', 'c'];
-  const selected = resolveMcpSelection({
-    cmd: 'install', requested: ['a', 'a', 'b'], allServers: all, manifestServers: ['c'],
-    interactive: true, promptFn: () => { throw new Error('must not prompt when --mcp is given'); },
-  });
-  assert.deepStrictEqual(selected, ['a', 'b']);
-});
-
-test('resolveMcpSelection: --mcp rejects unknown server names', () => {
-  assert.throws(
-    () => resolveMcpSelection({ cmd: 'install', requested: ['bogus'], allServers: ['a', 'b'], manifestServers: null, interactive: false, promptFn: null }),
-    /Unknown MCP server\(s\): bogus/,
-  );
-});
-
-test('resolveMcpSelection: --mcp with an empty list is a hard error, not "keep all"', () => {
-  assert.throws(
-    () => resolveMcpSelection({ cmd: 'install', requested: [], allServers: ['a', 'b'], manifestServers: null, interactive: false, promptFn: null }),
-    /requires at least one server/,
-  );
-});
-
-test('resolveMcpSelection: install + interactive prompts, seeded with the manifest selection', () => {
-  const all = ['a', 'b', 'c'];
-  let seenSeed = null;
-  const selected = resolveMcpSelection({
-    cmd: 'install', requested: null, allServers: all, manifestServers: ['b'], interactive: true,
-    promptFn: (servers, seed) => { seenSeed = seed; return ['a']; },
-  });
-  assert.deepStrictEqual(seenSeed, ['b']);
-  assert.deepStrictEqual(selected, ['a']);
-});
-
-test('resolveMcpSelection: install + interactive, prompt returns [] (deliberate "no servers") is honored', () => {
-  const selected = resolveMcpSelection({
-    cmd: 'install', requested: null, allServers: ['a', 'b'], manifestServers: null, interactive: true,
-    promptFn: () => [],
-  });
-  assert.deepStrictEqual(selected, []);
-});
-
-test('resolveMcpSelection: install + interactive, prompt unavailable (null) selects nothing — no consent, no servers', () => {
-  const selected = resolveMcpSelection({
-    cmd: 'install', requested: null, allServers: ['a', 'b'], manifestServers: null, interactive: true,
-    promptFn: () => null,
-  });
-  assert.deepStrictEqual(selected, []);
-});
-
-// Regression: removing chrome-devtools and playwright from core/registry/mcp.json (d1bf9e8) made
-// `install` and `update` throw "Unknown registry MCP server(s)" for every install that had them in
-// its manifest — i.e. the upgrade path was broken for all pre-existing users, on both commands.
-// The asymmetry these tests pin down: `requested` is user intent (typo => fatal), the manifest is
-// persisted resolved state (retired server => reconcile).
-test('resolveMcpSelection: a manifest server the registry retired is dropped, not fatal', () => {
-  const dropped = [];
-  const selected = resolveMcpSelection({
-    cmd: 'update', requested: null, allServers: ['context7', 'sequential-thinking'],
-    manifestServers: ['context7', 'sequential-thinking', 'chrome-devtools', 'playwright'],
-    interactive: false, promptFn: null, onStale: (r) => dropped.push(...r),
-  });
-  assert.deepStrictEqual(selected, ['context7', 'sequential-thinking']);
-  assert.deepStrictEqual(dropped, ['chrome-devtools', 'playwright'], 'the drop must be reported, not silent');
-});
-
-test('resolveMcpSelection: reconciling a manifest works without an onStale callback', () => {
-  const selected = resolveMcpSelection({
-    cmd: 'install', requested: null, allServers: ['a'], manifestServers: ['a', 'gone'],
-    interactive: false, promptFn: null,
-  });
-  assert.deepStrictEqual(selected, ['a']);
-});
-
-test('resolveMcpSelection: an explicit --mcp naming a retired server is still fatal', () => {
-  assert.throws(
-    () => resolveMcpSelection({
-      cmd: 'update', requested: ['chrome-devtools'], allServers: ['context7'],
-      manifestServers: ['context7'], interactive: false, promptFn: null,
-    }),
-    /Unknown MCP server\(s\): chrome-devtools/,
-    'a typo in user-supplied intent must not be silently reconciled away',
-  );
-});
-
-test('resolveMcpSelection: a manifest whose every server was retired stays empty — the catalog is never resurrected', () => {
-  // The old behavior here re-added every catalog server behind the user's back. Servers are
-  // opt-in: once the remembered selection is empty (deliberately chosen or fully retired), it
-  // takes explicit intent (--mcp all|<names>) to bring any back.
-  const selected = resolveMcpSelection({
-    cmd: 'update', requested: null, allServers: ['a', 'b'], manifestServers: ['gone-1', 'gone-2'],
-    interactive: false, promptFn: null,
-  });
-  assert.deepStrictEqual(selected, []);
-});
-
-test('resolveMcpSelection: the interactive seed is reconciled, never pre-ticking a retired server', () => {
-  let seenSeed = null;
-  resolveMcpSelection({
-    cmd: 'install', requested: null, allServers: ['a', 'b'], manifestServers: ['a', 'retired'],
-    interactive: true, promptFn: (servers, seed) => { seenSeed = seed; return ['a']; },
-  });
-  assert.deepStrictEqual(seenSeed, ['a']);
-});
-
-test('resolveMcpSelection: update never prompts, even when interactive is true', () => {
-  const selected = resolveMcpSelection({
-    cmd: 'update', requested: null, allServers: ['a', 'b'], manifestServers: ['a'], interactive: true,
-    promptFn: () => { throw new Error('must not prompt on update'); },
-  });
-  assert.deepStrictEqual(selected, ['a']);
-});
-
-test('resolveMcpSelection: no flag, not interactive, no manifest yet -> defaults to none (safe by default)', () => {
-  const selected = resolveMcpSelection({
-    cmd: 'install', requested: null, allServers: ['a', 'b'], manifestServers: null,
-    interactive: false, promptFn: null,
-  });
-  assert.deepStrictEqual(selected, [], 'third-party servers must be opt-in for scripted installs');
-});
-
-test('resolveMcpSelection: --mcp all adopts the full catalog explicitly', () => {
-  const selected = resolveMcpSelection({
-    cmd: 'install', requested: ['all'], allServers: ['a', 'b'], manifestServers: null,
-    interactive: false, promptFn: null,
-  });
-  assert.deepStrictEqual(selected, ['a', 'b']);
-});
-
-test('resolveMcpSelection: --mcp none persists an explicit empty selection', () => {
-  const selected = resolveMcpSelection({
-    cmd: 'update', requested: ['none'], allServers: ['a', 'b'], manifestServers: ['a'],
-    interactive: false, promptFn: null,
-  });
-  assert.deepStrictEqual(selected, []);
-});
-
-test('resolveMcpSelection: keywords cannot be mixed with names or with each other', () => {
-  const base = { cmd: 'install', allServers: ['a', 'b'], manifestServers: null, interactive: false, promptFn: null };
-  assert.throws(() => resolveModelRoleGuard(base, ['all', 'a']));
-  assert.throws(() => resolveModelRoleGuard(base, ['none', 'b']));
-  assert.throws(() => resolveModelRoleGuard(base, ['all', 'none']), /not both/);
-});
-function resolveModelRoleGuard(base, requested) {
-  return resolveMcpSelection({ ...base, requested });
-}
 
 test('promptMcpCheckbox returns [] immediately for an empty server list, never entering the raw-mode read loop', () => {
   // Regression test: the cursor-movement math (`(cursor - 1 + servers.length) % servers.length`)
@@ -183,54 +34,6 @@ test('promptMcpCheckbox returns [] immediately for an empty server list, never e
     if (stdoutDescriptor) Object.defineProperty(process.stdout, 'isTTY', stdoutDescriptor);
     else delete process.stdout.isTTY;
   }
-});
-
-// ── resolveMcpForTool's `recorded`, and the note install prints from it ────────────────────────
-
-test('resolveMcpForTool reports the recorded selection so an unchanged one can be named', () => {
-  // `changed` alone cannot carry this: it is false both when a returning install matches the
-  // manifest and when a first-ever install happens to select the whole catalog, because the
-  // baseline falls back to allServers when no manifest exists. Only the first is "unchanged from
-  // the recorded selection", and install.js prints that note off `recorded` for exactly that reason.
-  const { resolveMcpForTool } = require('../../src/cli/shared');
-  const { writeManifest } = require('../../src/install/manifest');
-  const registry = loadRegistry({ repoRoot: path.resolve(__dirname, '../..') });
-  const all = readAllServers(registry);
-  assert.ok(all.length >= 2, 'this test needs at least two servers in the catalog');
-
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-mcp-note-'));
-  const claudeDir = path.join(home, '.claude');
-  fs.mkdirSync(claudeDir, { recursive: true });
-  const dirs = { claude: claudeDir };
-  const scope = { global: false, projectRoot: home };
-
-  // First-ever install: no manifest, so nothing is recorded even when the selection is everything.
-  const first = resolveMcpForTool({ o: { mcp: all, dryRun: true, force: true }, dirs, scope, cmd: 'install', registry });
-  assert.equal(first.recorded, null, 'no manifest means no recorded selection');
-  assert.equal(first.changed, false, 'and changed is false against the allServers baseline');
-
-  // Record a selection, then ask for the same one explicitly — the case a redundant --mcp produces.
-  writeManifest({
-    scopeRoot: home, scriptVersion: 'test', operation: 'install', repoRoot: home,
-    tools: ['claude'], date: new Date(), sourceCommit: 'test', mcpServers: [all[0]],
-  });
-  const again = resolveMcpForTool({ o: { mcp: [all[0]], dryRun: true, force: true }, dirs, scope, cmd: 'install', registry });
-  assert.deepEqual(again.recorded, [all[0]], 'the prior selection is reported');
-  assert.equal(again.changed, false, 'asking for what was recorded changes nothing');
-
-  // A different selection must not read as unchanged.
-  const different = resolveMcpForTool({ o: { mcp: [all[1]], dryRun: true, force: true }, dirs, scope, cmd: 'install', registry });
-  assert.equal(different.changed, true);
-});
-
-test('install names an unchanged MCP selection only when one was actually recorded', () => {
-  // The note's condition, asserted against the source so the two print sites cannot drift apart or
-  // start claiming a record on a first-ever install.
-  const source = fs.readFileSync(path.resolve(__dirname, '../../src/cli/commands/install.js'), 'utf8');
-  assert.match(source, /const mcpNote = mcp && !mcp\.changed && mcp\.recorded \?/,
-    'the note must require a recorded selection, not merely an unchanged one');
-  const uses = [...source.matchAll(/\$\{mcpNote\}/g)];
-  assert.equal(uses.length, 2, 'both the dry-run and the real print site must carry the note');
 });
 
 // Per-harness selection. A lock pins its rows' harnesses as targets; a ledger "holds" a harness when
