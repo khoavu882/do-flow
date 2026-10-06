@@ -52,10 +52,11 @@ function evaluateReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl =
   const homeDoflow = path.join(home, '.doflow');
   const homeDispatcher = path.join(homeDoflow, REACH_DISPATCHER_REL);
 
+  // Every ledger on the walk is read, not only the nearest: a removed harness's residue in a
+  // subdirectory must not hide the install that encloses it.
   const scopes = [];
   if (start !== home) {
-    const installRoot = [...ancestors(start)].find((dir) => statIs(fsImpl, path.join(dir, '.doflow', 'state'), 'isDirectory'));
-    if (installRoot && installRoot !== home) {
+    for (const installRoot of [...ancestors(start)].filter((dir) => dir !== home && statIs(fsImpl, path.join(dir, '.doflow', 'state'), 'isDirectory'))) {
       scopes.push({
         scope: 'project',
         stateDir: path.join(installRoot, '.doflow', 'state'),

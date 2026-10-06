@@ -136,6 +136,16 @@ test('a projectRoot below the install root reads the install root ledger', () =>
   ]);
 });
 
+test('a nested ledger does not hide the enclosing install: each ancestor ledger is evaluated', () => {
+  const t = fixture();
+  ledger(t.sub, 'project', { bare: ['gemini'] });
+  ledger(t.proj, 'project', { skills: ['pi'] });
+  install(t.proj, { runtime: false });
+  const { rows } = reach(t, t.sub);
+  assert.deepEqual(rows.map((row) => `${row.harness}:${row.scope}:${row.state}`), ['gemini:project:N/A', 'pi:project:NO-REACH']);
+  assert.equal(rows[1].fix, `npx @khoavu882/doflow install ${t.proj} -t pi`);
+});
+
 test('a projectRoot equal to the home directory reports global rows only', () => {
   const t = fixture();
   ledger(t.home, 'global', { skills: ['pi'] });

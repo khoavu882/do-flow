@@ -268,7 +268,9 @@ GitHub Copilot CLI also receive the shared guidance tree at `<scope root>/.doflo
 the pointer in their instructions names; Kiro keeps its steering files. Antigravity has no skills at
 global scope, so its global install projects no runtime and prints a notice; install it per
 project. `doflow doctor` prints a `[Runtime Reach]` section with one line per installed harness and
-scope: `REACHED`, `NO-REACH` with the install command that fixes it, or `N/A`. Nothing in the loop
+scope: `REACHED`, `NO-REACH` with the install command that fixes it, or `N/A`. At project scope
+every ledger from the working directory upward is read, so a nested ledger left by a removed harness
+does not hide the install that encloses it. Nothing in the loop
 depends on one harness's own commands; a goal is DoFlow's record, whatever a harness's own `goal`
 command does.
 
