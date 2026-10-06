@@ -4,6 +4,7 @@
     {
       "id": 1,
       "kind": "triggering",
+      "split": "train",
       "name": "perf-complaint-invokes-diagnose",
       "prompt": "The test suite here has gotten noticeably slower this week and I don't know why.",
       "expected_output": "do-diagnose is invoked and investigates the repo's real suite rather than guessing",
@@ -28,6 +29,7 @@
     {
       "id": 2,
       "kind": "behavioral",
+      "split": "train",
       "name": "root-cause-before-fix",
       "prompt": "/do-diagnose --focus performance `npm test` takes about 15 seconds. Find out where that time actually goes before proposing anything.",
       "expected_output": "A root cause is established from a real measurement of this repo's 492-test suite before any remediation is proposed",
@@ -50,6 +52,27 @@
           "text": "Does not propose skipping or disabling a test to make anything faster or greener (pattern requires the actionable framing, so narration such as 'did not skip tests' does not trip it)",
           "type": "output_not_matches",
           "pattern": "(skip|disable)\\w*\\s+(the\\s+)?tests?\\s+(to|so)\\b"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "kind": "triggering",
+      "split": "heldout",
+      "name": "run-and-count-does-not-route",
+      "prompt": "Run npm test and just report the pass and fail counts; don't investigate anything.",
+      "expected_output": "do-diagnose does not route this request; it belongs to do-test",
+      "files": [],
+      "assertions": [
+        {
+          "text": "the run judged this repo's do-diagnose description (sandbox path, matching hash)",
+          "type": "skill_resolved",
+          "skill": "do-diagnose"
+        },
+        {
+          "text": "do-diagnose is not used: routing.json records routed false",
+          "type": "skill_not_routed",
+          "skill": "do-diagnose"
         }
       ]
     }

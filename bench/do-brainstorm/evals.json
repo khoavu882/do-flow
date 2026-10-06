@@ -4,6 +4,7 @@
     {
       "id": 1,
       "kind": "triggering",
+      "split": "train",
       "name": "vague-idea-starts-discovery",
       "prompt": "I'm thinking about building something to help me keep track of what I read.",
       "expected_output": "do-brainstorm is invoked and Socratic discovery begins rather than implementation",
@@ -28,6 +29,7 @@
     {
       "id": 2,
       "kind": "behavioral",
+      "split": "train",
       "name": "requirement-has-no-open-clarifications",
       "prompt": "/do-brainstorm A CLI that summarises my git history into a weekly standup note",
       "expected_output": "requirement.md written with zero [NEEDS CLARIFICATION] markers remaining",
@@ -62,6 +64,7 @@
     {
       "id": 3,
       "kind": "behavioral",
+      "split": "heldout",
       "name": "stays-in-what-why",
       "prompt": "/do-brainstorm Add a caching layer so our dashboard loads faster",
       "expected_output": "Requirement describes WHAT and WHY only, with no technology choices",
@@ -80,6 +83,27 @@
         {
           "text": "Acceptance criteria are observable outcomes, not implementation steps",
           "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "kind": "triggering",
+      "split": "heldout",
+      "name": "settled-requirement-does-not-route",
+      "prompt": "The requirement is settled in requirement.md; design the API contracts for it.",
+      "expected_output": "do-brainstorm does not route this request; it belongs to do-design",
+      "files": [],
+      "assertions": [
+        {
+          "text": "the run judged this repo's do-brainstorm description (sandbox path, matching hash)",
+          "type": "skill_resolved",
+          "skill": "do-brainstorm"
+        },
+        {
+          "text": "do-brainstorm is not used: routing.json records routed false",
+          "type": "skill_not_routed",
+          "skill": "do-brainstorm"
         }
       ]
     }

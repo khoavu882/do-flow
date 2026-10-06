@@ -13,6 +13,28 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.17.0] - 2026-10-06
+
+### Added
+
+- Bench corpus: 13 should-not-trigger cases (one per skill) graded by the new `skill_not_routed` assertion over `routing.json`, and a `split` field (train or held-out) on every case with `plan --split`.
+- Bench usage record: a validated `timing.json` per run (`total_tokens`, `duration_ms`); a missing or malformed record reads as unknown, never 0.
+- Bench token ceiling: `costCeiling` in `bench/config.json`; `plan` exits 2 on a known projection over it and warns when the projection is unknown; `report` warns only.
+- Bench without-skill arm: `plan --arm without-skill` for behavioral cases, graded `withheld`, `leaked` or `unrecorded`, with an `armDelta` in `report`.
+
+### Changed
+
+- `bench parity` and `bench report` mark cases added since the committed baseline as pending, awaiting a paid baseline capture, instead of failing.
+
+### Fixed
+
+- `bench plan` output piped to another process was cut at 64 KiB because the runner exited before stdout drained.
+
+### Known limits
+
+- No paid bench run was made: the new cases and the without-skill arm have not been measured against a model, and the committed baseline is unchanged.
+- `parity` compares a case's side only for cases whose baseline result recorded a `split`; the committed baseline has none.
+
 ## [1.16.0] - 2026-10-06
 
 ### Added

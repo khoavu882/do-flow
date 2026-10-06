@@ -4,6 +4,7 @@
     {
       "id": 1,
       "kind": "triggering",
+      "split": "train",
       "name": "review-request-invokes-review",
       "prompt": "Can you review the changes on this branch before I open a PR?",
       "expected_output": "do-code-review is invoked and analyses the branch's real diff against its base",
@@ -28,6 +29,7 @@
     {
       "id": 2,
       "kind": "behavioral",
+      "split": "train",
       "name": "dispatches-to-language-checker",
       "prompt": "/do-code-review Review core/shared/skills/do-code-review/scripts/pr_analyzer.py for quality issues",
       "expected_output": "The Python language checker is dispatched against a real 535-line file rather than a generic prose review",
@@ -51,6 +53,7 @@
     {
       "id": 3,
       "kind": "triggering",
+      "split": "train",
       "name": "prose-review-uses-content-type-path",
       "prompt": "/do-code-review Review the markdown in docs/architecture.md",
       "expected_output": "The markdown content-type reviewer is used, not a language checker",
@@ -64,6 +67,27 @@
         {
           "text": "Review treats the target as prose, not code",
           "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "kind": "triggering",
+      "split": "heldout",
+      "name": "fix-review-findings-does-not-route",
+      "prompt": "Fix the issues the last code review flagged in bench/runner.js.",
+      "expected_output": "do-code-review does not route this request; it belongs to do-implement",
+      "files": [],
+      "assertions": [
+        {
+          "text": "the run judged this repo's do-code-review description (sandbox path, matching hash)",
+          "type": "skill_resolved",
+          "skill": "do-code-review"
+        },
+        {
+          "text": "do-code-review is not used: routing.json records routed false",
+          "type": "skill_not_routed",
+          "skill": "do-code-review"
         }
       ]
     }

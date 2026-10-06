@@ -5,7 +5,7 @@
  * `core/shared/scripts/doflow/sandbox/worktree_manager.py` (plan task B.3, pulled forward because
  * A.3's baseline capture cannot run safely without it).
  *
- * Why this exists: 21 of the 33 bench cases invoke skills that write files, create branches, or
+ * Why this exists: bench cases invoke skills that write files, create branches, or
  * commit. Running them in the repo that is executing the plan would mutate the very tree under
  * test. Each run gets its own worktree so the blast radius of a misbehaving skill is one
  * throwaway directory.

@@ -5,5 +5,10 @@
   "benchRoot": "bench",
   "baselineDir": "bench/baseline",
   "reportsDir": "bench/reports",
-  "caseKinds": ["triggering", "behavioral"]
+  "caseKinds": ["triggering", "behavioral"],
+  "costCeiling": {
+    "unit": "total_tokens",
+    "maxTokensPerRun": 200000,
+    "note": "Provisional: set before any run recorded usage; reset it from the first paid capture that does. plan refuses a known projected breach, report warns."
+  }
 }

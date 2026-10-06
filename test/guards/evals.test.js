@@ -102,31 +102,181 @@ test('G11: case files are well formed and internally consistent', () => {
   assert.deepEqual(problems, [], problems.join('\n'));
 });
 
+// An assertion whose `type` the runner does not know grades `passed: null` with "unknown assertion
+// type" and is left for the grader subagent, so a misspelt type reads as a manual check instead of
+// failing anywhere. Naming the type here is what makes the misspelling a suite failure.
+function unknownAssertionTypes(filesByName, known) {
+  const problems = [];
+  for (const [name, data] of Object.entries(filesByName)) {
+    for (const e of data.evals || []) {
+      for (const a of e.assertions || []) {
+        if (a.type !== undefined && !known.includes(a.type)) problems.push(`${name}/${e.id}: unknown assertion type "${a.type}"`);
+      }
+    }
+  }
+  return problems;
+}
+
+test('G11: every assertion type is one the runner knows', () => {
+  const problems = unknownAssertionTypes(allCaseFiles(), runner.ASSERTION_TYPES);
+  assert.deepEqual(problems, [],
+    'an unknown type grades passed:null and reads as a manual check:\n  ' + problems.join('\n  '));
+});
+
+test('G11 control: an unknown assertion type is reported with its case', () => {
+  const fixture = { x: { evals: [{ id: 7, assertions: [{ text: 't', type: 'skill_not_routd', skill: 'x' }, { text: 'u', type: 'skill_not_routed', skill: 'x' }, { text: 'v' }] }] } };
+  assert.deepEqual(unknownAssertionTypes(fixture, runner.ASSERTION_TYPES), ['x/7: unknown assertion type "skill_not_routd"']);
+});
+
+// Every case names its side, and every skill keeps at least one case on the held-out side. The side
+// is what lets a tuner iterate against one half and be judged on the other; a skill with no held-out
+// case has nothing to be judged on, and a case with no side is silently counted as neither.
+function splitProblems(filesByName, splits) {
+  const problems = [];
+  for (const [name, data] of Object.entries(filesByName)) {
+    for (const e of data.evals || []) {
+      if (!splits.includes(e.split)) problems.push(`${name}/${e.id}: split must be one of ${splits.join(', ')}, got ${JSON.stringify(e.split)}`);
+    }
+    if (!(data.evals || []).some((e) => e.split === 'heldout')) problems.push(`${name}: no heldout case`);
+  }
+  return problems;
+}
+
+// A should-not-trigger case carries skill_resolved (the run judged THIS repo's description) and
+// skill_not_routed (it decided the request does not route here). Together they decide on by-path
+// runs, where skill_not_invoked is undecided, so a skill without one has no measured false-positive
+// surface.
+function shouldNotTriggerGaps(filesByName) {
+  const gaps = [];
+  for (const [name, data] of Object.entries(filesByName)) {
+    const has = (e, type) => (e.assertions || []).some((a) => a.type === type && a.skill === name);
+    const found = (data.evals || []).some((e) => e.kind === 'triggering' && has(e, 'skill_not_routed') && has(e, 'skill_resolved'));
+    if (!found) gaps.push(name);
+  }
+  return gaps;
+}
+
+function allCaseFiles() {
+  const filesByName = {};
+  for (const { name } of skillFiles()) {
+    const data = casesFor(name);
+    if (data) filesByName[name] = data;
+  }
+  return filesByName;
+}
+
+test('G11: every case has a side, and every skill has a held-out case', () => {
+  const problems = splitProblems(allCaseFiles(), runner.SPLITS);
+  assert.deepEqual(problems, [], problems.join('\n'));
+});
+
+test('G11 control: a missing or invalid side, and a skill without a held-out case, are reported', () => {
+  const fixture = {
+    a: { evals: [{ id: 1, split: 'train' }, { id: 2 }] },
+    b: { evals: [{ id: 1, split: 'holdout' }, { id: 2, split: 'heldout' }] },
+    c: { evals: [{ id: 1, split: 'train' }] },
+  };
+  assert.deepEqual(splitProblems(fixture, runner.SPLITS), [
+    'a/2: split must be one of train, heldout, got undefined',
+    'a: no heldout case',
+    'b/1: split must be one of train, heldout, got "holdout"',
+    'c: no heldout case',
+  ]);
+});
+
+test('G11: every skill has a should-not-trigger case that decides on by-path runs', () => {
+  const gaps = shouldNotTriggerGaps(allCaseFiles());
+  assert.deepEqual(gaps, [],
+    `skills with no triggering case carrying both skill_not_routed and skill_resolved for themselves: ${gaps.join(', ')}`);
+});
+
+test('G11 control: a skill missing either assertion, or carrying one for another skill, is reported', () => {
+  const trig = (...assertions) => ({ evals: [{ id: 1, kind: 'triggering', assertions }] });
+  const resolved = (skill) => ({ type: 'skill_resolved', skill });
+  const notRouted = (skill) => ({ type: 'skill_not_routed', skill });
+  const fixture = {
+    ok: trig(resolved('ok'), notRouted('ok')),
+    onlyResolved: trig(resolved('onlyResolved')),
+    onlyNotRouted: trig(notRouted('onlyNotRouted')),
+    otherSkill: trig(resolved('ok'), notRouted('ok')),
+    behavioral: { evals: [{ id: 1, kind: 'behavioral', assertions: [resolved('behavioral'), notRouted('behavioral')] }] },
+  };
+  assert.deepEqual(shouldNotTriggerGaps(fixture), ['onlyResolved', 'onlyNotRouted', 'otherSkill', 'behavioral']);
+});
+
+// The ceiling is what lets `plan` refuse a run set whose known projected usage is over budget and
+// `report` warn about one. A block that is missing or malformed would turn both checks off without
+// anyone having chosen that, so the loader refuses it and this fails the suite first.
+test('G11: the config declares a valid token ceiling', () => {
+  assert.doesNotThrow(() => runner.loadCeiling(runner.loadConfig()));
+});
+
+test('G11 control: a missing or malformed ceiling is refused', () => {
+  const cfg = runner.loadConfig();
+  for (const costCeiling of [undefined, null, { unit: 'usd', maxTokensPerRun: 1 }, { unit: 'total_tokens' }, { unit: 'total_tokens', maxTokensPerRun: -5 }]) {
+    assert.throws(() => runner.loadCeiling({ ...cfg, costCeiling }), /costCeiling is invalid/);
+  }
+});
+
 // Feature 028 (IC-004). Coverage above asks whether every skill has cases of both kinds; it cannot
-// see a case ADDED without the baseline being re-captured, because coverage still passes while the
-// committed baseline silently stops describing the committed corpus. This asserts the comparison the
-// harness exports rather than reimplementing it here: a maintainer running `npm run bench parity`
-// and this guard must evaluate the same code, or the two drift and the gate stops meaning anything.
-test('G11/028: the committed baseline still describes the committed corpus', () => {
-  const parity = runner.baselineParity(runner.loadConfig());
-  const differences = [
-    ...parity.missingFromBaseline.map((c) => `${c.key} in corpus, absent from baseline (${c.kind}: ${c.name})`),
+// see a case REMOVED, RENAMED or RE-SIDED without the baseline being re-captured, because coverage
+// still passes while the committed baseline silently stops describing the committed corpus. This
+// asserts the comparison the harness exports rather than reimplementing it here: a maintainer running
+// `npm run bench parity` and this guard must evaluate the same code, or the two drift and the gate
+// stops meaning anything.
+//
+// A case ADDED without a baseline result is pending, not a failure: no offline change can give it a
+// result, so failing here would make every corpus addition break the suite until a paid capture ran.
+// Pending cases are printed as diagnostics so they stay visible.
+function parityDifferences(parity) {
+  return [
     ...parity.missingFromCorpus.map((c) => `${c.key} in baseline, absent from corpus (${c.kind}: ${c.name})`),
-    ...parity.changed.map((c) => `${c.key} differs: corpus ${c.corpus.kind}/${c.corpus.name} vs baseline ${c.baseline.kind}/${c.baseline.name}`),
-    // `note` carries the reason when the three counts are all null — a baseline that is absent
-    // rather than disagreeing. Dropping it printed "null, null, null" here while `bench parity`
-    // printed the path, so one shared comparison was reported two different ways by its two
-    // callers. Rendering it the way cmdParity does is what keeps them in step.
+    ...parity.changed.map((c) => `${c.key} differs: corpus ${c.corpus.kind}/${c.corpus.name}/${c.corpus.split} vs baseline ${c.baseline.kind}/${c.baseline.name}/${c.baseline.split}`),
+    // `note` carries the reason when both counts are null — a baseline that is absent rather than
+    // disagreeing. Rendering it the way cmdParity does keeps one shared comparison reported the same
+    // way by both of its callers.
     ...(parity.countMismatch
       ? [`case counts disagree: baseline.caseCount=${parity.countMismatch.baselineCaseCount}, `
-        + `baseline entries=${parity.countMismatch.baselineEntries}, corpus cases=${parity.countMismatch.corpusCases}`
+        + `baseline entries=${parity.countMismatch.baselineEntries}`
         + `${parity.countMismatch.note ? ` (${parity.countMismatch.note})` : ''}`]
       : []),
   ];
+}
+
+test('G11/028: the committed baseline still describes the committed corpus; new cases are pending', (t) => {
+  const parity = runner.baselineParity(runner.loadConfig());
+  for (const c of parity.pending) {
+    t.diagnostic(`pending ${c.key} (${c.kind}, ${c.split}: ${c.name}) awaits a paid baseline capture`);
+  }
+  const differences = parityDifferences(parity);
   assert.deepEqual(differences, [],
     'the committed baseline no longer describes the committed corpus — re-capture it with '
     + '`node bench/runner.js baseline --from <iteration>`:\n  ' + differences.join('\n  '));
   assert.ok(parity.ok, 'baselineParity reported differences without listing any, which is a bug in the comparison itself');
+});
+
+test('G11/028 control: removed, renamed, kind-changed, re-sided and miscounted cases are reported, a pending case is not', () => {
+  const entry = (key, name, kind, split) => ({ key, skill: key.split('/')[0], evalId: Number(key.split('/')[1]), name, kind, split });
+  const baseline = {
+    caseCount: 2,
+    results: [
+      { key: 'x/1', skill: 'x', evalId: 1, evalName: 'one', kind: 'triggering', split: 'train' },
+      { key: 'x/2', skill: 'x', evalId: 2, evalName: 'two', kind: 'behavioral', split: 'train' },
+    ],
+  };
+  const corpus = (...entries) => new Map(entries.map((e) => [e.key, e]));
+  const one = entry('x/1', 'one', 'triggering', 'train');
+  const two = entry('x/2', 'two', 'behavioral', 'train');
+
+  const pendingOnly = runner.compareParity(corpus(one, two, entry('x/3', 'three', 'triggering', 'heldout')), baseline);
+  assert.deepEqual(parityDifferences(pendingOnly), [], 'a pending case must not be reported as a difference');
+  assert.equal(pendingOnly.pending.length, 1);
+
+  assert.equal(parityDifferences(runner.compareParity(corpus(one), baseline)).length, 1, 'a removed case must fail');
+  assert.equal(parityDifferences(runner.compareParity(corpus(one, { ...two, name: 'renamed' }), baseline)).length, 1, 'a renamed case must fail');
+  assert.equal(parityDifferences(runner.compareParity(corpus(one, { ...two, kind: 'triggering' }), baseline)).length, 1, 'a kind change must fail');
+  assert.equal(parityDifferences(runner.compareParity(corpus(one, { ...two, split: 'heldout' }), baseline)).length, 1, 'a split change must fail');
+  assert.equal(parityDifferences(runner.compareParity(corpus(one, two), { ...baseline, caseCount: 3 })).length, 1, 'a wrong caseCount must fail');
 });
 
 // ---------------------------------------------------------------------------
@@ -172,6 +322,64 @@ test('G11b: every planned run is told to load its skill from the sandbox, by pat
     }
   }
   assert.deepEqual(problems, [], problems.join('\n'));
+});
+
+// A without-skill run is only a measurement of what the skill adds if the skill really is withheld:
+// the right run kind, a withheld resolution, an instruction that forbids reading and invoking it, a
+// create step that deletes the sandbox copies, and a sandbox and output directory of its own so it
+// cannot overwrite its with-skill pair. A bare plan must hold none, so the arm is always opted into.
+function withoutSkillProblems(armPlan, barePlan) {
+  const problems = [];
+  const withSkill = (r) => armPlan.runs.find((x) => x.arm === 'with-skill' && x.skill === r.skill && x.evalId === r.evalId);
+  for (const run of armPlan.runs.filter((r) => r.arm === 'without-skill')) {
+    const where = `${run.skill}/${run.evalId}`;
+    const pair = withSkill(run);
+    if (run.kind !== 'behavioral') problems.push(`${where}: a without-skill run must be behavioral, got ${run.kind}`);
+    if (!run.skills || run.skills.resolution !== 'withheld') problems.push(`${where}: resolution is not withheld`);
+    const instruction = (run.skills && run.skills.instruction) || '';
+    if (!/do not invoke/i.test(instruction)) problems.push(`${where}: the instruction does not forbid invoking the skill`);
+    if (!/do not read/i.test(instruction)) problems.push(`${where}: the instruction does not forbid reading the skill`);
+    const create = (run.sandbox && run.sandbox.create) || '';
+    if (!/createSandbox\(/.test(create)) problems.push(`${where}: sandbox.create does not create a sandbox`);
+    for (const p of (run.skills && run.skills.withheldPaths) || []) {
+      const rel = path.relative(run.sandbox.workingDir, p).split(path.sep).join('/');
+      if (!create.includes(rel)) problems.push(`${where}: sandbox.create does not delete ${rel}`);
+    }
+    if (!run.skills || (run.skills.withheldPaths || []).length !== 2) problems.push(`${where}: expected the two withheld paths`);
+    if (!pair) problems.push(`${where}: no with-skill run to pair with`);
+    else {
+      if (run.sandbox.id === pair.sandbox.id) problems.push(`${where}: shares its sandbox id with the with-skill run`);
+      if (run.outputDir === pair.outputDir) problems.push(`${where}: shares its outputDir with the with-skill run`);
+    }
+  }
+  if (barePlan.runs.some((r) => r.arm === 'without-skill')) problems.push('a bare plan holds a without-skill run');
+  return problems;
+}
+
+test('G11b: without-skill runs withhold the skill and stay apart from their with-skill pair', () => {
+  const cfg = runner.loadConfig();
+  const armPlan = runner.buildPlan(cfg, { iteration: 'guard', arm: 'without-skill' });
+  assert.ok(armPlan.runs.some((r) => r.arm === 'without-skill'), 'the arm plan holds no without-skill run');
+  const problems = withoutSkillProblems(armPlan, runner.buildPlan(cfg, { iteration: 'guard' }));
+  assert.deepEqual(problems, [], problems.join('\n'));
+});
+
+test('G11b control: a without-skill run that does not withhold the skill is reported', () => {
+  const cfg = runner.loadConfig();
+  const bare = runner.buildPlan(cfg, { iteration: 'guard' });
+  const armPlan = JSON.parse(JSON.stringify(runner.buildPlan(cfg, { iteration: 'guard', arm: 'without-skill' })));
+  const broken = armPlan.runs.find((r) => r.arm === 'without-skill');
+  const pair = armPlan.runs[armPlan.runs.indexOf(broken) - 1];
+  broken.kind = 'triggering';
+  broken.skills.resolution = 'sandbox-path';
+  broken.skills.instruction = 'Handle the request.';
+  broken.sandbox.create = 'echo no sandbox';
+  broken.sandbox.id = pair.sandbox.id;
+  broken.outputDir = pair.outputDir;
+  const problems = withoutSkillProblems(armPlan, { runs: [broken] });
+  for (const fragment of ['must be behavioral', 'not withheld', 'forbid invoking', 'forbid reading', 'does not create a sandbox', 'does not delete', 'shares its sandbox id', 'shares its outputDir', 'a bare plan holds']) {
+    assert.ok(problems.some((p) => p.includes(fragment)), `the guard did not report: ${fragment}`);
+  }
 });
 
 test('G11b: the plan states why bare-name invocation is not an option', () => {
