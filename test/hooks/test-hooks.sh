@@ -611,11 +611,16 @@ check_policy conf "$P" allow 'git -C x reset --soft HEAD~1'
 check_policy conf "$P" deny  'git -C x clean -fd' "Irreversible clean"
 # find with -delete straight off a catastrophic start path; a filtered find or a project path stays allowed
 for c in 'find / -delete' 'find ~ -delete' 'find $HOME -delete' 'find /etc -depth -delete' 'find -P / -delete' \
-         'find . /home -delete' 'sudo find / -delete' 'ls && find /Users -mindepth 1 -delete'; do
+         'find . /home -delete' 'sudo find / -delete' 'ls && find /Users -mindepth 1 -delete' \
+         'find / -type f -delete' 'find / -maxdepth 3 -delete' 'find / -noleaf -delete' 'find / -follow -delete' \
+         'find / -mount -delete' '/usr/bin/find / -delete' '\find / -delete' 'find . / -delete' \
+         'find / -exec rm -rf {} +' 'find ~ -type f -exec rm {} \;' 'find /Volumes -type d -maxdepth 2 -delete'; do
   check_policy conf "$P" deny "$c" "find"
 done
 for c in 'find . -delete' 'find ./build -delete' 'find /tmp/x -delete' 'find ~/proj -delete' \
          'find ~ -name "*.pyc" -delete' 'find / -name x -delete' 'find / -name x' 'echo find / -delete' \
+         'find ~ -mtime +7 -delete' 'find / -user bob -delete' 'find ~ -type f -name x -delete' \
+         'find / -name x -exec rm {} +' 'find / -newer ref -delete' 'find /etc -empty -delete' \
          'git commit -m "find / -delete"'; do
   check_policy conf "$P" allow "$c"
 done
