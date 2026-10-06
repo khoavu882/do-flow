@@ -15,7 +15,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { readSyncBlocking } = require('../helper/prompt');
-const { selectMcpServers, nativeMcpCatalog } = require('../registry');
+const { selectMcpServers, nativeMcpCatalog, mcpCapable } = require('../registry');
+const { pinnedSelections } = require('../state/lockfile');
 
 const ESC = String.fromCharCode(27);
 const CTRL_C = String.fromCharCode(3);
@@ -121,26 +122,7 @@ function mergeGlobalMcpServers(homeDir, knownServerNames, serverDefs) {
  * @returns {string[]}
  */
 function resolveMcpSelection({ cmd, requested, allServers, manifestServers, interactive, promptFn, onStale }) {
-  if (requested) {
-    const keywords = requested.filter((s) => s === 'all' || s === 'none');
-    if (keywords.length) {
-      if (keywords.length !== requested.length) {
-        throw new Error(`--mcp keyword '${keywords[0]}' cannot be combined with server names`);
-      }
-      if (new Set(requested).size > 1) {
-        throw new Error("Choose either '--mcp all' or '--mcp none', not both");
-      }
-      return keywords[0] === 'all' ? [...allServers] : [];
-    }
-    if (requested.length === 0) {
-      throw new Error("--mcp requires at least one server; use '--mcp none' for an explicit empty selection");
-    }
-    const invalid = requested.filter((s) => !allServers.includes(s));
-    if (invalid.length) {
-      throw new Error(`Unknown MCP server(s): ${invalid.join(', ')} (valid: ${allServers.join(', ')})`);
-    }
-    return [...new Set(requested)];
-  }
+  if (requested) return parseMcpFlag(requested, allServers);
 
   // `requested` is user intent, so an unknown name above is a typo and must be fatal. The manifest
   // selection is *persisted resolved state* (see src/manifest.js), so an id the registry no longer
@@ -170,6 +152,122 @@ function resolveMcpSelection({ cmd, requested, allServers, manifestServers, inte
   // checkbox above.
   if (known && known.length === 0) return [];
   return known ?? [];
+}
+
+/** Parse `--mcp`: `all` and `none` are keywords that cannot be mixed with names or each other, an
+ * empty list and an unknown name are errors, names are deduplicated. `null` when the flag is absent. */
+function parseMcpFlag(requested, catalogIds) {
+  if (!requested) return null;
+  const keywords = requested.filter((s) => s === 'all' || s === 'none');
+  if (keywords.length) {
+    if (keywords.length !== requested.length) {
+      throw new Error(`--mcp keyword '${keywords[0]}' cannot be combined with server names`);
+    }
+    if (new Set(requested).size > 1) {
+      throw new Error("Choose either '--mcp all' or '--mcp none', not both");
+    }
+    return keywords[0] === 'all' ? [...catalogIds] : [];
+  }
+  if (requested.length === 0) {
+    throw new Error("--mcp requires at least one server; use '--mcp none' for an explicit empty selection");
+  }
+  const invalid = requested.filter((s) => !catalogIds.includes(s));
+  if (invalid.length) {
+    throw new Error(`Unknown MCP server(s): ${invalid.join(', ')} (valid: ${catalogIds.join(', ')})`);
+  }
+  return [...new Set(requested)];
+}
+
+const holdsRows = (ledger, harness) => (ledger?.resources ?? []).some((row) => row.harness === harness);
+
+/** Ids of `lists` that the catalog still declares, as one union in registry order. */
+const catalogUnion = (catalogIds, lists) => catalogIds.filter((id) => lists.some((ids) => ids.includes(id)));
+
+/** Per MCP-capable harness, the servers DoFlow may adopt when their entries already equal its own:
+ * none for a harness the ledger does not hold, else its lock row, or the whole catalog when the lock
+ * has no row for it. Retired ids are dropped. */
+function adoptableMcpIds({ registry, lock, ledger, harnesses }) {
+  const catalogIds = readAllServers(registry);
+  const rows = pinnedSelections(lock);
+  return Object.fromEntries(harnesses.filter((harness) => mcpCapable(registry, harness)).map((harness) => {
+    if (!holdsRows(ledger, harness)) return [harness, []];
+    return [harness, harness in rows ? catalogUnion(catalogIds, [rows[harness]]) : [...catalogIds]];
+  }));
+}
+
+/** Servers another harness of this scope still has recorded: the union of the lock rows of the lock's
+ * harnesses that are not targeted, registry order. */
+function retainedMcpIds(catalogIds, rows, targets) {
+  return catalogUnion(catalogIds, Object.entries(rows).filter(([harness]) => !targets.includes(harness)).map(([, ids]) => ids));
+}
+
+/**
+ * Decide each targeted MCP-capable harness's servers. Per harness, the first step that applies:
+ *   1. --mcp <list>|all|none  -> the parsed ids                                        (flag)
+ *   2. install on a real TTY  -> one checkbox for every harness; a null answer falls through (prompt)
+ *   3. a lock row             -> that row                                              (recorded)
+ *   4. ledger rows            -> 'keep': the servers the harness owns now               (kept)
+ *   5. a 1.18.0 manifest list -> that list                                             (manifest)
+ *   6. otherwise              -> none                                                  (default)
+ * Lock and manifest ids the registry retired are dropped and reported once through `onStale`; an
+ * explicit --mcp naming one stays an error. Pure apart from `promptFn` and `onStale`.
+ */
+function resolveMcpSelections({
+  cmd, requested, targets, registry, lock, ledger, manifestServers = null, interactive = false, promptFn, onStale,
+}) {
+  const catalogIds = readAllServers(registry);
+  const flagged = parseMcpFlag(requested, catalogIds);
+  const rows = pinnedSelections(lock);
+  const capable = targets.filter((harness) => mcpCapable(registry, harness));
+  const retired = new Set();
+  const known = (ids) => {
+    for (const id of ids) if (!catalogIds.includes(id)) retired.add(id);
+    return catalogUnion(catalogIds, [ids]);
+  };
+
+  let prompted = null;
+  if (!flagged && cmd === 'install' && interactive && capable.length) {
+    const recorded = capable.filter((harness) => harness in rows).map((harness) => rows[harness]);
+    const seed = recorded.length ? catalogUnion(catalogIds, recorded.map(known))
+      : manifestServers ? known(manifestServers) : [...catalogIds];
+    prompted = promptFn(catalogIds, seed);
+  }
+
+  const pick = (harness) => {
+    if (flagged) return [flagged, 'flag'];
+    if (prompted !== null) return [prompted, 'prompt'];
+    if (harness in rows) return [known(rows[harness]), 'recorded'];
+    if (holdsRows(ledger, harness)) return ['keep', 'kept'];
+    if (manifestServers) return [known(manifestServers), 'manifest'];
+    return [[], 'default'];
+  };
+  const selections = {};
+  const sources = {};
+  for (const harness of capable) [selections[harness], sources[harness]] = pick(harness);
+  for (const [harness, ids] of Object.entries(rows)) if (!targets.includes(harness)) known(ids);
+  if (retired.size && onStale) onStale([...retired].sort());
+
+  return {
+    selections,
+    sources,
+    adoptable: adoptableMcpIds({ registry, lock, ledger, harnesses: capable }),
+    retainedMcpIds: retainedMcpIds(catalogIds, rows, targets),
+  };
+}
+
+/** The selections a scope has recorded, for readers that never prompt (reconcile, status, inventory):
+ * each targeted MCP-capable harness's lock row, or 'keep' when the lock has none. Retired ids are
+ * dropped silently. */
+function recordedMcpSelections({ registry, lock, ledger, targets }) {
+  const catalogIds = readAllServers(registry);
+  const rows = pinnedSelections(lock);
+  const capable = targets.filter((harness) => mcpCapable(registry, harness));
+  return {
+    selections: Object.fromEntries(capable.map((harness) => [harness,
+      harness in rows ? catalogUnion(catalogIds, [rows[harness]]) : 'keep'])),
+    adoptable: adoptableMcpIds({ registry, lock, ledger, harnesses: capable }),
+    retainedMcpIds: retainedMcpIds(catalogIds, rows, targets),
+  };
 }
 
 const KEY = {
@@ -266,5 +364,9 @@ module.exports = {
   writeProjectMcpJson,
   mergeGlobalMcpServers,
   resolveMcpSelection,
+  parseMcpFlag,
+  resolveMcpSelections,
+  recordedMcpSelections,
+  adoptableMcpIds,
   promptMcpCheckbox,
 };

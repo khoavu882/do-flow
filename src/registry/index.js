@@ -448,6 +448,12 @@ function selectMcpServers(registry, ids) {
   return registry.mcp.filter((server) => wanted.has(server.id));
 }
 
+/** True when the harness takes servers from the shared MCP catalog; the lifecycle and the selection
+ * resolver read this one predicate. */
+function mcpCapable(registry, harnessId) {
+  return harnessFor(registry, harnessId).capabilities.mcp?.status === 'supported';
+}
+
 /** Reshape registry MCP server declarations into the {allServers, serverDefs} catalog shape every
  * harness's native MCP reconciliation (Codex's config.toml writer, Claude's ~/.claude.json/
  * .mcp.json writer) expects — the one place this transform is derived, reused rather than
@@ -478,5 +484,5 @@ function capabilityMapData(registry) {
 module.exports = {
   REGISTRY_FILES, CAPABILITY_STATUS, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS,
   parseRegistryFile, registryDir, loadRegistry, validateRegistry,
-  harnessFor, selectAssets, selectMcpServers, nativeMcpCatalog, capabilityMapData,
+  harnessFor, selectAssets, selectMcpServers, mcpCapable, nativeMcpCatalog, capabilityMapData,
 };
