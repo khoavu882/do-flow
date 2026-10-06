@@ -342,13 +342,14 @@ function removeTree({ changes = [], fsImpl = fs }) {
   return { removed };
 }
 
-const ANCHOR_DIRS = new Set(['.agents', '.claude', '.codex', '.copilot', '.doflow', '.gemini', '.github', '.kiro', '.opencode', '.pi', 'skills', 'agents']);
+const ANCHOR_DIRS = new Set(['.agents', '.claude', '.codex', '.copilot', '.doflow', '.gemini', '.github', '.kiro', '.opencode', '.pi']);
 
 /** Delete now-empty ancestor directories after a file removal, so a relocated or fully-uninstalled
  * tree doesn't leave a skeleton of empty folders behind. Walks upward only while rmdir succeeds
- * (i.e. the directory is empty); stops unconditionally at anchor basenames — the harness/config
- * roots themselves are never pruned even when empty, because they may hold user content elsewhere
- * and their existence is not DoFlow's call. */
+ * (i.e. the directory is empty, so it holds nothing but what the removal just emptied); stops
+ * unconditionally at anchor basenames — the harness/config roots themselves are never pruned even
+ * when empty, because they may hold user content elsewhere and their existence is not DoFlow's
+ * call. */
 function pruneEmptyAncestors(startDir, { fsImpl = fs } = {}) {
   let current = startDir;
   for (;;) {

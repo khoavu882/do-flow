@@ -395,6 +395,28 @@ for (const force of [false, true]) {
   });
 }
 
+test('a migration from the folder layout leaves no empty .agents/agents behind, and keeps it while a hand-edited agent stays', () => {
+  const root = scratch(); const adapter = createGeminiAdapter();
+  const { input, asset } = geminiAgents('project', root);
+  const ledger = folderLayoutInstall(adapter, input, asset);
+  const oldAgents = path.join(root, '.agents', 'agents');
+  const edited = path.join(oldAgents, 'spec-analyst', 'agent.md');
+
+  fs.appendFileSync(edited, 'my own notes\n');
+  const kept = adapter.plan({ ...input, ledger });
+  adapter.apply({ changes: kept.changes.filter((c) => !c.retained) });
+  assert.ok(fs.existsSync(edited));
+  assert.deepEqual(fs.readdirSync(oldAgents), ['spec-analyst'], 'only the edited agent keeps its folder');
+
+  fs.writeFileSync(edited, fs.readFileSync(path.join(REPO, 'core', 'shared', 'agent-specs', 'spec-analyst.md')));
+  const old = { ...input, assets: [{ ...asset, nativeDir: 'agents', layout: 'dir-per-file:agent.md', transform: undefined }] };
+  const rows = ledgerOf(adapter.verify(old).resources);
+  const migration = adapter.plan({ ...input, ledger: rows });
+  adapter.apply({ changes: migration.changes });
+  assert.equal(fs.existsSync(oldAgents), false, 'the emptied .agents/agents folder is removed');
+  assert.ok(fs.existsSync(path.join(root, '.agents')), 'the harness root stays');
+});
+
 test('a relocation removal is carried through the lifecycle retained filter, so a file Antigravity claims stays', () => {
   const { loadRegistry } = require('../../../src/registry');
   const { buildAdapterRegistry } = require('../../../src/cli/shared');
