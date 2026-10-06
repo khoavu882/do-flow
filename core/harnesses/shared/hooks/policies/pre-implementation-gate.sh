@@ -4,8 +4,8 @@
 # gate (the other half is the prompt-level do-prereqs.sh inside
 # /do-execute-plan — defense in depth).
 #
-# Denies a SOURCE-file edit when a feature has been STARTED (its feature_dir
-# exists) but requirement.md, design.md, or plan.md is still missing: "don't
+# Denies a SOURCE-file edit on a feature branch (feat/ or feature/) when a feature has
+# been STARTED (its feature_dir exists) but requirement.md, design.md, or plan.md is still missing: "don't
 # write code before you've planned." It is deliberately SCOPED so it never
 # fires outside the doflow chain:
 #   - no active feature dir            -> allow
@@ -154,6 +154,7 @@ done
 
 feature_dir=""
 repo_root=""
+branch_class=""
 has_requirement=""
 has_design=""
 has_plan=""
@@ -163,11 +164,16 @@ if [ -n "$RESOLVER" ]; then
   if [ -n "$json" ]; then
     feature_dir=$(printf '%s' "$json"     | jq -r '.feature_dir // empty' 2>/dev/null)
     repo_root=$(printf '%s' "$json"       | jq -r '.repo_root // empty' 2>/dev/null)
+    branch_class=$(printf '%s' "$json"    | jq -r '.branch_class // empty' 2>/dev/null)
     has_requirement=$(printf '%s' "$json" | jq -r '.has_requirement // false' 2>/dev/null)
     has_design=$(printf '%s' "$json"      | jq -r '.has_design // false' 2>/dev/null)
     has_plan=$(printf '%s' "$json"        | jq -r '.has_plan // false' 2>/dev/null)
   fi
 fi
+
+# The gate belongs to the feature class: a fix, refactor or other branch that shares a slug with a
+# started feature folder is not held to requirement/design/plan.
+{ [ -z "$branch_class" ] || [ "$branch_class" = "feature" ]; } || exit 0
 
 # Fallback: no resolver installed for this harness (or it produced nothing
 # usable) -> compute state directly from the branch-coupled feature
@@ -177,7 +183,8 @@ if [ -z "$feature_dir" ]; then
   repo_root="$ROOT"
   branch=$(git -C "$repo_root" branch --show-current 2>/dev/null || true)
   case "$branch" in
-    ""|master|main|develop|trunk) exit 0 ;;   # no branch, or trunk -> no flow to gate
+    feat/*|feature/*) ;;                      # the feature_prefixes default, as in do-paths.sh
+    *) exit 0 ;;                              # no branch, trunk or another class -> no flow to gate
   esac
   slug=${branch#*/}
   feature_dir="agent-docs/doflow/$slug"

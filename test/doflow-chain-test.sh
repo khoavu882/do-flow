@@ -209,6 +209,27 @@ eq "normalized envelope, prereqs met -> allow" \
 git checkout -q master
 eq "not-in-flow (trunk) -> allow" \
    "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}")" "allow"
+# The gate belongs to the feature class: a fix, refactor or other branch that shares a slug with a
+# started feature folder is not held to requirement/design/plan, with the resolver installed or not.
+NO_RESOLVER_HOME="$T/no-resolver"; mkdir -p "$NO_RESOLVER_HOME"
+decision_bare() {
+  echo "$1" | CLAUDE_CONFIG_DIR="$NO_RESOLVER_HOME" HOME="$NO_RESOLVER_HOME" bash "$CANONICAL_POLICY" >/dev/null 2>&1
+  if [ "$?" -eq 0 ]; then echo "allow"; else echo "deny"; fi
+}
+GATE_EDIT="{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}"
+rm agent-docs/doflow/001-auth/design.md
+for b in feat/001-auth feature/001-auth; do
+  git checkout -q -B "$b" master
+  eq "$b, design missing -> deny (resolver)" "$(decision "$GATE_EDIT")" "deny"
+  eq "$b, design missing -> deny (no resolver)" "$(decision_bare "$GATE_EDIT")" "deny"
+done
+for b in fix/001-auth bugfix/001-auth refactor/001-auth chore/001-auth; do
+  git checkout -q -B "$b" master
+  eq "$b, design missing -> allow (resolver)" "$(decision "$GATE_EDIT")" "allow"
+  eq "$b, design missing -> allow (no resolver)" "$(decision_bare "$GATE_EDIT")" "allow"
+done
+git checkout -q feat/001-auth
+echo d > agent-docs/doflow/001-auth/design.md
 
 echo "[sync-context marker writer]"
 CTX="$T/CLAUDE.md"; printf '# Ctx\n\nkeep me\n' > "$CTX"
