@@ -45,6 +45,11 @@ function piServerKey(name) { return name.replace(/_/g, '-'); }
 
 function refusalFor(file, reason) { return `Pi MCP: ${file}: ${reason}; DoFlow did not change the file`; }
 
+function untouchedNotice(file) {
+  const shown = file.length > 80 ? `...${file.slice(-77)}` : file;
+  return `MCP: left ${shown} untouched because it cannot be edited safely; DoFlow no longer manages the entries in it.`;
+}
+
 /** DoFlow's entry for one catalog server, or the reason Pi cannot take it. */
 function renderPiEntry(server) {
   if (server.transport !== 'stdio' || typeof server.command !== 'string' || !server.command) {
@@ -117,11 +122,14 @@ function planPiMcp({ selected = [], rows = [], file, scope, removing = false, sn
     return { changes, conflicts: [`Pi MCP needs the ${ASSET_ID} asset to record ownership`], notices };
   }
 
+  // An install or update refuses a file it cannot edit; a removal must still uninstall everything
+  // else, so it releases the rows for that file and leaves the file as it is.
   const refused = new Set();
   for (const [target, entry] of Object.entries(snapshot)) {
     if (entry.doc.ok) continue;
     refused.add(target);
-    conflicts.push(refusalFor(target, entry.doc.reason));
+    if (removing) notices.push(untouchedNotice(target));
+    else conflicts.push(refusalFor(target, entry.doc.reason));
   }
 
   const matched = new Set();
@@ -167,7 +175,7 @@ function planPiMcp({ selected = [], rows = [], file, scope, removing = false, sn
     }
   }
 
-  return { changes: changes.filter((change) => !refused.has(change.target)), conflicts, notices };
+  return { changes: changes.filter((change) => !refused.has(change.target) || (removing && change.release)), conflicts, notices };
 }
 
 function isSymlink(file, fsImpl) {
@@ -306,7 +314,7 @@ function verifyPiMcp({ selected = [], rows = [], file, snapshot = {}, removing =
   const current = {};
   for (const target of new Set([...(selected.length ? [file] : []), ...rows.map((row) => row.target)])) {
     current[target] = readSnapshotFile(target, fsImpl).doc;
-    if (!current[target].ok) conflicts.push(refusalFor(target, current[target].reason));
+    if (!current[target].ok && !removing) conflicts.push(refusalFor(target, current[target].reason));
   }
   const memberNow = (target, id) => (current[target]?.ok ? memberOf(current[target], id) : null);
   const foreign = (target, id) => {
@@ -338,7 +346,8 @@ function verifyPiMcp({ selected = [], rows = [], file, snapshot = {}, removing =
     if (verified.has(`${row.target}\u0000${id}`)) continue;
     const member = memberNow(row.target, id);
     let status;
-    if (!member) status = 'absent';
+    if (!current[row.target].ok) status = 'not-managed';
+    else if (!member) status = 'absent';
     else if (foreign(row.target, id) || fingerprint(member.value) !== row.fingerprint) status = 'not-managed';
     else if (!removing && !selected.length) status = 'managed';
     else status = 'retained';

@@ -265,6 +265,32 @@ test('P6: a malformed file holding a secret never puts it in a conflict, notice,
   assert.ok(records.every((record) => !record.includes(secret)), 'a recovery record copied the secret');
 });
 
+test('P6: a remove with an unparseable mcp.json uninstalls everything else and leaves the file byte for byte', () => {
+  const root = scratch();
+  const stateRoot = scratch();
+  const file = userFile(root);
+  const adapters = createAdapterRegistry({ pi: createPiAdapter({ env: {} }) });
+  const context = { repoRoot: REPO, projectRoot: root, homeDir: root, sourceVersion: 'test' };
+  const plan = planLifecycle({ registry, adapters, scope: 'global', scopeRoot: root, targets: ['pi'], ledger: defaultLedger({ scope: 'global', scopeRoot: root }), context });
+  const installed = applyLifecycle({ plan, registry, adapters, stateRoot, ledger: plan.ledger });
+  const broken = `${fs.readFileSync(file, 'utf8')}, trailing`;
+  fs.writeFileSync(file, broken);
+
+  const preview = planLifecycle({ registry, adapters, scope: 'global', scopeRoot: root, targets: ['pi'], mcpIds: [], ledger: installed.ledger, context: { ...context, operation: 'remove' } });
+  assert.equal(preview.safe, true, JSON.stringify(preview.conflicts));
+  assert.ok(preview.notices.some(({ notice }) => notice === `MCP: left ${file} untouched because it cannot be edited safely; DoFlow no longer manages the entries in it.`
+    || notice.startsWith('MCP: left ...')));
+  const removed = removeLifecycle({ registry, adapters, scope: 'global', scopeRoot: root, targets: ['pi'], mcpIds: [], stateRoot, ledger: installed.ledger, context });
+  assert.equal(removed.verification.ok, true);
+  assert.deepEqual(removed.ledger.resources, []);
+  assert.equal(fs.readFileSync(file, 'utf8'), broken);
+  assert.equal(fs.existsSync(path.join(root, '.pi', 'agent', 'skills')), false, 'the rest of the uninstall ran');
+
+  // Install and update keep refusing the same file.
+  const reinstall = planLifecycle({ registry, adapters, scope: 'global', scopeRoot: root, targets: ['pi'], ledger: removed.ledger, context });
+  assert.ok(reinstall.conflicts.some(({ reason }) => reason.startsWith(`Pi MCP: ${file}: invalid JSON`)), JSON.stringify(reinstall.conflicts));
+});
+
 test('P7: a top-level array and a non-object mcpServers are conflicts with no write', () => {
   for (const [text, reason] of [['[]', 'top level is not an object'], ['{"mcpServers": ["x"]}', 'mcpServers is not an object']]) {
     const root = scratch();
