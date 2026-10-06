@@ -141,6 +141,13 @@ own docs asserted incorrectly for several releases. `~/.opencode/` is a plausibl
 OpenCode does not read; `src/adapters/opencode/index.js`'s `nativePaths()` is the authoritative
 implementation, confirmed against <https://opencode.ai/docs>.
 
+The runtime is shared by every harness in a project. A project install of any one harness writes the
+`doflow-run` dispatcher and the runtime into `<projectRoot>/.doflow/`, and a skill from any harness
+finds the dispatcher by walking up from its working directory, so the nearest `.doflow/` wins over
+`~/.doflow/`. The last install in a project therefore sets the runtime version that every harness's
+skills use there: installing an older DoFlow for one harness downgrades the runtime for all the others
+installed in that project until an install of a newer DoFlow replaces it.
+
 Gemini is the one target that writes to two directories in project scope, because its own config
 surface and its customization surface follow different conventions:
 
