@@ -33,6 +33,9 @@ const EVENT_ID = /^[0-9]{8}T[0-9]{9}Z-[0-9a-hjkmnp-tv-z]{6}$/;
 const COLLISION_RETRIES = 5;
 /** The largest legitimate event is a goal with 100 items of 280 characters (about 30 KiB); a file over this is not one. */
 const MAX_EVENT_BYTES = 256 * 1024;
+/** The retention journal lists at most a pass's worth of names (store-upkeep.js bounds a pass well below this). */
+const MAX_JOURNAL_BYTES = 16 * 1024 * 1024;
+const READ_CHUNK = 64 * 1024;
 /** The decision register's channel vocabulary: who the caller says is acting. */
 const CHANNEL_BY = { question: 'user', gate: 'user', prompt: 'user', default: 'agent' };
 
@@ -86,12 +89,12 @@ function assertStoreFolders(root, fsImpl) {
 }
 
 /**
- * One event file's text, or `{reason}` when it must not be read: not a regular file (a symlink, a
- * FIFO, a device, a folder), larger than MAX_EVENT_BYTES, or gone. A symlink is refused by `lstat`
+ * One store file's text, or `{reason}` when it must not be read: not a regular file (a symlink, a
+ * FIFO, a device, a folder), larger than `maxBytes`, or gone. A symlink is refused by `lstat`
  * and again by `O_NOFOLLOW` where the platform has it; `O_NONBLOCK` keeps a FIFO swapped in after
  * the `lstat` from blocking the open, and the descriptor is checked again before any read.
  */
-function readEventFile(fsImpl, file) {
+function readEventFile(fsImpl, file, maxBytes = MAX_EVENT_BYTES) {
   const flags = nodeFs.constants;
   let fd;
   try {
@@ -99,15 +102,19 @@ function readEventFile(fsImpl, file) {
     fd = fsImpl.openSync(file, flags.O_RDONLY | (flags.O_NOFOLLOW || 0) | (flags.O_NONBLOCK || 0));
     const st = fsImpl.fstatSync(fd);
     if (!st.isFile()) return { reason: 'not a regular file' };
-    if (st.size > MAX_EVENT_BYTES) return { reason: `larger than ${MAX_EVENT_BYTES / 1024} KiB` };
-    const buffer = Buffer.allocUnsafe(MAX_EVENT_BYTES + 1);
+    const tooLarge = { reason: `larger than ${maxBytes / 1024} KiB` };
+    if (st.size > maxBytes) return tooLarge;
+    // Read in chunks up to one byte past the cap, so a file that grew after the fstat is still caught.
+    const chunks = [];
     let length = 0;
-    while (length < buffer.length) {
-      const n = fsImpl.readSync(fd, buffer, length, buffer.length - length, null);
+    while (length <= maxBytes) {
+      const chunk = Buffer.allocUnsafe(Math.min(READ_CHUNK, maxBytes + 1 - length));
+      const n = fsImpl.readSync(fd, chunk, 0, chunk.length, null);
       if (n === 0) break;
+      chunks.push(chunk.subarray(0, n));
       length += n;
     }
-    return length > MAX_EVENT_BYTES ? { reason: `larger than ${MAX_EVENT_BYTES / 1024} KiB` } : { text: buffer.toString('utf8', 0, length) };
+    return length > maxBytes ? tooLarge : { text: Buffer.concat(chunks, length).toString('utf8') };
   } catch (error) {
     return { reason: error.code || 'unreadable' };
   } finally {
@@ -135,7 +142,7 @@ function isEventName(name) {
  * @returns {{generation: string|null, pending: string[]}}
  */
 function readJournal(root, fsImpl = nodeFs) {
-  const read = readEventFile(fsImpl, path.join(root, JOURNAL_REL));
+  const read = readEventFile(fsImpl, path.join(root, JOURNAL_REL), MAX_JOURNAL_BYTES);
   let journal;
   try { journal = read.reason ? null : JSON.parse(read.text); } catch { journal = null; }
   if (!journal || typeof journal !== 'object' || journal.v !== 1) return { generation: null, pending: [] };

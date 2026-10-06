@@ -113,12 +113,17 @@ function refoldEqual(events, full, removed, now) {
 function selectExpired(events, { now, windowMs }) {
   const state = foldInto(events, { now });
   const cutoff = now.getTime() - windowMs;
+  // A goal a tracked feature still serves cannot go without changing that feature, so the re-fold
+  // check would keep it; setting it aside here keeps such a goal from sending every pass down the
+  // one-fold-per-candidate path below.
+  const served = new Set([...state.tracked.values()].map((f) => f.goal).filter(Boolean));
   const candidates = unitsOf(events)
     .map((unit) => {
       const newest = unit.events.reduce((max, e) => (Date.parse(e.at) > Date.parse(max) ? e.at : max), unit.events[0].at);
       return { ...unit, newestAt: newest };
     })
-    .filter((unit) => [...unit.items].every((key) => isSettled(state, key)) && Date.parse(unit.newestAt) < cutoff);
+    .filter((unit) => [...unit.items].every((key) => isSettled(state, key) && !(key.startsWith('goal:') && served.has(key.slice('goal:'.length))))
+      && Date.parse(unit.newestAt) < cutoff);
 
   const full = finalize(state);
   let selected = candidates;

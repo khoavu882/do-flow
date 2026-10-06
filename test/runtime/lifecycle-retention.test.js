@@ -364,3 +364,52 @@ test('retention runs after a copy in the same invocation, and the notice prints 
   assert.deepEqual(eventFiles(dir), [open]);
   assert.deepEqual(snapshot(path.join(dir, LEGACY_LIFECYCLE_REL)), legacy);
 });
+
+// ── scale and durability ───────────────────────────────────────────────────────────────────────
+
+test('selection over 2000 settled follow-ups beside a done goal a feature serves finishes in seconds and keeps only the goal', () => {
+  const now = new Date('2026-10-06T12:00:00.000Z').getTime();
+  const events = [
+    ev('feature.tracked', { slug: 'f1' }, at(now, 900)),
+    ...doneGoal('G-aaaaaa', now, 800),
+    ev('goal.linked', { goal: 'G-aaaaaa', slug: 'f1' }, at(now, 801)),
+    ...Array.from({ length: 2000 }, (_, i) => dismissedFollowup(`FU-${String(i).padStart(6, '0')}`, now, 500)).flat(),
+  ];
+  const started = Date.now();
+  const out = selectExpired(events, { now: new Date(now), windowMs: HOUR });
+  const took = Date.now() - started;
+  assert.equal(out.units.length, 2000);
+  assert.equal(out.files.length, 4000);
+  assert.ok(!out.units.some((u) => u.items.includes('goal:G-aaaaaa')), 'the served goal is kept');
+  assert.ok(took < 5000, `selection took ${took} ms`);
+});
+
+test('the journal is flushed to disk before the first event file is unlinked', () => {
+  const dir = project('journal-fsync');
+  writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', Date.now(), 200));
+  const log = [];
+  const paths = new Map();
+  const logging = {
+    ...fs,
+    openSync: (p, ...rest) => { const fd = fs.openSync(p, ...rest); paths.set(fd, String(p)); return fd; },
+    fsyncSync: (fd) => { log.push(['fsync', path.basename(paths.get(fd) || '')]); return fs.fsyncSync(fd); },
+    unlinkSync: (p) => { log.push(['unlink', path.basename(String(p))]); return fs.unlinkSync(p); },
+  };
+  const out = prepareStore(dir, { env: { DOFLOW_RETENTION_HOURS: '1' }, fsImpl: logging });
+  assert.deepEqual(out.lines, ['retention: removed 2 event files older than 1 h']);
+  const firstUnlink = log.findIndex(([op, name]) => op === 'unlink' && store.isEventName(name));
+  const journalFsync = log.findIndex(([op, name]) => op === 'fsync' && /^\.retention-.*\.tmp$/.test(name));
+  assert.ok(journalFsync !== -1 && journalFsync < firstUnlink, JSON.stringify(log));
+});
+
+test('a pass renews the store lock\'s age while it works, so no other verb takes it for stale', () => {
+  const dir = project('lock-refresh');
+  writeAll(eventsDir(dir), Array.from({ length: 3 }, (_, i) => dismissedFollowup(`FU-${String(i).padStart(6, '0')}`, Date.now(), 200)).flat());
+  const touched = [];
+  const watching = { ...fs, utimesSync: (p, a, m) => { touched.push(String(p)); return fs.utimesSync(p, a, m); } };
+  const out = prepareStore(dir, { env: { DOFLOW_RETENTION_HOURS: '1' }, fsImpl: watching });
+  assert.deepEqual(out.lines, ['retention: removed 6 event files older than 1 h']);
+  const lock = `${store.lockTarget(dir)}.lock`;
+  assert.ok(touched.filter((p) => p === lock).length >= 2, JSON.stringify(touched));
+  assert.equal(fs.existsSync(lock), false, 'released');
+});

@@ -36,6 +36,10 @@ const MIGRATING_PREFIX = 'events.migrating-';
 const NOTICE = 'note: the lifecycle store is now .doflow/state/lifecycle/events; agent-docs/lifecycle/ is no longer read and can be deleted';
 const removedLine = (count, hours) => `retention: removed ${count} event files older than ${hours} h`;
 const invalidLine = (raw) => `warning: DOFLOW_RETENTION_HOURS='${raw}' is not a positive whole number of hours; ignored, nothing removed`;
+/** Bounds one pass, so its journal stays far below the reader's cap and its lock is held briefly. */
+const MAX_PASS_FILES = 20000;
+/** Unlinks between two refreshes of the lock's age. */
+const REFRESH_EVERY = 500;
 const unlinkLine = (code) => `warning: retention could not remove every file (${code}); they stay hidden and the next lifecycle command finishes the removal`;
 
 function lstatOrNull(fsImpl, file) {
@@ -187,26 +191,38 @@ function idTime(name) {
   return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6], +m[7]) : NaN;
 }
 
-/** Writes the retention journal by temp file and rename, with a new generation. */
+/** Writes the retention journal, flushed to disk, with a new generation. */
 function writeJournal(fsImpl, root, pending) {
-  const file = path.join(root, JOURNAL_REL);
-  const tmp = path.join(root, LIFECYCLE_REL, `.retention-${process.pid}-${randomChars(6)}.tmp`);
-  try {
-    fsImpl.writeFileSync(tmp, `${JSON.stringify({ v: 1, generation: randomChars(16), pending })}\n`, { encoding: 'utf8', flag: 'wx' });
-    fsImpl.renameSync(tmp, file);
-  } catch (error) {
-    try { fsImpl.unlinkSync(tmp); } catch { /* never written */ }
-    throw error;
-  }
+  writeAtomic(fsImpl, path.join(root, JOURNAL_REL), `${JSON.stringify({ v: 1, generation: randomChars(16), pending })}\n`);
+}
+
+/**
+ * Keeps the held store lock from looking stale: another verb breaks a lock whose folder is older
+ * than the lock's stale timeout, so a long pass renews its folder's time as it goes.
+ */
+function refreshLock(fsImpl, root) {
+  const now = new Date();
+  try { fsImpl.utimesSync(`${lockTarget(root)}.lock`, now, now); } catch { /* the lock folder is ours; a failed touch only shortens its life */ }
 }
 
 /** Unlinks the named event files, ignoring one already gone, then empties the journal. */
 function removePending(fsImpl, root, names) {
   const dir = path.join(root, EVENTS_REL);
-  for (const name of names) {
+  names.forEach((name, index) => {
+    if (index % REFRESH_EVERY === 0) refreshLock(fsImpl, root);
     try { fsImpl.unlinkSync(path.join(dir, name)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  }
+  });
   writeJournal(fsImpl, root, []);
+}
+
+/** The selected units' files, whole units only, up to MAX_PASS_FILES (one unit always); the rest wait for the next verb. */
+function passFiles(units) {
+  const files = [];
+  for (const unit of units) {
+    if (files.length > 0 && files.length + unit.files.length > MAX_PASS_FILES) break;
+    files.push(...unit.files);
+  }
+  return files.sort();
 }
 
 /**
@@ -220,7 +236,10 @@ function retain(fsImpl, root, window, now) {
     const pending = readJournal(root, fsImpl).pending;
     if (pending.length) removePending(fsImpl, root, pending);
     if (window.state !== 'on') return { removed: [], warning: [] };
-    const { files } = selectExpired(readEvents(root, { fsImpl }).events, { now, windowMs: window.ms });
+    const { events } = readEvents(root, { fsImpl });
+    refreshLock(fsImpl, root);
+    const files = passFiles(selectExpired(events, { now, windowMs: window.ms }).units);
+    refreshLock(fsImpl, root);
     if (files.length === 0) return { removed: [], warning: [] };
     writeJournal(fsImpl, root, files);
     removePending(fsImpl, root, files);

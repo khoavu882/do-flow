@@ -492,6 +492,18 @@ test('journal: absent, malformed or of another version hides nothing; a pending 
   assert.deepEqual(store.readEvents(root).events.map((e) => e.data.id), ['FU-aaaaaa']);
 });
 
+test('journal: a journal far larger than an event file reads back whole', () => {
+  const root = plainDir('journal-large');
+  eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));
+  const pending = Array.from({ length: 12000 }, (_, i) => `20261003T000000000Z-${String(i).padStart(6, '0')}.json`);
+  pending.push('20261003T000000000Z-aaaaaa.json');
+  writeJournal(root, { v: 1, generation: 'g-big', pending });
+  assert.ok(fs.statSync(path.join(root, store.JOURNAL_REL)).size > store.MAX_EVENT_BYTES);
+  const read = store.readJournal(root);
+  assert.deepEqual([read.generation, read.pending.length], ['g-big', pending.length]);
+  assert.deepEqual(store.readEvents(root).events, [], 'the pending event stays hidden');
+});
+
 test('journal: a generation that moves once during a read causes exactly one re-read, which honours the new pending list', () => {
   const root = plainDir('journal-moves-once');
   eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));
