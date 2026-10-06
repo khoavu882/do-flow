@@ -4,6 +4,7 @@
     {
       "id": 1,
       "kind": "triggering",
+      "split": "train",
       "name": "test-request-invokes-test",
       "prompt": "Run the test suite and tell me what's broken.",
       "expected_output": "do-test is invoked and reports the runner's real output",
@@ -28,6 +29,7 @@
     {
       "id": 2,
       "kind": "behavioral",
+      "split": "train",
       "name": "reports-failures-honestly",
       "prompt": "/do-test",
       "expected_output": "Results are reported plainly with the runner's output rather than glossed",
@@ -50,6 +52,27 @@
           "text": "No test is skipped to force a green result (pattern requires the actionable framing, so narration such as 'nothing was skipped' does not trip it)",
           "type": "output_not_matches",
           "pattern": "(skip|--ignore).*(to (make|get) .*pass)"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "kind": "triggering",
+      "split": "heldout",
+      "name": "write-tests-does-not-route",
+      "prompt": "Write unit tests for the --split option of bench/runner.js plan.",
+      "expected_output": "do-test does not route this request; it belongs to do-implement",
+      "files": [],
+      "assertions": [
+        {
+          "text": "the run judged this repo's do-test description (sandbox path, matching hash)",
+          "type": "skill_resolved",
+          "skill": "do-test"
+        },
+        {
+          "text": "do-test is not used: routing.json records routed false",
+          "type": "skill_not_routed",
+          "skill": "do-test"
         }
       ]
     }

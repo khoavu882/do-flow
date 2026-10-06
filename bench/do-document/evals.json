@@ -4,6 +4,7 @@
     {
       "id": 1,
       "kind": "triggering",
+      "split": "train",
       "name": "doc-request-invokes-document",
       "prompt": "Write API reference docs for the functions src/adapters/copy-tree.js exports.",
       "expected_output": "do-document is invoked and documents the real exported functions of a real module",
@@ -28,6 +29,7 @@
     {
       "id": 2,
       "kind": "behavioral",
+      "split": "train",
       "name": "research-mode-separates-source-from-inference",
       "prompt": "/do-document --type research What are the current approaches to idempotency keys in payment APIs?",
       "expected_output": "Claims are sourced, and the model's own inference is distinguishable from cited fact",
@@ -49,6 +51,27 @@
         {
           "text": "No fabricated citations",
           "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "kind": "triggering",
+      "split": "heldout",
+      "name": "typo-fix-does-not-route",
+      "prompt": "Fix the typo 'recieve' in docs/reference.md.",
+      "expected_output": "do-document does not route this request; it belongs to do-implement",
+      "files": [],
+      "assertions": [
+        {
+          "text": "the run judged this repo's do-document description (sandbox path, matching hash)",
+          "type": "skill_resolved",
+          "skill": "do-document"
+        },
+        {
+          "text": "do-document is not used: routing.json records routed false",
+          "type": "skill_not_routed",
+          "skill": "do-document"
         }
       ]
     }

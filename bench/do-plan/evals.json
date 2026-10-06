@@ -4,6 +4,7 @@
     {
       "id": 1,
       "kind": "triggering",
+      "split": "train",
       "name": "plan-request-invokes-plan",
       "prompt": "Turn the design into an implementation plan I can hand to someone.",
       "expected_output": "do-plan is invoked and produces plan.md with a task checklist, disclosing that no design.md exists here rather than inventing one",
@@ -29,6 +30,7 @@
     {
       "id": 2,
       "kind": "behavioral",
+      "split": "train",
       "name": "constitution-check-recorded-with-no-upstream-design",
       "prompt": "/do-plan --depth normal",
       "expected_output": "With no requirement.md or design.md in the sandbox, do-plan states that absence rather than inventing a feature, and still records a Constitution Check verdict against both tiers",
@@ -58,6 +60,7 @@
     {
       "id": 3,
       "kind": "behavioral",
+      "split": "heldout",
       "name": "task-markers-are-parseable-in-a-gap-plan",
       "prompt": "/do-plan",
       "expected_output": "With no upstream artifacts, do-plan still emits a task checklist in the exact marker syntax the executor parses, scoped to recovering the gap rather than to an invented feature",
@@ -81,6 +84,27 @@
         {
           "text": "Phase rollup task counts match the checklist beneath each phase",
           "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "kind": "triggering",
+      "split": "heldout",
+      "name": "execute-request-does-not-route",
+      "prompt": "Execute the tasks in plan.md.",
+      "expected_output": "do-plan does not route this request; it belongs to do-execute-plan",
+      "files": [],
+      "assertions": [
+        {
+          "text": "the run judged this repo's do-plan description (sandbox path, matching hash)",
+          "type": "skill_resolved",
+          "skill": "do-plan"
+        },
+        {
+          "text": "do-plan is not used: routing.json records routed false",
+          "type": "skill_not_routed",
+          "skill": "do-plan"
         }
       ]
     }
