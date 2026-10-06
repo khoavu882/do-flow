@@ -232,6 +232,7 @@ function parityDifferences(parity) {
   return [
     ...parity.missingFromCorpus.map((c) => `${c.key} in baseline, absent from corpus (${c.kind}: ${c.name})`),
     ...parity.changed.map((c) => `${c.key} differs: corpus ${c.corpus.kind}/${c.corpus.name}/${c.corpus.split} vs baseline ${c.baseline.kind}/${c.baseline.name}/${c.baseline.split}`),
+    ...parity.duplicates.map((d) => `${d.key} appears ${d.entries} times in the baseline`),
     // `note` carries the reason when both counts are null — a baseline that is absent rather than
     // disagreeing. Rendering it the way cmdParity does keeps one shared comparison reported the same
     // way by both of its callers.
@@ -277,6 +278,7 @@ test('G11/028 control: removed, renamed, kind-changed, re-sided and miscounted c
   assert.equal(parityDifferences(runner.compareParity(corpus(one, { ...two, kind: 'triggering' }), baseline)).length, 1, 'a kind change must fail');
   assert.equal(parityDifferences(runner.compareParity(corpus(one, { ...two, split: 'heldout' }), baseline)).length, 1, 'a split change must fail');
   assert.equal(parityDifferences(runner.compareParity(corpus(one, two), { ...baseline, caseCount: 3 })).length, 1, 'a wrong caseCount must fail');
+  assert.equal(parityDifferences(runner.compareParity(corpus(one, two), { caseCount: 3, results: [...baseline.results, baseline.results[1]] })).length, 1, 'a duplicate baseline entry must fail');
 });
 
 // ---------------------------------------------------------------------------

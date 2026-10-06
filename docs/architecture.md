@@ -454,7 +454,7 @@ the G18 pair — between them the reason the list runs G18 then G20; and `bounda
   and the config declares a valid token ceiling. The committed baseline still describes the
   committed corpus: a case missing from the baseline is reported as pending, awaiting a paid
   capture, and does not fail, while a removed, renamed or kind-changed case does, and so does a
-  case moved to the other side when its baseline result recorded `split` (the committed baseline
+  baseline entry recorded twice, and so does a case moved to the other side when its baseline result recorded `split` (the committed baseline
   records none, so that comparison starts applying per case once a re-captured baseline does);
   `coverage` alone cannot see any of these. It also holds the boundary that keeps the corpus
   cheap: `npm test` scopes discovery to `test/` via the directory argument, so an unscoped

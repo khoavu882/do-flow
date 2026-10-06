@@ -104,6 +104,17 @@ test('F2: a caseCount that disagrees with the entries fails', () => {
   assert.deepEqual(p.countMismatch, { baselineCaseCount: 3, baselineEntries: 2 });
 });
 
+test('F2: a baseline key recorded twice fails with the key named, though caseCount agrees', () => {
+  const twice = baseline([...BASE.results, result('s/2', 'two', 'behavioral', 'train')]);
+  assert.equal(twice.caseCount, 3);
+  const p = runner.compareParity(corpusOf(ONE, TWO), twice);
+  assert.equal(p.ok, false);
+  assert.deepEqual(p.duplicates, [{ key: 's/2', entries: 2 }]);
+  assert.equal(p.countMismatch, null);
+  assert.deepEqual(runner.parityLines(p).filter((l) => l.startsWith('GAP')), ['GAP s/2 appears 2 times in the baseline']);
+  assert.deepEqual(runner.compareParity(corpusOf(ONE, TWO), BASE).duplicates, []);
+});
+
 test('F2: a missing baseline fails with a note and lists every case as pending', () => {
   const p = runner.compareParity(corpusOf(ONE, TWO), null, 'bench/baseline/baseline.json');
   assert.equal(p.ok, false);
@@ -168,6 +179,31 @@ test('F6: a null rate on either side is unchanged with no delta, never improved 
   }
   assert.equal(row(0.5, 1).status, 'improved');
   assert.equal(row(1, 0.5).status, 'regressed');
+});
+
+test('F6: buildReport refuses a baseline without a results array', () => {
+  for (const baseline of [{}, { results: null }, { results: {} }, null]) {
+    assert.throws(() => runner.buildReport({
+      baseline, withResults: [], cfg: { model: 'm', costCeiling: CEILING }, iteration: 'it', commit: 'def',
+    }), /the baseline has no results array/);
+  }
+});
+
+test('F6: report exits 2 and names the baseline when it has no results array', () => {
+  const dir = path.join(scratch.dir, 'report-no-results');
+  fs.mkdirSync(path.join(dir, 'runs', 'it'), { recursive: true });
+  const file = path.join(dir, 'baseline.json');
+  fs.writeFileSync(file, JSON.stringify({ commit: 'abc', model: 'm' }));
+  const cfg = { ...runner.loadConfig(), costCeiling: CEILING };
+  const err = [];
+  const orig = console.error;
+  console.error = (m) => err.push(m);
+  try {
+    assert.equal(runner.cmdReport(cfg, { iteration: 'it', baselineFile: file, runsRoot: path.join(dir, 'runs') }), 2);
+  } finally {
+    console.error = orig;
+  }
+  assert.match(err.join('\n'), /^bench report: the baseline has no results array \(.*baseline\.json\)$/);
 });
 
 test('F6: pendingNote is null when no row is pending, and repeated calls are equal', () => {

@@ -1036,6 +1036,11 @@ function armDeltas(withResults, withoutResults) {
   });
 }
 
+/** A baseline with no `results` array describes no cases, so every row would read as pending. */
+function requireBaselineResults(baseline) {
+  if (!baseline || !Array.isArray(baseline.results)) throw new Error('the baseline has no results array');
+}
+
 /**
  * The report for one iteration against the baseline. Pure: the caller reads the baseline and the
  * graded runs, so a fixture can exercise it without touching bench/baseline or bench/runs.
@@ -1044,6 +1049,7 @@ function armDeltas(withResults, withoutResults) {
  * and nothing about it is a delta.
  */
 function buildReport({ baseline, withResults, withoutResults = [], cfg, iteration, commit }) {
+  requireBaselineResults(baseline);
   const byKey = new Map(baseline.results.map((r) => [r.key, r]));
   const rows = [];
   for (const c of withResults) {
@@ -1119,6 +1125,12 @@ function cmdReport(cfg, opts) {
     return 2;
   }
   const baseline = readJson(baselineFile);
+  try {
+    requireBaselineResults(baseline);
+  } catch (err) {
+    console.error(`bench report: ${err.message} (${path.relative(REPO_ROOT, baselineFile)})`);
+    return 2;
+  }
   const currentRoot = path.join(runsRootOf(cfg, opts), against);
   if (!fs.existsSync(currentRoot)) {
     console.error(`bench report: no runs found at ${path.relative(REPO_ROOT, currentRoot)}`);
@@ -1339,6 +1351,14 @@ function changedCases(corpus, recorded) {
 function compareParity(corpus, baseline, source = 'the baseline') {
   const results = baseline && Array.isArray(baseline.results) ? baseline.results : [];
   const recorded = baselineCaseIndex(results);
+  // The index keeps one entry per key, so a repeated entry would count as one case while caseCount
+  // counts it twice; both would agree and the duplicate would never show.
+  const seen = new Map();
+  for (const r of results) {
+    const key = `${r.skill}/${r.evalId}`;
+    seen.set(key, (seen.get(key) || 0) + 1);
+  }
+  const duplicates = [...seen].filter(([, n]) => n > 1).map(([key, entries]) => ({ key, entries }));
 
   const pending = [...corpus.values()].filter((c) => !recorded.has(c.key));
   const missingFromCorpus = [...recorded.values()].filter((r) => !corpus.has(r.key));
@@ -1355,10 +1375,11 @@ function compareParity(corpus, baseline, source = 'the baseline') {
   // result to differ from. Reporting ok beside a populated difference array would let the gate pass
   // on a corpus the comparison had already found to disagree.
   return {
-    ok: missingFromCorpus.length === 0 && changed.length === 0 && countMismatch === null,
+    ok: missingFromCorpus.length === 0 && changed.length === 0 && duplicates.length === 0 && countMismatch === null,
     pending,
     missingFromCorpus,
     changed,
+    duplicates,
     countMismatch,
   };
 }
@@ -1386,6 +1407,9 @@ function parityLines(parity) {
   }
   for (const c of parity.changed) {
     lines.push(`GAP ${c.key} differs: corpus has ${c.corpus.kind}/${c.corpus.name}/${c.corpus.split}, baseline has ${c.baseline.kind}/${c.baseline.name}/${c.baseline.split}`);
+  }
+  for (const d of parity.duplicates) {
+    lines.push(`GAP ${d.key} appears ${d.entries} times in the baseline`);
   }
   if (parity.countMismatch) {
     const m = parity.countMismatch;
