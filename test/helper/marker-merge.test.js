@@ -77,7 +77,7 @@ test('append: dst exists with no markers, ends with exactly ONE trailing newline
   assert.ok(actual.startsWith(existing), 'existing bytes must be preserved byte-for-byte at the start');
 });
 
-test('append: dst exists with no markers, ends with TWO+ trailing newlines -> no extra separator bytes added', () => {
+test('append: dst exists with no markers, ends with TWO trailing newlines -> still exactly one "\\n" added', () => {
   const dir = scratchDir();
   const src = writeSrc(dir, 'Section body text.');
   const dst = dstPath(dir);
@@ -89,13 +89,13 @@ test('append: dst exists with no markers, ends with TWO+ trailing newlines -> no
 
   assert.strictEqual(result.changed, true);
   const section = MARKER_START + '\n' + 'Section body text.' + '\n' + MARKER_END + '\n';
-  const expected = existing + section; // no separator bytes inserted at all
+  // Always one '\n', so removeMarkedSection strips exactly one and returns the user's bytes.
+  const expected = existing + '\n' + section;
   const actual = fs.readFileSync(dst, 'utf8');
   assert.strictEqual(actual, expected);
-  assert.ok(!actual.includes('\n\n\n\n'), 'must not produce a triple-blank-line duplication');
 });
 
-test('append: dst exists with no markers, ends with THREE trailing newlines -> still no extra separator bytes added', () => {
+test('append: dst exists with no markers, ends with THREE trailing newlines -> still exactly one "\\n" added', () => {
   const dir = scratchDir();
   const src = writeSrc(dir, 'Section body text.');
   const dst = dstPath(dir);
@@ -107,7 +107,7 @@ test('append: dst exists with no markers, ends with THREE trailing newlines -> s
 
   assert.strictEqual(result.changed, true);
   const section = MARKER_START + '\n' + 'Section body text.' + '\n' + MARKER_END + '\n';
-  const expected = existing + section;
+  const expected = existing + '\n' + section;
   const actual = fs.readFileSync(dst, 'utf8');
   assert.strictEqual(actual, expected);
 });
@@ -312,15 +312,35 @@ test('removeMarkedSection: file is only the managed span -> deleted, not left em
   assert.strictEqual(fs.existsSync(file), false, 'a file holding nothing but the managed span is removed');
 });
 
-test('removeMarkedSection: only whitespace left beside the span -> deleted', () => {
+test('removeMarkedSection: a user file holding only whitespace beside the span is written back, not deleted', () => {
   const dir = scratchDir();
   const file = dstPath(dir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, '\n\n' + MARKER_START + '\n' + 'ONLY CONTENT' + '\n' + MARKER_END + '\n\n');
 
   assert.strictEqual(removeMarkedSection(file), true);
-  assert.strictEqual(fs.existsSync(file), false);
+  assert.strictEqual(fs.readFileSync(file, 'utf8'), '\n\n\n');
 });
+
+// merge then remove hands back exactly the bytes the user had, for every trailing-newline shape a
+// user file can end in; an empty or whitespace-only file the user created stays a file.
+for (const [label, original] of [
+  ['empty', ''], ['one newline', '\n'], ['whitespace only', '  \n\t\n'],
+  ['one trailing newline', 'user\n'], ['a trailing blank line', 'user\n\n'], ['two trailing blank lines', 'user\n\n\n'],
+  ['CRLF', 'user\r\n'], ['CRLF blank line', 'user\r\n\r\n'],
+]) {
+  test(`merge then removeMarkedSection restores a user file ending in ${label} byte for byte`, () => {
+    const dir = scratchDir();
+    const src = writeSrc(dir, 'MANAGED\n');
+    const file = dstPath(dir);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, original);
+    mergeMarkedSection(src, file);
+
+    assert.strictEqual(removeMarkedSection(file), true);
+    assert.strictEqual(fs.readFileSync(file, 'utf8'), original);
+  });
+}
 
 test('removeMarkedSection: undoes an append to a user file, separator included', () => {
   const dir = scratchDir();
