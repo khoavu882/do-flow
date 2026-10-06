@@ -174,7 +174,11 @@ DoFlow proposes and you decide. A goal is closed only when you say so, and an it
 
 ### Where it is stored
 
-Everything lives under `agent-docs/lifecycle/` at the root of your repository, as one small JSON file per change. DoFlow never stages, commits or pushes that folder and adds no ignore rule for it, so you decide what to do with it: commit it to share the list with your team, or add it to `.gitignore` to keep it to yourself. Linked worktrees share the store of the main working tree.
+Everything lives under `.doflow/state/lifecycle/` at the root of your repository, as one small JSON file per change. The store is local to this machine and not shared: DoFlow never stages, commits or pushes it and adds no ignore rule for it. Linked worktrees share the store of the main working tree.
+
+Earlier versions kept the store in `agent-docs/lifecycle/events/`. The first `followup`, `lifecycle` or `goal` command in a repository that still has that folder copies it once into the new location, and leaves the old folder exactly as it was. While the old folder exists, each of those commands prints one line saying it is no longer read and can be deleted. The copy happens only when the new store holds no events yet; if the copy fails, the command exits 1 with `store-migration-failed`, changes nothing, and the next command tries again.
+
+Nothing is deleted unless you ask for it. Set `DOFLOW_RETENTION_HOURS` to a positive whole number of hours and each of those commands removes the files of settled follow-ups (done or dismissed) and settled goals (done) whose newest event is older than that. Open, taken and unfinished items are never removed, and neither are feature or release records. A removal prints one line on stderr, such as `retention: removed 3 event files older than 720 h` (the count is not pluralised, so one file reads `removed 1 event files`). An unset or empty value keeps everything; a value that is not a positive whole number prints a warning, removes nothing and lets the command run. Only the lifecycle store is cleaned: run state under `.doflow/state/` and the old `agent-docs/lifecycle/` folder are never touched.
 
 The machine-local pieces are kept outside the repository, under `${XDG_CONFIG_HOME:-$HOME/.config}/doflow/`:
 
