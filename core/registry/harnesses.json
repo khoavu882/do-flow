@@ -423,7 +423,7 @@
         "evidence": [
           "https://learn.chatgpt.com/docs/agent-configuration/agents-md"
         ],
-        "note": "AGENTS.md discovery is documented as: \"1. Global scope: In your Codex home directory ... Codex reads AGENTS.override.md if it exists. Otherwise, Codex reads AGENTS.md. 2. Project scope: Starting at the project root ...\", then \"Codex concatenates files from the root down ... Files closer to your current directory override earlier guidance because they appear later in the combined prompt.\" This URL replaced the former OpenAI developers-site AGENTS.md guide (308 Permanent Redirect, same OpenAI docs property). Codex concatenates and states that files closer to the working directory override earlier guidance because they appear later, so the LAST scope consulted takes effect: the project copy wins despite being consulted second.",
+        "note": "AGENTS.md discovery is documented as: \"1. Global scope: In your Codex home directory ... Codex reads AGENTS.override.md if it exists. Otherwise, Codex reads AGENTS.md. 2. Project scope: Starting at the project root ...\", then \"Codex concatenates files from the root down ... Files closer to your current directory override earlier guidance because they appear later in the combined prompt.\" Codex concatenates and states that files closer to the working directory override earlier guidance because they appear later, so the LAST scope consulted takes effect: the project copy wins despite being consulted second.",
         "determinedOn": "2026-09-27",
         "mode": "last-wins"
       }

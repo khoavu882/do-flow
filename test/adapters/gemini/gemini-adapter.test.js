@@ -259,8 +259,8 @@ test('Gemini adapter removes only fingerprint-matching copy-tree files', () => {
 });
 
 // Gemini CLI discovers custom subagents only as flat `*.md` files in `.gemini/agents` (project) and
-// `~/.gemini/agents` (user), and its agent schema rejects keys it does not document. The old
-// projection wrote Antigravity's folder form to a directory Gemini never reads, `effort` included.
+// `~/.gemini/agents` (user), and its agent schema rejects keys it does not document, so DoFlow's
+// `effort` is dropped. Antigravity's folder form is a separate projection.
 const REPO = path.resolve(__dirname, '../../..');
 function geminiAgents(scope, root) {
   const { loadRegistry, selectAssets, harnessFor } = require('../../../src/registry');
