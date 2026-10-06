@@ -497,6 +497,56 @@ test('P15: a symlinked mcp.json is written through to its target and stays a lin
   assert.equal(fs.readFileSync(target, 'utf8'), SKELETON);
 });
 
+test('P6: a file that is not valid UTF-8 is refused and left as it was', () => {
+  const root = scratch();
+  const file = userFile(root);
+  const bytes = Buffer.concat([Buffer.from('{"mcpServers": {"mine": {"command": "a'), Buffer.from([0xff]), Buffer.from('"}}}')]);
+  writeFile(file, bytes);
+  const { adapter, planned } = planRun({ root });
+  assert.deepEqual(planned.conflicts, [`Pi MCP: ${file}: file is not valid UTF-8; DoFlow did not change the file`]);
+  adapter.apply({ changes: planned.changes });
+  assert.ok(fs.readFileSync(file).equals(bytes));
+});
+
+test('P14: the plan-time hash covers raw bytes, so a change that decodes to the same text still refuses the apply', () => {
+  const root = scratch();
+  const file = userFile(root);
+  // U+FFFD written as valid UTF-8 at plan time, then replaced by an invalid byte that decodes to U+FFFD.
+  writeFile(file, '{"mcpServers": {"mine": {"command": "a\uFFFD"}}}');
+  const { adapter, planned } = planRun({ root });
+  const swapped = Buffer.concat([Buffer.from('{"mcpServers": {"mine": {"command": "a'), Buffer.from([0xff]), Buffer.from('"}}}')]);
+  assert.equal(swapped.toString('utf8'), fs.readFileSync(file, 'utf8'));
+  fs.writeFileSync(file, swapped);
+  assert.throws(() => adapter.apply({ changes: planned.changes }), /changed after planning/);
+  assert.ok(fs.readFileSync(file).equals(swapped));
+});
+
+test('P1: verify owns an entry only while it holds DoFlow\'s value', () => {
+  const root = scratch();
+  const file = userFile(root);
+  const { adapter, input, discovery, planned } = planRun({ root });
+  adapter.apply({ changes: planned.changes });
+  const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+  value.mcpServers.context7.args = ['-y', 'something-else'];
+  fs.writeFileSync(file, JSON.stringify(value, null, 2));
+  const verification = adapter.verify({ ...input, discovery });
+  assert.equal(verification.statuses.find((status) => status.identity === 'context7').status, 'missing');
+  assert.deepEqual(verification.resources.filter((resource) => resource.kind === 'mcp-server').map((resource) => resource.identity), ['sequential-thinking']);
+});
+
+test('P12: a removal verify reports an owned entry whose value changed after plan as not DoFlow\'s', () => {
+  const root = scratch();
+  const file = userFile(root);
+  const first = run({ root });
+  const { adapter, input, discovery } = planRun({ root, mcp: [], ledger: first.ledger, operation: 'remove' });
+  const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+  value.mcpServers.context7.enabled = false;
+  fs.writeFileSync(file, JSON.stringify(value, null, 2));
+  const verification = adapter.verify({ ...input, discovery });
+  assert.equal(verification.statuses.find((status) => status.identity === 'context7').status, 'not-managed');
+  assert.equal(verification.statuses.find((status) => status.identity === 'sequential-thinking').status, 'retained');
+});
+
 test('P16: an owned row whose file moved is removed from the old file and created in the new one', () => {
   const root = scratch();
   const oldDir = path.join(scratch(), 'old-agent');
