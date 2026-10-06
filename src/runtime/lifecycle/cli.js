@@ -10,7 +10,7 @@
 const { finishRuntime, usageError } = require('../cli-result');
 const { projectRoot } = require('./root');
 const followup = require('./followup');
-const { StoreUnsafeError } = require('./event-store');
+const { StoreUnsafeError, StoreLockedError } = require('./event-store');
 const { prepareStore } = require('./store-upkeep');
 const { printSafe } = require('../mask');
 const { buildOverview, initFeature, featureStatus } = require('./overview');
@@ -130,12 +130,13 @@ function emit(result, json, lines) {
   return finishRuntime(result.ok === false ? 1 : 0);
 }
 
-/** Runs `fn`, turning a caller mistake into the exit-2 usage result. */
-function guarded(verb, json, fn) {
+/** Runs `fn`, turning a caller mistake into the exit-2 usage result and a lock that never came into the `store-locked` refusal. */
+function guarded(verb, action, json, fn) {
   try {
     return fn();
   } catch (error) {
     if (error instanceof followup.FollowupUsageError || error instanceof StoreUnsafeError) return usageError(verb, error.message, json);
+    if (error instanceof StoreLockedError) return emit({ ok: false, action, finding: 'store-locked', message: error.message }, json, () => []);
     throw error;
   }
 }
@@ -162,7 +163,7 @@ function refuseGlobal(verb, global, json) {
 function handleFollowupCommand({ action, cwd, global = false, slug = null, json = false, flags = {} } = {}) {
   const refused = refuseGlobal('followup', global, json);
   if (refused !== null) return refused;
-  return guarded('followup', json, () => {
+  return guarded('followup', action, json, () => {
     if (!FOLLOWUP_ACTIONS.includes(action)) throw new followup.FollowupUsageError(`--action is required: one of ${FOLLOWUP_ACTIONS.join(', ')} (got '${action}')`);
     if (action !== 'report') {
       for (const name of ['file', 'stdin', 'text', 'feature']) {
@@ -213,7 +214,7 @@ function handleFollowupCommand({ action, cwd, global = false, slug = null, json 
 function handleLifecycleCommand({ action, cwd, global = false, slug = null, json = false, flags = {} } = {}) {
   const refused = refuseGlobal('lifecycle', global, json);
   if (refused !== null) return refused;
-  return guarded('lifecycle', json, () => {
+  return guarded('lifecycle', action === undefined ? 'overview' : action, json, () => {
     // The bare verb is the overview; the router passes no action unless --action was given.
     const act = action === undefined ? 'overview' : action;
     if (!LIFECYCLE_ACTIONS.includes(act)) throw new followup.FollowupUsageError(`--action is required: one of ${LIFECYCLE_ACTIONS.join(', ')} (got '${action}')`);
@@ -246,7 +247,7 @@ function handleLifecycleCommand({ action, cwd, global = false, slug = null, json
 function handleGoalCommand({ action, cwd, global = false, slug = null, json = false, flags = {} } = {}) {
   const refused = refuseGlobal('goal', global, json);
   if (refused !== null) return refused;
-  return guarded('goal', json, () => {
+  return guarded('goal', action, json, () => {
     if (!GOAL_ACTIONS.includes(action)) throw new followup.FollowupUsageError(`--action is required: one of ${GOAL_ACTIONS.join(', ')} (got '${action}')`);
     const given = { ...flags, slug: slug === null ? undefined : slug };
     for (const name of ['statement', 'item', 'text', 'evidence', 'unmet', 'replace', 'reason', 'slug']) {

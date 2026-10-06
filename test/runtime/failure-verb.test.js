@@ -372,6 +372,19 @@ describe('failure --action settle', () => {
     assert.deepEqual(JSON.parse(list.stdout).items.map((i) => i.id).sort(), ['FU-aaaaaa', r.json.followup.id].sort());
     assert.deepEqual(fs.readdirSync(legacy), [`${old.id}.json`], 'the old folder is unchanged');
   });
+  test('imported refuses with store-locked when the project store cannot be locked, and records no settlement', () => {
+    const m = machine('settle-import-locked');
+    m.markDoflowRepo();
+    writeEvents(m, [line()]);
+    const preload = path.join(m.dir, 'locked-preload.js');
+    fs.writeFileSync(preload, `const store = require(${JSON.stringify(path.resolve(__dirname, '..', '..', 'src', 'runtime', 'lifecycle', 'event-store'))});
+store.readFold = () => { throw new store.StoreLockedError("Could not lock 'events' after 5s. Nothing was written."); };
+`);
+    const r = spawnSync(process.execPath, ['-r', preload, BIN, 'failure', '--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json'], { cwd: m.project, env: m.env, encoding: 'utf8' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.deepEqual(JSON.parse(r.stdout), { ok: false, action: 'settle', finding: 'store-locked', message: "Could not lock 'events' after 5s. Nothing was written." });
+    assert.equal(fs.existsSync(path.join(m.failures, 'settlements.jsonl')), false);
+  });
   test('the statement of an entry with no message has no trailing colon, and is cut to 280 characters', () => {
     const { importedStatement } = require('../../src/runtime/failure/cli');
     assert.equal(importedStatement({ command: 'mcp-tool-guard', kind: 'policy-file-missing', message: '' }), 'DoFlow mcp-tool-guard policy-file-missing');

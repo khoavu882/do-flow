@@ -40,6 +40,7 @@ const invalidLine = (raw) => `warning: DOFLOW_RETENTION_HOURS='${raw}' is not a 
 const MAX_PASS_FILES = 20000;
 /** Unlinks between two refreshes of the lock's age. */
 const REFRESH_EVERY = 500;
+const unwritableLine = (code) => `warning: retention skipped: .doflow/state/lifecycle cannot be written (${code}); nothing was hidden or removed`;
 const unlinkLine = (code) => `warning: retention could not remove every file (${code}); they stay hidden and the next lifecycle command finishes the removal`;
 
 function lstatOrNull(fsImpl, file) {
@@ -292,7 +293,7 @@ function prepareStore(root, { env = process.env, now = new Date(), fsImpl = node
     fsImpl.accessSync(lifecycleDir, nodeFs.constants.W_OK);
   } catch (error) {
     // Without a copy to make, an unwritable store only stops the retention pass, not the verb.
-    if (!migrate) return { ok: true, lines: [...notice, ...invalid, ...(retentionDue ? [unlinkLine(error.code || error.message)] : [])] };
+    if (!migrate) return { ok: true, lines: [...notice, ...invalid, ...(retentionDue ? [unwritableLine(error.code || error.message)] : [])] };
     return migrationFailed(error.code || error.message);
   }
   let release;

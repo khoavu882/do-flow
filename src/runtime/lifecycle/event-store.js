@@ -79,6 +79,9 @@ function isEnvelope(event, idFromName) {
 /** The store folders are the project's own: a symlink at either one could send a read or a write outside the repository. */
 class StoreUnsafeError extends Error {}
 
+/** The store lock could not be taken in time; the verb refuses with `store-locked` and writes nothing. */
+class StoreLockedError extends Error {}
+
 function assertStoreFolders(root, fsImpl) {
   for (const rel of [LIFECYCLE_REL, EVENTS_REL]) {
     const folder = path.join(root, rel);
@@ -191,7 +194,8 @@ function readEventFiles(root, fsImpl, hidden) {
  * retention pass is removing is seen whole or not at all. When the journal's generation moves
  * during a read, the read is repeated, at most STABLE_READS times, and then done once under the
  * store lock, which every journal writer holds. A caller already holding the lock never sees the
- * generation move, so it returns after the first read.
+ * generation move, so it returns after the first read. A lock that cannot be taken throws
+ * StoreLockedError.
  * @returns {{events: Object[], unreadable: string[], reasons: Object<string,string>}}
  */
 function readEvents(root, { fsImpl = nodeFs } = {}) {
@@ -202,7 +206,13 @@ function readEvents(root, { fsImpl = nodeFs } = {}) {
     if (readJournal(root, fsImpl).generation === before.generation) return result;
     if (attempt < STABLE_READS) sleep(READ_WAIT_MS);
   }
-  const release = acquireLock(fsImpl, lockTarget(root));
+  let release;
+  try {
+    release = acquireLock(fsImpl, lockTarget(root));
+  } catch (error) {
+    if (/^Could not lock/.test(error.message || '')) throw new StoreLockedError(`${error.message} Nothing was written.`);
+    throw error;
+  }
   try {
     return readEventFiles(root, fsImpl, new Set(readJournal(root, fsImpl).pending));
   } finally {
@@ -311,6 +321,6 @@ function planEvents(root, drafts, { now, fsImpl, random }) {
 }
 
 module.exports = {
-  appendEvents, readEvents, readFold, byFromChannel, randomChars, StoreUnsafeError, MAX_EVENT_BYTES,
+  appendEvents, readEvents, readFold, byFromChannel, randomChars, StoreUnsafeError, StoreLockedError, MAX_EVENT_BYTES,
   EVENT_ID, EVENTS_REL, LIFECYCLE_REL, JOURNAL_REL, ALPHABET, COLLISION_RETRIES, lockTarget, readJournal, isEventName,
 };

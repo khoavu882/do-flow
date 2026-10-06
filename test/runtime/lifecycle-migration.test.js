@@ -366,3 +366,57 @@ test('marker: an unlistable old folder refuses with store-migration-failed befor
     fs.chmodSync(legacy, 0o755);
   }
 });
+
+// ── a lock that never comes, and an unwritable store ─────────────────────────────────────────────
+
+/** A preload that makes every store read time out on the lock, as a long pass by another verb would. */
+function lockedPreload() {
+  const file = path.join(scratch.dir, 'locked-preload.js');
+  const storePath = path.resolve(__dirname, '..', '..', 'src', 'runtime', 'lifecycle', 'event-store');
+  fs.writeFileSync(file, `const store = require(${JSON.stringify(storePath)});
+const locked = () => { throw new store.StoreLockedError("Could not lock 'events' after 5s. Nothing was written."); };
+store.readEvents = locked;
+store.readFold = locked;
+`);
+  return file;
+}
+
+test('a lock timeout while reading is the store-locked refusal (exit 1, refusal shape) for followup, lifecycle, goal and the upkeep look-ahead', () => {
+  const dir = project('lock-timeout');
+  agedEvent(eventsDir(dir), 'followup.added', { id: 'FU-aaaaaa', statement: 's', source: { kind: 'manual' } }, 300);
+  assert.equal(run(dir, ['followup', '--action', 'list', '--json']).status, 0, 'marks the store before reads are blocked');
+  const preload = lockedPreload();
+  for (const [args, action, extra] of [
+    [['followup', '--action', 'list', '--json'], 'list', {}],
+    [['lifecycle', '--json'], 'overview', {}],
+    [['goal', '--action', 'list', '--json'], 'list', {}],
+    [['followup', '--action', 'list', '--json'], 'list', { DOFLOW_RETENTION_HOURS: '1' }],
+  ]) {
+    const r = spawnSync(process.execPath, ['-r', preload, CLI, ...args], { cwd: dir, env: scratch.env(extra), encoding: 'utf8' });
+    assert.equal(r.status, 1, `${args.join(' ')}: ${r.stderr}`);
+    assert.deepEqual(JSON.parse(r.stdout), { ok: false, action, finding: 'store-locked', message: "Could not lock 'events' after 5s. Nothing was written." });
+  }
+  const text = spawnSync(process.execPath, ['-r', preload, CLI, 'goal', '--action', 'list'], { cwd: dir, env: scratch.env(), encoding: 'utf8' });
+  assert.equal(text.status, 1);
+  assert.match(text.stdout, /^store-locked: Could not lock/);
+});
+
+test('an unwritable store with nothing to copy skips retention and says so; nothing is hidden or removed', { skip: !POSIX || ROOT_USER }, () => {
+  const dir = project('unwritable');
+  const files = [
+    agedEvent(eventsDir(dir), 'followup.added', { id: 'FU-aaaaaa', statement: 's', source: { kind: 'manual' } }, 300),
+    agedEvent(eventsDir(dir), 'followup.settled', { id: 'FU-aaaaaa', as: 'dismissed', reason: 'r' }, 299),
+  ].sort();
+  assert.equal(run(dir, ['followup', '--action', 'list', '--json']).status, 0);
+  const lifecycle = path.join(dir, store.LIFECYCLE_REL);
+  fs.chmodSync(lifecycle, 0o555);
+  try {
+    const r = spawnSync(process.execPath, [CLI, 'followup', '--action', 'list', '--state', 'all', '--json'], { cwd: dir, env: scratch.env({ DOFLOW_RETENTION_HOURS: '1' }), encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.stderr.trim().split('\n'), ['doflow followup: warning: retention skipped: .doflow/state/lifecycle cannot be written (EACCES); nothing was hidden or removed']);
+    assert.deepEqual(JSON.parse(r.stdout).items.map((i) => [i.id, i.state]), [['FU-aaaaaa', 'dismissed']]);
+    assert.deepEqual(fs.readdirSync(eventsDir(dir)).sort(), files);
+  } finally {
+    fs.chmodSync(lifecycle, 0o755);
+  }
+});

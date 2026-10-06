@@ -528,6 +528,21 @@ test('journal: a generation that moves on every read ends in one read under the 
   assert.equal(fs.existsSync(`${path.join(root, store.EVENTS_REL)}.lock`), false);
 });
 
+test('journal: when the lock for the last read cannot be taken, the read throws StoreLockedError, not a plain error', () => {
+  const root = plainDir('journal-lock-timeout');
+  eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));
+  writeJournal(root, { v: 1, generation: 'g0', pending: [] });
+  const { fsImpl } = countingFs(root, (n) => writeJournal(root, { v: 1, generation: `g${n}`, pending: [] }));
+  // A lock that looks stale but never goes away: acquireLock gives up without waiting.
+  const held = {
+    ...fsImpl,
+    mkdirSync: (p, o) => { if (String(p).endsWith('.lock')) throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' }); return fs.mkdirSync(p, o); },
+    statSync: (p, o) => (String(p).endsWith('.lock') ? { mtimeMs: 0 } : fs.statSync(p, o)),
+    rmdirSync: (p) => { if (!String(p).endsWith('.lock')) fs.rmdirSync(p); },
+  };
+  assert.throws(() => store.readEvents(root, { fsImpl: held }), (error) => error instanceof store.StoreLockedError && /^Could not lock .* Nothing was written\.$/s.test(error.message));
+});
+
 test('journal: a read made while the caller holds the lock returns on the first read, and the fold under it hides pending files', () => {
   const root = plainDir('journal-under-lock');
   eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));
