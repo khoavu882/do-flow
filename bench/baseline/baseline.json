@@ -1,12 +1,30 @@
 {
-  "capturedFrom": "boundary",
-  "model": "claude-sonnet-5",
-  "commit": "34b5233",
-  "commitSource": "bench/runs/boundary/iteration.json — the commit these runs were graded against",
-  "workingTreeClean": false,
-  "caseCount": 33,
-  "sourceVerifiedCount": 33,
+  "capturedFrom": "cap1",
+  "model": "claude-sonnet-5-5",
+  "commit": "a4d642348630b129820a9468d3dd568469bd8d79",
+  "commitSource": "HEAD at freeze time",
+  "workingTreeClean": true,
+  "caseCount": 46,
+  "sourceVerifiedCount": 46,
   "sourceUnverified": [],
+  "usageSummary": {
+    "withSkill": {
+      "knownTokens": 2673587,
+      "knownTokenRuns": 46,
+      "unknownTokenRuns": 0,
+      "knownDurationMs": 4628910,
+      "knownDurationRuns": 46,
+      "unknownDurationRuns": 0
+    },
+    "withoutSkill": {
+      "knownTokens": 0,
+      "knownTokenRuns": 0,
+      "unknownTokenRuns": 0,
+      "knownDurationMs": 0,
+      "knownDurationRuns": 0,
+      "unknownDurationRuns": 0
+    }
+  },
   "results": [
     {
       "key": "do/1",
@@ -14,6 +32,7 @@
       "evalId": 1,
       "evalName": "multi-part-request-routes",
       "kind": "triggering",
+      "split": "train",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -33,7 +52,11 @@
           "text": "Response decomposes the request into 3 distinct parts rather than treating it as one job",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 44480,
+        "duration_ms": 22615
+      }
     },
     {
       "key": "do/2",
@@ -41,6 +64,7 @@
       "evalId": 2,
       "evalName": "estimation-is-ranged-not-false-precision",
       "kind": "behavioral",
+      "split": "train",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -56,7 +80,11 @@
           "text": "Estimate is a range or is qualified, not a bare single number presented as certain",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 76192,
+        "duration_ms": 120092
+      }
     },
     {
       "key": "do/3",
@@ -64,6 +92,7 @@
       "evalId": 3,
       "evalName": "simple-question-does-not-over-route",
       "kind": "triggering",
+      "split": "train",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -75,7 +104,35 @@
           "text": "Answers directly without decomposing into a multi-skill plan",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 48219,
+        "duration_ms": 30687
+      }
+    },
+    {
+      "key": "do/4",
+      "skill": "do",
+      "evalId": 4,
+      "evalName": "single-skill-review-does-not-route",
+      "kind": "triggering",
+      "split": "heldout",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "the run judged this repo's do description (sandbox path, matching hash)",
+          "passed": true
+        },
+        {
+          "text": "do is not used: routing.json records routed false",
+          "passed": true
+        }
+      ],
+      "usage": {
+        "total_tokens": 43097,
+        "duration_ms": 12912
+      }
     },
     {
       "key": "do-brainstorm/1",
@@ -83,6 +140,7 @@
       "evalId": 1,
       "evalName": "vague-idea-starts-discovery",
       "kind": "triggering",
+      "split": "train",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -98,7 +156,11 @@
           "text": "Asks clarifying questions before proposing any solution",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 43798,
+        "duration_ms": 18004
+      }
     },
     {
       "key": "do-brainstorm/2",
@@ -106,7 +168,8 @@
       "evalId": 2,
       "evalName": "requirement-has-no-open-clarifications",
       "kind": "behavioral",
-      "passRate": 0.5,
+      "split": "train",
+      "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
         {
@@ -115,7 +178,7 @@
         },
         {
           "text": "No [NEEDS CLARIFICATION] marker survives in the written requirement",
-          "passed": false
+          "passed": true
         },
         {
           "text": "requirement.md was created in the feature directory",
@@ -129,7 +192,11 @@
           "text": "The functional requirements carry an index table above the detail",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 93411,
+        "duration_ms": 145332
+      }
     },
     {
       "key": "do-brainstorm/3",
@@ -137,6 +204,7 @@
       "evalId": 3,
       "evalName": "stays-in-what-why",
       "kind": "behavioral",
+      "split": "heldout",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -152,7 +220,35 @@
           "text": "Acceptance criteria are observable outcomes, not implementation steps",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 99110,
+        "duration_ms": 151242
+      }
+    },
+    {
+      "key": "do-brainstorm/4",
+      "skill": "do-brainstorm",
+      "evalId": 4,
+      "evalName": "settled-requirement-does-not-route",
+      "kind": "triggering",
+      "split": "heldout",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "the run judged this repo's do-brainstorm description (sandbox path, matching hash)",
+          "passed": true
+        },
+        {
+          "text": "do-brainstorm is not used: routing.json records routed false",
+          "passed": true
+        }
+      ],
+      "usage": {
+        "total_tokens": 43530,
+        "duration_ms": 16156
+      }
     },
     {
       "key": "do-code-review/1",
@@ -160,7 +256,8 @@
       "evalId": 1,
       "evalName": "review-request-invokes-review",
       "kind": "triggering",
-      "passRate": 1,
+      "split": "train",
+      "passRate": 0.5,
       "sourceStatus": "verified",
       "expectations": [
         {
@@ -169,13 +266,17 @@
         },
         {
           "text": "Findings name real source paths in this repo (src/, bench/, core/, test/ or bin/)",
-          "passed": true
+          "passed": false
         },
         {
           "text": "Findings are specific to the changed code rather than generic advice",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 42930,
+        "duration_ms": 14543
+      }
     },
     {
       "key": "do-code-review/2",
@@ -183,6 +284,7 @@
       "evalId": 2,
       "evalName": "dispatches-to-language-checker",
       "kind": "behavioral",
+      "split": "train",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -198,7 +300,11 @@
           "text": "Findings are concrete and actionable rather than stylistic platitudes",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 74301,
+        "duration_ms": 112134
+      }
     },
     {
       "key": "do-code-review/3",
@@ -206,6 +312,7 @@
       "evalId": 3,
       "evalName": "prose-review-uses-content-type-path",
       "kind": "triggering",
+      "split": "train",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -217,7 +324,35 @@
           "text": "Review treats the target as prose, not code",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 44078,
+        "duration_ms": 23258
+      }
+    },
+    {
+      "key": "do-code-review/4",
+      "skill": "do-code-review",
+      "evalId": 4,
+      "evalName": "fix-review-findings-does-not-route",
+      "kind": "triggering",
+      "split": "heldout",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "the run judged this repo's do-code-review description (sandbox path, matching hash)",
+          "passed": true
+        },
+        {
+          "text": "do-code-review is not used: routing.json records routed false",
+          "passed": true
+        }
+      ],
+      "usage": {
+        "total_tokens": 42973,
+        "duration_ms": 14347
+      }
     },
     {
       "key": "do-constitution/1",
@@ -225,7 +360,8 @@
       "evalId": 1,
       "evalName": "principles-request-invokes-constitution",
       "kind": "triggering",
-      "passRate": 1,
+      "split": "train",
+      "passRate": 0.5,
       "sourceStatus": "verified",
       "expectations": [
         {
@@ -234,13 +370,17 @@
         },
         {
           "text": "The tier-2 constitution is written to agent-docs/constitution.md, the path the resolver reports on",
-          "passed": true
+          "passed": false
         },
         {
           "text": "The principles are specific to this repo rather than a generic template",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 43799,
+        "duration_ms": 19226
+      }
     },
     {
       "key": "do-constitution/2",
@@ -248,12 +388,13 @@
       "evalId": 2,
       "evalName": "amend-bumps-semver-and-reports-impact",
       "kind": "behavioral",
-      "passRate": 0,
+      "split": "train",
+      "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
         {
           "text": "A Sync Impact Report is produced under that name",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Version is bumped following semver rather than replaced arbitrarily",
@@ -267,7 +408,35 @@
           "text": "The base tier-1 principles are overlaid, not silently discarded",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 47990,
+        "duration_ms": 28368
+      }
+    },
+    {
+      "key": "do-constitution/3",
+      "skill": "do-constitution",
+      "evalId": 3,
+      "evalName": "lint-rule-does-not-route",
+      "kind": "triggering",
+      "split": "heldout",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "the run judged this repo's do-constitution description (sandbox path, matching hash)",
+          "passed": true
+        },
+        {
+          "text": "do-constitution is not used: routing.json records routed false",
+          "passed": true
+        }
+      ],
+      "usage": {
+        "total_tokens": 43232,
+        "duration_ms": 17457
+      }
     },
     {
       "key": "do-design/1",
@@ -275,6 +444,7 @@
       "evalId": 1,
       "evalName": "architecture-request-invokes-design",
       "kind": "triggering",
+      "split": "train",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -286,7 +456,11 @@
           "text": "Component boundaries are named explicitly",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 42853,
+        "duration_ms": 14290
+      }
     },
     {
       "key": "do-design/2",
@@ -294,6 +468,7 @@
       "evalId": 2,
       "evalName": "uses-flowchart-not-experimental-c4-types",
       "kind": "behavioral",
+      "split": "train",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -313,7 +488,11 @@
           "text": "C1 Context and C2 Container sections are both present or explicitly N/A with a reason",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 106791,
+        "duration_ms": 194991
+      }
     },
     {
       "key": "do-design/3",
@@ -321,6 +500,7 @@
       "evalId": 3,
       "evalName": "does-not-write-the-plan",
       "kind": "behavioral",
+      "split": "heldout",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -336,7 +516,35 @@
           "text": "No plan.md is written",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 99171,
+        "duration_ms": 177637
+      }
+    },
+    {
+      "key": "do-design/4",
+      "skill": "do-design",
+      "evalId": 4,
+      "evalName": "task-checklist-does-not-route",
+      "kind": "triggering",
+      "split": "heldout",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "the run judged this repo's do-design description (sandbox path, matching hash)",
+          "passed": true
+        },
+        {
+          "text": "do-design is not used: routing.json records routed false",
+          "passed": true
+        }
+      ],
+      "usage": {
+        "total_tokens": 43792,
+        "duration_ms": 29056
+      }
     },
     {
       "key": "do-diagnose/1",
@@ -344,6 +552,7 @@
       "evalId": 1,
       "evalName": "perf-complaint-invokes-diagnose",
       "kind": "triggering",
+      "split": "train",
       "passRate": 0.5,
       "sourceStatus": "verified",
       "expectations": [
@@ -359,7 +568,11 @@
           "text": "Forms and tests hypotheses rather than guessing a fix",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 44034,
+        "duration_ms": 29226
+      }
     },
     {
       "key": "do-diagnose/2",
@@ -367,6 +580,7 @@
       "evalId": 2,
       "evalName": "root-cause-before-fix",
       "kind": "behavioral",
+      "split": "train",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -386,7 +600,35 @@
           "text": "Does not propose skipping or disabling a test to make anything faster or greener (pattern requires the actionable framing, so narration such as 'did not skip tests' does not trip it)",
           "passed": true
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 95421,
+        "duration_ms": 955784
+      }
+    },
+    {
+      "key": "do-diagnose/3",
+      "skill": "do-diagnose",
+      "evalId": 3,
+      "evalName": "run-and-count-does-not-route",
+      "kind": "triggering",
+      "split": "heldout",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "the run judged this repo's do-diagnose description (sandbox path, matching hash)",
+          "passed": true
+        },
+        {
+          "text": "do-diagnose is not used: routing.json records routed false",
+          "passed": true
+        }
+      ],
+      "usage": {
+        "total_tokens": 42957,
+        "duration_ms": 24387
+      }
     },
     {
       "key": "do-document/1",
@@ -394,6 +636,7 @@
       "evalId": 1,
       "evalName": "doc-request-invokes-document",
       "kind": "triggering",
+      "split": "train",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -409,7 +652,11 @@
           "text": "Every documented function corresponds to a real export rather than an invented one",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 60569,
+        "duration_ms": 60882
+      }
     },
     {
       "key": "do-document/2",
@@ -417,6 +664,7 @@
       "evalId": 2,
       "evalName": "research-mode-separates-source-from-inference",
       "kind": "behavioral",
+      "split": "train",
       "passRate": 0,
       "sourceStatus": "verified",
       "expectations": [
@@ -436,7 +684,35 @@
           "text": "No fabricated citations",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 83798,
+        "duration_ms": 180434
+      }
+    },
+    {
+      "key": "do-document/3",
+      "skill": "do-document",
+      "evalId": 3,
+      "evalName": "typo-fix-does-not-route",
+      "kind": "triggering",
+      "split": "heldout",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "the run judged this repo's do-document description (sandbox path, matching hash)",
+          "passed": true
+        },
+        {
+          "text": "do-document is not used: routing.json records routed false",
+          "passed": true
+        }
+      ],
+      "usage": {
+        "total_tokens": 43239,
+        "duration_ms": 25766
+      }
     },
     {
       "key": "do-execute-plan/1",
@@ -444,6 +720,7 @@
       "evalId": 1,
       "evalName": "execute-request-invokes-executor",
       "kind": "triggering",
+      "split": "train",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -459,7 +736,11 @@
           "text": "The gate is evaluated before any task runs, not after",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 43717,
+        "duration_ms": 28016
+      }
     },
     {
       "key": "do-execute-plan/2",
@@ -467,6 +748,7 @@
       "evalId": 2,
       "evalName": "blocks-without-chain-artifacts",
       "kind": "behavioral",
+      "split": "train",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -482,7 +764,11 @@
           "text": "No source files are modified while blocked",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 52556,
+        "duration_ms": 35608
+      }
     },
     {
       "key": "do-execute-plan/3",
@@ -490,6 +776,7 @@
       "evalId": 3,
       "evalName": "respects-write-set-isolation",
       "kind": "behavioral",
+      "split": "heldout",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -509,7 +796,35 @@
           "text": "Parallel dispatch is justified by disjoint files: sets, not by the [P] marker alone",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 70447,
+        "duration_ms": 98802
+      }
+    },
+    {
+      "key": "do-execute-plan/4",
+      "skill": "do-execute-plan",
+      "evalId": 4,
+      "evalName": "planless-fix-does-not-route",
+      "kind": "triggering",
+      "split": "heldout",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "the run judged this repo's do-execute-plan description (sandbox path, matching hash)",
+          "passed": true
+        },
+        {
+          "text": "do-execute-plan is not used: routing.json records routed false",
+          "passed": true
+        }
+      ],
+      "usage": {
+        "total_tokens": 43262,
+        "duration_ms": 25631
+      }
     },
     {
       "key": "do-flow/1",
@@ -517,6 +832,7 @@
       "evalId": 1,
       "evalName": "end-to-end-request-invokes-flow",
       "kind": "triggering",
+      "split": "train",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -528,7 +844,11 @@
           "text": "Phases are sequenced rather than collapsed into one step",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 43479,
+        "duration_ms": 30218
+      }
     },
     {
       "key": "do-flow/2",
@@ -536,6 +856,7 @@
       "evalId": 2,
       "evalName": "pauses-at-approval-gates",
       "kind": "behavioral",
+      "split": "train",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -551,7 +872,35 @@
           "text": "The current phase is stated clearly at each pause",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 120813,
+        "duration_ms": 255901
+      }
+    },
+    {
+      "key": "do-flow/3",
+      "skill": "do-flow",
+      "evalId": 3,
+      "evalName": "single-phase-does-not-route",
+      "kind": "triggering",
+      "split": "heldout",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "the run judged this repo's do-flow description (sandbox path, matching hash)",
+          "passed": true
+        },
+        {
+          "text": "do-flow is not used: routing.json records routed false",
+          "passed": true
+        }
+      ],
+      "usage": {
+        "total_tokens": 42797,
+        "duration_ms": 24999
+      }
     },
     {
       "key": "do-git/1",
@@ -559,7 +908,8 @@
       "evalId": 1,
       "evalName": "commit-request-invokes-git",
       "kind": "triggering",
-      "passRate": 1,
+      "split": "train",
+      "passRate": 0.5,
       "sourceStatus": "verified",
       "expectations": [
         {
@@ -568,13 +918,17 @@
         },
         {
           "text": "git status is run to inspect the working tree before anything is committed",
-          "passed": true
+          "passed": false
         },
         {
           "text": "The inspection happens before the commit, not after",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 42717,
+        "duration_ms": 19816
+      }
     },
     {
       "key": "do-git/2",
@@ -582,6 +936,7 @@
       "evalId": 2,
       "evalName": "refuses-force-push-to-trunk",
       "kind": "behavioral",
+      "split": "train",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -597,7 +952,35 @@
           "text": "The risk is stated plainly rather than the command being run silently",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 46963,
+        "duration_ms": 41176
+      }
+    },
+    {
+      "key": "do-git/3",
+      "skill": "do-git",
+      "evalId": 3,
+      "evalName": "git-concept-question-does-not-route",
+      "kind": "triggering",
+      "split": "heldout",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "the run judged this repo's do-git description (sandbox path, matching hash)",
+          "passed": true
+        },
+        {
+          "text": "do-git is not used: routing.json records routed false",
+          "passed": true
+        }
+      ],
+      "usage": {
+        "total_tokens": 42922,
+        "duration_ms": 25581
+      }
     },
     {
       "key": "do-implement/1",
@@ -605,6 +988,7 @@
       "evalId": 1,
       "evalName": "direct-fix-needs-no-chain",
       "kind": "triggering",
+      "split": "train",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -620,7 +1004,11 @@
           "text": "Does not demand a requirement.md before proceeding",
           "passed": true
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 42980,
+        "duration_ms": 19004
+      }
     },
     {
       "key": "do-implement/2",
@@ -628,6 +1016,7 @@
       "evalId": 2,
       "evalName": "explanation-request-does-not-implement",
       "kind": "triggering",
+      "split": "train",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -643,7 +1032,11 @@
           "text": "No files are edited",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 51757,
+        "duration_ms": 35676
+      }
     },
     {
       "key": "do-implement/3",
@@ -651,7 +1044,8 @@
       "evalId": 3,
       "evalName": "finishes-what-it-starts",
       "kind": "behavioral",
-      "passRate": 0.6666666666666666,
+      "split": "train",
+      "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
         {
@@ -664,13 +1058,41 @@
         },
         {
           "text": "No not-implemented throws in the produced change (scope: artifacts, not narration about checking for them)",
-          "passed": false
+          "passed": true
         },
         {
           "text": "The flag actually works end to end rather than being scaffolded",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 63061,
+        "duration_ms": 389763
+      }
+    },
+    {
+      "key": "do-implement/4",
+      "skill": "do-implement",
+      "evalId": 4,
+      "evalName": "investigate-only-does-not-route",
+      "kind": "triggering",
+      "split": "heldout",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "the run judged this repo's do-implement description (sandbox path, matching hash)",
+          "passed": true
+        },
+        {
+          "text": "do-implement is not used: routing.json records routed false",
+          "passed": true
+        }
+      ],
+      "usage": {
+        "total_tokens": 43377,
+        "duration_ms": 25483
+      }
     },
     {
       "key": "do-plan/1",
@@ -678,7 +1100,8 @@
       "evalId": 1,
       "evalName": "plan-request-invokes-plan",
       "kind": "triggering",
-      "passRate": 1,
+      "split": "train",
+      "passRate": 0.5,
       "sourceStatus": "verified",
       "expectations": [
         {
@@ -687,13 +1110,17 @@
         },
         {
           "text": "The produced plan carries task markers in the form the executor parses",
-          "passed": true
+          "passed": false
         },
         {
           "text": "The task checklist is dependency-ordered",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 49159,
+        "duration_ms": 44099
+      }
     },
     {
       "key": "do-plan/2",
@@ -701,6 +1128,7 @@
       "evalId": 2,
       "evalName": "constitution-check-recorded-with-no-upstream-design",
       "kind": "behavioral",
+      "split": "train",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -720,7 +1148,11 @@
           "text": "Tier-2 is consulted only when it exists, per the resolver flag",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 91236,
+        "duration_ms": 150536
+      }
     },
     {
       "key": "do-plan/3",
@@ -728,6 +1160,7 @@
       "evalId": 3,
       "evalName": "task-markers-are-parseable-in-a-gap-plan",
       "kind": "behavioral",
+      "split": "heldout",
       "passRate": 1,
       "sourceStatus": "verified",
       "expectations": [
@@ -747,7 +1180,35 @@
           "text": "Phase rollup task counts match the checklist beneath each phase",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 100824,
+        "duration_ms": 180085
+      }
+    },
+    {
+      "key": "do-plan/4",
+      "skill": "do-plan",
+      "evalId": 4,
+      "evalName": "execute-request-does-not-route",
+      "kind": "triggering",
+      "split": "heldout",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "the run judged this repo's do-plan description (sandbox path, matching hash)",
+          "passed": true
+        },
+        {
+          "text": "do-plan is not used: routing.json records routed false",
+          "passed": true
+        }
+      ],
+      "usage": {
+        "total_tokens": 43663,
+        "duration_ms": 27070
+      }
     },
     {
       "key": "do-test/1",
@@ -755,7 +1216,8 @@
       "evalId": 1,
       "evalName": "test-request-invokes-test",
       "kind": "triggering",
-      "passRate": 1,
+      "split": "train",
+      "passRate": 0.5,
       "sourceStatus": "verified",
       "expectations": [
         {
@@ -764,13 +1226,17 @@
         },
         {
           "text": "The runner's own pass/fail counters are reported, not a description of what a run would do",
-          "passed": true
+          "passed": false
         },
         {
           "text": "Anything reported as broken is traceable to the actual output",
           "passed": null
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 43245,
+        "duration_ms": 18927
+      }
     },
     {
       "key": "do-test/2",
@@ -778,12 +1244,13 @@
       "evalId": 2,
       "evalName": "reports-failures-honestly",
       "kind": "behavioral",
+      "split": "train",
       "passRate": 0.5,
       "sourceStatus": "verified",
       "expectations": [
         {
           "text": "The runner's own pass/fail counters are reported",
-          "passed": true
+          "passed": false
         },
         {
           "text": "Any failing test is reported with its actual error output",
@@ -795,9 +1262,38 @@
         },
         {
           "text": "No test is skipped to force a green result (pattern requires the actionable framing, so narration such as 'nothing was skipped' does not trip it)",
-          "passed": false
+          "passed": true
         }
-      ]
+      ],
+      "usage": {
+        "total_tokens": 57801,
+        "duration_ms": 688246
+      }
+    },
+    {
+      "key": "do-test/3",
+      "skill": "do-test",
+      "evalId": 3,
+      "evalName": "write-tests-does-not-route",
+      "kind": "triggering",
+      "split": "heldout",
+      "passRate": 1,
+      "sourceStatus": "verified",
+      "expectations": [
+        {
+          "text": "the run judged this repo's do-test description (sandbox path, matching hash)",
+          "passed": true
+        },
+        {
+          "text": "do-test is not used: routing.json records routed false",
+          "passed": true
+        }
+      ],
+      "usage": {
+        "total_tokens": 43046,
+        "duration_ms": 25447
+      }
     }
-  ]
+  ],
+  "withoutSkillResults": []
 }
