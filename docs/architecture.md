@@ -537,7 +537,9 @@ the G18 pair — between them the reason the list runs G18 then G20; and `bounda
   8,000 characters, the figure Codex applies when the model's context window is unknown.
 - **G23** (`hidden-unicode.test.js`) — shipped prose and code are read by models and by reviewers, and
   a code point that renders as nothing (tag characters, zero-width characters, bidirectional
-  controls, invisible operators) can carry instructions or reorder text no reviewer sees. Every file
+  controls, invisible operators, variation selectors, soft hyphens, filler characters) can carry
+  instructions or reorder text no reviewer sees. U+FE0E and U+FE0F after a pictograph or a keycap base
+  choose an emoji's presentation and are allowed; a leading byte order mark counts as a finding. Every file
   under `core/`, `src/`, `bin/` and `docs/`, and `README.md`, must hold none and must decode as strict
   UTF-8, so an undecodable file cannot slip past unscanned. `test/` and `bench/` are not scanned:
   `test/` holds deliberate bidirectional fixtures.
