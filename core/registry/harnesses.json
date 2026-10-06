@@ -287,49 +287,49 @@
         "instructions": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/agent-configuration/agents-md"
+            "https://learn.chatgpt.com/docs/agent-configuration/agents-md"
           ],
           "verification": "Confirm the managed AGENTS.md section is applied at the project root (or ~/.codex/AGENTS.md globally)."
         },
         "skills": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/build-skills"
+            "https://learn.chatgpt.com/docs/build-skills"
           ],
           "verification": "Confirm Codex discovers the installed skill from .agents/skills (repo scope) or ~/.agents/skills (user scope); Codex never scans .codex/skills."
         },
         "agents": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/agent-configuration/subagents"
+            "https://learn.chatgpt.com/docs/agent-configuration/subagents"
           ],
           "verification": "Delegate a test task to a custom agent."
         },
         "scripts": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/concepts/customization"
+            "https://learn.chatgpt.com/docs/customization/overview"
           ],
           "verification": "Confirm referenced scripts exist."
         },
         "templates": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/concepts/customization"
+            "https://learn.chatgpt.com/docs/customization/overview"
           ],
           "verification": "Confirm a skill can read its template."
         },
         "modes": {
           "status": "unavailable",
           "evidence": [
-            "https://developers.openai.com/codex/concepts/customization"
+            "https://learn.chatgpt.com/docs/customization/overview"
           ],
           "verification": "Report the capability gap; do not render a native mode."
         },
         "settings": {
           "status": "different",
           "evidence": [
-            "https://developers.openai.com/codex/config-file/config-advanced"
+            "https://learn.chatgpt.com/docs/config-file/config-advanced"
           ],
           "prerequisites": [
             "trusted-project"
@@ -339,7 +339,7 @@
         "hooks": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/hooks"
+            "https://learn.chatgpt.com/docs/hooks"
           ],
           "prerequisites": [
             "trusted-project",
@@ -380,21 +380,33 @@
             },
             "PermissionDenied": {
               "status": "unavailable",
-              "note": "Codex exposes no permission-decision event."
+              "note": "Codex documents PermissionRequest before an approval prompt and no event after a denial."
+            },
+            "PermissionRequest": {
+              "status": "different",
+              "note": "Native PermissionRequest runs before an approval prompt; DoFlow projects no policy to it on Codex."
+            },
+            "PostCompact": {
+              "status": "different",
+              "note": "Native PostCompact exists; DoFlow's post-compact policy is not projected to Codex."
+            },
+            "Interrupt": {
+              "status": "different",
+              "note": "Native Interrupt runs when a turn is interrupted, not for subagents; no DoFlow policy maps to it."
             }
           }
         },
         "mcp": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/extend/mcp"
+            "https://learn.chatgpt.com/docs/extend/mcp"
           ],
           "verification": "Confirm selected MCP servers connect."
         },
         "plugin": {
           "status": "supported",
           "evidence": [
-            "https://developers.openai.com/codex/build-plugins"
+            "https://learn.chatgpt.com/docs/build-plugins"
           ],
           "prerequisites": [
             "user-activation"
@@ -411,7 +423,7 @@
         "evidence": [
           "https://learn.chatgpt.com/docs/agent-configuration/agents-md"
         ],
-        "note": "AGENTS.md discovery is documented as: \"1. Global scope: In your Codex home directory ... Codex reads AGENTS.override.md if it exists. Otherwise, Codex reads AGENTS.md. 2. Project scope: Starting at the project root ...\", then \"Codex concatenates files from the root down ... Files closer to your current directory override earlier guidance because they appear later in the combined prompt.\" This URL is the current redirect target of https://developers.openai.com/codex/guides/agents-md (308 Permanent Redirect, same OpenAI docs property). Codex concatenates and states that files closer to the working directory override earlier guidance because they appear later, so the LAST scope consulted takes effect: the project copy wins despite being consulted second.",
+        "note": "AGENTS.md discovery is documented as: \"1. Global scope: In your Codex home directory ... Codex reads AGENTS.override.md if it exists. Otherwise, Codex reads AGENTS.md. 2. Project scope: Starting at the project root ...\", then \"Codex concatenates files from the root down ... Files closer to your current directory override earlier guidance because they appear later in the combined prompt.\" Codex concatenates and states that files closer to the working directory override earlier guidance because they appear later, so the LAST scope consulted takes effect: the project copy wins despite being consulted second.",
         "determinedOn": "2026-09-27",
         "mode": "last-wins"
       }
@@ -426,6 +438,7 @@
       ],
       "nativeTargets": {
         "instructions": "GEMINI.md",
+        "agents": ".gemini/agents",
         "hooks": "settings.json"
       },
       "paths": {
@@ -490,11 +503,12 @@
           "verification": "Confirm the installed skill is discoverable."
         },
         "agents": {
-          "status": "different",
+          "status": "supported",
           "evidence": [
-            "https://github.com/google-gemini/gemini-cli"
+            "https://geminicli.com/docs/core/subagents"
           ],
-          "verification": "Report the shared-prompt projection and native limitations."
+          "note": "Flat <name>.md files; frontmatter limited to Gemini's documented keys by the gemini-agents transform.",
+          "verification": "Confirm Gemini CLI lists the installed agents from .gemini/agents."
         },
         "scripts": {
           "status": "supported",
@@ -1144,9 +1158,10 @@
         "instructions": {
           "status": "supported",
           "evidence": [
-            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot"
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot",
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-custom-instructions"
           ],
-          "verification": "Confirm .github/copilot-instructions.md is loaded by Copilot CLI; no documented global-instructions equivalent exists beyond the shared, generic AGENTS.md file."
+          "verification": "Confirm .github/copilot-instructions.md is loaded by Copilot CLI. A user-level ~/.copilot/copilot-instructions.md (or $COPILOT_HOME/copilot-instructions.md) also exists upstream; DoFlow writes nothing there."
         },
         "skills": {
           "status": "supported",
@@ -1399,9 +1414,10 @@
           "status": "supported",
           "evidence": [
             "https://kiro.dev/docs/hooks/",
-            "https://kiro.dev/docs/hooks/actions/"
+            "https://kiro.dev/docs/hooks/actions/",
+            "https://kiro.dev/docs/permissions/"
           ],
-          "note": "`.kiro/hooks/*.json` (flat `{version, hooks: [...]}` array, each entry naming its own `trigger`) is a confirmed, writable hook surface that activates automatically on session start — no trust/review prerequisite, unlike Codex's hooks.json. Confirmed trigger names: SessionStart, Stop, PreToolUse, PostToolUse, UserPromptSubmit, PreTaskExec, PostTaskExec, PostFileSave, PostFileCreate, PostFileDelete; PreToolUse/UserPromptSubmit/PreTaskExec are documented as blockable via a non-zero command exit code. DoFlow now projects a real doflow.json (kiro.hooks-scripts asset) wiring SessionStart, PreToolUse (x2: pre-implementation-gate and mcp-tool-guard), and Stop to the same shared session-start/stop-check implementations Claude and Codex reuse. Kiro's docs mark Stop as explicitly NOT blockable (only PreToolUse/UserPromptSubmit/PreTaskExec block via non-zero exit), so stop-check's stub-detection runs advisory-only on Kiro — exit 0 stdout is injected as context rather than enforced.",
+          "note": "`.kiro/hooks/*.json` (flat `{version, hooks: [...]}` array, each entry naming its own `trigger`) is a confirmed, writable hook surface that is not in Kiro v3's untrusted-workspace exclusion list (custom agents, steering, MCP configuration, skills, workflows); an untrusted workspace asks before every shell command, and whether that covers hook commands is undocumented. Confirmed trigger names: SessionStart, Stop, PreToolUse, PostToolUse, UserPromptSubmit, PreTaskExec, PostTaskExec, PostFileSave, PostFileCreate, PostFileDelete; PreToolUse/UserPromptSubmit/PreTaskExec are documented as blockable via a non-zero command exit code. DoFlow now projects a real doflow.json (kiro.hooks-scripts asset) wiring SessionStart, PreToolUse (x2: pre-implementation-gate and mcp-tool-guard), and Stop to the same shared session-start/stop-check implementations Claude and Codex reuse. Kiro's docs mark Stop as explicitly NOT blockable (only PreToolUse/UserPromptSubmit/PreTaskExec block via non-zero exit), so stop-check's stub-detection runs advisory-only on Kiro — exit 0 stdout is injected as context rather than enforced.",
           "verification": "Confirm a projected hook file under .kiro/hooks/ is present, is well-formed JSON with the expected trigger names, and that a PreToolUse hook's non-zero exit actually blocks the tool call on the installed Kiro CLI."
         },
         "mcp": {

@@ -409,12 +409,12 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-twenty-nine test files (plus `_shared.js`, a helper rather than a test); the twenty-two listed
-below are the ones this inventory documents, and they carry twenty distinct G-numbers because two
+thirty-one test files (plus `_shared.js`, a helper rather than a test); the twenty-four listed
+below are the ones this inventory documents, and they carry twenty-two distinct G-numbers because two
 numbers are used twice. Name the file, not the number, when you mean a specific guard: across the
 whole directory three numbers are claimed by two files each — G11 and G13, both pairs listed below,
 and G18, whose second claimant `adapter-force.test.js` is not. The collisions are historical rather
-than a convention; G22 is the highest number in use, so a new guard takes the next one above it
+than a convention; G24 is the highest number in use, so a new guard takes the next one above it
 instead of adding a fourth. The list is not the whole directory. The seven files absent from it are
 `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then G18;
 `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half of
@@ -469,7 +469,11 @@ the G18 pair — between them the reason the list runs G18 then G20; and `bounda
 - **G13** (`context-budget.test.js`, same number, different guard) — the DoFlow-authored
   always-loaded set stays within its byte ceiling and every import in it resolves; and every task
   class stays within its loaded-context rail (SKILL.md entries plus named references, summed over
-  the class's resolved workflow skills — a coarse drift rail, not a byte-exact pin). A rail is raised deliberately, in its own commit, with the measured value beside it.
+  the class's resolved workflow skills — a coarse drift rail, not a byte-exact pin). A rail is raised deliberately, in its own commit, with the measured value beside it. A size view alongside the rails
+  reports lines and bytes per always-loaded file and per harness (what each harness's projections
+  load before the user types, classified from the registry) as diagnostics, so a change shows what it
+  costs each harness; a harness the classification does not recognize fails the guard rather than
+  reporting zero.
 - **G14** (`agent-specs.test.js`) — an agent specification references no file outside itself, since
   a dispatched agent has no working directory to resolve one against.
 - **G15** (`skill-seam.test.js`) — one path to the runtime entrypoint, one spelling of the resolver
@@ -521,7 +525,21 @@ the G18 pair — between them the reason the list runs G18 then G20; and `bounda
 - **G22** (`skill-caps.test.js`) — every `SKILL.md` stays inside the host's skill limits: listing text
   (`description` plus `when_to_use`) at most 1,536 characters, the file at most 20,000 bytes with
   `## Boundaries` starting inside them (the post-compaction window), and each task class's workflow
-  skills at most 100,000 bytes together.
+  skills at most 100,000 bytes together. The listing text summed over every skill also stays within
+  8,000 characters, the figure Codex applies when the model's context window is unknown.
+- **G23** (`hidden-unicode.test.js`) — shipped prose and code are read by models and by reviewers, and
+  a code point that renders as nothing (tag characters, zero-width characters, bidirectional
+  controls, invisible operators) can carry instructions or reorder text no reviewer sees. Every file
+  under `core/`, `src/`, `bin/` and `docs/`, and `README.md`, must hold none and must decode as strict
+  UTF-8, so an undecodable file cannot slip past unscanned. `test/` and `bench/` are not scanned:
+  `test/` holds deliberate bidirectional fixtures.
+- **G24** (`instruction-lint.test.js`) — the guidance, skills and agent specs the harnesses load tell a
+  model to read files and run `doflow-run` verbs, and nothing else checked those instructions against
+  the tree. Every `doflow-run <verb>` they name must be a verb the dispatcher serves, every backticked
+  path they cite must resolve to a file or directory that ships (G8 does the same for `docs/` and
+  `README.md`), and no two contradictory defaults may both be present. A path or verb intentionally
+  absent from the tree is declared in `instruction-lint.json`; an entry that suppresses nothing, or a
+  malformed policy file, fails the lint, so the policy cannot rot into a blanket suppression.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

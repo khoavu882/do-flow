@@ -120,12 +120,12 @@ Use `/do-flow "add a customer export"` to run the same sequence with its approva
 
 Codex hooks are installed as `hooks.json` but require review/trust in Codex before they run.
 Gemini hooks merge into a `hooks` key inside `settings.json` (never a full-file replace) and are
-similarly subject to Gemini's own hook trust/review gating. Kiro's hooks activate immediately, with
-no trust/review gate. Copilot CLI documents hooks, settings, and a plugin marketplace upstream;
-DoFlow still installs none of those there. OpenCode and Pi standard-adopt `AGENTS.md` for
-seamless zero-drift rule projection. See
-`docs/capability-map.md` and the [installation matrix](docs/setup.md#what-gets-installed) for the
-exact mapping.
+similarly subject to Gemini's own hook trust/review gating. Kiro's hooks are not in Kiro v3's
+untrusted-workspace exclusion list; an untrusted workspace asks before every shell command, and
+whether that covers hook commands is undocumented. Copilot CLI documents hooks, settings, and a
+plugin marketplace upstream; DoFlow still installs none of those there. OpenCode and Pi
+standard-adopt `AGENTS.md` for seamless zero-drift rule projection. See `docs/capability-map.md`
+and the [installation matrix](docs/setup.md#what-gets-installed) for the exact mapping.
 
 ## Contributing
 

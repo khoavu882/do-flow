@@ -205,7 +205,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
 
   // ---- guidance.codex-pointer instructions (AGENTS.md managed-section merge) ----
   // Codex discovers AGENTS.md at the repository root and walks down toward the CWD, plus
-  // ~/.codex/AGENTS.md for global scope (developers.openai.com/codex/agent-configuration/agents-md).
+  // ~/.codex/AGENTS.md for global scope (learn.chatgpt.com/docs/agent-configuration/agents-md).
   // A project-scoped file inside .codex/ is not in that discovery chain and would never load, so
   // the project-scope managed section must land at the project root itself — both locations are
   // declared in harnesses.json (paths.instructions). The registry declares this asset's codex

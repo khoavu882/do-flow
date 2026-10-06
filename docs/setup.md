@@ -23,17 +23,19 @@ one. All eight are fully declared, adapted, and installable via `--target <id>`.
 | Agent | `--target` value | What DoFlow installs |
 |---|---|---|
 | [Claude Code](https://claude.com/claude-code) | `claude` | `CLAUDE.md`, skills, agents, hooks, MCP registration, session context |
-| [Codex](https://developers.openai.com/codex/customization/overview) | `codex` | `AGENTS.md` (project root, or `~/.codex/AGENTS.md` globally), skills at `.agents/skills/` (the only tree Codex scans), scripts and templates in the shared `.doflow/` tree, agents (`.codex/agents/*.toml`), hooks (`.codex/hooks.json`), MCP via `config.toml` |
-| [Gemini CLI](https://geminicli.com/) / [Antigravity](https://antigravity.google/) | `gemini` | `GEMINI.md`, guidance, skills, agents, and hooks merged into `settings.json` |
+| [Codex](https://learn.chatgpt.com/docs/customization/overview) | `codex` | `AGENTS.md` (project root, or `~/.codex/AGENTS.md` globally), skills at `.agents/skills/` (the only tree Codex scans), scripts and templates in the shared `.doflow/` tree, agents (`.codex/agents/*.toml`), hooks (`.codex/hooks.json`), MCP via `config.toml` |
+| [Gemini CLI](https://geminicli.com/) / [Antigravity](https://antigravity.google/) | `gemini` | `GEMINI.md`, guidance, skills, agents (`<projectRoot>/.gemini/agents/<name>.md` project, `~/.gemini/agents/<name>.md` global), and hooks merged into `settings.json` |
 | [OpenCode](https://opencode.ai/) | `opencode` | Managed `AGENTS.md` section (registered via `opencode.json`'s `instructions[]`), skills discovered natively at `.opencode/skills/` (project) or `~/.config/opencode/skills/` (global), the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP servers merged into `opencode.json`'s `mcp` key |
 | [Pi](https://pi.dev/) | `pi` | Managed `AGENTS.md` section, skills discovered at `.pi/skills/` (project) or `~/.pi/agent/skills/` (global) via the `skills[]` array in `settings.json`, the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP delegated to the separate `pi-mcp-adapter` extension (not written by DoFlow) |
 | [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli) | `copilot` | `.github/copilot-instructions.md` (DoFlow writes project scope only; a personal `~/.copilot/copilot-instructions.md` also exists upstream but receives nothing), skills at `.agents/skills/` (project) or `~/.agents/skills/` (global), agents at `.github/agents/` (project) or `~/.copilot/agents/` (global), the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP merged into `.mcp.json` (project) or `~/.copilot/mcp-config.json` (global) |
-| [Kiro](https://kiro.dev/) | `kiro` | Guidance projected as steering files under `.kiro/steering/` (project) or `~/.kiro/steering/` (global), skills at `.kiro/skills/`, the `doflow-run` dispatcher and runtime in the shared `.doflow/` tree, agents at `.kiro/agents/`, hooks at `.kiro/hooks/` (active without a trust/review gate), and MCP via `.kiro/settings/mcp.json` |
+| [Kiro](https://kiro.dev/) | `kiro` | Guidance projected as steering files under `.kiro/steering/` (project) or `~/.kiro/steering/` (global), skills at `.kiro/skills/`, the `doflow-run` dispatcher and runtime in the shared `.doflow/` tree, agents at `.kiro/agents/`, hooks at `.kiro/hooks/` (not in Kiro's untrusted-workspace exclusion list; whether its shell-command prompt covers hooks is undocumented), and MCP via `.kiro/settings/mcp.json` |
 | [Antigravity CLI](https://antigravity.google/) (`agy`) | `antigravity` | Managed `AGENTS.md` section (project), skills at `.agents/skills/`, shared agents at `.agents/agents/` (project) or `~/.gemini/config/agents/` (global), the runtime locator, the `doflow-run` dispatcher and runtime in the shared `.doflow/` tree (project scope only), and MCP merged into `.agents/mcp_config.json` / `~/.gemini/config/mcp_config.json` (remote servers project to `serverUrl`). Global instructions and user-scope skills are intentionally untouched — see the registry notes for why |
 
 Codex and Gemini both gate hook execution behind their own trust/review step — DoFlow writes the
-configuration, but neither runs a hook until you approve it in that tool. Kiro's hooks activate
-immediately, with no trust/review gate. Copilot CLI now documents hooks (`.github/hooks/`,
+configuration, but neither runs a hook until you approve it in that tool. Kiro's hooks are
+not in Kiro v3's untrusted-workspace exclusion list (custom agents, steering, MCP configuration,
+skills, workflows); an untrusted workspace asks before every shell command, and whether that covers
+hook commands is undocumented. Copilot CLI now documents hooks (`.github/hooks/`,
 `~/.copilot/hooks/`), settings files, and a plugin-marketplace system upstream; DoFlow projects
 none of them yet, so its Copilot adapter stops at instructions, skills, agents, and MCP. OpenCode
 and Pi have no hook projection either: both
@@ -145,19 +147,21 @@ surface and its customization surface follow different conventions:
 | What | Project-scope location | Why |
 |---|---|---|
 | Skills | `<projectRoot>/.agents/skills/` | Antigravity customization convention |
-| Agents | `<projectRoot>/.agents/agents/<name>/agent.md` | Antigravity discovers a custom agent as a **directory** containing `agent.md`, not a flat `<name>.md` |
+| Agents | `<projectRoot>/.gemini/agents/<name>.md` | Gemini CLI discovers a custom agent as a flat `<name>.md` under `.gemini/agents/`; DoFlow keeps only the frontmatter keys Gemini documents |
 | `settings.json`, `hooks/` | `<projectRoot>/.gemini/` | Gemini CLI reads its own config from `.gemini/` in both scopes |
 | `GEMINI.md` | `<projectRoot>/GEMINI.md` | Gemini reads the instruction file from the workspace root |
 
 A project install therefore creates `.agents/`, `.gemini/`, and a root `GEMINI.md`. Auditing what
-DoFlow wrote into a repo means checking all three, not `.agents/` alone.
+DoFlow wrote into a repo means checking all three, not `.agents/` alone. Globally, agents land at
+`~/.gemini/agents/<name>.md`. Antigravity keeps its own folder form,
+`.agents/agents/<name>/agent.md`.
 
 Copilot CLI splits the same way, for the same reason — its instructions, skills, agents, and MCP
 each follow their own documented convention rather than one shared root:
 
 | What | Project-scope location | Global-scope location |
 |---|---|---|
-| Instructions | `<projectRoot>/.github/copilot-instructions.md` | Not supported — Copilot documents no global instructions file |
+| Instructions | `<projectRoot>/.github/copilot-instructions.md` | Not written — a user-level `~/.copilot/copilot-instructions.md` (or `$COPILOT_HOME/copilot-instructions.md`) exists upstream; DoFlow writes nothing there |
 | Skills | `<projectRoot>/.agents/skills/` | `~/.agents/skills/` |
 | Agents | `<projectRoot>/.github/agents/` | `~/.copilot/agents/` |
 | MCP | `<projectRoot>/.mcp.json` | `~/.copilot/mcp-config.json` |
@@ -245,7 +249,7 @@ and a no-op update leaves the lock byte-untouched.
 | Skills | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓
 | Scripts and templates | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓
 | Modes | ✓ | Native mode unavailable | Guidance projection | Guidance projection | Guidance projection | Guidance projection | Guidance projection (steering) | Guidance projection
-| Hooks and settings | ✓ | Hooks require trust/review; settings differ | Hooks merge into settings.json, require trust/review; some events unmapped | No hook projection (plugin module required); settings supported via `opencode.json` | No hook projection (extension module required); settings supported via `settings.json` | Hooks documented upstream but not projected (Claude-payload coupling); settings supported via named-key merge into `.github/copilot/settings.json` | Hooks supported via `.kiro/hooks/`, no trust/review gate; no general settings file beyond MCP | Unavailable — projects into Gemini-compatible surfaces instead |
+| Hooks and settings | ✓ | Hooks require trust/review; settings differ | Hooks merge into settings.json, require trust/review; some events unmapped | No hook projection (plugin module required); settings supported via `opencode.json` | No hook projection (extension module required); settings supported via `settings.json` | Hooks documented upstream but not projected (Claude-payload coupling); settings supported via named-key merge into `.github/copilot/settings.json` | Hooks supported via `.kiro/hooks/`, not in Kiro's untrusted-workspace exclusion list; no general settings file beyond MCP | Unavailable — projects into Gemini-compatible surfaces instead |
 | MCP registration | ✓ | ✓ | Native registration differs | ✓ (`opencode.json`) | Delegated to the separate `pi-mcp-adapter` extension, not written by DoFlow | ✓ (`.mcp.json` / `mcp-config.json`) | ✓ (`.kiro/settings/mcp.json`) | ✓ (`.agents/mcp_config.json` / `~/.gemini/config/mcp_config.json`) |
 
 This is a capability contract, not a statement that every native surface is active after copying

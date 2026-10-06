@@ -1,0 +1,47 @@
+{
+  "allow": [
+    {
+      "kind": "path",
+      "target": "MCP_INDEX.md",
+      "reason": "generated per install from the selected MCP servers, as G13's GENERATED_EXCLUSIONS records"
+    },
+    {
+      "kind": "path",
+      "target": "^\\.doflow/state/",
+      "match": "regex",
+      "reason": "runtime state the installed runtime creates in a project (src/state/index.js, src/runtime/evidence-ledger.js)"
+    },
+    {
+      "kind": "path",
+      "target": "MANIFEST.md",
+      "files": ["core/shared/skills/do-execute-plan/references/scaffold.md"],
+      "reason": "written by `doflow-run scaffold` into a feature's scaffold/ directory"
+    }
+  ],
+  "pairs": [
+    {
+      "id": "parallel-vs-sequential-default",
+      "a": "\\bparallel by default\\b|\\bdefault to parallel\\b",
+      "b": "\\bsequential by default\\b|\\bdefault to sequential\\b",
+      "reason": "the shipped guidance must not set both parallel and sequential as the default"
+    },
+    {
+      "id": "ask-only-vs-always-ask",
+      "a": "\\bask only\\b",
+      "b": "\\balways ask\\b|\\bask before (each|every)\\b|\\bconfirm before (each|every)\\b",
+      "reason": "the shipped guidance must not both limit questions to user-owned decisions and ask before every step"
+    },
+    {
+      "id": "continue-vs-wait-at-plan",
+      "a": "\\bcontinue into execution\\b",
+      "b": "\\bwait for approval (again|after the plan)\\b",
+      "reason": "the shipped guidance must not both continue into execution after an approved plan and wait for approval again"
+    },
+    {
+      "id": "incremental-vs-no-commit",
+      "a": "\\bcommit incrementally\\b|\\bcommit each\\b",
+      "b": "\\b(never|do not) commit\\b(?! (secrets?|credentials?|tokens?|\\.env|to (main|master)|directly))",
+      "reason": "the shipped guidance must not both require incremental commits and forbid committing"
+    }
+  ]
+}

@@ -98,9 +98,9 @@
         "PreCompact"
       ],
       "evidence": [
-        "https://developers.openai.com/codex/agent-configuration/agents-md",
-        "https://developers.openai.com/codex/hooks",
-        "https://developers.openai.com/codex/agent-configuration/subagents"
+        "https://learn.chatgpt.com/docs/agent-configuration/agents-md",
+        "https://learn.chatgpt.com/docs/hooks",
+        "https://learn.chatgpt.com/docs/agent-configuration/subagents"
       ]
     },
     {
