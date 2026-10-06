@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env');
+const { createScratch, inheritedEnv } = require('../helper/scratch-env');
 const store = require('../../src/runtime/failure/store');
 const { ROTATE_AT_BYTES } = require('../../src/runtime/failure/capture');
 const { buildOverview } = require('../../src/runtime/lifecycle/overview');
@@ -26,7 +26,7 @@ function machine(name) {
   const project = path.join(dir, 'project');
   for (const d of [home, xdg, project]) fs.mkdirSync(d, { recursive: true });
   const failures = path.join(xdg, 'doflow', 'failures');
-  const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: xdg, DOFLOW_FAILURE_CAPTURE: '', GIT_CONFIG_GLOBAL: path.join(dir, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
+  const env = { ...inheritedEnv(), HOME: home, XDG_CONFIG_HOME: xdg, DOFLOW_FAILURE_CAPTURE: '', GIT_CONFIG_GLOBAL: path.join(dir, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
   const markDoflowRepo = () => fs.writeFileSync(path.join(project, 'package.json'), JSON.stringify({ name: '@khoavu882/doflow' }));
   return { dir, home, xdg, project, failures, env, markDoflowRepo };
 }
@@ -384,6 +384,46 @@ store.readFold = () => { throw new store.StoreLockedError("Could not lock 'event
     assert.equal(r.status, 1, r.stderr);
     assert.deepEqual(JSON.parse(r.stdout), { ok: false, action: 'settle', finding: 'store-locked', message: "Could not lock 'events' after 5s. Nothing was written." });
     assert.equal(fs.existsSync(path.join(m.failures, 'settlements.jsonl')), false);
+  });
+  test('DOFLOW_RETENTION_HOURS=soon in the shell does not reach these spawns: an import is unchanged and no warning prints', () => {
+    const saved = process.env.DOFLOW_RETENTION_HOURS;
+    process.env.DOFLOW_RETENTION_HOURS = 'soon';
+    try {
+      const m = machine('settle-import-shell-retention');
+      m.markDoflowRepo();
+      writeEvents(m, [line()]);
+      assert.equal('DOFLOW_RETENTION_HOURS' in m.env, false);
+      const r = run(m, ['--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(r.stderr, '');
+      assert.equal(r.json.followup.state, 'open');
+    } finally {
+      if (saved === undefined) delete process.env.DOFLOW_RETENTION_HOURS; else process.env.DOFLOW_RETENTION_HOURS = saved;
+    }
+  });
+  test('a settled failure follow-up is removed by retention like any other follow-up', () => {
+    const m = machine('settle-import-retention');
+    m.markDoflowRepo();
+    writeEvents(m, [line()]);
+    const imported = run(m, ['--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json']);
+    assert.equal(imported.status, 0, imported.stderr);
+    const id = imported.json.followup.id;
+    const settle = spawnSync(process.execPath, [BIN, 'followup', '--action', 'settle', '--ids', id, '--as', 'done', '--evidence', 'fixed in 1.19', '--json'], { cwd: m.project, env: m.env, encoding: 'utf8' });
+    assert.equal(settle.status, 0, settle.stderr);
+    // Age the two events by two days: each is rewritten under an id that matches its new time.
+    const events = path.join(m.project, '.doflow', 'state', 'lifecycle', 'events');
+    for (const name of fs.readdirSync(events).filter((n) => n.endsWith('.json'))) {
+      const event = JSON.parse(fs.readFileSync(path.join(events, name), 'utf8'));
+      const at = new Date(Date.parse(event.at) - 48 * 3600000).toISOString();
+      const aged = { ...event, at, id: `${at.replace(/[-:.]/g, '')}-${event.id.slice(-6)}` };
+      fs.writeFileSync(path.join(events, `${aged.id}.json`), JSON.stringify(aged));
+      fs.unlinkSync(path.join(events, name));
+    }
+    const list = spawnSync(process.execPath, [BIN, 'followup', '--action', 'list', '--state', 'all', '--json'], { cwd: m.project, env: { ...m.env, DOFLOW_RETENTION_HOURS: '24' }, encoding: 'utf8' });
+    assert.equal(list.status, 0, list.stderr);
+    assert.match(list.stderr, /^doflow followup: retention: removed 2 event files older than 24 h$/m);
+    assert.deepEqual(JSON.parse(list.stdout).items, []);
+    assert.deepEqual(fs.readdirSync(events), []);
   });
   test('the statement of an entry with no message has no trailing colon, and is cut to 280 characters', () => {
     const { importedStatement } = require('../../src/runtime/failure/cli');

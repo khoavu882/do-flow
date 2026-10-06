@@ -25,6 +25,7 @@ const { spawnSync } = require('node:child_process');
 const REPO = path.resolve(__dirname, "../..");
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const SOURCE_DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
+const { inheritedEnv } = require('../helper/scratch-env');
 const ALL_HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
 const { IS_WIN, interpreterSpawn, samePath, msysArgConvGuards } = require('../helper-platform');
 
@@ -44,7 +45,7 @@ function homeEnv(home) {
 function cli(args, { home, cwd = REPO, env = {} } = {}) {
   return spawnSync('node', [CLI, ...args], {
     cwd, encoding: 'utf8', input: '\n',
-    env: { ...process.env, ...homeEnv(home), ...env },
+    env: { ...inheritedEnv(), ...homeEnv(home), ...env },
   });
 }
 
@@ -58,7 +59,7 @@ function runtime(exe, args, { home, cwd, env = {} } = {}) {
     cwd, encoding: 'utf8',
     // A developer's own exported DOFLOW_CONFIG_DIR / DOFLOW_CLI would silently redirect the
     // resolution these tests exist to exercise, so they are cleared unless a case sets them.
-    env: { ...process.env, DOFLOW_CONFIG_DIR: undefined, DOFLOW_CLI: undefined, ...msysArgConvGuards(), ...homeEnv(home), ...env },
+    env: { ...inheritedEnv(), DOFLOW_CONFIG_DIR: undefined, DOFLOW_CLI: undefined, ...msysArgConvGuards(), ...homeEnv(home), ...env },
   });
 }
 
@@ -530,6 +531,20 @@ test('046: promote writes the same intent from a global install, from a director
   const locator = path.join(home, '.claude', 'bin', 'doflow-run');
   intentByShape.global = promoteThrough(locator, { home, cwd }).text;
   assert.equal(intentByShape.global, intentByShape.checkout, 'a global install writes the checkout\'s intent');
+});
+
+test('DOFLOW_RETENTION_HOURS=soon in the shell does not reach a dispatched lifecycle verb', () => {
+  const saved = process.env.DOFLOW_RETENTION_HOURS;
+  process.env.DOFLOW_RETENTION_HOURS = 'soon';
+  try {
+    const home = promoteScratch('retention-shell-home');
+    const cwd = promoteScratch('retention-shell');
+    const r = runtime(SOURCE_DISPATCHER, ['followup', '--action', 'list', '--json'], { home, cwd, env: lifecycleEnv(home) });
+    assert.equal(r.status, 0, r.stderr);
+    assert.doesNotMatch(r.stderr, /DOFLOW_RETENTION_HOURS/);
+  } finally {
+    if (saved === undefined) delete process.env.DOFLOW_RETENTION_HOURS; else process.env.DOFLOW_RETENTION_HOURS = saved;
+  }
 });
 
 // ----------------------------------------- 048: removing one claimant keeps what another still owns

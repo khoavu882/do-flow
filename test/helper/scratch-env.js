@@ -13,6 +13,12 @@ const path = require('node:path');
 
 const RETENTION_ENV = 'DOFLOW_RETENTION_HOURS';
 
+/** This process's environment without DOFLOW_RETENTION_HOURS, for a spawn that builds its own environment. */
+function inheritedEnv() {
+  const { [RETENTION_ENV]: _inherited, ...inherited } = process.env;
+  return inherited;
+}
+
 /**
  * @param {string} [prefix]
  * @returns {{dir: string, home: string, xdg: string, env: (extra?: Object) => Object, apply: () => void, restore: () => void, remove: () => void}}
@@ -30,9 +36,8 @@ function createScratch(prefix = 'doflow-lifecycle-') {
     home,
     xdg,
     env(extra = {}) {
-      const { [RETENTION_ENV]: _inherited, ...inherited } = process.env;
       return {
-        ...inherited,
+        ...inheritedEnv(),
         HOME: home,
         XDG_CONFIG_HOME: xdg,
         GIT_CONFIG_GLOBAL: path.join(dir, 'no-gitconfig'),
@@ -67,4 +72,4 @@ function createScratch(prefix = 'doflow-lifecycle-') {
   };
 }
 
-module.exports = { createScratch };
+module.exports = { createScratch, inheritedEnv };

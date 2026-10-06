@@ -17,7 +17,7 @@ All notable changes to DoFlow are documented here. Format follows
 
 ### Changed
 
-- The lifecycle store moved from `agent-docs/lifecycle/events/` to `.doflow/state/lifecycle/events/` at the repository root. It is local to the machine and not shared; DoFlow still never stages, commits or pushes it and adds no ignore rule. The first `followup`, `lifecycle` or `goal` command copies an existing store once, leaves the old folder untouched, and prints one line saying it can be deleted. A failed copy exits 1 with `store-migration-failed`, changes nothing, and the next command retries.
+- The lifecycle store moved from `agent-docs/lifecycle/events/` to `.doflow/state/lifecycle/events/` at the repository root. It is local to the machine and not shared; DoFlow still never stages, commits or pushes it and adds no ignore rule. The first `followup`, `lifecycle`, `goal` or `failure --action settle --as imported` command copies an existing store once and leaves the old folder untouched; a marker, `.doflow/state/lifecycle/migrated.json`, records the copy so the old folder is never read again. Every lifecycle command prints a line saying the old folder can be deleted for as long as it exists. A failed copy exits 1 with `store-migration-failed`, changes nothing, and the next command retries.
 
 ### Added
 
