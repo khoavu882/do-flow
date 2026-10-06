@@ -70,7 +70,7 @@ Three consequences follow, all of them intentional:
   rule per installed harness and scope in its `[Runtime Reach]` section. Antigravity has no skills at
   global scope, so its global install projects no runtime and doctor reports `N/A` there.
 - **The shared tree is co-owned.** All eight harnesses project the dispatcher, the runtime and
-  `guidance.context-layer` (Kiro keeps steering files instead) to one destination per scope, so it is
+  the guidance tree (`guidance.context-layer`; for Kiro, `kiro.guidance-tree`) to one destination per scope, so it is
   not owned by whichever harness was installed last. Removing a single target must reclaim only what
   no other installed harness still claims, and an update accepts a shared file whose content another
   harness recorded at that path.
