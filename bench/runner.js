@@ -271,6 +271,8 @@ function loadRunContext(runDir) {
   };
 }
 
+const validTokens = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
+
 /**
  * What a run cost, read only from a valid `timing.json`. Each field is validated on its own and an
  * absent, unreadable or invalid one is null: a value nobody reported is unknown, and counting it as 0
@@ -288,7 +290,7 @@ function readUsage(runDir) {
     return unknown('malformed', `${RUN_TIMING_FILE} is not valid JSON: usage is unknown`);
   }
   const obj = rec !== null && typeof rec === 'object' && !Array.isArray(rec) ? rec : {};
-  const total_tokens = Number.isInteger(obj.total_tokens) && obj.total_tokens >= 0 ? obj.total_tokens : null;
+  const total_tokens = validTokens(obj.total_tokens);
   const duration_ms = Number.isFinite(obj.duration_ms) && obj.duration_ms >= 0 ? obj.duration_ms : null;
   if (total_tokens === null && duration_ms === null) {
     return unknown('invalid', `${RUN_TIMING_FILE} has no valid total_tokens (integer >= 0) or duration_ms (number >= 0): usage is unknown`);
@@ -314,6 +316,37 @@ function summarizeUsage(usages) {
     } else out.unknownDurationRuns += 1;
   }
   return out;
+}
+
+/** The token ceiling a plan or report checks usage against. Refused rather than defaulted: a missing
+ * or malformed block would otherwise turn the check off without anyone having chosen that. */
+function loadCeiling(cfg) {
+  const c = cfg.costCeiling;
+  const refuse = (reason) => new Error(`bench/config.json costCeiling is invalid: ${reason}`);
+  if (c === null || typeof c !== 'object' || Array.isArray(c)) throw refuse('the block is missing');
+  if (c.unit !== 'total_tokens') throw refuse(`unit must be total_tokens, got ${JSON.stringify(c.unit)}`);
+  if (!Number.isInteger(c.maxTokensPerRun) || c.maxTokensPerRun <= 0) {
+    throw refuse(`maxTokensPerRun must be a positive integer, got ${JSON.stringify(c.maxTokensPerRun)}`);
+  }
+  return { unit: c.unit, maxTokensPerRun: c.maxTokensPerRun };
+}
+
+/**
+ * Known usage against the budget for a set of runs. `breached` is true as soon as the known total
+ * exceeds the budget, since unknown runs can only add to it, and false only when every run is known:
+ * a total that leaves runs out cannot show the budget was kept, so that case is null.
+ */
+function ceilingState(ceiling, usages) {
+  const budget = ceiling.maxTokensPerRun * usages.length;
+  const s = summarizeUsage(usages);
+  return {
+    unit: ceiling.unit,
+    maxTokensPerRun: ceiling.maxTokensPerRun,
+    budget,
+    knownTokens: s.knownTokens,
+    unknownRuns: s.unknownTokenRuns,
+    breached: s.knownTokens > budget ? true : s.unknownTokenRuns === 0 ? false : null,
+  };
 }
 
 function walkFiles(dir) {
@@ -540,7 +573,11 @@ const SKILL_RESOLUTION = {
   gradedAs: 'bench grade classifies each run verified | global-fallback | mismatch | unrecorded; anything but verified is flagged, and an absent record is never treated as a pass',
 };
 
+const CEILING_ENFORCEMENT =
+  'The orchestrating agent stops dispatching once the recorded total_tokens of this iteration reach budget; runs not dispatched are reported as not run.';
+
 function buildPlan(cfg, opts) {
+  const ceiling = loadCeiling(cfg);
   const skills = opts.skill ? [opts.skill] : discoverSkills(cfg);
   const runs = [];
   for (const skill of skills) {
@@ -593,6 +630,18 @@ function buildPlan(cfg, opts) {
       });
     }
   }
+  // Each run is projected at what the committed baseline recorded for the same case. A case with no
+  // baseline result, or a result with no usage, is unknown rather than free.
+  const baselineFile = baselineFileOf(cfg, opts);
+  const baseline = fs.existsSync(baselineFile) ? readJson(baselineFile) : null;
+  const recorded = new Map((baseline && Array.isArray(baseline.results) ? baseline.results : []).map((r) => [r.key, r]));
+  const projection = ceilingState(
+    ceiling,
+    runs.map((r) => {
+      const hit = recorded.get(`${r.skill}/${r.evalId}`);
+      return { total_tokens: validTokens(hit && hit.usage ? hit.usage.total_tokens : null), duration_ms: null };
+    }),
+  );
   return {
     iteration: opts.iteration,
     model: cfg.model,
@@ -600,6 +649,16 @@ function buildPlan(cfg, opts) {
     workingTreeClean: workingTreeClean(),
     skillResolution: SKILL_RESOLUTION,
     skillSourceRoot: cfg.skillsRoot,
+    filters: { skill: opts.skill || null, split: opts.split || null, arm: opts.arm || null },
+    costCeiling: {
+      unit: projection.unit,
+      maxTokensPerRun: projection.maxTokensPerRun,
+      budget: projection.budget,
+      projectedKnownTokens: projection.knownTokens,
+      projectedUnknownRuns: projection.unknownRuns,
+      breached: projection.breached,
+      enforcement: CEILING_ENFORCEMENT,
+    },
     runCount: runs.length,
     runs,
   };
@@ -615,7 +674,25 @@ function cmdPlan(cfg, opts) {
     console.error('bench plan: --iteration <name> is required (e.g. --iteration baseline)');
     return 2;
   }
-  console.log(JSON.stringify(buildPlan(cfg, opts), null, 2));
+  let plan;
+  try {
+    plan = buildPlan(cfg, opts);
+  } catch (err) {
+    console.error(`bench: ${err.message}`);
+    return 2;
+  }
+  const c = plan.costCeiling;
+  if (c.breached === true) {
+    console.error(
+      `bench plan: projected usage ${c.projectedKnownTokens} total_tokens from ${plan.runCount - c.projectedUnknownRuns} run(s) with known usage exceeds the budget ${c.budget} ` +
+        `(${c.maxTokensPerRun} x ${plan.runCount} runs, bench/config.json costCeiling); ${c.projectedUnknownRuns} run(s) unknown`,
+    );
+    return 2;
+  }
+  if (c.breached === null) {
+    console.error(`warning: cost projection unknown for ${c.projectedUnknownRuns} of ${plan.runCount} run(s); the orchestrating agent enforces the budget at dispatch`);
+  }
+  console.log(JSON.stringify(plan, null, 2));
   return 0;
 }
 
@@ -833,6 +910,7 @@ function buildReport({ baseline, withResults, withoutResults = [], cfg, iteratio
       withSkill: summarizeUsage(withResults.map(resultUsage)),
       withoutSkill: summarizeUsage(withoutResults.map(resultUsage)),
     },
+    ceiling: ceilingState(loadCeiling(cfg), [...withResults, ...withoutResults].map(resultUsage)),
   };
 }
 
@@ -842,6 +920,12 @@ function buildReport({ baseline, withResults, withoutResults = [], cfg, iteratio
  * the prompting guide's experiment protocol calls that out specifically.
  */
 function cmdReport(cfg, opts) {
+  try {
+    loadCeiling(cfg);
+  } catch (err) {
+    console.error(`bench: ${err.message}`);
+    return 2;
+  }
   const baselineFile = baselineFileOf(cfg, opts);
   if (!fs.existsSync(baselineFile)) {
     console.error('bench report: no baseline captured yet — run `bench baseline` first');
@@ -880,6 +964,15 @@ function cmdReport(cfg, opts) {
   if (report.pendingNote) console.log(report.pendingNote);
   const u = report.usage.withSkill;
   console.log(`usage: ${u.knownTokens} total_tokens over ${u.knownTokenRuns} run(s); unknown for ${u.unknownTokenRuns} run(s)`);
+  const c = report.ceiling;
+  const knownRuns = report.usage.withSkill.knownTokenRuns + report.usage.withoutSkill.knownTokenRuns;
+  if (c.breached === true) {
+    console.warn(`warning: ceiling exceeded: ${c.knownTokens} total_tokens over ${knownRuns} run(s) with known usage against the budget ${c.budget} (${c.maxTokensPerRun} x ${c.budget / c.maxTokensPerRun} runs)`);
+  } else if (c.breached === null) {
+    console.log(`ceiling: not exceeded by the ${knownRuns} run(s) with known usage; ${c.unknownRuns} run(s) unknown`);
+  } else {
+    console.log('ceiling: within budget');
+  }
   if (s.sourceIncomparable) {
     console.warn(
       `\nwarning: ${s.sourceIncomparable} of ${rows.length} row(s) compare runs that cannot both prove they read\n` +
@@ -1110,6 +1203,7 @@ module.exports = {
   discoverSkills,
   loadCases,
   loadConfig,
+  loadCeiling,
   gradeAssertion,
   collectResults,
   buildPlan,

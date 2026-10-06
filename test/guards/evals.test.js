@@ -204,6 +204,20 @@ test('G11 control: a skill missing either assertion, or carrying one for another
   assert.deepEqual(shouldNotTriggerGaps(fixture), ['onlyResolved', 'onlyNotRouted', 'otherSkill', 'behavioral']);
 });
 
+// The ceiling is what lets `plan` refuse a run set whose known projected usage is over budget and
+// `report` warn about one. A block that is missing or malformed would turn both checks off without
+// anyone having chosen that, so the loader refuses it and this fails the suite first.
+test('G11: the config declares a valid token ceiling', () => {
+  assert.doesNotThrow(() => runner.loadCeiling(runner.loadConfig()));
+});
+
+test('G11 control: a missing or malformed ceiling is refused', () => {
+  const cfg = runner.loadConfig();
+  for (const costCeiling of [undefined, null, { unit: 'usd', maxTokensPerRun: 1 }, { unit: 'total_tokens' }, { unit: 'total_tokens', maxTokensPerRun: -5 }]) {
+    assert.throws(() => runner.loadCeiling({ ...cfg, costCeiling }), /costCeiling is invalid/);
+  }
+});
+
 // Feature 028 (IC-004). Coverage above asks whether every skill has cases of both kinds; it cannot
 // see a case REMOVED, RENAMED or RE-SIDED without the baseline being re-captured, because coverage
 // still passes while the committed baseline silently stops describing the committed corpus. This

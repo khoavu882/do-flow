@@ -37,6 +37,8 @@ const result = (key, name, kind, split, extra = {}) => {
   return { key, skill, evalId: Number(id), evalName: name, kind, passRate: 1, sourceStatus: 'verified', ...(split ? { split } : {}), ...extra };
 };
 
+const CEILING = { unit: 'total_tokens', maxTokensPerRun: 1000 };
+
 const ONE = entry('s/1', 'one', 'triggering', 'train');
 const TWO = entry('s/2', 'two', 'behavioral', 'train');
 const baseline = (results, caseCount = results.length) => ({ caseCount, results });
@@ -129,7 +131,7 @@ test('F2: parity text keeps the GAP lines for a removed case and repeats identic
 });
 
 test('F6: a case with no baseline result is a pending row, and the note counts them', () => {
-  const cfg = { model: 'm' };
+  const cfg = { model: 'm', costCeiling: CEILING };
   const report = runner.buildReport({
     baseline: { commit: 'abc', model: 'm', results: [result('s/1', 'one', 'triggering', 'train')] },
     withResults: [result('s/1', 'one', 'triggering', 'train'), result('s/3', 'three', 'triggering', 'heldout')],
@@ -148,7 +150,7 @@ test('F6: pendingNote is null when no row is pending, and repeated calls are equ
   const input = {
     baseline: { commit: 'abc', model: 'm', results: [result('s/1', 'one', 'triggering', 'train'), result('s/2', 'two', 'behavioral', 'train', { passRate: 0.5 })] },
     withResults: [result('s/1', 'one', 'triggering', 'train'), result('s/2', 'two', 'behavioral', 'train', { passRate: 1 })],
-    cfg: { model: 'm' }, iteration: 'it', commit: 'def',
+    cfg: { model: 'm', costCeiling: CEILING }, iteration: 'it', commit: 'def',
   };
   const report = runner.buildReport(input);
   assert.equal(report.pendingNote, null);
@@ -358,7 +360,7 @@ test('F6: report rows and totals carry usage, and an unknown run stays unknown',
   const input = {
     baseline: { commit: 'abc', model: 'm', results: [result('s/1', 'one', 'triggering', 'train'), result('s/2', 'two', 'triggering', 'train')] },
     withResults: [withUsage('s/1', 'one', 900, 40), withUsage('s/2', 'two', null, null), result('s/3', 'three', 'triggering', 'heldout')],
-    cfg: { model: 'm' }, iteration: 'it', commit: 'def',
+    cfg: { model: 'm', costCeiling: CEILING }, iteration: 'it', commit: 'def',
   };
   const report = runner.buildReport(input);
   assert.deepEqual(report.rows.map((r) => r.usage), [
@@ -442,4 +444,114 @@ test('F7: baseline writes split, usage and usageSummary, and report prints the t
 test('F7: the committed baseline, which predates split and usage, still reads as ok', () => {
   const parity = runner.baselineParity(runner.loadConfig());
   assert.equal(parity.ok, true);
+});
+
+// --- token ceiling (F5, F6 ceiling part) -------------------------------------------------------
+
+function ceilingFixture(name, usageByCase) {
+  const base = runner.loadConfig();
+  const ids = runner.loadCases(base, 'do-git').evals.map((e) => e.id);
+  const dir = path.join(scratch.dir, name);
+  fs.mkdirSync(dir, { recursive: true });
+  const results = ids.flatMap((id, i) => (usageByCase[i] === undefined ? [] : [{ key: `do-git/${id}`, usage: { total_tokens: usageByCase[i], duration_ms: null } }]));
+  const baselineFile = path.join(dir, 'baseline.json');
+  fs.writeFileSync(baselineFile, JSON.stringify({ results }));
+  const planOf = (maxTokensPerRun, file = baselineFile) => runner.buildPlan(
+    { ...base, costCeiling: { unit: 'total_tokens', maxTokensPerRun } },
+    { iteration: 'it', skill: 'do-git', baselineFile: file },
+  );
+  return { base, ids, baselineFile, planOf };
+}
+
+test('F5: a known projection within the budget is not breached', () => {
+  const f = ceilingFixture('f5-within', [100, 200, 300]);
+  const c = f.planOf(1000).costCeiling;
+  assert.deepEqual([c.budget, c.projectedKnownTokens, c.projectedUnknownRuns, c.breached], [3000, 600, 0, false]);
+  assert.equal(c.unit, 'total_tokens');
+  assert.equal(c.maxTokensPerRun, 1000);
+  assert.match(c.enforcement, /stops dispatching once the recorded total_tokens of this iteration reach budget/);
+});
+
+test('F5: a known projection over the budget is breached, even with unknown runs', () => {
+  assert.equal(ceilingFixture('f5-over', [100, 200, 300]).planOf(100).costCeiling.breached, true);
+  const partial = ceilingFixture('f5-over-partial', [500]).planOf(100).costCeiling;
+  assert.deepEqual([partial.projectedKnownTokens, partial.projectedUnknownRuns, partial.breached], [500, 2, true]);
+});
+
+test('F5: unknown runs that leave the known total within the budget make the result null', () => {
+  const f = ceilingFixture('f5-unknown', [50]);
+  const c = f.planOf(100).costCeiling;
+  assert.deepEqual([c.projectedKnownTokens, c.projectedUnknownRuns, c.breached], [50, 2, null]);
+  const missing = f.planOf(100, path.join(scratch.dir, 'no-such-baseline.json')).costCeiling;
+  assert.deepEqual([missing.projectedKnownTokens, missing.projectedUnknownRuns, missing.breached], [0, 3, null]);
+});
+
+test('F5: a projection is repeatable and the plan names its filters', () => {
+  const f = ceilingFixture('f5-repeat', [100, 200, 300]);
+  assert.deepEqual(f.planOf(1000), f.planOf(1000));
+  assert.deepEqual(f.planOf(1000).filters, { skill: 'do-git', split: null, arm: null });
+});
+
+test('F5: plan exits 2 with no stdout on a known breach, and warns but emits the plan when unknown', () => {
+  const f = ceilingFixture('f5-cmd', [100, 200, 300]);
+  const opts = { iteration: 'it', skill: 'do-git', baselineFile: f.baselineFile };
+  const withMax = (maxTokensPerRun) => ({ ...f.base, costCeiling: { unit: 'total_tokens', maxTokensPerRun } });
+
+  const breach = quiet(() => runner.cmdPlan(withMax(100), opts));
+  assert.equal(breach.status, 2);
+  assert.equal(breach.out, '');
+  assert.equal(breach.err, 'bench plan: projected usage 600 total_tokens from 3 run(s) with known usage exceeds the budget 300 (100 x 3 runs, bench/config.json costCeiling); 0 run(s) unknown');
+
+  const within = quiet(() => runner.cmdPlan(withMax(1000), opts));
+  assert.equal(within.status, 0);
+  assert.equal(within.err, '');
+  assert.equal(JSON.parse(within.out).costCeiling.breached, false);
+
+  const unknown = quiet(() => runner.cmdPlan(withMax(1000), { ...opts, baselineFile: path.join(scratch.dir, 'no-such-baseline.json') }));
+  assert.equal(unknown.status, 0);
+  assert.equal(unknown.err, 'warning: cost projection unknown for 3 of 3 run(s); the orchestrating agent enforces the budget at dispatch');
+  assert.equal(JSON.parse(unknown.out).runCount, 3);
+});
+
+test('F5: an invalid costCeiling is refused by plan and by report', () => {
+  const base = runner.loadConfig();
+  const bad = [
+    [{ ...base, costCeiling: undefined }, /the block is missing/],
+    [{ ...base, costCeiling: { unit: 'usd', maxTokensPerRun: 10 } }, /unit must be total_tokens/],
+    [{ ...base, costCeiling: { unit: 'total_tokens', maxTokensPerRun: 0 } }, /positive integer/],
+    [{ ...base, costCeiling: { unit: 'total_tokens', maxTokensPerRun: 1.5 } }, /positive integer/],
+    [{ ...base, costCeiling: { unit: 'total_tokens', maxTokensPerRun: '10' } }, /positive integer/],
+  ];
+  for (const [cfg, reason] of bad) {
+    assert.throws(() => runner.loadCeiling(cfg), reason);
+    for (const run of [() => runner.cmdPlan(cfg, { iteration: 'it' }), () => runner.cmdReport(cfg, { iteration: 'it' })]) {
+      const r = quiet(run);
+      assert.equal(r.status, 2);
+      assert.equal(r.out, '');
+      assert.match(r.err, /^bench: bench\/config\.json costCeiling is invalid: /);
+    }
+  }
+  assert.deepEqual(runner.loadCeiling(base), { unit: 'total_tokens', maxTokensPerRun: base.costCeiling.maxTokensPerRun });
+});
+
+test('F6: the report carries the ceiling over both arms, and a breach only warns', () => {
+  const withUsage = (key, total_tokens) => result(key, key, 'triggering', 'train', { usage: { total_tokens, duration_ms: null } });
+  const input = (maxTokensPerRun, withResults) => ({
+    baseline: { commit: 'abc', model: 'm', results: [] },
+    withResults, cfg: { model: 'm', costCeiling: { unit: 'total_tokens', maxTokensPerRun } }, iteration: 'it', commit: 'def',
+  });
+  assert.deepEqual(runner.buildReport(input(100, [withUsage('s/1', 150), withUsage('s/2', 40)])).ceiling,
+    { unit: 'total_tokens', maxTokensPerRun: 100, budget: 200, knownTokens: 190, unknownRuns: 0, breached: false });
+  assert.equal(runner.buildReport(input(100, [withUsage('s/1', 250)])).ceiling.breached, true);
+  assert.equal(runner.buildReport(input(100, [withUsage('s/1', 50), withUsage('s/2', null)])).ceiling.breached, null);
+
+  const f = gradedFixture('f6-ceiling');
+  quiet(() => runner.cmdGrade(f.cfg, f.opts));
+  quiet(() => runner.cmdBaseline(f.cfg, { from: 'it', runsRoot: f.runsRoot, baselineFile: f.baselineFile }));
+  const over = quiet(() => runner.cmdReport({ ...f.cfg, costCeiling: { unit: 'total_tokens', maxTokensPerRun: 100 } }, f.opts));
+  assert.equal(over.status, 0);
+  assert.match(over.err, /warning: ceiling exceeded: 1500 total_tokens over 1 run\(s\) with known usage against the budget 200 \(100 x 2 runs\)/);
+  const unknown = quiet(() => runner.cmdReport(f.cfg, f.opts));
+  assert.equal(unknown.status, 0);
+  assert.match(unknown.out, /ceiling: not exceeded by the 1 run\(s\) with known usage; 1 run\(s\) unknown/);
 });
