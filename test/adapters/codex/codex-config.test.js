@@ -69,8 +69,17 @@ test('an emptied table whose header carries a user comment keeps that header lin
   assert.equal(fs.readFileSync(file, 'utf8'), '[profile]\nmodel = "mine"\n\n[features] # note\n\n');
 });
 
-test('a value line that starts with "[" is never read as a table header: the file is refused untouched', () => {
-  // The scanner has no multi-line arrays, so such a file fails closed before any table is dropped.
+test('a table that loses its last owned key but receives a new one keeps its header', () => {
+  const root = scratch(); const file = path.join(root, 'config.toml');
+  fs.writeFileSync(file, '[features]\nold = true\n');
+  const owned = [{ target: 'codex', scope: 'project', kind: 'configuration-entry', identity: 'features.old', value: true, fingerprint: fingerprint(true) }];
+  reconcileCodexConfig({ file, scope: 'project', managedResources: owned, desiredResources: [resource()] });
+  assert.equal(fs.readFileSync(file, 'utf8'), '[features]\n\nhooks = true\n');
+});
+
+test('a config with a multi-line array is refused untouched by a removal', () => {
+  // The scanner has no multi-line arrays and fails closed first, so no test can tell header records
+  // from a line-based header scan; this pins only the refusal.
   const root = scratch(); const file = path.join(root, 'config.toml');
   const before = '[features]\nhooks = true\nlist = [\n  [1]]\n';
   fs.writeFileSync(file, before);
