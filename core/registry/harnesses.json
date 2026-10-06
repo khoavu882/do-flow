@@ -915,6 +915,23 @@
               "AGENTS.md"
             ]
           }
+        },
+        "mcp": {
+          "project": {
+            "base": "root",
+            "segments": [
+              ".pi",
+              "mcp.json"
+            ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".pi",
+              "agent",
+              "mcp.json"
+            ]
+          }
         }
       },
       "capabilities": {

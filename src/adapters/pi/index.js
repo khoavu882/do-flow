@@ -31,12 +31,18 @@ const HARNESS = 'pi';
 // createPiAdapter({ declaredPaths }) is the injection point buildAdapterRegistry() uses;
 // module-level exports delegate to a default-configured instance so direct callers keep their
 // historical shape.
-function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {}) {
+function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env = process.env } = {}) {
   // Parity note: Pi's historical nativePaths() derived even its user-scope root from scopeRoot
   // (the CLI passes $HOME there for -g installs), never from a separate homeDir argument — so the
   // resolver is fed no homeDir and "root" keeps resolving exactly as before.
   function nativePaths({ scope, scopeRoot } = {}) {
-    return resolveHarnessPaths(declaredPaths, { scope, scopeRoot });
+    const paths = resolveHarnessPaths(declaredPaths, { scope, scopeRoot });
+    // Pi's user-scope mcp.json follows $PI_CODING_AGENT_DIR when set. It is not declared in the
+    // registry because the path schema has no environment base (src/helper/harness-paths.js); only
+    // mcp moves, skills and AGENTS.md keep their declared locations.
+    const agentDir = env.PI_CODING_AGENT_DIR;
+    if ((scope === 'user' || scope === 'global') && typeof agentDir === 'string' && agentDir.trim() !== '') paths.mcp = path.join(path.resolve(agentDir.trim()), 'mcp.json');
+    return paths;
   }
 
   function discover({ scope, scopeRoot, context = {}, fsImpl = fs }) {
