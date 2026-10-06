@@ -77,7 +77,8 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
   function geminiDestDir(paths, asset) {
     if (asset.nativeDir && asset.nativeDir.startsWith('../')) {
       const dest = path.join(paths.root, asset.nativeDir.slice(3));
-      if (dest !== paths.root && !dest.startsWith(`${paths.root}${path.sep}`)) {
+      const rel = path.relative(paths.root, dest);
+      if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
         throw new Error(`gemini nativeDir escapes the scope root: ${asset.nativeDir}`);
       }
       return dest;
@@ -117,11 +118,12 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
     const changes = [];
     const conflicts = [];
     const treeResults = [];
+    const notices = [];
     for (const asset of copyTreeAssets(assets)) {
       const destDir = geminiDestDir(paths, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Gemini');
       const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, transform: asset.transform,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, transform: asset.transform, keepModified: !removing,
         // Was `force: context?.force`, ungated. Gemini was one of only two adapters forwarding force
         // at all, so it looked like the reference implementation — but it handed force to the remove
         // path too, where copy-tree deliberately stays strict: force heals drift on apply, and a
@@ -130,6 +132,9 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
         force: !removing && context?.force === true });
       treeResults.push(result);
       conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+      // A hand-edited file at a path DoFlow no longer writes (the agents folder layout) is the
+      // user's: it stays, only its ownership row is released.
+      notices.push(...result.kept.map((item) => `kept hand-edited ${path.relative(paths.root, item.target)}; DoFlow no longer manages it`));
       for (const change of result.changes) {
         changes.push({
           assetId: asset.id, target: change.target, source: change.source, operation: change.operation,
@@ -137,11 +142,12 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
           kind: 'copy-tree-file', identity: change.relPath,
           afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: 'registry-v1',
           transformName: asset.transform || null,
+          ...(change.kept ? { retained: true, retainedFor: [] } : {}),
           projection: { renderer: 'copy-tree' },
         });
       }
     }
-    return { changes, conflicts, notices: siblingReplacedNotices(treeResults) };
+    return { changes, conflicts, notices: [...siblingReplacedNotices(treeResults), ...notices] };
   }
 
   function applyCopyTreeAssets(changes, { fsImpl = fs } = {}) {
@@ -160,7 +166,7 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
   }
 
   function removeCopyTreeAssets(changes, { fsImpl = fs } = {}) {
-    const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove')
+    const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove' && !change.retained)
       .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
     return removeTree({ changes: treeChanges, fsImpl }).removed;
   }

@@ -360,3 +360,77 @@ test('a nativeDir that climbs above the scope root is refused before any write',
     /gemini nativeDir escapes the scope root: \.\.\/\.\.\/x/);
   assert.throws(() => adapter.verify({ ...input, assets: [{ ...asset, nativeDir: '../../x' }] }), /escapes the scope root/);
 });
+
+// A 1.15.0 install left each agent at the folder path; the update relocates them to flat files.
+function folderLayoutInstall(adapter, input, asset) {
+  const old = { ...input, assets: [{ ...asset, nativeDir: 'agents', layout: 'dir-per-file:agent.md', transform: undefined }] };
+  adapter.apply({ changes: adapter.plan({ ...old, ledger: { resources: [] } }).changes });
+  return ledgerOf(adapter.verify(old).resources);
+}
+
+for (const force of [false, true]) {
+  test(`a hand-edited agent at the old folder path survives an update ${force ? 'with' : 'without'} force`, () => {
+    const root = scratch(); const adapter = createGeminiAdapter();
+    const { input, asset } = geminiAgents('project', root);
+    const ledger = folderLayoutInstall(adapter, input, asset);
+    const edited = path.join(root, '.agents', 'agents', 'spec-analyst', 'agent.md');
+    fs.appendFileSync(edited, 'my own notes\n');
+
+    const planned = adapter.plan({ ...input, context: { ...input.context, force }, ledger });
+    assert.deepEqual(planned.conflicts, [], 'a hand-edited relocated file must not refuse the update');
+    assert.deepEqual(planned.notices.filter((n) => n.includes('spec-analyst')), ['kept hand-edited .agents/agents/spec-analyst/agent.md; DoFlow no longer manages it']);
+    assert.equal(planned.notices.length, 1);
+    const keptChange = planned.changes.find((c) => c.target === edited);
+    assert.equal(keptChange.operation, 'remove');
+    assert.equal(keptChange.retained, true, 'the row is released and the file stays');
+
+    adapter.apply({ changes: planned.changes.filter((c) => !c.retained) });
+    assert.ok(fs.readFileSync(edited, 'utf8').endsWith('my own notes\n'), 'the edit survives');
+    for (const file of SPECS) assert.ok(fs.existsSync(path.join(root, '.gemini', 'agents', file)), `${file} installed flat`);
+    for (const file of SPECS.filter((f) => f !== 'spec-analyst.md')) {
+      assert.equal(fs.existsSync(path.join(root, '.agents', 'agents', file.replace(/\.md$/, ''), 'agent.md')), false, `${file} unmodified old agent is removed`);
+    }
+    adapter.apply({ changes: [keptChange] });
+    assert.ok(fs.existsSync(edited), 'apply() never deletes a change marked retained');
+  });
+}
+
+test('a relocation removal is carried through the lifecycle retained filter, so a file Antigravity claims stays', () => {
+  const { loadRegistry } = require('../../../src/registry');
+  const { buildAdapterRegistry } = require('../../../src/cli/shared');
+  const { planLifecycle, applyLifecycle } = require('../../../src/lifecycle');
+  const { defaultLedger } = require('../../../src/state');
+  const registry = loadRegistry({ repoRoot: REPO });
+  const adapters = buildAdapterRegistry();
+  const root = fs.realpathSync(scratch());
+  const stateRoot = path.join(root, '.doflow', 'state');
+  const context = { repoRoot: REPO, homeDir: root };
+
+  let ledger = defaultLedger({ scope: 'project', scopeRoot: root });
+  const first = planLifecycle({ registry, adapters, scope: 'project', scopeRoot: root, targets: ['antigravity'], ledger, context });
+  ledger = applyLifecycle({ plan: first, registry, adapters, stateRoot, ledger, context }).ledger;
+  const antigravityRows = ledger.resources.filter((r) => r.harness === 'antigravity' && r.assetId === 'agents.shared');
+  assert.equal(antigravityRows.length, SPECS.length);
+  // The 1.15.0 Gemini install shared those very files: add its rows for them.
+  ledger = { ...ledger, resources: [...ledger.resources, ...antigravityRows.map((r) => ({ ...r, harness: 'gemini', ownershipIdentity: r.ownershipIdentity.replace('doflow:antigravity:', 'doflow:gemini:') }))] };
+
+  const plan = planLifecycle({ registry, adapters, scope: 'project', scopeRoot: root, targets: ['gemini'], ledger, context });
+  const relocated = plan.changes.filter((c) => c.operation === 'remove' && c.assetId === 'agents.shared');
+  assert.equal(relocated.length, SPECS.length);
+  assert.ok(relocated.every((c) => c.retained === true && c.retainedFor.includes('antigravity')));
+  const result = applyLifecycle({ plan, registry, adapters, stateRoot, ledger, context });
+
+  for (const row of antigravityRows) assert.ok(fs.existsSync(row.target), `${row.target} stays: Antigravity still claims it`);
+  assert.equal(result.ledger.resources.filter((r) => r.harness === 'gemini' && r.target.includes(`${path.sep}.agents${path.sep}agents${path.sep}`)).length, 0, 'the Gemini rows for the old paths are released');
+  assert.equal(result.ledger.resources.filter((r) => r.harness === 'antigravity' && r.assetId === 'agents.shared').length, SPECS.length);
+  for (const file of SPECS) assert.ok(fs.existsSync(path.join(root, '.gemini', 'agents', file)));
+});
+
+test('a scope root of / resolves the Gemini agents destination instead of reporting an escape', () => {
+  const adapter = createGeminiAdapter();
+  for (const scope of ['project', 'global']) {
+    const { input } = geminiAgents(scope, '/');
+    const planned = adapter.plan({ ...input, ledger: { resources: [] } });
+    assert.deepEqual(planned.changes.map((c) => c.target).sort(), SPECS.map((f) => path.join('/', '.gemini', 'agents', f)).sort(), scope);
+  }
+});

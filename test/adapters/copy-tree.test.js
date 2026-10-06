@@ -575,3 +575,28 @@ test('gemini-agents keeps only Gemini documented frontmatter keys, with continua
   assert.equal(run('---\nname: a\n'), '---\nname: a\n', 'an unclosed frontmatter passes through');
   assert.deepEqual(TRANSFORMS['gemini-agents']('a.md', Buffer.from(run('---\nname: a\neffort: x\n---\nb'))), Buffer.from('---\nname: a\n---\nb'), 'deterministic and idempotent');
 });
+
+test('keepModified keeps a hand-edited file at a relocated path, force or not, and removeTree skips it', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'a.md': 'A', 'b.md': 'B' });
+  const destDir = path.join(root, 'dest');
+  applyTree({ changes: planTree({ sourceDir, destDir }).changes });
+  const previousResources = ['a.md', 'b.md'].map((relPath, i) => ({ relPath, target: path.join(destDir, relPath), fingerprint: sha256(['A', 'B'][i]) }));
+  fs.writeFileSync(path.join(destDir, 'a.md'), 'HAND EDITED');
+  const moved = path.join(root, 'moved');
+
+  for (const force of [false, true]) {
+    const plan = planTree({ sourceDir, destDir: moved, previousResources, force, keepModified: true });
+    assert.deepEqual(plan.conflicts, []);
+    assert.deepEqual(plan.kept.map((item) => item.relPath), ['a.md']);
+    assert.deepEqual(plan.changes.filter((c) => c.operation === 'remove').map((c) => [c.relPath, c.kept === true]), [['a.md', true], ['b.md', false]]);
+  }
+  const { changes } = planTree({ sourceDir, destDir: moved, previousResources, keepModified: true });
+  applyTree({ changes });
+  removeTree({ changes });
+  assert.equal(fs.readFileSync(path.join(destDir, 'a.md'), 'utf8'), 'HAND EDITED');
+  assert.equal(fs.existsSync(path.join(destDir, 'b.md')), false);
+
+  const strict = planTree({ sourceDir, destDir: moved, previousResources });
+  assert.deepEqual(strict.conflicts, ['a.md was modified outside DoFlow'], 'without keepModified the refusal is unchanged');
+});
