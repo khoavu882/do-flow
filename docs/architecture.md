@@ -463,7 +463,7 @@ the G18 pair — between them the reason the list runs G18 then G20; and `bounda
   calls. Only `bench/runs/` and `bench/reports/` stay ignored. G11b, in the same file, holds skill
   provenance: a run is told to load its skill from the sandbox by path, and a run that cannot prove
   which `SKILL.md` it read is never graded as if it could; a without-skill run withholds the skill
-  and `bench/` from its sandbox and is graded `withheld`, `leaked` or `unrecorded` the same way.
+  and is graded `withheld`, `leaked` or `unrecorded` the same way.
 - **G11** (`scaffold.test.js`, same number, different guard) — a `--scaffold` run writes only under
   `agent-docs/doflow/<slug>/scaffold/`, is byte-identical on re-run, emits signatures rather than
   logic, leaves a hand-edited file alone, and reports what it skipped as prominently as what it

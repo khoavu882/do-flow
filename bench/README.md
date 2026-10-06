@@ -258,11 +258,11 @@ A without-skill run differs from its pair in these ways:
 
 - Its output directory is the with-skill one plus `--without-skill`, and its sandbox id ends in
   `-noskill`.
-- Its `sandbox.create` deletes the skill's copies and the `bench/` directory (the case files, with
-  their assertions and expected output) from the sandbox after projecting it, drops the skill's
-  entry from the sandbox's `.doflow-skill-source.json`, and marks the tracked deletions
-  skip-worktree so they do not appear in the sandbox's `git status` or `git diff`. The plan lists
-  the skill's copies in `skills.withheldPaths`. `~/.claude/skills` is outside any sandbox and cannot
+- Its `sandbox.create` deletes the skill's copies from the sandbox after projecting it, drops the
+  skill's entry from the sandbox's `.doflow-skill-source.json`, and marks the tracked deletions
+  skip-worktree so they do not appear in the sandbox's `git status` or `git diff`. `bench/` stays,
+  because cases work on `bench/runner.js`. The plan lists the skill's copies in
+  `skills.withheldPaths`. `~/.claude/skills` is outside any sandbox and cannot
   be removed that way, so its `skills.instruction` forbids reading or invoking the skill, and
   `grade` checks afterwards.
 - Its `skill_source.json` is `{ "skill": "<skill>", "withheld": true }`, and `grade` classifies the
@@ -277,11 +277,10 @@ A without-skill run differs from its pair in these ways:
 What the arm does not prevent, because the sandbox is a git worktree of this repo and not an empty
 directory:
 
-- Git history is still readable: `git show HEAD:<path>` returns the skill's files and the corpus
-  that were deleted from the working tree. So are the sandbox's `.doflow` ledger and recovery
+- Git history is still readable: `git show HEAD:<path>` returns the skill's files that were deleted
+  from the working tree. So are the sandbox's `.doflow` ledger and recovery
   records, which name the skill's path. A run that reads them and so names
-  `skills/<skill>/SKILL.md` in its transcript or outputs is graded `leaked`; a read of the deleted
-  corpus from history names no skill file and is not detected.
+  `skills/<skill>/SKILL.md` in its transcript or outputs is graded `leaked`.
 - Invoking the skill by name, which loads `~/.claude/skills/<skill>/`, is graded `leaked` when
   `invoked_skills.json` lists it.
 

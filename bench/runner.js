@@ -635,8 +635,9 @@ const SKILL_RESOLUTION = {
 
 /**
  * The same case run with the skill under test withheld. The create step deletes the skill's copies
- * and the `bench/` corpus from the sandbox after `createSandbox` projected them, and drops the
- * skill's entry from the projection manifest, so the bench carries no change to the worktree code.
+ * from the sandbox after `createSandbox` projected them, and drops the skill's entry from the
+ * projection manifest, so the bench carries no change to the worktree code. `bench/` stays: cases
+ * work on `bench/runner.js`, and removing it would measure a broken repo as well as a missing skill.
  * The tracked copies are marked skip-worktree so their deletion does not show in the sandbox's
  * `git status` or `git diff`, where the path would read as the run reaching the skill.
  * `~/.claude/skills` is outside any sandbox and cannot be removed this way, and neither can git
@@ -652,9 +653,6 @@ function withoutSkillRun(cfg, skill, e, withSkill) {
   const sandboxId = `${withSkill.sandbox.id}${WITHOUT_SKILL_SANDBOX_SUFFIX}`;
   const workingDir = path.join('.doflow', 'worktrees', sandboxId);
   const skillDirs = [path.posix.join(...SANDBOX_SKILLS_DIR.split(path.sep), skill), path.posix.join(cfg.skillsRoot, skill)];
-  // The sandbox is a full worktree, so the corpus (assertions, expected output) is withheld with the
-  // skill, and the projection manifest drops the skill's entry.
-  const removed = [...skillDirs, cfg.benchRoot];
   return {
     skill,
     evalId: e.id,
@@ -668,7 +666,7 @@ function withoutSkillRun(cfg, skill, e, withSkill) {
     sandbox: {
       required: true,
       id: sandboxId,
-      create: `node -e "${WT_REQUIRE}const r=m.createSandbox('${sandboxId}');const fs=require('fs'),p=require('path'),cp=require('child_process'),D=[${removed.map((d) => `'${d}'`).join(',')}];for(const d of D)fs.rmSync(p.join(r.path,d),{recursive:true,force:true});const o=cp.execFileSync('git',['ls-files','-z','--',...D],{cwd:r.path});if(o.length)cp.execFileSync('git',['update-index','--skip-worktree','-z','--stdin'],{cwd:r.path,input:o});const f=p.join(r.path,'${SKILL_SOURCE_FILE}'),j=JSON.parse(fs.readFileSync(f,'utf8'));delete j.skills['${skill}'];fs.writeFileSync(f,JSON.stringify(j,null,2)+'\\n');console.log(r.path+' withheld=${skill}')"`,
+      create: `node -e "${WT_REQUIRE}const r=m.createSandbox('${sandboxId}');const fs=require('fs'),p=require('path'),cp=require('child_process'),D=[${skillDirs.map((d) => `'${d}'`).join(',')}];for(const d of D)fs.rmSync(p.join(r.path,d),{recursive:true,force:true});const o=cp.execFileSync('git',['ls-files','-z','--',...D],{cwd:r.path});if(o.length)cp.execFileSync('git',['update-index','--skip-worktree','-z','--stdin'],{cwd:r.path,input:o});const f=p.join(r.path,'${SKILL_SOURCE_FILE}'),j=JSON.parse(fs.readFileSync(f,'utf8'));delete j.skills['${skill}'];fs.writeFileSync(f,JSON.stringify(j,null,2)+'\\n');console.log(r.path+' withheld=${skill}')"`,
       remove: `node -e "${WT_REQUIRE}m.remove('${sandboxId}')"`,
       workingDir,
     },
