@@ -42,8 +42,8 @@ function hook(harness, script, payload, env = {}) {
   return r.stdout;
 }
 
-function compact(sessionId, cwd, summary) {
-  hook('claude', 'post-compact.sh', { session_id: sessionId, cwd, trigger: 'auto', compact_summary: summary });
+function compact(sessionId, cwd, summary, env) {
+  hook('claude', 'post-compact.sh', { session_id: sessionId, cwd, trigger: 'auto', compact_summary: summary }, env);
 }
 
 /** One prompt of a session: session-start on its first call, then the prompt hook. Returns the injected context. */
@@ -94,9 +94,19 @@ test('a summary under the cap is injected whole with no marker', () => {
   assert.doesNotMatch(ctx, /summary truncated/);
 });
 
+/** A `timeout` ahead of the real one on PATH that drops the limit and runs the command: post-compact.sh
+ * reads the branch under `timeout 1`, so under a loaded machine a real limit would turn a slow git into
+ * "no branch" and fail a test that is about the header, not the limit. */
+function noTimeLimit() {
+  const bin = path.join(scratch.dir, `bin${seq++}`);
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'timeout'), '#!/bin/sh\nshift\nexec "$@"\n', { mode: 0o755 });
+  return { PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+}
+
 test('the header names the compaction time and branch from the file, and omits what is unknown', () => {
   const withBranch = project('topic');
-  compact('A', withBranch, 'S');
+  compact('A', withBranch, 'S', noTimeLimit());
   assert.match(prompt('claude', 'H', withBranch), /^\[Prior session summary, compacted \d{4}-\d\d-\d\dT[\d:]+Z on branch topic\]$/m);
   const noBranch = project();
   compact('A', noBranch, 'S');
