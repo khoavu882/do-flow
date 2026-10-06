@@ -103,11 +103,12 @@ if [ -n "$SESSION_ID" ]; then
       esac
     done < "$PROC_FILE"
 
-    # Python: async format, sync check (errors reach the caller via stderr)
+    # Python: async format, sync check (output goes to stderr: on Codex, text on stdout
+    # before the {} reply is invalid hook output)
     if [ ${#py_files[@]} -gt 0 ]; then
       if command -v ruff &>/dev/null; then
         nohup ruff format "${py_files[@]}" </dev/null >/dev/null 2>&1 &
-        run_with_timeout 2 -- ruff check "${py_files[@]}" 2>&1 || true
+        run_with_timeout 2 -- ruff check "${py_files[@]}" >&2 || true
       fi
     fi
 
@@ -121,7 +122,7 @@ if [ -n "$SESSION_ID" ]; then
     # Go: sync format (gofmt is fast, <100ms for typical files)
     if [ ${#go_files[@]} -gt 0 ]; then
       if command -v gofmt &>/dev/null; then
-        run_with_timeout 2 -- gofmt -w "${go_files[@]}" 2>&1 || true
+        run_with_timeout 2 -- gofmt -w "${go_files[@]}" >&2 || true
       fi
     fi
 
@@ -189,6 +190,15 @@ else
 fi
 
 [ -z "$LAST_ASSISTANT_CONTENT" ] && exit 0
+
+# Text that only resembles a marker is dropped first: markdown headings (## TODO list, # Todo),
+# "the // TODO comment" mentions and URLs (http://todo-app.example.com). Ceiling: a title-case
+# `# Todo` or `# Fixme` at the start of a line reads as a heading, and a marker followed by the
+# word comment(s) or marker(s) reads as a mention.
+LAST_ASSISTANT_CONTENT=$(printf '%s\n' "$LAST_ASSISTANT_CONTENT" \
+  | grep -vE '^ {0,3}(#{2,6} |# (Todo|Fixme)([^[:alnum:]_]|$))' \
+  | grep -viE '(#|//)[[:space:]]*(TODO|FIXME)s?[[:space:]]+(comments?|markers?)([^[:alnum:]_]|$)' \
+  | sed -E 's#[A-Za-z][A-Za-z0-9+.-]*://[^[:space:]]*##g') || true
 
 # Search extracted content for unfinished-work markers
 # Match stubs only inside code comment context to avoid false positives from
