@@ -4,18 +4,22 @@
 // renders as nothing (tag characters, zero-width characters, bidirectional controls, invisible
 // operators) can carry instructions or reorder text that no reviewer sees. Every file under core/,
 // src/, bin/ and docs/, and README.md, must hold none, and must decode as strict UTF-8 so an
-// undecodable file cannot slip past unscanned. test/ and bench/ are not scanned: test/ holds
-// deliberate bidirectional fixtures. This file builds every fixture character with
-// String.fromCodePoint and names code points only in escapes, so it does not flag itself.
+// undecodable file cannot slip past unscanned. The scan reads the files git tracks (the working-tree
+// walk is the fallback when git cannot list them), so an ignored or untracked artifact never fails
+// it; a tracked file holding a NUL byte is binary and a symlink is not a file of its own, and
+// both are skipped. test/ and bench/ are not scanned: test/ holds deliberate bidirectional
+// fixtures. This file builds every fixture character with String.fromCodePoint and names code
+// points only in escapes, so it does not flag itself.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { REPO } = require('./_shared');
 
 const SCAN_ROOTS = ['core', 'src', 'bin', 'docs'];
 const SCAN_FILES = ['README.md'];
-const OS_METADATA = new Set(['.DS_Store']);
 
 const HIDDEN_CODE_POINTS = [
   { from: 0xE0000, to: 0xE007F, cls: 'tag character' },
@@ -69,8 +73,10 @@ function scanText(rel, text) {
 
 const describe = ({ rel, line, column, codePoint, cls }) => `${rel}:${line}:${column} U+${hex(codePoint)} ${cls}`;
 
-/** Findings for one file's bytes: the hidden code points, or a single not-valid-UTF-8 finding. */
+/** Findings for one file's bytes: the hidden code points, or a single not-valid-UTF-8 finding. A
+ * buffer holding a NUL byte is binary (an image, a compiled file) and has no text to scan. */
 function scanBuffer(rel, buffer) {
+  if (buffer.includes(0)) return [];
   let text;
   try {
     text = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
@@ -80,32 +86,68 @@ function scanBuffer(rel, buffer) {
   return scanText(rel, text).map(describe);
 }
 
-/** Every file under `dir`, OS metadata aside. */
-function filesUnder(dir) {
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) return filesUnder(full);
-    return OS_METADATA.has(entry.name) ? [] : [full];
+/** Every regular file under `dir` (repo-relative, forward slashes); a symlink, dangling or not, is not one. */
+function filesUnder(root, dir) {
+  return fs.readdirSync(path.join(root, dir), { withFileTypes: true }).flatMap((entry) => {
+    const rel = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) return filesUnder(root, rel);
+    return entry.isFile() ? [rel] : [];
   });
+}
+
+function gitTracked(root) {
+  const out = execFileSync('git', ['ls-files', '-z', '--', ...SCAN_ROOTS, ...SCAN_FILES], {
+    cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' },
+  });
+  return out.split('\0').filter(Boolean);
+}
+
+/** The files to scan under `root`: what git tracks there, or the working-tree walk when git cannot say. */
+function scanTargets(root, listTracked = gitTracked) {
+  try {
+    const rels = listTracked(root);
+    if (rels.length) return { rels, source: 'git' };
+  } catch { /* no git, or not a repository: walk instead */ }
+  const walked = SCAN_ROOTS.filter((dir) => fs.existsSync(path.join(root, dir))).flatMap((dir) => filesUnder(root, dir));
+  return { rels: [...walked, ...SCAN_FILES.filter((file) => fs.existsSync(path.join(root, file)))], source: 'walk' };
+}
+
+/** A file's bytes, or null when it is not a regular file (a symlink, a directory, a path that vanished). */
+function readRegularFile(full) {
+  try {
+    return fs.lstatSync(full).isFile() ? fs.readFileSync(full) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Asset sources outside the scanned roots, as failure messages. */
+function outsideRoots(assets) {
+  return assets.filter(({ source }) => !/^(core|src|bin)(\/|$)/.test(source))
+    .map(({ id, source }) => `asset ${id} source ${source} is outside the scanned roots`);
 }
 
 test('G23: no file under core/, src/, bin/, docs/ or README.md holds a hidden code point', (t) => {
   const started = process.hrtime.bigint();
   const perRoot = new Map();
   const findings = [];
-  for (const full of [...SCAN_ROOTS.flatMap((root) => filesUnder(path.join(REPO, root))),
-    ...SCAN_FILES.map((file) => path.join(REPO, file))]) {
-    const rel = path.relative(REPO, full).split(path.sep).join('/');
+  const skipped = { binary: 0, notRegular: 0 };
+  const { rels, source } = scanTargets(REPO);
+  for (const rel of rels) {
+    const buffer = readRegularFile(path.join(REPO, rel));
+    if (!buffer) { skipped.notRegular += 1; continue; }
+    if (buffer.includes(0)) { skipped.binary += 1; continue; }
     const top = SCAN_FILES.includes(rel) ? rel : rel.split('/')[0];
     perRoot.set(top, (perRoot.get(top) || 0) + 1);
-    findings.push(...scanBuffer(rel, fs.readFileSync(full)));
+    findings.push(...scanBuffer(rel, buffer));
   }
 
   const empty = [...SCAN_ROOTS, ...SCAN_FILES].filter((entry) => !perRoot.get(entry));
   assert.deepEqual(empty, [], `scan roots that held no file; the scan below would measure nothing: ${empty.join(', ')}`);
   const files = [...perRoot.values()].reduce((a, b) => a + b, 0);
-  t.diagnostic(`hidden unicode: ${files} files scanned (${[...perRoot].map(([root, n]) => `${root} ${n}`).join(', ')}) `
-    + `in ${Math.round(Number(process.hrtime.bigint() - started) / 1e6)} ms`);
+  t.diagnostic(`hidden unicode: ${files} ${source} files scanned (${[...perRoot].map(([root, n]) => `${root} ${n}`).join(', ')}); `
+    + `skipped ${skipped.binary} binary, ${skipped.notRegular} not regular; in ${Math.round(Number(process.hrtime.bigint() - started) / 1e6)} ms`);
   assert.deepEqual(findings.sort(), [],
     `hidden code points or undecodable files (position is line:column in code points):\n  ${findings.join('\n  ')}`);
 });
@@ -113,8 +155,7 @@ test('G23: no file under core/, src/, bin/, docs/ or README.md holds a hidden co
 test('G23: every asset source lies under a scanned root', () => {
   const { assets } = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'assets.json'), 'utf8'));
   assert.ok(assets.length > 0, 'no assets parsed; the coverage check would measure nothing');
-  const outside = assets.filter(({ source }) => !/^(core|src|bin)(\/|$)/.test(source))
-    .map(({ id, source }) => `asset ${id} source ${source} is outside the scanned roots`);
+  const outside = outsideRoots(assets);
   assert.deepEqual(outside, [], outside.join('\n'));
 });
 
@@ -137,4 +178,38 @@ test('G23: controls — the scan sees hidden code points, exempts emoji joins an
 
   assert.deepEqual(scanBuffer('bad.md', Buffer.from([0xC3, 0x28])), ['bad.md: not valid UTF-8, not scanned']);
   assert.deepEqual(scanBuffer('ok.md', Buffer.from('plain text', 'utf8')), []);
+});
+
+test('G23: controls — binary files, symlinks and untracked files do not fail the scan; sources outside the roots do', (t) => {
+  assert.deepEqual(scanBuffer('image.png', Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0xC3, 0x28])), [],
+    'a binary file is skipped, not reported as undecodable');
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-g23-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, 'docs', 'sub'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'a.md'), 'plain');
+  fs.writeFileSync(path.join(root, 'docs', 'sub', 'b.md'), 'plain');
+  fs.writeFileSync(path.join(root, 'README.md'), 'plain');
+  let linked = true;
+  try {
+    fs.symlinkSync(path.join(root, 'no-such-target'), path.join(root, 'docs', 'dangling.md'));
+    fs.symlinkSync(path.join(root, 'docs', 'sub'), path.join(root, 'docs', 'dir-link'));
+    fs.symlinkSync(path.join(root, 'docs', 'a.md'), path.join(root, 'docs', 'file-link.md'));
+  } catch { linked = false; }
+
+  assert.deepEqual(scanTargets(root, () => { throw new Error('no git'); }),
+    { rels: ['docs/a.md', 'docs/sub/b.md', 'README.md'], source: 'walk' }, 'the walk fallback lists regular files only');
+  assert.equal(scanTargets(root, () => []).source, 'walk', 'an empty git listing falls back to the walk');
+  assert.deepEqual(scanTargets(root, () => ['docs/a.md']), { rels: ['docs/a.md'], source: 'git' }, 'only tracked files are scanned');
+  if (linked) {
+    for (const name of ['dangling.md', 'dir-link', 'file-link.md']) {
+      assert.equal(readRegularFile(path.join(root, 'docs', name)), null, `${name} is not a regular file`);
+    }
+  }
+  assert.equal(readRegularFile(path.join(root, 'docs', 'gone.md')), null, 'a tracked path missing from the tree is skipped');
+  assert.deepEqual(readRegularFile(path.join(root, 'docs', 'a.md')), Buffer.from('plain'));
+  assert.ok(scanTargets(REPO).rels.includes('README.md'), 'the repository scan lists README.md');
+
+  assert.deepEqual(outsideRoots([{ id: 'x.tests', source: 'test/fixtures' }, { id: 'y', source: 'core/shared' }]),
+    ['asset x.tests source test/fixtures is outside the scanned roots']);
 });

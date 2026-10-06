@@ -34,13 +34,13 @@
     {
       "id": "continue-vs-wait-at-plan",
       "a": "\\bcontinue into execution\\b",
-      "b": "\\bwait for approval\\b",
+      "b": "\\bwait for approval (again|after the plan)\\b",
       "reason": "the shipped guidance must not both continue into execution after an approved plan and wait for approval again"
     },
     {
       "id": "incremental-vs-no-commit",
       "a": "\\bcommit incrementally\\b|\\bcommit each\\b",
-      "b": "\\bnever commit\\b|\\bdo not commit\\b",
+      "b": "\\b(never|do not) commit\\b(?! (secrets?|credentials?|tokens?|\\.env|to (main|master)|directly))",
       "reason": "the shipped guidance must not both require incremental commits and forbid committing"
     }
   ]

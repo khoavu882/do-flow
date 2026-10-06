@@ -123,12 +123,19 @@ test('G13: the DoFlow-authored always-loaded set stays within its byte ceiling',
     + `  Excluded by design: ${[...GENERATED_EXCLUSIONS.keys()].join(', ')} (generated per install).`);
 });
 
+/** Every `*.md` under `dir` (repo-relative), depth first. */
+function markdownUnder(dir) {
+  return fs.readdirSync(path.join(REPO, dir), { withFileTypes: true }).flatMap((entry) => {
+    const rel = path.join(dir, entry.name);
+    if (entry.isDirectory()) return markdownUnder(rel);
+    return entry.name.endsWith('.md') ? [rel] : [];
+  });
+}
+
 /** Lines and bytes of every `*.md` under a directory, or of one file, after an optional transform. */
 function measureSource(sourceRel, transform) {
   const full = path.join(REPO, sourceRel);
-  const names = fs.statSync(full).isDirectory()
-    ? fs.readdirSync(full, { recursive: true }).filter((name) => name.endsWith('.md')).map((name) => path.join(sourceRel, name))
-    : [sourceRel];
+  const names = fs.statSync(full).isDirectory() ? markdownUnder(sourceRel) : [sourceRel];
   return names.reduce((total, rel) => {
     let bytes = fs.readFileSync(path.join(REPO, rel));
     if (transform) bytes = transform(rel, bytes);

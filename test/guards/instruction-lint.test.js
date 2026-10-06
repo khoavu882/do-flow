@@ -94,6 +94,7 @@ function resolves(token, rel, { exists, basenames }) {
 
 const PATH_ENTRY_KEYS = new Set(['kind', 'target', 'match', 'files', 'reason']);
 const PAIR_KEYS = new Set(['id', 'a', 'b', 'reason']);
+const isEntry = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const blank = (value) => typeof value !== 'string' || !value.trim();
 
 function compiles(source, flags = '') {
@@ -111,6 +112,7 @@ function policyProblems(policy, exists) {
   if (!Array.isArray(allow)) problems.push('allow: not an array');
   else allow.forEach((entry, i) => {
     const at = `allow[${i}]`;
+    if (!isEntry(entry)) { problems.push(`${at}: not an object`); return; }
     for (const key of Object.keys(entry)) if (!PATH_ENTRY_KEYS.has(key)) problems.push(`${at}: unknown key "${key}"`);
     for (const key of ['target', 'reason']) if (blank(entry[key])) problems.push(`${at}: missing or blank ${key}`);
     if (!['path', 'verb'].includes(entry.kind)) problems.push(`${at}: kind must be "path" or "verb"`);
@@ -126,6 +128,7 @@ function policyProblems(policy, exists) {
     const seen = new Set();
     policy.pairs.forEach((pair, i) => {
       const at = `pairs[${i}]`;
+      if (!isEntry(pair)) { problems.push(`${at}: not an object`); return; }
       for (const key of Object.keys(pair)) if (!PAIR_KEYS.has(key)) problems.push(`${at}: unknown key "${key}"`);
       for (const key of ['id', 'a', 'b', 'reason']) if (blank(pair[key])) problems.push(`${at}: missing or blank ${key}`);
       for (const side of ['a', 'b']) {
@@ -138,7 +141,10 @@ function policyProblems(policy, exists) {
   return problems;
 }
 
+// A `..` segment is refused before any entry is consulted: an allow regex anchored on a prefix
+// would otherwise swallow a token that walks out of it.
 const suppresses = (entry, kind, token, rel) => entry.kind === kind
+  && !token.split('/').includes('..')
   && (entry.match === 'regex' ? new RegExp(entry.target).test(token) : entry.target === token)
   && (!entry.files || entry.files.includes(rel));
 
@@ -231,8 +237,15 @@ const run = (text, policy = FIXTURE_POLICY, rel = 'core/shared/guidance/x.md') =
 const PAIR_SAMPLES = {
   'parallel-vs-sequential-default': ['Parallel by default', 'sequential by default'],
   'ask-only-vs-always-ask': ['Ask ONLY for decisions', 'Always ask first'],
-  'continue-vs-wait-at-plan': ['continue into execution', 'wait for approval'],
+  'continue-vs-wait-at-plan': ['continue into execution', 'wait for approval again'],
   'incremental-vs-no-commit': ['Commit incrementally', 'never commit'],
+};
+// Ordinary prose near each pair's second side, which must not fire it.
+const PAIR_NEAR_MISSES = {
+  'parallel-vs-sequential-default': 'Run tasks sequentially when they share a write set.',
+  'ask-only-vs-always-ask': 'Ask one question at a time.',
+  'continue-vs-wait-at-plan': 'At each gate, wait for approval before the next phase.',
+  'incremental-vs-no-commit': 'Do not commit secrets or .env files.',
 };
 
 test('G24: controls — the lint sees an unresolved path, an unknown verb and coexisting defaults', () => {
@@ -264,7 +277,10 @@ test('G24: controls — every shipped pair fires on a fixture holding both sides
     const { findings } = pairFindings([pair], [{ rel: 'a.md', text: a }, { rel: 'b.md', text: b }]);
     assert.equal(findings.length, 1, `pair ${pair.id} did not fire on its sample`);
     assert.equal(pairFindings([pair], [{ rel: 'a.md', text: a }]).findings.length, 0, `pair ${pair.id} fired on one side`);
+    assert.equal(pairFindings([pair], [{ rel: 'a.md', text: a }, { rel: 'b.md', text: PAIR_NEAR_MISSES[pair.id] }]).findings.length, 0,
+      `pair ${pair.id} fired on ordinary prose: ${PAIR_NEAR_MISSES[pair.id]}`);
   }
+  assert.deepEqual(Object.keys(PAIR_NEAR_MISSES).sort(), Object.keys(PAIR_SAMPLES).sort(), 'a shipped pair has no near-miss control');
 });
 
 test('G24: controls — an allow entry suppresses what it names and fails when it matches nothing', () => {
@@ -276,6 +292,16 @@ test('G24: controls — an allow entry suppresses what it names and fails when i
 
   const stale = run(text, { allow: [entry, { kind: 'path', target: 'never-cited.md', reason: 'fixture' }] });
   assert.deepEqual(stale, ['allow[1] never-cited.md: matches nothing; delete it']);
+
+  const state = { kind: 'path', target: '^\\.doflow/state/', match: 'regex', reason: 'fixture' };
+  const walkOut = run('see `.doflow/state/x.md` and `.doflow/state/../guidance/NOPE.md` and doflow-run paths, alpha', { allow: [state] });
+  assert.deepEqual(walkOut, ['core/shared/guidance/x.md:1 -> .doflow/state/../guidance/NOPE.md (no such path)'],
+    'an allow regex does not swallow a token that walks out of its prefix with ..');
+});
+
+test('G24: controls — placeholder tokens are not path references', () => {
+  const { paths } = extractReferences('`core/shared/<name>.md` `core/{a,b}.md` `core/*.md` `core/shared/NNN-x.md` `$HOME/x.md` `core/shared/real.md`');
+  assert.deepEqual(paths.map(({ token }) => token), ['core/shared/real.md']);
 });
 
 test('G24: controls — a malformed policy fails closed, naming the entry', () => {
@@ -295,4 +321,7 @@ test('G24: controls — a malformed policy fails closed, naming the entry', () =
   assert.deepEqual(problems({ pairs: [pair, { ...pair }] }), ['pairs[1]: duplicate id p']);
   assert.deepEqual(problems({ pairs: [{ ...pair, a: '(' }] }), ['pairs[0]: a is not a valid regex']);
   assert.deepEqual(problems({ pairs: [{ ...pair, b: '' }] }), ['pairs[0]: missing or blank b']);
+  assert.deepEqual(problems({ allow: [null, 'x', [good]], pairs: FIXTURE_POLICY.pairs }),
+    ['allow[0]: not an object', 'allow[1]: not an object', 'allow[2]: not an object']);
+  assert.deepEqual(problems({ pairs: [null, pair] }), ['pairs[0]: not an object']);
 });
