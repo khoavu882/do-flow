@@ -212,3 +212,34 @@ for (const text of [
     assert.equal(stop('claude', { session_id: sid(), last_assistant_message: text }).code, 2);
   });
 }
+
+// The prose filter must stay linear in the line length. Each case is timed at 20000 and 100000
+// characters: an absolute bound, and a bound relative to the small run so a slow machine does not
+// fail it (a quadratic filter took 33 times longer at 100000 than at 20000).
+function timedStop(text) {
+  const start = process.hrtime.bigint();
+  const r = stop('claude', { session_id: sid(), last_assistant_message: text });
+  return { code: r.code, seconds: Number(process.hrtime.bigint() - start) / 1e9 };
+}
+for (const [name, build, expected] of [
+  ['one long line with no URL', (n) => 'a'.repeat(n), 0],
+  ['one long line with a marker', (n) => `# TODO: x\n${'a'.repeat(n)}`, 2],
+  ['one long line of repeated URLs', (n) => 'http://x'.repeat(n / 8), 0],
+  ['repeated URLs, then a marker', (n) => `${'http://x'.repeat(n / 8)}\n// TODO: y`, 2],
+  ['a long scheme-like run before ://', (n) => `${'a'.repeat(n)}://b`, 0],
+]) {
+  test(`the prose filter is linear: ${name}`, () => {
+    const small = timedStop(build(20000));
+    const large = timedStop(build(100000));
+    assert.equal(small.code, expected);
+    assert.equal(large.code, expected);
+    assert.ok(large.seconds < 2, `100000 characters took ${large.seconds}s`);
+    assert.ok(large.seconds < small.seconds * 6 + 0.3, `${large.seconds}s at 100000 against ${small.seconds}s at 20000`);
+  });
+}
+
+test('2000 repeated URLs finish quickly and a marker after them still blocks', () => {
+  const r = timedStop(`${'http://x'.repeat(2000)}\n// TODO: y`);
+  assert.equal(r.code, 2);
+  assert.ok(r.seconds < 2, `took ${r.seconds}s`);
+});
