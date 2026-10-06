@@ -13,6 +13,10 @@ const REPO = path.resolve(__dirname, "../..");
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const { IS_WIN, expectExecutable } = require('../helper-platform');
 
+// A developer's own PI_CODING_AGENT_DIR would redirect Pi's user-scope mcp.json away from the
+// scratch HOME; the Pi case that needs it sets it explicitly for its own spawn.
+delete process.env.PI_CODING_AGENT_DIR;
+
 /** Scratch-$HOME env for a spawned CLI. os.homedir() prefers USERPROFILE on Windows and ignores
  * HOME there entirely, so both must be redirected or -g installs would land in the runner's real
  * profile instead of the scratch directory. */
@@ -1006,4 +1010,63 @@ test('reconcile reports drift, heals it onto the pin, and converges clean', () =
   const bare = run(['reconcile', '-g', '--force'], { home: fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-')) });
   assert.strictEqual(bare.status, 0);
   assert.match(bare.stdout, /No doflow\.lock in this scope/);
+});
+
+test('Pi MCP: a global install merges into a hand-written ~/.pi/agent/mcp.json and remove leaves the user bytes untouched', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const mcpFile = path.join(home, '.pi', 'agent', 'mcp.json');
+  fs.mkdirSync(path.dirname(mcpFile), { recursive: true });
+  const handWritten = '{\n  "mcpServers": { "mine": { "command": "my-server" } },\n  "other": 1\n}\n';
+  fs.writeFileSync(mcpFile, handWritten);
+
+  let r = run(['install', '-g', '--force', '--no-backup', '-t', 'pi'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const installed = JSON.parse(fs.readFileSync(mcpFile, 'utf8'));
+  assert.deepStrictEqual(Object.keys(installed.mcpServers).sort(), ['context7', 'mine', 'sequential-thinking']);
+  assert.deepStrictEqual(installed.mcpServers.mine, { command: 'my-server' });
+  assert.strictEqual(installed.other, 1);
+  const installedText = fs.readFileSync(mcpFile, 'utf8');
+  assert.ok(installedText.includes('"mine": { "command": "my-server" }') && installedText.includes('"other": 1'), 'install keeps the hand-written members byte for byte');
+
+  r = run(['remove', '-g', '--force', '-t', 'pi'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.strictEqual(fs.readFileSync(mcpFile, 'utf8'), handWritten, 'remove restores the user\'s bytes exactly');
+});
+
+test('Pi MCP: a project install writes <project>/.pi/mcp.json with both catalog servers and prints the trust notice', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+  const r = run(['install', project, '--force', '--no-backup', '-t', 'pi'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+
+  const mcpJson = JSON.parse(fs.readFileSync(path.join(project, '.pi', 'mcp.json'), 'utf8'));
+  assert.deepStrictEqual(Object.keys(mcpJson.mcpServers).sort(), ['context7', 'sequential-thinking']);
+  assert.ok(r.stdout.includes('MCP: Pi reads .pi/mcp.json only after this project is trusted (/trust or --approve); DoFlow does not grant trust.'), r.stdout);
+});
+
+test('Pi MCP: an update with a narrower --mcp selection drops the deselected server from Pi\'s mcp.json', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  let r = run(['install', '-g', '--force', '-t', 'claude,pi', '--mcp', 'context7,sequential-thinking'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const piMcp = path.join(home, '.pi', 'agent', 'mcp.json');
+  assert.deepStrictEqual(Object.keys(JSON.parse(fs.readFileSync(piMcp, 'utf8')).mcpServers).sort(), ['context7', 'sequential-thinking']);
+
+  r = run(['update', '-g', '--force', '-t', 'claude,pi', '--mcp', 'context7'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.deepStrictEqual(Object.keys(JSON.parse(fs.readFileSync(piMcp, 'utf8')).mcpServers), ['context7']);
+  assert.deepStrictEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf8')).mcpServers), ['context7']);
+});
+
+test('Pi MCP: PI_CODING_AGENT_DIR redirects mcp.json while skills stay under ~/.pi/agent', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-agentdir-'));
+  const r = run(['install', '-g', '--force', '--no-backup', '-t', 'pi'], { home, env: { PI_CODING_AGENT_DIR: agentDir } });
+  assert.strictEqual(r.status, 0, r.stderr);
+
+  const mcpJson = JSON.parse(fs.readFileSync(path.join(agentDir, 'mcp.json'), 'utf8'));
+  assert.deepStrictEqual(Object.keys(mcpJson.mcpServers).sort(), ['context7', 'sequential-thinking']);
+  assert.ok(!fs.existsSync(path.join(home, '.pi', 'agent', 'mcp.json')), 'the default location must stay untouched');
+  assert.ok(fs.existsSync(path.join(home, '.pi', 'agent', 'skills')), 'skills do not follow PI_CODING_AGENT_DIR');
+  assert.ok(r.stdout.includes('PI_CODING_AGENT_DIR is set: Pi reads its whole agent dir from it, but DoFlow moves only mcp.json there; skills and AGENTS.md stay in ~/.pi/agent.'), r.stdout);
+  assert.ok(r.stdout.includes('MCP: servers selected for Pi: context7, sequential-thinking; --mcp narrows this only when claude or codex is also targeted.'), r.stdout);
 });

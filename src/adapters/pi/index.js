@@ -9,40 +9,53 @@
 // `settings.json` entry naming it, is untested here — that is task B.3's job, not this adapter's;
 // this adapter deliberately leaves settings.json untouched.
 //
-// MCP is deliberately absent: Pi reaches MCP servers through the separate pi-mcp-adapter extension,
-// not a native config key, so there is nothing here for DoFlow to merge into. Hooks are absent for
-// the same class of reason — Pi lifecycle handlers are TypeScript modules registered via pi.on(),
+// MCP servers are merged per server into Pi's mcp.json (.pi/mcp.json project; ~/.pi/agent/mcp.json
+// or $PI_CODING_AGENT_DIR/mcp.json user) by ./mcp.js; Pi reads it through its built-in MCP from
+// 0.99.0. Hooks are absent — Pi lifecycle handlers are TypeScript modules registered via pi.on(),
 // executing with full system permissions, which is a different trust model from the shell scripts
 // DoFlow ships.
 //
 // Evidence: https://pi.dev/docs/latest/settings, https://pi.dev/docs/latest/skills,
-// https://pi.dev/docs/latest/quickstart, https://pi.dev/docs/latest/extensions
+// https://pi.dev/docs/latest/quickstart, https://pi.dev/docs/latest/extensions,
+// https://pi.dev/docs/latest/mcp
 const fs = require('node:fs');
 const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, sourceDirFor } = require('../copy-tree');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
+const { mcpRows, discoverPiMcp, planPiMcp, applyPiMcp, verifyPiMcp } = require('./mcp');
 
 const HARNESS = 'pi';
+const AGENT_DIR_NOTICE = 'PI_CODING_AGENT_DIR is set: Pi reads its whole agent dir from it, but DoFlow moves only mcp.json there; skills and AGENTS.md stay in ~/.pi/agent.';
 
 // Native path facts live in core/registry/harnesses.json under this harness's "paths" section and
 // resolve through the shared harness-paths resolver; nothing below hardcodes them.
 // createPiAdapter({ declaredPaths }) is the injection point buildAdapterRegistry() uses;
 // module-level exports delegate to a default-configured instance so direct callers keep their
 // historical shape.
-function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {}) {
+function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env = process.env } = {}) {
   // Parity note: Pi's historical nativePaths() derived even its user-scope root from scopeRoot
   // (the CLI passes $HOME there for -g installs), never from a separate homeDir argument — so the
   // resolver is fed no homeDir and "root" keeps resolving exactly as before.
   function nativePaths({ scope, scopeRoot } = {}) {
-    return resolveHarnessPaths(declaredPaths, { scope, scopeRoot });
+    const paths = resolveHarnessPaths(declaredPaths, { scope, scopeRoot });
+    // Pi's user-scope mcp.json follows $PI_CODING_AGENT_DIR when set. It is not declared in the
+    // registry because the path schema has no environment base (src/helper/harness-paths.js); only
+    // mcp moves, skills and AGENTS.md keep their declared locations.
+    if ((scope === 'user' || scope === 'global') && agentDirOverride()) paths.mcp = path.join(path.resolve(agentDirOverride()), 'mcp.json');
+    return paths;
   }
 
-  function discover({ scope, scopeRoot, context = {}, fsImpl = fs }) {
+  function agentDirOverride() {
+    const agentDir = env.PI_CODING_AGENT_DIR;
+    return typeof agentDir === 'string' && agentDir.trim() !== '' ? agentDir.trim() : null;
+  }
+
+  function discover({ scope, scopeRoot, mcp = [], ledger, context = {}, fsImpl = fs }) {
     const paths = nativePaths({ scope, scopeRoot });
     const instruction = fsImpl.existsSync(paths.instruction) ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
-    return { paths, instruction };
+    return { paths, instruction, mcp: discoverPiMcp({ selected: mcp, rows: mcpRows(ledger), file: paths.mcp, fsImpl }) };
   }
 
   function render({ content = '' } = {}) {
@@ -141,8 +154,8 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {
 
   // ---- shared adapter contract ----
 
-  function plan({ scope, scopeRoot, assets = [], context = {}, ledger, fsImpl = fs }) {
-    const found = discover({ scope, scopeRoot, context, fsImpl });
+  function plan({ scope, scopeRoot, assets = [], mcp = [], discovery, context = {}, ledger, fsImpl = fs }) {
+    const found = discovery || discover({ scope, scopeRoot, mcp, ledger, context, fsImpl });
     const changes = [];
     const conflicts = [];
     const removing = context.operation === 'remove';
@@ -165,7 +178,13 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {
     changes.push(...copyTree.changes);
     conflicts.push(...copyTree.conflicts);
 
-    return { changes, conflicts, notices: copyTree.notices, paths: found.paths };
+    const piMcp = planPiMcp({ selected: mcp, rows: mcpRows(ledger), file: found.paths.mcp, scope, removing, snapshot: found.mcp, assets });
+    changes.push(...piMcp.changes);
+    conflicts.push(...piMcp.conflicts);
+
+    const notices = [...copyTree.notices, ...piMcp.notices];
+    if (!removing && scope !== 'project' && agentDirOverride()) notices.push(AGENT_DIR_NOTICE);
+    return { changes, conflicts, notices, paths: found.paths };
   }
 
   function writeChange(change, fsImpl) {
@@ -173,10 +192,13 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {
     fsImpl.writeFileSync(change.target, change.content, 'utf8');
   }
 
+  function isPiMcp(change) { return change.projection?.renderer === 'pi-mcp'; }
+
   function apply({ changes = [], fsImpl = fs }) {
-    let applied = 0;
+    // MCP first: its base-hash check refuses a stale plan before any other Pi file is written.
+    let applied = applyPiMcp(changes.filter(isPiMcp), { fsImpl }).applied;
     for (const change of changes) {
-      if (change.operation === 'remove' || change.projection?.renderer === 'copy-tree') continue;
+      if (change.operation === 'remove' || change.projection?.renderer === 'copy-tree' || isPiMcp(change)) continue;
       writeChange(change, fsImpl);
       applied += 1;
     }
@@ -185,9 +207,9 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {
   }
 
   function remove({ changes = [], fsImpl = fs }) {
-    let removed = 0;
+    let removed = applyPiMcp(changes.filter(isPiMcp), { fsImpl }).applied;
     for (const change of changes) {
-      if (change.operation !== 'remove' || change.projection?.renderer === 'copy-tree') continue;
+      if (change.operation !== 'remove' || change.projection?.renderer === 'copy-tree' || isPiMcp(change)) continue;
       if (change.content === null) continue;
       writeChange(change, fsImpl);
       removed += 1;
@@ -196,8 +218,8 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {
     return { removed };
   }
 
-  function verify({ scope, scopeRoot, assets = [], context = {}, fsImpl = fs }) {
-    const found = discover({ scope, scopeRoot, context, fsImpl });
+  function verify({ scope, scopeRoot, assets = [], mcp = [], discovery, ledger, context = {}, fsImpl = fs }) {
+    const found = discover({ scope, scopeRoot, mcp, ledger, context, fsImpl });
     const statuses = [];
     const resources = [];
     const conflicts = [];
@@ -218,6 +240,12 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {
     statuses.push(...copyTree.statuses);
     resources.push(...copyTree.resources);
     conflicts.push(...copyTree.conflicts);
+
+    const piMcp = verifyPiMcp({ selected: mcp, rows: mcpRows(ledger), file: found.paths.mcp, snapshot: (discovery ?? found).mcp,
+      removing: context.operation === 'remove', fsImpl });
+    statuses.push(...piMcp.statuses);
+    resources.push(...piMcp.resources);
+    conflicts.push(...piMcp.conflicts);
 
     return { ok: conflicts.length === 0 && !statuses.some((s) => s.status === 'invalid' || s.status === 'conflict'), resources, statuses, conflicts };
   }

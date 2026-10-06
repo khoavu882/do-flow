@@ -28,6 +28,9 @@ const SOURCE_DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow',
 const ALL_HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
 const { IS_WIN, interpreterSpawn, samePath, msysArgConvGuards } = require('../helper-platform');
 
+// A developer's PI_CODING_AGENT_DIR would send this file's global Pi MCP writes outside the scratch home.
+delete process.env.PI_CODING_AGENT_DIR;
+
 function scratch(tag) { return fs.mkdtempSync(path.join(os.tmpdir(), `doflow-shape-${tag}-`)); }
 
 /** os.homedir() ignores HOME on Windows and reads USERPROFILE instead, so a scratch home must
