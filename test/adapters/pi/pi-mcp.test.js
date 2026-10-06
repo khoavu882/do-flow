@@ -19,6 +19,7 @@ const SERVERS = selectMcpServers(registry);
 const ASSETS = [{ id: 'guidance.codex-pointer' }];
 const ENTRY = Object.fromEntries(SERVERS.map((server) => [server.id, { command: server.command, args: server.args }]));
 const NOTICE = {
+  N0: 'MCP: servers selected for Pi: context7, sequential-thinking; --mcp narrows this only when claude or codex is also targeted.',
   N1: 'MCP: stdio servers are registered in the mcpServers map of Pi\'s mcp.json for its built-in MCP (Pi 0.99.0 or later; a project entry replaces a user entry of the same name).',
   N2: 'MCP: an installed extension that registers /mcp, such as pi-mcp-adapter, replaces Pi\'s built-in MCP, and Pi then does not read mcp.json.',
   N3: 'MCP: Pi reads .pi/mcp.json only after this project is trusted (/trust or --approve); DoFlow does not grant trust.',
@@ -139,10 +140,28 @@ test('P3: a project plan writes .pi/mcp.json and adds the trust notice; a global
   const root = scratch();
   const { planned } = run({ root, scope: 'project' });
   assert.ok(fs.existsSync(path.join(root, '.pi', 'mcp.json')));
-  assert.deepEqual(planned.notices, [NOTICE.N1, NOTICE.N2, NOTICE.N3]);
+  assert.deepEqual(planned.notices, [NOTICE.N0, NOTICE.N1, NOTICE.N2, NOTICE.N3]);
   const global = planRun({ root: scratch() }).planned;
-  assert.deepEqual(global.notices, [NOTICE.N1, NOTICE.N2]);
+  assert.deepEqual(global.notices, [NOTICE.N0, NOTICE.N1, NOTICE.N2]);
   for (const notice of Object.values(NOTICE)) assert.ok(notice.length <= 200);
+});
+
+test('P3: the selection notice stays one line under 200 characters however many servers are selected', () => {
+  const many = Array.from({ length: 40 }, (_, index) => ({ id: `server-number-${index}`, transport: 'stdio', command: 'x' }));
+  const { planned } = planRun({ root: scratch(), mcp: many });
+  const notice = planned.notices[0];
+  assert.ok(notice.startsWith('MCP: servers selected for Pi: server-number-0, ') && notice.endsWith('...; --mcp narrows this only when claude or codex is also targeted.'), notice);
+  assert.ok(notice.length <= 200 && !notice.includes('\n'));
+});
+
+test('P2: a set PI_CODING_AGENT_DIR is announced on global plans; skills and AGENTS.md stay put', () => {
+  const agentNotice = 'PI_CODING_AGENT_DIR is set: Pi reads its whole agent dir from it, but DoFlow moves only mcp.json there; skills and AGENTS.md stay in ~/.pi/agent.';
+  const adapter = createPiAdapter({ env: { PI_CODING_AGENT_DIR: path.join(scratch(), 'agent') } });
+  assert.ok(planRun({ root: scratch(), adapter }).planned.notices.includes(agentNotice));
+  assert.ok(planRun({ root: scratch(), adapter, mcp: [] }).planned.notices.includes(agentNotice), 'the skills and AGENTS.md split applies without MCP too');
+  assert.ok(!planRun({ root: scratch(), adapter, scope: 'project' }).planned.notices.includes(agentNotice));
+  assert.ok(!planRun({ root: scratch() }).planned.notices.includes(agentNotice));
+  assert.ok(agentNotice.length <= 200);
 });
 
 test('P4: every byte of a user file survives install, update and remove; no change carries file text', () => {

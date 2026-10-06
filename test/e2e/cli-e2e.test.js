@@ -996,4 +996,6 @@ test('Pi MCP: PI_CODING_AGENT_DIR redirects mcp.json while skills stay under ~/.
   assert.deepStrictEqual(Object.keys(mcpJson.mcpServers).sort(), ['context7', 'sequential-thinking']);
   assert.ok(!fs.existsSync(path.join(home, '.pi', 'agent', 'mcp.json')), 'the default location must stay untouched');
   assert.ok(fs.existsSync(path.join(home, '.pi', 'agent', 'skills')), 'skills do not follow PI_CODING_AGENT_DIR');
+  assert.ok(r.stdout.includes('PI_CODING_AGENT_DIR is set: Pi reads its whole agent dir from it, but DoFlow moves only mcp.json there; skills and AGENTS.md stay in ~/.pi/agent.'), r.stdout);
+  assert.ok(r.stdout.includes('MCP: servers selected for Pi: context7, sequential-thinking; --mcp narrows this only when claude or codex is also targeted.'), r.stdout);
 });

@@ -32,6 +32,16 @@ function sha256(text) { return crypto.createHash('sha256').update(text).digest('
 
 function shorten(name) { return name.length > 40 ? `${name.slice(0, 37)}...` : name; }
 
+/** One line naming what a Pi install registers: a Pi-only run takes every catalog server, because
+ * the CLI reads --mcp only when claude or codex is targeted too. */
+function selectionNotice(ids) {
+  const tail = '; --mcp narrows this only when claude or codex is also targeted.';
+  const head = 'MCP: servers selected for Pi: ';
+  let list = ids.join(', ');
+  if (head.length + list.length + tail.length > 200) list = `${list.slice(0, 197 - head.length - tail.length)}...`;
+  return `${head}${list}${tail}`;
+}
+
 function collisionNotice(key, id) {
   return `MCP: kept your own entry '${shorten(key)}' and did not register DoFlow's '${shorten(id)}'; rename or remove yours to let DoFlow manage it.`;
 }
@@ -134,7 +144,7 @@ function planPiMcp({ selected = [], rows = [], file, scope, removing = false, sn
 
   const matched = new Set();
   if (!removing) {
-    notices.push(NOTICES.surface, NOTICES.extension);
+    notices.push(selectionNotice(selected.map((server) => String(server.id))), NOTICES.surface, NOTICES.extension);
     if (scope === 'project') notices.push(NOTICES.trust);
     const doc = snapshot[file]?.doc ?? ABSENT_DOCUMENT;
     for (const server of selected) {

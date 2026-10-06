@@ -27,6 +27,7 @@ const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harn
 const { mcpRows, discoverPiMcp, planPiMcp, applyPiMcp, verifyPiMcp } = require('./mcp');
 
 const HARNESS = 'pi';
+const AGENT_DIR_NOTICE = 'PI_CODING_AGENT_DIR is set: Pi reads its whole agent dir from it, but DoFlow moves only mcp.json there; skills and AGENTS.md stay in ~/.pi/agent.';
 
 // Native path facts live in core/registry/harnesses.json under this harness's "paths" section and
 // resolve through the shared harness-paths resolver; nothing below hardcodes them.
@@ -42,9 +43,13 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
     // Pi's user-scope mcp.json follows $PI_CODING_AGENT_DIR when set. It is not declared in the
     // registry because the path schema has no environment base (src/helper/harness-paths.js); only
     // mcp moves, skills and AGENTS.md keep their declared locations.
-    const agentDir = env.PI_CODING_AGENT_DIR;
-    if ((scope === 'user' || scope === 'global') && typeof agentDir === 'string' && agentDir.trim() !== '') paths.mcp = path.join(path.resolve(agentDir.trim()), 'mcp.json');
+    if ((scope === 'user' || scope === 'global') && agentDirOverride()) paths.mcp = path.join(path.resolve(agentDirOverride()), 'mcp.json');
     return paths;
+  }
+
+  function agentDirOverride() {
+    const agentDir = env.PI_CODING_AGENT_DIR;
+    return typeof agentDir === 'string' && agentDir.trim() !== '' ? agentDir.trim() : null;
   }
 
   function discover({ scope, scopeRoot, mcp = [], ledger, context = {}, fsImpl = fs }) {
@@ -177,7 +182,9 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
     changes.push(...piMcp.changes);
     conflicts.push(...piMcp.conflicts);
 
-    return { changes, conflicts, notices: [...copyTree.notices, ...piMcp.notices], paths: found.paths };
+    const notices = [...copyTree.notices, ...piMcp.notices];
+    if (!removing && scope !== 'project' && agentDirOverride()) notices.push(AGENT_DIR_NOTICE);
+    return { changes, conflicts, notices, paths: found.paths };
   }
 
   function writeChange(change, fsImpl) {
