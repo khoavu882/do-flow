@@ -198,10 +198,17 @@ function survivingClaimantsByTarget(ledger, releasedKeys) {
   for (const resource of ledger?.resources || []) {
     if (typeof resource?.target !== 'string' || typeof resource?.harness !== 'string') continue;
     if (releasedKeys.has(ownershipKey(resource))) continue;
-    if (!byTarget.has(resource.target)) byTarget.set(resource.target, new Set());
-    byTarget.get(resource.target).add(resource.harness);
+    const key = claimKey(resource);
+    if (!byTarget.has(key)) byTarget.set(key, new Set());
+    byTarget.get(key).add(resource.harness);
   }
   return byTarget;
+}
+
+/** What one claim covers: a whole file, except an MCP entry, which is claimed on its own because
+ * several harnesses keep their servers side by side in one MCP file. */
+function claimKey(record) {
+  return record.kind === 'mcp-server' ? `${record.target}\u0000${record.identity}` : record.target;
 }
 
 /** NFR-007: a removal reclaims only what no other harness still claims.
@@ -227,7 +234,7 @@ function markRetainedRemovals(harnessPlans, ledger, scope) {
     let retainedAny = false;
     const changes = target.changes.map((change) => {
       if (change.operation !== 'remove') return change;
-      const retainedFor = [...(claimants.get(change.target) ?? [])].filter((harness) => harness !== change.harness).sort();
+      const retainedFor = [...(claimants.get(claimKey(change)) ?? [])].filter((harness) => harness !== change.harness).sort();
       if (!retainedFor.length) return change;
       retainedAny = true;
       return Object.freeze({ ...change, retained: true, retainedFor });
@@ -274,7 +281,7 @@ function adapterNotices(result) {
     .filter((notice) => typeof notice === 'string' && notice.length <= 200 && !/[\u0000-\u001f\u007f]/.test(notice));
 }
 
-function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpIds, ledger, context = {} }) {
+function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpIds, mcpAdoptable = {}, ledger, context = {} }) {
   assertScope(scope);
   if (!registry) throw new Error('registry is required');
   const selectedMcp = selectMcpServers(registry, mcpIds);
@@ -285,7 +292,8 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpIds, 
     }
     const assets = selectAssets(registry, { harness: harness.id });
     const policies = renderPolicies(registry, { harness: harness.id });
-    const adapterInput = projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp: selectedMcp, policies, context });
+    const adoptable = selectMcpServers(registry, (mcpAdoptable[harness.id] ?? []).filter((id) => registry.mcp.some((server) => server.id === id)));
+    const adapterInput = projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp: selectedMcp, mcpAdoptable: adoptable, policies, context });
     const adapter = resolveAdapter(adapters, harness);
     const input = { ...adapterInput, registry, ledger: baseLedger };
     const discovery = adapter.discover(input);

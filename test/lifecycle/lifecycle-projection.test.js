@@ -58,3 +58,20 @@ test('registry projection permits only safe hook-trust override, not source subs
   assert.equal(projected.projection.hooks.trusted, true);
   assert.equal(projected.projection.hooks.sourceFile, path.join(path.resolve(__dirname, "../.."), 'core', 'harnesses', 'codex', 'hooks', 'hooks.json'));
 });
+
+test('planLifecycle projects each harness\'s adoptable MCP servers, filtered to the catalog and frozen', () => {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-adoptable-'));
+  const seen = {};
+  const adapter = {
+    discover(input) { seen[input.harness.id] = input.mcpAdoptable; return {}; },
+    render() { return ''; }, plan() { return { changes: [] }; }, apply() {}, remove() {}, verify() { return { ok: true }; },
+  };
+  planLifecycle({
+    registry, adapters: createAdapterRegistry({ kiro: adapter, codex: adapter }), scope: 'project', scopeRoot: projectRoot,
+    targets: ['kiro', 'codex'], mcpIds: [], mcpAdoptable: { kiro: ['sequential-thinking', 'retired-server', 'context7'] },
+  });
+  assert.deepEqual(seen.kiro.map((server) => server.id), ['context7', 'sequential-thinking']);
+  assert.ok(Object.isFrozen(seen.kiro) && Object.isFrozen(seen.kiro[0]));
+  assert.deepEqual(seen.codex, [], 'a harness with no adoptable entry gets none');
+  assert.deepEqual(projectAdapterInput({ registry, harness: harnessFor(registry, 'kiro'), scope: 'project', scopeRoot: projectRoot }).mcpAdoptable, []);
+});
