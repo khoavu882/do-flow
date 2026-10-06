@@ -187,7 +187,10 @@ function removeCodexHookScripts({ scriptsDir, destinationHooksDir } = {}, { dryR
   let removed = 0;
   for (const name of shippedHookScripts(scriptsDir, fsImpl)) {
     const target = path.join(destinationHooksDir, name);
-    if (!fsImpl.existsSync(target) || !fsImpl.statSync(target).isFile()) continue;
+    // lstat, not stat: a symlink (even to a file with the shipped bytes) is not DoFlow's copy.
+    let stat;
+    try { stat = fsImpl.lstatSync(target); } catch { continue; }
+    if (!stat.isFile()) continue;
     if (!fsImpl.readFileSync(target).equals(fsImpl.readFileSync(path.join(scriptsDir, name)))) continue;
     if (!dryRun) fsImpl.unlinkSync(target);
     removed += 1;

@@ -119,7 +119,7 @@ function planCodexConfig({ file, scope, managedResources = [], desiredResources 
     nextLines[change.line] = `${indentation}${key} = ${renderValue(change.value)}${suffix && !/^\s/.test(suffix) ? ' ' : ''}${suffix}`;
   }
   for (const change of changes.filter((change) => change.type === 'remove')) nextLines[change.line] = '';
-  dropEmptiedTables(nextLines, changes);
+  dropEmptiedTables(nextLines, changes, parsed.headers);
   // A new key must land INSIDE its own table. Appending at end-of-file only happens to be
   // correct when that table is the file's last one — otherwise the key silently joins whichever
   // table trails the file, so `features.hooks` written after an `[mcp_servers.x]` block becomes
@@ -161,14 +161,16 @@ function planCodexConfig({ file, scope, managedResources = [], desiredResources 
 /** A table whose every key this plan removed, with nothing else under its header (no user key or
  * comment), is DoFlow's own leftover: its header and removed lines become null placeholders. When
  * it was the file's last table, the blank line the table append puts before a new header goes too.
- * A table that also receives a created key is kept. */
-function dropEmptiedTables(lines, changes) {
+ * A table that also receives a created key, or whose header line carries a comment, is kept.
+ * Headers come from the parser's own records, never from re-reading lines. */
+function dropEmptiedTables(lines, changes, headerRecords) {
   const tableOf = (identity) => identity.split('.').slice(0, -1).join('.');
   const removedTables = new Map(changes.filter((change) => change.type === 'remove').map((change) => [change.line, tableOf(change.identity)]));
   const createdTables = new Set(changes.filter((change) => change.type === 'create').map((change) => tableOf(change.identity)));
-  const headers = lines.flatMap((line, index) => (stripComment(line).trim().startsWith('[') ? [index] : []));
+  const headers = headerRecords.map((header) => header.line);
   headers.forEach((start, position) => {
     const end = headers[position + 1] ?? lines.length;
+    if (stripComment(lines[start]) !== lines[start]) return;
     const body = lines.slice(start + 1, end).map((_, offset) => start + 1 + offset);
     const removedHere = body.filter((index) => removedTables.has(index));
     if (!removedHere.length || removedHere.some((index) => createdTables.has(removedTables.get(index)))) return;

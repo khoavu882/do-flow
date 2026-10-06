@@ -62,6 +62,24 @@ test('an emptied table that still holds a user comment keeps its header', () => 
   assert.equal(fs.readFileSync(file, 'utf8'), '[features]\n# mine\n\n');
 });
 
+test('an emptied table whose header carries a user comment keeps that header line', () => {
+  const root = scratch(); const file = path.join(root, 'config.toml');
+  fs.writeFileSync(file, '[profile]\nmodel = "mine"\n\n[features] # note\nhooks = true\n');
+  reconcileCodexConfig({ file, scope: 'project', managedResources: [{ ...resource(), fingerprint: fingerprint(true) }], desiredResources: [] });
+  assert.equal(fs.readFileSync(file, 'utf8'), '[profile]\nmodel = "mine"\n\n[features] # note\n\n');
+});
+
+test('a value line that starts with "[" is never read as a table header: the file is refused untouched', () => {
+  // The scanner has no multi-line arrays, so such a file fails closed before any table is dropped.
+  const root = scratch(); const file = path.join(root, 'config.toml');
+  const before = '[features]\nhooks = true\nlist = [\n  [1]]\n';
+  fs.writeFileSync(file, before);
+  const plan = planCodexConfig({ file, scope: 'project', managedResources: [{ ...resource(), fingerprint: fingerprint(true) }], desiredResources: [] });
+  assert.equal(plan.ok, false);
+  assert.equal(applyCodexConfig(plan).applied, false);
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+});
+
 test('refuses a foreign resource with byte-for-byte preservation', () => {
   const root = scratch(); const file = path.join(root, 'config.toml'); const before = '[features]\nhooks = false\n';
   fs.writeFileSync(file, before);
@@ -171,4 +189,9 @@ test('several new keys for one absent table share a single header', () => {
   const entries = parseToml(text).entries;
   assert.equal(entries.get('features.hooks')?.value, true);
   assert.equal(entries.get('features.skills')?.value, true);
+});
+
+test('parseToml records each table header line, which is where table removal takes its spans from', () => {
+  const { headers } = parseToml('top = 1\n[features] # note\nhooks = true\n\n[mcp_servers."a.b"]\ncommand = "x"\n');
+  assert.deepEqual(headers, [{ line: 1, table: 'features' }, { line: 4, table: 'mcp_servers.a\\.b' }]);
 });

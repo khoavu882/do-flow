@@ -123,6 +123,17 @@ test('script removal deletes only shipped bytes and keeps edited or user-added s
   assert.equal(fs.existsSync(deployedHooks), false, 'an emptied hooks directory is removed');
 });
 
+test('script removal leaves a symlink in place even when it points at the shipped bytes', { skip: IS_WIN && 'symlinks need privileges on Windows' }, () => {
+  const root = scratch(); const sourceHooksDir = wrapper(root); const projectRoot = path.join(root, 'project');
+  const plan = planCodexHooks({ config: hookConfig(), sourceHooksDir, destinationContext: { scope: 'project', projectRoot } });
+  deployCodexHooks(plan);
+  const link = path.join(projectRoot, '.codex', 'hooks', 'session-start.sh');
+  fs.rmSync(link);
+  fs.symlinkSync(path.join(sourceHooksDir, 'session-start.sh'), link);
+  assert.deepEqual(removeCodexHookScripts(plan), { removed: 0 });
+  assert.ok(fs.lstatSync(link).isSymbolicLink(), 'a symlink is the user\'s, not a DoFlow copy');
+});
+
 test('accepts PostToolUse and PreCompact — the two events closing the Claude/Codex hook-coverage gap', () => {
   const config = { hooks: {
     PostToolUse: [{ matcher: '^(apply_patch|Edit|Write)$', hooks: [{ type: 'command', command: 'bash "$(dirname)/post-edit-lint.sh"' }] }],
