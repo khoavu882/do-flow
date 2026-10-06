@@ -24,7 +24,7 @@ one. All eight are fully declared, adapted, and installable via `--target <id>`.
 |---|---|---|
 | [Claude Code](https://claude.com/claude-code) | `claude` | `CLAUDE.md`, skills, agents, hooks, MCP registration, session context |
 | [Codex](https://learn.chatgpt.com/docs/customization/overview) | `codex` | `AGENTS.md` (project root, or `~/.codex/AGENTS.md` globally), skills at `.agents/skills/` (the only tree Codex scans), scripts and templates in the shared `.doflow/` tree, agents (`.codex/agents/*.toml`), hooks (`.codex/hooks.json`), MCP via `config.toml` |
-| [Gemini CLI](https://geminicli.com/) / [Antigravity](https://antigravity.google/) | `gemini` | `GEMINI.md`, guidance, skills, agents, and hooks merged into `settings.json` |
+| [Gemini CLI](https://geminicli.com/) / [Antigravity](https://antigravity.google/) | `gemini` | `GEMINI.md`, guidance, skills, agents (`<projectRoot>/.gemini/agents/<name>.md` project, `~/.gemini/agents/<name>.md` global), and hooks merged into `settings.json` |
 | [OpenCode](https://opencode.ai/) | `opencode` | Managed `AGENTS.md` section (registered via `opencode.json`'s `instructions[]`), skills discovered natively at `.opencode/skills/` (project) or `~/.config/opencode/skills/` (global), the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP servers merged into `opencode.json`'s `mcp` key |
 | [Pi](https://pi.dev/) | `pi` | Managed `AGENTS.md` section, skills discovered at `.pi/skills/` (project) or `~/.pi/agent/skills/` (global) via the `skills[]` array in `settings.json`, the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP delegated to the separate `pi-mcp-adapter` extension (not written by DoFlow) |
 | [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli) | `copilot` | `.github/copilot-instructions.md` (DoFlow writes project scope only; a personal `~/.copilot/copilot-instructions.md` also exists upstream but receives nothing), skills at `.agents/skills/` (project) or `~/.agents/skills/` (global), agents at `.github/agents/` (project) or `~/.copilot/agents/` (global), the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP merged into `.mcp.json` (project) or `~/.copilot/mcp-config.json` (global) |
@@ -147,12 +147,14 @@ surface and its customization surface follow different conventions:
 | What | Project-scope location | Why |
 |---|---|---|
 | Skills | `<projectRoot>/.agents/skills/` | Antigravity customization convention |
-| Agents | `<projectRoot>/.agents/agents/<name>/agent.md` | Antigravity discovers a custom agent as a **directory** containing `agent.md`, not a flat `<name>.md` |
+| Agents | `<projectRoot>/.gemini/agents/<name>.md` | Gemini CLI discovers a custom agent as a flat `<name>.md` under `.gemini/agents/`; DoFlow keeps only the frontmatter keys Gemini documents |
 | `settings.json`, `hooks/` | `<projectRoot>/.gemini/` | Gemini CLI reads its own config from `.gemini/` in both scopes |
 | `GEMINI.md` | `<projectRoot>/GEMINI.md` | Gemini reads the instruction file from the workspace root |
 
 A project install therefore creates `.agents/`, `.gemini/`, and a root `GEMINI.md`. Auditing what
-DoFlow wrote into a repo means checking all three, not `.agents/` alone.
+DoFlow wrote into a repo means checking all three, not `.agents/` alone. Globally, agents land at
+`~/.gemini/agents/<name>.md`. Antigravity keeps its own folder form,
+`.agents/agents/<name>/agent.md`.
 
 Copilot CLI splits the same way, for the same reason — its instructions, skills, agents, and MCP
 each follow their own documented convention rather than one shared root:

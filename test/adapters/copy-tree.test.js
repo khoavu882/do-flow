@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { discoverTree, planTree, applyTree, removeTree, verifyTree, sharedTreeDestDir, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../../src/adapters/copy-tree');
+const { discoverTree, planTree, applyTree, removeTree, verifyTree, sharedTreeDestDir, ledgerSiblingFingerprints, siblingReplacedNotices, TRANSFORMS } = require('../../src/adapters/copy-tree');
 
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-copy-tree-')); }
 
@@ -357,7 +357,7 @@ test('planTree treats a previousResources entry with no target as same-location 
   assert.deepEqual(changes, [], 'unchanged content at the same destDir must still be a no-op');
 });
 
-// Antigravity discovers a custom agent at .agents/agents/<name>/agent.md, so gemini's agents
+// Antigravity discovers a custom agent at .agents/agents/<name>/agent.md, so its agents
 // projection declares layout 'dir-per-file:agent.md'. The upgrade matters as much as the shape:
 // an install that already wrote flat <name>.md files must have them relocated, not left behind as
 // files DoFlow no longer tracks but never cleaned up.
@@ -563,4 +563,15 @@ test('sharedTreeDestDir refuses a nativeDir that climbs out of .doflow', () => {
   const root = path.join(path.sep, 'scope');
   assert.throws(() => sharedTreeDestDir(root, '../.doflow/../x'), /shared-tree nativeDir escapes \.doflow: \.\.\/\.doflow\/\.\.\/x/);
   assert.throws(() => sharedTreeDestDir(root, '../.doflow/..'), /escapes \.doflow/);
+});
+
+test('gemini-agents keeps only Gemini documented frontmatter keys, with continuation lines, and the body byte for byte', () => {
+  const run = (text) => TRANSFORMS['gemini-agents']('a.md', Buffer.from(text)).toString();
+  const body = '\n# a\n\n---\neffort: kept in the body\n';
+  assert.equal(
+    run(`---\nname: a\ndescription: "d"\ntools:\n  - read_file\n  - grep_search\nmodel: inherit\neffort: high\nmax_turns: 5\ncolor: red\n---${body}`),
+    `---\nname: a\ndescription: "d"\ntools:\n  - read_file\n  - grep_search\nmodel: inherit\nmax_turns: 5\n---${body}`);
+  assert.equal(run('no frontmatter\n'), 'no frontmatter\n');
+  assert.equal(run('---\nname: a\n'), '---\nname: a\n', 'an unclosed frontmatter passes through');
+  assert.deepEqual(TRANSFORMS['gemini-agents']('a.md', Buffer.from(run('---\nname: a\neffort: x\n---\nb'))), Buffer.from('---\nname: a\n---\nb'), 'deterministic and idempotent');
 });

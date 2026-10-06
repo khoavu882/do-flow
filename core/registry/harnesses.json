@@ -438,6 +438,7 @@
       ],
       "nativeTargets": {
         "instructions": "GEMINI.md",
+        "agents": ".gemini/agents",
         "hooks": "settings.json"
       },
       "paths": {
@@ -502,11 +503,12 @@
           "verification": "Confirm the installed skill is discoverable."
         },
         "agents": {
-          "status": "different",
+          "status": "supported",
           "evidence": [
-            "https://github.com/google-gemini/gemini-cli"
+            "https://geminicli.com/docs/core/subagents"
           ],
-          "verification": "Report the shared-prompt projection and native limitations."
+          "note": "Flat <name>.md files; frontmatter limited to Gemini's documented keys by the gemini-agents transform.",
+          "verification": "Confirm Gemini CLI lists the installed agents from .gemini/agents."
         },
         "scripts": {
           "status": "supported",

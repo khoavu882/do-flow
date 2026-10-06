@@ -16,7 +16,7 @@ installation; do not infer activation from this table alone.
 |---|---|---|---|---|---|---|---|---|
 | Instructions | Supported — `CLAUDE.md` | Supported — `AGENTS.md` | Supported — `GEMINI.md` | Supported — `AGENTS.md` | Supported — `AGENTS.md` | Supported — `.github/copilot-instructions.md` | Supported — `.kiro/steering/` | Supported — `AGENTS.md` |
 | Skills | Supported | Supported | Supported | Supported | Supported | Supported | Supported — `.kiro/skills` | Supported — `.agents/skills` |
-| Agents | Supported | Supported — `.codex/agents/*.toml` | Different | Supported | Different | Supported — `.github/agents` | Supported — `.kiro/agents` | Supported — `.agents/agents` |
+| Agents | Supported | Supported — `.codex/agents/*.toml` | Supported — `.gemini/agents` | Supported | Different | Supported — `.github/agents` | Supported — `.kiro/agents` | Supported — `.agents/agents` |
 | Scripts | Supported | Supported | Supported | Supported | Supported | Supported | Supported | Supported |
 | Templates | Supported | Supported | Supported | Supported | Supported | Supported | Supported | Different |
 | Modes | Supported | Unavailable | Different | Different | Different | Different | Different | Different |

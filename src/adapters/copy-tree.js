@@ -79,6 +79,11 @@ const TRANSFORMS = {
     void sourceRel;
     return Buffer.from(`---\napplyTo: '**'\n---\n\n${stripFrontmatter(content.toString('utf8'))}`);
   },
+  /** Shared agent spec frontmatter -> only the keys Gemini CLI's subagent schema accepts */
+  'gemini-agents': (sourceRel, content) => {
+    void sourceRel;
+    return Buffer.from(filterGeminiAgentFrontmatter(content.toString('utf8')));
+  },
   /** Shared agent spec frontmatter -> OpenCode's markdown-agent vocabulary */
   'opencode-agents': (sourceRel, content) => {
     void sourceRel;
@@ -110,6 +115,25 @@ function renderClaudeOutputStyle(sourceRel, content) {
   const purpose = text.match(/\*\*Purpose\*\*[:*]*\s*(.+)?/);
   const description = (purpose && purpose[1] ? purpose[1] : `DoFlow ${base} mode`).trim().replace(/\s+/g, ' ');
   return ['---', `name: DoFlow: ${base}`, `description: ${JSON.stringify(description)}`, 'keep-coding-instructions: true', '---', '', text.replace(/\n*$/, ''), ''].join('\n');
+}
+
+/** The frontmatter keys Gemini CLI documents for a custom subagent (https://geminicli.com/docs/core/subagents).
+ * Its agent schema is strict, so a spec key outside this list (DoFlow's `effort`) would be rejected. */
+const GEMINI_AGENT_KEYS = new Set(['name', 'description', 'kind', 'tools', 'mcpServers', 'model', 'temperature', 'max_turns', 'timeout_mins']);
+
+/** Keep only Gemini's documented top-level frontmatter keys, with their indented continuation
+ * lines, in source order. The body after the closing `---` passes through byte for byte, and a
+ * file without frontmatter is returned unchanged. */
+function filterGeminiAgentFrontmatter(text) {
+  const match = text.match(/^---\r?\n([\s\S]*?\r?\n)---(?=\r?\n|$)/);
+  if (!match) return text;
+  let keep = false;
+  const kept = match[1].split(/(?<=\n)/).filter((line) => {
+    const key = line.match(/^([A-Za-z][A-Za-z0-9_-]*):/);
+    if (key) keep = GEMINI_AGENT_KEYS.has(key[1]);
+    return keep;
+  });
+  return `${text.slice(0, text.indexOf('\n') + 1)}${kept.join('')}${text.slice(match[0].length - 3)}`;
 }
 
 const OPENCODE_READONLY_AGENTS = new Set(['spec-analyst', 'system-architect', 'quality-guardian', 'research-writer']);
