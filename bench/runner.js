@@ -1152,9 +1152,9 @@ function cmdReport(cfg, opts) {
   console.log(`| case | kind | split | baseline | current | delta | status | source | tokens |`);
   console.log(`|---|---|---|---|---|---|---|---|---|`);
   for (const r of rows) {
-    const fmt = (v) => (v === null ? '—' : v.toFixed(2));
-    const d = r.delta === null ? '—' : (r.delta > 0 ? '+' : '') + r.delta.toFixed(2);
-    const src = r.sourceComparable ? 'verified' : `${r.baselineSource || '—'}→${r.currentSource}`;
+    const fmt = (v) => (v === null ? 'unknown' : v.toFixed(2));
+    const d = r.delta === null ? 'unknown' : (r.delta > 0 ? '+' : '') + r.delta.toFixed(2);
+    const src = r.sourceComparable ? 'verified' : `${r.baselineSource || 'unknown'}→${r.currentSource}`;
     const tokens = r.usage.total_tokens === null ? 'unknown' : r.usage.total_tokens;
     console.log(`| ${r.key} | ${r.kind} | ${r.split} | ${fmt(r.baseline)} | ${fmt(r.current)} | ${d} | ${r.status} | ${src} | ${tokens} |`);
   }

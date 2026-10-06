@@ -932,6 +932,20 @@ test('F7: grade, baseline and report carry the without-skill arm', () => {
   assert.equal(json.armDelta[0].skill, 'do-git');
 });
 
+test('F7: the report table prints unknown, not a dash, for a null baseline, current or delta', () => {
+  const f = gradedFixture('f7-unknown-cells');
+  quiet(() => runner.cmdGrade(f.cfg, f.opts));
+  quiet(() => runner.cmdBaseline(f.cfg, { from: 'it', runsRoot: f.runsRoot, baselineFile: f.baselineFile }));
+  const recorded = JSON.parse(fs.readFileSync(f.baselineFile, 'utf8'));
+  recorded.results = recorded.results.filter((r) => r.key !== `do-git/${f.second.id}`);
+  fs.writeFileSync(f.baselineFile, JSON.stringify(recorded));
+  const rep = quiet(() => runner.cmdReport(f.cfg, f.opts));
+  assert.equal(rep.status, 0);
+  const row = rep.out.split('\n').find((l) => l.startsWith(`| do-git/${f.second.id} |`));
+  assert.match(row, /\| unknown \| [^|]+ \| unknown \| pending \| unknown→\w[\w-]* \| /);
+  assert.doesNotMatch(row, /—/);
+});
+
 test('F7: a leaked without-skill run is graded leaked, warned about and kept out of the delta', () => {
   const f = gradedFixture('f7-leak', { withoutSkill: { record: { skill: 'do-git', withheld: true }, transcript: 'read core/shared/skills/do-git/SKILL.md' } });
   const grade = quiet(() => runner.cmdGrade(f.cfg, f.opts));
