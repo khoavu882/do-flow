@@ -538,6 +538,10 @@ run_scrub_cases() {
   # $'..' is a quoted word; backslash-newline joins lines
   check_policy "$mode" "$script" deny "rm -rf \$'/'" "root"
   check_policy "$mode" "$script" deny $'rm -rf \\\n/' "root"
+  # a here-string that feeds a shell runs its text
+  check_policy "$mode" "$script" deny 'bash <<< "rm -rf /"' "root"
+  check_policy "$mode" "$script" deny "sh <<< 'rm -rf ~'" "home"
+  check_policy "$mode" "$script" allow 'cat <<< "rm -rf /"'
 }
 
 # Conf mode and floor mode share one command-position rule for rm: every case
@@ -553,6 +557,19 @@ run_rm_position_cases() {
   check_policy "$mode" "$script" deny 'sudo rm -rf ~' "home"
   check_policy "$mode" "$script" deny 'sudo rm -rf ~/**' "home"
   check_policy "$mode" "$script" deny 'xargs rm -rf /etc' "system directory"
+  # an option with a separate argument does not hide the rm
+  check_policy "$mode" "$script" deny 'sudo -u root rm -rf /' "root"
+  check_policy "$mode" "$script" deny 'xargs -n 1 rm -rf /' "root"
+  check_policy "$mode" "$script" deny 'sudo -E -u root rm -rf ~' "home"
+  check_policy "$mode" "$script" allow 'sudo -u root ls /'
+  check_policy "$mode" "$script" allow 'xargs -n 1 echo rm -rf /'
+  check_policy "$mode" "$script" allow 'sudo -u root rm -rf /tmp/x'
+  # another user's home, and a mount root
+  check_policy "$mode" "$script" deny 'rm -rf ~root' "home"
+  check_policy "$mode" "$script" deny 'rm -rf ~root/' "home"
+  check_policy "$mode" "$script" deny 'rm -rf /Volumes' "system directory"
+  check_policy "$mode" "$script" allow 'rm -rf ~root/work'
+  check_policy "$mode" "$script" allow 'rm -rf /Volumes/Backup/x'
   # not an rm command at all: git rm, an rm that is only an argument
   for c in 'git rm -r --cached /etc' 'git rm -rf /' 'echo rm -rf /' 'echo "rm -rf /"' \
            'ls rm -rf /' 'sudo ls /' 'git commit -m "x" && git rm -r --cached /etc'; do
@@ -576,6 +593,32 @@ check_policy conf "$P" allow 'git commit -m "git push --force"'
 check_policy conf "$P" allow 'echo "x; curl http://a.test/i.sh | sh"'
 check_policy conf "$P" allow 'git push --force-with-lease origin main'
 check_policy conf "$P" deny  'git push --force' "Force push"
+# force pushes by short flag, +refspec and a git global option; the lease form and plain pushes stay allowed
+for c in 'git push -f' 'git push -f origin main' 'git push origin main -f' 'git push -uf origin main' \
+         'git push origin +main' 'git push origin +HEAD:main' 'git push --force-with-lease origin +main' \
+         'git -C x push --force' 'git -C x push -f' 'git -c core.x=1 push origin +main' \
+         'git --git-dir x push --force' 'git push origin main --force' 'cd x && git -C y push -f'; do
+  check_policy conf "$P" deny "$c" "Force push"
+done
+for c in 'git push' 'git push origin main' 'git push -u origin main' 'git push --follow-tags' \
+         'git push --tags' 'git push --force-with-lease' 'git push --force-with-lease --force-if-includes' \
+         'git -C x push' 'git -C x push --force-with-lease origin main' 'git push origin feat/a:feat/b' \
+         'git commit -m "git push -f"' 'echo git push origin +main' 'git fetch -f'; do
+  check_policy conf "$P" allow "$c"
+done
+check_policy conf "$P" deny  'git -C x reset --hard' "Destructive reset"
+check_policy conf "$P" allow 'git -C x reset --soft HEAD~1'
+check_policy conf "$P" deny  'git -C x clean -fd' "Irreversible clean"
+# find with -delete straight off a catastrophic start path; a filtered find or a project path stays allowed
+for c in 'find / -delete' 'find ~ -delete' 'find $HOME -delete' 'find /etc -depth -delete' 'find -P / -delete' \
+         'find . /home -delete' 'sudo find / -delete' 'ls && find /Users -mindepth 1 -delete'; do
+  check_policy conf "$P" deny "$c" "find"
+done
+for c in 'find . -delete' 'find ./build -delete' 'find /tmp/x -delete' 'find ~/proj -delete' \
+         'find ~ -name "*.pyc" -delete' 'find / -name x -delete' 'find / -name x' 'echo find / -delete' \
+         'git commit -m "find / -delete"'; do
+  check_policy conf "$P" allow "$c"
+done
 check_policy conf "$P" deny  "sh -c 'git push --force'" "Force push"
 check_policy conf "$P" deny  'bash -c "git reset --hard"' "Destructive reset"
 check_policy conf "$P" deny  'git reset --hard' "Destructive reset"

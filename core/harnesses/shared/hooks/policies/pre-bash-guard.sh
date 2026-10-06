@@ -74,7 +74,7 @@ export LC_ALL=C
 #     otherwise fake a command position, e.g.  echo "done && rm -rf /x");
 #     a quoted word with none of those ("/", "$HOME", $'/') is kept, unquoted,
 #     so  rm -rf "/"  is still seen as a target
-#   - the argument of sh|bash|zsh -c and eval IS executed: it is kept and put
+#   - the argument of sh|bash|zsh -c, eval and a here-string fed to a shell IS executed: it is kept and put
 #     in command position (wrapped in ";"), scrubbed again inside
 #   - inside double quotes, $( ... ) and `...` bodies also run: kept the same way
 #   - a # that starts a word comments out the rest of the line
@@ -86,7 +86,7 @@ export LC_ALL=C
 # Nesting depth is capped; beyond the cap the raw text is used (errs toward
 # blocking). Text with no quote, # or << (or no command word at all) is
 # returned unchanged without scanning.
-_EXEC_CTX='(^|[[:space:];&|(])(([^[:space:]]*/)?(ba|z|da|k)?sh[[:space:]]+(-[[:alnum:]]+[[:space:]]+)*-[[:alnum:]]*c|eval)[[:space:]]+$'
+_EXEC_CTX='(^|[[:space:];&|(])((([^[:space:]]*/)?(ba|z|da|k)?sh[[:space:]]+(-[[:alnum:]]+[[:space:]]+)*-[[:alnum:]]*c|eval)[[:space:]]+|([^[:space:]]*/)?(ba|z|da|k)?sh([[:space:]]+-[[:alnum:]]+)*[[:space:]]*<<<[[:space:]]*)$'
 _SH_HERE='(^|[[:space:];&|(])([^[:space:]]*/)?(ba|z|da|k)?sh([[:space:]]+-[[:alnum:]]+)*[[:space:]]*$'
 _HD_WORD="^(-?)[[:space:]]*[\"']?\\\\?([A-Za-z_][A-Za-z0-9_.-]*)"
 SCRUB_DEPTH=0
@@ -143,7 +143,7 @@ scrub_quotes() {
     *) SCRUBBED=$text; return ;;
   esac
   case $text in
-    *rm[[:space:]]*|*git[[:space:]]*|*curl[[:space:]]*|*wget[[:space:]]*|*chmod[[:space:]]*|*dd[[:space:]]*|*eval*|*sh[[:space:]]*) ;;
+    *rm[[:space:]]*|*git[[:space:]]*|*curl[[:space:]]*|*wget[[:space:]]*|*chmod[[:space:]]*|*dd[[:space:]]*|*find[[:space:]]*|*eval*|*sh[[:space:]]*) ;;
     *) SCRUBBED=$text; return ;;
   esac
   if [ "$SCRUB_DEPTH" -ge 8 ]; then SCRUBBED=$text; return; fi
@@ -254,7 +254,7 @@ SHELL_TEXT=$SCRUBBED
 # target — the same rule as the rm lines in blocked-patterns.conf. Subpaths
 # such as /tmp/x are not blocked.
 _CMDPOS='(^|[;&|(`])[[:space:]]*'
-_WRAP='((sudo|command|time|nohup|exec|env|xargs|eval|then|do|else)([[:space:]]+(-[^[:space:];&|]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*))*[[:space:]]+)*'
+_WRAP='((sudo|command|time|nohup|exec|env|xargs|eval|then|do|else)([[:space:]]+(-[uCghprtUDRnILPsdEaJSfo][[:space:]]+[^-[:space:];&|][^[:space:];&|]*|-[^[:space:];&|]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*))*[[:space:]]+)*'
 _PATHRM='(\\|/(usr/)?bin/)?rm'
 _RM_FLAG='(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)'
 _RM_ARGS='([[:space:]]+[^[:space:];&|]+)*'
@@ -274,11 +274,11 @@ if [ ! -f "$PATTERNS_FILE" ]; then
     echo "[pre-bash-guard] Catastrophic delete blocked — recursive rm of the root directory (/)" >&2
     exit 2
   fi
-  if _floor_rm_hits '(~|\$HOME|\$\{HOME\})(/\*{0,2})?'; then
+  if _floor_rm_hits '(~[A-Za-z_][A-Za-z0-9_.-]*|~|\$HOME|\$\{HOME\})(/\*{0,2})?'; then
     echo "[pre-bash-guard] Catastrophic delete blocked — recursive rm of the home directory" >&2
     exit 2
   fi
-  if _floor_rm_hits '/(Users|home|etc|usr|bin|sbin|var|opt|System|Library|Applications|private|root|boot|lib|dev|proc)(/\*{0,2})?'; then
+  if _floor_rm_hits '/(Users|home|etc|usr|bin|sbin|var|opt|System|Library|Applications|Volumes|private|root|boot|lib|dev|proc)(/\*{0,2})?'; then
     echo "[pre-bash-guard] Catastrophic delete blocked — recursive rm of a system directory" >&2
     exit 2
   fi
