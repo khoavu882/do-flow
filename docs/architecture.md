@@ -453,8 +453,10 @@ the G18 pair — between them the reason the list runs G18 then G20; and `bounda
   case graded on by-path runs by `skill_not_routed`, every assertion type is one the runner knows,
   and the config declares a valid token ceiling. The committed baseline still describes the
   committed corpus: a case missing from the baseline is reported as pending, awaiting a paid
-  capture, and does not fail, while a removed, renamed, kind-changed or split-changed case does
-  (which `coverage` alone cannot see). It also holds the boundary that keeps the corpus
+  capture, and does not fail, while a removed, renamed or kind-changed case does, and so does a
+  case moved to the other side when its baseline result recorded `split` (the committed baseline
+  records none, so that comparison starts applying per case once a re-captured baseline does);
+  `coverage` alone cannot see any of these. It also holds the boundary that keeps the corpus
   cheap: `npm test` scopes discovery to `test/` via the directory argument, so an unscoped
   `node --test` cannot execute captured artifacts under `bench/runs/`; the harness keeps its own
   `bench` script; and `npm test` never invokes the harness, whose dispatch step makes paid model

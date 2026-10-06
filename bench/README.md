@@ -101,7 +101,7 @@ runner.js baseline / report
 | Command | Does | Needs API access |
 |---|---|---|
 | `coverage [--json]` | Which skills have triggering + behavioral cases. Exit 1 on any gap — this is what the A.4 guard consumes | no |
-| `parity [--json]` | Does the committed baseline still describe the committed corpus. Lists pending cases, exits 1 on a removed, renamed, kind-changed or split-changed case or a wrong `caseCount` | no |
+| `parity [--json]` | Does the committed baseline still describe the committed corpus. Lists pending cases, exits 1 on a removed, renamed or kind-changed case, a split-changed case whose baseline result recorded `split`, or a wrong `caseCount` | no |
 | `list [--skill S] [--split train\|heldout] [--json]` | Enumerate cases, optionally one side of the corpus | no |
 | `plan --iteration N [--skill S] [--split train\|heldout] [--arm without-skill]` | Emit the subagent dispatch plan as JSON: output paths, pinned model, sandbox commands, each run's skill path + expected hash, and the projected cost against the ceiling. Exit 2 when a known projection is over the ceiling | no |
 | `grade --iteration N` | Verify each run's skill provenance, evaluate programmatic assertions, read `timing.json`, write `grading.json` | no |
@@ -202,9 +202,11 @@ other, and without the flag both sides run. The side is a convention that whoeve
 honours: iterate against the `train` cases and read the `heldout` cases only to check that an edit
 generalised. The runner does not stop a tuner from looking at either side; it records each case's
 side in every plan row, grading, report row and baseline entry so the split can be audited. Every
-skill keeps at least one held-out case, a case chooses its side in the edit that adds it, and a
-baseline capture freezes each case's side, so moving a case between sides reads as a `parity`
-failure rather than a silent change.
+skill keeps at least one held-out case and a case chooses its side in the edit that adds it. A
+baseline capture records each case's side, and `parity` fails a case that has moved to the other side
+only where its baseline result recorded `split`. The committed baseline predates `split` and records
+none, so no case is compared on its side yet; the check starts applying case by case once a
+re-captured baseline records it.
 
 ## Pending cases
 
@@ -218,8 +220,9 @@ change can give a new case a measured result.
   note.
 - A baseline capture whose iteration contains the case's key clears it.
 
-A removed, renamed, kind-changed or split-changed case still fails `parity`: the baseline then
-describes something the corpus no longer holds.
+A removed, renamed or kind-changed case still fails `parity`, and so does a case moved to the other
+side when its baseline result recorded `split`: the baseline then describes something the corpus no
+longer holds. A baseline result with no recorded `split` is not compared on its side.
 
 ## Cost ceiling
 
@@ -244,8 +247,10 @@ unmeasured run cannot look free. A file in another tool's shape, such as one wit
 ## Without-skill arm
 
 `plan --arm without-skill` adds, after each **behavioral** case's with-skill run, the same case with
-the skill under test withheld, to measure what the skill adds. Triggering cases get no such run:
-their question is whether a description routes, and a run with the skill withheld has no
+the skill under test withheld, to measure what the skill adds. The case's prompt is sent with its
+leading `/<skill>` token stripped, since that token names the skill being withheld; a case whose
+prompt is only that token has nothing left to ask and is not run in the arm. Triggering cases get no
+such run: their question is whether a description routes, and a run with the skill withheld has no
 description to judge. The arm is opt-in because it roughly doubles the behavioral runs, and so the
 cost.
 
@@ -253,17 +258,28 @@ A without-skill run differs from its pair in these ways:
 
 - Its output directory is the with-skill one plus `--without-skill`, and its sandbox id ends in
   `-noskill`.
-- Its `sandbox.create` deletes the skill's copies from the sandbox after projecting it, and the plan
-  lists them in `skills.withheldPaths`. `~/.claude/skills` is outside any sandbox and cannot be
-  removed that way, so its `skills.instruction` forbids reading or invoking the skill, and `grade`
-  checks afterwards.
+- Its `sandbox.create` deletes the skill's copies from the sandbox after projecting it, marks the
+  tracked ones skip-worktree so the deletion does not appear in the sandbox's `git status` or
+  `git diff`, and the plan lists them in `skills.withheldPaths`. `~/.claude/skills` is outside any
+  sandbox and cannot be removed that way, so its `skills.instruction` forbids reading or invoking
+  the skill, and `grade` checks afterwards.
 - Its `skill_source.json` is `{ "skill": "<skill>", "withheld": true }`, and `grade` classifies the
-  run `withheld`, `leaked` or `unrecorded`. A recorded path, a missing `withheld: true`, or a
-  transcript or output that names `skills/<skill>/SKILL.md` is `leaked`: the run reached the skill
-  and its pass rate is not a without-skill measurement. No record, or one that is not valid JSON, is
-  `unrecorded`, never `withheld`, because silence is not proof.
+  run `withheld`, `leaked` or `unrecorded`. A recorded path, a missing `withheld: true`, a skill
+  listed in `invoked_skills.json`, or a transcript or output that names `skills/<skill>/SKILL.md` (with `/` or
+  `\` separators) is `leaked`: the run reached the skill and its pass rate is not a without-skill
+  measurement. No record, one that is not valid JSON or not a JSON object, or one naming another
+  skill is `unrecorded`, never `withheld`, because silence is not proof.
 - `skill_resolved`, `skill_invoked`, `skill_not_invoked` and `skill_not_routed` are left undecided on
   it; every other assertion grades as usual.
+
+What the arm does not prevent, because the sandbox is a git worktree of this repo and not an empty
+directory:
+
+- The corpus files (including `bench/<skill>/evals.json`), the sandbox's `.doflow` ledger and recovery
+  records, which name the skill's path, and git history are still readable. A run that reads them
+  and so names `skills/<skill>/SKILL.md` in its transcript or outputs is graded `leaked`.
+- Invoking the skill by name, which loads `~/.claude/skills/<skill>/`, is graded `leaked` when
+  `invoked_skills.json` lists it.
 
 `baseline` stores these runs as `withoutSkillResults`, beside `results`. `report` adds an `armDelta`
 table with one row per skill: the mean pass rate with the skill, without it, and the difference,
