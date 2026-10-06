@@ -194,14 +194,35 @@ fi
 # Text that only resembles a marker is cleaned before the match, outside ``` fences only, except
 # URLs: a markdown heading loses its leading hashes (## TODO list, # Todo) so a real marker later on
 # the same line still counts; "the // TODO comment" mentions (a marker, comment(s) or marker(s), then
-# the end of the sentence) are cut out; a URL, up to a quote, ) or //, is cut out
+# the end of the sentence) are cut out; a URL, up to a space, quote, ) or //, is cut out
 # (http://todo-app.example.com). The text is lowercased, which the case-insensitive match ignores.
+# Every step is linear in the line length: a line with no "://" is not touched by the URL step,
+# and the URL step splits on "://" and trims each scheme (at most 32 characters) backwards.
 # Ceiling: an unfenced title-case `# Todo`/`# Fixme` at the start of a line reads as a heading, and an
 # unfenced `## TODO: x` as a heading, not a Python comment.
 STUB_TEXT=$(printf '%s\n' "$LAST_ASSISTANT_CONTENT" | awk '
+function strip_urls(s,   n, parts, k, cur, out, L, m, frag) {
+  if (index(s, "://") == 0) return s
+  n = split(s, parts, "://")
+  cur = parts[1]; out = ""
+  for (k = 2; k <= n; k++) {
+    L = length(cur); m = 0
+    while (m < 32 && m < L && substr(cur, L - m, 1) ~ /[A-Za-z0-9+.-]/) m++
+    while (m > 0 && substr(cur, L - m + 1, 1) !~ /[A-Za-z]/) m--
+    if (m > 0) {
+      out = out substr(cur, 1, L - m)
+      frag = parts[k]
+      cur = match(frag, urlend) ? substr(frag, RSTART) : ""
+    } else {
+      out = out cur "://"
+      cur = parts[k]
+    }
+  }
+  return out cur
+}
 BEGIN {
   q = "\047"
-  url = "[A-Za-z][A-Za-z0-9+.-]*://([^[:space:]\"" q "`)/]|/[^/[:space:]\"" q "`)])*"
+  urlend = "[[:space:]\"" q "`)]|//"
   mention = "(#|//)[[:space:]]*(todo|fixme)s?[[:space:]]+(comments?|markers?)[[:space:]]*([.,;!?)]|$)"
 }
 /^[[:space:]]*(```|~~~)/ { fence = !fence }
@@ -211,7 +232,7 @@ BEGIN {
     else if ($0 ~ /^ ? ? ?#[[:space:]]+(Todo|Fixme)([^[:alnum:]_]|$)/) sub(/^ ? ? ?#[[:space:]]+/, "")
   }
   line = tolower($0)
-  gsub(url, "", line)
+  line = strip_urls(line)
   if (!fence) gsub(mention, " ", line)
   print line
 }') || STUB_TEXT=$LAST_ASSISTANT_CONTENT
