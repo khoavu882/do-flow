@@ -302,15 +302,37 @@ test('removeMarkedSection: strips the span, preserving content before and after 
   assert.strictEqual(actual, before + after);
 });
 
-test('removeMarkedSection: file is only the managed span -> ends up empty, not deleted', () => {
+test('removeMarkedSection: file is only the managed span -> deleted, not left empty', () => {
   const dir = scratchDir();
   const file = dstPath(dir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, MARKER_START + '\n' + 'ONLY CONTENT' + '\n' + MARKER_END + '\n');
 
   assert.strictEqual(removeMarkedSection(file), true);
-  assert.strictEqual(fs.existsSync(file), true, 'file must still exist, just emptied');
-  assert.strictEqual(fs.readFileSync(file, 'utf8'), '');
+  assert.strictEqual(fs.existsSync(file), false, 'a file holding nothing but the managed span is removed');
+});
+
+test('removeMarkedSection: only whitespace left beside the span -> deleted', () => {
+  const dir = scratchDir();
+  const file = dstPath(dir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '\n\n' + MARKER_START + '\n' + 'ONLY CONTENT' + '\n' + MARKER_END + '\n\n');
+
+  assert.strictEqual(removeMarkedSection(file), true);
+  assert.strictEqual(fs.existsSync(file), false);
+});
+
+test('removeMarkedSection: undoes an append to a user file, separator included', () => {
+  const dir = scratchDir();
+  const src = path.join(dir, 'src.md');
+  const file = dstPath(dir);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(src, 'MANAGED\n');
+  fs.writeFileSync(file, '# Mine\n');
+  mergeMarkedSection(src, file);
+
+  assert.strictEqual(removeMarkedSection(file), true);
+  assert.strictEqual(fs.readFileSync(file, 'utf8'), '# Mine\n');
 });
 
 test('removeMarkedSection: malformed markers (MARKER_START with no MARKER_END) throws', () => {

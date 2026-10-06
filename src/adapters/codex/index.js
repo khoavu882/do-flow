@@ -10,7 +10,7 @@ const crypto = require('node:crypto');
 const { configPath, fingerprint: configFingerprint, parseToml, planCodexConfig, applyCodexConfig } = require('./config');
 const { renderServer, planCodexMcp, applyCodexMcp } = require('./mcp');
 const { agentDirectory, discoverCodexAgents, planCodexAgents, applyCodexAgents } = require('./agents');
-const { planCodexHooks, deployCodexHooks } = require('./hooks');
+const { planCodexHooks, deployCodexHooks, removeCodexHookScripts } = require('./hooks');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../copy-tree');
 const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../helper/marker-merge');
 const { nativeMcpCatalog } = require('../../registry');
@@ -398,7 +398,9 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     if (removing) {
       return {
         agents: ownedRemovalPlan(neutralResources, context, 'custom-agent', agentsDirectory),
-        hooks: ownedRemovalPlan(neutralResources, context, 'hooks-file'),
+        // The scripts deployed beside hooks.json have no ledger rows; remove() matches them by bytes.
+        hooks: { ...ownedRemovalPlan(neutralResources, context, 'hooks-file'),
+          scriptsDir: native.hooksSourceDir, destinationHooksDir: context.paths.hooksDirectory },
       };
     }
     const components = {};
@@ -506,6 +508,8 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
       if (current !== change.fingerprint) throw new Error(`Refusing to remove modified Codex resource '${change.identity}'`);
       if (!dryRun) fs.unlinkSync(change.target);
     }
+    const hooksPlan = changes.find((change) => change?.nativeComponent === 'hooks' && change.nativePlan?.directRemove)?.nativePlan;
+    if (hooksPlan) removeCodexHookScripts(hooksPlan, { dryRun });
     if (!dryRun) { removeCopyTreeAssets(changes); removeInstructionsAsset(changes); }
     return { ...result, removed: changes.filter((change) => (change.operation ?? change.type) === 'remove').length };
   }

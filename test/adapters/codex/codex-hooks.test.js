@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { validateHooksConfig, classifyClaudeGuardrails, verifyHookCommands, planCodexHooks, deployCodexHooks } = require('../../../src/adapters/codex/hooks');
+const { validateHooksConfig, classifyClaudeGuardrails, verifyHookCommands, planCodexHooks, deployCodexHooks, shippedHookScripts, removeCodexHookScripts } = require('../../../src/adapters/codex/hooks');
 const { IS_WIN, expectExecutable } = require('../../helper-platform');
 
 const CODEX_HOOKS_DIR = path.resolve(__dirname, '../../..', 'core', 'harnesses', 'codex', 'hooks');
@@ -105,6 +105,22 @@ test('deploy copies every file in scriptsDir, not just ones named in a hooks.jso
   // hooks.json itself lives alongside the scripts in the source tree but is deployed separately
   // to .codex/hooks.json (not .codex/hooks/hooks.json) — must not be duplicated into hooks/.
   assert.equal(fs.existsSync(path.join(deployedHooks, 'hooks.json')), false);
+});
+
+test('script removal deletes only shipped bytes and keeps edited or user-added scripts', () => {
+  const root = scratch(); const sourceHooksDir = wrapper(root); const projectRoot = path.join(root, 'project');
+  fs.writeFileSync(path.join(sourceHooksDir, 'lib.sh'), '#!/usr/bin/env bash\necho lib\n');
+  const plan = planCodexHooks({ config: hookConfig(), sourceHooksDir, destinationContext: { scope: 'project', projectRoot } });
+  deployCodexHooks(plan);
+  const deployedHooks = path.join(projectRoot, '.codex', 'hooks');
+  fs.appendFileSync(path.join(deployedHooks, 'lib.sh'), '# edited\n');
+  fs.writeFileSync(path.join(deployedHooks, 'mine.sh'), 'echo mine\n');
+  const shipped = shippedHookScripts(sourceHooksDir);
+  assert.deepEqual(removeCodexHookScripts(plan), { removed: shipped.length - 1 });
+  assert.deepEqual(fs.readdirSync(deployedHooks).sort(), ['lib.sh', 'mine.sh']);
+  fs.rmSync(path.join(deployedHooks, 'lib.sh')); fs.rmSync(path.join(deployedHooks, 'mine.sh'));
+  removeCodexHookScripts(plan);
+  assert.equal(fs.existsSync(deployedHooks), false, 'an emptied hooks directory is removed');
 });
 
 test('accepts PostToolUse and PreCompact — the two events closing the Claude/Codex hook-coverage gap', () => {

@@ -37,6 +37,31 @@ test('deselect removes only a proven-owned key and leaves its table and neighbou
   assert.equal(fs.readFileSync(file, 'utf8'), '[features]\n\nother = "keep"\n');
 });
 
+test('removing the only key of a table DoFlow appended restores the user file byte for byte', () => {
+  const root = scratch(); const file = path.join(root, 'config.toml');
+  const before = '[profile]\nmodel = "mine"\n';
+  fs.writeFileSync(file, before);
+  const installed = reconcileCodexConfig({ file, scope: 'project', desiredResources: [resource()] });
+  assert.equal(fs.readFileSync(file, 'utf8'), `${before}\n[features]\nhooks = true\n`);
+  reconcileCodexConfig({ file, scope: 'project', managedResources: installed.managedResources, desiredResources: [] });
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+});
+
+test('removing the last owned key of a file DoFlow created deletes the file', () => {
+  const projectRoot = scratch();
+  const installed = reconcileCodexConfig({ scope: 'project', projectRoot, desiredResources: [resource()] });
+  const result = reconcileCodexConfig({ scope: 'project', projectRoot, managedResources: installed.managedResources, desiredResources: [] });
+  assert.equal(result.applied, true);
+  assert.equal(fs.existsSync(configPath({ scope: 'project', projectRoot })), false);
+});
+
+test('an emptied table that still holds a user comment keeps its header', () => {
+  const root = scratch(); const file = path.join(root, 'config.toml');
+  fs.writeFileSync(file, '[features]\n# mine\nhooks = true\n');
+  reconcileCodexConfig({ file, scope: 'project', managedResources: [{ ...resource(), fingerprint: fingerprint(true) }], desiredResources: [] });
+  assert.equal(fs.readFileSync(file, 'utf8'), '[features]\n# mine\n\n');
+});
+
 test('refuses a foreign resource with byte-for-byte preservation', () => {
   const root = scratch(); const file = path.join(root, 'config.toml'); const before = '[features]\nhooks = false\n';
   fs.writeFileSync(file, before);

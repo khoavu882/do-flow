@@ -119,6 +119,7 @@ function planCodexConfig({ file, scope, managedResources = [], desiredResources 
     nextLines[change.line] = `${indentation}${key} = ${renderValue(change.value)}${suffix && !/^\s/.test(suffix) ? ' ' : ''}${suffix}`;
   }
   for (const change of changes.filter((change) => change.type === 'remove')) nextLines[change.line] = '';
+  dropEmptiedTables(nextLines, changes);
   // A new key must land INSIDE its own table. Appending at end-of-file only happens to be
   // correct when that table is the file's last one — otherwise the key silently joins whichever
   // table trails the file, so `features.hooks` written after an `[mcp_servers.x]` block becomes
@@ -136,6 +137,8 @@ function planCodexConfig({ file, scope, managedResources = [], desiredResources 
   }
   // Descending, so an earlier insertion never shifts the index of one still pending.
   for (const insertion of insertions.sort((a, b) => b.at - a.at)) nextLines.splice(insertion.at, 0, insertion.line);
+  // Dropped lines were kept as null placeholders so the insertion indices above stayed valid.
+  for (let index = nextLines.length - 1; index >= 0; index--) if (nextLines[index] === null) nextLines.splice(index, 1);
   for (const [table, lines] of newTables) {
     // `''.split(/\r?\n/)` is [`''`]; drop that synthetic line so a brand-new file does
     // not start with an unintended blank line.
@@ -155,6 +158,27 @@ function planCodexConfig({ file, scope, managedResources = [], desiredResources 
   return { ok: true, status: changes.length ? 'change' : 'unchanged', file, original, content, changes, conflicts: [], managedResources: nextManagedResources };
 }
 
+/** A table whose every key this plan removed, with nothing else under its header (no user key or
+ * comment), is DoFlow's own leftover: its header and removed lines become null placeholders. When
+ * it was the file's last table, the blank line the table append puts before a new header goes too.
+ * A table that also receives a created key is kept. */
+function dropEmptiedTables(lines, changes) {
+  const tableOf = (identity) => identity.split('.').slice(0, -1).join('.');
+  const removedTables = new Map(changes.filter((change) => change.type === 'remove').map((change) => [change.line, tableOf(change.identity)]));
+  const createdTables = new Set(changes.filter((change) => change.type === 'create').map((change) => tableOf(change.identity)));
+  const headers = lines.flatMap((line, index) => (stripComment(line).trim().startsWith('[') ? [index] : []));
+  headers.forEach((start, position) => {
+    const end = headers[position + 1] ?? lines.length;
+    const body = lines.slice(start + 1, end).map((_, offset) => start + 1 + offset);
+    const removedHere = body.filter((index) => removedTables.has(index));
+    if (!removedHere.length || removedHere.some((index) => createdTables.has(removedTables.get(index)))) return;
+    if (body.some((index) => !removedTables.has(index) && lines[index].trim() !== '')) return;
+    lines[start] = null;
+    for (const index of removedHere) lines[index] = null;
+    if (end === lines.length && start > 0 && lines[start - 1] === '') lines[start - 1] = null;
+  });
+}
+
 function atomicWrite(file, content, fsImpl = fs) {
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
   const temporary = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`);
@@ -169,7 +193,9 @@ function atomicWrite(file, content, fsImpl = fs) {
 function applyCodexConfig(plan, { dryRun = false, fsImpl = fs } = {}) {
   if (!plan.ok) return { ...plan, applied: false };
   if (dryRun || plan.status === 'unchanged') return { ...plan, applied: false };
-  atomicWrite(plan.file, plan.content, fsImpl);
+  // A removal that leaves nothing behind deletes the file rather than leaving it empty.
+  if (plan.content === '') { if (fsImpl.existsSync(plan.file)) fsImpl.unlinkSync(plan.file); }
+  else atomicWrite(plan.file, plan.content, fsImpl);
   return { ...plan, applied: true };
 }
 

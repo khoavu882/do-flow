@@ -86,6 +86,8 @@ function mergeMarkedSection(srcAbs, dstAbs, { dryRun = false } = {}) {
  * Strip only the doflow-managed span from `file`, leaving any surrounding content (before/after
  * the markers) byte-for-byte untouched. Companion to `mergeMarkedSection` — shared by the Claude
  * and Codex adapters' `remove()`, which had each carried an identical private copy of this.
+ * A file left holding only whitespace is deleted rather than left empty: it was DoFlow's own file,
+ * or a user file whose only content was the managed span.
  * @param {string} file
  * @returns {boolean} whether a managed span was found and stripped (false if the file doesn't
  *          exist or has no doflow markers — both are no-ops, not errors)
@@ -101,11 +103,14 @@ function removeMarkedSection(file) {
   }
   let after = end + MARKER_END.length;
   if (existing[after] === '\n') after += 1;
-  let next = existing.slice(0, start) + existing.slice(after);
-  // Do not alter user content; only remove separator whitespace that was added
-  // immediately before an appended managed section.
-  if (next === '\n') next = '';
-  fs.writeFileSync(file, next);
+  const before = existing.slice(0, start);
+  const rest = existing.slice(after);
+  // Do not alter user content; only remove the separator mergeMarkedSection added before an
+  // appended span: the blank line after a file that ended in a single newline. A file that
+  // already ended in a blank line keeps one fewer.
+  const next = (rest === '' && before.endsWith('\n\n') ? before.slice(0, -1) : before) + rest;
+  if (next.trim() === '') fs.unlinkSync(file);
+  else fs.writeFileSync(file, next);
   return true;
 }
 
