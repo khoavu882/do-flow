@@ -43,11 +43,11 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
 
   /**
    * Kiro has no single-file, marker-managed instruction surface for this adapter to render into —
-   * the guidance tree is projected file-for-file by the copy-tree engine below, and there is no
-   * other renderer-driven asset routed to this harness (see core/registry/assets.json: only
-   * guidance.context-layer and agents.shared apply to 'kiro', both `renderer: copy-tree`/
-   * `kiro-agents`). This is kept as a pure passthrough only to satisfy the six-function adapter
-   * contract every harness must implement identically.
+   * the guidance tree is projected file-for-file by the copy-tree engine below, once as steering
+   * (guidance.context-layer) and once into the shared `.doflow/guidance` (kiro.guidance-tree). Every
+   * asset routed to 'kiro' in core/registry/assets.json uses `renderer: copy-tree` or
+   * `kiro-agents`, so nothing reaches this function. It is kept as a pure passthrough only to
+   * satisfy the six-function adapter contract every harness must implement identically.
    */
   function render({ content = '' } = {}) {
     return String(content);

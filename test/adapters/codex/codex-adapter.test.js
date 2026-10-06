@@ -103,7 +103,7 @@ test('dry planning does not write, then apply and remove use only fingerprint-pr
   assert.equal(removal.components.config.changes[0].type, 'remove');
   const removed = remove({ changes: removal.changes });
   assert.equal(removed.removed, 1);
-  assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /hooks = true/);
+  assert.equal(fs.existsSync(file), false, 'a config.toml holding only the removed key is deleted');
   const status = verify({ scope: 'project', projectRoot, projection: { configResources: [resource] } }).statuses[0];
   assert.deepEqual(status, { assetId: 'codex.config', capability: 'settings', status: 'missing', identity: 'features.hooks',
     ownershipIdentity: 'doflow:codex:configuration-entry:features.hooks', target: file });

@@ -531,6 +531,77 @@ test('Codex remove clears only lifecycle-owned native resources and retains comp
   assert.deepStrictEqual(ledger.resources, []);
   assert.ok(!fs.existsSync(path.join(project, '.agents', 'skills', 'do-execute-plan', 'SKILL.md')), 'skills are lifecycle-owned and must be removed');
   assert.equal(fs.readFileSync(foreignFile, 'utf8'), 'my own notes\n', 'a foreign file never owned by doflow must survive remove untouched');
+  // Nothing DoFlow wrote is left behind: no shipped hook script, no emptied AGENTS.md, no
+  // config.toml holding only the table DoFlow's own key lived in.
+  assert.ok(!fs.existsSync(path.join(project, '.codex', 'hooks')), 'shipped hook scripts and their emptied directory are removed');
+  assert.ok(!fs.existsSync(path.join(project, 'AGENTS.md')), 'an AGENTS.md DoFlow created is removed, not left empty');
+  assert.ok(!fs.existsSync(path.join(project, '.codex', 'config.toml')), 'a config.toml DoFlow created is removed, not left with an empty table');
+});
+
+test('Codex remove with a duplicated span in AGENTS.md is refused before anything is removed', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+  let result = run(['install', project, '--force', '--target', 'codex'], { home });
+  assert.strictEqual(result.status, 0, result.stderr);
+  const agents = path.join(project, 'AGENTS.md');
+  fs.appendFileSync(agents, `\n${fs.readFileSync(agents, 'utf8')}`);
+  const ledgerFile = path.join(project, '.doflow', 'state', 'ledger.json');
+  const ledgerBefore = fs.readFileSync(ledgerFile, 'utf8');
+  result = run(['remove', project, '--force', '--target', 'codex'], { home });
+  assert.notStrictEqual(result.status, 0);
+  assert.match(`${result.stdout}${result.stderr}`, /malformed DoFlow markers/);
+  for (const rel of [path.join('.codex', 'hooks.json'), path.join('.codex', 'config.toml'), path.join('.codex', 'hooks', 'session-start.sh'),
+    path.join('.agents', 'skills', 'do-execute-plan', 'SKILL.md')]) {
+    assert.ok(fs.existsSync(path.join(project, rel)), `${rel} must survive a refused remove`);
+  }
+  assert.strictEqual(fs.readFileSync(ledgerFile, 'utf8'), ledgerBefore);
+});
+
+test('Codex project remove rooted at HOME leaves every file the global install still owns', () => {
+  // A project rooted at $HOME shares ~/.codex, ~/.agents and the one ledger with the global install.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  let result = run(['install', '-g', '--force', '--target', 'codex'], { home });
+  assert.strictEqual(result.status, 0, result.stderr);
+  result = run(['install', home, '--force', '--target', 'codex'], { home });
+  assert.strictEqual(result.status, 0, result.stderr);
+  const globalOwned = ['hooks.json', 'config.toml', path.join('hooks', 'session-start.sh'), path.join('bin', 'doflow-run')]
+    .map((rel) => path.join(home, '.codex', rel));
+  const before = globalOwned.map((file) => fs.readFileSync(file, 'utf8'));
+  result = run(['remove', home, '--force', '--target', 'codex'], { home });
+  assert.strictEqual(result.status, 0, result.stderr);
+  assert.match(result.stdout, /codex: retained \d+ shared resource\(s\) still claimed by codex \(global scope\)/);
+  assert.deepStrictEqual(globalOwned.map((file) => fs.readFileSync(file, 'utf8')), before);
+  assert.ok(fs.existsSync(path.join(home, '.agents', 'skills', 'do-execute-plan', 'SKILL.md')), 'global skills survive');
+  assert.ok(!fs.existsSync(path.join(home, 'AGENTS.md')), 'the project-only AGENTS.md is still removed');
+  const ledger = JSON.parse(fs.readFileSync(path.join(home, '.doflow', 'state', 'ledger.json'), 'utf8'));
+  assert.ok(ledger.resources.length > 0 && ledger.resources.every((resource) => resource.scope === 'global'), 'only the project rows are released');
+});
+
+test('Codex remove keeps a user hook script, AGENTS.md line and config.toml table byte for byte', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+  const agents = path.join(project, 'AGENTS.md');
+  const config = path.join(project, '.codex', 'config.toml');
+  const userAgents = '# My project rules\n';
+  const userConfig = '[profile]\nmodel = "mine"\n';
+  fs.writeFileSync(agents, userAgents);
+  fs.mkdirSync(path.dirname(config), { recursive: true });
+  fs.writeFileSync(config, userConfig);
+  let result = run(['install', project, '--force', '--target', 'codex', '--mcp', 'context7'], { home });
+  assert.strictEqual(result.status, 0, result.stderr);
+  const userHook = path.join(project, '.codex', 'hooks', 'my-hook.sh');
+  fs.writeFileSync(userHook, '#!/bin/sh\necho mine\n');
+  // A shipped script the user edited is theirs now and stays too.
+  const editedHook = path.join(project, '.codex', 'hooks', 'session-start.sh');
+  fs.appendFileSync(editedHook, '# my tweak\n');
+  const editedBytes = fs.readFileSync(editedHook, 'utf8');
+  result = run(['remove', project, '--force', '--target', 'codex'], { home });
+  assert.strictEqual(result.status, 0, result.stderr);
+  assert.strictEqual(fs.readFileSync(agents, 'utf8'), userAgents);
+  assert.strictEqual(fs.readFileSync(config, 'utf8'), userConfig);
+  assert.strictEqual(fs.readFileSync(userHook, 'utf8'), '#!/bin/sh\necho mine\n');
+  assert.strictEqual(fs.readFileSync(editedHook, 'utf8'), editedBytes);
+  assert.deepStrictEqual(fs.readdirSync(path.dirname(userHook)).sort(), ['my-hook.sh', 'session-start.sh']);
 });
 
 test('rollback with no id argument prompts interactively and accepts a typed backup id', () => {
@@ -868,7 +939,7 @@ test('mixed -t claude,codex,gemini: install, update, and remove all reconcile in
   r = run(['remove', '-g', '--force', '--target', 'claude,codex,gemini'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.ok(!fs.existsSync(geminiMd), 'gemini remove deletes its file');
-  assert.ok(!fs.readFileSync(claudeMd, 'utf8').includes('<!-- doflow:start'), 'claude remove strips only its managed section; the file remains');
+  assert.ok(!fs.existsSync(claudeMd), 'a CLAUDE.md holding only the managed section is deleted, like GEMINI.md');
   ledger = JSON.parse(fs.readFileSync(ledgerFile, 'utf8'));
   assert.deepStrictEqual(ledger.resources, []);
   // Skills are lifecycle-owned for Codex too (Phase D), so remove correctly deletes them; every

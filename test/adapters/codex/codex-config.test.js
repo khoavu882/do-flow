@@ -37,6 +37,58 @@ test('deselect removes only a proven-owned key and leaves its table and neighbou
   assert.equal(fs.readFileSync(file, 'utf8'), '[features]\n\nother = "keep"\n');
 });
 
+test('removing the only key of a table DoFlow appended restores the user file byte for byte', () => {
+  const root = scratch(); const file = path.join(root, 'config.toml');
+  const before = '[profile]\nmodel = "mine"\n';
+  fs.writeFileSync(file, before);
+  const installed = reconcileCodexConfig({ file, scope: 'project', desiredResources: [resource()] });
+  assert.equal(fs.readFileSync(file, 'utf8'), `${before}\n[features]\nhooks = true\n`);
+  reconcileCodexConfig({ file, scope: 'project', managedResources: installed.managedResources, desiredResources: [] });
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+});
+
+test('removing the last owned key of a file DoFlow created deletes the file', () => {
+  const projectRoot = scratch();
+  const installed = reconcileCodexConfig({ scope: 'project', projectRoot, desiredResources: [resource()] });
+  const result = reconcileCodexConfig({ scope: 'project', projectRoot, managedResources: installed.managedResources, desiredResources: [] });
+  assert.equal(result.applied, true);
+  assert.equal(fs.existsSync(configPath({ scope: 'project', projectRoot })), false);
+});
+
+test('an emptied table that still holds a user comment keeps its header', () => {
+  const root = scratch(); const file = path.join(root, 'config.toml');
+  fs.writeFileSync(file, '[features]\n# mine\nhooks = true\n');
+  reconcileCodexConfig({ file, scope: 'project', managedResources: [{ ...resource(), fingerprint: fingerprint(true) }], desiredResources: [] });
+  assert.equal(fs.readFileSync(file, 'utf8'), '[features]\n# mine\n\n');
+});
+
+test('an emptied table whose header carries a user comment keeps that header line', () => {
+  const root = scratch(); const file = path.join(root, 'config.toml');
+  fs.writeFileSync(file, '[profile]\nmodel = "mine"\n\n[features] # note\nhooks = true\n');
+  reconcileCodexConfig({ file, scope: 'project', managedResources: [{ ...resource(), fingerprint: fingerprint(true) }], desiredResources: [] });
+  assert.equal(fs.readFileSync(file, 'utf8'), '[profile]\nmodel = "mine"\n\n[features] # note\n\n');
+});
+
+test('a table that loses its last owned key but receives a new one keeps its header', () => {
+  const root = scratch(); const file = path.join(root, 'config.toml');
+  fs.writeFileSync(file, '[features]\nold = true\n');
+  const owned = [{ target: 'codex', scope: 'project', kind: 'configuration-entry', identity: 'features.old', value: true, fingerprint: fingerprint(true) }];
+  reconcileCodexConfig({ file, scope: 'project', managedResources: owned, desiredResources: [resource()] });
+  assert.equal(fs.readFileSync(file, 'utf8'), '[features]\n\nhooks = true\n');
+});
+
+test('a config with a multi-line array is refused untouched by a removal', () => {
+  // The scanner has no multi-line arrays and fails closed first, so no test can tell header records
+  // from a line-based header scan; this pins only the refusal.
+  const root = scratch(); const file = path.join(root, 'config.toml');
+  const before = '[features]\nhooks = true\nlist = [\n  [1]]\n';
+  fs.writeFileSync(file, before);
+  const plan = planCodexConfig({ file, scope: 'project', managedResources: [{ ...resource(), fingerprint: fingerprint(true) }], desiredResources: [] });
+  assert.equal(plan.ok, false);
+  assert.equal(applyCodexConfig(plan).applied, false);
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+});
+
 test('refuses a foreign resource with byte-for-byte preservation', () => {
   const root = scratch(); const file = path.join(root, 'config.toml'); const before = '[features]\nhooks = false\n';
   fs.writeFileSync(file, before);
@@ -146,4 +198,9 @@ test('several new keys for one absent table share a single header', () => {
   const entries = parseToml(text).entries;
   assert.equal(entries.get('features.hooks')?.value, true);
   assert.equal(entries.get('features.skills')?.value, true);
+});
+
+test('parseToml records each table header line, which is where table removal takes its spans from', () => {
+  const { headers } = parseToml('top = 1\n[features] # note\nhooks = true\n\n[mcp_servers."a.b"]\ncommand = "x"\n');
+  assert.deepEqual(headers, [{ line: 1, table: 'features' }, { line: 4, table: 'mcp_servers.a\\.b' }]);
 });

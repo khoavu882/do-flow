@@ -117,6 +117,24 @@
       }
     },
     {
+      "id": "kiro.guidance-tree",
+      "kind": "guidance",
+      "source": "core/shared/guidance",
+      "appliesTo": [
+        "kiro"
+      ],
+      "projection": {
+        "kiro": {
+          "renderer": "copy-tree",
+          "capability": "instructions"
+        }
+      },
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "kiro": "../.doflow/guidance"
+      }
+    },
+    {
       "id": "skills.doflow",
       "kind": "skill",
       "source": "core/shared/skills",

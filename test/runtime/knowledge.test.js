@@ -4,6 +4,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { chunkMarkdown, HARD_MAX_CHUNK_CHARS } = require('../../src/runtime/knowledge/chunker');
 const { buildIndex, loadIndex, isFresh } = require('../../src/runtime/knowledge/index-store');
 const { bm25Rank, searchGuidance } = require('../../src/runtime/knowledge/retrieval');
@@ -124,4 +125,53 @@ test('searchGuidance auto-rebuilds when stale and answers through the full stack
     corpusDir: path.join(dir, 'nope'),
     indexDir, query: 'x',
   }), /No guidance tree found/);
+});
+
+// `retrieve` finds its guidance tree the way the dispatcher finds its config dir: the nearest
+// `.doflow` above the working directory, else the home install.
+function retrieveFrom(cwd, home) {
+  const { DOFLOW_CONFIG_DIR: _unset, ...env } = process.env;
+  const result = spawnSync(process.execPath, [path.resolve(__dirname, '../../bin/doflow.js'), 'retrieve', '--query', 'escalation', '--json'],
+    { cwd, env: { ...env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, 'xdg'), GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig') }, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout).results;
+}
+
+test('retrieve answers from a project subdirectory and from a home-only install', () => {
+  const project = fs.realpathSync(scratch()); const home = fs.realpathSync(scratch());
+  fixtureCorpus(project);
+  const sub = path.join(project, 'src', 'deep');
+  fs.mkdirSync(sub, { recursive: true });
+  assert.ok(retrieveFrom(sub, home).some((hit) => hit.path === 'safety.md'), 'project tree reached from a subdirectory');
+
+  const elsewhere = fs.realpathSync(scratch());
+  fixtureCorpus(home);
+  assert.ok(retrieveFrom(elsewhere, home).some((hit) => hit.path === 'safety.md'), 'home tree reached with no project install');
+});
+
+test('retrieve answers after a Kiro-only install, whose steering copy is not the shared tree', () => {
+  const project = fs.realpathSync(scratch()); const home = fs.realpathSync(scratch());
+  const install = spawnSync(process.execPath, [path.resolve(__dirname, '../../bin/doflow.js'), 'install', project, '--force', '--target', 'kiro'],
+    { env: { ...process.env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, 'xdg'), GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig') }, encoding: 'utf8', input: '\n' });
+  assert.equal(install.status, 0, install.stderr);
+  // Before the shared tree was projected for Kiro, MCP_INDEX.md was the only file there.
+  assert.ok(retrieveFrom(project, home).some((hit) => hit.path !== 'MCP_INDEX.md'), 'the shared guidance tree is installed and indexed');
+});
+
+test('retrieve skips a project .doflow that holds state but no guidance tree and answers from home', () => {
+  const project = fs.realpathSync(scratch()); const home = fs.realpathSync(scratch());
+  fixtureCorpus(home);
+  fs.mkdirSync(path.join(project, '.doflow', 'state'), { recursive: true });
+  assert.ok(retrieveFrom(project, home).some((hit) => hit.path === 'safety.md'));
+  assert.ok(fs.existsSync(path.join(home, '.doflow', 'index', 'guidance')), 'the index sits beside the home corpus');
+  assert.ok(!fs.existsSync(path.join(project, '.doflow', 'index')), 'nothing is indexed into the project without a corpus');
+});
+
+test('retrieve prefers the nearest project tree over the home tree', () => {
+  const project = fs.realpathSync(scratch()); const home = fs.realpathSync(scratch());
+  fixtureCorpus(home);
+  fs.mkdirSync(path.join(project, '.doflow', 'guidance'), { recursive: true });
+  fs.writeFileSync(path.join(project, '.doflow', 'guidance', 'project.md'), '# Project\n\nEscalation goes to the project owner.\n');
+  const paths = retrieveFrom(project, home).map((hit) => hit.path);
+  assert.deepEqual(paths, ['project.md']);
 });

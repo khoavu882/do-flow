@@ -30,12 +30,11 @@ function mergeMarkedSection(srcAbs, dstAbs, { dryRun = false } = {}) {
   } else {
     const startIdx = existing.indexOf(MARKER_START);
     if (startIdx === -1) {
-      // Foreign file with no doflow span yet — append, normalizing to exactly
-      // one blank line of separation without touching existing's own bytes.
-      let separator;
-      if (existing.endsWith('\n\n')) separator = '';
-      else if (existing.endsWith('\n')) separator = '\n';
-      else separator = '\n\n';
+      // Foreign file with no doflow span yet — append without touching existing's own bytes.
+      // A file ending in a newline (or empty) always gets exactly one '\n', so removeMarkedSection
+      // can strip exactly one and hand the user's bytes back unchanged; one with no final newline
+      // gets a blank line, and comes back from removal with a final newline added.
+      const separator = existing === '' || existing.endsWith('\n') ? '\n' : '\n\n';
       newContent = existing + separator + section;
     } else {
       const endIdx = existing.indexOf(MARKER_END, startIdx + MARKER_START.length);
@@ -86,6 +85,8 @@ function mergeMarkedSection(srcAbs, dstAbs, { dryRun = false } = {}) {
  * Strip only the doflow-managed span from `file`, leaving any surrounding content (before/after
  * the markers) byte-for-byte untouched. Companion to `mergeMarkedSection` — shared by the Claude
  * and Codex adapters' `remove()`, which had each carried an identical private copy of this.
+ * A file that held nothing but the span is DoFlow's own and is deleted; any other file is written
+ * back, even when only whitespace remains.
  * @param {string} file
  * @returns {boolean} whether a managed span was found and stripped (false if the file doesn't
  *          exist or has no doflow markers — both are no-ops, not errors)
@@ -101,11 +102,15 @@ function removeMarkedSection(file) {
   }
   let after = end + MARKER_END.length;
   if (existing[after] === '\n') after += 1;
-  let next = existing.slice(0, start) + existing.slice(after);
-  // Do not alter user content; only remove separator whitespace that was added
-  // immediately before an appended managed section.
-  if (next === '\n') next = '';
-  fs.writeFileSync(file, next);
+  const before = existing.slice(0, start);
+  const rest = existing.slice(after);
+  if (before === '' && rest === '') {
+    fs.unlinkSync(file);
+    return true;
+  }
+  // Do not alter user content; only remove the one '\n' mergeMarkedSection put before an
+  // appended span.
+  fs.writeFileSync(file, (rest === '' && before.endsWith('\n') ? before.slice(0, -1) : before) + rest);
   return true;
 }
 

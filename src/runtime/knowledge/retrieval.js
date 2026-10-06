@@ -10,6 +10,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { buildIndex, loadIndex, isFresh } = require('./index-store');
 const { finishRuntime, usageError, captureCaught } = require('../cli-result');
+const { resolveRunsLocation } = require('../trace/ledger');
 
 const BM25_K1 = 1.5;
 const BM25_B = 0.75;
@@ -139,11 +140,13 @@ function searchGuidance({ corpusDir, indexDir, query, k = 5, fsImpl = fs } = {})
 
 /** CLI handler for `doflow retrieve`. The corpus is the caller's installed guidance tree; the
  * index lives beside it under `.doflow/index/`. Same two-roots posture as readiness: templates and
- * code from this install, knowledge from the project being worked on. */
+ * code from this install, knowledge from the project being worked on. The `.doflow` root is
+ * $DOFLOW_CONFIG_DIR, else the nearest one above `stateRoot` that holds a guidance tree, else the
+ * home install; the index is kept beside the corpus chosen. */
 function handleRetrieveCommand({ query, top, json = false, stateRoot } = {}) {
-  const state = stateRoot || process.cwd();
-  const corpusDir = path.join(state, '.doflow', 'guidance');
-  const indexDir = path.join(state, '.doflow', 'index', 'guidance');
+  const { configDir } = resolveRunsLocation({ start: stateRoot, containing: 'guidance' });
+  const corpusDir = path.join(configDir, 'guidance');
+  const indexDir = path.join(configDir, 'index', 'guidance');
   if (!query || !String(query).trim()) {
     return usageError('retrieve', '--query is required (what should be looked up in the guidance tree?)', json);
   }

@@ -10,7 +10,7 @@ const crypto = require('node:crypto');
 const { configPath, fingerprint: configFingerprint, parseToml, planCodexConfig, applyCodexConfig } = require('./config');
 const { renderServer, planCodexMcp, applyCodexMcp } = require('./mcp');
 const { agentDirectory, discoverCodexAgents, planCodexAgents, applyCodexAgents } = require('./agents');
-const { planCodexHooks, deployCodexHooks } = require('./hooks');
+const { planCodexHooks, deployCodexHooks, removeCodexHookScripts } = require('./hooks');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../copy-tree');
 const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../helper/marker-merge');
 const { nativeMcpCatalog } = require('../../registry');
@@ -132,6 +132,37 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     });
   }
 
+  /** Whether a row of the OTHER scope claims `target` (for a config or MCP entry: the same entry in
+   * that file). A project rooted at $HOME shares `~/.codex`, `~/.agents` and the one ledger with the
+   * global install, so its removal must leave whatever the global rows still own, and vice versa. */
+  function claimedByOtherScope(resources, context, target, identity) {
+    if (typeof target !== 'string') return false;
+    return (resources || []).some((resource) => resource?.scope && resource.scope !== context.scope
+      && typeof resource.target === 'string' && path.resolve(resource.target) === path.resolve(target)
+      && (identity === undefined || resource.identity === identity));
+  }
+
+  function claimedRowElsewhere(resources, context, resource) {
+    return claimedByOtherScope(resources, context, resource.target,
+      ['configuration-entry', 'config-entry', 'mcp-server'].includes(resource.kind) ? resource.identity : undefined);
+  }
+
+  /** The rows a removal may act on: this scope's own, minus any path the other scope still claims. */
+  function removableRows(resources, context) {
+    return (resources || []).filter((resource) => (!resource?.scope || resource.scope === context.scope)
+      && !claimedRowElsewhere(resources, context, resource));
+  }
+
+  /** This scope's rows on a path the other scope still claims become retained removals: the
+   * lifecycle releases the row and never hands the change to remove(), so nothing is deleted. */
+  function retainedRemovals(resources, context) {
+    return (resources || []).filter((resource) => resource?.harness === HARNESS && resource.scope === context.scope
+      && claimedRowElsewhere(resources, context, resource))
+      .map((resource) => ({ harness: HARNESS, assetId: resource.assetId, target: resource.target, operation: 'remove',
+        ownershipIdentity: resource.ownershipIdentity, kind: resource.kind, identity: resource.identity,
+        retained: true, retainedFor: [`${HARNESS} (${context.scope === 'global' ? 'project' : 'global'} scope)`] }));
+  }
+
   function ownedRemovalPlan(resources, context, kind, directory) {
     const entries = (resources || []).filter((resource) => resource?.harness === HARNESS && resource.kind === kind);
     const changes = []; const conflicts = [];
@@ -217,16 +248,24 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
   }
   function sha256Text(text) { return crypto.createHash('sha256').update(text).digest('hex'); }
 
-  function planInstructionsAsset({ assets, context, removing, repoRoot }) {
+  function planInstructionsAsset({ assets, context, removing, repoRoot, claimedElsewhere = () => false }) {
     const asset = instructionsAsset(assets);
     const changes = [];
     const conflicts = [];
     if (!asset) return { changes, conflicts };
     const target = instructionsPath(context);
+    // Broken markers are a plan conflict, as for Claude: found only while applying, they would stop
+    // the run after hooks, config and skills were already removed.
+    const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : null;
+    if (existing !== null) {
+      const starts = existing.split(MARKER_START).length - 1;
+      if (starts !== existing.split(MARKER_END).length - 1 || starts > 1) {
+        conflicts.push(`Codex instructions contain malformed DoFlow markers: ${target}`);
+        return { changes, conflicts };
+      }
+    }
     if (removing) {
-      if (!fs.existsSync(target)) return { changes, conflicts };
-      const existing = fs.readFileSync(target, 'utf8');
-      if (!existing.includes(MARKER_START)) return { changes, conflicts };
+      if (existing === null || claimedElsewhere(target) || !existing.includes(MARKER_START)) return { changes, conflicts };
       changes.push({ assetId: asset.id, target, operation: 'remove', ownershipIdentity: 'doflow:codex:instructions:managed-section',
         kind: 'instructions-section', identity: 'AGENTS.md', projection: { renderer: 'codex-agents' } });
       return { changes, conflicts };
@@ -398,7 +437,9 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     if (removing) {
       return {
         agents: ownedRemovalPlan(neutralResources, context, 'custom-agent', agentsDirectory),
-        hooks: ownedRemovalPlan(neutralResources, context, 'hooks-file'),
+        // The scripts deployed beside hooks.json have no ledger rows; remove() matches them by bytes.
+        hooks: { ...ownedRemovalPlan(neutralResources, context, 'hooks-file'),
+          scriptsDir: native.hooksSourceDir, destinationHooksDir: context.paths.hooksDirectory },
       };
     }
     const components = {};
@@ -421,11 +462,12 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
    */
   function plan(options) {
     const context = nativeContext(options);
-    const neutralResources = options.managedResources || options.ledger?.resources || [];
+    const removing = options.context?.operation === 'remove';
+    const ledgerRows = options.managedResources || options.ledger?.resources || [];
+    const neutralResources = removing ? removableRows(ledgerRows, context) : ledgerRows;
     const native = projectedNativeOptions(options);
     const configFile = context.paths.configFile;
     const agentsDirectory = context.paths.agentsDirectory;
-    const removing = options.context?.operation === 'remove';
     const components = {};
     // `options.context` is the lifecycle context; `context` is this adapter's narrow native one.
     // copyTree below already reads force off the former — adopt is read the same way.
@@ -438,7 +480,8 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     const copyTree = planCopyTreeAssets({ assets: options.assets, context, neutralResources, removing,
       repoRoot: options.context?.repoRoot, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion,
       force: options.context?.force === true });
-    const instructions = planInstructionsAsset({ assets: options.assets, context, removing, repoRoot: options.context?.repoRoot });
+    const instructions = planInstructionsAsset({ assets: options.assets, context, removing, repoRoot: options.context?.repoRoot,
+      claimedElsewhere: (target) => claimedByOtherScope(ledgerRows, context, target) });
     // Two pseudo-components: their changes are already in final adapter shape (unlike the other
     // components' native shape, which addChanges() below converts), so they're appended to `changes`
     // directly rather than run through addChanges. Registering them in `components` still gets their
@@ -453,6 +496,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     addChanges(changes, assetIdFor(options, 'agents'), components.agents, 'agents');
     addChanges(changes, assetIdFor(options, 'hooks'), components.hooks, 'hooks');
     changes.push(...copyTree.changes, ...instructions.changes);
+    if (removing) changes.push(...retainedRemovals(ledgerRows, context));
     const requiredNativeResources = [
       ...Object.entries(components).flatMap(([component, result]) => (result.changes || []).map((change) => ({
         harness: HARNESS, component, target: change.target ?? change.file ?? result.file ?? result.destination ?? result.directory,
@@ -506,6 +550,8 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
       if (current !== change.fingerprint) throw new Error(`Refusing to remove modified Codex resource '${change.identity}'`);
       if (!dryRun) fs.unlinkSync(change.target);
     }
+    const hooksPlan = changes.find((change) => change?.nativeComponent === 'hooks' && change.nativePlan?.directRemove)?.nativePlan;
+    if (hooksPlan) removeCodexHookScripts(hooksPlan, { dryRun });
     if (!dryRun) { removeCopyTreeAssets(changes); removeInstructionsAsset(changes); }
     return { ...result, removed: changes.filter((change) => (change.operation ?? change.type) === 'remove').length };
   }

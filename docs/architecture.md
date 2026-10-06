@@ -265,7 +265,8 @@ The runtime reaches every harness at every scope where it gets skills: a standal
 of the eight projects the `scripts.doflow` and `runtime.*` assets to `<scope root>/.doflow`, so the
 follow-up, capture and maintain lines run after installing one harness alone. Pi, OpenCode and
 GitHub Copilot CLI also receive the shared guidance tree at `<scope root>/.doflow/guidance`, which
-the pointer in their instructions names; Kiro keeps its steering files. Antigravity has no skills at
+the pointer in their instructions names; Kiro keeps its steering files and also receives that tree,
+which `doflow retrieve` searches. Antigravity has no skills at
 global scope, so its global install projects no runtime and prints a notice; install it per
 project. `doflow doctor` prints a `[Runtime Reach]` section with one line per installed harness and
 scope: `REACHED`, `NO-REACH` with the install command that fixes it, or `N/A`. At project scope
@@ -323,7 +324,7 @@ declares target capability and ownership inputs, and is not itself a native conf
 
 | Content | Where it lives | Why it is shared |
 |---|---|---|
-| `DOFLOW_CORE.md`, `PRINCIPLES.md`, `FLAGS.md`, `VERSION`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | One `guidance.context-layer` copy-tree asset mirrors this whole tree, byte-for-byte, into `.doflow/guidance/` for every scope, on the harnesses its `appliesTo` names (Claude Code, Codex, Gemini CLI, Kiro and Antigravity) |
+| `DOFLOW_CORE.md`, `PRINCIPLES.md`, `FLAGS.md`, `VERSION`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | One `guidance.context-layer` copy-tree asset mirrors this whole tree, byte-for-byte, into `.doflow/guidance/` for every scope, on the harnesses its `appliesTo` names, except Kiro, which gets this tree as `.kiro/steering/` and a second, Kiro-only `kiro.guidance-tree` asset that mirrors it into `.doflow/guidance/`; that copy is never loaded as steering |
 | `MCP_INDEX.md` (`.doflow/guidance/` only, no `core/` source) | Written directly by `applyLifecycle` (`src/lifecycle/index.js`) | The one file in `.doflow/guidance/` that varies per install (the resolved MCP selection) — deliberately outside `guidance.context-layer`'s copy-tree source so its per-install content never conflicts with that asset's byte-for-byte mirror; imported unconditionally from `DOFLOW_CORE.md` |
 
 > **Path anchor (load-bearing).** Every `@import` in `DOFLOW_CORE.md`, and every `doc` value in
