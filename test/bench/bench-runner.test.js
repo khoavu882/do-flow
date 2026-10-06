@@ -782,17 +782,18 @@ test('F4: a without-skill run drops the leading /<skill> token, and a case with 
   for (const key of dropped) assert.equal(without.some((r) => `${r.skill}/${r.evalId}` === key), false, key);
 });
 
-test('F4: the without-skill create command removes the skill, then hides the removal from git', () => {
+test('F4: the without-skill create command removes the skill and bench/, hides the removal from git, and drops the manifest entry', () => {
   const plan = runner.buildPlan(runner.loadConfig(), { iteration: 'fixture', skill: 'do-git', arm: 'without-skill' });
   const { create } = plan.runs.find((r) => r.arm === 'without-skill').sandbox;
-  assert.ok(create.includes("D=['.claude/skills/do-git','core/shared/skills/do-git']"));
+  assert.ok(create.includes("D=['.claude/skills/do-git','core/shared/skills/do-git','bench']"));
   const at = (text) => create.indexOf(text);
   assert.ok(at('fs.rmSync') > at('createSandbox') && at("'ls-files','-z','--',...D") > at('fs.rmSync'));
   assert.ok(at("'update-index','--skip-worktree','-z','--stdin'") > at("'ls-files'"));
+  assert.ok(at("delete j.skills['do-git']") > at('createSandbox') && at('.doflow-skill-source.json') > at('createSandbox'));
   assert.ok(create.includes('withheld=do-git'));
 });
 
-test('F4: in a real sandbox the removed skill files are skip-worktree, so git status and git diff stay silent', () => {
+test('F4: in a real sandbox the removed skill and bench files are skip-worktree, so git status and git diff stay silent', () => {
   // A scratch clone stands in for the checkout: the create command makes a worktree under .doflow/
   // of whatever directory it runs in, and this test must not make one beside the developer's work.
   const clone = path.join(scratch.dir, 'create-clone');
@@ -806,9 +807,14 @@ test('F4: in a real sandbox the removed skill files are skip-worktree, so git st
   const sandbox = path.join(clone, workingDir);
   assert.equal(fs.existsSync(path.join(sandbox, 'core', 'shared', 'skills', 'do-git')), false);
   assert.equal(fs.existsSync(path.join(sandbox, '.claude', 'skills', 'do-git')), false);
+  assert.equal(fs.existsSync(path.join(sandbox, 'bench')), false);
+  const manifest = JSON.parse(fs.readFileSync(path.join(sandbox, '.doflow-skill-source.json'), 'utf8'));
+  assert.equal('do-git' in manifest.skills, false);
+  assert.equal('do-plan' in manifest.skills, true);
+  assert.doesNotMatch(JSON.stringify(manifest.skills), /do-git/);
   const git = (...args) => spawnSync('git', args, { cwd: sandbox, encoding: 'utf8', env: scratch.env() }).stdout;
   const seen = [git('status', '--short'), git('diff'), git('diff', 'HEAD')].join('\n');
-  assert.doesNotMatch(seen, /do-git/);
+  assert.doesNotMatch(seen, /do-git|bench/);
   // The other skills are still there, so the hiding is not a blanket one.
   assert.equal(fs.existsSync(path.join(sandbox, 'core', 'shared', 'skills', 'do-plan', 'SKILL.md')), true);
   const dir = path.join(scratch.dir, 'create-run');
