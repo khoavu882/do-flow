@@ -103,30 +103,64 @@ test('G11: case files are well formed and internally consistent', () => {
 });
 
 // Feature 028 (IC-004). Coverage above asks whether every skill has cases of both kinds; it cannot
-// see a case ADDED without the baseline being re-captured, because coverage still passes while the
-// committed baseline silently stops describing the committed corpus. This asserts the comparison the
-// harness exports rather than reimplementing it here: a maintainer running `npm run bench parity`
-// and this guard must evaluate the same code, or the two drift and the gate stops meaning anything.
-test('G11/028: the committed baseline still describes the committed corpus', () => {
-  const parity = runner.baselineParity(runner.loadConfig());
-  const differences = [
-    ...parity.missingFromBaseline.map((c) => `${c.key} in corpus, absent from baseline (${c.kind}: ${c.name})`),
+// see a case REMOVED, RENAMED or RE-SIDED without the baseline being re-captured, because coverage
+// still passes while the committed baseline silently stops describing the committed corpus. This
+// asserts the comparison the harness exports rather than reimplementing it here: a maintainer running
+// `npm run bench parity` and this guard must evaluate the same code, or the two drift and the gate
+// stops meaning anything.
+//
+// A case ADDED without a baseline result is pending, not a failure: no offline change can give it a
+// result, so failing here would make every corpus addition break the suite until a paid capture ran.
+// Pending cases are printed as diagnostics so they stay visible.
+function parityDifferences(parity) {
+  return [
     ...parity.missingFromCorpus.map((c) => `${c.key} in baseline, absent from corpus (${c.kind}: ${c.name})`),
-    ...parity.changed.map((c) => `${c.key} differs: corpus ${c.corpus.kind}/${c.corpus.name} vs baseline ${c.baseline.kind}/${c.baseline.name}`),
-    // `note` carries the reason when the three counts are all null — a baseline that is absent
-    // rather than disagreeing. Dropping it printed "null, null, null" here while `bench parity`
-    // printed the path, so one shared comparison was reported two different ways by its two
-    // callers. Rendering it the way cmdParity does is what keeps them in step.
+    ...parity.changed.map((c) => `${c.key} differs: corpus ${c.corpus.kind}/${c.corpus.name}/${c.corpus.split} vs baseline ${c.baseline.kind}/${c.baseline.name}/${c.baseline.split}`),
+    // `note` carries the reason when both counts are null — a baseline that is absent rather than
+    // disagreeing. Rendering it the way cmdParity does keeps one shared comparison reported the same
+    // way by both of its callers.
     ...(parity.countMismatch
       ? [`case counts disagree: baseline.caseCount=${parity.countMismatch.baselineCaseCount}, `
-        + `baseline entries=${parity.countMismatch.baselineEntries}, corpus cases=${parity.countMismatch.corpusCases}`
+        + `baseline entries=${parity.countMismatch.baselineEntries}`
         + `${parity.countMismatch.note ? ` (${parity.countMismatch.note})` : ''}`]
       : []),
   ];
+}
+
+test('G11/028: the committed baseline still describes the committed corpus; new cases are pending', (t) => {
+  const parity = runner.baselineParity(runner.loadConfig());
+  for (const c of parity.pending) {
+    t.diagnostic(`pending ${c.key} (${c.kind}, ${c.split}: ${c.name}) awaits a paid baseline capture`);
+  }
+  const differences = parityDifferences(parity);
   assert.deepEqual(differences, [],
     'the committed baseline no longer describes the committed corpus — re-capture it with '
     + '`node bench/runner.js baseline --from <iteration>`:\n  ' + differences.join('\n  '));
   assert.ok(parity.ok, 'baselineParity reported differences without listing any, which is a bug in the comparison itself');
+});
+
+test('G11/028 control: removed, renamed, kind-changed, re-sided and miscounted cases are reported, a pending case is not', () => {
+  const entry = (key, name, kind, split) => ({ key, skill: key.split('/')[0], evalId: Number(key.split('/')[1]), name, kind, split });
+  const baseline = {
+    caseCount: 2,
+    results: [
+      { key: 'x/1', skill: 'x', evalId: 1, evalName: 'one', kind: 'triggering', split: 'train' },
+      { key: 'x/2', skill: 'x', evalId: 2, evalName: 'two', kind: 'behavioral', split: 'train' },
+    ],
+  };
+  const corpus = (...entries) => new Map(entries.map((e) => [e.key, e]));
+  const one = entry('x/1', 'one', 'triggering', 'train');
+  const two = entry('x/2', 'two', 'behavioral', 'train');
+
+  const pendingOnly = runner.compareParity(corpus(one, two, entry('x/3', 'three', 'triggering', 'heldout')), baseline);
+  assert.deepEqual(parityDifferences(pendingOnly), [], 'a pending case must not be reported as a difference');
+  assert.equal(pendingOnly.pending.length, 1);
+
+  assert.equal(parityDifferences(runner.compareParity(corpus(one), baseline)).length, 1, 'a removed case must fail');
+  assert.equal(parityDifferences(runner.compareParity(corpus(one, { ...two, name: 'renamed' }), baseline)).length, 1, 'a renamed case must fail');
+  assert.equal(parityDifferences(runner.compareParity(corpus(one, { ...two, kind: 'triggering' }), baseline)).length, 1, 'a kind change must fail');
+  assert.equal(parityDifferences(runner.compareParity(corpus(one, { ...two, split: 'heldout' }), baseline)).length, 1, 'a split change must fail');
+  assert.equal(parityDifferences(runner.compareParity(corpus(one, two), { ...baseline, caseCount: 3 })).length, 1, 'a wrong caseCount must fail');
 });
 
 // ---------------------------------------------------------------------------

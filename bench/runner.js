@@ -663,6 +663,57 @@ function collectResults(cfg, iterRoot) {
 }
 
 /**
+ * The report for one iteration against the baseline. Pure: the caller reads the baseline and the
+ * graded runs, so a fixture can exercise it without touching bench/baseline or bench/runs.
+ *
+ * A case the baseline has no result for is `pending`, not "new": it is waiting on a paid capture,
+ * and nothing about it is a delta.
+ */
+function buildReport({ baseline, withResults, cfg, iteration, commit }) {
+  const byKey = new Map(baseline.results.map((r) => [r.key, r]));
+  const rows = [];
+  for (const c of withResults) {
+    const b = byKey.get(c.key);
+    rows.push({
+      key: c.key,
+      kind: c.kind,
+      baseline: b ? b.passRate : null,
+      current: c.passRate,
+      delta: b && b.passRate !== null && c.passRate !== null ? c.passRate - b.passRate : null,
+      status: !b ? 'pending' : b.passRate === c.passRate ? 'unchanged' : c.passRate > b.passRate ? 'improved' : 'regressed',
+      baselineSource: b ? b.sourceStatus || 'unrecorded' : null,
+      currentSource: c.sourceStatus,
+      // A delta between two runs of unknown provenance is arithmetic, not evidence. Naming that on
+      // the row keeps a null delta from reading as "no regression" — the exact misreading A.5 fixes.
+      sourceComparable: Boolean(b) && c.sourceStatus === 'verified' && (b.sourceStatus || 'unrecorded') === 'verified',
+    });
+  }
+  const dropped = baseline.results.filter((b) => !withResults.some((c) => c.key === b.key));
+  const pending = rows.filter((r) => r.status === 'pending').length;
+  return {
+    baselineCommit: baseline.commit,
+    baselineModel: baseline.model,
+    currentIteration: iteration,
+    currentCommit: commit,
+    currentModel: cfg.model,
+    modelComparable: baseline.model === cfg.model,
+    rows,
+    droppedCases: dropped.map((d) => d.key),
+    summary: {
+      improved: rows.filter((r) => r.status === 'improved').length,
+      regressed: rows.filter((r) => r.status === 'regressed').length,
+      unchanged: rows.filter((r) => r.status === 'unchanged').length,
+      pending,
+      dropped: dropped.length,
+      sourceIncomparable: rows.filter((r) => !r.sourceComparable).length,
+    },
+    pendingNote: pending > 0
+      ? `${pending} case(s) are pending: they await a paid baseline capture and carry no baseline result`
+      : null,
+  };
+}
+
+/**
  * Per-task delta against the baseline. Reports each case individually rather than only an
  * aggregate mean — an aggregate hides the case where two skills move in opposite directions, and
  * the prompting guide's experiment protocol calls that out specifically.
@@ -684,44 +735,8 @@ function cmdReport(cfg, opts) {
     console.error(`bench report: no runs found at ${path.relative(REPO_ROOT, currentRoot)}`);
     return 2;
   }
-  const current = collectResults(cfg, currentRoot);
-  const byKey = new Map(baseline.results.map((r) => [r.key, r]));
-  const rows = [];
-  for (const c of current) {
-    const b = byKey.get(c.key);
-    rows.push({
-      key: c.key,
-      kind: c.kind,
-      baseline: b ? b.passRate : null,
-      current: c.passRate,
-      delta: b && b.passRate !== null && c.passRate !== null ? c.passRate - b.passRate : null,
-      status: !b ? 'new' : b.passRate === c.passRate ? 'unchanged' : c.passRate > b.passRate ? 'improved' : 'regressed',
-      baselineSource: b ? b.sourceStatus || 'unrecorded' : null,
-      currentSource: c.sourceStatus,
-      // A delta between two runs of unknown provenance is arithmetic, not evidence. Naming that on
-      // the row keeps a null delta from reading as "no regression" — the exact misreading A.5 fixes.
-      sourceComparable: Boolean(b) && c.sourceStatus === 'verified' && (b.sourceStatus || 'unrecorded') === 'verified',
-    });
-  }
-  const dropped = baseline.results.filter((b) => !current.some((c) => c.key === b.key));
-  const report = {
-    baselineCommit: baseline.commit,
-    baselineModel: baseline.model,
-    currentIteration: against,
-    currentCommit: currentCommit(),
-    currentModel: cfg.model,
-    modelComparable: baseline.model === cfg.model,
-    rows,
-    droppedCases: dropped.map((d) => d.key),
-    summary: {
-      improved: rows.filter((r) => r.status === 'improved').length,
-      regressed: rows.filter((r) => r.status === 'regressed').length,
-      unchanged: rows.filter((r) => r.status === 'unchanged').length,
-      new: rows.filter((r) => r.status === 'new').length,
-      dropped: dropped.length,
-      sourceIncomparable: rows.filter((r) => !r.sourceComparable).length,
-    },
-  };
+  const report = buildReport({ baseline, withResults: collectResults(cfg, currentRoot), cfg, iteration: against, commit: currentCommit() });
+  const { rows } = report;
   const outFile = path.join(REPO_ROOT, cfg.reportsDir, `${against}-vs-baseline.json`);
   writeJson(outFile, report);
 
@@ -737,7 +752,8 @@ function cmdReport(cfg, opts) {
     console.log(`| ${r.key} | ${r.kind} | ${fmt(r.baseline)} | ${fmt(r.current)} | ${d} | ${r.status} | ${src} |`);
   }
   const s = report.summary;
-  console.log(`\n${s.improved} improved, ${s.regressed} regressed, ${s.unchanged} unchanged, ${s.new} new, ${s.dropped} dropped`);
+  console.log(`\n${s.improved} improved, ${s.regressed} regressed, ${s.unchanged} unchanged, ${s.pending} pending, ${s.dropped} dropped`);
+  if (report.pendingNote) console.log(report.pendingNote);
   if (s.sourceIncomparable) {
     console.warn(
       `\nwarning: ${s.sourceIncomparable} of ${rows.length} row(s) compare runs that cannot both prove they read\n` +
@@ -822,6 +838,12 @@ function main() {
 // identity, so renaming a case reports as one change rather than as a removal plus an addition.
 // `passRate` and `sourceStatus` are deliberately NOT compared: they record what a paid run measured,
 // and a gate that compared them would be asserting a measurement it never made.
+//
+// A case the baseline has no result for is PENDING, not a failure: a new case cannot have a baseline
+// result until a paid capture runs it, so failing on it would make every corpus addition break the
+// suite for a reason no offline change can fix. Pending cases are listed, never hidden, and clear
+// when `baseline --from <iteration>` contains their key. A removed, renamed, kind-changed or
+// split-changed case still fails: the baseline then describes something the corpus no longer holds.
 /** Every case the corpus holds, keyed by `<skill>/<evalId>`. A skill with no case file contributes
  * nothing rather than an empty entry — `coverage` is what reports that gap, and counting it here as
  * a present-but-empty skill would make parity report the same gap in a less useful shape. */
@@ -831,7 +853,7 @@ function corpusCaseIndex(cfg) {
     const cases = loadCases(cfg, skill);
     if (!cases) continue;
     for (const e of cases.evals || []) {
-      index.set(`${skill}/${e.id}`, { key: `${skill}/${e.id}`, skill, evalId: e.id, name: e.name, kind: e.kind });
+      index.set(`${skill}/${e.id}`, { key: `${skill}/${e.id}`, skill, evalId: e.id, name: e.name, kind: e.kind, split: e.split });
     }
   }
   return index;
@@ -839,96 +861,104 @@ function corpusCaseIndex(cfg) {
 
 /** Every case the baseline records, keyed the same way, so the two sides are directly comparable.
  * `evalName` is renamed to `name` here deliberately: the baseline's field names are its own storage
- * shape, and the comparison should not have to know which side it is looking at. */
+ * shape, and the comparison should not have to know which side it is looking at. A baseline that
+ * predates `split` reads it as null, which is never compared. */
 function baselineCaseIndex(results) {
   const index = new Map();
   for (const r of results) {
-    index.set(`${r.skill}/${r.evalId}`, { key: `${r.skill}/${r.evalId}`, skill: r.skill, evalId: r.evalId, name: r.evalName, kind: r.kind });
+    index.set(`${r.skill}/${r.evalId}`, {
+      key: `${r.skill}/${r.evalId}`, skill: r.skill, evalId: r.evalId, name: r.evalName, kind: r.kind,
+      split: typeof r.split === 'string' ? r.split : null,
+    });
   }
   return index;
 }
 
-/** Cases present on both sides whose name or kind disagrees. Identity is the key, so a rename lands
- * here as one change rather than in both missing-from lists as a removal plus an addition. */
+/** Cases present on both sides whose name, kind or recorded side disagrees. Identity is the key, so
+ * a rename lands here as one change rather than in both missing-from lists as a removal plus an
+ * addition. */
 function changedCases(corpus, recorded) {
   const changed = [];
   for (const c of corpus.values()) {
     const r = recorded.get(c.key);
     if (!r) continue;
-    if (r.name !== c.name || r.kind !== c.kind) {
+    if (r.name !== c.name || r.kind !== c.kind || (r.split !== null && r.split !== c.split)) {
       changed.push({ key: c.key, skill: c.skill, evalId: c.evalId,
-        corpus: { name: c.name, kind: c.kind }, baseline: { name: r.name, kind: r.kind } });
+        corpus: { name: c.name, kind: c.kind, split: c.split }, baseline: { name: r.name, kind: r.kind, split: r.split } });
     }
   }
   return changed;
 }
 
-/** Compare the committed corpus against the committed baseline. Pure: reads files, writes nothing. */
-function baselineParity(cfg) {
-  const baselineFile = path.join(REPO_ROOT, cfg.baselineDir, 'baseline.json');
-  if (!fs.existsSync(baselineFile)) {
-    return {
-      ok: false,
-      missingFromBaseline: [],
-      missingFromCorpus: [],
-      changed: [],
-      countMismatch: { baselineCaseCount: null, baselineEntries: null, corpusCases: null,
-        note: `no baseline at ${path.relative(REPO_ROOT, baselineFile)}` },
-    };
-  }
-  const baseline = readJson(baselineFile);
-  const results = Array.isArray(baseline.results) ? baseline.results : [];
-  const corpus = corpusCaseIndex(cfg);
+/**
+ * Compare a corpus index against a baseline object (or null when there is none). Pure: it reads no
+ * file, so the guard suite, `bench parity` and the fixture tests all evaluate this one function.
+ * `source` only names the baseline in the no-baseline note.
+ */
+function compareParity(corpus, baseline, source = 'the baseline') {
+  const results = baseline && Array.isArray(baseline.results) ? baseline.results : [];
   const recorded = baselineCaseIndex(results);
 
-  const missingFromBaseline = [...corpus.values()].filter((c) => !recorded.has(c.key));
+  const pending = [...corpus.values()].filter((c) => !recorded.has(c.key));
   const missingFromCorpus = [...recorded.values()].filter((r) => !corpus.has(r.key));
   const changed = changedCases(corpus, recorded);
 
-  const declared = baseline.caseCount;
-  const countMismatch = (declared === results.length && declared === corpus.size)
-    ? null
-    : { baselineCaseCount: declared, baselineEntries: results.length, corpusCases: corpus.size };
+  let countMismatch = null;
+  if (!baseline) {
+    countMismatch = { baselineCaseCount: null, baselineEntries: null, note: `no baseline at ${source}` };
+  } else if (baseline.caseCount !== results.length) {
+    countMismatch = { baselineCaseCount: baseline.caseCount, baselineEntries: results.length };
+  }
 
-  // `ok` is true only when nothing differs at all. Reporting ok beside a populated array would let
-  // the gate pass on a corpus the comparison had already found to disagree.
+  // `ok` is true only when nothing differs at all, apart from pending cases, which have no baseline
+  // result to differ from. Reporting ok beside a populated difference array would let the gate pass
+  // on a corpus the comparison had already found to disagree.
   return {
-    ok: missingFromBaseline.length === 0 && missingFromCorpus.length === 0
-      && changed.length === 0 && countMismatch === null,
-    missingFromBaseline,
+    ok: missingFromCorpus.length === 0 && changed.length === 0 && countMismatch === null,
+    pending,
     missingFromCorpus,
     changed,
     countMismatch,
   };
 }
 
-function cmdParity(cfg, opts) {
-  const parity = baselineParity(cfg);
-  if (opts.json) {
-    console.log(JSON.stringify(parity, null, 2));
-    return parity.ok ? 0 : 1;
-  }
+/** Compare the committed corpus against the committed baseline. Reads files, writes nothing. */
+function baselineParity(cfg) {
+  const baselineFile = path.join(REPO_ROOT, cfg.baselineDir, 'baseline.json');
+  const baseline = fs.existsSync(baselineFile) ? readJson(baselineFile) : null;
+  return compareParity(corpusCaseIndex(cfg), baseline, path.relative(REPO_ROOT, baselineFile));
+}
+
+/** The text `bench parity` prints, one entry per line, so a fixture can read it without capturing
+ * stdout. */
+function parityLines(parity) {
+  const lines = parity.pending.map((c) =>
+    `PENDING ${c.key} (${c.kind}, ${c.split}: ${c.name}) awaits a paid baseline capture and has no baseline result`);
   if (parity.ok) {
-    console.log('ok  the committed baseline describes the committed corpus');
-    return 0;
+    lines.push(`ok  the committed baseline describes the committed corpus${parity.pending.length ? `; ${parity.pending.length} case(s) pending` : ''}`);
+    return lines;
   }
   // Name the cases, not just the fact of a difference: the output is what tells a maintainer what to
   // fix, and "parity failed" sends them back to diffing two JSON files by hand.
-  for (const c of parity.missingFromBaseline) {
-    console.log(`GAP ${c.key} is in the corpus but not in the baseline (${c.kind}: ${c.name})`);
-  }
   for (const c of parity.missingFromCorpus) {
-    console.log(`GAP ${c.key} is in the baseline but not in the corpus (${c.kind}: ${c.name})`);
+    lines.push(`GAP ${c.key} is in the baseline but not in the corpus (${c.kind}: ${c.name})`);
   }
   for (const c of parity.changed) {
-    console.log(`GAP ${c.key} differs: corpus has ${c.corpus.kind}/${c.corpus.name}, baseline has ${c.baseline.kind}/${c.baseline.name}`);
+    lines.push(`GAP ${c.key} differs: corpus has ${c.corpus.kind}/${c.corpus.name}/${c.corpus.split}, baseline has ${c.baseline.kind}/${c.baseline.name}/${c.baseline.split}`);
   }
   if (parity.countMismatch) {
     const m = parity.countMismatch;
-    console.log(`GAP case counts disagree: baseline.caseCount=${m.baselineCaseCount}, baseline entries=${m.baselineEntries}, corpus cases=${m.corpusCases}${m.note ? ` (${m.note})` : ''}`);
+    lines.push(`GAP case counts disagree: baseline.caseCount=${m.baselineCaseCount}, baseline entries=${m.baselineEntries}${m.note ? ` (${m.note})` : ''}`);
   }
-  console.log('\nre-capture the baseline with `node bench/runner.js baseline --from <iteration>` once a run covers the new cases');
-  return 1;
+  lines.push('\nre-capture the baseline with `node bench/runner.js baseline --from <iteration>` once a run covers the new cases');
+  return lines;
+}
+
+function cmdParity(cfg, opts) {
+  const parity = baselineParity(cfg);
+  if (opts.json) console.log(JSON.stringify(parity, null, 2));
+  else parityLines(parity).forEach((l) => console.log(l));
+  return parity.ok ? 0 : 1;
 }
 
 if (require.main === module) {
@@ -946,6 +976,9 @@ module.exports = {
   verifySkillSource,
   skillSourceSha256,
   baselineParity,
+  compareParity,
+  parityLines,
+  buildReport,
   SKILL_RESOLUTION,
   RUN_SOURCE_FILE,
 };
