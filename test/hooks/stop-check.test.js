@@ -147,3 +147,68 @@ test('without a session_id the once-only guard is keyed by the transcript', () =
   assert.equal(run(t).code, 0);
   assert.equal(run(transcript(fixtureLines('legacy'))).code, 2, 'another conversation is not excused');
 });
+
+test('linter output reaches the caller on stderr, so a Codex Stop prints only {}', () => {
+  const bin = path.join(scratch.dir, 'fakebin');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, 'ruff'), '#!/bin/sh\n[ "$1" = check ] && echo "a.py:1:1: E501 line too long"\nexit 0\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, 'gofmt'), '#!/bin/sh\necho "b.go:2:1: expected declaration" >&2\nexit 0\n', { mode: 0o755 });
+  const session = sid();
+  const queueDir = path.join(scratch.xdg, 'doflow', 'session-env', 'sessions', session);
+  fs.mkdirSync(queueDir, { recursive: true });
+  fs.writeFileSync(path.join(queueDir, 'edited-files.txt'), 'a.py\nb.go\n');
+  const r = spawnSync('bash', [path.join(mirror, '.codex', 'hooks', 'stop-check.sh')], {
+    input: JSON.stringify({ session_id: session }),
+    env: scratch.env({ PATH: `${bin}${path.delimiter}${process.env.PATH}` }),
+    encoding: 'utf8',
+  });
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout.trim(), '{}');
+  assert.match(r.stderr, /E501 line too long/);
+  assert.match(r.stderr, /expected declaration/);
+});
+
+// Text that only resembles a marker is not an unfinished-work comment.
+for (const text of [
+  'See http://todo-app.example.com for the demo.',
+  'The board is at https://todo.example.com/x/y.',
+  'See (https://todo.example.com/x) and "http://todo.example.com".',
+  '## TODO list\n\n- done',
+  '### FIXME notes',
+  '# Todo',
+  '# Fixme list',
+  'I removed the // TODO comment',
+  'I removed the # TODO comments.',
+]) {
+  test(`prose that resembles a marker does not block: ${JSON.stringify(text)}`, () => {
+    assert.equal(stop('claude', { session_id: sid(), last_assistant_message: text }).code, 0);
+  });
+}
+
+// Every real stub shape keeps blocking, including next to the prose above.
+for (const text of [
+  '// TODO: finish',
+  '# TODO implement this',
+  '# todo: later',
+  '    # FIXME broken',
+  'x = 1  // TODO fix',
+  '```js\n// TODO: handle errors\n```',
+  'def f():\n    raise NotImplementedError',
+  "throw new Error('Not implemented')",
+  '// stub',
+  'See http://a.example.com\n// TODO: finish',
+  '## Plan\n# TODO: finish',
+  '# Todo\n# TODO: finish',
+  '## Step 2 // TODO: wire up',
+  '## raise NotImplementedError',
+  '```python\n## TODO: implement parse\n```',
+  '// TODO comment out debug logging',
+  'x=1 # TODO markers: implement',
+  '# FIXME markers in parser',
+  'fetch("http://a.b/c")//TODO implement',
+  'I removed the // TODO comment but // TODO: wire up',
+]) {
+  test(`a real stub still blocks: ${JSON.stringify(text)}`, () => {
+    assert.equal(stop('claude', { session_id: sid(), last_assistant_message: text }).code, 2);
+  });
+}

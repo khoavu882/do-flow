@@ -42,8 +42,8 @@ function hook(harness, script, payload, env = {}) {
   return r.stdout;
 }
 
-function compact(sessionId, cwd, summary) {
-  hook('claude', 'post-compact.sh', { session_id: sessionId, cwd, trigger: 'auto', compact_summary: summary });
+function compact(sessionId, cwd, summary, env) {
+  hook('claude', 'post-compact.sh', { session_id: sessionId, cwd, trigger: 'auto', compact_summary: summary }, env);
 }
 
 /** One prompt of a session: session-start on its first call, then the prompt hook. Returns the injected context. */
@@ -94,9 +94,25 @@ test('a summary under the cap is injected whole with no marker', () => {
   assert.doesNotMatch(ctx, /summary truncated/);
 });
 
-test('the header names the compaction time and branch from the file, and omits what is unknown', () => {
+/** A PATH holding every tool the real PATH does except a `timeout` binary, as on a stock macOS: the
+ * branch lookup must then run git directly rather than lose the branch. */
+function pathWithoutTimeout() {
+  const bin = path.join(scratch.dir, `bin${seq++}`);
+  fs.mkdirSync(bin);
+  for (const dir of (process.env.PATH || '').split(path.delimiter)) {
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch { continue; }
+    for (const name of names) {
+      if (name === 'timeout' || name === 'gtimeout' || fs.existsSync(path.join(bin, name))) continue;
+      try { fs.symlinkSync(path.join(dir, name), path.join(bin, name)); } catch { /* unreadable entry */ }
+    }
+  }
+  return { PATH: bin };
+}
+
+test('the header names the compaction time and branch from the file, with no timeout binary on PATH, and omits what is unknown', () => {
   const withBranch = project('topic');
-  compact('A', withBranch, 'S');
+  compact('A', withBranch, 'S', pathWithoutTimeout());
   assert.match(prompt('claude', 'H', withBranch), /^\[Prior session summary, compacted \d{4}-\d\d-\d\dT[\d:]+Z on branch topic\]$/m);
   const noBranch = project();
   compact('A', noBranch, 'S');

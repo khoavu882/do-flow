@@ -41,6 +41,7 @@ GIT_CONTEXT_FILE="$SESSION_PATH/git-context.json"
 
 # Fallback if session-start.sh didn't run or failed
 if [[ ! -f "$GIT_CONTEXT_FILE" ]]; then
+  ensure_session_dir "$SESSION_ID" >/dev/null
   touch "$INJECTED_FLAG"
   CONTEXT="Git context unavailable for this session."
   SESSION_TITLE=""
