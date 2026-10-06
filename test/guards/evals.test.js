@@ -5,12 +5,13 @@
 // rewrite accepts behaviour drift, and that is only an acceptable trade when the drift is visible.
 // A skill added later without cases would silently shrink the measured surface, so this guard
 // reads the shipped skill list rather than any hand-maintained inventory.
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { skillFiles } = require('./_shared');
+const { createScratch } = require('../helper/scratch-env');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const BENCH = path.join(REPO, 'bench');
@@ -19,6 +20,14 @@ const BENCH = path.join(REPO, 'bench');
 // run unconditionally. Only run transcripts and reports stay local (bench/runs/, bench/reports/).
 const HAS_BENCH = fs.existsSync(path.join(BENCH, 'runner.js'));
 const runner = HAS_BENCH ? require('../../bench/runner.js') : null;
+// buildPlan reads git state in-process; node --test gives each file its own process, so the scratch
+// environment keeps it off the developer's HOME and global git config.
+const scratch = createScratch('doflow-bench-guard-');
+scratch.apply();
+after(() => {
+  scratch.restore();
+  scratch.remove();
+});
 const { WorktreeManager, SKILL_SOURCE_FILE, SANDBOX_SKILLS_DIR, sha256File } = require('../../src/runtime/worktree.js');
 
 test('G11/R6: the evaluation corpus is present — a clean clone can reproduce the baseline', () => {
@@ -489,7 +498,7 @@ test('G11/034: an outputs-scoped assertion is graded from outputs/, not gated on
   // produced artifacts but no transcript.txt therefore failed every outputs-scoped assertion with
   // "no transcript.txt saved for this run" — 15 of them across four skills in the shipped corpus —
   // understating the pass rate and pointing a baseline delta at the wrong file.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-grade-'));
+  const dir = fs.mkdtempSync(path.join(scratch.dir, 'grade-'));
   fs.mkdirSync(path.join(dir, 'outputs'));
   fs.writeFileSync(path.join(dir, 'outputs', 'design.md'), 'a clean design with no forbidden token\n');
   const ctx = runner.loadRunContext(dir);
