@@ -48,6 +48,13 @@ function cmdUpdate(o) {
     mcpAdoptable: mcpAdoptableFor({ registry, scope, targets }), force: o.force, permissions: o.permissions === true, statusline: o.statusline === true });
   if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
   const lifecycleChanged = Boolean(lifecycleView.plan.changes.length);
+  // A target whose every change is an MCP entry stays out of the backup: ~/.claude.json also holds
+  // Claude Code's own state, which a rollback must never restore over newer state. An entry's ledger
+  // row, not a file copy, is its recovery path, so an update that changes only MCP entries backs up
+  // nothing.
+  const changesTo = (target) => lifecycleView.plan.changes.filter((change) => change.target === target);
+  const backupTargets = [...new Set(lifecycleView.plan.changes.map((change) => change.target))]
+    .filter((target) => typeof target === 'string' && !changesTo(target).every((change) => change.kind === 'mcp-server'));
 
   if (!mcpChanged && !lifecycleChanged) {
     printPlanNotices(lifecycleView);
@@ -60,7 +67,7 @@ function cmdUpdate(o) {
   if (o.dryRun) {
     if (mcpChanged) console.log(`[DRY]  MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})`);
     printRegistryLifecycle(lifecycleView, '[DRY]');
-    if (!o.noBackup && lifecycleChanged) console.log(`[DRY]  Would create partial backup: ${backupRoot}/update_<timestamp>`);
+    if (!o.noBackup && backupTargets.length) console.log(`[DRY]  Would create partial backup: ${backupRoot}/update_<timestamp>`);
     console.log(`[DRY]  Would write manifest: ${lifecyclePaths.manifestPath}`);
     console.log('[DRY] Dry run complete');
     return;
@@ -76,11 +83,8 @@ function cmdUpdate(o) {
   }
 
   let bid = '';
-  // Nothing outside dirs[tool] needs backing up for an MCP-only change — ~/.claude.json /
-  // <project>/.mcp.json are outside the tool dir by design (see src/install/mcp.js), so a backup is only
-  // meaningful when a native resource is about to change.
-  if (!o.noBackup && lifecycleChanged) {
-    const existingTargets = lifecycleView.plan.changes.map((change) => change.target).filter((f) => typeof f === 'string' && fs.existsSync(f));
+  if (!o.noBackup && backupTargets.length) {
+    const existingTargets = backupTargets.filter((f) => fs.existsSync(f));
     bid = createBackup({ operation: 'update', tools: targets, dirs, backupRoot, repoRoot: SCRIPT_DIR, sourceCommit: commit, partialFiles: existingTargets, date: new Date() });
     console.error(`[INFO]  Backup created: ${bid}`);
   }

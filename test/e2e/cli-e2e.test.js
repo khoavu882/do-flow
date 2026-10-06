@@ -786,6 +786,25 @@ test('update --dry-run for an MCP-only change claims a backup exactly when the r
   assert.strictEqual(/update_/.test(listed.stdout), claimed, `the dry run's backup claim must match the real run:\n${listed.stdout}`);
 });
 
+test('an update whose only change is a Claude MCP entry backs up nothing, so no copy of ~/.claude.json exists to restore', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  let r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'context7'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const file = path.join(home, '.claude.json');
+  fs.writeFileSync(file, `${JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), numStartups: 7 }, null, 2)}\n`);
+
+  r = run(['update', '-g', '--force', '--target', 'claude', '--mcp', 'sequential-thinking'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const claudeJson = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepStrictEqual(Object.keys(claudeJson.mcpServers), ['sequential-thinking']);
+  assert.strictEqual(claudeJson.numStartups, 7, 'Claude Code\'s own state is untouched');
+
+  assert.ok(!/update_/.test(run(['list-backups', '-g'], { home }).stdout), 'an MCP-only update creates no backup');
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true })
+    .flatMap((entry) => (entry.isDirectory() ? walk(path.join(dir, entry.name)) : [path.join(dir, entry.name)]));
+  assert.deepStrictEqual(walk(home).filter((f) => path.basename(f) === '.claude.json'), [file], 'no backup holds a copy of ~/.claude.json');
+});
+
 test('--mcp on install rejects an unknown server name with a clear message', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   const r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'not-a-real-server'], { home });
