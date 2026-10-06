@@ -13,6 +13,35 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.18.0] - 2026-10-06
+
+### Added
+
+- Pi MCP registration: DoFlow writes the selected MCP servers into Pi's own config, `~/.pi/agent/mcp.json` (global; `$PI_CODING_AGENT_DIR/mcp.json` when that variable is set) and `.pi/mcp.json` (project; Pi reads it only after the project is trusted). Entries are spliced into the file's own bytes, so your entries, formatting and file mode survive install, update and remove; a same-named entry is never overwritten; an entry you edit becomes yours; remove deletes only what DoFlow added, and a file only if DoFlow created it. A malformed file blocks install and update but not uninstall, and no file text appears in errors or recovery records. Pi's MCP capability is now `supported`.
+- Kiro installs a copy of the shared guidance tree under `.doflow/guidance`, and `retrieve` finds its tree the way the dispatcher does: the nearest `.doflow` that has one, then `~/.doflow`.
+- `status` reports a harness DoFlow never installed as `not-installed`.
+- G23 flags every Unicode default-ignorable code point (variation selectors, soft hyphen, fillers and the rest) and keeps a leading byte-order mark; an emoji presentation selector after a pictograph is allowed.
+- The committed bench baseline is captured on claude-sonnet-5-5 for all 46 cases with each case's side and token usage; `bench/config.json` pins that model and sets the per-run token ceiling to 250,000. `bench parity` reports a duplicate baseline key and the report prints `unknown` for a null cell.
+
+### Changed
+
+- `pre-bash-guard` also blocks `git push -f`, `+refspec` and `git -C x push --force` (`--force-with-lease` stays allowed), `find` deletes with no scoping predicate, `~user` and `/Volumes` deletes, here-string and ANSI-C-quoted shell, and `sudo -u`, `xargs -n` wrappers; matching stays case-insensitive.
+- The implementation gate hook applies to `feat/`, `feature/` and unprefixed or other-class branches; fix, bugfix, refactor, chore, release and hotfix branches are no longer blocked.
+- The `stop-check` prose filter is fence-aware, ignores URLs and headings but not a marker next to them, runs in linear time on long lines, and sends linter output to stderr.
+- Removing Claude or Codex leaves nothing of DoFlow behind: an instructions file that held only DoFlow's section is deleted, the user's own bytes are handed back unchanged, Codex hook scripts that match the shipped bytes and an emptied `config.toml` table are removed, the Copilot adapter removes files an update drops, removal prunes `agents` and `skills` folders it emptied, and a Codex plan with broken DoFlow markers is refused before anything is written.
+- `doctor` reach reads every ancestor ledger up to HOME and names each install root and what hides it.
+
+### Fixed
+
+- `verify-hooks.sh` runs hermetically under a fresh HOME and XDG_CONFIG_HOME; `user-prompt-submit` creates its session directory before writing; the compaction hook reads its branch through `run_with_timeout`.
+
+### Known limits
+
+- No Pi binary was run: the Pi version floor and trust behaviour come from Pi's public docs.
+- A Pi-only install registers every catalog server, and `--mcp` narrows the selection only when claude or codex is also targeted; `PI_CODING_AGENT_DIR` moves only `mcp.json`.
+- A project install rooted at HOME shares one ledger with the global install; Codex removal is scope-aware, but the lifecycle's move sweep is not.
+- Five triggering bench cases assert behavior a routing-only run cannot produce, so they read lower than in the old baseline.
+
 ## [1.17.0] - 2026-10-06
 
 ### Added
