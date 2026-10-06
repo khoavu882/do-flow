@@ -70,7 +70,7 @@ test('doctor --json: a reached harness carries a REACHED row and the run exits 0
   const report = JSON.parse(result.stdout);
   const pi = report.harnesses.find((harness) => harness.id === 'pi');
   assert.equal(pi.status, 'PASS');
-  assert.deepEqual(pi.reach, [{ scope: 'project', state: 'REACHED', root: path.join(t.proj, '.doflow') }]);
+  assert.deepEqual(pi.reach, [{ scope: 'project', installRoot: t.proj, state: 'REACHED', root: path.join(t.proj, '.doflow') }]);
   assert.deepEqual(report.harnesses.find((harness) => harness.id === 'claude').reach, []);
   assert.equal(report.findings.some((finding) => finding.kind === 'runtime-no-reach'), false);
 });
@@ -98,7 +98,7 @@ test('doctor text: adapter lines, one [Runtime Reach] line per row, and the fix 
   const lines = result.stdout.split('\n');
   assert.ok(lines.includes('  Pi Coding Agent              adapter PASS'));
   const section = lines.slice(lines.indexOf('[Runtime Reach]') + 1);
-  assert.equal(section[0], `  ${'pi'.padEnd(14)}${'project'.padEnd(9)}${'✓ REACHED'.padEnd(13)}${path.join(t.proj, '.doflow')}`);
+  assert.equal(section[0], `  ${'pi'.padEnd(14)}${'project'.padEnd(9)}${'✓ REACHED'.padEnd(13)}${path.join(t.proj, '.doflow')} [install at ${t.proj}]`);
   assert.equal(section[1], `  ${'pi'.padEnd(14)}${'global'.padEnd(9)}${'✗ NO-REACH'.padEnd(13)}fix: npx @khoavu882/doflow install -g -t pi`);
   assert.equal(section[2], `  ${'antigravity'.padEnd(14)}${'global'.padEnd(9)}${'○ N/A'.padEnd(13)}no skills at global scope`);
 });
@@ -127,7 +127,7 @@ test('doctor: an unreadable ledger is a warning, not a finding', () => {
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(result.stdout);
   const warning = report.warnings.find((item) => item.kind === 'reach-ledger-unreadable');
-  assert.equal(warning.subject, 'global');
+  assert.equal(warning.subject, `global: ${path.join(t.home, '.doflow', 'state')}`);
   assert.match(warning.detail, /Cannot read neutral ledger/);
   assert.equal(report.findings.length, 0);
 });
