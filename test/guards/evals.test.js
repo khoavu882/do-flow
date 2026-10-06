@@ -241,7 +241,7 @@ function parityDifferences(parity) {
   return [
     ...parity.missingFromCorpus.map((c) => `${c.key} in baseline, absent from corpus (${c.kind}: ${c.name})`),
     ...parity.changed.map((c) => `${c.key} differs: corpus ${c.corpus.kind}/${c.corpus.name}/${c.corpus.split} vs baseline ${c.baseline.kind}/${c.baseline.name}/${c.baseline.split}`),
-    ...parity.duplicates.map((d) => `${d.key} appears ${d.entries} times in the baseline`),
+    ...parity.duplicates.map((d) => `${d.key} appears ${d.entries} times in the baseline ${d.field}`),
     // `note` carries the reason when both counts are null — a baseline that is absent rather than
     // disagreeing. Rendering it the way cmdParity does keeps one shared comparison reported the same
     // way by both of its callers.

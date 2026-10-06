@@ -109,10 +109,25 @@ test('F2: a baseline key recorded twice fails with the key named, though caseCou
   assert.equal(twice.caseCount, 3);
   const p = runner.compareParity(corpusOf(ONE, TWO), twice);
   assert.equal(p.ok, false);
-  assert.deepEqual(p.duplicates, [{ key: 's/2', entries: 2 }]);
+  assert.deepEqual(p.duplicates, [{ key: 's/2', entries: 2, field: 'results' }]);
   assert.equal(p.countMismatch, null);
-  assert.deepEqual(runner.parityLines(p).filter((l) => l.startsWith('GAP')), ['GAP s/2 appears 2 times in the baseline']);
+  assert.deepEqual(runner.parityLines(p).filter((l) => l.startsWith('GAP')), ['GAP s/2 appears 2 times in the baseline results']);
   assert.deepEqual(runner.compareParity(corpusOf(ONE, TWO), BASE).duplicates, []);
+});
+
+test('F2: a without-skill baseline key recorded twice fails the same way, and plan and report refuse it', () => {
+  const twice = { ...BASE, withoutSkillResults: [result('s/2', 'two', 'behavioral', 'train'), result('s/2', 'two', 'behavioral', 'train')] };
+  const p = runner.compareParity(corpusOf(ONE, TWO), twice);
+  assert.equal(p.ok, false);
+  assert.deepEqual(p.duplicates, [{ key: 's/2', entries: 2, field: 'withoutSkillResults' }]);
+  assert.deepEqual(runner.parityLines(p).filter((l) => l.startsWith('GAP')), ['GAP s/2 appears 2 times in the baseline withoutSkillResults']);
+  const input = { withResults: [], cfg: { model: 'm', costCeiling: CEILING }, iteration: 'it', commit: 'def' };
+  assert.throws(() => runner.buildReport({ ...input, baseline: twice }), /the baseline records s\/2 2 times in withoutSkillResults/);
+  assert.throws(() => runner.buildReport({ ...input, baseline: baseline([...BASE.results, BASE.results[0]]) }), /records s\/1 2 times in results/);
+  const file = path.join(scratch.dir, 'dup-baseline.json');
+  fs.writeFileSync(file, JSON.stringify(twice));
+  assert.throws(() => runner.buildPlan({ ...runner.loadConfig(), costCeiling: CEILING }, { iteration: 'it', baselineFile: file }),
+    /the baseline records s\/2 2 times in withoutSkillResults/);
 });
 
 test('F2: a missing baseline fails with a note and lists every case as pending', () => {

@@ -751,6 +751,7 @@ function buildPlan(cfg, opts) {
   // baseline result, or a result with no usage, is unknown rather than free.
   const baselineFile = baselineFileOf(cfg, opts);
   const baseline = fs.existsSync(baselineFile) ? readJson(baselineFile) : null;
+  requireUniqueKeys(baseline);
   const recordedBy = (field) => new Map((baseline && Array.isArray(baseline[field]) ? baseline[field] : []).map((r) => [r.key, r]));
   const recorded = { 'with-skill': recordedBy('results'), 'without-skill': recordedBy('withoutSkillResults') };
   const projection = ceilingState(
@@ -1041,9 +1042,34 @@ function armDeltas(withResults, withoutResults) {
   });
 }
 
+/**
+ * Keys a baseline records more than once, in either arm. A key index keeps one entry per key, so a
+ * repeated entry would count as one case while `caseCount` counts it twice; both would agree and the
+ * duplicate would never show.
+ */
+function baselineDuplicates(baseline) {
+  const out = [];
+  for (const field of ['results', 'withoutSkillResults']) {
+    const seen = new Map();
+    for (const r of baseline && Array.isArray(baseline[field]) ? baseline[field] : []) {
+      const key = r.key ?? `${r.skill}/${r.evalId}`;
+      seen.set(key, (seen.get(key) || 0) + 1);
+    }
+    for (const [key, entries] of seen) if (entries > 1) out.push({ key, entries, field });
+  }
+  return out;
+}
+
+/** The consumers key the baseline by case, so a repeated key would let one entry silently win. */
+function requireUniqueKeys(baseline) {
+  const [d] = baselineDuplicates(baseline);
+  if (d) throw new Error(`the baseline records ${d.key} ${d.entries} times in ${d.field}`);
+}
+
 /** A baseline with no `results` array describes no cases, so every row would read as pending. */
 function requireBaselineResults(baseline) {
   if (!baseline || !Array.isArray(baseline.results)) throw new Error('the baseline has no results array');
+  requireUniqueKeys(baseline);
 }
 
 /**
@@ -1356,14 +1382,7 @@ function changedCases(corpus, recorded) {
 function compareParity(corpus, baseline, source = 'the baseline') {
   const results = baseline && Array.isArray(baseline.results) ? baseline.results : [];
   const recorded = baselineCaseIndex(results);
-  // The index keeps one entry per key, so a repeated entry would count as one case while caseCount
-  // counts it twice; both would agree and the duplicate would never show.
-  const seen = new Map();
-  for (const r of results) {
-    const key = `${r.skill}/${r.evalId}`;
-    seen.set(key, (seen.get(key) || 0) + 1);
-  }
-  const duplicates = [...seen].filter(([, n]) => n > 1).map(([key, entries]) => ({ key, entries }));
+  const duplicates = baselineDuplicates(baseline);
 
   const pending = [...corpus.values()].filter((c) => !recorded.has(c.key));
   const missingFromCorpus = [...recorded.values()].filter((r) => !corpus.has(r.key));
@@ -1414,7 +1433,7 @@ function parityLines(parity) {
     lines.push(`GAP ${c.key} differs: corpus has ${c.corpus.kind}/${c.corpus.name}/${c.corpus.split}, baseline has ${c.baseline.kind}/${c.baseline.name}/${c.baseline.split}`);
   }
   for (const d of parity.duplicates) {
-    lines.push(`GAP ${d.key} appears ${d.entries} times in the baseline`);
+    lines.push(`GAP ${d.key} appears ${d.entries} times in the baseline ${d.field}`);
   }
   if (parity.countMismatch) {
     const m = parity.countMismatch;
