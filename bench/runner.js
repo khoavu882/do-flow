@@ -599,7 +599,7 @@ const WT_REQUIRE = "const{WorktreeManager}=require('./src/runtime/worktree.js');
 
 /**
  * The rule every dispatched run has to follow, stated once at the top of the plan rather than
- * duplicated across 33 entries.
+ * duplicated across every entry.
  *
  * It says "read the file" rather than "invoke the skill" because invoking by name cannot be made to
  * resolve this repo's copy. Claude Code merges skills in the order policy → user → project and the
@@ -684,8 +684,8 @@ function buildPlan(cfg, opts) {
     if (!cases) continue;
     for (const e of cases.evals) {
       if (opts.split && e.split !== opts.split) continue;
-      // Every run is sandboxed. 21 of the shipped cases invoke skills that write files, create
-      // branches, or commit; without isolation a baseline capture would mutate the very tree
+      // Every run is sandboxed. Shipped cases invoke skills that write files, create branches, or
+      // commit; without isolation a baseline capture would mutate the very tree
       // being measured. The id is the worktree name, so it must satisfy WorktreeManager's charset.
       const sandboxId = `bench-${opts.iteration}-${skill}-${e.id}`.replace(/[^A-Za-z0-9._-]/g, '-');
       const workingDir = path.join('.doflow', 'worktrees', sandboxId);
@@ -1207,9 +1207,9 @@ function parseArgs(argv) {
     }
     else if (a === '--source-at') opts['source-at'] = argv[++i];
     else if (a === '--help' || a === '-h') opts.help = true;
-    // An unrecognised flag used to be dropped on the floor. That is how `--source-at` appeared to
-    // do nothing on its first run: grading re-based on HEAD, reported 33 mismatches, and exited 0
-    // as though the request had been honoured. A typo in a flag name must not look like a result.
+    // An unrecognised flag is refused. Dropping it would let a misspelt flag such as --source-at
+    // re-base grading on HEAD, report every case as a mismatch and exit 0 as though the request had
+    // been honoured.
     else if (a.startsWith('--')) {
       console.error(`bench: unknown option '${a}'`);
       process.exit(2);
@@ -1387,7 +1387,9 @@ function cmdParity(cfg, opts) {
 }
 
 if (require.main === module) {
-  process.exit(main());
+  // Not process.exit(): it ends the process before a piped stdout has drained, cutting a large plan
+  // off at the pipe buffer.
+  process.exitCode = main();
 }
 
 module.exports = {

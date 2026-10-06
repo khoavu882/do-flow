@@ -658,6 +658,16 @@ test('F4: an invalid --arm value, or --arm on another command, exits 2 with the 
   }
 });
 
+test('F4: a plan larger than a pipe buffer reaches a piped stdout whole', () => {
+  // The without-skill plan is far over 64 KiB. A process that exits before the pipe drains leaves
+  // the reader a cut-off document, so the whole stdout must parse.
+  const r = spawnSync(process.execPath, [RUNNER, 'plan', '--iteration', 't', '--arm', 'without-skill'],
+    { encoding: 'utf8', env: scratch.env(), maxBuffer: 64 * 1024 * 1024 });
+  assert.equal(r.status, 0);
+  assert.ok(r.stdout.length > 65536, `plan stdout is ${r.stdout.length} chars, not larger than a pipe buffer`);
+  assert.equal(JSON.parse(r.stdout).iteration, 't');
+});
+
 test('F5: a without-skill run is projected from the baseline withoutSkillResults', () => {
   const base = runner.loadConfig();
   const [first, second] = runner.loadCases(base, 'do-git').evals;
