@@ -118,12 +118,7 @@ function unknownAssertionTypes(filesByName, known) {
 }
 
 test('G11: every assertion type is one the runner knows', () => {
-  const filesByName = {};
-  for (const { name } of skillFiles()) {
-    const data = casesFor(name);
-    if (data) filesByName[name] = data;
-  }
-  const problems = unknownAssertionTypes(filesByName, runner.ASSERTION_TYPES);
+  const problems = unknownAssertionTypes(allCaseFiles(), runner.ASSERTION_TYPES);
   assert.deepEqual(problems, [],
     'an unknown type grades passed:null and reads as a manual check:\n  ' + problems.join('\n  '));
 });
@@ -131,6 +126,82 @@ test('G11: every assertion type is one the runner knows', () => {
 test('G11 control: an unknown assertion type is reported with its case', () => {
   const fixture = { x: { evals: [{ id: 7, assertions: [{ text: 't', type: 'skill_not_routd', skill: 'x' }, { text: 'u', type: 'skill_not_routed', skill: 'x' }, { text: 'v' }] }] } };
   assert.deepEqual(unknownAssertionTypes(fixture, runner.ASSERTION_TYPES), ['x/7: unknown assertion type "skill_not_routd"']);
+});
+
+// Every case names its side, and every skill keeps at least one case on the held-out side. The side
+// is what lets a tuner iterate against one half and be judged on the other; a skill with no held-out
+// case has nothing to be judged on, and a case with no side is silently counted as neither.
+function splitProblems(filesByName, splits) {
+  const problems = [];
+  for (const [name, data] of Object.entries(filesByName)) {
+    for (const e of data.evals || []) {
+      if (!splits.includes(e.split)) problems.push(`${name}/${e.id}: split must be one of ${splits.join(', ')}, got ${JSON.stringify(e.split)}`);
+    }
+    if (!(data.evals || []).some((e) => e.split === 'heldout')) problems.push(`${name}: no heldout case`);
+  }
+  return problems;
+}
+
+// A should-not-trigger case carries skill_resolved (the run judged THIS repo's description) and
+// skill_not_routed (it decided the request does not route here). Together they decide on by-path
+// runs, where skill_not_invoked is undecided, so a skill without one has no measured false-positive
+// surface.
+function shouldNotTriggerGaps(filesByName) {
+  const gaps = [];
+  for (const [name, data] of Object.entries(filesByName)) {
+    const has = (e, type) => (e.assertions || []).some((a) => a.type === type && a.skill === name);
+    const found = (data.evals || []).some((e) => e.kind === 'triggering' && has(e, 'skill_not_routed') && has(e, 'skill_resolved'));
+    if (!found) gaps.push(name);
+  }
+  return gaps;
+}
+
+function allCaseFiles() {
+  const filesByName = {};
+  for (const { name } of skillFiles()) {
+    const data = casesFor(name);
+    if (data) filesByName[name] = data;
+  }
+  return filesByName;
+}
+
+test('G11: every case has a side, and every skill has a held-out case', () => {
+  const problems = splitProblems(allCaseFiles(), runner.SPLITS);
+  assert.deepEqual(problems, [], problems.join('\n'));
+});
+
+test('G11 control: a missing or invalid side, and a skill without a held-out case, are reported', () => {
+  const fixture = {
+    a: { evals: [{ id: 1, split: 'train' }, { id: 2 }] },
+    b: { evals: [{ id: 1, split: 'holdout' }, { id: 2, split: 'heldout' }] },
+    c: { evals: [{ id: 1, split: 'train' }] },
+  };
+  assert.deepEqual(splitProblems(fixture, runner.SPLITS), [
+    'a/2: split must be one of train, heldout, got undefined',
+    'a: no heldout case',
+    'b/1: split must be one of train, heldout, got "holdout"',
+    'c: no heldout case',
+  ]);
+});
+
+test('G11: every skill has a should-not-trigger case that decides on by-path runs', () => {
+  const gaps = shouldNotTriggerGaps(allCaseFiles());
+  assert.deepEqual(gaps, [],
+    `skills with no triggering case carrying both skill_not_routed and skill_resolved for themselves: ${gaps.join(', ')}`);
+});
+
+test('G11 control: a skill missing either assertion, or carrying one for another skill, is reported', () => {
+  const trig = (...assertions) => ({ evals: [{ id: 1, kind: 'triggering', assertions }] });
+  const resolved = (skill) => ({ type: 'skill_resolved', skill });
+  const notRouted = (skill) => ({ type: 'skill_not_routed', skill });
+  const fixture = {
+    ok: trig(resolved('ok'), notRouted('ok')),
+    onlyResolved: trig(resolved('onlyResolved')),
+    onlyNotRouted: trig(notRouted('onlyNotRouted')),
+    otherSkill: trig(resolved('ok'), notRouted('ok')),
+    behavioral: { evals: [{ id: 1, kind: 'behavioral', assertions: [resolved('behavioral'), notRouted('behavioral')] }] },
+  };
+  assert.deepEqual(shouldNotTriggerGaps(fixture), ['onlyResolved', 'onlyNotRouted', 'otherSkill', 'behavioral']);
 });
 
 // Feature 028 (IC-004). Coverage above asks whether every skill has cases of both kinds; it cannot

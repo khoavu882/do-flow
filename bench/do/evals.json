@@ -4,6 +4,7 @@
     {
       "id": 1,
       "kind": "triggering",
+      "split": "train",
       "name": "multi-part-request-routes",
       "prompt": "I need to add a --quiet flag to `doflow doctor`, then document it in docs/reference.md, then get the whole thing reviewed.",
       "expected_output": "do decomposes the request into three parts against real targets in this repo and names which skill owns each",
@@ -33,6 +34,7 @@
     {
       "id": 2,
       "kind": "behavioral",
+      "split": "train",
       "name": "estimation-is-ranged-not-false-precision",
       "prompt": "/do --estimate Add an eighth harness adapter to this repo: a registry entry in harnesses.yaml/contracts.yaml/assets.yaml, a src/adapters/<id>/index.js implementing the six-function contract, dispatch wiring, and the guard updates that keeps.",
       "expected_output": "An effort estimate grounded in the seven adapters that already exist, with its assumptions stated, rather than a single false-precision number",
@@ -56,6 +58,7 @@
     {
       "id": 3,
       "kind": "triggering",
+      "split": "train",
       "name": "simple-question-does-not-over-route",
       "prompt": "What does the `--prune` flag do in doflow remove?",
       "expected_output": "A direct, correct answer about backup retention; the dispatcher should not spin up a multi-skill decomposition",
@@ -69,6 +72,27 @@
         {
           "text": "Answers directly without decomposing into a multi-skill plan",
           "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "kind": "triggering",
+      "split": "heldout",
+      "name": "single-skill-review-does-not-route",
+      "prompt": "Review src/runtime/worktree.js for code smells.",
+      "expected_output": "do does not route this request; it belongs to do-code-review",
+      "files": [],
+      "assertions": [
+        {
+          "text": "the run judged this repo's do description (sandbox path, matching hash)",
+          "type": "skill_resolved",
+          "skill": "do"
+        },
+        {
+          "text": "do is not used: routing.json records routed false",
+          "type": "skill_not_routed",
+          "skill": "do"
         }
       ]
     }

@@ -12,6 +12,7 @@ const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 const { createScratch } = require('../helper/scratch-env');
 
@@ -221,5 +222,73 @@ test('F1: a triggering plan run asks for routing.json and saves it; a behavioral
   for (const r of behavioral) {
     assert.equal(r.saveOutputs.includes('routing.json'), false);
     assert.equal(r.skills.instruction.includes('routing.json'), false);
+  }
+});
+
+// --- split on plan and list (F4, split part) --------------------------------------------------
+
+const RUNNER = path.resolve(__dirname, '../../bench/runner.js');
+function runCli(...args) {
+  const r = spawnSync(process.execPath, [RUNNER, ...args], { encoding: 'utf8', env: scratch.env() });
+  return { status: r.status, stdout: r.stdout, stderr: r.stderr };
+}
+function corpusCases() {
+  const cfg = runner.loadConfig();
+  return runner.discoverSkills(cfg).flatMap((skill) => (runner.loadCases(cfg, skill) || { evals: [] }).evals.map((e) => ({ skill, ...e })));
+}
+
+test('F4: every corpus case carries a valid side', () => {
+  for (const c of corpusCases()) assert.ok(runner.SPLITS.includes(c.split), `${c.skill}/${c.id}: split ${c.split}`);
+});
+
+test('F4: plan --split heldout holds only held-out cases; a bare plan holds both sides', () => {
+  const cfg = runner.loadConfig();
+  const cases = corpusCases();
+  const heldout = cases.filter((c) => c.split === 'heldout');
+  const train = cases.filter((c) => c.split === 'train');
+  assert.ok(heldout.length > 0 && train.length > 0);
+
+  const bare = runner.buildPlan(cfg, { iteration: 'fixture' });
+  assert.equal(bare.runCount, cases.length);
+  assert.deepEqual([...new Set(bare.runs.map((r) => r.split))].sort(), ['heldout', 'train']);
+
+  const held = runner.buildPlan(cfg, { iteration: 'fixture', split: 'heldout' });
+  assert.equal(held.runCount, heldout.length);
+  assert.ok(held.runs.every((r) => r.split === 'heldout'));
+  assert.deepEqual(held.runs.map((r) => `${r.skill}/${r.evalId}`), heldout.map((c) => `${c.skill}/${c.id}`));
+
+  const trained = runner.buildPlan(cfg, { iteration: 'fixture', split: 'train' });
+  assert.equal(trained.runCount, train.length);
+  assert.ok(trained.runs.every((r) => r.split === 'train'));
+});
+
+test('F4: list rows carry the side, in both forms, and --split filters them', () => {
+  const heldout = corpusCases().filter((c) => c.split === 'heldout');
+  const json = runCli('list', '--split', 'heldout', '--json');
+  assert.equal(json.status, 0);
+  const rows = JSON.parse(json.stdout);
+  assert.deepEqual(rows.map((r) => `${r.skill}/${r.id}`), heldout.map((c) => `${c.skill}/${c.id}`));
+  assert.ok(rows.every((r) => r.split === 'heldout'));
+
+  const text = runCli('list', '--skill', 'do-git');
+  assert.equal(text.status, 0);
+  const first = corpusCases().find((c) => c.skill === 'do-git');
+  assert.ok(text.stdout.split('\n').includes(`do-git/${first.id} [${first.kind}, ${first.split}] ${first.name}`));
+});
+
+test('F4: an invalid --split value, or --split on another command, exits 2 with the stated message', () => {
+  const bad = runCli('plan', '--iteration', 'x', '--split', 'validation');
+  assert.equal(bad.status, 2);
+  assert.equal(bad.stderr.trim(), 'bench: --split must be train or heldout');
+  assert.equal(bad.stdout, '');
+
+  const missing = runCli('plan', '--iteration', 'x', '--split');
+  assert.equal(missing.status, 2);
+  assert.equal(missing.stderr.trim(), 'bench: --split must be train or heldout');
+
+  for (const cmd of ['coverage', 'grade', 'report', 'baseline', 'parity']) {
+    const other = runCli(cmd, '--split', 'heldout');
+    assert.equal(other.status, 2, cmd);
+    assert.equal(other.stderr.trim(), `bench ${cmd}: --split is not accepted`);
   }
 });

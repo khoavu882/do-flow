@@ -436,11 +436,12 @@ function cmdList(cfg, opts) {
     const cases = loadCases(cfg, skill);
     if (!cases) continue;
     for (const e of cases.evals) {
-      out.push({ skill, id: e.id, kind: e.kind, name: e.name, prompt: e.prompt });
+      if (opts.split && e.split !== opts.split) continue;
+      out.push({ skill, id: e.id, kind: e.kind, split: e.split, name: e.name, prompt: e.prompt });
     }
   }
   if (opts.json) console.log(JSON.stringify(out, null, 2));
-  else out.forEach((c) => console.log(`${c.skill}/${c.id} [${c.kind}] ${c.name}`));
+  else out.forEach((c) => console.log(`${c.skill}/${c.id} [${c.kind}, ${c.split}] ${c.name}`));
   return 0;
 }
 
@@ -487,6 +488,7 @@ function buildPlan(cfg, opts) {
     const cases = loadCases(cfg, skill);
     if (!cases) continue;
     for (const e of cases.evals) {
+      if (opts.split && e.split !== opts.split) continue;
       // Every run is sandboxed. 21 of the shipped cases invoke skills that write files, create
       // branches, or commit; without isolation a baseline capture would mutate the very tree
       // being measured. The id is the worktree name, so it must satisfy WorktreeManager's charset.
@@ -498,6 +500,7 @@ function buildPlan(cfg, opts) {
         evalId: e.id,
         evalName: e.name,
         kind: e.kind,
+        split: e.split,
         prompt: e.prompt,
         expectedOutput: e.expected_output,
         model: cfg.model,
@@ -811,8 +814,10 @@ const USAGE = `doflow bench — evaluation harness for the shipped skills
 
   node bench/runner.js coverage [--json]              which skills have triggering + behavioral cases
   node bench/runner.js parity [--json]                does the committed baseline still describe the corpus
-  node bench/runner.js list [--skill S] [--json]      enumerate cases
-  node bench/runner.js plan --iteration N [--skill S] emit the subagent dispatch plan (JSON)
+  node bench/runner.js list [--skill S] [--split train|heldout] [--json]
+                                                      enumerate cases
+  node bench/runner.js plan --iteration N [--skill S] [--split train|heldout]
+                                                      emit the subagent dispatch plan (JSON)
   node bench/runner.js grade --iteration N [--skill S] grade programmatic assertions of a finished run
   node bench/runner.js baseline [--from N]            freeze an iteration as the committed baseline
   node bench/runner.js report --iteration N           per-case delta of a run against the baseline
@@ -830,6 +835,13 @@ function parseArgs(argv) {
     else if (a === '--skill') opts.skill = argv[++i];
     else if (a === '--iteration') opts.iteration = argv[++i];
     else if (a === '--from') opts.from = argv[++i];
+    else if (a === '--split') {
+      opts.split = argv[++i];
+      if (!SPLITS.includes(opts.split)) {
+        console.error('bench: --split must be train or heldout');
+        process.exit(2);
+      }
+    }
     else if (a === '--source-at') opts['source-at'] = argv[++i];
     else if (a === '--help' || a === '-h') opts.help = true;
     // An unrecognised flag used to be dropped on the floor. That is how `--source-at` appeared to
@@ -848,6 +860,12 @@ function main() {
   if (opts.help || !cmd) {
     console.log(USAGE);
     return cmd ? 0 : 2;
+  }
+  // Accepted only where it filters something; elsewhere it would be dropped on the floor, which is
+  // the failure the unknown-option refusal above exists to prevent.
+  if (opts.split && cmd !== 'plan' && cmd !== 'list') {
+    console.error(`bench ${cmd}: --split is not accepted`);
+    return 2;
   }
   const cfg = loadConfig();
   switch (cmd) {

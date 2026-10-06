@@ -4,6 +4,7 @@
     {
       "id": 1,
       "kind": "triggering",
+      "split": "train",
       "name": "execute-request-invokes-executor",
       "prompt": "Go ahead and work through the tasks in the plan.",
       "expected_output": "do-execute-plan is invoked and the prerequisite gate runs first",
@@ -28,6 +29,7 @@
     {
       "id": 2,
       "kind": "behavioral",
+      "split": "train",
       "name": "blocks-without-chain-artifacts",
       "prompt": "/do-execute-plan --scope next",
       "expected_output": "With no requirement/design/plan present, the hard gate blocks and names the missing artifact rather than improvising one",
@@ -51,6 +53,7 @@
     {
       "id": 3,
       "kind": "behavioral",
+      "split": "heldout",
       "name": "respects-write-set-isolation",
       "prompt": "First set up a fixture in this sandbox: create agent-docs/doflow/900-writeset/ holding a one-paragraph requirement.md, a one-paragraph design.md, and a plan.md whose Tasks section reads exactly these three lines:\\n- [ ] A.1 [P] Write one line to docs/one.md — owner: core-implementer; files: `docs/one.md`\\n- [ ] A.2 [P] Write one line to docs/two.md — owner: system-architect; files: `docs/two.md`\\n- [ ] A.3 [P] Append a second line to docs/one.md — owner: quality-guardian; files: `docs/one.md`\\nThen run /do-execute-plan --scope phase:A against it.",
       "expected_output": "A.1 and A.2 dispatch concurrently as separate owner groups; A.3 is serialized behind A.1 by a group_serialize edge because they share docs/one.md, despite A.3 carrying [P]",
@@ -76,6 +79,27 @@
         }
       ],
       "notes": "Owners are deliberately distinct. An earlier version gave all three tasks owner: core-implementer, which merges them into one group that runs sequentially by design — so the case asserted concurrency the grouped dispatch path never promises, and graded a correct runtime as failing. Distinct owners are what force the group_overlaps/group_serialize edge this case is actually about."
+    },
+    {
+      "id": 4,
+      "kind": "triggering",
+      "split": "heldout",
+      "name": "planless-fix-does-not-route",
+      "prompt": "There is no plan for this; just fix the typo in the usage text of bench/runner.js directly.",
+      "expected_output": "do-execute-plan does not route this request; it belongs to do-implement",
+      "files": [],
+      "assertions": [
+        {
+          "text": "the run judged this repo's do-execute-plan description (sandbox path, matching hash)",
+          "type": "skill_resolved",
+          "skill": "do-execute-plan"
+        },
+        {
+          "text": "do-execute-plan is not used: routing.json records routed false",
+          "type": "skill_not_routed",
+          "skill": "do-execute-plan"
+        }
+      ]
     }
   ]
 }

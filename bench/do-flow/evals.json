@@ -4,6 +4,7 @@
     {
       "id": 1,
       "kind": "triggering",
+      "split": "train",
       "name": "end-to-end-request-invokes-flow",
       "prompt": "Take this from idea to reviewed code: a webhook receiver with signature verification.",
       "expected_output": "do-flow is invoked and chains the phases with approval gates",
@@ -23,6 +24,7 @@
     {
       "id": 2,
       "kind": "behavioral",
+      "split": "train",
       "name": "pauses-at-approval-gates",
       "prompt": "/do-flow Add a --since <date> filter to `doflow trace` so the run ledger can be windowed from an explicit start date instead of only --days N.",
       "expected_output": "The chain pauses at its defined gates instead of running straight through, naming the phase at each pause",
@@ -40,6 +42,27 @@
         {
           "text": "The current phase is stated clearly at each pause",
           "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "kind": "triggering",
+      "split": "heldout",
+      "name": "single-phase-does-not-route",
+      "prompt": "Run only the design phase for this feature; I'll do the rest by hand.",
+      "expected_output": "do-flow does not route this request; it belongs to do-design",
+      "files": [],
+      "assertions": [
+        {
+          "text": "the run judged this repo's do-flow description (sandbox path, matching hash)",
+          "type": "skill_resolved",
+          "skill": "do-flow"
+        },
+        {
+          "text": "do-flow is not used: routing.json records routed false",
+          "type": "skill_not_routed",
+          "skill": "do-flow"
         }
       ]
     }

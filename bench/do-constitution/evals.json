@@ -4,6 +4,7 @@
     {
       "id": 1,
       "kind": "triggering",
+      "split": "train",
       "name": "principles-request-invokes-constitution",
       "prompt": "Set up the engineering principles this repo should hold itself to.",
       "expected_output": "do-constitution is invoked and a tier-2 constitution is created at agent-docs/constitution.md",
@@ -28,6 +29,7 @@
     {
       "id": 2,
       "kind": "behavioral",
+      "split": "train",
       "name": "amend-bumps-semver-and-reports-impact",
       "prompt": "/do-constitution --amend Add a principle requiring structured logging on all services",
       "expected_output": "Version bumped by semver rules and a Sync Impact Report written; with no existing constitution the skill reports there is nothing to amend rather than silently creating one",
@@ -49,6 +51,27 @@
         {
           "text": "The base tier-1 principles are overlaid, not silently discarded",
           "type": "manual"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "kind": "triggering",
+      "split": "heldout",
+      "name": "lint-rule-does-not-route",
+      "prompt": "Add a lint rule that bans console.log in src/.",
+      "expected_output": "do-constitution does not route this request; it belongs to do-implement",
+      "files": [],
+      "assertions": [
+        {
+          "text": "the run judged this repo's do-constitution description (sandbox path, matching hash)",
+          "type": "skill_resolved",
+          "skill": "do-constitution"
+        },
+        {
+          "text": "do-constitution is not used: routing.json records routed false",
+          "type": "skill_not_routed",
+          "skill": "do-constitution"
         }
       ]
     }
