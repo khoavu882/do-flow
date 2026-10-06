@@ -191,14 +191,30 @@ fi
 
 [ -z "$LAST_ASSISTANT_CONTENT" ] && exit 0
 
-# Text that only resembles a marker is dropped first: markdown headings (## TODO list, # Todo),
-# "the // TODO comment" mentions and URLs (http://todo-app.example.com). Ceiling: a title-case
-# `# Todo` or `# Fixme` at the start of a line reads as a heading, and a marker followed by the
-# word comment(s) or marker(s) reads as a mention.
-LAST_ASSISTANT_CONTENT=$(printf '%s\n' "$LAST_ASSISTANT_CONTENT" \
-  | grep -vE '^ {0,3}(#{2,6} |# (Todo|Fixme)([^[:alnum:]_]|$))' \
-  | grep -viE '(#|//)[[:space:]]*(TODO|FIXME)s?[[:space:]]+(comments?|markers?)([^[:alnum:]_]|$)' \
-  | sed -E 's#[A-Za-z][A-Za-z0-9+.-]*://[^[:space:]]*##g') || true
+# Text that only resembles a marker is cleaned before the match, outside ``` fences only, except
+# URLs: a markdown heading loses its leading hashes (## TODO list, # Todo) so a real marker later on
+# the same line still counts; "the // TODO comment" mentions (a marker, comment(s) or marker(s), then
+# the end of the sentence) are cut out; a URL, up to a quote, ) or //, is cut out
+# (http://todo-app.example.com). The text is lowercased, which the case-insensitive match ignores.
+# Ceiling: an unfenced title-case `# Todo`/`# Fixme` at the start of a line reads as a heading, and an
+# unfenced `## TODO: x` as a heading, not a Python comment.
+STUB_TEXT=$(printf '%s\n' "$LAST_ASSISTANT_CONTENT" | awk '
+BEGIN {
+  q = "\047"
+  url = "[A-Za-z][A-Za-z0-9+.-]*://([^[:space:]\"" q "`)/]|/[^/[:space:]\"" q "`)])*"
+  mention = "(#|//)[[:space:]]*(todo|fixme)s?[[:space:]]+(comments?|markers?)[[:space:]]*([.,;!?)]|$)"
+}
+/^[[:space:]]*(```|~~~)/ { fence = !fence }
+{
+  if (!fence) {
+    if ($0 ~ /^ ? ? ?###*[[:space:]]+/) sub(/^ ? ? ?#+[[:space:]]+/, "")
+    else if ($0 ~ /^ ? ? ?#[[:space:]]+(Todo|Fixme)([^[:alnum:]_]|$)/) sub(/^ ? ? ?#[[:space:]]+/, "")
+  }
+  line = tolower($0)
+  gsub(url, "", line)
+  if (!fence) gsub(mention, " ", line)
+  print line
+}') || STUB_TEXT=$LAST_ASSISTANT_CONTENT
 
 # Search extracted content for unfinished-work markers
 # Match stubs only inside code comment context to avoid false positives from
@@ -207,7 +223,7 @@ LAST_ASSISTANT_CONTENT=$(printf '%s\n' "$LAST_ASSISTANT_CONTENT" \
 # non-word character or end-of-string instead, so "TODOX" doesn't match.
 STUB_PATTERN='(#|//)[[:space:]]*(TODO|FIXME)([^[:alnum:]_]|$)|raise NotImplementedError|throw new Error\(.*[Nn]ot [Ii]mplemented|(#|//)[[:space:]]*stub([^[:alnum:]_]|$)'
 
-if grep -qiE -- "$STUB_PATTERN" <<<"$LAST_ASSISTANT_CONTENT" 2>/dev/null; then
+if grep -qiE -- "$STUB_PATTERN" <<<"$STUB_TEXT" 2>/dev/null; then
   # Block a given message once: the continuation that follows is judged on new text, and a
   # harness with no stop_hook_active would otherwise be blocked on this one forever. State is
   # per session, or per transcript when the harness sends no session_id; any failure here

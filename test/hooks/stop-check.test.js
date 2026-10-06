@@ -171,7 +171,8 @@ test('linter output reaches the caller on stderr, so a Codex Stop prints only {}
 // Text that only resembles a marker is not an unfinished-work comment.
 for (const text of [
   'See http://todo-app.example.com for the demo.',
-  'The board is at https://example.com/x//TODO/y',
+  'The board is at https://todo.example.com/x/y.',
+  'See (https://todo.example.com/x) and "http://todo.example.com".',
   '## TODO list\n\n- done',
   '### FIXME notes',
   '# Todo',
@@ -198,6 +199,14 @@ for (const text of [
   'See http://a.example.com\n// TODO: finish',
   '## Plan\n# TODO: finish',
   '# Todo\n# TODO: finish',
+  '## Step 2 // TODO: wire up',
+  '## raise NotImplementedError',
+  '```python\n## TODO: implement parse\n```',
+  '// TODO comment out debug logging',
+  'x=1 # TODO markers: implement',
+  '# FIXME markers in parser',
+  'fetch("http://a.b/c")//TODO implement',
+  'I removed the // TODO comment but // TODO: wire up',
 ]) {
   test(`a real stub still blocks: ${JSON.stringify(text)}`, () => {
     assert.equal(stop('claude', { session_id: sid(), last_assistant_message: text }).code, 2);
