@@ -208,6 +208,17 @@ else
   fail "second prompt: unexpected injection: context='$HAS_CONTEXT2'"
 fi
 
+# First prompt of a session SessionStart never ran for: no session directory exists yet
+INPUT_NOSTART="{\"session_id\":\"verify-sess-nostart\",\"cwd\":\"$CWD\"}"
+NOSTART_RC=0
+OUT_NOSTART=$(hook_out user-prompt-submit.sh "$INPUT_NOSTART") || NOSTART_RC=$?
+if [[ $NOSTART_RC -eq 0 && "$(jq -r '.additionalContext // empty' <<< "$OUT_NOSTART" 2>/dev/null)" == *"Git context unavailable"* \
+      && -f "$SESS_ENV/sessions/verify-sess-nostart/injected" ]]; then
+  pass "no SessionStart: fallback context injected, injected flag created"
+else
+  fail "no SessionStart: exit=$NOSTART_RC output='$OUT_NOSTART'"
+fi
+
 # Codex uses the same context policy but a different native output envelope.
 section "2b. Codex UserPromptSubmit contract"
 CODEX_HOOKS="$MIRROR/.codex/hooks"
