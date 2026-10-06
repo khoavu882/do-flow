@@ -131,11 +131,40 @@ test('J9: keys and strings holding escaped quotes, backslashes, braces and comma
 test('J10: invalid JSON, a top-level array and a string mcpServers each return their refusal', () => {
   const invalid = readDocument('{"mcpServers": {,}');
   assert.equal(invalid.ok, false);
-  assert.match(invalid.reason, /^invalid JSON: /);
+  assert.match(invalid.reason, /^invalid JSON( at line \d+ column \d+)?$/);
   assert.equal(readDocument('﻿{}').ok, false, 'a byte-order mark fails JSON.parse');
   assert.deepEqual(readDocument('[{"mcpServers": {}}]'), { ok: false, reason: 'top level is not an object' });
   assert.deepEqual(readDocument('"text"'), { ok: false, reason: 'top level is not an object' });
   assert.deepEqual(readDocument('{"mcpServers": "x"}'), { ok: false, reason: 'mcpServers is not an object' });
   assert.deepEqual(readDocument('{"mcpServers": []}'), { ok: false, reason: 'mcpServers is not an object' });
   assert.deepEqual(readDocument('{"mcpServers": null}'), { ok: false, reason: 'mcpServers is not an object' });
+});
+
+test('J10: an invalid-JSON refusal names a position, never the text around it', () => {
+  const secret = 'SECRET-XYZ123';
+  const cases = [
+    `{"mcpServers": {"x": {"env": {"TOKEN": "${secret}" oops}}}}`,
+    `{"mcpServers": {"x": {"env": {"TOKEN": "${secret}",}}}}`,
+    `{"token": ${secret}}`,
+    `{\n  "token": "${secret}"\n  "next": 1\n}`,
+  ];
+  for (const text of cases) {
+    const { ok, reason } = readDocument(text);
+    assert.equal(ok, false);
+    assert.ok(!reason.includes('SECRET') && !reason.includes('XYZ'), reason);
+    assert.match(reason, /^invalid JSON( at line \d+ column \d+)?$/);
+  }
+  assert.equal(readDocument(cases[3]).reason, 'invalid JSON at line 3 column 3');
+});
+
+test('J11: 3000 nested objects scan without exhausting the stack, at the top level and inside a server', () => {
+  const deep = `${'{"a":'.repeat(3000)}1${'}'.repeat(3000)}`;
+  const top = readDocument(`{"deep": ${deep}, "mcpServers": {}}`);
+  assert.equal(top.ok, true, top.reason);
+  assert.deepEqual(top.root.members.map((item) => item.key), ['deep', 'mcpServers']);
+  const inServer = readDocument(`{"mcpServers": {"deep": ${deep}}}`);
+  assert.equal(inServer.ok, true, inServer.reason);
+  assert.deepEqual(inServer.servers.members.map((item) => item.key), ['deep']);
+  const next = insertMember(`{"mcpServers": {"deep": ${deep}}}`, inServer.servers, 'c', { command: 'y' }, inServer);
+  assert.ok(next.endsWith(`${'}'.repeat(3000)}, "c": {"command":"y"}}}`));
 });

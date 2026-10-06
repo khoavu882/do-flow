@@ -195,11 +195,38 @@ test('P6: an unparseable mcp.json is a plan conflict with no MCP change, no writ
   writeFile(file, '{"mcpServers": {,}');
   const { adapter, planned } = planRun({ root });
   assert.equal(planned.conflicts.length, 1);
-  assert.match(planned.conflicts[0], new RegExp(`^Pi MCP: ${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: invalid JSON: .*; DoFlow did not change the file$`));
+  assert.match(planned.conflicts[0], new RegExp(`^Pi MCP: ${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: invalid JSON( at line \\d+ column \\d+)?; DoFlow did not change the file$`));
   assert.deepEqual(mcpChanges(planned), []);
   adapter.apply({ changes: planned.changes });
   assert.equal(fs.readFileSync(file, 'utf8'), '{"mcpServers": {,}');
   assert.deepEqual(fs.readdirSync(path.dirname(file)), ['mcp.json']);
+});
+
+test('P6: a malformed file holding a secret never puts it in a conflict, notice, thrown error or recovery record', () => {
+  // V8 quotes only a few characters around the error, so the check is for the token's prefix.
+  const secret = 'SECRET';
+  const malformed = `{"mcpServers": {"mine": {"command": "x", "env": {"TOKEN": ${secret}-TOKEN-4242}}}}`;
+  const root = scratch();
+  const file = userFile(root);
+  writeFile(file, malformed);
+  const adapters = createAdapterRegistry({ pi: createPiAdapter({ env: {} }) });
+  const context = { repoRoot: REPO, projectRoot: root, homeDir: root, sourceVersion: 'test' };
+  const plan = planLifecycle({ registry, adapters, scope: 'global', scopeRoot: root, targets: ['pi'], ledger: defaultLedger({ scope: 'global', scopeRoot: root }), context });
+  assert.equal(plan.safe, false);
+  assert.ok(!JSON.stringify(plan.conflicts).includes(secret) && !JSON.stringify(plan.notices).includes(secret));
+
+  // Verification re-reads the file: one that turns malformed after apply fails the run, and the
+  // failure lands in the recovery record and the thrown error.
+  fs.rmSync(file);
+  const pi = createPiAdapter({ env: {} });
+  const corrupting = createAdapterRegistry({ pi: { ...pi, apply(input) { const result = pi.apply(input); fs.writeFileSync(file, malformed); return result; } } });
+  const clean = planLifecycle({ registry, adapters: corrupting, scope: 'global', scopeRoot: root, targets: ['pi'], ledger: defaultLedger({ scope: 'global', scopeRoot: root }), context });
+  const stateRoot = scratch();
+  assert.throws(() => applyLifecycle({ plan: clean, registry, adapters: corrupting, stateRoot, ledger: clean.ledger }),
+    (error) => !error.message.includes(secret));
+  const records = fs.readdirSync(path.join(stateRoot, 'recovery')).map((name) => fs.readFileSync(path.join(stateRoot, 'recovery', name), 'utf8'));
+  assert.ok(records.some((record) => record.includes('Pi MCP:')), 'the verification conflict must be recorded');
+  assert.ok(records.every((record) => !record.includes(secret)), 'a recovery record copied the secret');
 });
 
 test('P7: a top-level array and a non-object mcpServers are conflicts with no write', () => {

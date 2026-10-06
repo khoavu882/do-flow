@@ -24,37 +24,52 @@ function stringEnd(text, i) {
 }
 
 // The text has already passed JSON.parse, so the scanner only has to find spans, never validate.
-function scanValue(text, i) {
+// Only the top-level object and mcpServers need member spans; every other value is skipped by
+// counting brackets, without recursion, so a deeply nested file cannot exhaust the stack.
+function valueEnd(text, i) {
   const ch = text[i];
-  if (ch === '{') return scanObject(text, i);
-  if (ch === '[') {
-    i = skipWhitespace(text, i + 1);
-    while (text[i] !== ']') {
-      i = skipWhitespace(text, scanValue(text, i).end);
-      if (text[i] === ',') i = skipWhitespace(text, i + 1);
-    }
-    return { end: i + 1, node: null };
+  if (ch === '"') return stringEnd(text, i);
+  if (ch !== '{' && ch !== '[') {
+    while (i < text.length && !`,}]${WHITESPACE}`.includes(text[i])) i += 1;
+    return i;
   }
-  if (ch === '"') return { end: stringEnd(text, i), node: null };
-  let end = i;
-  while (end < text.length && !`,}]${WHITESPACE}`.includes(text[end])) end += 1;
-  return { end, node: null };
+  let depth = 0;
+  for (;;) {
+    const c = text[i];
+    if (c === '"') { i = stringEnd(text, i); continue; }
+    if (c === '{' || c === '[') depth += 1;
+    else if (c === '}' || c === ']') { depth -= 1; if (depth === 0) return i + 1; }
+    i += 1;
+  }
 }
 
-function scanObject(text, open) {
+/** Member spans of the object opening at `open`; `nested` names the one member whose object value
+ * is scanned for its own members too. */
+function scanObject(text, open, nested = null) {
   const members = [];
   let i = skipWhitespace(text, open + 1);
   while (text[i] !== '}') {
     const keyStart = i;
     const keyEnd = stringEnd(text, keyStart);
+    const key = JSON.parse(text.slice(keyStart, keyEnd));
     const valueStart = skipWhitespace(text, skipWhitespace(text, keyEnd) + 1);
-    const { end: valueEnd, node } = scanValue(text, valueStart);
-    members.push({ key: JSON.parse(text.slice(keyStart, keyEnd)), keyStart, valueStart, valueEnd,
-      value: JSON.parse(text.slice(valueStart, valueEnd)), node });
-    i = skipWhitespace(text, valueEnd);
+    const node = key === nested && text[valueStart] === '{' ? scanObject(text, valueStart) : null;
+    const end = node ? node.close + 1 : valueEnd(text, valueStart);
+    members.push({ key, keyStart, valueStart, valueEnd: end, value: JSON.parse(text.slice(valueStart, end)), node });
+    i = skipWhitespace(text, end);
     if (text[i] === ',') i = skipWhitespace(text, i + 1);
   }
-  return { end: i + 1, node: { open, close: i, members } };
+  return { open, close: i, members };
+}
+
+/** JSON.parse's message quotes the text around the error, which may be a token or a password, so
+ * only the position is reported. */
+function invalidJsonReason(text, error) {
+  const match = /at position (\d+)/.exec(error.message);
+  if (!match) return 'invalid JSON';
+  const before = text.slice(0, Number(match[1]));
+  const line = before.split('\n').length;
+  return `invalid JSON at line ${line} column ${before.length - before.lastIndexOf('\n')}`;
 }
 
 /** The whitespace that starts the line `at` sits on, or null when something else precedes it there. */
@@ -84,12 +99,13 @@ function duplicateKey(node) {
 
 function readDocument(text) {
   let parsed;
-  try { parsed = JSON.parse(text); } catch (error) { return { ok: false, reason: `invalid JSON: ${error.message}` }; }
+  try { parsed = JSON.parse(text); } catch (error) { return { ok: false, reason: invalidJsonReason(text, error) }; }
   if (!isPlainObject(parsed)) return { ok: false, reason: 'top level is not an object' };
   if (Object.prototype.hasOwnProperty.call(parsed, 'mcpServers') && !isPlainObject(parsed.mcpServers)) {
     return { ok: false, reason: 'mcpServers is not an object' };
   }
-  const root = scanObject(text, skipWhitespace(text, 0)).node;
+  let root;
+  try { root = scanObject(text, skipWhitespace(text, 0), 'mcpServers'); } catch { return { ok: false, reason: 'the file could not be scanned' }; }
   const duplicateTop = duplicateKey(root);
   if (duplicateTop !== null) return { ok: false, reason: `duplicate key '${duplicateTop}'` };
   const servers = root.members.find((member) => member.key === 'mcpServers')?.node ?? null;
