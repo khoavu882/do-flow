@@ -68,6 +68,11 @@ description. That measures this repo's wording — the thing Phase D rewrites �
 event as the live router choosing a skill. A pass here is not a claim about production routing, and
 the D.4 report should say so, the same way the baseline already qualifies its non-interactive runs.
 
+**What this does not cover.** The bench is Claude-specific: sandboxes are projected into
+`.claude/skills/` and `config.json` pins a Claude model id, so it says nothing about how another
+harness loads or routes the skills. A without-skill run cannot remove `~/.claude/skills`, which is
+outside any sandbox; it relies on the run's instruction and is checked afterwards at grading.
+
 ## Division of labor
 
 The runner does **not** spawn model runs. It owns case management, sandbox provisioning, skill
@@ -96,16 +101,21 @@ runner.js baseline / report
 | Command | Does | Needs API access |
 |---|---|---|
 | `coverage [--json]` | Which skills have triggering + behavioral cases. Exit 1 on any gap — this is what the A.4 guard consumes | no |
-| `list [--skill S] [--json]` | Enumerate cases | no |
-| `plan --iteration N` | Emit the subagent dispatch plan as JSON: output paths, pinned model, sandbox commands, and each run's skill path + expected hash | no |
-| `grade --iteration N` | Verify each run's skill provenance, evaluate programmatic assertions, write `grading.json` | no |
-| `baseline [--from N]` | Freeze an iteration as the committed baseline, recording the commit it was taken at and how many cases proved their skill source | no |
-| `report --iteration N` | Per-case delta against the baseline, with a `source` column marking rows whose delta is unmeasured | no |
+| `parity [--json]` | Does the committed baseline still describe the committed corpus. Lists pending cases, exits 1 on a removed, renamed, kind-changed or split-changed case or a wrong `caseCount` | no |
+| `list [--skill S] [--split train\|heldout] [--json]` | Enumerate cases, optionally one side of the corpus | no |
+| `plan --iteration N [--skill S] [--split train\|heldout] [--arm without-skill]` | Emit the subagent dispatch plan as JSON: output paths, pinned model, sandbox commands, each run's skill path + expected hash, and the projected cost against the ceiling. Exit 2 when a known projection is over the ceiling | no |
+| `grade --iteration N` | Verify each run's skill provenance, evaluate programmatic assertions, read `timing.json`, write `grading.json` | no |
+| `baseline [--from N]` | Freeze an iteration as the committed baseline, recording the commit it was taken at, how many cases proved their skill source, each case's side and its usage | no |
+| `report --iteration N` | Per-case delta against the baseline, with a `source` column marking rows whose delta is unmeasured, pending rows, usage, the ceiling check and, when without-skill runs exist, the per-skill delta | no |
+
+`--split` is accepted by `plan` and `list` only, `--arm` by `plan` only; any other command refuses
+either flag with exit 2, as it does an unknown option.
 
 ## Case format
 
 `bench/<skill>/evals.json` extends `skill-creator`'s schema with a `kind` field so triggering and
-behavioral coverage can be counted separately.
+behavioral coverage can be counted separately, and a `split` field naming the case's side of the
+corpus (`train` or `heldout`; see [Held-out cases](#held-out-cases)). Every case has a side.
 
 ```json
 {
@@ -114,6 +124,7 @@ behavioral coverage can be counted separately.
     {
       "id": 1,
       "kind": "triggering",
+      "split": "train",
       "name": "vague-idea-triggers-discovery",
       "prompt": "I'm thinking about building something to track my reading",
       "expected_output": "do-brainstorm is invoked and Socratic discovery begins",
@@ -133,7 +144,9 @@ worse than an honest abstention.
 
 | `type` | Checks |
 |---|---|
-| `skill_invoked` / `skill_not_invoked` | `invoked_skills.json` contains (or does not contain) `skill` |
+| `skill_resolved` | The run read this repo's copy of `skill`: its `skill_source.json` grades `verified` |
+| `skill_invoked` / `skill_not_invoked` | `invoked_skills.json` contains (or does not contain) `skill`. Undecided (`passed: null`, left for the grader) on a by-path run, whose `invoked_skills.json` is empty by contract |
+| `skill_not_routed` | `routing.json` records `{"skill": <skill>, "routed": false}`. Decides every with-skill run; a missing, unreadable or mismatched record fails |
 | `file_exists` / `file_absent` | `path`, relative to the run directory |
 | `output_matches` / `output_not_matches` | `pattern` (regex, optional `flags`) against `transcript.txt` |
 | `manual` | left for the grader |
@@ -141,19 +154,32 @@ worse than an honest abstention.
 A programmatic assertion whose input is missing — no `transcript.txt`, for instance — **fails** with
 that reason recorded. A check nobody could run is not a pass.
 
+### Should-not-trigger cases
+
+A triggering case may assert the opposite of routing: a near miss of a skill's description, which
+uses the skill's vocabulary but asks for something the description assigns elsewhere or excludes.
+It carries `skill_not_routed` and passes when the run judged from the sandbox copy's frontmatter that
+the request does not route to the skill. `skill_not_invoked` cannot grade it, because it is undecided
+on every by-path run. Such a case is graded from `routing.json`, which a with-skill triggering run
+must save (below).
+
 ## What a dispatched run must save
 
-Into its `outputDir` from the plan:
+Into its `outputDir` from the plan. The orchestrating agent creates each sandbox with the emitted
+`sandbox.create`, passes each run's `skills.instruction` through unchanged, and stops dispatch at
+`costCeiling.budget` (see [Cost ceiling](#cost-ceiling)).
 
-| File | Purpose |
-|---|---|
-| `transcript.txt` | Full run text; `output_matches` reads this |
-| `invoked_skills.json` | JSON array of skill names actually invoked; triggering assertions read this |
-| `skill_source.json` | **Which SKILL.md the run actually followed.** Without it the run is graded `unrecorded` and its pass rate is not evidence about this repo |
-| `outputs/` | Any artifacts the case produces |
-| `timing.json` | `total_tokens`, `duration_ms` from the task notification — capture on arrival, it is not persisted elsewhere |
+| File | Written by | Arm | Content |
+|---|---|---|---|
+| `transcript.txt` | run | both | Full run text; `output_matches` reads this |
+| `invoked_skills.json` | run | both | JSON array of skill names actually invoked |
+| `skill_source.json` | run | with-skill | **Which SKILL.md the run actually followed**, `{ skill, path, sha256 }`. Without it the run is graded `unrecorded` and its pass rate is not evidence about this repo |
+| `skill_source.json` | run | without-skill | `{ "skill": "<skill>", "withheld": true }` |
+| `routing.json` | run | with-skill, triggering cases | `{ "skill": "<skill>", "routed": true or false }`, the decision judged from the frontmatter |
+| `outputs/` | run | both | Every artifact the case produces, including any timing file the case itself makes |
+| `timing.json` | orchestrating agent | both | `total_tokens` (integer >= 0) and `duration_ms` (number >= 0) from the task notification. Written on arrival, since it is not persisted elsewhere; a value the notification did not report is omitted, never written as 0 |
 
-`skill_source.json` is three fields, written after reading the skill:
+For a with-skill run, `skill_source.json` is three fields, written after reading the skill:
 
 ```json
 {
@@ -167,6 +193,84 @@ Into its `outputDir` from the plan:
 that file defeats the whole check. `sha256` is `shasum -a 256 <path>`. `grade` compares both against
 `core/shared/skills/<skill>/SKILL.md`: a path outside the sandbox is `global-fallback`, a sandbox
 path with the wrong hash is `mismatch`.
+
+## Held-out cases
+
+Every case sits on one of two sides of the corpus, named by its `split` field: `train` or `heldout`.
+`plan --split heldout` and `list --split heldout` select the held-out side, `--split train` the
+other, and without the flag both sides run. The side is a convention that whoever tunes a skill
+honours: iterate against the `train` cases and read the `heldout` cases only to check that an edit
+generalised. The runner does not stop a tuner from looking at either side; it records each case's
+side in every plan row, grading, report row and baseline entry so the split can be audited. Every
+skill keeps at least one held-out case, a case chooses its side in the edit that adds it, and a
+baseline capture freezes each case's side, so moving a case between sides reads as a `parity`
+failure rather than a silent change.
+
+## Pending cases
+
+A case present in the corpus but absent from the committed baseline is **pending**: it awaits a
+paid baseline capture and has no baseline result. Pending is not a failure, because no offline
+change can give a new case a measured result.
+
+- `parity` prints one `PENDING <skill>/<id> (...)` line per such case and exits 0 when nothing else
+  differs.
+- `report` marks the row `pending` instead of computing a delta, counts it in the summary and adds a
+  note.
+- A baseline capture whose iteration contains the case's key clears it.
+
+A removed, renamed, kind-changed or split-changed case still fails `parity`: the baseline then
+describes something the corpus no longer holds.
+
+## Cost ceiling
+
+`config.json` declares `costCeiling`: the `unit` (`total_tokens`), `maxTokensPerRun`, and a `note`.
+The value is provisional, set before any run recorded usage; reset it from the first paid capture
+that did. The budget of a set of runs is `maxTokensPerRun` times the number of runs.
+
+Usage comes from each run's `timing.json`. `grade` reads it with a status of `recorded`, `partial`,
+`invalid`, `malformed` or `unrecorded`, and a field that is absent or invalid is **unknown, never
+zero**: it is left out of every sum and counted separately, so totals are lower bounds and an
+unmeasured run cannot look free. A file in another tool's shape, such as one with only
+`total_duration_seconds`, is `invalid` rather than misread.
+
+- `plan` projects each run at what the committed baseline recorded for the same case and arm. A run
+  with no baseline usage is unknown. When the known total already exceeds the budget it prints the
+  numbers on stderr and exits 2 without a plan; when the result is unknown it prints the plan with a
+  warning, and the orchestrating agent enforces the budget at dispatch.
+- `report` only warns. It never changes the exit code, because drift is reported, never blocking.
+- A missing or malformed `costCeiling` block is refused, not defaulted, so the check cannot be
+  switched off by accident.
+
+## Without-skill arm
+
+`plan --arm without-skill` adds, after each **behavioral** case's with-skill run, the same case with
+the skill under test withheld, to measure what the skill adds. Triggering cases get no such run:
+their question is whether a description routes, and a run with the skill withheld has no
+description to judge. The arm is opt-in because it roughly doubles the behavioral runs, and so the
+cost.
+
+A without-skill run differs from its pair in these ways:
+
+- Its output directory is the with-skill one plus `--without-skill`, and its sandbox id ends in
+  `-noskill`.
+- Its `sandbox.create` deletes the skill's copies from the sandbox after projecting it, and the plan
+  lists them in `skills.withheldPaths`. `~/.claude/skills` is outside any sandbox and cannot be
+  removed that way, so its `skills.instruction` forbids reading or invoking the skill, and `grade`
+  checks afterwards.
+- Its `skill_source.json` is `{ "skill": "<skill>", "withheld": true }`, and `grade` classifies the
+  run `withheld`, `leaked` or `unrecorded`. A recorded path, a missing `withheld: true`, or a
+  transcript or output that names `skills/<skill>/SKILL.md` is `leaked`: the run reached the skill
+  and its pass rate is not a without-skill measurement. No record, or one that is not valid JSON, is
+  `unrecorded`, never `withheld`, because silence is not proof.
+- `skill_resolved`, `skill_invoked`, `skill_not_invoked` and `skill_not_routed` are left undecided on
+  it; every other assertion grades as usual.
+
+`baseline` stores these runs as `withoutSkillResults`, beside `results`. `report` adds an `armDelta`
+table with one row per skill: the mean pass rate with the skill, without it, and the difference,
+over the behavioral cases where both arms are decided, the with-skill run is `verified` and the
+without-skill run is `withheld`. A case that fails any of those is left out rather than counted as
+0, so a leaked or unrecorded run cannot move the delta; a skill with no such case reports a null
+delta and the reason.
 
 ## Model pinning
 
@@ -196,3 +300,7 @@ Aggregate and view results with its scripts rather than new ones:
 ```bash
 python -m scripts.aggregate_benchmark <path-to>/bench/runs/<iteration> --skill-name doflow
 ```
+
+One exception: `aggregate_benchmark.py` reads a missing `total_tokens` as 0, which is the misreading
+[Cost ceiling](#cost-ceiling) rules out. `report` is the source for usage, because it keeps an
+unmeasured run unknown.
