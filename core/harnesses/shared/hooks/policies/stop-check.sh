@@ -103,11 +103,12 @@ if [ -n "$SESSION_ID" ]; then
       esac
     done < "$PROC_FILE"
 
-    # Python: async format, sync check (errors reach the caller via stderr)
+    # Python: async format, sync check (output goes to stderr: on Codex, text on stdout
+    # before the {} reply is invalid hook output)
     if [ ${#py_files[@]} -gt 0 ]; then
       if command -v ruff &>/dev/null; then
         nohup ruff format "${py_files[@]}" </dev/null >/dev/null 2>&1 &
-        run_with_timeout 2 -- ruff check "${py_files[@]}" 2>&1 || true
+        run_with_timeout 2 -- ruff check "${py_files[@]}" >&2 || true
       fi
     fi
 
@@ -121,7 +122,7 @@ if [ -n "$SESSION_ID" ]; then
     # Go: sync format (gofmt is fast, <100ms for typical files)
     if [ ${#go_files[@]} -gt 0 ]; then
       if command -v gofmt &>/dev/null; then
-        run_with_timeout 2 -- gofmt -w "${go_files[@]}" 2>&1 || true
+        run_with_timeout 2 -- gofmt -w "${go_files[@]}" >&2 || true
       fi
     fi
 
@@ -190,6 +191,52 @@ fi
 
 [ -z "$LAST_ASSISTANT_CONTENT" ] && exit 0
 
+# Text that only resembles a marker is cleaned before the match, outside ``` fences only, except
+# URLs: a markdown heading loses its leading hashes (## TODO list, # Todo) so a real marker later on
+# the same line still counts; "the // TODO comment" mentions (a marker, comment(s) or marker(s), then
+# the end of the sentence) are cut out; a URL, up to a space, quote, ) or //, is cut out
+# (http://todo-app.example.com). The text is lowercased, which the case-insensitive match ignores.
+# Every step is linear in the line length: a line with no "://" is not touched by the URL step,
+# and the URL step splits on "://" and trims each scheme (at most 32 characters) backwards.
+# Ceiling: an unfenced title-case `# Todo`/`# Fixme` at the start of a line reads as a heading, and an
+# unfenced `## TODO: x` as a heading, not a Python comment.
+STUB_TEXT=$(printf '%s\n' "$LAST_ASSISTANT_CONTENT" | awk '
+function strip_urls(s,   n, parts, k, cur, out, L, m, frag) {
+  if (index(s, "://") == 0) return s
+  n = split(s, parts, "://")
+  cur = parts[1]; out = ""
+  for (k = 2; k <= n; k++) {
+    L = length(cur); m = 0
+    while (m < 32 && m < L && substr(cur, L - m, 1) ~ /[A-Za-z0-9+.-]/) m++
+    while (m > 0 && substr(cur, L - m + 1, 1) !~ /[A-Za-z]/) m--
+    if (m > 0) {
+      out = out substr(cur, 1, L - m)
+      frag = parts[k]
+      cur = match(frag, urlend) ? substr(frag, RSTART) : ""
+    } else {
+      out = out cur "://"
+      cur = parts[k]
+    }
+  }
+  return out cur
+}
+BEGIN {
+  q = "\047"
+  urlend = "[[:space:]\"" q "`)]|//"
+  mention = "(#|//)[[:space:]]*(todo|fixme)s?[[:space:]]+(comments?|markers?)[[:space:]]*([.,;!?)]|$)"
+}
+/^[[:space:]]*(```|~~~)/ { fence = !fence }
+{
+  if (!fence) {
+    if ($0 ~ /^ ? ? ?###*[[:space:]]+/) sub(/^ ? ? ?#+[[:space:]]+/, "")
+    else if ($0 ~ /^ ? ? ?#[[:space:]]+(Todo|Fixme)([^[:alnum:]_]|$)/) sub(/^ ? ? ?#[[:space:]]+/, "")
+  }
+  line = tolower($0)
+  line = strip_urls(line)
+  if (!fence) gsub(mention, " ", line)
+  print line
+}') || STUB_TEXT=$LAST_ASSISTANT_CONTENT
+
 # Search extracted content for unfinished-work markers
 # Match stubs only inside code comment context to avoid false positives from
 # explanatory prose (e.g. "I removed the TODO comment" should not trigger).
@@ -197,7 +244,7 @@ fi
 # non-word character or end-of-string instead, so "TODOX" doesn't match.
 STUB_PATTERN='(#|//)[[:space:]]*(TODO|FIXME)([^[:alnum:]_]|$)|raise NotImplementedError|throw new Error\(.*[Nn]ot [Ii]mplemented|(#|//)[[:space:]]*stub([^[:alnum:]_]|$)'
 
-if grep -qiE -- "$STUB_PATTERN" <<<"$LAST_ASSISTANT_CONTENT" 2>/dev/null; then
+if grep -qiE -- "$STUB_PATTERN" <<<"$STUB_TEXT" 2>/dev/null; then
   # Block a given message once: the continuation that follows is judged on new text, and a
   # harness with no stop_hook_active would otherwise be blocked on this one forever. State is
   # per session, or per transcript when the harness sends no session_id; any failure here

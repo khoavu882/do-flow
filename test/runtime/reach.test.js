@@ -52,7 +52,7 @@ test('a project install with a dispatcher and a runtime is REACHED at the instal
   ledger(t.proj, 'project', { skills: ['pi'] });
   install(t.proj);
   assert.deepEqual(reach(t), {
-    rows: [{ harness: 'pi', scope: 'project', state: 'REACHED', root: path.join(t.proj, '.doflow') }],
+    rows: [{ harness: 'pi', scope: 'project', installRoot: t.proj, state: 'REACHED', root: path.join(t.proj, '.doflow') }],
     unreadable: [],
   });
 });
@@ -101,6 +101,7 @@ test('global scope has its own fix and reads only the home install', () => {
   assert.deepEqual(reach(t, t.sub).rows, [{
     harness: 'claude',
     scope: 'global',
+    installRoot: t.home,
     state: 'NO-REACH',
     reason: `no executable dispatcher at ${path.join(t.home, '.doflow', REACH_DISPATCHER_REL)}`,
     fix: 'npx @khoavu882/doflow install -g -t claude',
@@ -111,7 +112,7 @@ test('a harness with no skills.doflow row at a scope is N/A without a fix', () =
   const t = fixture();
   ledger(t.home, 'global', { bare: ['antigravity'] });
   assert.deepEqual(reach(t, t.home).rows, [
-    { harness: 'antigravity', scope: 'global', state: 'N/A', reason: 'no skills at global scope' },
+    { harness: 'antigravity', scope: 'global', installRoot: t.home, state: 'N/A', reason: 'no skills at global scope' },
   ]);
 });
 
@@ -132,8 +133,36 @@ test('a projectRoot below the install root reads the install root ledger', () =>
   ledger(t.proj, 'project', { skills: ['pi'] });
   install(t.proj);
   assert.deepEqual(reach(t, t.sub).rows, [
-    { harness: 'pi', scope: 'project', state: 'REACHED', root: path.join(t.proj, '.doflow') },
+    { harness: 'pi', scope: 'project', installRoot: t.proj, state: 'REACHED', root: path.join(t.proj, '.doflow') },
   ]);
+});
+
+test('a nested ledger does not hide the enclosing install: each ancestor ledger is evaluated', () => {
+  const t = fixture();
+  ledger(t.sub, 'project', { bare: ['gemini'] });
+  ledger(t.proj, 'project', { skills: ['pi'] });
+  install(t.proj, { runtime: false });
+  const { rows } = reach(t, t.sub);
+  assert.deepEqual(rows.map((row) => `${row.harness}:${row.scope}:${row.state}:${row.installRoot}`),
+    [`gemini:project:N/A:${t.sub}`, `pi:project:NO-REACH:${t.proj}`]);
+  assert.equal(rows[1].fix, `${path.join(t.sub, '.doflow')} hides the install at ${t.proj}; remove it if it is stale, or run: npx @khoavu882/doflow install ${t.sub} -t pi`,
+    'an install at the outer root would not change what the skills find, so the hint names what hides it');
+});
+
+test('a ledger above the home directory is never read, and an outer ledger repeating a nearer row adds none', () => {
+  const t = fixture();
+  const parent = path.dirname(t.home);
+  const work = path.join(t.home, 'work', 'app');
+  fs.mkdirSync(work, { recursive: true });
+  ledger(parent, 'project', { skills: ['kiro'] });
+  install(parent);
+  assert.deepEqual(reach(t, work).rows, [], 'the ledger above home belongs to no scope of this walk');
+
+  ledger(path.join(t.home, 'work'), 'project', { skills: ['pi'] });
+  ledger(work, 'project', { skills: ['pi'] });
+  install(work);
+  const { rows } = reach(t, work);
+  assert.deepEqual(rows.map((row) => `${row.harness}:${row.state}:${row.installRoot}`), [`pi:REACHED:${work}`]);
 });
 
 test('a projectRoot equal to the home directory reports global rows only', () => {

@@ -30,7 +30,7 @@ COMPACT_SUMMARY=$(json_field "$INPUT" ".compact_summary")
 PROJECT_DIR=$(ensure_project_dir "$CWD")
 
 # Read current branch for frontmatter metadata (best-effort, empty is fine)
-BRANCH=$(timeout 1 git -C "$CWD" branch --show-current 2>/dev/null || echo "")
+BRANCH=$(run_with_timeout 5 -- git -C "$CWD" branch --show-current 2>/dev/null || echo "")
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # Single cleanup function covers both temp files — a second trap() call would

@@ -178,6 +178,47 @@ test('Copilot adapter removes only fingerprint-matching skill files', () => {
   assert.equal(fs.existsSync(path.join(root, '.agents', 'skills', 'do-analyze', 'SKILL.md')), false);
 });
 
+// An update whose source no longer carries a file the ledger owns drops it: the plan proposes a
+// removal inside the apply batch, and apply() (not remove()) has to carry it out.
+function droppedSkillInstall(adapter, repoRoot, root) {
+  const asset = skillsAsset(repoRoot);
+  fs.writeFileSync(path.join(repoRoot, 'core', 'shared', 'skills', 'do-analyze', 'extra.md'), '# extra\n');
+  const context = { repoRoot };
+  const first = adapter.plan({ scope: 'project', scopeRoot: root, assets: [asset], context, ledger: { resources: [] } });
+  adapter.apply({ changes: first.changes });
+  const ledger = { resources: first.changes.map((c) => ({ harness: 'copilot', assetId: asset.id, kind: 'copy-tree-file', identity: c.identity, fingerprint: c.fingerprint })) };
+  fs.rmSync(path.join(repoRoot, 'core', 'shared', 'skills', 'do-analyze', 'extra.md'));
+  return { asset, context, ledger, extra: path.join(root, '.agents', 'skills', 'do-analyze', 'extra.md') };
+}
+
+test('Copilot apply() deletes a copy-tree file the update no longer ships', () => {
+  const repoRoot = scratch(); const root = scratch(); const adapter = createCopilotAdapter();
+  const { asset, context, ledger, extra } = droppedSkillInstall(adapter, repoRoot, root);
+  assert.ok(fs.existsSync(extra));
+  const update = adapter.plan({ scope: 'project', scopeRoot: root, assets: [asset], context, ledger });
+  assert.deepEqual(update.conflicts, []);
+  assert.deepEqual(update.changes.map((c) => [c.operation, c.target]), [['remove', extra]]);
+  adapter.apply({ changes: update.changes });
+  assert.equal(fs.existsSync(extra), false, 'the ledger row goes, so the file must go with it');
+  assert.ok(fs.existsSync(path.join(root, '.agents', 'skills', 'do-analyze', 'SKILL.md')));
+});
+
+for (const force of [false, true]) {
+  test(`Copilot keeps a hand-edited file the update no longer ships ${force ? 'with' : 'without'} force, and releases its row`, () => {
+    const repoRoot = scratch(); const root = scratch(); const adapter = createCopilotAdapter();
+    const { asset, context, ledger, extra } = droppedSkillInstall(adapter, repoRoot, root);
+    fs.appendFileSync(extra, 'my own notes\n');
+    const update = adapter.plan({ scope: 'project', scopeRoot: root, assets: [asset], context: { ...context, force }, ledger });
+    assert.deepEqual(update.conflicts, [], 'a hand-edited dropped file must not refuse the update');
+    assert.deepEqual(update.notices, ['kept hand-edited .agents/skills/do-analyze/extra.md; DoFlow no longer manages it']);
+    const [change] = update.changes;
+    assert.equal(change.operation, 'remove');
+    assert.equal(change.retained, true);
+    adapter.apply({ changes: update.changes });
+    assert.ok(fs.readFileSync(extra, 'utf8').endsWith('my own notes\n'), 'apply() never deletes a change marked retained');
+  });
+}
+
 // ---- copy-tree: agents (renamed to .agent.md on the way out) ----
 
 function agentsAsset(repoRoot) {

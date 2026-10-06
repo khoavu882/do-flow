@@ -265,10 +265,13 @@ The runtime reaches every harness at every scope where it gets skills: a standal
 of the eight projects the `scripts.doflow` and `runtime.*` assets to `<scope root>/.doflow`, so the
 follow-up, capture and maintain lines run after installing one harness alone. Pi, OpenCode and
 GitHub Copilot CLI also receive the shared guidance tree at `<scope root>/.doflow/guidance`, which
-the pointer in their instructions names; Kiro keeps its steering files. Antigravity has no skills at
+the pointer in their instructions names; Kiro keeps its steering files and also receives that tree,
+which `doflow retrieve` searches. Antigravity has no skills at
 global scope, so its global install projects no runtime and prints a notice; install it per
 project. `doflow doctor` prints a `[Runtime Reach]` section with one line per installed harness and
-scope: `REACHED`, `NO-REACH` with the install command that fixes it, or `N/A`. Nothing in the loop
+scope: `REACHED`, `NO-REACH` with the install command that fixes it, or `N/A`. At project scope
+every ledger from the working directory upward is read, so a nested ledger left by a removed harness
+does not hide the install that encloses it. Nothing in the loop
 depends on one harness's own commands; a goal is DoFlow's record, whatever a harness's own `goal`
 command does.
 
@@ -321,7 +324,7 @@ declares target capability and ownership inputs, and is not itself a native conf
 
 | Content | Where it lives | Why it is shared |
 |---|---|---|
-| `DOFLOW_CORE.md`, `PRINCIPLES.md`, `FLAGS.md`, `VERSION`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | One `guidance.context-layer` copy-tree asset mirrors this whole tree, byte-for-byte, into `.doflow/guidance/` for every scope, on the harnesses its `appliesTo` names (Claude Code, Codex, Gemini CLI, Kiro and Antigravity) |
+| `DOFLOW_CORE.md`, `PRINCIPLES.md`, `FLAGS.md`, `VERSION`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | One `guidance.context-layer` copy-tree asset mirrors this whole tree, byte-for-byte, into `.doflow/guidance/` for every scope, on the harnesses its `appliesTo` names, except Kiro, which gets this tree as `.kiro/steering/` and a second, Kiro-only `kiro.guidance-tree` asset that mirrors it into `.doflow/guidance/`; that copy is never loaded as steering |
 | `MCP_INDEX.md` (`.doflow/guidance/` only, no `core/` source) | Written directly by `applyLifecycle` (`src/lifecycle/index.js`) | The one file in `.doflow/guidance/` that varies per install (the resolved MCP selection) — deliberately outside `guidance.context-layer`'s copy-tree source so its per-install content never conflicts with that asset's byte-for-byte mirror; imported unconditionally from `DOFLOW_CORE.md` |
 
 > **Path anchor (load-bearing).** Every `@import` in `DOFLOW_CORE.md`, and every `doc` value in
@@ -454,7 +457,7 @@ the G18 pair — between them the reason the list runs G18 then G20; and `bounda
   and the config declares a valid token ceiling. The committed baseline still describes the
   committed corpus: a case missing from the baseline is reported as pending, awaiting a paid
   capture, and does not fail, while a removed, renamed or kind-changed case does, and so does a
-  case moved to the other side when its baseline result recorded `split` (the committed baseline
+  baseline entry recorded twice, and so does a case moved to the other side when its baseline result recorded `split` (the committed baseline
   records none, so that comparison starts applying per case once a re-captured baseline does);
   `coverage` alone cannot see any of these. It also holds the boundary that keeps the corpus
   cheap: `npm test` scopes discovery to `test/` via the directory argument, so an unscoped
@@ -537,7 +540,11 @@ the G18 pair — between them the reason the list runs G18 then G20; and `bounda
   8,000 characters, the figure Codex applies when the model's context window is unknown.
 - **G23** (`hidden-unicode.test.js`) — shipped prose and code are read by models and by reviewers, and
   a code point that renders as nothing (tag characters, zero-width characters, bidirectional
-  controls, invisible operators) can carry instructions or reorder text no reviewer sees. Every file
+  controls, invisible operators, variation selectors, soft hyphens, filler characters — in all, any code
+  point with the Unicode property Default_Ignorable_Code_Point) can carry instructions or reorder text
+  no reviewer sees. U+FE0E and U+FE0F after a pictograph or a keycap base choose an emoji's
+  presentation and are allowed, as is a zero-width joiner between two pictographs; a variation selector
+  anywhere else, and a leading byte order mark, are findings. Every file
   under `core/`, `src/`, `bin/` and `docs/`, and `README.md`, must hold none and must decode as strict
   UTF-8, so an undecodable file cannot slip past unscanned. `test/` and `bench/` are not scanned:
   `test/` holds deliberate bidirectional fixtures.

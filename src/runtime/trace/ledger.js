@@ -219,9 +219,11 @@ function runsDir(configDir) {
  * @param {Object} [options.env=process.env]
  * @param {string} [options.homeDir]
  * @param {Object} [options.fsImpl=fs]
+ * @param {string} [options.containing] accept a project `.doflow` only when it holds this
+ *   subdirectory, so a project with state but no guidance tree falls through to the home install
  * @returns {{dir: string, configDir: string, origin: string, searched: string[]}}
  */
-function resolveRunsLocation({ start, global: forceGlobal = false, env = process.env, homeDir = os.homedir(), fsImpl = fs } = {}) {
+function resolveRunsLocation({ start, global: forceGlobal = false, env = process.env, homeDir = os.homedir(), fsImpl = fs, containing = '' } = {}) {
   const searched = [];
   const home = path.resolve(homeDir || '.');
   if (forceGlobal) {
@@ -238,7 +240,7 @@ function resolveRunsLocation({ start, global: forceGlobal = false, env = process
     searched.push(candidate);
     let found = false;
     try {
-      found = fsImpl.statSync(candidate).isDirectory();
+      found = fsImpl.statSync(path.join(candidate, containing)).isDirectory();
     } catch {
       found = false; // Not readable is the same as not there for a lookup that must not throw.
     }

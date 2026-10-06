@@ -13,6 +13,10 @@ const REPO = path.resolve(__dirname, "../..");
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const { IS_WIN, expectExecutable } = require('../helper-platform');
 
+// A developer's own PI_CODING_AGENT_DIR would redirect Pi's user-scope mcp.json away from the
+// scratch HOME; the Pi case that needs it sets it explicitly for its own spawn.
+delete process.env.PI_CODING_AGENT_DIR;
+
 /** Scratch-$HOME env for a spawned CLI. os.homedir() prefers USERPROFILE on Windows and ignores
  * HOME there entirely, so both must be redirected or -g installs would land in the runner's real
  * profile instead of the scratch directory. */
@@ -301,6 +305,34 @@ test('status --json emits parseable JSON with the manifest', () => {
   assert.strictEqual(parsed.context.scope, 'global');
 });
 
+test('status reports a harness the ledger owns nothing of as not-installed, in JSON and text', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  run(['install', '-g', '--force', '--target', 'claude'], { home });
+  const parsed = JSON.parse(run(['status', '-g', '--json', '--target', 'claude,codex'], { home }).stdout);
+  assert.strictEqual(parsed.context.claude.status, 'verified');
+  assert.strictEqual(parsed.context.codex.status, 'not-installed');
+  assert.deepStrictEqual(parsed.context.codex.resources, []);
+  const text = run(['status', '-g', '--target', 'claude,codex'], { home });
+  assert.match(text.stdout, /Codex verification:\s+not-installed/);
+  assert.match(text.stdout, /Claude verification:\s+verified/);
+});
+
+test('status keeps a conflict ahead of not-installed: a user-owned file in the way, or ledger rows lost over edited files', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.codex', 'config.toml'), '# personal setting\n[features]\nhooks = false\n');
+  run(['install', '-g', '--force', '--target', 'claude'], { home });
+  let parsed = JSON.parse(run(['status', '-g', '--json', '--target', 'claude,codex'], { home }).stdout);
+  assert.strictEqual(parsed.context.codex.status, 'conflict-or-invalid');
+  assert.ok(parsed.context.codex.errors.length > 0);
+
+  const skill = path.join(home, '.claude', 'skills', 'do-brainstorm', 'SKILL.md');
+  fs.rmSync(path.join(home, '.doflow', 'state', 'ledger.json'));
+  fs.writeFileSync(skill, '# my own file\n');
+  parsed = JSON.parse(run(['status', '-g', '--json', '--target', 'claude'], { home }).stdout);
+  assert.strictEqual(parsed.context.claude.status, 'conflict-or-invalid');
+});
+
 test('rollback with an unknown id fails cleanly (exit 1, no crash)', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   run(['install', '-g', '--force', '--target', 'claude'], { home });
@@ -503,6 +535,77 @@ test('Codex remove clears only lifecycle-owned native resources and retains comp
   assert.deepStrictEqual(ledger.resources, []);
   assert.ok(!fs.existsSync(path.join(project, '.agents', 'skills', 'do-execute-plan', 'SKILL.md')), 'skills are lifecycle-owned and must be removed');
   assert.equal(fs.readFileSync(foreignFile, 'utf8'), 'my own notes\n', 'a foreign file never owned by doflow must survive remove untouched');
+  // Nothing DoFlow wrote is left behind: no shipped hook script, no emptied AGENTS.md, no
+  // config.toml holding only the table DoFlow's own key lived in.
+  assert.ok(!fs.existsSync(path.join(project, '.codex', 'hooks')), 'shipped hook scripts and their emptied directory are removed');
+  assert.ok(!fs.existsSync(path.join(project, 'AGENTS.md')), 'an AGENTS.md DoFlow created is removed, not left empty');
+  assert.ok(!fs.existsSync(path.join(project, '.codex', 'config.toml')), 'a config.toml DoFlow created is removed, not left with an empty table');
+});
+
+test('Codex remove with a duplicated span in AGENTS.md is refused before anything is removed', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+  let result = run(['install', project, '--force', '--target', 'codex'], { home });
+  assert.strictEqual(result.status, 0, result.stderr);
+  const agents = path.join(project, 'AGENTS.md');
+  fs.appendFileSync(agents, `\n${fs.readFileSync(agents, 'utf8')}`);
+  const ledgerFile = path.join(project, '.doflow', 'state', 'ledger.json');
+  const ledgerBefore = fs.readFileSync(ledgerFile, 'utf8');
+  result = run(['remove', project, '--force', '--target', 'codex'], { home });
+  assert.notStrictEqual(result.status, 0);
+  assert.match(`${result.stdout}${result.stderr}`, /malformed DoFlow markers/);
+  for (const rel of [path.join('.codex', 'hooks.json'), path.join('.codex', 'config.toml'), path.join('.codex', 'hooks', 'session-start.sh'),
+    path.join('.agents', 'skills', 'do-execute-plan', 'SKILL.md')]) {
+    assert.ok(fs.existsSync(path.join(project, rel)), `${rel} must survive a refused remove`);
+  }
+  assert.strictEqual(fs.readFileSync(ledgerFile, 'utf8'), ledgerBefore);
+});
+
+test('Codex project remove rooted at HOME leaves every file the global install still owns', () => {
+  // A project rooted at $HOME shares ~/.codex, ~/.agents and the one ledger with the global install.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  let result = run(['install', '-g', '--force', '--target', 'codex'], { home });
+  assert.strictEqual(result.status, 0, result.stderr);
+  result = run(['install', home, '--force', '--target', 'codex'], { home });
+  assert.strictEqual(result.status, 0, result.stderr);
+  const globalOwned = ['hooks.json', 'config.toml', path.join('hooks', 'session-start.sh'), path.join('bin', 'doflow-run')]
+    .map((rel) => path.join(home, '.codex', rel));
+  const before = globalOwned.map((file) => fs.readFileSync(file, 'utf8'));
+  result = run(['remove', home, '--force', '--target', 'codex'], { home });
+  assert.strictEqual(result.status, 0, result.stderr);
+  assert.match(result.stdout, /codex: retained \d+ shared resource\(s\) still claimed by codex \(global scope\)/);
+  assert.deepStrictEqual(globalOwned.map((file) => fs.readFileSync(file, 'utf8')), before);
+  assert.ok(fs.existsSync(path.join(home, '.agents', 'skills', 'do-execute-plan', 'SKILL.md')), 'global skills survive');
+  assert.ok(!fs.existsSync(path.join(home, 'AGENTS.md')), 'the project-only AGENTS.md is still removed');
+  const ledger = JSON.parse(fs.readFileSync(path.join(home, '.doflow', 'state', 'ledger.json'), 'utf8'));
+  assert.ok(ledger.resources.length > 0 && ledger.resources.every((resource) => resource.scope === 'global'), 'only the project rows are released');
+});
+
+test('Codex remove keeps a user hook script, AGENTS.md line and config.toml table byte for byte', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+  const agents = path.join(project, 'AGENTS.md');
+  const config = path.join(project, '.codex', 'config.toml');
+  const userAgents = '# My project rules\n';
+  const userConfig = '[profile]\nmodel = "mine"\n';
+  fs.writeFileSync(agents, userAgents);
+  fs.mkdirSync(path.dirname(config), { recursive: true });
+  fs.writeFileSync(config, userConfig);
+  let result = run(['install', project, '--force', '--target', 'codex', '--mcp', 'context7'], { home });
+  assert.strictEqual(result.status, 0, result.stderr);
+  const userHook = path.join(project, '.codex', 'hooks', 'my-hook.sh');
+  fs.writeFileSync(userHook, '#!/bin/sh\necho mine\n');
+  // A shipped script the user edited is theirs now and stays too.
+  const editedHook = path.join(project, '.codex', 'hooks', 'session-start.sh');
+  fs.appendFileSync(editedHook, '# my tweak\n');
+  const editedBytes = fs.readFileSync(editedHook, 'utf8');
+  result = run(['remove', project, '--force', '--target', 'codex'], { home });
+  assert.strictEqual(result.status, 0, result.stderr);
+  assert.strictEqual(fs.readFileSync(agents, 'utf8'), userAgents);
+  assert.strictEqual(fs.readFileSync(config, 'utf8'), userConfig);
+  assert.strictEqual(fs.readFileSync(userHook, 'utf8'), '#!/bin/sh\necho mine\n');
+  assert.strictEqual(fs.readFileSync(editedHook, 'utf8'), editedBytes);
+  assert.deepStrictEqual(fs.readdirSync(path.dirname(userHook)).sort(), ['my-hook.sh', 'session-start.sh']);
 });
 
 test('rollback with no id argument prompts interactively and accepts a typed backup id', () => {
@@ -840,7 +943,7 @@ test('mixed -t claude,codex,gemini: install, update, and remove all reconcile in
   r = run(['remove', '-g', '--force', '--target', 'claude,codex,gemini'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.ok(!fs.existsSync(geminiMd), 'gemini remove deletes its file');
-  assert.ok(!fs.readFileSync(claudeMd, 'utf8').includes('<!-- doflow:start'), 'claude remove strips only its managed section; the file remains');
+  assert.ok(!fs.existsSync(claudeMd), 'a CLAUDE.md holding only the managed section is deleted, like GEMINI.md');
   ledger = JSON.parse(fs.readFileSync(ledgerFile, 'utf8'));
   assert.deepStrictEqual(ledger.resources, []);
   // Skills are lifecycle-owned for Codex too (Phase D), so remove correctly deletes them; every
@@ -907,4 +1010,63 @@ test('reconcile reports drift, heals it onto the pin, and converges clean', () =
   const bare = run(['reconcile', '-g', '--force'], { home: fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-')) });
   assert.strictEqual(bare.status, 0);
   assert.match(bare.stdout, /No doflow\.lock in this scope/);
+});
+
+test('Pi MCP: a global install merges into a hand-written ~/.pi/agent/mcp.json and remove leaves the user bytes untouched', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const mcpFile = path.join(home, '.pi', 'agent', 'mcp.json');
+  fs.mkdirSync(path.dirname(mcpFile), { recursive: true });
+  const handWritten = '{\n  "mcpServers": { "mine": { "command": "my-server" } },\n  "other": 1\n}\n';
+  fs.writeFileSync(mcpFile, handWritten);
+
+  let r = run(['install', '-g', '--force', '--no-backup', '-t', 'pi'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const installed = JSON.parse(fs.readFileSync(mcpFile, 'utf8'));
+  assert.deepStrictEqual(Object.keys(installed.mcpServers).sort(), ['context7', 'mine', 'sequential-thinking']);
+  assert.deepStrictEqual(installed.mcpServers.mine, { command: 'my-server' });
+  assert.strictEqual(installed.other, 1);
+  const installedText = fs.readFileSync(mcpFile, 'utf8');
+  assert.ok(installedText.includes('"mine": { "command": "my-server" }') && installedText.includes('"other": 1'), 'install keeps the hand-written members byte for byte');
+
+  r = run(['remove', '-g', '--force', '-t', 'pi'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.strictEqual(fs.readFileSync(mcpFile, 'utf8'), handWritten, 'remove restores the user\'s bytes exactly');
+});
+
+test('Pi MCP: a project install writes <project>/.pi/mcp.json with both catalog servers and prints the trust notice', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+  const r = run(['install', project, '--force', '--no-backup', '-t', 'pi'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+
+  const mcpJson = JSON.parse(fs.readFileSync(path.join(project, '.pi', 'mcp.json'), 'utf8'));
+  assert.deepStrictEqual(Object.keys(mcpJson.mcpServers).sort(), ['context7', 'sequential-thinking']);
+  assert.ok(r.stdout.includes('MCP: Pi reads .pi/mcp.json only after this project is trusted (/trust or --approve); DoFlow does not grant trust.'), r.stdout);
+});
+
+test('Pi MCP: an update with a narrower --mcp selection drops the deselected server from Pi\'s mcp.json', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  let r = run(['install', '-g', '--force', '-t', 'claude,pi', '--mcp', 'context7,sequential-thinking'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const piMcp = path.join(home, '.pi', 'agent', 'mcp.json');
+  assert.deepStrictEqual(Object.keys(JSON.parse(fs.readFileSync(piMcp, 'utf8')).mcpServers).sort(), ['context7', 'sequential-thinking']);
+
+  r = run(['update', '-g', '--force', '-t', 'claude,pi', '--mcp', 'context7'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.deepStrictEqual(Object.keys(JSON.parse(fs.readFileSync(piMcp, 'utf8')).mcpServers), ['context7']);
+  assert.deepStrictEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf8')).mcpServers), ['context7']);
+});
+
+test('Pi MCP: PI_CODING_AGENT_DIR redirects mcp.json while skills stay under ~/.pi/agent', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-agentdir-'));
+  const r = run(['install', '-g', '--force', '--no-backup', '-t', 'pi'], { home, env: { PI_CODING_AGENT_DIR: agentDir } });
+  assert.strictEqual(r.status, 0, r.stderr);
+
+  const mcpJson = JSON.parse(fs.readFileSync(path.join(agentDir, 'mcp.json'), 'utf8'));
+  assert.deepStrictEqual(Object.keys(mcpJson.mcpServers).sort(), ['context7', 'sequential-thinking']);
+  assert.ok(!fs.existsSync(path.join(home, '.pi', 'agent', 'mcp.json')), 'the default location must stay untouched');
+  assert.ok(fs.existsSync(path.join(home, '.pi', 'agent', 'skills')), 'skills do not follow PI_CODING_AGENT_DIR');
+  assert.ok(r.stdout.includes('PI_CODING_AGENT_DIR is set: Pi reads its whole agent dir from it, but DoFlow moves only mcp.json there; skills and AGENTS.md stay in ~/.pi/agent.'), r.stdout);
+  assert.ok(r.stdout.includes('MCP: servers selected for Pi: context7, sequential-thinking; --mcp narrows this only when claude or codex is also targeted.'), r.stdout);
 });

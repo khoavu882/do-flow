@@ -160,18 +160,43 @@ function deployCodexHooks(plan, { dryRun = false, fsImpl = fs } = {}) {
   // command string, so commandScriptNames() can't discover them. Deploy every other file in
   // scriptsDir too, so a hook that resolves a sibling path at runtime (not just at invocation)
   // finds it. hooks.json itself lives alongside the scripts but is deployed separately above.
-  if (plan.scriptsDir && fsImpl.existsSync(plan.scriptsDir)) {
-    for (const name of fsImpl.readdirSync(plan.scriptsDir)) {
-      if (deployed.has(name) || name.endsWith('.json')) continue;
-      const source = path.join(plan.scriptsDir, name);
-      if (!fsImpl.statSync(source).isFile()) continue;
-      const target = path.join(plan.destinationHooksDir, name);
-      fsImpl.mkdirSync(path.dirname(target), { recursive: true });
-      fsImpl.copyFileSync(source, target);
-      fsImpl.chmodSync(target, fsImpl.statSync(source).mode & 0o777);
-    }
+  for (const name of shippedHookScripts(plan.scriptsDir, fsImpl)) {
+    if (deployed.has(name)) continue;
+    const source = path.join(plan.scriptsDir, name);
+    const target = path.join(plan.destinationHooksDir, name);
+    fsImpl.mkdirSync(path.dirname(target), { recursive: true });
+    fsImpl.copyFileSync(source, target);
+    fsImpl.chmodSync(target, fsImpl.statSync(source).mode & 0o777);
   }
   return { ...plan, applied: true };
 }
 
-module.exports = { SUPPORTED_EVENTS, validateHooksConfig, classifyClaudeGuardrails, verifyHookCommands, planCodexHooks, deployCodexHooks };
+/** Every file deployCodexHooks copies beside hooks.json: each regular, non-JSON file in the
+ * shipped scripts directory (the command-named scripts are among them). */
+function shippedHookScripts(scriptsDir, fsImpl = fs) {
+  if (!scriptsDir || !fsImpl.existsSync(scriptsDir)) return [];
+  return fsImpl.readdirSync(scriptsDir)
+    .filter((name) => !name.endsWith('.json') && fsImpl.statSync(path.join(scriptsDir, name)).isFile());
+}
+
+/** Undo deployCodexHooks' script copies. The ledger records only hooks.json, so ownership of a
+ * script is proven by its bytes: one still identical to the shipped source is deleted, one the
+ * user edited or added stays. The directory goes only once it is empty. */
+function removeCodexHookScripts({ scriptsDir, destinationHooksDir } = {}, { dryRun = false, fsImpl = fs } = {}) {
+  if (!destinationHooksDir || !fsImpl.existsSync(destinationHooksDir)) return { removed: 0 };
+  let removed = 0;
+  for (const name of shippedHookScripts(scriptsDir, fsImpl)) {
+    const target = path.join(destinationHooksDir, name);
+    // lstat, not stat: a symlink (even to a file with the shipped bytes) is not DoFlow's copy.
+    let stat;
+    try { stat = fsImpl.lstatSync(target); } catch { continue; }
+    if (!stat.isFile()) continue;
+    if (!fsImpl.readFileSync(target).equals(fsImpl.readFileSync(path.join(scriptsDir, name)))) continue;
+    if (!dryRun) fsImpl.unlinkSync(target);
+    removed += 1;
+  }
+  if (!dryRun) { try { fsImpl.rmdirSync(destinationHooksDir); } catch { /* still holds user files */ } }
+  return { removed };
+}
+
+module.exports = { SUPPORTED_EVENTS, validateHooksConfig, classifyClaudeGuardrails, verifyHookCommands, planCodexHooks, deployCodexHooks, shippedHookScripts, removeCodexHookScripts };

@@ -528,7 +528,7 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
       .filter((probe) => probe.status === UNVERIFIED)
       .map((probe) => ({ kind: 'provider-unverified', subject: probe.id, detail: probe.detail })),
     ...reach.unreadable
-      .map((item) => ({ kind: 'reach-ledger-unreadable', subject: item.scope, detail: item.detail })),
+      .map((item) => ({ kind: 'reach-ledger-unreadable', subject: `${item.scope}: ${item.ledger}`, detail: item.detail })),
     ...(project.commands.status === 'DETECTED' ? [] : [{ kind: 'project-commands', subject: 'build/test', detail: project.commands.reason }]),
   ];
 
@@ -639,7 +639,8 @@ function handleDoctorCommand({ json = false, repoRoot, projectRoot = process.cwd
   console.log('\n[Runtime Reach]');
   const reachLines = report.harnesses.flatMap((harness) => harness.reach.map((row) => {
     const detail = { REACHED: row.root, 'NO-REACH': `fix: ${row.fix}`, 'N/A': row.reason }[row.state];
-    return `  ${harness.id.padEnd(14)}${row.scope.padEnd(9)}${(REACH_MARK[row.state] || row.state).padEnd(13)}${detail}`;
+    const where = row.scope === 'project' ? ` [install at ${row.installRoot}]` : '';
+    return `  ${harness.id.padEnd(14)}${row.scope.padEnd(9)}${(REACH_MARK[row.state] || row.state).padEnd(13)}${detail}${where}`;
   }));
   if (reachLines.length) for (const line of reachLines) console.log(line);
   else console.log('  No harness has DoFlow ledger rows in this project or in the home directory.');

@@ -8,6 +8,8 @@
 # exists) but requirement.md, design.md, or plan.md is still missing: "don't
 # write code before you've planned." It is deliberately SCOPED so it never
 # fires outside the doflow chain:
+#   - branch is a fix, bugfix, refactor, chore, release or hotfix branch, or
+#     trunk (classes that cannot be a feature) -> allow
 #   - no active feature dir            -> allow
 #   - edit target is under agent-docs/ -> allow (editing the artifacts themselves)
 #   - edit target outside the repo     -> allow
@@ -169,16 +171,23 @@ if [ -n "$RESOLVER" ]; then
   fi
 fi
 
+# Classes that cannot be a feature are not held to requirement/design/plan, even when they share a
+# slug with a started feature folder: fix, bugfix, refactor, chore, release, hotfix and trunk. Any
+# other branch (feat/, feature/, 043-auth, kai/043-auth) runs the feature class and is gated. do-paths.sh
+# classifies fix/bugfix/release/hotfix/trunk the same way (refactor/ and chore/ are its `other`); the
+# chain test fails if the two disagree.
+branch=$(git -C "${repo_root:-$ROOT}" branch --show-current 2>/dev/null || true)
+case "$branch" in
+  ""|master|main|develop|trunk|HEAD) exit 0 ;;
+  fix/*|bugfix/*|refactor/*|chore/*|release/*|hotfix/*) exit 0 ;;
+esac
+
 # Fallback: no resolver installed for this harness (or it produced nothing
 # usable) -> compute state directly from the branch-coupled feature
 # convention (feat/<slug> -> agent-docs/doflow/<slug>/), the same self
 # contained approach antigravity's own copy of this gate already used.
 if [ -z "$feature_dir" ]; then
   repo_root="$ROOT"
-  branch=$(git -C "$repo_root" branch --show-current 2>/dev/null || true)
-  case "$branch" in
-    ""|master|main|develop|trunk) exit 0 ;;   # no branch, or trunk -> no flow to gate
-  esac
   slug=${branch#*/}
   feature_dir="agent-docs/doflow/$slug"
   if [ -d "$repo_root/$feature_dir" ]; then

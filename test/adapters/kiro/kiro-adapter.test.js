@@ -187,10 +187,12 @@ test('confirms the real registry routes guidance, skills, and agents trees to ki
   assert.equal(harness.nativeTargets.hooks, '.kiro/hooks');
   assert.equal(harness.nativeTargets.mcp, '.kiro/settings/mcp.json');
 
+  // The guidance tree lands twice: as steering Kiro loads, and at the shared `.doflow/guidance`
+  // root `retrieve` and the runtime read, which Kiro never loads.
   const instructions = selectAssets(registry, { harness: 'kiro', capability: 'instructions' });
-  assert.equal(instructions.length, 1);
-  assert.equal(instructions[0].id, 'guidance.context-layer');
-  assert.equal(instructions[0].nativeDir.kiro, 'steering');
+  assert.deepEqual(instructions.map((asset) => [asset.id, asset.nativeDir.kiro]),
+    [['guidance.context-layer', 'steering'], ['kiro.guidance-tree', '../.doflow/guidance']]);
+  assert.equal(instructions[1].source, instructions[0].source);
 
   const skills = selectAssets(registry, { harness: 'kiro', capability: 'skills' });
   assert.equal(skills.length, 1);

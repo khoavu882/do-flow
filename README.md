@@ -114,7 +114,7 @@ Use `/do-flow "add a customer export"` to run the same sequence with its approva
 | Gemini CLI | `GEMINI.md`, rules, agents, modes, skills, hooks, and references |
 | Antigravity CLI (`agy`) | Managed `AGENTS.md` section (project), skills at `.agents/skills/`, shared agents, workspace rules at `.agents/rules/`, the spec-driven chain workflow shim, the pre-implementation-gate hook (`.agents/hooks.json`), and MCP in `.agents/mcp_config.json` / `~/.gemini/config/mcp_config.json` |
 | OpenCode | `AGENTS.md`, skills discovered at `.opencode/skills/` (project) or `~/.config/opencode/skills/` (global), and `opencode.json` configuration |
-| Pi Coding Agent | `AGENTS.md`, skills discovered at `.pi/skills/` (project) or `~/.pi/agent/skills/` (global), and `pi-mcp-adapter` MCP integration |
+| Pi Coding Agent | `AGENTS.md`, skills discovered at `.pi/skills/` (project) or `~/.pi/agent/skills/` (global), and MCP servers in `.pi/mcp.json` (project) or `~/.pi/agent/mcp.json` (global) |
 | GitHub Copilot CLI | `.github/copilot-instructions.md` (project scope only), skills at `.agents/skills/`, agents at `.github/agents/`, and MCP registered in `.mcp.json` |
 | Kiro | Steering files under `.kiro/steering/`, skills at `.kiro/skills/`, agents at `.kiro/agents/`, hooks at `.kiro/hooks/`, and MCP registered in `.kiro/settings/mcp.json` |
 

@@ -221,7 +221,7 @@ test('agents.shared projects transformed OpenCode markdown agents and reclaims t
 
   const removalPlan = adapter.plan({ scope: 'project', scopeRoot: root, assets, context: { repoRoot: root, operation: 'remove' }, ledger: verifiedLedger(verified) , removing: true });
   adapter.remove({ changes: removalPlan.changes });
-  assert.equal(fs.readdirSync(path.join(root, '.opencode', 'agents')).length, 0, 'remove reclaims every projected agent');
+  assert.equal(fs.existsSync(path.join(root, '.opencode', 'agents')), false, 'remove reclaims every projected agent and the folder it emptied');
 });
 
 function verifiedLedger(verified) {

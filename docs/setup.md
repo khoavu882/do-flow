@@ -26,7 +26,7 @@ one. All eight are fully declared, adapted, and installable via `--target <id>`.
 | [Codex](https://learn.chatgpt.com/docs/customization/overview) | `codex` | `AGENTS.md` (project root, or `~/.codex/AGENTS.md` globally), skills at `.agents/skills/` (the only tree Codex scans), scripts and templates in the shared `.doflow/` tree, agents (`.codex/agents/*.toml`), hooks (`.codex/hooks.json`), MCP via `config.toml` |
 | [Gemini CLI](https://geminicli.com/) / [Antigravity](https://antigravity.google/) | `gemini` | `GEMINI.md`, guidance, skills, agents (`<projectRoot>/.gemini/agents/<name>.md` project, `~/.gemini/agents/<name>.md` global), and hooks merged into `settings.json` |
 | [OpenCode](https://opencode.ai/) | `opencode` | Managed `AGENTS.md` section (registered via `opencode.json`'s `instructions[]`), skills discovered natively at `.opencode/skills/` (project) or `~/.config/opencode/skills/` (global), the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP servers merged into `opencode.json`'s `mcp` key |
-| [Pi](https://pi.dev/) | `pi` | Managed `AGENTS.md` section, skills discovered at `.pi/skills/` (project) or `~/.pi/agent/skills/` (global) via the `skills[]` array in `settings.json`, the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP delegated to the separate `pi-mcp-adapter` extension (not written by DoFlow) |
+| [Pi](https://pi.dev/) | `pi` | Managed `AGENTS.md` section, skills copied into `.pi/skills/` (project) or `~/.pi/agent/skills/` (global), with `settings.json` left untouched, the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP servers merged into `.pi/mcp.json` (project; Pi reads it only after you trust the project) or `~/.pi/agent/mcp.json` (global, or `$PI_CODING_AGENT_DIR/mcp.json`; Pi moves its whole agent dir with that variable, but DoFlow moves only `mcp.json`, so skills and `AGENTS.md` stay in `~/.pi/agent/`); the [capability map](capability-map.md) states the Pi version floor and the `pi-mcp-adapter` case |
 | [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli) | `copilot` | `.github/copilot-instructions.md` (DoFlow writes project scope only; a personal `~/.copilot/copilot-instructions.md` also exists upstream but receives nothing), skills at `.agents/skills/` (project) or `~/.agents/skills/` (global), agents at `.github/agents/` (project) or `~/.copilot/agents/` (global), the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP merged into `.mcp.json` (project) or `~/.copilot/mcp-config.json` (global) |
 | [Kiro](https://kiro.dev/) | `kiro` | Guidance projected as steering files under `.kiro/steering/` (project) or `~/.kiro/steering/` (global), skills at `.kiro/skills/`, the `doflow-run` dispatcher and runtime in the shared `.doflow/` tree, agents at `.kiro/agents/`, hooks at `.kiro/hooks/` (not in Kiro's untrusted-workspace exclusion list; whether its shell-command prompt covers hooks is undocumented), and MCP via `.kiro/settings/mcp.json` |
 | [Antigravity CLI](https://antigravity.google/) (`agy`) | `antigravity` | Managed `AGENTS.md` section (project), skills at `.agents/skills/`, shared agents at `.agents/agents/` (project) or `~/.gemini/config/agents/` (global), the runtime locator, the `doflow-run` dispatcher and runtime in the shared `.doflow/` tree (project scope only), and MCP merged into `.agents/mcp_config.json` / `~/.gemini/config/mcp_config.json` (remote servers project to `serverUrl`). Global instructions and user-scope skills are intentionally untouched — see the registry notes for why |
@@ -141,6 +141,13 @@ own docs asserted incorrectly for several releases. `~/.opencode/` is a plausibl
 OpenCode does not read; `src/adapters/opencode/index.js`'s `nativePaths()` is the authoritative
 implementation, confirmed against <https://opencode.ai/docs>.
 
+The runtime is shared by every harness in a project. A project install of any one harness writes the
+`doflow-run` dispatcher and the runtime into `<projectRoot>/.doflow/`, and a skill from any harness
+finds the dispatcher by walking up from its working directory, so the nearest `.doflow/` wins over
+`~/.doflow/`. The last install in a project therefore sets the runtime version that every harness's
+skills use there: installing an older DoFlow for one harness downgrades the runtime for all the others
+installed in that project until an install of a newer DoFlow replaces it.
+
 Gemini is the one target that writes to two directories in project scope, because its own config
 surface and its customization surface follow different conventions:
 
@@ -250,7 +257,7 @@ and a no-op update leaves the lock byte-untouched.
 | Scripts and templates | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓
 | Modes | ✓ | Native mode unavailable | Guidance projection | Guidance projection | Guidance projection | Guidance projection | Guidance projection (steering) | Guidance projection
 | Hooks and settings | ✓ | Hooks require trust/review; settings differ | Hooks merge into settings.json, require trust/review; some events unmapped | No hook projection (plugin module required); settings supported via `opencode.json` | No hook projection (extension module required); settings supported via `settings.json` | Hooks documented upstream but not projected (Claude-payload coupling); settings supported via named-key merge into `.github/copilot/settings.json` | Hooks supported via `.kiro/hooks/`, not in Kiro's untrusted-workspace exclusion list; no general settings file beyond MCP | Unavailable — projects into Gemini-compatible surfaces instead |
-| MCP registration | ✓ | ✓ | Native registration differs | ✓ (`opencode.json`) | Delegated to the separate `pi-mcp-adapter` extension, not written by DoFlow | ✓ (`.mcp.json` / `mcp-config.json`) | ✓ (`.kiro/settings/mcp.json`) | ✓ (`.agents/mcp_config.json` / `~/.gemini/config/mcp_config.json`) |
+| MCP registration | ✓ | ✓ | Native registration differs | ✓ (`opencode.json`) | ✓ (`.pi/mcp.json` / `~/.pi/agent/mcp.json`) | ✓ (`.mcp.json` / `mcp-config.json`) | ✓ (`.kiro/settings/mcp.json`) | ✓ (`.agents/mcp_config.json` / `~/.gemini/config/mcp_config.json`) |
 
 This is a capability contract, not a statement that every native surface is active after copying
 files. Verify installation in the target harness and review the [capability map](capability-map.md)
@@ -328,7 +335,7 @@ Use `/do` in Claude Code. In Codex, verify the managed `AGENTS.md` section, skil
 and any trusted hook/MCP configuration. In Gemini CLI, verify `GEMINI.md` and discovered skills;
 unavailable capability rows must remain unavailable rather than appearing as copied files. In
 OpenCode, verify `AGENTS.md` loads and that `opencode.json`'s `instructions[]` and `mcp` keys are
-populated. In Pi, verify `AGENTS.md` and the `skills[]` array in `settings.json`. In Copilot CLI,
+populated. In Pi, verify `AGENTS.md`, skill discovery under `.pi/skills/` (or `~/.pi/agent/skills/` globally), and any registered MCP servers in `.pi/mcp.json` (or `~/.pi/agent/mcp.json` globally). In Copilot CLI,
 verify the managed section in `.github/copilot-instructions.md`, skill discovery under
 `.agents/skills/`, and any registered MCP servers. In Kiro, verify the projected steering files
 under `.kiro/steering/`, skill discovery under `.kiro/skills/`, and hook files under `.kiro/hooks/`.

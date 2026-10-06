@@ -131,11 +131,13 @@ function flattenKeyPath(segments) {
 }
 
 /** A conservative TOML scanner. It validates the subset needed to safely locate scalar keys;
- * unsupported multi-line syntax fails closed rather than risking a destructive rewrite. */
+ * unsupported multi-line syntax fails closed rather than risking a destructive rewrite. `headers`
+ * lists each table header line in file order, so a caller never re-detects headers itself. */
 function parseToml(text) {
   const lines = text.split(/\r?\n/);
   let table = [];
   const entries = new Map();
+  const headers = [];
   for (let index = 0; index < lines.length; index++) {
     const clean = stripComment(lines[index]).trim();
     if (!clean) continue;
@@ -146,6 +148,7 @@ function parseToml(text) {
       const tablePath = parseKeyPath(tableMatch[1].trim());
       if (!tablePath) throw new Error(`Malformed or unsupported TOML table on line ${index + 1}`);
       table = tablePath;
+      headers.push({ line: index, table: flattenKeyPath(table) });
       continue;
     }
     if (clean.startsWith('[')) throw new Error(`Malformed or unsupported TOML table on line ${index + 1}`);
@@ -159,7 +162,7 @@ function parseToml(text) {
     if (entries.has(fullKey)) throw new Error(`Duplicate TOML key '${fullKey}'`);
     entries.set(fullKey, { value, line: index, table: flattenKeyPath(table) });
   }
-  return { lines, entries };
+  return { lines, entries, headers };
 }
 
 module.exports = { parseToml, stripComment };
