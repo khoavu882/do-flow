@@ -60,4 +60,20 @@ function coreTextFiles({ exclude = [] } = {}) {
   return out;
 }
 
-module.exports = { REPO, GUIDANCE, SKILLS, AGENT_SPECS, frontmatterKeys, skillFiles, agentSpecFiles, coreTextFiles };
+/** Every verb `doflow-run` dispatches: the shell-backed `shell_helper_for()` labels, the Node-backed
+ * `is_node_verb()` alternation, and `help`. `\r?\n` keeps the parse working on CRLF checkouts. */
+function dispatcherVerbs() {
+  const text = fs.readFileSync(path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run'), 'utf8');
+  const shellBlock = text.match(/shell_helper_for\(\)\s*\{([\s\S]*?)\r?\n\}/);
+  const nodeBlock = text.match(/is_node_verb\(\)\s*\{([\s\S]*?)\r?\n\}/);
+  const shell = shellBlock ? [...shellBlock[1].matchAll(/^\s*([a-z][a-z-]*)\)\s*printf/gm)].map(([, verb]) => verb) : [];
+  const alternation = nodeBlock?.[1].replace(/\\\r?\n/g, '').match(/^\s*([a-z|-]+)\)\s*return 0/m)?.[1];
+  const node = alternation ? alternation.split('|').map((verb) => verb.trim()).filter(Boolean) : [];
+  if (!shell.length) throw new Error('dispatcher verb table unparseable: shell_helper_for()');
+  if (!node.length) throw new Error('dispatcher verb table unparseable: is_node_verb()');
+  return new Set([...shell, ...node, 'help']);
+}
+
+module.exports = {
+  REPO, GUIDANCE, SKILLS, AGENT_SPECS, frontmatterKeys, skillFiles, agentSpecFiles, coreTextFiles, dispatcherVerbs,
+};

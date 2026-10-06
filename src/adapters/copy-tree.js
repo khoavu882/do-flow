@@ -79,6 +79,11 @@ const TRANSFORMS = {
     void sourceRel;
     return Buffer.from(`---\napplyTo: '**'\n---\n\n${stripFrontmatter(content.toString('utf8'))}`);
   },
+  /** Shared agent spec frontmatter -> only the keys Gemini CLI's subagent schema accepts */
+  'gemini-agents': (sourceRel, content) => {
+    void sourceRel;
+    return Buffer.from(filterGeminiAgentFrontmatter(content.toString('utf8')));
+  },
   /** Shared agent spec frontmatter -> OpenCode's markdown-agent vocabulary */
   'opencode-agents': (sourceRel, content) => {
     void sourceRel;
@@ -110,6 +115,25 @@ function renderClaudeOutputStyle(sourceRel, content) {
   const purpose = text.match(/\*\*Purpose\*\*[:*]*\s*(.+)?/);
   const description = (purpose && purpose[1] ? purpose[1] : `DoFlow ${base} mode`).trim().replace(/\s+/g, ' ');
   return ['---', `name: DoFlow: ${base}`, `description: ${JSON.stringify(description)}`, 'keep-coding-instructions: true', '---', '', text.replace(/\n*$/, ''), ''].join('\n');
+}
+
+/** The frontmatter keys Gemini CLI documents for a custom subagent (https://geminicli.com/docs/core/subagents, accessed 2026-10-06).
+ * Its agent schema is strict, so a spec key outside this list (DoFlow's `effort`) would be rejected. */
+const GEMINI_AGENT_KEYS = new Set(['name', 'description', 'kind', 'tools', 'mcpServers', 'model', 'temperature', 'max_turns', 'timeout_mins']);
+
+/** Keep only Gemini's documented top-level frontmatter keys, with their indented continuation
+ * lines, in source order. The body after the closing `---` passes through byte for byte, and a
+ * file without frontmatter is returned unchanged. */
+function filterGeminiAgentFrontmatter(text) {
+  const match = text.match(/^---\r?\n([\s\S]*?\r?\n)---(?=\r?\n|$)/);
+  if (!match) return text;
+  let keep = false;
+  const kept = match[1].split(/(?<=\n)/).filter((line) => {
+    const key = line.match(/^([A-Za-z][A-Za-z0-9_-]*):/);
+    if (key) keep = GEMINI_AGENT_KEYS.has(key[1]);
+    return keep;
+  });
+  return `${text.slice(0, text.indexOf('\n') + 1)}${kept.join('')}${text.slice(match[0].length - 3)}`;
 }
 
 const OPENCODE_READONLY_AGENTS = new Set(['spec-analyst', 'system-architect', 'quality-guardian', 'research-writer']);
@@ -170,10 +194,11 @@ function discoverTree({ sourceDir, destDir, fsImpl = fs, layout, transform }) {
  * `siblingReplaced` lists the harnesses whose recorded bytes this plan replaces: the file matches
  * neither the source nor this harness's own record, only a sibling's (forced or not).
  */
-function planTree({ sourceDir, destDir, previousResources = [], operation = 'apply', fsImpl = fs, layout, transform, force = false, siblingFingerprints = new Map() }) {
+function planTree({ sourceDir, destDir, previousResources = [], operation = 'apply', fsImpl = fs, layout, transform, force = false, keepModified = false, siblingFingerprints = new Map() }) {
   const prevByPath = new Map(previousResources.map((resource) => [resource.relPath, resource]));
   const changes = [];
   const conflicts = [];
+  const kept = [];
   const siblingReplaced = new Set();
 
   // Fingerprints the CURRENT source would write, keyed by destination. Resolved lazily and only
@@ -190,7 +215,7 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
     return sourceByDest.get(destAbs);
   };
 
-  const proposeRemoval = (prev) => {
+  const proposeRemoval = (prev, { relocated = false } = {}) => {
     // prev's OWN recorded location, not the current destDir — an asset whose nativeDir changed
     // since prev was recorded must be removed from where it actually is, not from where it would
     // land today. Absent (pre-this-fix data, or a caller-constructed previousResources entry with
@@ -207,7 +232,17 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
     // as an un-releasable claim instead of a refused install. A hand edit matches neither and is
     // still refused. The OBSERVED fingerprint travels with the change so removeTree's own
     // pre-delete re-check agrees with the decision taken here rather than throwing mid-apply.
-    if (!force && current !== prev.fingerprint && current !== sourceFingerprint(destAbs)) {
+    const modified = current !== prev.fingerprint && current !== sourceFingerprint(destAbs);
+    // A row left behind by an apply (the asset moved, or its source file went away) is released,
+    // and a hand edit there is the user's, not DoFlow's: with `keepModified` the file stays where
+    // it is, force or not, and only the ledger row goes. The change carries `kept` so removeTree
+    // skips it and the caller can say so.
+    if (relocated && keepModified && modified) {
+      kept.push({ relPath: prev.relPath, target: destAbs });
+      changes.push({ relPath: prev.relPath, target: destAbs, operation: 'remove', fingerprint: current, kept: true });
+      return;
+    }
+    if (!force && modified) {
       conflicts.push(`${prev.relPath} was modified outside DoFlow`);
       return;
     }
@@ -216,7 +251,7 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
 
   if (operation === 'remove') {
     for (const prev of previousResources) proposeRemoval(prev);
-    return { changes, conflicts, siblingReplaced: [] };
+    return { changes, conflicts, kept, siblingReplaced: [] };
   }
 
   const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout, transform });
@@ -259,9 +294,9 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
       operation: sameLocation ? 'update' : 'create', fingerprint: file.fingerprint });
   }
   for (const prev of previousResources) {
-    if (!satisfiedAtSameLocation.has(prev.relPath)) proposeRemoval(prev);
+    if (!satisfiedAtSameLocation.has(prev.relPath)) proposeRemoval(prev, { relocated: true });
   }
-  return { changes, conflicts, siblingReplaced: [...siblingReplaced].sort() };
+  return { changes, conflicts, kept, siblingReplaced: [...siblingReplaced].sort() };
 }
 
 /** Write every create/update change. Preserves the source file's mode (so a hook script's +x
@@ -296,7 +331,7 @@ function applyTree({ changes = [], fsImpl = fs, transform }) {
 function removeTree({ changes = [], fsImpl = fs }) {
   let removed = 0;
   for (const change of changes) {
-    if (change.operation !== 'remove') continue;
+    if (change.operation !== 'remove' || change.kept) continue;
     if (!fsImpl.existsSync(change.target)) continue;
     const current = sha256(fsImpl.readFileSync(change.target));
     if (current !== change.fingerprint) throw new Error(`Refusing to remove modified copy-tree resource: ${change.relPath}`);

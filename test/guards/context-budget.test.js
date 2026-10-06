@@ -12,7 +12,9 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { GUIDANCE } = require('./_shared');
+const { REPO, GUIDANCE } = require('./_shared');
+const { resolveTransform } = require('../../src/adapters/copy-tree');
+const { WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings');
 
 const ROOT_FILE = path.join(GUIDANCE, 'DOFLOW_CORE.md');
 
@@ -38,6 +40,11 @@ const CEILING_BYTES = 10245;
 const GENERATED_EXCLUSIONS = new Map([
   ['MCP_INDEX.md', 'generated per install from the servers actually selected; size varies per machine'],
 ]);
+
+/** Newline-separated lines, without the empty line a trailing newline would add. */
+function lineCount(text) {
+  return text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+}
 
 /** `@relative/path.md` at the start of a line — the import syntax DOFLOW_CORE.md actually uses. */
 function importsIn(text) {
@@ -66,7 +73,7 @@ function alwaysLoaded() {
     const full = path.join(GUIDANCE, rel);
     if (!fs.existsSync(full)) { dangling.push(rel); continue; }
     const text = fs.readFileSync(full, 'utf8');
-    files.push({ rel, bytes: Buffer.byteLength(text, 'utf8') });
+    files.push({ rel, lines: lineCount(text), bytes: Buffer.byteLength(text, 'utf8') });
     for (const target of importsIn(text)) {
       queue.push(path.normalize(path.join(path.dirname(rel), target)));
     }
@@ -114,6 +121,98 @@ test('G13: the DoFlow-authored always-loaded set stays within its byte ceiling',
     + '  out of the files above, or — if the ceiling genuinely cannot hold — raise CEILING_BYTES\n'
     + '  in this file in its own reviewed commit stating the new number and its cost (RK4).\n'
     + `  Excluded by design: ${[...GENERATED_EXCLUSIONS.keys()].join(', ')} (generated per install).`);
+});
+
+/** Every `*.md` under `dir` (repo-relative), depth first. */
+function markdownUnder(dir) {
+  return fs.readdirSync(path.join(REPO, dir), { withFileTypes: true }).flatMap((entry) => {
+    const rel = path.join(dir, entry.name);
+    if (entry.isDirectory()) return markdownUnder(rel);
+    return entry.name.endsWith('.md') ? [rel] : [];
+  });
+}
+
+/** Lines and bytes of every `*.md` under a directory, or of one file, after an optional transform. */
+function measureSource(sourceRel, transform) {
+  const full = path.join(REPO, sourceRel);
+  const names = fs.statSync(full).isDirectory() ? markdownUnder(sourceRel) : [sourceRel];
+  return names.reduce((total, rel) => {
+    let bytes = fs.readFileSync(path.join(REPO, rel));
+    if (transform) bytes = transform(rel, bytes);
+    return { lines: total.lines + lineCount(bytes.toString('utf8')), bytes: total.bytes + bytes.length };
+  }, { lines: 0, bytes: 0 });
+}
+
+/**
+ * What each harness loads before the user types, classified from the registry rather than named per
+ * harness: a harness's projections and `WHOLESALE_ASSETS` decide which components it pays for. A
+ * harness no condition matches is refused, so a ninth harness cannot be reported as costing nothing.
+ */
+function alwaysLoadedByHarness({ harnesses, assets }, wholesale) {
+  const walk = alwaysLoaded().files;
+  const projection = (harness, assetId) => assets.find((asset) => asset.id === assetId)?.projection?.[harness];
+  const sourceOf = (assetId) => assets.find((asset) => asset.id === assetId).source;
+  return harnesses.map(({ id }) => {
+    const parts = [];
+    const add = (basis, size) => parts.push({ basis, ...size });
+    if (projection(id, 'guidance.core')) {
+      add('pointer', measureSource(sourceOf('guidance.core')));
+      add('+ @import walk', {
+        lines: walk.reduce((n, file) => n + file.lines, 0), bytes: walk.reduce((n, file) => n + file.bytes, 0),
+      });
+    }
+    if (projection(id, 'guidance.codex-pointer')) {
+      add('pointer; DOFLOW_CORE.md read on instruction', measureSource(sourceOf('guidance.codex-pointer')));
+    }
+    const copilot = projection(id, 'instructions.copilot');
+    if (copilot) {
+      add("+ rules as applyTo '**'", measureSource(sourceOf('instructions.copilot'), resolveTransform(copilot.transform)));
+    }
+    if (projection(id, 'rules.antigravity')) add('+ rules copy', measureSource(sourceOf('rules.antigravity')));
+    if ((wholesale[id] ?? []).includes('guidance.context-layer')) {
+      add('whole guidance tree as steering', measureSource(sourceOf('guidance.context-layer')));
+    }
+    if (!parts.length) throw new Error(`no always-loaded rule for harness ${id}; classify it in alwaysLoadedByHarness`);
+    return {
+      harness: id,
+      basis: parts.map((part) => part.basis).join(' '),
+      lines: parts.reduce((n, part) => n + part.lines, 0),
+      bytes: parts.reduce((n, part) => n + part.bytes, 0),
+    };
+  });
+}
+
+const readRegistry = () => ({
+  harnesses: JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.json'), 'utf8')).harnesses,
+  assets: JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'assets.json'), 'utf8')).assets,
+});
+
+test('G13: the always-loaded size view reports lines and bytes per file and per harness projection', (t) => {
+  const { files } = alwaysLoaded();
+  for (const { rel, lines, bytes } of files) t.diagnostic(`always-loaded ${rel} ${lines} lines ${bytes} B`);
+  const lines = files.reduce((n, file) => n + file.lines, 0);
+  const bytes = files.reduce((n, file) => n + file.bytes, 0);
+  t.diagnostic(`always-loaded TOTAL ${lines} lines ${bytes} B (ceiling ${CEILING_BYTES})`);
+
+  const registry = readRegistry();
+  const rows = alwaysLoadedByHarness(registry, WHOLESALE_ASSETS);
+  assert.deepEqual(rows.map((row) => row.harness), registry.harnesses.map((harness) => harness.id),
+    'the size view must report every harness of harnesses.json');
+  for (const row of rows) {
+    assert.ok(row.bytes > 0, `${row.harness} measured 0 bytes; its projection sources stopped resolving`);
+    t.diagnostic(`projection ${row.harness} ${row.lines} lines ${row.bytes} B (${row.basis})`);
+  }
+});
+
+test('G13: controls — a harness no condition matches is refused', () => {
+  const { assets } = readRegistry();
+  assert.throws(
+    () => alwaysLoadedByHarness({ harnesses: [{ id: 'ghost' }], assets }, WHOLESALE_ASSETS),
+    /no always-loaded rule for harness ghost; classify it in alwaysLoadedByHarness/);
+  const [claude] = alwaysLoadedByHarness({ harnesses: [{ id: 'claude' }], assets }, WHOLESALE_ASSETS);
+  assert.equal(claude.basis, 'pointer + @import walk');
+  assert.ok(claude.bytes > alwaysLoaded().files.reduce((n, file) => n + file.bytes, 0),
+    'a harness importing the walk must pay for the walk plus its pointer');
 });
 
 // ── G13 (same budget family): loaded context per representative task ─────────────────────────────

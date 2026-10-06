@@ -201,7 +201,7 @@
         "gemini": {
           "renderer": "copy-tree",
           "capability": "agents",
-          "layout": "dir-per-file:agent.md"
+          "transform": "gemini-agents"
         },
         "copilot": {
           "renderer": "copilot-agents",
@@ -226,7 +226,7 @@
       "nativeDir": {
         "claude": "agents",
         "codex": "agents",
-        "gemini": "agents",
+        "gemini": "../.gemini/agents",
         "copilot": "agents",
         "kiro": "agents",
         "antigravity": ".agents/agents",

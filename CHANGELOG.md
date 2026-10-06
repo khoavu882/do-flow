@@ -13,6 +13,26 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.16.0] - 2026-10-06
+
+### Added
+
+- G23 (`test/guards/hidden-unicode.test.js`) fails on Unicode tag characters, zero-width and bidirectional controls in shipped prose and code.
+- G24 (`test/guards/instruction-lint.test.js`) checks that `doflow-run` verbs and anchored path references in guidance, skills, agent specs and pointers exist, and flags declared opposite-default pairs; exceptions are declared with a reason in `test/guards/instruction-lint.json`.
+- G22 guards the total of all skill descriptions against Codex's 8,000-character fallback, and G13 prints the always-loaded size per file and per harness projection.
+
+### Changed
+
+- The Codex registry rows record all 12 hook events (`PermissionRequest`, `PostCompact` and `Interrupt` as `different`) and cite learn.chatgpt.com; the Copilot row records the global `~/.copilot/copilot-instructions.md`; the Kiro hook-trust note says untrusted workspaces still ask before shell commands. The format-drift baseline is refreshed.
+
+### Fixed
+
+- Gemini agents were installed where Gemini CLI does not read them and with a frontmatter key its schema rejects. They are now written flat to `.gemini/agents/<name>.md` (project) and `~/.gemini/agents/<name>.md` (global) with only the documented keys; Antigravity keeps its folder form. An update moves installed agents, and a hand-edited agent at the old path is kept with a notice naming it.
+
+### Known limits
+
+- Gemini CLI discovery of the new layout was verified against its documentation and the installed files, not by running the CLI.
+
 ## [1.15.0] - 2026-10-05
 
 ### Added
