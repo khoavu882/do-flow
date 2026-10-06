@@ -566,10 +566,11 @@ test('F6: the report carries the ceiling over both arms, and a breach only warns
 
 // --- without-skill arm (F1 withheld rows, F4 arm part, F6 arm part, F7 arm part) ----------------
 
-function withheldRun(name, { record, transcript = 'ran', output = null }) {
+function withheldRun(name, { record, transcript = 'ran', output = null, invoked = null }) {
   const dir = path.join(scratch.dir, `withheld-${name}`);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'transcript.txt'), transcript);
+  if (invoked !== null) fs.writeFileSync(path.join(dir, 'invoked_skills.json'), JSON.stringify(invoked));
   if (record !== undefined) fs.writeFileSync(path.join(dir, runner.RUN_SOURCE_FILE), typeof record === 'string' ? record : JSON.stringify(record));
   if (output !== null) {
     fs.mkdirSync(path.join(dir, 'outputs'), { recursive: true });
@@ -606,10 +607,51 @@ test('F1: withheld provenance is withheld, leaked or unrecorded', () => {
   assert.equal(status('other-skill', { record: { skill: 'x', withheld: true }, transcript: 'read skills/y/SKILL.md' }), 'withheld');
 });
 
+test('F1: a record naming another skill is unrecorded, not withheld', () => {
+  const other = runner.classifyWithheld('x', withheldRun('other-record', { record: { skill: 'y', withheld: true } }));
+  assert.equal(other.status, 'unrecorded');
+  assert.match(other.evidence, /records skill "y", not x/);
+  assert.equal(runner.classifyWithheld('x', withheldRun('no-skill-field', { record: { withheld: true } })).status, 'withheld');
+});
+
+test('F1: a non-empty invoked_skills.json holding the skill is leaked, and one without it is not', () => {
+  const record = { skill: 'x', withheld: true };
+  const hit = runner.classifyWithheld('x', withheldRun('invoked-hit', { record, invoked: ['y', 'x'] }));
+  assert.equal(hit.status, 'leaked');
+  assert.match(hit.evidence, /invoked_skills\.json/);
+  assert.equal(runner.classifyWithheld('x', withheldRun('invoked-hit-bare', { invoked: ['x'] })).status, 'leaked');
+  assert.equal(runner.classifyWithheld('x', withheldRun('invoked-miss', { record, invoked: ['y'] })).status, 'withheld');
+  assert.equal(runner.classifyWithheld('x', withheldRun('invoked-empty', { record, invoked: [] })).status, 'withheld');
+});
+
+test('F1: a backslash path to the skill file is leaked, in the transcript or the outputs', () => {
+  const record = { skill: 'x', withheld: true };
+  assert.equal(runner.classifyWithheld('x', withheldRun('win-transcript', { record, transcript: 'read core\\shared\\skills\\x\\SKILL.md' })).status, 'leaked');
+  assert.equal(runner.classifyWithheld('x', withheldRun('win-outputs', { record, output: 'C:\\repo\\.claude\\skills\\x/SKILL.md' })).status, 'leaked');
+  assert.equal(runner.classifyWithheld('x', withheldRun('win-other', { record, transcript: 'skills\\y\\SKILL.md' })).status, 'withheld');
+});
+
+test('F1: a record that is not an object is told apart from an absent one', () => {
+  const absent = runner.classifyWithheld('x', withheldRun('shape-absent', {}));
+  assert.equal(absent.status, 'unrecorded');
+  assert.match(absent.evidence, /no skill_source\.json saved/);
+  for (const [name, record] of [['null', 'null'], ['false', 'false'], ['array', '[1]'], ['number', '0']]) {
+    const g = runner.classifyWithheld('x', withheldRun(`shape-${name}`, { record }));
+    assert.equal(g.status, 'unrecorded', name);
+    assert.match(g.evidence, /is not a JSON object/, name);
+    assert.doesNotMatch(g.evidence, /no skill_source\.json saved/, name);
+  }
+  assert.match(runner.classifyWithheld('x', withheldRun('shape-bad', { record: '{nope' })).evidence, /is not valid JSON/);
+});
+
+// The request a without-skill run gets: the case's prompt without its leading `/<skill>` token.
+const withoutPrompt = (c) => c.prompt.replace(new RegExp(`^/${c.skill}(?=\\s|$)\\s*`), '');
+const withoutRunnable = (c) => c.kind === 'behavioral' && withoutPrompt(c).trim() !== '';
+
 test('F4: --arm without-skill adds one run per behavioral case, placed after its with-skill run', () => {
   const cfg = runner.loadConfig();
   const cases = corpusCases();
-  const behavioral = cases.filter((c) => c.kind === 'behavioral');
+  const behavioral = cases.filter(withoutRunnable);
   const plan = runner.buildPlan(cfg, { iteration: 'fixture', arm: 'without-skill' });
   assert.equal(plan.runCount, cases.length + behavioral.length);
   assert.equal(plan.filters.arm, 'without-skill');
@@ -640,8 +682,70 @@ test('F4: --arm without-skill adds one run per behavioral case, placed after its
 test('F4: --split filters both arms', () => {
   const cases = corpusCases().filter((c) => c.split === 'heldout');
   const plan = runner.buildPlan(runner.loadConfig(), { iteration: 'fixture', split: 'heldout', arm: 'without-skill' });
-  assert.equal(plan.runCount, cases.length + cases.filter((c) => c.kind === 'behavioral').length);
+  assert.equal(plan.runCount, cases.length + cases.filter(withoutRunnable).length);
   assert.ok(plan.runs.every((r) => r.split === 'heldout'));
+});
+
+test('F4: a without-skill run drops the leading /<skill> token, and a case with nothing left has no such run', () => {
+  const plan = runner.buildPlan(runner.loadConfig(), { iteration: 'fixture', arm: 'without-skill' });
+  const withSkillPrompt = (skill, id) => plan.runs.find((r) => r.arm === 'with-skill' && r.skill === skill && r.evalId === id).prompt;
+  const without = plan.runs.filter((r) => r.arm === 'without-skill');
+  for (const r of without) {
+    assert.equal(r.prompt, withoutPrompt(corpusCases().find((c) => c.skill === r.skill && c.id === r.evalId)), `${r.skill}/${r.evalId}`);
+    assert.ok(r.prompt.trim() !== '' && !r.prompt.startsWith(`/${r.skill}`), `${r.skill}/${r.evalId}: ${r.prompt}`);
+  }
+  const byKey = (skill, id) => without.find((r) => r.skill === skill && r.evalId === id);
+  assert.equal(byKey('do-git', 2).prompt, 'force push this to main');
+  assert.ok(byKey('do', 2).prompt.startsWith('--estimate '));
+  assert.equal(byKey('do-plan', 2).prompt, '--depth normal');
+  // The with-skill prompt keeps its token.
+  assert.equal(withSkillPrompt('do-git', 2), '/do-git force push this to main');
+  // A prompt that was only the token has nothing to measure.
+  const dropped = corpusCases().filter((c) => c.kind === 'behavioral' && withoutPrompt(c).trim() === '').map((c) => `${c.skill}/${c.id}`);
+  assert.ok(dropped.length > 0);
+  for (const key of dropped) assert.equal(without.some((r) => `${r.skill}/${r.evalId}` === key), false, key);
+});
+
+test('F4: the without-skill create command removes the skill, then hides the removal from git', () => {
+  const plan = runner.buildPlan(runner.loadConfig(), { iteration: 'fixture', skill: 'do-git', arm: 'without-skill' });
+  const { create } = plan.runs.find((r) => r.arm === 'without-skill').sandbox;
+  assert.ok(create.includes("D=['.claude/skills/do-git','core/shared/skills/do-git']"));
+  const at = (text) => create.indexOf(text);
+  assert.ok(at('fs.rmSync') > at('createSandbox') && at("'ls-files','-z','--',...D") > at('fs.rmSync'));
+  assert.ok(at("'update-index','--skip-worktree','-z','--stdin'") > at("'ls-files'"));
+  assert.ok(create.includes('withheld=do-git'));
+});
+
+test('F4: in a real sandbox the removed skill files are skip-worktree, so git status and git diff stay silent', () => {
+  // A scratch clone stands in for the checkout: the create command makes a worktree under .doflow/
+  // of whatever directory it runs in, and this test must not make one beside the developer's work.
+  const clone = path.join(scratch.dir, 'create-clone');
+  const cloned = spawnSync('git', ['clone', '-q', '--no-hardlinks', path.resolve(__dirname, '../..'), clone], { encoding: 'utf8', env: scratch.env() });
+  assert.equal(cloned.status, 0, cloned.stderr);
+  const plan = runner.buildPlan(runner.loadConfig(), { iteration: 'fixture', skill: 'do-git', arm: 'without-skill' });
+  const { create, workingDir } = plan.runs.find((r) => r.arm === 'without-skill').sandbox;
+  const made = spawnSync('sh', ['-c', create], { cwd: clone, encoding: 'utf8', env: scratch.env() });
+  assert.equal(made.status, 0, made.stderr);
+  assert.match(made.stdout, /withheld=do-git/);
+  const sandbox = path.join(clone, workingDir);
+  assert.equal(fs.existsSync(path.join(sandbox, 'core', 'shared', 'skills', 'do-git')), false);
+  assert.equal(fs.existsSync(path.join(sandbox, '.claude', 'skills', 'do-git')), false);
+  const git = (...args) => spawnSync('git', args, { cwd: sandbox, encoding: 'utf8', env: scratch.env() }).stdout;
+  const seen = [git('status', '--short'), git('diff'), git('diff', 'HEAD')].join('\n');
+  assert.doesNotMatch(seen, /do-git/);
+  // The other skills are still there, so the hiding is not a blanket one.
+  assert.equal(fs.existsSync(path.join(sandbox, 'core', 'shared', 'skills', 'do-plan', 'SKILL.md')), true);
+  const dir = path.join(scratch.dir, 'create-run');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'transcript.txt'), seen);
+  fs.writeFileSync(path.join(dir, runner.RUN_SOURCE_FILE), JSON.stringify({ skill: 'do-git', withheld: true }));
+  assert.equal(runner.classifyWithheld('do-git', runner.loadRunContext(dir)).status, 'withheld');
+  // Without the marking, the same removal is what git status prints, and it grades leaked.
+  const files = git('ls-files', '-v').split('\n').filter((l) => l.startsWith('S ')).map((l) => l.slice(2)).join('\n');
+  assert.ok(files.includes('core/shared/skills/do-git/SKILL.md'));
+  spawnSync('git', ['update-index', '--no-skip-worktree', '--stdin'], { cwd: sandbox, input: files, env: scratch.env() });
+  fs.writeFileSync(path.join(dir, 'transcript.txt'), git('status', '--short'));
+  assert.equal(runner.classifyWithheld('do-git', runner.loadRunContext(dir)).status, 'leaked');
 });
 
 test('F4: an invalid --arm value, or --arm on another command, exits 2 with the stated message', () => {

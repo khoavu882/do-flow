@@ -277,6 +277,7 @@ function loadRunContext(runDir) {
     invokedSkills: fs.existsSync(invokedFile) ? readJson(invokedFile) : [],
     hasTranscript: fs.existsSync(transcriptFile),
     skillSource,
+    hasSkillSource: fs.existsSync(sourceFile),
     routing,
     outputFiles,
     // Concatenated so one regex sweeps every artifact — an assertion about what a run produced
@@ -490,35 +491,36 @@ function verifySkillSource(cfg, skill, ctx) {
  * The sandbox no longer holds the skill, but `~/.claude/skills/` is outside it and a by-name lookup
  * reaches it, so withholding is checked rather than assumed. A run that reads the skill's SKILL.md
  * anywhere is `leaked` and its pass rate is not a without-skill measurement; one that saved no
- * record is `unrecorded`, never `withheld`, because silence is not proof.
+ * record, one that is not an object, or one naming another skill is `unrecorded`, never `withheld`,
+ * because silence is not proof. A skill listed in `invoked_skills.json` is `leaked` as well.
  */
 function classifyWithheld(skill, ctx) {
+  const unrecorded = (evidence) => ({ status: 'unrecorded', recordedPath: null, evidence });
+  const leaked = (evidence, recordedPath = null) => ({ status: 'leaked', recordedPath, evidence });
+  // A skill the run loaded through the Skill tool is a leak whatever else it recorded.
+  if (Array.isArray(ctx.invokedSkills) && ctx.invokedSkills.includes(skill)) {
+    return leaked('invoked_skills.json lists the skill: the run loaded it');
+  }
   const rec = ctx.skillSource;
-  if (!rec || rec.malformed) {
-    return {
-      status: 'unrecorded',
-      recordedPath: null,
-      evidence: rec
-        ? `${RUN_SOURCE_FILE} is not valid JSON — cannot tell whether the skill was withheld`
-        : `no ${RUN_SOURCE_FILE} saved — cannot tell whether the skill was withheld`,
-    };
+  if (!ctx.hasSkillSource) return unrecorded(`no ${RUN_SOURCE_FILE} saved — cannot tell whether the skill was withheld`);
+  if (rec && rec.malformed) return unrecorded(`${RUN_SOURCE_FILE} is not valid JSON — cannot tell whether the skill was withheld`);
+  if (rec === null || typeof rec !== 'object' || Array.isArray(rec)) {
+    return unrecorded(`${RUN_SOURCE_FILE} is not a JSON object — cannot tell whether the skill was withheld`);
+  }
+  if (rec.skill !== undefined && rec.skill !== skill) {
+    return unrecorded(`${RUN_SOURCE_FILE} records skill ${JSON.stringify(rec.skill)}, not ${skill} — cannot tell whether ${skill} was withheld`);
   }
   const recordedPath = rec.path === undefined ? null : rec.path;
   if (rec.withheld !== true || recordedPath !== null) {
-    return {
-      status: 'leaked',
+    return leaked(
+      recordedPath !== null ? `${RUN_SOURCE_FILE} records a path (${recordedPath}): the run read a skill file` : `${RUN_SOURCE_FILE} does not record withheld: true`,
       recordedPath,
-      evidence: recordedPath !== null
-        ? `${RUN_SOURCE_FILE} records a path (${recordedPath}): the run read a skill file`
-        : `${RUN_SOURCE_FILE} does not record withheld: true`,
-    };
+    );
   }
   const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const read = new RegExp(`skills/${escaped}/SKILL\\.md`);
+  const read = new RegExp(`skills[\\\\/]${escaped}[\\\\/]SKILL\\.md`);
   const where = read.test(ctx.transcript) ? 'transcript' : read.test(ctx.outputsText) ? 'outputs' : null;
-  if (where) {
-    return { status: 'leaked', recordedPath: null, evidence: `the ${where} names skills/${skill}/SKILL.md: the run reached the skill` };
-  }
+  if (where) return leaked(`the ${where} names skills/${skill}/SKILL.md: the run reached the skill`);
   return { status: 'withheld', recordedPath: null, evidence: `${RUN_SOURCE_FILE} records withheld: true and no skills/${skill}/SKILL.md was read` };
 }
 
@@ -634,10 +636,18 @@ const SKILL_RESOLUTION = {
 /**
  * The same case run with the skill under test withheld. The create step deletes the skill's copies
  * from the sandbox after `createSandbox` projected them, so the bench carries no change to the
- * worktree code. `~/.claude/skills` is outside any sandbox and cannot be removed this way; a run
- * that reaches it is caught at grading as `leaked`, not prevented here.
+ * worktree code. The tracked copy is marked skip-worktree so its deletion does not show in the
+ * sandbox's `git status` or `git diff`, where the path would read as the run reaching the skill.
+ * `~/.claude/skills` is outside any sandbox and cannot be removed this way; a run that reaches it is
+ * caught at grading as `leaked`, not prevented here.
+ *
+ * The request is the case's prompt without its leading `/<skill>` token, which names the very skill
+ * being withheld. A case with nothing left has no request to measure and yields no run.
  */
 function withoutSkillRun(cfg, skill, e, withSkill) {
+  const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const prompt = e.prompt.replace(new RegExp(`^/${escaped}(?=\\s|$)\\s*`), '');
+  if (prompt.trim() === '') return null;
   const sandboxId = `${withSkill.sandbox.id}${WITHOUT_SKILL_SANDBOX_SUFFIX}`;
   const workingDir = path.join('.doflow', 'worktrees', sandboxId);
   const skillDirs = [path.posix.join(...SANDBOX_SKILLS_DIR.split(path.sep), skill), path.posix.join(cfg.skillsRoot, skill)];
@@ -648,13 +658,13 @@ function withoutSkillRun(cfg, skill, e, withSkill) {
     kind: e.kind,
     split: e.split,
     arm: 'without-skill',
-    prompt: e.prompt,
+    prompt,
     expectedOutput: e.expected_output,
     model: cfg.model,
     sandbox: {
       required: true,
       id: sandboxId,
-      create: `node -e "${WT_REQUIRE}const r=m.createSandbox('${sandboxId}');const fs=require('fs'),p=require('path');for(const d of [${skillDirs.map((d) => `'${d}'`).join(',')}])fs.rmSync(p.join(r.path,d),{recursive:true,force:true});console.log(r.path+' withheld=${skill}')"`,
+      create: `node -e "${WT_REQUIRE}const r=m.createSandbox('${sandboxId}');const fs=require('fs'),p=require('path'),cp=require('child_process'),D=[${skillDirs.map((d) => `'${d}'`).join(',')}];for(const d of D)fs.rmSync(p.join(r.path,d),{recursive:true,force:true});const o=cp.execFileSync('git',['ls-files','-z','--',...D],{cwd:r.path});if(o.length)cp.execFileSync('git',['update-index','--skip-worktree','-z','--stdin'],{cwd:r.path,input:o});console.log(r.path+' withheld=${skill}')"`,
       remove: `node -e "${WT_REQUIRE}m.remove('${sandboxId}')"`,
       workingDir,
     },
@@ -728,7 +738,8 @@ function buildPlan(cfg, opts) {
         outputDir: path.join(cfg.benchRoot, 'runs', opts.iteration, skill, `eval-${e.id}-${e.name}`),
         saveOutputs: ['transcript.txt', 'invoked_skills.json', RUN_SOURCE_FILE, RUN_TIMING_FILE, 'outputs/', ...(e.kind === 'triggering' ? [RUN_ROUTING_FILE] : [])],
       });
-      if (opts.arm === 'without-skill' && e.kind === 'behavioral') runs.push(withoutSkillRun(cfg, skill, e, runs[runs.length - 1]));
+      const without = opts.arm === 'without-skill' && e.kind === 'behavioral' ? withoutSkillRun(cfg, skill, e, runs[runs.length - 1]) : null;
+      if (without) runs.push(without);
     }
   }
   // Each run is projected at what the committed baseline recorded for the same case. A case with no

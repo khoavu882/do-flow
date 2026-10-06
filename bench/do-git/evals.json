@@ -56,7 +56,7 @@
       "split": "heldout",
       "name": "git-concept-question-does-not-route",
       "prompt": "Explain the difference between git rebase and git merge.",
-      "expected_output": "do-git does not route this request; it belongs to no git operation",
+      "expected_output": "do-git does not route this request; it asks for no git operation",
       "files": [],
       "assertions": [
         {
