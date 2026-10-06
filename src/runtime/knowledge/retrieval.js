@@ -140,11 +140,11 @@ function searchGuidance({ corpusDir, indexDir, query, k = 5, fsImpl = fs } = {})
 
 /** CLI handler for `doflow retrieve`. The corpus is the caller's installed guidance tree; the
  * index lives beside it under `.doflow/index/`. Same two-roots posture as readiness: templates and
- * code from this install, knowledge from the project being worked on. The `.doflow` root is the one
- * the dispatcher resolves (nearest above `stateRoot`, else the home install), so a subdirectory or a
- * global-only install finds the same tree. */
+ * code from this install, knowledge from the project being worked on. The `.doflow` root is
+ * $DOFLOW_CONFIG_DIR, else the nearest one above `stateRoot` that holds a guidance tree, else the
+ * home install; the index is kept beside the corpus chosen. */
 function handleRetrieveCommand({ query, top, json = false, stateRoot } = {}) {
-  const { configDir } = resolveRunsLocation({ start: stateRoot });
+  const { configDir } = resolveRunsLocation({ start: stateRoot, containing: 'guidance' });
   const corpusDir = path.join(configDir, 'guidance');
   const indexDir = path.join(configDir, 'index', 'guidance');
   if (!query || !String(query).trim()) {

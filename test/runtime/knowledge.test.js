@@ -158,6 +158,15 @@ test('retrieve answers after a Kiro-only install, whose steering copy is not the
   assert.ok(retrieveFrom(project, home).some((hit) => hit.path !== 'MCP_INDEX.md'), 'the shared guidance tree is installed and indexed');
 });
 
+test('retrieve skips a project .doflow that holds state but no guidance tree and answers from home', () => {
+  const project = fs.realpathSync(scratch()); const home = fs.realpathSync(scratch());
+  fixtureCorpus(home);
+  fs.mkdirSync(path.join(project, '.doflow', 'state'), { recursive: true });
+  assert.ok(retrieveFrom(project, home).some((hit) => hit.path === 'safety.md'));
+  assert.ok(fs.existsSync(path.join(home, '.doflow', 'index', 'guidance')), 'the index sits beside the home corpus');
+  assert.ok(!fs.existsSync(path.join(project, '.doflow', 'index')), 'nothing is indexed into the project without a corpus');
+});
+
 test('retrieve prefers the nearest project tree over the home tree', () => {
   const project = fs.realpathSync(scratch()); const home = fs.realpathSync(scratch());
   fixtureCorpus(home);
