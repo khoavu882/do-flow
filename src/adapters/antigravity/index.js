@@ -8,8 +8,9 @@
 //   skills       — folder-form copy-tree into project .agents/skills (user scope deliberately
 //     skipped: CLI pages document flat files there while desktop docs document folders).
 //   agents       — copy-tree into project .agents/agents or user ~/.gemini/config/agents.
-//   mcp          — mcpServers object merged into .agents/mcp_config.json (workspace) or
-//     ~/.gemini/config/mcp_config.json (user); remote url/httpUrl projects to serverUrl.
+//   mcp          — entries of the mcpServers object in .agents/mcp_config.json (workspace) or
+//     ~/.gemini/config/mcp_config.json (user), owned one at a time through ../mcp-entries.js;
+//     remote url/httpUrl projects to serverUrl.
 //   hooks        — native-payload shims (bash + jq translating Antigravity's stdin/stdout
 //     {decision} contract): the pre-implementation gate on PreToolUse and the stop check on Stop,
 //     each registered under its own named hooks.json group.
@@ -21,8 +22,11 @@ const path = require('node:path');
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
+const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries');
 
 const HARNESS = 'antigravity';
+const MCP_CONTAINER = 'mcpServers';
+const MCP_RENDERER = 'antigravity-mcp';
 
 /** copy-tree's readJson distinguishes absent/unparseable via an {exists,value,error} envelope;
  * every caller here wants the plain object or {}. */
@@ -181,11 +185,24 @@ function createAntigravityAdapter({ declaredPaths = DEFAULT_DECLARED_PATHS } = {
 
 const singleton = createAntigravityAdapter();
 
+/** The scope's paths exactly as plan() and verify() resolve them, so discovery reads the same files. */
+function scopePaths(options, resolvePaths = singleton.nativePaths) {
+  return resolvePaths({ ...options, scope: options.scope ?? 'project', homeDir: options.context?.homeDir });
+}
+
+function ledgerResources(options) {
+  return options.ledger?.resources ?? options.managedResources ?? [];
+}
+
+/** Discovery keeps the MCP files as plan read them (`mcpSnapshot`), which verify compares against,
+ * and reports the servers DoFlow owns in mcp_config.json now (`mcpOwned`). */
 function discover(options, { fsImpl = fs, nativePaths: resolvePaths = singleton.nativePaths } = {}) {
-  const paths = resolvePaths(options);
+  const paths = scopePaths(options, resolvePaths);
   const instruction = paths.instruction && fsImpl.existsSync(paths.instruction)
     ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
-  return { paths, instruction, mcp: readJsonObject(paths.mcpFile, { fsImpl }) };
+  const entries = mcpEntriesInput({ paths, mcp: options.mcp, mcpAdoptable: options.mcpAdoptable, resources: ledgerResources(options) });
+  const mcpSnapshot = readMcpFiles({ file: entries.file, ownRows: entries.ownRows, container: MCP_CONTAINER, fsImpl });
+  return { paths, instruction, mcpSnapshot, mcpOwned: ownedMcpIds({ ...entries, files: mcpSnapshot }) };
 }
 
 function render({ content = '' } = {}) {
@@ -381,55 +398,22 @@ function mcpDefinitionFor(server) {
   return { serverUrl: server.url ?? server.httpUrl };
 }
 
-function planMcp({ paths, selectedServers, neutralResources, removing, fsImpl = fs }) {
-  const changes = [];
-  const conflicts = [];
-  const resources = [];
-  if (!Array.isArray(selectedServers) || !selectedServers.length) return { changes, conflicts, resources };
-  const existing = readJsonObject(paths.mcpFile, { fsImpl });
-  const servers = { ...(existing.mcpServers ?? {}) };
-  const owned = new Set((neutralResources || [])
-    .filter((r) => r.harness === HARNESS && r.kind === 'mcp-server').map((r) => r.identity));
-  const wanted = new Set(selectedServers.map((s) => s.id));
+function ownershipIdentity(id) { return `doflow:${HARNESS}:mcp-server:${id}`; }
 
-  if (removing) {
-    for (const id of [...owned]) {
-      if (Object.prototype.hasOwnProperty.call(servers, id)) {
-        delete servers[id];
-        changes.push({ assetId: POINTER_ASSET_ID, target: paths.mcpFile, operation: 'remove',
-          ownershipIdentity: `doflow:${HARNESS}:mcp-server:${id}`, kind: 'mcp-server', identity: id,
-          projection: { renderer: 'antigravity-mcp' } });
-      }
-    }
-    return { changes, conflicts, resources };
-  }
-
-  for (const server of selectedServers) {
-    const definition = mcpDefinitionFor(server);
-    const before = JSON.stringify(servers[server.id] ?? null);
-    const after = JSON.stringify(definition);
-    if (before !== after) {
-      servers[server.id] = definition;
-      changes.push({
-        assetId: POINTER_ASSET_ID, target: paths.mcpFile,
-        operation: Object.prototype.hasOwnProperty.call(existing.mcpServers ?? {}, server.id) ? 'update' : 'create',
-        ownershipIdentity: `doflow:${HARNESS}:mcp-server:${server.id}`, kind: 'mcp-server', identity: server.id,
-        projection: { renderer: 'antigravity-mcp' },
-        _servers: null, // filled once below so every change in one plan writes the same final file
-      });
-    }
-  }
-  // Every mutating change carries the final intended map; apply() writes it once.
-  const finalServers = JSON.stringify(servers);
-  for (const change of changes) change._servers = finalServers;
-  for (const server of selectedServers) {
-    resources.push({
-      assetId: POINTER_ASSET_ID, target: paths.mcpFile,
-      ownershipIdentity: `doflow:${HARNESS}:mcp-server:${server.id}`, kind: 'mcp-server', identity: server.id,
-      fingerprint: null, sourceVersion: 'registry-v1', projection: { renderer: 'antigravity-mcp' },
-    });
-  }
-  return { changes, conflicts: [], resources };
+/** Everything the shared entry-ownership rules (../mcp-entries.js) need from this adapter. Rows
+ * recorded before entries were fingerprinted carry `fingerprint: null`; such a row owns its entry
+ * only while the entry still equals DoFlow's rendering. */
+function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], resources = [] }) {
+  const rendered = (servers) => servers.map((server) => ({ id: server.id, entry: mcpDefinitionFor(server) }));
+  const rows = resources.filter((row) => row.kind === 'mcp-server');
+  return {
+    file: paths.mcpFile, selected: rendered(mcp), adoptable: rendered(mcpAdoptable),
+    ownRows: rows.filter((row) => row.harness === HARNESS).map((row) => ({
+      identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity, legacy: false,
+    })),
+    foreignRows: rows.filter((row) => row.harness !== HARNESS).map((row) => ({ harness: row.harness, identity: row.identity, target: row.target })),
+    identityFor: ownershipIdentity, assetId: POINTER_ASSET_ID, renderer: MCP_RENDERER, label: 'Antigravity MCP',
+  };
 }
 
 // ---- required six-function surface ----
@@ -440,22 +424,26 @@ function plan(options = {}, impl = {}) {
   const scope = options.scope ?? 'project';
   const paths = (impl.nativePaths ?? singleton.nativePaths)({ ...options, scope, homeDir: context.homeDir });
   const removing = context.operation === 'remove';
-  const neutralResources = options.ledger?.resources ?? options.managedResources ?? [];
+  const neutralResources = ledgerResources(options);
   const selectedServers = Array.isArray(options.mcp) ? options.mcp : [];
+  const discovery = options.discovery ?? discover(options, impl);
 
   const instructions = planInstructions({ paths, assets: options.assets, removing, repoRoot: context.repoRoot, fsImpl });
   const trees = planTrees({ assets: options.assets, paths, scope, neutralResources, removing, repoRoot: context.repoRoot, force: context.force === true, fsImpl });
-  const mcp = planMcp({ paths, selectedServers, neutralResources, removing, fsImpl });
+  const mcp = planMcpEntries({
+    ...mcpEntriesInput({ paths, mcp: selectedServers, mcpAdoptable: options.mcpAdoptable, resources: neutralResources }),
+    files: discovery.mcpSnapshot, removing,
+  });
   const hooksPlan = planHooks({ paths, scope, neutralResources, removing, repoRoot: context.repoRoot, fsImpl });
 
   const changes = [...instructions.changes, ...trees.changes, ...mcp.changes, ...hooksPlan.changes];
-  const conflicts = [...instructions.conflicts, ...trees.conflicts, ...hooksPlan.conflicts];
+  const conflicts = [...instructions.conflicts, ...trees.conflicts, ...mcp.conflicts, ...hooksPlan.conflicts];
   return {
     changes,
     conflicts,
     prerequisites: [],
     requiredNativeResources: changes,
-    notices: [...(scope === 'global' && !removing ? [GLOBAL_SCOPE_NOTICE] : []), ...trees.notices],
+    notices: [...(scope === 'global' && !removing ? [GLOBAL_SCOPE_NOTICE] : []), ...trees.notices, ...mcp.notices],
   };
 }
 
@@ -505,24 +493,7 @@ function apply(options = {}, impl = {}) {
   // Script writes carry pre-rendered text (_text) because they are content-managed, not mirrored:
   // execute them after the generic tree pass so the executable bit lands last and survives.
 
-  const mcpTargets = new Set(changes.filter((c) => c.projection?.renderer === 'antigravity-mcp').map((c) => c.target));
-  for (const target of mcpTargets) {
-    const scoped = changes.filter((c) => c.target === target && c.projection?.renderer === 'antigravity-mcp');
-    let doc = readJsonObject(target, { fsImpl });
-    // A create/update change carries the plan's authoritative final map (foreign servers already
-    // preserved in it). Remove-only flows delete exactly the owned ids instead — never the rest.
-    const finalMap = [...scoped].reverse().find((c) => c.operation !== 'remove' && c._servers);
-    if (finalMap) {
-      doc.mcpServers = JSON.parse(finalMap._servers);
-    } else {
-      doc.mcpServers = { ...(doc.mcpServers ?? {}) };
-      for (const change of scoped) if (change.operation === 'remove') delete doc.mcpServers[change.identity];
-    }
-    fsImpl.mkdirSync(path.dirname(target), { recursive: true });
-    const tmp = `${target}.${process.pid}.tmp`;
-    fsImpl.writeFileSync(tmp, `${JSON.stringify(doc, null, 2)}\n`, 'utf8');
-    fsImpl.renameSync(tmp, target);
-  }
+  writeMcpEntries(changes, { container: MCP_CONTAINER, keepEmptyContainer: true, fsImpl });
   return { applied: changes.length };
 }
 
@@ -580,21 +551,14 @@ function verify(options = {}, impl = {}) {
     }
   }
 
-  const mcpDoc = readJsonObject(paths.mcpFile, { fsImpl });
-  const servers = mcpDoc.mcpServers ?? {};
-  const ownedIds = (options.ledger?.resources ?? [])
-    .filter((r) => r.harness === HARNESS && r.kind === 'mcp-server').map((r) => r.identity);
-  for (const id of ownedIds) {
-    const present = Object.prototype.hasOwnProperty.call(servers, id);
-    statuses.push({ assetId: POINTER_ASSET_ID, capability: 'mcp', status: present && !removing ? 'managed' : (removing ? (present ? 'retained' : 'absent') : 'missing'), identity: id, target: paths.mcpFile });
-    if (present && !removing) {
-      resources.push({
-        assetId: POINTER_ASSET_ID, target: paths.mcpFile,
-        ownershipIdentity: `doflow:${HARNESS}:mcp-server:${id}`, kind: 'mcp-server', identity: id,
-        fingerprint: null, sourceVersion: 'registry-v1', projection: { renderer: 'antigravity-mcp' },
-      });
-    }
-  }
+  const entries = mcpEntriesInput({ paths, mcp: options.mcp, mcpAdoptable: options.mcpAdoptable, resources: ledgerResources(options) });
+  const mcpFiles = readMcpFiles({ file: entries.file, ownRows: entries.ownRows, container: MCP_CONTAINER, fsImpl });
+  const mcp = verifyMcpEntries({
+    ...entries, files: mcpFiles, snapshot: options.discovery?.mcpSnapshot ?? mcpFiles, removing,
+    harness: HARNESS, sourceVersion: context.sourceVersion ?? 'unknown',
+  });
+  statuses.push(...mcp.statuses);
+  resources.push(...mcp.resources);
 
   // Hooks projection (project scope): the shims' bytes and the registered groups.
   if (scope === 'project') {
@@ -647,7 +611,7 @@ function verify(options = {}, impl = {}) {
     }
   }
 
-  const conflicts = statuses.filter((s) => s.status === 'conflict').map((s) => s.reason ?? s.identity);
+  const conflicts = [...statuses.filter((s) => s.status === 'conflict').map((s) => s.reason ?? s.identity), ...mcp.conflicts];
   return { ok: conflicts.length === 0, statuses, resources, conflicts };
 }
 
