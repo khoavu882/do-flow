@@ -19,7 +19,7 @@ const SERVERS = selectMcpServers(registry);
 const ASSETS = [{ id: 'guidance.codex-pointer' }];
 const ENTRY = Object.fromEntries(SERVERS.map((server) => [server.id, { command: server.command, args: server.args }]));
 const NOTICE = {
-  N1: 'MCP: stdio servers are registered in the mcpServers map of Pi\'s mcp.json for its built-in MCP (Pi 0.99.0 or later; project entries override user entries from Pi 1.0.1).',
+  N1: 'MCP: stdio servers are registered in the mcpServers map of Pi\'s mcp.json for its built-in MCP (Pi 0.99.0 or later; a project entry replaces a user entry of the same name).',
   N2: 'MCP: an installed extension that registers /mcp, such as pi-mcp-adapter, replaces Pi\'s built-in MCP, and Pi then does not read mcp.json.',
   N3: 'MCP: Pi reads .pi/mcp.json only after this project is trusted (/trust or --approve); DoFlow does not grant trust.',
 };
@@ -572,6 +572,10 @@ test('P17 (capability): Pi declares MCP supported with its MCP pages and .pi/mcp
     assert.ok(pi.capabilities.mcp.evidence.includes(url), url);
   }
   assert.equal(pi.nativeTargets.mcp, '.pi/mcp.json');
+  assert.ok(pi.capabilities.mcp.evidence.includes('https://github.com/earendil-works/pi/blob/main/packages/coding-agent/CHANGELOG.md'));
+  // Pi 0.99.0 already lets a project entry replace a same-named user entry; 1.0.1 added partial overrides.
+  assert.match(pi.capabilities.mcp.note, /a project entry replaces a user entry with the same name, and from Pi 1\.0\.1 a project entry without command or url overrides only enabled, exposure and toolExposure/);
+  assert.doesNotMatch(pi.capabilities.skills.verification, /skills\[\]/, 'Pi skills are copied, not registered in settings.json');
 });
 
 test('P18: the lifecycle installs and removes Pi MCP rows on the real registry at both scopes', () => {

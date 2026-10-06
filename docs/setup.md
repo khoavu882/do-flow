@@ -335,7 +335,7 @@ Use `/do` in Claude Code. In Codex, verify the managed `AGENTS.md` section, skil
 and any trusted hook/MCP configuration. In Gemini CLI, verify `GEMINI.md` and discovered skills;
 unavailable capability rows must remain unavailable rather than appearing as copied files. In
 OpenCode, verify `AGENTS.md` loads and that `opencode.json`'s `instructions[]` and `mcp` keys are
-populated. In Pi, verify `AGENTS.md`, skill discovery under `.pi/skills/`, and any registered MCP servers in `.pi/mcp.json`. In Copilot CLI,
+populated. In Pi, verify `AGENTS.md`, skill discovery under `.pi/skills/` (or `~/.pi/agent/skills/` globally), and any registered MCP servers in `.pi/mcp.json` (or `~/.pi/agent/mcp.json` globally). In Copilot CLI,
 verify the managed section in `.github/copilot-instructions.md`, skill discovery under
 `.agents/skills/`, and any registered MCP servers. In Kiro, verify the projected steering files
 under `.kiro/steering/`, skill discovery under `.kiro/skills/`, and hook files under `.kiro/hooks/`.

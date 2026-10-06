@@ -948,7 +948,7 @@
           "evidence": [
             "https://pi.dev/docs/latest/skills"
           ],
-          "verification": "Confirm the skills[] array in settings.json points at the DoFlow skills directory and Pi lists those skills."
+          "verification": "Confirm the DoFlow skills are copied into .pi/skills (project) or ~/.pi/agent/skills (global), settings.json is unchanged, and Pi lists those skills."
         },
         "agents": {
           "status": "different",
@@ -1053,9 +1053,10 @@
           "status": "supported",
           "evidence": [
             "https://pi.dev/docs/latest/mcp",
-            "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md"
+            "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md",
+            "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/CHANGELOG.md"
           ],
-          "note": "Pi's built-in MCP (Pi 0.99.0 or later) reads stdio and HTTP servers from the mcpServers map of .pi/mcp.json (project, read only after the project is trusted) and ~/.pi/agent/mcp.json (user, or $PI_CODING_AGENT_DIR/mcp.json); a project entry overrides a same-named user entry from Pi 1.0.1. DoFlow writes stdio entries only. An installed extension that registers /mcp, such as pi-mcp-adapter, replaces the built-in and Pi then does not read mcp.json.",
+          "note": "Pi's built-in MCP (Pi 0.99.0 or later) reads stdio and HTTP servers from the mcpServers map of .pi/mcp.json (project, read only after the project is trusted) and ~/.pi/agent/mcp.json (user, or $PI_CODING_AGENT_DIR/mcp.json); a project entry replaces a user entry with the same name, and from Pi 1.0.1 a project entry without command or url overrides only enabled, exposure and toolExposure of that user entry. DoFlow writes stdio entries only. An installed extension that registers /mcp, such as pi-mcp-adapter, replaces the built-in and Pi then does not read mcp.json.",
           "verification": "Confirm the selected MCP servers appear in .pi/mcp.json (project, after trusting the project) or ~/.pi/agent/mcp.json (global) and connect via /mcp in Pi 0.99.0 or later with no extension registering /mcp."
         },
         "plugin": {

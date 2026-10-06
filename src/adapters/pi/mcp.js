@@ -23,7 +23,7 @@ const SERVER_NAME = /^[A-Za-z0-9_-]+$/;
 const ABSENT_DOCUMENT = Object.freeze({ ok: true, root: null, servers: null });
 
 const NOTICES = Object.freeze({
-  surface: 'MCP: stdio servers are registered in the mcpServers map of Pi\'s mcp.json for its built-in MCP (Pi 0.99.0 or later; project entries override user entries from Pi 1.0.1).',
+  surface: 'MCP: stdio servers are registered in the mcpServers map of Pi\'s mcp.json for its built-in MCP (Pi 0.99.0 or later; a project entry replaces a user entry of the same name).',
   extension: 'MCP: an installed extension that registers /mcp, such as pi-mcp-adapter, replaces Pi\'s built-in MCP, and Pi then does not read mcp.json.',
   trust: 'MCP: Pi reads .pi/mcp.json only after this project is trusted (/trust or --approve); DoFlow does not grant trust.',
 });
