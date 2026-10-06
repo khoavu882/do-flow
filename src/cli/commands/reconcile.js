@@ -1,8 +1,6 @@
 'use strict';
 // `doflow reconcile` — converge observed state onto the doflow.lock pin: report drift, then heal
 // it on confirmation. Never re-prompts for MCP; selections ride exactly as pinned.
-const os = require('node:os');
-const path = require('node:path');
 const { toolDirs } = require('../../install/targets');
 const { resolveContext, printContext } = require('../../install/context');
 const { writeManifest } = require('../../install/manifest');
@@ -11,9 +9,8 @@ const { sourceCommit } = require('../../helper/git');
 const { loadRegistry } = require('../../registry');
 const { applyLifecycle } = require('../../lifecycle');
 const {
-  codexScope, registryLifecycleView, assertSafeRegistryPlan, lockDocument, recordLock,
+  registryLifecycleView, assertSafeRegistryPlan,
 } = require('../../lifecycle/view');
-const { readLock } = require('../../state/lockfile');
 const { recordedMcpSelections } = require('../../install/mcp');
 const { REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, scopeSelectionState, buildAdapterRegistry } = require('../shared');
 
@@ -56,8 +53,15 @@ function cmdReconcile(o) {
   const scope = scopeOf(o);
   const dirs = toolDirs(scope);
   const lifecyclePaths = installPaths(scope);
-  const lockArgs = scope.global ? { scope: 'global', homeDir: os.homedir() } : { scope: 'project', projectRoot: path.resolve(scope.projectRoot) };
-  const lock = readLock(lockArgs);
+  const { lock, ledger } = scopeSelectionState(scope);
+  // A harness the ledger holds but the lock does not pin is installed and outside reconcile's reach.
+  // Said, not converged: the lock records choices, and reconcile has no choice to record for it.
+  const pinned = new Set((lock?.targets ?? []).map((entry) => entry.harness));
+  const unpinned = [...new Set((ledger?.resources ?? []).map((resource) => resource.harness))].filter((harness) => !pinned.has(harness)).sort();
+  for (const harness of unpinned) {
+    const count = ledger.resources.filter((resource) => resource.harness === harness).length;
+    console.log(`[WARN] ${harness}: installed (ledger holds ${count} resource(s)) but absent from doflow.lock; reconcile does not converge it.`);
+  }
   if (!lock || !lock.targets.length) {
     // Reconcile converges onto what install pinned; with no pin there is no desired state to
     // converge to, and guessing one from the registry would silently adopt targets the user
@@ -70,14 +74,14 @@ function cmdReconcile(o) {
   printContext(resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: sourceCommit(SCRIPT_DIR), ...scope }));
   // Each harness converges onto its own pinned selection — reconcile never re-prompts and never
   // lends one harness's servers to another.
-  const recorded = recordedMcpSelections({ registry, lock, ledger: scopeSelectionState(scope).ledger, targets });
+  const recorded = recordedMcpSelections({ registry, lock, ledger, targets });
   const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets,
     mcpSelections: recorded.selections, mcpAdoptable: recorded.adoptable, retainedMcpIds: [], force: true });
   if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
 
   const report = reconcileReport(lifecycleView);
   printReconcileReport(report, lock);
-  if (o.json) console.log(JSON.stringify({ scope: lock.scope, sourceVersion: lock.sourceVersion, targets, ...report }, null, 2));
+  if (o.json) console.log(JSON.stringify({ scope: lock.scope, sourceVersion: lock.sourceVersion, targets, unpinned, ...report }, null, 2));
   if (o.dryRun) {
     console.log('[DRY] Reconcile plan complete — no changes written');
     if (!report.clean) process.exitCode = 1; // CI-friendly: drifted check must fail loudly.

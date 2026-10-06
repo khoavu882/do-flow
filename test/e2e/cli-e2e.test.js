@@ -997,8 +997,8 @@ test('doflow.lock pins resolved selections on install and clears on full removal
   const skillRow = lock.assets.find((asset) => asset.id === 'skills.doflow');
   assert.ok(skillRow, 'skills selection must be pinned');
   assert.strictEqual(skillRow.nativeDir, '../.agents/skills');
-  // No --mcp flag + non-interactive = deliberate empty selection; nothing gets pinned.
-  assert.ok(!('codex' in lock.mcpSelections), 'an explicit none leaves no pin row');
+  // No --mcp flag + non-interactive = the default empty selection, recorded as such.
+  assert.deepEqual(lock.mcpSelections, { codex: [] }, 'a planned MCP-capable target records its selection, [] included');
 
   // A no-op update leaves the existing pin untouched (update short-circuits before re-pinning).
   const mtimeBefore = fs.statSync(lockFile).mtimeMs;

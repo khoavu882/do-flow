@@ -16,7 +16,7 @@ const { loadRegistry } = require('../../registry');
 const { applyLifecycle } = require('../../lifecycle');
 const {
   codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, assertSafeRegistryPlan,
-  lockDocument, recordLock,
+  lockDocument, lockDelta, recordLock,
 } = require('../../lifecycle/view');
 const {
   REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, reportRetiredMcp, scopeSelectionState, printMcpSelection, plannedMcpSelections,
@@ -57,9 +57,28 @@ function cmdUpdate(o) {
   const backupTargets = [...new Set(lifecycleView.plan.changes.map((change) => change.target))]
     .filter((target) => typeof target === 'string' && !changesTo(target).every((change) => change.kind === 'mcp-server'));
 
+  const lockArgs = scope.global ? { scope: 'global', homeDir: os.homedir() } : { scope: 'project', projectRoot: path.resolve(scope.projectRoot) };
+  const nextLock = (ledgerAfter) => lockDocument({
+    registry, scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot),
+    previous: lock, ledger: ledgerAfter, plannedTargets: targets, mcpSelections: plannedMcpSelections(lifecycleView),
+  });
+
   if (!lifecycleChanged) {
     printPlanNotices(lifecycleView);
-    console.log('[OK] Already up to date — no changes detected');
+    // Nothing native to change can still leave a selection to record (a first update after an
+    // upgrade records the rows 1.18.0 never wrote): the lock alone is written, with no confirm,
+    // backup or manifest write, because no installed file changes.
+    const pinned = nextLock(lifecycleView.ledger);
+    const delta = lockDelta(lock, pinned);
+    if (!delta.changed) {
+      console.log('[OK] Already up to date — no changes detected');
+    } else if (o.dryRun) {
+      console.log(`[DRY]  Would update doflow.lock: ${delta.summary}`);
+    } else {
+      recordLock(lockArgs, pinned);
+      console.log(`[INFO] doflow.lock: ${delta.summary}`);
+      console.log('[OK] Already up to date: no native changes; selections recorded in doflow.lock');
+    }
     return;
   }
 
@@ -89,28 +108,20 @@ function cmdUpdate(o) {
     console.error(`[INFO]  Backup created: ${bid}`);
   }
 
-  if (lifecycleView.plan.changes.length) {
-    const result = applyLifecycle({ plan: lifecycleView.plan, registry: lifecycleView.registry,
-      adapters: buildAdapterRegistry(),
-      stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
-    for (const target of lifecycleView.plan.targets) {
-      if (target.skipped || !target.changes.length) continue;
-      const owned = result.ledger.resources.filter((resource) => resource.harness === target.harness).length;
-      console.log(`[INFO] ${target.harness}: lifecycle verified (${owned} owned resource(s))`);
-    }
+  const result = applyLifecycle({ plan: lifecycleView.plan, registry: lifecycleView.registry,
+    adapters: buildAdapterRegistry(),
+    stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
+  for (const target of lifecycleView.plan.targets) {
+    if (target.skipped || !target.changes.length) continue;
+    const owned = result.ledger.resources.filter((resource) => resource.harness === target.harness).length;
+    console.log(`[INFO] ${target.harness}: lifecycle verified (${owned} owned resource(s))`);
   }
   printPlanNotices(lifecycleView);
   if (targets.includes('claude')) chmodHooksExecutable(dirs.claude);
 
   writeManifest({ scopeRoot: lifecyclePaths.scopeRoot, scriptVersion: pkg.version, operation: 'update', repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: targets, date: new Date() });
 
-  const updateLock = recordLock(
-    scope.global ? { scope: 'global', homeDir: os.homedir() } : { scope: 'project', projectRoot: path.resolve(scope.projectRoot) },
-    lockDocument({
-      registry, scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot), targets,
-      mcpSelections: plannedMcpSelections(lifecycleView),
-    }),
-  );
+  const updateLock = recordLock(lockArgs, nextLock(result.ledger));
   console.log(`[INFO] doflow.lock: ${updateLock.summary}`);
 
   if (o.prune > 0) {

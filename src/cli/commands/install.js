@@ -84,6 +84,8 @@ function cmdInstall(o) {
     console.error('[WARN]  Skipping backup (--no-backup)');
   }
 
+  // The ledger the lock is pinned against: the one this run leaves.
+  let ledgerAfter = lifecycleView.ledger;
   if (lifecycleView.plan.changes.length) {
     const result = applyLifecycle({ plan: lifecycleView.plan, registry: lifecycleView.registry,
       adapters: buildAdapterRegistry(),
@@ -93,6 +95,7 @@ function cmdInstall(o) {
       const owned = result.ledger.resources.filter((resource) => resource.harness === target.harness).length;
       console.log(`[INFO] ${target.harness}: lifecycle verified (${owned} owned resource(s))`);
     }
+    ledgerAfter = result.ledger;
   } else {
     // MCP_INDEX.md is generated, not a tracked resource, so it never appears in plan.changes and
     // applyLifecycle — which owns the only call that writes it — is skipped entirely when nothing
@@ -113,13 +116,14 @@ function cmdInstall(o) {
 
   writeManifest({ scopeRoot: lifecyclePaths.scopeRoot, scriptVersion: pkg.version, operation: 'install', repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: targets, date: new Date() });
 
-  // Pin what this install CHOSE. The ledger owns ownership; the lock owns selection — together
-  // they make the next update's delta a reviewable fact instead of a surprise.
+  // Pin what this install CHOSE, beside what earlier runs pinned. The ledger owns ownership; the
+  // lock owns selection — together they make the next update's delta a reviewable fact instead of a
+  // surprise.
   const lockResult = recordLock(
     scope.global ? { scope: 'global', homeDir: os.homedir() } : { scope: 'project', projectRoot: path.resolve(scope.projectRoot) },
     lockDocument({
-      registry, scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot), targets,
-      mcpSelections: plannedMcpSelections(lifecycleView),
+      registry, scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot),
+      previous: lock, ledger: ledgerAfter, plannedTargets: targets, mcpSelections: plannedMcpSelections(lifecycleView),
     }),
   );
   console.log(`[INFO] doflow.lock: ${lockResult.summary}`);
