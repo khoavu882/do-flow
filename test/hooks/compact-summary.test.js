@@ -94,19 +94,25 @@ test('a summary under the cap is injected whole with no marker', () => {
   assert.doesNotMatch(ctx, /summary truncated/);
 });
 
-/** A `timeout` ahead of the real one on PATH that drops the limit and runs the command: post-compact.sh
- * reads the branch under `timeout 1`, so under a loaded machine a real limit would turn a slow git into
- * "no branch" and fail a test that is about the header, not the limit. */
-function noTimeLimit() {
+/** A PATH holding every tool the real PATH does except a `timeout` binary, as on a stock macOS: the
+ * branch lookup must then run git directly rather than lose the branch. */
+function pathWithoutTimeout() {
   const bin = path.join(scratch.dir, `bin${seq++}`);
   fs.mkdirSync(bin);
-  fs.writeFileSync(path.join(bin, 'timeout'), '#!/bin/sh\nshift\nexec "$@"\n', { mode: 0o755 });
-  return { PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+  for (const dir of (process.env.PATH || '').split(path.delimiter)) {
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch { continue; }
+    for (const name of names) {
+      if (name === 'timeout' || name === 'gtimeout' || fs.existsSync(path.join(bin, name))) continue;
+      try { fs.symlinkSync(path.join(dir, name), path.join(bin, name)); } catch { /* unreadable entry */ }
+    }
+  }
+  return { PATH: bin };
 }
 
-test('the header names the compaction time and branch from the file, and omits what is unknown', () => {
+test('the header names the compaction time and branch from the file, with no timeout binary on PATH, and omits what is unknown', () => {
   const withBranch = project('topic');
-  compact('A', withBranch, 'S', noTimeLimit());
+  compact('A', withBranch, 'S', pathWithoutTimeout());
   assert.match(prompt('claude', 'H', withBranch), /^\[Prior session summary, compacted \d{4}-\d\d-\d\dT[\d:]+Z on branch topic\]$/m);
   const noBranch = project();
   compact('A', noBranch, 'S');
