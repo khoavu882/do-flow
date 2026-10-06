@@ -2,8 +2,8 @@
 
 /**
  * The project lifecycle event store (IC-001, IC-002, IC-003). One JSON file per event under
- * `<root>/.doflow/state/lifecycle/events/`, created with an exclusive create and never edited or
- * renamed. The store is local to a checkout, not shared through git. DoFlow never runs `git add`,
+ * `<root>/.doflow/state/lifecycle/events/`, created with an exclusive create, never edited or
+ * renamed, and deleted only by the retention pass. The store is local to a checkout, not shared through git. DoFlow never runs `git add`,
  * `git commit` or `git push` on these paths and never writes an ignore rule for them (DEC-012).
  *
  * A write holds the store lock, folds what is there, refuses an event that would be illegal at the
@@ -21,6 +21,12 @@ const { foldInto, finalize, applyEvent } = require('./fold');
 
 const LIFECYCLE_REL = path.join('.doflow', 'state', 'lifecycle');
 const EVENTS_REL = path.join(LIFECYCLE_REL, 'events');
+/** The retention journal, beside the events folder and never inside it. */
+const JOURNAL_REL = path.join(LIFECYCLE_REL, 'retention.json');
+/** Lock-free reads tried while the journal's generation keeps moving, before one read under the lock. */
+const STABLE_READS = 3;
+/** The pause between those reads: the store lock's own wait. */
+const READ_WAIT_MS = 20;
 const ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz';
 /** `<UTC YYYYMMDDTHHMMSSmmmZ>-<6 lowercase Crockford base32 characters>`. */
 const EVENT_ID = /^[0-9]{8}T[0-9]{9}Z-[0-9a-hjkmnp-tv-z]{6}$/;
@@ -45,6 +51,11 @@ function randomChars(length) {
 }
 
 function idFor(at, random) { return `${at.replace(/[-:.]/g, '')}-${random(6)}`; }
+
+/** Synchronous sleep without spinning, as the store lock waits. */
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
 
 /** DEC-045: `at` is a strict UTC timestamp that is a real instant, so year 10000 and "+275760-..." never parse. */
 const STRICT_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -111,16 +122,31 @@ function cleanEvent(event) {
   return clean;
 }
 
+/** Whether `name` is `<EVENT_ID>.json`. */
+function isEventName(name) {
+  const match = /^(.+)\.json$/.exec(name);
+  return Boolean(match) && EVENT_ID.test(match[1]);
+}
+
 /**
- * Reads every event file. A missing folder is an empty store; a file whose name is not an event id
- * is ignored; a matching entry that is not a regular file of at most MAX_EVENT_BYTES, or is not an
- * IC-002 envelope (including one still being written), is skipped and named in `unreadable`, with
- * the reason in `reasons[name]` when it is not simply a corrupt file. A symlinked store folder
- * throws StoreUnsafeError.
- * @returns {{events: Object[], unreadable: string[], reasons: Object<string,string>}}
+ * The retention journal: the files a retention pass is deleting, and a token that changes on every
+ * write. Absent, unreadable, unparseable or of another version reads as no generation and nothing
+ * pending; a pending name that is not an event file name is ignored.
+ * @returns {{generation: string|null, pending: string[]}}
  */
-function readEvents(root, { fsImpl = nodeFs } = {}) {
-  assertStoreFolders(root, fsImpl);
+function readJournal(root, fsImpl = nodeFs) {
+  const read = readEventFile(fsImpl, path.join(root, JOURNAL_REL));
+  let journal;
+  try { journal = read.reason ? null : JSON.parse(read.text); } catch { journal = null; }
+  if (!journal || typeof journal !== 'object' || journal.v !== 1) return { generation: null, pending: [] };
+  return {
+    generation: typeof journal.generation === 'string' ? journal.generation : null,
+    pending: Array.isArray(journal.pending) ? journal.pending.filter((name) => typeof name === 'string' && isEventName(name)) : [],
+  };
+}
+
+/** One pass over the event files, leaving out the names in `hidden`. */
+function readEventFiles(root, fsImpl, hidden) {
   const dir = eventsDir(root);
   let names;
   try {
@@ -133,19 +159,48 @@ function readEvents(root, { fsImpl = nodeFs } = {}) {
   const unreadable = [];
   const reasons = {};
   for (const name of names.sort()) {
-    const match = /^(.+)\.json$/.exec(name);
-    if (!match || !EVENT_ID.test(match[1])) continue;
+    if (!isEventName(name) || hidden.has(name)) continue;
     const read = readEventFile(fsImpl, path.join(dir, name));
     if (read.reason) { unreadable.push(name); reasons[name] = read.reason; continue; }
     try {
       const event = JSON.parse(read.text);
       // Someone else's file is shown as it is read, so its text is made print-safe here (stored bytes are not changed).
-      if (isEnvelope(event, match[1])) events.push(cleanEvent(event)); else unreadable.push(name);
+      if (isEnvelope(event, name.slice(0, -'.json'.length))) events.push(cleanEvent(event)); else unreadable.push(name);
     } catch {
       unreadable.push(name);
     }
   }
   return { events, unreadable, reasons };
+}
+
+/**
+ * Reads every event file. A missing folder is an empty store; a file whose name is not an event id
+ * is ignored; a matching entry that is not a regular file of at most MAX_EVENT_BYTES, or is not an
+ * IC-002 envelope (including one still being written), is skipped and named in `unreadable`, with
+ * the reason in `reasons[name]` when it is not simply a corrupt file. A symlinked store folder
+ * throws StoreUnsafeError.
+ *
+ * Files the retention journal lists as pending are neither events nor unreadable, so an item a
+ * retention pass is removing is seen whole or not at all. When the journal's generation moves
+ * during a read, the read is repeated, at most STABLE_READS times, and then done once under the
+ * store lock, which every journal writer holds. A caller already holding the lock never sees the
+ * generation move, so it returns after the first read.
+ * @returns {{events: Object[], unreadable: string[], reasons: Object<string,string>}}
+ */
+function readEvents(root, { fsImpl = nodeFs } = {}) {
+  assertStoreFolders(root, fsImpl);
+  for (let attempt = 1; attempt <= STABLE_READS; attempt += 1) {
+    const before = readJournal(root, fsImpl);
+    const result = readEventFiles(root, fsImpl, new Set(before.pending));
+    if (readJournal(root, fsImpl).generation === before.generation) return result;
+    if (attempt < STABLE_READS) sleep(READ_WAIT_MS);
+  }
+  const release = acquireLock(fsImpl, lockTarget(root));
+  try {
+    return readEventFiles(root, fsImpl, new Set(readJournal(root, fsImpl).pending));
+  } finally {
+    release();
+  }
 }
 
 /**
@@ -250,5 +305,5 @@ function planEvents(root, drafts, { now, fsImpl, random }) {
 
 module.exports = {
   appendEvents, readEvents, readFold, byFromChannel, randomChars, StoreUnsafeError, MAX_EVENT_BYTES,
-  EVENT_ID, EVENTS_REL, LIFECYCLE_REL, ALPHABET, COLLISION_RETRIES, lockTarget,
+  EVENT_ID, EVENTS_REL, LIFECYCLE_REL, JOURNAL_REL, ALPHABET, COLLISION_RETRIES, lockTarget, readJournal, isEventName,
 };

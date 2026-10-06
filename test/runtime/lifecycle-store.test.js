@@ -437,6 +437,95 @@ test('hostile store: a symlinked lifecycle folder is refused for a read and for 
   assert.deepEqual(fs.readdirSync(path.join(elsewhere, 'events')), []);
 });
 
+// ── retention journal: pending files are hidden, a moved generation re-reads ────────────────────
+
+const followupEvent = (stamp, fu) => ({
+  v: 1, id: `${stamp}-aaaaaa`, type: 'followup.added', at: `${stamp.slice(0, 4)}-${stamp.slice(4, 6)}-${stamp.slice(6, 8)}T${stamp.slice(9, 11)}:${stamp.slice(11, 13)}:${stamp.slice(13, 15)}.${stamp.slice(15, 18)}Z`,
+  by: 'agent', data: { id: fu, statement: `s ${fu}`, source: { kind: 'manual' } },
+});
+function writeJournal(root, journal) {
+  fs.mkdirSync(path.join(root, store.LIFECYCLE_REL), { recursive: true });
+  fs.writeFileSync(path.join(root, store.JOURNAL_REL), typeof journal === 'string' ? journal : JSON.stringify(journal));
+}
+/** node:fs with the events folder listing counted; `onList(count)` runs after each listing. */
+function countingFs(root, onList = () => {}) {
+  const counts = { lists: 0, locks: 0 };
+  const events = path.join(root, store.EVENTS_REL);
+  const fsImpl = {
+    ...fs,
+    readdirSync: (p, o) => {
+      const names = fs.readdirSync(p, o);
+      if (p === events) { counts.lists += 1; onList(counts.lists); }
+      return names;
+    },
+    mkdirSync: (p, o) => { if (String(p).endsWith('events.lock')) counts.locks += 1; return fs.mkdirSync(p, o); },
+  };
+  return { fsImpl, counts };
+}
+
+test('journal: a pending name is neither an event nor unreadable; the files stay on disk', () => {
+  const root = plainDir('journal-pending');
+  eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));
+  eventFile(root, followupEvent('20261003T000000001Z', 'FU-bbbbbb'));
+  const torn = '20261003T000000002Z-aaaaaa.json';
+  fs.writeFileSync(path.join(root, store.EVENTS_REL, torn), '{"v":1');
+  writeJournal(root, { v: 1, generation: 'g1', pending: ['20261003T000000000Z-aaaaaa.json', torn] });
+  const read = store.readEvents(root);
+  assert.deepEqual(read.events.map((e) => e.data.id), ['FU-bbbbbb']);
+  assert.deepEqual([read.unreadable, read.reasons], [[], {}]);
+  assert.deepEqual(store.readFold(root).followups.map((f) => f.id), ['FU-bbbbbb']);
+  assert.equal(fs.readdirSync(path.join(root, store.EVENTS_REL)).length, 3, 'reading deletes nothing');
+});
+
+test('journal: absent, malformed or of another version hides nothing; a pending entry not shaped <EVENT_ID>.json is ignored', () => {
+  const root = plainDir('journal-shapes');
+  eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));
+  const name = '20261003T000000000Z-aaaaaa.json';
+  assert.deepEqual(store.readJournal(root), { generation: null, pending: [] });
+  for (const journal of ['{"v":1,', { v: 2, generation: 'g', pending: [name] }, [name]]) {
+    writeJournal(root, journal);
+    assert.deepEqual(store.readJournal(root), { generation: null, pending: [] });
+    assert.equal(store.readEvents(root).events.length, 1);
+  }
+  writeJournal(root, { v: 1, generation: 'g2', pending: ['notes.json', `../events/${name}`, name.toUpperCase(), name.slice(0, -5), 7] });
+  assert.deepEqual(store.readJournal(root), { generation: 'g2', pending: [] });
+  assert.deepEqual(store.readEvents(root).events.map((e) => e.data.id), ['FU-aaaaaa']);
+});
+
+test('journal: a generation that moves once during a read causes exactly one re-read, which honours the new pending list', () => {
+  const root = plainDir('journal-moves-once');
+  eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));
+  eventFile(root, followupEvent('20261003T000000001Z', 'FU-bbbbbb'));
+  writeJournal(root, { v: 1, generation: 'g1', pending: [] });
+  const { fsImpl, counts } = countingFs(root, (n) => {
+    if (n === 1) writeJournal(root, { v: 1, generation: 'g2', pending: ['20261003T000000000Z-aaaaaa.json'] });
+  });
+  const read = store.readEvents(root, { fsImpl });
+  assert.deepEqual([counts.lists, counts.locks], [2, 0]);
+  assert.deepEqual(read.events.map((e) => e.data.id), ['FU-bbbbbb']);
+});
+
+test('journal: a generation that moves on every read ends in one read under the store lock, which is released', () => {
+  const root = plainDir('journal-moves-always');
+  eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));
+  writeJournal(root, { v: 1, generation: 'g0', pending: [] });
+  const { fsImpl, counts } = countingFs(root, (n) => writeJournal(root, { v: 1, generation: `g${n}`, pending: [] }));
+  const read = store.readEvents(root, { fsImpl });
+  assert.deepEqual([counts.lists, counts.locks], [4, 1], 'three lock-free reads, then one under the lock');
+  assert.deepEqual(read.events.map((e) => e.data.id), ['FU-aaaaaa']);
+  assert.equal(fs.existsSync(`${path.join(root, store.EVENTS_REL)}.lock`), false);
+});
+
+test('journal: a read made while the caller holds the lock returns on the first read, and the fold under it hides pending files', () => {
+  const root = plainDir('journal-under-lock');
+  eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));
+  writeJournal(root, { v: 1, generation: 'g1', pending: ['20261003T000000000Z-aaaaaa.json'] });
+  const { fsImpl, counts } = countingFs(root);
+  const out = store.appendEvents(root, [added('FU-aaaaaa')], { fsImpl, now: new Date('2026-10-04T00:00:00.000Z') });
+  assert.equal(out.ok, true, 'the pending FU-aaaaaa is not in the fold, so adding it again is legal');
+  assert.deepEqual([counts.lists, counts.locks], [2, 1], 'one read before the lock and one under it, no re-read');
+});
+
 test('print-safe fold: strings read from an event are cleaned in memory, the excerpt keeps its line breaks, the file is untouched', () => {
   const s = storeWith('printsafe');
   const raw = `${JSON.stringify(validEvent({ statement: 'one\u001b[2J\ntwo\u202e', excerpt: 'line1\u0007\nline2' }))}\n`;
