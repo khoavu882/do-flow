@@ -224,6 +224,17 @@ test('DoFlow\'s own state under .doflow/ never counts as a changed file', () => 
   assert.deepEqual(tier.scope.actual.files, ['src/in.js']);
 });
 
+test('a new lifecycle event file under .doflow/state/lifecycle/events/ leaves the changed-file set empty', () => {
+  const root = repo();
+  const events = path.join(root, '.doflow', 'state', 'lifecycle', 'events');
+  fs.mkdirSync(events, { recursive: true });
+  fs.writeFileSync(path.join(events, '20261001T000000000Z-aaaaaa.json'), '{}\n');
+  assert.match(git(root, 'status', '--porcelain', '--untracked-files=all'), /\.doflow\/state\/lifecycle\/events\/20261001T000000000Z-aaaaaa\.json/, 'the event file is an untracked change');
+  const tier = scopeTier(root);
+  assert.equal(tier.status, 'PASS', tier.reason);
+  assert.deepEqual(tier.scope.actual.files, []);
+});
+
 test('plan paths written with a leading ./ match, and the files: field name is case-insensitive', () => {
   assert.deepEqual(taskFilesFromPlan('- [ ] A.1 t — owner: o; Files: ./src/in.js, ././lib/x.js, ./d/\n- [ ] A.2 u; FILES: docs/a.md\n'),
     ['src/in.js', 'lib/x.js', 'd/', 'docs/a.md']);

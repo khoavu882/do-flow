@@ -50,6 +50,14 @@ test('every declared pattern is detectable', () => {
   for (const rule of LEAK_PATTERNS) assert.ok(seen.has(rule.id), `pattern '${rule.id}' produced no finding`);
 });
 
+test('a path under the lifecycle event store is reported as a DoFlow state path', () => {
+  const root = tmpRepo({ 'ship.md': 'events live in .doflow/state/lifecycle/events/x.json\n' });
+  const { findings } = scanPaths({ paths: ['ship.md'], repoRoot: root });
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].pattern, 'state-path');
+  assert.equal(findings[0].label, 'DoFlow state path');
+});
+
 test('C# is not reported as a DoFlow component reference', () => {
   const root = tmpRepo({ 'ship.md': 'Written in C# for the .NET runtime. See also C1 and C2 grades.\n' });
   const { findings } = scanPaths({ paths: ['ship.md'], repoRoot: root });
