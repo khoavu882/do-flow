@@ -1,0 +1,295 @@
+{
+  "assets": [
+    {
+      "id": "agents.shared",
+      "kind": "agent",
+      "nativeDir": "../.gemini/agents"
+    },
+    {
+      "id": "agents.shared",
+      "kind": "agent",
+      "nativeDir": "agents"
+    },
+    {
+      "id": "agents.shared",
+      "kind": "agent",
+      "nativeDir": "agents"
+    },
+    {
+      "id": "agents.shared",
+      "kind": "agent",
+      "nativeDir": "agents"
+    },
+    {
+      "id": "claude.hooks-scripts",
+      "kind": "hooks",
+      "nativeDir": "hooks"
+    },
+    {
+      "id": "claude.settings",
+      "kind": "settings"
+    },
+    {
+      "id": "guidance.codex-pointer",
+      "kind": "guidance"
+    },
+    {
+      "id": "guidance.codex-pointer",
+      "kind": "guidance"
+    },
+    {
+      "id": "guidance.codex-pointer",
+      "kind": "guidance"
+    },
+    {
+      "id": "guidance.context-layer",
+      "kind": "guidance",
+      "nativeDir": "../.doflow/guidance"
+    },
+    {
+      "id": "guidance.context-layer",
+      "kind": "guidance",
+      "nativeDir": "../.doflow/guidance"
+    },
+    {
+      "id": "guidance.context-layer",
+      "kind": "guidance",
+      "nativeDir": "../.doflow/guidance"
+    },
+    {
+      "id": "guidance.context-layer",
+      "kind": "guidance",
+      "nativeDir": "../.doflow/guidance"
+    },
+    {
+      "id": "guidance.context-layer",
+      "kind": "guidance",
+      "nativeDir": "../.doflow/guidance"
+    },
+    {
+      "id": "guidance.core",
+      "kind": "guidance"
+    },
+    {
+      "id": "guidance.core",
+      "kind": "guidance"
+    },
+    {
+      "id": "hooks.shared",
+      "kind": "hooks",
+      "nativeDir": "../.doflow/shared/hooks"
+    },
+    {
+      "id": "hooks.shared",
+      "kind": "hooks",
+      "nativeDir": "../.doflow/shared/hooks"
+    },
+    {
+      "id": "hooks.shared",
+      "kind": "hooks",
+      "nativeDir": "../.doflow/shared/hooks"
+    },
+    {
+      "id": "locator.doflow",
+      "kind": "script",
+      "nativeDir": "bin"
+    },
+    {
+      "id": "locator.doflow",
+      "kind": "script",
+      "nativeDir": "bin"
+    },
+    {
+      "id": "locator.doflow",
+      "kind": "script",
+      "nativeDir": "bin"
+    },
+    {
+      "id": "locator.doflow",
+      "kind": "script",
+      "nativeDir": "bin"
+    },
+    {
+      "id": "locator.doflow",
+      "kind": "script",
+      "nativeDir": "bin"
+    },
+    {
+      "id": "output-styles.claude",
+      "kind": "guidance",
+      "nativeDir": "output-styles"
+    },
+    {
+      "id": "runtime.cli",
+      "kind": "script",
+      "nativeDir": "../.doflow/runtime/bin"
+    },
+    {
+      "id": "runtime.cli",
+      "kind": "script",
+      "nativeDir": "../.doflow/runtime/bin"
+    },
+    {
+      "id": "runtime.cli",
+      "kind": "script",
+      "nativeDir": "../.doflow/runtime/bin"
+    },
+    {
+      "id": "runtime.cli",
+      "kind": "script",
+      "nativeDir": "../.doflow/runtime/bin"
+    },
+    {
+      "id": "runtime.cli",
+      "kind": "script",
+      "nativeDir": "../.doflow/runtime/bin"
+    },
+    {
+      "id": "runtime.lib",
+      "kind": "script",
+      "nativeDir": "../.doflow/runtime/src"
+    },
+    {
+      "id": "runtime.lib",
+      "kind": "script",
+      "nativeDir": "../.doflow/runtime/src"
+    },
+    {
+      "id": "runtime.lib",
+      "kind": "script",
+      "nativeDir": "../.doflow/runtime/src"
+    },
+    {
+      "id": "runtime.lib",
+      "kind": "script",
+      "nativeDir": "../.doflow/runtime/src"
+    },
+    {
+      "id": "runtime.lib",
+      "kind": "script",
+      "nativeDir": "../.doflow/runtime/src"
+    },
+    {
+      "id": "runtime.registry",
+      "kind": "script",
+      "nativeDir": "../.doflow/runtime/core/registry"
+    },
+    {
+      "id": "runtime.registry",
+      "kind": "script",
+      "nativeDir": "../.doflow/runtime/core/registry"
+    },
+    {
+      "id": "runtime.registry",
+      "kind": "script",
+      "nativeDir": "../.doflow/runtime/core/registry"
+    },
+    {
+      "id": "runtime.registry",
+      "kind": "script",
+      "nativeDir": "../.doflow/runtime/core/registry"
+    },
+    {
+      "id": "runtime.registry",
+      "kind": "script",
+      "nativeDir": "../.doflow/runtime/core/registry"
+    },
+    {
+      "id": "scripts.doflow",
+      "kind": "script",
+      "nativeDir": "../.doflow/scripts"
+    },
+    {
+      "id": "scripts.doflow",
+      "kind": "script",
+      "nativeDir": "../.doflow/scripts"
+    },
+    {
+      "id": "scripts.doflow",
+      "kind": "script",
+      "nativeDir": "../.doflow/scripts"
+    },
+    {
+      "id": "scripts.doflow",
+      "kind": "script",
+      "nativeDir": "../.doflow/scripts"
+    },
+    {
+      "id": "scripts.doflow",
+      "kind": "script",
+      "nativeDir": "../.doflow/scripts"
+    },
+    {
+      "id": "skills.doflow",
+      "kind": "skill",
+      "nativeDir": "../.agents/skills"
+    },
+    {
+      "id": "skills.doflow",
+      "kind": "skill",
+      "nativeDir": "skills"
+    },
+    {
+      "id": "skills.doflow",
+      "kind": "skill",
+      "nativeDir": "skills"
+    },
+    {
+      "id": "skills.doflow",
+      "kind": "skill",
+      "nativeDir": "skills"
+    },
+    {
+      "id": "skills.doflow",
+      "kind": "skill",
+      "nativeDir": "skills"
+    },
+    {
+      "id": "templates.doflow",
+      "kind": "template",
+      "nativeDir": "../.doflow/templates"
+    },
+    {
+      "id": "templates.doflow",
+      "kind": "template",
+      "nativeDir": "../.doflow/templates"
+    },
+    {
+      "id": "templates.doflow",
+      "kind": "template",
+      "nativeDir": "../.doflow/templates"
+    }
+  ],
+  "generatedAt": "2026-10-06T15:27:04.448Z",
+  "mcpSelections": {
+    "claude": [
+      "context7",
+      "sequential-thinking"
+    ],
+    "codex": [
+      "context7",
+      "sequential-thinking"
+    ]
+  },
+  "scope": "global",
+  "scopeRoot": "@ROOT@",
+  "sourceVersion": "1.18.0",
+  "targets": [
+    {
+      "harness": "claude"
+    },
+    {
+      "harness": "codex"
+    },
+    {
+      "harness": "gemini"
+    },
+    {
+      "harness": "opencode"
+    },
+    {
+      "harness": "pi"
+    }
+  ],
+  "version": 1
+}

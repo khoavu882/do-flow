@@ -23,11 +23,12 @@ left as DoFlow wrote it.
 ## Layout
 
 Per scenario directory, paths relative to the scenario root (`HOME` for the global scenarios, the
-project directory for the project one):
+project directory for the project one), with the leading dot of the first path component dropped
+because `.gitignore` ignores `.doflow`, `.pi`, `.codex` and `.mcp.json`:
 
-- `.doflow/doflow.lock` and `.doflow/.install-manifest.json`
-- each harness's MCP file: `.claude.json`, `.codex/config.toml`, `.config/opencode/opencode.json`,
-  `.pi/agent/mcp.json`, `.kiro/settings/mcp.json`, `.mcp.json`
+- `doflow/doflow.lock` and `doflow/.install-manifest.json` (`.doflow/` on disk)
+- each harness's MCP file: `claude.json`, `codex/config.toml`, `config/opencode/opencode.json`,
+  `pi/agent/mcp.json`, `kiro/settings/mcp.json`, `mcp.json` (`.mcp.json` on disk)
 - `mcp-ledger-rows.json`: the MCP rows of `.doflow/state/ledger.json` (`kind: mcp-server`,
   `kiro:mcp:*`, `copilot:mcp:registration`)
 
