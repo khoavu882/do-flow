@@ -78,7 +78,7 @@ test('a report keeps the body on this machine and puts only a reference, the siz
   assert.equal(fs.statSync(path.dirname(file)).mode & 0o777, 0o700);
   assert.equal(fs.statSync(path.dirname(path.dirname(file))).mode & 0o777, 0o700);
   assert.equal(path.relative(repo.dir, file).startsWith('..'), true, 'never inside the repository');
-  assert.equal(repo.git('status', '--porcelain'), '?? agent-docs/', 'only the event store appears in the repository');
+  assert.equal(repo.git('status', '--porcelain'), '?? .doflow/', 'only the event store appears in the repository');
 
   const item = listFollowups({ root: repo.dir }).items[0];
   assert.deepEqual([item.state, item.body, item.source.kind], ['open', 'on-this-machine', 'report']);
@@ -172,7 +172,7 @@ test('exactly one body source is required; a missing, binary or non-regular file
     assert.throws(() => report(repo, { input }), FollowupUsageError, JSON.stringify(input));
   }
   assert.deepEqual(eventFiles(repo), []);
-  assert.equal(fs.existsSync(path.join(repo.dir, 'agent-docs')), false);
+  assert.equal(fs.existsSync(path.join(repo.dir, '.doflow', 'state', 'lifecycle')), false);
   assert.equal(fs.existsSync(path.dirname(bodyFile(repo, 'FU-aaaaaa'))), false, 'no body folder for this project');
 });
 
@@ -228,7 +228,7 @@ test('the verb: --file, --stdin and --text (with the = form for a leading dash),
 
 test('the verb: usage errors exit 2 and write nothing; a 17 MiB file reads only its first 16 MiB', () => {
   const repo = newRepo();
-  const before = () => fs.existsSync(path.join(repo.dir, 'agent-docs'));
+  const before = () => fs.existsSync(path.join(repo.dir, '.doflow', 'state', 'lifecycle'));
   assert.equal(run(repo.dir, ['followup', '--action', 'report', '--text', 'body', '--json']).status, 2, 'a statement is required');
   assert.equal(run(repo.dir, ['followup', '--action', 'report', '--statement', 'x', '--json']).status, 2, 'a body source is required');
   assert.equal(run(repo.dir, ['followup', '--action', 'report', '--statement', 'x', '--text', 'a', '--stdin', '--json'], { input: 'b' }).status, 2);
