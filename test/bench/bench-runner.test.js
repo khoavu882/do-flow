@@ -292,3 +292,154 @@ test('F4: an invalid --split value, or --split on another command, exits 2 with 
     assert.equal(other.stderr.trim(), `bench ${cmd}: --split is not accepted`);
   }
 });
+
+// --- usage capture (F3, F6 usage part, F7 with-skill part) -------------------------------------
+
+function timingRun(name, timingText) {
+  const dir = path.join(scratch.dir, `timing-${name}`);
+  fs.mkdirSync(dir, { recursive: true });
+  if (timingText !== null) fs.writeFileSync(path.join(dir, runner.RUN_TIMING_FILE), timingText);
+  return runner.readUsage(dir);
+}
+
+test('F3: a timing.json with both fields valid is recorded', () => {
+  const u = timingRun('recorded', '{"total_tokens": 1200, "duration_ms": 3400.5, "extra": true}');
+  assert.deepEqual(u, { total_tokens: 1200, duration_ms: 3400.5, status: 'recorded', evidence: 'timing.json: 1200 total_tokens, 3400.5 ms' });
+});
+
+test('F3: one valid field is partial and the other is null, never 0', () => {
+  const noDuration = timingRun('partial-a', '{"total_tokens": 50}');
+  assert.equal(noDuration.status, 'partial');
+  assert.equal(noDuration.total_tokens, 50);
+  assert.equal(noDuration.duration_ms, null);
+  const noTokens = timingRun('partial-b', '{"total_tokens": -1, "duration_ms": 10}');
+  assert.equal(noTokens.status, 'partial');
+  assert.equal(noTokens.total_tokens, null);
+  assert.equal(noTokens.duration_ms, 10);
+  assert.equal(timingRun('partial-c', '{"total_tokens": 1.5, "duration_ms": "9"}').status, 'invalid');
+});
+
+test('F3: a file in another tool\'s shape is invalid, and malformed or absent files are unknown', () => {
+  const foreign = timingRun('foreign', '{"total_duration_seconds": 12.3, "executor_start": "2026-10-06"}');
+  assert.equal(foreign.status, 'invalid');
+  assert.equal(foreign.total_tokens, null);
+  assert.equal(foreign.duration_ms, null);
+  for (const [name, text] of [['array', '[1,2]'], ['null', 'null'], ['number', '7']]) {
+    assert.equal(timingRun(name, text).status, 'invalid', name);
+  }
+  const malformed = timingRun('malformed', '{not json');
+  assert.deepEqual([malformed.status, malformed.total_tokens, malformed.duration_ms], ['malformed', null, null]);
+  const absent = timingRun('absent', null);
+  assert.deepEqual([absent.status, absent.total_tokens, absent.duration_ms], ['unrecorded', null, null]);
+  assert.match(absent.evidence, /no timing\.json saved/);
+});
+
+test('F3: summarizeUsage sums known values, counts unknowns and is repeatable', () => {
+  const usages = [
+    { total_tokens: 100, duration_ms: 10 },
+    { total_tokens: null, duration_ms: 20 },
+    { total_tokens: 0, duration_ms: null },
+    { total_tokens: null, duration_ms: null },
+  ];
+  const summary = runner.summarizeUsage(usages);
+  assert.deepEqual(summary, { knownTokens: 100, knownTokenRuns: 2, unknownTokenRuns: 2, knownDurationMs: 30, knownDurationRuns: 2, unknownDurationRuns: 2 });
+  assert.deepEqual(runner.summarizeUsage(usages), summary);
+  assert.deepEqual(runner.summarizeUsage([]), { knownTokens: 0, knownTokenRuns: 0, unknownTokenRuns: 0, knownDurationMs: 0, knownDurationRuns: 0, unknownDurationRuns: 0 });
+});
+
+test('F3: every planned run is told to save timing.json', () => {
+  const plan = runner.buildPlan(runner.loadConfig(), { iteration: 'fixture' });
+  for (const r of plan.runs) assert.ok(r.saveOutputs.includes('timing.json'), `${r.skill}/${r.evalId}`);
+});
+
+test('F6: report rows and totals carry usage, and an unknown run stays unknown', () => {
+  const withUsage = (key, name, total_tokens, duration_ms) =>
+    result(key, name, 'triggering', 'train', { usage: { total_tokens, duration_ms } });
+  const input = {
+    baseline: { commit: 'abc', model: 'm', results: [result('s/1', 'one', 'triggering', 'train'), result('s/2', 'two', 'triggering', 'train')] },
+    withResults: [withUsage('s/1', 'one', 900, 40), withUsage('s/2', 'two', null, null), result('s/3', 'three', 'triggering', 'heldout')],
+    cfg: { model: 'm' }, iteration: 'it', commit: 'def',
+  };
+  const report = runner.buildReport(input);
+  assert.deepEqual(report.rows.map((r) => r.usage), [
+    { total_tokens: 900, duration_ms: 40 },
+    { total_tokens: null, duration_ms: null },
+    { total_tokens: null, duration_ms: null },
+  ]);
+  assert.deepEqual(report.rows.map((r) => r.split), ['train', 'train', 'heldout']);
+  assert.deepEqual(report.usage.withSkill, { knownTokens: 900, knownTokenRuns: 1, unknownTokenRuns: 2, knownDurationMs: 40, knownDurationRuns: 1, unknownDurationRuns: 2 });
+  assert.deepEqual(report.usage.withoutSkill, runner.summarizeUsage([]));
+  assert.deepEqual(runner.buildReport(input), report);
+});
+
+// A graded fixture iteration lives under a temporary runs root, and the baseline, the report and the
+// reports directory are redirected there too, so nothing is written beside the checkout's bench/.
+function quiet(fn) {
+  const saved = { log: console.log, warn: console.warn, error: console.error };
+  const out = [];
+  const err = [];
+  console.log = (...a) => out.push(a.join(' '));
+  console.warn = (...a) => err.push(a.join(' '));
+  console.error = (...a) => err.push(a.join(' '));
+  try {
+    const status = fn();
+    return { status, out: out.join('\n'), err: err.join('\n') };
+  } finally {
+    Object.assign(console, saved);
+  }
+}
+
+function gradedFixture(name) {
+  const cfg = { ...runner.loadConfig(), reportsDir: path.join(scratch.dir, name, 'reports') };
+  const runsRoot = path.join(scratch.dir, name, 'runs');
+  const baselineFile = path.join(scratch.dir, name, 'baseline', 'baseline.json');
+  const [first, second] = runner.loadCases(cfg, 'do-git').evals;
+  const runDir = (e) => path.join(runsRoot, 'it', 'do-git', `eval-${e.id}-${e.name}`);
+  for (const e of [first, second]) {
+    fs.mkdirSync(runDir(e), { recursive: true });
+    fs.writeFileSync(path.join(runDir(e), 'transcript.txt'), 'ran');
+  }
+  fs.writeFileSync(path.join(runDir(first), 'timing.json'), '{"total_tokens": 1500, "duration_ms": 90}');
+  return { cfg, runsRoot, baselineFile, first, second, runDir, opts: { iteration: 'it', runsRoot, baselineFile } };
+}
+
+test('F7: grade records split and usage, and the summary counts the unknown runs', () => {
+  const f = gradedFixture('f7-grade');
+  const run = quiet(() => runner.cmdGrade(f.cfg, f.opts));
+  assert.equal(run.status, 0);
+  assert.match(run.out, /graded 2 run\(s\); \d+ assertion\(s\) left for the grader subagent; usage unknown for 1 run\(s\)/);
+  const g1 = JSON.parse(fs.readFileSync(path.join(f.runDir(f.first), 'grading.json'), 'utf8'));
+  const g2 = JSON.parse(fs.readFileSync(path.join(f.runDir(f.second), 'grading.json'), 'utf8'));
+  assert.equal(g1.split, f.first.split);
+  assert.deepEqual(g1.usage, { total_tokens: 1500, duration_ms: 90, status: 'recorded', evidence: 'timing.json: 1500 total_tokens, 90 ms' });
+  assert.equal(g2.usage.status, 'unrecorded');
+  assert.equal(g2.usage.total_tokens, null);
+});
+
+test('F7: baseline writes split, usage and usageSummary, and report prints the tokens column', () => {
+  const f = gradedFixture('f7-baseline');
+  quiet(() => runner.cmdGrade(f.cfg, f.opts));
+  const base = quiet(() => runner.cmdBaseline(f.cfg, { from: 'it', runsRoot: f.runsRoot, baselineFile: f.baselineFile }));
+  assert.equal(base.status, 0);
+  const written = JSON.parse(fs.readFileSync(f.baselineFile, 'utf8'));
+  assert.equal(written.caseCount, 2);
+  assert.deepEqual(written.results.map((r) => [r.key, r.split, r.usage]), [
+    [`do-git/${f.first.id}`, f.first.split, { total_tokens: 1500, duration_ms: 90 }],
+    [`do-git/${f.second.id}`, f.second.split, { total_tokens: null, duration_ms: null }],
+  ]);
+  assert.equal(written.usageSummary.withSkill.knownTokens, 1500);
+  assert.equal(written.usageSummary.withSkill.unknownTokenRuns, 1);
+
+  const rep = quiet(() => runner.cmdReport(f.cfg, f.opts));
+  assert.equal(rep.status, 0);
+  assert.match(rep.out, /\| case \| kind \| split \| baseline \| current \| delta \| status \| source \| tokens \|/);
+  assert.match(rep.out, new RegExp(`\\| do-git/${f.first.id} \\|.*\\| 1500 \\|`));
+  assert.match(rep.out, new RegExp(`\\| do-git/${f.second.id} \\|.*\\| unknown \\|`));
+  assert.match(rep.out, /usage: 1500 total_tokens over 1 run\(s\); unknown for 1 run\(s\)/);
+  assert.ok(fs.existsSync(path.join(f.cfg.reportsDir, 'it-vs-baseline.json')));
+});
+
+test('F7: the committed baseline, which predates split and usage, still reads as ok', () => {
+  const parity = runner.baselineParity(runner.loadConfig());
+  assert.equal(parity.ok, true);
+});

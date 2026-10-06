@@ -39,6 +39,9 @@ const RUN_SOURCE_FILE = 'skill_source.json';
 /** What a triggering run must write to record whether it judged the request to route to its skill. */
 const RUN_ROUTING_FILE = 'routing.json';
 
+/** What the orchestrating agent writes beside a run's records: the usage its task notification reported. */
+const RUN_TIMING_FILE = 'timing.json';
+
 /** The two sides of the corpus. Every case carries one; a baseline capture freezes it. */
 const SPLITS = ['train', 'heldout'];
 
@@ -75,6 +78,17 @@ function loadCases(cfg, skill) {
     throw new Error(`${file}: skill_name "${data.skill_name}" does not match directory "${skill}"`);
   }
   return data;
+}
+
+/** Where run iterations live, and where the committed baseline is. `opts.runsRoot` and
+ * `opts.baselineFile` exist so a fixture can point a command at a temporary directory; `parseArgs`
+ * never sets them, so the command line cannot redirect a real capture. */
+function runsRootOf(cfg, opts) {
+  return opts.runsRoot || path.join(REPO_ROOT, cfg.benchRoot, 'runs');
+}
+
+function baselineFileOf(cfg, opts) {
+  return opts.baselineFile || path.join(REPO_ROOT, cfg.baselineDir, 'baseline.json');
 }
 
 function currentCommit() {
@@ -255,6 +269,51 @@ function loadRunContext(runDir) {
     // the skill under test is free to change.
     outputsText: outputFiles.map((f) => safeRead(f)).join('\n'),
   };
+}
+
+/**
+ * What a run cost, read only from a valid `timing.json`. Each field is validated on its own and an
+ * absent, unreadable or invalid one is null: a value nobody reported is unknown, and counting it as 0
+ * would make an unmeasured run look free. Other keys in the file are ignored, so a file in another
+ * tool's shape (for example `total_duration_seconds`) is `invalid` rather than misread.
+ */
+function readUsage(runDir) {
+  const file = path.join(runDir, RUN_TIMING_FILE);
+  const unknown = (status, evidence) => ({ total_tokens: null, duration_ms: null, status, evidence });
+  if (!fs.existsSync(file)) return unknown('unrecorded', `no ${RUN_TIMING_FILE} saved: usage is unknown`);
+  let rec;
+  try {
+    rec = readJson(file);
+  } catch {
+    return unknown('malformed', `${RUN_TIMING_FILE} is not valid JSON: usage is unknown`);
+  }
+  const obj = rec !== null && typeof rec === 'object' && !Array.isArray(rec) ? rec : {};
+  const total_tokens = Number.isInteger(obj.total_tokens) && obj.total_tokens >= 0 ? obj.total_tokens : null;
+  const duration_ms = Number.isFinite(obj.duration_ms) && obj.duration_ms >= 0 ? obj.duration_ms : null;
+  if (total_tokens === null && duration_ms === null) {
+    return unknown('invalid', `${RUN_TIMING_FILE} has no valid total_tokens (integer >= 0) or duration_ms (number >= 0): usage is unknown`);
+  }
+  if (total_tokens === null || duration_ms === null) {
+    return { total_tokens, duration_ms, status: 'partial', evidence: `${RUN_TIMING_FILE} has no valid ${total_tokens === null ? 'total_tokens' : 'duration_ms'}: that value is unknown` };
+  }
+  return { total_tokens, duration_ms, status: 'recorded', evidence: `${RUN_TIMING_FILE}: ${total_tokens} total_tokens, ${duration_ms} ms` };
+}
+
+/** Totals over runs, summing only values that are known. A null is counted as unknown and never adds
+ * 0 to a sum, so the totals stay lower bounds rather than quietly understating an unmeasured run. */
+function summarizeUsage(usages) {
+  const out = { knownTokens: 0, knownTokenRuns: 0, unknownTokenRuns: 0, knownDurationMs: 0, knownDurationRuns: 0, unknownDurationRuns: 0 };
+  for (const u of usages) {
+    if (u && u.total_tokens !== null && u.total_tokens !== undefined) {
+      out.knownTokens += u.total_tokens;
+      out.knownTokenRuns += 1;
+    } else out.unknownTokenRuns += 1;
+    if (u && u.duration_ms !== null && u.duration_ms !== undefined) {
+      out.knownDurationMs += u.duration_ms;
+      out.knownDurationRuns += 1;
+    } else out.unknownDurationRuns += 1;
+  }
+  return out;
 }
 
 function walkFiles(dir) {
@@ -530,7 +589,7 @@ function buildPlan(cfg, opts) {
           mustRecord: RUN_SOURCE_FILE,
         },
         outputDir: path.join(cfg.benchRoot, 'runs', opts.iteration, skill, `eval-${e.id}-${e.name}`),
-        saveOutputs: ['transcript.txt', 'invoked_skills.json', RUN_SOURCE_FILE, 'outputs/', ...(e.kind === 'triggering' ? [RUN_ROUTING_FILE] : [])],
+        saveOutputs: ['transcript.txt', 'invoked_skills.json', RUN_SOURCE_FILE, RUN_TIMING_FILE, 'outputs/', ...(e.kind === 'triggering' ? [RUN_ROUTING_FILE] : [])],
       });
     }
   }
@@ -565,7 +624,7 @@ function cmdGrade(cfg, opts) {
     console.error('bench grade: --iteration <name> is required');
     return 2;
   }
-  const iterRoot = path.join(REPO_ROOT, cfg.benchRoot, 'runs', opts.iteration);
+  const iterRoot = path.join(runsRootOf(cfg, opts), opts.iteration);
   if (!fs.existsSync(iterRoot)) {
     console.error(`bench grade: no runs found at ${path.relative(REPO_ROOT, iterRoot)}`);
     return 2;
@@ -587,6 +646,7 @@ function cmdGrade(cfg, opts) {
 
   let graded = 0;
   let manual = 0;
+  let usageUnknown = 0;
   const unverified = [];
   const skills = opts.skill ? [opts.skill] : discoverSkills(cfg);
   for (const skill of skills) {
@@ -609,18 +669,22 @@ function cmdGrade(cfg, opts) {
       // would silently reprice every case in the committed baseline.
       const skillSource = verifySkillSource(cfg, skill, ctx);
       if (skillSource.status !== 'verified') unverified.push(`${skill}/${e.id}: ${skillSource.status} — ${skillSource.evidence}`);
+      const usage = readUsage(runDir);
+      if (usage.status !== 'recorded') usageUnknown += 1;
       writeJson(path.join(runDir, 'grading.json'), {
         skill,
         eval_id: e.id,
         eval_name: e.name,
+        split: e.split,
         skill_source: skillSource,
         expectations,
         pass_rate: decided.length ? decided.filter((x) => x.passed).length / decided.length : null,
+        usage,
       });
       graded += 1;
     }
   }
-  console.log(`graded ${graded} run(s); ${manual} assertion(s) left for the grader subagent`);
+  console.log(`graded ${graded} run(s); ${manual} assertion(s) left for the grader subagent; usage unknown for ${usageUnknown} run(s)`);
   if (unverified.length) {
     console.warn(
       `\nwarning: ${unverified.length} of ${graded} run(s) cannot prove they measured this repo's skills.\n` +
@@ -636,7 +700,7 @@ function cmdGrade(cfg, opts) {
  * the "baseline predates the rewrite" property is checkable after the fact rather than trusted. */
 function cmdBaseline(cfg, opts) {
   const from = opts.from || 'baseline';
-  const iterRoot = path.join(REPO_ROOT, cfg.benchRoot, 'runs', from);
+  const iterRoot = path.join(runsRootOf(cfg, opts), from);
   if (!fs.existsSync(iterRoot)) {
     console.error(`bench baseline: no runs found at ${path.relative(REPO_ROOT, iterRoot)}`);
     return 2;
@@ -663,9 +727,10 @@ function cmdBaseline(cfg, opts) {
     // inferred from the capture date.
     sourceVerifiedCount: results.length - unverified.length,
     sourceUnverified: unverified.map((r) => `${r.key}: ${r.sourceStatus}`),
+    usageSummary: { withSkill: summarizeUsage(results.map((r) => r.usage)), withoutSkill: summarizeUsage([]) },
     results,
   };
-  writeJson(path.join(REPO_ROOT, cfg.baselineDir, 'baseline.json'), baseline);
+  writeJson(baselineFileOf(cfg, opts), baseline);
   if (clean === false) {
     console.warn('warning: working tree was dirty at capture; the recorded commit does not fully describe what ran');
   }
@@ -677,6 +742,13 @@ function cmdBaseline(cfg, opts) {
   }
   console.log(`baseline written: ${results.length} case(s) at commit ${baseline.commit || 'unknown'}`);
   return 0;
+}
+
+/** The two usage values a result keeps. A grading written before usage was captured has none, which
+ * reads as unknown rather than 0. */
+function resultUsage(g) {
+  const u = g && g.usage ? g.usage : {};
+  return { total_tokens: u.total_tokens ?? null, duration_ms: u.duration_ms ?? null };
 }
 
 function collectResults(cfg, iterRoot) {
@@ -694,11 +766,13 @@ function collectResults(cfg, iterRoot) {
         evalId: e.id,
         evalName: e.name,
         kind: e.kind,
+        split: e.split,
         passRate: g.pass_rate,
         // Runs graded before A.5 carry no provenance at all, which is itself the finding — they are
         // reported as `unrecorded` rather than quietly assumed good.
         sourceStatus: g.skill_source ? g.skill_source.status : 'unrecorded',
         expectations: g.expectations.map((x) => ({ text: x.text, passed: x.passed })),
+        usage: resultUsage(g),
       });
     }
   }
@@ -712,7 +786,7 @@ function collectResults(cfg, iterRoot) {
  * A case the baseline has no result for is `pending`, not "new": it is waiting on a paid capture,
  * and nothing about it is a delta.
  */
-function buildReport({ baseline, withResults, cfg, iteration, commit }) {
+function buildReport({ baseline, withResults, withoutResults = [], cfg, iteration, commit }) {
   const byKey = new Map(baseline.results.map((r) => [r.key, r]));
   const rows = [];
   for (const c of withResults) {
@@ -720,6 +794,7 @@ function buildReport({ baseline, withResults, cfg, iteration, commit }) {
     rows.push({
       key: c.key,
       kind: c.kind,
+      split: c.split,
       baseline: b ? b.passRate : null,
       current: c.passRate,
       delta: b && b.passRate !== null && c.passRate !== null ? c.passRate - b.passRate : null,
@@ -729,6 +804,7 @@ function buildReport({ baseline, withResults, cfg, iteration, commit }) {
       // A delta between two runs of unknown provenance is arithmetic, not evidence. Naming that on
       // the row keeps a null delta from reading as "no regression" — the exact misreading A.5 fixes.
       sourceComparable: Boolean(b) && c.sourceStatus === 'verified' && (b.sourceStatus || 'unrecorded') === 'verified',
+      usage: resultUsage(c),
     });
   }
   const dropped = baseline.results.filter((b) => !withResults.some((c) => c.key === b.key));
@@ -753,6 +829,10 @@ function buildReport({ baseline, withResults, cfg, iteration, commit }) {
     pendingNote: pending > 0
       ? `${pending} case(s) are pending: they await a paid baseline capture and carry no baseline result`
       : null,
+    usage: {
+      withSkill: summarizeUsage(withResults.map(resultUsage)),
+      withoutSkill: summarizeUsage(withoutResults.map(resultUsage)),
+    },
   };
 }
 
@@ -762,7 +842,7 @@ function buildReport({ baseline, withResults, cfg, iteration, commit }) {
  * the prompting guide's experiment protocol calls that out specifically.
  */
 function cmdReport(cfg, opts) {
-  const baselineFile = path.join(REPO_ROOT, cfg.baselineDir, 'baseline.json');
+  const baselineFile = baselineFileOf(cfg, opts);
   if (!fs.existsSync(baselineFile)) {
     console.error('bench report: no baseline captured yet — run `bench baseline` first');
     return 2;
@@ -773,30 +853,33 @@ function cmdReport(cfg, opts) {
     return 2;
   }
   const baseline = readJson(baselineFile);
-  const currentRoot = path.join(REPO_ROOT, cfg.benchRoot, 'runs', against);
+  const currentRoot = path.join(runsRootOf(cfg, opts), against);
   if (!fs.existsSync(currentRoot)) {
     console.error(`bench report: no runs found at ${path.relative(REPO_ROOT, currentRoot)}`);
     return 2;
   }
   const report = buildReport({ baseline, withResults: collectResults(cfg, currentRoot), cfg, iteration: against, commit: currentCommit() });
   const { rows } = report;
-  const outFile = path.join(REPO_ROOT, cfg.reportsDir, `${against}-vs-baseline.json`);
+  const outFile = path.resolve(REPO_ROOT, cfg.reportsDir, `${against}-vs-baseline.json`);
   writeJson(outFile, report);
 
   if (!report.modelComparable) {
     console.warn(`warning: baseline ran on ${baseline.model}, this run on ${cfg.model} — the delta is not a clean comparison`);
   }
-  console.log(`| case | kind | baseline | current | delta | status | source |`);
-  console.log(`|---|---|---|---|---|---|---|`);
+  console.log(`| case | kind | split | baseline | current | delta | status | source | tokens |`);
+  console.log(`|---|---|---|---|---|---|---|---|---|`);
   for (const r of rows) {
     const fmt = (v) => (v === null ? '—' : v.toFixed(2));
     const d = r.delta === null ? '—' : (r.delta > 0 ? '+' : '') + r.delta.toFixed(2);
     const src = r.sourceComparable ? 'verified' : `${r.baselineSource || '—'}→${r.currentSource}`;
-    console.log(`| ${r.key} | ${r.kind} | ${fmt(r.baseline)} | ${fmt(r.current)} | ${d} | ${r.status} | ${src} |`);
+    const tokens = r.usage.total_tokens === null ? 'unknown' : r.usage.total_tokens;
+    console.log(`| ${r.key} | ${r.kind} | ${r.split} | ${fmt(r.baseline)} | ${fmt(r.current)} | ${d} | ${r.status} | ${src} | ${tokens} |`);
   }
   const s = report.summary;
   console.log(`\n${s.improved} improved, ${s.regressed} regressed, ${s.unchanged} unchanged, ${s.pending} pending, ${s.dropped} dropped`);
   if (report.pendingNote) console.log(report.pendingNote);
+  const u = report.usage.withSkill;
+  console.log(`usage: ${u.knownTokens} total_tokens over ${u.knownTokenRuns} run(s); unknown for ${u.unknownTokenRuns} run(s)`);
   if (s.sourceIncomparable) {
     console.warn(
       `\nwarning: ${s.sourceIncomparable} of ${rows.length} row(s) compare runs that cannot both prove they read\n` +
@@ -1030,6 +1113,10 @@ module.exports = {
   gradeAssertion,
   collectResults,
   buildPlan,
+  cmdPlan,
+  cmdGrade,
+  cmdBaseline,
+  cmdReport,
   loadRunContext,
   verifySkillSource,
   skillSourceSha256,
@@ -1037,9 +1124,12 @@ module.exports = {
   compareParity,
   parityLines,
   buildReport,
+  readUsage,
+  summarizeUsage,
   SKILL_RESOLUTION,
   RUN_SOURCE_FILE,
   RUN_ROUTING_FILE,
+  RUN_TIMING_FILE,
   ASSERTION_TYPES,
   SPLITS,
 };
