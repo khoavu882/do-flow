@@ -971,7 +971,7 @@ test('F7: a leaked without-skill run is graded leaked, warned about and kept out
   assert.equal(JSON.parse(fs.readFileSync(f.baselineFile, 'utf8')).withoutSkillResults[0].sourceStatus, 'leaked');
   const rep = quiet(() => runner.cmdReport(f.cfg, f.opts));
   assert.equal(rep.status, 0);
-  assert.match(rep.out, /\| do-git \| 0 \| — \| — \| — \|/);
+  assert.match(rep.out, /\| do-git \| 0 \| — \| — \| — \(no case with both arms decided, verified and withheld\) \|/);
 });
 
 test('F7: a stray without-skill directory for a triggering case is not graded', () => {

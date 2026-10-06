@@ -1214,7 +1214,7 @@ function cmdReport(cfg, opts) {
     console.log('\n| skill | paired | with | without | delta |');
     console.log('|---|---|---|---|---|');
     for (const a of report.armDelta) {
-      const d = a.delta === null ? '—' : (a.delta > 0 ? '+' : '') + a.delta.toFixed(2);
+      const d = a.delta === null ? `— (${a.reason})` : (a.delta > 0 ? '+' : '') + a.delta.toFixed(2);
       console.log(`| ${a.skill} | ${a.pairedCases.length} | ${fmt(a.withSkill)} | ${fmt(a.withoutSkill)} | ${d} |`);
     }
   }
