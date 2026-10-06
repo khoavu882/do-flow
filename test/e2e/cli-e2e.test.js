@@ -301,6 +301,34 @@ test('status --json emits parseable JSON with the manifest', () => {
   assert.strictEqual(parsed.context.scope, 'global');
 });
 
+test('status reports a harness the ledger owns nothing of as not-installed, in JSON and text', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  run(['install', '-g', '--force', '--target', 'claude'], { home });
+  const parsed = JSON.parse(run(['status', '-g', '--json', '--target', 'claude,codex'], { home }).stdout);
+  assert.strictEqual(parsed.context.claude.status, 'verified');
+  assert.strictEqual(parsed.context.codex.status, 'not-installed');
+  assert.deepStrictEqual(parsed.context.codex.resources, []);
+  const text = run(['status', '-g', '--target', 'claude,codex'], { home });
+  assert.match(text.stdout, /Codex verification:\s+not-installed/);
+  assert.match(text.stdout, /Claude verification:\s+verified/);
+});
+
+test('status keeps a conflict ahead of not-installed: a user-owned file in the way, or ledger rows lost over edited files', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.codex', 'config.toml'), '# personal setting\n[features]\nhooks = false\n');
+  run(['install', '-g', '--force', '--target', 'claude'], { home });
+  let parsed = JSON.parse(run(['status', '-g', '--json', '--target', 'claude,codex'], { home }).stdout);
+  assert.strictEqual(parsed.context.codex.status, 'conflict-or-invalid');
+  assert.ok(parsed.context.codex.errors.length > 0);
+
+  const skill = path.join(home, '.claude', 'skills', 'do-brainstorm', 'SKILL.md');
+  fs.rmSync(path.join(home, '.doflow', 'state', 'ledger.json'));
+  fs.writeFileSync(skill, '# my own file\n');
+  parsed = JSON.parse(run(['status', '-g', '--json', '--target', 'claude'], { home }).stdout);
+  assert.strictEqual(parsed.context.claude.status, 'conflict-or-invalid');
+});
+
 test('rollback with an unknown id fails cleanly (exit 1, no crash)', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   run(['install', '-g', '--force', '--target', 'claude'], { home });

@@ -46,9 +46,15 @@ function cmdStatus(o) {
     const harnessStatus = (harness) => {
       const target = harnessPlan(harness);
       if (!target) return { status: 'verified', resources: [], errors: [], hooks: hooksFor(harness) };
+      const resources = registryView.ledger.resources.filter((resource) => resource.harness === harness);
+      // A conflict is reported first: a user-owned file in the way is not the same as nothing being
+      // installed. With no conflict, a harness the ledger owns nothing of was never installed: its
+      // whole plan is pending, which is not drift from an installation that does not exist.
       return {
-        status: target.conflicts.length ? 'conflict-or-invalid' : (target.changes.length ? 'drift-or-pending-change' : 'verified'),
-        resources: registryView.ledger.resources.filter((resource) => resource.harness === harness),
+        status: target.conflicts.length ? 'conflict-or-invalid'
+          : !resources.length ? 'not-installed'
+            : (target.changes.length ? 'drift-or-pending-change' : 'verified'),
+        resources,
         errors: target.conflicts,
         hooks: hooksFor(harness),
       };

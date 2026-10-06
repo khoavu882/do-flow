@@ -2,9 +2,11 @@
 
 // G23 — hidden Unicode. Shipped prose and code are read by models and by reviewers; a code point that
 // renders as nothing (tag characters, zero-width characters, bidirectional controls, invisible
-// operators) can carry instructions or reorder text that no reviewer sees. Every file under core/,
+// operators, variation selectors, soft hyphens and filler characters) can carry instructions or reorder text that no reviewer sees. Every file under core/,
 // src/, bin/ and docs/, and README.md, must hold none, and must decode as strict UTF-8 so an
-// undecodable file cannot slip past unscanned. The scan reads the files git tracks (the working-tree
+// undecodable file cannot slip past unscanned. A leading byte order mark is kept in the decoded text
+// and so is found. U+FE0E and U+FE0F after a pictograph (or after a keycap base before U+20E3) choose
+// an emoji's presentation and are allowed; a variation selector anywhere else is a finding. The scan reads the files git tracks (the working-tree
 // walk is the fallback when git cannot list them), so an ignored or untracked artifact never fails
 // it; a tracked file holding a NUL byte is binary and a symlink is not a file of its own, and
 // both are skipped. test/ and bench/ are not scanned: test/ holds deliberate bidirectional
@@ -21,6 +23,9 @@ const { REPO } = require('./_shared');
 const SCAN_ROOTS = ['core', 'src', 'bin', 'docs'];
 const SCAN_FILES = ['README.md'];
 
+// Named classes for the code points a finding is most useful to label. Every other code point with the
+// Unicode property Default_Ignorable_Code_Point is a finding too, classed as 'default-ignorable', so a
+// newly assigned invisible character is covered without listing it here.
 const HIDDEN_CODE_POINTS = [
   { from: 0xE0000, to: 0xE007F, cls: 'tag character' },
   { from: 0x200B, to: 0x200D, cls: 'zero-width' },
@@ -31,16 +36,26 @@ const HIDDEN_CODE_POINTS = [
   { from: 0x200E, to: 0x200F, cls: 'bidirectional mark' },
   { from: 0x061C, to: 0x061C, cls: 'bidirectional mark' },
   { from: 0x2061, to: 0x2064, cls: 'invisible operator' },
+  { from: 0xFE00, to: 0xFE0F, cls: 'variation selector' },
+  { from: 0xE0100, to: 0xE01EF, cls: 'variation selector' },
+  { from: 0x00AD, to: 0x00AD, cls: 'invisible formatting' },
+  { from: 0x180E, to: 0x180E, cls: 'invisible formatting' },
+  { from: 0x3164, to: 0x3164, cls: 'invisible filler' },
 ];
 
 const ZWJ = 0x200D;
+const VARIATION_SELECTOR_15 = 0xFE0E;
 const VARIATION_SELECTOR_16 = 0xFE0F;
+const COMBINING_ENCLOSING_KEYCAP = 0x20E3;
 const HIDDEN_RE = new RegExp(
-  `[${HIDDEN_CODE_POINTS.map(({ from, to }) => `\\u{${from.toString(16)}}-\\u{${to.toString(16)}}`).join('')}]`, 'u');
+  `[\\p{Default_Ignorable_Code_Point}${HIDDEN_CODE_POINTS.map(({ from, to }) => `\\u{${from.toString(16)}}-\\u{${to.toString(16)}}`).join('')}]`, 'u');
 const PICTOGRAPHIC_RE = /^\p{Extended_Pictographic}$/u;
+const KEYCAP_BASE_RE = /^[0-9#*]$/;
+const isVariationSelector = (codePoint) => classOf(codePoint) === 'variation selector';
 
 const hex = (codePoint) => codePoint.toString(16).toUpperCase().padStart(4, '0');
-const classOf = (codePoint) => HIDDEN_CODE_POINTS.find(({ from, to }) => codePoint >= from && codePoint <= to)?.cls;
+const classOf = (codePoint) => HIDDEN_CODE_POINTS.find(({ from, to }) => codePoint >= from && codePoint <= to)?.cls
+  ?? (HIDDEN_RE.test(String.fromCodePoint(codePoint)) ? 'default-ignorable' : undefined);
 
 /** Whether the ZWJ at `at` joins two pictographs (an emoji ZWJ sequence), skipping U+FE0F on both sides. */
 function joinsPictographs(codePoints, at) {
@@ -50,6 +65,16 @@ function joinsPictographs(codePoints, at) {
   while (after < codePoints.length && codePoints[after].codePointAt(0) === VARIATION_SELECTOR_16) after += 1;
   return before >= 0 && after < codePoints.length
     && PICTOGRAPHIC_RE.test(codePoints[before]) && PICTOGRAPHIC_RE.test(codePoints[after]);
+}
+
+/** Whether the variation selector at `at` sets the presentation of an emoji: it follows a pictograph, or a
+ * keycap base that the keycap combining mark follows. A variation selector anywhere else is a finding. */
+function selectsPresentation(codePoints, at) {
+  const selector = codePoints[at].codePointAt(0);
+  if (at === 0 || (selector !== VARIATION_SELECTOR_15 && selector !== VARIATION_SELECTOR_16)) return false;
+  const base = codePoints[at - 1];
+  return PICTOGRAPHIC_RE.test(base)
+    || (KEYCAP_BASE_RE.test(base) && codePoints[at + 1]?.codePointAt(0) === COMBINING_ENCLOSING_KEYCAP);
 }
 
 /** Hidden code points in `text`, positioned by line and code-point column, both counted from 1. */
@@ -66,6 +91,7 @@ function scanText(rel, text) {
     const cls = classOf(codePoint);
     if (!cls) return;
     if (codePoint === ZWJ && joinsPictographs(codePoints, at)) return;
+    if (isVariationSelector(codePoint) && selectsPresentation(codePoints, at)) return;
     findings.push({ rel, line, column, codePoint, cls });
   });
   return findings;
@@ -79,7 +105,7 @@ function scanBuffer(rel, buffer) {
   if (buffer.includes(0)) return [];
   let text;
   try {
-    text = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer);
   } catch {
     return [`${rel}: not valid UTF-8, not scanned`];
   }
@@ -176,6 +202,22 @@ test('G23: controls — the scan sees hidden code points, exempts emoji joins an
   assert.equal(between.length, 1);
   assert.equal(between[0].codePoint, ZWJ);
 
+  const invisible = [0xFE01, 0xE0100, 0x00AD, 0x3164, 0x180E].map((codePoint) => String.fromCodePoint(codePoint));
+  assert.deepEqual(scanText('fixture.md', invisible.map((char) => `a${char}b`).join('\n')).map(({ codePoint }) => codePoint),
+    [0xFE01, 0xE0100, 0x00AD, 0x3164, 0x180E]);
+  const ignorable = [0x034F, 0x115F, 0x1160, 0x17B4, 0x180B, 0x180F, 0x206A, 0x206F, 0xFFA0, 0x1BCA0, 0x1D173].map((codePoint) => String.fromCodePoint(codePoint));
+  assert.deepEqual(scanText('fixture.md', ignorable.map((char) => `a${char}b`).join('\n')).map(({ codePoint, cls }) => [codePoint, cls]),
+    ignorable.map((char) => [char.codePointAt(0), 'default-ignorable']), 'every other Default_Ignorable_Code_Point is a finding');
+  assert.equal(scanText('fixture.md', `a${String.fromCodePoint(VARIATION_SELECTOR_16)}`)[0].cls, 'variation selector');
+  assert.equal(scanText('fixture.md', String.fromCodePoint(VARIATION_SELECTOR_16)).length, 1);
+  assert.deepEqual(scanText('fixture.md', String.fromCodePoint(0x2764, VARIATION_SELECTOR_16)), []);
+  assert.deepEqual(scanText('fixture.md', String.fromCodePoint(0x31, VARIATION_SELECTOR_16, COMBINING_ENCLOSING_KEYCAP)), []);
+  assert.equal(scanText('fixture.md', String.fromCodePoint(0x31, VARIATION_SELECTOR_16, 0x32)).length, 1);
+  assert.equal(scanText('fixture.md', String.fromCodePoint(0x2764, 0xE0100)).length, 1, 'only U+FE0E and U+FE0F select an emoji presentation');
+  assert.equal(scanText('fixture.md', String.fromCodePoint(0x2764, 0xFE01)).length, 1);
+
+  assert.deepEqual(scanBuffer('bom.md', Buffer.from([0xEF, 0xBB, 0xBF, 0x61])), ['bom.md:1:1 U+FEFF zero-width'],
+    'a leading byte order mark is read, not stripped before the scan');
   assert.deepEqual(scanBuffer('bad.md', Buffer.from([0xC3, 0x28])), ['bad.md: not valid UTF-8, not scanned']);
   assert.deepEqual(scanBuffer('ok.md', Buffer.from('plain text', 'utf8')), []);
 });

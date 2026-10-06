@@ -336,19 +336,21 @@ function removeTree({ changes = [], fsImpl = fs }) {
     const current = sha256(fsImpl.readFileSync(change.target));
     if (current !== change.fingerprint) throw new Error(`Refusing to remove modified copy-tree resource: ${change.relPath}`);
     fsImpl.rmSync(change.target, { force: true });
-    pruneEmptyAncestors(path.dirname(change.target), { fsImpl, stopAtBasename: ANCHOR_DIRS });
+    pruneEmptyAncestors(path.dirname(change.target), { fsImpl });
     removed += 1;
   }
   return { removed };
 }
 
-const ANCHOR_DIRS = new Set(['.agents', '.claude', '.codex', '.copilot', '.doflow', '.gemini', '.github', '.kiro', '.opencode', '.pi', 'skills', 'agents']);
+const ANCHOR_DIRS = new Set(['.agents', '.claude', '.codex', '.copilot', '.doflow', '.gemini', '.github', '.kiro', '.opencode', '.pi']);
 
 /** Delete now-empty ancestor directories after a file removal, so a relocated or fully-uninstalled
  * tree doesn't leave a skeleton of empty folders behind. Walks upward only while rmdir succeeds
- * (i.e. the directory is empty); stops unconditionally at anchor basenames — the harness/config
- * roots themselves are never pruned even when empty, because they may hold user content elsewhere
- * and their existence is not DoFlow's call. */
+ * (i.e. the directory is empty, so it holds nothing but what the removal just emptied); stops
+ * unconditionally at a directory whose basename is in ANCHOR_DIRS — the dot-folder harness roots,
+ * which may hold user content elsewhere. The match is by basename, so a root with another name
+ * (`~/.gemini/config`, `~/.pi/agent`, `~/.config/opencode`) is pruned once it is empty; no file is
+ * ever lost, since rmdir refuses a folder that holds one. */
 function pruneEmptyAncestors(startDir, { fsImpl = fs } = {}) {
   let current = startDir;
   for (;;) {

@@ -136,15 +136,16 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     return `${base}.agent${ext || '.md'}`;
   }
 
-  function planTreeAssets({ assets, renderer, destRoot, layout, context, ledger, removing, fsImpl = fs }) {
+  function planTreeAssets({ assets, renderer, destRoot, scopeRoot, layout, context, ledger, removing, fsImpl = fs }) {
     const changes = [];
     const conflicts = [];
     const treeResults = [];
+    const notices = [];
     for (const asset of treeAssetsFor(assets, renderer)) {
       const destDir = copyTreeDestDir(destRoot, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Copilot');
       const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: layout || asset.layout, transform: asset.transform,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: layout || asset.layout, transform: asset.transform, keepModified: !removing,
         // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
         // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
         // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file
@@ -152,6 +153,9 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
         force: !removing && context?.force === true, });
       treeResults.push(result);
       conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+      // A hand-edited file at a path DoFlow no longer writes is the user's: it stays, only its
+      // ownership row is released.
+      notices.push(...result.kept.map((item) => `kept hand-edited ${path.relative(scopeRoot, item.target)}; DoFlow no longer manages it`));
       for (const change of result.changes) {
         changes.push({
           assetId: asset.id, target: change.target, source: change.source, operation: change.operation,
@@ -159,11 +163,12 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
           kind: 'copy-tree-file', identity: change.relPath,
           afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: 'registry-v1',
           transformName: asset.transform || null,
+          ...(change.kept ? { retained: true, retainedFor: [] } : {}),
           projection: { renderer: 'copy-tree' },
         });
       }
     }
-    return { changes, conflicts, notices: siblingReplacedNotices(treeResults) };
+    return { changes, conflicts, notices: [...siblingReplacedNotices(treeResults), ...notices] };
   }
 
   function applyCopyTreeAssets(changes, { fsImpl = fs } = {}) {
@@ -182,7 +187,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
   }
 
   function removeCopyTreeAssets(changes, { fsImpl = fs } = {}) {
-    const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove')
+    const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove' && !change.retained)
       .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
     return removeTree({ changes: treeChanges, fsImpl }).removed;
   }
@@ -259,15 +264,15 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     changes.push(...instructions.changes);
     conflicts.push(...instructions.conflicts);
 
-    const skills = planTreeAssets({ assets, renderer: 'copy-tree', destRoot: found.paths.skillsConfigDir, layout: null, context, ledger, removing, fsImpl });
+    const skills = planTreeAssets({ assets, renderer: 'copy-tree', scopeRoot, destRoot: found.paths.skillsConfigDir, layout: null, context, ledger, removing, fsImpl });
     changes.push(...skills.changes);
     conflicts.push(...skills.conflicts);
 
-    const agents = planTreeAssets({ assets, renderer: 'copilot-agents', destRoot: found.paths.agentsConfigDir, layout: agentFileLayout, context, ledger, removing, fsImpl });
+    const agents = planTreeAssets({ assets, renderer: 'copilot-agents', scopeRoot, destRoot: found.paths.agentsConfigDir, layout: agentFileLayout, context, ledger, removing, fsImpl });
     changes.push(...agents.changes);
     conflicts.push(...agents.conflicts);
 
-    const rules = planTreeAssets({ assets, renderer: 'copilot-rule-instructions', destRoot: found.paths.ruleInstructionsConfigDir, context, ledger, removing, fsImpl });
+    const rules = planTreeAssets({ assets, renderer: 'copilot-rule-instructions', scopeRoot, destRoot: found.paths.ruleInstructionsConfigDir, context, ledger, removing, fsImpl });
     changes.push(...rules.changes);
     conflicts.push(...rules.conflicts);
 
@@ -290,7 +295,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
       }
     }
 
-    return { changes, conflicts, notices: skills.notices, paths: found.paths };
+    return { changes, conflicts, notices: [...skills.notices, ...agents.notices, ...rules.notices], paths: found.paths };
   }
 
   function writeChange(change, fsImpl) {
@@ -307,6 +312,9 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
       applied += 1;
     }
     applied += applyCopyTreeAssets(changes, { fsImpl });
+    // An update that drops a copy-tree asset carries its rows as removals inside the apply batch;
+    // the lifecycle calls remove() only for `doflow remove`.
+    removeCopyTreeAssets(changes, { fsImpl });
     return { applied };
   }
 

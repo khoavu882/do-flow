@@ -600,3 +600,30 @@ test('keepModified keeps a hand-edited file at a relocated path, force or not, a
   const strict = planTree({ sourceDir, destDir: moved, previousResources });
   assert.deepEqual(strict.conflicts, ['a.md was modified outside DoFlow'], 'without keepModified the refusal is unchanged');
 });
+
+test('removeTree prunes the agents and skills folders it emptied, never the harness root or a folder holding anything else', () => {
+  const root = scratch();
+  const harnessRoot = path.join(root, '.agents');
+  const emptied = path.join(harnessRoot, 'agents');
+  const shared = path.join(harnessRoot, 'skills');
+  fs.mkdirSync(path.join(emptied, 'spec'), { recursive: true });
+  fs.mkdirSync(path.join(shared, 'do'), { recursive: true });
+  fs.writeFileSync(path.join(emptied, 'spec', 'agent.md'), 'A');
+  fs.writeFileSync(path.join(shared, 'do', 'SKILL.md'), 'S');
+  fs.writeFileSync(path.join(shared, 'foreign.md'), 'mine');
+  const changes = [
+    { relPath: 'spec/agent.md', target: path.join(emptied, 'spec', 'agent.md'), operation: 'remove', fingerprint: sha256('A') },
+    { relPath: 'do/SKILL.md', target: path.join(shared, 'do', 'SKILL.md'), operation: 'remove', fingerprint: sha256('S') },
+  ];
+  assert.equal(removeTree({ changes }).removed, 2);
+  assert.equal(fs.existsSync(emptied), false, 'the emptied agents folder goes with its last file');
+  assert.equal(fs.existsSync(path.join(shared, 'do')), false);
+  assert.equal(fs.readFileSync(path.join(shared, 'foreign.md'), 'utf8'), 'mine', 'a folder holding another file stays');
+  assert.equal(fs.existsSync(harnessRoot), true, 'the harness root is never pruned');
+
+  fs.rmSync(path.join(shared, 'foreign.md'));
+  fs.mkdirSync(path.join(emptied, 'spec'), { recursive: true });
+  fs.writeFileSync(path.join(emptied, 'spec', 'agent.md'), 'A');
+  removeTree({ changes: [changes[0]] });
+  assert.equal(fs.existsSync(harnessRoot), true, 'still never pruned when it is left empty');
+});
