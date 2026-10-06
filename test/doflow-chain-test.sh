@@ -209,8 +209,10 @@ eq "normalized envelope, prereqs met -> allow" \
 git checkout -q master
 eq "not-in-flow (trunk) -> allow" \
    "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}")" "allow"
-# The gate belongs to the feature class: a fix, refactor or other branch that shares a slug with a
-# started feature folder is not held to requirement/design/plan, with the resolver installed or not.
+# Classes that cannot be a feature (fix, bugfix, refactor, chore, release, hotfix, trunk) are not
+# held to requirement/design/plan when they share a slug with a started feature folder; every other
+# branch, unprefixed and other-prefixed ones included, runs the feature class and stays gated, with
+# the resolver installed or not.
 NO_RESOLVER_HOME="$T/no-resolver"; mkdir -p "$NO_RESOLVER_HOME"
 decision_bare() {
   echo "$1" | CLAUDE_CONFIG_DIR="$NO_RESOLVER_HOME" HOME="$NO_RESOLVER_HOME" bash "$CANONICAL_POLICY" >/dev/null 2>&1
@@ -218,15 +220,30 @@ decision_bare() {
 }
 GATE_EDIT="{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}"
 rm agent-docs/doflow/001-auth/design.md
-for b in feat/001-auth feature/001-auth; do
+for b in feat/001-auth feature/001-auth 001-auth kai/001-auth task/001-auth; do
   git checkout -q -B "$b" master
   eq "$b, design missing -> deny (resolver)" "$(decision "$GATE_EDIT")" "deny"
   eq "$b, design missing -> deny (no resolver)" "$(decision_bare "$GATE_EDIT")" "deny"
 done
-for b in fix/001-auth bugfix/001-auth refactor/001-auth chore/001-auth; do
+for b in fix/001-auth bugfix/001-auth refactor/001-auth chore/001-auth release/001-auth hotfix/001-auth; do
   git checkout -q -B "$b" master
   eq "$b, design missing -> allow (resolver)" "$(decision "$GATE_EDIT")" "allow"
   eq "$b, design missing -> allow (no resolver)" "$(decision_bare "$GATE_EDIT")" "allow"
+done
+# The gate's exemption list and do-paths.sh's branch classes must not drift apart: every prefix the
+# gate exempts that the resolver classifies is a non-feature, non-other class there, and every
+# prefix the gate holds is the resolver's feature or other class.
+for b in fix/x bugfix/x release/x hotfix/x main develop; do
+  case "$(git checkout -q -B "$b" master 2>/dev/null; "$PATHS" | jq -r '.branch_class')" in
+    fix|release|hotfix|trunk) ok "resolver classes $b as exempt" ;;
+    *) bad "resolver classes $b as exempt" "$("$PATHS" | jq -r '.branch_class')" ;;
+  esac
+done
+for b in feat/x feature/x 001-auth kai/001-auth task/x; do
+  case "$(git checkout -q -B "$b" master 2>/dev/null; "$PATHS" | jq -r '.branch_class')" in
+    feature|other) ok "resolver classes $b as gated" ;;
+    *) bad "resolver classes $b as gated" "$("$PATHS" | jq -r '.branch_class')" ;;
+  esac
 done
 git checkout -q feat/001-auth
 echo d > agent-docs/doflow/001-auth/design.md
