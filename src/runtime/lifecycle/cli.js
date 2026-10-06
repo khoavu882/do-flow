@@ -11,6 +11,7 @@ const { finishRuntime, usageError } = require('../cli-result');
 const { projectRoot } = require('./root');
 const followup = require('./followup');
 const { StoreUnsafeError } = require('./event-store');
+const { prepareStore } = require('./store-upkeep');
 const { printSafe } = require('../mask');
 const { buildOverview, initFeature, featureStatus } = require('./overview');
 const { releaseFeatures, recordMerged } = require('./release');
@@ -139,6 +140,13 @@ function guarded(verb, json, fn) {
   }
 }
 
+/** Runs the store upkeep for one invocation and prints its lines to stderr; returns its refusal, or null. */
+function upkeep(verb, action, root) {
+  const prepared = prepareStore(root);
+  for (const line of prepared.lines) console.error(printSafe(`doflow ${verb}: ${line}`));
+  return prepared.ok ? null : { ok: false, action, finding: prepared.finding, message: prepared.message };
+}
+
 function refuseGlobal(verb, global, json) {
   return global ? usageError(verb, `${verb} works on the project store at the repository root and refuses -g`, json) : null;
 }
@@ -165,6 +173,8 @@ function handleFollowupCommand({ action, cwd, global = false, slug = null, json 
       if (flags[name] !== undefined && flags[name] !== false) throw new followup.FollowupUsageError(`--${name} applies to the lifecycle verb's --action release only, not to followup`);
     }
     const root = projectRoot(cwd || process.cwd());
+    const refusedStore = upkeep('followup', action, root);
+    if (refusedStore) return emit(refusedStore, json, followupLines);
     let result;
     if (action === 'report') {
       if (flags.statement === undefined) throw new followup.FollowupUsageError('--statement is required for --action report');
@@ -216,6 +226,8 @@ function handleLifecycleCommand({ action, cwd, global = false, slug = null, json
     }
     if (flags.reason !== undefined && act !== 'merged') throw new followup.FollowupUsageError('--reason applies to --action merged only');
     const root = projectRoot(cwd || process.cwd());
+    const refusedStore = upkeep('lifecycle', act, root);
+    if (refusedStore) return emit(refusedStore, json, lifecycleLines);
     let result;
     if (act === 'overview') result = buildOverview({ root, maintain: Boolean(flags.maintain), since: flags.since });
     else if (act === 'init') result = initFeature({ root, slug, take: flags.take, intent: flags.intent, goal: flags.goal });
@@ -244,6 +256,8 @@ function handleGoalCommand({ action, cwd, global = false, slug = null, json = fa
     }
     if (action !== 'list' && flags.goal === undefined) throw new followup.FollowupUsageError(`--goal is required for --action ${action}`);
     const root = projectRoot(cwd || process.cwd());
+    const refusedStore = upkeep('goal', action, root);
+    if (refusedStore) return emit(refusedStore, json, goalLines);
     const base = { root, goal: flags.goal };
     let result;
     if (action === 'add') result = goal.addGoal({ ...base, statement: flags.statement, items: flags.item, channel: flags.channel });

@@ -355,6 +355,23 @@ describe('failure --action settle', () => {
     assert.deepEqual(JSON.parse(list.stdout).items.map((i) => i.id), [r.json.followup.id]);
     assert.equal(run(m, ['--action', 'list', '--json']).json.entries.length, 0);
   });
+  test('imported copies an old agent-docs/lifecycle store first and adds the follow-up beside it', () => {
+    const m = machine('settle-import-legacy');
+    m.markDoflowRepo();
+    writeEvents(m, [line()]);
+    const legacy = path.join(m.project, 'agent-docs', 'lifecycle', 'events');
+    fs.mkdirSync(legacy, { recursive: true });
+    const old = { v: 1, id: '20261001T000000000Z-aaaaaa', type: 'followup.added', at: '2026-10-01T00:00:00.000Z', by: 'agent', data: { id: 'FU-aaaaaa', statement: 'from the old store', source: { kind: 'manual' } } };
+    fs.writeFileSync(path.join(legacy, `${old.id}.json`), JSON.stringify(old));
+    const r = run(m, ['--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stderr, /^doflow failure: note: the lifecycle store is now \.doflow\/state\/lifecycle\/events; agent-docs\/lifecycle\/ is no longer read and can be deleted$/m);
+    const events = fs.readdirSync(path.join(m.project, '.doflow', 'state', 'lifecycle', 'events')).sort();
+    assert.deepEqual(events, [`${old.id}.json`, path.basename(r.json.events[0])].sort());
+    const list = spawnSync(process.execPath, [BIN, 'followup', '--action', 'list', '--json'], { cwd: m.project, env: m.env, encoding: 'utf8' });
+    assert.deepEqual(JSON.parse(list.stdout).items.map((i) => i.id).sort(), ['FU-aaaaaa', r.json.followup.id].sort());
+    assert.deepEqual(fs.readdirSync(legacy), [`${old.id}.json`], 'the old folder is unchanged');
+  });
   test('the statement of an entry with no message has no trailing colon, and is cut to 280 characters', () => {
     const { importedStatement } = require('../../src/runtime/failure/cli');
     assert.equal(importedStatement({ command: 'mcp-tool-guard', kind: 'policy-file-missing', message: '' }), 'DoFlow mcp-tool-guard policy-file-missing');

@@ -17,6 +17,7 @@ const { rotateIfDue } = require('./capture');
 const store = require('./store');
 const { projectRoot } = require('../lifecycle/root');
 const { appendEvents, readFold, randomChars, StoreUnsafeError } = require('../lifecycle/event-store');
+const { prepareStore } = require('../lifecycle/store-upkeep');
 
 const ACTIONS = ['list', 'settle', 'capture'];
 const STATEMENT_MAX = 280;
@@ -81,6 +82,9 @@ function settleFailure({ fp, as, reason, cwd, env = process.env, now = new Date(
     if (!store.isDoflowRepo(root)) {
       return refusal('settle', 'not-doflow-repo', `${root} is not the DoFlow repository (its package.json is not named @khoavu882/doflow), so a failure cannot be imported as a follow-up here. Nothing was written.`);
     }
+    const prepared = prepareStore(root);
+    for (const text of prepared.lines) console.error(printSafe(`doflow failure: ${text}`));
+    if (!prepared.ok) return refusal('settle', prepared.finding, prepared.message);
   }
   const entry = store.loadEntries({ env }).entries.find((e) => e.fp === fp);
   if (!entry) return refusal('settle', 'unknown-fp', `${fp} is not a failure entry on this machine; list them with doflow-run failure --action list. Nothing was written.`);
