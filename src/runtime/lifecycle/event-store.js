@@ -2,9 +2,9 @@
 
 /**
  * The project lifecycle event store (IC-001, IC-002, IC-003). One JSON file per event under
- * `<root>/agent-docs/lifecycle/events/`, created with an exclusive create and never edited, renamed
- * or deleted, so two clones merge by adding files. DoFlow never runs `git add`, `git commit` or
- * `git push` on these paths and never writes an ignore rule for them (DEC-012).
+ * `<root>/.doflow/state/lifecycle/events/`, created with an exclusive create and never edited or
+ * renamed. The store is local to a checkout, not shared through git. DoFlow never runs `git add`,
+ * `git commit` or `git push` on these paths and never writes an ignore rule for them (DEC-012).
  *
  * A write holds the store lock, folds what is there, refuses an event that would be illegal at the
  * end of that fold (`illegal-transition`, nothing written) and stamps `at` as the later of the
@@ -19,7 +19,7 @@ const { acquireLock } = require('../task-state');
 const { printSafe } = require('../mask');
 const { foldInto, finalize, applyEvent } = require('./fold');
 
-const LIFECYCLE_REL = path.join('agent-docs', 'lifecycle');
+const LIFECYCLE_REL = path.join('.doflow', 'state', 'lifecycle');
 const EVENTS_REL = path.join(LIFECYCLE_REL, 'events');
 const ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz';
 /** `<UTC YYYYMMDDTHHMMSSmmmZ>-<6 lowercase Crockford base32 characters>`. */
@@ -31,7 +31,7 @@ const MAX_EVENT_BYTES = 256 * 1024;
 const CHANNEL_BY = { question: 'user', gate: 'user', prompt: 'user', default: 'agent' };
 
 function eventsDir(root) { return path.join(root, EVENTS_REL); }
-function lockTarget(root) { return path.join(root, LIFECYCLE_REL, 'events'); }
+function lockTarget(root) { return path.join(root, EVENTS_REL); }
 
 /** @param {string} [channel] defaults to `default` @returns {'user'|'agent'|null} null for an unknown channel */
 function byFromChannel(channel = 'default') { return CHANNEL_BY[channel] ?? null; }
@@ -250,5 +250,5 @@ function planEvents(root, drafts, { now, fsImpl, random }) {
 
 module.exports = {
   appendEvents, readEvents, readFold, byFromChannel, randomChars, StoreUnsafeError, MAX_EVENT_BYTES,
-  EVENT_ID, EVENTS_REL, LIFECYCLE_REL, ALPHABET, COLLISION_RETRIES,
+  EVENT_ID, EVENTS_REL, LIFECYCLE_REL, ALPHABET, COLLISION_RETRIES, lockTarget,
 };

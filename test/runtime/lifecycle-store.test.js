@@ -117,7 +117,7 @@ test('read: no folder gives an empty fold and creates nothing', () => {
   const dir = plainDir('read-empty');
   const result = store.readFold(dir);
   assert.deepEqual([result.followups, result.conflicts, result.unreadable], [[], [], []]);
-  assert.equal(fs.existsSync(path.join(dir, 'agent-docs')), false);
+  assert.equal(fs.existsSync(path.join(dir, store.LIFECYCLE_REL)), false);
 });
 
 test('read: names that are not event ids are ignored; a matching file that is not an envelope is unreadable', () => {
@@ -144,12 +144,12 @@ test('write: an event file is named by its id, holds the IC-002 envelope and is 
   assert.equal(out.ok, true);
   const [w] = out.written;
   assert.equal(w.id, '20261004T091200123Z-k3m9qa');
-  assert.equal(w.file, 'agent-docs/lifecycle/events/20261004T091200123Z-k3m9qa.json');
+  assert.equal(w.file, '.doflow/state/lifecycle/events/20261004T091200123Z-k3m9qa.json');
   const onDisk = JSON.parse(fs.readFileSync(path.join(dir, w.file), 'utf8'));
   assert.deepEqual(Object.keys(onDisk), ['v', 'id', 'type', 'at', 'by', 'data']);
   assert.equal(onDisk.at, '2026-10-04T09:12:00.123Z');
   assert.ok(store.EVENT_ID.test(w.id));
-  assert.ok(!fs.existsSync(path.join(dir, 'agent-docs', 'lifecycle', 'events.lock')), 'the lock is released');
+  assert.ok(!fs.existsSync(path.join(dir, '.doflow', 'state', 'lifecycle', 'events.lock')), 'the lock is released');
 });
 
 test('write: random characters come from the lowercase Crockford alphabet', () => {
@@ -224,7 +224,7 @@ test('write: a refused write on a fresh project creates no folder and takes no l
   const dir = plainDir('write-refused-fresh');
   const refused = store.appendEvents(dir, [{ type: 'followup.taken', by: 'agent', data: { ids: ['FU-aaaaaa'], feature: 'f1' } }]);
   assert.equal(refused.finding, 'illegal-transition');
-  assert.equal(fs.existsSync(path.join(dir, 'agent-docs')), false);
+  assert.equal(fs.existsSync(path.join(dir, store.LIFECYCLE_REL)), false);
 });
 
 test('write: a lock that cannot be taken refuses with store-locked and writes nothing', () => {
@@ -271,9 +271,9 @@ test('write: DoFlow touches no git state and writes no ignore rule', () => {
   store.appendEvents(dir, [added('FU-aaaaaa')]);
   assert.equal(git(dir, 'rev-parse', 'HEAD'), head);
   assert.equal(git(dir, 'diff', '--cached', '--name-only'), '', 'nothing staged');
-  assert.match(git(dir, 'status', '--porcelain'), /^\?\? agent-docs\/$/m);
+  assert.match(git(dir, 'status', '--porcelain'), /^\?\? \.doflow\/$/m);
   for (const name of ['.gitignore', '.gitattributes']) assert.equal(fs.existsSync(path.join(dir, name)), false);
-  assert.equal(fs.existsSync(path.join(dir, '.git', 'info', 'exclude')) && /agent-docs/.test(fs.readFileSync(path.join(dir, '.git', 'info', 'exclude'), 'utf8')), false);
+  assert.equal(fs.existsSync(path.join(dir, '.git', 'info', 'exclude')) && /\.doflow/.test(fs.readFileSync(path.join(dir, '.git', 'info', 'exclude'), 'utf8')), false);
 });
 
 function eventFile(dir, event) {
@@ -323,7 +323,7 @@ test('time bounds: a write that cannot produce a valid id fails with a finding a
   assert.deepEqual([badRandom.ok, badRandom.finding], [false, 'invalid-id']);
   const farFuture = store.appendEvents(dir, [added('FU-aaaaaa')], { now: new Date(8.64e15) });
   assert.deepEqual([farFuture.ok, farFuture.finding], [false, 'invalid-id']);
-  assert.equal(fs.existsSync(path.join(dir, 'agent-docs')), false, 'a refused write creates no folder');
+  assert.equal(fs.existsSync(path.join(dir, store.LIFECYCLE_REL)), false, 'a refused write creates no folder');
   const last = store.appendEvents(dir, [added('FU-aaaaaa')], { now: new Date('9999-12-31T23:59:59.999Z') });
   assert.equal(last.ok, true, 'the last valid stamp is the end of year 9999');
   const beyond = store.appendEvents(dir, [added('FU-bbbbbb')], { now: new Date('9999-12-31T23:59:59.999Z') });
@@ -428,7 +428,7 @@ test('hostile store: a symlinked lifecycle folder is refused for a read and for 
   const root = plainDir('hostile-lifelink');
   const elsewhere = path.join(scratch.dir, 'hostile-lifelink-elsewhere');
   fs.mkdirSync(path.join(elsewhere, 'events'), { recursive: true });
-  fs.mkdirSync(path.join(root, 'agent-docs'));
+  fs.mkdirSync(path.join(root, '.doflow', 'state'), { recursive: true });
   const link = path.join(root, store.LIFECYCLE_REL);
   fs.symlinkSync(elsewhere, link);
   const refused = (error) => error instanceof store.StoreUnsafeError && error.message.includes(link);

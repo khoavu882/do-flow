@@ -91,7 +91,9 @@ describe('Codex target: the lifecycle verbs run through the codex-projected disp
     const list = run(h, project.dir, locator, ['followup', '--action', 'list', '--json']);
     assert.equal(list.status, 0, list.stderr);
     assert.deepEqual([list.json.ok, list.json.count, list.json.items], [true, 0, []]);
-    assert.equal(fs.existsSync(path.join(project.dir, 'agent-docs', 'lifecycle')), false, 'reading wrote no lifecycle store');
+    for (const rel of [['.doflow', 'state', 'lifecycle'], ['agent-docs', 'lifecycle']]) {
+      assert.equal(fs.existsSync(path.join(project.dir, ...rel)), false, `reading wrote no ${rel.join('/')}`);
+    }
   });
 
   test('a follow-up added through the codex dispatcher is listed by it, as an event file in the project', () => {
@@ -100,7 +102,7 @@ describe('Codex target: the lifecycle verbs run through the codex-projected disp
     const [item] = added.json.created;
     const list = run(h, project.dir, locator, ['followup', '--action', 'list', '--json']);
     assert.deepEqual(list.json.items.map((i) => [i.id, i.statement, i.state]), [[item.id, 'Smoke: recorded through the codex locator', 'open']]);
-    assert.equal(fs.readdirSync(path.join(project.dir, 'agent-docs', 'lifecycle', 'events')).length, 1);
+    assert.equal(fs.readdirSync(path.join(project.dir, '.doflow', 'state', 'lifecycle', 'events')).length, 1);
     assert.equal(project.git('diff', '--cached', '--name-only'), '', 'nothing is staged');
   });
 
@@ -234,7 +236,7 @@ describe('Codex target: release, report, goal and failure run from the installed
     return r.json;
   };
   const eventTypes = () => {
-    const dir = path.join(repo.dir, 'agent-docs', 'lifecycle', 'events');
+    const dir = path.join(repo.dir, '.doflow', 'state', 'lifecycle', 'events');
     return fs.readdirSync(dir).sort().map((name) => JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')));
   };
 
@@ -256,7 +258,7 @@ describe('Codex target: release, report, goal and failure run from the installed
     assert.equal(preview.recorded, false);
     assert.deepEqual(preview.candidates.map((c) => [c.slug, c.evidence]), [[slug, 'branch']]);
     assert.equal(eventTypes().length, eventsBefore, 'the preview writes nothing');
-    assert.deepEqual([repo.git('rev-parse', 'HEAD'), repo.git('tag'), repo.git('status', '--porcelain', '--', '.', ':!agent-docs')], [head, 'v1.0.0', '']);
+    assert.deepEqual([repo.git('rev-parse', 'HEAD'), repo.git('tag'), repo.git('status', '--porcelain', '--', '.', ':!.doflow')], [head, 'v1.0.0', '']);
 
     // Confirming needs the tag to exist (the verb never creates one), so the user cuts it first.
     repo.tag('v1.1.0');
@@ -320,7 +322,7 @@ describe('No install anywhere: the skill stops at its resolver, before any lifec
     assert.equal(r.status, 2, `${r.stdout}${r.stderr}`);
     assert.match(r.stderr, /doflow: no runtime found in any \.doflow\/ above .*nor at .*Run: npx @khoavu882\/doflow install -t <harness>$/m);
     assert.equal(r.stdout, '', 'no verb ran, so nothing was printed');
-    assert.equal(fs.existsSync(path.join(project.dir, 'agent-docs')), false, 'and nothing was written');
+    assert.equal(fs.existsSync(path.join(project.dir, '.doflow', 'state', 'lifecycle')), false, 'and nothing was written');
   });
 
   test('the locator reports the same missing runtime instead of running a verb', () => {

@@ -218,7 +218,7 @@ test('proposeDone is true when every item is met and the goal is open, and the n
 test('list --goal narrows to one, refuses an unknown one, and an empty store lists nothing without creating a folder', () => {
   const repo = newRepo();
   assert.deepEqual(goals.listGoals({ root: repo.dir }).goals, []);
-  assert.equal(fs.existsSync(path.join(repo.dir, 'agent-docs')), false, 'a read writes nothing');
+  assert.equal(fs.existsSync(path.join(repo.dir, '.doflow', 'state', 'lifecycle')), false, 'a read writes nothing');
   addGoal(repo);
   addGoal(repo, { goal: 'other-goal' });
   assert.deepEqual(goals.listGoals({ root: repo.dir, goal: 'other-goal' }).goals.map((g) => g.goal), ['other-goal']);

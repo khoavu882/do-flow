@@ -4,7 +4,7 @@
 // way a user meets them: through this checkout's dispatcher `core/shared/scripts/doflow/bin/doflow-run`
 // against scratch git repositories with real branches, merges and tags. One test per scenario, named
 // with the scenario title and its story and requirement ids. Each asserts on what the verb printed and
-// on what is on disk: the event files under agent-docs/lifecycle, nothing staged, no commit, no tag
+// on what is on disk: the event files under .doflow/state/lifecycle, nothing staged, no commit, no tag
 // and no ignore rule written (DEC-012, NFR-005).
 //
 // Needs no model and no network. Every spawn runs under a scratch HOME and XDG_CONFIG_HOME and with
@@ -77,7 +77,7 @@ function ok(cwd, args, options) {
 }
 
 function eventsOf(repo) {
-  const dir = path.join(repo.dir, 'agent-docs', 'lifecycle', 'events');
+  const dir = path.join(repo.dir, '.doflow', 'state', 'lifecycle', 'events');
   return fs.existsSync(dir)
     ? fs.readdirSync(dir).sort().map((name) => ({ name, ...JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')) }))
     : [];
@@ -817,7 +817,9 @@ describe('Scenario: Older features are untouched (NFR-001)', { skip: SKIP }, () 
     assert.equal(status.status, 0, status.stdout + status.stderr);
     assert.equal(JSON.parse(status.stdout).taskId, slug);
     assert.deepEqual(hashes(), before, 'the feature folder and the run state are unchanged');
-    assert.equal(fs.existsSync(path.join(dir, 'agent-docs', 'lifecycle')), false, 'reading wrote no lifecycle store');
+    for (const rel of [['.doflow', 'state', 'lifecycle'], ['agent-docs', 'lifecycle']]) {
+      assert.equal(fs.existsSync(path.join(dir, ...rel)), false, `reading wrote no ${rel.join('/')}`);
+    }
     assertGitUntouched({ dir, git: (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8', env: scratch.env() }).stdout.trim() }, git);
   });
 });

@@ -330,7 +330,7 @@ describe('failure --action settle', () => {
     assert.equal(r.status, 1);
     assert.equal(r.json.finding, 'not-doflow-repo');
     assert.equal(fs.existsSync(path.join(m.failures, 'settlements.jsonl')), false);
-    assert.equal(fs.existsSync(path.join(m.project, 'agent-docs')), false, 'no store folder is left behind');
+    assert.equal(fs.existsSync(path.join(m.project, '.doflow', 'state', 'lifecycle')), false, 'no store folder is left behind');
   });
   test('imported in the DoFlow repository creates a follow-up and records its id', () => {
     const m = machine('settle-import');
@@ -343,7 +343,7 @@ describe('failure --action settle', () => {
     assert.equal(r.json.followup.state, 'open');
     assert.match(r.json.followup.id, /^FU-[0-9a-hjkmnp-tv-z]{6}$/);
     assert.equal(r.json.events.length, 1);
-    assert.match(r.json.events[0], /^agent-docs\/lifecycle\/events\/\d{8}T\d{9}Z-[0-9a-z]{6}\.json$/);
+    assert.match(r.json.events[0], /^\.doflow\/state\/lifecycle\/events\/\d{8}T\d{9}Z-[0-9a-z]{6}\.json$/);
     const event = JSON.parse(fs.readFileSync(path.join(m.project, r.json.events[0]), 'utf8'));
     assert.equal(event.type, 'followup.added');
     assert.equal(event.by, 'agent');
@@ -369,7 +369,7 @@ describe('failure --action settle', () => {
     const second = run(m, ['--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json']);
     assert.equal(second.status, 1);
     assert.equal(second.json.finding, 'already-imported');
-    assert.equal(fs.readdirSync(path.join(m.project, 'agent-docs', 'lifecycle', 'events')).length, 1);
+    assert.equal(fs.readdirSync(path.join(m.project, '.doflow', 'state', 'lifecycle', 'events')).length, 1);
   });
   test('with no resolvable home it reports home null and exits 0', () => {
     const m = machine('settle-nohome');
@@ -474,7 +474,7 @@ describe('overview failures field (IC-007)', () => {
     fs.writeFileSync(live, `${JSON.stringify(line())}\n${'x'.repeat(ROTATE_AT_BYTES)}`);
     overview(m, { maintain: true });
     assert.deepEqual(fs.readdirSync(m.failures), ['events.jsonl']);
-    assert.equal(fs.existsSync(path.join(m.project, 'agent-docs')), false);
+    assert.equal(fs.existsSync(path.join(m.project, '.doflow', 'state', 'lifecycle')), false);
   });
 });
 
@@ -522,11 +522,11 @@ describe('import dedupe and no-home text (review fixes)', () => {
     m.markDoflowRepo();
     writeEvents(m, [line()]);
     // The events folder cannot be created while a file sits where its parent should be.
-    fs.mkdirSync(path.join(m.project, 'agent-docs'));
-    fs.writeFileSync(path.join(m.project, 'agent-docs', 'lifecycle'), 'in the way');
+    fs.mkdirSync(path.join(m.project, '.doflow', 'state'), { recursive: true });
+    fs.writeFileSync(path.join(m.project, '.doflow', 'state', 'lifecycle'), 'in the way');
     const failed = run(m, ['--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json']);
     assert.notEqual(failed.status, 0, 'the follow-up write failed');
-    fs.rmSync(path.join(m.project, 'agent-docs', 'lifecycle'));
+    fs.rmSync(path.join(m.project, '.doflow', 'state', 'lifecycle'));
     const retry = run(m, ['--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json']);
     assert.equal(retry.status, 0, retry.stderr + retry.stdout);
     assert.equal(follow(m).filter((i) => i.source.kind === 'failure').length, 1);
