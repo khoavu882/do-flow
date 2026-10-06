@@ -635,11 +635,16 @@ const SKILL_RESOLUTION = {
 
 /**
  * The same case run with the skill under test withheld. The create step deletes the skill's copies
- * from the sandbox after `createSandbox` projected them, so the bench carries no change to the
- * worktree code. The tracked copy is marked skip-worktree so its deletion does not show in the
- * sandbox's `git status` or `git diff`, where the path would read as the run reaching the skill.
- * `~/.claude/skills` is outside any sandbox and cannot be removed this way; a run that reaches it is
- * caught at grading as `leaked`, not prevented here.
+ * from the sandbox after `createSandbox` projected them, and drops the skill's entry from the
+ * projection manifest, so the bench carries no change to the worktree code. `bench/` stays: cases
+ * work on `bench/runner.js`, and removing it would measure a broken repo as well as a missing skill.
+ * The tracked copies are marked skip-worktree so their deletion does not show in the sandbox's
+ * `git status` or `git diff`, where the path would read as the run reaching the skill.
+ * `~/.claude/skills` is outside any sandbox and cannot be removed this way, and neither can git
+ * history or the checkout the sandbox is nested in (`../../../core/shared/skills/<skill>`); a run
+ * that names `skills/<skill>/SKILL.md` is caught at grading as `leaked`, not prevented here. The
+ * corpus (`bench/<skill>/evals.json`, with expected_output and assertions) stays readable in the
+ * sandbox and through the parent path; a corpus read names no SKILL.md, so grading does not catch it.
  *
  * The request is the case's prompt without its leading `/<skill>` token, which names the very skill
  * being withheld. A case with nothing left has no request to measure and yields no run.
@@ -664,7 +669,7 @@ function withoutSkillRun(cfg, skill, e, withSkill) {
     sandbox: {
       required: true,
       id: sandboxId,
-      create: `node -e "${WT_REQUIRE}const r=m.createSandbox('${sandboxId}');const fs=require('fs'),p=require('path'),cp=require('child_process'),D=[${skillDirs.map((d) => `'${d}'`).join(',')}];for(const d of D)fs.rmSync(p.join(r.path,d),{recursive:true,force:true});const o=cp.execFileSync('git',['ls-files','-z','--',...D],{cwd:r.path});if(o.length)cp.execFileSync('git',['update-index','--skip-worktree','-z','--stdin'],{cwd:r.path,input:o});console.log(r.path+' withheld=${skill}')"`,
+      create: `node -e "${WT_REQUIRE}const r=m.createSandbox('${sandboxId}');const fs=require('fs'),p=require('path'),cp=require('child_process'),D=[${skillDirs.map((d) => `'${d}'`).join(',')}];for(const d of D)fs.rmSync(p.join(r.path,d),{recursive:true,force:true});const o=cp.execFileSync('git',['ls-files','-z','--',...D],{cwd:r.path});if(o.length)cp.execFileSync('git',['update-index','--skip-worktree','-z','--stdin'],{cwd:r.path,input:o});const f=p.join(r.path,'${SKILL_SOURCE_FILE}'),j=JSON.parse(fs.readFileSync(f,'utf8'));delete j.skills['${skill}'];fs.writeFileSync(f,JSON.stringify(j,null,2)+'\\n');console.log(r.path+' withheld=${skill}')"`,
       remove: `node -e "${WT_REQUIRE}m.remove('${sandboxId}')"`,
       workingDir,
     },
@@ -746,6 +751,7 @@ function buildPlan(cfg, opts) {
   // baseline result, or a result with no usage, is unknown rather than free.
   const baselineFile = baselineFileOf(cfg, opts);
   const baseline = fs.existsSync(baselineFile) ? readJson(baselineFile) : null;
+  requireUniqueKeys(baseline);
   const recordedBy = (field) => new Map((baseline && Array.isArray(baseline[field]) ? baseline[field] : []).map((r) => [r.key, r]));
   const recorded = { 'with-skill': recordedBy('results'), 'without-skill': recordedBy('withoutSkillResults') };
   const projection = ceilingState(
@@ -1037,6 +1043,36 @@ function armDeltas(withResults, withoutResults) {
 }
 
 /**
+ * Keys a baseline records more than once, in either arm. A key index keeps one entry per key, so a
+ * repeated entry would count as one case while `caseCount` counts it twice; both would agree and the
+ * duplicate would never show.
+ */
+function baselineDuplicates(baseline) {
+  const out = [];
+  for (const field of ['results', 'withoutSkillResults']) {
+    const seen = new Map();
+    for (const r of baseline && Array.isArray(baseline[field]) ? baseline[field] : []) {
+      const key = r.key ?? `${r.skill}/${r.evalId}`;
+      seen.set(key, (seen.get(key) || 0) + 1);
+    }
+    for (const [key, entries] of seen) if (entries > 1) out.push({ key, entries, field });
+  }
+  return out;
+}
+
+/** The consumers key the baseline by case, so a repeated key would let one entry silently win. */
+function requireUniqueKeys(baseline) {
+  const [d] = baselineDuplicates(baseline);
+  if (d) throw new Error(`the baseline records ${d.key} ${d.entries} times in ${d.field}`);
+}
+
+/** A baseline with no `results` array describes no cases, so every row would read as pending. */
+function requireBaselineResults(baseline) {
+  if (!baseline || !Array.isArray(baseline.results)) throw new Error('the baseline has no results array');
+  requireUniqueKeys(baseline);
+}
+
+/**
  * The report for one iteration against the baseline. Pure: the caller reads the baseline and the
  * graded runs, so a fixture can exercise it without touching bench/baseline or bench/runs.
  *
@@ -1044,6 +1080,7 @@ function armDeltas(withResults, withoutResults) {
  * and nothing about it is a delta.
  */
 function buildReport({ baseline, withResults, withoutResults = [], cfg, iteration, commit }) {
+  requireBaselineResults(baseline);
   const byKey = new Map(baseline.results.map((r) => [r.key, r]));
   const rows = [];
   for (const c of withResults) {
@@ -1119,6 +1156,12 @@ function cmdReport(cfg, opts) {
     return 2;
   }
   const baseline = readJson(baselineFile);
+  try {
+    requireBaselineResults(baseline);
+  } catch (err) {
+    console.error(`bench report: ${err.message} (${path.relative(REPO_ROOT, baselineFile)})`);
+    return 2;
+  }
   const currentRoot = path.join(runsRootOf(cfg, opts), against);
   if (!fs.existsSync(currentRoot)) {
     console.error(`bench report: no runs found at ${path.relative(REPO_ROOT, currentRoot)}`);
@@ -1136,9 +1179,9 @@ function cmdReport(cfg, opts) {
   console.log(`| case | kind | split | baseline | current | delta | status | source | tokens |`);
   console.log(`|---|---|---|---|---|---|---|---|---|`);
   for (const r of rows) {
-    const fmt = (v) => (v === null ? '—' : v.toFixed(2));
-    const d = r.delta === null ? '—' : (r.delta > 0 ? '+' : '') + r.delta.toFixed(2);
-    const src = r.sourceComparable ? 'verified' : `${r.baselineSource || '—'}→${r.currentSource}`;
+    const fmt = (v) => (v === null ? 'unknown' : v.toFixed(2));
+    const d = r.delta === null ? 'unknown' : (r.delta > 0 ? '+' : '') + r.delta.toFixed(2);
+    const src = r.sourceComparable ? 'verified' : `${r.baselineSource || 'unknown'}→${r.currentSource}`;
     const tokens = r.usage.total_tokens === null ? 'unknown' : r.usage.total_tokens;
     console.log(`| ${r.key} | ${r.kind} | ${r.split} | ${fmt(r.baseline)} | ${fmt(r.current)} | ${d} | ${r.status} | ${src} | ${tokens} |`);
   }
@@ -1171,7 +1214,7 @@ function cmdReport(cfg, opts) {
     console.log('\n| skill | paired | with | without | delta |');
     console.log('|---|---|---|---|---|');
     for (const a of report.armDelta) {
-      const d = a.delta === null ? '—' : (a.delta > 0 ? '+' : '') + a.delta.toFixed(2);
+      const d = a.delta === null ? `— (${a.reason})` : (a.delta > 0 ? '+' : '') + a.delta.toFixed(2);
       console.log(`| ${a.skill} | ${a.pairedCases.length} | ${fmt(a.withSkill)} | ${fmt(a.withoutSkill)} | ${d} |`);
     }
   }
@@ -1339,6 +1382,7 @@ function changedCases(corpus, recorded) {
 function compareParity(corpus, baseline, source = 'the baseline') {
   const results = baseline && Array.isArray(baseline.results) ? baseline.results : [];
   const recorded = baselineCaseIndex(results);
+  const duplicates = baselineDuplicates(baseline);
 
   const pending = [...corpus.values()].filter((c) => !recorded.has(c.key));
   const missingFromCorpus = [...recorded.values()].filter((r) => !corpus.has(r.key));
@@ -1355,10 +1399,11 @@ function compareParity(corpus, baseline, source = 'the baseline') {
   // result to differ from. Reporting ok beside a populated difference array would let the gate pass
   // on a corpus the comparison had already found to disagree.
   return {
-    ok: missingFromCorpus.length === 0 && changed.length === 0 && countMismatch === null,
+    ok: missingFromCorpus.length === 0 && changed.length === 0 && duplicates.length === 0 && countMismatch === null,
     pending,
     missingFromCorpus,
     changed,
+    duplicates,
     countMismatch,
   };
 }
@@ -1386,6 +1431,9 @@ function parityLines(parity) {
   }
   for (const c of parity.changed) {
     lines.push(`GAP ${c.key} differs: corpus has ${c.corpus.kind}/${c.corpus.name}/${c.corpus.split}, baseline has ${c.baseline.kind}/${c.baseline.name}/${c.baseline.split}`);
+  }
+  for (const d of parity.duplicates) {
+    lines.push(`GAP ${d.key} appears ${d.entries} times in the baseline ${d.field}`);
   }
   if (parity.countMismatch) {
     const m = parity.countMismatch;

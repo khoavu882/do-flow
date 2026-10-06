@@ -104,6 +104,32 @@ test('F2: a caseCount that disagrees with the entries fails', () => {
   assert.deepEqual(p.countMismatch, { baselineCaseCount: 3, baselineEntries: 2 });
 });
 
+test('F2: a baseline key recorded twice fails with the key named, though caseCount agrees', () => {
+  const twice = baseline([...BASE.results, result('s/2', 'two', 'behavioral', 'train')]);
+  assert.equal(twice.caseCount, 3);
+  const p = runner.compareParity(corpusOf(ONE, TWO), twice);
+  assert.equal(p.ok, false);
+  assert.deepEqual(p.duplicates, [{ key: 's/2', entries: 2, field: 'results' }]);
+  assert.equal(p.countMismatch, null);
+  assert.deepEqual(runner.parityLines(p).filter((l) => l.startsWith('GAP')), ['GAP s/2 appears 2 times in the baseline results']);
+  assert.deepEqual(runner.compareParity(corpusOf(ONE, TWO), BASE).duplicates, []);
+});
+
+test('F2: a without-skill baseline key recorded twice fails the same way, and plan and report refuse it', () => {
+  const twice = { ...BASE, withoutSkillResults: [result('s/2', 'two', 'behavioral', 'train'), result('s/2', 'two', 'behavioral', 'train')] };
+  const p = runner.compareParity(corpusOf(ONE, TWO), twice);
+  assert.equal(p.ok, false);
+  assert.deepEqual(p.duplicates, [{ key: 's/2', entries: 2, field: 'withoutSkillResults' }]);
+  assert.deepEqual(runner.parityLines(p).filter((l) => l.startsWith('GAP')), ['GAP s/2 appears 2 times in the baseline withoutSkillResults']);
+  const input = { withResults: [], cfg: { model: 'm', costCeiling: CEILING }, iteration: 'it', commit: 'def' };
+  assert.throws(() => runner.buildReport({ ...input, baseline: twice }), /the baseline records s\/2 2 times in withoutSkillResults/);
+  assert.throws(() => runner.buildReport({ ...input, baseline: baseline([...BASE.results, BASE.results[0]]) }), /records s\/1 2 times in results/);
+  const file = path.join(scratch.dir, 'dup-baseline.json');
+  fs.writeFileSync(file, JSON.stringify(twice));
+  assert.throws(() => runner.buildPlan({ ...runner.loadConfig(), costCeiling: CEILING }, { iteration: 'it', baselineFile: file }),
+    /the baseline records s\/2 2 times in withoutSkillResults/);
+});
+
 test('F2: a missing baseline fails with a note and lists every case as pending', () => {
   const p = runner.compareParity(corpusOf(ONE, TWO), null, 'bench/baseline/baseline.json');
   assert.equal(p.ok, false);
@@ -168,6 +194,31 @@ test('F6: a null rate on either side is unchanged with no delta, never improved 
   }
   assert.equal(row(0.5, 1).status, 'improved');
   assert.equal(row(1, 0.5).status, 'regressed');
+});
+
+test('F6: buildReport refuses a baseline without a results array', () => {
+  for (const baseline of [{}, { results: null }, { results: {} }, null]) {
+    assert.throws(() => runner.buildReport({
+      baseline, withResults: [], cfg: { model: 'm', costCeiling: CEILING }, iteration: 'it', commit: 'def',
+    }), /the baseline has no results array/);
+  }
+});
+
+test('F6: report exits 2 and names the baseline when it has no results array', () => {
+  const dir = path.join(scratch.dir, 'report-no-results');
+  fs.mkdirSync(path.join(dir, 'runs', 'it'), { recursive: true });
+  const file = path.join(dir, 'baseline.json');
+  fs.writeFileSync(file, JSON.stringify({ commit: 'abc', model: 'm' }));
+  const cfg = { ...runner.loadConfig(), costCeiling: CEILING };
+  const err = [];
+  const orig = console.error;
+  console.error = (m) => err.push(m);
+  try {
+    assert.equal(runner.cmdReport(cfg, { iteration: 'it', baselineFile: file, runsRoot: path.join(dir, 'runs') }), 2);
+  } finally {
+    console.error = orig;
+  }
+  assert.match(err.join('\n'), /^bench report: the baseline has no results array \(.*baseline\.json\)$/);
 });
 
 test('F6: pendingNote is null when no row is pending, and repeated calls are equal', () => {
@@ -746,13 +797,14 @@ test('F4: a without-skill run drops the leading /<skill> token, and a case with 
   for (const key of dropped) assert.equal(without.some((r) => `${r.skill}/${r.evalId}` === key), false, key);
 });
 
-test('F4: the without-skill create command removes the skill, then hides the removal from git', () => {
+test('F4: the without-skill create command removes the skill, hides the removal from git, and drops the manifest entry', () => {
   const plan = runner.buildPlan(runner.loadConfig(), { iteration: 'fixture', skill: 'do-git', arm: 'without-skill' });
   const { create } = plan.runs.find((r) => r.arm === 'without-skill').sandbox;
   assert.ok(create.includes("D=['.claude/skills/do-git','core/shared/skills/do-git']"));
   const at = (text) => create.indexOf(text);
   assert.ok(at('fs.rmSync') > at('createSandbox') && at("'ls-files','-z','--',...D") > at('fs.rmSync'));
   assert.ok(at("'update-index','--skip-worktree','-z','--stdin'") > at("'ls-files'"));
+  assert.ok(at("delete j.skills['do-git']") > at('createSandbox') && at('.doflow-skill-source.json') > at('createSandbox'));
   assert.ok(create.includes('withheld=do-git'));
 });
 
@@ -770,6 +822,11 @@ test('F4: in a real sandbox the removed skill files are skip-worktree, so git st
   const sandbox = path.join(clone, workingDir);
   assert.equal(fs.existsSync(path.join(sandbox, 'core', 'shared', 'skills', 'do-git')), false);
   assert.equal(fs.existsSync(path.join(sandbox, '.claude', 'skills', 'do-git')), false);
+  assert.equal(fs.existsSync(path.join(sandbox, 'bench', 'runner.js')), true, 'bench/ stays: cases work on bench/runner.js');
+  const manifest = JSON.parse(fs.readFileSync(path.join(sandbox, '.doflow-skill-source.json'), 'utf8'));
+  assert.equal('do-git' in manifest.skills, false);
+  assert.equal('do-plan' in manifest.skills, true);
+  assert.doesNotMatch(JSON.stringify(manifest.skills), /do-git/);
   const git = (...args) => spawnSync('git', args, { cwd: sandbox, encoding: 'utf8', env: scratch.env() }).stdout;
   const seen = [git('status', '--short'), git('diff'), git('diff', 'HEAD')].join('\n');
   assert.doesNotMatch(seen, /do-git/);
@@ -890,6 +947,20 @@ test('F7: grade, baseline and report carry the without-skill arm', () => {
   assert.equal(json.armDelta[0].skill, 'do-git');
 });
 
+test('F7: the report table prints unknown, not a dash, for a null baseline, current or delta', () => {
+  const f = gradedFixture('f7-unknown-cells');
+  quiet(() => runner.cmdGrade(f.cfg, f.opts));
+  quiet(() => runner.cmdBaseline(f.cfg, { from: 'it', runsRoot: f.runsRoot, baselineFile: f.baselineFile }));
+  const recorded = JSON.parse(fs.readFileSync(f.baselineFile, 'utf8'));
+  recorded.results = recorded.results.filter((r) => r.key !== `do-git/${f.second.id}`);
+  fs.writeFileSync(f.baselineFile, JSON.stringify(recorded));
+  const rep = quiet(() => runner.cmdReport(f.cfg, f.opts));
+  assert.equal(rep.status, 0);
+  const row = rep.out.split('\n').find((l) => l.startsWith(`| do-git/${f.second.id} |`));
+  assert.match(row, /\| unknown \| [^|]+ \| unknown \| pending \| unknown→\w[\w-]* \| /);
+  assert.doesNotMatch(row, /—/);
+});
+
 test('F7: a leaked without-skill run is graded leaked, warned about and kept out of the delta', () => {
   const f = gradedFixture('f7-leak', { withoutSkill: { record: { skill: 'do-git', withheld: true }, transcript: 'read core/shared/skills/do-git/SKILL.md' } });
   const grade = quiet(() => runner.cmdGrade(f.cfg, f.opts));
@@ -900,7 +971,7 @@ test('F7: a leaked without-skill run is graded leaked, warned about and kept out
   assert.equal(JSON.parse(fs.readFileSync(f.baselineFile, 'utf8')).withoutSkillResults[0].sourceStatus, 'leaked');
   const rep = quiet(() => runner.cmdReport(f.cfg, f.opts));
   assert.equal(rep.status, 0);
-  assert.match(rep.out, /\| do-git \| 0 \| — \| — \| — \|/);
+  assert.match(rep.out, /\| do-git \| 0 \| — \| — \| — \(no case with both arms decided, verified and withheld\) \|/);
 });
 
 test('F7: a stray without-skill directory for a triggering case is not graded', () => {

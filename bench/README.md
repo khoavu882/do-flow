@@ -258,11 +258,13 @@ A without-skill run differs from its pair in these ways:
 
 - Its output directory is the with-skill one plus `--without-skill`, and its sandbox id ends in
   `-noskill`.
-- Its `sandbox.create` deletes the skill's copies from the sandbox after projecting it, marks the
-  tracked ones skip-worktree so the deletion does not appear in the sandbox's `git status` or
-  `git diff`, and the plan lists them in `skills.withheldPaths`. `~/.claude/skills` is outside any
-  sandbox and cannot be removed that way, so its `skills.instruction` forbids reading or invoking
-  the skill, and `grade` checks afterwards.
+- Its `sandbox.create` deletes the skill's copies from the sandbox after projecting it, drops the
+  skill's entry from the sandbox's `.doflow-skill-source.json`, and marks the tracked deletions
+  skip-worktree so they do not appear in the sandbox's `git status` or `git diff`. `bench/` stays,
+  because cases work on `bench/runner.js`. The plan lists the skill's copies in
+  `skills.withheldPaths`. `~/.claude/skills` is outside any sandbox and cannot
+  be removed that way, so its `skills.instruction` forbids reading or invoking the skill, and
+  `grade` checks afterwards.
 - Its `skill_source.json` is `{ "skill": "<skill>", "withheld": true }`, and `grade` classifies the
   run `withheld`, `leaked` or `unrecorded`. A recorded path, a missing `withheld: true`, a skill
   listed in `invoked_skills.json`, or a transcript or output that names `skills/<skill>/SKILL.md` (with `/` or
@@ -275,9 +277,14 @@ A without-skill run differs from its pair in these ways:
 What the arm does not prevent, because the sandbox is a git worktree of this repo and not an empty
 directory:
 
-- The corpus files (including `bench/<skill>/evals.json`), the sandbox's `.doflow` ledger and recovery
-  records, which name the skill's path, and git history are still readable. A run that reads them
-  and so names `skills/<skill>/SKILL.md` in its transcript or outputs is graded `leaked`.
+- The corpus is readable: `bench/<skill>/evals.json` stays in the sandbox with each case's
+  `expected_output` and assertions, and the sandbox is nested at `<checkout>/.doflow/worktrees/<id>`,
+  so `../../../bench/...` and `../../../core/shared/skills/<skill>` are plain reads of the checkout.
+  A corpus read names no `SKILL.md`, so `leaked` grading does not catch it.
+- Git history is still readable: `git show HEAD:<path>` returns the skill's files that were deleted
+  from the working tree. So are the sandbox's `.doflow` ledger and recovery records, which name the
+  skill's path. A run that reads them and so names `skills/<skill>/SKILL.md` in its transcript or
+  outputs is graded `leaked`.
 - Invoking the skill by name, which loads `~/.claude/skills/<skill>/`, is graded `leaked` when
   `invoked_skills.json` lists it.
 
