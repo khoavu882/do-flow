@@ -6,7 +6,7 @@
 // src/, bin/ and docs/, and README.md, must hold none, and must decode as strict UTF-8 so an
 // undecodable file cannot slip past unscanned. A leading byte order mark is kept in the decoded text
 // and so is found. U+FE0E and U+FE0F after a pictograph (or after a keycap base before U+20E3) choose
-// an emoji's presentation and are allowed; every other variation selector is a finding. The scan reads the files git tracks (the working-tree
+// an emoji's presentation and are allowed; a variation selector anywhere else is a finding. The scan reads the files git tracks (the working-tree
 // walk is the fallback when git cannot list them), so an ignored or untracked artifact never fails
 // it; a tracked file holding a NUL byte is binary and a symlink is not a file of its own, and
 // both are skipped. test/ and bench/ are not scanned: test/ holds deliberate bidirectional
@@ -23,6 +23,9 @@ const { REPO } = require('./_shared');
 const SCAN_ROOTS = ['core', 'src', 'bin', 'docs'];
 const SCAN_FILES = ['README.md'];
 
+// Named classes for the code points a finding is most useful to label. Every other code point with the
+// Unicode property Default_Ignorable_Code_Point is a finding too, classed as 'default-ignorable', so a
+// newly assigned invisible character is covered without listing it here.
 const HIDDEN_CODE_POINTS = [
   { from: 0xE0000, to: 0xE007F, cls: 'tag character' },
   { from: 0x200B, to: 0x200D, cls: 'zero-width' },
@@ -45,13 +48,14 @@ const VARIATION_SELECTOR_15 = 0xFE0E;
 const VARIATION_SELECTOR_16 = 0xFE0F;
 const COMBINING_ENCLOSING_KEYCAP = 0x20E3;
 const HIDDEN_RE = new RegExp(
-  `[${HIDDEN_CODE_POINTS.map(({ from, to }) => `\\u{${from.toString(16)}}-\\u{${to.toString(16)}}`).join('')}]`, 'u');
+  `[\\p{Default_Ignorable_Code_Point}${HIDDEN_CODE_POINTS.map(({ from, to }) => `\\u{${from.toString(16)}}-\\u{${to.toString(16)}}`).join('')}]`, 'u');
 const PICTOGRAPHIC_RE = /^\p{Extended_Pictographic}$/u;
 const KEYCAP_BASE_RE = /^[0-9#*]$/;
 const isVariationSelector = (codePoint) => classOf(codePoint) === 'variation selector';
 
 const hex = (codePoint) => codePoint.toString(16).toUpperCase().padStart(4, '0');
-const classOf = (codePoint) => HIDDEN_CODE_POINTS.find(({ from, to }) => codePoint >= from && codePoint <= to)?.cls;
+const classOf = (codePoint) => HIDDEN_CODE_POINTS.find(({ from, to }) => codePoint >= from && codePoint <= to)?.cls
+  ?? (HIDDEN_RE.test(String.fromCodePoint(codePoint)) ? 'default-ignorable' : undefined);
 
 /** Whether the ZWJ at `at` joins two pictographs (an emoji ZWJ sequence), skipping U+FE0F on both sides. */
 function joinsPictographs(codePoints, at) {
@@ -64,7 +68,7 @@ function joinsPictographs(codePoints, at) {
 }
 
 /** Whether the variation selector at `at` sets the presentation of an emoji: it follows a pictograph, or a
- * keycap base that the keycap combining mark follows. Any other variation selector is a hidden payload. */
+ * keycap base that the keycap combining mark follows. A variation selector anywhere else is a finding. */
 function selectsPresentation(codePoints, at) {
   const selector = codePoints[at].codePointAt(0);
   if (at === 0 || (selector !== VARIATION_SELECTOR_15 && selector !== VARIATION_SELECTOR_16)) return false;
@@ -201,6 +205,9 @@ test('G23: controls — the scan sees hidden code points, exempts emoji joins an
   const invisible = [0xFE01, 0xE0100, 0x00AD, 0x3164, 0x180E].map((codePoint) => String.fromCodePoint(codePoint));
   assert.deepEqual(scanText('fixture.md', invisible.map((char) => `a${char}b`).join('\n')).map(({ codePoint }) => codePoint),
     [0xFE01, 0xE0100, 0x00AD, 0x3164, 0x180E]);
+  const ignorable = [0x034F, 0x115F, 0x1160, 0x17B4, 0x180B, 0x180F, 0x206A, 0x206F, 0xFFA0, 0x1BCA0, 0x1D173].map((codePoint) => String.fromCodePoint(codePoint));
+  assert.deepEqual(scanText('fixture.md', ignorable.map((char) => `a${char}b`).join('\n')).map(({ codePoint, cls }) => [codePoint, cls]),
+    ignorable.map((char) => [char.codePointAt(0), 'default-ignorable']), 'every other Default_Ignorable_Code_Point is a finding');
   assert.equal(scanText('fixture.md', `a${String.fromCodePoint(VARIATION_SELECTOR_16)}`)[0].cls, 'variation selector');
   assert.equal(scanText('fixture.md', String.fromCodePoint(VARIATION_SELECTOR_16)).length, 1);
   assert.deepEqual(scanText('fixture.md', String.fromCodePoint(0x2764, VARIATION_SELECTOR_16)), []);
