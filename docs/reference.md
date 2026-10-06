@@ -121,8 +121,8 @@ ledgers, one per scope, and derives everything else at read time. Nothing it rep
 Its optional positional is the project root (default the working directory) and `-t` restricts it to
 named harnesses; the global scope's root comes from the process home directory and is not an
 argument. Its report and `doflow reconcile` deliberately disagree about how much is repairable —
-`reconcile` converges a scope onto whatever `doflow.lock` pins, which is narrower than what the
-ledger records — so the report states that gap as repair coverage rather than hiding it by adopting
+`reconcile` converges a scope onto what `doflow.lock` pins and names a harness the ledger holds and
+the lock lacks — so the report states that gap as repair coverage rather than hiding it by adopting
 the narrower definition. The modules behind it live under `src/runtime/inventory`.
 
 `scaffold` resolves which feature is active the same way every chain skill does — from the working
