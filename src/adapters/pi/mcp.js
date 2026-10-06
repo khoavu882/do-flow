@@ -169,12 +169,27 @@ function planPiMcp({ selected = [], rows = [], file, scope, removing = false, sn
   return { changes: changes.filter((change) => !refused.has(change.target)), conflicts, notices };
 }
 
+function isSymlink(file, fsImpl) {
+  try { return fsImpl.lstatSync(file).isSymbolicLink(); } catch { return false; }
+}
+
+/** Where a write to `file` lands: a symlinked mcp.json is written through to the file it points at,
+ * so the link stays a link and its target receives the entries. */
+function writePath(file, fsImpl) {
+  if (!isSymlink(file, fsImpl)) return file;
+  try { return fsImpl.realpathSync(file); } catch { return path.resolve(path.dirname(file), fsImpl.readlinkSync(file)); }
+}
+
 function atomicWrite(file, content, fsImpl) {
-  fsImpl.mkdirSync(path.dirname(file), { recursive: true });
-  const temp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`);
+  const dest = writePath(file, fsImpl);
+  fsImpl.mkdirSync(path.dirname(dest), { recursive: true });
+  // The rename gives the file the temp file's mode; an mcp.json kept private for its tokens stays so.
+  const mode = fsImpl.existsSync(dest) ? fsImpl.statSync(dest).mode & 0o7777 : null;
+  const temp = path.join(path.dirname(dest), `.${path.basename(dest)}.${process.pid}.${Date.now()}.tmp`);
   try {
-    fsImpl.writeFileSync(temp, content, { encoding: 'utf8', flag: 'wx' });
-    fsImpl.renameSync(temp, file);
+    fsImpl.writeFileSync(temp, content, { encoding: 'utf8', flag: 'wx', ...(mode === null ? {} : { mode }) });
+    if (mode !== null) fsImpl.chmodSync(temp, mode);
+    fsImpl.renameSync(temp, dest);
   } finally {
     if (fsImpl.existsSync(temp)) fsImpl.rmSync(temp, { force: true });
   }
@@ -227,7 +242,7 @@ function applyPiMcp(changes, { fsImpl = fs } = {}) {
     const next = exists
       ? editedText(text, group)
       : renderNewDocument(group.filter((change) => change.operation === 'create').map((change) => [change.identity, change.entry]));
-    if (next === SKELETON) {
+    if (next === SKELETON && !isSymlink(target, fsImpl)) {
       if (exists) { fsImpl.rmSync(target); applied += 1; }
     } else if (next !== text) {
       atomicWrite(target, next, fsImpl);

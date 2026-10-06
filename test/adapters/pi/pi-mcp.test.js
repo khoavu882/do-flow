@@ -387,6 +387,45 @@ test('P15: a failing rename leaves the original bytes and no temp file', () => {
   assert.deepEqual(fs.readdirSync(path.dirname(file)), ['mcp.json']);
 });
 
+test('P15: a private mcp.json keeps its mode through install and remove', { skip: process.platform === 'win32' && 'POSIX modes' }, () => {
+  const root = scratch();
+  const file = userFile(root);
+  writeFile(file, USER_TEXT);
+  fs.chmodSync(file, 0o600);
+  const first = run({ root });
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  run({ root, mcp: [], ledger: first.ledger, operation: 'remove' });
+  assert.equal(fs.readFileSync(file, 'utf8'), USER_TEXT);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+});
+
+test('P15: a symlinked mcp.json is written through to its target and stays a link', { skip: process.platform === 'win32' && 'symlinks need privileges' }, () => {
+  const root = scratch();
+  const file = userFile(root);
+  const real = path.join(scratch(), 'dotfiles', 'mcp.json');
+  writeFile(real, USER_TEXT);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.symlinkSync(real, file);
+  const first = run({ root });
+  assert.ok(fs.lstatSync(file).isSymbolicLink());
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(real, 'utf8')).mcpServers), ['mine', 'other', ...SERVERS.map((server) => server.id)]);
+  run({ root, mcp: [], ledger: first.ledger, operation: 'remove' });
+  assert.ok(fs.lstatSync(file).isSymbolicLink());
+  assert.equal(fs.readFileSync(real, 'utf8'), USER_TEXT);
+  assert.deepEqual(fs.readdirSync(path.dirname(real)), ['mcp.json']);
+
+  const dangling = scratch();
+  const target = path.join(scratch(), 'missing', 'mcp.json');
+  fs.mkdirSync(path.dirname(userFile(dangling)), { recursive: true });
+  fs.symlinkSync(target, userFile(dangling));
+  const created = run({ root: dangling });
+  assert.ok(fs.lstatSync(userFile(dangling)).isSymbolicLink());
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(target, 'utf8')).mcpServers), SERVERS.map((server) => server.id));
+  run({ root: dangling, mcp: [], ledger: created.ledger, operation: 'remove' });
+  assert.ok(fs.lstatSync(userFile(dangling)).isSymbolicLink(), 'a symlinked mcp.json is never deleted');
+  assert.equal(fs.readFileSync(target, 'utf8'), SKELETON);
+});
+
 test('P16: an owned row whose file moved is removed from the old file and created in the new one', () => {
   const root = scratch();
   const oldDir = path.join(scratch(), 'old-agent');
