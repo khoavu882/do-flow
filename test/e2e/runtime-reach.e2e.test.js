@@ -17,6 +17,9 @@ const { spawn: spawnProcess, spawnSync } = require('node:child_process');
 const { resolverOf, filesUnder } = require('../helper/skill-resolver');
 const { IS_WIN } = require('../helper-platform');
 
+// A developer's PI_CODING_AGENT_DIR would send this file's global Pi MCP writes outside the scratch home.
+delete process.env.PI_CODING_AGENT_DIR;
+
 const REPO = path.resolve(__dirname, '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const SKIP = IS_WIN ? 'the projected locator and the skill resolver are POSIX shell' : false;

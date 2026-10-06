@@ -14,6 +14,9 @@ const { LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view');
 const { readScopes } = require('../../src/runtime/inventory/read-scopes');
 const { buildInventoryReport } = require('../../src/runtime/inventory');
 
+// A developer's PI_CODING_AGENT_DIR would point this file's global Pi MCP plans at their real agent dir.
+delete process.env.PI_CODING_AGENT_DIR;
+
 const REPO = path.resolve(__dirname, '../..');
 const registry = loadRegistry({ repoRoot: REPO });
 

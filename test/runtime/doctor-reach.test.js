@@ -12,6 +12,9 @@ const { spawnSync } = require('node:child_process');
 const { REPO_ROOT } = require('../../src/helper/repo-root');
 const { REACH_DISPATCHER_REL, REACH_RUNTIME_REL } = require('../../src/runtime/reach');
 
+// A developer's PI_CODING_AGENT_DIR would send this file's global Pi MCP writes outside the scratch home.
+delete process.env.PI_CODING_AGENT_DIR;
+
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const made = [];
 after(() => { for (const dir of made) fs.rmSync(dir, { recursive: true, force: true }); });

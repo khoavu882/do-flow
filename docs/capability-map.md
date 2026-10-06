@@ -22,7 +22,7 @@ installation; do not infer activation from this table alone.
 | Modes | Supported | Unavailable | Different | Different | Different | Different | Different | Different |
 | Settings | Supported — `settings.json` | Different — `.codex/config.toml` | Different | Supported — `opencode.json` | Supported — `.pi/settings.json` | Supported | Unavailable | Unavailable |
 | Hooks | Supported — `settings.json` | Supported — `.codex/hooks.json` | Supported — `settings.json` | Different | Different | Different | Supported — `.kiro/hooks` | Supported |
-| MCP | Supported — `.mcp.json` | Supported — `.codex/config.toml` | Different | Supported — `opencode.json` | Different | Supported — `.mcp.json` | Supported — `.kiro/settings/mcp.json` | Supported — `.agents/mcp_config.json` |
+| MCP | Supported — `.mcp.json` | Supported — `.codex/config.toml` | Different | Supported — `opencode.json` | Supported — `.pi/mcp.json` | Supported — `.mcp.json` | Supported — `.kiro/settings/mcp.json` | Supported — `.agents/mcp_config.json` |
 | Plugin / extension | Supported | Supported | Different | Different | Different | Different | Unavailable | Different |
 <!-- END GENERATED:capability-matrix -->
 

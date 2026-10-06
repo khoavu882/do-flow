@@ -865,7 +865,8 @@
       ],
       "nativeTargets": {
         "instructions": "AGENTS.md",
-        "settings": ".pi/settings.json"
+        "settings": ".pi/settings.json",
+        "mcp": ".pi/mcp.json"
       },
       "paths": {
         "configDir": {
@@ -1049,12 +1050,13 @@
           }
         },
         "mcp": {
-          "status": "different",
+          "status": "supported",
           "evidence": [
-            "https://pi.dev/docs/latest/extensions"
+            "https://pi.dev/docs/latest/mcp",
+            "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md"
           ],
-          "note": "Pi reaches MCP servers through the separate pi-mcp-adapter extension rather than a native config key DoFlow can merge into.",
-          "verification": "Report that MCP registration for Pi is delegated to pi-mcp-adapter and not written by DoFlow."
+          "note": "Pi's built-in MCP (Pi 0.99.0 or later) reads stdio and HTTP servers from the mcpServers map of .pi/mcp.json (project, read only after the project is trusted) and ~/.pi/agent/mcp.json (user, or $PI_CODING_AGENT_DIR/mcp.json); a project entry overrides a same-named user entry from Pi 1.0.1. DoFlow writes stdio entries only. An installed extension that registers /mcp, such as pi-mcp-adapter, replaces the built-in and Pi then does not read mcp.json.",
+          "verification": "Confirm the selected MCP servers appear in .pi/mcp.json (project, after trusting the project) or ~/.pi/agent/mcp.json (global) and connect via /mcp in Pi 0.99.0 or later with no extension registering /mcp."
         },
         "plugin": {
           "status": "different",
