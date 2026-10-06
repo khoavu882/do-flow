@@ -5,8 +5,11 @@
  * lives at `agent-docs/lifecycle/events/` has it copied once into `.doflow/state/lifecycle/events/`
  * by the first verb that runs: the files go into a temp folder beside the new store, and one
  * rename of that folder onto `events` commits the copy, so readers see no store or the whole
- * store. The old folder is only read, never written, and while it exists every verb prints one
- * line saying it is no longer read.
+ * store. The copy then writes a completion marker beside the store; once the marker exists the old
+ * folder is never listed or read again, so a store that retention later empties is not filled from
+ * it a second time. A store that already holds event files without a marker (one this project
+ * started at the new location) gets the marker and no copy. The old folder is only read, never
+ * written, and while it exists every verb prints one line saying it is no longer read.
  *
  * With `DOFLOW_RETENTION_HOURS` set, it then deletes the event files of settled items older than
  * that many hours (retention.js decides which). The files to delete are first listed in the
@@ -27,6 +30,8 @@ const { parseWindow, selectExpired } = require('./retention');
 
 const LEGACY_LIFECYCLE_REL = path.join('agent-docs', 'lifecycle');
 const LEGACY_EVENTS_REL = path.join(LEGACY_LIFECYCLE_REL, 'events');
+/** Written once the store is in place at the new location; its presence alone is what counts. */
+const MARKER_REL = path.join(LIFECYCLE_REL, 'migrated.json');
 const MIGRATING_PREFIX = 'events.migrating-';
 const NOTICE = 'note: the lifecycle store is now .doflow/state/lifecycle/events; agent-docs/lifecycle/ is no longer read and can be deleted';
 const removedLine = (count, hours) => `retention: removed ${count} event files older than ${hours} h`;
@@ -67,17 +72,19 @@ function legacyEventFiles(fsImpl, root) {
   });
 }
 
-/** The old folder holds events and the new store holds no event-named entry. */
-function needsCopy(fsImpl, root) {
-  return legacyEventFiles(fsImpl, root).length > 0 && !namesIn(fsImpl, path.join(root, EVENTS_REL)).some(isEventName);
-}
+const hasMarker = (fsImpl, root) => lstatOrNull(fsImpl, path.join(root, MARKER_REL)) !== null;
+const storeHasEvents = (fsImpl, root) => namesIn(fsImpl, path.join(root, EVENTS_REL)).some(isEventName);
 
 function removeQuietly(fsImpl, target) {
   try { fsImpl.rmSync(target, { recursive: true, force: true }); } catch { /* best effort */ }
 }
 
-/** Flushes one copied file; opened read-write because Windows refuses to flush a read-only handle. */
-function fsyncFile(fsImpl, file) {
+/**
+ * Flushes one copied file. The copy takes the source's mode, so it is made writable by its owner
+ * first, like any file the store writes: Windows refuses to flush a read-only handle.
+ */
+function fsyncCopy(fsImpl, file) {
+  fsImpl.chmodSync(file, 0o644);
   const fd = fsImpl.openSync(file, 'r+');
   try { fsImpl.fsyncSync(fd); } finally { fsImpl.closeSync(fd); }
 }
@@ -95,13 +102,48 @@ const migrationFailed = (code) => ({
   message: `could not copy agent-docs/lifecycle/events to .doflow/state/lifecycle/events (${code}); the old folder is unchanged and the next lifecycle command retries. Nothing was written.`,
   lines: [],
 });
+const legacyUnreadable = (code) => ({
+  ok: false,
+  finding: 'store-migration-failed',
+  message: `could not list agent-docs/lifecycle/events (${code}), so the old store cannot be copied to .doflow/state/lifecycle/events; make the folder readable, or delete it if its events are not needed, and the next lifecycle command retries. Nothing was written.`,
+  lines: [],
+});
+
+/** Writes `text` to `file` by a flushed temp file in the same folder and a rename. */
+function writeAtomic(fsImpl, file, text) {
+  const dir = path.dirname(file);
+  const tmp = path.join(dir, `.${path.basename(file, '.json')}-${process.pid}-${randomChars(6)}.tmp`);
+  try {
+    const fd = fsImpl.openSync(tmp, 'wx', 0o644);
+    try {
+      fsImpl.writeFileSync(fd, text, 'utf8');
+      fsImpl.fsyncSync(fd);
+    } finally {
+      fsImpl.closeSync(fd);
+    }
+    fsImpl.renameSync(tmp, file);
+  } catch (error) {
+    try { fsImpl.unlinkSync(tmp); } catch { /* never written */ }
+    throw error;
+  }
+  fsyncFolder(fsImpl, dir);
+}
+
+/** Records that the store is in place; false when it cannot be written, so a later verb tries again. */
+function writeMarker(fsImpl, root, copied, now) {
+  try {
+    writeAtomic(fsImpl, path.join(root, MARKER_REL), `${JSON.stringify({ v: 1, from: 'agent-docs/lifecycle/events', copied, at: now.toISOString() })}\n`);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
- * The copy itself, under the store lock. Returns null when the store is in place, or the
- * `store-migration-failed` refusal.
+ * The copy itself, under the store lock, of the event files the caller listed. Returns the number
+ * copied, or the `store-migration-failed` refusal.
  */
-function copyLegacyStore(fsImpl, root) {
-  if (!needsCopy(fsImpl, root)) return null; // another verb finished the copy while this one waited
+function copyLegacyStore(fsImpl, root, files) {
   const lifecycleDir = path.join(root, LIFECYCLE_REL);
   const eventsDir = path.join(root, EVENTS_REL);
   const legacyDir = path.join(root, LEGACY_EVENTS_REL);
@@ -113,10 +155,10 @@ function copyLegacyStore(fsImpl, root) {
     }
     tmp = path.join(lifecycleDir, `${MIGRATING_PREFIX}${process.pid}-${randomChars(6)}`);
     fsImpl.mkdirSync(tmp);
-    for (const name of legacyEventFiles(fsImpl, root)) {
+    for (const name of files) {
       const copy = path.join(tmp, name);
       fsImpl.copyFileSync(path.join(legacyDir, name), copy, nodeFs.constants.COPYFILE_EXCL);
-      fsyncFile(fsImpl, copy);
+      fsyncCopy(fsImpl, copy);
     }
     fsyncFolder(fsImpl, tmp);
     if (lstatOrNull(fsImpl, eventsDir)) {
@@ -131,7 +173,8 @@ function copyLegacyStore(fsImpl, root) {
       if (error.code !== 'EEXIST' && error.code !== 'ENOTEMPTY') throw error;
       removeQuietly(fsImpl, tmp); // another copier committed first
     }
-    return null;
+    fsyncFolder(fsImpl, lifecycleDir);
+    return files.length;
   } catch (error) {
     if (tmp) removeQuietly(fsImpl, tmp);
     return migrationFailed(error.code || error.message);
@@ -210,9 +253,17 @@ function prepareStore(root, { env = process.env, now = new Date(), fsImpl = node
   const notice = legacyDir && legacyDir.isDirectory() ? [NOTICE] : [];
   const window = parseWindow(env);
   const invalid = window.state === 'invalid' ? [invalidLine(window.raw)] : [];
-  const migrate = needsCopy(fsImpl, root);
-  const rollForward = readJournal(root, fsImpl).pending.length > 0;
-  if (!migrate && !rollForward && !needsPrune(fsImpl, root, window, now)) return { ok: true, lines: [...notice, ...invalid] };
+  let migrate = false;
+  let markerDue = false;
+  if (!hasMarker(fsImpl, root)) {
+    if (storeHasEvents(fsImpl, root)) {
+      markerDue = true;
+    } else {
+      try { migrate = legacyEventFiles(fsImpl, root).length > 0; } catch (error) { return legacyUnreadable(error.code || error.message); }
+    }
+  }
+  const retentionDue = readJournal(root, fsImpl).pending.length > 0 || needsPrune(fsImpl, root, window, now);
+  if (!migrate && !markerDue && !retentionDue) return { ok: true, lines: [...notice, ...invalid] };
   if (migrate) refuseLinks(fsImpl, root, [LEGACY_LIFECYCLE_REL, LEGACY_EVENTS_REL]);
 
   const lifecycleDir = path.join(root, LIFECYCLE_REL);
@@ -222,7 +273,7 @@ function prepareStore(root, { env = process.env, now = new Date(), fsImpl = node
     fsImpl.accessSync(lifecycleDir, nodeFs.constants.W_OK);
   } catch (error) {
     // Without a copy to make, an unwritable store only stops the retention pass, not the verb.
-    if (!migrate) return { ok: true, lines: [...notice, ...invalid, unlinkLine(error.code || error.message)] };
+    if (!migrate) return { ok: true, lines: [...notice, ...invalid, ...(retentionDue ? [unlinkLine(error.code || error.message)] : [])] };
     return migrationFailed(error.code || error.message);
   }
   let release;
@@ -233,8 +284,22 @@ function prepareStore(root, { env = process.env, now = new Date(), fsImpl = node
     throw error;
   }
   try {
-    const failed = copyLegacyStore(fsImpl, root);
-    if (failed) return failed;
+    // Decided again under the lock: another verb may have finished the copy while this one waited.
+    let marked = hasMarker(fsImpl, root);
+    if (!marked && storeHasEvents(fsImpl, root)) {
+      marked = writeMarker(fsImpl, root, 0, now);
+    } else if (!marked) {
+      let files;
+      try { files = legacyEventFiles(fsImpl, root); } catch (error) { return legacyUnreadable(error.code || error.message); }
+      if (files.length) {
+        refuseLinks(fsImpl, root, [LEGACY_LIFECYCLE_REL, LEGACY_EVENTS_REL]);
+        const copied = copyLegacyStore(fsImpl, root, files);
+        if (typeof copied !== 'number') return copied;
+        marked = writeMarker(fsImpl, root, copied, now);
+      }
+    }
+    // Retention runs only on a marked store, so emptying it can never bring the old folder back.
+    if (!marked) return { ok: true, lines: [...notice, ...invalid] };
     const { removed, warning } = retain(fsImpl, root, window, now);
     return { ok: true, lines: [...notice, ...removed, ...invalid, ...warning] };
   } finally {
@@ -242,4 +307,4 @@ function prepareStore(root, { env = process.env, now = new Date(), fsImpl = node
   }
 }
 
-module.exports = { prepareStore, LEGACY_LIFECYCLE_REL, LEGACY_EVENTS_REL };
+module.exports = { prepareStore, LEGACY_LIFECYCLE_REL, LEGACY_EVENTS_REL, MARKER_REL };

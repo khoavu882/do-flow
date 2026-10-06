@@ -12,7 +12,7 @@ const crypto = require('node:crypto');
 const { execFileSync, spawn, spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const store = require('../../src/runtime/lifecycle/event-store');
-const { prepareStore, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL } = require('../../src/runtime/lifecycle/store-upkeep');
+const { prepareStore, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL, MARKER_REL } = require('../../src/runtime/lifecycle/store-upkeep');
 
 const CLI = path.resolve(__dirname, '..', '..', 'bin', 'doflow.js');
 const POSIX = process.platform !== 'win32';
@@ -90,7 +90,7 @@ test('copy: the first verb copies the old store once with equal names and bytes;
   for (const name of names) {
     assert.ok(fs.readFileSync(path.join(eventsDir(dir), name)).equals(fs.readFileSync(path.join(dir, LEGACY_EVENTS_REL, name))), name);
   }
-  assert.deepEqual(lifecycleEntries(dir), ['events'], 'no temp, replaced or lock folder is left');
+  assert.deepEqual(lifecycleEntries(dir), ['events', 'migrated.json'], 'no temp, replaced or lock folder is left');
   assert.deepEqual(snapshot(path.join(dir, LEGACY_LIFECYCLE_REL)), oldTree);
   assert.equal(git(dir, 'status', '--porcelain', '--', 'agent-docs'), '');
   for (const file of ['.gitignore', path.join('.doflow', '.gitignore'), path.join('.doflow', 'state', '.gitignore')]) assert.equal(fs.existsSync(path.join(dir, file)), false, file);
@@ -123,7 +123,7 @@ test('concurrency: two processes started together leave each event once and both
     assert.equal(JSON.parse(r.stdout).items.length, names.length);
   }
   assert.deepEqual(fs.readdirSync(eventsDir(dir)).sort(), names);
-  assert.deepEqual(lifecycleEntries(dir), ['events']);
+  assert.deepEqual(lifecycleEntries(dir), ['events', 'migrated.json']);
 });
 
 // ── faults ─────────────────────────────────────────────────────────────────────────────────────
@@ -143,7 +143,7 @@ test('fault: a copy that fails part way refuses with store-migration-failed, lea
   const out = prepareStore(dir, { fsImpl: failing });
   assert.deepEqual([out.ok, out.finding], [false, 'store-migration-failed']);
   assert.match(out.message, /^could not copy agent-docs\/lifecycle\/events to \.doflow\/state\/lifecycle\/events \(EIO\); the old folder is unchanged and the next lifecycle command retries\. Nothing was written\.$/);
-  assert.deepEqual(lifecycleEntries(dir), [], 'no events, no events.migrating-*, no lock');
+  assert.deepEqual(lifecycleEntries(dir), [], 'no events, no events.migrating-*, no lock, no marker');
   assert.deepEqual(snapshot(path.join(dir, LEGACY_LIFECYCLE_REL)), oldTree);
 
   const next = prepareStore(dir);
@@ -180,7 +180,7 @@ test('an empty events folder at the new location is replaced by the copy', () =>
   fs.mkdirSync(eventsDir(dir), { recursive: true });
   assert.equal(run(dir, ['followup', '--action', 'list', '--json']).status, 0);
   assert.deepEqual(fs.readdirSync(eventsDir(dir)).sort(), names);
-  assert.deepEqual(lifecycleEntries(dir), ['events'], 'the empty folder it replaced is gone');
+  assert.deepEqual(lifecycleEntries(dir), ['events', 'migrated.json'], 'the empty folder it replaced is gone');
 });
 
 test('an events folder holding only non-event entries is kept as events.replaced-*', () => {
@@ -189,7 +189,7 @@ test('an events folder holding only non-event entries is kept as events.replaced
   fs.writeFileSync(path.join(eventsDir(dir), 'notes.txt'), 'mine');
   assert.equal(run(dir, ['followup', '--action', 'list', '--json']).status, 0);
   assert.deepEqual(fs.readdirSync(eventsDir(dir)).sort(), names);
-  const replaced = lifecycleEntries(dir).filter((n) => n !== 'events');
+  const replaced = lifecycleEntries(dir).filter((n) => n !== 'events' && n !== 'migrated.json');
   assert.equal(replaced.length, 1);
   assert.match(replaced[0], /^events\.replaced-[0-9a-hjkmnp-tv-z]{6}$/);
   assert.deepEqual(fs.readdirSync(path.join(dir, store.LIFECYCLE_REL, replaced[0])), ['notes.txt']);
@@ -284,4 +284,85 @@ test('a usage error found before the project root runs no copy', () => {
     assert.equal(noticeLines(r.stderr).length, 0, args.join(' '));
   }
   assert.equal(fs.existsSync(path.join(dir, '.doflow')), false);
+});
+
+// ── copy once: the completion marker ──────────────────────────────────────────────────────────────
+
+const HOUR = 3600000;
+/** One event file dated `hoursAgo`, written straight into `folder`. */
+function agedEvent(folder, type, data, hoursAgo) {
+  seq += 1;
+  const at = new Date(Date.now() - hoursAgo * HOUR + seq).toISOString();
+  const id = `${at.replace(/[-:.]/g, '')}-aaaaaa`;
+  fs.mkdirSync(folder, { recursive: true });
+  fs.writeFileSync(path.join(folder, `${id}.json`), JSON.stringify({ v: 1, id, type, at, by: 'agent', data }));
+  return `${id}.json`;
+}
+const marker = (dir) => JSON.parse(fs.readFileSync(path.join(dir, MARKER_REL), 'utf8'));
+
+test('marker: after the copy, a store that retention empties is never filled from the old folder again', () => {
+  const dir = project('marker-copy');
+  agedEvent(path.join(dir, LEGACY_EVENTS_REL), 'followup.added', { id: 'FU-aaaaaa', statement: 's', source: { kind: 'manual' } }, 300);
+  assert.equal(run(dir, ['followup', '--action', 'list', '--json']).status, 0);
+  assert.deepEqual([marker(dir).v, marker(dir).copied], [1, 1]);
+  agedEvent(eventsDir(dir), 'followup.settled', { id: 'FU-aaaaaa', as: 'dismissed', reason: 'gone' }, 299);
+  const pruned = spawnSync(process.execPath, [CLI, 'followup', '--action', 'list', '--json'], { cwd: dir, env: scratch.env({ DOFLOW_RETENTION_HOURS: '1' }), encoding: 'utf8' });
+  assert.match(pruned.stderr, /retention: removed 2 event files/);
+  assert.deepEqual(fs.readdirSync(eventsDir(dir)), []);
+  const after = run(dir, ['followup', '--action', 'list', '--state', 'all', '--json']);
+  assert.deepEqual(after.json.items, [], 'the dismissed follow-up does not come back open');
+  assert.deepEqual(fs.readdirSync(eventsDir(dir)), []);
+  assert.ok(fs.existsSync(path.join(dir, MARKER_REL)), 'retention keeps the marker');
+});
+
+test('marker: a store that already holds events and no marker is marked without a copy, and stays unfilled once emptied', () => {
+  const dir = project('marker-existing');
+  agedEvent(path.join(dir, LEGACY_EVENTS_REL), 'followup.added', { id: 'FU-aaaaaa', statement: 'old', source: { kind: 'manual' } }, 300);
+  agedEvent(eventsDir(dir), 'followup.added', { id: 'FU-bbbbbb', statement: 'new', source: { kind: 'manual' } }, 300);
+  agedEvent(eventsDir(dir), 'followup.settled', { id: 'FU-bbbbbb', as: 'dismissed', reason: 'gone' }, 299);
+  const pruned = spawnSync(process.execPath, [CLI, 'followup', '--action', 'list', '--json'], { cwd: dir, env: scratch.env({ DOFLOW_RETENTION_HOURS: '1' }), encoding: 'utf8' });
+  assert.equal(pruned.status, 0, pruned.stderr);
+  assert.equal(marker(dir).copied, 0);
+  assert.deepEqual(fs.readdirSync(eventsDir(dir)), []);
+  assert.deepEqual(run(dir, ['followup', '--action', 'list', '--state', 'all', '--json']).json.items, []);
+  assert.deepEqual(fs.readdirSync(eventsDir(dir)), [], 'FU-aaaaaa from the old folder is never copied in');
+});
+
+test('marker: a read-only old folder and read-only event files are copied, and their modes are left as they were', { skip: !POSIX }, () => {
+  const { dir, names } = withLegacy('readonly-source');
+  const legacy = path.join(dir, LEGACY_EVENTS_REL);
+  for (const name of names) fs.chmodSync(path.join(legacy, name), 0o444);
+  fs.chmodSync(legacy, 0o555);
+  try {
+    const oldTree = snapshot(path.join(dir, LEGACY_LIFECYCLE_REL));
+    const r = run(dir, ['followup', '--action', 'list', '--json']);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.deepEqual(fs.readdirSync(eventsDir(dir)).sort(), names);
+    for (const name of names) assert.ok(fs.readFileSync(path.join(eventsDir(dir), name)).equals(fs.readFileSync(path.join(legacy, name))), name);
+    assert.deepEqual(snapshot(path.join(dir, LEGACY_LIFECYCLE_REL)), oldTree);
+  } finally {
+    fs.chmodSync(legacy, 0o755);
+  }
+});
+
+test('marker: an unlistable old folder refuses with store-migration-failed before the marker exists, and is never touched after', { skip: !POSIX || ROOT_USER }, () => {
+  const { dir } = withLegacy('unlistable', ['FU-aaaaaa']);
+  const legacy = path.join(dir, LEGACY_EVENTS_REL);
+  fs.chmodSync(legacy, 0o000);
+  try {
+    const refused = run(dir, ['followup', '--action', 'list', '--json']);
+    assert.equal(refused.status, 1, refused.stderr);
+    assert.deepEqual([refused.json.ok, refused.json.finding], [false, 'store-migration-failed']);
+    assert.match(refused.json.message, /^could not list agent-docs\/lifecycle\/events \(EACCES\)/);
+    assert.equal(fs.existsSync(path.join(dir, '.doflow')), false);
+    fs.chmodSync(legacy, 0o755);
+    assert.equal(run(dir, ['followup', '--action', 'list', '--json']).status, 0);
+    assert.ok(fs.existsSync(path.join(dir, MARKER_REL)));
+    fs.chmodSync(legacy, 0o000);
+    const after = run(dir, ['followup', '--action', 'list', '--json']);
+    assert.equal(after.status, 0, after.stderr);
+    assert.deepEqual(after.json.items.map((i) => i.id), ['FU-aaaaaa']);
+  } finally {
+    fs.chmodSync(legacy, 0o755);
+  }
 });
