@@ -278,22 +278,26 @@ fi
 section "4. pre-bash-guard.sh"
 # ══════════════════════════════════════════════════════════════════════════════
 
-check_guard() {
-  local label="$1"
-  local command="$2"
-  local expect="$3"  # "block" or "allow"
-  local input="{\"session_id\":\"$SESS\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"$command\"}}"
-  local out
-  out=$("${SANDBOXED[@]}" bash "$HOOKS/pre-bash-guard.sh" <<< "$input" 2>/dev/null)
-  local decision
-  decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision // "allow"' 2>/dev/null)
-  if [[ "$expect" == "block" && "$decision" == "deny" ]]; then
+# A front-door guard has two valid outputs: a deny is exit 0 with permissionDecision "deny" on
+# stdout, an allow is exit 0 with nothing on stdout. A crash, a non-zero exit or junk output is
+# neither, so it fails an allow case as well as a block case.
+# guard_check <label> <expect: block|allow> <hook script> <input json>
+guard_check() {
+  local label="$1" expect="$2" script="$3" input="$4" out rc=0 decision=""
+  out=$("${SANDBOXED[@]}" bash "$HOOKS/$script" <<< "$input" 2>/dev/null) || rc=$?
+  [[ $rc -eq 0 ]] && decision=$(jq -r '.hookSpecificOutput.permissionDecision // empty' <<< "$out" 2>/dev/null)
+  if [[ "$expect" == "block" && $rc -eq 0 && "$decision" == "deny" ]]; then
     pass "$label → denied ✓"
-  elif [[ "$expect" == "allow" && "$decision" != "deny" ]]; then
+  elif [[ "$expect" == "allow" && $rc -eq 0 && -z "$out" ]]; then
     pass "$label → allowed ✓"
   else
-    fail "$label → expected $expect, got decision='$decision' (output: $out)"
+    fail "$label → expected $expect, got exit=$rc decision='$decision' (output: $out)"
   fi
+}
+
+check_guard() {
+  guard_check "$1" "$3" pre-bash-guard.sh \
+    "{\"session_id\":\"$SESS\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"$2\"}}"
 }
 
 check_guard "git push --force" "git push --force origin main" "block"
@@ -320,21 +324,7 @@ section "4b. mcp-tool-guard.sh"
 # ══════════════════════════════════════════════════════════════════════════════
 
 check_mcp_guard() {
-  local label="$1"
-  local tool_name="$2"
-  local expect="$3"  # "block" or "allow"
-  local input="{\"session_id\":\"$SESS\",\"tool_name\":\"$tool_name\"}"
-  local out
-  out=$("${SANDBOXED[@]}" bash "$HOOKS/mcp-tool-guard.sh" <<< "$input" 2>/dev/null)
-  local decision
-  decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision // "allow"' 2>/dev/null)
-  if [[ "$expect" == "block" && "$decision" == "deny" ]]; then
-    pass "$label → denied ✓"
-  elif [[ "$expect" == "allow" && "$decision" != "deny" ]]; then
-    pass "$label → allowed ✓"
-  else
-    fail "$label → expected $expect, got decision='$decision' (output: $out)"
-  fi
+  guard_check "$1" "$3" mcp-tool-guard.sh "{\"session_id\":\"$SESS\",\"tool_name\":\"$2\"}"
 }
 
 # Shipped mcp-policy.conf has zero active patterns — every mcp__* call must be allowed by default.
