@@ -35,8 +35,12 @@ section() { printf "\n[%s]\n" "$1"; }
 
 # Isolation contract: lib.sh resolves its config root as ${XDG_CONFIG_HOME:-$HOME/.config}, so a
 # fake HOME alone does NOT isolate the sandbox on runners that export XDG_CONFIG_HOME (the ubuntu
-# image does). Every invocation pins both vars, plus DOFLOW_CONFIG_DIR-style knobs stay unset.
-SANDBOXED=(env "HOME=$TEST_HOME" "XDG_CONFIG_HOME=$TEST_HOME/.config")
+# image does). Every hook invocation below runs under this one env: HOME and XDG_CONFIG_HOME pinned
+# into TEST_HOME, no git config from the machine, and the variables that steer which harness or
+# install a hook resolves removed. A test that needs one of them sets it in front of the array.
+SANDBOXED=(env -u DOFLOW_AGENT -u DOFLOW_PROJECT_DIR -u DOFLOW_FAILURE_CAPTURE -u CLAUDE_CONFIG_DIR \
+  -u CLAUDE_PROJECT_DIR -u CODEX_HOME -u GEMINI_CONFIG_DIR \
+  "HOME=$TEST_HOME" "XDG_CONFIG_HOME=$TEST_HOME/.config" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1)
 
 # Run a hook with an isolated config root inside TEST_HOME
 # Usage: run_hook <hook_script> <json_input>
@@ -280,7 +284,7 @@ check_guard() {
   local expect="$3"  # "block" or "allow"
   local input="{\"session_id\":\"$SESS\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"$command\"}}"
   local out
-  out=$(HOME="$TEST_HOME" bash "$HOOKS/pre-bash-guard.sh" <<< "$input" 2>/dev/null)
+  out=$("${SANDBOXED[@]}" bash "$HOOKS/pre-bash-guard.sh" <<< "$input" 2>/dev/null)
   local decision
   decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision // "allow"' 2>/dev/null)
   if [[ "$expect" == "block" && "$decision" == "deny" ]]; then
@@ -304,7 +308,7 @@ check_guard "rm -rf /home/user (subpath)" "rm -rf /home/user" "allow"
 
 # Non-Bash tool fast-exit
 NON_BASH="{\"session_id\":\"$SESS\",\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"/tmp/test.txt\"}}"
-OUT_NB=$(HOME="$TEST_HOME" bash "$HOOKS/pre-bash-guard.sh" <<< "$NON_BASH" 2>/dev/null)
+OUT_NB=$("${SANDBOXED[@]}" bash "$HOOKS/pre-bash-guard.sh" <<< "$NON_BASH" 2>/dev/null)
 if [[ -z "$OUT_NB" || "$OUT_NB" == "{}" ]]; then
   pass "non-Bash tool → fast exit, no output"
 else
@@ -321,7 +325,7 @@ check_mcp_guard() {
   local expect="$3"  # "block" or "allow"
   local input="{\"session_id\":\"$SESS\",\"tool_name\":\"$tool_name\"}"
   local out
-  out=$(HOME="$TEST_HOME" bash "$HOOKS/mcp-tool-guard.sh" <<< "$input" 2>/dev/null)
+  out=$("${SANDBOXED[@]}" bash "$HOOKS/mcp-tool-guard.sh" <<< "$input" 2>/dev/null)
   local decision
   decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision // "allow"' 2>/dev/null)
   if [[ "$expect" == "block" && "$decision" == "deny" ]]; then
@@ -338,7 +342,7 @@ check_mcp_guard "mcp__github__delete_repo (shipped empty policy)" "mcp__github__
 
 # Non-MCP tool fast-exit
 NON_MCP="{\"session_id\":\"$SESS\",\"tool_name\":\"Bash\"}"
-OUT_NM=$(HOME="$TEST_HOME" bash "$HOOKS/mcp-tool-guard.sh" <<< "$NON_MCP" 2>/dev/null)
+OUT_NM=$("${SANDBOXED[@]}" bash "$HOOKS/mcp-tool-guard.sh" <<< "$NON_MCP" 2>/dev/null)
 if [[ -z "$OUT_NM" || "$OUT_NM" == "{}" ]]; then
   pass "non-MCP tool → fast exit, no output"
 else
@@ -457,12 +461,12 @@ rm -f "$EDITED_FILES"
 
 for path in "/tmp/foo.py" "/tmp/bar.ts" "/tmp/baz.go"; do
   INPUT_EDIT="{\"session_id\":\"$SESS\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$path\"}}"
-  HOME="$TEST_HOME" bash "$HOOKS/post-edit-lint.sh" <<< "$INPUT_EDIT" > /dev/null 2>&1
+  "${SANDBOXED[@]}" bash "$HOOKS/post-edit-lint.sh" <<< "$INPUT_EDIT" > /dev/null 2>&1
 done
 
 # Write event
 INPUT_WRITE="{\"session_id\":\"$SESS\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/new.py\"}}"
-HOME="$TEST_HOME" bash "$HOOKS/post-edit-lint.sh" <<< "$INPUT_WRITE" > /dev/null 2>&1
+"${SANDBOXED[@]}" bash "$HOOKS/post-edit-lint.sh" <<< "$INPUT_WRITE" > /dev/null 2>&1
 
 LINE_COUNT=$(wc -l < "$EDITED_FILES" 2>/dev/null || echo 0)
 if [[ "$LINE_COUNT" -eq 4 ]]; then
@@ -481,7 +485,7 @@ fi
 
 # Missing file_path gracefully ignored
 INPUT_NO_PATH="{\"session_id\":\"$SESS\",\"tool_name\":\"Write\",\"tool_input\":{}}"
-EXIT_NO_PATH=$(HOME="$TEST_HOME" bash "$HOOKS/post-edit-lint.sh" <<< "$INPUT_NO_PATH" 2>/dev/null; echo $?)
+EXIT_NO_PATH=$("${SANDBOXED[@]}" bash "$HOOKS/post-edit-lint.sh" <<< "$INPUT_NO_PATH" 2>/dev/null; echo $?)
 if [[ "$EXIT_NO_PATH" == "0" ]]; then
   pass "missing file_path → exits 0 silently"
 else
@@ -574,7 +578,7 @@ section "7. pre-compact.sh"
 # ══════════════════════════════════════════════════════════════════════════════
 
 INPUT_COMPACT="{\"cwd\":\"$CWD\"}"
-OUT_COMPACT=$(HOME="$TEST_HOME" bash "$HOOKS/pre-compact.sh" <<< "$INPUT_COMPACT" 2>/dev/null)
+OUT_COMPACT=$("${SANDBOXED[@]}" bash "$HOOKS/pre-compact.sh" <<< "$INPUT_COMPACT" 2>/dev/null)
 LEN=${#OUT_COMPACT}
 
 if [[ $LEN -gt 0 ]]; then
@@ -596,7 +600,7 @@ else
 fi
 
 # Non-git fallback
-OUT_NONGIT=$(HOME="$TEST_HOME" bash "$HOOKS/pre-compact.sh" <<< '{"cwd":"/tmp"}' 2>/dev/null)
+OUT_NONGIT=$("${SANDBOXED[@]}" bash "$HOOKS/pre-compact.sh" <<< '{"cwd":"/tmp"}' 2>/dev/null)
 if [[ -n "$OUT_NONGIT" ]]; then
   pass "non-git dir: produces fallback output"
 else
@@ -666,7 +670,7 @@ mkdir -p "$SESS_ENV/sessions/$SESS"
 touch "$SESS_ENV/sessions/$SESS/injected"
 
 INPUT_END="{\"session_id\":\"$SESS\",\"cwd\":\"$CWD\"}"
-HOME="$TEST_HOME" bash "$HOOKS/session-end.sh" <<< "$INPUT_END" > /dev/null 2>&1
+"${SANDBOXED[@]}" bash "$HOOKS/session-end.sh" <<< "$INPUT_END" > /dev/null 2>&1
 
 # Session dir deleted
 if [[ ! -d "$SESS_ENV/sessions/$SESS" ]]; then
@@ -692,7 +696,7 @@ else
 fi
 
 # Missing session dir is not an error (crash recovery)
-EXIT_NO_DIR=$(HOME="$TEST_HOME" bash "$HOOKS/session-end.sh" \
+EXIT_NO_DIR=$("${SANDBOXED[@]}" bash "$HOOKS/session-end.sh" \
   <<< "{\"session_id\":\"already-gone\",\"cwd\":\"$CWD\"}" 2>/dev/null; echo $?)
 if [[ "$EXIT_NO_DIR" == "0" ]]; then
   pass "session dir already missing → exits 0 (no error)"
@@ -709,10 +713,10 @@ RELAY_INPUT_START="{\"session_id\":\"$RELAY_SESS\",\"cwd\":\"$CWD\"}"
 RELAY_INPUT_UPS="{\"session_id\":\"$RELAY_SESS\",\"cwd\":\"$CWD\"}"
 
 # Step 1: SessionStart writes git-context.json
-HOME="$TEST_HOME" bash "$HOOKS/session-start.sh" <<< "$RELAY_INPUT_START" > /dev/null 2>&1
+"${SANDBOXED[@]}" bash "$HOOKS/session-start.sh" <<< "$RELAY_INPUT_START" > /dev/null 2>&1
 
 # Step 2: UserPromptSubmit reads it and injects
-RELAY_OUT=$(HOME="$TEST_HOME" bash "$HOOKS/user-prompt-submit.sh" <<< "$RELAY_INPUT_UPS" 2>/dev/null)
+RELAY_OUT=$("${SANDBOXED[@]}" bash "$HOOKS/user-prompt-submit.sh" <<< "$RELAY_INPUT_UPS" 2>/dev/null)
 RELAY_CONTEXT=$(echo "$RELAY_OUT" | jq -r '.additionalContext // empty' 2>/dev/null)
 
 if echo "$RELAY_CONTEXT" | grep -q "branch:"; then
@@ -733,7 +737,7 @@ section "11. meta.json (cross-agent handoff)"
 
 META_SESS="meta-test-001"
 META_INPUT="{\"session_id\":\"$META_SESS\",\"cwd\":\"$CWD\"}"
-HOME="$TEST_HOME" bash "$HOOKS/session-start.sh" <<< "$META_INPUT" > /dev/null 2>&1
+"${SANDBOXED[@]}" bash "$HOOKS/session-start.sh" <<< "$META_INPUT" > /dev/null 2>&1
 
 META_FILE="$SESS_ENV/projects/$CWD_HASH/meta.json"
 
@@ -786,7 +790,7 @@ fi
 
 # session-end.sh should update last_active in meta.json
 BEFORE_ACTIVE="$META_ACTIVE"
-HOME="$TEST_HOME" bash "$HOOKS/session-end.sh" <<< "$META_INPUT" > /dev/null 2>&1
+"${SANDBOXED[@]}" bash "$HOOKS/session-end.sh" <<< "$META_INPUT" > /dev/null 2>&1
 
 META_ACTIVE_AFTER=$(jq -r '.last_active // empty' "$META_FILE" 2>/dev/null)
 if [[ "$META_ACTIVE_AFTER" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T ]]; then
@@ -797,7 +801,7 @@ fi
 
 # session-start.sh should preserve compacted_at across session restarts
 META_INPUT_RESTART="{\"session_id\":\"meta-test-002\",\"cwd\":\"$CWD\"}"
-HOME="$TEST_HOME" bash "$HOOKS/session-start.sh" <<< "$META_INPUT_RESTART" > /dev/null 2>&1
+"${SANDBOXED[@]}" bash "$HOOKS/session-start.sh" <<< "$META_INPUT_RESTART" > /dev/null 2>&1
 
 META_COMPACTED_AFTER=$(jq -r '.compacted_at // empty' "$META_FILE" 2>/dev/null)
 if [[ "$META_COMPACTED_AFTER" == "$META_COMPACTED" ]]; then
@@ -809,7 +813,7 @@ fi
 # DOFLOW_AGENT override
 META_SESS3="meta-test-003"
 META_INPUT3="{\"session_id\":\"$META_SESS3\",\"cwd\":\"$CWD\"}"
-HOME="$TEST_HOME" DOFLOW_AGENT=codex bash "$HOOKS/session-start.sh" <<< "$META_INPUT3" > /dev/null 2>&1
+"${SANDBOXED[@]}" DOFLOW_AGENT=codex bash "$HOOKS/session-start.sh" <<< "$META_INPUT3" > /dev/null 2>&1
 
 META_AGENT3=$(jq -r '.last_agent // empty' "$META_FILE" 2>/dev/null)
 if [[ "$META_AGENT3" == "codex" ]]; then
