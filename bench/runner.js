@@ -678,7 +678,7 @@ function withoutSkillRun(cfg, skill, e, withSkill) {
       mustRecord: RUN_SOURCE_FILE,
     },
     outputDir: `${withSkill.outputDir}${WITHOUT_SKILL_DIR_SUFFIX}`,
-    saveOutputs: ['transcript.txt', 'invoked_skills.json', RUN_SOURCE_FILE, RUN_TIMING_FILE, 'outputs/'],
+    saveOutputs: ['transcript.txt', 'invoked_skills.json', RUN_SOURCE_FILE, 'outputs/'],
   };
 }
 
@@ -736,7 +736,7 @@ function buildPlan(cfg, opts) {
           mustRecord: RUN_SOURCE_FILE,
         },
         outputDir: path.join(cfg.benchRoot, 'runs', opts.iteration, skill, `eval-${e.id}-${e.name}`),
-        saveOutputs: ['transcript.txt', 'invoked_skills.json', RUN_SOURCE_FILE, RUN_TIMING_FILE, 'outputs/', ...(e.kind === 'triggering' ? [RUN_ROUTING_FILE] : [])],
+        saveOutputs: ['transcript.txt', 'invoked_skills.json', RUN_SOURCE_FILE, 'outputs/', ...(e.kind === 'triggering' ? [RUN_ROUTING_FILE] : [])],
       });
       const without = opts.arm === 'without-skill' && e.kind === 'behavioral' ? withoutSkillRun(cfg, skill, e, runs[runs.length - 1]) : null;
       if (without) runs.push(without);
@@ -837,6 +837,7 @@ function cmdGrade(cfg, opts) {
   let graded = 0;
   let manual = 0;
   let usageUnknown = 0;
+  let usageIncomplete = 0;
   const counts = { 'with-skill': 0, 'without-skill': 0 };
   const unverified = [];
   const unwithheld = [];
@@ -873,7 +874,10 @@ function cmdGrade(cfg, opts) {
           if (skillSource.status !== 'verified') unverified.push(`${skill}/${e.id}: ${skillSource.status} — ${skillSource.evidence}`);
         }
         const usage = readUsage(runDir);
-        if (usage.status !== 'recorded') usageUnknown += 1;
+        // Counted as summarizeUsage counts: unknown is a missing total_tokens; a known total_tokens with
+        // no duration_ms is incomplete.
+        if (usage.total_tokens === null) usageUnknown += 1;
+        else if (usage.status !== 'recorded') usageIncomplete += 1;
         writeJson(path.join(runDir, 'grading.json'), {
           skill,
           eval_id: e.id,
@@ -890,7 +894,7 @@ function cmdGrade(cfg, opts) {
       }
     }
   }
-  console.log(`graded ${graded} run(s) (${counts['with-skill']} with-skill, ${counts['without-skill']} without-skill); ${manual} assertion(s) left for the grader subagent; usage unknown for ${usageUnknown} run(s)`);
+  console.log(`graded ${graded} run(s) (${counts['with-skill']} with-skill, ${counts['without-skill']} without-skill); ${manual} assertion(s) left for the grader subagent; usage unknown for ${usageUnknown} run(s)${usageIncomplete ? `; usage incomplete for ${usageIncomplete} run(s)` : ''}`);
   if (unverified.length) {
     console.warn(
       `\nwarning: ${unverified.length} of ${counts['with-skill']} with-skill run(s) cannot prove they measured this repo's skills.\n` +
@@ -1051,7 +1055,8 @@ function buildReport({ baseline, withResults, withoutResults = [], cfg, iteratio
       baseline: b ? b.passRate : null,
       current: c.passRate,
       delta: b && b.passRate !== null && c.passRate !== null ? c.passRate - b.passRate : null,
-      status: !b ? 'pending' : b.passRate === c.passRate ? 'unchanged' : c.passRate > b.passRate ? 'improved' : 'regressed',
+      // A rate that is null on either side has no delta, so it is not a movement in either direction.
+      status: !b ? 'pending' : b.passRate === null || c.passRate === null || b.passRate === c.passRate ? 'unchanged' : c.passRate > b.passRate ? 'improved' : 'regressed',
       baselineSource: b ? b.sourceStatus || 'unrecorded' : null,
       currentSource: c.sourceStatus,
       // A delta between two runs of unknown provenance is arithmetic, not evidence. Naming that on
@@ -1077,7 +1082,7 @@ function buildReport({ baseline, withResults, withoutResults = [], cfg, iteratio
       unchanged: rows.filter((r) => r.status === 'unchanged').length,
       pending,
       dropped: dropped.length,
-      sourceIncomparable: rows.filter((r) => !r.sourceComparable).length,
+      sourceIncomparable: rows.filter((r) => r.status !== 'pending' && !r.sourceComparable).length,
     },
     pendingNote: pending > 0
       ? `${pending} case(s) are pending: they await a paid baseline capture and carry no baseline result`
@@ -1157,7 +1162,7 @@ function cmdReport(cfg, opts) {
   }
   if (s.sourceIncomparable) {
     console.warn(
-      `\nwarning: ${s.sourceIncomparable} of ${rows.length} row(s) compare runs that cannot both prove they read\n` +
+      `\nwarning: ${s.sourceIncomparable} of ${rows.length - s.pending} compared row(s) compare runs that cannot both prove they read\n` +
         `${cfg.skillsRoot}. Treat those deltas as unmeasured, not as "no change".`,
     );
   }

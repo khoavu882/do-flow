@@ -146,6 +146,30 @@ test('F6: a case with no baseline result is a pending row, and the note counts t
   assert.equal(report.rows[1].sourceComparable, false);
 });
 
+test('F6: a pending row is not counted as source-incomparable, and a compared one still is', () => {
+  const report = runner.buildReport({
+    baseline: { commit: 'abc', model: 'm', results: [result('s/1', 'one', 'triggering', 'train', { sourceStatus: 'unrecorded' })] },
+    withResults: [result('s/1', 'one', 'triggering', 'train'), result('s/2', 'two', 'triggering', 'train')],
+    cfg: { model: 'm', costCeiling: CEILING }, iteration: 'it', commit: 'def',
+  });
+  assert.deepEqual(report.rows.map((r) => [r.key, r.status, r.sourceComparable]), [['s/1', 'unchanged', false], ['s/2', 'pending', false]]);
+  assert.equal(report.summary.sourceIncomparable, 1);
+});
+
+test('F6: a null rate on either side is unchanged with no delta, never improved or regressed', () => {
+  const row = (baseRate, currentRate) => runner.buildReport({
+    baseline: { commit: 'abc', model: 'm', results: [result('s/1', 'one', 'triggering', 'train', { passRate: baseRate })] },
+    withResults: [result('s/1', 'one', 'triggering', 'train', { passRate: currentRate })],
+    cfg: { model: 'm', costCeiling: CEILING }, iteration: 'it', commit: 'def',
+  }).rows[0];
+  for (const [b, c] of [[null, 0.5], [null, 0], [0.5, null], [null, null]]) {
+    const r = row(b, c);
+    assert.deepEqual([r.status, r.delta], ['unchanged', null], `${b} -> ${c}`);
+  }
+  assert.equal(row(0.5, 1).status, 'improved');
+  assert.equal(row(1, 0.5).status, 'regressed');
+});
+
 test('F6: pendingNote is null when no row is pending, and repeated calls are equal', () => {
   const input = {
     baseline: { commit: 'abc', model: 'm', results: [result('s/1', 'one', 'triggering', 'train'), result('s/2', 'two', 'behavioral', 'train', { passRate: 0.5 })] },
@@ -349,9 +373,10 @@ test('F3: summarizeUsage sums known values, counts unknowns and is repeatable', 
   assert.deepEqual(runner.summarizeUsage([]), { knownTokens: 0, knownTokenRuns: 0, unknownTokenRuns: 0, knownDurationMs: 0, knownDurationRuns: 0, unknownDurationRuns: 0 });
 });
 
-test('F3: every planned run is told to save timing.json', () => {
-  const plan = runner.buildPlan(runner.loadConfig(), { iteration: 'fixture' });
-  for (const r of plan.runs) assert.ok(r.saveOutputs.includes('timing.json'), `${r.skill}/${r.evalId}`);
+test('F3: no planned run is told to save timing.json, which the orchestrating agent writes', () => {
+  const plan = runner.buildPlan(runner.loadConfig(), { iteration: 'fixture', arm: 'without-skill' });
+  assert.ok(plan.runs.some((r) => r.arm === 'without-skill'));
+  for (const r of plan.runs) assert.equal(r.saveOutputs.includes(runner.RUN_TIMING_FILE), false, `${r.skill}/${r.evalId} ${r.arm}`);
 });
 
 test('F6: report rows and totals carry usage, and an unknown run stays unknown', () => {
@@ -424,6 +449,21 @@ test('F7: grade records split and usage, and the summary counts the unknown runs
   assert.deepEqual(g1.usage, { total_tokens: 1500, duration_ms: 90, status: 'recorded', evidence: 'timing.json: 1500 total_tokens, 90 ms' });
   assert.equal(g2.usage.status, 'unrecorded');
   assert.equal(g2.usage.total_tokens, null);
+});
+
+test('F7: grade counts a run unknown by its total_tokens and calls a known total with no duration incomplete', () => {
+  const summaryOf = (name, timing) => {
+    const f = gradedFixture(name);
+    if (timing !== null) fs.writeFileSync(path.join(f.runDir(f.second), 'timing.json'), timing);
+    return quiet(() => runner.cmdGrade(f.cfg, f.opts)).out;
+  };
+  // first: recorded. second: no timing file, so its total is unknown.
+  assert.match(summaryOf('f7-unknown', null), /usage unknown for 1 run\(s\)$/m);
+  // second has a total but no duration: known, incomplete, not unknown.
+  const incomplete = summaryOf('f7-incomplete', '{"total_tokens": 50}');
+  assert.match(incomplete, /usage unknown for 0 run\(s\); usage incomplete for 1 run\(s\)$/m);
+  // second has a duration but no total: the total is unknown, so it counts as unknown.
+  assert.match(summaryOf('f7-duration-only', '{"duration_ms": 10}'), /usage unknown for 1 run\(s\)$/m);
 });
 
 test('F7: baseline writes split, usage and usageSummary, and report prints the tokens column', () => {
