@@ -20,7 +20,7 @@ const {
   lockDocument, recordLock,
 } = require('../../lifecycle/view');
 const {
-  REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, reportRetiredMcp, resolveMcpForTool, buildAdapterRegistry,
+  REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, reportRetiredMcp, resolveMcpForTool, mcpAdoptableFor, buildAdapterRegistry,
 } = require('../shared');
 
 function cmdUpdate(o) {
@@ -44,7 +44,8 @@ function cmdUpdate(o) {
   const mcpIds = mcp?.selected ?? (codexCatalog ? codexMcpSelection : undefined);
   // One lifecycle view across every requested target — computed unconditionally (not only under
   // --dry-run) so its safety gate and its plan are the exact same object the real apply below uses.
-  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds, force: o.force, permissions: o.permissions === true, statusline: o.statusline === true });
+  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds,
+    mcpAdoptable: mcpAdoptableFor({ registry, scope, targets }), force: o.force, permissions: o.permissions === true, statusline: o.statusline === true });
   if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
   const lifecycleChanged = Boolean(lifecycleView.plan.changes.length);
 
@@ -84,10 +85,7 @@ function cmdUpdate(o) {
     console.error(`[INFO]  Backup created: ${bid}`);
   }
 
-  if (mcpChanged) {
-    mcp.apply();
-    console.log(`[INFO] claude: MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})`);
-  }
+  if (mcpChanged) console.log(`[INFO] claude: MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})`);
   if (lifecycleView.plan.changes.length) {
     const result = applyLifecycle({ plan: lifecycleView.plan, registry: lifecycleView.registry,
       adapters: buildAdapterRegistry(),

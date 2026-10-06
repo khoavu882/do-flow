@@ -14,7 +14,7 @@ const {
   codexScope, registryLifecycleView, assertSafeRegistryPlan, lockDocument, recordLock,
 } = require('../../lifecycle/view');
 const { readLock } = require('../../state/lockfile');
-const { REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, buildAdapterRegistry } = require('../shared');
+const { REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, mcpAdoptableFor, buildAdapterRegistry } = require('../shared');
 
 /** Classify desired-vs-observed drift for one lifecycle view. The plan IS the diff: its changes
  * are the operations needed to converge, its conflicts and prerequisites are the drift that must
@@ -69,7 +69,8 @@ function cmdReconcile(o) {
   printContext(resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: sourceCommit(SCRIPT_DIR), ...scope }));
   // MCP selections ride exactly as pinned — reconcile never re-prompts and never widens them.
   const mcpIds = [...new Set(Object.entries(lock.mcpSelections ?? {}).flatMap(([harness, ids]) => (targets.includes(harness) ? ids : [])))];
-  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds, force: true });
+  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds,
+    mcpAdoptable: mcpAdoptableFor({ registry, scope, targets }), force: true });
   if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
 
   const report = reconcileReport(lifecycleView);

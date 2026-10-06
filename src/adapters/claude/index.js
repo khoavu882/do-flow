@@ -1,8 +1,7 @@
 'use strict';
 
-// Claude native adapter.  It owns only Claude path/format decisions; selection,
-// ownership journalling, and native MCP reconciliation remain the lifecycle and
-// MCP adapter concerns respectively.
+// Claude native adapter.  It owns only Claude path/format decisions; selection and
+// ownership journalling remain lifecycle concerns. Its MCP entries live in ./mcp.js.
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -12,6 +11,7 @@ const { GLOBAL_HOOK_PREFIX, PROJECT_HOOK_PREFIX } = require('../../helper/settin
 const { mergeSettings, settingsContains, settingsContainsAny, stripManagedSettings } = require('../../helper/settings-merge');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveTransform } = require('../copy-tree');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
+const { discoverMcp, planMcp, writeMcp, verifyMcp } = require('./mcp');
 
 const INSTRUCTION_RENDERER = 'claude-instructions';
 const SETTINGS_RENDERER = 'claude-settings';
@@ -69,7 +69,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     return resolveHarnessPaths(declaredPaths, { scope, scopeRoot });
   }
 
-  function discover({ scope, scopeRoot, context = {}, registry }) {
+  function discover({ scope, scopeRoot, mcp = [], mcpAdoptable = [], ledger, registry }) {
     const paths = nativePaths({ scope, scopeRoot });
     return {
       paths,
@@ -77,6 +77,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
       settingsExists: fs.existsSync(paths.settings),
       mcpExists: fs.existsSync(paths.mcp),
       knownMcpServers: registry ? selectMcpServers(registry).map((server) => server.id) : [],
+      ...discoverMcp({ paths, mcp, mcpAdoptable, ledger }),
     };
   }
 
@@ -436,7 +437,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     return { type: 'unsupported', assetId: asset?.id, renderer: asset?.renderer ?? null };
   }
 
-  function plan({ assets, scope, scopeRoot, discovery, context = {}, ledger }) {
+  function plan({ assets, scope, scopeRoot, mcp = [], mcpAdoptable = [], discovery, context = {}, ledger }) {
     const changes = [];
     const conflicts = [];
     const paths = nativePaths({ scope, scopeRoot });
@@ -467,7 +468,9 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     changes.push(...copyTree.changes); conflicts.push(...copyTree.conflicts);
     const settings = planSettingsAsset({ assets, scope, scopeRoot, context, ledger, removing });
     changes.push(...settings.changes); conflicts.push(...settings.conflicts);
-    return { changes, conflicts, prerequisites: [], notices: copyTree.notices };
+    const mcpPlan = planMcp({ paths, mcp, mcpAdoptable, ledger, snapshot: discovery?.mcpSnapshot, removing });
+    changes.push(...mcpPlan.changes); conflicts.push(...mcpPlan.conflicts);
+    return { changes, conflicts, prerequisites: [], notices: [...copyTree.notices, ...mcpPlan.notices] };
   }
 
   function apply({ changes, scope, scopeRoot, context = {} }) {
@@ -481,6 +484,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     }
     applyCopyTreeAssets(changes);
     applySettingsAsset(changes);
+    writeMcp(changes);
     return { applied: changes.length };
   }
 
@@ -491,10 +495,11 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     }
     removed += removeCopyTreeAssets(changes);
     removed += removeSettingsAsset(changes);
+    removed += writeMcp(changes);
     return { removed };
   }
 
-  function verify({ assets, scope, scopeRoot, context = {} }) {
+  function verify({ assets, scope, scopeRoot, mcp = [], mcpAdoptable = [], discovery, ledger, operation, context = {} }) {
     const paths = nativePaths({ scope, scopeRoot });
     const statuses = [];
     const resources = [];
@@ -511,9 +516,12 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     statuses.push(...copyTree.statuses); resources.push(...copyTree.resources);
     const settings = verifySettingsAsset({ assets, scope, scopeRoot, context });
     statuses.push(...settings.statuses); resources.push(...settings.resources);
+    const mcpResult = verifyMcp({ paths, mcp, mcpAdoptable, ledger, snapshot: discovery?.mcpSnapshot,
+      removing: (operation ?? context.operation) === 'remove', sourceVersion: context.sourceVersion ?? 'unknown' });
+    statuses.push(...mcpResult.statuses); resources.push(...mcpResult.resources);
     const conflicts = [
       ...(state.malformed ? [`Claude instructions contain malformed DoFlow markers: ${paths.instructions}`] : []),
-      ...copyTree.conflicts, ...settings.conflicts,
+      ...copyTree.conflicts, ...settings.conflicts, ...mcpResult.conflicts,
     ];
     return { ok: conflicts.length === 0, statuses, resources, conflicts };
   }

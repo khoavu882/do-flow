@@ -10,10 +10,9 @@ const path = require('node:path');
 const { REPO_ROOT } = require('../helper/repo-root');
 const { readInstallManifest } = require('../install/manifest');
 const { doflowPaths } = require('../install/paths');
-const {
-  readAllServers, filterServerDefs, writeProjectMcpJson, mergeGlobalMcpServers,
-  resolveMcpSelection, promptMcpCheckbox,
-} = require('../install/mcp');
+const { readAllServers, resolveMcpSelection, promptMcpCheckbox, adoptableMcpIds } = require('../install/mcp');
+const { stateRoot, readLedger } = require('../state');
+const { readLock } = require('../state/lockfile');
 const { createAdapterRegistry } = require('../adapters');
 const { declaredHarnessPaths } = require('../helper/harness-paths');
 const claudeAdapter = require('../adapters/claude');
@@ -80,11 +79,11 @@ function reportRetiredMcp(retired) {
 }
 
 /**
- * Resolve (but don't yet apply) the MCP server selection for a 'claude' target, plus a closure to
- * apply it. Called once per invocation, before any dry-run/confirm branching, so an interactive
- * prompt (install only, real TTY, no --force/--dry-run) fires at most once and its result can be
- * reused for both the dry-run preview and the real write.
- * @returns {{allServers:string[], selected:string[], changed:boolean, recorded:string[]|null, destDescription:string, apply:()=>void}|null}
+ * Resolve the MCP server selection for a 'claude' target; the Claude adapter writes it. Called once
+ * per invocation, before any dry-run/confirm branching, so an interactive prompt (install only,
+ * real TTY, no --force/--dry-run) fires at most once and its result serves both the dry-run preview
+ * and the real run.
+ * @returns {{allServers:string[], selected:string[], changed:boolean, recorded:string[]|null, destDescription:string}|null}
  *          null if the registry declares no MCP servers (nothing to resolve).
  */
 function resolveMcpForTool({ o, dirs, scope, cmd, registry }) {
@@ -98,16 +97,20 @@ function resolveMcpForTool({ o, dirs, scope, cmd, registry }) {
   const changed = [...baseline].sort().join(',') !== [...selected].sort().join(',');
   const projectRoot = path.dirname(dirs.claude); // == os.homedir() when scope.global, by construction
   const destDescription = scope.global ? '~/.claude.json (mcpServers)' : path.join(projectRoot, '.mcp.json');
-  const apply = () => {
-    const serverDefs = filterServerDefs(registry, allServers, selected);
-    if (scope.global) mergeGlobalMcpServers(os.homedir(), allServers, serverDefs);
-    else writeProjectMcpJson(projectRoot, allServers, serverDefs);
-  };
   // `recorded` is the prior selection itself, not just whether one existed, because `changed` alone
   // cannot distinguish the two ways it can be false: a returning install that matches what the
   // manifest already recorded, and a first-ever install whose selection happens to equal the whole
   // catalog (the `?? allServers` baseline above). Only the first may be reported as unchanged.
-  return { allServers, selected, changed, recorded: manifestServers, destDescription, apply };
+  return { allServers, selected, changed, recorded: manifestServers, destDescription };
+}
+
+/** Per targeted harness, the servers whose existing entries its adapter may take as DoFlow's while
+ * it holds no MCP row (src/install/mcp.js#adoptableMcpIds), from this scope's lock and ledger. */
+function mcpAdoptableFor({ registry, scope, targets }) {
+  const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
+  const lock = readLock(scope.global ? { scope: 'global', homeDir: scopeRoot } : { scope: 'project', projectRoot: scopeRoot });
+  const ledger = readLedger(stateRoot({ scope: scope.global ? 'global' : 'project', projectRoot: scopeRoot, homeDir: scopeRoot }));
+  return adoptableMcpIds({ registry, lock, ledger, harnesses: targets });
 }
 
 function printBackupTable(rows, backupRoot) {
@@ -120,5 +123,5 @@ function printBackupTable(rows, backupRoot) {
 
 module.exports = {
   REPO_ROOT, SCRIPT_DIR, pkg, buildAdapterRegistry, scopeOf, installPaths,
-  reportRetiredMcp, resolveMcpForTool, printBackupTable,
+  reportRetiredMcp, resolveMcpForTool, mcpAdoptableFor, printBackupTable,
 };

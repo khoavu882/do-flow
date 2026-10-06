@@ -19,7 +19,7 @@ const {
   lockDocument, recordLock,
 } = require('../../lifecycle/view');
 const {
-  REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, reportRetiredMcp, resolveMcpForTool, buildAdapterRegistry,
+  REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, reportRetiredMcp, resolveMcpForTool, mcpAdoptableFor, buildAdapterRegistry,
 } = require('../shared');
 
 function cmdInstall(o) {
@@ -51,7 +51,8 @@ function cmdInstall(o) {
   }
   // One lifecycle view across every requested target — computed unconditionally (not only under
   // --dry-run) so its safety gate and its plan are the exact same object the real apply below uses.
-  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds, force: o.force, adopt: o.adopt === true, permissions: o.permissions === true, statusline: o.statusline === true });
+  const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets, mcpIds,
+    mcpAdoptable: mcpAdoptableFor({ registry, scope, targets }), force: o.force, adopt: o.adopt === true, permissions: o.permissions === true, statusline: o.statusline === true });
   if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
 
   // Says so when an explicit --mcp asked for exactly what was already recorded. Without this the
@@ -111,10 +112,7 @@ function cmdInstall(o) {
     // over whatever bit the source file actually has on this machine, so this runs after
     // applyLifecycle (once the hook scripts are actually on disk) as a final, unconditional +x.
     chmodHooksExecutable(dirs.claude);
-    if (mcp) {
-      mcp.apply();
-      console.log(`[INFO]   MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})${mcpNote}`);
-    }
+    if (mcp) console.log(`[INFO]   MCP servers -> ${mcp.destDescription} (${mcp.selected.join(', ') || 'none'})${mcpNote}`);
   }
 
   writeManifest({ scopeRoot: lifecyclePaths.scopeRoot, scriptVersion: pkg.version, operation: 'install', repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: targets, date: new Date(), mcpServers: mcpIds });

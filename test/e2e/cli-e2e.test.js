@@ -725,7 +725,9 @@ test('an install with no --mcp flag (non-interactive, piped stdin) selects none 
   const r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stdout, /MCP: none selected by default/);
-  const claudeJson = JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf8'));
+  // An empty selection with nothing owned leaves ~/.claude.json unwritten.
+  const file = path.join(home, '.claude.json');
+  const claudeJson = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
   assert.deepStrictEqual(Object.keys(claudeJson.mcpServers ?? {}).sort(), [], 'third-party servers are opt-in');
 });
 
@@ -767,23 +769,21 @@ test('update with an explicit --mcp overrides and re-persists the remembered sel
   assert.deepStrictEqual(Object.keys(claudeJson.mcpServers).sort(), ['sequential-thinking']);
 });
 
-test('update --dry-run for an MCP-only change never claims a backup will be created, matching the real run', () => {
+test('update --dry-run for an MCP-only change claims a backup exactly when the real run creates one', () => {
   // Regression test: the dry-run branch used to print "Would create partial backup" whenever
-  // --no-backup was absent, regardless of whether anything backup-worthy (a native/lifecycle
-  // change) was actually pending — an MCP-only selection change never triggers a backup on the
-  // real run (MCP files live outside the tool dir), so the preview must not claim otherwise.
+  // --no-backup was absent, regardless of whether the real run would back anything up.
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   let r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
 
   r = run(['update', '-g', '--force', '--dry-run', '--target', 'claude', '--mcp', 'sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
-  assert.ok(!/Would create partial backup/.test(r.stdout), `dry-run must not claim a backup for an MCP-only change:\n${r.stdout}`);
+  const claimed = /Would create partial backup/.test(r.stdout);
 
   r = run(['update', '-g', '--force', '--target', 'claude', '--mcp', 'sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   const listed = run(['list-backups', '-g'], { home });
-  assert.ok(!/update_/.test(listed.stdout), `the real run must not have created an update backup either:\n${listed.stdout}`);
+  assert.strictEqual(/update_/.test(listed.stdout), claimed, `the dry run's backup claim must match the real run:\n${listed.stdout}`);
 });
 
 test('--mcp on install rejects an unknown server name with a clear message', () => {

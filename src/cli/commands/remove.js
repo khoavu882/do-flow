@@ -12,7 +12,7 @@ const {
   assertSafeRegistryPlan, lockDocument, recordLock,
 } = require('../../lifecycle/view');
 const { removeLock } = require('../../state/lockfile');
-const { REPO_ROOT, scopeOf, buildAdapterRegistry } = require('../shared');
+const { REPO_ROOT, scopeOf, mcpAdoptableFor, buildAdapterRegistry } = require('../shared');
 
 function cmdRemove(o) {
   const targets = resolveTargets(o.targets);
@@ -24,7 +24,10 @@ function cmdRemove(o) {
     return;
   }
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
-  const view = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets: lifecycleTargets, mcpIds: [], operation: 'remove',
+  // Read before the removal rewrites the ledger: an entry DoFlow wrote before it kept MCP rows is
+  // removed only while it still equals DoFlow's own rendering.
+  const mcpAdoptable = mcpAdoptableFor({ registry, scope, targets: lifecycleTargets });
+  const view = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets: lifecycleTargets, mcpIds: [], mcpAdoptable, operation: 'remove',
     permissions: o.permissions === true, statusline: o.statusline === true });
   if (!view.plan.safe) { assertSafeRegistryPlan(view); return; }
   if (o.dryRun) {
@@ -43,7 +46,7 @@ function cmdRemove(o) {
   const result = removeLifecycle({ registry: view.registry,
     adapters: buildAdapterRegistry(),
     scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot),
-    targets: lifecycleTargets, mcpIds: [], stateRoot: view.stateRoot, ledger: view.ledger,
+    targets: lifecycleTargets, mcpIds: [], mcpAdoptable, stateRoot: view.stateRoot, ledger: view.ledger,
     context: view.plan.targets[0].adapterInput.context });
   // Shared destinations (one .doflow/scripts tree for claude/codex/gemini, one .agents for
   // gemini/copilot) mean a removal can legitimately leave files standing. Saying only "removed"

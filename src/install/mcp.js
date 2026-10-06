@@ -1,19 +1,7 @@
 'use strict';
-// mcp.js — selectable MCP server install, written to Claude Code's REAL config locations (not a
-// generic file-copy target — .mcp.json under .claude/ is never read by Claude Code):
-//   global (-g)   -> ~/.claude.json's top-level `mcpServers` key
-//   project scope -> <projectRoot>/.mcp.json (sibling to .claude/, the project-root convention
-//                    Claude Code actually auto-discovers)
-// Both are read-merge-write, never a wholesale overwrite, and scan-then-append: only the server
-// names doflow itself ships in core/registry/mcp.json are added/removed by selection, and a
-// selected name already present keeps its existing definition rather than being reset to doflow's
-// shipped default (a user's hand-edited arg/env survives). Any server under a name doflow doesn't know
-// about — in either file — is left completely untouched regardless of selection. This matters
-// more for ~/.claude.json (also holds history/projects/credentials-adjacent state), but a
-// project's own .mcp.json can just as easily carry a hand-added or hand-edited server doflow must
-// not clobber.
-const fs = require('node:fs');
-const path = require('node:path');
+// mcp.js — MCP server selection: which of the registry's servers each harness gets, from --mcp,
+// the interactive checkbox, doflow.lock, the ledger or a 1.18.0 manifest. Writing a harness's MCP
+// file is that harness's adapter's job (src/adapters/<id>/), never this module's.
 const { readSyncBlocking } = require('../helper/prompt');
 const { selectMcpServers, nativeMcpCatalog, mcpCapable } = require('../registry');
 const { pinnedSelections } = require('../state/lockfile');
@@ -25,86 +13,6 @@ const CTRL_C = String.fromCharCode(3);
  *  @returns {string[]} server names in registry declaration order */
 function readAllServers(registry) {
   return nativeMcpCatalog(selectMcpServers(registry)).allServers;
-}
-
-/** @param {object} registry a loaded registry (src/registry#loadRegistry)
- *  @returns {{[name:string]: object}} only the selected server definitions, source key order */
-function filterServerDefs(registry, allServers, selected) {
-  const { serverDefs } = nativeMcpCatalog(selectMcpServers(registry));
-  const out = {};
-  for (const name of allServers) {
-    if (selected.includes(name)) out[name] = serverDefs[name];
-  }
-  return out;
-}
-
-/**
- * Merge selected server defs into an existing mcpServers object, touching only the names doflow
- * ships (`knownServerNames`). A known name not present in `serverDefs` (deselected) is removed.
- * A known name that's selected AND already present is left as-is — scan-then-append, not
- * overwrite — so a definition the user hand-edited (a different arg, an extra env var) survives
- * an install/update instead of being silently reset to doflow's shipped default; doflow's default
- * is only written the first time a name is newly selected. Every other key — including a server
- * under a name doflow doesn't recognize — passes through untouched.
- */
-function mergeKnownServers(existingMcpServers, knownServerNames, serverDefs) {
-  const merged = { ...existingMcpServers };
-  for (const name of knownServerNames) {
-    if (name in serverDefs) {
-      if (!(name in merged)) merged[name] = serverDefs[name];
-    } else {
-      delete merged[name];
-    }
-  }
-  return merged;
-}
-
-/**
- * Read a JSON file doflow does not fully own, refusing to proceed if it exists but fails to
- * parse — silently treating a malformed file as empty would mean the next write discards
- * whatever unrelated content it held. Failing loudly costs the user one retry after fixing the
- * file; failing silently costs them data with no recovery path (this path isn't backed up).
- */
-function readJsonOrThrow(file) {
-  if (!fs.existsSync(file)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (e) {
-    throw new Error(`Refusing to touch malformed ${file} (${e.message}) — fix or remove it, then retry. doflow merges into this file and will not risk overwriting content it can't parse.`);
-  }
-}
-
-/**
- * Project scope: read-merge-write <projectRoot>/.mcp.json, same "known keys only" semantics as
- * mergeGlobalMcpServers — a hand-added project MCP server doflow doesn't ship must survive.
- * @returns {string} the path written
- */
-function writeProjectMcpJson(projectRoot, knownServerNames, serverDefs) {
-  const dest = path.join(projectRoot, '.mcp.json');
-  const data = readJsonOrThrow(dest);
-  data.mcpServers = mergeKnownServers(data.mcpServers || {}, knownServerNames, serverDefs);
-  fs.writeFileSync(dest, `${JSON.stringify(data, null, 2)}\n`);
-  return dest;
-}
-
-/**
- * Global scope: ~/.claude.json is a shared, multi-purpose state file (history, projects,
- * credentials-adjacent references) doflow does not own — read-merge-write, touching only the
- * `mcpServers` keys that match a name doflow itself ships in core/registry/mcp.json. Every other key in
- * the file, including any MCP server the user registered themselves via `claude mcp add`, is left
- * untouched.
- * @returns {string} the path written
- */
-function mergeGlobalMcpServers(homeDir, knownServerNames, serverDefs) {
-  const file = path.join(homeDir, '.claude.json');
-  const data = readJsonOrThrow(file);
-  data.mcpServers = mergeKnownServers(data.mcpServers || {}, knownServerNames, serverDefs);
-
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = path.join(path.dirname(file), `.claude-${process.pid}-${Date.now()}.json.tmp`);
-  fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, { flag: 'wx' });
-  fs.renameSync(tmp, file);
-  return file;
 }
 
 /**
@@ -360,9 +268,6 @@ function promptMcpCheckbox(servers, initialSelected, message = 'Select MCP serve
 
 module.exports = {
   readAllServers,
-  filterServerDefs,
-  writeProjectMcpJson,
-  mergeGlobalMcpServers,
   resolveMcpSelection,
   parseMcpFlag,
   resolveMcpSelections,
