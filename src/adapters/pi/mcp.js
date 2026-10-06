@@ -14,7 +14,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const { fingerprint } = require('../copy-tree');
-const { SKELETON, readDocument, insertMember, replaceValue, removeMember, renderNewDocument } = require('./json-members');
+const { SKELETON, readDocument, insertMember, replaceValue, removeMember, replaceInner, renderNewDocument } = require('./json-members');
 
 const HARNESS = 'pi';
 const ASSET_ID = 'guidance.codex-pointer';
@@ -159,7 +159,8 @@ function planPiMcp({ selected = [], rows = [], file, scope, removing = false, sn
     const id = row.identity;
     const member = memberOf(snapshot[row.target]?.doc ?? ABSENT_DOCUMENT, id);
     if (member && fingerprint(member.value) === row.fingerprint) {
-      changes.push({ ...baseChange({ target: row.target, operation: 'remove', id, snapshot }), fingerprint: row.fingerprint });
+      changes.push({ ...baseChange({ target: row.target, operation: 'remove', id, snapshot }), fingerprint: row.fingerprint,
+        ...(row.origin ? { origin: row.origin } : {}) });
     } else {
       changes.push(releaseChange({ row, snapshot }));
       if (member) notices.push(releasedNotice(id));
@@ -225,6 +226,19 @@ function editedText(text, group) {
   return next;
 }
 
+/** Undo what DoFlow added around its entries once the last of them is gone: the mcpServers member
+ * it inserted, or the inner whitespace of the container it first wrote into. `origin` is recorded
+ * on the ledger rows (see originFor); without it the emptied container is left as it is. */
+function restoredText(text, origin) {
+  const doc = readDocument(text);
+  if (!doc.ok || !doc.servers || doc.servers.members.length) return text;
+  if (origin.created === 'member') return replaceInner(text, doc.servers, origin.inner);
+  const next = removeMember(text, doc.root, doc.root.members.find((member) => member.key === 'mcpServers'));
+  if (origin.inner === undefined) return next;
+  const after = readDocument(next);
+  return after.root.members.length ? next : replaceInner(next, after.root, origin.inner);
+}
+
 function applyPiMcp(changes, { fsImpl = fs } = {}) {
   const groups = new Map();
   for (const change of changes) {
@@ -239,12 +253,15 @@ function applyPiMcp(changes, { fsImpl = fs } = {}) {
     const bytes = exists ? fsImpl.readFileSync(target) : Buffer.alloc(0);
     if (sha256(bytes) !== group[0].baseHash) throw new Error(`Pi MCP: ${target} changed after planning; nothing was written, re-run the command`);
     const text = bytes.toString('utf8');
-    const next = exists
-      ? editedText(text, group)
-      : renderNewDocument(group.filter((change) => change.operation === 'create').map((change) => [change.identity, change.entry]));
-    if (next === SKELETON && !isSymlink(target, fsImpl)) {
-      if (exists) { fsImpl.rmSync(target); applied += 1; }
-    } else if (next !== text) {
+    const creates = group.filter((change) => change.operation === 'create');
+    const origin = group.find((change) => change.origin)?.origin;
+    let next = exists ? editedText(text, group) : renderNewDocument(creates.map((change) => [change.identity, change.entry]));
+    // Only a file DoFlow created is deleted, and never through a symlink; a user's own file that
+    // happens to equal the skeleton stays.
+    if (exists && origin?.created === 'file' && next === SKELETON) {
+      if (!isSymlink(target, fsImpl)) { fsImpl.rmSync(target); applied += 1; continue; }
+    } else if (exists && origin && !creates.length) next = restoredText(next, origin);
+    if (next !== text) {
       atomicWrite(target, next, fsImpl);
       applied += 1;
     }
@@ -257,9 +274,26 @@ function statusFor({ id, target, status }) {
     ownershipIdentity: `doflow:${HARNESS}:mcp-server:${id}`, status };
 }
 
-function resourceFor({ id, target, value }) {
+function resourceFor({ id, target, value, origin }) {
   return { assetId: ASSET_ID, target, ownershipIdentity: `doflow:${HARNESS}:mcp-server:${id}`, kind: 'mcp-server', identity: id,
-    fingerprint: fingerprint(value), sourceVersion: 'registry-v1', projection: { renderer: RENDERER } };
+    fingerprint: fingerprint(value), sourceVersion: 'registry-v1', projection: { renderer: RENDERER }, ...(origin ? { origin } : {}) };
+}
+
+/** What DoFlow added to `target` besides its entries, so a later removal can take it out again:
+ * the whole file, the mcpServers member, or the first member of an empty mcpServers (with the
+ * container's original inner whitespace). A row already carrying it passes it on; otherwise it is
+ * read from the file as plan saw it. Only whitespace is recorded, never file content. */
+function originFor(target, rows, snapshot) {
+  const carried = rows.find((row) => row.target === target && row.origin)?.origin;
+  if (carried) return carried;
+  const before = snapshot[target];
+  if (!before) return undefined;
+  if (!before.exists) return { created: 'file' };
+  const { doc, text } = before;
+  if (!doc.ok) return undefined;
+  const inner = (node) => text.slice(node.open + 1, node.close);
+  if (!doc.servers) return doc.root.members.length ? { created: 'key' } : { created: 'key', inner: inner(doc.root) };
+  return doc.servers.members.length ? undefined : { created: 'member', inner: inner(doc.servers) };
 }
 
 /** Statuses and ledger resources for the Pi MCP entries. `snapshot` is what plan read before apply:
@@ -294,7 +328,7 @@ function verifyPiMcp({ selected = [], rows = [], file, snapshot = {}, removing =
       if (foreign(file, server.id)) statuses.push(statusFor({ id: server.id, target: file, status: 'not-managed' }));
       else if (member && sameValue(member.value, desired)) {
         statuses.push(statusFor({ id: server.id, target: file, status: 'managed' }));
-        resources.push(resourceFor({ id: server.id, target: file, value: member.value }));
+        resources.push(resourceFor({ id: server.id, target: file, value: member.value, origin: originFor(file, rows, snapshot) }));
       } else statuses.push(statusFor({ id: server.id, target: file, status: 'missing' }));
     }
   }
@@ -309,7 +343,7 @@ function verifyPiMcp({ selected = [], rows = [], file, snapshot = {}, removing =
     else if (!removing && !selected.length) status = 'managed';
     else status = 'retained';
     statuses.push(statusFor({ id, target: row.target, status }));
-    if (status === 'managed') resources.push(resourceFor({ id, target: row.target, value: member.value }));
+    if (status === 'managed') resources.push(resourceFor({ id, target: row.target, value: member.value, origin: originFor(row.target, rows, snapshot) }));
   }
   return { statuses, resources, conflicts };
 }

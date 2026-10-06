@@ -116,7 +116,7 @@ test('P1: a global install with no file writes the new document in catalog order
   assert.deepEqual(resources, SERVERS.map((server) => ({
     assetId: 'guidance.codex-pointer', target: file, ownershipIdentity: `doflow:pi:mcp-server:${server.id}`,
     kind: 'mcp-server', identity: server.id, fingerprint: fingerprint(ENTRY[server.id]), sourceVersion: 'registry-v1',
-    projection: { renderer: 'pi-mcp' },
+    projection: { renderer: 'pi-mcp' }, origin: { created: 'file' },
   })));
   assert.equal(mcpRowsOf(ledger).length, SERVERS.length);
   assert.ok(verification.statuses.filter((status) => status.capability === 'mcp').every((status) => status.status === 'managed'));
@@ -172,6 +172,42 @@ test('P4: every byte of a user file survives install, update and remove; no chan
   assert.ok(!JSON.stringify(removal.planned.changes).includes('SECRET-123'));
   assert.equal(fs.readFileSync(file, 'utf8'), USER_TEXT);
   assert.deepEqual(mcpRowsOf(removal.ledger), []);
+});
+
+test('P4: install then remove returns every file shape to its exact bytes, including what DoFlow wrapped its entries in', () => {
+  const shapes = [
+    '{ "mcpServers": { } }',
+    '{}',
+    '{ }\n',
+    '{\n}\n',
+    '{\n  "x": 1\n}\n',
+    '{\n  "mcpServers": {\n  }\n}\n',
+    SKELETON,
+    '{"x": 1,\r\n  "y": 2,\n  "mcpServers": {\n    "mine": {"command": "m"}\n  }\n}\n',
+  ];
+  for (const text of shapes) {
+    const root = scratch();
+    const file = userFile(root);
+    writeFile(file, text);
+    const installed = run({ root });
+    const between = fs.readFileSync(file, 'utf8');
+    assert.equal(between.split('\r\n').length, text.split('\r\n').length, `no CRLF was introduced into ${JSON.stringify(text)}`);
+    run({ root, mcp: [], ledger: installed.ledger, operation: 'remove' });
+    assert.equal(fs.existsSync(file) && fs.readFileSync(file, 'utf8'), text, JSON.stringify(text));
+  }
+});
+
+test('P4: what DoFlow wrapped its entries in is taken out only when its last entry goes, across runs', () => {
+  const root = scratch();
+  const file = userFile(root);
+  writeFile(file, '{}');
+  const first = run({ root, mcp: SERVERS.slice(0, 1) });
+  const second = run({ root, ledger: first.ledger });
+  assert.ok(mcpRowsOf(second.ledger).every((row) => row.origin?.created === 'key'), 'the origin follows rows added later');
+  const narrowed = run({ root, mcp: SERVERS.slice(0, 1), ledger: second.ledger });
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file, 'utf8')).mcpServers), [SERVERS[0].id]);
+  run({ root, mcp: [], ledger: narrowed.ledger, operation: 'remove' });
+  assert.equal(fs.readFileSync(file, 'utf8'), '{}');
 });
 
 test('P5: a user entry with a DoFlow name, or the same name with _ for -, is kept, reported and never owned', () => {
@@ -337,6 +373,15 @@ test('P12: remove deletes owned entries, deletes a file left as the skeleton, an
   assert.deepEqual(removed.verification.statuses.filter((status) => status.capability === 'mcp').map((status) => status.status), ['absent', 'absent']);
 });
 
+test('P12: a user file that is exactly the skeleton is never deleted', () => {
+  const root = scratch();
+  const file = userFile(root);
+  writeFile(file, SKELETON);
+  const installed = run({ root });
+  run({ root, mcp: [], ledger: installed.ledger, operation: 'remove' });
+  assert.equal(fs.readFileSync(file, 'utf8'), SKELETON);
+});
+
 test('P12: remove touches only what the ledger owns, even an entry named like a catalog server', () => {
   const root = scratch();
   const file = userFile(root);
@@ -466,7 +511,7 @@ test('P18: the lifecycle installs and removes Pi MCP rows on the real registry a
     assert.deepEqual(mcpRowsOf(installed.ledger), SERVERS.map((server) => ({
       assetId: 'guidance.codex-pointer', target: file, ownershipIdentity: `doflow:pi:mcp-server:${server.id}`,
       kind: 'mcp-server', identity: server.id, fingerprint: fingerprint(ENTRY[server.id]), sourceVersion: 'registry-v1',
-      projection: { renderer: 'pi-mcp' }, harness: 'pi', scope, recoveryRef: installed.recovery.id,
+      projection: { renderer: 'pi-mcp' }, origin: { created: 'file' }, harness: 'pi', scope, recoveryRef: installed.recovery.id,
     })), scope);
 
     const removed = removeLifecycle({ registry, adapters, scope, scopeRoot: root, targets: ['pi'], mcpIds: [], stateRoot, ledger: installed.ledger, context });

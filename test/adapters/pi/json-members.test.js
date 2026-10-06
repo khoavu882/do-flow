@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { SKELETON, readDocument, insertMember, replaceValue, removeMember, renderNewDocument } = require('../../../src/adapters/pi/json-members');
+const { SKELETON, readDocument, insertMember, replaceValue, removeMember, replaceInner, renderNewDocument } = require('../../../src/adapters/pi/json-members');
 
 const ENTRY = { command: 'npx', args: ['-y', 'pkg'] };
 
@@ -77,6 +77,28 @@ test('J5: a CRLF file receives CRLF line endings in the inserted text', () => {
   const emptyDoc = read(emptyServers);
   assert.equal(insertMember(emptyServers, emptyDoc.servers, 'c', { command: 'y' }, emptyDoc),
     '{\r\n  "mcpServers": {\r\n    "c": {\r\n      "command": "y"\r\n    }\r\n  }\r\n}\r\n');
+});
+
+test('J5: an LF file with one stray CRLF line still receives LF, and each container uses its own line ending', () => {
+  const text = '{"x": 1,\r\n  "mcpServers": {\n    "mine": {"command": "x"}\n  },\n  "y": 2\n}\n';
+  const doc = read(text);
+  assert.equal(doc.eol, '\n');
+  const result = insertMember(text, doc.servers, 'c', { command: 'y', args: ['a'] }, doc);
+  assert.equal(result.split('\r\n').length, 2, result);
+  const mixed = '{\n  "mcpServers": {\r\n    "mine": {"command": "x"}\r\n  }\n}\n';
+  const mixedDoc = read(mixed);
+  assert.equal(mixedDoc.servers.eol, '\r\n');
+  assert.ok(insertMember(mixed, mixedDoc.servers, 'c', { command: 'y' }, mixedDoc).includes(',\r\n    "c": {\r\n      "command": "y"\r\n    }'));
+});
+
+test('J7: replaceInner restores an emptied container\'s original inner text', () => {
+  const text = '{ "mcpServers": { "c": 1 } }';
+  let doc = read(text);
+  const emptied = removeMember(text, doc.servers, doc.servers.members[0]);
+  assert.equal(emptied, '{ "mcpServers": {} }');
+  doc = read(emptied);
+  assert.equal(replaceInner(emptied, doc.servers, ' '), '{ "mcpServers": { } }');
+  assert.throws(() => replaceInner(text, read(text).servers, ' '), /empty container/);
 });
 
 test('J6: replacing a value keeps the key, its indentation and every other byte', () => {

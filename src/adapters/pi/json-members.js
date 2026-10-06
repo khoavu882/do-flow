@@ -78,12 +78,22 @@ function lineIndent(text, at) {
   return /^[ \t]*$/.test(prefix) ? prefix : null;
 }
 
-/** Attach the formatting a container's new members follow: whether it spans lines, the indent of
- * its members and the indent of its closing brace. An empty container takes its parent's. */
-function attachLayout(text, node, parent, unit) {
+/** The line ending most of the lines in `[start, end)` use, or `fallback` when the span has none:
+ * one stray CRLF in an LF file does not turn every inserted line into CRLF. */
+function lineEnding(text, start, end, fallback) {
+  const span = text.slice(start, end);
+  const lines = span.split('\n').length - 1;
+  if (!lines) return fallback;
+  return (span.split('\r\n').length - 1) * 2 > lines ? '\r\n' : '\n';
+}
+
+/** Attach the formatting a container's new members follow: whether it spans lines, its line ending,
+ * the indent of its members and the indent of its closing brace. An empty container takes its parent's. */
+function attachLayout(text, node, parent, unit, eol) {
   const parentIndent = parent ? parent.indent : '';
   const empty = node.members.length === 0;
   node.multiline = text.slice(node.open, node.close).includes('\n') || (empty && Boolean(parent?.multiline));
+  node.eol = lineEnding(text, node.open, node.close, parent ? parent.eol : eol);
   node.indent = (!empty && lineIndent(text, node.members[0].keyStart)) || parentIndent + unit;
   node.closeIndent = parentIndent;
 }
@@ -112,17 +122,17 @@ function readDocument(text) {
   const duplicateServer = servers ? duplicateKey(servers) : null;
   if (duplicateServer !== null) return { ok: false, reason: `duplicate key '${duplicateServer}'` };
 
-  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const eol = lineEnding(text, 0, text.length, '\n');
   const spansLines = text.slice(root.open, root.close).includes('\n');
   const unit = (spansLines && root.members.length && lineIndent(text, root.members[0].keyStart)) || '  ';
-  attachLayout(text, root, null, unit);
-  if (servers) attachLayout(text, servers, root, unit);
+  attachLayout(text, root, null, unit, eol);
+  if (servers) attachLayout(text, servers, root, unit, eol);
   return { ok: true, root, servers, eol, unit };
 }
 
 function renderValue(value, container, layout) {
   if (!container.multiline) return JSON.stringify(value);
-  return JSON.stringify(value, null, layout.unit).split('\n').join(layout.eol + container.indent);
+  return JSON.stringify(value, null, layout.unit).split('\n').join(container.eol + container.indent);
 }
 
 function renderMember(key, value, container, layout) {
@@ -138,11 +148,11 @@ function insertMember(text, container, key, value, layout) {
   const member = renderMember(key, value, container, layout);
   const last = container.members[container.members.length - 1];
   if (last) {
-    const inserted = container.multiline ? `,${layout.eol}${container.indent}${member}` : `, ${member}`;
+    const inserted = container.multiline ? `,${container.eol}${container.indent}${member}` : `, ${member}`;
     return splice(text, last.valueEnd, last.valueEnd, inserted);
   }
   const inserted = container.multiline
-    ? `${layout.eol}${container.indent}${member}${layout.eol}${container.closeIndent}`
+    ? `${container.eol}${container.indent}${member}${container.eol}${container.closeIndent}`
     : member;
   return splice(text, container.open + 1, container.close, inserted);
 }
@@ -160,8 +170,14 @@ function removeMember(text, container, member) {
   return splice(text, container.members[index - 1].valueEnd, member.valueEnd, '');
 }
 
+/** Set the text between an empty container's braces, which a removal of its only member drops. */
+function replaceInner(text, container, inner) {
+  if (container.members.length) throw new Error('only an empty container\'s inner text can be replaced');
+  return splice(text, container.open + 1, container.close, inner);
+}
+
 function renderNewDocument(entries) {
   return `${JSON.stringify({ mcpServers: Object.fromEntries(entries) }, null, 2)}\n`;
 }
 
-module.exports = { SKELETON, readDocument, insertMember, replaceValue, removeMember, renderNewDocument };
+module.exports = { SKELETON, readDocument, insertMember, replaceValue, removeMember, replaceInner, renderNewDocument };
