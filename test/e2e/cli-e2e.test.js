@@ -1102,3 +1102,72 @@ test('Pi MCP: PI_CODING_AGENT_DIR redirects mcp.json while skills stay under ~/.
   assert.ok(r.stdout.includes('PI_CODING_AGENT_DIR is set: Pi reads its whole agent dir from it, but DoFlow moves only mcp.json there; skills and AGENTS.md stay in ~/.pi/agent.'), r.stdout);
   assert.ok(r.stdout.includes('[INFO] MCP selection: pi: context7, sequential-thinking (--mcp)'), r.stdout);
 });
+
+// --- Per-harness MCP selection: each harness's server file holds exactly its own selection ----
+
+function readJson(file) {
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+// Where each MCP-capable harness keeps DoFlow's servers at global scope, and the member that holds them.
+const GLOBAL_MCP_FILES = (home) => ({
+  kiro: { file: path.join(home, '.kiro', 'settings', 'mcp.json'), key: 'mcpServers' },
+  antigravity: { file: path.join(home, '.gemini', 'config', 'mcp_config.json'), key: 'mcpServers' },
+  opencode: { file: path.join(home, '.config', 'opencode', 'opencode.json'), key: 'mcp' },
+  copilot: { file: path.join(home, '.copilot', 'mcp-config.json'), key: 'mcpServers' },
+  pi: { file: path.join(home, '.pi', 'agent', 'mcp.json'), key: 'mcpServers' },
+});
+
+test('E1: --mcp context7 leaves only context7 in Kiro, Antigravity, OpenCode, Copilot and Pi, and names it in the selection line', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const r = run(['install', '-g', '--force', '--no-backup', '-t', 'kiro,antigravity,opencode,copilot,pi', '--mcp', 'context7'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(r.stdout.includes('[INFO] MCP selection: kiro, antigravity, opencode, copilot, pi: context7 (--mcp)'), r.stdout);
+
+  for (const [harness, { file, key }] of Object.entries(GLOBAL_MCP_FILES(home))) {
+    assert.deepStrictEqual(Object.keys(readJson(file)[key]), ['context7'], `${harness} holds only the selected server`);
+  }
+});
+
+test('E3: a non-interactive Pi install with no --mcp registers no server and says the selection is the default', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const r = run(['install', '-g', '--force', '--no-backup', '-t', 'pi'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(r.stdout.includes('[INFO] MCP selection: pi: none (default)'), r.stdout);
+  assert.match(r.stdout, /MCP: none selected by default/);
+  const mcpFile = path.join(home, '.pi', 'agent', 'mcp.json');
+  const servers = fs.existsSync(mcpFile) ? readJson(mcpFile).mcpServers ?? {} : {};
+  assert.deepStrictEqual(Object.keys(servers), [], 'no DoFlow server is registered');
+});
+
+test('E11: an update with a narrower --mcp drops the deselected server from every targeted harness', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const targets = 'claude,codex,kiro,antigravity,opencode,copilot,pi';
+  let r = run(['install', '-g', '--force', '--no-backup', '-t', targets, '--mcp', 'all'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const files = GLOBAL_MCP_FILES(home);
+  for (const [harness, { file, key }] of Object.entries(files)) {
+    assert.deepStrictEqual(Object.keys(readJson(file)[key]).sort(), ['context7', 'sequential-thinking'], `${harness} starts with both`);
+  }
+
+  r = run(['update', '-g', '--force', '--no-backup', '-t', targets, '--mcp', 'context7'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  for (const [harness, { file, key }] of Object.entries(files)) {
+    assert.deepStrictEqual(Object.keys(readJson(file)[key]), ['context7'], `${harness} drops sequential-thinking`);
+  }
+  assert.deepStrictEqual(Object.keys(readJson(path.join(home, '.claude.json')).mcpServers), ['context7']);
+  const codexConfig = fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8');
+  assert.match(codexConfig, /\[mcp_servers\.context7\]/);
+  assert.doesNotMatch(codexConfig, /mcp_servers\.sequential-thinking/);
+});
+
+test('T2: no source, doc or README line still says the selection narrows only when claude or codex is targeted', () => {
+  const stale = 'narrows this only when claude or codex';
+  const walk = (entry) => {
+    if (fs.statSync(entry).isFile()) return [entry];
+    return fs.readdirSync(entry).flatMap((name) => walk(path.join(entry, name)));
+  };
+  const files = [path.join(REPO, 'README.md'), ...walk(path.join(REPO, 'src')), ...walk(path.join(REPO, 'docs'))];
+  const holders = files.filter((file) => fs.readFileSync(file, 'utf8').includes(stale));
+  assert.deepStrictEqual(holders, []);
+});
