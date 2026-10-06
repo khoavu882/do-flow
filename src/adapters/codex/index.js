@@ -254,10 +254,18 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     const conflicts = [];
     if (!asset) return { changes, conflicts };
     const target = instructionsPath(context);
+    // Broken markers are a plan conflict, as for Claude: found only while applying, they would stop
+    // the run after hooks, config and skills were already removed.
+    const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : null;
+    if (existing !== null) {
+      const starts = existing.split(MARKER_START).length - 1;
+      if (starts !== existing.split(MARKER_END).length - 1 || starts > 1) {
+        conflicts.push(`Codex instructions contain malformed DoFlow markers: ${target}`);
+        return { changes, conflicts };
+      }
+    }
     if (removing) {
-      if (!fs.existsSync(target) || claimedElsewhere(target)) return { changes, conflicts };
-      const existing = fs.readFileSync(target, 'utf8');
-      if (!existing.includes(MARKER_START)) return { changes, conflicts };
+      if (existing === null || claimedElsewhere(target) || !existing.includes(MARKER_START)) return { changes, conflicts };
       changes.push({ assetId: asset.id, target, operation: 'remove', ownershipIdentity: 'doflow:codex:instructions:managed-section',
         kind: 'instructions-section', identity: 'AGENTS.md', projection: { renderer: 'codex-agents' } });
       return { changes, conflicts };

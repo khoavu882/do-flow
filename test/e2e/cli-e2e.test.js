@@ -510,6 +510,25 @@ test('Codex remove clears only lifecycle-owned native resources and retains comp
   assert.ok(!fs.existsSync(path.join(project, '.codex', 'config.toml')), 'a config.toml DoFlow created is removed, not left with an empty table');
 });
 
+test('Codex remove with a duplicated span in AGENTS.md is refused before anything is removed', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+  let result = run(['install', project, '--force', '--target', 'codex'], { home });
+  assert.strictEqual(result.status, 0, result.stderr);
+  const agents = path.join(project, 'AGENTS.md');
+  fs.appendFileSync(agents, `\n${fs.readFileSync(agents, 'utf8')}`);
+  const ledgerFile = path.join(project, '.doflow', 'state', 'ledger.json');
+  const ledgerBefore = fs.readFileSync(ledgerFile, 'utf8');
+  result = run(['remove', project, '--force', '--target', 'codex'], { home });
+  assert.notStrictEqual(result.status, 0);
+  assert.match(`${result.stdout}${result.stderr}`, /malformed DoFlow markers/);
+  for (const rel of [path.join('.codex', 'hooks.json'), path.join('.codex', 'config.toml'), path.join('.codex', 'hooks', 'session-start.sh'),
+    path.join('.agents', 'skills', 'do-execute-plan', 'SKILL.md')]) {
+    assert.ok(fs.existsSync(path.join(project, rel)), `${rel} must survive a refused remove`);
+  }
+  assert.strictEqual(fs.readFileSync(ledgerFile, 'utf8'), ledgerBefore);
+});
+
 test('Codex project remove rooted at HOME leaves every file the global install still owns', () => {
   // A project rooted at $HOME shares ~/.codex, ~/.agents and the one ledger with the global install.
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
