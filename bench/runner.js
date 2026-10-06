@@ -641,7 +641,10 @@ const SKILL_RESOLUTION = {
  * The tracked copies are marked skip-worktree so their deletion does not show in the sandbox's
  * `git status` or `git diff`, where the path would read as the run reaching the skill.
  * `~/.claude/skills` is outside any sandbox and cannot be removed this way, and neither can git
- * history; a run that reaches either is caught at grading as `leaked`, not prevented here.
+ * history or the checkout the sandbox is nested in (`../../../core/shared/skills/<skill>`); a run
+ * that names `skills/<skill>/SKILL.md` is caught at grading as `leaked`, not prevented here. The
+ * corpus (`bench/<skill>/evals.json`, with expected_output and assertions) stays readable in the
+ * sandbox and through the parent path; a corpus read names no SKILL.md, so grading does not catch it.
  *
  * The request is the case's prompt without its leading `/<skill>` token, which names the very skill
  * being withheld. A case with nothing left has no request to measure and yields no run.
