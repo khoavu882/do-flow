@@ -102,6 +102,37 @@ test('G11: case files are well formed and internally consistent', () => {
   assert.deepEqual(problems, [], problems.join('\n'));
 });
 
+// An assertion whose `type` the runner does not know grades `passed: null` with "unknown assertion
+// type" and is left for the grader subagent, so a misspelt type reads as a manual check instead of
+// failing anywhere. Naming the type here is what makes the misspelling a suite failure.
+function unknownAssertionTypes(filesByName, known) {
+  const problems = [];
+  for (const [name, data] of Object.entries(filesByName)) {
+    for (const e of data.evals || []) {
+      for (const a of e.assertions || []) {
+        if (a.type !== undefined && !known.includes(a.type)) problems.push(`${name}/${e.id}: unknown assertion type "${a.type}"`);
+      }
+    }
+  }
+  return problems;
+}
+
+test('G11: every assertion type is one the runner knows', () => {
+  const filesByName = {};
+  for (const { name } of skillFiles()) {
+    const data = casesFor(name);
+    if (data) filesByName[name] = data;
+  }
+  const problems = unknownAssertionTypes(filesByName, runner.ASSERTION_TYPES);
+  assert.deepEqual(problems, [],
+    'an unknown type grades passed:null and reads as a manual check:\n  ' + problems.join('\n  '));
+});
+
+test('G11 control: an unknown assertion type is reported with its case', () => {
+  const fixture = { x: { evals: [{ id: 7, assertions: [{ text: 't', type: 'skill_not_routd', skill: 'x' }, { text: 'u', type: 'skill_not_routed', skill: 'x' }, { text: 'v' }] }] } };
+  assert.deepEqual(unknownAssertionTypes(fixture, runner.ASSERTION_TYPES), ['x/7: unknown assertion type "skill_not_routd"']);
+});
+
 // Feature 028 (IC-004). Coverage above asks whether every skill has cases of both kinds; it cannot
 // see a case REMOVED, RENAMED or RE-SIDED without the baseline being re-captured, because coverage
 // still passes while the committed baseline silently stops describing the committed corpus. This

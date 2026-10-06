@@ -36,6 +36,12 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 /** What a dispatched run must write to prove which SKILL.md it actually followed. */
 const RUN_SOURCE_FILE = 'skill_source.json';
 
+/** What a triggering run must write to record whether it judged the request to route to its skill. */
+const RUN_ROUTING_FILE = 'routing.json';
+
+/** The two sides of the corpus. Every case carries one; a baseline capture freezes it. */
+const SPLITS = ['train', 'heldout'];
+
 function loadConfig() {
   return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 }
@@ -182,7 +188,31 @@ const PROGRAMMATIC = {
     const hit = ctx.invokedSkills.includes(a.skill);
     return { passed: !hit, evidence: `invoked: [${ctx.invokedSkills.join(', ') || 'none'}]` };
   },
+  // The by-path answer to "should this request NOT route here". `skill_not_invoked` cannot give it:
+  // it is undecided on every by-path run. A triggering run instead records its routing decision in
+  // routing.json, and this reads that record. It never returns null on a with-skill run, and a
+  // missing or unreadable record fails rather than passes: silence cannot read as "not routed".
+  skill_not_routed: (a, ctx) => {
+    const rec = ctx.routing;
+    if (!rec) return { passed: false, evidence: `no ${RUN_ROUTING_FILE} saved: the run recorded no routing decision` };
+    if (rec.malformed || typeof rec !== 'object' || Array.isArray(rec)) {
+      return { passed: false, evidence: `${RUN_ROUTING_FILE} is not a JSON object: the run's routing decision cannot be read` };
+    }
+    if (typeof rec.routed !== 'boolean') {
+      return { passed: false, evidence: `${RUN_ROUTING_FILE} has no boolean routed: the run's routing decision cannot be read` };
+    }
+    if (rec.skill !== a.skill) {
+      return { passed: false, evidence: `${RUN_ROUTING_FILE} records skill ${JSON.stringify(rec.skill)}, not ${a.skill}` };
+    }
+    return rec.routed
+      ? { passed: false, evidence: `${RUN_ROUTING_FILE}: ${a.skill} routed, the request should not route here` }
+      : { passed: true, evidence: `${RUN_ROUTING_FILE}: ${a.skill} not routed` };
+  },
 };
+
+/** Every assertion type the runner decides or defers. A case file naming any other type would grade
+ * `passed: null` silently, so the guard suite checks case files against this list. */
+const ASSERTION_TYPES = [...Object.keys(PROGRAMMATIC), 'manual'];
 
 /**
  * A run directory holds whatever the dispatched subagent saved. `transcript.txt` and
@@ -193,6 +223,7 @@ function loadRunContext(runDir) {
   const transcriptFile = path.join(runDir, 'transcript.txt');
   const invokedFile = path.join(runDir, 'invoked_skills.json');
   const sourceFile = path.join(runDir, RUN_SOURCE_FILE);
+  const routingFile = path.join(runDir, RUN_ROUTING_FILE);
   const outputsDir = path.join(runDir, 'outputs');
   const outputFiles = fs.existsSync(outputsDir) ? walkFiles(outputsDir) : [];
   let skillSource = null;
@@ -203,12 +234,21 @@ function loadRunContext(runDir) {
       skillSource = { malformed: true };
     }
   }
+  let routing = null;
+  if (fs.existsSync(routingFile)) {
+    try {
+      routing = readJson(routingFile);
+    } catch {
+      routing = { malformed: true };
+    }
+  }
   return {
     runDir,
     transcript: fs.existsSync(transcriptFile) ? fs.readFileSync(transcriptFile, 'utf8') : '',
     invokedSkills: fs.existsSync(invokedFile) ? readJson(invokedFile) : [],
     hasTranscript: fs.existsSync(transcriptFile),
     skillSource,
+    routing,
     outputFiles,
     // Concatenated so one regex sweeps every artifact — an assertion about what a run produced
     // rarely cares which file it landed in, and naming the file would couple the case to a layout
@@ -482,12 +522,12 @@ function buildPlan(cfg, opts) {
             // judgment about the skill's own description. Reading it from the sandbox measures this
             // repo's wording; letting the Skill tool route would measure the installed description
             // instead — the same substitution, one level up.
-            ? `Read the frontmatter of ${skillFile} and decide from THAT description whether this request routes to ${skill}. Record the decision. Do NOT invoke /${skill} by name — that would judge ~/.claude/skills/${skill}/'s description, not this repo's.`
+            ? `Read the frontmatter of ${skillFile} and decide from THAT description whether this request routes to ${skill}. Record the decision. Do NOT invoke /${skill} by name — that would judge ~/.claude/skills/${skill}/'s description, not this repo's. Write the decision to ${RUN_ROUTING_FILE} as {"skill": "${skill}", "routed": true or false}.`
             : `Read ${skillFile} and follow it. Do NOT invoke /${skill} by name — that resolves ~/.claude/skills/${skill}/, not this repo.`,
           mustRecord: RUN_SOURCE_FILE,
         },
         outputDir: path.join(cfg.benchRoot, 'runs', opts.iteration, skill, `eval-${e.id}-${e.name}`),
-        saveOutputs: ['transcript.txt', 'invoked_skills.json', RUN_SOURCE_FILE, 'outputs/'],
+        saveOutputs: ['transcript.txt', 'invoked_skills.json', RUN_SOURCE_FILE, 'outputs/', ...(e.kind === 'triggering' ? [RUN_ROUTING_FILE] : [])],
       });
     }
   }
@@ -981,4 +1021,7 @@ module.exports = {
   buildReport,
   SKILL_RESOLUTION,
   RUN_SOURCE_FILE,
+  RUN_ROUTING_FILE,
+  ASSERTION_TYPES,
+  SPLITS,
 };

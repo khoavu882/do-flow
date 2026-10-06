@@ -10,6 +10,8 @@
 
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const { createScratch } = require('../helper/scratch-env');
 
@@ -152,4 +154,72 @@ test('F6: pendingNote is null when no row is pending, and repeated calls are equ
   assert.equal(report.summary.pending, 0);
   assert.equal(report.summary.improved, 1);
   assert.deepEqual(runner.buildReport(input), report);
+});
+
+// --- skill_not_routed (F1, with-skill rows) ---------------------------------------------------
+
+function routingRun(name, routingText) {
+  const dir = path.join(scratch.dir, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'transcript.txt'), 'ran');
+  if (routingText !== null) fs.writeFileSync(path.join(dir, runner.RUN_ROUTING_FILE), routingText);
+  return runner.loadRunContext(dir);
+}
+const NOT_ROUTED = { text: 'x is not used', type: 'skill_not_routed', skill: 'x' };
+
+test('F1: routing.json {routed:false} for the skill passes', () => {
+  const g = runner.gradeAssertion(NOT_ROUTED, routingRun('false', '{"skill":"x","routed":false,"reason":"belongs to y"}'));
+  assert.equal(g.passed, true);
+  assert.equal(g.evidence, 'routing.json: x not routed');
+});
+
+test('F1: routing.json {routed:true} fails with the routed evidence', () => {
+  const g = runner.gradeAssertion(NOT_ROUTED, routingRun('true', '{"skill":"x","routed":true}'));
+  assert.equal(g.passed, false);
+  assert.equal(g.evidence, 'routing.json: x routed, the request should not route here');
+});
+
+test('F1: an absent routing.json fails and never passes vacuously', () => {
+  const ctx = routingRun('absent', null);
+  assert.equal(ctx.routing, null);
+  const g = runner.gradeAssertion(NOT_ROUTED, ctx);
+  assert.equal(g.passed, false);
+  assert.match(g.evidence, /no routing\.json saved/);
+});
+
+test('F1: a malformed, non-boolean or wrong-skill routing.json fails with its own fault', () => {
+  const malformed = routingRun('malformed', '{not json');
+  assert.deepEqual(malformed.routing, { malformed: true });
+  const cases = [
+    [malformed, /not a JSON object/],
+    [routingRun('array', '[]'), /not a JSON object/],
+    [routingRun('nonbool', '{"skill":"x","routed":"false"}'), /no boolean routed/],
+    [routingRun('wrong', '{"skill":"y","routed":false}'), /records skill "y", not x/],
+  ];
+  for (const [ctx, fault] of cases) {
+    const g = runner.gradeAssertion(NOT_ROUTED, ctx);
+    assert.equal(g.passed, false);
+    assert.match(g.evidence, fault);
+  }
+});
+
+test('F1: skill_not_routed is a known assertion type', () => {
+  assert.ok(runner.ASSERTION_TYPES.includes('skill_not_routed'));
+  assert.deepEqual(runner.SPLITS, ['train', 'heldout']);
+});
+
+test('F1: a triggering plan run asks for routing.json and saves it; a behavioral run does not', () => {
+  const plan = runner.buildPlan(runner.loadConfig(), { iteration: 'fixture' });
+  const triggering = plan.runs.filter((r) => r.kind === 'triggering');
+  const behavioral = plan.runs.filter((r) => r.kind === 'behavioral');
+  assert.ok(triggering.length > 0 && behavioral.length > 0);
+  for (const r of triggering) {
+    assert.ok(r.saveOutputs.includes('routing.json'), `${r.skill}/${r.evalId} does not save routing.json`);
+    assert.ok(r.skills.instruction.includes(`Write the decision to routing.json as {"skill": "${r.skill}", "routed": true or false}.`));
+    assert.match(r.skills.instruction, /Do NOT invoke/);
+  }
+  for (const r of behavioral) {
+    assert.equal(r.saveOutputs.includes('routing.json'), false);
+    assert.equal(r.skills.instruction.includes('routing.json'), false);
+  }
 });
