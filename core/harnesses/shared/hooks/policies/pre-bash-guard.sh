@@ -86,7 +86,7 @@ export LC_ALL=C
 # Nesting depth is capped; beyond the cap the raw text is used (errs toward
 # blocking). Text with no quote, # or << (or no command word at all) is
 # returned unchanged without scanning.
-_EXEC_CTX='(^|[[:space:];&|(])((([^[:space:]]*/)?(ba|z|da|k)?sh[[:space:]]+(-[[:alnum:]]+[[:space:]]+)*-[[:alnum:]]*c|eval)[[:space:]]+|([^[:space:]]*/)?(ba|z|da|k)?sh([[:space:]]+-[[:alnum:]]+)*[[:space:]]*<<<[[:space:]]*)$'
+_EXEC_CTX='(^|[[:space:];&|(])((([^[:space:]]*/)?(ba|z|da|k)?sh[[:space:]]+(-[[:alnum:]]+[[:space:]]+)*-[[:alnum:]]*c|eval)[[:space:]]+|([^[:space:]]*/)?(ba|z|da|k)?sh([[:space:]]+-[-[:alnum:]]*)*[[:space:]]*[0-9]*<<<[[:space:]]*)$'
 _SH_HERE='(^|[[:space:];&|(])([^[:space:]]*/)?(ba|z|da|k)?sh([[:space:]]+-[[:alnum:]]+)*[[:space:]]*$'
 _HD_WORD="^(-?)[[:space:]]*[\"']?\\\\?([A-Za-z_][A-Za-z0-9_.-]*)"
 SCRUB_DEPTH=0
@@ -234,10 +234,9 @@ scrub_quotes() {
           qc=$c; qin=""; qexec=0; qansi=0; L=${L:1}
           if [ "$c" = "'" ] && [ "${cur: -1}" = '$' ]; then
             cur=${cur%?}; qansi=1
-          else
-            if [ ${#cur} -gt 100 ]; then tail=${cur: -100}; else tail=$cur; fi
-            [[ $tail =~ $_EXEC_CTX ]] && qexec=1
-          fi ;;
+          fi
+          if [ ${#cur} -gt 100 ]; then tail=${cur: -100}; else tail=$cur; fi
+          [[ $tail =~ $_EXEC_CTX ]] && qexec=1 ;;
       esac
     done
     done
@@ -254,7 +253,7 @@ SHELL_TEXT=$SCRUBBED
 # target — the same rule as the rm lines in blocked-patterns.conf. Subpaths
 # such as /tmp/x are not blocked.
 _CMDPOS='(^|[;&|(`])[[:space:]]*'
-_WRAP='((sudo|command|time|nohup|exec|env|xargs|eval|then|do|else)([[:space:]]+(-[uCghprtUDRnILPsdEaJSfo][[:space:]]+[^-[:space:];&|][^[:space:];&|]*|-[^[:space:];&|]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*))*[[:space:]]+)*'
+_WRAP='((sudo([[:space:]]+(-[ugChprtUDR][[:space:]]+[^-[:space:];&|][^[:space:];&|]*|--(user|group|host|prompt|role|type|chdir)[[:space:]]+[^-[:space:];&|][^[:space:];&|]*|-[^[:space:];&|]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*))*|xargs([[:space:]]+(-[nILPsdEa][[:space:]]+[^-[:space:];&|][^[:space:];&|]*|-[^[:space:];&|]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*))*|env([[:space:]]+(-[uCS][[:space:]]+[^-[:space:];&|][^[:space:];&|]*|-[^[:space:];&|]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*))*|(command|time|nohup|exec|eval|then|do|else)([[:space:]]+(-[^[:space:];&|]*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*))*)[[:space:]]+)*'
 _PATHRM='(\\|/(usr/)?bin/)?rm'
 _RM_FLAG='(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)'
 _RM_ARGS='([[:space:]]+[^[:space:];&|]+)*'
@@ -262,7 +261,7 @@ _END='([[:space:];&|)`]|$)'
 _RM_PREFIX="${_CMDPOS}${_WRAP}${_PATHRM}${_RM_ARGS}[[:space:]]+"
 # _floor_rm_hits <target-regex> : does the scrubbed command recursively rm it?
 _floor_rm_hits() {
-  grep -qiE -- "${_RM_PREFIX}(${_RM_FLAG}${_RM_ARGS}[[:space:]]+($1)${_END}|($1)${_RM_ARGS}[[:space:]]+${_RM_FLAG}${_END})" <<<"$SHELL_TEXT" 2>/dev/null
+  grep -qE -- "${_RM_PREFIX}(${_RM_FLAG}${_RM_ARGS}[[:space:]]+($1)${_END}|($1)${_RM_ARGS}[[:space:]]+${_RM_FLAG}${_END})" <<<"$SHELL_TEXT" 2>/dev/null
 }
 
 if [ ! -f "$PATTERNS_FILE" ]; then
@@ -294,7 +293,8 @@ while IFS=$'\t' read -r pattern reason exclude || [ -n "$pattern" ]; do
   [ -z "$pattern" ] && continue
   case "$pattern" in \#*) continue ;; esac
 
-  # Match pattern against command (case-insensitive, POSIX extended regex).
+  # Match pattern against command (POSIX extended regex; case-insensitive for the SQL patterns,
+  # case-sensitive for the anchored shell-command ones, as a shell is).
   # A bad regex makes grep exit 2, which "if" reads as no match (fail open).
   # "--" stops grep from treating a pattern beginning with '-' (e.g. an
   # exclude pattern like "--force-with-lease") as an option flag.
@@ -302,9 +302,9 @@ while IFS=$'\t' read -r pattern reason exclude || [ -n "$pattern" ]; do
   # anchor) match the scrubbed text; every other pattern (the SQL ones)
   # matches the full text, so statements inside quoted psql -c / heredocs are
   # still caught.
-  case "$pattern" in '(^|'*) target=$SHELL_TEXT ;; *) target=$COMMAND ;; esac
+  case "$pattern" in '(^|'*) target=$SHELL_TEXT; gflags=-qE ;; *) target=$COMMAND; gflags=-qiE ;; esac
   matched=false
-  if grep -qiE -- "$pattern" <<<"$target" 2>/dev/null; then
+  if grep $gflags -- "$pattern" <<<"$target" 2>/dev/null; then
     matched=true
   fi
 
@@ -313,7 +313,7 @@ while IFS=$'\t' read -r pattern reason exclude || [ -n "$pattern" ]; do
   # which POSIX ERE cannot express — e.g. "--force-with-lease" excludes the
   # "git push --force" block).
   if [ "$matched" = "true" ] && [ -n "$exclude" ]; then
-    if grep -qiE -- "$exclude" <<<"$target" 2>/dev/null; then
+    if grep $gflags -- "$exclude" <<<"$target" 2>/dev/null; then
       matched=false
     fi
   fi

