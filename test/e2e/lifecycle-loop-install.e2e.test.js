@@ -308,6 +308,56 @@ describe('Codex target: release, report, goal and failure run from the installed
   });
 });
 
+// The copy of an old store runs inside the dispatcher's own handlers, so every harness's projected
+// locator reaches it the same way. The harness list is read from the registry, so a harness added
+// there is covered without an edit here.
+const HARNESS_IDS = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.json'), 'utf8')).harnesses.map((x) => x.id);
+// Antigravity projects only the locator and not the runtime seam, so its dispatched verbs exit 2.
+const NO_RUNTIME = new Set(['antigravity']);
+const NOTICE = 'note: the lifecycle store is now .doflow/state/lifecycle/events; agent-docs/lifecycle/ is no longer read and can be deleted';
+
+/** The event files of a folder with their bytes. */
+const eventFiles = (dir) => Object.fromEntries(fs.readdirSync(dir).sort().map((name) => [name, fs.readFileSync(path.join(dir, name), 'utf8')]));
+
+/** A followup.added envelope, named by its own id as the store names them. */
+function seedEvent(dir, n, followupId) {
+  const at = new Date(Date.UTC(2026, 9, 1, 0, 0, 0, n)).toISOString();
+  const id = `${at.replace(/[-:.]/g, '')}-aaaaaa`;
+  const event = { v: 1, id, type: 'followup.added', at, by: 'agent', data: { id: followupId, statement: `Seeded ${followupId}`, source: { kind: 'manual' } } };
+  fs.writeFileSync(path.join(dir, `${id}.json`), `${JSON.stringify(event, null, 2)}\n`);
+}
+
+describe('An old agent-docs/lifecycle store is copied through every harness\'s projected dispatcher', { skip: SKIP }, () => {
+  for (const id of HARNESS_IDS) {
+    test(`${id}: followup list copies the two old events once, notes it on stderr and leaves the old folder as it was`, () => {
+      const h = homeFor(`migrate-${id}`);
+      install(h, id);
+      const locator = filesUnder(h.home).find((f) => path.basename(f) === 'doflow-run' && !f.split(path.sep).includes('.doflow'));
+      assert.ok(locator, `${id} projects a doflow-run locator`);
+      const project = makeRepo(scratch, `migrate-${id}`);
+      const oldDir = path.join(project.dir, 'agent-docs', 'lifecycle', 'events');
+      fs.mkdirSync(oldDir, { recursive: true });
+      seedEvent(oldDir, 1, 'FU-aaaaaa');
+      seedEvent(oldDir, 2, 'FU-bbbbbb');
+      const before = eventFiles(oldDir);
+      assert.equal(Object.keys(before).length, 2);
+
+      const list = run(h, project.dir, path.join(h.home, locator), ['followup', '--action', 'list', '--json']);
+      if (NO_RUNTIME.has(id)) {
+        assert.equal(list.status, 2, list.stdout + list.stderr);
+        assert.match(list.stderr, /no DoFlow runtime found/);
+        assert.equal(fs.existsSync(path.join(project.dir, '.doflow')), false, 'no runtime ran, so nothing was copied');
+      } else {
+        assert.equal(list.status, 0, list.stderr);
+        assert.deepEqual(list.json.items.map((i) => i.id).sort(), ['FU-aaaaaa', 'FU-bbbbbb']);
+        assert.deepEqual(eventFiles(path.join(project.dir, '.doflow', 'state', 'lifecycle', 'events')), before, 'the new store holds the same names and bytes');
+        assert.equal(list.stderr.split(NOTICE).length - 1, 1, `the notice is printed once: ${list.stderr}`);
+      }
+      assert.deepEqual(eventFiles(oldDir), before, 'the old folder is unchanged');
+    });
+  }
+});
+
 describe('No install anywhere: the skill stops at its resolver, before any lifecycle verb', { skip: SKIP }, () => {
   // A fresh home and project with nothing installed. The skill text and the locator are the
   // checkout's own copies, because there is no install to take them from.

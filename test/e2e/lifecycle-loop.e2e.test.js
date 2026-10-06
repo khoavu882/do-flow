@@ -823,3 +823,18 @@ describe('Scenario: Older features are untouched (NFR-001)', { skip: SKIP }, () 
     assertGitUntouched({ dir, git: (...a) => spawnSync('git', a, { cwd: dir, encoding: 'utf8', env: scratch.env() }).stdout.trim() }, git);
   });
 });
+
+describe('Reads create no store', { skip: SKIP }, () => {
+  test('lifecycle overview, followup list and goal list in a project with no store create neither store folder', () => {
+    const repo = newProject('no-store');
+    const git = gitSnapshot(repo);
+    assert.deepEqual(ok(repo.dir, ['followup', '--action', 'list']).items, []);
+    assert.equal(ok(repo.dir, ['lifecycle', '--action', 'overview']).ok, true);
+    assert.deepEqual(ok(repo.dir, ['goal', '--action', 'list']).goals, []);
+    for (const rel of [['.doflow', 'state', 'lifecycle'], ['agent-docs', 'lifecycle']]) {
+      assert.equal(fs.existsSync(path.join(repo.dir, ...rel)), false, `reading created no ${rel.join('/')}`);
+    }
+    assert.equal(fs.existsSync(path.join(repo.dir, '.doflow')), false, 'and no .doflow folder');
+    assertGitUntouched(repo, git);
+  });
+});
