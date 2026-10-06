@@ -8,7 +8,7 @@
   "caseKinds": ["triggering", "behavioral"],
   "costCeiling": {
     "unit": "total_tokens",
-    "maxTokensPerRun": 200000,
-    "note": "Provisional: set before any run recorded usage; reset it from the first paid capture that does. plan refuses a known projected breach, report warns."
+    "maxTokensPerRun": 250000,
+    "note": "Set from the first paid capture (cap1, claude-sonnet-5-5): 46 runs, 2,673,587 total_tokens, largest run 120,813; about twice the largest run. plan refuses a known projected breach, report warns."
   }
 }
