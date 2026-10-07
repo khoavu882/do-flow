@@ -110,6 +110,15 @@ function printMcpSelection(view, sources, { requested, prefix = '[INFO]' } = {})
   }
 }
 
+/** Says which MCP entries a run with no native change recorded as DoFlow's (lifecycle
+ * recordMcpOwnership), or, under --dry-run, would record. */
+function printRecordedMcpOwnership(recorded, { dryRun = false } = {}) {
+  for (const [harness, ids] of Object.entries(recorded)) {
+    const what = `${ids.length} MCP ${ids.length === 1 ? 'entry' : 'entries'} (${ids.join(', ')})`;
+    console.log(dryRun ? `[DRY]  ${harness}: would record DoFlow's ownership of ${what}` : `[INFO] ${harness}: recorded DoFlow's ownership of ${what}`);
+  }
+}
+
 /** What each planned harness that takes MCP servers will hold, as doflow.lock records it. */
 function plannedMcpSelections(view) {
   return Object.fromEntries(view.plan.targets.filter((target) => !target.skipped && Array.isArray(target.mcpSelected))
@@ -126,5 +135,5 @@ function printBackupTable(rows, backupRoot) {
 
 module.exports = {
   REPO_ROOT, SCRIPT_DIR, pkg, buildAdapterRegistry, scopeOf, installPaths,
-  reportRetiredMcp, scopeSelectionState, printMcpSelection, plannedMcpSelections, printBackupTable,
+  reportRetiredMcp, scopeSelectionState, printMcpSelection, printRecordedMcpOwnership, plannedMcpSelections, printBackupTable,
 };

@@ -181,3 +181,17 @@ test('F5: reconcile --dry-run after the upgrade of global-multi reports no drift
   assert.match(r.stdout, /Observed state matches doflow\.lock/);
   assert.doesNotMatch(r.stdout, /\[WARN\]/);
 });
+
+test('F6: a Claude-only update of project-claude-copilot records Claude\'s ownership, so removing Copilot keeps context7', () => {
+  const env = projectClaudeCopilot();
+  let r = env.run('update', '--force', '--no-backup', '-t', 'claude');
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /claude: recorded DoFlow's ownership of 1 MCP entr(y|ies) \(context7\)/);
+
+  r = env.run('remove', '--force', '--no-backup', '-t', 'copilot');
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.deepStrictEqual(Object.keys(serversOf(env, 'mcp.json', 'mcpServers')).sort(), ['context7', 'user-server']);
+  r = env.run('reconcile', '--dry-run');
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /Observed state matches doflow\.lock/);
+});

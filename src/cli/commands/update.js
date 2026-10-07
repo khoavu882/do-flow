@@ -13,14 +13,14 @@ const { sourceCommit } = require('../../helper/git');
 const { chmodHooksExecutable } = require('../../helper/settings-scope');
 const { resolveMcpSelections } = require('../../install/mcp');
 const { loadRegistry } = require('../../registry');
-const { applyLifecycle } = require('../../lifecycle');
+const { applyLifecycle, recordMcpOwnership } = require('../../lifecycle');
 const {
   codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, assertSafeRegistryPlan,
   lockDocument, lockDelta, recordLock,
 } = require('../../lifecycle/view');
 const {
   REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, reportRetiredMcp, scopeSelectionState, printMcpSelection, plannedMcpSelections,
-  buildAdapterRegistry,
+  printRecordedMcpOwnership, buildAdapterRegistry,
 } = require('../shared');
 
 function cmdUpdate(o) {
@@ -65,13 +65,18 @@ function cmdUpdate(o) {
 
   if (!lifecycleChanged) {
     printPlanNotices(lifecycleView);
-    // Nothing native to change can still leave a selection to record (a first update after an
-    // upgrade records the rows 1.18.0 never wrote): the lock alone is written, with no confirm,
-    // backup or manifest write, because no installed file changes.
-    const pinned = nextLock(lifecycleView.ledger);
+    // Nothing native to change can still leave something to record: MCP entries this run finds
+    // DoFlow's without writing them, and selections 1.18.0 never wrote. The ledger and the lock alone
+    // are written, with no confirm, backup or manifest write, because no installed file changes.
+    const owned = recordMcpOwnership({ plan: lifecycleView.plan, registry: lifecycleView.registry, adapters: lifecycleView.adapters,
+      stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger, dryRun: o.dryRun });
+    printRecordedMcpOwnership(owned.recorded, { dryRun: o.dryRun });
+    const pinned = nextLock(owned.ledger);
     const delta = lockDelta(lock, pinned);
     if (!delta.changed) {
-      console.log('[OK] Already up to date — no changes detected');
+      console.log(Object.keys(owned.recorded).length && !o.dryRun
+        ? '[OK] Already up to date: no native changes; MCP ownership recorded in the ledger'
+        : '[OK] Already up to date — no changes detected');
     } else if (o.dryRun) {
       console.log(`[DRY]  Would update doflow.lock: ${delta.summary}`);
     } else {

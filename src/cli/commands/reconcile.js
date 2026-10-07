@@ -7,12 +7,14 @@ const { writeManifest } = require('../../install/manifest');
 const { confirm } = require('../../helper/prompt');
 const { sourceCommit } = require('../../helper/git');
 const { loadRegistry } = require('../../registry');
-const { applyLifecycle } = require('../../lifecycle');
+const { applyLifecycle, recordMcpOwnership } = require('../../lifecycle');
 const {
   registryLifecycleView, assertSafeRegistryPlan,
 } = require('../../lifecycle/view');
 const { recordedMcpSelections } = require('../../install/mcp');
-const { REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, scopeSelectionState, buildAdapterRegistry } = require('../shared');
+const {
+  REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, scopeSelectionState, printRecordedMcpOwnership, buildAdapterRegistry,
+} = require('../shared');
 
 /** Classify desired-vs-observed drift for one lifecycle view. The plan IS the diff: its changes
  * are the operations needed to converge, its conflicts and prerequisites are the drift that must
@@ -87,7 +89,13 @@ function cmdReconcile(o) {
     if (!report.clean) process.exitCode = 1; // CI-friendly: drifted check must fail loudly.
     return;
   }
-  if (report.clean) return;
+  if (report.clean) {
+    // Converged already; an entry the plan finds DoFlow's without writing it still needs its row.
+    const owned = recordMcpOwnership({ plan: lifecycleView.plan, registry: lifecycleView.registry, adapters: lifecycleView.adapters,
+      stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
+    printRecordedMcpOwnership(owned.recorded);
+    return;
+  }
 
   if (!confirm(`Reconcile ${targets.join(', ')} by applying ${report.drifts.length} change(s)?`, o.force)) {
     console.error('[INFO]  Aborted.');

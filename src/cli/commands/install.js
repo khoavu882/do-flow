@@ -12,14 +12,14 @@ const { sourceCommit } = require('../../helper/git');
 const { chmodHooksExecutable } = require('../../helper/settings-scope');
 const { promptMcpCheckbox, resolveMcpSelections } = require('../../install/mcp');
 const { loadRegistry } = require('../../registry');
-const { applyLifecycle, applyMcpIndex } = require('../../lifecycle');
+const { applyLifecycle, applyMcpIndex, recordMcpOwnership } = require('../../lifecycle');
 const {
   codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, assertSafeRegistryPlan,
   lockDocument, recordLock,
 } = require('../../lifecycle/view');
 const {
   REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, reportRetiredMcp, scopeSelectionState, printMcpSelection, plannedMcpSelections,
-  buildAdapterRegistry,
+  printRecordedMcpOwnership, buildAdapterRegistry,
 } = require('../shared');
 
 function cmdInstall(o) {
@@ -103,6 +103,10 @@ function cmdInstall(o) {
     // unrelated asset changing, so a change to the renderer, to a server's `doc`/`shortFlag`, or
     // to the resolved selection silently does nothing whenever the rest of the tree is current.
     applyMcpIndex({ scopeRoot: lifecycleView.plan.scopeRoot, selectedMcp: lifecycleView.plan.mcp, mode: 'apply' });
+    const owned = recordMcpOwnership({ plan: lifecycleView.plan, registry: lifecycleView.registry, adapters: lifecycleView.adapters,
+      stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
+    printRecordedMcpOwnership(owned.recorded);
+    ledgerAfter = owned.ledger;
   }
   printPlanNotices(lifecycleView);
 

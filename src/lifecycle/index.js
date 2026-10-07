@@ -619,9 +619,32 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
   return { recovery, verification, ledger: nextLedger, retained: plan.retained ?? [] };
 }
 
+/**
+ * Record the MCP entries a plan finds DoFlow's without changing them: an entry co-owned beside
+ * another harness's row, or one adopted from a 1.18.0 install. Their rows are written by verify,
+ * which only runs after an apply, so a run with no native change would otherwise leave them out of
+ * the ledger, and a later removal of the other harness would delete an entry this harness still
+ * selects. Verify only reads; this writes the ledger and nothing native. `dryRun` reports without
+ * writing. Returns the ledger and the server ids recorded per harness.
+ */
+function recordMcpOwnership({ plan, registry, adapters, stateRoot, ledger = plan.ledger, dryRun = false, writeLedgerFn = writeLedger }) {
+  const { verifications } = verifyLifecycle({ plan: { ...plan, registry }, adapters, context: { registry, operation: 'apply' } });
+  const held = new Set((ledger.resources || []).map((resource) => ownershipKey(resource)));
+  const added = verifications.flatMap((verification) => (verification.resources || [])
+    .filter((resource) => resource.kind === 'mcp-server')
+    .map((resource) => ({ ...resource, harness: verification.harness, scope: plan.scope, recoveryRef: resource.recoveryRef ?? null })))
+    .filter((resource) => !held.has(ownershipKey(resource)));
+  const recorded = {};
+  for (const resource of added) (recorded[resource.harness] ??= []).push(resource.identity);
+  if (!added.length || dryRun) return { ledger, recorded };
+  const next = upgradeLedger({ ...ledger, resources: [...(ledger.resources || []), ...added] });
+  writeLedgerFn(stateRoot, next);
+  return { ledger: next, recorded };
+}
+
 function removeLifecycle(options) {
   const plan = planLifecycle({ ...options, context: { ...(options.context || {}), operation: 'remove' } });
   return applyLifecycle({ ...options, plan, mode: 'remove', acceptPrerequisites: options.acceptPrerequisites });
 }
 
-module.exports = { OPERATIONS, MCP_KEEP, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus, markRetainedRemovals, retentionSummary };
+module.exports = { OPERATIONS, MCP_KEEP, recordMcpOwnership, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus, markRetainedRemovals, retentionSummary };
