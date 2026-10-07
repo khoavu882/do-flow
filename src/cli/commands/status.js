@@ -27,8 +27,8 @@ function cmdStatus(o) {
   let mcpSelections = null;
   try {
     const registry = loadRegistry({ repoRoot: REPO_ROOT });
-    const { lock, ledger } = scopeSelectionState(scope);
-    const recorded = recordedMcpSelections({ registry, lock, ledger, targets });
+    const { lock, ledger, manifestServers } = scopeSelectionState(scope);
+    const recorded = recordedMcpSelections({ registry, lock, ledger, targets, manifestServers });
     const rows = pinnedSelections(lock);
     mcpSelections = Object.fromEntries(targets.filter((harness) => mcpCapable(registry, harness))
       .map((harness) => [harness, rows[harness] ?? null]));

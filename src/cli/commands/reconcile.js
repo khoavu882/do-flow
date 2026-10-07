@@ -53,7 +53,7 @@ function cmdReconcile(o) {
   const scope = scopeOf(o);
   const dirs = toolDirs(scope);
   const lifecyclePaths = installPaths(scope);
-  const { lock, ledger } = scopeSelectionState(scope);
+  const { lock, ledger, manifestServers } = scopeSelectionState(scope);
   // A harness the ledger holds but the lock does not pin is installed and outside reconcile's reach.
   // Said, not converged: the lock records choices, and reconcile has no choice to record for it.
   const pinned = new Set((lock?.targets ?? []).map((entry) => entry.harness));
@@ -74,7 +74,7 @@ function cmdReconcile(o) {
   printContext(resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: sourceCommit(SCRIPT_DIR), ...scope }));
   // Each harness converges onto its own pinned selection — reconcile never re-prompts and never
   // lends one harness's servers to another.
-  const recorded = recordedMcpSelections({ registry, lock, ledger, targets });
+  const recorded = recordedMcpSelections({ registry, lock, ledger, targets, manifestServers });
   const lifecycleView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets,
     mcpSelections: recorded.selections, mcpAdoptable: recorded.adoptable, retainedMcpIds: [], force: true });
   if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }

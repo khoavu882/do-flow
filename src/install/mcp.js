@@ -44,15 +44,35 @@ const holdsRows = (ledger, harness) => (ledger?.resources ?? []).some((row) => r
 /** Ids of `lists` that the catalog still declares, as one union in registry order. */
 const catalogUnion = (catalogIds, lists) => catalogIds.filter((id) => lists.some((ids) => ids.includes(id)));
 
+/** 1.18.0 wrote lock rows only for claude and codex, and only non-empty ones. Any other row was
+ * written by a later run, which already settled which of that harness's entries are DoFlow's. */
+const LEGACY_LOCK_HARNESSES = ['claude', 'codex'];
+
+function settledByLaterRun(rows, harness) {
+  return harness in rows && (!LEGACY_LOCK_HARNESSES.includes(harness) || rows[harness].length === 0);
+}
+
+/** The servers a 1.18.0 install recorded writing for this harness, from state no later run writes:
+ * the manifest's MCP list, Antigravity's rows that carry no fingerprint, and Copilot's whole-map
+ * registration row, which covers the manifest's list or, with none, the catalog 1.18.0 wrote. */
+function legacyRecordedIds({ catalogIds, ledger, harness, manifestServers }) {
+  const rows = (ledger?.resources ?? []).filter((row) => row.harness === harness);
+  const ids = [...(manifestServers ?? [])];
+  for (const row of rows) if (row.kind === 'mcp-server' && (row.fingerprint ?? null) === null) ids.push(row.identity);
+  if (!manifestServers && rows.some((row) => row.ownershipIdentity === `${harness}:mcp:registration`)) ids.push(...catalogIds);
+  return catalogUnion(catalogIds, [ids]);
+}
+
 /** Per MCP-capable harness, the servers DoFlow may adopt when their entries already equal its own:
- * none for a harness the ledger does not hold, else its lock row, or the whole catalog when the lock
- * has no row for it. Retired ids are dropped. */
-function adoptableMcpIds({ registry, lock, ledger, harnesses }) {
+ * only what a 1.18.0 install recorded for a harness the ledger holds, and only until a later run
+ * has recorded the harness's own selection. An entry a user wrote is never adoptable merely because
+ * DoFlow installed something else for that harness. Retired ids are dropped. */
+function adoptableMcpIds({ registry, lock, ledger, harnesses, manifestServers = null }) {
   const catalogIds = readAllServers(registry);
   const rows = pinnedSelections(lock);
   return Object.fromEntries(harnesses.filter((harness) => mcpCapable(registry, harness)).map((harness) => {
-    if (!holdsRows(ledger, harness)) return [harness, []];
-    return [harness, harness in rows ? catalogUnion(catalogIds, [rows[harness]]) : [...catalogIds]];
+    if (!holdsRows(ledger, harness) || settledByLaterRun(rows, harness)) return [harness, []];
+    return [harness, legacyRecordedIds({ catalogIds, ledger, harness, manifestServers })];
   }));
 }
 
@@ -111,7 +131,7 @@ function resolveMcpSelections({
   return {
     selections,
     sources,
-    adoptable: adoptableMcpIds({ registry, lock, ledger, harnesses: capable }),
+    adoptable: adoptableMcpIds({ registry, lock, ledger, harnesses: capable, manifestServers }),
     retainedMcpIds: retainedMcpIds(catalogIds, rows, targets),
   };
 }
@@ -119,14 +139,14 @@ function resolveMcpSelections({
 /** The selections a scope has recorded, for readers that never prompt (reconcile, status, inventory):
  * each targeted MCP-capable harness's lock row, or 'keep' when the lock has none. Retired ids are
  * dropped silently. */
-function recordedMcpSelections({ registry, lock, ledger, targets }) {
+function recordedMcpSelections({ registry, lock, ledger, targets, manifestServers = null }) {
   const catalogIds = readAllServers(registry);
   const rows = pinnedSelections(lock);
   const capable = targets.filter((harness) => mcpCapable(registry, harness));
   return {
     selections: Object.fromEntries(capable.map((harness) => [harness,
       harness in rows ? catalogUnion(catalogIds, [rows[harness]]) : 'keep'])),
-    adoptable: adoptableMcpIds({ registry, lock, ledger, harnesses: capable }),
+    adoptable: adoptableMcpIds({ registry, lock, ledger, harnesses: capable, manifestServers }),
     retainedMcpIds: retainedMcpIds(catalogIds, rows, targets),
   };
 }

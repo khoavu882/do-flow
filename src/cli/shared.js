@@ -9,6 +9,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { REPO_ROOT } = require('../helper/repo-root');
 const { doflowPaths } = require('../install/paths');
+const { readInstallManifest } = require('../install/manifest');
 const { stateRoot, readLedger } = require('../state');
 const { readLock } = require('../state/lockfile');
 const { createAdapterRegistry } = require('../adapters');
@@ -76,12 +77,14 @@ function reportRetiredMcp(retired) {
   console.error('        They were removed from DoFlow; your saved selection is being reconciled.');
 }
 
-/** The scope's doflow.lock and ledger, as the MCP selection functions in src/install/mcp.js read them. */
+/** The scope's doflow.lock, ledger and 1.18.0 manifest MCP list, as the MCP selection functions in
+ * src/install/mcp.js read them. */
 function scopeSelectionState(scope) {
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   return {
     lock: readLock(scope.global ? { scope: 'global', homeDir: scopeRoot } : { scope: 'project', projectRoot: scopeRoot }),
     ledger: readLedger(stateRoot({ scope: scope.global ? 'global' : 'project', projectRoot: scopeRoot, homeDir: scopeRoot })),
+    manifestServers: readInstallManifest({ scopeRoot })?.mcpServers ?? null,
   };
 }
 

@@ -142,13 +142,29 @@ test('S7: retired ids in a lock row or the manifest are dropped and reported onc
   assert.throws(() => resolve({ requested: ['playwright'] }), /Unknown MCP server\(s\): playwright/);
 });
 
-test('S8: adoptable ids are the lock row or the catalog for an installed harness, none otherwise', () => {
+test('S8: adoptable ids are only what a 1.18.0 install recorded for an installed harness, until a later run records its selection', () => {
   const all = readAllServers(registry);
-  const lock = lockWith({ claude: ['context7'] });
-  const ledger = ledgerHolding('claude', 'kiro');
-  const result = resolve({ targets: ['claude', 'kiro', 'pi', 'gemini'], requested: ['none'], lock, ledger });
-  assert.deepEqual(result.adoptable, { claude: ['context7'], kiro: all, pi: [] });
-  assert.deepEqual(adoptableMcpIds({ registry, lock, ledger, harnesses: ['claude', 'kiro', 'pi', 'gemini'] }), result.adoptable);
+  const ledger = { resources: [
+    ...ledgerHolding('claude', 'kiro', 'opencode', 'pi').resources,
+    { harness: 'copilot', ownershipIdentity: 'copilot:mcp:registration' },
+    { harness: 'antigravity', kind: 'mcp-server', identity: 'sequential-thinking', fingerprint: null },
+    { harness: 'antigravity', kind: 'mcp-server', identity: 'context7', fingerprint: 'sha256:abc' },
+  ] };
+  const targets = ['claude', 'kiro', 'opencode', 'pi', 'copilot', 'antigravity', 'codex', 'gemini'];
+  // The 1.18.0 manifest list reaches every installed harness; a harness the ledger does not hold gets none.
+  const legacy = resolve({ targets, requested: ['none'], lock: lockWith({ claude: ['context7'] }), ledger, manifestServers: ['context7'] });
+  assert.deepEqual(legacy.adoptable, { claude: ['context7'], kiro: ['context7'], opencode: ['context7'], pi: ['context7'],
+    copilot: ['context7'], antigravity: ['context7', 'sequential-thinking'], codex: [] });
+
+  // With no manifest list: Copilot's registration row covers the catalog, Antigravity's unfingerprinted
+  // rows their own ids, and nothing else is adoptable.
+  const bare = adoptableMcpIds({ registry, lock: null, ledger, harnesses: targets });
+  assert.deepEqual(bare, { claude: [], kiro: [], opencode: [], pi: [], copilot: all, antigravity: ['sequential-thinking'], codex: [] });
+
+  // A lock row only a later run writes (any row but a non-empty claude or codex one) closes adoption.
+  const settled = adoptableMcpIds({ registry, lock: lockWith({ claude: [], kiro: ['context7'], copilot: ['context7'] }), ledger,
+    harnesses: ['claude', 'kiro', 'copilot', 'opencode'], manifestServers: ['context7'] });
+  assert.deepEqual(settled, { claude: [], kiro: [], copilot: [], opencode: ['context7'] });
 });
 
 test('S9: retainedMcpIds is the union of the rows of lock harnesses not targeted', () => {
@@ -161,9 +177,9 @@ test('recordedMcpSelections reads each target\'s lock row, or keep, and never pr
   const all = readAllServers(registry);
   const lock = lockWith({ claude: ['context7', 'playwright'], codex: ['sequential-thinking'] });
   const ledger = ledgerHolding('claude', 'kiro');
-  assert.deepEqual(recordedMcpSelections({ registry, lock, ledger, targets: ['claude', 'kiro', 'gemini'] }), {
+  assert.deepEqual(recordedMcpSelections({ registry, lock, ledger, targets: ['claude', 'kiro', 'gemini'], manifestServers: all }), {
     selections: { claude: ['context7'], kiro: 'keep' },
-    adoptable: { claude: ['context7'], kiro: all },
+    adoptable: { claude: all, kiro: all },
     retainedMcpIds: ['sequential-thinking'],
   });
 });

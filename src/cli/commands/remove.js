@@ -26,10 +26,10 @@ function cmdRemove(o) {
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
   // Read before the removal rewrites the ledger: an entry DoFlow wrote before it kept MCP rows is
   // removed only while it still equals DoFlow's own rendering.
-  const { lock, ledger } = scopeSelectionState(scope);
+  const { lock, ledger, manifestServers } = scopeSelectionState(scope);
   // No selection: every removed harness's MCP selection is none, so it removes what it owns. The
   // harnesses that stay keep their recorded servers in the MCP index.
-  const { adoptable: mcpAdoptable, retainedMcpIds } = recordedMcpSelections({ registry, lock, ledger, targets: lifecycleTargets });
+  const { adoptable: mcpAdoptable, retainedMcpIds } = recordedMcpSelections({ registry, lock, ledger, targets: lifecycleTargets, manifestServers });
   const view = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets: lifecycleTargets, mcpAdoptable, retainedMcpIds, operation: 'remove',
     permissions: o.permissions === true, statusline: o.statusline === true });
   if (!view.plan.safe) { assertSafeRegistryPlan(view); return; }
