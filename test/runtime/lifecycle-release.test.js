@@ -129,7 +129,7 @@ test('a confirmed release is a local event: no commit, no staging, no ignore rul
   assert.equal(recorded.recorded, true);
   assert.equal(repo.git('rev-parse', 'HEAD'), head);
   assert.equal(repo.git('diff', '--cached', '--name-only'), '');
-  assert.equal(repo.git('status', '--porcelain'), '?? agent-docs/');
+  assert.equal(repo.git('status', '--porcelain'), '?? .doflow/');
   assert.equal(fs.existsSync(path.join(repo.dir, '.gitignore')), false);
   assert.equal(fs.existsSync(path.join(repo.dir, '.git', 'info', 'exclude')) && /agent-docs/.test(fs.readFileSync(path.join(repo.dir, '.git', 'info', 'exclude'), 'utf8')), false);
   assert.deepEqual(eventFiles(repo).length, 2, 'the tracking event and the one record');

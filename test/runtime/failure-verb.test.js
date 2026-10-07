@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env');
+const { createScratch, inheritedEnv } = require('../helper/scratch-env');
 const store = require('../../src/runtime/failure/store');
 const { ROTATE_AT_BYTES } = require('../../src/runtime/failure/capture');
 const { buildOverview } = require('../../src/runtime/lifecycle/overview');
@@ -26,7 +26,7 @@ function machine(name) {
   const project = path.join(dir, 'project');
   for (const d of [home, xdg, project]) fs.mkdirSync(d, { recursive: true });
   const failures = path.join(xdg, 'doflow', 'failures');
-  const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: xdg, DOFLOW_FAILURE_CAPTURE: '', GIT_CONFIG_GLOBAL: path.join(dir, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
+  const env = { ...inheritedEnv(), HOME: home, XDG_CONFIG_HOME: xdg, DOFLOW_FAILURE_CAPTURE: '', GIT_CONFIG_GLOBAL: path.join(dir, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
   const markDoflowRepo = () => fs.writeFileSync(path.join(project, 'package.json'), JSON.stringify({ name: '@khoavu882/doflow' }));
   return { dir, home, xdg, project, failures, env, markDoflowRepo };
 }
@@ -330,7 +330,7 @@ describe('failure --action settle', () => {
     assert.equal(r.status, 1);
     assert.equal(r.json.finding, 'not-doflow-repo');
     assert.equal(fs.existsSync(path.join(m.failures, 'settlements.jsonl')), false);
-    assert.equal(fs.existsSync(path.join(m.project, 'agent-docs')), false, 'no store folder is left behind');
+    assert.equal(fs.existsSync(path.join(m.project, '.doflow', 'state', 'lifecycle')), false, 'no store folder is left behind');
   });
   test('imported in the DoFlow repository creates a follow-up and records its id', () => {
     const m = machine('settle-import');
@@ -343,7 +343,7 @@ describe('failure --action settle', () => {
     assert.equal(r.json.followup.state, 'open');
     assert.match(r.json.followup.id, /^FU-[0-9a-hjkmnp-tv-z]{6}$/);
     assert.equal(r.json.events.length, 1);
-    assert.match(r.json.events[0], /^agent-docs\/lifecycle\/events\/\d{8}T\d{9}Z-[0-9a-z]{6}\.json$/);
+    assert.match(r.json.events[0], /^\.doflow\/state\/lifecycle\/events\/\d{8}T\d{9}Z-[0-9a-z]{6}\.json$/);
     const event = JSON.parse(fs.readFileSync(path.join(m.project, r.json.events[0]), 'utf8'));
     assert.equal(event.type, 'followup.added');
     assert.equal(event.by, 'agent');
@@ -354,6 +354,76 @@ describe('failure --action settle', () => {
     const list = spawnSync(process.execPath, [BIN, 'followup', '--action', 'list', '--json'], { cwd: m.project, env: m.env, encoding: 'utf8' });
     assert.deepEqual(JSON.parse(list.stdout).items.map((i) => i.id), [r.json.followup.id]);
     assert.equal(run(m, ['--action', 'list', '--json']).json.entries.length, 0);
+  });
+  test('imported copies an old agent-docs/lifecycle store first and adds the follow-up beside it', () => {
+    const m = machine('settle-import-legacy');
+    m.markDoflowRepo();
+    writeEvents(m, [line()]);
+    const legacy = path.join(m.project, 'agent-docs', 'lifecycle', 'events');
+    fs.mkdirSync(legacy, { recursive: true });
+    const old = { v: 1, id: '20261001T000000000Z-aaaaaa', type: 'followup.added', at: '2026-10-01T00:00:00.000Z', by: 'agent', data: { id: 'FU-aaaaaa', statement: 'from the old store', source: { kind: 'manual' } } };
+    fs.writeFileSync(path.join(legacy, `${old.id}.json`), JSON.stringify(old));
+    const r = run(m, ['--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stderr, /^doflow failure: note: the lifecycle store is now \.doflow\/state\/lifecycle\/events; agent-docs\/lifecycle\/ is no longer read and can be deleted$/m);
+    const events = fs.readdirSync(path.join(m.project, '.doflow', 'state', 'lifecycle', 'events')).sort();
+    assert.deepEqual(events, [`${old.id}.json`, path.basename(r.json.events[0])].sort());
+    const list = spawnSync(process.execPath, [BIN, 'followup', '--action', 'list', '--json'], { cwd: m.project, env: m.env, encoding: 'utf8' });
+    assert.deepEqual(JSON.parse(list.stdout).items.map((i) => i.id).sort(), ['FU-aaaaaa', r.json.followup.id].sort());
+    assert.deepEqual(fs.readdirSync(legacy), [`${old.id}.json`], 'the old folder is unchanged');
+  });
+  test('imported refuses with store-locked when the project store cannot be locked, and records no settlement', () => {
+    const m = machine('settle-import-locked');
+    m.markDoflowRepo();
+    writeEvents(m, [line()]);
+    const preload = path.join(m.dir, 'locked-preload.js');
+    fs.writeFileSync(preload, `const store = require(${JSON.stringify(path.resolve(__dirname, '..', '..', 'src', 'runtime', 'lifecycle', 'event-store'))});
+store.readFold = () => { throw new store.StoreLockedError("Could not lock 'events' after 5s. Nothing was written."); };
+`);
+    const r = spawnSync(process.execPath, ['-r', preload, BIN, 'failure', '--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json'], { cwd: m.project, env: m.env, encoding: 'utf8' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.deepEqual(JSON.parse(r.stdout), { ok: false, action: 'settle', finding: 'store-locked', message: "Could not lock 'events' after 5s. Nothing was written." });
+    assert.equal(fs.existsSync(path.join(m.failures, 'settlements.jsonl')), false);
+  });
+  test('DOFLOW_RETENTION_HOURS=soon in the shell does not reach these spawns: an import is unchanged and no warning prints', () => {
+    const saved = process.env.DOFLOW_RETENTION_HOURS;
+    process.env.DOFLOW_RETENTION_HOURS = 'soon';
+    try {
+      const m = machine('settle-import-shell-retention');
+      m.markDoflowRepo();
+      writeEvents(m, [line()]);
+      assert.equal('DOFLOW_RETENTION_HOURS' in m.env, false);
+      const r = run(m, ['--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(r.stderr, '');
+      assert.equal(r.json.followup.state, 'open');
+    } finally {
+      if (saved === undefined) delete process.env.DOFLOW_RETENTION_HOURS; else process.env.DOFLOW_RETENTION_HOURS = saved;
+    }
+  });
+  test('a settled failure follow-up is removed by retention like any other follow-up', () => {
+    const m = machine('settle-import-retention');
+    m.markDoflowRepo();
+    writeEvents(m, [line()]);
+    const imported = run(m, ['--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json']);
+    assert.equal(imported.status, 0, imported.stderr);
+    const id = imported.json.followup.id;
+    const settle = spawnSync(process.execPath, [BIN, 'followup', '--action', 'settle', '--ids', id, '--as', 'done', '--evidence', 'fixed in 1.19', '--json'], { cwd: m.project, env: m.env, encoding: 'utf8' });
+    assert.equal(settle.status, 0, settle.stderr);
+    // Age the two events by two days: each is rewritten under an id that matches its new time.
+    const events = path.join(m.project, '.doflow', 'state', 'lifecycle', 'events');
+    for (const name of fs.readdirSync(events).filter((n) => n.endsWith('.json'))) {
+      const event = JSON.parse(fs.readFileSync(path.join(events, name), 'utf8'));
+      const at = new Date(Date.parse(event.at) - 48 * 3600000).toISOString();
+      const aged = { ...event, at, id: `${at.replace(/[-:.]/g, '')}-${event.id.slice(-6)}` };
+      fs.writeFileSync(path.join(events, `${aged.id}.json`), JSON.stringify(aged));
+      fs.unlinkSync(path.join(events, name));
+    }
+    const list = spawnSync(process.execPath, [BIN, 'followup', '--action', 'list', '--state', 'all', '--json'], { cwd: m.project, env: { ...m.env, DOFLOW_RETENTION_HOURS: '24' }, encoding: 'utf8' });
+    assert.equal(list.status, 0, list.stderr);
+    assert.match(list.stderr, /^doflow followup: retention: removed 2 event files older than 24 h$/m);
+    assert.deepEqual(JSON.parse(list.stdout).items, []);
+    assert.deepEqual(fs.readdirSync(events), []);
   });
   test('the statement of an entry with no message has no trailing colon, and is cut to 280 characters', () => {
     const { importedStatement } = require('../../src/runtime/failure/cli');
@@ -369,7 +439,7 @@ describe('failure --action settle', () => {
     const second = run(m, ['--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json']);
     assert.equal(second.status, 1);
     assert.equal(second.json.finding, 'already-imported');
-    assert.equal(fs.readdirSync(path.join(m.project, 'agent-docs', 'lifecycle', 'events')).length, 1);
+    assert.equal(fs.readdirSync(path.join(m.project, '.doflow', 'state', 'lifecycle', 'events')).length, 1);
   });
   test('with no resolvable home it reports home null and exits 0', () => {
     const m = machine('settle-nohome');
@@ -474,7 +544,7 @@ describe('overview failures field (IC-007)', () => {
     fs.writeFileSync(live, `${JSON.stringify(line())}\n${'x'.repeat(ROTATE_AT_BYTES)}`);
     overview(m, { maintain: true });
     assert.deepEqual(fs.readdirSync(m.failures), ['events.jsonl']);
-    assert.equal(fs.existsSync(path.join(m.project, 'agent-docs')), false);
+    assert.equal(fs.existsSync(path.join(m.project, '.doflow', 'state', 'lifecycle')), false);
   });
 });
 
@@ -522,11 +592,11 @@ describe('import dedupe and no-home text (review fixes)', () => {
     m.markDoflowRepo();
     writeEvents(m, [line()]);
     // The events folder cannot be created while a file sits where its parent should be.
-    fs.mkdirSync(path.join(m.project, 'agent-docs'));
-    fs.writeFileSync(path.join(m.project, 'agent-docs', 'lifecycle'), 'in the way');
+    fs.mkdirSync(path.join(m.project, '.doflow', 'state'), { recursive: true });
+    fs.writeFileSync(path.join(m.project, '.doflow', 'state', 'lifecycle'), 'in the way');
     const failed = run(m, ['--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json']);
     assert.notEqual(failed.status, 0, 'the follow-up write failed');
-    fs.rmSync(path.join(m.project, 'agent-docs', 'lifecycle'));
+    fs.rmSync(path.join(m.project, '.doflow', 'state', 'lifecycle'));
     const retry = run(m, ['--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json']);
     assert.equal(retry.status, 0, retry.stderr + retry.stdout);
     assert.equal(follow(m).filter((i) => i.source.kind === 'failure').length, 1);

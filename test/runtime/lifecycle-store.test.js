@@ -117,7 +117,7 @@ test('read: no folder gives an empty fold and creates nothing', () => {
   const dir = plainDir('read-empty');
   const result = store.readFold(dir);
   assert.deepEqual([result.followups, result.conflicts, result.unreadable], [[], [], []]);
-  assert.equal(fs.existsSync(path.join(dir, 'agent-docs')), false);
+  assert.equal(fs.existsSync(path.join(dir, store.LIFECYCLE_REL)), false);
 });
 
 test('read: names that are not event ids are ignored; a matching file that is not an envelope is unreadable', () => {
@@ -144,12 +144,12 @@ test('write: an event file is named by its id, holds the IC-002 envelope and is 
   assert.equal(out.ok, true);
   const [w] = out.written;
   assert.equal(w.id, '20261004T091200123Z-k3m9qa');
-  assert.equal(w.file, 'agent-docs/lifecycle/events/20261004T091200123Z-k3m9qa.json');
+  assert.equal(w.file, '.doflow/state/lifecycle/events/20261004T091200123Z-k3m9qa.json');
   const onDisk = JSON.parse(fs.readFileSync(path.join(dir, w.file), 'utf8'));
   assert.deepEqual(Object.keys(onDisk), ['v', 'id', 'type', 'at', 'by', 'data']);
   assert.equal(onDisk.at, '2026-10-04T09:12:00.123Z');
   assert.ok(store.EVENT_ID.test(w.id));
-  assert.ok(!fs.existsSync(path.join(dir, 'agent-docs', 'lifecycle', 'events.lock')), 'the lock is released');
+  assert.ok(!fs.existsSync(path.join(dir, '.doflow', 'state', 'lifecycle', 'events.lock')), 'the lock is released');
 });
 
 test('write: random characters come from the lowercase Crockford alphabet', () => {
@@ -224,7 +224,7 @@ test('write: a refused write on a fresh project creates no folder and takes no l
   const dir = plainDir('write-refused-fresh');
   const refused = store.appendEvents(dir, [{ type: 'followup.taken', by: 'agent', data: { ids: ['FU-aaaaaa'], feature: 'f1' } }]);
   assert.equal(refused.finding, 'illegal-transition');
-  assert.equal(fs.existsSync(path.join(dir, 'agent-docs')), false);
+  assert.equal(fs.existsSync(path.join(dir, store.LIFECYCLE_REL)), false);
 });
 
 test('write: a lock that cannot be taken refuses with store-locked and writes nothing', () => {
@@ -271,9 +271,9 @@ test('write: DoFlow touches no git state and writes no ignore rule', () => {
   store.appendEvents(dir, [added('FU-aaaaaa')]);
   assert.equal(git(dir, 'rev-parse', 'HEAD'), head);
   assert.equal(git(dir, 'diff', '--cached', '--name-only'), '', 'nothing staged');
-  assert.match(git(dir, 'status', '--porcelain'), /^\?\? agent-docs\/$/m);
+  assert.match(git(dir, 'status', '--porcelain'), /^\?\? \.doflow\/$/m);
   for (const name of ['.gitignore', '.gitattributes']) assert.equal(fs.existsSync(path.join(dir, name)), false);
-  assert.equal(fs.existsSync(path.join(dir, '.git', 'info', 'exclude')) && /agent-docs/.test(fs.readFileSync(path.join(dir, '.git', 'info', 'exclude'), 'utf8')), false);
+  assert.equal(fs.existsSync(path.join(dir, '.git', 'info', 'exclude')) && /\.doflow/.test(fs.readFileSync(path.join(dir, '.git', 'info', 'exclude'), 'utf8')), false);
 });
 
 function eventFile(dir, event) {
@@ -323,7 +323,7 @@ test('time bounds: a write that cannot produce a valid id fails with a finding a
   assert.deepEqual([badRandom.ok, badRandom.finding], [false, 'invalid-id']);
   const farFuture = store.appendEvents(dir, [added('FU-aaaaaa')], { now: new Date(8.64e15) });
   assert.deepEqual([farFuture.ok, farFuture.finding], [false, 'invalid-id']);
-  assert.equal(fs.existsSync(path.join(dir, 'agent-docs')), false, 'a refused write creates no folder');
+  assert.equal(fs.existsSync(path.join(dir, store.LIFECYCLE_REL)), false, 'a refused write creates no folder');
   const last = store.appendEvents(dir, [added('FU-aaaaaa')], { now: new Date('9999-12-31T23:59:59.999Z') });
   assert.equal(last.ok, true, 'the last valid stamp is the end of year 9999');
   const beyond = store.appendEvents(dir, [added('FU-bbbbbb')], { now: new Date('9999-12-31T23:59:59.999Z') });
@@ -428,13 +428,129 @@ test('hostile store: a symlinked lifecycle folder is refused for a read and for 
   const root = plainDir('hostile-lifelink');
   const elsewhere = path.join(scratch.dir, 'hostile-lifelink-elsewhere');
   fs.mkdirSync(path.join(elsewhere, 'events'), { recursive: true });
-  fs.mkdirSync(path.join(root, 'agent-docs'));
+  fs.mkdirSync(path.join(root, '.doflow', 'state'), { recursive: true });
   const link = path.join(root, store.LIFECYCLE_REL);
   fs.symlinkSync(elsewhere, link);
   const refused = (error) => error instanceof store.StoreUnsafeError && error.message.includes(link);
   assert.throws(() => store.readEvents(root), refused);
   assert.throws(() => store.appendEvents(root, [added('FU-bbbbbb')]), refused);
   assert.deepEqual(fs.readdirSync(path.join(elsewhere, 'events')), []);
+});
+
+// ── retention journal: pending files are hidden, a moved generation re-reads ────────────────────
+
+const followupEvent = (stamp, fu) => ({
+  v: 1, id: `${stamp}-aaaaaa`, type: 'followup.added', at: `${stamp.slice(0, 4)}-${stamp.slice(4, 6)}-${stamp.slice(6, 8)}T${stamp.slice(9, 11)}:${stamp.slice(11, 13)}:${stamp.slice(13, 15)}.${stamp.slice(15, 18)}Z`,
+  by: 'agent', data: { id: fu, statement: `s ${fu}`, source: { kind: 'manual' } },
+});
+function writeJournal(root, journal) {
+  fs.mkdirSync(path.join(root, store.LIFECYCLE_REL), { recursive: true });
+  fs.writeFileSync(path.join(root, store.JOURNAL_REL), typeof journal === 'string' ? journal : JSON.stringify(journal));
+}
+/** node:fs with the events folder listing counted; `onList(count)` runs after each listing. */
+function countingFs(root, onList = () => {}) {
+  const counts = { lists: 0, locks: 0 };
+  const events = path.join(root, store.EVENTS_REL);
+  const fsImpl = {
+    ...fs,
+    readdirSync: (p, o) => {
+      const names = fs.readdirSync(p, o);
+      if (p === events) { counts.lists += 1; onList(counts.lists); }
+      return names;
+    },
+    mkdirSync: (p, o) => { if (String(p).endsWith('events.lock')) counts.locks += 1; return fs.mkdirSync(p, o); },
+  };
+  return { fsImpl, counts };
+}
+
+test('journal: a pending name is neither an event nor unreadable; the files stay on disk', () => {
+  const root = plainDir('journal-pending');
+  eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));
+  eventFile(root, followupEvent('20261003T000000001Z', 'FU-bbbbbb'));
+  const torn = '20261003T000000002Z-aaaaaa.json';
+  fs.writeFileSync(path.join(root, store.EVENTS_REL, torn), '{"v":1');
+  writeJournal(root, { v: 1, generation: 'g1', pending: ['20261003T000000000Z-aaaaaa.json', torn] });
+  const read = store.readEvents(root);
+  assert.deepEqual(read.events.map((e) => e.data.id), ['FU-bbbbbb']);
+  assert.deepEqual([read.unreadable, read.reasons], [[], {}]);
+  assert.deepEqual(store.readFold(root).followups.map((f) => f.id), ['FU-bbbbbb']);
+  assert.equal(fs.readdirSync(path.join(root, store.EVENTS_REL)).length, 3, 'reading deletes nothing');
+});
+
+test('journal: absent, malformed or of another version hides nothing; a pending entry not shaped <EVENT_ID>.json is ignored', () => {
+  const root = plainDir('journal-shapes');
+  eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));
+  const name = '20261003T000000000Z-aaaaaa.json';
+  assert.deepEqual(store.readJournal(root), { generation: null, pending: [] });
+  for (const journal of ['{"v":1,', { v: 2, generation: 'g', pending: [name] }, [name]]) {
+    writeJournal(root, journal);
+    assert.deepEqual(store.readJournal(root), { generation: null, pending: [] });
+    assert.equal(store.readEvents(root).events.length, 1);
+  }
+  writeJournal(root, { v: 1, generation: 'g2', pending: ['notes.json', `../events/${name}`, name.toUpperCase(), name.slice(0, -5), 7] });
+  assert.deepEqual(store.readJournal(root), { generation: 'g2', pending: [] });
+  assert.deepEqual(store.readEvents(root).events.map((e) => e.data.id), ['FU-aaaaaa']);
+});
+
+test('journal: a journal far larger than an event file reads back whole', () => {
+  const root = plainDir('journal-large');
+  eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));
+  const pending = Array.from({ length: 12000 }, (_, i) => `20261003T000000000Z-${String(i).padStart(6, '0')}.json`);
+  pending.push('20261003T000000000Z-aaaaaa.json');
+  writeJournal(root, { v: 1, generation: 'g-big', pending });
+  assert.ok(fs.statSync(path.join(root, store.JOURNAL_REL)).size > store.MAX_EVENT_BYTES);
+  const read = store.readJournal(root);
+  assert.deepEqual([read.generation, read.pending.length], ['g-big', pending.length]);
+  assert.deepEqual(store.readEvents(root).events, [], 'the pending event stays hidden');
+});
+
+test('journal: a generation that moves once during a read causes exactly one re-read, which honours the new pending list', () => {
+  const root = plainDir('journal-moves-once');
+  eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));
+  eventFile(root, followupEvent('20261003T000000001Z', 'FU-bbbbbb'));
+  writeJournal(root, { v: 1, generation: 'g1', pending: [] });
+  const { fsImpl, counts } = countingFs(root, (n) => {
+    if (n === 1) writeJournal(root, { v: 1, generation: 'g2', pending: ['20261003T000000000Z-aaaaaa.json'] });
+  });
+  const read = store.readEvents(root, { fsImpl });
+  assert.deepEqual([counts.lists, counts.locks], [2, 0]);
+  assert.deepEqual(read.events.map((e) => e.data.id), ['FU-bbbbbb']);
+});
+
+test('journal: a generation that moves on every read ends in one read under the store lock, which is released', () => {
+  const root = plainDir('journal-moves-always');
+  eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));
+  writeJournal(root, { v: 1, generation: 'g0', pending: [] });
+  const { fsImpl, counts } = countingFs(root, (n) => writeJournal(root, { v: 1, generation: `g${n}`, pending: [] }));
+  const read = store.readEvents(root, { fsImpl });
+  assert.deepEqual([counts.lists, counts.locks], [4, 1], 'three lock-free reads, then one under the lock');
+  assert.deepEqual(read.events.map((e) => e.data.id), ['FU-aaaaaa']);
+  assert.equal(fs.existsSync(`${path.join(root, store.EVENTS_REL)}.lock`), false);
+});
+
+test('journal: when the lock for the last read cannot be taken, the read throws StoreLockedError, not a plain error', () => {
+  const root = plainDir('journal-lock-timeout');
+  eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));
+  writeJournal(root, { v: 1, generation: 'g0', pending: [] });
+  const { fsImpl } = countingFs(root, (n) => writeJournal(root, { v: 1, generation: `g${n}`, pending: [] }));
+  // A lock that looks stale but never goes away: acquireLock gives up without waiting.
+  const held = {
+    ...fsImpl,
+    mkdirSync: (p, o) => { if (String(p).endsWith('.lock')) throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' }); return fs.mkdirSync(p, o); },
+    statSync: (p, o) => (String(p).endsWith('.lock') ? { mtimeMs: 0 } : fs.statSync(p, o)),
+    rmdirSync: (p) => { if (!String(p).endsWith('.lock')) fs.rmdirSync(p); },
+  };
+  assert.throws(() => store.readEvents(root, { fsImpl: held }), (error) => error instanceof store.StoreLockedError && /^Could not lock .* Nothing was written\.$/s.test(error.message));
+});
+
+test('journal: a read made while the caller holds the lock returns on the first read, and the fold under it hides pending files', () => {
+  const root = plainDir('journal-under-lock');
+  eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));
+  writeJournal(root, { v: 1, generation: 'g1', pending: ['20261003T000000000Z-aaaaaa.json'] });
+  const { fsImpl, counts } = countingFs(root);
+  const out = store.appendEvents(root, [added('FU-aaaaaa')], { fsImpl, now: new Date('2026-10-04T00:00:00.000Z') });
+  assert.equal(out.ok, true, 'the pending FU-aaaaaa is not in the fold, so adding it again is legal');
+  assert.deepEqual([counts.lists, counts.locks], [2, 1], 'one read before the lock and one under it, no re-read');
 });
 
 test('print-safe fold: strings read from an event are cleaned in memory, the excerpt keeps its line breaks, the file is untouched', () => {

@@ -156,7 +156,7 @@ test('a thrown event write removes the intent file too, and releases the lock', 
   const throwingFs = { ...fs, writeFileSync: (file, ...rest) => { if (String(file).includes(`${path.sep}events${path.sep}`)) throw new Error('disk full'); return fs.writeFileSync(file, ...rest); } };
   assert.throws(() => followup.promoteFollowups({ root, ids: a, title: 'Doomed', now: NOW, fsImpl: throwingFs }), /disk full/);
   assert.equal(fs.existsSync(path.join(intentDir(root), 'doomed.md')), false);
-  assert.equal(fs.existsSync(path.join(root, 'agent-docs', 'lifecycle', 'events.lock')), false);
+  assert.equal(fs.existsSync(path.join(root, '.doflow', 'state', 'lifecycle', 'events.lock')), false);
   assert.equal(followup.promoteFollowups({ root, ids: a, title: 'Doomed', now: NOW }).ok, true, 'the same title works afterwards');
 });
 

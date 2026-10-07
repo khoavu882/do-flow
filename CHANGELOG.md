@@ -13,6 +13,16 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [Unreleased]
+
+### Changed
+
+- The lifecycle store moved from `agent-docs/lifecycle/events/` to `.doflow/state/lifecycle/events/` at the repository root. It is local to the machine and not shared; DoFlow still never stages, commits or pushes it and adds no ignore rule. The first `followup`, `lifecycle`, `goal` or `failure --action settle --as imported` command copies an existing store once and leaves the old folder untouched; a marker, `.doflow/state/lifecycle/migrated.json`, records the copy so the old folder is never read again. Every lifecycle command prints a line saying the old folder can be deleted for as long as it exists. A failed copy exits 1 with `store-migration-failed`, changes nothing, and the next command retries.
+
+### Added
+
+- `DOFLOW_RETENTION_HOURS`: set to a positive whole number of hours, each lifecycle command removes the event files of settled follow-ups and goals whose newest event is older, never open, taken or unfinished ones, and prints one stderr count line. Unset keeps everything; an invalid value warns and removes nothing. Run state and the old `agent-docs/lifecycle/` folder are never cleaned.
+
 ## [1.18.0] - 2026-10-06
 
 ### Added

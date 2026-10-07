@@ -108,7 +108,7 @@ test('followup add, list, settle: the IC-006 result shapes and exit codes', () =
   assert.equal(add.status, 0);
   assert.deepEqual(Object.keys(add.json), ['ok', 'action', 'created', 'events', 'next']);
   assert.deepEqual(add.json.created[0].source, { kind: 'stage', feature: SLUG, stage: 'review' });
-  assert.match(add.json.events[0], /^agent-docs\/lifecycle\/events\/\d{8}T\d{9}Z-[0-9a-hjkmnp-tv-z]{6}\.json$/);
+  assert.match(add.json.events[0], /^\.doflow\/state\/lifecycle\/events\/\d{8}T\d{9}Z-[0-9a-hjkmnp-tv-z]{6}\.json$/);
   const id = add.json.created[0].id;
 
   const list = run(repo.dir, ['followup', '--action', 'list', '--json']);
@@ -149,7 +149,7 @@ test('the store is shared by every worktree of a clone and found from a subfolde
   const add = run(path.join(linked, 'sub'), ['followup', '--action', 'add', '--stage', 'review', '--slug', SLUG, '--statement', 'from a linked worktree', '--json']);
   assert.equal(add.status, 0, add.stderr);
   assert.ok(fs.existsSync(path.join(repo.dir, add.json.events[0])), 'the event is in the first worktree');
-  assert.equal(fs.existsSync(path.join(linked, 'agent-docs', 'lifecycle')), false);
+  assert.equal(fs.existsSync(path.join(linked, '.doflow', 'state', 'lifecycle')), false);
   assert.equal(run(repo.dir, ['followup', '--action', 'list', '--json']).json.count, 1);
 });
 
