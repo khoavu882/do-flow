@@ -276,7 +276,8 @@ test('the restriction bounds the resources, not only the plan: an unrequested ha
  */
 test('a scope\'s recorded MCP selections reach the plan its currency is derived from', () => {
   const selected = codexMcpScope({ mcpSelections: { codex: ['context7'] } });
-  const deselected = codexMcpScope({ mcpSelections: {} });
+  const deselected = codexMcpScope({ mcpSelections: { codex: [] } });
+  const unrecorded = codexMcpScope({ mcpSelections: {} });
 
   const withSelection = readCodex(selected);
   assert.deepEqual(withSelection.plan.mcp.map((server) => server.id), ['context7'],
@@ -286,11 +287,24 @@ test('a scope\'s recorded MCP selections reach the plan its currency is derived 
 
   const withoutSelection = readCodex(deselected);
   assert.deepEqual(withoutSelection.plan.mcp, [],
-    'a lock recording no selection resolves no server — which is a read fact, not this reader\'s default');
+    'a lock recording an empty selection resolves no server — which is a read fact, not this reader\'s default');
   assert.deepEqual(changesFor(withoutSelection, deselected.ownershipIdentity), ['remove'],
     'with no selection the plan proposes to DELETE the registered server. That is the change the '
     + 'currency judgement used to read as a divergence, so this fixture is the one that must keep '
     + 'producing it for the verb-level assertion to mean anything');
+
+  const withoutRow = readCodex(unrecorded);
+  assert.deepEqual(withoutRow.plan.targets[0].mcpSelected, ['context7'],
+    'a lock with no row for the harness keeps the servers it owns now');
+  assert.deepEqual(changesFor(withoutRow, unrecorded.ownershipIdentity), []);
+});
+
+test('R2: each harness plans with its own recorded selection, never another harness\'s', () => {
+  const scope = codexMcpScope({ mcpSelections: { claude: ['context7'], codex: ['sequential-thinking'] }, lockTargets: ['claude', 'codex'] });
+  const snapshot = readCodex(scope);
+  assert.deepEqual(snapshot.plan.targets.map((target) => [target.harness, target.mcpSelected]), [['codex', ['sequential-thinking']]]);
+  assert.deepEqual(snapshot.plan.targets[0].adapterInput.mcp.map((server) => server.id), ['sequential-thinking']);
+  assert.deepEqual(changesFor(snapshot, scope.ownershipIdentity), ['remove'], 'claude\'s context7 is not lent to codex');
 });
 
 test('a scope with no lock reads without error, resolves no selection, and creates no lock', () => {
@@ -321,7 +335,7 @@ function mcpFingerprint(block) {
 
 /** A global scope holding one registered, DoFlow-owned Codex MCP server: the block in config.toml,
  * the ledger row that owns it, and a lock whose `mcpSelections` the caller chooses. */
-function codexMcpScope({ mcpSelections }) {
+function codexMcpScope({ mcpSelections, lockTargets = ['codex'] }) {
   const homeDir = scratch('doflow-read-scopes-mcp-home-');
   const projectRoot = scratch('doflow-read-scopes-mcp-project-');
   const block = '[mcp_servers.context7]\ncommand = "npx"\nargs = ["-y", "@upstash/context7-mcp"]\n';
@@ -339,7 +353,7 @@ function codexMcpScope({ mcpSelections }) {
   });
   writeLedger(stateRoot({ scope: 'global', projectRoot: homeDir, homeDir }), ledger);
 
-  const lock = { ...defaultLock({ scope: 'global', scopeRoot: homeDir }), targets: [{ harness: 'codex' }], mcpSelections };
+  const lock = { ...defaultLock({ scope: 'global', scopeRoot: homeDir }), targets: lockTargets.map((harness) => ({ harness })), mcpSelections };
   writeLock({ scope: 'global', homeDir }, lock);
   return { homeDir, projectRoot, configFile, ownershipIdentity, lock };
 }
@@ -356,3 +370,32 @@ function changesFor(snapshot, ownershipIdentity) {
     .filter((change) => change.ownershipIdentity === ownershipIdentity)
     .map((change) => change.operation);
 }
+
+// A scope 1.18.0 left behind: its manifest lists the servers it wrote, its MCP entries carry no rows,
+// and its lock records only Claude's selection. Reconcile reads the manifest list to tell DoFlow's
+// entries from the user's (recordedMcpSelections); this reader must judge the same plan.
+test('a 1.18.0 scope\'s manifest MCP list reaches the plan: kept entries are DoFlow\'s, not the user\'s', () => {
+  const homeDir = scratch('doflow-read-scopes-118-home-');
+  const projectRoot = scratch('doflow-read-scopes-118-project-');
+  seedScope({ scope: 'global', scopeRoot: homeDir, assetId: 'legacy.asset', harnesses: ['claude', 'opencode'] });
+  const both = ['context7', 'sequential-thinking'];
+  const entry = (id) => registry.mcp.find((server) => server.id === id);
+  fs.writeFileSync(path.join(homeDir, '.claude.json'), `${JSON.stringify({ mcpServers: Object.fromEntries(both.map((id) => [id,
+    { command: entry(id).command, args: entry(id).args }])) }, null, 2)}\n`);
+  const opencodeFile = path.join(homeDir, '.config', 'opencode', 'opencode.json');
+  fs.mkdirSync(path.dirname(opencodeFile), { recursive: true });
+  fs.writeFileSync(opencodeFile, `${JSON.stringify({ mcp: Object.fromEntries(both.map((id) => [id,
+    { type: 'local', command: [entry(id).command, ...entry(id).args], enabled: true }])) }, null, 2)}\n`);
+  fs.writeFileSync(path.join(homeDir, '.doflow', '.install-manifest.json'), `${JSON.stringify({ tools: {}, mcp_servers: both })}\n`);
+  const lock = { ...defaultLock({ scope: 'global', scopeRoot: homeDir }), targets: [{ harness: 'claude' }, { harness: 'opencode' }],
+    mcpSelections: { claude: both } };
+
+  const { global } = withHomeDir(homeDir, () => readScopes({
+    registry, repoRoot: REPO, projectRoot, targets: ['claude', 'opencode'], locks: { global: lock, project: null },
+  }));
+  const target = (harness) => global.plan.targets.find((item) => item.harness === harness);
+  assert.deepEqual(target('opencode').mcpSelected, both, 'OpenCode keeps the servers 1.18.0 wrote for it');
+  assert.deepEqual(global.plan.notices.filter(({ notice }) => notice.startsWith('MCP: kept your own entry')), [],
+    'no entry 1.18.0 wrote is reported as the user\'s');
+  assert.deepEqual(global.plan.changes.filter((change) => change.kind === 'mcp-server'), []);
+});

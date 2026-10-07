@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { createKiroAdapter, nativePaths, mergeMcpConfig, unmergeMcpConfig } = require('../../../src/adapters/kiro');
+const { createKiroAdapter, nativePaths } = require('../../../src/adapters/kiro');
+const { entryFingerprint } = require('../../../src/adapters/mcp-entries');
 const { assertAdapter } = require('../../../src/adapters');
 
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-kiro-')); }
@@ -204,58 +205,128 @@ test('confirms the real registry routes guidance, skills, and agents trees to ki
   assert.equal(agents[0].id, 'agents.shared');
 });
 
-test('mcp: merges selected servers into .kiro/settings/mcp.json, preserving a foreign server entry', () => {
-  const existing = { mcpServers: { handwritten: { command: 'my-own-server' } } };
-  const merged = mergeMcpConfig(existing, [{ id: 'context7', command: 'npx', args: ['-y', '@upstash/context7-mcp'] }]);
-  assert.deepEqual(merged.mcpServers.handwritten, { command: 'my-own-server' });
-  assert.deepEqual(merged.mcpServers.context7, { command: 'npx', args: ['-y', '@upstash/context7-mcp'] });
-});
+// ---- MCP entries, owned per server through ledger rows ----
 
-test('mcp: unmerge removes only the selected server ids, leaving foreign entries and dropping an empty key', () => {
-  const merged = mergeMcpConfig({ mcpServers: { handwritten: { command: 'my-own-server' } } }, [{ id: 'context7', command: 'npx', args: ['-y', 'x'] }]);
-  const unmerged = unmergeMcpConfig(merged, [{ id: 'context7', command: 'npx', args: ['-y', 'x'] }]);
-  assert.deepEqual(unmerged.mcpServers, { handwritten: { command: 'my-own-server' } });
+const CONTEXT7 = { id: 'context7', command: 'npx', args: ['-y', '@upstash/context7-mcp'] };
+const SEQUENTIAL = { id: 'sequential-thinking', command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] };
+const MCP_ASSETS = [{ id: 'guidance.context-layer' }];
+const USER_SERVER = { command: 'my-own-server', env: { TOKEN: 'secret-value' } };
 
-  const onlyOurs = mergeMcpConfig({}, [{ id: 'context7', command: 'npx', args: ['-y', 'x'] }]);
-  const stripped = unmergeMcpConfig(onlyOurs, [{ id: 'context7', command: 'npx', args: ['-y', 'x'] }]);
-  assert.equal(stripped.mcpServers, undefined);
-});
+function mcpFileIn(root) { return path.join(root, '.kiro', 'settings', 'mcp.json'); }
 
-test('plan/apply/verify a real mcp.json install and removal, never touching a hand-added server', () => {
+function writeMcp(root, doc) {
+  fs.mkdirSync(path.dirname(mcpFileIn(root)), { recursive: true });
+  fs.writeFileSync(mcpFileIn(root), typeof doc === 'string' ? doc : `${JSON.stringify(doc, null, 2)}\n`);
+}
+
+function readMcp(root) { return JSON.parse(fs.readFileSync(mcpFileIn(root), 'utf8')); }
+
+/** One run the way the lifecycle drives an adapter: discover, plan, apply or remove, verify. The
+ * returned ledger drops the rows the plan removed or released and takes the MCP rows verify reports,
+ * as updateLedger does. */
+function runMcp(adapter, { root, mcp = [], mcpAdoptable = [], ledger = { resources: [] }, removing = false }) {
+  const input = { scope: 'project', scopeRoot: root, assets: MCP_ASSETS, mcp, mcpAdoptable, ledger, context: removing ? { operation: 'remove' } : {} };
+  const discovery = adapter.discover(input);
+  const planned = adapter.plan({ ...input, discovery });
+  if (!planned.conflicts.length) adapter[removing ? 'remove' : 'apply']({ changes: planned.changes });
+  const verified = adapter.verify({ ...input, discovery, operation: removing ? 'remove' : 'apply' });
+  const dropped = new Set(planned.changes.filter((change) => change.operation === 'remove').map((change) => change.ownershipIdentity));
+  const added = verified.resources.filter((resource) => resource.kind === 'mcp-server').map((resource) => ({ ...resource, harness: 'kiro' }));
+  const kept = ledger.resources.filter((row) => !dropped.has(row.ownershipIdentity) && !added.some((item) => item.ownershipIdentity === row.ownershipIdentity));
+  return { discovery, planned, verified, ledger: { resources: [...kept, ...added] } };
+}
+
+test('mcp: installs each selected server under its own row, never touching a hand-added server', () => {
   const root = scratch(); const adapter = createKiroAdapter();
-  const mcpFile = path.join(root, '.kiro', MCP_FILE_FOR_TEST());
-  fs.mkdirSync(path.dirname(mcpFile), { recursive: true });
-  fs.writeFileSync(mcpFile, JSON.stringify({ mcpServers: { handwritten: { command: 'my-own-server' } } }, null, 2));
-  const servers = [{ id: 'context7', command: 'npx', args: ['-y', '@upstash/context7-mcp'] }];
+  writeMcp(root, { mcpServers: { handwritten: USER_SERVER } });
 
-  const planned = adapter.plan({ scope: 'project', scopeRoot: root, assets: [{ id: 'guidance.context-layer' }], mcp: servers, context: {}, ledger: { resources: [] } });
-  const mcpChange = planned.changes.find((c) => c.projection?.renderer === 'kiro-mcp');
-  assert.ok(mcpChange, 'expected an mcp registration change');
-  adapter.apply({ changes: planned.changes });
-  const written = JSON.parse(fs.readFileSync(mcpFile, 'utf8'));
-  assert.deepEqual(written.mcpServers.handwritten, { command: 'my-own-server' });
-  assert.deepEqual(written.mcpServers.context7, { command: 'npx', args: ['-y', '@upstash/context7-mcp'] });
+  const first = runMcp(adapter, { root, mcp: [CONTEXT7] });
+  assert.deepEqual(first.planned.conflicts, []);
+  assert.deepEqual(readMcp(root).mcpServers, { handwritten: USER_SERVER, context7: { command: 'npx', args: ['-y', '@upstash/context7-mcp'] } });
+  assert.deepEqual(first.ledger.resources.map((row) => [row.ownershipIdentity, row.kind, row.identity, row.target]),
+    [['doflow:kiro:mcp-server:context7', 'mcp-server', 'context7', mcpFileIn(root)]]);
+  assert.equal(first.verified.ok, true);
 
-  const verified = adapter.verify({ scope: 'project', scopeRoot: root, assets: [{ id: 'guidance.context-layer' }], mcp: servers, context: {} });
-  assert.equal(verified.ok, true);
-  assert.ok(verified.resources.find((r) => r.identity === 'context7'));
+  const again = runMcp(adapter, { root, mcp: [CONTEXT7], ledger: first.ledger });
+  assert.deepEqual(again.discovery.mcpOwned, ['context7']);
+  assert.deepEqual(again.planned.changes.filter((change) => change.kind === 'mcp-server'), [], 'a re-plan after apply changes nothing');
 
-  const removal = adapter.plan({ scope: 'project', scopeRoot: root, assets: [{ id: 'guidance.context-layer' }], mcp: servers, context: { operation: 'remove' } });
-  adapter.remove({ changes: removal.changes });
-  const afterRemoval = JSON.parse(fs.readFileSync(mcpFile, 'utf8'));
-  assert.deepEqual(afterRemoval.mcpServers, { handwritten: { command: 'my-own-server' } });
+  const removed = runMcp(adapter, { root, ledger: again.ledger, removing: true });
+  assert.deepEqual(readMcp(root), { mcpServers: { handwritten: USER_SERVER } });
+  assert.deepEqual(removed.ledger.resources, []);
 });
 
-function MCP_FILE_FOR_TEST() { return path.join('settings', 'mcp.json'); }
-
-test('invalid mcp.json blocks planning but never mutates the file', () => {
+test('A3 kiro: a narrower selection removes the deselected owned entry, and none removes every owned entry', () => {
   const root = scratch(); const adapter = createKiroAdapter();
-  const mcpFile = path.join(root, '.kiro', 'settings', 'mcp.json');
-  fs.mkdirSync(path.dirname(mcpFile), { recursive: true });
-  fs.writeFileSync(mcpFile, '{ broken');
-  const planned = adapter.plan({ scope: 'project', scopeRoot: root, assets: [{ id: 'guidance.context-layer' }], mcp: [{ id: 'context7', command: 'npx' }], context: {} });
-  assert.match(planned.conflicts[0], /Invalid JSON/);
-  assert.equal(fs.readFileSync(mcpFile, 'utf8'), '{ broken');
+  writeMcp(root, { otherKey: true });
+  const both = runMcp(adapter, { root, mcp: [CONTEXT7, SEQUENTIAL] });
+  assert.deepEqual(Object.keys(readMcp(root).mcpServers), ['context7', 'sequential-thinking']);
+
+  const narrower = runMcp(adapter, { root, mcp: [SEQUENTIAL], ledger: both.ledger });
+  assert.deepEqual(Object.keys(readMcp(root).mcpServers), ['sequential-thinking']);
+  assert.deepEqual(narrower.ledger.resources.map((row) => row.identity), ['sequential-thinking']);
+
+  const none = runMcp(adapter, { root, mcp: [], ledger: narrower.ledger });
+  assert.deepEqual(readMcp(root), { otherKey: true }, 'the emptied mcpServers member is deleted; every other key stays');
+  assert.deepEqual(none.ledger.resources, []);
+});
+
+test('A4 kiro: rows recorded as kiro:mcp:<id> are replaced on install and dropped on remove', () => {
+  const root = scratch(); const adapter = createKiroAdapter();
+  const entries = { context7: { command: 'npx', args: ['-y', '@upstash/context7-mcp'] },
+    'sequential-thinking': { command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] } };
+  writeMcp(root, { mcpServers: { ...entries, 'user-server': USER_SERVER } });
+  const before = fs.readFileSync(mcpFileIn(root));
+  const legacy = { resources: Object.entries(entries).map(([id, entry]) => ({
+    harness: 'kiro', scope: 'project', assetId: 'guidance.context-layer', target: mcpFileIn(root),
+    ownershipIdentity: `kiro:mcp:${id}`, identity: id, fingerprint: entryFingerprint(entry),
+  })) };
+
+  const installed = runMcp(adapter, { root, mcp: [CONTEXT7, SEQUENTIAL], ledger: legacy });
+  assert.deepEqual(installed.planned.changes.map((change) => [change.ownershipIdentity, change.operation, change.release ?? false]),
+    [['kiro:mcp:context7', 'remove', true], ['kiro:mcp:sequential-thinking', 'remove', true]]);
+  assert.deepEqual(fs.readFileSync(mcpFileIn(root)), before, 'replacing the rows writes nothing');
+  assert.deepEqual(installed.ledger.resources.map((row) => row.ownershipIdentity),
+    ['doflow:kiro:mcp-server:context7', 'doflow:kiro:mcp-server:sequential-thinking']);
+
+  const removed = runMcp(adapter, { root, ledger: legacy, removing: true });
+  assert.deepEqual(removed.planned.changes.map((change) => [change.ownershipIdentity, change.release ?? false]),
+    [['kiro:mcp:context7', false], ['kiro:mcp:sequential-thinking', false]]);
+  assert.deepEqual(readMcp(root).mcpServers, { 'user-server': USER_SERVER });
+  assert.deepEqual(removed.ledger.resources, []);
+});
+
+test('A5 kiro: a same-named user entry is kept through install and remove', () => {
+  const root = scratch(); const adapter = createKiroAdapter();
+  writeMcp(root, { mcpServers: { context7: USER_SERVER } });
+  const before = fs.readFileSync(mcpFileIn(root));
+
+  const installed = runMcp(adapter, { root, mcp: [CONTEXT7] });
+  assert.deepEqual(installed.planned.changes.filter((change) => change.kind === 'mcp-server'), []);
+  assert.deepEqual(installed.planned.notices,
+    ["MCP: kept your own entry 'context7' in mcp.json and did not register DoFlow's; rename or remove yours to let DoFlow manage it."]);
+  assert.equal(installed.verified.statuses.mcp[0].status, 'not-managed');
+  assert.deepEqual(installed.ledger.resources, []);
+
+  runMcp(adapter, { root, ledger: installed.ledger, removing: true });
+  assert.deepEqual(fs.readFileSync(mcpFileIn(root)), before);
+});
+
+test('A6 kiro: a malformed mcp.json is an install conflict and a remove release, and is never written', () => {
+  const root = scratch(); const adapter = createKiroAdapter();
+  const owned = runMcp(adapter, { root, mcp: [CONTEXT7] });
+  writeMcp(root, '{ "mcpServers": { "secret-value": ');
+
+  const installed = runMcp(adapter, { root, mcp: [CONTEXT7], ledger: owned.ledger });
+  assert.deepEqual(installed.planned.conflicts, [`Kiro MCP: ${mcpFileIn(root)}: invalid JSON; DoFlow did not change the file`]);
+  assert.deepEqual(installed.planned.changes.filter((change) => change.kind === 'mcp-server'), []);
+  assert.equal(installed.planned.surfaces.mcp.status, 'blocked');
+
+  const removed = runMcp(adapter, { root, ledger: owned.ledger, removing: true });
+  assert.deepEqual(removed.planned.changes.map((change) => [change.ownershipIdentity, change.release]), [['doflow:kiro:mcp-server:context7', true]]);
+  assert.match(removed.planned.notices[0], /^MCP: left .*mcp\.json untouched because it cannot be edited safely/);
+  assert.equal(fs.readFileSync(mcpFileIn(root), 'utf8'), '{ "mcpServers": { "secret-value": ');
+  assert.deepEqual(removed.ledger.resources, []);
 });
 
 test('hooks surface reports supported with no hooks asset selected, and installs nothing', () => {

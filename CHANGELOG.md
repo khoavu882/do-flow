@@ -13,6 +13,28 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.19.0] - 2026-10-07
+
+### Changed
+
+- The lifecycle store moved from `agent-docs/lifecycle/events/` to `.doflow/state/lifecycle/events/` at the repository root. It is local to the machine and not shared; DoFlow still never stages, commits or pushes it and adds no ignore rule. The first `followup`, `lifecycle`, `goal` or `failure --action settle --as imported` command copies an existing store once and leaves the old folder untouched; a marker, `.doflow/state/lifecycle/migrated.json`, records the copy so the old folder is never read again. Every lifecycle command prints a line saying the old folder can be deleted for as long as it exists. A failed copy exits 1 with `store-migration-failed`, changes nothing, and the next command retries.
+- `--mcp` now applies to every targeted harness that takes MCP servers and is recorded per harness in `doflow.lock`; `update` reuses each harness's own selection. A non-interactive run with no `--mcp` takes, per harness, the selection recorded in `doflow.lock`, else the servers an installed harness already has, else none, so a Pi, Kiro, OpenCode, Copilot or Antigravity install no longer registers the whole catalog by default.
+- `remove` now deletes the MCP entries DoFlow owns for Claude, Kiro, OpenCode, Copilot and Antigravity, and a narrower `--mcp` removes the deselected servers from them; entries you wrote or edited stay.
+- Pi removes the MCP entries it owns when the selection is empty and no longer prints the selection notice.
+- `install` and `update` print one `MCP selection:` line naming each harness's servers and where the selection came from.
+- `update` no longer backs up a target whose only changes are MCP entries.
+- `status` prints an `MCP selections:` line with each harness's recorded selection, and `status --json` reports them under `mcpSelections`.
+
+### Added
+
+- `DOFLOW_RETENTION_HOURS`: set to a positive whole number of hours, each lifecycle command removes the event files of settled follow-ups and goals whose newest event is older, never open, taken or unfinished ones, and prints one stderr count line. Unset keeps everything; an invalid value warns and removes nothing. Run state and the old `agent-docs/lifecycle/` folder are never cleaned.
+- `doflow.lock` keeps the rows of harnesses a run did not target, and a harness leaves it only when its last owned resource is removed.
+- `reconcile` warns about a harness installed in the ledger but missing from the lock, and `--json` lists it under `unpinned`.
+
+### Fixed
+
+- Claude, Kiro, OpenCode, Copilot and Antigravity MCP entries are owned per server through ledger rows, so a same-named entry you added is never overwritten, taken over or deleted. DoFlow takes over an unrowed entry only when a 1.18.0 install recorded writing it, and a run that changes no file still records the entries DoFlow owns and says so.
+
 ## [1.18.0] - 2026-10-06
 
 ### Added

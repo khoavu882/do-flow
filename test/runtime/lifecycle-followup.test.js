@@ -169,7 +169,7 @@ test('add: a batch with any invalid item writes nothing and names every invalid 
     && /item 4 must be an object/.test(error.message) && /item 5: statement must be one line/.test(error.message)
     && !/item 1/.test(error.message));
   assert.equal(eventCount(root), 0);
-  assert.equal(fs.existsSync(path.join(root, 'agent-docs')), false, 'a refused batch creates no folder');
+  assert.equal(fs.existsSync(path.join(root, '.doflow', 'state', 'lifecycle')), false, 'a refused batch creates no folder');
 });
 
 test('add: readBatchFile reads a JSON array and refuses anything else', () => {
@@ -204,7 +204,7 @@ test('list: defaults to open; reads of an empty store give an empty list and cre
   const root = plainRoot();
   const empty = listFollowups({ root });
   assert.deepEqual([empty.ok, empty.state, empty.count, empty.items], [true, 'open', 0, []]);
-  assert.equal(fs.existsSync(path.join(root, 'agent-docs')), false);
+  assert.equal(fs.existsSync(path.join(root, '.doflow', 'state', 'lifecycle')), false);
   const a = add(root, 'first').created[0].id;
   const b = add(root, 'second').created[0].id;
   settleFollowups({ root, ids: b, as: 'dismissed', reason: 'noise' });
@@ -274,7 +274,7 @@ test('a refused take or settle on a fresh project leaves no store folder behind'
   const root = plainRoot();
   assert.equal(takeFollowups({ root, ids: 'FU-aaaaaa', slug: '050-demo' }).ok, false);
   assert.equal(settleFollowups({ root, ids: 'FU-aaaaaa', as: 'kept', reason: 'x' }).ok, false);
-  assert.equal(fs.existsSync(path.join(root, 'agent-docs')), false);
+  assert.equal(fs.existsSync(path.join(root, '.doflow', 'state', 'lifecycle')), false);
 });
 
 test('take: one illegal id refuses the whole call', () => {

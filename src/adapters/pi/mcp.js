@@ -32,16 +32,6 @@ function sha256(text) { return crypto.createHash('sha256').update(text).digest('
 
 function shorten(name) { return name.length > 40 ? `${name.slice(0, 37)}...` : name; }
 
-/** One line naming what a Pi install registers: a Pi-only run takes every catalog server, because
- * the CLI reads --mcp only when claude or codex is targeted too. */
-function selectionNotice(ids) {
-  const tail = '; --mcp narrows this only when claude or codex is also targeted.';
-  const head = 'MCP: servers selected for Pi: ';
-  let list = ids.join(', ');
-  if (head.length + list.length + tail.length > 200) list = `${list.slice(0, 197 - head.length - tail.length)}...`;
-  return `${head}${list}${tail}`;
-}
-
 function collisionNotice(key, id) {
   return `MCP: kept your own entry '${shorten(key)}' and did not register DoFlow's '${shorten(id)}'; rename or remove yours to let DoFlow manage it.`;
 }
@@ -98,6 +88,16 @@ function discoverPiMcp({ selected = [], rows = [], file, fsImpl = fs }) {
 
 function memberOf(doc, key) { return doc.servers?.members.find((member) => member.key === key) ?? null; }
 
+/** The servers DoFlow owns in Pi's mcp.json now: rows whose entry still holds the value they record. */
+function ownedPiMcpIds({ rows = [], snapshot = {} }) {
+  const owned = rows.filter((row) => {
+    const doc = snapshot[row.target]?.doc;
+    const member = doc?.ok ? memberOf(doc, row.identity) : null;
+    return member !== null && fingerprint(member.value) === row.fingerprint;
+  });
+  return [...new Set(owned.map((row) => row.identity))];
+}
+
 function twinOf(doc, key) {
   return doc.servers?.members.find((member) => member.key !== key && piServerKey(member.key) === piServerKey(key)) ?? null;
 }
@@ -126,7 +126,7 @@ function planPiMcp({ selected = [], rows = [], file, scope, removing = false, sn
   const changes = [];
   const conflicts = [];
   const notices = [];
-  if (!removing && !selected.length) return { changes, conflicts, notices };
+  if (!removing && !selected.length && !rows.length) return { changes, conflicts, notices };
   if (removing && !rows.length) return { changes, conflicts, notices };
   if (!assets.some((asset) => asset.id === ASSET_ID)) {
     return { changes, conflicts: [`Pi MCP needs the ${ASSET_ID} asset to record ownership`], notices };
@@ -144,8 +144,10 @@ function planPiMcp({ selected = [], rows = [], file, scope, removing = false, sn
 
   const matched = new Set();
   if (!removing) {
-    notices.push(selectionNotice(selected.map((server) => String(server.id))), NOTICES.surface, NOTICES.extension);
-    if (scope === 'project') notices.push(NOTICES.trust);
+    if (selected.length) {
+      notices.push(NOTICES.surface, NOTICES.extension);
+      if (scope === 'project') notices.push(NOTICES.trust);
+    }
     const doc = snapshot[file]?.doc ?? ABSENT_DOCUMENT;
     for (const server of selected) {
       const { entry: desired, refusal } = renderPiEntry(server);
@@ -359,7 +361,6 @@ function verifyPiMcp({ selected = [], rows = [], file, snapshot = {}, removing =
     if (!current[row.target].ok) status = 'not-managed';
     else if (!member) status = 'absent';
     else if (foreign(row.target, id) || fingerprint(member.value) !== row.fingerprint) status = 'not-managed';
-    else if (!removing && !selected.length) status = 'managed';
     else status = 'retained';
     statuses.push(statusFor({ id, target: row.target, status }));
     if (status === 'managed') resources.push(resourceFor({ id, target: row.target, value: member.value, origin: originFor(row.target, rows, snapshot) }));
@@ -367,4 +368,4 @@ function verifyPiMcp({ selected = [], rows = [], file, snapshot = {}, removing =
   return { statuses, resources, conflicts };
 }
 
-module.exports = { NOTICES, renderPiEntry, piServerKey, mcpRows, discoverPiMcp, planPiMcp, applyPiMcp, verifyPiMcp };
+module.exports = { NOTICES, renderPiEntry, piServerKey, mcpRows, discoverPiMcp, ownedPiMcpIds, planPiMcp, applyPiMcp, verifyPiMcp };

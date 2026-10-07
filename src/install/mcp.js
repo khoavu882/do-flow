@@ -1,21 +1,10 @@
 'use strict';
-// mcp.js — selectable MCP server install, written to Claude Code's REAL config locations (not a
-// generic file-copy target — .mcp.json under .claude/ is never read by Claude Code):
-//   global (-g)   -> ~/.claude.json's top-level `mcpServers` key
-//   project scope -> <projectRoot>/.mcp.json (sibling to .claude/, the project-root convention
-//                    Claude Code actually auto-discovers)
-// Both are read-merge-write, never a wholesale overwrite, and scan-then-append: only the server
-// names doflow itself ships in core/registry/mcp.json are added/removed by selection, and a
-// selected name already present keeps its existing definition rather than being reset to doflow's
-// shipped default (a user's hand-edited arg/env survives). Any server under a name doflow doesn't know
-// about — in either file — is left completely untouched regardless of selection. This matters
-// more for ~/.claude.json (also holds history/projects/credentials-adjacent state), but a
-// project's own .mcp.json can just as easily carry a hand-added or hand-edited server doflow must
-// not clobber.
-const fs = require('node:fs');
-const path = require('node:path');
+// mcp.js — MCP server selection: which of the registry's servers each harness gets, from --mcp,
+// the interactive checkbox, doflow.lock, the ledger or a 1.18.0 manifest. Writing a harness's MCP
+// file is that harness's adapter's job (src/adapters/<id>/), never this module's.
 const { readSyncBlocking } = require('../helper/prompt');
-const { selectMcpServers, nativeMcpCatalog } = require('../registry');
+const { selectMcpServers, nativeMcpCatalog, mcpCapable } = require('../registry');
+const { pinnedSelections } = require('../state/lockfile');
 
 const ESC = String.fromCharCode(27);
 const CTRL_C = String.fromCharCode(3);
@@ -26,150 +15,140 @@ function readAllServers(registry) {
   return nativeMcpCatalog(selectMcpServers(registry)).allServers;
 }
 
-/** @param {object} registry a loaded registry (src/registry#loadRegistry)
- *  @returns {{[name:string]: object}} only the selected server definitions, source key order */
-function filterServerDefs(registry, allServers, selected) {
-  const { serverDefs } = nativeMcpCatalog(selectMcpServers(registry));
-  const out = {};
-  for (const name of allServers) {
-    if (selected.includes(name)) out[name] = serverDefs[name];
-  }
-  return out;
-}
-
-/**
- * Merge selected server defs into an existing mcpServers object, touching only the names doflow
- * ships (`knownServerNames`). A known name not present in `serverDefs` (deselected) is removed.
- * A known name that's selected AND already present is left as-is — scan-then-append, not
- * overwrite — so a definition the user hand-edited (a different arg, an extra env var) survives
- * an install/update instead of being silently reset to doflow's shipped default; doflow's default
- * is only written the first time a name is newly selected. Every other key — including a server
- * under a name doflow doesn't recognize — passes through untouched.
- */
-function mergeKnownServers(existingMcpServers, knownServerNames, serverDefs) {
-  const merged = { ...existingMcpServers };
-  for (const name of knownServerNames) {
-    if (name in serverDefs) {
-      if (!(name in merged)) merged[name] = serverDefs[name];
-    } else {
-      delete merged[name];
+/** Parse `--mcp`: `all` and `none` are keywords that cannot be mixed with names or each other, an
+ * empty list and an unknown name are errors, names are deduplicated. `null` when the flag is absent. */
+function parseMcpFlag(requested, catalogIds) {
+  if (!requested) return null;
+  const keywords = requested.filter((s) => s === 'all' || s === 'none');
+  if (keywords.length) {
+    if (keywords.length !== requested.length) {
+      throw new Error(`--mcp keyword '${keywords[0]}' cannot be combined with server names`);
     }
-  }
-  return merged;
-}
-
-/**
- * Read a JSON file doflow does not fully own, refusing to proceed if it exists but fails to
- * parse — silently treating a malformed file as empty would mean the next write discards
- * whatever unrelated content it held. Failing loudly costs the user one retry after fixing the
- * file; failing silently costs them data with no recovery path (this path isn't backed up).
- */
-function readJsonOrThrow(file) {
-  if (!fs.existsSync(file)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (e) {
-    throw new Error(`Refusing to touch malformed ${file} (${e.message}) — fix or remove it, then retry. doflow merges into this file and will not risk overwriting content it can't parse.`);
-  }
-}
-
-/**
- * Project scope: read-merge-write <projectRoot>/.mcp.json, same "known keys only" semantics as
- * mergeGlobalMcpServers — a hand-added project MCP server doflow doesn't ship must survive.
- * @returns {string} the path written
- */
-function writeProjectMcpJson(projectRoot, knownServerNames, serverDefs) {
-  const dest = path.join(projectRoot, '.mcp.json');
-  const data = readJsonOrThrow(dest);
-  data.mcpServers = mergeKnownServers(data.mcpServers || {}, knownServerNames, serverDefs);
-  fs.writeFileSync(dest, `${JSON.stringify(data, null, 2)}\n`);
-  return dest;
-}
-
-/**
- * Global scope: ~/.claude.json is a shared, multi-purpose state file (history, projects,
- * credentials-adjacent references) doflow does not own — read-merge-write, touching only the
- * `mcpServers` keys that match a name doflow itself ships in core/registry/mcp.json. Every other key in
- * the file, including any MCP server the user registered themselves via `claude mcp add`, is left
- * untouched.
- * @returns {string} the path written
- */
-function mergeGlobalMcpServers(homeDir, knownServerNames, serverDefs) {
-  const file = path.join(homeDir, '.claude.json');
-  const data = readJsonOrThrow(file);
-  data.mcpServers = mergeKnownServers(data.mcpServers || {}, knownServerNames, serverDefs);
-
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = path.join(path.dirname(file), `.claude-${process.pid}-${Date.now()}.json.tmp`);
-  fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, { flag: 'wx' });
-  fs.renameSync(tmp, file);
-  return file;
-}
-
-/**
-  * Decide which MCP servers to install, in precedence order:
-  *   1. --mcp <list>|all|none — explicit, always wins, always persisted ('all'/'none' are
-  *                              keywords and cannot be mixed with server names)
-  *   2. interactive checkbox  — install only, real TTY, no --force/--dry-run
-  *   3. remembered manifest   — update (or a forced/non-interactive install) reuses the last pick
-  *   4. none                  — first-ever install without a TTY defaults to an EMPTY selection
-  *                              (safe by default: third-party servers are opt-in). Interactive
-  *                              installs still get the checkbox pre-seeded with the catalog.
- * `promptFn` is injected so this stays unit-testable without a real TTY.
- * @param {{cmd:string, requested:string[]|null, allServers:string[], manifestServers:string[]|null,
- *           interactive:boolean, promptFn:(servers:string[], seed:string[])=>string[]|null}} p
- * @returns {string[]}
- */
-function resolveMcpSelection({ cmd, requested, allServers, manifestServers, interactive, promptFn, onStale }) {
-  if (requested) {
-    const keywords = requested.filter((s) => s === 'all' || s === 'none');
-    if (keywords.length) {
-      if (keywords.length !== requested.length) {
-        throw new Error(`--mcp keyword '${keywords[0]}' cannot be combined with server names`);
-      }
-      if (new Set(requested).size > 1) {
-        throw new Error("Choose either '--mcp all' or '--mcp none', not both");
-      }
-      return keywords[0] === 'all' ? [...allServers] : [];
+    if (new Set(requested).size > 1) {
+      throw new Error("Choose either '--mcp all' or '--mcp none', not both");
     }
-    if (requested.length === 0) {
-      throw new Error("--mcp requires at least one server; use '--mcp none' for an explicit empty selection");
-    }
-    const invalid = requested.filter((s) => !allServers.includes(s));
-    if (invalid.length) {
-      throw new Error(`Unknown MCP server(s): ${invalid.join(', ')} (valid: ${allServers.join(', ')})`);
-    }
-    return [...new Set(requested)];
+    return keywords[0] === 'all' ? [...catalogIds] : [];
+  }
+  if (requested.length === 0) {
+    throw new Error("--mcp requires at least one server; use '--mcp none' for an explicit empty selection");
+  }
+  const invalid = requested.filter((s) => !catalogIds.includes(s));
+  if (invalid.length) {
+    throw new Error(`Unknown MCP server(s): ${invalid.join(', ')} (valid: ${catalogIds.join(', ')})`);
+  }
+  return [...new Set(requested)];
+}
+
+const holdsRows = (ledger, harness) => (ledger?.resources ?? []).some((row) => row.harness === harness);
+
+/** Ids of `lists` that the catalog still declares, as one union in registry order. */
+const catalogUnion = (catalogIds, lists) => catalogIds.filter((id) => lists.some((ids) => ids.includes(id)));
+
+/** 1.18.0 wrote lock rows only for claude and codex, and only non-empty ones. Any other row was
+ * written by a later run, which already settled which of that harness's entries are DoFlow's. */
+const LEGACY_LOCK_HARNESSES = ['claude', 'codex'];
+
+function settledByLaterRun(rows, harness) {
+  return harness in rows && (!LEGACY_LOCK_HARNESSES.includes(harness) || rows[harness].length === 0);
+}
+
+/** The servers a 1.18.0 install recorded writing for this harness, from state no later run writes:
+ * the manifest's MCP list, Antigravity's rows that carry no fingerprint, and Copilot's whole-map
+ * registration row, which covers the manifest's list or, with none, the catalog 1.18.0 wrote. */
+function legacyRecordedIds({ catalogIds, ledger, harness, manifestServers }) {
+  const rows = (ledger?.resources ?? []).filter((row) => row.harness === harness);
+  const ids = [...(manifestServers ?? [])];
+  for (const row of rows) if (row.kind === 'mcp-server' && (row.fingerprint ?? null) === null) ids.push(row.identity);
+  if (!manifestServers && rows.some((row) => row.ownershipIdentity === `${harness}:mcp:registration`)) ids.push(...catalogIds);
+  return catalogUnion(catalogIds, [ids]);
+}
+
+/** Per MCP-capable harness, the servers DoFlow may adopt when their entries already equal its own:
+ * only what a 1.18.0 install recorded for a harness the ledger holds, and only until a later run
+ * has recorded the harness's own selection. An entry a user wrote is never adoptable merely because
+ * DoFlow installed something else for that harness. Retired ids are dropped. */
+function adoptableMcpIds({ registry, lock, ledger, harnesses, manifestServers = null }) {
+  const catalogIds = readAllServers(registry);
+  const rows = pinnedSelections(lock);
+  return Object.fromEntries(harnesses.filter((harness) => mcpCapable(registry, harness)).map((harness) => {
+    if (!holdsRows(ledger, harness) || settledByLaterRun(rows, harness)) return [harness, []];
+    return [harness, legacyRecordedIds({ catalogIds, ledger, harness, manifestServers })];
+  }));
+}
+
+/** Servers another harness of this scope still has recorded: the union of the lock rows of the lock's
+ * harnesses that are not targeted, registry order. */
+function retainedMcpIds(catalogIds, rows, targets) {
+  return catalogUnion(catalogIds, Object.entries(rows).filter(([harness]) => !targets.includes(harness)).map(([, ids]) => ids));
+}
+
+/**
+ * Decide each targeted MCP-capable harness's servers. Per harness, the first step that applies:
+ *   1. --mcp <list>|all|none  -> the parsed ids                                        (flag)
+ *   2. install on a real TTY  -> one checkbox for every harness; a null answer falls through (prompt)
+ *   3. a lock row             -> that row                                              (recorded)
+ *   4. ledger rows            -> 'keep': the servers the harness owns now               (kept)
+ *   5. a 1.18.0 manifest list -> that list                                             (manifest)
+ *   6. otherwise              -> none                                                  (default)
+ * Lock and manifest ids the registry retired are dropped and reported once through `onStale`; an
+ * explicit --mcp naming one stays an error. Pure apart from `promptFn` and `onStale`.
+ */
+function resolveMcpSelections({
+  cmd, requested, targets, registry, lock, ledger, manifestServers = null, interactive = false, promptFn, onStale,
+}) {
+  const catalogIds = readAllServers(registry);
+  const flagged = parseMcpFlag(requested, catalogIds);
+  const rows = pinnedSelections(lock);
+  const capable = targets.filter((harness) => mcpCapable(registry, harness));
+  const retired = new Set();
+  const known = (ids) => {
+    for (const id of ids) if (!catalogIds.includes(id)) retired.add(id);
+    return catalogUnion(catalogIds, [ids]);
+  };
+
+  let prompted = null;
+  if (!flagged && cmd === 'install' && interactive && capable.length) {
+    const recorded = capable.filter((harness) => harness in rows).map((harness) => rows[harness]);
+    const seed = recorded.length ? catalogUnion(catalogIds, recorded.map(known))
+      : manifestServers ? known(manifestServers) : [...catalogIds];
+    prompted = promptFn(catalogIds, seed);
   }
 
-  // `requested` is user intent, so an unknown name above is a typo and must be fatal. The manifest
-  // selection is *persisted resolved state* (see src/manifest.js), so an id the registry no longer
-  // declares means the project retired that server between installs — a normal upgrade, not user
-  // error. Passing it through unfiltered reached selectMcpServers() in src/registry/index.js,
-  // which throws, so removing chrome-devtools and playwright from core/registry/mcp.json (d1bf9e8)
-  // made `install` and `update` fatally fail for every install predating that commit, with no hint
-  // that `--mcp <survivors>` was the way out. cmdStatus already tolerated the same state because
-  // it happens to wrap the call in try/catch; reconcile here so every caller behaves that way.
-  const remembered = manifestServers ?? null;
-  const known = remembered?.filter((s) => allServers.includes(s)) ?? null;
-  const retired = remembered?.filter((s) => !allServers.includes(s)) ?? [];
-  if (retired.length && onStale) onStale(retired);
+  const pick = (harness) => {
+    if (flagged) return [flagged, 'flag'];
+    if (prompted !== null) return [prompted, 'prompt'];
+    if (harness in rows) return [known(rows[harness]), 'recorded'];
+    if (holdsRows(ledger, harness)) return ['keep', 'kept'];
+    if (manifestServers) return [known(manifestServers), 'manifest'];
+    return [[], 'default'];
+  };
+  const selections = {};
+  const sources = {};
+  for (const harness of capable) [selections[harness], sources[harness]] = pick(harness);
+  for (const [harness, ids] of Object.entries(rows)) if (!targets.includes(harness)) known(ids);
+  if (retired.size && onStale) onStale([...retired].sort());
 
-  if (cmd === 'install' && interactive) {
-    // Seed the checkbox from reconciled state too — pre-ticking a server that no longer exists
-    // would offer the user a choice the registry cannot honor.
-    const seed = known ?? allServers;
-    const picked = promptFn(allServers, seed);
-    if (picked !== null) return picked; // [] is a deliberate "no servers" choice, honored as-is
-  }
+  return {
+    selections,
+    sources,
+    adoptable: adoptableMcpIds({ registry, lock, ledger, harnesses: capable, manifestServers }),
+    retainedMcpIds: retainedMcpIds(catalogIds, rows, targets),
+  };
+}
 
-  // An explicitly empty remembered selection stays empty: the user chose "no servers", and a
-  // catalog reshuffle must not resurrect third-party processes behind their back. Likewise the
-  // first-ever non-interactive default is now NONE — third-party servers are opt-in
-  // (--mcp all|<names>); interactive installs remain the discovery path via the pre-seeded
-  // checkbox above.
-  if (known && known.length === 0) return [];
-  return known ?? [];
+/** The selections a scope has recorded, for readers that never prompt (reconcile, status, inventory):
+ * each targeted MCP-capable harness's lock row, or 'keep' when the lock has none. Retired ids are
+ * dropped silently. */
+function recordedMcpSelections({ registry, lock, ledger, targets, manifestServers = null }) {
+  const catalogIds = readAllServers(registry);
+  const rows = pinnedSelections(lock);
+  const capable = targets.filter((harness) => mcpCapable(registry, harness));
+  return {
+    selections: Object.fromEntries(capable.map((harness) => [harness,
+      harness in rows ? catalogUnion(catalogIds, [rows[harness]]) : 'keep'])),
+    adoptable: adoptableMcpIds({ registry, lock, ledger, harnesses: capable, manifestServers }),
+    retainedMcpIds: retainedMcpIds(catalogIds, rows, targets),
+  };
 }
 
 const KEY = {
@@ -262,9 +241,9 @@ function promptMcpCheckbox(servers, initialSelected, message = 'Select MCP serve
 
 module.exports = {
   readAllServers,
-  filterServerDefs,
-  writeProjectMcpJson,
-  mergeGlobalMcpServers,
-  resolveMcpSelection,
+  parseMcpFlag,
+  resolveMcpSelections,
+  recordedMcpSelections,
+  adoptableMcpIds,
   promptMcpCheckbox,
 };

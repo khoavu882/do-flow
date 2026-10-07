@@ -194,6 +194,21 @@ test('retention is decided per ownership row, not per harness', () => {
   assert.deepEqual(alpha.changes[1].retainedFor, ['beta']);
 });
 
+test('P4: an MCP entry removal is retained only while another harness claims that same entry', () => {
+  // Claude and Copilot share <project>/.mcp.json. A claim on an MCP entry is per entry, so Copilot
+  // keeps an entry Claude also owns, and still removes one only Copilot owns although Claude owns
+  // another entry in the same file.
+  const file = '/p/.mcp.json';
+  const mcpRow = (harness, id) => ({ harness, scope: 'project', assetId: 'guidance.core', target: file,
+    ownershipIdentity: `doflow:${harness}:mcp-server:${id}`, kind: 'mcp-server', identity: id });
+  const ledger = { ...defaultLedger({ scope: 'project', scopeRoot: '/p' }),
+    resources: [mcpRow('claude', 'context7'), mcpRow('claude', 'sequential-thinking'), mcpRow('copilot', 'context7'), mcpRow('copilot', 'playwright')] };
+  const removal = (id) => ({ ...mcpRow('copilot', id), operation: 'remove' });
+  const [copilot] = markRetainedRemovals([{ harness: 'copilot', skipped: false, changes: [removal('context7'), removal('playwright')] }], ledger, 'project');
+  assert.deepEqual(copilot.changes.map((change) => [change.identity, change.retained ?? false]), [['context7', true], ['playwright', false]]);
+  assert.deepEqual(copilot.changes[0].retainedFor, ['claude']);
+});
+
 test('a non-removal change is never annotated, and a plan with nothing shared is untouched', () => {
   const harnessPlans = [{ harness: 'alpha', skipped: false, changes: [{ harness: 'alpha', assetId: 'a', target: '/p/x', ownershipIdentity: 'alpha:x', operation: 'create' }] }];
   const ledger = { ...defaultLedger({ scope: 'project', scopeRoot: '/p' }),

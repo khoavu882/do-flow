@@ -169,13 +169,16 @@ the same dispatcher as every other verb, so a skill calls `doflow-run followup` 
 else. `/do maintain` is the entry in the `do` skill that walks the open items; it adds no skill and no task class.
 
 **The store is a folder of events, not a file.** Each change writes one small JSON file under
-`agent-docs/lifecycle/events/`, created once and never edited, renamed or deleted. There is no
-marker file and no running state: every read lists the events, orders them by time and id, and
-folds them into the current picture. Two clones that hold the same files therefore produce the same
-answer, and two people recording at the same time never write the same file. The price is that a
-read grows with the number of events, which is small for this use. A transition that is illegal at
-its place in the order, such as taking an item that was dismissed, is refused on write and listed as
-a conflict if it arrives from another clone.
+`.doflow/state/lifecycle/events/`, created once and never edited or renamed. The folder is local to
+this machine and not shared. Files are deleted only by the retention switch, `DOFLOW_RETENTION_HOURS`,
+which removes the files of settled items older than the window it names; unset, nothing is deleted.
+Beside the events sit only a marker recording the one-time copy from the old `agent-docs/lifecycle/`
+folder and the retention switch's journal; there is no running state: every read lists the events,
+orders them by time and id, and folds them into the current picture. Two copies that hold the same files therefore produce
+the same answer, and two processes recording at the same time never write the same file. The price
+is that a read grows with the number of events, which is small for this use. A transition that is
+illegal at its place in the order, such as taking an item that was dismissed, is refused on write
+and listed as a conflict if it arrives in a copied file.
 
 **Derived versus recorded.** The store records what people and agents did: an item added, taken,
 settled or promoted, a feature tracked, a release recorded, a goal checked. It does not record a

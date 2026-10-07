@@ -1,281 +1,21 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
-const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const {
-  readAllServers, filterServerDefs, writeProjectMcpJson, mergeGlobalMcpServers, resolveMcpSelection,
-  promptMcpCheckbox,
+  readAllServers, promptMcpCheckbox, parseMcpFlag, resolveMcpSelections, recordedMcpSelections, adoptableMcpIds,
 } = require('../../src/install/mcp');
 const { loadRegistry } = require('../../src/registry');
 
 const REPO = path.resolve(__dirname, "../..");
 const registry = loadRegistry({ repoRoot: REPO });
 
-function scratchDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-mcp-'));
-}
-
 test('readAllServers returns the registry MCP catalog\'s server names in declaration order', () => {
   const servers = readAllServers(registry);
   assert.deepStrictEqual(servers, ['context7', 'sequential-thinking']);
 });
 
-test('filterServerDefs keeps only the selected servers, each with its full definition', () => {
-  const all = readAllServers(registry);
-  const defs = filterServerDefs(registry, all, ['context7', 'sequential-thinking']);
-  assert.deepStrictEqual(Object.keys(defs), ['context7', 'sequential-thinking']);
-  assert.strictEqual(defs.context7.command, 'npx');
-});
-
-test('writeProjectMcpJson writes {mcpServers} at the given root when no file exists yet', () => {
-  const dir = scratchDir();
-  const all = readAllServers(registry);
-  const defs = filterServerDefs(registry, all, ['context7']);
-  const dest = writeProjectMcpJson(dir, all, defs);
-  assert.strictEqual(dest, path.join(dir, '.mcp.json'));
-  const written = JSON.parse(fs.readFileSync(dest, 'utf8'));
-  assert.deepStrictEqual(Object.keys(written.mcpServers), ['context7']);
-});
-
-test('writeProjectMcpJson merges — a hand-added project server doflow does not ship must survive', () => {
-  const dir = scratchDir();
-  const dest = path.join(dir, '.mcp.json');
-  fs.writeFileSync(dest, JSON.stringify({ mcpServers: { 'my-project-server': { command: 'foo' }, context7: { command: 'old' } } }));
-
-  const all = readAllServers(registry);
-  const defs = filterServerDefs(registry, all, ['sequential-thinking']);
-  writeProjectMcpJson(dir, all, defs);
-
-  const result = JSON.parse(fs.readFileSync(dest, 'utf8'));
-  assert.ok(result.mcpServers['my-project-server'], 'a server doflow does not know about must survive');
-  assert.ok(!('context7' in result.mcpServers), 'a known server not in the new selection must be removed');
-  assert.ok(result.mcpServers['sequential-thinking'], 'the newly selected known server must be present');
-});
-
-test('writeProjectMcpJson preserves a reselected known server\'s existing (hand-edited) definition instead of resetting it to the shipped default', () => {
-  const dir = scratchDir();
-  const dest = path.join(dir, '.mcp.json');
-  fs.writeFileSync(dest, JSON.stringify({ mcpServers: { context7: { command: 'my-custom-wrapper', args: ['--extra-flag'] } } }));
-
-  const all = readAllServers(registry);
-  const defs = filterServerDefs(registry, all, ['context7']); // context7 reselected, still known+present
-  writeProjectMcpJson(dir, all, defs);
-
-  const result = JSON.parse(fs.readFileSync(dest, 'utf8'));
-  assert.deepStrictEqual(result.mcpServers.context7, { command: 'my-custom-wrapper', args: ['--extra-flag'] }, 'a hand-edited definition for an already-present known server must survive reselection, not reset to the shipped default');
-});
-
-test('writeProjectMcpJson refuses to touch a malformed existing .mcp.json rather than silently discarding it', () => {
-  const dir = scratchDir();
-  fs.writeFileSync(path.join(dir, '.mcp.json'), '{ not valid json');
-  const all = readAllServers(registry);
-  const defs = filterServerDefs(registry, all, ['context7']);
-  assert.throws(() => writeProjectMcpJson(dir, all, defs), /Refusing to touch malformed/);
-});
-
-test('mergeGlobalMcpServers refuses to touch a malformed ~/.claude.json rather than silently discarding it', () => {
-  const dir = scratchDir();
-  fs.writeFileSync(path.join(dir, '.claude.json'), '{ not valid json');
-  const all = readAllServers(registry);
-  const defs = filterServerDefs(registry, all, ['context7']);
-  assert.throws(() => mergeGlobalMcpServers(dir, all, defs), /Refusing to touch malformed/);
-  assert.strictEqual(fs.readFileSync(path.join(dir, '.claude.json'), 'utf8'), '{ not valid json', 'the malformed file itself must be left exactly as-is');
-});
-
-test('mergeGlobalMcpServers only touches known server keys, leaving unrelated ~/.claude.json state untouched', () => {
-  const dir = scratchDir();
-  const file = path.join(dir, '.claude.json');
-  fs.writeFileSync(file, JSON.stringify({
-    numStartups: 42,
-    userID: 'abc123',
-    mcpServers: { 'my-custom-server': { command: 'foo' }, context7: { command: 'old' } },
-  }));
-
-  const all = readAllServers(registry);
-  const defs = filterServerDefs(registry, all, ['sequential-thinking']);
-  mergeGlobalMcpServers(dir, all, defs);
-
-  const result = JSON.parse(fs.readFileSync(file, 'utf8'));
-  assert.strictEqual(result.numStartups, 42, 'unrelated top-level state must survive');
-  assert.strictEqual(result.userID, 'abc123', 'unrelated top-level state must survive');
-  assert.ok(result.mcpServers['my-custom-server'], 'a server doflow does not know about must survive');
-  assert.ok(!('context7' in result.mcpServers), 'a known server not in the new selection must be removed');
-  assert.ok(result.mcpServers['sequential-thinking'], 'the newly selected known server must be present');
-});
-
-test('mergeGlobalMcpServers preserves a reselected known server\'s existing (hand-edited) definition instead of resetting it to the shipped default', () => {
-  const dir = scratchDir();
-  const file = path.join(dir, '.claude.json');
-  fs.writeFileSync(file, JSON.stringify({
-    mcpServers: { context7: { command: 'my-custom-wrapper', args: ['--extra-flag'] } },
-  }));
-
-  const all = readAllServers(registry);
-  const defs = filterServerDefs(registry, all, ['context7']); // context7 reselected, still known+present
-  mergeGlobalMcpServers(dir, all, defs);
-
-  const result = JSON.parse(fs.readFileSync(file, 'utf8'));
-  assert.deepStrictEqual(result.mcpServers.context7, { command: 'my-custom-wrapper', args: ['--extra-flag'] }, 'a hand-edited definition for an already-present known server must survive reselection, not reset to the shipped default');
-});
-
-test('mergeGlobalMcpServers creates ~/.claude.json from scratch when absent', () => {
-  const dir = scratchDir();
-  const all = readAllServers(registry);
-  const defs = filterServerDefs(registry, all, all);
-  const file = mergeGlobalMcpServers(dir, all, defs);
-  assert.strictEqual(file, path.join(dir, '.claude.json'));
-  const result = JSON.parse(fs.readFileSync(file, 'utf8'));
-  assert.deepStrictEqual(Object.keys(result.mcpServers).sort(), [...all].sort());
-});
-
-test('resolveMcpSelection: --mcp <list> wins outright and dedupes', () => {
-  const all = ['a', 'b', 'c'];
-  const selected = resolveMcpSelection({
-    cmd: 'install', requested: ['a', 'a', 'b'], allServers: all, manifestServers: ['c'],
-    interactive: true, promptFn: () => { throw new Error('must not prompt when --mcp is given'); },
-  });
-  assert.deepStrictEqual(selected, ['a', 'b']);
-});
-
-test('resolveMcpSelection: --mcp rejects unknown server names', () => {
-  assert.throws(
-    () => resolveMcpSelection({ cmd: 'install', requested: ['bogus'], allServers: ['a', 'b'], manifestServers: null, interactive: false, promptFn: null }),
-    /Unknown MCP server\(s\): bogus/,
-  );
-});
-
-test('resolveMcpSelection: --mcp with an empty list is a hard error, not "keep all"', () => {
-  assert.throws(
-    () => resolveMcpSelection({ cmd: 'install', requested: [], allServers: ['a', 'b'], manifestServers: null, interactive: false, promptFn: null }),
-    /requires at least one server/,
-  );
-});
-
-test('resolveMcpSelection: install + interactive prompts, seeded with the manifest selection', () => {
-  const all = ['a', 'b', 'c'];
-  let seenSeed = null;
-  const selected = resolveMcpSelection({
-    cmd: 'install', requested: null, allServers: all, manifestServers: ['b'], interactive: true,
-    promptFn: (servers, seed) => { seenSeed = seed; return ['a']; },
-  });
-  assert.deepStrictEqual(seenSeed, ['b']);
-  assert.deepStrictEqual(selected, ['a']);
-});
-
-test('resolveMcpSelection: install + interactive, prompt returns [] (deliberate "no servers") is honored', () => {
-  const selected = resolveMcpSelection({
-    cmd: 'install', requested: null, allServers: ['a', 'b'], manifestServers: null, interactive: true,
-    promptFn: () => [],
-  });
-  assert.deepStrictEqual(selected, []);
-});
-
-test('resolveMcpSelection: install + interactive, prompt unavailable (null) selects nothing — no consent, no servers', () => {
-  const selected = resolveMcpSelection({
-    cmd: 'install', requested: null, allServers: ['a', 'b'], manifestServers: null, interactive: true,
-    promptFn: () => null,
-  });
-  assert.deepStrictEqual(selected, []);
-});
-
-// Regression: removing chrome-devtools and playwright from core/registry/mcp.json (d1bf9e8) made
-// `install` and `update` throw "Unknown registry MCP server(s)" for every install that had them in
-// its manifest — i.e. the upgrade path was broken for all pre-existing users, on both commands.
-// The asymmetry these tests pin down: `requested` is user intent (typo => fatal), the manifest is
-// persisted resolved state (retired server => reconcile).
-test('resolveMcpSelection: a manifest server the registry retired is dropped, not fatal', () => {
-  const dropped = [];
-  const selected = resolveMcpSelection({
-    cmd: 'update', requested: null, allServers: ['context7', 'sequential-thinking'],
-    manifestServers: ['context7', 'sequential-thinking', 'chrome-devtools', 'playwright'],
-    interactive: false, promptFn: null, onStale: (r) => dropped.push(...r),
-  });
-  assert.deepStrictEqual(selected, ['context7', 'sequential-thinking']);
-  assert.deepStrictEqual(dropped, ['chrome-devtools', 'playwright'], 'the drop must be reported, not silent');
-});
-
-test('resolveMcpSelection: reconciling a manifest works without an onStale callback', () => {
-  const selected = resolveMcpSelection({
-    cmd: 'install', requested: null, allServers: ['a'], manifestServers: ['a', 'gone'],
-    interactive: false, promptFn: null,
-  });
-  assert.deepStrictEqual(selected, ['a']);
-});
-
-test('resolveMcpSelection: an explicit --mcp naming a retired server is still fatal', () => {
-  assert.throws(
-    () => resolveMcpSelection({
-      cmd: 'update', requested: ['chrome-devtools'], allServers: ['context7'],
-      manifestServers: ['context7'], interactive: false, promptFn: null,
-    }),
-    /Unknown MCP server\(s\): chrome-devtools/,
-    'a typo in user-supplied intent must not be silently reconciled away',
-  );
-});
-
-test('resolveMcpSelection: a manifest whose every server was retired stays empty — the catalog is never resurrected', () => {
-  // The old behavior here re-added every catalog server behind the user's back. Servers are
-  // opt-in: once the remembered selection is empty (deliberately chosen or fully retired), it
-  // takes explicit intent (--mcp all|<names>) to bring any back.
-  const selected = resolveMcpSelection({
-    cmd: 'update', requested: null, allServers: ['a', 'b'], manifestServers: ['gone-1', 'gone-2'],
-    interactive: false, promptFn: null,
-  });
-  assert.deepStrictEqual(selected, []);
-});
-
-test('resolveMcpSelection: the interactive seed is reconciled, never pre-ticking a retired server', () => {
-  let seenSeed = null;
-  resolveMcpSelection({
-    cmd: 'install', requested: null, allServers: ['a', 'b'], manifestServers: ['a', 'retired'],
-    interactive: true, promptFn: (servers, seed) => { seenSeed = seed; return ['a']; },
-  });
-  assert.deepStrictEqual(seenSeed, ['a']);
-});
-
-test('resolveMcpSelection: update never prompts, even when interactive is true', () => {
-  const selected = resolveMcpSelection({
-    cmd: 'update', requested: null, allServers: ['a', 'b'], manifestServers: ['a'], interactive: true,
-    promptFn: () => { throw new Error('must not prompt on update'); },
-  });
-  assert.deepStrictEqual(selected, ['a']);
-});
-
-test('resolveMcpSelection: no flag, not interactive, no manifest yet -> defaults to none (safe by default)', () => {
-  const selected = resolveMcpSelection({
-    cmd: 'install', requested: null, allServers: ['a', 'b'], manifestServers: null,
-    interactive: false, promptFn: null,
-  });
-  assert.deepStrictEqual(selected, [], 'third-party servers must be opt-in for scripted installs');
-});
-
-test('resolveMcpSelection: --mcp all adopts the full catalog explicitly', () => {
-  const selected = resolveMcpSelection({
-    cmd: 'install', requested: ['all'], allServers: ['a', 'b'], manifestServers: null,
-    interactive: false, promptFn: null,
-  });
-  assert.deepStrictEqual(selected, ['a', 'b']);
-});
-
-test('resolveMcpSelection: --mcp none persists an explicit empty selection', () => {
-  const selected = resolveMcpSelection({
-    cmd: 'update', requested: ['none'], allServers: ['a', 'b'], manifestServers: ['a'],
-    interactive: false, promptFn: null,
-  });
-  assert.deepStrictEqual(selected, []);
-});
-
-test('resolveMcpSelection: keywords cannot be mixed with names or with each other', () => {
-  const base = { cmd: 'install', allServers: ['a', 'b'], manifestServers: null, interactive: false, promptFn: null };
-  assert.throws(() => resolveModelRoleGuard(base, ['all', 'a']));
-  assert.throws(() => resolveModelRoleGuard(base, ['none', 'b']));
-  assert.throws(() => resolveModelRoleGuard(base, ['all', 'none']), /not both/);
-});
-function resolveModelRoleGuard(base, requested) {
-  return resolveMcpSelection({ ...base, requested });
-}
+// Writing Claude's MCP files is the Claude adapter's job: test/adapters/claude/claude-mcp.test.js.
 
 test('promptMcpCheckbox returns [] immediately for an empty server list, never entering the raw-mode read loop', () => {
   // Regression test: the cursor-movement math (`(cursor - 1 + servers.length) % servers.length`)
@@ -296,50 +36,150 @@ test('promptMcpCheckbox returns [] immediately for an empty server list, never e
   }
 });
 
-// ── resolveMcpForTool's `recorded`, and the note install prints from it ────────────────────────
-
-test('resolveMcpForTool reports the recorded selection so an unchanged one can be named', () => {
-  // `changed` alone cannot carry this: it is false both when a returning install matches the
-  // manifest and when a first-ever install happens to select the whole catalog, because the
-  // baseline falls back to allServers when no manifest exists. Only the first is "unchanged from
-  // the recorded selection", and install.js prints that note off `recorded` for exactly that reason.
-  const { resolveMcpForTool } = require('../../src/cli/shared');
-  const { writeManifest } = require('../../src/install/manifest');
-  const registry = loadRegistry({ repoRoot: path.resolve(__dirname, '../..') });
-  const all = readAllServers(registry);
-  assert.ok(all.length >= 2, 'this test needs at least two servers in the catalog');
-
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-mcp-note-'));
-  const claudeDir = path.join(home, '.claude');
-  fs.mkdirSync(claudeDir, { recursive: true });
-  const dirs = { claude: claudeDir };
-  const scope = { global: false, projectRoot: home };
-
-  // First-ever install: no manifest, so nothing is recorded even when the selection is everything.
-  const first = resolveMcpForTool({ o: { mcp: all, dryRun: true, force: true }, dirs, scope, cmd: 'install', registry });
-  assert.equal(first.recorded, null, 'no manifest means no recorded selection');
-  assert.equal(first.changed, false, 'and changed is false against the allServers baseline');
-
-  // Record a selection, then ask for the same one explicitly — the case a redundant --mcp produces.
-  writeManifest({
-    scopeRoot: home, scriptVersion: 'test', operation: 'install', repoRoot: home,
-    tools: ['claude'], date: new Date(), sourceCommit: 'test', mcpServers: [all[0]],
-  });
-  const again = resolveMcpForTool({ o: { mcp: [all[0]], dryRun: true, force: true }, dirs, scope, cmd: 'install', registry });
-  assert.deepEqual(again.recorded, [all[0]], 'the prior selection is reported');
-  assert.equal(again.changed, false, 'asking for what was recorded changes nothing');
-
-  // A different selection must not read as unchanged.
-  const different = resolveMcpForTool({ o: { mcp: [all[1]], dryRun: true, force: true }, dirs, scope, cmd: 'install', registry });
-  assert.equal(different.changed, true);
+// Per-harness selection. A lock pins its rows' harnesses as targets; a ledger "holds" a harness when
+// any resource row names it.
+const ALL_HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const CAPABLE = ALL_HARNESSES.filter((harness) => harness !== 'gemini');
+const lockWith = (rows, extraTargets = []) => ({
+  targets: [...new Set([...Object.keys(rows), ...extraTargets])].map((harness) => ({ harness })),
+  mcpSelections: rows,
+});
+const ledgerHolding = (...harnesses) => ({ resources: harnesses.map((harness) => ({ harness, kind: 'skill' })) });
+const resolve = (options) => resolveMcpSelections({
+  cmd: 'install', requested: null, targets: CAPABLE, registry, lock: null, ledger: null, manifestServers: null,
+  interactive: false, promptFn: () => assert.fail('must not prompt'), ...options,
 });
 
-test('install names an unchanged MCP selection only when one was actually recorded', () => {
-  // The note's condition, asserted against the source so the two print sites cannot drift apart or
-  // start claiming a record on a first-ever install.
-  const source = fs.readFileSync(path.resolve(__dirname, '../../src/cli/commands/install.js'), 'utf8');
-  assert.match(source, /const mcpNote = mcp && !mcp\.changed && mcp\.recorded \?/,
-    'the note must require a recorded selection, not merely an unchanged one');
-  const uses = [...source.matchAll(/\$\{mcpNote\}/g)];
-  assert.equal(uses.length, 2, 'both the dry-run and the real print site must carry the note');
+test('S1: --mcp ids reach every MCP-capable target, and gemini gets no entry', () => {
+  const result = resolve({ requested: ['context7'], targets: ALL_HARNESSES });
+  assert.deepEqual(Object.keys(result.selections), CAPABLE);
+  for (const harness of CAPABLE) {
+    assert.deepEqual(result.selections[harness], ['context7']);
+    assert.equal(result.sources[harness], 'flag');
+  }
+  assert.ok(!('gemini' in result.sources) && !('gemini' in result.adoptable));
+});
+
+test('S2: --mcp none and all resolve per target; the flag errors stay, even with no MCP-capable target', () => {
+  const all = readAllServers(registry);
+  assert.deepEqual(resolve({ requested: ['none'] }).selections.kiro, []);
+  assert.deepEqual(resolve({ requested: ['all'] }).selections.pi, all);
+  assert.deepEqual(parseMcpFlag(['context7', 'context7'], all), ['context7']);
+  assert.equal(parseMcpFlag(null, all), null);
+  assert.throws(() => parseMcpFlag(['all', 'context7'], all), /--mcp keyword 'all' cannot be combined/);
+  assert.throws(() => parseMcpFlag(['all', 'none'], all), /either '--mcp all' or '--mcp none'/);
+  assert.throws(() => parseMcpFlag([], all), /--mcp requires at least one server/);
+  assert.throws(() => resolve({ requested: ['bogus'], targets: ['gemini'] }), /Unknown MCP server\(s\): bogus \(valid: context7, sequential-thinking\)/);
+});
+
+test('S3: lock rows win per harness and stay distinct', () => {
+  const result = resolve({
+    targets: ['claude', 'codex'],
+    lock: lockWith({ claude: ['context7'], codex: ['sequential-thinking'] }),
+    manifestServers: ['context7', 'sequential-thinking'],
+  });
+  assert.deepEqual(result.selections, { claude: ['context7'], codex: ['sequential-thinking'] });
+  assert.deepEqual(result.sources, { claude: 'recorded', codex: 'recorded' });
+});
+
+test('S4: an installed harness with no row is kept, an uninstalled one takes the manifest list, else none', () => {
+  const kept = resolve({ targets: ['kiro', 'pi'], ledger: ledgerHolding('kiro'), manifestServers: ['context7'] });
+  assert.deepEqual(kept.selections, { kiro: 'keep', pi: ['context7'] });
+  assert.deepEqual(kept.sources, { kiro: 'kept', pi: 'manifest' });
+  const none = resolve({ targets: ['pi'] });
+  assert.deepEqual(none.selections, { pi: [] });
+  assert.deepEqual(none.sources, { pi: 'default' });
+  // A row the lock records but does not target is not a row for that harness.
+  const stray = resolve({ targets: ['pi'], lock: { targets: [], mcpSelections: { pi: ['context7'] } } });
+  assert.deepEqual(stray.sources, { pi: 'default' });
+});
+
+test('S5: an interactive install prompts once for every target; seed rules; null falls through; update never prompts', () => {
+  const all = readAllServers(registry);
+  const calls = [];
+  const promptFn = (servers, seed) => { calls.push({ servers, seed }); return ['sequential-thinking']; };
+  const prompted = resolve({ targets: ['kiro', 'pi'], interactive: true, promptFn });
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], { servers: all, seed: all }, 'with nothing recorded the seed is the catalog');
+  assert.deepEqual(prompted.selections, { kiro: ['sequential-thinking'], pi: ['sequential-thinking'] });
+  assert.deepEqual(prompted.sources, { kiro: 'prompt', pi: 'prompt' });
+
+  calls.length = 0;
+  resolve({ targets: ['kiro', 'pi'], interactive: true, promptFn, manifestServers: ['context7'] });
+  assert.deepEqual(calls[0].seed, ['context7'], 'the manifest list seeds when no target has a row');
+  calls.length = 0;
+  resolve({
+    targets: ['kiro', 'pi'], interactive: true, promptFn, manifestServers: ['context7'],
+    lock: lockWith({ pi: ['sequential-thinking'], claude: ['context7'] }),
+  });
+  assert.deepEqual(calls[0].seed, ['sequential-thinking'], 'the targeted harnesses\' rows seed first');
+
+  const fellThrough = resolve({ targets: ['kiro'], interactive: true, promptFn: () => null, manifestServers: ['context7'] });
+  assert.deepEqual(fellThrough.sources, { kiro: 'manifest' });
+  const update = resolve({ cmd: 'update', targets: ['kiro'], interactive: true });
+  assert.deepEqual(update.sources, { kiro: 'default' });
+});
+
+test('S6: non-interactive with no flag and nothing recorded resolves every target to none', () => {
+  const result = resolve({});
+  for (const harness of CAPABLE) {
+    assert.deepEqual(result.selections[harness], []);
+    assert.equal(result.sources[harness], 'default');
+  }
+});
+
+test('S7: retired ids in a lock row or the manifest are dropped and reported once', () => {
+  const reports = [];
+  const result = resolve({
+    targets: ['claude', 'pi'],
+    lock: lockWith({ claude: ['playwright', 'context7'], codex: ['chrome-devtools'] }),
+    manifestServers: ['zz-retired', 'sequential-thinking'],
+    onStale: (ids) => reports.push(ids),
+  });
+  assert.deepEqual(result.selections, { claude: ['context7'], pi: ['sequential-thinking'] });
+  assert.deepEqual(result.retainedMcpIds, []);
+  assert.deepEqual(reports, [['chrome-devtools', 'playwright', 'zz-retired']]);
+  assert.throws(() => resolve({ requested: ['playwright'] }), /Unknown MCP server\(s\): playwright/);
+});
+
+test('S8: adoptable ids are only what a 1.18.0 install recorded for an installed harness, until a later run records its selection', () => {
+  const all = readAllServers(registry);
+  const ledger = { resources: [
+    ...ledgerHolding('claude', 'kiro', 'opencode', 'pi').resources,
+    { harness: 'copilot', ownershipIdentity: 'copilot:mcp:registration' },
+    { harness: 'antigravity', kind: 'mcp-server', identity: 'sequential-thinking', fingerprint: null },
+    { harness: 'antigravity', kind: 'mcp-server', identity: 'context7', fingerprint: 'sha256:abc' },
+  ] };
+  const targets = ['claude', 'kiro', 'opencode', 'pi', 'copilot', 'antigravity', 'codex', 'gemini'];
+  // The 1.18.0 manifest list reaches every installed harness; a harness the ledger does not hold gets none.
+  const legacy = resolve({ targets, requested: ['none'], lock: lockWith({ claude: ['context7'] }), ledger, manifestServers: ['context7'] });
+  assert.deepEqual(legacy.adoptable, { claude: ['context7'], kiro: ['context7'], opencode: ['context7'], pi: ['context7'],
+    copilot: ['context7'], antigravity: ['context7', 'sequential-thinking'], codex: [] });
+
+  // With no manifest list: Copilot's registration row covers the catalog, Antigravity's unfingerprinted
+  // rows their own ids, and nothing else is adoptable.
+  const bare = adoptableMcpIds({ registry, lock: null, ledger, harnesses: targets });
+  assert.deepEqual(bare, { claude: [], kiro: [], opencode: [], pi: [], copilot: all, antigravity: ['sequential-thinking'], codex: [] });
+
+  // A lock row only a later run writes (any row but a non-empty claude or codex one) closes adoption.
+  const settled = adoptableMcpIds({ registry, lock: lockWith({ claude: [], kiro: ['context7'], copilot: ['context7'] }), ledger,
+    harnesses: ['claude', 'kiro', 'copilot', 'opencode'], manifestServers: ['context7'] });
+  assert.deepEqual(settled, { claude: [], kiro: [], copilot: [], opencode: ['context7'] });
+});
+
+test('S9: retainedMcpIds is the union of the rows of lock harnesses not targeted', () => {
+  const lock = lockWith({ claude: ['sequential-thinking'], codex: ['context7'], pi: ['context7'] });
+  assert.deepEqual(resolve({ targets: ['pi'], lock }).retainedMcpIds, ['context7', 'sequential-thinking']);
+  assert.deepEqual(resolve({ targets: ['claude', 'codex'], lock }).retainedMcpIds, ['context7']);
+});
+
+test('recordedMcpSelections reads each target\'s lock row, or keep, and never prompts', () => {
+  const all = readAllServers(registry);
+  const lock = lockWith({ claude: ['context7', 'playwright'], codex: ['sequential-thinking'] });
+  const ledger = ledgerHolding('claude', 'kiro');
+  assert.deepEqual(recordedMcpSelections({ registry, lock, ledger, targets: ['claude', 'kiro', 'gemini'], manifestServers: all }), {
+    selections: { claude: ['context7'], kiro: 'keep' },
+    adoptable: { claude: all, kiro: all },
+    retainedMcpIds: ['sequential-thinking'],
+  });
 });

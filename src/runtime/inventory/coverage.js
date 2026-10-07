@@ -11,10 +11,11 @@
  *
  * Both numbers are internally consistent. `status` reads the ledger, which records what DoFlow
  * owns; `reconcile` (`src/cli/commands/reconcile.js`) derives its target set from `doflow.lock`,
- * which records what an install *chose*, and the lock document is rebuilt from each invocation's
- * targets rather than accumulated (`src/lifecycle/view.js#lockDocument`), so a later narrow install
- * silently narrows the pin. A user must not be able to read the report and reasonably conclude a
- * remedy exists where none does — that is the whole of FR-006.
+ * which records what an install *chose*. The lock accumulates: each run keeps every pin whose
+ * harness the ledger still holds (`src/lifecycle/view.js#lockDocument`). A harness the ledger holds
+ * and the lock lacks — one installed before any lock recorded it — is still outside the repair
+ * path, and `reconcile` names it rather than converging it. A user must not be able to read the
+ * report and reasonably conclude a remedy exists where none does — that is the whole of FR-006.
  *
  * Three rules this module holds to:
  *
@@ -26,8 +27,8 @@
  *    pin is the weakest possible coverage, not an unrestricted one; getting this backwards would
  *    be the worst failure this module could have.
  * 3. **This module states the gap. It never repairs, and it never recommends widening the lock** —
- *    that the global lock pins one harness while the ledger records five is a separate defect,
- *    explicitly out of scope for this feature (requirement §5).
+ *    `reconcile` names a harness the ledger holds and the lock lacks, and a later `doflow install`
+ *    or `doflow update -t <harness>` is what pins it.
  *
  * Granularity and its ceiling: `reconcile` filters by harness (`lock.targets.map(e => e.harness)`)
  * and then re-plans that harness in full with `force: true`; it does not consult `lock.assets`. So

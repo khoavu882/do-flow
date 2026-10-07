@@ -23,18 +23,17 @@ function canonicalManifestPath(scopeRoot) {
 
 /**
  * @param {{scopeRoot?:string, claudeDir?:string, scriptVersion:string, operation:string, repoRoot:string,
- *           backupId?:string, tools:string[], date:Date, dryRun?:boolean, sourceCommit?:string,
- *           mcpServers?:string[]}} p
+ *           backupId?:string, tools:string[], date:Date, dryRun?:boolean, sourceCommit?:string}} p
  *           `sourceCommit` lets a caller (bin/doflow.js) pass an already-resolved commit instead
  *           of this module spawning its own `git rev-parse`; omit it to resolve here (e.g. tests
- *           calling this module directly). `mcpServers`, when provided, persists the resolved MCP
- *           server selection so a later `update` (which never re-prompts) can reuse it instead of
- *           silently reverting to "all servers" — omit it to leave any existing value untouched.
+ *           calling this module directly). An `mcp_servers` list a 1.18.0 install recorded is
+ *           carried over as it is and never written anew: doflow.lock records each harness's MCP
+ *           selection now, and the old list is read only as a fallback for a harness the lock lacks.
  *           `managedResources` is the optional ownership ledger for fine-grained Codex resources.
  *           Each record uses {target,scope,kind,identity,sourceVersion,fingerprint,selection,
  *           recoveryPoint}. Omit it to preserve a ledger written by a newer lifecycle command.
  */
-function writeManifest({ scopeRoot, claudeDir, scriptVersion, operation, repoRoot, backupId = '', tools, date, dryRun = false, sourceCommit, mcpServers, managedResources }) {
+function writeManifest({ scopeRoot, claudeDir, scriptVersion, operation, repoRoot, backupId = '', tools, date, dryRun = false, sourceCommit, managedResources }) {
   if (!scopeRoot && !claudeDir) throw new Error('scopeRoot is required for lifecycle metadata');
   const file = scopeRoot ? canonicalManifestPath(scopeRoot) : manifestPath(claudeDir);
   if (dryRun) return file;
@@ -69,7 +68,7 @@ function writeManifest({ scopeRoot, claudeDir, scriptVersion, operation, repoRoo
     source_commit: sourceCommit ?? gitSourceCommit(repoRoot),
     last_backup_id: backupId,
     tools: toolsOut,
-    mcp_servers: mcpServers ?? existingMcpServers,
+    mcp_servers: existingMcpServers,
   };
   const resources = managedResources ?? existingManagedResources;
   if (resources !== undefined) manifest.managed_resources = resources;

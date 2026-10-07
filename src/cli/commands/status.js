@@ -7,11 +7,13 @@ const { resolveTargets, toolDirs } = require('../../install/targets');
 const { resolveContext, printContext } = require('../../install/context');
 const { readInstallManifest } = require('../../install/manifest');
 const { sourceCommit } = require('../../helper/git');
-const { loadRegistry } = require('../../registry');
+const { loadRegistry, mcpCapable } = require('../../registry');
+const { recordedMcpSelections } = require('../../install/mcp');
+const { pinnedSelections } = require('../../state/lockfile');
 const { readLedger } = require('../../state');
 const { verifyLifecycle } = require('../../lifecycle');
 const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../lifecycle/view');
-const { REPO_ROOT, SCRIPT_DIR, installPaths, scopeOf } = require('../shared');
+const { REPO_ROOT, SCRIPT_DIR, installPaths, scopeOf, scopeSelectionState } = require('../shared');
 
 function cmdStatus(o) {
   const targets = resolveTargets(o.targets);
@@ -21,10 +23,17 @@ function cmdStatus(o) {
   const ctx = resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: sourceCommit(SCRIPT_DIR), ...scope });
   const manifest = readInstallManifest({ scopeRoot: lifecyclePaths.scopeRoot });
   let registryView = null;
+  // Per MCP-capable target, the servers doflow.lock records for it, or null when it records none.
+  let mcpSelections = null;
   try {
     const registry = loadRegistry({ repoRoot: REPO_ROOT });
+    const { lock, ledger, manifestServers } = scopeSelectionState(scope);
+    const recorded = recordedMcpSelections({ registry, lock, ledger, targets, manifestServers });
+    const rows = pinnedSelections(lock);
+    mcpSelections = Object.fromEntries(targets.filter((harness) => mcpCapable(registry, harness))
+      .map((harness) => [harness, rows[harness] ?? null]));
     registryView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets,
-      mcpIds: manifest?.mcpServers ?? undefined });
+      mcpSelections: recorded.selections, mcpAdoptable: recorded.adoptable, retainedMcpIds: recorded.retainedMcpIds });
     ctx.registry = {
       directory: registryView.registry.directory,
       versions: registryView.registry.versions,
@@ -71,7 +80,7 @@ function cmdStatus(o) {
   }
 
   if (o.json) {
-    console.log(JSON.stringify({ context: ctx, manifest, codex: ctx.codex ?? null }, null, 2));
+    console.log(JSON.stringify({ context: ctx, manifest, codex: ctx.codex ?? null, mcpSelections }, null, 2));
     return;
   }
 
@@ -93,7 +102,10 @@ function cmdStatus(o) {
   console.log(`  Source commit:        ${manifest.sourceCommit}`);
   console.log(`  Last backup ID:       ${manifest.backupId}`);
   console.log(`  Script version:       ${manifest.scriptVersion}`);
-  console.log(`  MCP servers:          ${manifest.mcpServers ? manifest.mcpServers.join(', ') || 'none' : 'all (default)'}`);
+  if (mcpSelections && Object.keys(mcpSelections).length) {
+    const recordedText = (ids) => (ids === null ? 'not recorded' : ids.join(', ') || 'none');
+    console.log(`  MCP selections:       ${Object.entries(mcpSelections).map(([harness, ids]) => `${harness} ${recordedText(ids)}`).join('; ')}`);
+  }
   // Printed in the same order LIFECYCLE_HARNESSES declares, so every wired harness gets a line —
   // not just the four that historically had a hand-written block — with Codex keeping its extra
   // capability-gap line since that note is Codex-specific, not a general per-harness property.

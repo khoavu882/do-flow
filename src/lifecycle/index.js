@@ -6,7 +6,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { harnessFor, selectAssets, selectMcpServers } = require('../registry');
+const { harnessFor, selectAssets, selectMcpServers, mcpCapable } = require('../registry');
 const { defaultLedger, ownershipKey, writeLedger, writeRecoveryRecord, upgradeLedger, LEDGER_VERSION } = require('../state');
 const { resolveAdapter, projectAdapterInput } = require('../adapters');
 const { pruneEmptyAncestors } = require('../adapters/copy-tree');
@@ -16,6 +16,9 @@ const { hasBashCapableShell } = require('./bash-availability');
 const { hookTrustFor: geminiHookTrustFor } = require('../adapters/gemini');
 
 const OPERATIONS = new Set(['create', 'merge', 'update', 'remove']);
+/** A harness's MCP selection meaning "the servers it owns now", read through its adapter's
+ * `discover().mcpOwned`. */
+const MCP_KEEP = 'keep';
 
 function registryScope(scope) { return scope === 'global' ? 'user' : scope; }
 function assertScope(scope) {
@@ -198,10 +201,17 @@ function survivingClaimantsByTarget(ledger, releasedKeys) {
   for (const resource of ledger?.resources || []) {
     if (typeof resource?.target !== 'string' || typeof resource?.harness !== 'string') continue;
     if (releasedKeys.has(ownershipKey(resource))) continue;
-    if (!byTarget.has(resource.target)) byTarget.set(resource.target, new Set());
-    byTarget.get(resource.target).add(resource.harness);
+    const key = claimKey(resource);
+    if (!byTarget.has(key)) byTarget.set(key, new Set());
+    byTarget.get(key).add(resource.harness);
   }
   return byTarget;
+}
+
+/** What one claim covers: a whole file, except an MCP entry, which is claimed on its own because
+ * several harnesses keep their servers side by side in one MCP file. */
+function claimKey(record) {
+  return record.kind === 'mcp-server' ? `${record.target}\u0000${record.identity}` : record.target;
 }
 
 /** NFR-007: a removal reclaims only what no other harness still claims.
@@ -227,7 +237,7 @@ function markRetainedRemovals(harnessPlans, ledger, scope) {
     let retainedAny = false;
     const changes = target.changes.map((change) => {
       if (change.operation !== 'remove') return change;
-      const retainedFor = [...(claimants.get(change.target) ?? [])].filter((harness) => harness !== change.harness).sort();
+      const retainedFor = [...(claimants.get(claimKey(change)) ?? [])].filter((harness) => harness !== change.harness).sort();
       if (!retainedFor.length) return change;
       retainedAny = true;
       return Object.freeze({ ...change, retained: true, retainedFor });
@@ -274,19 +284,45 @@ function adapterNotices(result) {
     .filter((notice) => typeof notice === 'string' && notice.length <= 200 && !/[\u0000-\u001f\u007f]/.test(notice));
 }
 
-function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpIds, ledger, context = {} }) {
+/** The ids of `ids` the catalog declares, in registry order. */
+function catalogIds(registry, ids) {
+  return registry.mcp.filter((server) => ids.includes(server.id)).map((server) => server.id);
+}
+
+/** Each harness takes its own MCP selection: an id array, or MCP_KEEP for the servers it owns now.
+ * A harness that takes no MCP servers reads `keep` and an absent entry as none and refuses any id. */
+function harnessMcpSelection(registry, harness, raw) {
+  const value = raw ?? [];
+  if (value !== MCP_KEEP && !(Array.isArray(value) && value.every((id) => typeof id === 'string'))) {
+    throw new Error(`MCP selection for '${harness.id}' must be an array of server ids or '${MCP_KEEP}'`);
+  }
+  if (mcpCapable(registry, harness.id)) return value;
+  if (Array.isArray(value) && value.length) throw new Error(`Harness '${harness.id}' takes no MCP servers`);
+  return [];
+}
+
+function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelections = {}, mcpAdoptable = {}, retainedMcpIds = [], ledger, context = {} }) {
   assertScope(scope);
   if (!registry) throw new Error('registry is required');
-  const selectedMcp = selectMcpServers(registry, mcpIds);
   const baseLedger = ledger ?? defaultLedger({ scope, scopeRoot });
   const harnessPlans = normalizeTargets(registry, targets).map((harness) => {
     if (!harness.scopes.includes(registryScope(scope))) {
-      return { harness: harness.id, assets: [], changes: [], conflicts: [`Harness '${harness.id}' does not support ${scope} scope`], prerequisites: [], notices: [], skipped: true };
+      return { harness: harness.id, assets: [], changes: [], conflicts: [`Harness '${harness.id}' does not support ${scope} scope`], prerequisites: [], notices: [], skipped: true, mcpSelected: null };
     }
+    const capable = mcpCapable(registry, harness.id);
+    const selection = harnessMcpSelection(registry, harness, mcpSelections[harness.id]);
     const assets = selectAssets(registry, { harness: harness.id });
     const policies = renderPolicies(registry, { harness: harness.id });
-    const adapterInput = projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp: selectedMcp, policies, context });
+    const adoptable = capable ? selectMcpServers(registry, catalogIds(registry, mcpAdoptable[harness.id] ?? [])) : [];
     const adapter = resolveAdapter(adapters, harness);
+    const project = (mcp) => projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp, mcpAdoptable: adoptable, policies, context });
+    // `keep` asks the adapter what it owns before the real projection: the probe carries no
+    // selection, so discovery reads the files as they are.
+    const ids = selection === MCP_KEEP
+      ? catalogIds(registry, adapter.discover({ ...project([]), registry, ledger: baseLedger }).mcpOwned ?? [])
+      : selection;
+    const mcp = selectMcpServers(registry, ids);
+    const adapterInput = project(mcp);
     const input = { ...adapterInput, registry, ledger: baseLedger };
     const discovery = adapter.discover(input);
     const result = adapter.plan({ ...input, discovery });
@@ -296,8 +332,12 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpIds, 
     const prerequisites = [...(result.prerequisites || []), ...changes.map((change) => change.prerequisite).filter(Boolean)];
     const requiredNativeResources = result.requiredNativeResources ?? changes;
     if (!Array.isArray(requiredNativeResources)) throw new Error(`Adapter '${harness.id}' returned invalid requiredNativeResources`);
-    return { harness: harness.id, adapter: harness.adapter, assets, mcp: selectedMcp, policies, adapterInput, discovery, changes, requiredNativeResources, conflicts, prerequisites, notices: adapterNotices(result), skipped: false };
+    return { harness: harness.id, adapter: harness.adapter, assets, mcp, mcpSelected: capable ? mcp.map((server) => server.id) : null, policies, adapterInput, discovery, changes, requiredNativeResources, conflicts, prerequisites, notices: adapterNotices(result), skipped: false };
   });
+  // The MCP index names every server a harness of this scope uses: the selections planned here and
+  // the recorded selections of the harnesses this run does not touch.
+  const selectedMcp = selectMcpServers(registry, catalogIds(registry,
+    [...retainedMcpIds, ...harnessPlans.flatMap((item) => (item.skipped ? [] : item.mcpSelected ?? []))]));
   // Only once every harness's plan is known: whether a file may be deleted depends on the rows
   // the WHOLE plan leaves standing, which no single harness's plan can see.
   const annotated = markRetainedRemovals(harnessPlans, baseLedger, scope);
@@ -579,9 +619,32 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
   return { recovery, verification, ledger: nextLedger, retained: plan.retained ?? [] };
 }
 
+/**
+ * Record the MCP entries a plan finds DoFlow's without changing them: an entry co-owned beside
+ * another harness's row, or one adopted from a 1.18.0 install. Their rows are written by verify,
+ * which only runs after an apply, so a run with no native change would otherwise leave them out of
+ * the ledger, and a later removal of the other harness would delete an entry this harness still
+ * selects. Verify only reads; this writes the ledger and nothing native. `dryRun` reports without
+ * writing. Returns the ledger and the server ids recorded per harness.
+ */
+function recordMcpOwnership({ plan, registry, adapters, stateRoot, ledger = plan.ledger, dryRun = false, writeLedgerFn = writeLedger }) {
+  const { verifications } = verifyLifecycle({ plan: { ...plan, registry }, adapters, context: { registry, operation: 'apply' } });
+  const held = new Set((ledger.resources || []).map((resource) => ownershipKey(resource)));
+  const added = verifications.flatMap((verification) => (verification.resources || [])
+    .filter((resource) => resource.kind === 'mcp-server')
+    .map((resource) => ({ ...resource, harness: verification.harness, scope: plan.scope, recoveryRef: resource.recoveryRef ?? null })))
+    .filter((resource) => !held.has(ownershipKey(resource)));
+  const recorded = {};
+  for (const resource of added) (recorded[resource.harness] ??= []).push(resource.identity);
+  if (!added.length || dryRun) return { ledger, recorded };
+  const next = upgradeLedger({ ...ledger, resources: [...(ledger.resources || []), ...added] });
+  writeLedgerFn(stateRoot, next);
+  return { ledger: next, recorded };
+}
+
 function removeLifecycle(options) {
   const plan = planLifecycle({ ...options, context: { ...(options.context || {}), operation: 'remove' } });
   return applyLifecycle({ ...options, plan, mode: 'remove', acceptPrerequisites: options.acceptPrerequisites });
 }
 
-module.exports = { OPERATIONS, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus, markRetainedRemovals, retentionSummary };
+module.exports = { OPERATIONS, MCP_KEEP, recordMcpOwnership, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus, markRetainedRemovals, retentionSummary };

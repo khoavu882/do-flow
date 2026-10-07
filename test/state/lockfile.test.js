@@ -79,3 +79,41 @@ test('diffLocks reports added/removed/changed per section and a clean verdict', 
   assert.deepEqual(diff.meta.sourceVersion, { before: 'registry-v1', after: 'registry-v2' });
   assert.equal(diff.clean, false);
 });
+
+test('a 1.18.0-shaped lock validates and a non-array MCP row is rejected', () => {
+  const project = scratch();
+  // 1.18.0 wrote rows only for claude and codex, and none for an empty selection.
+  const legacy = sampleLock(project, {
+    targets: [{ harness: 'claude' }, { harness: 'codex' }, { harness: 'gemini' }],
+    mcpSelections: { claude: ['context7', 'sequential-thinking'], codex: ['context7'] },
+  });
+  assert.equal(validateLock(legacy), legacy);
+  assert.throws(() => validateLock({ ...legacy, mcpSelections: { claude: 'context7' } }),
+    { message: 'Invalid doflow.lock: mcpSelections.claude must be an array of server ids' });
+  assert.throws(() => validateLock({ ...legacy, mcpSelections: { codex: [7] } }),
+    { message: 'Invalid doflow.lock: mcpSelections.codex must be an array of server ids' });
+});
+
+test('diffLocks tells an absent MCP row from an empty one and ignores rows of non-targets', () => {
+  const project = scratch();
+  const before = sampleLock(project, { mcpSelections: { codex: ['context7'] } });
+  const after = sampleLock(project, { mcpSelections: { codex: ['context7'], claude: [] } });
+  const diff = diffLocks(before, after);
+  assert.deepEqual(diff.mcpSelections.changed, [{ harness: 'claude', before: null, after: [] }]);
+  assert.equal(diff.clean, false);
+
+  const stray = sampleLock(project, { mcpSelections: { codex: ['context7'], kiro: ['context7'] } });
+  assert.equal(diffLocks(before, stray).clean, true, 'kiro is not a target, so its row is not pinned');
+});
+
+test('a failing rename leaves the prior lock bytes and no temp file', () => {
+  const project = scratch();
+  writeLock(projectScope(project), sampleLock(project));
+  const file = lockPath(projectScope(project));
+  const priorBytes = fs.readFileSync(file);
+  const failingRename = { ...fs, renameSync() { throw new Error('rename failed'); } };
+  assert.throws(() => writeLock(projectScope(project), sampleLock(project, { sourceVersion: 'registry-v2' }), { fsImpl: failingRename }),
+    /rename failed/);
+  assert.deepEqual(fs.readFileSync(file), priorBytes);
+  assert.deepEqual(fs.readdirSync(path.dirname(file)), ['doflow.lock']);
+});

@@ -184,3 +184,30 @@ test('readScopeLocks propagates an unreadable lock rather than reporting it as u
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
+
+// R1: `doflow reconcile` states the same gap this module measures — a harness the ledger holds and
+// the lock lacks — in its `--json` report, without letting it decide whether the scope is clean.
+test('R1: reconcile --json names a harness the ledger holds and the lock lacks, and still reports clean', () => {
+  const { spawnSync } = require('node:child_process');
+  const { createScratch } = require('../helper/scratch-env');
+  const scratch = createScratch('doflow-reconcile-unpinned-');
+  try {
+    const doflow = (...args) => spawnSync('node', [path.join(__dirname, '..', '..', 'bin', 'doflow.js'), ...args],
+      { env: scratch.env(), input: '\n', encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+    // Kiro installed while no lock recorded it: install it, drop the lock, then install codex.
+    assert.equal(doflow('install', '-g', '--force', '--no-backup', '-t', 'kiro').status, 0);
+    fs.rmSync(path.join(scratch.home, '.doflow', 'doflow.lock'));
+    assert.equal(doflow('install', '-g', '--force', '--no-backup', '-t', 'codex').status, 0);
+
+    const r = doflow('reconcile', '-g', '--dry-run', '--json');
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /^\[WARN\] kiro: installed \(ledger holds \d+ resource\(s\)\) but absent from doflow\.lock; reconcile does not converge it\.$/m);
+    // The JSON document sits between the printed report lines and the dry-run closing line.
+    const report = JSON.parse(r.stdout.slice(r.stdout.indexOf('\n{') + 1, r.stdout.lastIndexOf('\n}') + 2));
+    assert.deepEqual(report.targets, ['codex']);
+    assert.deepEqual(report.unpinned, ['kiro']);
+    assert.equal(report.clean, true, 'an unpinned harness is stated, not counted as drift');
+  } finally {
+    scratch.remove();
+  }
+});

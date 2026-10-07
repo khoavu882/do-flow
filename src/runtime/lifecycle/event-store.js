@@ -2,9 +2,9 @@
 
 /**
  * The project lifecycle event store (IC-001, IC-002, IC-003). One JSON file per event under
- * `<root>/agent-docs/lifecycle/events/`, created with an exclusive create and never edited, renamed
- * or deleted, so two clones merge by adding files. DoFlow never runs `git add`, `git commit` or
- * `git push` on these paths and never writes an ignore rule for them (DEC-012).
+ * `<root>/.doflow/state/lifecycle/events/`, created with an exclusive create, never edited or
+ * renamed, and deleted only by the retention pass. The store is local to a checkout, not shared through git. DoFlow never runs `git add`,
+ * `git commit` or `git push` on these paths and never writes an ignore rule for them (DEC-012).
  *
  * A write holds the store lock, folds what is there, refuses an event that would be illegal at the
  * end of that fold (`illegal-transition`, nothing written) and stamps `at` as the later of the
@@ -19,19 +19,28 @@ const { acquireLock } = require('../task-state');
 const { printSafe } = require('../mask');
 const { foldInto, finalize, applyEvent } = require('./fold');
 
-const LIFECYCLE_REL = path.join('agent-docs', 'lifecycle');
+const LIFECYCLE_REL = path.join('.doflow', 'state', 'lifecycle');
 const EVENTS_REL = path.join(LIFECYCLE_REL, 'events');
+/** The retention journal, beside the events folder and never inside it. */
+const JOURNAL_REL = path.join(LIFECYCLE_REL, 'retention.json');
+/** Lock-free reads tried while the journal's generation keeps moving, before one read under the lock. */
+const STABLE_READS = 3;
+/** The pause between those reads: the store lock's own wait. */
+const READ_WAIT_MS = 20;
 const ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz';
 /** `<UTC YYYYMMDDTHHMMSSmmmZ>-<6 lowercase Crockford base32 characters>`. */
 const EVENT_ID = /^[0-9]{8}T[0-9]{9}Z-[0-9a-hjkmnp-tv-z]{6}$/;
 const COLLISION_RETRIES = 5;
 /** The largest legitimate event is a goal with 100 items of 280 characters (about 30 KiB); a file over this is not one. */
 const MAX_EVENT_BYTES = 256 * 1024;
+/** The retention journal lists at most a pass's worth of names (store-upkeep.js bounds a pass well below this). */
+const MAX_JOURNAL_BYTES = 16 * 1024 * 1024;
+const READ_CHUNK = 64 * 1024;
 /** The decision register's channel vocabulary: who the caller says is acting. */
 const CHANNEL_BY = { question: 'user', gate: 'user', prompt: 'user', default: 'agent' };
 
 function eventsDir(root) { return path.join(root, EVENTS_REL); }
-function lockTarget(root) { return path.join(root, LIFECYCLE_REL, 'events'); }
+function lockTarget(root) { return path.join(root, EVENTS_REL); }
 
 /** @param {string} [channel] defaults to `default` @returns {'user'|'agent'|null} null for an unknown channel */
 function byFromChannel(channel = 'default') { return CHANNEL_BY[channel] ?? null; }
@@ -45,6 +54,11 @@ function randomChars(length) {
 }
 
 function idFor(at, random) { return `${at.replace(/[-:.]/g, '')}-${random(6)}`; }
+
+/** Synchronous sleep without spinning, as the store lock waits. */
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
 
 /** DEC-045: `at` is a strict UTC timestamp that is a real instant, so year 10000 and "+275760-..." never parse. */
 const STRICT_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -65,6 +79,9 @@ function isEnvelope(event, idFromName) {
 /** The store folders are the project's own: a symlink at either one could send a read or a write outside the repository. */
 class StoreUnsafeError extends Error {}
 
+/** The store lock could not be taken in time; the verb refuses with `store-locked` and writes nothing. */
+class StoreLockedError extends Error {}
+
 function assertStoreFolders(root, fsImpl) {
   for (const rel of [LIFECYCLE_REL, EVENTS_REL]) {
     const folder = path.join(root, rel);
@@ -75,12 +92,12 @@ function assertStoreFolders(root, fsImpl) {
 }
 
 /**
- * One event file's text, or `{reason}` when it must not be read: not a regular file (a symlink, a
- * FIFO, a device, a folder), larger than MAX_EVENT_BYTES, or gone. A symlink is refused by `lstat`
+ * One store file's text, or `{reason}` when it must not be read: not a regular file (a symlink, a
+ * FIFO, a device, a folder), larger than `maxBytes`, or gone. A symlink is refused by `lstat`
  * and again by `O_NOFOLLOW` where the platform has it; `O_NONBLOCK` keeps a FIFO swapped in after
  * the `lstat` from blocking the open, and the descriptor is checked again before any read.
  */
-function readEventFile(fsImpl, file) {
+function readEventFile(fsImpl, file, maxBytes = MAX_EVENT_BYTES) {
   const flags = nodeFs.constants;
   let fd;
   try {
@@ -88,15 +105,19 @@ function readEventFile(fsImpl, file) {
     fd = fsImpl.openSync(file, flags.O_RDONLY | (flags.O_NOFOLLOW || 0) | (flags.O_NONBLOCK || 0));
     const st = fsImpl.fstatSync(fd);
     if (!st.isFile()) return { reason: 'not a regular file' };
-    if (st.size > MAX_EVENT_BYTES) return { reason: `larger than ${MAX_EVENT_BYTES / 1024} KiB` };
-    const buffer = Buffer.allocUnsafe(MAX_EVENT_BYTES + 1);
+    const tooLarge = { reason: `larger than ${maxBytes / 1024} KiB` };
+    if (st.size > maxBytes) return tooLarge;
+    // Read in chunks up to one byte past the cap, so a file that grew after the fstat is still caught.
+    const chunks = [];
     let length = 0;
-    while (length < buffer.length) {
-      const n = fsImpl.readSync(fd, buffer, length, buffer.length - length, null);
+    while (length <= maxBytes) {
+      const chunk = Buffer.allocUnsafe(Math.min(READ_CHUNK, maxBytes + 1 - length));
+      const n = fsImpl.readSync(fd, chunk, 0, chunk.length, null);
       if (n === 0) break;
+      chunks.push(chunk.subarray(0, n));
       length += n;
     }
-    return length > MAX_EVENT_BYTES ? { reason: `larger than ${MAX_EVENT_BYTES / 1024} KiB` } : { text: buffer.toString('utf8', 0, length) };
+    return length > maxBytes ? tooLarge : { text: Buffer.concat(chunks, length).toString('utf8') };
   } catch (error) {
     return { reason: error.code || 'unreadable' };
   } finally {
@@ -111,16 +132,31 @@ function cleanEvent(event) {
   return clean;
 }
 
+/** Whether `name` is `<EVENT_ID>.json`. */
+function isEventName(name) {
+  const match = /^(.+)\.json$/.exec(name);
+  return Boolean(match) && EVENT_ID.test(match[1]);
+}
+
 /**
- * Reads every event file. A missing folder is an empty store; a file whose name is not an event id
- * is ignored; a matching entry that is not a regular file of at most MAX_EVENT_BYTES, or is not an
- * IC-002 envelope (including one still being written), is skipped and named in `unreadable`, with
- * the reason in `reasons[name]` when it is not simply a corrupt file. A symlinked store folder
- * throws StoreUnsafeError.
- * @returns {{events: Object[], unreadable: string[], reasons: Object<string,string>}}
+ * The retention journal: the files a retention pass is deleting, and a token that changes on every
+ * write. Absent, unreadable, unparseable or of another version reads as no generation and nothing
+ * pending; a pending name that is not an event file name is ignored.
+ * @returns {{generation: string|null, pending: string[]}}
  */
-function readEvents(root, { fsImpl = nodeFs } = {}) {
-  assertStoreFolders(root, fsImpl);
+function readJournal(root, fsImpl = nodeFs) {
+  const read = readEventFile(fsImpl, path.join(root, JOURNAL_REL), MAX_JOURNAL_BYTES);
+  let journal;
+  try { journal = read.reason ? null : JSON.parse(read.text); } catch { journal = null; }
+  if (!journal || typeof journal !== 'object' || journal.v !== 1) return { generation: null, pending: [] };
+  return {
+    generation: typeof journal.generation === 'string' ? journal.generation : null,
+    pending: Array.isArray(journal.pending) ? journal.pending.filter((name) => typeof name === 'string' && isEventName(name)) : [],
+  };
+}
+
+/** One pass over the event files, leaving out the names in `hidden`. */
+function readEventFiles(root, fsImpl, hidden) {
   const dir = eventsDir(root);
   let names;
   try {
@@ -133,19 +169,55 @@ function readEvents(root, { fsImpl = nodeFs } = {}) {
   const unreadable = [];
   const reasons = {};
   for (const name of names.sort()) {
-    const match = /^(.+)\.json$/.exec(name);
-    if (!match || !EVENT_ID.test(match[1])) continue;
+    if (!isEventName(name) || hidden.has(name)) continue;
     const read = readEventFile(fsImpl, path.join(dir, name));
     if (read.reason) { unreadable.push(name); reasons[name] = read.reason; continue; }
     try {
       const event = JSON.parse(read.text);
       // Someone else's file is shown as it is read, so its text is made print-safe here (stored bytes are not changed).
-      if (isEnvelope(event, match[1])) events.push(cleanEvent(event)); else unreadable.push(name);
+      if (isEnvelope(event, name.slice(0, -'.json'.length))) events.push(cleanEvent(event)); else unreadable.push(name);
     } catch {
       unreadable.push(name);
     }
   }
   return { events, unreadable, reasons };
+}
+
+/**
+ * Reads every event file. A missing folder is an empty store; a file whose name is not an event id
+ * is ignored; a matching entry that is not a regular file of at most MAX_EVENT_BYTES, or is not an
+ * IC-002 envelope (including one still being written), is skipped and named in `unreadable`, with
+ * the reason in `reasons[name]` when it is not simply a corrupt file. A symlinked store folder
+ * throws StoreUnsafeError.
+ *
+ * Files the retention journal lists as pending are neither events nor unreadable, so an item a
+ * retention pass is removing is seen whole or not at all. When the journal's generation moves
+ * during a read, the read is repeated, at most STABLE_READS times, and then done once under the
+ * store lock, which every journal writer holds. A caller already holding the lock never sees the
+ * generation move, so it returns after the first read. A lock that cannot be taken throws
+ * StoreLockedError.
+ * @returns {{events: Object[], unreadable: string[], reasons: Object<string,string>}}
+ */
+function readEvents(root, { fsImpl = nodeFs } = {}) {
+  assertStoreFolders(root, fsImpl);
+  for (let attempt = 1; attempt <= STABLE_READS; attempt += 1) {
+    const before = readJournal(root, fsImpl);
+    const result = readEventFiles(root, fsImpl, new Set(before.pending));
+    if (readJournal(root, fsImpl).generation === before.generation) return result;
+    if (attempt < STABLE_READS) sleep(READ_WAIT_MS);
+  }
+  let release;
+  try {
+    release = acquireLock(fsImpl, lockTarget(root));
+  } catch (error) {
+    if (/^Could not lock/.test(error.message || '')) throw new StoreLockedError(`${error.message} Nothing was written.`);
+    throw error;
+  }
+  try {
+    return readEventFiles(root, fsImpl, new Set(readJournal(root, fsImpl).pending));
+  } finally {
+    release();
+  }
 }
 
 /**
@@ -249,6 +321,6 @@ function planEvents(root, drafts, { now, fsImpl, random }) {
 }
 
 module.exports = {
-  appendEvents, readEvents, readFold, byFromChannel, randomChars, StoreUnsafeError, MAX_EVENT_BYTES,
-  EVENT_ID, EVENTS_REL, LIFECYCLE_REL, ALPHABET, COLLISION_RETRIES,
+  appendEvents, readEvents, readFold, byFromChannel, randomChars, StoreUnsafeError, StoreLockedError, MAX_EVENT_BYTES,
+  EVENT_ID, EVENTS_REL, LIFECYCLE_REL, JOURNAL_REL, ALPHABET, COLLISION_RETRIES, lockTarget, readJournal, isEventName,
 };

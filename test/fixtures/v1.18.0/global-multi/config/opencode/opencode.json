@@ -1,0 +1,33 @@
+{
+  "instructions": [
+    "AGENTS.md"
+  ],
+  "mcp": {
+    "context7": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@upstash/context7-mcp"
+      ],
+      "enabled": true
+    },
+    "sequential-thinking": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
+      "enabled": true
+    },
+    "user-server": {
+      "type": "local",
+      "command": [
+        "user-cmd",
+        "--user-owned"
+      ],
+      "enabled": true
+    }
+  }
+}

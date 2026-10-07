@@ -16,10 +16,10 @@ const { defaultLedger } = require('../../../src/state');
 const REPO = path.resolve(__dirname, '../../..');
 const registry = loadRegistry({ repoRoot: REPO });
 const SERVERS = selectMcpServers(registry);
+const SELECTED = { pi: SERVERS.map((server) => server.id) };
 const ASSETS = [{ id: 'guidance.codex-pointer' }];
 const ENTRY = Object.fromEntries(SERVERS.map((server) => [server.id, { command: server.command, args: server.args }]));
 const NOTICE = {
-  N0: 'MCP: servers selected for Pi: context7, sequential-thinking; --mcp narrows this only when claude or codex is also targeted.',
   N1: 'MCP: stdio servers are registered in the mcpServers map of Pi\'s mcp.json for its built-in MCP (Pi 0.99.0 or later; a project entry replaces a user entry of the same name).',
   N2: 'MCP: an installed extension that registers /mcp, such as pi-mcp-adapter, replaces Pi\'s built-in MCP, and Pi then does not read mcp.json.',
   N3: 'MCP: Pi reads .pi/mcp.json only after this project is trusted (/trust or --approve); DoFlow does not grant trust.',
@@ -140,18 +140,10 @@ test('P3: a project plan writes .pi/mcp.json and adds the trust notice; a global
   const root = scratch();
   const { planned } = run({ root, scope: 'project' });
   assert.ok(fs.existsSync(path.join(root, '.pi', 'mcp.json')));
-  assert.deepEqual(planned.notices, [NOTICE.N0, NOTICE.N1, NOTICE.N2, NOTICE.N3]);
+  assert.deepEqual(planned.notices, [NOTICE.N1, NOTICE.N2, NOTICE.N3]);
   const global = planRun({ root: scratch() }).planned;
-  assert.deepEqual(global.notices, [NOTICE.N0, NOTICE.N1, NOTICE.N2]);
+  assert.deepEqual(global.notices, [NOTICE.N1, NOTICE.N2]);
   for (const notice of Object.values(NOTICE)) assert.ok(notice.length <= 200);
-});
-
-test('P3: the selection notice stays one line under 200 characters however many servers are selected', () => {
-  const many = Array.from({ length: 40 }, (_, index) => ({ id: `server-number-${index}`, transport: 'stdio', command: 'x' }));
-  const { planned } = planRun({ root: scratch(), mcp: many });
-  const notice = planned.notices[0];
-  assert.ok(notice.startsWith('MCP: servers selected for Pi: server-number-0, ') && notice.endsWith('...; --mcp narrows this only when claude or codex is also targeted.'), notice);
-  assert.ok(notice.length <= 200 && !notice.includes('\n'));
 });
 
 test('P2: a set PI_CODING_AGENT_DIR is announced on global plans; skills and AGENTS.md stay put', () => {
@@ -266,7 +258,7 @@ test('P6: a malformed file holding a secret never puts it in a conflict, notice,
   writeFile(file, malformed);
   const adapters = createAdapterRegistry({ pi: createPiAdapter({ env: {} }) });
   const context = { repoRoot: REPO, projectRoot: root, homeDir: root, sourceVersion: 'test' };
-  const plan = planLifecycle({ registry, adapters, scope: 'global', scopeRoot: root, targets: ['pi'], ledger: defaultLedger({ scope: 'global', scopeRoot: root }), context });
+  const plan = planLifecycle({ registry, adapters, scope: 'global', scopeRoot: root, targets: ['pi'], mcpSelections: SELECTED, ledger: defaultLedger({ scope: 'global', scopeRoot: root }), context });
   assert.equal(plan.safe, false);
   assert.ok(!JSON.stringify(plan.conflicts).includes(secret) && !JSON.stringify(plan.notices).includes(secret));
 
@@ -275,7 +267,7 @@ test('P6: a malformed file holding a secret never puts it in a conflict, notice,
   fs.rmSync(file);
   const pi = createPiAdapter({ env: {} });
   const corrupting = createAdapterRegistry({ pi: { ...pi, apply(input) { const result = pi.apply(input); fs.writeFileSync(file, malformed); return result; } } });
-  const clean = planLifecycle({ registry, adapters: corrupting, scope: 'global', scopeRoot: root, targets: ['pi'], ledger: defaultLedger({ scope: 'global', scopeRoot: root }), context });
+  const clean = planLifecycle({ registry, adapters: corrupting, scope: 'global', scopeRoot: root, targets: ['pi'], mcpSelections: SELECTED, ledger: defaultLedger({ scope: 'global', scopeRoot: root }), context });
   const stateRoot = scratch();
   assert.throws(() => applyLifecycle({ plan: clean, registry, adapters: corrupting, stateRoot, ledger: clean.ledger }),
     (error) => !error.message.includes(secret));
@@ -290,23 +282,23 @@ test('P6: a remove with an unparseable mcp.json uninstalls everything else and l
   const file = userFile(root);
   const adapters = createAdapterRegistry({ pi: createPiAdapter({ env: {} }) });
   const context = { repoRoot: REPO, projectRoot: root, homeDir: root, sourceVersion: 'test' };
-  const plan = planLifecycle({ registry, adapters, scope: 'global', scopeRoot: root, targets: ['pi'], ledger: defaultLedger({ scope: 'global', scopeRoot: root }), context });
+  const plan = planLifecycle({ registry, adapters, scope: 'global', scopeRoot: root, targets: ['pi'], mcpSelections: SELECTED, ledger: defaultLedger({ scope: 'global', scopeRoot: root }), context });
   const installed = applyLifecycle({ plan, registry, adapters, stateRoot, ledger: plan.ledger });
   const broken = `${fs.readFileSync(file, 'utf8')}, trailing`;
   fs.writeFileSync(file, broken);
 
-  const preview = planLifecycle({ registry, adapters, scope: 'global', scopeRoot: root, targets: ['pi'], mcpIds: [], ledger: installed.ledger, context: { ...context, operation: 'remove' } });
+  const preview = planLifecycle({ registry, adapters, scope: 'global', scopeRoot: root, targets: ['pi'], ledger: installed.ledger, context: { ...context, operation: 'remove' } });
   assert.equal(preview.safe, true, JSON.stringify(preview.conflicts));
   assert.ok(preview.notices.some(({ notice }) => notice === `MCP: left ${file} untouched because it cannot be edited safely; DoFlow no longer manages the entries in it.`
     || notice.startsWith('MCP: left ...')));
-  const removed = removeLifecycle({ registry, adapters, scope: 'global', scopeRoot: root, targets: ['pi'], mcpIds: [], stateRoot, ledger: installed.ledger, context });
+  const removed = removeLifecycle({ registry, adapters, scope: 'global', scopeRoot: root, targets: ['pi'], stateRoot, ledger: installed.ledger, context });
   assert.equal(removed.verification.ok, true);
   assert.deepEqual(removed.ledger.resources, []);
   assert.equal(fs.readFileSync(file, 'utf8'), broken);
   assert.equal(fs.existsSync(path.join(root, '.pi', 'agent', 'skills')), false, 'the rest of the uninstall ran');
 
   // Install and update keep refusing the same file.
-  const reinstall = planLifecycle({ registry, adapters, scope: 'global', scopeRoot: root, targets: ['pi'], ledger: removed.ledger, context });
+  const reinstall = planLifecycle({ registry, adapters, scope: 'global', scopeRoot: root, targets: ['pi'], mcpSelections: SELECTED, ledger: removed.ledger, context });
   assert.ok(reinstall.conflicts.some(({ reason }) => reason.startsWith(`Pi MCP: ${file}: invalid JSON`)), JSON.stringify(reinstall.conflicts));
 });
 
@@ -383,15 +375,30 @@ test('P10: an owned entry edited before a remove is released by the remove and l
   assert.deepEqual(mcpRowsOf(removal.ledger), []);
 });
 
-test('P11: an empty selection with owned rows changes nothing, keeps the rows and prints no MCP notice', () => {
+test('P11: an empty selection with owned rows removes the owned entries and their rows, with no MCP notice', () => {
+  const root = scratch();
+  const file = userFile(root);
+  writeFile(file, '{ "mcpServers": { "user-server": { "command": "mine" } } }\n');
+  const first = run({ root });
+  const second = run({ root, mcp: [], ledger: first.ledger });
+  assert.deepEqual(mcpChanges(second.planned).map((change) => [change.operation, change.identity, Boolean(change.release)]),
+    [['remove', 'context7', false], ['remove', 'sequential-thinking', false]]);
+  assert.deepEqual(second.planned.notices.filter((notice) => notice.startsWith('MCP:')), []);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).mcpServers, { 'user-server': { command: 'mine' } });
+  assert.deepEqual(mcpRowsOf(second.ledger), []);
+});
+
+test('C1 pi: discover reports as owned only the rows whose entry still holds the recorded value', () => {
   const root = scratch();
   const first = run({ root });
-  const bytes = fs.readFileSync(userFile(root), 'utf8');
-  const second = run({ root, mcp: [], ledger: first.ledger });
-  assert.deepEqual(mcpChanges(second.planned), []);
-  assert.deepEqual(second.planned.notices.filter((notice) => notice.startsWith('MCP:')), []);
-  assert.equal(fs.readFileSync(userFile(root), 'utf8'), bytes);
-  assert.deepEqual(mcpRowsOf(second.ledger), mcpRowsOf(first.ledger));
+  assert.deepEqual(planRun({ root, mcp: [], ledger: first.ledger }).discovery.mcpOwned, ['context7', 'sequential-thinking']);
+  const file = userFile(root);
+  const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+  doc.mcpServers.context7 = { command: 'my-own-wrapper' };
+  fs.writeFileSync(file, JSON.stringify(doc));
+  assert.deepEqual(planRun({ root, mcp: [], ledger: first.ledger }).discovery.mcpOwned, ['sequential-thinking']);
+  fs.writeFileSync(file, '{ not json');
+  assert.deepEqual(planRun({ root, mcp: [], ledger: first.ledger }).discovery.mcpOwned, [], 'an unparseable file owns nothing');
 });
 
 test('P11: with no selection and no rows the plan does not read mcp.json at all', () => {
@@ -603,7 +610,7 @@ test('P18: the lifecycle installs and removes Pi MCP rows on the real registry a
     const stateRoot = scratch();
     const adapters = createAdapterRegistry({ pi: createPiAdapter({ env: {} }) });
     const context = { repoRoot: REPO, projectRoot: root, homeDir: root, sourceVersion: 'test' };
-    const plan = planLifecycle({ registry, adapters, scope, scopeRoot: root, targets: ['pi'], ledger: defaultLedger({ scope, scopeRoot: root }), context });
+    const plan = planLifecycle({ registry, adapters, scope, scopeRoot: root, targets: ['pi'], mcpSelections: SELECTED, ledger: defaultLedger({ scope, scopeRoot: root }), context });
     assert.equal(plan.safe, true, JSON.stringify(plan.conflicts));
     const installed = applyLifecycle({ plan, registry, adapters, stateRoot, ledger: plan.ledger });
     const file = scope === 'global' ? userFile(root) : path.join(root, '.pi', 'mcp.json');
@@ -613,7 +620,7 @@ test('P18: the lifecycle installs and removes Pi MCP rows on the real registry a
       projection: { renderer: 'pi-mcp' }, origin: { created: 'file' }, harness: 'pi', scope, recoveryRef: installed.recovery.id,
     })), scope);
 
-    const removed = removeLifecycle({ registry, adapters, scope, scopeRoot: root, targets: ['pi'], mcpIds: [], stateRoot, ledger: installed.ledger, context });
+    const removed = removeLifecycle({ registry, adapters, scope, scopeRoot: root, targets: ['pi'], stateRoot, ledger: installed.ledger, context });
     assert.equal(removed.verification.ok, true, scope);
     assert.deepEqual(mcpRowsOf(removed.ledger), [], scope);
     assert.equal(fs.existsSync(file), false, scope);

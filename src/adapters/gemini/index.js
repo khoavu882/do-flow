@@ -53,7 +53,8 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
   function discover({ scope, scopeRoot, context = {}, fsImpl = fs }) {
     const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir, fsImpl });
     const instruction = fsImpl.existsSync(paths.instruction) ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
-    return { paths, instruction, settings: readJson(paths.settings, { fsImpl }) };
+    // Gemini takes no servers from DoFlow's MCP catalog.
+    return { paths, instruction, settings: readJson(paths.settings, { fsImpl }), mcpOwned: [] };
   }
 
   function render({ content = '' } = {}) {

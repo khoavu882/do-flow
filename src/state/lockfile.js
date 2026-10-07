@@ -51,6 +51,11 @@ function validateLock(value) {
   if (!value.mcpSelections || typeof value.mcpSelections !== 'object' || Array.isArray(value.mcpSelections)) {
     throw new Error('Invalid doflow.lock: mcpSelections must be an object');
   }
+  for (const [harness, ids] of Object.entries(value.mcpSelections)) {
+    if (!Array.isArray(ids) || !ids.every((id) => typeof id === 'string')) {
+      throw new Error(`Invalid doflow.lock: mcpSelections.${harness} must be an array of server ids`);
+    }
+  }
   return value;
 }
 
@@ -68,10 +73,21 @@ function writeLock(options, lock, { fsImpl = fs } = {}) {
   return atomicJsonWrite(lockPath(options), stable({ ...lock, version: LOCK_VERSION }), { fsImpl });
 }
 
+/** The lock's MCP rows for the harnesses it targets. A row naming a harness outside `targets` is
+ * ignored by every reader; the next write drops it. */
+function pinnedSelections(lock) {
+  const targets = new Set((lock?.targets ?? []).map((entry) => entry.harness));
+  return Object.fromEntries(Object.entries(lock?.mcpSelections ?? {}).filter(([harness]) => targets.has(harness)));
+}
+
 /** Compare two lock documents. Arrays are keyed by identity (assets by id, targets by harness,
- * fallback to full JSON), mcpSelections by harness. Returns {added, removed, changed} per section
- * plus a clean flag. */
-function diffLocks(previous, next) {
+ * fallback to full JSON), mcpSelections by harness, where an absent row (`null`) and a recorded
+ * empty selection (`[]`) differ. Returns {added, removed, changed} per section plus a clean flag. */
+function diffLocks(previousLock, nextLock) {
+  // Compare in the order writeLock stores, so a document built in memory never differs from the
+  // file it was written to.
+  const previous = previousLock && stable(previousLock);
+  const next = nextLock && stable(nextLock);
   const key = (entry) => entry?.id ?? entry?.harness ?? JSON.stringify(entry);
   const sectionDiff = (before, after) => {
     const beforeKeys = new Map((before || []).map((entry) => [key(entry), entry]));
@@ -83,12 +99,12 @@ function diffLocks(previous, next) {
       .map(([, v]) => v);
     return { added, removed, changed };
   };
-  const selectionsBefore = previous?.mcpSelections ?? {};
-  const selectionsAfter = next?.mcpSelections ?? {};
+  const selectionsBefore = pinnedSelections(previous);
+  const selectionsAfter = pinnedSelections(next);
   const harnesses = new Set([...Object.keys(selectionsBefore), ...Object.keys(selectionsAfter)]);
   const mcpChanged = [...harnesses]
-    .filter((harness) => JSON.stringify(selectionsBefore[harness] ?? []) !== JSON.stringify(selectionsAfter[harness] ?? []))
-    .map((harness) => ({ harness, before: selectionsBefore[harness] ?? [], after: selectionsAfter[harness] ?? [] }));
+    .filter((harness) => JSON.stringify(selectionsBefore[harness] ?? null) !== JSON.stringify(selectionsAfter[harness] ?? null))
+    .map((harness) => ({ harness, before: selectionsBefore[harness] ?? null, after: selectionsAfter[harness] ?? null }));
   const result = {
     targets: sectionDiff(previous?.targets, next?.targets),
     assets: sectionDiff(previous?.assets, next?.assets),
@@ -113,4 +129,6 @@ function removeLock(options, { fsImpl = fs } = {}) {
   return true;
 }
 
-module.exports = { LOCK_VERSION, LOCK_FILE, lockRoot, lockPath, defaultLock, validateLock, readLock, writeLock, diffLocks, removeLock };
+module.exports = {
+  LOCK_VERSION, LOCK_FILE, lockRoot, lockPath, defaultLock, validateLock, readLock, writeLock, pinnedSelections, diffLocks, removeLock,
+};

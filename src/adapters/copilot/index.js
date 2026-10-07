@@ -6,8 +6,8 @@
 // agents, and MCP each live under a different path, split further by scope. Skills and agents are
 // both trees materialised via the shared copy-tree engine in ../copy-tree.js; the single instruction
 // pointer is a marker-merged section in a shared file, the same shape opencode/pi/gemini already use;
-// MCP is a read-merge-write of one JSON key, the same posture opencode's own `mergeConfig` and
-// Claude's `src/mcp.js` already take (union/preserve foreign entries, touch only DoFlow's own keys).
+// MCP servers are entries of one JSON map that DoFlow owns one at a time through ../mcp-entries.js,
+// never touching an entry it does not own.
 //
 // Native paths (see design.md §4's harness-native-surfaces table):
 //   instructions -> <projectRoot>/.github/copilot-instructions.md (project only — Copilot documents
@@ -24,13 +24,19 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor, resolveTransform } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, sourceDirFor, resolveTransform } = require('../copy-tree');
+const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
 
 const HARNESS = 'copilot';
 /** Message text naming the instruction file the declared paths.instruction surface installs.
  * Prose inside conflict messages and a config-payload literal — not an install destination. */
 const INSTRUCTION_FILE = 'copilot-instructions.md';
+const MCP_CONTAINER = 'mcpServers';
+const MCP_RENDERER = 'copilot-mcp';
+// Releases up to 1.18.0 recorded one row for the whole server map, which cannot say which entries
+// DoFlow wrote; every plan releases it, and the entries are adopted per server instead.
+const LEGACY_MCP_REGISTRATION = `${HARNESS}:mcp:registration`;
 
 /**
  * Native path facts live in core/registry/harnesses.json under this harness's "paths" section and
@@ -55,10 +61,14 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     return resolveHarnessPaths(declaredPaths, { scope, scopeRoot });
   }
 
-  function discover({ scope, scopeRoot, context = {}, fsImpl = fs }) {
+  /** Discovery keeps the MCP files as plan read them (`mcpSnapshot`), which verify compares against,
+   * and reports the servers DoFlow owns in Copilot's MCP config now (`mcpOwned`). */
+  function discover({ scope, scopeRoot, mcp = [], mcpAdoptable = [], ledger, fsImpl = fs }) {
     const paths = nativePaths({ scope, scopeRoot });
     const instruction = paths.instruction && fsImpl.existsSync(paths.instruction) ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
-    return { paths, instruction, mcp: readJson(paths.mcp, { fsImpl }) };
+    const entries = mcpEntriesInput({ paths, mcp, mcpAdoptable, ledger });
+    const mcpSnapshot = readMcpFiles({ file: entries.file, ownRows: entries.ownRows, container: MCP_CONTAINER, fsImpl });
+    return { paths, instruction, mcpSnapshot, mcpOwned: ownedMcpIds({ ...entries, files: mcpSnapshot }) };
   }
 
   function render({ content = '' } = {}) {
@@ -216,35 +226,43 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
 
   // ---- mcp (.mcp.json project / ~/.copilot/mcp-config.json global) ----
 
-  /** Merge DoFlow's selected servers into the `mcpServers` object, touching only the ids it ships.
-   * Every other top-level key, and every server entry not among `mcpServers` (including one a user
-   * or another tool — e.g. Claude Code's own project `.mcp.json` — added), survives untouched. */
-  function mergeMcpConfig(existing, { mcpServers = [] } = {}) {
-    const next = { ...(existing || {}) };
-    if (!mcpServers.length) return next;
-    next.mcpServers = { ...(next.mcpServers || {}) };
-    for (const server of mcpServers) {
-      const entry = { command: server.command };
-      if (server.args?.length) entry.args = [...server.args];
-      if (server.env && Object.keys(server.env).length) entry.env = { ...server.env };
-      next.mcpServers[server.id] = entry;
-    }
-    return next;
+  /** Copilot's own per-server shape. The file may be shared with another tool (Claude Code reads the
+   * same project `.mcp.json`), so DoFlow only ever writes the entries it owns. */
+  function buildServerEntry(server) {
+    return {
+      command: server.command,
+      ...(server.args?.length ? { args: [...server.args] } : {}),
+      ...(server.env && Object.keys(server.env).length ? { env: { ...server.env } } : {}),
+    };
   }
 
-  /** Remove only what mergeMcpConfig added, leaving every other server entry and top-level key. */
-  function unmergeMcpConfig(existing, { mcpServers = [] } = {}) {
-    const next = { ...(existing || {}) };
-    if (!next.mcpServers) return next;
-    next.mcpServers = { ...next.mcpServers };
-    for (const server of mcpServers) delete next.mcpServers[server.id];
-    if (!Object.keys(next.mcpServers).length) delete next.mcpServers;
-    return next;
+  function ownershipIdentity(id) { return `doflow:${HARNESS}:mcp-server:${id}`; }
+
+  /** Everything the shared entry-ownership rules (../mcp-entries.js) need from this adapter. */
+  function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], ledger, assets = [] }) {
+    const rendered = (servers) => servers.map((server) => ({ id: server.id, entry: buildServerEntry(server) }));
+    const rows = (ledger?.resources || []).filter((row) => row.kind === 'mcp-server');
+    return {
+      file: paths.mcp, selected: rendered(mcp), adoptable: rendered(mcpAdoptable),
+      ownRows: rows.filter((row) => row.harness === HARNESS).map((row) => ({
+        identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity, legacy: false,
+      })),
+      foreignRows: rows.filter((row) => row.harness !== HARNESS).map((row) => ({ harness: row.harness, identity: row.identity, target: row.target })),
+      identityFor: ownershipIdentity, assetId: pseudoAssetId(assets), renderer: MCP_RENDERER, label: 'Copilot MCP',
+    };
   }
 
-  /** Copilot's MCP-merge change has no asset of its own in core/registry/assets.json (it's a
-   * registration side-effect of the selected MCP servers, not a projected asset), so it piggybacks on
-   * a real asset id already routed to this harness — the same "pseudo-component" technique
+  /** The release of the 1.18.0 whole-map row, under the asset id it was recorded with so the ledger
+   * drops exactly that row. The file is not touched. */
+  function legacyRegistrationReleases(ledger) {
+    return (ledger?.resources || []).filter((row) => row.harness === HARNESS && row.ownershipIdentity === LEGACY_MCP_REGISTRATION)
+      .map((row) => ({ assetId: row.assetId, target: row.target, operation: 'remove', release: true,
+        ownershipIdentity: row.ownershipIdentity, harness: HARNESS, projection: { renderer: MCP_RENDERER } }));
+  }
+
+  /** Copilot's MCP entry changes have no asset of their own in core/registry/assets.json (they are a
+   * registration side-effect of the selected MCP servers, not a projected asset), so they piggyback
+   * on a real asset id already routed to this harness — the same "pseudo-component" technique
    * src/adapters/gemini/index.js#hooksAssetId and src/adapters/kiro/index.js#pseudoAssetId use. The
    * lifecycle layer validates every change's assetId against the harness's actual asset list, so an
    * invented id like a literal 'copilot.mcp' string is rejected as unknown. */
@@ -254,8 +272,8 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
 
   // ---- shared adapter contract ----
 
-  function plan({ scope, scopeRoot, assets = [], mcp = [], context = {}, ledger, fsImpl = fs }) {
-    const found = discover({ scope, scopeRoot, context, fsImpl });
+  function plan({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, context = {}, ledger, fsImpl = fs }) {
+    const found = discovery || discover({ scope, scopeRoot, mcp, mcpAdoptable, ledger, fsImpl });
     const changes = [];
     const conflicts = [];
     const removing = context.operation === 'remove';
@@ -276,26 +294,13 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     changes.push(...rules.changes);
     conflicts.push(...rules.conflicts);
 
-    if (found.mcp.error) {
-      conflicts.push(found.mcp.error);
-    } else {
-      const current = found.mcp.value || {};
-      const next = removing ? unmergeMcpConfig(current, { mcpServers: mcp }) : mergeMcpConfig(current, { mcpServers: mcp });
-      if (JSON.stringify(next) !== JSON.stringify(current)) {
-        changes.push({
-          assetId: pseudoAssetId(assets), target: found.paths.mcp,
-          // Tagged 'remove' during a remove operation (rather than always 'update'/'create') so this
-          // adapter's own apply()/remove() dispatch — which routes strictly on `operation` — writes
-          // the unmerged file during removal instead of silently skipping it.
-          operation: removing ? 'remove' : (found.mcp.exists ? 'update' : 'create'),
-          content: `${JSON.stringify(next, null, 2)}\n`,
-          ownershipIdentity: `${HARNESS}:mcp:registration`, fingerprint: fingerprint(next),
-          harness: HARNESS, projection: { renderer: 'copilot-mcp' },
-        });
-      }
-    }
+    const mcpPlan = planMcpEntries({
+      ...mcpEntriesInput({ paths: found.paths, mcp, mcpAdoptable, ledger, assets }), files: found.mcpSnapshot, removing,
+    });
+    changes.push(...legacyRegistrationReleases(ledger), ...mcpPlan.changes);
+    conflicts.push(...mcpPlan.conflicts);
 
-    return { changes, conflicts, notices: [...skills.notices, ...agents.notices, ...rules.notices], paths: found.paths };
+    return { changes, conflicts, notices: [...skills.notices, ...agents.notices, ...rules.notices, ...mcpPlan.notices], paths: found.paths };
   }
 
   function writeChange(change, fsImpl) {
@@ -307,10 +312,11 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     let applied = 0;
     for (const change of changes) {
       if (change.operation === 'remove') continue;
-      if (change.projection?.renderer === 'copy-tree') continue;
+      if (change.projection?.renderer === 'copy-tree' || change.kind === 'mcp-server') continue;
       writeChange(change, fsImpl);
       applied += 1;
     }
+    applied += writeMcpEntries(changes, { container: MCP_CONTAINER, fsImpl });
     applied += applyCopyTreeAssets(changes, { fsImpl });
     // An update that drops a copy-tree asset carries its rows as removals inside the apply batch;
     // the lifecycle calls remove() only for `doflow remove`.
@@ -322,17 +328,18 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     let removed = 0;
     for (const change of changes) {
       if (change.operation !== 'remove') continue;
-      if (change.projection?.renderer === 'copy-tree') continue;
-      if (change.content === null) continue;
+      if (change.projection?.renderer === 'copy-tree' || change.kind === 'mcp-server') continue;
+      if (typeof change.content !== 'string') continue;
       writeChange(change, fsImpl);
       removed += 1;
     }
+    removed += writeMcpEntries(changes, { container: MCP_CONTAINER, fsImpl });
     removed += removeCopyTreeAssets(changes, { fsImpl });
     return { removed };
   }
 
-  function verify({ scope, scopeRoot, assets = [], mcp = [], context = {}, fsImpl = fs }) {
-    const found = discover({ scope, scopeRoot, context, fsImpl });
+  function verify({ scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], discovery, ledger, operation, context = {}, fsImpl = fs }) {
+    const found = discover({ scope, scopeRoot, mcp, mcpAdoptable, ledger, fsImpl });
     const statuses = [];
     const resources = [];
     const conflicts = [];
@@ -368,31 +375,20 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     statuses.push(...rules.statuses);
     conflicts.push(...rules.conflicts);
 
-    if (found.mcp.error) {
-      conflicts.push(found.mcp.error);
-      statuses.push({ harness: HARNESS, assetId: pseudoAssetId(assets), capability: 'mcp', status: 'invalid', target: found.paths.mcp });
-    } else {
-      const value = found.mcp.value || {};
-      const registered = mcp.filter((server) => value.mcpServers?.[server.id]);
-      const missing = mcp.filter((server) => !value.mcpServers?.[server.id]);
-      if (registered.length) {
-        statuses.push({ harness: HARNESS, assetId: pseudoAssetId(assets), capability: 'mcp', status: 'managed',
-          target: found.paths.mcp, ownershipIdentity: `${HARNESS}:mcp:registration` });
-        resources.push({ assetId: pseudoAssetId(assets), target: found.paths.mcp,
-          ownershipIdentity: `${HARNESS}:mcp:registration`, fingerprint: fingerprint(value.mcpServers),
-          sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'copilot-mcp' } });
-      }
-      for (const server of missing) {
-        statuses.push({ harness: HARNESS, assetId: pseudoAssetId(assets), capability: 'mcp', status: 'missing', identity: server.id, target: found.paths.mcp });
-      }
-    }
+    const mcpResult = verifyMcpEntries({
+      ...mcpEntriesInput({ paths: found.paths, mcp, mcpAdoptable, ledger, assets }), files: found.mcpSnapshot,
+      snapshot: discovery?.mcpSnapshot ?? found.mcpSnapshot, removing: (operation ?? context.operation) === 'remove',
+      harness: HARNESS, sourceVersion: context.sourceVersion ?? 'unknown',
+    });
+    resources.push(...mcpResult.resources);
+    statuses.push(...mcpResult.statuses);
+    conflicts.push(...mcpResult.conflicts);
 
     return { ok: conflicts.length === 0 && !statuses.some((s) => s.status === 'invalid' || s.status === 'conflict'), resources, statuses, conflicts };
   }
 
   return { nativePaths, discover, render, plan, apply, remove, verify,
     managedInstruction, strippedInstruction,
-    mergeMcpConfig, unmergeMcpConfig,
     agentFileLayout };
 }
 
@@ -407,7 +403,6 @@ module.exports = {
   nativePaths: singleton.nativePaths, discover: singleton.discover, render: singleton.render,
   plan: singleton.plan, apply: singleton.apply, remove: singleton.remove, verify: singleton.verify,
   managedInstruction: singleton.managedInstruction, strippedInstruction: singleton.strippedInstruction,
-  mergeMcpConfig: singleton.mergeMcpConfig, unmergeMcpConfig: singleton.unmergeMcpConfig,
   agentFileLayout: singleton.agentFileLayout,
   createCopilotAdapter,
 };

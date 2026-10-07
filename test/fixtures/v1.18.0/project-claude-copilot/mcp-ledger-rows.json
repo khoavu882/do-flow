@@ -1,0 +1,15 @@
+[
+  {
+    "assetId": "guidance.codex-pointer",
+    "target": "@ROOT@/.mcp.json",
+    "ownershipIdentity": "copilot:mcp:registration",
+    "fingerprint": "9eec52e177e06ea640f729c24fdbd7d6d7ab99e0348c31fbcf0dc0bca6999061",
+    "sourceVersion": "1.18.0",
+    "projection": {
+      "renderer": "copilot-mcp"
+    },
+    "harness": "copilot",
+    "scope": "project",
+    "recoveryRef": "recovery_2026-10-06T15-27-04-752Z_4b9705be"
+  }
+]

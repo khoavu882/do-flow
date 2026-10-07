@@ -1,0 +1,70 @@
+[
+  {
+    "harness": "codex",
+    "scope": "global",
+    "assetId": "guidance.codex-pointer",
+    "kind": "mcp-server",
+    "identity": "context7",
+    "target": "@ROOT@/.codex/config.toml",
+    "ownershipIdentity": "doflow:codex:mcp-server:context7",
+    "fingerprint": "sha256:2ea7d3a6f69accf938ad5eece78463db1d543e265527c640bd71dcfcb60a1f9c",
+    "sourceVersion": "1.18.0",
+    "selection": true,
+    "recoveryRef": "recovery_2026-10-06T15-27-04-010Z_4f3504b0",
+    "projection": {
+      "renderer": "codex-mcp"
+    }
+  },
+  {
+    "harness": "codex",
+    "scope": "global",
+    "assetId": "guidance.codex-pointer",
+    "kind": "mcp-server",
+    "identity": "sequential-thinking",
+    "target": "@ROOT@/.codex/config.toml",
+    "ownershipIdentity": "doflow:codex:mcp-server:sequential-thinking",
+    "fingerprint": "sha256:47d8064b4a5adf9ddc7c6d0441b07cee90471a76698678397d94798b661eee40",
+    "sourceVersion": "1.18.0",
+    "selection": true,
+    "recoveryRef": "recovery_2026-10-06T15-27-04-010Z_4f3504b0",
+    "projection": {
+      "renderer": "codex-mcp"
+    }
+  },
+  {
+    "assetId": "guidance.codex-pointer",
+    "target": "@ROOT@/.pi/agent/mcp.json",
+    "ownershipIdentity": "doflow:pi:mcp-server:context7",
+    "kind": "mcp-server",
+    "identity": "context7",
+    "fingerprint": "ba674561deee52eca70f103ec561f576cd7582febec9bea15ebc81dcb2f4c258",
+    "sourceVersion": "registry-v1",
+    "projection": {
+      "renderer": "pi-mcp"
+    },
+    "origin": {
+      "created": "file"
+    },
+    "harness": "pi",
+    "scope": "global",
+    "recoveryRef": "recovery_2026-10-06T15-27-04-010Z_4f3504b0"
+  },
+  {
+    "assetId": "guidance.codex-pointer",
+    "target": "@ROOT@/.pi/agent/mcp.json",
+    "ownershipIdentity": "doflow:pi:mcp-server:sequential-thinking",
+    "kind": "mcp-server",
+    "identity": "sequential-thinking",
+    "fingerprint": "08585afd54b8fb4a592fed6ee008bd4e42bd7683037b6323715e673b740955ca",
+    "sourceVersion": "registry-v1",
+    "projection": {
+      "renderer": "pi-mcp"
+    },
+    "origin": {
+      "created": "file"
+    },
+    "harness": "pi",
+    "scope": "global",
+    "recoveryRef": "recovery_2026-10-06T15-27-04-010Z_4f3504b0"
+  }
+]

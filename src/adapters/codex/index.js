@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { configPath, fingerprint: configFingerprint, parseToml, planCodexConfig, applyCodexConfig } = require('./config');
-const { renderServer, planCodexMcp, applyCodexMcp } = require('./mcp');
+const { renderServer, planCodexMcp, applyCodexMcp, ownedCodexMcpIds } = require('./mcp');
 const { agentDirectory, discoverCodexAgents, planCodexAgents, applyCodexAgents } = require('./agents');
 const { planCodexHooks, deployCodexHooks, removeCodexHookScripts } = require('./hooks');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../copy-tree');
@@ -58,6 +58,8 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
       config: { file: config, exists: fsImpl.existsSync(config) },
       agents: { directory: agents, exists: fsImpl.existsSync(agents) },
       hooks: { file: hooks, exists: fsImpl.existsSync(hooks) },
+      mcpOwned: ownedCodexMcpIds({ file: config, scope: context.scope, fsImpl,
+        managedResources: nativeManagedResources(options.managedResources || options.ledger?.resources || [], context, { kind: 'mcp-server', target: config }) }),
     };
   }
 
