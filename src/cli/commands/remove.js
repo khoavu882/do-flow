@@ -11,8 +11,8 @@ const {
   codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES,
   assertSafeRegistryPlan, lockDocument, recordLock,
 } = require('../../lifecycle/view');
-const { removeLock } = require('../../state/lockfile');
-const { REPO_ROOT, scopeOf, buildAdapterRegistry } = require('../shared');
+const { recordedMcpSelections } = require('../../install/mcp');
+const { REPO_ROOT, scopeOf, scopeSelectionState, buildAdapterRegistry } = require('../shared');
 
 function cmdRemove(o) {
   const targets = resolveTargets(o.targets);
@@ -24,7 +24,13 @@ function cmdRemove(o) {
     return;
   }
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
-  const view = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets: lifecycleTargets, mcpIds: [], operation: 'remove',
+  // Read before the removal rewrites the ledger: an entry DoFlow wrote before it kept MCP rows is
+  // removed only while it still equals DoFlow's own rendering.
+  const { lock, ledger, manifestServers } = scopeSelectionState(scope);
+  // No selection: every removed harness's MCP selection is none, so it removes what it owns. The
+  // harnesses that stay keep their recorded servers in the MCP index.
+  const { adoptable: mcpAdoptable, retainedMcpIds } = recordedMcpSelections({ registry, lock, ledger, targets: lifecycleTargets, manifestServers });
+  const view = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets: lifecycleTargets, mcpAdoptable, retainedMcpIds, operation: 'remove',
     permissions: o.permissions === true, statusline: o.statusline === true });
   if (!view.plan.safe) { assertSafeRegistryPlan(view); return; }
   if (o.dryRun) {
@@ -43,7 +49,7 @@ function cmdRemove(o) {
   const result = removeLifecycle({ registry: view.registry,
     adapters: buildAdapterRegistry(),
     scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot),
-    targets: lifecycleTargets, mcpIds: [], stateRoot: view.stateRoot, ledger: view.ledger,
+    targets: lifecycleTargets, mcpAdoptable, retainedMcpIds, stateRoot: view.stateRoot, ledger: view.ledger,
     context: view.plan.targets[0].adapterInput.context });
   // Shared destinations (one .doflow/scripts tree for claude/codex/gemini, one .agents for
   // gemini/copilot) mean a removal can legitimately leave files standing. Saying only "removed"
@@ -51,20 +57,14 @@ function cmdRemove(o) {
   for (const line of retentionSummary(result.retained)) console.log(`[INFO] ${line}`);
   console.log(`[OK] Removed ${result.ledger.resources.length === 0 ? 'all' : 'eligible'} native resource(s) for ${lifecycleTargets.join(', ')}; ${result.ledger.resources.length} owned record(s) remain.`);
 
-  // Re-pin what still stands: harnesses with no remaining owned resources leave the lock; when
-  // nothing remains at all the lock goes with them. Shared destinations are handled naturally —
-  // their claims belong to whichever harness still holds them in the ledger.
-  const remaining = lifecycleTargets.filter((harness) => result.ledger.resources.some((resource) => resource.harness === harness));
-  if (remaining.length) {
-    const removalLock = recordLock(
-      scope.global ? { scope: 'global', homeDir: os.homedir() } : { scope: 'project', projectRoot: path.resolve(scope.projectRoot) },
-      lockDocument({ registry, scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot), targets: remaining }),
-    );
-    console.log(`[INFO] doflow.lock: ${removalLock.summary}`);
-  } else {
-    removeLock(scope.global ? { scope: 'global', homeDir: os.homedir() } : { scope: 'project', projectRoot: path.resolve(scope.projectRoot) });
-    console.log('[INFO] doflow.lock: cleared');
-  }
+  // Re-pin what still stands: every harness the ledger still holds keeps its pin and its recorded
+  // selection, a removed harness with nothing left leaves the lock, and the lock goes only when no
+  // harness remains. Shared destinations are handled naturally — their claims belong to whichever
+  // harness still holds them in the ledger.
+  const next = lockDocument({ registry, scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot),
+    previous: lock, ledger: result.ledger });
+  const removalLock = recordLock(scope.global ? { scope: 'global', homeDir: os.homedir() } : { scope: 'project', projectRoot: path.resolve(scope.projectRoot) }, next);
+  if (lock || next) console.log(`[INFO] doflow.lock: ${removalLock.summary}`);
 }
 
 module.exports = cmdRemove;

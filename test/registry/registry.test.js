@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {
-  REGISTRY_FILES, loadRegistry, validateRegistry, selectAssets, selectMcpServers, capabilityMapData,
+  REGISTRY_FILES, loadRegistry, validateRegistry, selectAssets, selectMcpServers, mcpCapable, capabilityMapData,
 } = require('../../src/registry');
 
 const REPO = path.resolve(__dirname, "../..");
@@ -76,6 +76,13 @@ test('selects the neutral MCP catalog and rejects unknown selections', () => {
   assert.equal(selectMcpServers(registry).length, 2);
   assert.deepEqual(selectMcpServers(registry, ['context7', 'sequential-thinking']).map((item) => item.id), ['context7', 'sequential-thinking']);
   assert.throws(() => selectMcpServers(registry, ['unknown']), /Unknown registry MCP server/);
+});
+
+test('mcpCapable names every harness that takes the shared MCP catalog, and not gemini', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  assert.deepEqual(registry.harnesses.map((item) => item.id).filter((id) => mcpCapable(registry, id)),
+    ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
+  assert.throws(() => mcpCapable(registry, 'unknown'), /Unknown registry harness/);
 });
 
 test('generates capability-map records with evidence and explicit gaps', () => {

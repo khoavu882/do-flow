@@ -20,7 +20,7 @@ const { createAntigravityAdapter } = require('../adapters/antigravity');
 const { planLifecycle } = require('./index');
 const { stateRoot, readLedger, defaultLedger } = require('../state');
 const { selectAssets } = require('../registry');
-const { defaultLock, readLock, writeLock, diffLocks } = require('../state/lockfile');
+const { defaultLock, readLock, writeLock, diffLocks, removeLock, pinnedSelections } = require('../state/lockfile');
 // Tolerant because the projected runtime under `.doflow/runtime/` ships bin/, src/ and
 // core/registry/ but no package.json — see the `runtime.*` assets in core/registry/assets.json.
 // A hard require here would make every Node-backed verb fail in an install, which is the exact
@@ -45,8 +45,8 @@ function codexConfigResources(repoRoot, fsImpl) {
  * the capability and neutral-ledger view observable without changing the proven copy/backup
  * mutation path until every native adapter has CLI-level parity.
  * `registry` is loaded once per command (by the caller) and threaded through here rather than
- * reloaded — the same registry also resolves the Claude/Codex MCP catalog for that command. */
-function registryLifecycleView({ registry, scope, targets, mcpIds, operation, repoRoot, force = false, adopt = false, permissions = false, statusline = false, fsImpl = fs }) {
+ * reloaded — the same registry also resolves every harness's MCP selection for that command. */
+function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, mcpAdoptable = {}, retainedMcpIds = [], operation, repoRoot, force = false, adopt = false, permissions = false, statusline = false, fsImpl = fs }) {
   const lifecycleScope = codexScope(scope);
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   const neutralStateRoot = stateRoot({ scope: lifecycleScope, projectRoot: scopeRoot, homeDir: scopeRoot });
@@ -60,7 +60,7 @@ function registryLifecycleView({ registry, scope, targets, mcpIds, operation, re
     opencode: createOpenCodeAdapter({ declaredPaths: declared.opencode }), pi: createPiAdapter({ declaredPaths: declared.pi }),
     copilot: createCopilotAdapter({ declaredPaths: declared.copilot }), kiro: createKiroAdapter({ declaredPaths: declared.kiro }),
     antigravity: createAntigravityAdapter({ declaredPaths: declared.antigravity }) });
-  const plan = planLifecycle({ registry, adapters, scope: lifecycleScope, scopeRoot, targets, mcpIds, ledger, context: {
+  const plan = planLifecycle({ registry, adapters, scope: lifecycleScope, scopeRoot, targets, mcpSelections, mcpAdoptable, retainedMcpIds, ledger, context: {
     repoRoot, projectRoot: scopeRoot, homeDir: os.homedir(), sourceVersion: pkg.version,
     codexConfigResources: codexConfigResources(repoRoot, fsImpl),
     codexAgentsSourceDir: path.join(repoRoot, 'core', 'harnesses', 'codex', 'agents'),
@@ -108,40 +108,45 @@ function assertSafeRegistryPlan(view) {
   process.exitCode = 1;
 }
 
-/** Build the doflow.lock document describing an invocation's resolved selections. Pure — no I/O —
- * so tests can pin exactly what gets pinned without running an install. Assets are enumerated per
- * targeted harness from the same registry selection the adapters consume; MCP selections arrive
- * pre-resolved from the caller because their prompting lives in the CLI layer. */
-function lockDocument({ registry, scope, scopeRoot, targets, mcpSelections = {}, sourceVersion = pkg.version, now = new Date() }) {
+/** Build the doflow.lock document a completed run leaves. Pure — no I/O — so tests can pin exactly
+ * what gets pinned without running an install.
+ *
+ * The lock accumulates: it pins every harness the previous lock pinned or this run planned, as long
+ * as the ledger (as the run left it) still holds a resource of that harness, so a narrower later run
+ * never drops another harness's pin and a harness whose last resource is gone leaves it. MCP
+ * selections carry over for pinned harnesses and are replaced by the rows this run resolved, `[]`
+ * included. Assets are recomputed from the registry for every pinned harness. `null` when no harness
+ * stays pinned. */
+function lockDocument({ registry, scope, scopeRoot, previous = null, ledger, plannedTargets = [], mcpSelections = {}, sourceVersion = pkg.version, now = new Date() }) {
+  const held = new Set((ledger?.resources ?? []).map((resource) => resource?.harness));
+  const pinned = [...new Set([...(previous?.targets ?? []).map((entry) => entry.harness), ...plannedTargets])]
+    .filter((harness) => held.has(harness)).sort();
+  if (!pinned.length) return null;
   const assets = [];
-  for (const harness of targets) {
+  for (const harness of pinned) {
     for (const asset of selectAssets(registry, { harness })) {
       const nativeDir = asset.nativeDir?.[harness];
       assets.push({ id: asset.id, kind: asset.kind, ...(nativeDir ? { nativeDir } : {}) });
     }
   }
-  const selections = Object.fromEntries(
-    Object.entries(mcpSelections)
-      .filter(([harness, ids]) => targets.includes(harness) && Array.isArray(ids) && ids.length > 0),
-  );
+  const rows = { ...pinnedSelections(previous), ...mcpSelections };
   return {
     ...defaultLock({ scope, scopeRoot }),
     generatedAt: now.toISOString(),
     sourceVersion,
-    targets: [...targets].sort().map((harness) => ({ harness })),
+    targets: pinned.map((harness) => ({ harness })),
     assets,
-    mcpSelections: selections,
+    mcpSelections: Object.fromEntries(pinned.filter((harness) => Array.isArray(rows[harness])).map((harness) => [harness, rows[harness]])),
   };
 }
 
-/** Persist the lock for a completed command and describe the reviewable delta against whatever was
- * pinned before. A first pin reads "created"; identical re-pins stay silent-ish ("unchanged") so
- * routine updates don't manufacture noise. */
-function recordLock(scopeArgs, document, { fsImpl = fs } = {}) {
-  const previous = readLock(scopeArgs, { fsImpl });
-  writeLock(scopeArgs, document, { fsImpl });
+/** Describe the reviewable delta between the pinned lock and the next one: "created" for a first
+ * pin, "unchanged" when nothing pinned differs, "cleared" when nothing remains pinned, else a count
+ * of the changed rows. */
+function lockDelta(previous, next) {
+  if (!next) return previous ? { changed: true, summary: 'cleared' } : { changed: false, summary: 'unchanged' };
   if (!previous) return { changed: true, summary: 'created' };
-  const diff = diffLocks(previous, document);
+  const diff = diffLocks(previous, next);
   if (diff.clean) return { changed: false, summary: 'unchanged' };
   const count = ['targets', 'assets']
     .flatMap((section) => Object.values(diff[section]).map((list) => list.length))
@@ -150,7 +155,19 @@ function recordLock(scopeArgs, document, { fsImpl = fs } = {}) {
   return { changed: true, summary: `${count} change(s)` };
 }
 
+/** Persist the lock for a completed command and return its delta against what was pinned before.
+ * An unchanged lock is left byte for byte, so routine re-runs neither rewrite the file nor
+ * manufacture noise; a `null` lock removes the file. */
+function recordLock(scopeArgs, next, { fsImpl = fs } = {}) {
+  const delta = lockDelta(readLock(scopeArgs, { fsImpl }), next);
+  if (delta.changed) {
+    if (next) writeLock(scopeArgs, next, { fsImpl });
+    else removeLock(scopeArgs, { fsImpl });
+  }
+  return delta;
+}
+
 module.exports = {
   codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, LIFECYCLE_HARNESSES, assertSafeRegistryPlan,
-  lockDocument, recordLock,
+  lockDocument, lockDelta, recordLock,
 };

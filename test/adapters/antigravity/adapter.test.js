@@ -122,6 +122,138 @@ test('MCP removal deletes only DoFlow-owned servers; foreign ones survive byte-f
   assert.deepEqual(after.mcpServers['foreign-thing'], { command: '/bin/true' }, 'a foreign server is never swept');
 });
 
+// ---- MCP entries, owned per server through ledger rows ----
+
+const CONTEXT7 = { id: 'context7', transport: 'stdio', command: 'npx', args: ['-y', '@upstash/context7-mcp'] };
+const SEQUENTIAL = { id: 'sequential-thinking', transport: 'stdio', command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] };
+const ENTRIES = { context7: { command: 'npx', args: ['-y', '@upstash/context7-mcp'] },
+  'sequential-thinking': { command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] } };
+const USER_SERVER = { command: 'my-own-server', env: { TOKEN: 'secret-value' } };
+
+// User scope keeps these cases to the MCP file: no instructions, skills or hooks are planned there.
+function userMcpFile(home) { return path.join(home, '.gemini', 'config', 'mcp_config.json'); }
+
+function writeUserMcp(home, doc) {
+  fs.mkdirSync(path.dirname(userMcpFile(home)), { recursive: true });
+  fs.writeFileSync(userMcpFile(home), typeof doc === 'string' ? doc : `${JSON.stringify(doc, null, 2)}\n`);
+}
+
+function readUserMcp(home) { return JSON.parse(fs.readFileSync(userMcpFile(home), 'utf8')); }
+
+/** One run the way the lifecycle drives an adapter: discover, plan, apply or remove, verify. The
+ * returned ledger drops the rows the plan removed or released and takes the MCP rows verify reports,
+ * as updateLedger does. */
+function runMcp({ home, mcp = [], mcpAdoptable = [], ledger = { resources: [] }, removing = false }) {
+  const operation = removing ? 'remove' : 'apply';
+  const input = { scope: 'global', scopeRoot: home, assets: [], mcp, mcpAdoptable, ledger, context: { repoRoot: REPO, operation } };
+  const discovery = adapter.discover(input);
+  const planned = adapter.plan({ ...input, discovery });
+  if (!planned.conflicts.length) adapter[removing ? 'remove' : 'apply']({ ...input, changes: planned.changes });
+  const verified = adapter.verify({ ...input, discovery, operation });
+  const dropped = new Set(planned.changes.filter((change) => change.operation === 'remove').map((change) => change.ownershipIdentity));
+  const added = verified.resources.filter((resource) => resource.kind === 'mcp-server').map((resource) => ({ ...resource, harness: 'antigravity' }));
+  const kept = ledger.resources.filter((row) => !dropped.has(row.ownershipIdentity) && !added.some((item) => item.ownershipIdentity === row.ownershipIdentity));
+  const mcpNotices = planned.notices.filter((notice) => notice.startsWith('MCP:'));
+  return { discovery, planned, mcpNotices, verified, ledger: { resources: [...kept, ...added] } };
+}
+
+test('mcp: installs each selected server under a fingerprinted row and re-plans to nothing', () => {
+  const home = scratch();
+  writeUserMcp(home, { mcpServers: { 'user-server': USER_SERVER } });
+  const first = runMcp({ home, mcp: [CONTEXT7] });
+  assert.deepEqual(first.planned.conflicts, []);
+  assert.deepEqual(readUserMcp(home).mcpServers, { 'user-server': USER_SERVER, context7: ENTRIES.context7 });
+  assert.deepEqual(first.ledger.resources.map((row) => [row.ownershipIdentity, row.identity, row.target, typeof row.fingerprint]),
+    [['doflow:antigravity:mcp-server:context7', 'context7', userMcpFile(home), 'string']]);
+  assert.equal(first.verified.ok, true);
+
+  const again = runMcp({ home, mcp: [CONTEXT7], ledger: first.ledger });
+  assert.deepEqual(again.discovery.mcpOwned, ['context7']);
+  assert.deepEqual(again.planned.changes, []);
+});
+
+test('A3 antigravity: a narrower selection removes the deselected owned entry, and none removes every owned entry', () => {
+  const home = scratch();
+  writeUserMcp(home, { otherKey: true });
+  const both = runMcp({ home, mcp: [CONTEXT7, SEQUENTIAL] });
+  assert.deepEqual(Object.keys(readUserMcp(home).mcpServers), ['context7', 'sequential-thinking']);
+
+  const narrower = runMcp({ home, mcp: [SEQUENTIAL], ledger: both.ledger });
+  assert.deepEqual(Object.keys(readUserMcp(home).mcpServers), ['sequential-thinking']);
+  assert.deepEqual(narrower.ledger.resources.map((row) => row.identity), ['sequential-thinking']);
+
+  const none = runMcp({ home, mcp: [], ledger: narrower.ledger });
+  assert.deepEqual(readUserMcp(home), { otherKey: true, mcpServers: {} }, 'the emptied mcpServers object is kept; every other key stays');
+  assert.deepEqual(none.ledger.resources, []);
+});
+
+test('A4 antigravity: remove with an empty selection removes the owned servers and keeps the user\'s', () => {
+  const home = scratch();
+  writeUserMcp(home, { mcpServers: { 'user-server': USER_SERVER } });
+  const installed = runMcp({ home, mcp: [CONTEXT7, SEQUENTIAL] });
+
+  const removed = runMcp({ home, mcp: [], ledger: installed.ledger, removing: true });
+  assert.deepEqual(removed.planned.changes.map((change) => [change.ownershipIdentity, change.release ?? false]),
+    [['doflow:antigravity:mcp-server:context7', false], ['doflow:antigravity:mcp-server:sequential-thinking', false]]);
+  assert.deepEqual(readUserMcp(home), { mcpServers: { 'user-server': USER_SERVER } });
+  assert.equal(removed.verified.ok, true);
+  assert.deepEqual(removed.ledger.resources, []);
+});
+
+test('mcp: a row recorded without a fingerprint owns its entry only while it equals DoFlow\'s rendering', () => {
+  const home = scratch();
+  const edited = { ...ENTRIES['sequential-thinking'], env: { DEBUG: '1' } };
+  writeUserMcp(home, { mcpServers: { context7: ENTRIES.context7, 'sequential-thinking': edited } });
+  const before = fs.readFileSync(userMcpFile(home));
+  const unfingerprinted = { resources: ['context7', 'sequential-thinking'].map((id) => ({
+    harness: 'antigravity', scope: 'global', assetId: 'guidance.codex-pointer', target: userMcpFile(home),
+    ownershipIdentity: `doflow:antigravity:mcp-server:${id}`, kind: 'mcp-server', identity: id, fingerprint: null,
+  })) };
+
+  const installed = runMcp({ home, mcp: [CONTEXT7, SEQUENTIAL], ledger: unfingerprinted });
+  assert.deepEqual(installed.discovery.mcpOwned, ['context7']);
+  assert.deepEqual(installed.planned.changes.map((change) => [change.identity, change.operation, change.release ?? false]),
+    [['sequential-thinking', 'remove', true]]);
+  assert.deepEqual(installed.mcpNotices,
+    ["MCP: entry 'sequential-thinking' in mcp_config.json was changed outside DoFlow; it is yours now and DoFlow no longer updates or removes it."]);
+  assert.deepEqual(fs.readFileSync(userMcpFile(home)), before, 'nothing is written');
+  assert.deepEqual(installed.ledger.resources.map((row) => [row.identity, typeof row.fingerprint]), [['context7', 'string']]);
+});
+
+test('A5 antigravity: a same-named user entry is kept through install and remove', () => {
+  const home = scratch();
+  writeUserMcp(home, { mcpServers: { context7: USER_SERVER } });
+  const before = fs.readFileSync(userMcpFile(home));
+
+  const installed = runMcp({ home, mcp: [CONTEXT7] });
+  assert.deepEqual(installed.planned.changes, []);
+  assert.deepEqual(installed.mcpNotices,
+    ["MCP: kept your own entry 'context7' in mcp_config.json and did not register DoFlow's; rename or remove yours to let DoFlow manage it."]);
+  assert.equal(installed.verified.statuses.find((status) => status.capability === 'mcp').status, 'not-managed');
+  assert.deepEqual(installed.ledger.resources, []);
+
+  runMcp({ home, ledger: installed.ledger, removing: true });
+  assert.deepEqual(fs.readFileSync(userMcpFile(home)), before);
+});
+
+test('A6 antigravity: a malformed mcp_config.json is an install conflict and a remove release, and is never written', () => {
+  const home = scratch();
+  const owned = runMcp({ home, mcp: [CONTEXT7] });
+  writeUserMcp(home, '{ "mcpServers": { "secret-value": ');
+
+  const installed = runMcp({ home, mcp: [CONTEXT7], ledger: owned.ledger });
+  assert.deepEqual(installed.planned.conflicts, [`Antigravity MCP: ${userMcpFile(home)}: invalid JSON; DoFlow did not change the file`]);
+  assert.deepEqual(installed.planned.changes, []);
+  assert.doesNotMatch(JSON.stringify(installed.planned), /secret-value/);
+
+  const removed = runMcp({ home, ledger: owned.ledger, removing: true });
+  assert.deepEqual(removed.planned.conflicts, []);
+  assert.deepEqual(removed.planned.changes.map((change) => [change.ownershipIdentity, change.release]), [['doflow:antigravity:mcp-server:context7', true]]);
+  assert.match(removed.mcpNotices[0], /^MCP: left .*mcp_config\.json untouched because it cannot be edited safely/);
+  assert.equal(fs.readFileSync(userMcpFile(home), 'utf8'), '{ "mcpServers": { "secret-value": ');
+  assert.deepEqual(removed.ledger.resources, []);
+});
+
 test('rules and workflows are workspace-scope only, landing under .agents/, and remove actually deletes', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   const root = scratch();

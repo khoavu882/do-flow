@@ -2,7 +2,7 @@
 // cli-e2e.test.js — spawns the real bin/doflow.js CLI against scratch $HOMEs. Complements the
 // unit tests (which exercise src/* modules directly) by covering the actual command wiring in
 // bin/doflow.js: flag parsing, dispatch, and the full install -> update -> rollback lifecycle.
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -12,6 +12,26 @@ const { spawnSync } = require('node:child_process');
 const REPO = path.resolve(__dirname, "../..");
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const { IS_WIN, expectExecutable } = require('../helper-platform');
+const { createScratch } = require('../helper/scratch-env');
+
+// The per-harness MCP cases run in a scratch HOME with its own XDG folder and git config: nothing the
+// developer's environment sets (XDG_CONFIG_HOME, GIT_CONFIG_GLOBAL, DOFLOW_RETENTION_HOURS) reaches them.
+const SCRATCHES = new Map();
+after(() => { for (const scratch of SCRATCHES.values()) scratch.remove(); });
+
+function scratchHome() {
+  const scratch = createScratch('doflow-cli-e2e-');
+  SCRATCHES.set(scratch.home, scratch);
+  return scratch.home;
+}
+
+function inheritedEnv(home) {
+  const scratch = SCRATCHES.get(home);
+  if (!scratch) return process.env;
+  const env = scratch.env();
+  delete env.DOFLOW_RETENTION_HOURS;
+  return env;
+}
 
 // A developer's own PI_CODING_AGENT_DIR would redirect Pi's user-scope mcp.json away from the
 // scratch HOME; the Pi case that needs it sets it explicitly for its own spawn.
@@ -28,7 +48,7 @@ function run(args, { home, input, env } = {}) {
   const resolvedHome = home ?? fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   return spawnSync('node', [DOFLOW, ...args], {
     cwd: REPO,
-    env: { ...process.env, ...env, ...homeEnv(resolvedHome) },
+    env: { ...inheritedEnv(resolvedHome), ...env, ...homeEnv(resolvedHome) },
     // Reply "no" explicitly for prompt-abort cases. An empty input can leave the test worker's
     // non-blocking pseudo-TTY attached and make the CLI retry EAGAIN as if a user were typing.
     input: input || '\n',
@@ -60,7 +80,7 @@ function runInteractive(args, { home, env, replies }) {
     const resolvedHome = home ?? fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
     const child = require('node:child_process').spawn('node', [DOFLOW, ...args], {
       cwd: REPO,
-      env: { ...process.env, ...env, ...homeEnv(resolvedHome) },
+      env: { ...inheritedEnv(resolvedHome), ...env, ...homeEnv(resolvedHome) },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -725,7 +745,9 @@ test('an install with no --mcp flag (non-interactive, piped stdin) selects none 
   const r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stdout, /MCP: none selected by default/);
-  const claudeJson = JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf8'));
+  // An empty selection with nothing owned leaves ~/.claude.json unwritten.
+  const file = path.join(home, '.claude.json');
+  const claudeJson = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
   assert.deepStrictEqual(Object.keys(claudeJson.mcpServers ?? {}).sort(), [], 'third-party servers are opt-in');
 });
 
@@ -767,23 +789,40 @@ test('update with an explicit --mcp overrides and re-persists the remembered sel
   assert.deepStrictEqual(Object.keys(claudeJson.mcpServers).sort(), ['sequential-thinking']);
 });
 
-test('update --dry-run for an MCP-only change never claims a backup will be created, matching the real run', () => {
+test('update --dry-run for an MCP-only change claims a backup exactly when the real run creates one', () => {
   // Regression test: the dry-run branch used to print "Would create partial backup" whenever
-  // --no-backup was absent, regardless of whether anything backup-worthy (a native/lifecycle
-  // change) was actually pending — an MCP-only selection change never triggers a backup on the
-  // real run (MCP files live outside the tool dir), so the preview must not claim otherwise.
+  // --no-backup was absent, regardless of whether the real run would back anything up.
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   let r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
 
   r = run(['update', '-g', '--force', '--dry-run', '--target', 'claude', '--mcp', 'sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
-  assert.ok(!/Would create partial backup/.test(r.stdout), `dry-run must not claim a backup for an MCP-only change:\n${r.stdout}`);
+  const claimed = /Would create partial backup/.test(r.stdout);
 
   r = run(['update', '-g', '--force', '--target', 'claude', '--mcp', 'sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   const listed = run(['list-backups', '-g'], { home });
-  assert.ok(!/update_/.test(listed.stdout), `the real run must not have created an update backup either:\n${listed.stdout}`);
+  assert.strictEqual(/update_/.test(listed.stdout), claimed, `the dry run's backup claim must match the real run:\n${listed.stdout}`);
+});
+
+test('an update whose only change is a Claude MCP entry backs up nothing, so no copy of ~/.claude.json exists to restore', () => {
+  const home = scratchHome();
+  let r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'context7'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const file = path.join(home, '.claude.json');
+  fs.writeFileSync(file, `${JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), numStartups: 7 }, null, 2)}\n`);
+
+  r = run(['update', '-g', '--force', '--target', 'claude', '--mcp', 'sequential-thinking'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const claudeJson = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepStrictEqual(Object.keys(claudeJson.mcpServers), ['sequential-thinking']);
+  assert.strictEqual(claudeJson.numStartups, 7, 'Claude Code\'s own state is untouched');
+
+  assert.ok(!/update_/.test(run(['list-backups', '-g'], { home }).stdout), 'an MCP-only update creates no backup');
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true })
+    .flatMap((entry) => (entry.isDirectory() ? walk(path.join(dir, entry.name)) : [path.join(dir, entry.name)]));
+  assert.deepStrictEqual(walk(home).filter((f) => path.basename(f) === '.claude.json'), [file], 'no backup holds a copy of ~/.claude.json');
 });
 
 test('--mcp on install rejects an unknown server name with a clear message', () => {
@@ -797,10 +836,24 @@ test('doflow status reports the persisted MCP server selection', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   let r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'context7,sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
-  r = run(['status', '-g', '--json'], { home });
+  r = run(['status', '-g', '--json', '--target', 'claude,codex,gemini'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   const status = JSON.parse(r.stdout);
-  assert.deepStrictEqual(status.manifest.mcpServers.sort(), ['context7', 'sequential-thinking']);
+  assert.deepStrictEqual(status.mcpSelections, { claude: ['context7', 'sequential-thinking'], codex: null },
+    'each MCP-capable target reports its own doflow.lock row, null when it has none; gemini takes no servers');
+
+  r = run(['status', '-g', '--target', 'claude,codex,gemini'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^ {2}MCP selections: {7}claude context7, sequential-thinking; codex not recorded$/m);
+});
+
+test('T1: --mcp help says the default is none and reaches every harness that takes MCP servers', () => {
+  const r = run(['--help'], { home: scratchHome() });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stdout, /--mcp <list> {5}Comma-separated MCP server names, or all or none, for every targeted/);
+  assert.match(r.stdout, /or the servers an\s+installed harness already has/, 'an installed harness with no recorded selection keeps what it has');
+  assert.match(r.stdout, /harness that takes MCP servers \(all but gemini\)\. Default: none, or the/);
+  assert.doesNotMatch(r.stdout, /default: all|Applies to Claude and Codex/);
 });
 
 // --- Multi-harness lifecycle wiring (claude/codex/gemini all reconcile through the same
@@ -965,8 +1018,8 @@ test('doflow.lock pins resolved selections on install and clears on full removal
   const skillRow = lock.assets.find((asset) => asset.id === 'skills.doflow');
   assert.ok(skillRow, 'skills selection must be pinned');
   assert.strictEqual(skillRow.nativeDir, '../.agents/skills');
-  // No --mcp flag + non-interactive = deliberate empty selection; nothing gets pinned.
-  assert.ok(!('codex' in lock.mcpSelections), 'an explicit none leaves no pin row');
+  // No --mcp flag + non-interactive = the default empty selection, recorded as such.
+  assert.deepEqual(lock.mcpSelections, { codex: [] }, 'a planned MCP-capable target records its selection, [] included');
 
   // A no-op update leaves the existing pin untouched (update short-circuits before re-pinning).
   const mtimeBefore = fs.statSync(lockFile).mtimeMs;
@@ -1019,7 +1072,7 @@ test('Pi MCP: a global install merges into a hand-written ~/.pi/agent/mcp.json a
   const handWritten = '{\n  "mcpServers": { "mine": { "command": "my-server" } },\n  "other": 1\n}\n';
   fs.writeFileSync(mcpFile, handWritten);
 
-  let r = run(['install', '-g', '--force', '--no-backup', '-t', 'pi'], { home });
+  let r = run(['install', '-g', '--force', '--no-backup', '-t', 'pi', '--mcp', 'all'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   const installed = JSON.parse(fs.readFileSync(mcpFile, 'utf8'));
   assert.deepStrictEqual(Object.keys(installed.mcpServers).sort(), ['context7', 'mine', 'sequential-thinking']);
@@ -1036,7 +1089,7 @@ test('Pi MCP: a global install merges into a hand-written ~/.pi/agent/mcp.json a
 test('Pi MCP: a project install writes <project>/.pi/mcp.json with both catalog servers and prints the trust notice', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
-  const r = run(['install', project, '--force', '--no-backup', '-t', 'pi'], { home });
+  const r = run(['install', project, '--force', '--no-backup', '-t', 'pi', '--mcp', 'all'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
 
   const mcpJson = JSON.parse(fs.readFileSync(path.join(project, '.pi', 'mcp.json'), 'utf8'));
@@ -1060,7 +1113,7 @@ test('Pi MCP: an update with a narrower --mcp selection drops the deselected ser
 test('Pi MCP: PI_CODING_AGENT_DIR redirects mcp.json while skills stay under ~/.pi/agent', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-agentdir-'));
-  const r = run(['install', '-g', '--force', '--no-backup', '-t', 'pi'], { home, env: { PI_CODING_AGENT_DIR: agentDir } });
+  const r = run(['install', '-g', '--force', '--no-backup', '-t', 'pi', '--mcp', 'all'], { home, env: { PI_CODING_AGENT_DIR: agentDir } });
   assert.strictEqual(r.status, 0, r.stderr);
 
   const mcpJson = JSON.parse(fs.readFileSync(path.join(agentDir, 'mcp.json'), 'utf8'));
@@ -1068,5 +1121,303 @@ test('Pi MCP: PI_CODING_AGENT_DIR redirects mcp.json while skills stay under ~/.
   assert.ok(!fs.existsSync(path.join(home, '.pi', 'agent', 'mcp.json')), 'the default location must stay untouched');
   assert.ok(fs.existsSync(path.join(home, '.pi', 'agent', 'skills')), 'skills do not follow PI_CODING_AGENT_DIR');
   assert.ok(r.stdout.includes('PI_CODING_AGENT_DIR is set: Pi reads its whole agent dir from it, but DoFlow moves only mcp.json there; skills and AGENTS.md stay in ~/.pi/agent.'), r.stdout);
-  assert.ok(r.stdout.includes('MCP: servers selected for Pi: context7, sequential-thinking; --mcp narrows this only when claude or codex is also targeted.'), r.stdout);
+  assert.ok(r.stdout.includes('[INFO] MCP selection: pi: context7, sequential-thinking (--mcp)'), r.stdout);
+});
+
+// --- Per-harness MCP selection: each harness's server file holds exactly its own selection ----
+
+function readJson(file) {
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+// Where each MCP-capable harness keeps DoFlow's servers at global scope, and the member that holds them.
+const GLOBAL_MCP_FILES = (home) => ({
+  kiro: { file: path.join(home, '.kiro', 'settings', 'mcp.json'), key: 'mcpServers' },
+  antigravity: { file: path.join(home, '.gemini', 'config', 'mcp_config.json'), key: 'mcpServers' },
+  opencode: { file: path.join(home, '.config', 'opencode', 'opencode.json'), key: 'mcp' },
+  copilot: { file: path.join(home, '.copilot', 'mcp-config.json'), key: 'mcpServers' },
+  pi: { file: path.join(home, '.pi', 'agent', 'mcp.json'), key: 'mcpServers' },
+});
+
+test('E1: --mcp context7 leaves only context7 in Kiro, Antigravity, OpenCode, Copilot and Pi, and names it in the selection line', () => {
+  const home = scratchHome();
+  const r = run(['install', '-g', '--force', '--no-backup', '-t', 'kiro,antigravity,opencode,copilot,pi', '--mcp', 'context7'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(r.stdout.includes('[INFO] MCP selection: kiro, antigravity, opencode, copilot, pi: context7 (--mcp)'), r.stdout);
+
+  for (const [harness, { file, key }] of Object.entries(GLOBAL_MCP_FILES(home))) {
+    assert.deepStrictEqual(Object.keys(readJson(file)[key]), ['context7'], `${harness} holds only the selected server`);
+  }
+});
+
+test('E3: a non-interactive Pi install with no --mcp registers no server and says the selection is the default', () => {
+  const home = scratchHome();
+  const r = run(['install', '-g', '--force', '--no-backup', '-t', 'pi'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(r.stdout.includes('[INFO] MCP selection: pi: none (default)'), r.stdout);
+  assert.match(r.stdout, /MCP: none selected by default/);
+  const mcpFile = path.join(home, '.pi', 'agent', 'mcp.json');
+  const servers = fs.existsSync(mcpFile) ? readJson(mcpFile).mcpServers ?? {} : {};
+  assert.deepStrictEqual(Object.keys(servers), [], 'no DoFlow server is registered');
+  assert.deepStrictEqual(readJson(path.join(home, '.doflow', 'doflow.lock')).mcpSelections, { pi: [] }, 'the lock records the empty selection');
+});
+
+test('E11: an update with a narrower --mcp drops the deselected server from every targeted harness', () => {
+  const home = scratchHome();
+  const targets = 'claude,codex,kiro,antigravity,opencode,copilot,pi';
+  let r = run(['install', '-g', '--force', '--no-backup', '-t', targets, '--mcp', 'all'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const files = GLOBAL_MCP_FILES(home);
+  for (const [harness, { file, key }] of Object.entries(files)) {
+    assert.deepStrictEqual(Object.keys(readJson(file)[key]).sort(), ['context7', 'sequential-thinking'], `${harness} starts with both`);
+  }
+
+  r = run(['update', '-g', '--force', '--no-backup', '-t', targets, '--mcp', 'context7'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  for (const [harness, { file, key }] of Object.entries(files)) {
+    assert.deepStrictEqual(Object.keys(readJson(file)[key]), ['context7'], `${harness} drops sequential-thinking`);
+  }
+  assert.deepStrictEqual(Object.keys(readJson(path.join(home, '.claude.json')).mcpServers), ['context7']);
+  const codexConfig = fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8');
+  assert.match(codexConfig, /\[mcp_servers\.context7\]/);
+  assert.doesNotMatch(codexConfig, /mcp_servers\.sequential-thinking/);
+});
+
+test('E4: Claude and Codex keep their own selections across installs, and a Claude install with no flag keeps its servers', () => {
+  const home = scratchHome();
+  let r = run(['install', '-g', '--force', '--no-backup', '-t', 'claude', '--mcp', 'context7'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  r = run(['install', '-g', '--force', '--no-backup', '-t', 'codex', '--mcp', 'sequential-thinking'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  r = run(['install', '-g', '--force', '--no-backup', '-t', 'claude'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(r.stdout.includes('[INFO] MCP selection: claude: context7 (recorded)'), r.stdout);
+
+  assert.deepStrictEqual(readJson(path.join(home, '.doflow', 'doflow.lock')).mcpSelections,
+    { claude: ['context7'], codex: ['sequential-thinking'] });
+  assert.deepStrictEqual(Object.keys(readJson(path.join(home, '.claude.json')).mcpServers), ['context7']);
+  const codexConfig = fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8');
+  assert.match(codexConfig, /\[mcp_servers\.sequential-thinking\]/);
+  assert.doesNotMatch(codexConfig, /mcp_servers\.context7/);
+});
+
+// E5 and E6 share E4's first two installs, so each builds them itself.
+function installClaudeAndCodexWithOwnSelections(home) {
+  let r = run(['install', '-g', '--force', '--no-backup', '-t', 'claude', '--mcp', 'context7'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  r = run(['install', '-g', '--force', '--no-backup', '-t', 'codex', '--mcp', 'sequential-thinking'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+}
+
+test('E5: reconcile --dry-run after a Claude and a Codex install with different selections finds no drift', () => {
+  const home = scratchHome();
+  installClaudeAndCodexWithOwnSelections(home);
+  const r = run(['reconcile', '-g', '--dry-run'], { home });
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /Observed state matches doflow\.lock/);
+  assert.doesNotMatch(r.stdout, /\[WARN\]/);
+});
+
+test('E6: reconcile re-creates a hand-deleted Claude server and gives Codex nothing from Claude\'s selection', () => {
+  const home = scratchHome();
+  installClaudeAndCodexWithOwnSelections(home);
+  const claudeFile = path.join(home, '.claude.json');
+  const claudeJson = readJson(claudeFile);
+  delete claudeJson.mcpServers.context7;
+  fs.writeFileSync(claudeFile, `${JSON.stringify(claudeJson, null, 2)}\n`);
+
+  let r = run(['reconcile', '-g', '--dry-run'], { home });
+  assert.strictEqual(r.status, 1, 'the deleted server is drift');
+  r = run(['reconcile', '-g', '--force'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.deepStrictEqual(Object.keys(readJson(claudeFile).mcpServers), ['context7']);
+  const codexConfig = fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8');
+  assert.match(codexConfig, /\[mcp_servers\.sequential-thinking\]/);
+  assert.doesNotMatch(codexConfig, /mcp_servers\.context7/, 'Claude\'s selection does not reach Codex');
+  assert.deepStrictEqual(Object.keys(readJson(claudeFile).mcpServers).filter((id) => id === 'sequential-thinking'), [],
+    'Codex\'s selection does not reach Claude');
+});
+
+/** Ledger rows of one kind for one harness, so a test can say which MCP rows a run left behind. */
+function ledgerRows(home, harness, kind) {
+  return readJson(path.join(home, '.doflow', 'state', 'ledger.json')).resources
+    .filter((row) => row.harness === harness && row.kind === kind);
+}
+
+function addUserServer(file, key = 'mcpServers') {
+  const doc = readJson(file);
+  doc[key]['user-server'] = { command: 'user-cmd', args: ['--user-owned'] };
+  fs.writeFileSync(file, `${JSON.stringify(doc, null, 2)}\n`);
+}
+
+test('E2: install --mcp none registers no DoFlow server and records an empty selection', () => {
+  const home = scratchHome();
+  const r = run(['install', '-g', '--force', '--no-backup', '-t', 'kiro', '--mcp', 'none'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(r.stdout.includes('[INFO] MCP selection: kiro: none (--mcp)'), r.stdout);
+  const mcpFile = GLOBAL_MCP_FILES(home).kiro.file;
+  const servers = fs.existsSync(mcpFile) ? readJson(mcpFile).mcpServers ?? {} : {};
+  assert.deepStrictEqual(Object.keys(servers), [], 'no DoFlow server is registered');
+  assert.deepStrictEqual(readJson(path.join(home, '.doflow', 'doflow.lock')).mcpSelections, { kiro: [] });
+});
+
+test('E7: removing Kiro deletes its servers and rows, keeps a user entry, and leaves Codex and the lock row of Codex alone', () => {
+  const home = scratchHome();
+  let r = run(['install', '-g', '--force', '--no-backup', '-t', 'kiro,codex', '--mcp', 'context7'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const kiroFile = GLOBAL_MCP_FILES(home).kiro.file;
+  addUserServer(kiroFile);
+  const codexFile = path.join(home, '.codex', 'config.toml');
+  const codexBefore = fs.readFileSync(codexFile, 'utf8');
+  const codexRowsBefore = ledgerRows(home, 'codex', 'mcp-server');
+  assert.ok(ledgerRows(home, 'kiro', 'mcp-server').length > 0, 'Kiro owns a server row before the removal');
+
+  r = run(['remove', '-g', '--force', '-t', 'kiro'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.deepStrictEqual(Object.keys(readJson(kiroFile).mcpServers), ['user-server'], 'only the user entry stays');
+  assert.deepStrictEqual(ledgerRows(home, 'kiro', 'mcp-server'), [], 'Kiro server rows are released');
+  assert.strictEqual(fs.readFileSync(codexFile, 'utf8'), codexBefore, 'Codex config is untouched');
+  assert.deepStrictEqual(ledgerRows(home, 'codex', 'mcp-server'), codexRowsBefore, 'Codex rows are unchanged');
+  assert.deepStrictEqual(readJson(path.join(home, '.doflow', 'doflow.lock')).mcpSelections, { codex: ['context7'] });
+});
+
+test('E8: removing Claude deletes the unedited server, keeps a hand-edited one, and keeps Codex\'s lock row', () => {
+  const home = scratchHome();
+  let r = run(['install', '-g', '--force', '--no-backup', '-t', 'claude,codex', '--mcp', 'all'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const claudeFile = path.join(home, '.claude.json');
+  const claudeJson = readJson(claudeFile);
+  claudeJson.mcpServers['sequential-thinking'].args.push('--edited');
+  fs.writeFileSync(claudeFile, `${JSON.stringify(claudeJson, null, 2)}\n`);
+
+  r = run(['remove', '-g', '--force', '-t', 'claude'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.deepStrictEqual(Object.keys(readJson(claudeFile).mcpServers), ['sequential-thinking'], 'only the edited entry stays');
+  assert.ok(readJson(claudeFile).mcpServers['sequential-thinking'].args.includes('--edited'));
+  assert.deepStrictEqual(readJson(path.join(home, '.doflow', 'doflow.lock')).mcpSelections,
+    { codex: ['context7', 'sequential-thinking'] });
+});
+
+test('E9: removing the last harness removes the lock', () => {
+  const home = scratchHome();
+  const lockFile = path.join(home, '.doflow', 'doflow.lock');
+  let r = run(['install', '-g', '--force', '--no-backup', '-t', 'kiro,codex', '--mcp', 'context7'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  r = run(['remove', '-g', '--force', '-t', 'kiro'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(fs.existsSync(lockFile), 'Codex is still pinned');
+  r = run(['remove', '-g', '--force', '-t', 'codex'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stdout, /doflow\.lock: cleared/);
+  assert.ok(!fs.existsSync(lockFile), 'no harness is left to pin');
+});
+
+test('E10: reconcile names an installed harness the lock does not pin', () => {
+  const home = scratchHome();
+  let r = run(['install', '-g', '--force', '--no-backup', '-t', 'kiro,codex', '--mcp', 'context7'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const lockFile = path.join(home, '.doflow', 'doflow.lock');
+  const lock = readJson(lockFile);
+  lock.targets = lock.targets.filter((entry) => entry.harness !== 'kiro');
+  delete lock.mcpSelections.kiro;
+  fs.writeFileSync(lockFile, `${JSON.stringify(lock, null, 2)}\n`);
+
+  r = run(['reconcile', '-g', '--dry-run'], { home });
+  assert.match(r.stdout, /\[WARN\] kiro: installed \(ledger holds \d+ resource\(s\)\) but absent from doflow\.lock; reconcile does not converge it\./);
+  assert.doesNotMatch(r.stdout, /\[WARN\] codex/);
+  r = run(['reconcile', '-g', '--dry-run', '--json'], { home });
+  const report = JSON.parse(r.stdout.slice(r.stdout.indexOf('\n{\n') + 1, r.stdout.lastIndexOf('\n}') + 2));
+  assert.deepStrictEqual(report.unpinned, ['kiro']);
+});
+
+test('E12: a second install, update, reconcile and remove leaves config files, ledger and lock byte for byte', () => {
+  const home = scratchHome();
+  const watched = [
+    path.join(home, '.doflow', 'state', 'ledger.json'),
+    path.join(home, '.doflow', 'doflow.lock'),
+    path.join(home, '.claude.json'),
+    path.join(home, '.codex', 'config.toml'),
+    ...Object.values(GLOBAL_MCP_FILES(home)).map(({ file }) => file),
+  ];
+  const snapshot = () => watched.map((file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null));
+  const twice = (args, label) => {
+    let r = run(args, { home });
+    assert.strictEqual(r.status, 0, `${label}: ${r.stderr}`);
+    const first = snapshot();
+    r = run(args, { home });
+    assert.deepStrictEqual(snapshot(), first, `${label}: the second run changes no watched file`);
+    return r;
+  };
+  const targets = 'claude,codex,kiro,antigravity,opencode,copilot,pi';
+  const base = ['-g', '--force', '--no-backup', '-t', targets];
+  twice(['install', ...base, '--mcp', 'all'], 'install');
+  twice(['update', ...base, '--mcp', 'context7'], 'update');
+
+  const claudeFile = path.join(home, '.claude.json');
+  const claudeJson = readJson(claudeFile);
+  delete claudeJson.mcpServers.context7;
+  fs.writeFileSync(claudeFile, `${JSON.stringify(claudeJson, null, 2)}\n`);
+  twice(['reconcile', '-g', '--force'], 'reconcile');
+  assert.deepStrictEqual(Object.keys(readJson(claudeFile).mcpServers), ['context7'], 'the first reconcile restored the server');
+
+  let r = run(['remove', '-g', '--force', '--no-backup', '-t', 'kiro'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const afterRemove = snapshot();
+  r = run(['remove', '-g', '--force', '--no-backup', '-t', 'kiro'], { home });
+  // A remove with nothing left to remove refuses its empty plan and exits 1, as it did before this
+  // feature; what this case pins is that it writes nothing.
+  assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /Refusing to apply a lifecycle plan with no required native resources/);
+  assert.deepStrictEqual(snapshot(), afterRemove, 'a second remove changes no watched file');
+});
+
+test('the selection line under --dry-run names a remembered selection, and --mcp with no harness to take it has no effect', () => {
+  const home = scratchHome();
+  // A 1.18.0 manifest list is what a harness with nothing recorded is offered.
+  fs.mkdirSync(path.join(home, '.doflow'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.doflow', '.install-manifest.json'), `${JSON.stringify({ tools: {}, mcp_servers: ['context7'] })}\n`);
+  let r = run(['install', '-g', '--dry-run', '-t', 'kiro'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(r.stdout.includes('[DRY] MCP selection: kiro: context7 (remembered)'), r.stdout);
+
+  r = run(['install', '-g', '--dry-run', '-t', 'gemini', '--mcp', 'context7'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(r.stdout.includes('[DRY] MCP: no targeted harness takes MCP servers; --mcp has no effect.'), r.stdout);
+  assert.doesNotMatch(r.stdout, /MCP selection:/);
+});
+
+test('update with no native change records a selection missing from the lock without touching a file, and says so', () => {
+  const home = scratchHome();
+  let r = run(['install', '-g', '--force', '--no-backup', '-t', 'kiro', '--mcp', 'none'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  // An installed harness the lock records no selection for, as after an upgrade from 1.18.0.
+  const lockFile = path.join(home, '.doflow', 'doflow.lock');
+  const lock = readJson(lockFile);
+  delete lock.mcpSelections.kiro;
+  fs.writeFileSync(lockFile, `${JSON.stringify(lock, null, 2)}\n`);
+  const before = fs.readFileSync(lockFile, 'utf8');
+
+  r = run(['update', '-g', '--force', '--no-backup', '--dry-run', '-t', 'kiro'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(r.stdout.includes('[DRY] MCP selection: kiro: none (kept)'), r.stdout);
+  assert.ok(r.stdout.includes('[DRY]  Would update doflow.lock: 1 change(s)'), r.stdout);
+  assert.strictEqual(fs.readFileSync(lockFile, 'utf8'), before, 'a dry run writes no lock');
+
+  r = run(['update', '-g', '--force', '--no-backup', '-t', 'kiro'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(r.stdout.includes('[INFO] MCP selection: kiro: none (kept)'), r.stdout);
+  assert.ok(r.stdout.includes('[INFO] doflow.lock: 1 change(s)'), r.stdout);
+  assert.ok(r.stdout.includes('[OK] Already up to date: no native changes; selections recorded in doflow.lock'), r.stdout);
+  assert.deepStrictEqual(readJson(lockFile).mcpSelections, { kiro: [] });
+});
+
+test('T2: no source, doc or README line still says the selection narrows only when claude or codex is targeted', () => {
+  const stale = 'narrows this only when claude or codex';
+  const walk = (entry) => {
+    if (fs.statSync(entry).isFile()) return [entry];
+    return fs.readdirSync(entry).flatMap((name) => walk(path.join(entry, name)));
+  };
+  const files = [path.join(REPO, 'README.md'), ...walk(path.join(REPO, 'src')), ...walk(path.join(REPO, 'docs'))];
+  const holders = files.filter((file) => fs.readFileSync(file, 'utf8').includes(stale));
+  assert.deepStrictEqual(holders, []);
 });

@@ -68,8 +68,10 @@ health check across all three.
 ### MCP servers
 
 DoFlow registers `context7` and `sequential-thinking` for the harnesses that support MCP. Both run
-via `npx`, so they need no separate installation beyond Node. Select a subset with `--mcp`, or omit
-the flag to be prompted on a real terminal.
+via `npx`, so they need no separate installation beyond Node. `--mcp` picks the servers for every
+targeted harness that takes MCP servers, which is every harness except Gemini CLI. Each harness's
+selection is recorded in `doflow.lock` and `update` reuses it for that harness. The default is none,
+and an interactive install prompts on a real terminal.
 
 ## Installation modes
 
@@ -221,12 +223,16 @@ configuration is disposable.
 ### doflow.lock and reconciliation
 
 Every `install`, `update`, and `remove` maintains `<root>/.doflow/doflow.lock` — a pin of what was
-**chosen**: targeted harnesses, selected assets with their native destinations, and MCP selections.
+**chosen**: targeted harnesses, selected assets with their native destinations, and the MCP
+selection of each harness. A run keeps the rows of harnesses it did not target, and a harness leaves
+the lock only when its last owned resource is removed.
 The ownership ledger records what DoFlow *owns*; the lock records what it *chose*. Together they
 turn the next update's delta into a reviewable fact: `update` prints `doflow.lock: N change(s)`,
 and a no-op update leaves the lock byte-untouched.
 
-`doflow reconcile` treats the lock as the desired state and heals observed drift onto it:
+`doflow reconcile` treats the lock as the desired state and heals observed drift onto it. A harness
+installed in the ledger but absent from the lock is named with a `[WARN]` line and is not converged.
+For the harnesses the lock pins:
 
 - **Drifted files you edited by hand are never clobbered.** A ledger-owned file whose bytes were
   changed outside DoFlow is reported as a conflict unless you pass `--force` (or run reconcile,
@@ -298,9 +304,11 @@ copilot plugin install khoavu882/do-flow:core    # subdirectory of a GitHub repo
 Verify with `copilot plugin list` and `/skills list` inside a session; an installed file is not
 evidence of activation.
 
-## Claude MCP servers
+## MCP server selection
 
-DoFlow can register two optional servers for Claude Code: Context7 and Sequential Thinking. The installer writes only the DoFlow-owned server entries:
+DoFlow can register two optional servers, Context7 and Sequential Thinking, for every harness that
+takes MCP servers. For each harness the installer writes and removes only the entries it owns; an
+entry you added, or edited by hand after DoFlow wrote it, is left alone. Claude Code's locations:
 
 | Scope | Registration location |
 |---|---|
@@ -316,13 +324,13 @@ doflow install -g --target claude --mcp all
 doflow install -g --target claude --mcp none
 ```
 
-**Default selection:** an interactive install shows a checkbox pre-seeded with the full catalog. A
-non-interactive install (scripts, CI) selects **none** by default — third-party servers are
-opt-in — and prints a notice saying so. Pass `--mcp all`, `--mcp <names>`, or answer the checkbox
-to change it.
+**Default selection:** an interactive install shows a checkbox pre-seeded with the recorded
+selection, or the full catalog on a first install. A non-interactive install (scripts, CI) selects
+**none** by default — third-party servers are opt-in — and prints a notice saying so. Pass
+`--mcp all`, `--mcp <names>`, or answer the checkbox to change it.
 
-The selected servers are stored in the installer manifest and reused by `doflow update` (an empty
-selection stays empty; a catalog reshuffle never resurrects servers you removed).
+Each harness's selection is recorded in `doflow.lock` and reused by `doflow update` for that harness
+(an empty selection stays empty; a catalog reshuffle never resurrects servers you removed).
 
 ## Verify, state, and recover
 

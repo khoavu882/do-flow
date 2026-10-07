@@ -11,7 +11,6 @@ const {
   parseToml,
   atomicWrite,
 } = require('./config');
-const { resolveMcpSelection } = require('../../install/mcp');
 const { selectMcpServers, nativeMcpCatalog } = require('../../registry');
 
 const MCP_KIND = 'mcp-server';
@@ -20,10 +19,6 @@ const MCP_PREFIX = 'mcp_servers.';
 /** @param {object} registry a loaded registry (src/registry#loadRegistry) */
 function readCodexMcpCatalog(registry) {
   return nativeMcpCatalog(selectMcpServers(registry));
-}
-
-function resolveCodexMcpSelection(options) {
-  return resolveMcpSelection(options);
 }
 
 function isSafeServerName(name) {
@@ -93,6 +88,26 @@ function fullServerRange(tables, name) {
   return tables.find((table) => table.name === name) ?? null;
 }
 
+/** One table's text as its fingerprint is taken. */
+function tableText(lines, range) {
+  return `${lines.slice(range.start, range.end).join('\n').replace(/\n*$/, '\n')}`;
+}
+
+/** The tables DoFlow owns in config.toml now: owned records whose table is present with the
+ * fingerprint the record holds. A file that cannot be read or parsed yields none. */
+function ownedCodexMcpIds({ file, scope, managedResources = [], fsImpl = fs }) {
+  let text;
+  try {
+    text = fsImpl.existsSync(file) ? fsImpl.readFileSync(file, 'utf8') : '';
+    parseToml(text);
+  } catch { return []; }
+  const { lines, tables } = tableRanges(text);
+  return managedResources.filter((resource) => isOwnedRecord(resource, scope)).filter((resource) => {
+    const range = fullServerRange(tables, resource.identity);
+    return range !== null && fingerprint(tableText(lines, range)) === resource.fingerprint;
+  }).map((resource) => resource.identity);
+}
+
 function planCodexMcp({ file, scope, managedResources = [], selected = [], allServers, serverDefs, sourceVersion, recoveryPoint }) {
   const original = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
   let parsed;
@@ -116,7 +131,7 @@ function planCodexMcp({ file, scope, managedResources = [], selected = [], allSe
   const names = new Set([...desired, ...owned.keys()]);
   for (const name of names) {
     const range = fullServerRange(tables, name);
-    const existing = range ? `${lines.slice(range.start, range.end).join('\n').replace(/\n*$/, '\n')}` : null;
+    const existing = range ? tableText(lines, range) : null;
     const record = owned.get(name);
     const wanted = desired.includes(name);
     if (range && !record) {
@@ -178,7 +193,7 @@ function reconcileCodexMcp(options) {
 module.exports = {
   MCP_KIND,
   readCodexMcpCatalog,
-  resolveCodexMcpSelection,
+  ownedCodexMcpIds,
   renderServer,
   resourceFor,
   planCodexMcp,

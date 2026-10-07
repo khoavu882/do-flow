@@ -377,7 +377,7 @@ test('IC-001: a restriction naming an installed-but-drifted harness still exits 
  * the remedy may not say "restore", and it must say what would let the copy be judged instead.
  */
 test('FR-006: a copy the plan would remove is not a divergence, and its remedy never says restore', () => {
-  const report = mcpReport({ mcpSelections: {} });
+  const report = mcpReport({ mcpSelections: { codex: [] } });
 
   const [asset] = report.assets;
   assert.ok(asset, 'the recorded MCP server must be reported as a logical asset');

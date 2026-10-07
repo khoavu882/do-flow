@@ -5,9 +5,10 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {
-  MCP_KIND, readCodexMcpCatalog, resolveCodexMcpSelection, renderServer, resourceFor,
-  reconcileCodexMcp,
+  MCP_KIND, readCodexMcpCatalog, renderServer, resourceFor,
+  reconcileCodexMcp, ownedCodexMcpIds,
 } = require('../../../src/adapters/codex/mcp');
+const codexAdapter = require('../../../src/adapters/codex');
 const { loadRegistry } = require('../../../src/registry');
 
 const REPO = path.resolve(__dirname, "../../..");
@@ -16,10 +17,25 @@ function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-codex-
 function catalog() { return readCodexMcpCatalog(REGISTRY); }
 function options(file, selected, extra = {}) { return { file, scope: 'project', selected, ...catalog(), ...extra }; }
 
-test('uses the shared curated catalog and existing selection precedence', () => {
-  const { allServers } = catalog();
-  assert.deepStrictEqual(allServers, ['context7', 'sequential-thinking']);
-  assert.deepStrictEqual(resolveCodexMcpSelection({ cmd: 'update', requested: null, allServers, manifestServers: ['sequential-thinking'], interactive: true, promptFn: () => { throw new Error('must not prompt'); } }), ['sequential-thinking']);
+test('uses the shared curated catalog', () => {
+  assert.deepStrictEqual(catalog().allServers, ['context7', 'sequential-thinking']);
+});
+
+test('C1 codex: discover reports as owned only the owned tables still holding what DoFlow recorded', () => {
+  const root = scratch();
+  const file = path.join(root, '.codex', 'config.toml');
+  const { serverDefs } = catalog();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const edited = { ...serverDefs['sequential-thinking'], args: ['--edited'] };
+  fs.writeFileSync(file, `${renderServer('context7', serverDefs.context7)}\n${renderServer('sequential-thinking', edited)}\n[mcp_servers.personal]\ncommand = "keep"\n`);
+  const rows = ['context7', 'sequential-thinking'].map((name) => ({
+    ...resourceFor({ name, scope: 'project', definition: serverDefs[name] }), harness: 'codex', target: file,
+  }));
+  assert.deepStrictEqual(ownedCodexMcpIds({ file, scope: 'project', managedResources: rows.map((row) => ({ ...row, target: 'codex' })) }), ['context7']);
+  assert.deepStrictEqual(codexAdapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: rows } }).mcpOwned, ['context7']);
+  assert.deepStrictEqual(codexAdapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } }).mcpOwned, [], 'a table with no row is the user\'s');
+  fs.writeFileSync(file, '[mcp_servers.context7\n');
+  assert.deepStrictEqual(codexAdapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: rows } }).mcpOwned, [], 'an unparseable file owns nothing');
 });
 
 test('creates selected Codex MCP tables and records only owned resources', () => {

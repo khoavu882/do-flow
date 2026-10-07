@@ -1,0 +1,30 @@
+[
+  {
+    "assetId": "guidance.context-layer",
+    "target": "@ROOT@/.kiro/settings/mcp.json",
+    "ownershipIdentity": "kiro:mcp:context7",
+    "identity": "context7",
+    "fingerprint": "ba674561deee52eca70f103ec561f576cd7582febec9bea15ebc81dcb2f4c258",
+    "sourceVersion": "1.18.0",
+    "projection": {
+      "renderer": "kiro-mcp"
+    },
+    "harness": "kiro",
+    "scope": "global",
+    "recoveryRef": "recovery_2026-10-06T15-27-04-554Z_1abdb561"
+  },
+  {
+    "assetId": "guidance.context-layer",
+    "target": "@ROOT@/.kiro/settings/mcp.json",
+    "ownershipIdentity": "kiro:mcp:sequential-thinking",
+    "identity": "sequential-thinking",
+    "fingerprint": "08585afd54b8fb4a592fed6ee008bd4e42bd7683037b6323715e673b740955ca",
+    "sourceVersion": "1.18.0",
+    "projection": {
+      "renderer": "kiro-mcp"
+    },
+    "harness": "kiro",
+    "scope": "global",
+    "recoveryRef": "recovery_2026-10-06T15-27-04-554Z_1abdb561"
+  }
+]

@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { createCopilotAdapter, nativePaths, mergeMcpConfig, unmergeMcpConfig, agentFileLayout, MARKER_START } = require('../../../src/adapters/copilot');
+const { createCopilotAdapter, nativePaths, agentFileLayout, MARKER_START } = require('../../../src/adapters/copilot');
+const { entryFingerprint } = require('../../../src/adapters/mcp-entries');
 const { assertAdapter } = require('../../../src/adapters');
 
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-copilot-')); }
@@ -297,70 +298,148 @@ test('Copilot adapter removes only fingerprint-matching agent files', () => {
   assert.equal(fs.existsSync(path.join(root, '.github', 'agents', 'core-implementer.agent.md')), false);
 });
 
-// ---- mcp (.mcp.json project / ~/.copilot/mcp-config.json global) ----
+// ---- mcp (.mcp.json project / ~/.copilot/mcp-config.json global), owned per server through ledger rows ----
 
-test('mergeMcpConfig writes only the selected servers under mcpServers, preserving foreign entries', () => {
-  const existing = { mcpServers: { 'user-server': { command: 'user-cmd' } } };
-  const next = mergeMcpConfig(existing, { mcpServers: [{ id: 'context7', command: 'npx', args: ['-y', '@upstash/context7-mcp'] }] });
-  assert.deepEqual(next.mcpServers['user-server'], { command: 'user-cmd' });
-  assert.deepEqual(next.mcpServers.context7, { command: 'npx', args: ['-y', '@upstash/context7-mcp'] });
-});
+const CONTEXT7 = { id: 'context7', command: 'npx', args: ['-y', '@upstash/context7-mcp'] };
+const SEQUENTIAL = { id: 'sequential-thinking', command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] };
+const ENTRIES = { context7: { command: 'npx', args: ['-y', '@upstash/context7-mcp'] },
+  'sequential-thinking': { command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] } };
+const MCP_ASSETS = [{ id: 'guidance.codex-pointer' }];
+const USER_SERVER = { command: 'user-cmd', env: { TOKEN: 'secret-value' } };
 
-test('unmergeMcpConfig removes only what mergeMcpConfig added, dropping an empty mcpServers key', () => {
-  const merged = mergeMcpConfig({}, { mcpServers: [{ id: 'context7', command: 'npx' }] });
-  const next = unmergeMcpConfig(merged, { mcpServers: [{ id: 'context7', command: 'npx' }] });
-  assert.equal(next.mcpServers, undefined);
-});
+function mcpFileIn(root) { return path.join(root, '.mcp.json'); }
 
-test('unmergeMcpConfig preserves a foreign server entry (e.g. one Claude Code\'s own adapter wrote to the same .mcp.json)', () => {
-  const merged = mergeMcpConfig({ mcpServers: { claude_own: { command: 'claude-thing' } } }, { mcpServers: [{ id: 'context7', command: 'npx' }] });
-  const next = unmergeMcpConfig(merged, { mcpServers: [{ id: 'context7', command: 'npx' }] });
-  assert.deepEqual(next.mcpServers, { claude_own: { command: 'claude-thing' } });
-});
+function writeMcp(root, doc) {
+  fs.writeFileSync(mcpFileIn(root), typeof doc === 'string' ? doc : `${JSON.stringify(doc, null, 2)}\n`);
+}
 
-test('plan folds an mcp merge into a single .mcp.json change for project scope', () => {
+function readMcp(root) { return JSON.parse(fs.readFileSync(mcpFileIn(root), 'utf8')); }
+
+/** One run the way the lifecycle drives an adapter: discover, plan, apply or remove, verify. The
+ * returned ledger drops the rows the plan removed or released and takes the MCP rows verify reports,
+ * as updateLedger does. */
+function runMcp(adapter, { root, mcp = [], mcpAdoptable = [], ledger = { resources: [] }, removing = false }) {
+  const input = { scope: 'project', scopeRoot: root, assets: MCP_ASSETS, mcp, mcpAdoptable, ledger, context: removing ? { operation: 'remove' } : {} };
+  const discovery = adapter.discover(input);
+  const planned = adapter.plan({ ...input, discovery });
+  if (!planned.conflicts.length) adapter[removing ? 'remove' : 'apply']({ changes: planned.changes });
+  const verified = adapter.verify({ ...input, discovery, operation: removing ? 'remove' : 'apply' });
+  const dropped = new Set(planned.changes.filter((change) => change.operation === 'remove').map((change) => change.ownershipIdentity));
+  const added = verified.resources.filter((resource) => resource.kind === 'mcp-server').map((resource) => ({ ...resource, harness: 'copilot' }));
+  const kept = ledger.resources.filter((row) => !dropped.has(row.ownershipIdentity) && !added.some((item) => item.ownershipIdentity === row.ownershipIdentity));
+  return { discovery, planned, verified, ledger: { resources: [...kept, ...added] } };
+}
+
+test('plan registers each selected server as its own entry change in .mcp.json for project scope', () => {
   const root = scratch(); const adapter = createCopilotAdapter();
-  const planned = adapter.plan({ scope: 'project', scopeRoot: root, assets: [], mcp: [{ id: 'context7', command: 'npx', args: ['-y', '@upstash/context7-mcp'] }] });
-  const mcpChange = planned.changes.find((c) => c.projection?.renderer === 'copilot-mcp');
-  assert.ok(mcpChange, 'expected a copilot.mcp change');
-  assert.equal(mcpChange.target, path.join(root, '.mcp.json'));
-  const written = JSON.parse(mcpChange.content);
-  assert.deepEqual(written.mcpServers.context7, { command: 'npx', args: ['-y', '@upstash/context7-mcp'] });
+  const planned = adapter.plan({ scope: 'project', scopeRoot: root, assets: MCP_ASSETS, mcp: [CONTEXT7] });
+  assert.deepEqual(planned.changes.map((c) => [c.kind, c.operation, c.identity, c.ownershipIdentity, c.target, c.projection.renderer]),
+    [['mcp-server', 'create', 'context7', 'doflow:copilot:mcp-server:context7', mcpFileIn(root), 'copilot-mcp']]);
+  assert.deepEqual(planned.changes[0].entry, ENTRIES.context7);
+  assert.equal(planned.changes[0].content, undefined, 'an entry change carries no file text');
 });
 
 test('plan targets ~/.copilot/mcp-config.json for global scope', () => {
   const root = scratch(); const adapter = createCopilotAdapter();
-  const planned = adapter.plan({ scope: 'global', scopeRoot: root, assets: [], mcp: [{ id: 'context7', command: 'npx' }], context: { homeDir: root } });
+  const planned = adapter.plan({ scope: 'global', scopeRoot: root, assets: MCP_ASSETS, mcp: [{ id: 'context7', command: 'npx' }], context: { homeDir: root } });
   const mcpChange = planned.changes.find((c) => c.projection?.renderer === 'copilot-mcp');
   assert.equal(mcpChange.target, path.join(root, '.copilot', 'mcp-config.json'));
 });
 
-test('apply then remove round-trips .mcp.json, preserving a foreign server entry throughout', () => {
+test('mcp: installs each selected server under its own row, never touching a foreign server entry', () => {
   const root = scratch(); const adapter = createCopilotAdapter();
-  fs.writeFileSync(path.join(root, '.mcp.json'), JSON.stringify({ mcpServers: { 'user-server': { command: 'user-cmd' } } }, null, 2));
-  const server = { id: 'context7', command: 'npx', args: ['-y', '@upstash/context7-mcp'] };
+  writeMcp(root, { mcpServers: { 'user-server': USER_SERVER } });
 
-  const install = adapter.plan({ scope: 'project', scopeRoot: root, assets: [], mcp: [server] });
-  adapter.apply({ changes: install.changes });
-  let onDisk = JSON.parse(fs.readFileSync(path.join(root, '.mcp.json'), 'utf8'));
-  assert.ok(onDisk.mcpServers.context7);
-  assert.deepEqual(onDisk.mcpServers['user-server'], { command: 'user-cmd' });
+  const first = runMcp(adapter, { root, mcp: [CONTEXT7] });
+  assert.deepEqual(first.planned.conflicts, []);
+  assert.deepEqual(readMcp(root).mcpServers, { 'user-server': USER_SERVER, context7: ENTRIES.context7 });
+  assert.deepEqual(first.ledger.resources.map((row) => [row.ownershipIdentity, row.kind, row.identity, row.target]),
+    [['doflow:copilot:mcp-server:context7', 'mcp-server', 'context7', mcpFileIn(root)]]);
+  assert.equal(first.verified.ok, true);
 
-  const removal = adapter.plan({ scope: 'project', scopeRoot: root, assets: [], mcp: [server], context: { operation: 'remove' } });
-  const mcpChange = removal.changes.find((c) => c.projection?.renderer === 'copilot-mcp');
-  assert.equal(mcpChange.operation, 'remove');
-  adapter.remove({ changes: removal.changes });
-  onDisk = JSON.parse(fs.readFileSync(path.join(root, '.mcp.json'), 'utf8'));
-  assert.equal(onDisk.mcpServers.context7, undefined);
-  assert.deepEqual(onDisk.mcpServers['user-server'], { command: 'user-cmd' });
+  const again = runMcp(adapter, { root, mcp: [CONTEXT7], ledger: first.ledger });
+  assert.deepEqual(again.discovery.mcpOwned, ['context7']);
+  assert.deepEqual(again.planned.changes, [], 'a re-plan after apply changes nothing');
+
+  const removed = runMcp(adapter, { root, ledger: again.ledger, removing: true });
+  assert.deepEqual(readMcp(root), { mcpServers: { 'user-server': USER_SERVER } });
+  assert.deepEqual(removed.ledger.resources, []);
 });
 
-test('invalid mcp json blocks planning but never mutates the file', () => {
+test('A3 copilot: a narrower selection removes the deselected owned entry, and none removes every owned entry', () => {
   const root = scratch(); const adapter = createCopilotAdapter();
-  fs.writeFileSync(path.join(root, '.mcp.json'), '{ broken');
-  const planned = adapter.plan({ scope: 'project', scopeRoot: root, assets: [], mcp: [{ id: 'context7', command: 'npx' }] });
-  assert.match(planned.conflicts[0], /Invalid JSON/);
-  assert.equal(fs.readFileSync(path.join(root, '.mcp.json'), 'utf8'), '{ broken');
+  writeMcp(root, { otherKey: true });
+  const both = runMcp(adapter, { root, mcp: [CONTEXT7, SEQUENTIAL] });
+  assert.deepEqual(Object.keys(readMcp(root).mcpServers), ['context7', 'sequential-thinking']);
+
+  const narrower = runMcp(adapter, { root, mcp: [SEQUENTIAL], ledger: both.ledger });
+  assert.deepEqual(Object.keys(readMcp(root).mcpServers), ['sequential-thinking']);
+  assert.deepEqual(narrower.ledger.resources.map((row) => row.identity), ['sequential-thinking']);
+
+  const none = runMcp(adapter, { root, mcp: [], ledger: narrower.ledger });
+  assert.deepEqual(readMcp(root), { otherKey: true }, 'the emptied mcpServers member is deleted; every other key stays');
+  assert.deepEqual(none.ledger.resources, []);
+});
+
+test('A4 copilot: the 1.18.0 registration row is released on install, its entries adopted per server, and dropped on remove', () => {
+  const root = scratch(); const adapter = createCopilotAdapter();
+  const servers = { ...ENTRIES, 'user-server': USER_SERVER };
+  writeMcp(root, { mcpServers: servers });
+  const before = fs.readFileSync(mcpFileIn(root));
+  const legacy = { resources: [{
+    harness: 'copilot', scope: 'project', assetId: 'guidance.codex-pointer', target: mcpFileIn(root),
+    ownershipIdentity: 'copilot:mcp:registration', fingerprint: entryFingerprint(servers),
+  }] };
+
+  assert.deepEqual(adapter.discover({ scope: 'project', scopeRoot: root, mcpAdoptable: [CONTEXT7, SEQUENTIAL], ledger: legacy }).mcpOwned,
+    ['context7', 'sequential-thinking'], 'the registration row leaves adoption open');
+
+  const installed = runMcp(adapter, { root, mcp: [CONTEXT7, SEQUENTIAL], mcpAdoptable: [CONTEXT7, SEQUENTIAL], ledger: legacy });
+  assert.deepEqual(installed.planned.changes.map((change) => [change.ownershipIdentity, change.assetId, change.release]),
+    [['copilot:mcp:registration', 'guidance.codex-pointer', true]]);
+  assert.deepEqual(fs.readFileSync(mcpFileIn(root)), before, 'replacing the row writes nothing');
+  assert.deepEqual(installed.ledger.resources.map((row) => row.ownershipIdentity),
+    ['doflow:copilot:mcp-server:context7', 'doflow:copilot:mcp-server:sequential-thinking']);
+
+  const removed = runMcp(adapter, { root, mcpAdoptable: [CONTEXT7, SEQUENTIAL], ledger: legacy, removing: true });
+  assert.deepEqual(removed.planned.changes.map((change) => [change.ownershipIdentity, change.release ?? false]),
+    [['copilot:mcp:registration', true], ['doflow:copilot:mcp-server:context7', false], ['doflow:copilot:mcp-server:sequential-thinking', false]]);
+  assert.deepEqual(readMcp(root).mcpServers, { 'user-server': USER_SERVER });
+  assert.deepEqual(removed.ledger.resources, []);
+});
+
+test('A5 copilot: a same-named user entry is kept through install and remove', () => {
+  const root = scratch(); const adapter = createCopilotAdapter();
+  writeMcp(root, { mcpServers: { context7: USER_SERVER } });
+  const before = fs.readFileSync(mcpFileIn(root));
+
+  const installed = runMcp(adapter, { root, mcp: [CONTEXT7] });
+  assert.deepEqual(installed.planned.changes, []);
+  assert.deepEqual(installed.planned.notices,
+    ["MCP: kept your own entry 'context7' in .mcp.json and did not register DoFlow's; rename or remove yours to let DoFlow manage it."]);
+  assert.equal(installed.verified.statuses.find((status) => status.capability === 'mcp').status, 'not-managed');
+  assert.deepEqual(installed.ledger.resources, []);
+
+  runMcp(adapter, { root, ledger: installed.ledger, removing: true });
+  assert.deepEqual(fs.readFileSync(mcpFileIn(root)), before);
+});
+
+test('A6 copilot: a malformed MCP file is an install conflict and a remove release, and is never written', () => {
+  const root = scratch(); const adapter = createCopilotAdapter();
+  const owned = runMcp(adapter, { root, mcp: [CONTEXT7] });
+  writeMcp(root, '{ "mcpServers": { "secret-value": ');
+
+  const installed = runMcp(adapter, { root, mcp: [CONTEXT7], ledger: owned.ledger });
+  assert.deepEqual(installed.planned.conflicts, [`Copilot MCP: ${mcpFileIn(root)}: invalid JSON; DoFlow did not change the file`]);
+  assert.deepEqual(installed.planned.changes, []);
+  assert.doesNotMatch(JSON.stringify(installed.planned), /secret-value/);
+
+  const removed = runMcp(adapter, { root, ledger: owned.ledger, removing: true });
+  assert.deepEqual(removed.planned.conflicts, []);
+  assert.deepEqual(removed.planned.changes.map((change) => [change.ownershipIdentity, change.release]), [['doflow:copilot:mcp-server:context7', true]]);
+  assert.match(removed.planned.notices[0], /^MCP: left .*\.mcp\.json untouched because it cannot be edited safely/);
+  assert.equal(fs.readFileSync(mcpFileIn(root), 'utf8'), '{ "mcpServers": { "secret-value": ');
+  assert.deepEqual(removed.ledger.resources, []);
 });
 
 test('rules project as .github/instructions/*.instructions.md with applyTo headers, and remove reclaims them', () => {

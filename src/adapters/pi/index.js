@@ -24,7 +24,7 @@ const path = require('node:path');
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, sourceDirFor } = require('../copy-tree');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
-const { mcpRows, discoverPiMcp, planPiMcp, applyPiMcp, verifyPiMcp } = require('./mcp');
+const { mcpRows, discoverPiMcp, ownedPiMcpIds, planPiMcp, applyPiMcp, verifyPiMcp } = require('./mcp');
 
 const HARNESS = 'pi';
 const AGENT_DIR_NOTICE = 'PI_CODING_AGENT_DIR is set: Pi reads its whole agent dir from it, but DoFlow moves only mcp.json there; skills and AGENTS.md stay in ~/.pi/agent.';
@@ -55,7 +55,9 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
   function discover({ scope, scopeRoot, mcp = [], ledger, context = {}, fsImpl = fs }) {
     const paths = nativePaths({ scope, scopeRoot });
     const instruction = fsImpl.existsSync(paths.instruction) ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
-    return { paths, instruction, mcp: discoverPiMcp({ selected: mcp, rows: mcpRows(ledger), file: paths.mcp, fsImpl }) };
+    const rows = mcpRows(ledger);
+    const snapshot = discoverPiMcp({ selected: mcp, rows, file: paths.mcp, fsImpl });
+    return { paths, instruction, mcp: snapshot, mcpOwned: ownedPiMcpIds({ rows, snapshot }) };
   }
 
   function render({ content = '' } = {}) {
