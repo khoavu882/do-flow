@@ -231,8 +231,8 @@ turn the next update's delta into a reviewable fact: `update` prints `doflow.loc
 and a no-op update leaves the lock byte-untouched.
 
 `doflow reconcile` treats the lock as the desired state and heals observed drift onto it. A harness
-installed in the ledger but absent from the lock is named with a `[WARN]` line and is not converged:
-
+installed in the ledger but absent from the lock is named with a `[WARN]` line and is not converged.
+For the harnesses the lock pins:
 
 - **Drifted files you edited by hand are never clobbered.** A ledger-owned file whose bytes were
   changed outside DoFlow is reported as a conflict unless you pass `--force` (or run reconcile,

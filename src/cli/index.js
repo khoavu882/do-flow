@@ -414,8 +414,9 @@ Options:
   -t, --target <list>  Comma-separated: ${VALID_TARGETS.join(',')} (default: ${DEFAULT_TARGETS.join(',')})
       --mcp <list>     Comma-separated MCP server names, or all or none, for every targeted
                        harness that takes MCP servers (all but gemini). Default: none, or the
-                       selection a harness already has recorded in doflow.lock; a real terminal
-                       prompts on install. Recorded per harness.
+                       selection a harness has recorded in doflow.lock, or the servers an
+                       installed harness already has; a real terminal prompts on install.
+                       Recorded per harness.
   -n, --dry-run        Preview without writing
   -f, --force          Skip confirmation prompts
       --adopt          Record ownership of resources that exist with no ledger record, instead
