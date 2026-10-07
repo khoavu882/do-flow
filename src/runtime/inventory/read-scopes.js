@@ -43,6 +43,7 @@ const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../lifecycle/
 const { readLock } = require('../../state/lockfile');
 const { stateRoot, readLedger } = require('../../state');
 const { recordedMcpSelections } = require('../../install/mcp');
+const { readInstallManifest } = require('../../install/manifest');
 
 /**
  * @typedef {Object} ScopeSnapshot The `SCOPE_SNAPSHOT` entity of the feature's data model.
@@ -113,7 +114,8 @@ function readScopes({ registry, repoRoot, projectRoot, targets = LIFECYCLE_HARNE
     // Each scope's own ledger, at the root the view itself reads it from.
     const ledger = readLedger(scope === 'global'
       ? stateRoot({ scope: 'global', homeDir: os.homedir() }) : stateRoot({ scope: 'project', projectRoot }));
-    const recorded = recordedMcpSelections({ registry, lock: resolved?.[scope] ?? null, ledger, targets: wanted });
+    const manifestServers = readInstallManifest({ scopeRoot: scope === 'global' ? os.homedir() : projectRoot })?.mcpServers ?? null;
+    const recorded = recordedMcpSelections({ registry, lock: resolved?.[scope] ?? null, ledger, targets: wanted, manifestServers });
     return registryLifecycleView({
       registry, repoRoot, targets: wanted, mcpSelections: recorded.selections, mcpAdoptable: recorded.adoptable,
       scope: scope === 'global' ? { global: true } : { global: false, projectRoot },
