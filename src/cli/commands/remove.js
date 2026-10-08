@@ -13,11 +13,11 @@ const {
 } = require('../../lifecycle/view');
 const { recordedMcpSelections } = require('../../install/mcp');
 const {
-  REPO_ROOT, scopeOf, scopeSelectionState, buildAdapterRegistry, holdRunLock, checkpointRunLock,
+  REPO_ROOT, scopeOf, scopeSelectionState, buildAdapterRegistry, refuseHomeRootedProject, holdRunLock, checkpointRunLock,
 } = require('../shared');
 
 function cmdRemove(o) {
-  // The refusal of a project run rooted at the home directory belongs here: before the run lock and any output.
+  refuseHomeRootedProject(o, 'remove');
   const targets = resolveTargets(o.targets);
   const scope = scopeOf(o);
   const hold = holdRunLock(o, scope, 'remove');

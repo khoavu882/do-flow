@@ -5,6 +5,7 @@
 // adapter-registry factory, and the helpers more than one command uses (scope resolution, MCP
 // selection, backup-table printing). Nothing here is harness-specific — native quirks belong in
 // src/adapters/<id>/.
+const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { REPO_ROOT } = require('../helper/repo-root');
@@ -70,6 +71,36 @@ function scopeOf(o) {
 function installPaths(scope) {
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   return doflowPaths({ scopeRoot });
+}
+
+/** Whether two paths name the same directory. Device and inode follow symlinks (macOS reaches
+ * /var through /private/var) and ignore letter case on a case-insensitive volume; a file system
+ * that reports inode 0 falls back to real paths, and paths that do not exist to resolved strings. */
+function sameDirectory(a, b, { fsImpl = fs } = {}) {
+  const ra = path.resolve(a);
+  const rb = path.resolve(b);
+  try {
+    const sa = fsImpl.statSync(ra);
+    const sb = fsImpl.statSync(rb);
+    if (sa.ino !== 0 && sb.ino !== 0) return sa.dev === sb.dev && sa.ino === sb.ino;
+  } catch { /* fall through to real paths */ }
+  try {
+    return fsImpl.realpathSync.native(ra) === fsImpl.realpathSync.native(rb);
+  } catch {
+    return ra === rb;
+  }
+}
+
+/** A project install, update, remove or reconcile rooted at the home directory would share the
+ * global install's files and records, and its remove could delete them. Refuses that run with one
+ * line and exit 1 before anything is read, locked or written; `-g` and every other root pass. */
+function refuseHomeRootedProject(o, command) {
+  if (o.global) return;
+  const projectRoot = o.positional[0] || '.';
+  if (!sameDirectory(projectRoot, os.homedir())) return;
+  const targets = o.targets.length ? ` -t ${o.targets.join(',')}` : '';
+  console.error(`[ERROR] ${path.resolve(projectRoot)} is your home directory: a project ${command} there shares the global install's files and records and can delete them. Nothing was changed. Run: doflow ${command} -g${targets}`);
+  process.exit(1);
 }
 
 /** Takes the scope's run lock for a mutating command, or returns null under --dry-run. A run that
@@ -181,6 +212,6 @@ function printBackupTable(rows, rootLabel) {
 }
 
 module.exports = {
-  REPO_ROOT, SCRIPT_DIR, pkg, buildAdapterRegistry, scopeOf, installPaths, holdRunLock, checkpointRunLock,
-  reportRetiredMcp, scopeSelectionState, printMcpSelection, printRecordedMcpOwnership, plannedMcpSelections, printBackupTable,
+  REPO_ROOT, SCRIPT_DIR, pkg, buildAdapterRegistry, scopeOf, installPaths, sameDirectory, refuseHomeRootedProject,
+  holdRunLock, checkpointRunLock, reportRetiredMcp, scopeSelectionState, printMcpSelection, printRecordedMcpOwnership, plannedMcpSelections, printBackupTable,
 };

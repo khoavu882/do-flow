@@ -22,11 +22,11 @@ const {
 } = require('../../lifecycle/view');
 const {
   REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, reportRetiredMcp, scopeSelectionState, printMcpSelection, plannedMcpSelections,
-  printRecordedMcpOwnership, buildAdapterRegistry, holdRunLock, checkpointRunLock,
+  printRecordedMcpOwnership, buildAdapterRegistry, refuseHomeRootedProject, holdRunLock, checkpointRunLock,
 } = require('../shared');
 
 function cmdInstall(o) {
-  // The refusal of a project run rooted at the home directory belongs here: before the run lock and any output.
+  refuseHomeRootedProject(o, 'install');
   const targets = resolveTargets(o.targets);
   const scope = scopeOf(o);
   const hold = holdRunLock(o, scope, 'install');

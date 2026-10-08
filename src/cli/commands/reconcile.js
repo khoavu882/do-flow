@@ -14,7 +14,7 @@ const {
 const { recordedMcpSelections } = require('../../install/mcp');
 const {
   REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, scopeSelectionState, printRecordedMcpOwnership, buildAdapterRegistry,
-  holdRunLock, checkpointRunLock,
+  refuseHomeRootedProject, holdRunLock, checkpointRunLock,
 } = require('../shared');
 
 /** Classify desired-vs-observed drift for one lifecycle view. The plan IS the diff: its changes
@@ -53,7 +53,7 @@ function printReconcileReport(report, lock) {
 }
 
 function cmdReconcile(o) {
-  // The refusal of a project run rooted at the home directory belongs here: before the run lock and any output.
+  refuseHomeRootedProject(o, 'reconcile');
   const scope = scopeOf(o);
   const hold = holdRunLock(o, scope, 'reconcile');
   try {
