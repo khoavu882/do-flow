@@ -430,10 +430,17 @@ function restoreBackup({ bid, backupRoot, dirs, dryRun = false }) {
   const bkDir = path.join(found.root, bid);
 
   let type = 'full';
+  let format;
   const manifestPath = path.join(bkDir, '.manifest.json');
   if (fs.existsSync(manifestPath)) {
-    try { type = JSON.parse(fs.readFileSync(manifestPath, 'utf8')).type || 'full'; } catch { /* fall back to 'full' */ }
+    try {
+      const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      type = m.type || 'full';
+      format = m.format;
+    } catch { /* fall back to 'full' */ }
   }
+  // A format-2 backup holds no tool archive or tool copy, so this path would restore nothing.
+  if (format === 2) throw new Error(`Backup ${bid} is format 2; restore it with doflow rollback`);
 
   for (const tool of Object.keys(dirs)) {
     const dstDir = dirs[tool];
@@ -451,6 +458,186 @@ function restoreBackup({ bid, backupRoot, dirs, dryRun = false }) {
       fs.cpSync(partialDir, dstDir, { recursive: true, force: true });
     }
   }
+}
+
+/** Raw member lines of a tar.gz archive. A whole-home archive can list far more than the default
+ * 1 MiB of output, so the buffer is unbounded. */
+function defaultListTar(archive) {
+  return execFileSync('tar', ['-tzf', archive], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: Infinity })
+    .split(/\r?\n/);
+}
+
+/** File members of an archive listing, relative to the archive root, without any `..` member. */
+function archiveMembers(lines) {
+  return lines
+    .map((line) => line.replace(/^\.\//, ''))
+    .filter((m) => m && m !== '.' && !m.endsWith('/') && !m.split('/').includes('..'));
+}
+
+/** Paths, relative to `root`, of the regular files under it; links are not followed. */
+function regularFilesUnder(root, fsImpl) {
+  const files = [];
+  const pending = [''];
+  while (pending.length > 0) {
+    const rel = pending.pop();
+    for (const e of fsImpl.readdirSync(path.join(root, rel), { withFileTypes: true })) {
+      const child = path.join(rel, e.name);
+      if (e.isDirectory()) pending.push(child);
+      else if (e.isFile()) files.push(child);
+    }
+  }
+  return files.sort();
+}
+
+/** Why a format-2 entry cannot be restored, or null when it can. */
+function refusalOf(entry, target, { scope, scopeRoot, bkDir, fsImpl }) {
+  const raw = entry.path;
+  if (entry.outside === true) {
+    if (!path.isAbsolute(raw)) return 'unsafe path';
+    if (scope !== 'global') return 'outside the project root';
+  } else if (path.isAbsolute(raw) || raw.split(/[\\/]/).includes('..') || scopeRelative(scopeRoot, target) === null) {
+    return 'unsafe path';
+  }
+  if (entry.kind === 'other' || typeof entry.stored !== 'string') return 'not a regular file when backed up';
+  const stored = path.resolve(bkDir, entry.stored);
+  if (scopeRelative(bkDir, stored) === null) return 'content missing from backup';
+  try {
+    if (!fsImpl.lstatSync(stored).isFile()) return 'content missing from backup';
+  } catch {
+    return 'content missing from backup';
+  }
+  return null;
+}
+
+/**
+ * Work out what restoring backup `bid` writes, before anything is written. A format-2 backup
+ * restores per file: entries recorded absent are listed and left alone, unsafe entries are refused,
+ * and with `explicitTargets` only entries of the named harnesses count. A 1.19 backup restores per
+ * tool through restoreBackup; its snapshot lists the files that restore will overwrite.
+ * Reads only.
+ */
+function planRestore({ bid, backupRoot, scope, scopeRoot, targets, explicitTargets, dirs, fsImpl = fs, listTar = defaultListTar }) {
+  assertSafeBackupId(bid);
+  const found = backupReadRoots(backupRoot).find((r) => fsImpl.existsSync(path.join(r.root, bid)));
+  if (!found) throw new Error(`Backup not found: ${bid}`);
+  const bkDir = path.join(found.root, bid);
+  const { kind, manifest } = classifyBackupDir(bkDir, { fsImpl });
+  if (kind === 'newer') {
+    throw new Error(`Backup ${bid} was made by a newer DoFlow (format ${manifest.format}); this version cannot restore it`);
+  }
+
+  const plan = {
+    bid,
+    origin: found.origin,
+    bkDir,
+    format: kind === 'format-2' ? 2 : 1,
+    type: { 'format-2': 'files', partial: 'partial' }[kind] || 'full',
+    restore: [],
+    absent: [],
+    refused: [],
+    untargeted: 0,
+    snapshot: [],
+    v1: null,
+  };
+  const wanted = new Set(targets);
+
+  if (plan.format === 2) {
+    for (const entry of Array.isArray(manifest.files) ? manifest.files : []) {
+      const harnesses = Array.isArray(entry.harnesses) ? entry.harnesses : [];
+      if (explicitTargets && !harnesses.some((h) => wanted.has(h))) {
+        plan.untargeted += 1;
+        continue;
+      }
+      if (typeof entry.path !== 'string' || entry.path === '') {
+        plan.refused.push({ path: String(entry.path), reason: 'unsafe path' });
+        continue;
+      }
+      // Relative entries resolve against today's scope root, so a moved home still restores.
+      const target = entry.outside === true ? path.resolve(entry.path) : path.resolve(scopeRoot, entry.path);
+      if (entry.existed === false) {
+        plan.absent.push(target);
+        continue;
+      }
+      const reason = refusalOf(entry, target, { scope, scopeRoot, bkDir, fsImpl });
+      if (reason) {
+        plan.refused.push({ path: reason === 'unsafe path' ? entry.path : target, reason });
+        continue;
+      }
+      plan.restore.push({ path: target, stored: path.resolve(bkDir, entry.stored), mode: entry.mode, size: entry.size, harnesses });
+    }
+    plan.snapshot = plan.restore.map((item) => ({ path: item.path, harnesses: item.harnesses }));
+    return plan;
+  }
+
+  const tools = [];
+  for (const tool of wanted) {
+    const dstDir = dirs[tool];
+    if (!dstDir) continue;
+    if (plan.type === 'full') {
+      const archive = path.join(bkDir, `${tool}.tar.gz`);
+      if (!fsImpl.existsSync(archive)) continue;
+      tools.push({ tool, dstDir, source: `${tool}.tar.gz` });
+      for (const member of archiveMembers(listTar(archive))) plan.snapshot.push({ path: path.join(dstDir, member), harnesses: [tool] });
+    } else {
+      const copyDir = path.join(bkDir, tool);
+      if (!fsImpl.existsSync(copyDir)) continue;
+      tools.push({ tool, dstDir, source: `${tool}/` });
+      for (const rel of regularFilesUnder(copyDir, fsImpl)) plan.snapshot.push({ path: path.join(dstDir, rel), harnesses: [tool] });
+    }
+  }
+  plan.v1 = { tools };
+  return plan;
+}
+
+/**
+ * Carry out a plan from planRestore. Format 2 writes each restore item through a temp file renamed
+ * over the target (or straight through a symlinked target, which stays a link); a failed item is
+ * reported and the rest continue. It never deletes a file and never writes outside `plan.restore`.
+ * A 1.19 plan goes through restoreBackup unchanged.
+ */
+function executeRestore(plan, { backupRoot, dryRun = false, fsImpl = fs }) {
+  if (plan.format !== 2) {
+    const toolDirs = Object.fromEntries(plan.v1.tools.map((t) => [t.tool, t.dstDir]));
+    restoreBackup({ bid: plan.bid, backupRoot, dirs: toolDirs, dryRun });
+    return { restored: plan.v1.tools.map((t) => t.tool), failed: [], absent: [], refused: [], untargeted: 0, legacy: true };
+  }
+
+  const restored = [];
+  const failed = [];
+  for (const item of plan.restore) {
+    if (dryRun) {
+      restored.push(item.path);
+      continue;
+    }
+    let temp = null;
+    try {
+      const dir = path.dirname(item.path);
+      fsImpl.mkdirSync(dir, { recursive: true });
+      const bytes = fsImpl.readFileSync(item.stored);
+      let isLink = false;
+      try {
+        isLink = fsImpl.lstatSync(item.path).isSymbolicLink();
+      } catch (err) {
+        if (err.code !== 'ENOENT') throw err;
+      }
+      if (isLink) {
+        fsImpl.writeFileSync(item.path, bytes);
+      } else {
+        temp = path.join(dir, `.${path.basename(item.path)}.doflow-restore-${process.pid}-${crypto.randomBytes(4).toString('hex')}`);
+        fsImpl.writeFileSync(temp, bytes, { flag: 'wx' });
+        fsImpl.chmodSync(temp, item.mode);
+        fsImpl.renameSync(temp, item.path);
+        temp = null;
+      }
+      restored.push(item.path);
+    } catch (err) {
+      if (temp) {
+        try { fsImpl.rmSync(temp, { force: true }); } catch { /* best effort */ }
+      }
+      failed.push({ path: item.path, reason: errorCode(err) });
+    }
+  }
+  return { restored, failed, absent: plan.absent, refused: plan.refused, untargeted: plan.untargeted, legacy: false };
 }
 
 /** One `{ row, key }` per backup dir under `root`, tagged with where it came from. Dot-named
@@ -532,5 +719,5 @@ module.exports = {
   backupId, createBackup, restoreBackup, listBackups, pruneBackups, assertSafeBackupId,
   backupReadRoots, BACKUP_ORIGIN_CURRENT, BACKUP_ORIGIN_LEGACY,
   BackupError, DEFAULT_BACKUP_RETENTION, createFileBackup, sweepStaleTemps, classifyBackupDir,
-  sortKey, backupSize, formatBytes,
+  sortKey, backupSize, formatBytes, planRestore, executeRestore,
 };
