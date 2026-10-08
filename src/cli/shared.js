@@ -13,6 +13,7 @@ const { readInstallManifest } = require('../install/manifest');
 const { DEFAULT_BACKUP_RETENTION, formatBytes } = require('../install/backup');
 const { stateRoot, readLedger } = require('../state');
 const { readLock } = require('../state/lockfile');
+const { acquireRunLock, RunLockTimeoutError, RunLockError, RunLockLostError } = require('../state/run-lock');
 const { createAdapterRegistry } = require('../adapters');
 const { declaredHarnessPaths } = require('../helper/harness-paths');
 const claudeAdapter = require('../adapters/claude');
@@ -69,6 +70,32 @@ function scopeOf(o) {
 function installPaths(scope) {
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   return doflowPaths({ scopeRoot });
+}
+
+/** Takes the scope's run lock for a mutating command, or returns null under --dry-run. A run that
+ * cannot take it prints the one reason line and exits 1 before it has read or changed anything. */
+function holdRunLock(o, scope, command) {
+  if (o.dryRun) return null;
+  try {
+    return acquireRunLock({ scopeRoot: installPaths(scope).scopeRoot, scope: scope.global ? 'global' : 'project', command });
+  } catch (err) {
+    if (!(err instanceof RunLockTimeoutError || err instanceof RunLockError)) throw err;
+    console.error(err.message);
+    process.exit(1);
+  }
+}
+
+/** After the confirm prompt: renews the hold, and exits 1 before the first write if another run
+ * took the lock over while the prompt waited. */
+function checkpointRunLock(hold) {
+  if (!hold) return;
+  try {
+    hold.checkpoint();
+  } catch (err) {
+    if (!(err instanceof RunLockLostError)) throw err;
+    console.error(err.message);
+    process.exit(1);
+  }
 }
 
 /** Surface a reconciled-away MCP server rather than dropping it silently: the user picked it once,
@@ -154,6 +181,6 @@ function printBackupTable(rows, rootLabel) {
 }
 
 module.exports = {
-  REPO_ROOT, SCRIPT_DIR, pkg, buildAdapterRegistry, scopeOf, installPaths,
+  REPO_ROOT, SCRIPT_DIR, pkg, buildAdapterRegistry, scopeOf, installPaths, holdRunLock, checkpointRunLock,
   reportRetiredMcp, scopeSelectionState, printMcpSelection, printRecordedMcpOwnership, plannedMcpSelections, printBackupTable,
 };
