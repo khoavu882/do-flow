@@ -14,6 +14,7 @@ const {
 } = require('./config');
 const { selectMcpServers, nativeMcpCatalog } = require('../../registry');
 const { NOTICES } = require('../mcp-entries');
+const { stripComment } = require('../../helper/toml');
 
 const MCP_KIND = 'mcp-server';
 const MCP_PREFIX = 'mcp_servers.';
@@ -81,7 +82,14 @@ function tableRanges(text) {
         break;
       }
     }
-    tables.push({ name, start: index, end });
+    // A comment written after the table's last line, and whatever follows it up to the next table,
+    // is the user's and belongs to no table. Blank lines straight after the table stay in its range,
+    // so a removal still takes the separator DoFlow wrote with it.
+    let content = end;
+    while (content > index + 1 && stripComment(lines[content - 1]).trim() === '') content--;
+    let stop = content;
+    while (stop < end && lines[stop].trim() === '') stop++;
+    tables.push({ name, start: index, end: stop });
   }
   return { lines, tables };
 }
@@ -141,7 +149,10 @@ function ownedCodexMcpIds({ file, scope, managedResources = [], fsImpl = fs }) {
 /** How to stop managing a server whose table the user changed: the same run without it selected. */
 function modifiedConflict(name, desired, scopeArg) {
   const rest = desired.filter((item) => item !== name);
-  return `MCP server '${name}' was modified outside DoFlow. If this table is yours, run: doflow update ${scopeArg} -t codex --mcp ${rest.length ? rest.join(',') : 'none'}; DoFlow then stops managing it and keeps the table.`;
+  // Quoted for a POSIX shell when it holds anything a shell would split or expand, so the command
+  // works as copied for a project root with a space in it.
+  const arg = /^[A-Za-z0-9_@%+=:,./-]+$/.test(scopeArg) ? scopeArg : `'${scopeArg.replace(/'/g, "'\\''")}'`;
+  return `MCP server '${name}' was modified outside DoFlow. If this table is yours, run: doflow update ${arg} -t codex --mcp ${rest.length ? rest.join(',') : 'none'}; DoFlow then stops managing it and keeps the table.`;
 }
 
 /**

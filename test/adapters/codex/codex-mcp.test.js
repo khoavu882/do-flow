@@ -199,3 +199,26 @@ test('an MCP table that would make the file invalid TOML is refused with nothing
   assert.match(plan.conflicts[0], /DoFlow cannot write 'context7' without making the file invalid TOML \(table-and-value 'mcp_servers' on line 3\)/);
   assert.equal(fs.readFileSync(file, 'utf8'), before);
 });
+
+test('a user comment written after DoFlow\'s last table is not part of that table, and remove keeps it', () => {
+  const appended = '\n# my profiles\n[profiles.fast]\nmodel = "a"\n';
+  for (const [before, after] of [['[features]\nx = 1\n', appended], ['', '# mine\n']]) {
+    const file = path.join(scratch(), 'config.toml');
+    if (before) fs.writeFileSync(file, before);
+    const installed = reconcileCodexMcp(options(file, ['context7']));
+    fs.appendFileSync(file, after);
+    const edited = fs.readFileSync(file, 'utf8');
+    const reinstall = planCodexMcp(options(file, ['context7'], { managedResources: installed.managedResources }));
+    assert.equal(reinstall.status, 'unchanged', JSON.stringify(reinstall.conflicts));
+    const removed = reconcileCodexMcp(options(file, [], { managedResources: installed.managedResources }));
+    assert.deepStrictEqual(removed.changes.map((change) => [change.type, change.release]), [['remove', undefined]]);
+    assert.equal(fs.readFileSync(file, 'utf8'), `${before}${after}`, `from ${JSON.stringify(edited)}`);
+  }
+});
+
+test('the conflict quotes a project root that a shell would split', () => {
+  const { serverDefs } = catalog();
+  const managed = [resourceFor({ name: 'context7', scope: 'project', definition: serverDefs.context7 })];
+  const { plan } = plannedOver('[mcp_servers.context7]\ncommand = "mine"\n', ['context7'], { managedResources: managed, scopeArg: "/tmp/my proj's" });
+  assert.match(plan.conflicts[0], /run: doflow update '\/tmp\/my proj'\\''s' -t codex --mcp none;/);
+});
