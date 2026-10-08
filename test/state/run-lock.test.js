@@ -297,6 +297,24 @@ test('acquisition survives another run removing the state directory between its 
   }
 });
 
+test('acquisition removes owner temp files left by runs that died while waiting, and keeps a live waiter\'s', () => {
+  const root = scopeRoot();
+  fs.mkdirSync(stateDir(root), { recursive: true });
+  const temp = (token) => path.join(stateDir(root), `.run.lock.${token}.tmp`);
+  const child = liveChild();
+  fs.writeFileSync(temp('1'.repeat(32)), `${JSON.stringify(record({ token: '1'.repeat(32) }))}\n`);
+  fs.writeFileSync(temp('2'.repeat(32)), `${JSON.stringify(record({ token: '2'.repeat(32), pid: child.pid }))}\n`);
+  fs.writeFileSync(temp('3'.repeat(32)), '');
+  fs.writeFileSync(temp('4'.repeat(32)), '');
+  fs.utimesSync(temp('4'.repeat(32)), ELEVEN_MINUTES_AGO(), ELEVEN_MINUTES_AGO());
+  const hold = acquireRunLock(target(root));
+  try {
+    assert.deepEqual(listState(root), [`.run.lock.${'2'.repeat(32)}.tmp`, `.run.lock.${'3'.repeat(32)}.tmp`, 'run.lock']);
+  } finally {
+    hold.release();
+  }
+});
+
 test('a second acquisition in one process returns the same hold, and the lock outlives the inner release', () => {
   const root = scopeRoot();
   const outer = acquireRunLock(target(root));

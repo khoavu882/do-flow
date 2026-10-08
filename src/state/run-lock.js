@@ -21,6 +21,7 @@ const path = require('node:path');
 const RECORD_VERSION = 1;
 const LOCK_FILE = 'run.lock';
 const CLAIM_PREFIX = `${LOCK_FILE}.claim.`;
+const TEMP_NAME = /^\.run\.lock\.([0-9a-f]{32})\.tmp$/;
 
 function loadVersion() {
   try { return require('../../package.json').version; } catch { return '0.0.0-installed'; }
@@ -230,6 +231,21 @@ function takeOver(fsImpl, stateDir, lockPath, found, options) {
   }
 }
 
+/** Removes owner temp files left by runs that died while they waited, judged by the stale rule as
+ * a lock would be: interrupting a waiting run is the one exit that never reaches its own cleanup. */
+function sweepOrphanTemps(fsImpl, stateDir, judge) {
+  let names;
+  try { names = fsImpl.readdirSync(stateDir); } catch { return; }
+  for (const name of names) {
+    const match = TEMP_NAME.exec(name);
+    if (!match || match[1] === judge.token) continue;
+    const file = path.join(stateDir, name);
+    let found = null;
+    try { found = readLockFile(fsImpl, file); } catch { /* unreadable: left for a later sweep */ }
+    if (found && staleReason(found, judge)) unlinkQuietly(fsImpl, file);
+  }
+}
+
 /** Removes, innermost first, the directories an acquisition created, stopping at the first non-empty one. */
 function removeCreatedDirs(fsImpl, stateDir, firstCreated) {
   if (!firstCreated) return;
@@ -294,6 +310,7 @@ function acquireRunLock({ scopeRoot, scope, command }, {
   };
 
   const judge = { token, hostname, isAlive, now, staleMs, claimStaleMs };
+  sweepOrphanTemps(fsImpl, stateDir, judge);
   const start = now();
   const cleared = [];
   let lastHolder = null;
