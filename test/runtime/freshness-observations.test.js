@@ -69,8 +69,9 @@ test('readiness and stage completion reject the same changed observation', (t) =
   fs.writeFileSync(path.join(root, 'a.js'), 'module.exports = 5;\n');
   const readiness = cli(root, 'readiness', '--task-id', task, '--task-class', 'trivial-edit', '--scope', 'a.js only');
   assert.equal(readiness.data.state, 'NEEDS_EVIDENCE');
+  // Completion reads the evaluation `readiness` just recorded rather than grading inputs of its own.
   const completion = cli(root, 'orchestrate', '--action', 'complete-stage', '--task-id', task,
     '--task-class', 'trivial-edit', '--stage', 'implementation', '--scope', 'a.js only');
-  assert.notEqual(completion.status, 0, 'completion must recheck freshness too');
-  assert.match(completion.stderr, /NEEDS_EVIDENCE/);
+  assert.notEqual(completion.status, 0, 'completion is refused on the same stale observation');
+  assert.match(completion.stderr, new RegExp(`task '${task}' was last evaluated NEEDS_EVIDENCE at \\S+ against the 'trivial-edit' template, not READY`));
 });

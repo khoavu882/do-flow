@@ -16,6 +16,10 @@ const { ResearchRequestStore } = require('./research-request');
 const { REPO_ROOT } = require('../helper/repo-root');
 const { resolveActiveFeature } = require('./feature-resolve');
 const { compactDecisions } = require('./decision-register');
+const { findStateFile } = require('./checkouts');
+const {
+  checkReadiness, harnessHookNote, preFloorGrace, graceWarning, GRACE_CODES,
+} = require('./implementation-gate');
 
 const RUN_STATES = Object.freeze(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED']);
 
@@ -44,6 +48,8 @@ const GATE_DECISIONS = Object.freeze(['approve', 'reject']);
 /** What a completed stage established, separate from the fact it was walked past (review A1). */
 const STAGE_OUTCOMES = new Set(['passed', 'failed', 'unverified']);
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/** Why a handoff with no run and no class records nothing, as the result and the CLI line say. */
+const STANDALONE_REASON = 'no run exists for this task and no --task-class was given, so nothing was recorded and no readiness was required';
 
 function assertSafeId(value, label) {
   if (!ID_PATTERN.test(String(value ?? ''))) throw new Error(`Invalid ${label}: '${value}'`);
@@ -86,9 +92,10 @@ class WorkflowOrchestrator {
    * @param {string} [options.repoRoot] install root owning core/registry + default state dir.
    * @param {string} [options.stateDir] where run journals live.
    * @param {WorkflowEngine} [options.engine] pre-built engine (injected workflows in tests).
-   * @param {(node: object, run: object) => string|null} [options.readinessEvaluate] cascade gate:
-   *   returns a readiness verdict string; anything but READY blocks completion of a source-mutating
-   *   gated stage. Unwired means such stages cannot be completed — fail closed, never open.
+   * @param {(node: object, run: object) => string|{verdict: string, message?: string, warning?: string}|null} [options.readinessEvaluate]
+   *   cascade gate: returns a readiness verdict, as a string or with the refusal message and an
+   *   optional warning; anything but READY blocks completion of a source-mutating gated stage.
+   *   Unwired means such stages cannot be completed — fail closed, never open.
    * @param {object} [options.fsImpl]
    */
   constructor({ repoRoot = REPO_ROOT, projectRoot, stateDir, engine, readinessEvaluate, fsImpl } = {}) {
@@ -143,6 +150,9 @@ class WorkflowOrchestrator {
       program,
       history: [{ at: iso(now), action: 'start', detail: `task-class=${taskClass}` }],
       startedAt: iso(now),
+      // Marks a run started by a runtime that records readiness; a run without it predates that
+      // and keeps a warning in place of the readiness refusal for one release.
+      readinessFloor: 1,
     };
     this.writeRun(run, now);
     return this.snapshot(run);
@@ -176,13 +186,19 @@ class WorkflowOrchestrator {
     if (!note || !String(note).trim()) throw new Error('handoff requires a note describing the work recorded');
     if (outcome !== undefined && !STAGE_OUTCOMES.has(outcome)) throw new Error(`Unknown stage outcome '${outcome}'`);
     const existing = this.readRun(taskId);
-    if (!existing && !taskClass) return { taskId, disposition: 'standalone', state: null, awaitingGate: null };
+    if (!existing && !taskClass) return { taskId, disposition: 'standalone', state: null, awaitingGate: null, reason: STANDALONE_REASON };
     if (existing && taskClass && taskClass !== existing.taskClass) throw new Error(`Task class '${taskClass}' does not match run '${existing.taskClass}'`);
     const resolvedClass = existing?.taskClass || taskClass;
     const stages = existing ? existing.program.filter(n => n.type === 'stage')
       : this.engine.resolveWorkflow(resolvedClass).stages;
     const candidates = stages.filter(n => n.skill === callingSkill).map(n => n.id);
     if (!candidates.length) throw new Error(`Skill '${callingSkill}' owns no stage in '${resolvedClass}'`);
+    // The stage this handoff would complete is known before anything is written, so a gated stage
+    // without readiness is refused before catch-up starts a run or backfills a stage.
+    const preview = this.previewHandoff({ taskId, taskClass: resolvedClass, candidateStageIds: candidates });
+    if (preview.reason === 'reached-candidate' && preview.node.mutatesSource && preview.node.readinessTemplate) {
+      this.assertReady(preview.node, existing || { taskId, taskClass: resolvedClass });
+    }
     const positioned = this.catchUp({ taskId, taskClass: resolvedClass, candidateStageIds: candidates, note, now });
     if (positioned.reason === 'reached-candidate') {
       const snapshot = this.completeStage({ taskId, stageId: positioned.caughtUpTo, note, outcome, now });
@@ -232,10 +248,7 @@ class WorkflowOrchestrator {
     if (outcome !== undefined && !STAGE_OUTCOMES.has(outcome)) {
       throw new Error(`Unknown stage outcome '${outcome}'. Valid: ${[...STAGE_OUTCOMES].join(', ')} — omit the flag to record 'unverified'.`);
     }
-    if (node.mutatesSource && node.readinessTemplate) {
-      const verdict = this.evaluateReadiness(node, run);
-      if (verdict !== 'READY') throw new Error(`Readiness for stage '${node.id}' returned ${verdict}; expected READY — resolve evidence or the user decision first`);
-    }
+    const readinessWarning = node.mutatesSource && node.readinessTemplate ? this.assertReady(node, run) : null;
     node.status = 'completed';
     node.executionStatus = backfilled ? 'imported' : 'completed';
     node.outcome = backfilled ? 'unverified' : (outcome ?? 'unverified');
@@ -250,7 +263,7 @@ class WorkflowOrchestrator {
         .blockingGap(taskId, stageId);
       if (request) throw new Error(`Research request '${request.id}' blocks stage '${stageId}': ${request.failureReason || request.gap || request.status}`);
     });
-    return this.snapshot(run);
+    return readinessWarning ? { ...this.snapshot(run), readinessWarning } : this.snapshot(run);
   }
 
   /** Skip the current OPTIONAL stage without running it. Gates anchored directly to a skipped
@@ -458,14 +471,58 @@ class WorkflowOrchestrator {
     if (run.state === 'COMPLETED') run.history.push({ at: iso(now), action: 'complete-run' });
   }
 
-  evaluateReadiness(node, run) {
+  /** Refuses a gated stage unless the evaluator answers READY. The evaluator returns a verdict
+   * string, or `{ verdict, message, warning }`: `message` replaces the generic refusal, and a
+   * `warning` on a READY answer is returned for the caller to report.
+   * @returns {string|null} the warning, when the evaluator gave one */
+  assertReady(node, run) {
     if (!this.readinessEvaluate) {
       // Fail closed: without an evaluator there is no way to know the tree is safe to mutate.
       throw new Error(`Stage '${node.id}' is gated by the '${node.readinessTemplate}' readiness template but no readiness evaluator is wired into this orchestrator`);
     }
-    const verdict = this.readinessEvaluate(node, run);
-    if (!verdict) throw new Error(`Readiness evaluator returned no verdict for stage '${node.id}'`);
-    return verdict;
+    const answer = this.readinessEvaluate(node, run);
+    if (!answer) throw new Error(`Readiness evaluator returned no verdict for stage '${node.id}'`);
+    const { verdict, message = null, warning = null } = typeof answer === 'string' ? { verdict: answer } : answer;
+    if (verdict !== 'READY') {
+      throw new Error(message || `Readiness for stage '${node.id}' returned ${verdict}; expected READY — resolve evidence or the user decision first`);
+    }
+    return warning;
+  }
+
+  /** Where `catchUp` would stop for these candidates, worked out on a copy of the run's program (or
+   * of a fresh run's) without writing anything. Same stop rules and reason vocabulary as `catchUp`;
+   * `stageId` is what `catchUp` reports as `caughtUpTo`, and `node` the program node it stops on.
+   * @returns {{reason: string, stageId: string|null, node: Object|null}} */
+  previewHandoff({ taskId, taskClass, candidateStageIds }) {
+    const existing = this.readRun(taskId);
+    const run = existing
+      ? { state: existing.state, cursor: existing.cursor, program: structuredClone(existing.program) }
+      : { state: 'RUNNING', cursor: 0, program: compileProgram(this.engine.resolveWorkflow(taskClass)) };
+    const candidates = new Set(candidateStageIds);
+    const stop = (reason, node = null) => ({ reason, stageId: reason === 'reached-candidate' ? node.id : null, node });
+    if (run.state === 'REJECTED') return stop('run-rejected');
+    const candidateNodes = run.program.filter((n) => candidates.has(n.id));
+    if (candidateNodes.length > 0 && candidateNodes.every((n) => n.status === 'completed' || n.status === 'approved' || n.status === 'skipped')) {
+      return stop(`already-completed:${candidateNodes.map((n) => n.id).join(',')}`);
+    }
+    for (;;) {
+      if (run.state === 'COMPLETED' || run.state === 'REJECTED') return stop(`run-${run.state.toLowerCase()}`);
+      const node = this.currentNode(run);
+      if (!node) return stop('run-completed');
+      if (node.type !== 'stage') return stop(`awaiting-gate:${node.id}`, node);
+      if (candidates.has(node.id)) return stop('reached-candidate', node);
+      if (node.mutatesSource) return stop(`blocked-on-mutating-stage:${node.id}`, node);
+      node.status = node.optional ? 'skipped' : 'completed';
+      if (node.optional) {
+        for (let next = run.cursor + 1; next < run.program.length; next += 1) {
+          const gate = run.program[next];
+          if (gate.type !== 'gate' || gate.status !== 'pending') break;
+          gate.status = 'skipped';
+        }
+      }
+      run.cursor += 1;
+      this.settleCursor(run);
+    }
   }
 }
 
@@ -500,13 +557,12 @@ function compactAfterHandoff({ taskId, projectRoot }) {
 
 /** CLI handler for `doflow orchestrate`. The run journal lives in the CALLER's project state
  * (like evidence), while templates come from this install — same two-roots split readiness uses.
- * The cascade gate wires the real ReadinessEngine: completing a source-mutating gated stage
- * evaluates the task's live evidence ledger and refuses anything but READY. */
+ * Completing a source-mutating gated stage needs a READY readiness record of the stage's template,
+ * made by `doflow readiness` before this call; nothing is evaluated here. */
 function handleOrchestrateCommand({
   action = 'status', taskId, taskClass, stage, gate, node, decision, note, reason, forced = false,
   verificationPlan, scope, invariants, result, callingSkill, json = false, repoRoot, stateRoot,
 } = {}) {
-  const { evaluateTaskReadiness } = require('./readiness');
   const { finishRuntime, usageError } = require('./cli-result');
 
   const root = repoRoot || REPO_ROOT;
@@ -515,10 +571,22 @@ function handleOrchestrateCommand({
   // wrote its journal to $PWD while a `--global` `evidence`/`readiness` call on the same task read
   // and wrote $HOME — two roots disagreeing about where one task's state lives.
   const state = stateRoot || process.cwd();
+  // A run started in another checkout of this repository is read and updated where it is; a new
+  // run is always created here.
+  let runRoot = state;
+  if (ID_PATTERN.test(String(taskId ?? ''))) {
+    const found = findStateFile({ stateRoot: state, relPath: path.join('.doflow', 'state', 'orchestration', `${taskId}.json`) });
+    if (found.status === 'ambiguous') {
+      console.error(`[ERROR] orchestrate: run '${taskId}' exists in more than one other checkout (${found.candidates.join(', ')}); run the command from the checkout that holds the run you mean. Nothing was changed.`);
+      return finishRuntime(1);
+    }
+    if (found.status === 'found') runRoot = found.root;
+  }
   const orchestrator = new WorkflowOrchestrator({
-    repoRoot: root, projectRoot: state,
-    stateDir: path.join(state, '.doflow', 'state', 'orchestration'),
+    repoRoot: root, projectRoot: runRoot,
+    stateDir: path.join(runRoot, '.doflow', 'state', 'orchestration'),
   });
+  let readinessGrace = null;
   orchestrator.readinessEvaluate = (node, run) => {
     // This closure only ever runs for a stage that is actually gated (evaluateReadiness only calls
     // it for a mutating stage carrying a readiness template) — so a missing --task-class here is a
@@ -536,20 +604,25 @@ function handleOrchestrateCommand({
     if (taskClass && taskClass !== run.taskClass) {
       throw new Error(`orchestrate complete-stage: --task-class '${taskClass}' does not match run '${run.taskId}''s own class '${run.taskClass}' — pass the class this run was started under, not a different one.`);
     }
-    // Caller-stated inputs reach the cascade here, same rule as `doflow readiness`: an absent key
-    // stays absent rather than becoming a falsy default, because the engine reads presence, not
-    // truth. Without this the three requirements readiness_gate.md says are satisfiable by
-    // assertion (`verification_plan`, `scope_clear`/`scope_verified`, `invariants_captured`) had no
-    // path in at all, so every gated stage completion returned NEEDS_EVIDENCE even when the caller
-    // had the answers to give. `invariants` mirrors `readiness`'s own CLI wiring (runtime-commands.js
-    // forwards it to `handleReadinessCommand`) — `orchestrate` previously dropped it silently.
-    const profile = { taskId, taskClass: run.taskClass };
-    if (typeof verificationPlan === 'string' && verificationPlan.trim() !== '') profile.verificationPlan = verificationPlan;
-    if (typeof scope === 'string' && scope.trim() !== '') profile.scopeClear = scope;
-    if (typeof invariants === 'string' && invariants.trim() !== '') profile.invariants = invariants;
-    const report = evaluateTaskReadiness({ taskProfile: profile, repoRoot: root, projectRoot: state });
-    return report.state;
+    // The record `doflow readiness` wrote before this call decides; inputs stated here would let a
+    // handoff grade itself with whatever it was handed at the last moment.
+    const template = node.readinessTemplate;
+    const check = checkReadiness({ stateRoot: state, taskId: run.taskId, slug: null, template, now: new Date() });
+    if (check.ok) return { verdict: 'READY', message: null };
+    if (GRACE_CODES.has(check.code) && preFloorGrace(run)) {
+      const warning = graceWarning(check.code, {
+        taskId: run.taskId, template, record: check.record, detail: check.detail, startedAt: run.startedAt, action,
+      });
+      readinessGrace = { code: check.code, message: warning };
+      return { verdict: 'READY', warning };
+    }
+    return { verdict: check.code, message: [check.message, harnessHookNote({ repoRoot: root })].filter(Boolean).join(' ') };
   };
+
+  if ((action === 'handoff' || action === 'complete-stage')
+    && [verificationPlan, scope, invariants].some((v) => typeof v === 'string' && v.trim() !== '')) {
+    console.error(`orchestrate: note: --verification-plan, --scope and --invariants are inputs to doflow-run readiness; this ${action} did not read them.`);
+  }
 
   try {
     // `--forced` is only read by the two actions that can override a decision. Accepting it
@@ -605,9 +678,16 @@ function handleOrchestrateCommand({
     if (action === 'handoff' && (snapshot.disposition === 'completed' || snapshot.disposition === 'annotated')) {
       snapshot = { ...snapshot, compaction: compactAfterHandoff({ taskId, projectRoot: state }) };
     }
+    // A run started before readiness was recorded proceeds, and says what will refuse it later.
+    if (snapshot.readinessWarning) {
+      const { readinessWarning, ...rest } = snapshot;
+      console.error([readinessWarning, harnessHookNote({ repoRoot: root })].filter(Boolean).join(' '));
+      snapshot = { ...rest, readinessGrace };
+    }
     if (json) { console.log(JSON.stringify(snapshot, null, 2)); return finishRuntime(0); }
     console.log(`Workflow ${snapshot.taskId} [${snapshot.taskClass}] — ${snapshot.state}`);
-    if (snapshot.disposition) console.log(`Handoff: ${snapshot.disposition}`);
+    if (snapshot.disposition === 'standalone') console.log(`Handoff: standalone (${snapshot.reason})`);
+    else if (snapshot.disposition) console.log(`Handoff: ${snapshot.disposition}`);
     if (snapshot.compaction) console.log(`Compaction: ${snapshot.compaction.status}${snapshot.compaction.reason ? ` — ${snapshot.compaction.reason}` : ''}`);
     if (snapshot.progress) console.log(`Progress: ${snapshot.progress.done}/${snapshot.progress.total}`);
     if (snapshot.current) {

@@ -11,7 +11,9 @@
 //     wrote its journal to $PWD while a `--global` evidence/readiness call on the same task read
 //     and wrote $HOME (M3).
 //   - the `--verification-plan`/`--scope` cascade inputs that make a gated stage completion
-//     reachable at all had no test proving they actually reach the readiness profile (M6).
+//     reachable at all had no test proving they actually reach the readiness profile (M6). Those
+//     inputs now belong to `doflow readiness`, whose record a gated stage reads; the cases below
+//     prove the stage is refused without a READY record and ignores the inputs given here.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -22,10 +24,12 @@ const { spawnSync, execFileSync } = require('node:child_process');
 const REPO = path.resolve(__dirname, '..', '..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 
-/** A git-backed scratch project, same shape as runtime-evidence-write.test.js's own helper. */
-function project() {
+/** A git-backed scratch project, same shape as runtime-evidence-write.test.js's own helper; removed
+ * when `t` ends, when one is given. */
+function project(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-orchestrate-'));
   const real = fs.realpathSync(dir);
+  if (t) t.after(() => fs.rmSync(real, { recursive: true, force: true }));
   fs.writeFileSync(path.join(real, 'a.js'), 'module.exports = { x: 1 };\n');
   const git = (...args) => execFileSync('git', ['-C', real, ...args], { stdio: 'ignore' });
   git('init', '-q');
@@ -65,60 +69,47 @@ test('M5: complete-stage on a gated stage without --task-class fails with an arg
   assert.match(res.stderr, /pass the same class this run was started/);
 });
 
-// ────────────────────────────────────────────────────────────────── M6: --scope reaches the profile
+// ─────────────────────────────── the readiness record, not the handoff's own inputs, decides the stage
 
-test('M6: --scope reaches the readiness profile and clears a caller-assertable requirement', () => {
-  const cwd = project();
+const NOTE = 'orchestrate: note: --verification-plan, --scope and --invariants are inputs to doflow-run readiness; this complete-stage did not read them.';
+const runFileOf = (cwd, taskId) => path.join(cwd, '.doflow', 'state', 'orchestration', `${taskId}.json`);
+
+test('complete-stage of a gated stage with no readiness record is refused, names the command, and changes nothing', (t) => {
+  const cwd = project(t);
   json(cwd, ['orchestrate', '--action', 'start', '--task-id', 't2', '--task-class', 'trivial-edit']);
-
-  // trivial-edit's implementation stage requires target_identified (needs real evidence) and
-  // scope_verified (satisfiable by taskProfile.scopeClear, which --scope is supposed to fill).
-  // Without evidence for target_identified, completion must still be refused for THAT reason —
-  // proving --scope alone doesn't fake full readiness, only its own requirement.
-  const scopeOnly = run(cwd, [
+  const before = fs.readFileSync(runFileOf(cwd, 't2'));
+  // The stated inputs no longer satisfy anything here: 1.21.0 graded them on this call.
+  const res = run(cwd, [
     'orchestrate', '--action', 'complete-stage', '--task-id', 't2', '--stage', 'implementation',
-    '--task-class', 'trivial-edit', '--scope', 'single file, a.js only',
+    '--task-class', 'trivial-edit', '--scope', 'x', '--verification-plan', 'y',
   ]);
-  assert.notEqual(scopeOnly.status, 0);
-  assert.match(scopeOnly.stderr, /target_identified|NEEDS_EVIDENCE/);
-
-  json(cwd, ['evidence', '--task-id', 't2', '--action', 'add', '--kind', 'exact-search',
-    '--provenance', 'extracted', '--provider', 'grep', '--capability', 'code.exact-search',
-    '--locator', 'a.js:1', '--content', 'module.exports = { x: 1 }',
-    '--establishes', 'target_identified']);
-
-  const ready = json(cwd, [
-    'orchestrate', '--action', 'complete-stage', '--task-id', 't2', '--stage', 'implementation',
-    '--task-class', 'trivial-edit', '--scope', 'single file, a.js only',
-  ]);
-  assert.equal(ready.status, 0, `expected READY once evidence + --scope both land: ${ready.stderr}`);
-  const impl = ready.data.current ?? {};
-  // Completion actually advanced past `implementation` — the concrete proof --scope closed the gate.
-  assert.notEqual(impl.id, 'implementation');
+  assert.equal(res.status, 1);
+  assert.match(res.stderr, /\[ERROR\] orchestrate: doflow gate readiness-before-implementation: task 't2' has no readiness record for the 'trivial-edit' template\. Next: doflow-run readiness --task-class trivial-edit --task-id t2, then gather what it lists until it reports READY\. Nothing was changed\. Edit-time check: /);
+  assert.ok(res.stderr.includes(NOTE), res.stderr);
+  assert.deepEqual(fs.readFileSync(runFileOf(cwd, 't2')), before, 'the run file is untouched');
 });
 
-test('M6: omitting --scope on the same stage stays NEEDS_EVIDENCE even with target evidence recorded', () => {
-  const cwd = project();
+test('complete-stage passes once readiness recorded READY in the same state root', (t) => {
+  const cwd = project(t);
   json(cwd, ['orchestrate', '--action', 'start', '--task-id', 't3', '--task-class', 'trivial-edit']);
   json(cwd, ['evidence', '--task-id', 't3', '--action', 'add', '--kind', 'exact-search',
     '--provenance', 'extracted', '--provider', 'grep', '--capability', 'code.exact-search',
-    '--locator', 'a.js:1', '--content', 'module.exports = { x: 1 }']);
-  const res = run(cwd, [
-    'orchestrate', '--action', 'complete-stage', '--task-id', 't3', '--stage', 'implementation',
-    '--task-class', 'trivial-edit',
-  ]);
-  assert.notEqual(res.status, 0);
-  assert.match(res.stderr, /scope_verified|NEEDS_EVIDENCE/);
+    '--locator', 'a.js:1', '--content', 'module.exports = { x: 1 }', '--establishes', 'target_identified']);
+  const readiness = json(cwd, ['readiness', '--task-class', 'trivial-edit', '--task-id', 't3', '--scope', 'a.js']);
+  assert.equal(readiness.data.state, 'READY', readiness.stdout);
+  const done = json(cwd, ['orchestrate', '--action', 'complete-stage', '--task-id', 't3', '--stage', 'implementation', '--task-class', 'trivial-edit']);
+  assert.equal(done.status, 0, done.stderr);
+  assert.notEqual(done.data.current?.id, 'implementation', 'completion advanced past the gated stage');
+  assert.doesNotMatch(done.stderr, /note:/, 'no stated inputs, no note');
 });
 
-test('F-3: complete-stage refuses a --task-class that does not match the run\'s own class', () => {
-  const cwd = project();
+test('F-3: complete-stage refuses a --task-class that does not match the run\'s own class', (t) => {
+  const cwd = project(t);
   json(cwd, ['orchestrate', '--action', 'start', '--task-id', 't-mismatch', '--task-class', 'bug']);
   json(cwd, ['orchestrate', '--action', 'complete-stage', '--task-id', 't-mismatch', '--stage', 'reproduction']);
   json(cwd, ['orchestrate', '--action', 'complete-stage', '--task-id', 't-mismatch', '--stage', 'root-cause']);
-  // bug's implementation stage carries a 5-requirement readiness template; trivial-edit's carries
-  // only 2. Grading a bug run's gated stage against the wrong (looser) contract must be refused,
-  // not silently evaluated — the same mismatch catchUp already refuses for the same reason.
+  // bug's implementation stage is graded by the 'bug' template; trivial-edit's is a looser one.
+  // Grading a bug run's gated stage against the wrong contract must be refused, not evaluated.
   const res = run(cwd, [
     'orchestrate', '--action', 'complete-stage', '--task-id', 't-mismatch', '--stage', 'implementation',
     '--task-class', 'trivial-edit', '--scope', 'x', '--verification-plan', 'npm test',
@@ -127,19 +118,80 @@ test('F-3: complete-stage refuses a --task-class that does not match the run\'s 
   assert.match(res.stderr, /--task-class 'trivial-edit' does not match run 't-mismatch''s own class 'bug'/);
 });
 
-test('F-3: complete-stage with the matching --task-class evaluates readiness normally', () => {
-  const cwd = project();
+test('F-3: complete-stage with the matching --task-class reaches the readiness check rather than the class check', (t) => {
+  const cwd = project(t);
   json(cwd, ['orchestrate', '--action', 'start', '--task-id', 't-match', '--task-class', 'trivial-edit']);
   const res = run(cwd, [
     'orchestrate', '--action', 'complete-stage', '--task-id', 't-match', '--stage', 'implementation',
-    '--task-class', 'trivial-edit', '--scope', 'x',
+    '--task-class', 'trivial-edit',
   ]);
-  // Refused for NEEDS_EVIDENCE (no target_identified evidence recorded), not for a class mismatch —
-  // proves the matching-class path still reaches the readiness engine rather than being blocked by
-  // the new check itself.
   assert.notEqual(res.status, 0);
   assert.doesNotMatch(res.stderr, /does not match run/);
-  assert.match(res.stderr, /target_identified|NEEDS_EVIDENCE/);
+  assert.match(res.stderr, /doflow gate readiness-before-implementation: task 't-match' has no readiness record/);
+});
+
+test('a handoff with no run and no class is standalone, and says no readiness was required', (t) => {
+  const cwd = project(t);
+  const res = run(cwd, ['orchestrate', '--action', 'handoff', '--task-id', 't-solo', '--calling-skill', 'do-implement', '--note', 'n']);
+  assert.equal(res.status, 0, res.stderr);
+  assert.ok(res.stdout.includes('Handoff: standalone (no run exists for this task and no --task-class was given, so nothing was recorded and no readiness was required)'), res.stdout);
+  assert.equal(fs.existsSync(runFileOf(cwd, 't-solo')), false);
+});
+
+test('a run started in the main checkout is read and updated from a linked worktree', (t) => {
+  const cwd = project(t);
+  const wt = `${cwd}-wt`;
+  t.after(() => fs.rmSync(wt, { recursive: true, force: true }));
+  execFileSync('git', ['-C', cwd, 'worktree', 'add', '-q', '-b', 'feat/other', wt], { stdio: 'ignore' });
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 't-cross', '--task-class', 'feature']);
+  const status = json(wt, ['orchestrate', '--action', 'status', '--task-id', 't-cross']);
+  assert.equal(status.status, 0, status.stderr);
+  assert.equal(status.data.taskId, 't-cross');
+  const annotated = json(wt, ['orchestrate', '--action', 'annotate', '--task-id', 't-cross', '--node', 'discovery', '--note', 'from the worktree']);
+  assert.equal(annotated.status, 0, annotated.stderr);
+  const journal = JSON.parse(fs.readFileSync(runFileOf(cwd, 't-cross'), 'utf8'));
+  assert.equal(journal.history.at(-1).note, 'from the worktree', 'the main checkout\'s run was updated');
+  assert.equal(fs.existsSync(runFileOf(wt, 't-cross')), false, 'no copy was created in the worktree');
+});
+
+test('a run started before readiness was recorded warns and proceeds at handoff; a run with the marker is refused', (t) => {
+  const cwd = project(t);
+  for (const taskId of ['t-old', 't-new']) {
+    json(cwd, ['orchestrate', '--action', 'start', '--task-id', taskId, '--task-class', 'trivial-edit']);
+  }
+  // 1.21.0 never wrote the marker: removing it stands for a run that runtime started.
+  const old = JSON.parse(fs.readFileSync(runFileOf(cwd, 't-old'), 'utf8'));
+  delete old.readinessFloor;
+  fs.writeFileSync(runFileOf(cwd, 't-old'), JSON.stringify(old, null, 2));
+
+  const graced = run(cwd, ['orchestrate', '--action', 'handoff', '--task-id', 't-old', '--calling-skill', 'do-implement', '--note', 'n']);
+  assert.equal(graced.status, 0, graced.stderr);
+  assert.match(graced.stdout, /^Handoff: completed$/m);
+  assert.match(graced.stderr, /doflow gate readiness-before-implementation: warning: task 't-old' has no READY readiness record for the 'trivial-edit' template \(no record\), but its run started at .*, before DoFlow 1\.22\.0 recorded readiness, so this handoff proceeds\. From DoFlow 1\.23\.0 it is refused\./);
+  assert.match(graced.stderr, /Edit-time check: /);
+
+  const graceJson = JSON.parse(fs.readFileSync(runFileOf(cwd, 't-old'), 'utf8'));
+  assert.equal(graceJson.program.find((n) => n.id === 'implementation').status, 'completed');
+
+  const before = fs.readFileSync(runFileOf(cwd, 't-new'));
+  const held = run(cwd, ['orchestrate', '--action', 'handoff', '--task-id', 't-new', '--calling-skill', 'do-implement', '--note', 'n']);
+  assert.equal(held.status, 1);
+  assert.match(held.stderr, /task 't-new' has no readiness record for the 'trivial-edit' template/);
+  assert.deepEqual(fs.readFileSync(runFileOf(cwd, 't-new')), before);
+});
+
+test('the JSON result of a handoff in grace carries readinessGrace', (t) => {
+  const cwd = project(t);
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 't-old-json', '--task-class', 'trivial-edit']);
+  const old = JSON.parse(fs.readFileSync(runFileOf(cwd, 't-old-json'), 'utf8'));
+  delete old.readinessFloor;
+  fs.writeFileSync(runFileOf(cwd, 't-old-json'), JSON.stringify(old, null, 2));
+  const res = json(cwd, ['orchestrate', '--action', 'handoff', '--task-id', 't-old-json', '--calling-skill', 'do-implement', '--note', 'n']);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.data.disposition, 'completed');
+  assert.equal(res.data.readinessGrace.code, 'missing');
+  assert.match(res.data.readinessGrace.message, /From DoFlow 1\.23\.0 it is refused/);
+  assert.equal('readinessWarning' in res.data, false);
 });
 
 // ──────────────────────────────────────────────────────────────── M3: --global scoping is honored
