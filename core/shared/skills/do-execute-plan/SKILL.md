@@ -101,11 +101,12 @@ Branch on the returned `outcome` field, not the exit code.
    - Only `bug`, `feature`, `refactor`, `trivial-edit` and `dependency-change` have templates. On
      any other class the verb exits 1 and lists the valid keys; that is the correct answer, not a
      gap to route around.
-   - All four states are reachable, so a verdict is about this task rather than about the runtime:
-     `NEEDS_EVIDENCE` until step 7's batch is recorded, `READY` once the recorded evidence and the
-     inputs you state cover the contract, `BLOCKED` on a claim whose evidence contradicts itself,
-     and `NEEDS_USER_DECISION` when you pass `--user-decision-pending`. A first call on a task with
-     nothing recorded grades an empty ledger — that is a checklist, not a defect.
+   - All four states are reachable, so a verdict is about this task rather than about the runtime.
+     Record the `affected_components` evidence first, and dispatch no task until `readiness` has
+     recorded `READY` for the run's feature slug: the handoff reads that record and refuses
+     without it. `BLOCKED` is a claim whose evidence contradicts itself, and `NEEDS_USER_DECISION`
+     is what `--user-decision-pending` returns. A first call on a task with nothing recorded grades
+     an empty ledger — that is a checklist, not a defect.
    - `readiness` also accepts `--verification-plan`, `--scope` and `--invariants` — the verb's own
      arguments, unrelated to this skill's `--scope`. Those are inputs
      you **state**, not evidence the gate measured: the report lists them back as `callerAsserted`

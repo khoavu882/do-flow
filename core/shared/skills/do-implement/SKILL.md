@@ -169,6 +169,9 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      "$DOFLOW" orchestrate --action handoff --task-id "<task id>" --calling-skill do-implement --note "<one line: what was implemented>" --result <passed|failed> --json
      ```
      Name the `DEC-###` ids step 5 registered in `--note`.
+     A handoff on a run whose implementation stage has a readiness template is refused unless
+     step 2's recorded readiness is `READY`: a standalone `NEEDS_EVIDENCE` does not pass it, and a
+     change with no plan states its paths in step 2's `readiness --scope` so `verify` bounds it.
      Use step 6's verification outcome for `--result`: `passed` when every check in the named set
      passed, `failed` when one did not — never omit it to imply a pass step 6 did not establish.
      The runtime selects this class's implementation stage — the only mutating stage a caller may
