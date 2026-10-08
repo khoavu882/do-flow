@@ -715,9 +715,57 @@ function pruneBackups(backupRoot, keepN, { dryRun = false } = {}) {
   return pruned;
 }
 
+/**
+ * Keep the newest `keep` backups of the canonical root and remove the rest; `keep` 0 removes
+ * nothing. Every non-dot directory counts, 1.19 and manifest-less ones included, ordered by
+ * sortKey. Ids in `protect` (the run's own backup) are always kept. A dry run removes and sweeps
+ * nothing; `reserve` makes room for a backup the real run would add, and `kept` then counts it.
+ * Never reaches the legacy `.claude/backups` root: those may be a user's only restore points.
+ * @returns {{keep:number, kept:number, removed:string[], wouldRemove:string[],
+ *            failed:Array<{id:string, error:string}>, sweptTemps:number}}
+ */
+function applyRetention({ backupRoot, keep, protect = [], reserve = 0, dryRun = false, now = Date.now(), fsImpl = fs }) {
+  assertMutableBackupRoot(backupRoot, 'prune backups');
+  if (!Number.isInteger(keep) || keep < 0) throw new Error(`Backup retention must be a non-negative whole number, got ${keep}`);
+  const result = { keep, kept: 0, removed: [], wouldRemove: [], failed: [], sweptTemps: 0 };
+
+  const candidates = fsImpl.existsSync(backupRoot)
+    ? fsImpl.readdirSync(backupRoot, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+      .map((e) => sortKey(path.join(backupRoot, e.name), { fsImpl }))
+      .sort(compareSortKeys)
+    : [];
+  const protectedIds = new Set(protect);
+  const protectedCandidates = candidates.filter((c) => protectedIds.has(c.id));
+  const ordered = [...protectedCandidates, ...candidates.filter((c) => !protectedIds.has(c.id))];
+  const keepCount = keep === 0 ? ordered.length : Math.max(keep - reserve, protectedCandidates.length);
+  const removal = ordered.slice(keepCount).map((c) => c.id);
+
+  if (dryRun || keep === 0) {
+    if (dryRun) result.wouldRemove = removal;
+    result.kept = ordered.length - removal.length + (dryRun ? reserve : 0);
+    return result;
+  }
+
+  result.sweptTemps = sweepStaleTemps(backupRoot, { now, fsImpl });
+  for (const id of removal) {
+    const dir = path.join(backupRoot, id);
+    // Another run's retention pass may have removed it already.
+    if (!fsImpl.existsSync(dir)) continue;
+    try {
+      fsImpl.rmSync(dir, { recursive: true, force: true });
+      result.removed.push(id);
+    } catch (err) {
+      result.failed.push({ id, error: err.message });
+    }
+  }
+  result.kept = ordered.filter((c) => fsImpl.existsSync(path.join(backupRoot, c.id))).length;
+  return result;
+}
+
 module.exports = {
   backupId, createBackup, restoreBackup, listBackups, pruneBackups, assertSafeBackupId,
   backupReadRoots, BACKUP_ORIGIN_CURRENT, BACKUP_ORIGIN_LEGACY,
   BackupError, DEFAULT_BACKUP_RETENTION, createFileBackup, sweepStaleTemps, classifyBackupDir,
-  sortKey, backupSize, formatBytes, planRestore, executeRestore,
+  sortKey, backupSize, formatBytes, planRestore, executeRestore, applyRetention,
 };
