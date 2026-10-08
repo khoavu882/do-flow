@@ -362,3 +362,30 @@ HOOK_TEST('a file reached through a symlinked project path is gated like its rea
   expectHook({ cwd: main, caseRoot: root, event: editEvent(path.join(link, 'src', 'new', 'b.js')), code: 2, stderr: missing });
   expectHook({ cwd: main, caseRoot: root, event: editEvent(path.join(link, 'agent-docs', 'doflow', '900-demo', 'plan.md')), code: 0, stderr: '' });
 });
+
+HOOK_TEST('from a linked worktree whose feature folder lives only in the main checkout, the refused task reaches READY and the edit is allowed', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo();
+  writeFeature(main, '930-wt');
+  git(main, 'worktree', 'add', '-q', '-b', 'feat/930-wt', path.join(root, 'wt'));
+  const wt = fs.realpathSync(path.join(root, 'wt'));
+  const edit = { cwd: wt, caseRoot: root, event: editEvent(path.join(wt, 'src', 'a.js')) };
+  const missing = refusalText('missing', { taskId: '930-wt', template: 'feature' });
+  expectHook({ ...edit, code: 2, stderr: `${missing}\n` });
+
+  // Every step is run where the refusal was printed, the worktree, as the refusal's next command says.
+  const evidence = spawnSync(process.execPath, [DOFLOW, 'evidence', '--task-id', '930-wt', '--slug=930-wt', '--action', 'add', '--kind', 'structural',
+    '--provenance', 'extracted', '--provider', 'graph', '--capability', 'code.structural', '--locator', 'agent-docs/doflow/930-wt/plan.md',
+    '--content', 'plan lists src/a.js', '--establishes', 'affected_components', '--json'], { cwd: wt, env: spawnEnv(), encoding: 'utf8' });
+  assert.strictEqual(evidence.status, 0, `${evidence.stdout}\n${evidence.stderr}`);
+  assert.ok(evidence.stderr.includes(`feature '930-wt' lives in the main checkout ${main}`), evidence.stderr);
+  assert.ok(!evidence.stderr.includes('names no feature'), evidence.stderr);
+
+  const next = missing.match(/Next: (doflow-run readiness [^,]+),/)[1].replace(/^doflow-run /, '').split(' ');
+  const ready = spawnSync(process.execPath, [DOFLOW, ...next, '--scope', 'src/a.js', '--verification-plan', 'node -e 0'], { cwd: wt, env: spawnEnv(), encoding: 'utf8' });
+  assert.strictEqual(ready.status, 0, `${ready.stdout}\n${ready.stderr}`);
+  assert.ok(ready.stdout.includes('✓ READY'), ready.stdout);
+  assert.ok(fs.existsSync(recordPath(main, '930-wt.json')), 'the record sits beside the feature folder, in the main checkout');
+  assert.ok(!fs.existsSync(path.join(wt, '.doflow')), 'nothing was written in the worktree');
+
+  expectHook({ ...edit, code: 0, stderr: '' });
+});
