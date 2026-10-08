@@ -203,6 +203,26 @@ test('--target and --prune reject a following flag as their value instead of sil
   assert.match(r2.stderr, /--prune requires a number/);
 });
 
+test('rollback with no --target names and records only the harnesses the backup restored', () => {
+  // With no --target a per-file backup restores every harness it holds, so the banner and the
+  // install manifest must name those harnesses, not the default target.
+  const home = scratchHome();
+  let r = run(['install', '-g', '--force', '--mcp', 'none', '--target', 'codex'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  fs.writeFileSync(path.join(home, '.agents', 'skills', 'do-brainstorm', 'SKILL.md'), 'edited codex\n');
+  r = run(['update', '-g', '--force', '--target', 'codex'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const bid = /Backup created: (update_[\d_-]+)/.exec(r.stderr)?.[1];
+  assert.ok(bid, r.stderr);
+
+  r = run(['rollback', bid, '-g', '--force'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stderr, /targets {7}: codex\n/);
+  assert.doesNotMatch(r.stderr, /claude ->/);
+  const recorded = JSON.parse(fs.readFileSync(path.join(home, '.doflow', '.install-manifest.json'), 'utf8'));
+  assert.deepStrictEqual(Object.keys(recorded.tools), ['codex'], 'a rollback that restored only Codex files must not record Claude as installed');
+});
+
 test("rollback --target restores only that harness's files from a backup that holds several harnesses", () => {
   // A backup holds the files one update changed for every harness it touched. Restoring it with
   // --target claude must put back the Claude file and leave every Codex file as it is now.

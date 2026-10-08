@@ -618,8 +618,8 @@ function listBackups(backupRoot) {
 
 /**
  * Keep the newest `keep` backups of the canonical root and remove the rest; `keep` 0 removes
- * nothing. Every non-dot directory counts, 1.19 and manifest-less ones included, ordered by
- * sortKey. Ids in `protect` (the run's own backup) are always kept. A dry run removes and sweeps
+ * nothing. Every DoFlow backup counts, 1.19 and manifest-less ones included, ordered by
+ * sortKey; other directories are left alone. Ids in `protect` (the run's own backup) are always kept. A dry run removes and sweeps
  * nothing; `reserve` makes room for a backup the real run would add, and `kept` then counts it.
  * Never reaches the legacy `.claude/backups` root: those may be a user's only restore points.
  * @returns {{keep:number, kept:number, removed:string[], wouldRemove:string[],
@@ -630,12 +630,19 @@ function applyRetention({ backupRoot, keep, protect = [], reserve = 0, dryRun = 
   if (!Number.isInteger(keep) || keep < 0) throw new Error(`Backup retention must be a non-negative whole number, got ${keep}`);
   const result = { keep, kept: 0, removed: [], wouldRemove: [], failed: [], sweptTemps: 0 };
 
-  const candidates = fsImpl.existsSync(backupRoot)
-    ? fsImpl.readdirSync(backupRoot, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
-      .map((e) => sortKey(path.join(backupRoot, e.name), { fsImpl }))
-      .sort(compareSortKeys)
-    : [];
+  // Only DoFlow backups count: a directory with a readable manifest, or one named like a backup id
+  // (a 1.19 or interrupted backup can lack a manifest). Anything else in the root is not ours to
+  // delete, and must not take a restore point's place.
+  const candidates = [];
+  const entries = fsImpl.existsSync(backupRoot) ? fsImpl.readdirSync(backupRoot, { withFileTypes: true }) : [];
+  for (const e of entries) {
+    if (!e.isDirectory() || e.name.startsWith('.')) continue;
+    const dir = path.join(backupRoot, e.name);
+    const { manifest } = classifyBackupDir(dir, { fsImpl });
+    if (!manifest && !ID_TIME.test(e.name)) continue;
+    candidates.push(sortKey(dir, { fsImpl, manifest }));
+  }
+  candidates.sort(compareSortKeys);
   const protectedIds = new Set(protect);
   const protectedCandidates = candidates.filter((c) => protectedIds.has(c.id));
   const ordered = [...protectedCandidates, ...candidates.filter((c) => !protectedIds.has(c.id))];

@@ -101,18 +101,38 @@ test('manifest-less and 1.19 backups are counted and removed in order', () => {
   fs.writeFileSync(path.join(src, 'CLAUDE.md'), 'x');
   plant(root, 'update_2026-05-01_00-00-00', '2026-05-01T00:00:00.000Z');
   plantFullBackup(root, 'install_2026-04-01_00-00-00', { tool: 'claude', srcDir: src, manifest: { timestamp: '2026-04-01T00:00:00.000Z' } });
-  // No manifest: ordered by the time in its id (local time), then by mtime.
+  // No manifest: ordered by the time in its id (local time). A manifest without a time and a
+  // name without one: ordered by mtime.
   fs.mkdirSync(path.join(root, 'install_2026-03-01_00-00-00', 'claude'), { recursive: true });
-  const undated = path.join(root, 'leftover');
+  const undated = path.join(root, 'handmade');
   fs.mkdirSync(undated);
+  fs.writeFileSync(path.join(undated, '.manifest.json'), JSON.stringify({ operation: 'install', type: 'partial' }));
   fs.utimesSync(undated, new Date('2026-02-01T00:00:00Z'), new Date('2026-02-01T00:00:00Z'));
 
   const dry = applyRetention({ backupRoot: root, keep: 1, dryRun: true });
-  assert.deepStrictEqual(dry.wouldRemove, ['install_2026-04-01_00-00-00', 'install_2026-03-01_00-00-00', 'leftover']);
+  assert.deepStrictEqual(dry.wouldRemove, ['install_2026-04-01_00-00-00', 'install_2026-03-01_00-00-00', 'handmade']);
   const result = applyRetention({ backupRoot: root, keep: 1 });
   assert.deepStrictEqual(result.removed, dry.wouldRemove);
   assert.deepStrictEqual(remaining(root), ['update_2026-05-01_00-00-00']);
   assert.strictEqual(result.kept, 1);
+});
+
+test('a directory that is not a DoFlow backup is neither counted nor removed, and displaces no restore point', () => {
+  const root = backupRootOf(scratchDir());
+  const ids = plantFive(root);
+  const notes = path.join(root, 'my-notes');
+  fs.mkdirSync(notes);
+  fs.writeFileSync(path.join(notes, 'todo.txt'), 'mine');
+  fs.mkdirSync(path.join(root, 'broken-manifest'));
+  fs.writeFileSync(path.join(root, 'broken-manifest', '.manifest.json'), '{not json');
+
+  const dry = applyRetention({ backupRoot: root, keep: 3, dryRun: true });
+  assert.deepStrictEqual(dry.wouldRemove, [ids[1], ids[0]]);
+  const result = applyRetention({ backupRoot: root, keep: 3 });
+  assert.deepStrictEqual(result.removed, [ids[1], ids[0]]);
+  assert.strictEqual(result.kept, 3);
+  assert.deepStrictEqual(remaining(root), ['broken-manifest', ids[2], ids[3], ids[4], 'my-notes'].sort());
+  assert.strictEqual(fs.readFileSync(path.join(notes, 'todo.txt'), 'utf8'), 'mine');
 });
 
 test('temp directories and directory symlinks are neither counted nor removed', { skip: IS_WIN && 'symlinks need privileges on Windows' }, () => {

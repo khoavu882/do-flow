@@ -34,7 +34,7 @@ function cmdRollback(o) {
   const lifecyclePaths = installPaths(scope);
   const backupRoot = lifecyclePaths.backupRoot;
   const commit = sourceCommit(SCRIPT_DIR);
-  printContext(resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: commit, global: o.global, projectRoot: '.' }));
+  const explicitTargets = o.targets.length > 0;
 
   let bid = o.positional[0] || '';
   if (!bid) {
@@ -42,6 +42,20 @@ function cmdRollback(o) {
     bid = promptLine('Enter backup ID to restore (or press Enter to cancel): ');
     if (!bid) { console.error('[INFO]  Aborted.'); process.exit(1); }
   }
+
+  // Worked out before anything is written. Reads only, so a bad id fails here, before the prompt.
+  let plan;
+  try {
+    plan = planRestore({ bid, backupRoot, scope: scopeName, scopeRoot: lifecyclePaths.scopeRoot, targets, explicitTargets, dirs });
+  } catch (error) {
+    fail(error);
+  }
+  // A per-file backup restores the harnesses it holds (only those in --target when given), so the
+  // banner and the install manifest name those, not the default target.
+  const restoredTools = plan.format === 2
+    ? [...new Set(plan.restore.flatMap((item) => item.harnesses))].filter((h) => !explicitTargets || targets.includes(h)).sort()
+    : targets;
+  printContext(resolveContext({ repoRoot: REPO_ROOT, targets: restoredTools, dirs, sourceCommit: commit, global: o.global, projectRoot: '.' }));
 
   // PARITY-with-UX: install/update skip the confirm prompt entirely under --dry-run (nothing
   // destructive happens, so there's nothing to confirm) — rollback used to prompt regardless of
@@ -56,13 +70,6 @@ function cmdRollback(o) {
     process.exit(1);
   }
 
-  let plan;
-  try {
-    plan = planRestore({ bid, backupRoot, scope: scopeName, scopeRoot: lifecyclePaths.scopeRoot, targets,
-      explicitTargets: o.targets.length > 0, dirs });
-  } catch (error) {
-    fail(error);
-  }
   if (plan.format === 1 && plan.type === 'full') {
     for (const { tool, dstDir } of plan.v1.tools) {
       console.error(`[INFO]  ${bid} is a whole-home archive from an earlier DoFlow; restoring ${tool}.tar.gz into ${dstDir}`);
@@ -79,7 +86,7 @@ function cmdRollback(o) {
   }
 
   const writeRollbackManifest = () => writeManifest({ scopeRoot: lifecyclePaths.scopeRoot, scriptVersion: pkg.version, operation: 'rollback',
-    repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: targets, date: new Date(), dryRun: o.dryRun });
+    repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: restoredTools, date: new Date(), dryRun: o.dryRun });
   if (result.legacy) {
     writeRollbackManifest();
     console.log(o.dryRun ? '[DRY] Dry run complete' : `[OK] Rollback to '${bid}' complete!`);
