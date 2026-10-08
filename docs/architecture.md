@@ -50,7 +50,7 @@ are reported rather than imitated.
 | `src/state/` | Harness-neutral ledger, recovery records, and legacy-manifest migration |
 | `src/registry/` | Loads and validates `core/registry/*.json` into the in-memory registry object every adapter and lifecycle call consumes — the same data `test/guards/registry.test.js` checks implementation claims against |
 | `src/helper/` | Cross-layer utilities with no harness-, install-, or runtime-specific domain: git commit lookup (`git.js`), managed-section merging (`marker-merge.js`), interactive prompts (`prompt.js`), `settings.json` merging (`settings-merge.js`, `settings-scope.js`), generic TOML parsing (`toml.js`), and the single computation of the package root (`repo-root.js`), which every layer shares and no layer should re-derive from its own depth |
-| `src/install/` | Installer-domain operations: backup/restore/prune (`backup.js`), scope and target resolution (`context.js`, `targets.js`), manifest read/write (`manifest.js`), external-tool detection and install (`tool-lifecycle.js`), and MCP server selection (`mcp.js`) |
+| `src/install/` | Installer-domain operations: backup set (`backup-set.js`), backup, restore, retention and listing (`backup.js`), scope and target resolution (`context.js`, `targets.js`), manifest read/write (`manifest.js`), external-tool detection and install (`tool-lifecycle.js`), and MCP server selection (`mcp.js`) |
 | `test/` | Installer, mapping, and runtime behavior tests organized into module directories mirroring `src/` (`adapters/`, `lifecycle/`, `runtime/`, `registry/`, `state/`, `helper/`, `install/`, `e2e/`), plus `test/guards/` for structural invariants about this repo's content |
 | `bench/` | Skill-evaluation corpus, TRACKED so the baseline is reproducible from a clean clone; only `bench/runs/` and `bench/reports/` are ignored. Outside the default test command, whose dispatch step makes paid model calls |
 | `docs/` | User-facing and contributor documentation site |
@@ -360,6 +360,7 @@ install manifest use sibling paths under `.doflow/` (`backups/` and `.install-ma
 same neutral state directory also holds what the runtime writes: per-task evidence and claims, and
 the date-partitioned run ledger the dispatcher appends to. Lifecycle commands no longer anchor
 metadata to `.claude`; the explicit neutral-state importer remains separate for historical state.
+Each backup is a per-file copy of the files a run changes, with a format-2 `.manifest.json` recording which of them existed.
 
 Migration order is deliberate: declare registry ownership, introduce adapters and neutral state,
 route the CLI through lifecycle planning, then retire a compatibility path only after idempotency,
