@@ -217,8 +217,14 @@ doflow install -g --statusline --target claude      # doflow-statusline.sh + man
 # Remove accepts the same flags so it can identify exactly what to strip.
 ```
 
-Every normal install creates a backup. `--no-backup` requires `--force`; use it only when the
-configuration is disposable.
+An install or update that changes files first copies only those files into
+`.doflow/backups/<id>/`, and records the files it is about to create so a rollback can tell them
+apart. A file that holds only MCP entries is never copied. After each install or update the newest 3
+backups of that scope are kept: `--prune N` keeps N, and `--prune 0` keeps all. An update with
+nothing to change prunes nothing, so the first run after upgrading from 1.19 that prunes is an
+install, or an update that changes files; it removes the older DoFlow-written backups beyond the
+newest 3 (`--dry-run` shows how many first). The legacy `.claude/backups` folder is listed but never pruned. `--no-backup`
+requires `--force`; use it only when the configuration is disposable.
 
 ### doflow.lock and reconciliation
 
@@ -357,6 +363,12 @@ scope. Backups live under `.doflow/backups/`, and the lifecycle manifest is
 `.doflow/.install-manifest.json`. Lifecycle commands use these scope-neutral paths exclusively;
 the explicit neutral-state importer is the only code that still reads historical `.claude` metadata.
 
-If a configuration update is wrong, restore the named backup with `doflow rollback`. MCP server
-registration is a surgical merge outside the installed directory and is intentionally not reverted
-by rollback.
+If a configuration update is wrong, restore the named backup with `doflow rollback`. Rollback
+restores the files the backup holds, leaves in place the files the run created and lists them, and
+exits 1 if a file cannot be restored. With no `--target` it restores the whole backup; `--target`
+restores only the files of the named harnesses. Before restoring, it snapshots only the files the
+restore will overwrite. Backups made by 1.19 restore as before. The reverse does not hold: DoFlow
+1.19's `rollback` of a newer backup takes a whole-home snapshot, restores nothing, and still reports
+success, so after downgrading do not rely on it for backups made since. `doflow list-backups` shows each
+backup's origin and size. MCP server registration is a surgical merge outside the installed
+directory and is intentionally not reverted by rollback.

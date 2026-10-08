@@ -220,7 +220,8 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
     if (hooksPlan && !hooksPlan.ok) return { changes: [], conflicts: hooksPlan.errors || [] };
     if (hooksPlan?.status !== 'change') return { changes: [], conflicts: [] };
     return { changes: [{ assetId: hooksAssetId(assets), target: hooksPlan.settingsFile, operation: removing ? 'remove' : (hooksPlan.changes[0]?.type ?? 'update'),
-      ownershipIdentity: 'gemini:hooks', nativeComponent: 'hooks', nativePlan: hooksPlan, projection: { renderer: 'gemini-hooks' } }], conflicts: [] };
+      ownershipIdentity: 'gemini:hooks', nativeComponent: 'hooks', nativePlan: hooksPlan, projection: { renderer: 'gemini-hooks' },
+      companionTargets: removing ? [] : (hooksPlan.companionTargets ?? []) }], conflicts: [] };
   }
 
   function plan({ scope, scopeRoot, assets = [], mcp = [], discovery, context = {}, ledger, fsImpl = fs }) {

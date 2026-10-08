@@ -10,6 +10,7 @@ const path = require('node:path');
 const { REPO_ROOT } = require('../helper/repo-root');
 const { doflowPaths } = require('../install/paths');
 const { readInstallManifest } = require('../install/manifest');
+const { DEFAULT_BACKUP_RETENTION, formatBytes } = require('../install/backup');
 const { stateRoot, readLedger } = require('../state');
 const { readLock } = require('../state/lockfile');
 const { createAdapterRegistry } = require('../adapters');
@@ -125,12 +126,31 @@ function plannedMcpSelections(view) {
     .map((target) => [target.harness, target.mcpSelected]));
 }
 
-function printBackupTable(rows, backupRoot) {
-  if (rows.length === 0) { console.log(`[INFO] No backups found in ${backupRoot}`); return; }
-  console.log(`\n${'BACKUP ID'.padEnd(42)} ${'OPERATION'.padEnd(14)} ${'TYPE'.padEnd(9)} TIMESTAMP`);
-  console.log('─'.repeat(85));
-  for (const r of rows) console.log(`${r.id.padEnd(42)} ${r.operation.padEnd(14)} ${r.type.padEnd(9)} ${r.timestamp}`);
-  console.log(`\n${rows.length} backup(s) in ${backupRoot}\n`);
+/** Total size of some rows, noting when any of them could not be measured. */
+function rowsSize(rows) {
+  const total = formatBytes(rows.reduce((sum, r) => sum + (r.bytes ?? 0), 0));
+  return rows.some((r) => r.bytes === null) ? `${total} (some sizes unknown)` : total;
+}
+
+function printBackupTable(rows, rootLabel) {
+  if (rows.length === 0) { console.log(`[INFO] No backups found in ${rootLabel}`); return; }
+  const header = `${'BACKUP ID'.padEnd(42)} ${'OPERATION'.padEnd(14)} ${'TYPE'.padEnd(9)} ${'ORIGIN'.padEnd(9)} ${'SIZE'.padEnd(11)} TIMESTAMP`;
+  console.log(`\n${header}`);
+  console.log('─'.repeat(header.length));
+  for (const r of rows) {
+    const when = r.complete === false ? '- (incomplete: no manifest)' : r.timestamp;
+    console.log(`${r.id.padEnd(42)} ${r.operation.padEnd(14)} ${r.type.padEnd(9)} ${r.origin.padEnd(9)} ${formatBytes(r.bytes).padEnd(11)} ${when}`);
+  }
+  console.log(`\n${rows.length} backup(s) in ${rootLabel}`);
+  const current = rows.filter((r) => r.origin === 'current');
+  const legacy = rows.filter((r) => r.origin === 'legacy');
+  if (current.length) {
+    console.log(`current: ${current.length} backup(s), ${rowsSize(current)}; install and update keep the newest ${DEFAULT_BACKUP_RETENTION} (--prune N)`);
+  }
+  if (legacy.length) {
+    console.log(`legacy: ${legacy.length} backup(s), ${rowsSize(legacy)} in ${[...new Set(legacy.map((r) => r.backupRoot))].join(', ')}; read-only, never pruned`);
+  }
+  console.log('');
 }
 
 module.exports = {
