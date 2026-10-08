@@ -181,11 +181,15 @@ function dropEmptiedTables(lines, changes, headerRecords) {
   });
 }
 
+/** Replace a file through a sibling temporary file, keeping the existing file's permission bits so
+ * a config kept private stays so. A file this creates gets the process's default mode. */
 function atomicWrite(file, content, fsImpl = fs) {
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+  const mode = fsImpl.existsSync(file) ? fsImpl.statSync(file).mode & 0o7777 : null;
   const temporary = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`);
   try {
-    fsImpl.writeFileSync(temporary, content, { flag: 'wx' });
+    fsImpl.writeFileSync(temporary, content, { flag: 'wx', ...(mode === null ? {} : { mode }) });
+    if (mode !== null) fsImpl.chmodSync(temporary, mode);
     fsImpl.renameSync(temporary, file);
   } finally {
     if (fsImpl.existsSync(temporary)) fsImpl.unlinkSync(temporary);

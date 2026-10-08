@@ -88,6 +88,18 @@ test('merges into pre-existing hooks in .codex/hooks.json, preserving user custo
   assert.equal(written.hooks.SessionStart[1].hooks[0].command, 'bash "$(root)/hooks/session-start.sh"');
 });
 
+test('rewriting an existing hooks.json keeps its permission mode', { skip: IS_WIN && 'Windows has no POSIX mode bits' }, () => {
+  const root = scratch(); const sourceHooksDir = wrapper(root); const projectRoot = path.join(root, 'project');
+  const hooksFile = path.join(projectRoot, '.codex', 'hooks.json');
+  fs.mkdirSync(path.dirname(hooksFile), { recursive: true });
+  fs.writeFileSync(hooksFile, JSON.stringify({ hooks: {} }));
+  fs.chmodSync(hooksFile, 0o600);
+  const plan = planCodexHooks({ config: hookConfig(), sourceHooksDir, trusted: false,
+    destinationContext: { scope: 'project', projectRoot } });
+  assert.equal(deployCodexHooks(plan).applied, true);
+  assert.equal(fs.statSync(hooksFile).mode & 0o777, 0o600);
+});
+
 test('deploy copies every file in scriptsDir, not just ones named in a hooks.json command', () => {
   // Regression test: a sourced helper (lib.sh) or runtime-read config (*.conf) is never named
   // literally in a command string, so commandScriptNames() can't discover it — deployCodexHooks

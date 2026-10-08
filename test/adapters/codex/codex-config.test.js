@@ -141,6 +141,28 @@ test('an atomic-write failure leaves the original file unchanged and cleans its 
   assert.equal(fs.readdirSync(root).filter((name) => name.endsWith('.tmp')).length, 0);
 });
 
+// --- file mode ----------------------------------------------------------------
+const NO_MODE = process.platform === 'win32' && 'Windows has no POSIX mode bits';
+
+test('a private config.toml keeps mode 0600 when DoFlow adds an entry', { skip: NO_MODE }, () => {
+  const root = scratch(); const file = path.join(root, 'config.toml');
+  fs.writeFileSync(file, '[profile]\nmodel = "m"\n');
+  fs.chmodSync(file, 0o600);
+  const result = reconcileCodexConfig({ file, scope: 'project', desiredResources: [resource()] });
+  assert.equal(result.applied, true);
+  assert.match(fs.readFileSync(file, 'utf8'), /\[features\]\nhooks = true\n/);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+});
+
+test('a config.toml DoFlow creates gets the process default mode', { skip: NO_MODE }, () => {
+  const projectRoot = scratch();
+  reconcileCodexConfig({ scope: 'project', projectRoot, desiredResources: [resource()] });
+  const file = configPath({ scope: 'project', projectRoot });
+  const reference = path.join(path.dirname(file), 'reference');
+  fs.writeFileSync(reference, '');
+  assert.equal(fs.statSync(file).mode & 0o777, fs.statSync(reference).mode & 0o777);
+});
+
 // --- quoted TOML keys -------------------------------------------------------
 // Quoted keys are ordinary TOML. The scanner previously matched bare keys only and threw on the
 // whole file, so a single `[mcp_servers."my-server"]` made the entire config unreadable and
