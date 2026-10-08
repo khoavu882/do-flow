@@ -243,7 +243,8 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--batch', 'batchPath'],            // evidence --action add: a stage's batch file, or '-'
   ['--verification-plan', 'verificationPlan'], // readiness: how success will be established
   ['--mode', 'mode'],                  // readiness: execution mode, workflow (default) | standalone
-  ['--scope', 'scope'],                // readiness: the stated scope boundary
+  ['--scope', 'scope'],                // readiness: the stated scope boundary; verify: the declared
+                                       // change scope, <path>[,<path>...], unioned with the plan's bound
   ['--invariants', 'invariants'],      // readiness: the invariants a refactor must preserve
   ['--objective', 'objective'],        // context-pack
   ['--stage-id', 'stageId'],           // research-request: active feature stage
@@ -451,7 +452,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --state <COMPLETED|BLOCKED|
                ABANDONED|INCONCLUSIVE>,
       --readiness, --verification           outcome --action record
-      --risk, --plan-path                   verify
+      --risk, --plan-path, --scope          verify
       --path, --exclude (repeatable)        leak-scan
       --ids, --as, --evidence, --title,
       --release, --source, --channel        followup (add, list, take, settle, promote)

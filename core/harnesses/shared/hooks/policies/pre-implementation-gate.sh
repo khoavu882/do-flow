@@ -4,16 +4,25 @@
 # gate (the other half is the prompt-level do-prereqs.sh inside
 # /do-execute-plan — defense in depth).
 #
-# Denies a SOURCE-file edit when a feature has been STARTED (its feature_dir
-# exists) but requirement.md, design.md, or plan.md is still missing: "don't
-# write code before you've planned." It is deliberately SCOPED so it never
-# fires outside the doflow chain:
-#   - branch is a fix, bugfix, refactor, chore, release or hotfix branch, or
-#     trunk (classes that cannot be a feature) -> allow
-#   - no active feature dir            -> allow
+# Denies a SOURCE-file edit in two cases:
+#   1. a feature has been STARTED (its feature_dir exists, in this checkout or,
+#      from a linked worktree, in the main checkout) but requirement.md,
+#      design.md, or plan.md is still missing: "don't write code before you've
+#      planned";
+#   2. the task is held to a readiness record and has no READY one for the
+#      template of its workflow's first source-mutating stage. The task is held
+#      when its run (in this checkout or exactly one other) is open with that
+#      stage pending, or, with no run, on a feature branch whose folder has a
+#      decision register and all three artifacts. A run started before DoFlow
+#      recorded readiness (no `readinessFloor` key) counts as no run.
+# It is deliberately SCOPED so it never fires outside the doflow chain:
+#   - trunk                            -> allow
+#   - branch is a fix, bugfix, refactor, chore, release or hotfix branch
+#     (classes that cannot be a feature) -> no artifact check, run check only
 #   - edit target is under agent-docs/ -> allow (editing the artifacts themselves)
 #   - edit target outside the repo     -> allow
-# Self-contained + fail-open (<50ms budget): any uncertainty -> allow (exit 0).
+# It reads files with jq and lists checkouts with one git call; it never runs
+# the DoFlow runtime. Self-contained + fail-open: any uncertainty -> allow (exit 0).
 #
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR (repo root, if the front door sets it),
@@ -62,12 +71,14 @@ INPUT=$(cat)
 # knowledge belongs in those adapters, and each one that starts sending the
 # envelope retires its share of the union.
 ENVELOPE_ROOT=""
+ENVELOPE_TASK=""
 ENVELOPE_OP=$(printf '%s' "$INPUT" | jq -r '.doflow_event.operation // empty' 2>/dev/null)
 if [ -n "$ENVELOPE_OP" ]; then
   [ "$ENVELOPE_OP" = "edit" ] || exit 0          # only edits are gated
   FILES=$(printf '%s' "$INPUT" | jq -r '.doflow_event.paths[]? // empty' 2>/dev/null | sed '/^$/d' | sort -u)
   [ -n "$FILES" ] || exit 0
   ENVELOPE_ROOT=$(printf '%s' "$INPUT" | jq -r '.doflow_event.projectRoot // empty' 2>/dev/null)
+  ENVELOPE_TASK=$(printf '%s' "$INPUT" | jq -r '.doflow_event.taskId // empty' 2>/dev/null)
 else
 
 # ── Tool name (union of every known field name across harnesses; LEGACY decoder) ──
@@ -177,64 +188,319 @@ fi
 # classifies fix/bugfix/release/hotfix/trunk the same way (refactor/ and chore/ are its `other`); the
 # chain test fails if the two disagree.
 branch=$(git -C "${repo_root:-$ROOT}" branch --show-current 2>/dev/null || true)
+exempt=false
 case "$branch" in
   ""|master|main|develop|trunk|HEAD) exit 0 ;;
-  fix/*|bugfix/*|refactor/*|chore/*|release/*|hotfix/*) exit 0 ;;
+  fix/*|bugfix/*|refactor/*|chore/*|release/*|hotfix/*) exempt=true ;;
 esac
+
+# Layout is decided ONCE from intention/requirement.md's presence, then every
+# path below follows from it — the same single-probe rule do-paths.sh applies,
+# so this probe can never report a self-contradictory mix of layouts. Without
+# the structured arm a fully-planned feature (artifacts under intention/, design/,
+# plan/) read as unplanned here and blocked every source edit.
+probe_artifacts() {
+  local dir="$1/$feature_dir"
+  if [ -f "$dir/intention/requirement.md" ]; then
+    has_requirement=true
+    if [ -f "$dir/design/design.md" ]; then has_design=true; else has_design=false; fi
+    if [ -f "$dir/plan.md" ]; then has_plan=true; else has_plan=false; fi
+  elif [ -f "$dir/requirement.md" ]; then
+    has_requirement=true
+    if [ -f "$dir/design.md" ]; then has_design=true; else has_design=false; fi
+    if [ -f "$dir/plan.md" ]; then has_plan=true; else has_plan=false; fi
+  else
+    has_requirement=false; has_design=false; has_plan=false
+  fi
+}
 
 # Fallback: no resolver installed for this harness (or it produced nothing
 # usable) -> compute state directly from the branch-coupled feature
 # convention (feat/<slug> -> agent-docs/doflow/<slug>/), the same self
 # contained approach antigravity's own copy of this gate already used.
+# The task's slug is the resolver's, else the branch without its first
+# prefix with any further / flattened to -, as the resolver derives it.
 if [ -z "$feature_dir" ]; then
   repo_root="$ROOT"
   slug=${branch#*/}
   feature_dir="agent-docs/doflow/$slug"
-  if [ -d "$repo_root/$feature_dir" ]; then
-    # Layout is decided ONCE from intention/requirement.md's presence, then every
-    # path below follows from it — the same single-probe rule do-paths.sh applies,
-    # so this fallback can never report a self-contradictory mix of layouts. Without
-    # the structured arm a fully-planned feature (artifacts under intention/, design/,
-    # plan/) read as unplanned here and blocked every source edit.
-    if [ -f "$repo_root/$feature_dir/intention/requirement.md" ]; then
-      has_requirement=true
-      if [ -f "$repo_root/$feature_dir/design/design.md" ]; then has_design=true; else has_design=false; fi
-      if [ -f "$repo_root/$feature_dir/plan.md" ]; then has_plan=true; else has_plan=false; fi
-    elif [ -f "$repo_root/$feature_dir/requirement.md" ]; then
-      has_requirement=true
-      if [ -f "$repo_root/$feature_dir/design.md" ]; then has_design=true; else has_design=false; fi
-      if [ -f "$repo_root/$feature_dir/plan.md" ]; then has_plan=true; else has_plan=false; fi
-    else
-      has_requirement=false; has_design=false; has_plan=false
+  slug=${slug//\//-}
+  [ -d "$repo_root/$feature_dir" ] && probe_artifacts "$repo_root"
+else
+  slug=${feature_dir##*/}
+fi
+[ -n "$feature_dir" ] && [ -n "$repo_root" ] || exit 0
+
+# A task id stated by the envelope names the run and the record; one that is
+# not a plain name cannot name either, so the slug stands in for it.
+task_id="$ENVELOPE_TASK"
+case "$task_id" in ""|.*|*..*|*[!A-Za-z0-9._-]*) task_id="$slug" ;; esac
+[ -n "$task_id" ] || exit 0
+
+# The real path of $1: its longest existing ancestor resolved with cd -P, the
+# rest appended, so a path reached through a symlink (macOS /tmp and /var, a
+# linked project folder) compares equal to the real repository root.
+real_path() {
+  local p="$1" rest="" dir
+  while [ ! -e "$p" ] && [ "$p" != "/" ] && [ -n "$p" ]; do
+    rest="/${p##*/}$rest"
+    p=$(dirname "$p")
+  done
+  if [ -d "$p" ]; then
+    dir=$(cd -P "$p" 2>/dev/null && pwd) || return 1
+    p="$dir"
+  else
+    dir=$(cd -P "$(dirname "$p")" 2>/dev/null && pwd) || return 1
+    p="$dir/${p##*/}"
+  fi
+  printf '%s%s' "${p%/}" "$rest"
+}
+repo_real=$(cd -P "$repo_root" 2>/dev/null && pwd) || repo_real="$repo_root"
+
+# Only source files inside this repo are gated: edits to doflow artifacts are
+# always allowed, and an absolute path elsewhere is not this repo's.
+GATED=false
+while IFS= read -r file; do
+  [ -z "$file" ] && continue
+  case "$file" in *"/agent-docs/"*|agent-docs/*) continue ;; esac
+  case "$file" in
+    /*)
+      real=$(real_path "$file") || real="$file"
+      case "$real" in *"/agent-docs/"*) continue ;; esac
+      case "$real" in "$repo_real"/*) ;; *) continue ;; esac
+      ;;
+  esac
+  GATED=true
+  break
+done <<< "$FILES"
+[ "$GATED" = true ] || exit 0
+
+# ── Checkouts (one `git worktree list`, read at most once) ───────────────────
+# MAIN is the main working tree when this checkout is a linked worktree of it;
+# OTHERS are the repository's other checkouts. A bare main entry, a checkout
+# whose directory is gone, and a DoFlow sandbox (.doflow-worktree-base at its
+# root) are never read from; a sandbox sees no other checkout at all.
+CHECKOUTS_READ=false
+MAIN=""
+OTHERS=()
+checkouts() {
+  [ "$CHECKOUTS_READ" = true ] && return 0
+  CHECKOUTS_READ=true
+  local list here line real current="" main="" paths=() bare=() i
+  list=$(git -C "$repo_root" worktree list --porcelain 2>/dev/null) || return 0
+  here=$(cd -P "$repo_root" 2>/dev/null && pwd) || return 0
+  while IFS= read -r line; do
+    case "$line" in
+      "worktree "*) paths+=("${line#worktree }"); bare+=(false) ;;
+      bare) [ "${#paths[@]}" -gt 0 ] && bare[${#paths[@]}-1]=true ;;
+    esac
+  done <<< "$list"
+  [ "${#paths[@]}" -gt 0 ] || return 0
+  local reals=()
+  for i in "${!paths[@]}"; do
+    real=""
+    [ "${bare[$i]}" = false ] && real=$(cd -P "${paths[$i]}" 2>/dev/null && pwd)
+    reals+=("$real")
+    [ "$i" -eq 0 ] && main="$real"
+    if [ -n "$real" ] && { [ "$here" = "$real" ] || [ "${here#"$real"/}" != "$here" ]; }; then
+      [ "${#real}" -gt "${#current}" ] && current="$real"
     fi
+  done
+  [ -n "$current" ] || return 0
+  [ -e "$current/.doflow-worktree-base" ] && return 0
+  [ "$main" != "$current" ] && MAIN="$main"
+  for real in "${reals[@]}"; do
+    [ -n "$real" ] && [ "$real" != "$current" ] && [ ! -e "$real/.doflow-worktree-base" ] && OTHERS+=("$real")
+  done
+  return 0
+}
+
+# A state file under this checkout, else under exactly one other checkout, at
+# the first of the given paths that exists in each; held in two or more others,
+# it cannot be told which is meant -> allow.
+FOUND=""
+find_state() {
+  local rel root count=0 hit
+  FOUND=""
+  for rel in "$@"; do
+    if [ -f "$repo_root/$rel" ]; then FOUND="$repo_root/$rel"; return 0; fi
+  done
+  checkouts
+  for root in ${OTHERS[@]+"${OTHERS[@]}"}; do
+    hit=""
+    for rel in "$@"; do
+      [ -f "$root/$rel" ] && { hit="$root/$rel"; break; }
+    done
+    [ -n "$hit" ] || continue
+    count=$((count + 1))
+    FOUND="$hit"
+  done
+  [ "$count" -le 1 ] || exit 0
+}
+
+# The feature a run file belongs to: the slug it recorded when it started, else
+# its task id when that names a feature folder in the checkout holding it.
+run_feature() {
+  local recorded owner
+  recorded=$(jq -r '.featureSlug // empty' "$1" 2>/dev/null) || recorded=""
+  if [ -n "$recorded" ]; then printf '%s' "$recorded"; return 0; fi
+  owner=${1%/.doflow/state/orchestration/*}
+  [ -d "$owner/agent-docs/doflow/$task_id" ] && printf '%s' "$task_id"
+  return 0
+}
+
+# The task's run: this checkout's, else the one other checkout's run of the same
+# feature. A run with the same id for another feature is a different task.
+find_run() {
+  local rel=".doflow/state/orchestration/$task_id.json" root count=0
+  FOUND=""
+  if [ -f "$repo_root/$rel" ]; then FOUND="$repo_root/$rel"; return 0; fi
+  checkouts
+  for root in ${OTHERS[@]+"${OTHERS[@]}"}; do
+    [ -f "$root/$rel" ] || continue
+    [ "$(run_feature "$root/$rel")" = "$slug" ] || continue
+    count=$((count + 1))
+    FOUND="$root/$rel"
+  done
+  [ "$count" -le 1 ] || exit 0
+}
+
+# ── Feature folder: this checkout's, else the main checkout's ────────────────
+FEATURE_ROOT=""
+if [ -d "$repo_root/$feature_dir" ]; then
+  FEATURE_ROOT="$repo_root"
+else
+  checkouts
+  if [ -n "$MAIN" ] && [ -d "$MAIN/$feature_dir" ]; then
+    FEATURE_ROOT="$MAIN"
+    probe_artifacts "$MAIN"
+  fi
+fi
+HAS_REGISTER=false
+[ -n "$FEATURE_ROOT" ] && [ -f "$FEATURE_ROOT/$feature_dir/decisions/register.json" ] && HAS_REGISTER=true
+PLANNED=false
+[ "$has_requirement" = "true" ] && [ "$has_design" = "true" ] && [ "$has_plan" = "true" ] && PLANNED=true
+
+# In the flow: block a source edit until requirement.md, design.md, AND
+# plan.md all exist. Classes that cannot be a feature skip this check.
+if [ "$exempt" = false ] && [ -n "$FEATURE_ROOT" ] && [ "$PLANNED" = false ]; then
+  echo "[pre-implementation-gate] doflow gate: feature $feature_dir is missing requirement.md, design.md, or plan.md — run /do-brainstorm, /do-design, then /do-plan before editing source. (Edits under agent-docs/ are always allowed; skip the flow by removing the feature dir.)" >&2
+  exit 2
+fi
+
+# ── Readiness ────────────────────────────────────────────────────────────────
+# The workflow registry the installed runtime reads: beside this policy in an
+# install, the source tree's own, the project's install, the global install.
+POLICY_DIR=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd) || POLICY_DIR=""
+REGISTRY=""
+for candidate in \
+  "${POLICY_DIR:+$POLICY_DIR/../../../runtime/core/registry/workflows.json}" \
+  "${POLICY_DIR:+$POLICY_DIR/../../../../registry/workflows.json}" \
+  "$repo_root/.doflow/runtime/core/registry/workflows.json" \
+  "$HOME/.doflow/runtime/core/registry/workflows.json"; do
+  [ -n "$candidate" ] && [ -f "$candidate" ] && { REGISTRY="$candidate"; break; }
+done
+
+# The class's gated stage: its first stage whose kind mutates source and that
+# names a readiness template. Sets STAGE_ID, STAGE_TEMPLATE and STAGE_EDIT
+# (false when the stage opts out of this edit-time check); all empty for none.
+gated_stage() {
+  local out
+  STAGE_ID=""; STAGE_TEMPLATE=""; STAGE_EDIT=""
+  [ -n "$REGISTRY" ] || return 0
+  out=$(jq -r --arg c "$1" '. as $r
+    | [($r.classes[$c].stages // [])[]
+       | select(($r.stageKinds[.kind].mutatesSource // false) == true and (.readinessTemplate // "") != "")]
+    | first // empty
+    | .id, .readinessTemplate, (.editTimeGate != false)' "$REGISTRY" 2>/dev/null) || return 0
+  { IFS= read -r STAGE_ID; IFS= read -r STAGE_TEMPLATE; IFS= read -r STAGE_EDIT; } <<< "$out"
+  return 0
+}
+
+# Whether the run file's program shows that stage completed or skipped.
+stage_done() {
+  jq -e --arg id "$1" 'any(.program[]?; .type == "stage" and .id == $id
+    and (.status == "completed" or .status == "skipped"))' "$RUN" >/dev/null 2>&1
+}
+
+RUN=""
+find_run
+RUN="$FOUND"
+run_slug=""
+if [ -n "$RUN" ]; then
+  run_slug=$(run_feature "$RUN")
+  run_info=$(jq -r '(.state // ""), (.taskClass // ""),
+    (if (.startedAt | type) == "string" and (has("readinessFloor") | not) then "grace" else "" end)' "$RUN" 2>/dev/null) || exit 0
+  { IFS= read -r run_state; IFS= read -r run_class; IFS= read -r run_grace; } <<< "$run_info"
+  case "$run_state" in COMPLETED|REJECTED) exit 0 ;; esac
+  # A run started before DoFlow recorded readiness counts as no run here,
+  # unless it is already past its gated stage.
+  if [ "$run_grace" = grace ]; then
+    gated_stage "$run_class"
+    [ -n "$STAGE_ID" ] && stage_done "$STAGE_ID" && exit 0
+    RUN=""
+    run_slug=""
   fi
 fi
 
-# Not in the flow (no started feature) -> allow.
-[ -n "$feature_dir" ] || exit 0
-[ -n "$repo_root" ] && [ -d "$repo_root/$feature_dir" ] || exit 0
-
-# In the flow: block a source edit until requirement.md, design.md, AND
-# plan.md all exist. Iterate every candidate file (apply_patch may name
-# several); the first non-doflow, in-repo file triggers the deny, matching
-# Codex's own original "first offending path wins" behavior.
-if [ "$has_requirement" = "true" ] && [ "$has_design" = "true" ] && [ "$has_plan" = "true" ]; then
+if [ -n "$RUN" ]; then
+  class="$run_class"
+elif [ "$exempt" = false ] && [ -n "$FEATURE_ROOT" ] && [ "$PLANNED" = true ] && [ "$HAS_REGISTER" = true ]; then
+  class=feature
+else
   exit 0
 fi
 
-while IFS= read -r file; do
-  [ -z "$file" ] && continue
+gated_stage "$class"
+[ -n "$STAGE_ID" ] && [ "$STAGE_EDIT" = true ] || exit 0
+if [ -n "$RUN" ]; then
+  # A run whose program does not name that stage (missing, malformed, or compiled
+  # from a registry that named it differently) cannot be judged here -> allow, as
+  # the runtime reads such a run as having no gated stage.
+  jq -e --arg id "$STAGE_ID" 'any(.program[]?; .type == "stage" and .id == $id)' "$RUN" >/dev/null 2>&1 || exit 0
+  stage_done "$STAGE_ID" && exit 0
+fi
 
-  # Edits to doflow artifacts are always allowed.
-  case "$file" in *"/agent-docs/"*|agent-docs/*) continue ;; esac
+# The record, where the runtime looks: under the feature's namespace (the run's
+# own feature when it recorded one), then flat; this checkout first.
+record_slug="${run_slug:-$slug}"
+if [ -n "$record_slug" ] && [ "$record_slug" != "$task_id" ]; then
+  find_state ".doflow/state/readiness/$record_slug/$task_id.json" ".doflow/state/readiness/$task_id.json"
+else
+  find_state ".doflow/state/readiness/$task_id.json"
+fi
+record_state=""; record_class=""; record_at=""
+if [ -n "$FOUND" ]; then
+  record_info=$(jq -r '(.state // ""), (.taskClass // ""), (.evaluatedAt // "")' "$FOUND" 2>/dev/null) || exit 0
+  { IFS= read -r record_state; IFS= read -r record_class; IFS= read -r record_at; } <<< "$record_info"
+  [ -n "$record_state" ] || exit 0
+fi
 
-  # Only gate files inside this repo; an absolute path elsewhere -> allow (skip).
-  case "$file" in
-    /*) case "$file" in "$repo_root"/*) ;; *) continue ;; esac ;;
-  esac
-
-  echo "[pre-implementation-gate] doflow gate: feature $feature_dir is missing requirement.md, design.md, or plan.md — run /do-brainstorm, /do-design, then /do-plan before editing source. (Edits under agent-docs/ are always allowed; skip the flow by removing the feature dir.)" >&2
+# The runtime's refusal texts, byte for byte. The next command names the slug
+# only when its feature folder exists here or in the main checkout, which is
+# when the runtime names it too (and when `readiness --slug` resolves it).
+next="doflow-run readiness --task-class $STAGE_TEMPLATE --task-id $task_id"
+if [ -n "$record_slug" ] && [ "$record_slug" != "$task_id" ]; then
+  checkouts
+  if [ -d "$repo_root/agent-docs/doflow/$record_slug" ] || { [ -n "$MAIN" ] && [ -d "$MAIN/agent-docs/doflow/$record_slug" ]; }; then
+    next="$next --slug=$record_slug"
+  fi
+fi
+gate="doflow gate readiness-before-implementation: task '$task_id'"
+rest="Next: $next, then gather what it lists until it reports READY. Nothing was changed."
+if [ -z "$FOUND" ]; then
+  printf "%s has no readiness record for the '%s' template. %s\n" "$gate" "$STAGE_TEMPLATE" "$rest" >&2
   exit 2
-done <<< "$FILES"
+fi
+if [ "$record_state" != READY ]; then
+  printf "%s was last evaluated %s at %s against the '%s' template, not READY. %s\n" \
+    "$gate" "$record_state" "$record_at" "$STAGE_TEMPLATE" "$rest" >&2
+  exit 2
+fi
+if [ "$record_class" != "$STAGE_TEMPLATE" ]; then
+  printf "%s has a READY record for the '%s' template, and this stage needs '%s'. %s\n" \
+    "$gate" "$record_class" "$STAGE_TEMPLATE" "$rest" >&2
+  exit 2
+fi
 
 exit 0

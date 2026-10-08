@@ -459,3 +459,83 @@ test('blocking research request refuses handoff and direct completion without cu
   assert.throws(() => orch.completeStage({ taskId: 'feature-gap', stageId: 'discovery' }), /No source/);
   assert.equal(orch.status('feature-gap').state, 'RUNNING');
 });
+
+// ─────────────────────────────────────────────────────── readiness before the handoff writes
+
+/** An orchestrator over a state directory removed when the test ends. */
+function owned(t, readinessEvaluate = READY) {
+  const root = scratch();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  return new WorkflowOrchestrator({ repoRoot: REPO, projectRoot: root, stateDir: path.join(root, '.doflow', 'state', 'orchestration'), readinessEvaluate });
+}
+
+test('previewHandoff stops where catchUp stops, for every class and every skill owning a stage in it', (t) => {
+  const engine = new WorkflowEngine({ repoRoot: REPO });
+  let compared = 0;
+  for (const taskClass of engine.listClasses()) {
+    const stages = engine.resolveWorkflow(taskClass).stages;
+    for (const skill of new Set(stages.map((s) => s.skill))) {
+      const candidateStageIds = stages.filter((s) => s.skill === skill).map((s) => s.id);
+      const taskId = `t.preview-${taskClass}-${skill}`;
+      const preview = owned(t).previewHandoff({ taskId, taskClass, candidateStageIds });
+      const walked = owned(t).catchUp({ taskId, taskClass, candidateStageIds });
+      assert.deepEqual([preview.reason, preview.stageId], [walked.reason, walked.caughtUpTo], `${taskClass} / ${skill}`);
+      if (preview.reason === 'reached-candidate') assert.equal(preview.node.id, walked.caughtUpTo);
+      compared += 1;
+    }
+  }
+  assert.ok(compared > 20, `every class and skill pair was compared (${compared})`);
+});
+
+test('a fresh handoff that would complete a gated stage is refused with the evaluator\'s message and leaves no run file', (t) => {
+  const seen = [];
+  const orch = owned(t, (node, run) => { seen.push([node.id, run]); return { verdict: 'missing', message: 'm' }; });
+  assert.throws(() => orch.handoff({ taskId: 't.fresh-gated', taskClass: 'bug', callingSkill: 'do-implement', note: 'n' }), /^Error: m$/);
+  assert.equal(fs.existsSync(orch.runFile('t.fresh-gated')), false, 'catch-up neither started the run nor backfilled a stage');
+  assert.deepEqual(seen, [['implementation', { taskId: 't.fresh-gated', taskClass: 'bug' }]], 'a fresh task is graded as a pseudo-run, never in grace');
+});
+
+test('a refused handoff on an existing run at its gated stage leaves the run file byte for byte', (t) => {
+  const orch = owned(t);
+  orch.catchUp({ taskId: 't.held', taskClass: 'bug', candidateStageIds: ['implementation'] });
+  const before = fs.readFileSync(orch.runFile('t.held'));
+  orch.readinessEvaluate = () => ({ verdict: 'not-ready', message: 'not yet' });
+  assert.throws(() => orch.handoff({ taskId: 't.held', callingSkill: 'do-implement', note: 'n' }), /not yet/);
+  assert.deepEqual(fs.readFileSync(orch.runFile('t.held')), before);
+  assert.throws(() => orch.completeStage({ taskId: 't.held', stageId: 'implementation' }), /not yet/);
+  assert.deepEqual(fs.readFileSync(orch.runFile('t.held')), before);
+});
+
+test('a string evaluator keeps today\'s refusal text', (t) => {
+  const orch = owned(t, NEVER_READY);
+  orch.start({ taskId: 't.string', taskClass: 'trivial-edit' });
+  assert.throws(() => orch.handoff({ taskId: 't.string', callingSkill: 'do-implement', note: 'n' }),
+    /Readiness for stage 'implementation' returned NEEDS_EVIDENCE; expected READY — resolve evidence or the user decision first/);
+});
+
+test('start, and a catch-up that starts a run, mark the run with readinessFloor', (t) => {
+  const orch = owned(t);
+  orch.start({ taskId: 't.floor-start', taskClass: 'feature' });
+  assert.equal(orch.readRun('t.floor-start').readinessFloor, 1);
+  orch.catchUp({ taskId: 't.floor-catchup', taskClass: 'bug', candidateStageIds: ['root-cause'] });
+  assert.equal(orch.readRun('t.floor-catchup').readinessFloor, 1);
+});
+
+test('a run without the marker completes its gated stage through handoff when the evaluator warns, and the result carries the warning', (t) => {
+  const orch = owned(t, () => ({ verdict: 'READY', warning: 'w' }));
+  orch.catchUp({ taskId: 't.grace', taskClass: 'bug', candidateStageIds: ['implementation'] });
+  const run = orch.readRun('t.grace');
+  delete run.readinessFloor;
+  fs.writeFileSync(orch.runFile('t.grace'), JSON.stringify(run, null, 2));
+  const result = orch.handoff({ taskId: 't.grace', callingSkill: 'do-implement', note: 'n' });
+  assert.equal(result.disposition, 'completed');
+  assert.equal(result.recordedStage, 'implementation');
+  assert.equal(result.readinessWarning, 'w');
+  assert.equal(orch.readRun('t.grace').program.find((n) => n.id === 'implementation').status, 'completed');
+});
+
+test('a standalone handoff says why nothing was recorded', (t) => {
+  const result = owned(t).handoff({ taskId: 't.solo', callingSkill: 'do-implement', note: 'n' });
+  assert.equal(result.disposition, 'standalone');
+  assert.equal(result.reason, 'no run exists for this task and no --task-class was given, so nothing was recorded and no readiness was required');
+});

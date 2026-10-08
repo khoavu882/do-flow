@@ -1,0 +1,258 @@
+'use strict';
+// readiness-record.test.js — every readiness evaluation is recorded where it ran, under the
+// namespace evidence uses, and read back from this checkout or exactly one other.
+//
+// Repositories and worktrees are built under one scratch directory removed when the file finishes;
+// the scratch environment is applied to this process, so the resolver and git spawned in-process
+// never read the developer's HOME or global git config.
+const { test, before, after } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+const { createScratch } = require('../helper/scratch-env');
+const { writeReadinessRecord, readReadinessRecord } = require('../../src/runtime/readiness-record');
+const { checkReadiness } = require('../../src/runtime/implementation-gate');
+const { clearCheckoutCache } = require('../../src/runtime/checkouts');
+const { clearTaskScopeCache } = require('../../src/runtime/task-scope');
+
+const SLUG = '900-demo';
+const NOW = new Date('2026-10-08T12:00:00.000Z');
+
+let scratch;
+before(() => {
+  scratch = createScratch('doflow-readiness-record-');
+  scratch.apply();
+});
+after(() => {
+  scratch.restore();
+  scratch.remove();
+});
+
+function git(cwd, ...args) {
+  const res = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' });
+  assert.equal(res.status, 0, `git ${args.join(' ')}: ${res.stderr}`);
+  return res.stdout;
+}
+
+let n = 0;
+function dir(name) {
+  n += 1;
+  const d = path.join(scratch.dir, `${n}-${name}`);
+  fs.mkdirSync(d, { recursive: true });
+  return d;
+}
+
+/** A repository on `feat/900-demo` whose feature folder has a decision register. */
+function featureRepo(name, { register = true } = {}) {
+  const root = dir(name);
+  git(root, 'init', '-q', '-b', 'main');
+  fs.writeFileSync(path.join(root, 'a.txt'), 'a\n');
+  fs.writeFileSync(path.join(root, '.gitignore'), 'agent-docs/\n.doflow/\n');
+  git(root, 'add', '-A');
+  git(root, 'commit', '-q', '-m', 'base');
+  git(root, 'checkout', '-q', '-b', `feat/${SLUG}`);
+  const folder = path.join(root, 'agent-docs', 'doflow', SLUG);
+  fs.mkdirSync(path.join(folder, 'decisions'), { recursive: true });
+  if (register) fs.writeFileSync(path.join(folder, 'decisions', 'register.json'), '{"version":1,"slug":"900-demo","nextId":1,"decisions":[]}\n');
+  return root;
+}
+
+function report(state = 'READY', taskClass = 'bug') {
+  return {
+    taskId: 'ignored', taskClass, templateName: 'Bug Fix', state,
+    stageEntry: { decision: state === 'READY' ? 'ENTER' : 'GATHER_FIRST', reason: 'r' },
+    requirements: [
+      { id: 'reproduction', required: true, satisfied: state === 'READY' },
+      { id: 'notes', required: false, satisfied: false },
+    ],
+    evidenceCount: 3,
+  };
+}
+
+function write(stateRoot, taskId, fields = {}) {
+  clearTaskScopeCache();
+  return writeReadinessRecord({
+    stateRoot, taskId, report: report(), inputs: {}, mode: 'workflow', now: NOW, ...fields,
+  });
+}
+
+function rawRecord(stateRoot, rel, value) {
+  const file = path.join(stateRoot, '.doflow', 'state', 'readiness', rel);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value));
+  return file;
+}
+
+test('a written record holds every field and only the inputs the caller stated', () => {
+  const root = dir('plain');
+  const { file, record } = write(root, 'T-1', { inputs: { verificationPlan: 'npm test', scope: 'src/a.js' }, declaredScope: ['src/a.js'], mode: 'standalone' });
+  assert.equal(file, path.join(root, '.doflow', 'state', 'readiness', 'T-1.json'));
+  const disk = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepEqual(Object.keys(disk).sort(), [
+    'declaredScope', 'evaluatedAt', 'evidenceCount', 'executionMode', 'inputs', 'revision', 'slug', 'stageEntry',
+    'state', 'taskClass', 'taskId', 'templateName', 'unmet', 'version',
+  ]);
+  assert.deepEqual({ ...disk, revision: undefined }, { ...record, revision: undefined });
+  assert.equal(disk.version, 1);
+  assert.equal(disk.taskId, 'T-1');
+  assert.equal(disk.slug, null);
+  assert.equal(disk.taskClass, 'bug');
+  assert.equal(disk.templateName, 'Bug Fix');
+  assert.equal(disk.state, 'READY');
+  assert.equal(disk.stageEntry, 'ENTER');
+  assert.equal(disk.executionMode, 'standalone');
+  assert.deepEqual(disk.inputs, { verificationPlan: 'npm test', scope: 'src/a.js' });
+  assert.deepEqual(disk.declaredScope, ['src/a.js']);
+  assert.deepEqual(disk.unmet, []);
+  assert.equal(disk.evidenceCount, 3);
+  assert.equal(disk.evaluatedAt, NOW.toISOString());
+
+  const unmet = write(root, 'T-2', { report: report('NEEDS_EVIDENCE'), inputs: {} }).record;
+  assert.deepEqual(unmet.unmet, ['reproduction'], 'only required, unsatisfied requirements');
+  assert.deepEqual(unmet.inputs, {});
+  assert.equal(unmet.declaredScope, null);
+});
+
+test('a feature with a register namespaces a task id that differs from its slug', () => {
+  const root = featureRepo('ns');
+  assert.equal(write(root, 'A.1').file, path.join(root, '.doflow', 'state', 'readiness', SLUG, 'A.1.json'));
+  assert.equal(write(root, 'A.1').record.slug, SLUG);
+  assert.equal(write(root, SLUG).file, path.join(root, '.doflow', 'state', 'readiness', `${SLUG}.json`), 'the feature-level id stays flat');
+  const flat = featureRepo('no-register', { register: false });
+  assert.equal(write(flat, 'A.1').file, path.join(flat, '.doflow', 'state', 'readiness', 'A.1.json'), 'no register, no namespace');
+});
+
+test('a second evaluation replaces the first', () => {
+  const root = dir('replace');
+  write(root, 'T-1', { report: report('NEEDS_EVIDENCE') });
+  write(root, 'T-1', { report: report('READY'), now: new Date(NOW.getTime() + 1000) });
+  const read = readReadinessRecord({ stateRoot: root, taskId: 'T-1' });
+  assert.equal(read.status, 'found');
+  assert.equal(read.origin, 'current');
+  assert.equal(read.record.state, 'READY');
+  assert.equal(read.record.evaluatedAt, new Date(NOW.getTime() + 1000).toISOString());
+  assert.equal(read.record.revision, 2);
+});
+
+test('a record in another checkout is found from a linked worktree, flat and namespaced', () => {
+  const m = featureRepo('cross');
+  const wt = path.join(path.dirname(m), `${path.basename(m)}-wt`);
+  git(m, 'worktree', 'add', '-q', '-b', 'feat/other', wt);
+  clearCheckoutCache();
+  write(m, SLUG);
+  write(m, 'A.1');
+
+  const flat = readReadinessRecord({ stateRoot: wt, taskId: SLUG });
+  assert.equal(flat.status, 'found');
+  assert.equal(flat.origin, 'other');
+  assert.equal(flat.file, path.join(m, '.doflow', 'state', 'readiness', `${SLUG}.json`));
+
+  const namespaced = readReadinessRecord({ stateRoot: wt, taskId: 'A.1', slug: SLUG });
+  assert.equal(namespaced.status, 'found');
+  assert.equal(namespaced.file, path.join(m, '.doflow', 'state', 'readiness', SLUG, 'A.1.json'));
+  assert.equal(readReadinessRecord({ stateRoot: wt, taskId: 'A.1' }).status, 'missing', 'without the slug the flat path is read');
+
+  const check = checkReadiness({ stateRoot: wt, taskId: SLUG, template: 'bug', now: NOW });
+  assert.equal(check.ok, true);
+  assert.equal(check.code, 'ready');
+  assert.equal(check.origin, 'other');
+});
+
+test('records in two other checkouts are ambiguous, and neither is picked', () => {
+  const m = featureRepo('ambiguous');
+  const wt1 = `${m}-wt1`;
+  const wt2 = `${m}-wt2`;
+  git(m, 'worktree', 'add', '-q', '-b', 'feat/one', wt1);
+  git(m, 'worktree', 'add', '-q', '-b', 'feat/two', wt2);
+  clearCheckoutCache();
+  write(wt1, 'T-3');
+  write(wt2, 'T-3');
+  const read = readReadinessRecord({ stateRoot: m, taskId: 'T-3' });
+  assert.equal(read.status, 'ambiguous');
+  assert.equal(read.record, null);
+  assert.deepEqual(read.candidates, [path.join(wt1, '.doflow', 'state', 'readiness', 'T-3.json'), path.join(wt2, '.doflow', 'state', 'readiness', 'T-3.json')]);
+  const check = checkReadiness({ stateRoot: m, taskId: 'T-3', template: 'bug', now: NOW });
+  assert.equal(check.ok, false);
+  assert.equal(check.code, 'ambiguous');
+});
+
+test('a record from a future version, bad JSON, a missing state or a time after now is unusable, never READY', () => {
+  const root = dir('unusable');
+  const good = { version: 1, taskId: 'U', taskClass: 'bug', state: 'READY', evaluatedAt: NOW.toISOString() };
+  const cases = [
+    ['version 2', { ...good, version: 2 }, /version 2/],
+    ['bad JSON', '{"version":1,', /unparsable JSON/],
+    ['no state', { ...good, state: undefined }, /no state/],
+    ['no taskClass', { ...good, taskClass: undefined }, /no taskClass/],
+    ['after now', { ...good, evaluatedAt: new Date(NOW.getTime() + 60000).toISOString() }, /after this check/],
+  ];
+  for (const [label, value, detail] of cases) {
+    rawRecord(root, 'U.json', value);
+    const check = checkReadiness({ stateRoot: root, taskId: 'U', template: 'bug', now: NOW });
+    assert.equal(check.code, 'unusable', label);
+    assert.equal(check.ok, false, label);
+    assert.match(check.detail, detail, label);
+    assert.match(check.message, label === 'version 2' ? /written by a newer DoFlow/ : /has a readiness record that cannot be used/, label);
+  }
+  rawRecord(root, 'U.json', good);
+  assert.equal(checkReadiness({ stateRoot: root, taskId: 'U', template: 'bug', now: NOW }).code, 'ready', 'a record made at the check time counts');
+  rawRecord(root, 'U.json', { ...good, state: 'NEEDS_EVIDENCE' });
+  assert.equal(checkReadiness({ stateRoot: root, taskId: 'U', template: 'bug', now: NOW }).code, 'not-ready');
+  rawRecord(root, 'U.json', good);
+  assert.equal(checkReadiness({ stateRoot: root, taskId: 'U', template: 'feature', now: NOW }).code, 'wrong-template');
+  assert.equal(checkReadiness({ stateRoot: root, taskId: 'none', template: 'bug', now: NOW }).code, 'missing');
+});
+
+test('an unreadable record is replaced by the next evaluation, its bytes kept once beside it', () => {
+  const root = dir('replace-unreadable');
+  const file = rawRecord(root, 'T-5.json', '{"version":1,');
+  const first = write(root, 'T-5');
+  assert.equal(first.replacedUnreadable, `${file}.unreadable`);
+  assert.equal(fs.readFileSync(`${file}.unreadable`, 'utf8'), '{"version":1,');
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).state, 'READY');
+  assert.equal(write(root, 'T-5').replacedUnreadable, null, 'a readable record is simply replaced');
+
+  rawRecord(root, 'T-5.json', '{"version":"x"}');
+  assert.equal(write(root, 'T-5').replacedUnreadable, `${file}.unreadable`, 'a version this runtime never wrote, and that is not newer, is unreadable too');
+  assert.equal(fs.readFileSync(`${file}.unreadable`, 'utf8'), '{"version":"x"}', 'the latest unreadable bytes, not an accumulation');
+  assert.deepEqual(fs.readdirSync(path.dirname(file)).filter((f) => f.startsWith('T-5')).sort(), ['T-5.json', 'T-5.json.unreadable']);
+});
+
+test('a record written by a newer DoFlow is never overwritten: the write is refused naming the file', () => {
+  const root = dir('newer');
+  const bytes = JSON.stringify({ version: 2, taskId: 'T-6', state: 'READY' });
+  const file = rawRecord(root, 'T-6.json', bytes);
+  assert.throws(() => write(root, 'T-6'), (error) => error.message.includes(file) && /written by a newer DoFlow \(record version 2; this runtime reads 1\)/.test(error.message)
+    && !/doflow-run readiness/.test(error.message));
+  assert.equal(fs.readFileSync(file, 'utf8'), bytes);
+  assert.equal(fs.existsSync(`${file}.unreadable`), false);
+});
+
+test('an unreadable record is set aside only under the write lock', () => {
+  const root = dir('locked');
+  const file = rawRecord(root, 'T-8.json', '{not json');
+  fs.mkdirSync(`${file}.lock`);   // another writer holds the record
+  try {
+    assert.throws(() => write(root, 'T-8'), /Could not lock/);
+  } finally {
+    fs.rmdirSync(`${file}.lock`);
+  }
+  assert.equal(fs.readFileSync(file, 'utf8'), '{not json', 'nothing was renamed while another writer held the lock');
+  assert.equal(fs.existsSync(`${file}.unreadable`), false);
+});
+
+test('every reader takes the same candidates: the namespaced path, then the flat one, in each checkout', () => {
+  const { recordCandidates } = require('../../src/runtime/readiness-record');
+  const store = path.join('.doflow', 'state', 'readiness');
+  assert.deepEqual(recordCandidates('A.1', SLUG), [path.join(store, SLUG, 'A.1.json'), path.join(store, 'A.1.json')]);
+  assert.deepEqual(recordCandidates(SLUG, SLUG), [path.join(store, `${SLUG}.json`)]);
+  assert.deepEqual(recordCandidates('A.1', null), [path.join(store, 'A.1.json')]);
+
+  const root = dir('candidates');
+  rawRecord(root, 'A.1.json', { version: 1, taskId: 'A.1', taskClass: 'bug', state: 'READY', evaluatedAt: NOW.toISOString() });
+  assert.equal(readReadinessRecord({ stateRoot: root, taskId: 'A.1', slug: SLUG }).status, 'found', 'a flat record is found under a slug');
+  const replaced = write(root, 'A.1', { slug: SLUG });
+  assert.equal(replaced.file, path.join(root, store, 'A.1.json'), 'the writer replaces the record readers find, not a second one');
+});

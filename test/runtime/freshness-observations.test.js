@@ -57,7 +57,7 @@ test('content observations expire without Git, including deletion', (t) => {
   assert.equal(check(), 'STALE');
 });
 
-test('readiness and stage completion reject the same changed observation', (t) => {
+test('a changed observation keeps readiness off READY, and completion is refused on that recorded verdict', (t) => {
   const { root } = project(t, true);
   const task = 'freshness-boundary';
   const added = cli(root, 'evidence', '--action', 'add', '--task-id', task,
@@ -69,8 +69,28 @@ test('readiness and stage completion reject the same changed observation', (t) =
   fs.writeFileSync(path.join(root, 'a.js'), 'module.exports = 5;\n');
   const readiness = cli(root, 'readiness', '--task-id', task, '--task-class', 'trivial-edit', '--scope', 'a.js only');
   assert.equal(readiness.data.state, 'NEEDS_EVIDENCE');
+  // Completion reads the evaluation `readiness` just recorded rather than grading inputs of its own.
   const completion = cli(root, 'orchestrate', '--action', 'complete-stage', '--task-id', task,
     '--task-class', 'trivial-edit', '--stage', 'implementation', '--scope', 'a.js only');
-  assert.notEqual(completion.status, 0, 'completion must recheck freshness too');
-  assert.match(completion.stderr, /NEEDS_EVIDENCE/);
+  assert.notEqual(completion.status, 0, 'completion is refused on the same stale observation');
+  assert.match(completion.stderr, new RegExp(`task '${task}' was last evaluated NEEDS_EVIDENCE at \\S+ against the 'trivial-edit' template, not READY`));
+});
+
+test('completion reads the recorded verdict, not the tree: a READY record stays READY after its observation changes', (t) => {
+  const { root } = project(t, true);
+  const task = 'freshness-after-ready';
+  const added = cli(root, 'evidence', '--action', 'add', '--task-id', task,
+    '--kind', 'exact-search', '--provenance', 'extracted', '--provider', 'local-read',
+    '--capability', 'code.exact-search', '--locator', 'a.js:1',
+    '--establishes', 'target_identified');
+  assert.equal(added.status, 0, added.stderr);
+  assert.equal(cli(root, 'orchestrate', '--action', 'start', '--task-id', task, '--task-class', 'trivial-edit').status, 0);
+  assert.equal(cli(root, 'readiness', '--task-id', task, '--task-class', 'trivial-edit', '--scope', 'a.js').data.state, 'READY');
+  fs.writeFileSync(path.join(root, 'a.js'), 'module.exports = 6;\n');
+  // Readiness is graded once, before the work; the edit that follows is the work itself.
+  const completion = cli(root, 'orchestrate', '--action', 'complete-stage', '--task-id', task,
+    '--task-class', 'trivial-edit', '--stage', 'implementation');
+  assert.equal(completion.status, 0, completion.stderr);
+  assert.equal(cli(root, 'readiness', '--task-id', task, '--task-class', 'trivial-edit', '--scope', 'a.js').data.state, 'NEEDS_EVIDENCE',
+    'a fresh evaluation does see the change');
 });

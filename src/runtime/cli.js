@@ -10,6 +10,8 @@ const { resolveLocator, describeResolution } = require('./locator-resolve');
 const { ClaimsManager } = require('./claims');
 const { measureFreshness } = require('./freshness');
 const { evaluateTaskReadiness } = require('./readiness');
+const { writeReadinessRecord } = require('./readiness-record');
+const { parseDeclaredScope } = require('./verification/scope-bound');
 const { loadRegistry } = require('../registry');
 const { REPO_ROOT } = require('../helper/repo-root');
 // One definition of the exit and usage helpers (design §4.2); `finish` is the local spelling of `finishRuntime`.
@@ -81,10 +83,13 @@ function handleCapabilitiesCommand({ json = false, check = false, repoRoot } = {
  * @param {boolean} [options.json=false]
  * @param {string} [options.repoRoot]
  * @param {string} [options.stateRoot]
+ * @param {Date} [options.now] the evaluation clock the record is stamped with
+ * @param {string|null} [options.slug] `--slug`: the feature the record belongs to
+ * @returns {number} exit code: 0 once the evaluation is recorded, whatever its state
  */
 function handleReadinessCommand({
   taskClass = 'feature', taskId = 'default', json = false, repoRoot, stateRoot,
-  verificationPlan, scopeClear, invariants, userDecisionPending = false, mode = 'workflow',
+  verificationPlan, scopeClear, invariants, userDecisionPending = false, mode = 'workflow', now, slug = null,
 } = {}) {
   // Two different roots, previously conflated into one. `root` locates the *registry* (the
   // readiness templates ship inside the DoFlow package). `state` locates the invoking project's
@@ -109,9 +114,32 @@ function handleReadinessCommand({
     return usageError('readiness', error.message, json, error);
   }
 
+  // The evaluation is recorded so the handoff, `verify` and the edit hook can later ask whether
+  // this task was READY before its work began. A scope that parses as a path list is also the
+  // declared scope `verify` bounds a change by; any other wording stays a statement only.
+  const inputs = {};
+  if (profile.verificationPlan) inputs.verificationPlan = profile.verificationPlan;
+  if (profile.scopeClear) inputs.scope = profile.scopeClear;
+  if (profile.invariants) inputs.invariants = profile.invariants;
+  if (profile.userDecisionPending) inputs.userDecisionPending = true;
+  const declared = inputs.scope ? parseDeclaredScope(inputs.scope) : null;
+  const declaredScope = declared && !declared.reason ? declared.paths : null;
+  let recorded;
+  try {
+    const { file, replacedUnreadable } = writeReadinessRecord({ stateRoot: state, taskId, slug, report, inputs, declaredScope, mode, now: now || new Date() });
+    recorded = { file, written: true, ...(replacedUnreadable ? { replacedUnreadable } : {}) };
+  } catch (error) {
+    recorded = { file: null, written: false, error: error.message };
+  }
+  const exitCode = recorded.written ? 0 : 1;
+  const reportNotRecorded = () => {
+    if (!recorded.written) console.error(`[ERROR] readiness: the evaluation was not recorded: ${recorded.error}`);
+  };
+
   if (json) {
-    console.log(JSON.stringify({ ...report, callerAsserted }, null, 2));
-    return finish(0);
+    console.log(JSON.stringify({ ...report, callerAsserted, record: recorded, declaredScope }, null, 2));
+    reportNotRecorded();
+    return finish(exitCode);
   }
 
   console.log(`\nDoFlow Task Readiness Evaluation [${report.taskClass.toUpperCase()}]:`);
@@ -121,6 +149,15 @@ function handleReadinessCommand({
   console.log(`Overall State: ${report.state === 'READY' ? '✓ READY' : report.state === 'NEEDS_EVIDENCE' ? '▲ NEEDS EVIDENCE' : '✗ ' + report.state}`);
   console.log(`Stage Entry:   ${report.stageEntry.decision} (${report.executionMode} mode) — ${report.stageEntry.reason}`);
   console.log(`Summary:       ${report.summary}`);
+  if (recorded.written) console.log(`Recorded:      ${path.relative(state, recorded.file)}`);
+  if (recorded.replacedUnreadable) {
+    console.log(`Replaced:      the previous record could not be read; its bytes are kept in ${path.relative(state, recorded.replacedUnreadable)}`);
+  }
+  if (declared) {
+    console.log(declaredScope
+      ? `Declared scope: ${declaredScope.join(', ')}`
+      : 'Scope:         stated as text, not a path list; verify does not bound a change by it');
+  }
   if (callerAsserted.length > 0) {
     // Named, not hidden: these requirements were satisfied because the caller said so, and a
     // verdict that mixes measured and stated inputs must say which is which.
@@ -137,7 +174,8 @@ function handleReadinessCommand({
     }
   }
   console.log('═'.repeat(70) + '\n');
-  return finish(0);
+  reportNotRecorded();
+  return finish(exitCode);
 }
 
 // ── the evidence write boundary (FR-007, plan task C.12) ──────────────────────────────────────
