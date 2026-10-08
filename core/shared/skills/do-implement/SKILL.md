@@ -85,8 +85,12 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    - Evaluate readiness before modifying anything. `do-implement` is the declared one-off path, so
      it states that mode explicitly — the exemption is a flag, never an inference:
      ```bash
-     "$DOFLOW" readiness --task-class "<validated class>" --task-id "<task id>" --mode standalone --json
+     "$DOFLOW" readiness --task-class "<validated class>" --task-id "<task id>" --mode standalone \
+       --verification-plan "<one line: how this change is verified>" --scope "<comma-separated paths this change touches>" --json
      ```
+     Every call records its evaluation; `verify` bounds the change by a `--scope` path list, so a
+     change with no plan states its paths here. Both are inputs you state, reported back as
+     `Caller-stated`. Add `--slug=<feature slug>` when the task id is not the feature's slug.
      Both `--task-class` and `--task-id` are required — omitting either exits 2 and names the valid
      set. Branch on the returned `stageEntry.decision`, never the exit code or your own reading of
      `state`: the entry policy is owned by the runtime, and this verb exits 0 for every state it
@@ -97,7 +101,10 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
        mechanism and wait; editing first would decide it silently on their behalf.
      - **`ENTER`** — proceed to the context-pack call below. In standalone mode this includes
        `NEEDS_EVIDENCE`: the unmet contract is reported, not enforced — relay the missing
-       requirements in step 6's report rather than presenting the edit as fully evidenced.
+       requirements in step 6's report rather than presenting the edit as fully evidenced. When a
+       run for this task has its implementation stage pending, `NEEDS_EVIDENCE` is not enough:
+       gather what the report lists and call `readiness` again until it reports `READY`, before
+       the first source edit.
      (`GATHER_FIRST` is the workflow-mode answer and does not arise under `--mode standalone`.)
    - Once readiness has cleared (or been confirmed non-blocking), compile the prior context:
      ```bash
@@ -111,12 +118,10 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      there were no prior context to look for. On a normal, non-empty pack, carry its evidence and
      claims into step 4's change set instead of re-deriving what an earlier stage already
      established.
-   - This step is independent of the repository's `pre-implement-gate` hook, and stays that way:
-     the hook checks file existence (`requirement.md` / `design.md` / `plan.md`) on every
-     `Edit`/`Write` call regardless of which skill is editing, while this step evaluates the
-     readiness *contract* recorded for the task's own class. Neither may be made to depend on the
-     other (FR-012) — this step is a second, independent layer sitting alongside the hook, not a
-     replacement for it and not a way around it.
+   - The repository's `pre-implement-gate` hook checks file existence (`requirement.md` /
+     `design.md` / `plan.md`) on every `Edit`/`Write` call regardless of which skill is editing. On
+     a harness with an edit hook it also denies the edit of a task held to a readiness record that
+     is not `READY`; this step writes that record, and is not a way around the hook.
 
 3. **Understand before writing**:
    - Read the files the change touches and their immediate neighbors — naming conventions, error
@@ -142,6 +147,9 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    - Make the complete change end-to-end. Never leave placeholder stubs (e.g. `// TODO: implement`),
      unimplemented mock functions, or `throw new Error('Not implemented')` placeholders in the
      produced change. Every changed component must be fully wired and functional.
+   - Before the first source edit, a run for this task needs step 2's recorded readiness to be
+     `READY`: the hook denies the edit otherwise where there is one, and elsewhere step 7's handoff
+     is refused after the edits are made. A standalone `NEEDS_EVIDENCE` does not pass it.
    - Keep it scoped to what was asked — no bonus refactors, no speculative abstractions (the same
      scope-discipline rule the chain's own artifacts would otherwise remind you of; here, hold
      yourself to it directly).
@@ -170,8 +178,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      ```
      Name the `DEC-###` ids step 5 registered in `--note`.
      A handoff on a run whose implementation stage has a readiness template is refused unless
-     step 2's recorded readiness is `READY`: a standalone `NEEDS_EVIDENCE` does not pass it, and a
-     change with no plan states its paths in step 2's `readiness --scope` so `verify` bounds it.
+     step 2's recorded readiness is `READY`.
      Use step 6's verification outcome for `--result`: `passed` when every check in the named set
      passed, `failed` when one did not — never omit it to imply a pass step 6 did not establish.
      The runtime selects this class's implementation stage — the only mutating stage a caller may

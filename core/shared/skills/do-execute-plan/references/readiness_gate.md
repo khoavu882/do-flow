@@ -20,8 +20,8 @@ global.
 Every `readiness` call records its evaluation under `.doflow/state/readiness/`, replacing the
 task's earlier one. The implementation handoff and `complete-stage` read that record and refuse
 without a `READY` one made before the call; they evaluate nothing themselves, and the refusal names
-the `readiness` command to run. A `verify` report on a task whose implementation stage is still
-pending is `INCONCLUSIVE`, not `PASS`, while that record is missing.
+the `readiness` command to run. A `verify` report that would be `PASS` on a task whose implementation
+stage is still pending is `INCONCLUSIVE` while that record is missing or not `READY`.
 
 **Both `--task-class` and `--task-id` are required on `readiness`.** Omitting either exits 2 with
 the valid set named — the verb refuses rather than grading the wrong class or the wrong task.

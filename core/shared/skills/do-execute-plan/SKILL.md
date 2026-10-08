@@ -102,11 +102,23 @@ Branch on the returned `outcome` field, not the exit code.
      any other class the verb exits 1 and lists the valid keys; that is the correct answer, not a
      gap to route around.
    - All four states are reachable, so a verdict is about this task rather than about the runtime.
-     Record the `affected_components` evidence first, and dispatch no task until `readiness` has
-     recorded `READY` for the run's feature slug: the handoff reads that record and refuses
-     without it. `BLOCKED` is a claim whose evidence contradicts itself, and `NEEDS_USER_DECISION`
+     Dispatch no task until the run's record, below, is `READY`. `BLOCKED` is a claim whose evidence contradicts itself, and `NEEDS_USER_DECISION`
      is what `--user-decision-pending` returns. A first call on a task with nothing recorded grades
      an empty ledger — that is a checklist, not a defect.
+   - **The run's record comes first.** The handoff, `verify` and the edit hook read the record
+     keyed on the feature slug (the run's task id), so before the first dispatch record the
+     `affected_components` evidence, then evaluate with the plan's stated inputs:
+     ```bash
+     "$DOFLOW" evidence --task-id "<slug>" --action add --batch <batch>.json --json
+     "$DOFLOW" readiness --task-class "<template from step 2>" --task-id "<slug>" --mode workflow \
+       --verification-plan "<plan.md §7 Validation Strategy>" --scope "<comma-separated paths from plan.md §4>" --json
+     ```
+     The batch holds one item: `kind` `structural` or `semantic-retrieval`, `provenance`
+     `extracted`, `locator` a file in this repository (`plan.md`), `establishes`
+     `["affected_components"]`, and `content` summarizing the components and files `plan.md` §4
+     lists (schema: the guidance tree's `references/EVIDENCE_LEDGER.md`). `scope_clear` and
+     `verification_plan` come from the two stated inputs; `--scope` as a path list is also what
+     `verify` bounds the change by. A refusal names the command to run again.
    - `readiness` also accepts `--verification-plan`, `--scope` and `--invariants` — the verb's own
      arguments, unrelated to this skill's `--scope`. Those are inputs
      you **state**, not evidence the gate measured: the report lists them back as `callerAsserted`
@@ -226,7 +238,7 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
       it reports a remaining task on a finished plan and records a checkpoint where a completion
       was owed. Any genuinely remaining task makes this handoff a checkpoint (`annotate`, never
       `complete-stage`); zero remaining is the completion flow. Both branches, their exact
-      commands, the evidence item the readiness cascade needs first, and how to report the
+      commands, the readiness record the handoff reads, and how to report the
       resulting `disposition`: this skill's own `references/handoff_record.md`. Read it before
       running this step.
 
