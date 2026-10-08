@@ -226,3 +226,82 @@ test('parseToml records each table header line, which is where table removal tak
   const { headers } = parseToml('top = 1\n[features] # note\nhooks = true\n\n[mcp_servers."a.b"]\ncommand = "x"\n');
   assert.deepEqual(headers, [{ line: 1, table: 'features' }, { line: 4, table: 'mcp_servers.a\\.b' }]);
 });
+
+// --- placement in the user's own table, and removal back to the exact bytes ------
+const MARKED = 'hooks = true # DoFlow added this to your [features] table';
+
+function installThenRemove(before) {
+  const root = scratch(); const file = path.join(root, 'config.toml');
+  fs.writeFileSync(file, before);
+  const installed = reconcileCodexConfig({ file, scope: 'project', desiredResources: [resource()] });
+  const afterInstall = fs.readFileSync(file, 'utf8');
+  reconcileCodexConfig({ file, scope: 'project', managedResources: installed.managedResources, desiredResources: [] });
+  return { installed, afterInstall, afterRemove: fs.readFileSync(file, 'utf8') };
+}
+
+test('an empty [features] header receives a marked entry, and removal restores the header alone', () => {
+  const { afterInstall, afterRemove } = installThenRemove('[features]\n');
+  assert.equal(afterInstall, `[features]\n${MARKED}\n`);
+  assert.equal(afterRemove, '[features]\n');
+});
+
+test('the marked entry goes right after the header, above a user comment, and removal restores the input', () => {
+  const before = '[features]\n# note\n';
+  const { afterInstall, afterRemove } = installThenRemove(before);
+  assert.equal(afterInstall, `[features]\n${MARKED}\n# note\n`);
+  assert.equal(afterRemove, before);
+});
+
+test('a table defined by root dotted keys receives a dotted entry, and removal restores the input', () => {
+  const before = 'features.x = 1\n';
+  const { afterInstall, afterRemove } = installThenRemove(before);
+  assert.equal(afterInstall, 'features.x = 1\nfeatures.hooks = true\n');
+  assert.equal(afterRemove, before);
+});
+
+test('a dotted entry goes after the last root dotted line, before the next table', () => {
+  const { afterInstall } = installThenRemove('features.x = 1\n\n[profile]\nmodel = "m"\n');
+  assert.equal(afterInstall, 'features.x = 1\nfeatures.hooks = true\n\n[profile]\nmodel = "m"\n');
+});
+
+test('features set as a value is refused with nothing written', () => {
+  for (const [before, line] of [['features = { x = 1 }\n', 1], ['features = true\n', 1]]) {
+    const root = scratch(); const file = path.join(root, 'config.toml');
+    fs.writeFileSync(file, before);
+    const result = reconcileCodexConfig({ file, scope: 'project', desiredResources: [resource()] });
+    assert.equal(result.status, 'conflict');
+    assert.deepEqual(result.conflicts, [`${file}: 'features' is set as a value on line ${line}, so DoFlow cannot add 'features.hooks' to it. Write it as a [features] table and run the command again. Nothing was written.`]);
+    assert.equal(fs.readFileSync(file, 'utf8'), before);
+  }
+});
+
+test('an output that would break a TOML table rule is refused with nothing written', () => {
+  const root = scratch(); const file = path.join(root, 'config.toml');
+  const before = '[features.hooks]\nx = 1\n';
+  fs.writeFileSync(file, before);
+  const result = reconcileCodexConfig({ file, scope: 'project', desiredResources: [resource()] });
+  assert.equal(result.status, 'conflict');
+  assert.match(result.conflicts[0], /DoFlow cannot write 'features\.hooks' without making the file invalid TOML \(table-and-value 'features\.hooks' on line \d+\)\. Nothing was written\.$/);
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+});
+
+test('a [features] table with a user entry still gets the entry after it, unmarked', () => {
+  const { afterInstall } = installThenRemove('[features]\nmine = true\n');
+  assert.equal(afterInstall, '[features]\nmine = true\nhooks = true\n');
+});
+
+test('an update keeps the marker on the line it changes', () => {
+  const root = scratch(); const file = path.join(root, 'config.toml');
+  fs.writeFileSync(file, '[features]\n');
+  const installed = reconcileCodexConfig({ file, scope: 'project', desiredResources: [resource()] });
+  reconcileCodexConfig({ file, scope: 'project', managedResources: installed.managedResources, desiredResources: [resource(false)] });
+  assert.equal(fs.readFileSync(file, 'utf8'), '[features]\nhooks = false # DoFlow added this to your [features] table\n');
+});
+
+test('an input that already opens [features] twice is not refused for it', () => {
+  const root = scratch(); const file = path.join(root, 'config.toml');
+  fs.writeFileSync(file, '[features]\nmine = 1\n\n[features]\nother = 2\n');
+  const result = reconcileCodexConfig({ file, scope: 'project', desiredResources: [resource()] });
+  assert.equal(result.ok, true);
+  assert.equal(result.applied, true);
+});

@@ -182,3 +182,20 @@ test('a DoFlow-owned unchanged table is still updated and removed, with no notic
   assert.equal(removed.content, '');
   assert.deepStrictEqual(removed.notices, []);
 });
+
+test('a server the user defines inside an [mcp_servers] table is the user\'s, so nothing is appended', () => {
+  const before = '[mcp_servers]\ncontext7 = { command = "x" }\n';
+  const { file, plan } = plannedOver(before, ['context7']);
+  assert.equal(plan.ok, true);
+  assert.deepStrictEqual(plan.changes, []);
+  assert.deepStrictEqual(plan.notices, [NOTICES.collision('context7', file)]);
+  assert.equal(plan.content, before);
+});
+
+test('an MCP table that would make the file invalid TOML is refused with nothing written', () => {
+  const before = 'mcp_servers = { other = { command = "y" } }\n';
+  const { file, plan } = plannedOver(before, ['context7']);
+  assert.equal(plan.status, 'conflict');
+  assert.match(plan.conflicts[0], /DoFlow cannot write 'context7' without making the file invalid TOML \(table-and-value 'mcp_servers' on line 3\)/);
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+});

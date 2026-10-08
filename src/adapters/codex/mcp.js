@@ -9,6 +9,7 @@ const {
   configPath,
   fingerprint,
   parseToml,
+  newViolation,
   atomicWrite,
 } = require('./config');
 const { selectMcpServers, nativeMcpCatalog } = require('../../registry');
@@ -218,6 +219,8 @@ function planCodexMcp({ file, scope, managedResources = [], selected = [], allSe
   }
   let content = nextLines.join('\n');
   if (content && !content.endsWith('\n')) content += '\n';
+  const invalid = newViolation({ file, original, content, identities: changes.map((change) => change.identity) });
+  if (invalid) return { ok: false, status: 'conflict', file, original, changes: [], conflicts: [invalid], managedResources };
 
   const nextManagedResources = managedResources.filter((resource) => !isOwnedRecord(resource, scope) || desired.includes(resource.identity));
   for (const name of desired) {
