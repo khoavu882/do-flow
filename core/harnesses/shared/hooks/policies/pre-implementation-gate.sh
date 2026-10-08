@@ -142,7 +142,7 @@ fi
 # Project-scoped candidates come before global ones; within each group the
 # canonical, install-agnostic `.doflow/` location comes first — that is the
 # two-step walk-up (project `.doflow`, then `$HOME/.doflow`) every SKILL.md
-# and the runtime CLI's own resolve_config_dir already uses. Without those two
+# and `doflow-run`'s own resolve_config_dir already uses. Without those two
 # entries this list only ever found the per-harness MIRRORED copies, which a
 # real install need never have projected — leaving the resolver unfound and
 # the branch fallback below (flat paths only) as the whole gate.
@@ -404,9 +404,8 @@ if [ -n "$FOUND" ]; then
   [ -n "$record_state" ] || exit 0
 fi
 
-# The runtime's refusal texts, byte for byte. The command they name is
-# spelled in two parts: this script names it for the reader and never runs it.
-next="doflow-""run readiness --task-class $STAGE_TEMPLATE --task-id $task_id"
+# The runtime's refusal texts, byte for byte.
+next="doflow-run readiness --task-class $STAGE_TEMPLATE --task-id $task_id"
 [ -n "$slug" ] && [ "$slug" != "$task_id" ] && next="$next --slug=$slug"
 gate="doflow gate readiness-before-implementation: task '$task_id'"
 rest="Next: $next, then gather what it lists until it reports READY. Nothing was changed."

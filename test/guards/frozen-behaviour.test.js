@@ -13,8 +13,8 @@
  *   2. FR-012: The pre-implement-gate hook never depends on the Node runtime.
  *      The hook stays a fast, fail-open gate on requirement.md, design.md, and plan.md that
  *      never invokes Node, the runtime CLI or a JavaScript module. Feature 058 (its FR-012) lets
- *      it read the readiness record and the run file with jq, so the word "readiness" is no
- *      longer forbidden; invoking the runtime still is.
+ *      it read the readiness record and the run file with jq and print the runtime's refusal
+ *      text, so the pin looks for those commands at command position, not for their names.
  */
 
 const { test } = require('node:test');
@@ -107,12 +107,19 @@ test('FR-012: pre-implement-gate hook scripts never invoke the Node runtime', ()
       `${path.basename(hookFile)} must allow edits targeting agent-docs/`
     );
 
-    // 3. Must not invoke Node, the runtime CLI or a JavaScript module (FR-012 independence). The
-    //    readiness record may be read: feature 058's FR-012 has the hook check it.
+    // 3. Must not invoke Node, the runtime CLI or a JavaScript module (FR-012 independence). It may
+    //    name them in messages and read the readiness record: feature 058's FR-012 has the hook
+    //    check it and print the runtime's refusal text, which names the command to run.
+    // The reading must see the script's real commands, or finding no invocation would mean nothing.
+    const commandWords = new Set(shellCommands(content).map((words) => words.find((w) => !ASSIGNMENT.test(w))));
+    assert.ok(commandWords.has('git') && commandWords.has('jq'), 'the pin reads the git and jq commands the hook runs');
+    assert.deepEqual(
+      runtimeInvocations(content),
+      [],
+      `${path.basename(hookFile)} must not invoke node, doflow-run or a .js module (FR-012; `
+      + 'feature 058 FR-012 allows reading the readiness record, never invoking the runtime)'
+    );
     const forbiddenPatterns = [
-      /(^|[\s;&|(])node(\s|$)/m,
-      /doflow-run/,
-      /\b[\w-]+\.js\b/,
       /\bevidence-ledger\b/i,
       /\bretrieval-plan\b/i,
       /\boutcome\b/i,
@@ -121,9 +128,173 @@ test('FR-012: pre-implement-gate hook scripts never invoke the Node runtime', ()
     for (const pattern of forbiddenPatterns) {
       assert.ok(
         !pattern.test(content),
-        `${path.basename(hookFile)} must not reference or invoke runtime module/verb ${pattern} (FR-012; `
-        + 'feature 058 FR-012 allows reading the readiness record, never invoking the runtime)'
+        `${path.basename(hookFile)} must not reference or invoke runtime module/verb ${pattern} (FR-012)`
       );
     }
+  }
+});
+
+/**
+ * The commands a shell script runs, as word lists: one per simple command, including those inside
+ * `$(...)`, backticks and `( ... )`. Comments are dropped, and quoted text is a word's value, never
+ * a command of its own. A reading for this guard, not a shell parser: no heredocs or `case` nesting
+ * inside a substitution.
+ * @param {string} src
+ * @returns {Array<Array<string>>}
+ */
+function shellCommands(src) {
+  const commands = [];
+  let i = 0;
+  function scan(stop) {
+    let words = [];
+    let word = '';
+    let inWord = false;
+    const endWord = () => {
+      if (inWord) words.push(word);
+      word = '';
+      inWord = false;
+    };
+    const endCommand = () => {
+      endWord();
+      if (words.length) commands.push(words);
+      words = [];
+    };
+    while (i < src.length) {
+      const c = src[i];
+      if (stop && c === stop) {
+        i += 1;
+        endCommand();
+        return;
+      }
+      if (c === '#' && !inWord) {
+        while (i < src.length && src[i] !== '\n') i += 1;
+      } else if (c === '\\') {
+        word += src[i + 1] ?? '';
+        inWord = true;
+        i += 2;
+      } else if (c === "'") {
+        const end = src.indexOf("'", i + 1) === -1 ? src.length : src.indexOf("'", i + 1);
+        word += src.slice(i + 1, end);
+        inWord = true;
+        i = end + 1;
+      } else if (c === '"') {
+        inWord = true;
+        i += 1;
+        while (i < src.length && src[i] !== '"') {
+          if (src[i] === '\\') {
+            word += src[i + 1] ?? '';
+            i += 2;
+          } else if (src[i] === '$' && src[i + 1] === '(') {
+            i += 2;
+            scan(')');
+          } else if (src[i] === '`') {
+            i += 1;
+            scan('`');
+          } else {
+            word += src[i];
+            i += 1;
+          }
+        }
+        i += 1;
+      } else if (c === '$' && src[i + 1] === '(') {
+        i += 2;
+        scan(')');
+        inWord = true;
+      } else if (c === '`') {
+        i += 1;
+        scan('`');
+        inWord = true;
+      } else if (c === '(') {
+        i += 1;
+        endCommand();
+        scan(')');
+      } else if (/[\n;&|)]/.test(c)) {
+        i += 1;
+        endCommand();
+      } else if (/\s/.test(c)) {
+        i += 1;
+        endWord();
+      } else {
+        word += c;
+        inWord = true;
+        i += 1;
+      }
+    }
+    endCommand();
+  }
+  scan(null);
+  return commands;
+}
+
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*\+?=/;
+const WRAPPERS = new Set(['exec', 'command', 'env']);
+const KEYWORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{', 'time']);
+const SHELLS = new Set(['bash', 'sh', 'zsh']);
+
+/**
+ * Every command in a shell script whose command word, after leading `VAR=x` assignments, the
+ * `exec`, `command` and `env` wrappers and reserved words such as `if` and `do`, is `node`, `doflow-run` or a path ending in `.js`; a
+ * `bash -c`/`sh -c` script is read the same way. Text that is only printed, assigned or commented
+ * is not a command word, so it never counts.
+ * @param {string} src
+ * @returns {Array<string>}
+ */
+function runtimeInvocations(src) {
+  const found = [];
+  for (const words of shellCommands(src)) {
+    let k = 0;
+    for (;;) {
+      while (k < words.length && (ASSIGNMENT.test(words[k]) || KEYWORDS.has(words[k]))) k += 1;
+      if (k >= words.length || !WRAPPERS.has(words[k])) break;
+      k += 1;
+      while (k < words.length && words[k].startsWith('-')) k += 1;
+    }
+    if (k >= words.length) continue;
+    const name = words[k].split('/').pop();
+    if (name === 'node' || name === 'doflow-run' || name.endsWith('.js')) {
+      found.push(words.slice(k).join(' '));
+    } else if (SHELLS.has(name)) {
+      const flag = words.indexOf('-c', k + 1);
+      if (flag !== -1 && words[flag + 1] !== undefined) found.push(...runtimeInvocations(words[flag + 1]));
+    }
+  }
+  return found;
+}
+
+test('FR-012: the hook pin catches a runtime invocation and lets printed text through', () => {
+  const invoking = [
+    'doflow-run x',
+    'node x.js',
+    "bash -c 'node x'",
+    'a=1; doflow-run status',
+    'true && node x',
+    'false || ./lib/run.js',
+    'cat f | node x',
+    'out=$(doflow-run status)',
+    'out=`node x`',
+    'echo "$(node x)"',
+    'exec doflow-run handoff',
+    'command node x',
+    'env A=1 node x',
+    'FOO=1 doflow-run x',
+    '"$HOME/.doflow/bin/doflow-run" verify',
+    'if [ -f x ]; then\n  node x\nfi',
+    'if node x; then :; fi',
+    'while doflow-run x; do :; done',
+    '[ -f x ] && { doflow-run x; }',
+  ];
+  for (const script of invoking) {
+    assert.notDeepEqual(runtimeInvocations(script), [], `the pin must catch: ${script}`);
+  }
+  const printing = [
+    "printf '%s\\n' \"Next: doflow-run readiness --task-id x\" >&2",
+    'echo "run node x.js, then doflow-run verify" >&2',
+    '# doflow-run and node x.js are named here only',
+    'next="doflow-run readiness --task-class $t --task-id $id"',
+    "msg='node x.js'",
+    'printf "%s has no record. Next: doflow-run readiness\\n" "$gate"',
+  ];
+  for (const script of printing) {
+    assert.deepEqual(runtimeInvocations(script), [], `the pin must let printed text through: ${script}`);
   }
 });
