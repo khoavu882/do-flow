@@ -5,6 +5,7 @@
 // adapter-registry factory, and the helpers more than one command uses (scope resolution, MCP
 // selection, backup-table printing). Nothing here is harness-specific — native quirks belong in
 // src/adapters/<id>/.
+const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { REPO_ROOT } = require('../helper/repo-root');
@@ -13,6 +14,7 @@ const { readInstallManifest } = require('../install/manifest');
 const { DEFAULT_BACKUP_RETENTION, formatBytes } = require('../install/backup');
 const { stateRoot, readLedger } = require('../state');
 const { readLock } = require('../state/lockfile');
+const { acquireRunLock, RunLockTimeoutError, RunLockError, RunLockLostError } = require('../state/run-lock');
 const { createAdapterRegistry } = require('../adapters');
 const { declaredHarnessPaths } = require('../helper/harness-paths');
 const claudeAdapter = require('../adapters/claude');
@@ -69,6 +71,62 @@ function scopeOf(o) {
 function installPaths(scope) {
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   return doflowPaths({ scopeRoot });
+}
+
+/** Whether two paths name the same directory. Device and inode follow symlinks (macOS reaches
+ * /var through /private/var) and ignore letter case on a case-insensitive volume; a file system
+ * that reports inode 0 falls back to real paths, and paths that do not exist to resolved strings. */
+function sameDirectory(a, b, { fsImpl = fs } = {}) {
+  const ra = path.resolve(a);
+  const rb = path.resolve(b);
+  try {
+    const sa = fsImpl.statSync(ra);
+    const sb = fsImpl.statSync(rb);
+    if (sa.ino !== 0 && sb.ino !== 0) return sa.dev === sb.dev && sa.ino === sb.ino;
+  } catch { /* fall through to real paths */ }
+  try {
+    return fsImpl.realpathSync.native(ra) === fsImpl.realpathSync.native(rb);
+  } catch {
+    return ra === rb;
+  }
+}
+
+/** A project install, update, remove or reconcile rooted at the home directory would share the
+ * global install's files and records, and its remove could delete them. Refuses that run with one
+ * line and exit 1 before anything is read, locked or written; `-g` and every other root pass. */
+function refuseHomeRootedProject(o, command) {
+  if (o.global) return;
+  const projectRoot = o.positional[0] || '.';
+  if (!sameDirectory(projectRoot, os.homedir())) return;
+  const targets = o.targets.length ? ` -t ${o.targets.join(',')}` : '';
+  console.error(`[ERROR] ${path.resolve(projectRoot)} is your home directory: a project ${command} there shares the global install's files and records and can delete them. Nothing was changed. Run: doflow ${command} -g${targets}`);
+  process.exit(1);
+}
+
+/** Takes the scope's run lock for a mutating command, or returns null under --dry-run. A run that
+ * cannot take it prints the one reason line and exits 1 before it has read or changed anything. */
+function holdRunLock(o, scope, command) {
+  if (o.dryRun) return null;
+  try {
+    return acquireRunLock({ scopeRoot: installPaths(scope).scopeRoot, scope: scope.global ? 'global' : 'project', command });
+  } catch (err) {
+    if (!(err instanceof RunLockTimeoutError || err instanceof RunLockError)) throw err;
+    console.error(err.message);
+    process.exit(1);
+  }
+}
+
+/** After the confirm prompt: renews the hold, and exits 1 before the first write if another run
+ * took the lock over while the prompt waited. */
+function checkpointRunLock(hold) {
+  if (!hold) return;
+  try {
+    hold.checkpoint();
+  } catch (err) {
+    if (!(err instanceof RunLockLostError)) throw err;
+    console.error(err.message);
+    process.exit(1);
+  }
 }
 
 /** Surface a reconciled-away MCP server rather than dropping it silently: the user picked it once,
@@ -154,6 +212,6 @@ function printBackupTable(rows, rootLabel) {
 }
 
 module.exports = {
-  REPO_ROOT, SCRIPT_DIR, pkg, buildAdapterRegistry, scopeOf, installPaths,
-  reportRetiredMcp, scopeSelectionState, printMcpSelection, printRecordedMcpOwnership, plannedMcpSelections, printBackupTable,
+  REPO_ROOT, SCRIPT_DIR, pkg, buildAdapterRegistry, scopeOf, installPaths, sameDirectory, refuseHomeRootedProject,
+  holdRunLock, checkpointRunLock, reportRetiredMcp, scopeSelectionState, printMcpSelection, printRecordedMcpOwnership, plannedMcpSelections, printBackupTable,
 };

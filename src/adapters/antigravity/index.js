@@ -270,6 +270,7 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
   const changes = [];
   const conflicts = [];
   const treeResults = [];
+  const notices = [];
   const targets = [];
   for (const asset of copyTreeAssets(assets)) {
     const destDir = treeDestFor(asset, paths, scope);
@@ -279,7 +280,7 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
   for (const { asset, destDir } of targets) {
     const sourceDir = sourceDirFor(asset, { repoRoot }, fsImpl, HARNESS);
     const previousResources = ledgerFileResources(neutralResources, HARNESS, asset.id);
-    const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(neutralResources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout,
+    const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(neutralResources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, keepModified: !removing,
       // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
       // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
       // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file
@@ -288,17 +289,21 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
       force: !removing && force === true });
     treeResults.push(result);
     conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+    // A hand-edited file at a path DoFlow no longer writes is the user's: it stays, only its
+    // ownership row is released.
+    notices.push(...result.kept.map((item) => `kept hand-edited ${path.relative(paths.root, item.target)}; DoFlow no longer manages it`));
     for (const change of result.changes) {
       changes.push({
         assetId: asset.id, target: change.target, source: change.source, operation: change.operation,
         ownershipIdentity: `doflow:${HARNESS}:copy-tree:${asset.id}:${change.relPath}`,
         kind: 'copy-tree-file', identity: change.relPath,
         afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: 'registry-v1',
+        ...(change.kept ? { retained: true, retainedFor: [] } : {}),
         projection: { renderer: 'copy-tree' },
       });
     }
   }
-  return { changes, conflicts, targets, notices: siblingReplacedNotices(treeResults) };
+  return { changes, conflicts, targets, notices: [...siblingReplacedNotices(treeResults), ...notices] };
 }
 
 function runTreeChanges(changes, mode) {

@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { verifyHookCommands } = require('../hook-commands');
 const { mergeHooks } = require('../../helper/settings-merge');
+const { atomicWrite } = require('./config');
 
 const SUPPORTED_EVENTS = new Set([
   'PreToolUse', 'PermissionRequest', 'PostToolUse', 'PreCompact', 'PostCompact',
@@ -144,14 +145,7 @@ function planCodexHooks({ config, sourceFile, sourceHooksDir, destinationContext
 function deployCodexHooks(plan, { dryRun = false, fsImpl = fs } = {}) {
   if (!plan.ok) return { ...plan, applied: false };
   if (dryRun || plan.status === 'unchanged') return { ...plan, applied: false };
-  fsImpl.mkdirSync(path.dirname(plan.destination), { recursive: true });
-  const temporary = path.join(path.dirname(plan.destination), `.${path.basename(plan.destination)}.${process.pid}.${Date.now()}.tmp`);
-  try {
-    fsImpl.writeFileSync(temporary, plan.content, { flag: 'wx' });
-    fsImpl.renameSync(temporary, plan.destination);
-  } finally {
-    if (fsImpl.existsSync(temporary)) fsImpl.unlinkSync(temporary);
-  }
+  atomicWrite(plan.destination, plan.content, fsImpl);
   const deployed = new Set();
   for (const check of plan.commands.checks) {
     const target = path.join(plan.destinationHooksDir, check.script);

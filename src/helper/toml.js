@@ -165,4 +165,48 @@ function parseToml(text) {
   return { lines, entries, headers };
 }
 
-module.exports = { parseToml, stripComment };
+/** The table rules of TOML 1.0 that parseToml does not enforce, as found in `text`:
+ * `duplicate-table` when a table is opened by a second `[header]`, or by a `[header]` after dotted
+ * keys already defined it; `table-and-value` when one path is both a key's value and a table (by a
+ * header, or implied by a longer dotted key). `line` is the 1-based line of the second definition.
+ * Throws what parseToml throws. */
+function tableViolations(text) {
+  parseToml(text);
+  const lines = text.split(/\r?\n/);
+  const violations = [];
+  const opened = new Set();
+  const dotted = new Set();
+  const tables = new Set();
+  const values = new Set();
+  const asTable = (segments, line) => {
+    const flat = flattenKeyPath(segments);
+    if (values.has(flat)) violations.push({ kind: 'table-and-value', table: flat, line });
+    tables.add(flat);
+  };
+  let table = [];
+  for (let index = 0; index < lines.length; index++) {
+    const clean = stripComment(lines[index]).trim();
+    if (!clean) continue;
+    const tableMatch = clean.match(/^\[(.+)\]$/);
+    if (tableMatch) {
+      table = parseKeyPath(tableMatch[1].trim());
+      const flat = flattenKeyPath(table);
+      if (opened.has(flat) || dotted.has(flat)) violations.push({ kind: 'duplicate-table', table: flat, line: index + 1 });
+      opened.add(flat);
+      for (let length = 1; length <= table.length; length++) asTable(table.slice(0, length), index + 1);
+      continue;
+    }
+    const keyPath = parseKeyPath(splitAssignment(clean)[0].trim());
+    for (let length = 1; length < keyPath.length; length++) {
+      const segments = [...table, ...keyPath.slice(0, length)];
+      dotted.add(flattenKeyPath(segments));
+      asTable(segments, index + 1);
+    }
+    const full = flattenKeyPath([...table, ...keyPath]);
+    if (tables.has(full)) violations.push({ kind: 'table-and-value', table: full, line: index + 1 });
+    values.add(full);
+  }
+  return violations;
+}
+
+module.exports = { parseToml, stripComment, tableViolations };

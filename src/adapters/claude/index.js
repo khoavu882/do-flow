@@ -95,11 +95,12 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     const changes = [];
     const conflicts = [];
     const treeResults = [];
+    const notices = [];
     for (const asset of claudeTreeAssets(assets)) {
       const destDir = copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourcePath(asset, context);
       const previousResources = ledgerFileResources(ledger?.resources, 'claude', asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, 'claude'), operation: removing ? 'remove' : 'apply', layout: asset.layout, transform: asset.transform,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, 'claude'), operation: removing ? 'remove' : 'apply', layout: asset.layout, transform: asset.transform, keepModified: !removing,
         // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
         // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
         // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file
@@ -107,6 +108,9 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
         force: !removing && context?.force === true, });
       treeResults.push(result);
       conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+      // A hand-edited file at a path DoFlow no longer writes is the user's: it stays, only its
+      // ownership row is released.
+      notices.push(...result.kept.map((item) => `kept hand-edited ${path.relative(paths.root, item.target)}; DoFlow no longer manages it`));
       for (const change of result.changes) {
         changes.push({
           assetId: asset.id, target: change.target, source: change.source, operation: change.operation,
@@ -114,11 +118,12 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
           kind: 'copy-tree-file', identity: change.relPath,
           afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: 'registry-v1',
           transformName: asset.transform || null,
+          ...(change.kept ? { retained: true, retainedFor: [] } : {}),
           projection: { renderer: 'copy-tree' },
         });
       }
     }
-    return { changes, conflicts, notices: siblingReplacedNotices(treeResults) };
+    return { changes, conflicts, notices: [...siblingReplacedNotices(treeResults), ...notices] };
   }
 
   function applyCopyTreeAssets(changes) {
@@ -137,7 +142,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
   }
 
   function removeCopyTreeAssets(changes) {
-    const treeChanges = changes.filter((change) => change.kind === 'copy-tree-file' && change.operation === 'remove')
+    const treeChanges = changes.filter((change) => change.kind === 'copy-tree-file' && change.operation === 'remove' && !change.retained)
       .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
     return removeTree({ changes: treeChanges }).removed;
   }
@@ -483,6 +488,9 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
       mergeMarkedSection(source, change.target ?? nativePaths({ scope, scopeRoot }).instructions);
     }
     applyCopyTreeAssets(changes);
+    // An update that no longer ships a copy-tree file carries its rows as removals inside the
+    // apply batch; the lifecycle calls remove() only for `doflow remove`.
+    removeCopyTreeAssets(changes);
     applySettingsAsset(changes);
     writeMcp(changes);
     return { applied: changes.length };

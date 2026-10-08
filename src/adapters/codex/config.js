@@ -6,7 +6,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { parseToml, stripComment } = require('../../helper/toml');
+const { parseToml, stripComment, tableViolations } = require('../../helper/toml');
 
 const CONFIG_NAME = 'config.toml';
 const CONFIG_KIND = 'configuration-entry';
@@ -58,6 +58,50 @@ function normaliseDesired(resources) {
   return result;
 }
 
+/** The comment on a line DoFlow added to a table the user opened with no entry: it is how removal
+ * knows to keep the user's header and restore the file's exact bytes. */
+function addedMarker(table) { return ` # DoFlow added this to your [${table}] table`; }
+
+/** Where a new entry `<table>.<key>` goes in the parsed file: after the last entry of its table;
+ * on the line right after the table's empty header, marked; as a root dotted line after the last
+ * root dotted line of that table; refused (`valueEntry`) when the table or a parent of it is set as
+ * a value, which TOML cannot extend; otherwise in a new table (no `at`). */
+function placeEntry(identity, value, parsed) {
+  const parts = identity.split('.');
+  const table = parts.slice(0, -1).join('.');
+  const rendered = renderValue(value);
+  const assignment = `${parts.at(-1)} = ${rendered}`;
+  const entries = [...parsed.entries];
+  const after = (items) => Math.max(...items.map(([, entry]) => entry.line)) + 1;
+  const inTable = entries.filter(([, entry]) => entry.table === table);
+  if (inTable.length) return { table, at: after(inTable), line: assignment };
+  const header = parsed.headers.find((item) => item.table === table);
+  if (header) return { table, at: header.line + 1, line: `${assignment}${addedMarker(table)}` };
+  const dotted = entries.filter(([key, entry]) => entry.table === '' && key.startsWith(`${table}.`));
+  if (dotted.length) return { table, at: after(dotted), line: `${identity} = ${rendered}` };
+  const valueEntry = entries.find(([key]) => key === table || table.startsWith(`${key}.`));
+  if (valueEntry) return { table, valueEntry };
+  return { table, line: assignment };
+}
+
+/** Whether a managed entry's line is one placeEntry put into the user's own table: marked, or
+ * written as a dotted key outside its table. */
+function placedLine(identity, entry, lines) {
+  const table = identity.split('.').slice(0, -1).join('.');
+  return entry.table !== table || lines[entry.line].trimEnd().endsWith(addedMarker(table));
+}
+
+/** A conflict when `content` breaks a TOML table rule that `original` did not already break, so a
+ * file that was valid is never written invalid; null otherwise. */
+function newViolation({ file, original, content, identities }) {
+  const refused = (reason) => `${file}: DoFlow cannot write ${identities.map((identity) => `'${identity}'`).join(', ')} without making the file invalid TOML (${reason}). Nothing was written.`;
+  const before = tableViolations(original);
+  let after;
+  try { after = tableViolations(content); } catch (error) { return refused(error.message); }
+  const added = after.find((item) => !before.some((known) => known.kind === item.kind && known.table === item.table));
+  return added ? refused(`${added.kind} '${added.table}' on line ${added.line}`) : null;
+}
+
 function isOwnedRecord(resource, scope) {
   return resource && resource.target === 'codex' && resource.scope === scope &&
     (resource.kind === CONFIG_KIND || resource.kind === 'config-entry') && typeof resource.identity === 'string';
@@ -85,6 +129,7 @@ function planCodexConfig({ file, scope, managedResources = [], desiredResources 
   const owned = new Map(managedResources.filter((resource) => isOwnedRecord(resource, scope)).map((resource) => [resource.identity, resource]));
   const changes = [];
   const conflicts = [];
+  const placements = new Map();
   const all = new Set([...desired.keys(), ...owned.keys()]);
   for (const identity of all) {
     const entry = parsed.entries.get(identity);
@@ -103,6 +148,14 @@ function planCodexConfig({ file, scope, managedResources = [], desiredResources 
     }
     if (wanted && (!entry || fingerprint(entry.value) !== fingerprint(wanted.value))) {
       changes.push({ type: entry ? 'update' : 'create', identity, value: wanted.value, line: entry?.line });
+      if (!entry) {
+        const placement = placeEntry(identity, wanted.value, parsed);
+        if (placement.valueEntry) {
+          const [prefix, held] = placement.valueEntry;
+          conflicts.push(`${file}: '${prefix}' is set as a value on line ${held.line + 1}, so DoFlow cannot add '${identity}' to it. Write it as a [${prefix}] table and run the command again. Nothing was written.`);
+        }
+        placements.set(identity, placement);
+      }
     } else if (!wanted && entry) {
       changes.push({ type: 'remove', identity, line: entry.line });
     }
@@ -118,22 +171,23 @@ function planCodexConfig({ file, scope, managedResources = [], desiredResources 
     const suffix = commentSuffix(originalLine);
     nextLines[change.line] = `${indentation}${key} = ${renderValue(change.value)}${suffix && !/^\s/.test(suffix) ? ' ' : ''}${suffix}`;
   }
-  for (const change of changes.filter((change) => change.type === 'remove')) nextLines[change.line] = '';
-  dropEmptiedTables(nextLines, changes, parsed.headers);
+  // A line DoFlow placed in the user's own table (marker or dotted form) is deleted outright and its
+  // header kept, so the file returns to its exact bytes. Any other removal leaves a blank line.
+  const removals = changes.filter((change) => change.type === 'remove');
+  const placedInUserTable = removals.filter((change) => placedLine(change.identity, parsed.entries.get(change.identity), parsed.lines));
+  for (const change of removals) nextLines[change.line] = placedInUserTable.includes(change) ? null : '';
+  dropEmptiedTables(nextLines, changes.filter((change) => !placedInUserTable.includes(change)), parsed.headers);
   // A new key must land INSIDE its own table. Appending at end-of-file only happens to be
   // correct when that table is the file's last one — otherwise the key silently joins whichever
   // table trails the file, so `features.hooks` written after an `[mcp_servers.x]` block becomes
-  // `mcp_servers.x.hooks`. Existing tables get an insertion after their final entry; genuinely
-  // new tables are appended once each, with all of their keys grouped under a single header.
+  // `mcp_servers.x.hooks`. placeEntry chooses the spot; genuinely new tables are appended once
+  // each, with all of their keys grouped under a single header.
   const insertions = [];
   const newTables = new Map();
   for (const change of changes.filter((change) => change.type === 'create')) {
-    const parts = change.identity.split('.');
-    const table = parts.slice(0, -1).join('.');
-    const line = `${parts.at(-1)} = ${renderValue(change.value)}`;
-    const tableLines = [...parsed.entries.values()].filter((entry) => entry.table === table).map((entry) => entry.line);
-    if (tableLines.length) insertions.push({ at: Math.max(...tableLines) + 1, line });
-    else newTables.set(table, [...(newTables.get(table) || []), line]);
+    const placement = placements.get(change.identity);
+    if (placement.at !== undefined) insertions.push({ at: placement.at, line: placement.line });
+    else newTables.set(placement.table, [...(newTables.get(placement.table) || []), placement.line]);
   }
   // Descending, so an earlier insertion never shifts the index of one still pending.
   for (const insertion of insertions.sort((a, b) => b.at - a.at)) nextLines.splice(insertion.at, 0, insertion.line);
@@ -148,6 +202,8 @@ function planCodexConfig({ file, scope, managedResources = [], desiredResources 
   }
   let content = nextLines.join('\n');
   if (content && !content.endsWith('\n')) content += '\n';
+  const invalid = newViolation({ file, original, content, identities: changes.map((change) => change.identity) });
+  if (invalid) return { ok: false, status: 'conflict', file, original, changes: [], conflicts: [invalid], managedResources };
   const nextManagedResources = managedResources.filter((resource) => !isOwnedRecord(resource, scope) || desired.has(resource.identity));
   for (const resource of desired.values()) {
     const index = nextManagedResources.findIndex((item) => isOwnedRecord(item, scope) && item.identity === resource.identity);
@@ -174,18 +230,22 @@ function dropEmptiedTables(lines, changes, headerRecords) {
     const body = lines.slice(start + 1, end).map((_, offset) => start + 1 + offset);
     const removedHere = body.filter((index) => removedTables.has(index));
     if (!removedHere.length || removedHere.some((index) => createdTables.has(removedTables.get(index)))) return;
-    if (body.some((index) => !removedTables.has(index) && lines[index].trim() !== '')) return;
+    if (body.some((index) => !removedTables.has(index) && lines[index] !== null && lines[index].trim() !== '')) return;
     lines[start] = null;
     for (const index of removedHere) lines[index] = null;
     if (end === lines.length && start > 0 && lines[start - 1] === '') lines[start - 1] = null;
   });
 }
 
+/** Replace a file through a sibling temporary file, keeping the existing file's permission bits so
+ * a config kept private stays so. A file this creates gets the process's default mode. */
 function atomicWrite(file, content, fsImpl = fs) {
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+  const mode = fsImpl.existsSync(file) ? fsImpl.statSync(file).mode & 0o7777 : null;
   const temporary = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`);
   try {
-    fsImpl.writeFileSync(temporary, content, { flag: 'wx' });
+    fsImpl.writeFileSync(temporary, content, { flag: 'wx', ...(mode === null ? {} : { mode }) });
+    if (mode !== null) fsImpl.chmodSync(temporary, mode);
     fsImpl.renameSync(temporary, file);
   } finally {
     if (fsImpl.existsSync(temporary)) fsImpl.unlinkSync(temporary);
@@ -207,4 +267,4 @@ function reconcileCodexConfig(options) {
   return applyCodexConfig(plan, options);
 }
 
-module.exports = { CONFIG_NAME, CONFIG_KIND, configPath, fingerprint, parseToml, planCodexConfig, applyCodexConfig, reconcileCodexConfig, atomicWrite };
+module.exports = { CONFIG_NAME, CONFIG_KIND, configPath, fingerprint, parseToml, newViolation, planCodexConfig, applyCodexConfig, reconcileCodexConfig, atomicWrite };

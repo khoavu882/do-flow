@@ -596,24 +596,23 @@ test('Codex remove with a duplicated span in AGENTS.md is refused before anythin
   assert.strictEqual(fs.readFileSync(ledgerFile, 'utf8'), ledgerBefore);
 });
 
-test('Codex project remove rooted at HOME leaves every file the global install still owns', () => {
-  // A project rooted at $HOME shares ~/.codex, ~/.agents and the one ledger with the global install.
+test('Codex project install and remove rooted at HOME are refused and leave every global file', () => {
+  // A project rooted at $HOME would share ~/.codex, ~/.agents and the one ledger with the global install.
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   let result = run(['install', '-g', '--force', '--target', 'codex'], { home });
   assert.strictEqual(result.status, 0, result.stderr);
-  result = run(['install', home, '--force', '--target', 'codex'], { home });
-  assert.strictEqual(result.status, 0, result.stderr);
   const globalOwned = ['hooks.json', 'config.toml', path.join('hooks', 'session-start.sh'), path.join('bin', 'doflow-run')]
-    .map((rel) => path.join(home, '.codex', rel));
+    .map((rel) => path.join(home, '.codex', rel))
+    .concat(path.join(home, '.doflow', 'state', 'ledger.json'));
   const before = globalOwned.map((file) => fs.readFileSync(file, 'utf8'));
-  result = run(['remove', home, '--force', '--target', 'codex'], { home });
-  assert.strictEqual(result.status, 0, result.stderr);
-  assert.match(result.stdout, /codex: retained \d+ shared resource\(s\) still claimed by codex \(global scope\)/);
-  assert.deepStrictEqual(globalOwned.map((file) => fs.readFileSync(file, 'utf8')), before);
+  for (const command of ['install', 'remove']) {
+    result = run([command, home, '--force', '--target', 'codex'], { home });
+    assert.strictEqual(result.status, 1, result.stdout);
+    assert.match(result.stderr, new RegExp(`is your home directory: a project ${command} there .*Nothing was changed\\. Run: doflow ${command} -g -t codex`));
+    assert.deepStrictEqual(globalOwned.map((file) => fs.readFileSync(file, 'utf8')), before, `a refused ${command} changes no global file`);
+  }
   assert.ok(fs.existsSync(path.join(home, '.agents', 'skills', 'do-execute-plan', 'SKILL.md')), 'global skills survive');
-  assert.ok(!fs.existsSync(path.join(home, 'AGENTS.md')), 'the project-only AGENTS.md is still removed');
-  const ledger = JSON.parse(fs.readFileSync(path.join(home, '.doflow', 'state', 'ledger.json'), 'utf8'));
-  assert.ok(ledger.resources.length > 0 && ledger.resources.every((resource) => resource.scope === 'global'), 'only the project rows are released');
+  assert.ok(!fs.existsSync(path.join(home, 'AGENTS.md')), 'no project AGENTS.md is written at HOME');
 });
 
 test('Codex remove keeps a user hook script, AGENTS.md line and config.toml table byte for byte', () => {

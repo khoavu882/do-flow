@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { configPath, fingerprint: configFingerprint, parseToml, planCodexConfig, applyCodexConfig } = require('./config');
-const { renderServer, planCodexMcp, applyCodexMcp, ownedCodexMcpIds } = require('./mcp');
+const { renderServer, planCodexMcp, applyCodexMcp, ownedCodexMcpIds, userDefinedCodexMcpIds, serverTableText } = require('./mcp');
 const { agentDirectory, discoverCodexAgents, planCodexAgents, applyCodexAgents } = require('./agents');
 const { planCodexHooks, deployCodexHooks, removeCodexHookScripts } = require('./hooks');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../copy-tree');
@@ -52,14 +52,16 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     const config = paths.configFile;
     const agents = paths.agentsDirectory;
     const hooks = paths.hooksFile;
+    const mcpRecords = nativeManagedResources(options.managedResources || options.ledger?.resources || [], context, { kind: 'mcp-server', target: config });
+    const catalogNames = [...(options.registry?.mcp || []), ...(projectedNativeOptions(options).mcpCatalog || [])].map((server) => server.id);
     return {
       harness: HARNESS,
       scope: options.scope,
       config: { file: config, exists: fsImpl.existsSync(config) },
       agents: { directory: agents, exists: fsImpl.existsSync(agents) },
       hooks: { file: hooks, exists: fsImpl.existsSync(hooks) },
-      mcpOwned: ownedCodexMcpIds({ file: config, scope: context.scope, fsImpl,
-        managedResources: nativeManagedResources(options.managedResources || options.ledger?.resources || [], context, { kind: 'mcp-server', target: config }) }),
+      mcpOwned: ownedCodexMcpIds({ file: config, scope: context.scope, fsImpl, managedResources: mcpRecords }),
+      mcpUserDefined: userDefinedCodexMcpIds({ file: config, scope: context.scope, fsImpl, managedResources: mcpRecords, names: catalogNames }),
     };
   }
 
@@ -106,6 +108,9 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
       target: change.target ?? change.file ?? component.file ?? component.destination ?? component.directory,
       ownershipIdentity: change.ownershipIdentity ?? ownershipIdentity(componentName, change.identity ?? (componentName === 'hooks' ? 'hooks.json' : assetId)),
       ...change,
+      // A release drops the ownership row and leaves the file alone, so the lifecycle never hands
+      // it to apply() or remove().
+      ...(change.release ? { retained: true, retainedFor: [] } : {}),
     });
   }
 
@@ -314,11 +319,12 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     const changes = [];
     const conflicts = [];
     const treeResults = [];
+    const notices = [];
     for (const asset of copyTreeAssets(assets)) {
       const destDir = copyTreeDestDir(codexConfigDir(context), asset);
       const sourceDir = sourceDirFor(asset, repoRoot);
       const previousResources = ledgerFileResources(neutralResources, HARNESS, asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(neutralResources, HARNESS), operation: removing ? 'remove' : 'apply', layout: asset.layout,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(neutralResources, HARNESS), operation: removing ? 'remove' : 'apply', layout: asset.layout, keepModified: !removing,
         // `force` is the CLI's --force reaching the one conflict class a plan can actually
         // downgrade: a ledger-owned destination whose bytes were edited underneath us. With force,
         // that is drift to heal rather than a refusal — exactly what `doflow reconcile` (always
@@ -327,17 +333,21 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
         force: !removing && force === true });
       treeResults.push(result);
       conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+      // A hand-edited file at a path DoFlow no longer writes is the user's: it stays, only its
+      // ownership row is released.
+      notices.push(...result.kept.map((item) => `kept hand-edited ${path.relative(context.paths.root, item.target)}; DoFlow no longer manages it`));
       for (const change of result.changes) {
         changes.push({
           assetId: asset.id, target: change.target, source: change.source, operation: change.operation,
           ownershipIdentity: `doflow:codex:copy-tree:${asset.id}:${change.relPath}`,
           kind: 'copy-tree-file', identity: change.relPath,
           afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: sourceVersion ?? 'unknown',
+          ...(change.kept ? { retained: true, retainedFor: [] } : {}),
           projection: { renderer: 'copy-tree' },
         });
       }
     }
-    return { changes, conflicts, notices: siblingReplacedNotices(treeResults) };
+    return { changes, conflicts, notices: [...siblingReplacedNotices(treeResults), ...notices] };
   }
 
   function applyCopyTreeAssets(changes) {
@@ -347,7 +357,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
   }
 
   function removeCopyTreeAssets(changes) {
-    const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove')
+    const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove' && !change.retained)
       .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
     return removeTree({ changes: treeChanges }).removed;
   }
@@ -408,6 +418,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     const catalog = nativeMcpCatalog(native.mcpCatalog);
     const managedResources = nativeManagedResources(neutralResources, context, { kind: 'mcp-server', target: configFile });
     return planCodexMcp({ file: configFile, scope: context.scope, managedResources, selected: removing ? [] : native.selectedMcp,
+      removing, scopeArg: context.scope === 'global' ? '-g' : context.projectRoot,
       ...catalog, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion, recoveryPoint: options.recoveryPoint });
   }
 
@@ -507,7 +518,8 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
       ...copyTree.changes.map((change) => ({ harness: HARNESS, component: 'copyTree', target: change.target, operation: change.operation, identity: change.identity })),
       ...instructions.changes.map((change) => ({ harness: HARNESS, component: 'instructions', target: change.target, operation: change.operation, identity: change.identity })),
     ];
-    return { harness: HARNESS, scope: options.scope, ok: failures.length === 0, safe: failures.length === 0, components, failures, changes, requiredNativeResources, notices: copyTree.notices };
+    return { harness: HARNESS, scope: options.scope, ok: failures.length === 0, safe: failures.length === 0, components, failures, changes, requiredNativeResources,
+      notices: [...copyTree.notices, ...(components.mcp?.notices || [])] };
   }
 
   /** Apply only native plans emitted by this adapter. MCP is first because it and
@@ -533,7 +545,9 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     // applyCopyTreeAssets/applyInstructionsAsset already filter to non-remove operations, so calling
     // them unconditionally here (including when apply() is invoked from remove(), below) is safe.
     const copyTreeApplied = dryRun ? 0 : applyCopyTreeAssets(changes);
-    if (!dryRun) applyInstructionsAsset(changes);
+    // Copy-tree removals run here too, for both verbs: an update that no longer ships a file
+    // carries its rows as removals inside the apply batch, and remove() delegates to this function.
+    if (!dryRun) { removeCopyTreeAssets(changes); applyInstructionsAsset(changes); }
     const nativeComponents = { mcp, config, agents, hooks };
     return { harness: HARNESS, applied: [mcp, config, agents, hooks].filter((result) => result?.applied).length + copyTreeApplied,
       components: nativeComponents, resources: resourcesFromApplied({ components: nativeComponents, scope: scope ?? 'project', sourceVersion, recoveryRef }) };
@@ -554,7 +568,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     }
     const hooksPlan = changes.find((change) => change?.nativeComponent === 'hooks' && change.nativePlan?.directRemove)?.nativePlan;
     if (hooksPlan) removeCodexHookScripts(hooksPlan, { dryRun });
-    if (!dryRun) { removeCopyTreeAssets(changes); removeInstructionsAsset(changes); }
+    if (!dryRun) removeInstructionsAsset(changes);
     return { ...result, removed: changes.filter((change) => (change.operation ?? change.type) === 'remove').length };
   }
 
@@ -571,16 +585,20 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     return { statuses, resources };
   }
 
+  /** A server is recorded only when its table now holds DoFlow's rendering. One discovery found as
+   * the user's at plan time is reported `not-managed` and never recorded, even when its bytes match. */
   function verifyMcpResources({ native, configText, context, options, sourceVersion, recoveryRef }) {
     const statuses = []; const resources = [];
     const catalog = nativeMcpCatalog(native.mcpCatalog);
+    const userDefined = new Set(options.discovery?.mcpUserDefined || []);
     for (const id of native.selectedMcp || []) {
       const definition = catalog.serverDefs[id];
-      const header = `[mcp_servers.${id}]`;
-      const present = Boolean(definition && configText.includes(header));
-      statuses.push({ assetId: assetIdFor(options, 'mcp'), capability: 'mcp', status: present ? 'managed' : 'missing', identity: id,
+      const table = definition ? serverTableText(configText, id) : null;
+      const present = table !== null && configFingerprint(table) === configFingerprint(renderServer(id, definition));
+      const status = userDefined.has(id) ? 'not-managed' : (present ? 'managed' : 'missing');
+      statuses.push({ assetId: assetIdFor(options, 'mcp'), capability: 'mcp', status, identity: id,
         ownershipIdentity: ownershipIdentity('mcp', id), target: context.paths.configFile });
-      if (present) resources.push(lifecycleResource({ scope: options.scope, assetId: assetIdFor(options, 'mcp'), kind: 'mcp-server', identity: id,
+      if (status === 'managed') resources.push(lifecycleResource({ scope: options.scope, assetId: assetIdFor(options, 'mcp'), kind: 'mcp-server', identity: id,
         target: context.paths.configFile, fingerprint: configFingerprint(renderServer(id, definition)), sourceVersion, recoveryRef,
         projection: { renderer: 'codex-mcp' } }));
     }

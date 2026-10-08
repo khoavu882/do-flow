@@ -9,9 +9,12 @@ const {
   configPath,
   fingerprint,
   parseToml,
+  newViolation,
   atomicWrite,
 } = require('./config');
 const { selectMcpServers, nativeMcpCatalog } = require('../../registry');
+const { NOTICES } = require('../mcp-entries');
+const { stripComment } = require('../../helper/toml');
 
 const MCP_KIND = 'mcp-server';
 const MCP_PREFIX = 'mcp_servers.';
@@ -79,7 +82,14 @@ function tableRanges(text) {
         break;
       }
     }
-    tables.push({ name, start: index, end });
+    // A comment written after the table's last line, and whatever follows it up to the next table,
+    // is the user's and belongs to no table. Blank lines straight after the table stay in its range,
+    // so a removal still takes the separator DoFlow wrote with it.
+    let content = end;
+    while (content > index + 1 && stripComment(lines[content - 1]).trim() === '') content--;
+    let stop = content;
+    while (stop < end && lines[stop].trim() === '') stop++;
+    tables.push({ name, start: index, end: stop });
   }
   return { lines, tables };
 }
@@ -91,6 +101,34 @@ function fullServerRange(tables, name) {
 /** One table's text as its fingerprint is taken. */
 function tableText(lines, range) {
   return `${lines.slice(range.start, range.end).join('\n').replace(/\n*$/, '\n')}`;
+}
+
+/** Whether config.toml defines server `name` in any form: a bare `[mcp_servers.<name>]` header, a
+ * quoted header, a sub-table, or dotted keys and inline tables under `mcp_servers`. */
+function definedInFile(name, { tables, parsed }) {
+  const own = (key) => key === `${MCP_PREFIX}${name}` || key.startsWith(`${MCP_PREFIX}${name}.`);
+  return tables.some((table) => table.name === name) || parsed.headers.some((header) => own(header.table))
+    || [...parsed.entries.keys()].some(own);
+}
+
+/** The text of server `name`'s bare table, as its fingerprint is taken, or null when it has none. */
+function serverTableText(text, name) {
+  const { lines, tables } = tableRanges(text);
+  const range = fullServerRange(tables, name);
+  return range ? tableText(lines, range) : null;
+}
+
+/** The names among `names` that config.toml defines with no owned record: the user's own servers,
+ * which DoFlow never writes, removes or records. A file that cannot be read or parsed yields none. */
+function userDefinedCodexMcpIds({ file, scope, names = [], managedResources = [], fsImpl = fs }) {
+  let text; let parsed;
+  try {
+    text = fsImpl.existsSync(file) ? fsImpl.readFileSync(file, 'utf8') : '';
+    parsed = parseToml(text);
+  } catch { return []; }
+  const { tables } = tableRanges(text);
+  const owned = new Set(managedResources.filter((resource) => isOwnedRecord(resource, scope)).map((resource) => resource.identity));
+  return [...new Set(names)].filter((name) => !owned.has(name) && definedInFile(name, { tables, parsed }));
 }
 
 /** The tables DoFlow owns in config.toml now: owned records whose table is present with the
@@ -108,7 +146,24 @@ function ownedCodexMcpIds({ file, scope, managedResources = [], fsImpl = fs }) {
   }).map((resource) => resource.identity);
 }
 
-function planCodexMcp({ file, scope, managedResources = [], selected = [], allServers, serverDefs, sourceVersion, recoveryPoint }) {
+/** How to stop managing a server whose table the user changed: the same run without it selected. */
+function modifiedConflict(name, desired, scopeArg) {
+  const rest = desired.filter((item) => item !== name);
+  // Quoted for a POSIX shell when it holds anything a shell would split or expand, so the command
+  // works as copied for a project root with a space in it.
+  const arg = /^[A-Za-z0-9_@%+=:,./-]+$/.test(scopeArg) ? scopeArg : `'${scopeArg.replace(/'/g, "'\\''")}'`;
+  return `MCP server '${name}' was modified outside DoFlow. If this table is yours, run: doflow update ${arg} -t codex --mcp ${rest.length ? rest.join(',') : 'none'}; DoFlow then stops managing it and keeps the table.`;
+}
+
+/**
+ * @param {Object} options
+ * @param {boolean} [options.removing=false] the run removes Codex: an owned server the user changed
+ *   is then refused, as it always was, rather than released; the refusal names the update that
+ *   releases it.
+ * @param {string} [options.scopeArg='-g'] the scope as the user types it (`-g` or the project root),
+ *   for the command a conflict names.
+ */
+function planCodexMcp({ file, scope, managedResources = [], selected = [], allServers, serverDefs, sourceVersion, recoveryPoint, removing = false, scopeArg = '-g' }) {
   const original = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
   let parsed;
   try { parsed = parseToml(original); } catch (error) {
@@ -128,19 +183,28 @@ function planCodexMcp({ file, scope, managedResources = [], selected = [], allSe
   const owned = new Map(managedResources.filter((resource) => isOwnedRecord(resource, scope)).map((resource) => [resource.identity, resource]));
   const changes = [];
   const conflicts = [];
+  const notices = [];
+  const userDefined = allServers.filter((name) => !owned.has(name) && definedInFile(name, { tables, parsed }));
   const names = new Set([...desired, ...owned.keys()]);
   for (const name of names) {
     const range = fullServerRange(tables, name);
     const existing = range ? tableText(lines, range) : null;
     const record = owned.get(name);
     const wanted = desired.includes(name);
-    if (range && !record) {
+    if (userDefined.includes(name)) {
       // A server the user had already registered is not appropriated by an install.  It remains
       // usable when selected, and is never removed merely because a later selection omits it.
+      if (wanted) notices.push(NOTICES.collision(name, file));
       continue;
     }
-    if (record && range && record.fingerprint !== fingerprint(existing)) {
-      conflicts.push(`MCP server '${name}' was modified outside DoFlow`);
+    // A definition in a form DoFlow never writes (quoted header, dotted keys) is a change too, so
+    // DoFlow never appends a second definition beside it.
+    if (record && definedInFile(name, { tables, parsed }) && (!range || record.fingerprint !== fingerprint(existing))) {
+      if (wanted || removing) conflicts.push(modifiedConflict(name, desired, scopeArg));
+      else {
+        changes.push({ type: 'remove', identity: name, release: true });
+        notices.push(NOTICES.released(name, file));
+      }
       continue;
     }
     if (wanted) {
@@ -154,7 +218,8 @@ function planCodexMcp({ file, scope, managedResources = [], selected = [], allSe
   if (conflicts.length) return { ok: false, status: 'conflict', file, original, changes: [], conflicts, managedResources };
 
   const nextLines = [...lines];
-  for (const change of changes.filter((item) => item.type !== 'create').sort((a, b) => b.range.start - a.range.start)) {
+  // A release gives up the record only; the user's table stays byte for byte.
+  for (const change of changes.filter((item) => item.type !== 'create' && !item.release).sort((a, b) => b.range.start - a.range.start)) {
     const replacement = change.type === 'update' ? change.content.trimEnd().split('\n') : [];
     nextLines.splice(change.range.start, change.range.end - change.range.start, ...replacement);
   }
@@ -165,18 +230,18 @@ function planCodexMcp({ file, scope, managedResources = [], selected = [], allSe
   }
   let content = nextLines.join('\n');
   if (content && !content.endsWith('\n')) content += '\n';
+  const invalid = newViolation({ file, original, content, identities: changes.map((change) => change.identity) });
+  if (invalid) return { ok: false, status: 'conflict', file, original, changes: [], conflicts: [invalid], managedResources };
 
   const nextManagedResources = managedResources.filter((resource) => !isOwnedRecord(resource, scope) || desired.includes(resource.identity));
   for (const name of desired) {
-    const range = fullServerRange(tables, name);
-    const existingIsForeign = range && !owned.has(name);
-    if (existingIsForeign) continue;
+    if (userDefined.includes(name)) continue;
     const next = resourceFor({ name, scope, definition: serverDefs[name], sourceVersion, recoveryPoint });
     const index = nextManagedResources.findIndex((resource) => isOwnedRecord(resource, scope) && resource.identity === name);
     if (index >= 0) nextManagedResources[index] = next;
     else nextManagedResources.push(next);
   }
-  return { ok: true, status: changes.length ? 'change' : 'unchanged', file, original, content, changes, conflicts: [], managedResources: nextManagedResources };
+  return { ok: true, status: changes.length ? 'change' : 'unchanged', file, original, content, changes, conflicts: [], notices, userDefined, managedResources: nextManagedResources };
 }
 
 function applyCodexMcp(plan, { dryRun = false, fsImpl = fs } = {}) {
@@ -194,6 +259,8 @@ module.exports = {
   MCP_KIND,
   readCodexMcpCatalog,
   ownedCodexMcpIds,
+  userDefinedCodexMcpIds,
+  serverTableText,
   renderServer,
   resourceFor,
   planCodexMcp,

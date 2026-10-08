@@ -107,3 +107,118 @@ test('dry-run supplies plan and ownership records without writing', () => {
   assert.equal(result.changes[0].type, 'create');
   assert.equal(result.managedResources[0].identity, 'sequential-thinking');
 });
+
+// --- a user's own server, release and the conflict that names it ---------------
+const { planCodexMcp } = require('../../../src/adapters/codex/mcp');
+const { NOTICES } = require('../../../src/adapters/mcp-entries');
+
+function plannedOver(text, selected, extra = {}) {
+  const file = path.join(scratch(), 'config.toml');
+  if (text !== null) fs.writeFileSync(file, text);
+  return { file, plan: planCodexMcp(options(file, selected, { scopeArg: '-g', ...extra })) };
+}
+
+test('a selected server the user already defines, in any form, is kept with no change, no record and one notice', () => {
+  const { serverDefs } = catalog();
+  for (const text of [
+    '[mcp_servers.context7]\ncommand = "x"\n',
+    '[mcp_servers."context7"]\ncommand = "x"\n',
+    'mcp_servers.context7.command = "x"\n',
+    renderServer('context7', serverDefs.context7),
+  ]) {
+    const { file, plan } = plannedOver(text, ['context7']);
+    assert.equal(plan.ok, true, text);
+    assert.deepStrictEqual(plan.changes, [], text);
+    assert.deepStrictEqual(plan.managedResources, [], text);
+    assert.deepStrictEqual(plan.notices, [NOTICES.collision('context7', file)], text);
+    assert.deepStrictEqual(plan.userDefined, ['context7'], text);
+    assert.equal(plan.content, text, text);
+  }
+});
+
+test('an unselected server the user defines gives no notice', () => {
+  const { plan } = plannedOver('[mcp_servers.context7]\ncommand = "x"\n', []);
+  assert.deepStrictEqual(plan.changes, []);
+  assert.deepStrictEqual(plan.notices, []);
+});
+
+test('an owned row whose table the user changed is released when a run does not select it', () => {
+  const { serverDefs } = catalog();
+  const managed = [resourceFor({ name: 'context7', scope: 'project', definition: serverDefs.context7 })];
+  for (const text of ['[mcp_servers.context7]\ncommand = "mine"\n', '[mcp_servers."context7"]\ncommand = "npx"\n']) {
+    const { file, plan } = plannedOver(text, [], { managedResources: managed });
+    assert.equal(plan.ok, true, text);
+    assert.deepStrictEqual(plan.changes, [{ type: 'remove', identity: 'context7', release: true }], text);
+    assert.deepStrictEqual(plan.notices, [NOTICES.released('context7', file)], text);
+    assert.equal(plan.content, text, 'a release edits no line');
+    assert.deepStrictEqual(plan.managedResources, []);
+  }
+});
+
+test('an owned row whose table the user changed is a conflict naming the update that releases it', () => {
+  const { serverDefs } = catalog();
+  const managed = [resourceFor({ name: 'context7', scope: 'project', definition: serverDefs.context7 })];
+  const text = '[mcp_servers.context7]\ncommand = "mine"\n';
+  for (const [selected, removing, rest] of [
+    [['context7'], false, 'none'],
+    [[], true, 'none'],
+    [['context7', 'sequential-thinking'], false, 'sequential-thinking'],
+  ]) {
+    const { file, plan } = plannedOver(text, selected, { managedResources: managed, removing });
+    assert.equal(plan.status, 'conflict');
+    assert.deepStrictEqual(plan.conflicts, [`MCP server 'context7' was modified outside DoFlow. If this table is yours, run: doflow update -g -t codex --mcp ${rest}; DoFlow then stops managing it and keeps the table.`]);
+    assert.equal(fs.readFileSync(file, 'utf8'), text);
+  }
+});
+
+test('a DoFlow-owned unchanged table is still updated and removed, with no notice', () => {
+  const { serverDefs } = catalog();
+  const old = { command: 'old-context7' };
+  const updated = plannedOver(renderServer('context7', old), ['context7'], { managedResources: [resourceFor({ name: 'context7', scope: 'project', definition: old })] }).plan;
+  assert.deepStrictEqual(updated.changes.map((change) => change.type), ['update']);
+  assert.deepStrictEqual(updated.notices, []);
+  const removed = plannedOver(renderServer('context7', serverDefs.context7), [], { managedResources: [resourceFor({ name: 'context7', scope: 'project', definition: serverDefs.context7 })] }).plan;
+  assert.deepStrictEqual(removed.changes.map((change) => [change.type, change.release]), [['remove', undefined]]);
+  assert.equal(removed.content, '');
+  assert.deepStrictEqual(removed.notices, []);
+});
+
+test('a server the user defines inside an [mcp_servers] table is the user\'s, so nothing is appended', () => {
+  const before = '[mcp_servers]\ncontext7 = { command = "x" }\n';
+  const { file, plan } = plannedOver(before, ['context7']);
+  assert.equal(plan.ok, true);
+  assert.deepStrictEqual(plan.changes, []);
+  assert.deepStrictEqual(plan.notices, [NOTICES.collision('context7', file)]);
+  assert.equal(plan.content, before);
+});
+
+test('an MCP table that would make the file invalid TOML is refused with nothing written', () => {
+  const before = 'mcp_servers = { other = { command = "y" } }\n';
+  const { file, plan } = plannedOver(before, ['context7']);
+  assert.equal(plan.status, 'conflict');
+  assert.match(plan.conflicts[0], /DoFlow cannot write 'context7' without making the file invalid TOML \(table-and-value 'mcp_servers' on line 3\)/);
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+});
+
+test('a user comment written after DoFlow\'s last table is not part of that table, and remove keeps it', () => {
+  const appended = '\n# my profiles\n[profiles.fast]\nmodel = "a"\n';
+  for (const [before, after] of [['[features]\nx = 1\n', appended], ['', '# mine\n']]) {
+    const file = path.join(scratch(), 'config.toml');
+    if (before) fs.writeFileSync(file, before);
+    const installed = reconcileCodexMcp(options(file, ['context7']));
+    fs.appendFileSync(file, after);
+    const edited = fs.readFileSync(file, 'utf8');
+    const reinstall = planCodexMcp(options(file, ['context7'], { managedResources: installed.managedResources }));
+    assert.equal(reinstall.status, 'unchanged', JSON.stringify(reinstall.conflicts));
+    const removed = reconcileCodexMcp(options(file, [], { managedResources: installed.managedResources }));
+    assert.deepStrictEqual(removed.changes.map((change) => [change.type, change.release]), [['remove', undefined]]);
+    assert.equal(fs.readFileSync(file, 'utf8'), `${before}${after}`, `from ${JSON.stringify(edited)}`);
+  }
+});
+
+test('the conflict quotes a project root that a shell would split', () => {
+  const { serverDefs } = catalog();
+  const managed = [resourceFor({ name: 'context7', scope: 'project', definition: serverDefs.context7 })];
+  const { plan } = plannedOver('[mcp_servers.context7]\ncommand = "mine"\n', ['context7'], { managedResources: managed, scopeArg: "/tmp/my proj's" });
+  assert.match(plan.conflicts[0], /run: doflow update '\/tmp\/my proj'\\''s' -t codex --mcp none;/);
+});
