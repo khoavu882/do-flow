@@ -128,12 +128,17 @@ function planCodexHooks({ config, sourceFile, sourceHooksDir, destinationContext
   const content = schema.ok && mergedDesired ? `${JSON.stringify(mergedDesired, null, 2)}\n` : null;
   if (errors.length) return { ok: false, status: 'invalid-request', destination, original, changes: [], errors, commands };
   const changed = original !== content;
+  const destinationHooksDir = destinationContext.paths?.hooksDirectory
+    || destinationContext.hooksDir
+    || path.join(path.dirname(destination), 'hooks');
+  // The scripts deployCodexHooks copies beside hooks.json, so a backup of this change holds them too.
+  const companionTargets = [...new Set([
+    ...commands.checks.map((check) => path.join(destinationHooksDir, check.script)),
+    ...shippedHookScripts(sourceHooksDir, fsImpl).map((name) => path.join(destinationHooksDir, name)),
+  ])].sort();
   return { ok: true, status: changed ? 'change' : 'unchanged', destination, original, content,
-    changes: changed ? [{ type: fsImpl.existsSync(destination) ? 'update' : 'create', file: destination }] : [],
-    errors: [], commands, trust: commands.trust, scriptsDir: sourceHooksDir,
-    destinationHooksDir: destinationContext.paths?.hooksDirectory
-      || destinationContext.hooksDir
-      || path.join(path.dirname(destination), 'hooks') };
+    changes: changed ? [{ type: fsImpl.existsSync(destination) ? 'update' : 'create', file: destination, companionTargets }] : [],
+    errors: [], commands, trust: commands.trust, scriptsDir: sourceHooksDir, destinationHooksDir };
 }
 
 function deployCodexHooks(plan, { dryRun = false, fsImpl = fs } = {}) {

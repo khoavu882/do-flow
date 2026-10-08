@@ -1,12 +1,13 @@
 'use strict';
 // `doflow update` — incremental refresh: diff the pinned/selected state against what is on disk
 // and apply only what changed. Never re-prompts for MCP (reuses each harness's recorded selection).
-const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { resolveTargets, toolDirs } = require('../../install/targets');
 const { resolveContext, printContext } = require('../../install/context');
-const { createBackup, pruneBackups } = require('../../install/backup');
+const { DEFAULT_BACKUP_RETENTION, createFileBackup, applyRetention, retentionNote } = require('../../install/backup');
+const { backupSetFromPlan } = require('../../install/backup-set');
+const { backupStep, reportBackup, printBackupDryRun, applyBackupRetention } = require('./install');
 const { writeManifest, readInstallManifest } = require('../../install/manifest');
 const { confirm } = require('../../helper/prompt');
 const { sourceCommit } = require('../../helper/git');
@@ -49,13 +50,13 @@ function cmdUpdate(o) {
   if (!lifecycleView.plan.safe) { assertSafeRegistryPlan(lifecycleView); return; }
   printMcpSelection(lifecycleView, selection.sources, { requested: o.mcp, prefix: o.dryRun ? '[DRY]' : '[INFO]' });
   const lifecycleChanged = Boolean(lifecycleView.plan.changes.length);
-  // A target whose every change is an MCP entry stays out of the backup: ~/.claude.json also holds
-  // Claude Code's own state, which a rollback must never restore over newer state. An entry's ledger
-  // row, not a file copy, is its recovery path, so an update that changes only MCP entries backs up
-  // nothing.
-  const changesTo = (target) => lifecycleView.plan.changes.filter((change) => change.target === target);
-  const backupTargets = [...new Set(lifecycleView.plan.changes.map((change) => change.target))]
-    .filter((target) => typeof target === 'string' && !changesTo(target).every((change) => change.kind === 'mcp-server'));
+  // A file whose every change is an MCP entry stays out of the backup (backup-set.js says why), so an
+  // update that changes only MCP entries backs up nothing.
+  const buildBackupSet = () => backupSetFromPlan({
+    plan: lifecycleView.plan, scope: scope.global ? 'global' : 'project', scopeRoot: lifecyclePaths.scopeRoot,
+    exclude: [backupRoot, lifecycleView.stateRoot, lifecyclePaths.manifestPath, path.join(lifecyclePaths.doflowRoot, 'doflow.lock')],
+  });
+  const keep = o.prune ?? DEFAULT_BACKUP_RETENTION;
 
   const lockArgs = scope.global ? { scope: 'global', homeDir: os.homedir() } : { scope: 'project', projectRoot: path.resolve(scope.projectRoot) };
   const nextLock = (ledgerAfter) => lockDocument({
@@ -91,7 +92,10 @@ function cmdUpdate(o) {
 
   if (o.dryRun) {
     printRegistryLifecycle(lifecycleView, '[DRY]');
-    if (!o.noBackup && backupTargets.length) console.log(`[DRY]  Would create partial backup: ${backupRoot}/update_<timestamp>`);
+    const set = o.noBackup ? null : backupStep(buildBackupSet);
+    if (set) printBackupDryRun(set, `${backupRoot}/update_<timestamp>`);
+    const retention = applyRetention({ backupRoot, keep, dryRun: true, reserve: set?.count ? 1 : 0 });
+    console.log(`[DRY]  Backups: would keep ${retention.kept}, would remove ${retention.wouldRemove.length} (${retentionNote(o.prune, keep)})`);
     console.log(`[DRY]  Would write manifest: ${lifecyclePaths.manifestPath}`);
     console.log('[DRY] Dry run complete');
     return;
@@ -107,10 +111,12 @@ function cmdUpdate(o) {
   }
 
   let bid = '';
-  if (!o.noBackup && backupTargets.length) {
-    const existingTargets = backupTargets.filter((f) => fs.existsSync(f));
-    bid = createBackup({ operation: 'update', tools: targets, dirs, backupRoot, repoRoot: SCRIPT_DIR, sourceCommit: commit, partialFiles: existingTargets, date: new Date() });
-    console.error(`[INFO]  Backup created: ${bid}`);
+  if (!o.noBackup) {
+    const backup = backupStep(() => createFileBackup({ operation: 'update', set: buildBackupSet(), backupRoot, repoRoot: SCRIPT_DIR,
+      sourceCommit: commit, version: pkg.version, date: new Date() }));
+    bid = reportBackup(backup);
+  } else {
+    console.error('[WARN]  Skipping backup (--no-backup)');
   }
 
   const result = applyLifecycle({ plan: lifecycleView.plan, registry: lifecycleView.registry,
@@ -129,10 +135,7 @@ function cmdUpdate(o) {
   const updateLock = recordLock(lockArgs, nextLock(result.ledger));
   console.log(`[INFO] doflow.lock: ${updateLock.summary}`);
 
-  if (o.prune > 0) {
-    const pruned = pruneBackups(backupRoot, o.prune);
-    if (pruned.length) console.error(`[INFO]  Pruned ${pruned.length} old backup(s)`);
-  }
+  applyBackupRetention({ backupRoot, prune: o.prune, keep, bid });
 
   console.log('[OK] Update complete!');
 }

@@ -5,7 +5,10 @@ const os = require('node:os');
 const path = require('node:path');
 const { resolveTargets, toolDirs } = require('../../install/targets');
 const { resolveContext, printContext } = require('../../install/context');
-const { createBackup, pruneBackups } = require('../../install/backup');
+const {
+  BackupError, DEFAULT_BACKUP_RETENTION, createFileBackup, applyRetention, formatBytes, retentionNote,
+} = require('../../install/backup');
+const { backupSetFromPlan } = require('../../install/backup-set');
 const { writeManifest, readInstallManifest } = require('../../install/manifest');
 const { confirm } = require('../../helper/prompt');
 const { sourceCommit } = require('../../helper/git');
@@ -28,7 +31,7 @@ function cmdInstall(o) {
   const dirs = toolDirs(scope);
   const lifecyclePaths = installPaths(scope);
   const backupRoot = lifecyclePaths.backupRoot;
-  // Resolved once per invocation and threaded into resolveContext/createBackup/writeManifest below
+  // Resolved once per invocation and threaded into resolveContext/createFileBackup/writeManifest below
   // — those three used to each spawn their own `git rev-parse` for the identical value.
   const commit = sourceCommit(SCRIPT_DIR);
 
@@ -58,10 +61,20 @@ function cmdInstall(o) {
     console.log('[INFO] MCP: none selected by default in non-interactive mode — pass --mcp all or --mcp <names> to include servers.');
   }
 
+  // The files this run's apply can overwrite or delete; DoFlow's own records are never among them.
+  const buildBackupSet = () => backupSetFromPlan({
+    plan: lifecycleView.plan, scope: scope.global ? 'global' : 'project', scopeRoot: lifecyclePaths.scopeRoot,
+    exclude: [backupRoot, lifecycleView.stateRoot, lifecyclePaths.manifestPath, path.join(lifecyclePaths.doflowRoot, 'doflow.lock')],
+  });
+  const keep = o.prune ?? DEFAULT_BACKUP_RETENTION;
+
   if (o.dryRun) {
     console.log(`[INFO] Install targets: ${targets.join(' ')}`);
     printRegistryLifecycle(lifecycleView, '[DRY]');
-    if (!o.noBackup) console.log(`[DRY]  Would create backup: ${backupRoot}/install_<timestamp>`);
+    const set = o.noBackup ? null : backupStep(buildBackupSet);
+    if (set) printBackupDryRun(set, `${backupRoot}/install_<timestamp>`);
+    const retention = applyRetention({ backupRoot, keep, dryRun: true, reserve: set?.count ? 1 : 0 });
+    console.log(`[DRY]  Backups: would keep ${retention.kept}, would remove ${retention.wouldRemove.length} (${retentionNote(o.prune, keep)})`);
     console.log(`[DRY]  Would write manifest: ${lifecyclePaths.manifestPath}`);
     console.log('[DRY] Dry run complete — no changes written');
     return;
@@ -78,8 +91,9 @@ function cmdInstall(o) {
 
   let bid = '';
   if (!o.noBackup) {
-    bid = createBackup({ operation: 'install', tools: targets, dirs, backupRoot, repoRoot: SCRIPT_DIR, sourceCommit: commit, date: new Date() });
-    console.error(`[INFO]  Backup created: ${bid}`);
+    const backup = backupStep(() => createFileBackup({ operation: 'install', set: buildBackupSet(), backupRoot, repoRoot: SCRIPT_DIR,
+      sourceCommit: commit, version: pkg.version, date: new Date() }));
+    bid = reportBackup(backup);
   } else {
     console.error('[WARN]  Skipping backup (--no-backup)');
   }
@@ -132,12 +146,58 @@ function cmdInstall(o) {
   );
   console.log(`[INFO] doflow.lock: ${lockResult.summary}`);
 
-  if (o.prune > 0) {
-    const pruned = pruneBackups(backupRoot, o.prune);
-    if (pruned.length) console.error(`[INFO]  Pruned ${pruned.length} old backup(s)`);
-  }
+  applyBackupRetention({ backupRoot, prune: o.prune, keep, bid });
 
   console.log('[OK] Installation complete!');
 }
 
+/** Run a backup step; a BackupError stops the command before anything is changed. */
+function backupStep(step) {
+  try {
+    return step();
+  } catch (error) {
+    if (!(error instanceof BackupError)) throw error;
+    console.error(`[ERROR] Backup failed, nothing was changed: ${error.message}`);
+    process.exit(1);
+  }
+}
+
+/** Print what a backup step wrote and return its id ('' when there was nothing to back up). */
+function reportBackup(backup) {
+  if (!backup) {
+    console.error('[INFO]  Backup: nothing to back up (no file changes)');
+    return '';
+  }
+  console.error(`[INFO]  Backup created: ${backup.id} (${backup.files} file(s), ${formatBytes(backup.bytes)}; ${backup.absent} not present before the run)`);
+  return backup.id;
+}
+
+/** The dry-run backup lines for a set the real run would back up. */
+function printBackupDryRun(set, destination) {
+  if (set.count === 0) {
+    console.log('[DRY]  Backup: nothing to back up (no file changes)');
+  } else {
+    console.log(`[DRY]  Would back up ${set.count} file(s), ${formatBytes(set.bytes)} (${set.bytes} bytes; ${set.absent} not present yet) to ${destination}`);
+  }
+  const mcpOnly = set.excluded.filter((item) => item.reason === 'mcp-entries-only').length;
+  if (mcpOnly > 0) console.log(`[DRY]  Not backed up: ${mcpOnly} file(s) holding only MCP entries`);
+}
+
+/** Keep the newest backups after a run that changed files; never changes the exit code. */
+function applyBackupRetention({ backupRoot, prune, keep, bid }) {
+  let retention;
+  try {
+    retention = applyRetention({ backupRoot, keep, protect: bid ? [bid] : [] });
+  } catch (error) {
+    console.error(`[WARN]  Backups: could not apply retention: ${error.message}`);
+    return;
+  }
+  for (const failure of retention.failed) console.error(`[WARN]  Backups: could not remove ${failure.id}: ${failure.error}`);
+  console.error(`[INFO]  Backups: kept ${retention.kept}, removed ${retention.removed.length} (${retentionNote(prune, keep)})`);
+}
+
 module.exports = cmdInstall;
+module.exports.backupStep = backupStep;
+module.exports.reportBackup = reportBackup;
+module.exports.printBackupDryRun = printBackupDryRun;
+module.exports.applyBackupRetention = applyBackupRetention;
