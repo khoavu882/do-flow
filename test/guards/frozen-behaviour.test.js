@@ -10,11 +10,11 @@
  *      gains that behaviour in this feature. The router's current reach is treated as a
  *      deliberate posture pending measurement, not an incomplete rollout.
  *
- *   2. FR-012: The pre-implement-gate hook's behaviour and scope is unchanged.
- *      Readiness evaluation inside skills and file-existence checking inside the hook are two
- *      independent layers: the hook must remain a fast, fail-open file-presence gate on
- *      requirement.md, design.md, and plan.md, and must never depend on readiness or runtime
- *      evidence state.
+ *   2. FR-012: The pre-implement-gate hook never depends on the Node runtime.
+ *      The hook stays a fast, fail-open gate on requirement.md, design.md, and plan.md that
+ *      never invokes Node, the runtime CLI or a JavaScript module. Feature 058 (its FR-012) lets
+ *      it read the readiness record and the run file with jq, so the word "readiness" is no
+ *      longer forbidden; invoking the runtime still is.
  */
 
 const { test } = require('node:test');
@@ -82,7 +82,7 @@ test('FR-009: capability router invocations are frozen to the pinned set of skil
   );
 });
 
-test('FR-012: pre-implement-gate hook scripts remain purely file-existence gates independent of readiness', () => {
+test('FR-012: pre-implement-gate hook scripts never invoke the Node runtime', () => {
   // 022-normalize-hooks moved the gate's actual logic into one canonical script every harness's
   // front door delegates to (design.md C1) — the per-harness files this test originally pointed
   // at are now thin exec dispatchers with none of this logic inline. The pinned properties below
@@ -107,9 +107,12 @@ test('FR-012: pre-implement-gate hook scripts remain purely file-existence gates
       `${path.basename(hookFile)} must allow edits targeting agent-docs/`
     );
 
-    // 3. Must not invoke readiness.js, evidence ledger, or outcome modules (FR-012 independence)
+    // 3. Must not invoke Node, the runtime CLI or a JavaScript module (FR-012 independence). The
+    //    readiness record may be read: feature 058's FR-012 has the hook check it.
     const forbiddenPatterns = [
-      /\breadiness\b/i,
+      /(^|[\s;&|(])node(\s|$)/m,
+      /doflow-run/,
+      /\b[\w-]+\.js\b/,
       /\bevidence-ledger\b/i,
       /\bretrieval-plan\b/i,
       /\boutcome\b/i,
@@ -118,7 +121,8 @@ test('FR-012: pre-implement-gate hook scripts remain purely file-existence gates
     for (const pattern of forbiddenPatterns) {
       assert.ok(
         !pattern.test(content),
-        `${path.basename(hookFile)} must not reference or invoke runtime module/verb ${pattern} (FR-012)`
+        `${path.basename(hookFile)} must not reference or invoke runtime module/verb ${pattern} (FR-012; `
+        + 'feature 058 FR-012 allows reading the readiness record, never invoking the runtime)'
       );
     }
   }
