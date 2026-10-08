@@ -216,6 +216,9 @@ function takeOver(fsImpl, stateDir, lockPath, found, options) {
   try {
     const current = readLockFile(fsImpl, lockPath);
     if (!current || current.key !== found.key) return 'aborted';
+    // Judged again under the claim: a holder whose checkpoint renewed the lock since the first
+    // judgment is no longer stale, and its lock stays.
+    if (!staleReason(current, options)) return 'aborted';
     try { fsImpl.unlinkSync(lockPath); } catch (err) {
       if (err.code !== 'ENOENT') return 'aborted';
     }
@@ -264,19 +267,25 @@ function acquireRunLock({ scopeRoot, scope, command }, {
   const where = { scope, scopeRoot: root, lockPath };
   const fail = (code) => new RunLockError({ ...where, code });
 
-  let firstCreated;
-  try { firstCreated = fsImpl.mkdirSync(stateDir, { recursive: true }); } catch (err) { throw fail(err.code); }
   const tempPath = path.join(stateDir, `.${LOCK_FILE}.${token}.tmp`);
   const record = {
     version: RECORD_VERSION, token, pid: process.pid, hostname, command, scope, scopeRoot: root,
     startedAt: new Date(now()).toISOString(), doflowVersion: DOFLOW_VERSION,
   };
-  try {
-    fsImpl.writeFileSync(tempPath, `${JSON.stringify(record)}\n`, { flag: 'wx' });
-  } catch (err) {
-    unlinkQuietly(fsImpl, tempPath);
-    removeCreatedDirs(fsImpl, stateDir, firstCreated);
-    throw fail(err.code);
+  // A first-ever run that gives up removes the state directory it created. Doing so between this
+  // run's mkdir and its temp write surfaces here as ENOENT, so both steps are tried once more.
+  let firstCreated;
+  for (let attempt = 0; ; attempt += 1) {
+    try { firstCreated = fsImpl.mkdirSync(stateDir, { recursive: true }); } catch (err) { throw fail(err.code); }
+    try {
+      fsImpl.writeFileSync(tempPath, `${JSON.stringify(record)}\n`, { flag: 'wx' });
+      break;
+    } catch (err) {
+      if (err.code === 'ENOENT' && attempt === 0) continue;
+      unlinkQuietly(fsImpl, tempPath);
+      removeCreatedDirs(fsImpl, stateDir, firstCreated);
+      throw fail(err.code);
+    }
   }
   const giveUp = (error) => {
     unlinkQuietly(fsImpl, tempPath);
@@ -346,12 +355,22 @@ function holdHandle({ fsImpl, root, stateDir, lockPath, token, hostname, firstCr
     scopeRoot: root,
     waitedMs,
     cleared,
+    // Under the same claim a takeover of this lock takes, so a renewal and a removal never
+    // interleave: a claim already there means another run is removing this lock.
     checkpoint() {
-      let found = null;
-      try { found = readLockFile(fsImpl, lockPath); } catch { /* unreadable counts as lost */ }
-      if (!found || found.key !== token) throw new RunLockLostError(where);
-      const seconds = now() / 1000;
-      try { fsImpl.utimesSync(lockPath, seconds, seconds); } catch { /* renewal is best effort */ }
+      const claimPath = path.join(stateDir, `${CLAIM_PREFIX}${token}`);
+      let claimed = false;
+      try { claimed = createClaim(fsImpl, claimPath, { token, hostname, target: token }); } catch { /* no state directory: the lock is gone */ }
+      if (!claimed) throw new RunLockLostError(where);
+      try {
+        let found = null;
+        try { found = readLockFile(fsImpl, lockPath); } catch { /* unreadable counts as lost */ }
+        if (!found || found.key !== token) throw new RunLockLostError(where);
+        const seconds = now() / 1000;
+        try { fsImpl.utimesSync(lockPath, seconds, seconds); } catch { /* renewal is best effort */ }
+      } finally {
+        unlinkQuietly(fsImpl, claimPath);
+      }
     },
     release() {
       if (released) return;

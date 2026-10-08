@@ -240,6 +240,63 @@ test('checkpoint renews the mtime, and reports a lock taken over by another run'
   assert.equal(JSON.parse(fs.readFileSync(runLockPath(root), 'utf8')).token, 'c'.repeat(32));
 });
 
+test('checkpoint reports the lock lost while another run holds the claim on it', () => {
+  const root = scopeRoot();
+  const hold = acquireRunLock(target(root));
+  try {
+    fs.writeFileSync(path.join(stateDir(root), `run.lock.claim.${hold.token}`), '{}\n');
+    assert.throws(() => hold.checkpoint(), RunLockLostError);
+  } finally {
+    hold.release();
+  }
+});
+
+test('a takeover does not remove a lock its holder renewed after the taker judged it expired', () => {
+  const root = scopeRoot();
+  const holder = acquireRunLock(target(root));
+  try {
+    fs.utimesSync(runLockPath(root), ELEVEN_MINUTES_AGO(), ELEVEN_MINUTES_AGO());
+    // The taker reaches the same lock through another spelling, so this process's own hold does not
+    // make its acquisition reentrant, and judges by age as a run on another host would.
+    const alias = path.join(scopeRoot(), 'alias');
+    fs.symlinkSync(root, alias);
+    let renewed = false;
+    const fsImpl = {
+      ...fs,
+      writeFileSync(file, data, options) {
+        if (!renewed && String(file).includes('run.lock.claim.')) { renewed = true; holder.checkpoint(); }
+        return fs.writeFileSync(file, data, options);
+      },
+    };
+    assert.throws(() => acquireRunLock(target(alias), { hostname: 'elsewhere.example', waitMs: 300, pollMs: 50, log: () => {}, fsImpl }), RunLockTimeoutError);
+    assert.equal(renewed, true);
+    assert.equal(JSON.parse(fs.readFileSync(runLockPath(root), 'utf8')).token, holder.token);
+    holder.checkpoint();
+  } finally {
+    holder.release();
+  }
+});
+
+test('acquisition survives another run removing the state directory between its mkdir and its temp write', () => {
+  const root = scopeRoot();
+  fs.mkdirSync(stateDir(root), { recursive: true });
+  let removed = false;
+  const fsImpl = {
+    ...fs,
+    writeFileSync(file, data, options) {
+      if (!removed && String(file).endsWith('.tmp')) { removed = true; fs.rmdirSync(stateDir(root)); }
+      return fs.writeFileSync(file, data, options);
+    },
+  };
+  const hold = acquireRunLock(target(root), { fsImpl });
+  try {
+    assert.equal(removed, true);
+    assert.equal(JSON.parse(fs.readFileSync(runLockPath(root), 'utf8')).token, hold.token);
+  } finally {
+    hold.release();
+  }
+});
+
 test('a second acquisition in one process returns the same hold, and the lock outlives the inner release', () => {
   const root = scopeRoot();
   const outer = acquireRunLock(target(root));
