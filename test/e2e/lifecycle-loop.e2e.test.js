@@ -764,11 +764,16 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
       try { oldJson = JSON.parse(norm(was.stdout)); newJson = JSON.parse(norm(now.stdout)); } catch { assert.fail(`${label}: stdout differs and is not JSON\n--- v1.13.0\n${norm(was.stdout)}\n--- now\n${norm(now.stdout)}`); }
       for (const field of additions(oldJson, newJson)) added.add(`${label}: ${field}`);
     }
-    assert.deepEqual([...added], [], 'the new runtime adds nothing to a chain verb\'s output');
+    // Feature 058 records every readiness evaluation: the verb's JSON names the record and the
+    // declared scope, and the record is one new file. Nothing else may be added.
+    const recordAdditions = ['readiness --task-class feature: $.record', 'readiness --task-class feature: $.declaredScope'];
+    assert.deepEqual([...added].filter((a) => !recordAdditions.includes(a)), [], 'the new runtime adds nothing to a chain verb\'s output');
 
-    // The state the two runtimes left behind is the same set of files.
+    // The state the two runtimes left behind is the same set of files, apart from that record.
     const filesOf = (dir) => fs.readdirSync(dir, { recursive: true }).filter((f) => !f.startsWith('.git') && fs.statSync(path.join(dir, f)).isFile()).sort();
-    assert.deepEqual(filesOf(newDir), filesOf(oldDir), 'the same files exist after the same verbs');
+    const readinessStore = path.join('.doflow', 'state', 'readiness') + path.sep;
+    assert.deepEqual(filesOf(newDir).filter((f) => !f.startsWith(readinessStore)), filesOf(oldDir), 'the same files exist after the same verbs');
+    assert.deepEqual(filesOf(newDir).filter((f) => f.startsWith(readinessStore)), [path.join(readinessStore, `${slug}.json`)], 'one readiness record');
   });
 });
 

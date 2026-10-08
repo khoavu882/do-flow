@@ -484,3 +484,58 @@ test('verify prints the bound\'s source under the change-scope tier, and a decla
   assert.equal(tier.status, 'PASS', tier.reason);
   assert.deepEqual(tier.scope.bound.sources, [{ kind: 'declared', paths: ['src/out.js'], origin: 'verify-flag' }]);
 });
+
+function readiness(cwd, ...args) {
+  return spawnSync('node', [DOFLOW, 'readiness', '--task-class', 'bug', '--task-id', 'A.1', ...args], {
+    cwd, env: { ...process.env, HOME: cwd }, encoding: 'utf8',
+  });
+}
+
+const RECORD_REL = path.join('.doflow', 'state', 'readiness', 'A.1.json');
+
+test('the readiness record\'s declared scope bounds a plan-less change, and an equal --scope is accepted', () => {
+  const root = repo({ plan: null });
+  commit(root, 'src/out.js');
+  const rec = readiness(root, '--scope', 'src/out.js');
+  assert.equal(rec.status, 0, rec.stderr);
+
+  const report = JSON.parse(verify(root, '--json').stdout);
+  const tier = report.tiers.find((t) => t.id === 'change-scope');
+  assert.equal(tier.status, 'PASS', tier.reason);
+  assert.deepEqual(tier.scope.bound.sources, [{ kind: 'declared', paths: ['src/out.js'], origin: 'readiness-record', record: RECORD_REL }]);
+  const lines = verify(root, '--action', 'contract').stdout.split('\n');
+  assert.equal(lines[lines.findIndex((l) => l.trimStart().startsWith('change-scope')) + 1], `      bound: declared src/out.js (readiness record ${RECORD_REL})`);
+
+  const same = JSON.parse(verify(root, '--scope', './src/out.js', '--json').stdout);
+  assert.deepEqual(same.tiers.find((t) => t.id === 'change-scope').scope.bound.sources,
+    [{ kind: 'declared', paths: ['src/out.js'], origin: 'verify-flag' }]);
+});
+
+test('a --scope that differs from the readiness record exits 2 and names both', () => {
+  const root = repo({ plan: null });
+  assert.equal(readiness(root, '--scope', 'src/out.js').status, 0);
+  const res = verify(root, '--scope', 'src/b.js');
+  assert.equal(res.status, 2);
+  assert.equal(res.stdout, '');
+  assert.equal(res.stderr.trim(), `doflow verify: --scope src/b.js differs from the scope declared in the readiness record ${RECORD_REL} (src/out.js). `
+    + 'A scope is declared in one place: re-run doflow-run readiness --task-class bug --task-id A.1 --scope src/b.js, or drop --scope. Nothing was changed.');
+});
+
+test('a readiness record in two other checkouts exits 2 with the ambiguous text', () => {
+  const root = repo({ plan: null });
+  const files = [];
+  for (const name of ['wt1', 'wt2']) {
+    const wt = `${root}-${name}`;
+    made.push(wt);
+    git(root, 'worktree', 'add', '-q', '-b', `feat/${name}`, wt);
+    const file = path.join(wt, RECORD_REL);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ version: 1, taskId: 'A.1', taskClass: 'bug', state: 'READY', evaluatedAt: '2026-10-08T00:00:00.000Z', declaredScope: ['src/in.js'] }));
+    files.push(file);
+  }
+  const res = verify(root, '--action', 'contract');
+  assert.equal(res.status, 2);
+  assert.equal(res.stdout, '');
+  assert.equal(res.stderr.trim(), `doflow verify: doflow gate readiness-before-implementation: task 'A.1' has records in more than one other checkout (${files.join(', ')}). `
+    + `Next: run the command from the checkout that holds the one you mean, or run doflow-run readiness --task-class bug --task-id A.1 --slug=${SLUG} here. Nothing was changed.`);
+});

@@ -29,6 +29,10 @@ const { REPO_ROOT } = require('../../helper/repo-root');
 const {
   resolveScopeBound, resolveIntegrationBase, parseDeclaredScope, scopeReasonText, boundSourcesText,
 } = require('./scope-bound');
+const { resolveActiveFeature } = require('../feature-resolve');
+const { isSafeSlug } = require('../task-scope');
+const { readReadinessRecord } = require('../readiness-record');
+const { refusalText, verifyReadinessCheck } = require('../implementation-gate');
 const {
   VerificationContractRunner,
   FATAL_CHECK_MARKERS,
@@ -977,6 +981,26 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
     declared = { paths: parsed.paths, origin: 'verify-flag' };
   }
   const cwd = projectRoot || process.cwd();
+  // The feature the task belongs to, for the readiness record's namespace and for a run keyed by
+  // the feature slug: `--slug`, else the branch's.
+  const featureSlug = slug || branchFeatureSlug(cwd);
+
+  // A scope is declared in one place. The readiness record carries the one stated before the
+  // work; a flag that says something else is refused rather than silently preferred.
+  const recorded = readReadinessRecord({ stateRoot: cwd, taskId, slug: featureSlug });
+  if (recorded.status === 'ambiguous') {
+    return usageError('verify', refusalText('ambiguous', { taskId, slug: featureSlug, template: recordClassOf(recorded.candidates), candidates: recorded.candidates }), json);
+  }
+  const recordedScope = recorded.status === 'found' && Array.isArray(recorded.record.declaredScope) && recorded.record.declaredScope.length > 0
+    ? recorded.record.declaredScope : null;
+  if (recordedScope) {
+    const recordRel = recorded.origin === 'current' ? path.relative(cwd, recorded.file) : recorded.file;
+    if (declared && !sameSet(declared.paths, recordedScope)) {
+      return usageError('verify', `--scope ${String(scope).trim()} differs from the scope declared in the readiness record ${recordRel} (${recordedScope.join(',')}). A scope is declared in one place: re-run doflow-run readiness --task-class ${recorded.record.taskClass} --task-id ${taskId} --scope ${String(scope).trim()}, or drop --scope. Nothing was changed.`, json);
+    }
+    if (!declared) declared = { paths: [...recordedScope], origin: 'readiness-record', record: recordRel };
+  }
+
   let engine;
   let contract;
   try {
@@ -1017,11 +1041,24 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   }
 
   const report = engine.runContract(contract);
+  // A task whose run still has its gated stage pending is not verified while no READY readiness
+  // record exists: the checks passing says nothing about whether the work should have started.
+  try {
+    report.readiness = verifyReadinessCheck({ stateRoot: cwd, taskId, slug: featureSlug });
+  } catch (error) {
+    return usageError('verify', error.message, json, error);
+  }
+  const readinessHeld = report.readiness.applies && !report.readiness.ok;
+  if (readinessHeld && !report.readiness.grace && report.status === 'PASS') {
+    report.status = 'INCONCLUSIVE';
+    report.reason = report.readiness.message;
+  }
   if (json) console.log(JSON.stringify(report, null, 2));
   else {
     console.log(`\nDoFlow Verification Report [${report.taskId}] — ${report.status}:`);
     console.log('═'.repeat(78));
     console.log(report.reason);
+    if (readinessHeld) console.log(`readiness: ${report.readiness.message}`);
     console.log('─'.repeat(78));
     for (const tier of report.tiers) {
       console.log(`  ${tier.id.padEnd(22)} ${tier.status.padEnd(16)} ${tier.required ? 'required' : 'advisory'}`);
@@ -1039,6 +1076,35 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   // PASS is the only status that answers "verified". FAIL and INCONCLUSIVE are both findings, and
   // collapsing INCONCLUSIVE into success would report a verdict over zero evidence as a pass.
   return finishRuntime(report.status === 'PASS' ? 0 : 1);
+}
+
+/** The branch's feature slug as the resolver names it, or null. */
+function branchFeatureSlug(cwd) {
+  try {
+    const found = resolveActiveFeature({ projectRoot: cwd });
+    const s = !found.error && found.paths ? found.paths.feature_slug : null;
+    return isSafeSlug(s) ? s : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether two path lists name the same set. */
+function sameSet(a, b) {
+  const left = new Set(a);
+  const right = new Set(b);
+  return left.size === right.size && [...left].every((p) => right.has(p));
+}
+
+/** The class of the first readable record among `files`, for a refusal that has to name a template. */
+function recordClassOf(files) {
+  for (const file of files) {
+    try {
+      const { taskClass } = JSON.parse(nodeFs.readFileSync(file, 'utf8'));
+      if (typeof taskClass === 'string' && taskClass !== '') return taskClass;
+    } catch { /* an unreadable candidate names no class */ }
+  }
+  return '<class>';
 }
 
 module.exports = {

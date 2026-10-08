@@ -2,7 +2,10 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const { createScratch } = require('../helper/scratch-env');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
 const { ClaimsManager } = require('../../src/runtime/claims');
 const { FreshnessValidator } = require('../../src/runtime/freshness');
@@ -451,4 +454,75 @@ test('FR-003: distinct recorded commits each get their own diff', () => {
 
   const diffCalls = calls.filter((c) => c.startsWith('diff'));
   assert.equal(diffCalls.length, 2, 'two distinct commits, two diffs — the repeat is memoised');
+});
+
+// ── IC-010: every `readiness` call records its evaluation ──────────────────────────────────────
+
+const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
+
+function readinessCli(t, args) {
+  const scratch = createScratch('doflow-readiness-cli-');
+  t.after(() => {
+    // The write-failure case makes the state directory read-only; give it back so it can be removed.
+    try { fs.chmodSync(path.join(scratch.dir, 'p', '.doflow', 'state'), 0o755); } catch { /* not created by this case */ }
+    scratch.remove();
+  });
+  const cwd = path.join(scratch.dir, 'p');
+  fs.mkdirSync(cwd);
+  const run = (extra = []) => spawnSync('node', [DOFLOW, 'readiness', '--task-class', 'trivial-edit', '--task-id', 'T-1', ...args, ...extra], {
+    cwd, env: scratch.env(), encoding: 'utf8',
+  });
+  return { cwd, run };
+}
+
+test('readiness records its evaluation under the state root and names the file after Summary', (t) => {
+  const { cwd, run } = readinessCli(t, ['--scope', 'src/a.js,src/lib/']);
+  const res = run();
+  assert.equal(res.status, 0, res.stderr);
+  const lines = res.stdout.split('\n');
+  const at = lines.findIndex((l) => l.startsWith('Summary:'));
+  assert.equal(lines[at + 1], `Recorded:      ${path.join('.doflow', 'state', 'readiness', 'T-1.json')}`);
+  assert.equal(lines[at + 2], 'Declared scope: src/a.js, src/lib/');
+  const record = JSON.parse(fs.readFileSync(path.join(cwd, '.doflow', 'state', 'readiness', 'T-1.json'), 'utf8'));
+  assert.equal(record.state, 'NEEDS_EVIDENCE');
+  assert.equal(record.taskClass, 'trivial-edit');
+  assert.deepEqual(record.inputs, { scope: 'src/a.js,src/lib/' });
+  assert.deepEqual(record.declaredScope, ['src/a.js', 'src/lib/']);
+});
+
+test('a scope that is not a path list is recorded as a statement and says it bounds nothing', (t) => {
+  const { cwd, run } = readinessCli(t, ['--scope', 'only the parser module']);
+  const res = run();
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(res.stdout, /\nScope: {9}stated as text, not a path list; verify does not bound a change by it\n/);
+  const record = JSON.parse(fs.readFileSync(path.join(cwd, '.doflow', 'state', 'readiness', 'T-1.json'), 'utf8'));
+  assert.deepEqual(record.inputs, { scope: 'only the parser module' });
+  assert.equal(record.declaredScope, null);
+});
+
+test('readiness --json carries the record and the declared scope; no scope prints no scope line', (t) => {
+  const { cwd, run } = readinessCli(t, []);
+  const json = run(['--json']);
+  assert.equal(json.status, 0, json.stderr);
+  const data = JSON.parse(json.stdout);
+  assert.deepEqual(data.record, { file: path.join(fs.realpathSync(cwd), '.doflow', 'state', 'readiness', 'T-1.json'), written: true });
+  assert.equal(data.declaredScope, null);
+  const human = run();
+  assert.doesNotMatch(human.stdout, /Declared scope:|\nScope: /);
+});
+
+test('a state directory that cannot be written: the evaluation prints, the failure is named, exit 1', { skip: process.getuid && process.getuid() === 0 ? 'root ignores permissions' : false }, (t) => {
+  const { cwd, run } = readinessCli(t, []);
+  fs.mkdirSync(path.join(cwd, '.doflow', 'state'), { recursive: true });
+  fs.chmodSync(path.join(cwd, '.doflow', 'state'), 0o555);
+  const res = run();
+  assert.equal(res.status, 1);
+  assert.match(res.stdout, /Overall State:/, 'the evaluation still prints');
+  assert.doesNotMatch(res.stdout, /Recorded:/);
+  assert.match(res.stderr, /^\[ERROR\] readiness: the evaluation was not recorded: /m);
+  const json = run(['--json']);
+  assert.equal(json.status, 1);
+  const data = JSON.parse(json.stdout);
+  assert.equal(data.record.written, false);
+  assert.match(data.record.error, /EACCES|permission/i);
 });

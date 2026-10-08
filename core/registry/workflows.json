@@ -436,6 +436,7 @@
           "skill": "do-implement",
           "kind": "implementation",
           "readinessTemplate": "trivial-edit",
+          "editTimeGate": false,
           "optional": false,
           "purpose": "Make the identified edit at the identified locator."
         },
