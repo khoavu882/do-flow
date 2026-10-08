@@ -4,18 +4,21 @@
 // spawn in a lifecycle test sets HOME and XDG_CONFIG_HOME to a folder under the scratch directory,
 // so no test reads or writes the developer's real ~/.config/doflow, and git sees no global config.
 // DOFLOW_RETENTION_HOURS is dropped from what is inherited, so a developer's shell cannot make a
-// test prune its fixtures; a test that wants it passes it in `extra`.
+// test prune its fixtures, and PI_CODING_AGENT_DIR too, the one harness folder an adapter reads from
+// the environment, so pi's writes stay under the scratch HOME; a test that wants either passes it
+// in `extra`.
 // Nothing runs at require time; each test file creates its scratch and removes it in an `after`.
 
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const RETENTION_ENV = 'DOFLOW_RETENTION_HOURS';
+const DROPPED_ENV = ['DOFLOW_RETENTION_HOURS', 'PI_CODING_AGENT_DIR'];
 
-/** This process's environment without DOFLOW_RETENTION_HOURS, for a spawn that builds its own environment. */
+/** This process's environment without DROPPED_ENV, for a spawn that builds its own environment. */
 function inheritedEnv() {
-  const { [RETENTION_ENV]: _inherited, ...inherited } = process.env;
+  const inherited = { ...process.env };
+  for (const key of DROPPED_ENV) delete inherited[key];
   return inherited;
 }
 
@@ -54,8 +57,10 @@ function createScratch(prefix = 'doflow-lifecycle-') {
      * folder or global git config (DEC-041). `node --test` runs each file in its own process. */
     apply() {
       const next = this.env();
-      if (!(RETENTION_ENV in saved)) saved[RETENTION_ENV] = process.env[RETENTION_ENV];
-      delete process.env[RETENTION_ENV];
+      for (const key of DROPPED_ENV) {
+        if (!(key in saved)) saved[key] = process.env[key];
+        delete process.env[key];
+      }
       for (const key of Object.keys(next)) {
         if (!(key in saved)) saved[key] = process.env[key];
         process.env[key] = next[key];

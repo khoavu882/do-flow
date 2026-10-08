@@ -111,20 +111,19 @@ test('Kiro drops a guidance file the user edited: the edited copy stays, its row
   assert.ok(notices[0].includes(path.join('.kiro', 'steering', 'references', DROPPED)), notices[0]);
 });
 
-test('every harness: update removes what install projected from the dropped source, and leaves no copy no row names', { timeout: 8 * CASE_TIMEOUT_MS }, (t) => {
+test('every harness: update removes what install projected from the dropped source, and leaves no copy no row names', { timeout: 8 * CASE_TIMEOUT_MS }, () => {
   const ids = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.json'), 'utf8')).harnesses.map((harness) => harness.id);
   assert.equal(ids.length, 8);
   const homes = ids.map((id) => {
     const scratch = newScratch(id);
     runOk(scratch, ['install', '-g', '-t', id, '-f', '--mcp', 'none']);
-    return { id, scratch, hadRow: ledgerRows(scratch).some(namesDropped) };
+    // Without a row for the file, the checks below would pass with nothing dropped to remove.
+    assert.ok(ledgerRows(scratch).some(namesDropped), `${id}: install recorded a ledger row ending in ${DROPPED}`);
+    return { id, scratch };
   });
   dropSource();
   try {
-    for (const { id, scratch, hadRow } of homes) {
-      if (!hadRow) t.diagnostic(`${id}: install recorded no ledger row ending in ${DROPPED}`);
-      runOk(scratch, ['update', '-g', '-t', id, '-f']);
-    }
+    for (const { id, scratch } of homes) runOk(scratch, ['update', '-g', '-t', id, '-f']);
   } finally {
     restoreSource();
   }

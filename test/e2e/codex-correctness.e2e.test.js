@@ -48,8 +48,10 @@ function setup(prefix) {
   return { scratch, config, ledger, doflow, ok, write, mode, text, readLedger, mcpRows, checkLedgerVersion };
 }
 
-/** The file's TOML as Python parses it. */
-function parseToml(file) {
+/** The file's TOML as Python parses it, or null with the reason reported when python3 with tomllib
+ * is missing: only the parse assertions are skipped then, never the byte checks beside them. */
+function parseToml(t, file) {
+  if (NO_TOMLLIB) { t.diagnostic(`parse assertions skipped: ${NO_TOMLLIB}`); return null; }
   const r = spawnSync('python3', ['-c', 'import json, sys, tomllib; print(json.dumps(tomllib.load(open(sys.argv[1], "rb"))))', file], { encoding: 'utf8' });
   assert.equal(r.status, 0, `${file} must parse as TOML\n${r.stderr}`);
   return JSON.parse(r.stdout);
@@ -154,39 +156,43 @@ test('a row written by 1.20 for a table the user owns is released with --mcp non
   assert.equal(c.text(), USER_TABLE, 'DoFlow\'s own [features] entry goes and the user\'s table is left as written');
 });
 
-test('an empty [features] header gets hooks = true under it and remove restores the file', { skip: NO_TOMLLIB }, () => {
+test('an empty [features] header gets hooks = true under it and remove restores the file', (t) => {
   const c = setup('features-header');
   c.write('[features]\n');
   c.ok('install', '-g', '-t', 'codex', '-f');
   assert.equal(headerCount(c.text(), '[features]'), 1);
-  const parsed = parseToml(c.config);
-  assert.equal(parsed.features.hooks, true);
+  const parsed = parseToml(t, c.config);
+  if (parsed) assert.equal(parsed.features.hooks, true);
   assert.equal(c.mode(), 0o600);
   c.checkLedgerVersion();
   c.ok('remove', '-g', '-t', 'codex', '-f');
   assert.equal(c.text(), '[features]\n');
 });
 
-test('a root dotted features entry is extended with a dotted hooks key and remove restores the file', { skip: NO_TOMLLIB }, () => {
+test('a root dotted features entry is extended with a dotted hooks key and remove restores the file', (t) => {
   const c = setup('features-dotted');
   c.write('features.x = 1\n');
   c.ok('install', '-g', '-t', 'codex', '-f');
-  const parsed = parseToml(c.config);
-  assert.equal(parsed.features.x, 1);
-  assert.equal(parsed.features.hooks, true);
+  const parsed = parseToml(t, c.config);
+  if (parsed) {
+    assert.equal(parsed.features.x, 1);
+    assert.equal(parsed.features.hooks, true);
+  }
   assert.equal(c.mode(), 0o600);
   c.checkLedgerVersion();
   c.ok('remove', '-g', '-t', 'codex', '-f');
   assert.equal(c.text(), 'features.x = 1\n');
 });
 
-test('a user [features] table keeps its own keys beside hooks = true', { skip: NO_TOMLLIB }, () => {
+test('a user [features] table keeps its own keys beside hooks = true', (t) => {
   const c = setup('features-table');
   c.write('[features]\nmine = true\n');
   c.ok('install', '-g', '-t', 'codex', '-f');
-  const parsed = parseToml(c.config);
-  assert.equal(parsed.features.mine, true);
-  assert.equal(parsed.features.hooks, true);
+  const parsed = parseToml(t, c.config);
+  if (parsed) {
+    assert.equal(parsed.features.mine, true);
+    assert.equal(parsed.features.hooks, true);
+  }
   assert.equal(headerCount(c.text(), '[features]'), 1);
   assert.equal(c.mode(), 0o600);
   c.checkLedgerVersion();
