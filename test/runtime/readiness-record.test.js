@@ -194,7 +194,7 @@ test('a record from a future version, bad JSON, a missing state or a time after 
     assert.equal(check.code, 'unusable', label);
     assert.equal(check.ok, false, label);
     assert.match(check.detail, detail, label);
-    assert.match(check.message, /has a readiness record that cannot be used/, label);
+    assert.match(check.message, label === 'version 2' ? /written by a newer DoFlow/ : /has a readiness record that cannot be used/, label);
   }
   rawRecord(root, 'U.json', good);
   assert.equal(checkReadiness({ stateRoot: root, taskId: 'U', template: 'bug', now: NOW }).code, 'ready', 'a record made at the check time counts');
@@ -203,4 +203,29 @@ test('a record from a future version, bad JSON, a missing state or a time after 
   rawRecord(root, 'U.json', good);
   assert.equal(checkReadiness({ stateRoot: root, taskId: 'U', template: 'feature', now: NOW }).code, 'wrong-template');
   assert.equal(checkReadiness({ stateRoot: root, taskId: 'none', template: 'bug', now: NOW }).code, 'missing');
+});
+
+test('an unreadable record is replaced by the next evaluation, its bytes kept once beside it', () => {
+  const root = dir('replace-unreadable');
+  const file = rawRecord(root, 'T-5.json', '{"version":1,');
+  const first = write(root, 'T-5');
+  assert.equal(first.replacedUnreadable, `${file}.unreadable`);
+  assert.equal(fs.readFileSync(`${file}.unreadable`, 'utf8'), '{"version":1,');
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).state, 'READY');
+  assert.equal(write(root, 'T-5').replacedUnreadable, null, 'a readable record is simply replaced');
+
+  rawRecord(root, 'T-5.json', '{"version":"x"}');
+  assert.equal(write(root, 'T-5').replacedUnreadable, `${file}.unreadable`, 'a version this runtime never wrote, and that is not newer, is unreadable too');
+  assert.equal(fs.readFileSync(`${file}.unreadable`, 'utf8'), '{"version":"x"}', 'the latest unreadable bytes, not an accumulation');
+  assert.deepEqual(fs.readdirSync(path.dirname(file)).filter((f) => f.startsWith('T-5')).sort(), ['T-5.json', 'T-5.json.unreadable']);
+});
+
+test('a record written by a newer DoFlow is never overwritten: the write is refused naming the file', () => {
+  const root = dir('newer');
+  const bytes = JSON.stringify({ version: 2, taskId: 'T-6', state: 'READY' });
+  const file = rawRecord(root, 'T-6.json', bytes);
+  assert.throws(() => write(root, 'T-6'), (error) => error.message.includes(file) && /written by a newer DoFlow \(record version 2; this runtime reads 1\)/.test(error.message)
+    && !/doflow-run readiness/.test(error.message));
+  assert.equal(fs.readFileSync(file, 'utf8'), bytes);
+  assert.equal(fs.existsSync(`${file}.unreadable`), false);
 });

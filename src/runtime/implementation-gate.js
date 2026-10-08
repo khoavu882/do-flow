@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { readReadinessRecord, RECORD_VERSION } = require('./readiness-record');
+const { readReadinessRecord, newerVersionOf, RECORD_VERSION } = require('./readiness-record');
 const { findStateFile } = require('./checkouts');
 const { readTaskState } = require('./task-state');
 const { REPO_ROOT } = require('../helper/repo-root');
@@ -22,6 +22,9 @@ const PRE_FLOOR_GRACE_ENDS = '1.23.0';
 
 /** Check codes a run started before READINESS_FLOOR_SINCE is excused from until PRE_FLOOR_GRACE_ENDS. */
 const GRACE_CODES = new Set(['missing', 'not-ready', 'wrong-template', 'unusable']);
+
+/** What clears a record a newer DoFlow wrote; `readiness` here refuses to overwrite it. */
+const NEWER_NEXT = 'run this command with the DoFlow that wrote the record, or upgrade DoFlow here.';
 
 /**
  * The first stage that mutates source and carries a readiness template; with `editTime`, the first
@@ -63,11 +66,18 @@ function nextCommand({ taskId, slug, template }) {
  * @param {Object|null} [options.record] the record read, for `not-ready` and `wrong-template`
  * @param {Array<string>} [options.candidates] the files found, for `ambiguous`
  * @param {string|null} [options.detail] why the record cannot be used, for `unusable`
+ * @param {string|null} [options.file] the record's file, for `unusable` when a newer DoFlow wrote it
+ * @param {number|null} [options.newerVersion] that newer record version; `readiness` would refuse to
+ *   replace such a record, so the text does not send the caller there
  * @returns {string}
  */
-function refusalText(code, { taskId, slug = null, template, record = null, candidates = [], detail = null }) {
+function refusalText(code, { taskId, slug = null, template, record = null, candidates = [], detail = null, file = null, newerVersion = null }) {
   const next = nextCommand({ taskId, slug, template });
   const tail = `Next: ${next}, then gather what it lists until it reports READY. Nothing was changed.`;
+  if (code === 'unusable' && newerVersion !== null) {
+    return `${GATE}: task '${taskId}' has a readiness record ${file} written by a newer DoFlow (record version ${newerVersion}; this runtime reads ${RECORD_VERSION}), `
+      + `so this runtime cannot read it and readiness cannot replace it. Next: ${NEWER_NEXT} Nothing was changed.`;
+  }
   switch (code) {
     case 'missing':
       return `${GATE}: task '${taskId}' has no readiness record for the '${template}' template. ${tail}`;
@@ -79,6 +89,9 @@ function refusalText(code, { taskId, slug = null, template, record = null, candi
       return `${GATE}: task '${taskId}' has a readiness record that cannot be used (${detail}). ${tail}`;
     case 'ambiguous':
       return `${GATE}: task '${taskId}' has records in more than one other checkout (${candidates.join(', ')}). Next: run the command from the checkout that holds the one you mean, or run ${next} here. Nothing was changed.`;
+    case 'ambiguous-run':
+      // A readiness record written here cannot say which run is meant, so it is not offered.
+      return `${GATE}: task '${taskId}' has runs in more than one other checkout (${candidates.join(', ')}). Next: run verify from the checkout that holds the run you mean. Nothing was changed.`;
     default:
       throw new Error(`no readiness refusal text for code '${code}'`);
   }
@@ -129,6 +142,7 @@ function unusableDetail(record, now) {
  */
 function checkReadiness({ stateRoot, taskId, slug = null, template, now = new Date(), exec }) {
   const read = readReadinessRecord({ stateRoot, taskId, slug, exec });
+  const newerVersion = read.status === 'found' ? newerVersionOf(read.record) : null;
   const result = (code, detail = null) => ({
     ok: code === 'ready',
     code,
@@ -137,7 +151,10 @@ function checkReadiness({ stateRoot, taskId, slug = null, template, now = new Da
     origin: read.origin,
     candidates: read.candidates,
     detail,
-    message: code === 'ready' ? null : refusalText(code, { taskId, slug, template, record: read.record, candidates: read.candidates, detail }),
+    newerVersion,
+    message: code === 'ready' ? null : refusalText(code, {
+      taskId, slug, template, record: read.record, candidates: read.candidates, detail, file: read.file, newerVersion,
+    }),
   });
   if (read.status === 'ambiguous') return result('ambiguous');
   if (read.status === 'missing') return result('missing');
@@ -168,21 +185,25 @@ function preFloorGrace(run) {
  * @param {string} options.template
  * @param {Object|null} [options.record]
  * @param {string|null} [options.detail]
+ * @param {string|null} [options.file] the record's file, when a newer DoFlow wrote it
+ * @param {number|null} [options.newerVersion]
  * @param {string} options.startedAt
  * @param {'handoff'|'complete-stage'|'verify report'} options.action
  * @returns {string}
  */
-function graceWarning(code, { taskId, slug = null, template, record = null, detail = null, startedAt, action }) {
+function graceWarning(code, { taskId, slug = null, template, record = null, detail = null, file = null, newerVersion = null, startedAt, action }) {
+  const newer = code === 'unusable' && newerVersion !== null;
   const why = {
     missing: () => 'no record',
     'not-ready': () => `last evaluated ${record.state} at ${record.evaluatedAt}`,
     'wrong-template': () => `its READY record is for the '${record.taskClass}' template`,
-    unusable: () => `its record cannot be used (${detail})`,
+    unusable: () => (newer ? `its record ${file} was written by a newer DoFlow (record version ${newerVersion})` : `its record cannot be used (${detail})`),
   }[code];
   if (!why) throw new Error(`no grace warning for code '${code}'`);
+  const next = newer ? NEWER_NEXT : `${nextCommand({ taskId, slug, template })}, then gather what it lists until it reports READY.`;
   return `${GATE}: warning: task '${taskId}' has no READY readiness record for the '${template}' template (${why()}), `
     + `but its run started at ${startedAt}, before DoFlow ${READINESS_FLOOR_SINCE} recorded readiness, so this ${action} proceeds. `
-    + `From DoFlow ${PRE_FLOOR_GRACE_ENDS} it is refused. Next: ${nextCommand({ taskId, slug, template })}, then gather what it lists until it reports READY.`;
+    + `From DoFlow ${PRE_FLOOR_GRACE_ENDS} it is refused. Next: ${next}`;
 }
 
 /** The run file for a task id in this checkout or exactly one other. */
@@ -206,10 +227,9 @@ function verifyReadinessCheck({ stateRoot, taskId, slug = null, now = new Date()
   let found = findRun({ stateRoot, id: taskId, exec });
   if (found.status === 'missing' && slug && slug !== taskId) found = findRun({ stateRoot, id: slug, exec });
   if (found.status === 'ambiguous') {
-    const template = templateOfAny(found.candidates);
     return {
-      applies: true, runTaskId: null, stage: null, template, ok: false, code: 'ambiguous', record: null,
-      message: refusalText('ambiguous', { taskId, slug, template, candidates: found.candidates }),
+      applies: true, runTaskId: null, stage: null, template: null, ok: false, code: 'ambiguous', record: null,
+      message: refusalText('ambiguous-run', { taskId, candidates: found.candidates }),
     };
   }
   if (found.status === 'missing') return { applies: false, reason: 'no-run' };
@@ -238,21 +258,11 @@ function verifyReadinessCheck({ stateRoot, taskId, slug = null, now = new Date()
   if (!check.ok && GRACE_CODES.has(check.code) && preFloorGrace(run)) {
     result.grace = true;
     result.message = graceWarning(check.code, {
-      taskId: run.taskId, slug, template, record: check.record, detail: check.detail, startedAt: run.startedAt, action: 'verify report',
+      taskId: run.taskId, slug, template, record: check.record, detail: check.detail, file: check.file, newerVersion: check.newerVersion,
+      startedAt: run.startedAt, action: 'verify report',
     });
   }
   return result;
-}
-
-/** The gated template of the first readable run among `files`, for a refusal that has to name one. */
-function templateOfAny(files) {
-  for (const file of files) {
-    try {
-      const stage = gatedStage((readTaskState(fs, file).program || []).filter((n) => n.type === 'stage'));
-      if (stage) return stage.readinessTemplate;
-    } catch { /* an unreadable candidate names no template */ }
-  }
-  return '<class>';
 }
 
 module.exports = {

@@ -526,3 +526,21 @@ test('a state directory that cannot be written: the evaluation prints, the failu
   assert.equal(data.record.written, false);
   assert.match(data.record.error, /EACCES|permission/i);
 });
+
+test('readiness replaces an unreadable record and says so; a record from a newer DoFlow stops it with exit 1', (t) => {
+  const { cwd, run } = readinessCli(t, []);
+  const file = path.join(cwd, '.doflow', 'state', 'readiness', 'T-1.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, 'not json');
+  const replaced = run();
+  assert.equal(replaced.status, 0, replaced.stderr);
+  assert.ok(replaced.stdout.includes(`Replaced:      the previous record could not be read; its bytes are kept in ${path.join('.doflow', 'state', 'readiness', 'T-1.json.unreadable')}\n`), replaced.stdout);
+  assert.equal(fs.readFileSync(`${file}.unreadable`, 'utf8'), 'not json');
+
+  fs.writeFileSync(file, '{"version":2}');
+  const newer = run();
+  assert.equal(newer.status, 1);
+  assert.match(newer.stderr, /\[ERROR\] readiness: the evaluation was not recorded: /);
+  assert.ok(newer.stderr.includes(`${file} was written by a newer DoFlow (record version 2; this runtime reads 1)`), newer.stderr);
+  assert.equal(fs.readFileSync(file, 'utf8'), '{"version":2}');
+});

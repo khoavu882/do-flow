@@ -611,7 +611,8 @@ function handleOrchestrateCommand({
     if (check.ok) return { verdict: 'READY', message: null };
     if (GRACE_CODES.has(check.code) && preFloorGrace(run)) {
       const warning = graceWarning(check.code, {
-        taskId: run.taskId, template, record: check.record, detail: check.detail, startedAt: run.startedAt, action,
+        taskId: run.taskId, template, record: check.record, detail: check.detail, file: check.file, newerVersion: check.newerVersion,
+        startedAt: run.startedAt, action,
       });
       readinessGrace = { code: check.code, message: warning };
       return { verdict: 'READY', warning };

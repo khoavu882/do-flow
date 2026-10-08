@@ -539,3 +539,15 @@ test('a readiness record in two other checkouts exits 2 with the ambiguous text'
   assert.equal(res.stderr.trim(), `doflow verify: doflow gate readiness-before-implementation: task 'A.1' has records in more than one other checkout (${files.join(', ')}). `
     + `Next: run the command from the checkout that holds the one you mean, or run doflow-run readiness --task-class bug --task-id A.1 --slug=${SLUG} here. Nothing was changed.`);
 });
+
+test('a readiness record this runtime cannot read declares no scope, so --scope is not refused against it', () => {
+  const root = repo({ plan: null });
+  commit(root, 'src/b.js');
+  const file = path.join(root, RECORD_REL);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ version: 2, taskId: 'A.1', taskClass: 'bug', state: 'READY', declaredScope: ['src/out.js'] }));
+  const res = verify(root, '--scope', 'src/b.js', '--json');
+  assert.notEqual(res.status, 2, res.stderr);
+  const tier = JSON.parse(res.stdout).tiers.find((t) => t.id === 'change-scope');
+  assert.deepEqual(tier.scope.bound.sources, [{ kind: 'declared', paths: ['src/b.js'], origin: 'verify-flag' }]);
+});

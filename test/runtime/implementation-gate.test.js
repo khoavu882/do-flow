@@ -228,3 +228,47 @@ test('the grace ends in 1.23.0: this test fails once the version reaches it whil
   const reached = a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] >= b[2];
   assert.ok(!(reached && typeof gate.preFloorGrace === 'function'), 'remove the pre-1.22 run grace (058 DEC-017)');
 });
+
+test('a record from a newer DoFlow is refused by naming the file and the version, never by advising readiness', () => {
+  const root = dir();
+  const file = path.join(root, '.doflow', 'state', 'readiness', 'T-1.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ version: 3, taskId: 'T-1', taskClass: 'bug', state: 'READY', evaluatedAt: NOW.toISOString() }));
+  const newer = `doflow gate readiness-before-implementation: task 'T-1' has a readiness record ${file} written by a newer DoFlow `
+    + '(record version 3; this runtime reads 1), so this runtime cannot read it and readiness cannot replace it. '
+    + 'Next: run this command with the DoFlow that wrote the record, or upgrade DoFlow here. Nothing was changed.';
+
+  const check = gate.checkReadiness({ stateRoot: root, taskId: 'T-1', template: 'bug', now: NOW });
+  assert.equal(check.code, 'unusable');
+  assert.equal(check.message, newer);
+
+  bugRun(root, 'T-1', { floor: false });
+  const graced = verifyReadinessCheck({ stateRoot: root, taskId: 'T-1', now: NOW });
+  assert.equal(graced.grace, true);
+  assert.doesNotMatch(graced.message, /doflow-run readiness/);
+  assert.ok(graced.message.includes(`its record ${file} was written by a newer DoFlow (record version 3)`), graced.message);
+  assert.match(graced.message, /Next: run this command with the DoFlow that wrote the record, or upgrade DoFlow here\.$/);
+});
+
+test('runs in two other checkouts: verify names the run files and does not advise readiness, which cannot settle it', () => {
+  const { spawnSync } = require('node:child_process');
+  const git = (cwd, ...args) => assert.equal(spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd }).status, 0);
+  const m = dir();
+  git(m, 'init', '-q', '-b', 'main');
+  fs.writeFileSync(path.join(m, 'a.txt'), 'a\n');
+  git(m, 'add', 'a.txt');
+  git(m, 'commit', '-q', '-m', 'base');
+  const files = [];
+  for (const name of ['w1', 'w2']) {
+    const wt = `${m}-${name}`;
+    git(m, 'worktree', 'add', '-q', '-b', `feat/${name}`, wt);
+    bugRun(wt, 'T-7');
+    files.push(path.join(wt, '.doflow', 'state', 'orchestration', 'T-7.json'));
+  }
+  const check = verifyReadinessCheck({ stateRoot: m, taskId: 'T-7', now: NOW });
+  assert.equal(check.applies, true);
+  assert.equal(check.ok, false);
+  assert.equal(check.code, 'ambiguous');
+  assert.equal(check.message, `doflow gate readiness-before-implementation: task 'T-7' has runs in more than one other checkout (${files.join(', ')}). `
+    + 'Next: run verify from the checkout that holds the run you mean. Nothing was changed.');
+});

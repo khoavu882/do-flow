@@ -31,7 +31,7 @@ const {
 } = require('./scope-bound');
 const { resolveActiveFeature } = require('../feature-resolve');
 const { isSafeSlug } = require('../task-scope');
-const { readReadinessRecord } = require('../readiness-record');
+const { readReadinessRecord, RECORD_VERSION } = require('../readiness-record');
 const { refusalText, verifyReadinessCheck } = require('../implementation-gate');
 const {
   VerificationContractRunner,
@@ -991,7 +991,11 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   if (recorded.status === 'ambiguous') {
     return usageError('verify', refusalText('ambiguous', { taskId, slug: featureSlug, template: recordClassOf(recorded.candidates), candidates: recorded.candidates }), json);
   }
-  const recordedScope = recorded.status === 'found' && Array.isArray(recorded.record.declaredScope) && recorded.record.declaredScope.length > 0
+  // Only a record this runtime can read declares a scope; one it cannot read is reported by the
+  // readiness check, and refusing --scope against it would send the caller to a readiness run that
+  // cannot replace it.
+  const usable = recorded.status === 'found' && recorded.record && recorded.record.version === RECORD_VERSION;
+  const recordedScope = usable && Array.isArray(recorded.record.declaredScope) && recorded.record.declaredScope.length > 0
     ? recorded.record.declaredScope : null;
   if (recordedScope) {
     const recordRel = recorded.origin === 'current' ? path.relative(cwd, recorded.file) : recorded.file;

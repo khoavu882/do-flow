@@ -125,8 +125,8 @@ function handleReadinessCommand({
   const declaredScope = declared && !declared.reason ? declared.paths : null;
   let recorded;
   try {
-    const { file } = writeReadinessRecord({ stateRoot: state, taskId, report, inputs, declaredScope, mode, now: now || new Date() });
-    recorded = { file, written: true };
+    const { file, replacedUnreadable } = writeReadinessRecord({ stateRoot: state, taskId, report, inputs, declaredScope, mode, now: now || new Date() });
+    recorded = { file, written: true, ...(replacedUnreadable ? { replacedUnreadable } : {}) };
   } catch (error) {
     recorded = { file: null, written: false, error: error.message };
   }
@@ -149,6 +149,9 @@ function handleReadinessCommand({
   console.log(`Stage Entry:   ${report.stageEntry.decision} (${report.executionMode} mode) — ${report.stageEntry.reason}`);
   console.log(`Summary:       ${report.summary}`);
   if (recorded.written) console.log(`Recorded:      ${path.relative(state, recorded.file)}`);
+  if (recorded.replacedUnreadable) {
+    console.log(`Replaced:      the previous record could not be read; its bytes are kept in ${path.relative(state, recorded.replacedUnreadable)}`);
+  }
   if (declared) {
     console.log(declaredScope
       ? `Declared scope: ${declaredScope.join(', ')}`
