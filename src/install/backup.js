@@ -5,8 +5,15 @@
 // user-inspectable. Each backup dir carries its own `.manifest.json` (id/operation/timestamp/
 // source_path/source_commit/type/tools_affected) — distinct from the top-level install manifest
 // in manifest.js.
+//
+// Format 2 (createFileBackup): a per-file copy of exactly the files a run changes, `files/<rel>` for
+// files under the scope root and `external/<k>/<name>` for files outside it, with a `.manifest.json`
+// that records for each file whether it existed. It is assembled in a dot-named temp directory and
+// renamed into place, so a reader sees either no backup or a complete one.
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const { sourceCommit: gitSourceCommit } = require('../helper/git');
 const {
@@ -51,6 +58,287 @@ function backupId(op, date) {
   const mi = pad2(date.getMinutes());
   const s = pad2(date.getSeconds());
   return `${op}_${y}-${mo}-${d}_${h}-${mi}-${s}`;
+}
+
+const MANIFEST_FILE = '.manifest.json';
+const OWNER_FILE = '.owner.json';
+const TEMP_PREFIX = '.tmp-';
+const STALE_TEMP_MS = 24 * 60 * 60 * 1000;
+const MAX_ID_ATTEMPTS = 1000;
+const RENAME_COLLISION_CODES = new Set(['EEXIST', 'ENOTEMPTY', 'EPERM', 'EACCES']);
+
+/** How many backups install and update keep per scope when `--prune` is not given. */
+const DEFAULT_BACKUP_RETENTION = 3;
+
+/** A backup could not be written completely. The caller stops before changing anything. */
+class BackupError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'BackupError';
+    this.code = 'backup-failed';
+  }
+}
+
+/** POSIX path of `p` relative to `scopeRoot`, or null when `p` is not strictly inside it. */
+function scopeRelative(scopeRoot, p) {
+  const rel = path.relative(scopeRoot, p);
+  if (!rel || path.isAbsolute(rel) || rel.split(path.sep)[0] === '..') return null;
+  return rel.split(path.sep).join('/');
+}
+
+/** Manifest JSON: two-space indentation, except one compact line per `files` and `excluded` element. */
+function serializeManifest(manifest) {
+  const body = Object.entries(manifest).map(([key, value]) => {
+    if ((key === 'files' || key === 'excluded') && Array.isArray(value) && value.length > 0) {
+      return `  ${JSON.stringify(key)}: [\n${value.map((v) => `    ${JSON.stringify(v)}`).join(',\n')}\n  ]`;
+    }
+    return `  ${JSON.stringify(key)}: ${JSON.stringify(value, null, 2).replace(/\n/g, '\n  ')}`;
+  });
+  return `{\n${body.join(',\n')}\n}\n`;
+}
+
+function errorCode(err) { return err.code || err.message; }
+
+/**
+ * Copy the files of a backup set into `<backupRoot>/<id>/` (format 2). Returns null for an empty
+ * set, without touching the disk. Every failure removes the temp directory and throws BackupError,
+ * so a backup either exists complete, manifest included, or does not exist at all.
+ * @param {{operation:string, set:object, backupRoot:string, repoRoot:string, sourceCommit?:string,
+ *          version:string, date:Date, restores?:string|null, fsImpl?:object, randomHex?:Function}} p
+ * @returns {null|{id:string, dir:string, files:number, existed:number, absent:number, bytes:number}}
+ */
+function createFileBackup({
+  operation, set, backupRoot, repoRoot, sourceCommit, version, date, restores = null,
+  fsImpl = fs, randomHex = () => crypto.randomBytes(4).toString('hex'),
+}) {
+  assertMutableBackupRoot(backupRoot, 'create a backup');
+  if (set.entries.length === 0) return null;
+
+  const base = backupId(operation, date);
+  const tmpDir = path.join(backupRoot, `${TEMP_PREFIX}${base}-${process.pid}-${randomHex()}`);
+  let tmpCreated = false;
+  const writeFailure = (err) => new BackupError(`could not write ${backupRoot}: ${errorCode(err)}`);
+
+  try {
+    try {
+      sweepStaleTemps(backupRoot, { fsImpl });
+      fsImpl.mkdirSync(backupRoot, { recursive: true });
+      fsImpl.mkdirSync(tmpDir);
+      tmpCreated = true;
+      const owner = { pid: process.pid, hostname: os.hostname(), startedAt: date.toISOString() };
+      fsImpl.writeFileSync(path.join(tmpDir, OWNER_FILE), `${JSON.stringify(owner)}\n`, { flag: 'wx' });
+    } catch (err) { throw writeFailure(err); }
+
+    const files = [];
+    const summary = { files: 0, existed: 0, absent: 0, bytes: 0 };
+    let external = 0;
+    for (const entry of set.entries) {
+      const record = entry.rel !== null ? { path: entry.rel } : { path: entry.path, outside: true };
+      let stat = null;
+      try {
+        stat = fsImpl.statSync(entry.path);
+      } catch (err) {
+        if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') {
+          throw new BackupError(`could not read ${entry.path}: ${errorCode(err)}`);
+        }
+      }
+      summary.files += 1;
+      if (!stat) {
+        record.existed = false;
+        summary.absent += 1;
+      } else if (stat.isFile()) {
+        const stored = entry.rel !== null
+          ? `files/${entry.rel}`
+          : `external/${external++}/${path.basename(entry.path)}`;
+        const dest = path.join(tmpDir, ...stored.split('/'));
+        try {
+          fsImpl.mkdirSync(path.dirname(dest), { recursive: true });
+          fsImpl.copyFileSync(entry.path, dest);
+        } catch (err) {
+          throw new BackupError(`could not copy ${entry.path}: ${errorCode(err)}`);
+        }
+        Object.assign(record, { existed: true, size: stat.size, mode: stat.mode & 0o7777, stored });
+        summary.existed += 1;
+        summary.bytes += stat.size;
+      } else {
+        Object.assign(record, { existed: true, kind: 'other' });
+        summary.existed += 1;
+      }
+      record.harnesses = entry.harnesses;
+      files.push(record);
+    }
+
+    const manifest = {
+      id: base,
+      operation,
+      timestamp: date.toISOString(),
+      source_path: repoRoot,
+      source_commit: sourceCommit ?? gitSourceCommit(repoRoot),
+      type: 'files',
+      tools_affected: [...new Set(set.entries.flatMap((e) => e.harnesses))].sort(),
+      format: 2,
+      doflow_version: version,
+      scope: set.scope,
+      scope_root: set.scopeRoot,
+      restores,
+      summary,
+      excluded: set.excluded.map((x) => {
+        const rel = scopeRelative(set.scopeRoot, x.path);
+        return rel !== null ? { path: rel, reason: x.reason } : { path: x.path, outside: true, reason: x.reason };
+      }),
+      files,
+    };
+    const manifestPath = path.join(tmpDir, MANIFEST_FILE);
+    try {
+      fsImpl.unlinkSync(path.join(tmpDir, OWNER_FILE));
+      fsImpl.writeFileSync(manifestPath, serializeManifest(manifest), { flag: 'wx' });
+    } catch (err) { throw writeFailure(err); }
+
+    // Two runs in the same second share a base id; the loser of the rename takes the next suffix.
+    for (let n = 1; n <= MAX_ID_ATTEMPTS; n += 1) {
+      const candidate = n === 1 ? base : `${base}-${n}`;
+      const dir = path.join(backupRoot, candidate);
+      if (fsImpl.existsSync(dir)) continue;
+      try {
+        if (manifest.id !== candidate) {
+          manifest.id = candidate;
+          fsImpl.writeFileSync(manifestPath, serializeManifest(manifest));
+        }
+        fsImpl.renameSync(tmpDir, dir);
+      } catch (err) {
+        if (RENAME_COLLISION_CODES.has(err.code) && fsImpl.existsSync(dir)) continue;
+        throw writeFailure(err);
+      }
+      tmpCreated = false;
+      return { id: candidate, dir, ...summary };
+    }
+    throw new BackupError(`no free backup id after ${MAX_ID_ATTEMPTS} attempts`);
+  } finally {
+    if (tmpCreated) {
+      try { fsImpl.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  }
+}
+
+function defaultIsAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === 'EPERM';
+  }
+}
+
+function isStaleTemp(dir, { now, fsImpl, isAlive, hostname }) {
+  let owner = null;
+  try { owner = JSON.parse(fsImpl.readFileSync(path.join(dir, OWNER_FILE), 'utf8')); } catch { /* no owner */ }
+  if (!owner || typeof owner !== 'object') {
+    try { return now - fsImpl.lstatSync(dir).mtimeMs > STALE_TEMP_MS; } catch { return false; }
+  }
+  if (owner.hostname === hostname && !isAlive(owner.pid)) return true;
+  return now - Date.parse(owner.startedAt) > STALE_TEMP_MS;
+}
+
+/**
+ * Remove `.tmp-*` directories left in `backupRoot` by runs that died: the owner process is gone on
+ * this host, or the temp is older than 24 hours. Returns how many were removed.
+ */
+function sweepStaleTemps(backupRoot, { now = Date.now(), fsImpl = fs, isAlive = defaultIsAlive, hostname = os.hostname() } = {}) {
+  assertMutableBackupRoot(backupRoot, 'clean up backups');
+  if (!fsImpl.existsSync(backupRoot)) return 0;
+  let removed = 0;
+  for (const e of fsImpl.readdirSync(backupRoot, { withFileTypes: true })) {
+    if (!e.isDirectory() || !e.name.startsWith(TEMP_PREFIX)) continue;
+    const dir = path.join(backupRoot, e.name);
+    if (!isStaleTemp(dir, { now, fsImpl, isAlive, hostname })) continue;
+    try {
+      fsImpl.rmSync(dir, { recursive: true, force: true });
+      removed += 1;
+    } catch { /* another run may hold or have removed it */ }
+  }
+  return removed;
+}
+
+/**
+ * Classify one backup directory by its manifest: 'format-2', 'newer' (a format this version does
+ * not know), 'full' or 'partial' (1.19, typed the way restoreBackup reads them), or 'incomplete'
+ * (no manifest, or one that does not parse). `manifest` is the parsed object, or null.
+ */
+function classifyBackupDir(dir, { fsImpl = fs } = {}) {
+  let manifest = null;
+  try { manifest = JSON.parse(fsImpl.readFileSync(path.join(dir, MANIFEST_FILE), 'utf8')); } catch { /* incomplete */ }
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) return { kind: 'incomplete', manifest: null };
+  const { format } = manifest;
+  if (format === 2) return { kind: 'format-2', manifest };
+  if (Number.isInteger(format) && format > 2) return { kind: 'newer', manifest };
+  if (format !== undefined && format !== null) return { kind: 'incomplete', manifest: null };
+  return { kind: (manifest.type || 'full') === 'full' ? 'full' : 'partial', manifest };
+}
+
+const ID_TIME = /^.+?_(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})(?:-(\d+))?$/;
+
+/**
+ * Ordering key of a backup directory: the manifest timestamp, else the time in its id (local
+ * time, as backupId writes it), else its mtime. Retention and listing share it.
+ */
+function sortKey(dir, { fsImpl = fs, manifest } = {}) {
+  const id = path.basename(dir);
+  const m = manifest === undefined ? classifyBackupDir(dir, { fsImpl }).manifest : manifest;
+  const match = ID_TIME.exec(id);
+  const suffix = match && match[7] ? Number(match[7]) : 1;
+  let time = m ? Date.parse(m.timestamp) : NaN;
+  if (!Number.isFinite(time) && match) {
+    const [, y, mo, d, h, mi, s] = match.map(Number);
+    time = new Date(y, mo - 1, d, h, mi, s).getTime();
+  }
+  if (!Number.isFinite(time)) {
+    try { time = fsImpl.lstatSync(dir).mtimeMs; } catch { time = 0; }
+  }
+  return { id, time, suffix };
+}
+
+/** Newest first; ties go to the larger `-n` suffix, then the id in descending order. */
+function compareSortKeys(a, b) {
+  if (a.time !== b.time) return b.time - a.time;
+  if (a.suffix !== b.suffix) return b.suffix - a.suffix;
+  if (a.id === b.id) return 0;
+  return a.id < b.id ? 1 : -1;
+}
+
+/** Bytes of the regular files under `dir`, never following a link; null when any read fails. */
+function backupSize(dir, { fsImpl = fs } = {}) {
+  try {
+    let total = 0;
+    const pending = [dir];
+    while (pending.length > 0) {
+      const current = pending.pop();
+      for (const name of fsImpl.readdirSync(current)) {
+        const p = path.join(current, name);
+        const st = fsImpl.lstatSync(p);
+        if (st.isDirectory()) pending.push(p);
+        else if (st.isFile()) total += st.size;
+      }
+    }
+    return total;
+  } catch {
+    return null;
+  }
+}
+
+const BYTE_UNITS = ['KiB', 'MiB', 'GiB', 'TiB'];
+
+/** `?` for an unknown size, `<n> B` below 1 KiB, otherwise one decimal in 1024-based units. */
+function formatBytes(n) {
+  if (n === null || n === undefined) return '?';
+  if (n < 1024) return `${n} B`;
+  let value = n / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(1)} ${BYTE_UNITS[unit]}`;
 }
 
 /**
@@ -165,22 +453,23 @@ function restoreBackup({ bid, backupRoot, dirs, dryRun = false }) {
   }
 }
 
-/** One row per backup dir under `root`, tagged with where it came from. */
+/** One `{ row, key }` per backup dir under `root`, tagged with where it came from. Dot-named
+ * directories (temps of a run in progress) and symlinks are not backups. */
 function readBackupRows(root, origin) {
   if (!fs.existsSync(root)) return [];
   return fs.readdirSync(root, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
+    .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
     .map((e) => {
       const bkDir = path.join(root, e.name);
-      const manifestPath = path.join(bkDir, '.manifest.json');
-      const id = e.name;
-      if (fs.existsSync(manifestPath)) {
-        try {
-          const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-          return { id: m.id || id, operation: m.operation || 'unknown', type: m.type || '?', timestamp: m.timestamp || '-', origin, backupRoot: root };
-        } catch { /* fall through to unknown row */ }
+      const { kind, manifest: m } = classifyBackupDir(bkDir);
+      const key = sortKey(bkDir, { manifest: m });
+      const bytes = backupSize(bkDir);
+      if (kind === 'incomplete') {
+        return { key, row: { id: e.name, operation: 'unknown', type: '?', timestamp: '-', origin, backupRoot: root, format: null, complete: false, bytes } };
       }
-      return { id, operation: 'unknown', type: '?', timestamp: '-', origin, backupRoot: root };
+      const format = kind === 'format-2' || kind === 'newer' ? m.format : 1;
+      const type = { 'format-2': 'files', full: 'full' }[kind] || m.type || '?';
+      return { key, row: { id: m.id || e.name, operation: m.operation || 'unknown', type, timestamp: m.timestamp || '-', origin, backupRoot: root, format, complete: true, bytes } };
     });
 }
 
@@ -190,21 +479,23 @@ function readBackupRows(root, origin) {
  * before lifecycle metadata moved under `.doflow` stay visible. Every row carries `origin`
  * ('current' | 'legacy') and the absolute `backupRoot` it was found in — the two sets are tagged,
  * never blended into an indistinguishable list. A duplicate id resolves to the canonical copy,
- * matching restoreBackup's precedence.
+ * matching restoreBackup's precedence. Rows also carry `format` (2, 1 for 1.19, null when the
+ * manifest is missing), `complete` and `bytes` (null when unreadable), and are ordered by the
+ * same key retention uses.
  */
 function listBackups(backupRoot) {
-  const rows = [];
+  const found = [];
   const seen = new Set();
   for (const { root, origin } of backupReadRoots(backupRoot)) {
-    for (const row of readBackupRows(root, origin)) {
-      if (seen.has(row.id)) continue;
-      seen.add(row.id);
-      rows.push(row);
+    for (const item of readBackupRows(root, origin)) {
+      if (seen.has(item.row.id)) continue;
+      seen.add(item.row.id);
+      found.push(item);
     }
   }
 
-  rows.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
-  return rows;
+  found.sort((a, b) => compareSortKeys(a.key, b.key));
+  return found.map((item) => item.row);
 }
 
 /**
@@ -240,4 +531,6 @@ function pruneBackups(backupRoot, keepN, { dryRun = false } = {}) {
 module.exports = {
   backupId, createBackup, restoreBackup, listBackups, pruneBackups, assertSafeBackupId,
   backupReadRoots, BACKUP_ORIGIN_CURRENT, BACKUP_ORIGIN_LEGACY,
+  BackupError, DEFAULT_BACKUP_RETENTION, createFileBackup, sweepStaleTemps, classifyBackupDir,
+  sortKey, backupSize, formatBytes,
 };
