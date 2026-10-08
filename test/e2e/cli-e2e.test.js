@@ -706,14 +706,18 @@ test('rollback with an explicit id but no --force aborts on an empty confirm ans
 
 test('--prune keeps only the N most recent backups on both install and update', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-  for (let i = 0; i < 3; i++) {
-    const r = run(['install', '-g', '--force', '--target', 'claude', '--prune', '1'], { home });
+  const claudeMd = path.join(home, '.claude', 'CLAUDE.md');
+  // Each install changes a file, so each one makes a backup: two exist before the pruning run.
+  for (const prune of [[], [], ['--prune', '1']]) {
+    if (fs.existsSync(claudeMd)) fs.writeFileSync(claudeMd, 'mutated\n');
+    const r = run(['install', '-g', '--force', '--target', 'claude', ...prune], { home });
     assert.strictEqual(r.status, 0, r.stderr);
+    assert.match(r.stderr, /Backup created: install_/);
+    if (prune.length) assert.match(r.stderr, /Backups: kept 1, removed 2 \(--prune 1\)/);
   }
   let listed = run(['list-backups', '-g'], { home });
   assert.strictEqual((listed.stdout.match(/install_[\d_-]+/g) || []).length, 1, 'install --prune 1 must keep exactly one backup');
 
-  const claudeMd = path.join(home, '.claude', 'CLAUDE.md');
   fs.writeFileSync(claudeMd, 'mutated\n');
   fs.utimesSync(claudeMd, new Date('2000-01-01T00:00:00Z'), new Date('2000-01-01T00:00:00Z'));
   const r = run(['update', '-g', '--force', '--target', 'claude', '--prune', '1'], { home });

@@ -198,6 +198,37 @@ test('createFileBackup takes the next id when another run wins the rename, and r
   assert.deepStrictEqual(fs.readdirSync(backupRoot).sort(), [base, `${base}-2`]);
 });
 
+test('two overlapping createFileBackup calls with one date each finish a complete backup under its own id', () => {
+  const root = scratchDir();
+  const file = write(path.join(root, '.claude', 'a.md'), 'first run');
+  const backupRoot = path.join(root, '.doflow', 'backups');
+  const base = backupId('update', DATE);
+  const firstSet = handSet(root, [{ file }]);
+  let second = null;
+  const fsImpl = {
+    ...fs,
+    renameSync(from, to) {
+      if (!second) {
+        // The first run has copied its files and written its manifest; the second runs start to
+        // finish now, sweeping, writing and renaming while the first one's temp is still open.
+        write(file, 'second run');
+        second = backup(handSet(root, [{ file }]), backupRoot);
+        assert.ok(fs.existsSync(from), 'the second run\'s sweep keeps a live run\'s temp');
+      }
+      return fs.renameSync(from, to);
+    },
+  };
+
+  const first = backup(firstSet, backupRoot, { fsImpl });
+  assert.strictEqual(second.id, base);
+  assert.strictEqual(first.id, `${base}-2`);
+  for (const [result, content] of [[first, 'first run'], [second, 'second run']]) {
+    assert.strictEqual(readManifest(result.dir).id, result.id);
+    assert.strictEqual(fs.readFileSync(path.join(result.dir, 'files', '.claude', 'a.md'), 'utf8'), content);
+  }
+  assert.deepStrictEqual(fs.readdirSync(backupRoot).sort(), [base, `${base}-2`], 'no temp is left behind');
+});
+
 test('createFileBackup throws BackupError on a copy error and leaves no backup and no temp', () => {
   const root = scratchDir();
   const file = write(path.join(root, '.claude', 'a.md'), 'x');

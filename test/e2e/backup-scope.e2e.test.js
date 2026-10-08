@@ -183,9 +183,17 @@ test('rollback restores exactly the backup and snapshots only those files', () =
   overwrite(files, 'later');
   write(foreign, 'user data, edited later\n');
 
+  const dry = run(scratch, ['rollback', id, '-g', '--dry-run']);
+  assert.strictEqual(dry.status, 0, dry.stderr);
+  assert.match(dry.stdout, /\[DRY\] {2}Would snapshot 5 file\(s\) before restoring/);
+  assert.match(dry.stdout, /\[DRY\] {2}Would restore 5 file\(s\), leave 0 in place, could not restore 0\n\[DRY\] Dry run complete/);
+  files.forEach((file, i) => assert.strictEqual(fs.readFileSync(file, 'utf8'), `later-${i}\n`));
+  assert.ok(!backupIds(scratch).some((n) => n.startsWith('pre-rollback_')), 'a dry run takes no snapshot');
+
   const r = run(scratch, ['rollback', id, '-g', '--force']);
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stdout, /Rollback to '.+' complete: restored 5 file\(s\)/);
+  assert.match(r.stderr, /Pre-rollback snapshot: pre-rollback_\S+ \(5 file\(s\), [\d.]+ (B|KiB)\)/);
   files.forEach((file, i) => assert.strictEqual(fs.readFileSync(file, 'utf8'), `edited-${i}\n`));
   assert.strictEqual(fs.readFileSync(foreign, 'utf8'), 'user data, edited later\n');
 
@@ -211,8 +219,24 @@ test('rollback names what it leaves in place and exits 0', () => {
   const r = run(scratch, ['rollback', id, '-g', '--force']);
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stderr, /Left in place 2 file\(s\)/);
+  assert.match(r.stderr, /Pre-rollback snapshot: nothing to snapshot \(the restore overwrites no file\)/);
   assert.ok(r.stderr.includes(gone1) && r.stderr.includes(gone2), r.stderr);
   assert.ok(fs.existsSync(gone1) && fs.existsSync(gone2));
+});
+
+test('rollback lists at most 10 files it leaves in place and points at the manifest for the rest', () => {
+  const scratch = newScratch();
+  const id = createdId(install(scratch, 'claude'));
+  const absent = readManifest(scratch, id).files.filter((f) => f.existed === false).length;
+  assert.ok(absent > 10, `a fresh install records more than 10 created files (${absent})`);
+
+  const r = run(scratch, ['rollback', id, '-g', '--force']);
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stderr, new RegExp(`Left in place ${absent} file\\(s\\) that did not exist when the backup was taken:`));
+  const listed = r.stderr.split('\n').filter((line) => line.startsWith(`        ${scratch.home}`));
+  assert.strictEqual(listed.length, 10);
+  const manifestPath = path.join(backupRoot(scratch), id, '.manifest.json');
+  assert.ok(r.stderr.includes(`        ... and ${absent - 10} more (listed with "existed": false in ${manifestPath})`), r.stderr);
 });
 
 test('rollback that cannot write one file restores the others and exits 1', { skip: !canChmod && 'needs POSIX permissions and a non-root user' }, (t) => {
@@ -291,6 +315,24 @@ test('a large backup folder is listed with sizes and cut to three', () => {
   assert.match(r.stderr, /removed 10/);
 });
 
+test('list-backups ends with a footer per origin and marks a size it cannot read', { skip: !canChmod && 'needs POSIX permissions and a non-root user' }, (t) => {
+  const scratch = newScratch();
+  plantV2(backupRoot(scratch), 1);
+  plantV2(backupRoot(scratch), 2);
+  const unreadable = path.join(backupRoot(scratch), 'install_2020-01-03_00-00-00', 'files');
+  fs.mkdirSync(unreadable, { recursive: true });
+  fs.chmodSync(unreadable, 0o000);
+  t.after(() => fs.chmodSync(unreadable, 0o755));
+  const legacyRoot = path.join(scratch.home, '.claude', 'backups');
+  plantPartialBackup(legacyRoot, 'install_2019-01-01_00-00-00', { tool: 'claude', files: { 'a.md': 'one' } });
+
+  const r = run(scratch, ['list-backups', '-g']);
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^install_2020-01-03_00-00-00 +unknown +\? +current +\? +- \(incomplete: no manifest\)$/m);
+  assert.match(r.stdout, /^current: 3 backup\(s\), [\d.]+ (B|KiB) \(some sizes unknown\); install and update keep the newest 3 \(--prune N\)$/m);
+  assert.ok(r.stdout.includes(`legacy: 1 backup(s), `) && r.stdout.includes(` in ${legacyRoot}; read-only, never pruned`), r.stdout);
+});
+
 test('backups from before the move to .doflow are never touched', () => {
   const scratch = newScratch();
   const legacyRoot = path.join(scratch.home, '.claude', 'backups');
@@ -332,31 +374,41 @@ test('a dry run reports what the real run then backs up and writes nothing', () 
   install(scratch, 'claude');
   const files = ownedFiles(scratch, '.claude', 3);
   overwrite(files, 'edited');
+  for (let n = 1; n <= 5; n += 1) plantV2(backupRoot(scratch), n);
   const before = backupIds(scratch);
+  assert.strictEqual(before.length, 6);
 
   const dry = run(scratch, [...UPDATE, '-t', 'claude', '--dry-run']);
   assert.strictEqual(dry.status, 0, dry.stderr);
   const m = /Would back up (\d+) file\(s\), .*\((\d+) bytes; \d+ not present yet\)/.exec(dry.stdout);
   assert.ok(m, dry.stdout);
-  assert.deepStrictEqual(backupIds(scratch), before);
+  assert.match(dry.stdout, /\[DRY\] {2}Backups: would keep 3, would remove 4 \(keeping the newest 3; --prune N changes this\)/);
+  assert.deepStrictEqual(backupIds(scratch), before, 'a dry run removes no backup');
   const leftovers = fs.readdirSync(backupRoot(scratch)).filter((n) => n.startsWith('.tmp-'));
   assert.deepStrictEqual(leftovers, []);
 
   const real = run(scratch, [...UPDATE, '-t', 'claude']);
   assert.strictEqual(real.status, 0, real.stderr);
+  assert.match(real.stderr, /Backups: kept 3, removed 4/);
   const { summary } = readManifest(scratch, createdId(real));
   assert.strictEqual(Number(m[1]), summary.files);
   assert.strictEqual(Number(m[2]), summary.bytes);
 });
 
-test('a dry run on a fresh home creates no backup folder', () => {
+test('a dry run before the first install writes no backup and removes none', () => {
   const scratch = newScratch();
+  for (let n = 1; n <= 5; n += 1) plantV2(backupRoot(scratch), n);
+  const before = hashTree(backupRoot(scratch));
   const dry = run(scratch, ['install', '-g', '--dry-run', '--mcp', 'none', '-t', 'claude']);
   assert.strictEqual(dry.status, 0, dry.stderr);
   const m = /Would back up (\d+) file\(s\)/.exec(dry.stdout);
   assert.ok(m, dry.stdout);
-  assert.ok(!fs.existsSync(path.join(scratch.home, '.doflow', 'backups')));
+  assert.match(dry.stdout, /\[DRY\] {2}Backups: would keep 3, would remove 3 /);
+  assert.deepStrictEqual(hashTree(backupRoot(scratch)), before, 'a dry run removes no backup and adds none');
+  assert.deepStrictEqual(fs.readdirSync(backupRoot(scratch)).filter((n) => n.startsWith('.')), []);
+  assert.ok(!fs.existsSync(path.join(scratch.home, '.claude')));
   const real = install(scratch, 'claude');
+  assert.match(real.stderr, /Backups: kept 3, removed 3/);
   assert.strictEqual(Number(m[1]), readManifest(scratch, createdId(real)).summary.files);
 });
 
@@ -404,11 +456,14 @@ test('a backup that cannot be written stops the run, and a dead run\'s temp fold
   assert.ok(!fs.existsSync(temp));
 });
 
-test('two runs at once each keep a complete backup of their own', async () => {
+test('two runs at once never leave a half-written, duplicate or temporary backup', async () => {
+  // Whether the second run still finds the edits depends on when it plans, so the number of new
+  // backups is 1 or 2; what never varies is that every backup either run reports is complete and
+  // its own. The overlap of two writers is proven in backup-format.test.js.
   const scratch = newScratch();
   install(scratch, 'claude');
+  for (let n = 1; n <= 3; n += 1) plantV2(backupRoot(scratch), n);
   overwrite(ownedFiles(scratch, '.claude', 4), 'edited');
-  const before = new Set(backupIds(scratch));
 
   const start = () => new Promise((resolve, reject) => {
     const child = spawn('node', [DOFLOW, ...INSTALL, '-t', 'claude'], spawnOptions(scratch));
@@ -422,9 +477,20 @@ test('two runs at once each keep a complete backup of their own', async () => {
   const results = await Promise.all([start(), start()]);
   for (const r of results) assert.strictEqual(r.status, 0, r.stderr);
 
-  const added = backupIds(scratch).filter((id) => !before.has(id));
-  assert.strictEqual(added.length, 2, `${added} ${results.map((r) => r.stderr).join('\n')}`);
-  for (const id of added) assert.strictEqual(readManifest(scratch, id).format, 2);
+  const reported = results.map(createdId).filter(Boolean);
+  assert.ok(reported.length >= 1, results.map((r) => r.stderr).join('\n'));
+  assert.strictEqual(new Set(reported).size, reported.length, `distinct ids: ${reported}`);
+  for (const id of reported) {
+    const manifest = readManifest(scratch, id);
+    assert.strictEqual(manifest.format, 2);
+    assert.strictEqual(manifest.id, id);
+    for (const f of manifest.files.filter((x) => x.existed)) {
+      assert.ok(fs.statSync(path.join(backupRoot(scratch), id, ...f.stored.split('/'))).isFile(), `${id} holds ${f.path}`);
+    }
+  }
+  assert.deepStrictEqual(fs.readdirSync(backupRoot(scratch)).filter((n) => n.startsWith('.tmp-')), []);
+  const listing = run(scratch, ['list-backups', '-g']);
+  assert.doesNotMatch(listing.stdout, /incomplete/);
 });
 
 test('--no-backup alone is refused, and with --force it skips the backup', () => {
