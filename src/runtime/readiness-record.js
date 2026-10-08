@@ -16,10 +16,17 @@ const { findStateFile } = require('./checkouts');
 const RECORD_VERSION = 1;
 const STORE = path.join('.doflow', 'state', 'readiness');
 
-/** The record's path under one state root, with the namespace evidence uses for the same task. */
-function currentRelPath({ stateRoot, taskId, slug }) {
-  const { namespace } = resolveTaskScope({ projectRoot: stateRoot, taskId, slug });
-  return namespace ? path.join(STORE, namespace, `${taskId}.json`) : path.join(STORE, `${taskId}.json`);
+/**
+ * Where a task's record may be under one checkout, in the order every reader takes them: under the
+ * feature's namespace, then flat. The writer, `verify`, `orchestrate` and the edit hook all use this
+ * one list, so a record written anywhere is found by each of them from any checkout.
+ * @param {string} taskId
+ * @param {string|null} slug the task's feature slug, when one is known
+ * @returns {Array<string>} paths relative to a checkout root
+ */
+function recordCandidates(taskId, slug) {
+  const flat = path.join(STORE, `${taskId}.json`);
+  return slug && slug !== taskId ? [path.join(STORE, slug, `${taskId}.json`), flat] : [flat];
 }
 
 /** A record version this runtime cannot read because a newer DoFlow wrote it, else null. */
@@ -79,11 +86,15 @@ function priorRecord(file, fsImpl) {
  */
 function writeReadinessRecord({ stateRoot, taskId, slug = null, report, inputs, declaredScope = null, mode, now = new Date(), fsImpl = fs }) {
   const scope = resolveTaskScope({ projectRoot: stateRoot, taskId, slug });
-  const file = path.join(stateRoot, currentRelPath({ stateRoot, taskId, slug }));
+  const recordSlug = scope.slug || slug || null;
+  // The record a reader would find in this checkout is the one replaced; with none, the record goes
+  // where the task's evidence goes (under the feature's namespace when it has a register).
+  const file = recordCandidates(taskId, recordSlug).map((rel) => path.join(stateRoot, rel)).find((f) => fsImpl.existsSync(f))
+    || path.join(stateRoot, STORE, ...(scope.namespace ? [scope.namespace] : []), `${taskId}.json`);
   const record = {
     version: RECORD_VERSION,
     taskId,
-    slug: scope.slug || slug || null,
+    slug: recordSlug,
     taskClass: report.taskClass,
     templateName: report.templateName,
     state: report.state,
@@ -95,21 +106,25 @@ function writeReadinessRecord({ stateRoot, taskId, slug = null, report, inputs, 
     evidenceCount: Number.isInteger(report.evidenceCount) ? report.evidenceCount : 0,
     evaluatedAt: now.toISOString(),
   };
-  const prior = priorRecord(file, fsImpl);
-  if (prior.kind === 'newer') throw new Error(newerRecordText(file, prior.version));
+  // Inspected and set aside under the write's own lock, so a concurrent writer can neither rename
+  // a record just written nor slip a newer one in between the check and the write.
   let replacedUnreadable = null;
-  if (prior.kind === 'unreadable') {
-    replacedUnreadable = `${file}.unreadable`;
-    fsImpl.renameSync(file, replacedUnreadable);
-  }
-  updateTaskState({ fsImpl, file, build: () => record });
+  const prepare = () => {
+    const prior = priorRecord(file, fsImpl);
+    if (prior.kind === 'newer') throw new Error(newerRecordText(file, prior.version));
+    if (prior.kind === 'unreadable') {
+      replacedUnreadable = `${file}.unreadable`;
+      fsImpl.renameSync(file, replacedUnreadable);
+    }
+  };
+  updateTaskState({ fsImpl, file, prepare, build: () => record });
   return { file, record, replacedUnreadable };
 }
 
 /**
- * The task's record in this checkout, else in exactly one other checkout. Another checkout's path
- * is derived without running the feature resolver there: namespaced when the slug's folder in that
- * checkout has a decision register and the task id is not the slug itself, flat otherwise.
+ * The task's record in this checkout, else in exactly one other checkout, at the first of
+ * `recordCandidates` that exists in each. No resolver is run: the candidates depend only on the
+ * task id and the slug the caller names.
  * @param {Object} options
  * @param {string} options.stateRoot
  * @param {string} options.taskId
@@ -120,13 +135,7 @@ function writeReadinessRecord({ stateRoot, taskId, slug = null, report, inputs, 
  *   origin: 'current'|'other'|null, candidates: Array<string>, detail: string|null}}
  */
 function readReadinessRecord({ stateRoot, taskId, slug = null, exec, fsImpl = fs }) {
-  const relPath = (root, isCurrent) => {
-    if (isCurrent) return currentRelPath({ stateRoot, taskId, slug });
-    const namespaced = slug && slug !== taskId
-      && fsImpl.existsSync(path.join(root, 'agent-docs', 'doflow', slug, 'decisions', 'register.json'));
-    return namespaced ? path.join(STORE, slug, `${taskId}.json`) : path.join(STORE, `${taskId}.json`);
-  };
-  const found = findStateFile({ stateRoot, relPath, ...(exec ? { exec } : {}), fsImpl });
+  const found = findStateFile({ stateRoot, relPath: recordCandidates(taskId, slug), ...(exec ? { exec } : {}), fsImpl });
   const base = { record: null, file: found.file, origin: found.origin, candidates: found.candidates, detail: null };
   if (found.status !== 'found') return { ...base, status: found.status };
   try {
@@ -136,4 +145,4 @@ function readReadinessRecord({ stateRoot, taskId, slug = null, exec, fsImpl = fs
   }
 }
 
-module.exports = { writeReadinessRecord, readReadinessRecord, newerVersionOf, RECORD_VERSION };
+module.exports = { writeReadinessRecord, readReadinessRecord, recordCandidates, newerVersionOf, RECORD_VERSION };

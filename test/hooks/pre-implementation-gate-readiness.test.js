@@ -302,3 +302,20 @@ HOOK_TEST('a linked worktree reads the main checkout\'s feature folder, run and 
   write(path.join(wt, '.doflow-worktree-base'), 'base\n');
   expectHook({ ...base, code: 0, stderr: '' });
 });
+
+HOOK_TEST('the hook reads records where the runtime does, and another feature\'s run with the same id is not this task\'s', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo('feat/900-demo');
+  writeFeature(main, '900-demo');
+  const envelope = envelopeEvent(main, path.join(main, 'src', 'a.js'), 'A.1');
+  // `readiness` on a branch with no feature writes the record flat; the namespaced path is read
+  // first and the flat one after, by the runtime and the hook alike.
+  writeRecord(main, 'A.1.json', { taskId: 'A.1', taskClass: 'feature', state: 'READY' });
+  expectHook({ cwd: main, caseRoot: root, event: envelope, code: 0, stderr: '' });
+
+  const other = makeRepo('fix/901-bug');
+  git(other.main, 'worktree', 'add', '-q', '-b', 'fix/other', path.join(other.root, 'w1'));
+  const w1 = fs.realpathSync(path.join(other.root, 'w1'));
+  walkTo(w1, '901-bug', 'bug', 'implementation');
+  assert.strictEqual(JSON.parse(fs.readFileSync(runFile(w1, '901-bug'), 'utf8')).featureSlug, 'other');
+  expectHook({ cwd: other.main, caseRoot: other.root, event: editEvent(path.join(other.main, 'src', 'a.js')), code: 0, stderr: '' });
+});

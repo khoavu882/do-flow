@@ -291,18 +291,52 @@ checkouts() {
   return 0
 }
 
-# A state file under this checkout, else under exactly one other checkout; held
-# in two or more others, it cannot be told which is meant -> allow.
+# A state file under this checkout, else under exactly one other checkout, at
+# the first of the given paths that exists in each; held in two or more others,
+# it cannot be told which is meant -> allow.
 FOUND=""
 find_state() {
+  local rel root count=0 hit
   FOUND=""
-  if [ -f "$repo_root/$1" ]; then FOUND="$repo_root/$1"; return 0; fi
+  for rel in "$@"; do
+    if [ -f "$repo_root/$rel" ]; then FOUND="$repo_root/$rel"; return 0; fi
+  done
   checkouts
-  local root count=0
   for root in ${OTHERS[@]+"${OTHERS[@]}"}; do
-    [ -f "$root/$1" ] || continue
+    hit=""
+    for rel in "$@"; do
+      [ -f "$root/$rel" ] && { hit="$root/$rel"; break; }
+    done
+    [ -n "$hit" ] || continue
     count=$((count + 1))
-    FOUND="$root/$1"
+    FOUND="$hit"
+  done
+  [ "$count" -le 1 ] || exit 0
+}
+
+# The feature a run file belongs to: the slug it recorded when it started, else
+# its task id when that names a feature folder in the checkout holding it.
+run_feature() {
+  local recorded owner
+  recorded=$(jq -r '.featureSlug // empty' "$1" 2>/dev/null) || recorded=""
+  if [ -n "$recorded" ]; then printf '%s' "$recorded"; return 0; fi
+  owner=${1%/.doflow/state/orchestration/*}
+  [ -d "$owner/agent-docs/doflow/$task_id" ] && printf '%s' "$task_id"
+  return 0
+}
+
+# The task's run: this checkout's, else the one other checkout's run of the same
+# feature. A run with the same id for another feature is a different task.
+find_run() {
+  local rel=".doflow/state/orchestration/$task_id.json" root count=0
+  FOUND=""
+  if [ -f "$repo_root/$rel" ]; then FOUND="$repo_root/$rel"; return 0; fi
+  checkouts
+  for root in ${OTHERS[@]+"${OTHERS[@]}"}; do
+    [ -f "$root/$rel" ] || continue
+    [ "$(run_feature "$root/$rel")" = "$slug" ] || continue
+    count=$((count + 1))
+    FOUND="$root/$rel"
   done
   [ "$count" -le 1 ] || exit 0
 }
@@ -366,9 +400,11 @@ stage_done() {
 }
 
 RUN=""
-find_state ".doflow/state/orchestration/$task_id.json"
+find_run
 RUN="$FOUND"
+run_slug=""
 if [ -n "$RUN" ]; then
+  run_slug=$(run_feature "$RUN")
   run_info=$(jq -r '(.state // ""), (.taskClass // ""),
     (if (.startedAt | type) == "string" and (has("readinessFloor") | not) then "grace" else "" end)' "$RUN" 2>/dev/null) || exit 0
   { IFS= read -r run_state; IFS= read -r run_class; IFS= read -r run_grace; } <<< "$run_info"
@@ -379,6 +415,7 @@ if [ -n "$RUN" ]; then
     gated_stage "$run_class"
     [ -n "$STAGE_ID" ] && stage_done "$STAGE_ID" && exit 0
     RUN=""
+    run_slug=""
   fi
 fi
 
@@ -394,9 +431,14 @@ gated_stage "$class"
 [ -n "$STAGE_ID" ] && [ "$STAGE_EDIT" = true ] || exit 0
 [ -n "$RUN" ] && stage_done "$STAGE_ID" && exit 0
 
-ns=""
-[ "$HAS_REGISTER" = true ] && [ "$task_id" != "$slug" ] && ns="$slug/"
-find_state ".doflow/state/readiness/$ns$task_id.json"
+# The record, where the runtime looks: under the feature's namespace (the run's
+# own feature when it recorded one), then flat; this checkout first.
+record_slug="${run_slug:-$slug}"
+if [ -n "$record_slug" ] && [ "$record_slug" != "$task_id" ]; then
+  find_state ".doflow/state/readiness/$record_slug/$task_id.json" ".doflow/state/readiness/$task_id.json"
+else
+  find_state ".doflow/state/readiness/$task_id.json"
+fi
 record_state=""; record_class=""; record_at=""
 if [ -n "$FOUND" ]; then
   record_info=$(jq -r '(.state // ""), (.taskClass // ""), (.evaluatedAt // "")' "$FOUND" 2>/dev/null) || exit 0

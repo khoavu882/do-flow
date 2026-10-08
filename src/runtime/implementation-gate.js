@@ -3,8 +3,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { readReadinessRecord, newerVersionOf, RECORD_VERSION } = require('./readiness-record');
-const { findStateFile } = require('./checkouts');
+const { listCheckouts } = require('./checkouts');
 const { readTaskState } = require('./task-state');
+const { resolveActiveFeature } = require('./feature-resolve');
+const { isSafeSlug } = require('./task-scope');
 const { REPO_ROOT } = require('../helper/repo-root');
 
 // The implementation gate: which stage of a workflow needs a READY readiness record before it is
@@ -114,6 +116,85 @@ function harnessHookNote({ repoRoot = REPO_ROOT } = {}) {
   }
 }
 
+const isDir = (dir) => {
+  try {
+    return fs.statSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
+};
+const folderOf = (root, slug) => path.join(root, 'agent-docs', 'doflow', slug);
+
+/** The branch's feature slug as the resolver names it, or null. */
+function branchFeatureSlug(cwd) {
+  try {
+    const found = resolveActiveFeature({ projectRoot: cwd });
+    const s = !found.error && found.paths ? found.paths.feature_slug : null;
+    return isSafeSlug(s) ? s : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The feature a task belongs to, as seen from `projectRoot`: `--slug`, else the task id when it
+ * names a feature folder there, else the branch's feature.
+ * @param {{projectRoot: string, taskId?: string|null, slug?: string|null}} options
+ * @returns {string|null}
+ */
+function featureSlugFor({ projectRoot, taskId = null, slug = null }) {
+  if (slug) return slug;
+  if (isSafeSlug(taskId) && isDir(folderOf(projectRoot, taskId))) return taskId;
+  return branchFeatureSlug(projectRoot);
+}
+
+/** The feature a run belongs to: the slug recorded when it started, else its task id when that names
+ * a feature folder in the checkout holding the run. */
+function runSlugOf(run, root) {
+  if (run && typeof run.featureSlug === 'string' && run.featureSlug !== '') return run.featureSlug;
+  return run && isSafeSlug(run.taskId) && isDir(folderOf(root, run.taskId)) ? run.taskId : null;
+}
+
+/**
+ * A task's run file: in this checkout, else in exactly one other checkout whose run belongs to the
+ * same feature. Task ids repeat across features, so another checkout's run with the same id but
+ * another feature (or none) is not this task's and is never read or updated from here.
+ * @param {{stateRoot: string, taskId: string, slug: string|null, exec?: Function}} options
+ * @returns {{status: 'found'|'missing'|'ambiguous', file: string|null, root: string|null,
+ *   origin: 'current'|'other'|null, candidates: Array<string>}}
+ */
+function findRunFile({ stateRoot, taskId, slug, exec }) {
+  const rel = path.join('.doflow', 'state', 'orchestration', `${taskId}.json`);
+  const missing = { status: 'missing', file: null, root: null, origin: null, candidates: [] };
+  if (fs.existsSync(path.join(stateRoot, rel))) {
+    return { status: 'found', file: path.join(stateRoot, rel), root: stateRoot, origin: 'current', candidates: [] };
+  }
+  if (!slug) return missing;
+  const checkouts = listCheckouts({ cwd: stateRoot, ...(exec ? { exec } : {}) });
+  if (!checkouts.ok || checkouts.sandbox) return missing;
+  const matches = checkouts.others.filter((root) => {
+    const file = path.join(root, rel);
+    if (!fs.existsSync(file)) return false;
+    try {
+      return runSlugOf(JSON.parse(fs.readFileSync(file, 'utf8')), root) === slug;
+    } catch {
+      return false;
+    }
+  });
+  if (matches.length === 0) return missing;
+  if (matches.length > 1) return { ...missing, status: 'ambiguous', candidates: matches.map((root) => path.join(root, rel)) };
+  return { status: 'found', file: path.join(matches[0], rel), root: matches[0], origin: 'other', candidates: [] };
+}
+
+/** The slug a refusal's next command names: one whose feature folder exists in this checkout or in
+ * the main checkout, which is when `readiness --slug` resolves it the same way the edit hook does. */
+function nextSlugFor({ stateRoot, taskId, slug, exec }) {
+  if (!slug || slug === taskId) return null;
+  if (isDir(folderOf(stateRoot, slug))) return slug;
+  const checkouts = listCheckouts({ cwd: stateRoot, ...(exec ? { exec } : {}) });
+  return checkouts.main && isDir(folderOf(checkouts.main, slug)) ? slug : null;
+}
+
 /** Why a record cannot be read as an evaluation, or null when it can. */
 function unusableDetail(record, now) {
   if (!record || typeof record !== 'object' || Array.isArray(record)) return 'not a JSON object';
@@ -132,17 +213,19 @@ function unusableDetail(record, now) {
  * @param {Object} options
  * @param {string} options.stateRoot
  * @param {string} options.taskId
- * @param {string|null} [options.slug]
+ * @param {string|null} [options.slug] the task's feature slug: the record's namespace, and named in
+ *   the next command when its folder exists here or in the main checkout
  * @param {string} options.template
  * @param {Date} [options.now]
  * @param {Function} [options.exec]
  * @returns {{ok: boolean, code: 'ready'|'missing'|'not-ready'|'wrong-template'|'unusable'|'ambiguous',
  *   record: Object|null, file: string|null, origin: string|null, candidates: Array<string>,
- *   detail: string|null, message: string|null}}
+ *   detail: string|null, nextSlug: string|null, message: string|null}}
  */
 function checkReadiness({ stateRoot, taskId, slug = null, template, now = new Date(), exec }) {
   const read = readReadinessRecord({ stateRoot, taskId, slug, exec });
   const newerVersion = read.status === 'found' ? newerVersionOf(read.record) : null;
+  const nextSlug = nextSlugFor({ stateRoot, taskId, slug, exec });
   const result = (code, detail = null) => ({
     ok: code === 'ready',
     code,
@@ -152,8 +235,9 @@ function checkReadiness({ stateRoot, taskId, slug = null, template, now = new Da
     candidates: read.candidates,
     detail,
     newerVersion,
+    nextSlug,
     message: code === 'ready' ? null : refusalText(code, {
-      taskId, slug, template, record: read.record, candidates: read.candidates, detail, file: read.file, newerVersion,
+      taskId, slug: nextSlug, template, record: read.record, candidates: read.candidates, detail, file: read.file, newerVersion,
     }),
   });
   if (read.status === 'ambiguous') return result('ambiguous');
@@ -206,11 +290,6 @@ function graceWarning(code, { taskId, slug = null, template, record = null, deta
     + `From DoFlow ${PRE_FLOOR_GRACE_ENDS} it is refused. Next: ${next}`;
 }
 
-/** The run file for a task id in this checkout or exactly one other. */
-function findRun({ stateRoot, id, exec }) {
-  return findStateFile({ stateRoot, relPath: path.join('.doflow', 'state', 'orchestration', `${id}.json`), ...(exec ? { exec } : {}) });
-}
-
 /**
  * `verify`'s readiness check: whether a run for the task, or for its feature slug, is open with its
  * gated stage pending, and if so whether a READY record exists. Reads only.
@@ -224,8 +303,8 @@ function findRun({ stateRoot, id, exec }) {
  *   record, message}`, plus `grace: true` for a run started before readiness was recorded
  */
 function verifyReadinessCheck({ stateRoot, taskId, slug = null, now = new Date(), exec }) {
-  let found = findRun({ stateRoot, id: taskId, exec });
-  if (found.status === 'missing' && slug && slug !== taskId) found = findRun({ stateRoot, id: slug, exec });
+  let found = findRunFile({ stateRoot, taskId, slug, exec });
+  if (found.status === 'missing' && slug && slug !== taskId) found = findRunFile({ stateRoot, taskId: slug, slug, exec });
   if (found.status === 'ambiguous') {
     return {
       applies: true, runTaskId: null, stage: null, template: null, ok: false, code: 'ambiguous', record: null,
@@ -258,7 +337,7 @@ function verifyReadinessCheck({ stateRoot, taskId, slug = null, now = new Date()
   if (!check.ok && GRACE_CODES.has(check.code) && preFloorGrace(run)) {
     result.grace = true;
     result.message = graceWarning(check.code, {
-      taskId: run.taskId, slug, template, record: check.record, detail: check.detail, file: check.file, newerVersion: check.newerVersion,
+      taskId: run.taskId, slug: check.nextSlug, template, record: check.record, detail: check.detail, file: check.file, newerVersion: check.newerVersion,
       startedAt: run.startedAt, action: 'verify report',
     });
   }
@@ -272,6 +351,9 @@ module.exports = {
   harnessHookNote,
   checkReadiness,
   verifyReadinessCheck,
+  featureSlugFor,
+  runSlugOf,
+  findRunFile,
   preFloorGrace,
   graceWarning,
   READINESS_FLOOR_SINCE,

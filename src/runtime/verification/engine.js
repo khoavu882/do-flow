@@ -29,10 +29,9 @@ const { REPO_ROOT } = require('../../helper/repo-root');
 const {
   resolveScopeBound, resolveIntegrationBase, parseDeclaredScope, scopeReasonText, boundSourcesText,
 } = require('./scope-bound');
-const { resolveActiveFeature } = require('../feature-resolve');
-const { isSafeSlug } = require('../task-scope');
 const { readReadinessRecord, RECORD_VERSION } = require('../readiness-record');
-const { refusalText, verifyReadinessCheck } = require('../implementation-gate');
+const { verifyReadinessCheck, featureSlugFor } = require('../implementation-gate');
+const { assertSafeTaskId } = require('../evidence-ledger');
 const {
   VerificationContractRunner,
   FATAL_CHECK_MARKERS,
@@ -972,6 +971,12 @@ class VerificationEngine {
  * @returns {number} exit code
  */
 function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null, scope = null } = {}) {
+  // The task id names state files here, so it obeys the rule every other task verb applies.
+  try {
+    assertSafeTaskId(taskId);
+  } catch (error) {
+    return usageError('verify', error.message, json);
+  }
   let declared = null;
   if (scope !== null && scope !== undefined) {
     const parsed = parseDeclaredScope(typeof scope === 'string' ? scope : '');
@@ -982,15 +987,16 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   }
   const cwd = projectRoot || process.cwd();
   // The feature the task belongs to, for the readiness record's namespace and for a run keyed by
-  // the feature slug: `--slug`, else the branch's.
-  const featureSlug = slug || branchFeatureSlug(cwd);
+  // the feature slug: `--slug`, else the task id's own folder, else the branch's.
+  const featureSlug = featureSlugFor({ projectRoot: cwd, taskId, slug });
 
   // A scope is declared in one place. The readiness record carries the one stated before the
-  // work; a flag that says something else is refused rather than silently preferred.
+  // work; a flag that says something else is refused rather than silently preferred. Records in two
+  // other checkouts declare nothing: the contract says so and still answers.
   const recorded = readReadinessRecord({ stateRoot: cwd, taskId, slug: featureSlug });
-  if (recorded.status === 'ambiguous') {
-    return usageError('verify', refusalText('ambiguous', { taskId, slug: featureSlug, template: recordClassOf(recorded.candidates), candidates: recorded.candidates }), json);
-  }
+  const recordNote = recorded.status === 'ambiguous'
+    ? `readiness record: not used; task '${taskId}' has records in more than one other checkout (${recorded.candidates.join(', ')})`
+    : null;
   // Only a record this runtime can read declares a scope; one it cannot read is reported by the
   // readiness check, and refusing --scope against it would send the caller to a readiness run that
   // cannot replace it.
@@ -1012,6 +1018,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
     // The bound comes from the feature's plan, this checkout's or the main checkout's, and from a
     // declared scope; with neither the change-scope tier is UNRESOLVED and says where it looked.
     const resolved = resolveScopeBound({ projectRoot: cwd, slug, planPath, declared });
+    if (recordNote) resolved.searched.push({ place: 'readiness record', result: recordNote.slice('readiness record: '.length) });
     const scopeInput = resolved.bound
       ? { ...resolved.bound, searched: resolved.searched }
       : { unresolvedReason: scopeReasonText({ reason: resolved.reason, taskId, planSource: resolved.planSource }), searched: resolved.searched };
@@ -1023,6 +1030,10 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   const boundLines = new Map(contract.tiers
     .filter((t) => t.bound && Array.isArray(t.bound.sources) && t.bound.sources.length > 0)
     .map((t) => [t.id, `      bound: ${boundSourcesText(t.bound.sources)}`]));
+  if (recordNote) {
+    const scopeTier = contract.tiers.find((t) => t.kind === 'scope');
+    if (scopeTier) boundLines.set(scopeTier.id, [boundLines.get(scopeTier.id), `      ${recordNote}`].filter(Boolean).join('\n'));
+  }
 
   if (action === 'contract') {
     if (json) console.log(JSON.stringify(contract, null, 2));
@@ -1082,33 +1093,11 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   return finishRuntime(report.status === 'PASS' ? 0 : 1);
 }
 
-/** The branch's feature slug as the resolver names it, or null. */
-function branchFeatureSlug(cwd) {
-  try {
-    const found = resolveActiveFeature({ projectRoot: cwd });
-    const s = !found.error && found.paths ? found.paths.feature_slug : null;
-    return isSafeSlug(s) ? s : null;
-  } catch {
-    return null;
-  }
-}
-
 /** Whether two path lists name the same set. */
 function sameSet(a, b) {
   const left = new Set(a);
   const right = new Set(b);
   return left.size === right.size && [...left].every((p) => right.has(p));
-}
-
-/** The class of the first readable record among `files`, for a refusal that has to name a template. */
-function recordClassOf(files) {
-  for (const file of files) {
-    try {
-      const { taskClass } = JSON.parse(nodeFs.readFileSync(file, 'utf8'));
-      if (typeof taskClass === 'string' && taskClass !== '') return taskClass;
-    } catch { /* an unreadable candidate names no class */ }
-  }
-  return '<class>';
 }
 
 module.exports = {

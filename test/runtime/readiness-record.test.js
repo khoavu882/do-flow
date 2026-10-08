@@ -229,3 +229,30 @@ test('a record written by a newer DoFlow is never overwritten: the write is refu
   assert.equal(fs.readFileSync(file, 'utf8'), bytes);
   assert.equal(fs.existsSync(`${file}.unreadable`), false);
 });
+
+test('an unreadable record is set aside only under the write lock', () => {
+  const root = dir('locked');
+  const file = rawRecord(root, 'T-8.json', '{not json');
+  fs.mkdirSync(`${file}.lock`);   // another writer holds the record
+  try {
+    assert.throws(() => write(root, 'T-8'), /Could not lock/);
+  } finally {
+    fs.rmdirSync(`${file}.lock`);
+  }
+  assert.equal(fs.readFileSync(file, 'utf8'), '{not json', 'nothing was renamed while another writer held the lock');
+  assert.equal(fs.existsSync(`${file}.unreadable`), false);
+});
+
+test('every reader takes the same candidates: the namespaced path, then the flat one, in each checkout', () => {
+  const { recordCandidates } = require('../../src/runtime/readiness-record');
+  const store = path.join('.doflow', 'state', 'readiness');
+  assert.deepEqual(recordCandidates('A.1', SLUG), [path.join(store, SLUG, 'A.1.json'), path.join(store, 'A.1.json')]);
+  assert.deepEqual(recordCandidates(SLUG, SLUG), [path.join(store, `${SLUG}.json`)]);
+  assert.deepEqual(recordCandidates('A.1', null), [path.join(store, 'A.1.json')]);
+
+  const root = dir('candidates');
+  rawRecord(root, 'A.1.json', { version: 1, taskId: 'A.1', taskClass: 'bug', state: 'READY', evaluatedAt: NOW.toISOString() });
+  assert.equal(readReadinessRecord({ stateRoot: root, taskId: 'A.1', slug: SLUG }).status, 'found', 'a flat record is found under a slug');
+  const replaced = write(root, 'A.1', { slug: SLUG });
+  assert.equal(replaced.file, path.join(root, store, 'A.1.json'), 'the writer replaces the record readers find, not a second one');
+});

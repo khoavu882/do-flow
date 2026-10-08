@@ -521,7 +521,7 @@ test('a --scope that differs from the readiness record exits 2 and names both', 
     + 'A scope is declared in one place: re-run doflow-run readiness --task-class bug --task-id A.1 --scope src/b.js, or drop --scope. Nothing was changed.');
 });
 
-test('a readiness record in two other checkouts exits 2 with the ambiguous text', () => {
+test('records in two other checkouts are not used for the scope: the contract says so and still answers', () => {
   const root = repo({ plan: null });
   const files = [];
   for (const name of ['wt1', 'wt2']) {
@@ -533,11 +533,24 @@ test('a readiness record in two other checkouts exits 2 with the ambiguous text'
     fs.writeFileSync(file, JSON.stringify({ version: 1, taskId: 'A.1', taskClass: 'bug', state: 'READY', evaluatedAt: '2026-10-08T00:00:00.000Z', declaredScope: ['src/in.js'] }));
     files.push(file);
   }
-  const res = verify(root, '--action', 'contract');
-  assert.equal(res.status, 2);
-  assert.equal(res.stdout, '');
-  assert.equal(res.stderr.trim(), `doflow verify: doflow gate readiness-before-implementation: task 'A.1' has records in more than one other checkout (${files.join(', ')}). `
-    + `Next: run the command from the checkout that holds the one you mean, or run doflow-run readiness --task-class bug --task-id A.1 --slug=${SLUG} here. Nothing was changed.`);
+  const note = `readiness record: not used; task 'A.1' has records in more than one other checkout (${files.join(', ')})`;
+  const contract = verify(root, '--action', 'contract');
+  assert.equal(contract.status, 0, contract.stderr);
+  assert.ok(contract.stdout.split('\n').includes(`      ${note}`), contract.stdout);
+  const asJson = JSON.parse(verify(root, '--action', 'contract', '--json').stdout);
+  assert.ok(asJson.scope.searched.some((s) => s.place === 'readiness record' && note.endsWith(s.result)), JSON.stringify(asJson.scope.searched));
+
+  const report = verify(root, '--json');
+  assert.notEqual(report.status, 2, report.stderr);
+  assert.equal(JSON.parse(report.stdout).status, 'INCONCLUSIVE', 'nothing else bounds the change, so the tier is unresolved');
+});
+
+test('verify refuses a task id that could name a path outside the state store', () => {
+  for (const id of ['../../../package', 'a/b', '..']) {
+    const res = spawnSync('node', [DOFLOW, 'verify', '--task-id', id, '--action', 'contract'], { cwd: repo({ plan: null }), env: { ...process.env, HOME: os.tmpdir() }, encoding: 'utf8' });
+    assert.equal(res.status, 2, `${id}: ${res.stdout}`);
+    assert.match(res.stderr, /Invalid task id/);
+  }
 });
 
 test('a readiness record this runtime cannot read declares no scope, so --scope is not refused against it', () => {

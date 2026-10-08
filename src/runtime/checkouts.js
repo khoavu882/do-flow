@@ -128,7 +128,8 @@ function clearCheckoutCache() {
  * something a path can decide. Writes nothing.
  * @param {Object} options
  * @param {string} options.stateRoot the root the verb resolves today
- * @param {string|Function} options.relPath a path under each root, or `(root, isCurrent) => string|null`
+ * @param {string|Array<string>|Function} options.relPath a path under each root, candidate paths taken in
+ *   order (the first that exists in a root is that root's file), or `(root, isCurrent) => string|null`
  *   for a store whose location differs per checkout (null skips that root)
  * @param {Function} [options.exec]
  * @param {Object} [options.fsImpl]
@@ -138,9 +139,12 @@ function clearCheckoutCache() {
 function findStateFile({ stateRoot, relPath, exec = spawnSync, fsImpl = fs }) {
   const at = (root, isCurrent) => {
     const rel = typeof relPath === 'function' ? relPath(root, isCurrent) : relPath;
-    if (typeof rel !== 'string' || rel === '') return null;
-    const file = path.join(root, rel);
-    return fsImpl.existsSync(file) ? file : null;
+    for (const candidate of Array.isArray(rel) ? rel : [rel]) {
+      if (typeof candidate !== 'string' || candidate === '') continue;
+      const file = path.join(root, candidate);
+      if (fsImpl.existsSync(file)) return file;
+    }
+    return null;
   };
   const missing = { status: 'missing', file: null, root: null, origin: null, candidates: [] };
 

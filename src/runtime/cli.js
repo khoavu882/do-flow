@@ -84,11 +84,12 @@ function handleCapabilitiesCommand({ json = false, check = false, repoRoot } = {
  * @param {string} [options.repoRoot]
  * @param {string} [options.stateRoot]
  * @param {Date} [options.now] the evaluation clock the record is stamped with
+ * @param {string|null} [options.slug] `--slug`: the feature the record belongs to
  * @returns {number} exit code: 0 once the evaluation is recorded, whatever its state
  */
 function handleReadinessCommand({
   taskClass = 'feature', taskId = 'default', json = false, repoRoot, stateRoot,
-  verificationPlan, scopeClear, invariants, userDecisionPending = false, mode = 'workflow', now,
+  verificationPlan, scopeClear, invariants, userDecisionPending = false, mode = 'workflow', now, slug = null,
 } = {}) {
   // Two different roots, previously conflated into one. `root` locates the *registry* (the
   // readiness templates ship inside the DoFlow package). `state` locates the invoking project's
@@ -125,7 +126,7 @@ function handleReadinessCommand({
   const declaredScope = declared && !declared.reason ? declared.paths : null;
   let recorded;
   try {
-    const { file, replacedUnreadable } = writeReadinessRecord({ stateRoot: state, taskId, report, inputs, declaredScope, mode, now: now || new Date() });
+    const { file, replacedUnreadable } = writeReadinessRecord({ stateRoot: state, taskId, slug, report, inputs, declaredScope, mode, now: now || new Date() });
     recorded = { file, written: true, ...(replacedUnreadable ? { replacedUnreadable } : {}) };
   } catch (error) {
     recorded = { file: null, written: false, error: error.message };

@@ -143,7 +143,9 @@ test('a run started in the main checkout is read and updated from a linked workt
   const wt = `${cwd}-wt`;
   t.after(() => fs.rmSync(wt, { recursive: true, force: true }));
   execFileSync('git', ['-C', cwd, 'worktree', 'add', '-q', '-b', 'feat/other', wt], { stdio: 'ignore' });
-  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 't-cross', '--task-class', 'feature']);
+  // The run names its feature, `other`, which is the worktree's branch feature: only then is it this task's.
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 't-cross', '--task-class', 'feature', '--slug', 'other']);
+  assert.equal(JSON.parse(fs.readFileSync(runFileOf(cwd, 't-cross'), 'utf8')).featureSlug, 'other');
   const status = json(wt, ['orchestrate', '--action', 'status', '--task-id', 't-cross']);
   assert.equal(status.status, 0, status.stderr);
   assert.equal(status.data.taskId, 't-cross');
@@ -393,4 +395,82 @@ test('044: the human-readable handoff output names the compaction status', () =>
   const res = run(cwd, ['orchestrate', '--action', 'handoff', '--task-id', '074-x', '--task-class', 'feature', '--calling-skill', 'do-brainstorm', '--note', 'recorded']);
   assert.equal(res.status, 0);
   assert.match(res.stdout, /^Compaction: compacted$/m);
+});
+
+// ───────────────────────────── one record lookup, and runs matched to their feature across checkouts
+
+/** A main checkout on `main` holding feature `900-demo` (with a register), plus a linked worktree on
+ * `feat/900-demo`, both removed when `t` ends. */
+function mainAndWorktree(t) {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  const folder = path.join(cwd, 'agent-docs', 'doflow', '900-demo');
+  fs.mkdirSync(path.join(folder, 'decisions'), { recursive: true });
+  fs.writeFileSync(path.join(folder, 'decisions', 'register.json'), '{"version":1,"slug":"900-demo","nextId":1,"decisions":[]}\n');
+  const wt = `${cwd}-wt`;
+  t.after(() => fs.rmSync(wt, { recursive: true, force: true }));
+  execFileSync('git', ['-C', cwd, 'worktree', 'add', '-q', '-b', 'feat/900-demo', wt], { stdio: 'ignore' });
+  return { cwd, wt };
+}
+
+function readyTrivialEdit(cwd, taskId, extra = []) {
+  json(cwd, ['evidence', '--task-id', taskId, ...extra, '--action', 'add', '--kind', 'exact-search', '--provenance', 'extracted',
+    '--provider', 'grep', '--capability', 'code.exact-search', '--locator', 'a.js:1', '--content', 'x', '--establishes', 'target_identified']);
+  const ready = json(cwd, ['readiness', '--task-class', 'trivial-edit', '--task-id', taskId, '--scope', 'a.js', ...extra]);
+  assert.equal(ready.data.state, 'READY', ready.stdout);
+  assert.equal(ready.data.record.written, true);
+  return ready.data.record.file;
+}
+
+test('a flat record written in the main checkout is found by verify and handoff from the linked worktree', (t) => {
+  const { cwd, wt } = mainAndWorktree(t);
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'T1', '--task-class', 'trivial-edit', '--slug', '900-demo']);
+  const file = readyTrivialEdit(cwd, 'T1');
+  assert.equal(file, path.join(cwd, '.doflow', 'state', 'readiness', 'T1.json'), 'no feature resolves on main, so the record is flat');
+
+  const verify = run(wt, ['verify', '--task-id', 'T1', '--scope', 'a.js', '--json']);
+  const readiness = JSON.parse(verify.stdout).readiness;
+  assert.equal(readiness.applies, true, verify.stdout);
+  assert.equal(readiness.ok, true, JSON.stringify(readiness));
+  assert.equal(readiness.record.file, file);
+
+  const done = run(wt, ['orchestrate', '--action', 'handoff', '--task-id', 'T1', '--calling-skill', 'do-implement', '--note', 'n']);
+  assert.equal(done.status, 0, done.stderr);
+  assert.match(done.stdout, /^Handoff: completed$/m);
+});
+
+test('a record written with --slug under the feature namespace is found by orchestrate from either checkout', (t) => {
+  const { cwd, wt } = mainAndWorktree(t);
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'T2', '--task-class', 'trivial-edit', '--slug', '900-demo']);
+  const file = readyTrivialEdit(cwd, 'T2', ['--slug', '900-demo']);
+  assert.equal(file, path.join(cwd, '.doflow', 'state', 'readiness', '900-demo', 'T2.json'));
+
+  const fromWorktree = json(wt, ['orchestrate', '--action', 'status', '--task-id', 'T2']);
+  assert.equal(fromWorktree.data.current.id, 'implementation');
+  const verify = JSON.parse(run(wt, ['verify', '--task-id', 'T2', '--scope', 'a.js', '--json']).stdout);
+  assert.equal(verify.readiness.ok, true, JSON.stringify(verify.readiness));
+
+  const done = run(cwd, ['orchestrate', '--action', 'handoff', '--task-id', 'T2', '--calling-skill', 'do-implement', '--note', 'n', '--slug', '900-demo']);
+  assert.equal(done.status, 0, done.stderr);
+  assert.match(done.stdout, /^Handoff: completed$/m);
+});
+
+test('a run with the same id for another feature in another worktree neither blocks start nor is taken over', (t) => {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  const w1 = `${cwd}-w1`;
+  t.after(() => fs.rmSync(w1, { recursive: true, force: true }));
+  execFileSync('git', ['-C', cwd, 'worktree', 'add', '-q', '-b', 'fix/other', w1], { stdio: 'ignore' });
+  json(w1, ['orchestrate', '--action', 'start', '--task-id', 'A.1', '--task-class', 'bug']);
+  const theirs = fs.readFileSync(runFileOf(w1, 'A.1'));
+
+  const missing = run(cwd, ['orchestrate', '--action', 'status', '--task-id', 'A.1']);
+  assert.equal(missing.status, 1, 'the other feature\'s run is not this checkout\'s task');
+  assert.match(missing.stderr, /No workflow run for task 'A\.1'/);
+
+  const started = json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'A.1', '--task-class', 'bug']);
+  assert.equal(started.status, 0, started.stderr);
+  assert.ok(fs.existsSync(runFileOf(cwd, 'A.1')), 'start is always local');
+  json(cwd, ['orchestrate', '--action', 'complete-stage', '--task-id', 'A.1', '--stage', 'reproduction']);
+  assert.deepEqual(fs.readFileSync(runFileOf(w1, 'A.1')), theirs, 'the other worktree\'s run is untouched');
 });

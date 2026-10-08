@@ -16,9 +16,8 @@ const { ResearchRequestStore } = require('./research-request');
 const { REPO_ROOT } = require('../helper/repo-root');
 const { resolveActiveFeature } = require('./feature-resolve');
 const { compactDecisions } = require('./decision-register');
-const { findStateFile } = require('./checkouts');
 const {
-  checkReadiness, harnessHookNote, preFloorGrace, graceWarning, GRACE_CODES,
+  checkReadiness, harnessHookNote, preFloorGrace, graceWarning, GRACE_CODES, featureSlugFor, runSlugOf, findRunFile,
 } = require('./implementation-gate');
 
 const RUN_STATES = Object.freeze(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED']);
@@ -97,8 +96,9 @@ class WorkflowOrchestrator {
    *   optional warning; anything but READY blocks completion of a source-mutating gated stage.
    *   Unwired means such stages cannot be completed — fail closed, never open.
    * @param {object} [options.fsImpl]
+   * @param {string|null} [options.featureSlug] the feature a run started here belongs to
    */
-  constructor({ repoRoot = REPO_ROOT, projectRoot, stateDir, engine, readinessEvaluate, fsImpl } = {}) {
+  constructor({ repoRoot = REPO_ROOT, projectRoot, stateDir, engine, readinessEvaluate, fsImpl, featureSlug = null } = {}) {
     this.fsImpl = fsImpl || fs;
     this.repoRoot = repoRoot;
     this.projectRoot = projectRoot || (stateDir?.endsWith(path.join('.doflow', 'state', 'orchestration'))
@@ -106,6 +106,7 @@ class WorkflowOrchestrator {
     this.engine = engine || new WorkflowEngine({ repoRoot });
     this.stateDir = stateDir || path.join(this.projectRoot, '.doflow', 'state', 'orchestration');
     this.readinessEvaluate = readinessEvaluate || null;
+    this.featureSlug = featureSlug;
   }
 
   runFile(taskId) {
@@ -153,6 +154,8 @@ class WorkflowOrchestrator {
       // Marks a run started by a runtime that records readiness; a run without it predates that
       // and keeps a warning in place of the readiness refusal for one release.
       readinessFloor: 1,
+      // The feature the run belongs to, so another checkout can tell it from a run with the same id.
+      ...(this.featureSlug ? { featureSlug: this.featureSlug } : {}),
     };
     this.writeRun(run, now);
     return this.snapshot(run);
@@ -561,7 +564,7 @@ function compactAfterHandoff({ taskId, projectRoot }) {
  * made by `doflow readiness` before this call; nothing is evaluated here. */
 function handleOrchestrateCommand({
   action = 'status', taskId, taskClass, stage, gate, node, decision, note, reason, forced = false,
-  verificationPlan, scope, invariants, result, callingSkill, json = false, repoRoot, stateRoot,
+  verificationPlan, scope, invariants, result, callingSkill, json = false, repoRoot, stateRoot, slug = null,
 } = {}) {
   const { finishRuntime, usageError } = require('./cli-result');
 
@@ -571,11 +574,16 @@ function handleOrchestrateCommand({
   // wrote its journal to $PWD while a `--global` `evidence`/`readiness` call on the same task read
   // and wrote $HOME — two roots disagreeing about where one task's state lives.
   const state = stateRoot || process.cwd();
-  // A run started in another checkout of this repository is read and updated where it is; a new
-  // run is always created here.
+  const safeId = ID_PATTERN.test(String(taskId ?? ''));
+  // The feature this task belongs to: recorded on a run this command starts, matched against a run
+  // found in another checkout, and the namespace its readiness record is read from.
+  const featureSlug = safeId ? featureSlugFor({ projectRoot: state, taskId, slug }) : slug;
+  // A run started in another checkout of this repository for the same feature is read and updated
+  // where it is. `start` is always local: an unrelated run with the same id elsewhere neither
+  // refuses nor satisfies it.
   let runRoot = state;
-  if (ID_PATTERN.test(String(taskId ?? ''))) {
-    const found = findStateFile({ stateRoot: state, relPath: path.join('.doflow', 'state', 'orchestration', `${taskId}.json`) });
+  if (safeId && action !== 'start') {
+    const found = findRunFile({ stateRoot: state, taskId, slug: featureSlug });
     if (found.status === 'ambiguous') {
       console.error(`[ERROR] orchestrate: run '${taskId}' exists in more than one other checkout (${found.candidates.join(', ')}); run the command from the checkout that holds the run you mean. Nothing was changed.`);
       return finishRuntime(1);
@@ -585,6 +593,7 @@ function handleOrchestrateCommand({
   const orchestrator = new WorkflowOrchestrator({
     repoRoot: root, projectRoot: runRoot,
     stateDir: path.join(runRoot, '.doflow', 'state', 'orchestration'),
+    featureSlug,
   });
   let readinessGrace = null;
   orchestrator.readinessEvaluate = (node, run) => {
@@ -607,11 +616,11 @@ function handleOrchestrateCommand({
     // The record `doflow readiness` wrote before this call decides; inputs stated here would let a
     // handoff grade itself with whatever it was handed at the last moment.
     const template = node.readinessTemplate;
-    const check = checkReadiness({ stateRoot: state, taskId: run.taskId, slug: null, template, now: new Date() });
+    const check = checkReadiness({ stateRoot: state, taskId: run.taskId, slug: runSlugOf(run, runRoot) || featureSlug, template, now: new Date() });
     if (check.ok) return { verdict: 'READY', message: null };
     if (GRACE_CODES.has(check.code) && preFloorGrace(run)) {
       const warning = graceWarning(check.code, {
-        taskId: run.taskId, template, record: check.record, detail: check.detail, file: check.file, newerVersion: check.newerVersion,
+        taskId: run.taskId, slug: check.nextSlug, template, record: check.record, detail: check.detail, file: check.file, newerVersion: check.newerVersion,
         startedAt: run.startedAt, action,
       });
       readinessGrace = { code: check.code, message: warning };

@@ -250,7 +250,7 @@ test('a record from a newer DoFlow is refused by naming the file and the version
   assert.match(graced.message, /Next: run this command with the DoFlow that wrote the record, or upgrade DoFlow here\.$/);
 });
 
-test('runs in two other checkouts: verify names the run files and does not advise readiness, which cannot settle it', () => {
+test('runs of one feature in two other checkouts: verify names the run files and does not advise readiness, which cannot settle it', () => {
   const { spawnSync } = require('node:child_process');
   const git = (cwd, ...args) => assert.equal(spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd }).status, 0);
   const m = dir();
@@ -262,10 +262,10 @@ test('runs in two other checkouts: verify names the run files and does not advis
   for (const name of ['w1', 'w2']) {
     const wt = `${m}-${name}`;
     git(m, 'worktree', 'add', '-q', '-b', `feat/${name}`, wt);
-    bugRun(wt, 'T-7');
+    bugRun(wt, 'T-7', { edit: (run) => { run.featureSlug = '900-demo'; } });
     files.push(path.join(wt, '.doflow', 'state', 'orchestration', 'T-7.json'));
   }
-  const check = verifyReadinessCheck({ stateRoot: m, taskId: 'T-7', now: NOW });
+  const check = verifyReadinessCheck({ stateRoot: m, taskId: 'T-7', slug: '900-demo', now: NOW });
   assert.equal(check.applies, true);
   assert.equal(check.ok, false);
   assert.equal(check.code, 'ambiguous');
