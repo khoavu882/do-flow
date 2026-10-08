@@ -26,7 +26,9 @@ const { detectCommands, applyTargetPattern } = require('../command-detect');
 const { RecoveryManager } = require('../recovery');
 const { finishRuntime, usageError } = require('../cli-result');
 const { REPO_ROOT } = require('../../helper/repo-root');
-const { buildScopeBound, resolveIntegrationBase } = require('./scope-bound');
+const {
+  resolveScopeBound, resolveIntegrationBase, parseDeclaredScope, scopeReasonText, boundSourcesText,
+} = require('./scope-bound');
 const {
   VerificationContractRunner,
   FATAL_CHECK_MARKERS,
@@ -144,9 +146,12 @@ class VerificationEngine {
    * @param {string} [input.targetPattern] scopes the targeted-tests tier
    * @param {Array<{name: string, command: string, timeoutMs?: number}>} [input.structuralChecks]
    * @param {Array<{id: string, description?: string, command?: string}>} [input.requirements]
-   * @param {{maxFiles?: number, allowedPaths?: Array<string>, source?: string, baseline?: 'integration'}} [input.scope]
+   * @param {{maxFiles?: number, allowedPaths?: Array<string>, source?: string, sources?: Array<Object>,
+   *   baseline?: 'integration', unresolvedReason?: string, searched?: Array<Object>}} [input.scope]
    *   `baseline: 'integration'` measures the change from the merge base with the integration ref
    *   (a bound derived from a plan, scope-bound.js); without it only the working tree is observed.
+   *   `sources` names where the bound came from; with no bound, `unresolvedReason` replaces the
+   *   tier's generic reason and `searched` lists the places looked.
    * @returns {Object} the contract
    */
   compileContract(input = {}) {
@@ -255,6 +260,8 @@ class VerificationEngine {
       scope: {
         maxFiles: Number.isFinite(scope.maxFiles) ? scope.maxFiles : null,
         allowedPaths: toStringArray(scope.allowedPaths),
+        ...(Array.isArray(scope.sources) ? { sources: scope.sources } : {}),
+        ...(Array.isArray(scope.searched) ? { searched: scope.searched } : {}),
       },
       tiers,
       unresolvedRequiredTiers,
@@ -411,7 +418,9 @@ class VerificationEngine {
     if (maxFiles === null && allowedPaths.length === 0) {
       return {
         resolution: 'UNRESOLVED',
-        reason: 'No change-scope bound was declared before implementation, so the actual scope has nothing to be compared against.',
+        reason: typeof scope.unresolvedReason === 'string' && scope.unresolvedReason !== ''
+          ? scope.unresolvedReason
+          : 'No change-scope bound was declared before implementation, so the actual scope has nothing to be compared against.',
       };
     }
     return {
@@ -420,6 +429,7 @@ class VerificationEngine {
         maxFiles,
         allowedPaths,
         ...(typeof scope.source === 'string' ? { source: scope.source } : {}),
+        ...(Array.isArray(scope.sources) ? { sources: scope.sources } : {}),
         ...(scope.baseline === 'integration' ? { baseline: 'integration' } : {}),
       },
       reason: null,
@@ -954,22 +964,37 @@ class VerificationEngine {
  * @param {boolean} [options.json=false]
  * @param {string} [options.projectRoot]
  * @param {string} [options.slug] the feature whose plan bounds the change; the branch's when omitted
+ * @param {string} [options.scope] a declared scope (`<path>[,<path>...]`), unioned with any plan bound
  * @returns {number} exit code
  */
-function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null } = {}) {
+function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null, scope = null } = {}) {
+  let declared = null;
+  if (scope !== null && scope !== undefined) {
+    const parsed = parseDeclaredScope(typeof scope === 'string' ? scope : '');
+    if (parsed.reason) {
+      return usageError('verify', `--scope ${parsed.reason}. Write repository-relative paths separated by commas, a trailing / for a directory, for example --scope src/a.js,src/lib/. Nothing was changed.`, json);
+    }
+    declared = { paths: parsed.paths, origin: 'verify-flag' };
+  }
   const cwd = projectRoot || process.cwd();
   let engine;
   let contract;
   try {
     engine = new VerificationEngine({ cwd, repoRoot: REPO_ROOT });
-    // The bound comes from the feature's plan (IC-003); a project with no feature or no plan keeps
-    // the old behaviour, where the change-scope tier is UNRESOLVED.
-    const bound = buildScopeBound({ projectRoot: cwd, slug });
-    const scope = bound ? { allowedPaths: bound.allowedPaths, source: bound.source, baseline: 'integration' } : undefined;
-    contract = engine.compileContract({ taskId, riskLevel: risk, projectRoot: cwd, planPath, scope });
+    // The bound comes from the feature's plan, this checkout's or the main checkout's, and from a
+    // declared scope; with neither the change-scope tier is UNRESOLVED and says where it looked.
+    const resolved = resolveScopeBound({ projectRoot: cwd, slug, planPath, declared });
+    const scopeInput = resolved.bound
+      ? { ...resolved.bound, searched: resolved.searched }
+      : { unresolvedReason: scopeReasonText({ reason: resolved.reason, taskId, planSource: resolved.planSource }), searched: resolved.searched };
+    contract = engine.compileContract({ taskId, riskLevel: risk, projectRoot: cwd, planPath, scope: scopeInput });
   } catch (error) {
     return usageError('verify', error.message, json, error);
   }
+  // The bound's sources print under the change-scope tier's line; no other line changes.
+  const boundLines = new Map(contract.tiers
+    .filter((t) => t.bound && Array.isArray(t.bound.sources) && t.bound.sources.length > 0)
+    .map((t) => [t.id, `      bound: ${boundSourcesText(t.bound.sources)}`]));
 
   if (action === 'contract') {
     if (json) console.log(JSON.stringify(contract, null, 2));
@@ -978,6 +1003,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
       console.log('═'.repeat(78));
       for (const tier of contract.tiers) {
         console.log(`  ${tier.id.padEnd(22)} ${tier.resolution.padEnd(12)} ${tier.required ? 'required' : 'advisory'}`);
+        if (boundLines.has(tier.id)) console.log(boundLines.get(tier.id));
         if (tier.reason) console.log(`      ${tier.reason}`);
       }
       console.log('═'.repeat(78) + '\n');
@@ -999,6 +1025,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
     console.log('─'.repeat(78));
     for (const tier of report.tiers) {
       console.log(`  ${tier.id.padEnd(22)} ${tier.status.padEnd(16)} ${tier.required ? 'required' : 'advisory'}`);
+      if (boundLines.has(tier.id)) console.log(boundLines.get(tier.id));
       if (tier.reason) console.log(`      ${tier.reason}`);
     }
     console.log('─'.repeat(78));
