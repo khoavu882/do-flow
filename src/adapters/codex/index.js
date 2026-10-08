@@ -319,11 +319,12 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     const changes = [];
     const conflicts = [];
     const treeResults = [];
+    const notices = [];
     for (const asset of copyTreeAssets(assets)) {
       const destDir = copyTreeDestDir(codexConfigDir(context), asset);
       const sourceDir = sourceDirFor(asset, repoRoot);
       const previousResources = ledgerFileResources(neutralResources, HARNESS, asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(neutralResources, HARNESS), operation: removing ? 'remove' : 'apply', layout: asset.layout,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(neutralResources, HARNESS), operation: removing ? 'remove' : 'apply', layout: asset.layout, keepModified: !removing,
         // `force` is the CLI's --force reaching the one conflict class a plan can actually
         // downgrade: a ledger-owned destination whose bytes were edited underneath us. With force,
         // that is drift to heal rather than a refusal — exactly what `doflow reconcile` (always
@@ -332,17 +333,21 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
         force: !removing && force === true });
       treeResults.push(result);
       conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+      // A hand-edited file at a path DoFlow no longer writes is the user's: it stays, only its
+      // ownership row is released.
+      notices.push(...result.kept.map((item) => `kept hand-edited ${path.relative(context.paths.root, item.target)}; DoFlow no longer manages it`));
       for (const change of result.changes) {
         changes.push({
           assetId: asset.id, target: change.target, source: change.source, operation: change.operation,
           ownershipIdentity: `doflow:codex:copy-tree:${asset.id}:${change.relPath}`,
           kind: 'copy-tree-file', identity: change.relPath,
           afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: sourceVersion ?? 'unknown',
+          ...(change.kept ? { retained: true, retainedFor: [] } : {}),
           projection: { renderer: 'copy-tree' },
         });
       }
     }
-    return { changes, conflicts, notices: siblingReplacedNotices(treeResults) };
+    return { changes, conflicts, notices: [...siblingReplacedNotices(treeResults), ...notices] };
   }
 
   function applyCopyTreeAssets(changes) {
@@ -352,7 +357,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
   }
 
   function removeCopyTreeAssets(changes) {
-    const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove')
+    const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove' && !change.retained)
       .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
     return removeTree({ changes: treeChanges }).removed;
   }
@@ -540,7 +545,9 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     // applyCopyTreeAssets/applyInstructionsAsset already filter to non-remove operations, so calling
     // them unconditionally here (including when apply() is invoked from remove(), below) is safe.
     const copyTreeApplied = dryRun ? 0 : applyCopyTreeAssets(changes);
-    if (!dryRun) applyInstructionsAsset(changes);
+    // Copy-tree removals run here too, for both verbs: an update that no longer ships a file
+    // carries its rows as removals inside the apply batch, and remove() delegates to this function.
+    if (!dryRun) { removeCopyTreeAssets(changes); applyInstructionsAsset(changes); }
     const nativeComponents = { mcp, config, agents, hooks };
     return { harness: HARNESS, applied: [mcp, config, agents, hooks].filter((result) => result?.applied).length + copyTreeApplied,
       components: nativeComponents, resources: resourcesFromApplied({ components: nativeComponents, scope: scope ?? 'project', sourceVersion, recoveryRef }) };
@@ -561,7 +568,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     }
     const hooksPlan = changes.find((change) => change?.nativeComponent === 'hooks' && change.nativePlan?.directRemove)?.nativePlan;
     if (hooksPlan) removeCodexHookScripts(hooksPlan, { dryRun });
-    if (!dryRun) { removeCopyTreeAssets(changes); removeInstructionsAsset(changes); }
+    if (!dryRun) removeInstructionsAsset(changes);
     return { ...result, removed: changes.filter((change) => (change.operation ?? change.type) === 'remove').length };
   }
 

@@ -14,6 +14,7 @@
 // Evidence: https://kiro.dev/docs/steering/, https://kiro.dev/docs/mcp/configuration/,
 // https://kiro.dev/docs/hooks/
 const fs = require('node:fs');
+const path = require('node:path');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, sourceDirFor } = require('../copy-tree');
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
@@ -86,11 +87,12 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
     const changes = [];
     const conflicts = [];
     const treeResults = [];
+    const notices = [];
     for (const asset of kiroTreeAssets(assets)) {
       const destDir = copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Kiro');
       const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, keepModified: !removing,
         // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
         // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
         // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file
@@ -98,17 +100,21 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
         force: !removing && context?.force === true, });
       treeResults.push(result);
       conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+      // A hand-edited file at a path DoFlow no longer writes is the user's: it stays, only its
+      // ownership row is released.
+      notices.push(...result.kept.map((item) => `kept hand-edited ${path.relative(paths.root, item.target)}; DoFlow no longer manages it`));
       for (const change of result.changes) {
         changes.push({
           assetId: asset.id, target: change.target, source: change.source, operation: change.operation,
           ownershipIdentity: `doflow:${HARNESS}:copy-tree:${asset.id}:${change.relPath}`,
           kind: 'copy-tree-file', identity: change.relPath,
           afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: 'registry-v1',
+          ...(change.kept ? { retained: true, retainedFor: [] } : {}),
           projection: { renderer: asset.renderer },
         });
       }
     }
-    return { changes, conflicts, notices: siblingReplacedNotices(treeResults) };
+    return { changes, conflicts, notices: [...siblingReplacedNotices(treeResults), ...notices] };
   }
 
   function applyCopyTreeAssets(changes, { fsImpl = fs } = {}) {
@@ -118,7 +124,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
   }
 
   function removeCopyTreeAssets(changes, { fsImpl = fs } = {}) {
-    const treeChanges = changes.filter((change) => change.kind === 'copy-tree-file' && change.operation === 'remove')
+    const treeChanges = changes.filter((change) => change.kind === 'copy-tree-file' && change.operation === 'remove' && !change.retained)
       .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
     return removeTree({ changes: treeChanges, fsImpl }).removed;
   }
@@ -239,6 +245,9 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
   function apply({ changes = [], fsImpl = fs }) {
     writeMcpEntries(changes, { container: MCP_CONTAINER, fsImpl });
     applyCopyTreeAssets(changes, { fsImpl });
+    // An update that no longer ships a copy-tree file carries its rows as removals inside the
+    // apply batch; the lifecycle calls remove() only for `doflow remove`.
+    removeCopyTreeAssets(changes, { fsImpl });
   }
 
   function remove({ changes = [], fsImpl = fs }) {
