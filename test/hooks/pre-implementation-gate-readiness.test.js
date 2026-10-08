@@ -319,3 +319,46 @@ HOOK_TEST('the hook reads records where the runtime does, and another feature\'s
   assert.strictEqual(JSON.parse(fs.readFileSync(runFile(w1, '901-bug'), 'utf8')).featureSlug, 'other');
   expectHook({ cwd: other.main, caseRoot: other.root, event: editEvent(path.join(other.main, 'src', 'a.js')), code: 0, stderr: '' });
 });
+
+HOOK_TEST('the hook and the runtime print the same refusal for the same task, slug or none', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo('fix/77-thing');
+  walkTo(main, 'T1', 'bug', 'implementation');
+  const handoff = spawnSync(process.execPath, [DOFLOW, 'orchestrate', '--action', 'handoff', '--task-id', 'T1', '--calling-skill', 'do-implement', '--note', 'n'],
+    { cwd: main, env: spawnEnv(), encoding: 'utf8' });
+  assert.strictEqual(handoff.status, 1, handoff.stdout);
+  const runtime = handoff.stderr.replace(/^\[ERROR\] orchestrate: /, '').replace(/ Edit-time check: .*$/s, '');
+  assert.ok(runtime.startsWith("doflow gate readiness-before-implementation: task 'T1' has no readiness record for the 'bug' template."), runtime);
+  // No feature folder for `77-thing`: neither side names a slug a readiness run could not resolve.
+  expectHook({ cwd: main, caseRoot: root, event: envelopeEvent(main, path.join(main, 'src', 'a.js'), 'T1'), code: 2, stderr: `${runtime}\n` });
+
+  const feature = makeRepo('feat/900-demo');
+  writeFeature(feature.main, '900-demo');
+  walkTo(feature.main, 'A.1', 'bug', 'implementation');
+  const held = spawnSync(process.execPath, [DOFLOW, 'orchestrate', '--action', 'handoff', '--task-id', 'A.1', '--calling-skill', 'do-implement', '--note', 'n'],
+    { cwd: feature.main, env: spawnEnv(), encoding: 'utf8' });
+  const named = held.stderr.replace(/^\[ERROR\] orchestrate: /, '').replace(/ Edit-time check: .*$/s, '');
+  assert.ok(named.includes('--task-id A.1 --slug=900-demo,'), named);
+  expectHook({ cwd: feature.main, caseRoot: feature.root, event: envelopeEvent(feature.main, path.join(feature.main, 'src', 'a.js'), 'A.1'), code: 2, stderr: `${named}\n` });
+});
+
+HOOK_TEST('a run whose program lacks the gated stage is not judged: the hook allows, as verify does', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo('fix/901-bug');
+  walkTo(main, '901-bug', 'bug', 'implementation');
+  const run = JSON.parse(fs.readFileSync(runFile(main, '901-bug'), 'utf8'));
+  delete run.program;
+  fs.writeFileSync(runFile(main, '901-bug'), JSON.stringify(run));
+  expectHook({ cwd: main, caseRoot: root, event: editEvent(path.join(main, 'src', 'a.js')), code: 0, stderr: '' });
+  const verify = spawnSync(process.execPath, [DOFLOW, 'verify', '--task-id', '901-bug', '--action', 'report', '--json'], { cwd: main, env: spawnEnv(), encoding: 'utf8' });
+  assert.deepStrictEqual(JSON.parse(verify.stdout).readiness, { applies: false, reason: 'no-gated-stage' });
+});
+
+HOOK_TEST('a file reached through a symlinked project path is gated like its real path', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo('feat/900-demo');
+  writeFeature(main, '900-demo');
+  const link = path.join(scratch.dir, `link-${path.basename(root)}`);   // outside the snapshot root
+  fs.symlinkSync(main, link);
+  const missing = `${refusalText('missing', { taskId: '900-demo', template: 'feature' })}\n`;
+  expectHook({ cwd: link, caseRoot: root, event: editEvent(path.join(link, 'src', 'a.js')), code: 2, stderr: missing });
+  expectHook({ cwd: main, caseRoot: root, event: editEvent(path.join(link, 'src', 'new', 'b.js')), code: 2, stderr: missing });
+  expectHook({ cwd: main, caseRoot: root, event: editEvent(path.join(link, 'agent-docs', 'doflow', '900-demo', 'plan.md')), code: 0, stderr: '' });
+});

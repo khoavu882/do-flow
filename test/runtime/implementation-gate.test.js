@@ -130,10 +130,19 @@ test('every refusal text, with and without a slug in the next command', () => {
     'a slug equal to the task id adds nothing');
 });
 
-test('the harness note names the harnesses with and without a hook layer, from harnesses.json', () => {
+test('the harness note names who runs the gate, who needs a prerequisite and who has no hook layer, from the gate\'s lifecycle mapping', () => {
   assert.equal(harnessHookNote({ repoRoot: REPO }),
-    'Edit-time check: claude, codex, gemini, kiro, antigravity run this check before each source edit; '
+    'Edit-time check: claude, gemini, kiro, antigravity run this check before each source edit; codex runs it only after hook-review; '
     + 'opencode, pi, copilot have no hook layer, so this refusal is their first check.');
+  // The gate's own mapping decides, not a harness's general hook support.
+  const repoRoot = dir();
+  fs.mkdirSync(path.join(repoRoot, 'core', 'registry'), { recursive: true });
+  fs.writeFileSync(path.join(repoRoot, 'core', 'registry', 'lifecycle.json'), JSON.stringify({
+    version: 1,
+    policies: [{ id: 'pre-implementation-gate', mappings: { claude: { status: 'unavailable' }, kiro: { status: 'supported' }, codex: { status: 'different', prerequisites: ['hook-review'] } } }],
+  }));
+  assert.equal(harnessHookNote({ repoRoot }),
+    'Edit-time check: kiro runs this check before each source edit; codex runs it only after hook-review; claude has no hook layer, so this refusal is its first check.');
   assert.equal(harnessHookNote({ repoRoot: dir() }), '', 'an unreadable registry gives no note');
 });
 

@@ -237,6 +237,26 @@ task_id="$ENVELOPE_TASK"
 case "$task_id" in ""|.*|*..*|*[!A-Za-z0-9._-]*) task_id="$slug" ;; esac
 [ -n "$task_id" ] || exit 0
 
+# The real path of $1: its longest existing ancestor resolved with cd -P, the
+# rest appended, so a path reached through a symlink (macOS /tmp and /var, a
+# linked project folder) compares equal to the real repository root.
+real_path() {
+  local p="$1" rest="" dir
+  while [ ! -e "$p" ] && [ "$p" != "/" ] && [ -n "$p" ]; do
+    rest="/${p##*/}$rest"
+    p=$(dirname "$p")
+  done
+  if [ -d "$p" ]; then
+    dir=$(cd -P "$p" 2>/dev/null && pwd) || return 1
+    p="$dir"
+  else
+    dir=$(cd -P "$(dirname "$p")" 2>/dev/null && pwd) || return 1
+    p="$dir/${p##*/}"
+  fi
+  printf '%s%s' "${p%/}" "$rest"
+}
+repo_real=$(cd -P "$repo_root" 2>/dev/null && pwd) || repo_real="$repo_root"
+
 # Only source files inside this repo are gated: edits to doflow artifacts are
 # always allowed, and an absolute path elsewhere is not this repo's.
 GATED=false
@@ -244,7 +264,11 @@ while IFS= read -r file; do
   [ -z "$file" ] && continue
   case "$file" in *"/agent-docs/"*|agent-docs/*) continue ;; esac
   case "$file" in
-    /*) case "$file" in "$repo_root"/*) ;; *) continue ;; esac ;;
+    /*)
+      real=$(real_path "$file") || real="$file"
+      case "$real" in *"/agent-docs/"*) continue ;; esac
+      case "$real" in "$repo_real"/*) ;; *) continue ;; esac
+      ;;
   esac
   GATED=true
   break
@@ -429,7 +453,13 @@ fi
 
 gated_stage "$class"
 [ -n "$STAGE_ID" ] && [ "$STAGE_EDIT" = true ] || exit 0
-[ -n "$RUN" ] && stage_done "$STAGE_ID" && exit 0
+if [ -n "$RUN" ]; then
+  # A run whose program does not name that stage (missing, malformed, or compiled
+  # from a registry that named it differently) cannot be judged here -> allow, as
+  # the runtime reads such a run as having no gated stage.
+  jq -e --arg id "$STAGE_ID" 'any(.program[]?; .type == "stage" and .id == $id)' "$RUN" >/dev/null 2>&1 || exit 0
+  stage_done "$STAGE_ID" && exit 0
+fi
 
 # The record, where the runtime looks: under the feature's namespace (the run's
 # own feature when it recorded one), then flat; this checkout first.
@@ -446,9 +476,16 @@ if [ -n "$FOUND" ]; then
   [ -n "$record_state" ] || exit 0
 fi
 
-# The runtime's refusal texts, byte for byte.
+# The runtime's refusal texts, byte for byte. The next command names the slug
+# only when its feature folder exists here or in the main checkout, which is
+# when the runtime names it too (and when `readiness --slug` resolves it).
 next="doflow-run readiness --task-class $STAGE_TEMPLATE --task-id $task_id"
-[ -n "$slug" ] && [ "$slug" != "$task_id" ] && next="$next --slug=$slug"
+if [ -n "$record_slug" ] && [ "$record_slug" != "$task_id" ]; then
+  checkouts
+  if [ -d "$repo_root/agent-docs/doflow/$record_slug" ] || { [ -n "$MAIN" ] && [ -d "$MAIN/agent-docs/doflow/$record_slug" ]; }; then
+    next="$next --slug=$record_slug"
+  fi
+fi
 gate="doflow gate readiness-before-implementation: task '$task_id'"
 rest="Next: $next, then gather what it lists until it reports READY. Nothing was changed."
 if [ -z "$FOUND" ]; then

@@ -100,17 +100,35 @@ function refusalText(code, { taskId, slug = null, template, record = null, candi
 }
 
 /**
- * Which harnesses run the edit-time check and which meet the gate first at handoff, from
- * `capabilities.hooks.status` in harnesses.json. Empty when the registry cannot be read.
+ * Which harnesses run this gate before each source edit and which meet it first at handoff, from the
+ * gate's own mapping in lifecycle.json (`pre-implementation-gate`): `supported`, or `different`
+ * with no prerequisite, runs it; a prerequisite (such as Codex's hook review) is named, since until
+ * it is met nothing was checked; `unavailable` has no hook layer for it. Empty when the registry
+ * cannot be read.
  * @param {{repoRoot?: string}} [options]
  * @returns {string}
  */
 function harnessHookNote({ repoRoot = REPO_ROOT } = {}) {
   try {
-    const { harnesses } = JSON.parse(fs.readFileSync(path.join(repoRoot, 'core', 'registry', 'harnesses.json'), 'utf8'));
-    const hooked = harnesses.filter((h) => h.capabilities?.hooks?.status === 'supported').map((h) => h.id);
-    const others = harnesses.map((h) => h.id).filter((id) => !hooked.includes(id));
-    return `Edit-time check: ${hooked.join(', ')} run this check before each source edit; ${others.join(', ')} have no hook layer, so this refusal is their first check.`;
+    const { policies } = JSON.parse(fs.readFileSync(path.join(repoRoot, 'core', 'registry', 'lifecycle.json'), 'utf8'));
+    const { mappings } = policies.find((p) => p.id === 'pre-implementation-gate');
+    const runs = [];
+    const gated = new Map();
+    const none = [];
+    for (const [id, m] of Object.entries(mappings)) {
+      const prerequisites = Array.isArray(m.prerequisites) ? m.prerequisites : [];
+      if (m.status === 'unavailable' || (m.status !== 'supported' && m.status !== 'different')) none.push(id);
+      else if (prerequisites.length === 0) runs.push(id);
+      else {
+        const key = prerequisites.join(' and ');
+        gated.set(key, [...(gated.get(key) || []), id]);
+      }
+    }
+    const parts = [];
+    if (runs.length) parts.push(`${runs.join(', ')} ${runs.length === 1 ? 'runs' : 'run'} this check before each source edit`);
+    for (const [key, ids] of gated) parts.push(`${ids.join(', ')} ${ids.length === 1 ? 'runs' : 'run'} it only after ${key}`);
+    if (none.length) parts.push(`${none.join(', ')} ${none.length === 1 ? 'has' : 'have'} no hook layer, so this refusal is ${none.length === 1 ? 'its' : 'their'} first check`);
+    return `Edit-time check: ${parts.join('; ')}.`;
   } catch {
     return '';
   }
