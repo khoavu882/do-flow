@@ -100,6 +100,21 @@ Before a stage that edits source, the runtime grades the task against its class'
 There is no fifth state, no partial state, and no numeric or percentage rendering of any of them.
 The engine fails closed: a requirement it cannot evaluate reads as unmet.
 
+Each evaluation is recorded under `.doflow/state/readiness/`, so a later step can ask whether the task
+was `READY` before its work began instead of evaluating again with whatever it is handed then. The
+runtime asks it on all eight harnesses: `orchestrate` `handoff` and `complete-stage` of the gated
+`implementation` stage refuse without a `READY` record of the stage's template made before the call,
+and name the `readiness` command that clears the refusal; `verify` reports `INCONCLUSIVE` in place
+of `PASS` while a run with that stage pending has no such record. Five harnesses have a hook layer
+(Claude Code, Codex once its hooks are reviewed, Gemini CLI, Antigravity and Kiro), and there the
+same check also refuses a source edit with the same text: on a feature branch whose three artifacts
+and decision register exist, and while a `feature`, `bug`, `refactor` or `dependency-change` run is
+open with its implementation stage pending (the run is the one named by the host's task id, else by
+the branch's slug). OpenCode, Pi and Copilot CLI have no hook layer, so the handoff and `verify` are
+their only checks, and `trivial-edit` opts out of the edit-time check on every harness: it is held at
+the handoff and `verify` only. A linked worktree reads the main checkout's feature folder, readiness
+records and runs, and updates a run where it lives.
+
 Five classes have a template:
 
 | Class | Requirements |
