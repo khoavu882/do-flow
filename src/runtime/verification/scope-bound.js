@@ -22,6 +22,9 @@ const TASK_LINE = /^\s*-\s*\[[ xX]\]\s+[A-Za-z]+\.\d+\b/;
  * that merely ends in it (`profiles:`) is not the field. */
 const FILES_FIELD = /(?:^|[;\s])files:/gi;
 
+/** A `files:` value that says the task touches no file: `none`, alone or followed by an aside. */
+const NONE_FIELD = /^none(?=$|[\s(;,`])/i;
+
 /**
  * Paths a plan's task lines name after `files:`, in order, without duplicates.
  *
@@ -40,6 +43,8 @@ function taskFilesFromPlan(planText) {
     for (const m of lines[i].matchAll(FILES_FIELD)) at = m.index + m[0].length;
     if (at === -1) continue;
     let rest = lines[i].slice(at);
+    // `files: none (...)` states that a task changes no file; its words are not paths.
+    if (NONE_FIELD.test(rest.trim().replace(/^`+/, ''))) continue;
     for (;;) {
       const semicolon = rest.indexOf(';');
       const field = semicolon === -1 ? rest : rest.slice(0, semicolon);

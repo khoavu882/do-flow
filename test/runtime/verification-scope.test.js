@@ -574,3 +574,14 @@ test('a readiness record this runtime cannot read declares no scope, so --scope 
   const tier = JSON.parse(res.stdout).tiers.find((t) => t.id === 'change-scope');
   assert.deepEqual(tier.scope.bound.sources, [{ kind: 'declared', paths: ['src/b.js'], origin: 'verify-flag' }]);
 });
+
+test('a files: value that says none names no path, and a path that merely starts with none still counts', () => {
+  const plan = [
+    '- [ ] R.1 record readiness — owner: orchestrator; files: none (runtime state under <main>/.doflow/state/)',
+    '- [ ] R.2 nothing — owner: o; files: None',
+    '- [ ] R.3 nothing — owner: o; files: `none`',
+    '- [ ] A.1 code — owner: o; files: src/a.js, none-of-these/x.js',
+    '- [ ] A.2 code — owner: o; files: nonexistent.js',
+  ].join('\n');
+  assert.deepEqual(taskFilesFromPlan(plan), ['src/a.js', 'none-of-these/x.js', 'nonexistent.js']);
+});
