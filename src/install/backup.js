@@ -1,15 +1,15 @@
 'use strict';
-// backup.js — port of sync.sh's _backup_id/create_backup/restore_backup/list_backups/prune_backups.
-// PARITY: backup id `<op>_YYYY-MM-DD_HH-MM-SS`; full backup = tar.gz per tool (claude excludes
-// ./backups to avoid recursion); partial backup (update) = plain dir copy of specific dst files,
-// user-inspectable. Each backup dir carries its own `.manifest.json` (id/operation/timestamp/
-// source_path/source_commit/type/tools_affected) — distinct from the top-level install manifest
-// in manifest.js.
+// backup.js — writing, listing, restoring and pruning backups. Backup id `<op>_YYYY-MM-DD_HH-MM-SS`;
+// each backup dir carries its own `.manifest.json` (id/operation/timestamp/source_path/
+// source_commit/type/tools_affected), distinct from the top-level install manifest in manifest.js.
 //
-// Format 2 (createFileBackup): a per-file copy of exactly the files a run changes, `files/<rel>` for
-// files under the scope root and `external/<k>/<name>` for files outside it, with a `.manifest.json`
-// that records for each file whether it existed. It is assembled in a dot-named temp directory and
-// renamed into place, so a reader sees either no backup or a complete one.
+// A backup (createFileBackup, format 2) is a per-file copy of exactly the files a run changes,
+// `files/<rel>` for files under the scope root and `external/<k>/<name>` for files outside it, with
+// a manifest that records for each file whether it existed. It is assembled in a dot-named temp
+// directory and renamed into place, so a reader sees either no backup or a complete one.
+//
+// Backups from DoFlow 1.19 stay readable and restorable: a full backup is a tar.gz per tool, a
+// partial backup a plain copy tree per tool. Nothing writes those layouts any more.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -341,76 +341,6 @@ function formatBytes(n) {
   return `${value.toFixed(1)} ${BYTE_UNITS[unit]}`;
 }
 
-/**
- * Full backup (no partialFiles) or partial backup (partialFiles given) of `tools` into
- * `backupRoot/<id>/`. Returns the backup id. dirs = {tool: absDstDir}.
- * @param {{operation:string, tools:string[], dirs:object, backupRoot:string, repoRoot:string,
- *           partialFiles?:string[], dryRun?:boolean, date:Date, sourceCommit?:string}} p
- *           `sourceCommit` lets a caller (bin/doflow.js) pass an already-resolved commit instead
- *           of this module spawning its own `git rev-parse`; omit it to resolve here (e.g. tests
- *           calling this module directly).
- */
-function createBackup({ operation, tools, dirs, backupRoot, repoRoot, partialFiles = [], dryRun = false, date, sourceCommit }) {
-  assertMutableBackupRoot(backupRoot, 'create a backup');
-  let bid = backupId(operation, date);
-  const isFull = partialFiles.length === 0;
-
-  if (dryRun) return bid;
-
-  // backupId() has 1-second resolution — two ops within the same second (a script calling
-  // install twice, self-update's chained install right after a git pull) would otherwise collide
-  // and silently overwrite the earlier backup. Disambiguate with a numeric suffix instead.
-  let bkDir = path.join(backupRoot, bid);
-  let suffix = 2;
-  while (fs.existsSync(bkDir)) {
-    bid = `${backupId(operation, date)}-${suffix}`;
-    bkDir = path.join(backupRoot, bid);
-    suffix += 1;
-  }
-
-  fs.mkdirSync(bkDir, { recursive: true });
-
-  for (const tool of tools) {
-    const srcDir = dirs[tool];
-    if (!srcDir || !fs.existsSync(srcDir)) continue;
-
-    if (isFull) {
-      const tarPath = path.join(bkDir, `${tool}.tar.gz`);
-      const args = ['-czf', tarPath];
-      if (tool === 'claude') args.push('--exclude=./backups');
-      args.push('-C', srcDir, '.');
-      try {
-        execFileSync('tar', args, { stdio: ['ignore', 'ignore', 'pipe'] });
-      } catch {
-        // matches sync.sh: tar errors are logged as a warning, not fatal — partial backup may exist
-      }
-    } else {
-      const partialDir = path.join(bkDir, tool);
-      for (const f of partialFiles) {
-        const rel = path.relative(srcDir, f);
-        if (rel.startsWith('..') || path.isAbsolute(rel)) continue; // only files under this tool's dir
-        const dstF = path.join(partialDir, rel);
-        fs.mkdirSync(path.dirname(dstF), { recursive: true });
-        fs.copyFileSync(f, dstF);
-      }
-    }
-  }
-
-  const manifest = {
-    id: bid,
-    operation,
-    timestamp: date.toISOString(),
-    source_path: repoRoot,
-    source_commit: sourceCommit ?? gitSourceCommit(repoRoot),
-    type: isFull ? 'full' : 'partial',
-    tools_affected: tools,
-  };
-  fs.writeFileSync(path.join(bkDir, '.manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
-
-  return bid;
-}
-
-/** Restore a backup id into the given tool dirs. dirs = {tool: absDstDir}. */
 /** Security guard: a backup id is a directory *name*, never a path — reject traversal/absolute ids. */
 function assertSafeBackupId(bid) {
   if (!bid || bid.includes('/') || bid.includes('\\') || bid === '..' || bid.includes('..')) {
@@ -418,6 +348,7 @@ function assertSafeBackupId(bid) {
   }
 }
 
+/** Restore a 1.19 backup id into the given tool dirs. dirs = {tool: absDstDir}. */
 function restoreBackup({ bid, backupRoot, dirs, dryRun = false }) {
   assertSafeBackupId(bid);
   // An id the user picked from `list-backups` may live in either root, so resolve it the same way
@@ -686,36 +617,6 @@ function listBackups(backupRoot) {
 }
 
 /**
- * Delete all but the `keepN` most recently modified backup dirs under the CANONICAL root. Returns
- * ids pruned.
- *
- * Deliberately single-root: retention applies only to backups DoFlow itself wrote. It must never
- * reach the legacy `.claude/backups` root — those are pre-migration restore points that may be a
- * user's only recovery material, and deleting them as a side effect of a retention flag would turn
- * a visibility bug into data loss. The guard below makes a mistaken call fail loudly instead of
- * deleting, because the positional `(backupRoot, keepN)` signature accepts any string root.
- */
-function pruneBackups(backupRoot, keepN, { dryRun = false } = {}) {
-  assertMutableBackupRoot(backupRoot, 'prune backups');
-  if (keepN <= 0) return [];
-  if (!fs.existsSync(backupRoot)) return [];
-  const dirs = fs.readdirSync(backupRoot, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
-    .map((e) => path.join(backupRoot, e.name));
-
-  const withMtime = dirs.map((d) => ({ d, mtime: fs.statSync(d).mtimeMs }));
-  withMtime.sort((a, b) => b.mtime - a.mtime); // newest first
-
-  const toDelete = withMtime.slice(keepN).map((x) => x.d);
-  const pruned = [];
-  for (const d of toDelete) {
-    pruned.push(path.basename(d));
-    if (!dryRun) fs.rmSync(d, { recursive: true, force: true });
-  }
-  return pruned;
-}
-
-/**
  * Keep the newest `keep` backups of the canonical root and remove the rest; `keep` 0 removes
  * nothing. Every non-dot directory counts, 1.19 and manifest-less ones included, ordered by
  * sortKey. Ids in `protect` (the run's own backup) are always kept. A dry run removes and sweeps
@@ -763,8 +664,15 @@ function applyRetention({ backupRoot, keep, protect = [], reserve = 0, dryRun = 
   return result;
 }
 
+/** The parenthesised end of a retention line: the `--prune` value given, or the default. */
+function retentionNote(prune, keep) {
+  if (prune === null || prune === undefined) return `keeping the newest ${keep}; --prune N changes this`;
+  if (prune === 0) return '--prune 0 keeps every backup';
+  return `--prune ${keep}`;
+}
+
 module.exports = {
-  backupId, createBackup, restoreBackup, listBackups, pruneBackups, assertSafeBackupId,
+  backupId, restoreBackup, listBackups, assertSafeBackupId, scopeRelative, retentionNote,
   backupReadRoots, BACKUP_ORIGIN_CURRENT, BACKUP_ORIGIN_LEGACY,
   BackupError, DEFAULT_BACKUP_RETENTION, createFileBackup, sweepStaleTemps, classifyBackupDir,
   sortKey, backupSize, formatBytes, planRestore, executeRestore, applyRetention,

@@ -203,35 +203,30 @@ test('--target and --prune reject a following flag as their value instead of sil
   assert.match(r2.stderr, /--prune requires a number/);
 });
 
-test("rollback only restores --target's tools, even when the chosen backup also contains other tools' data", () => {
-  // Regression test: restoreBackup used to loop over every tool present in the backup dir
-  // regardless of --target, while the pre-rollback safety snapshot only covered --target's
-  // tools — so a tool the snapshot didn't cover could get silently overwritten by rollback.
+test("rollback --target restores only that harness's files from a backup that holds several harnesses", () => {
+  // A backup holds the files one update changed for every harness it touched. Restoring it with
+  // --target claude must put back the Claude file and leave every Codex file as it is now.
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-  // First install: $HOME/.claude, .codex don't exist yet, so this install's own backup is empty
-  // (nothing to snapshot) — same "nothing to back up" case noted in workflow_doflow-cli.md.
   let r = run(['install', '-g', '--force', '--target', 'claude,codex'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
-  // Second install snapshots the now-existing (clean) install before re-syncing over it — this
-  // backup actually contains both claude.tar.gz and codex.tar.gz.
-  r = run(['install', '-g', '--force', '--target', 'claude,codex'], { home });
-  assert.strictEqual(r.status, 0, r.stderr);
 
-  const codexFile = path.join(home, '.codex', 'agents', 'code-reviewer.md');
+  const claudeMd = path.join(home, '.claude', 'CLAUDE.md');
+  const codexFile = path.join(home, '.agents', 'skills', 'do-brainstorm', 'SKILL.md');
+  fs.writeFileSync(claudeMd, 'edited claude\n');
+  fs.writeFileSync(codexFile, 'edited codex\n');
+  r = run(['update', '-g', '--force', '--target', 'claude,codex'], { home });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const bid = /Backup created: (update_[\d_-]+)/.exec(r.stderr)?.[1];
+  assert.ok(bid, `the update names its backup:\n${r.stderr}`);
+  assert.notStrictEqual(fs.readFileSync(claudeMd, 'utf8'), 'edited claude\n', 'the update replaced the Claude edit');
+  assert.notStrictEqual(fs.readFileSync(codexFile, 'utf8'), 'edited codex\n', 'the update replaced the Codex edit');
   fs.writeFileSync(codexFile, 'mutated codex content');
 
-  r = run(['list-backups', '-g'], { home });
-  // listBackups sorts newest-first, so the first row is the second install's backup — the one
-  // with real claude+codex content (the first install's own backup was empty, nothing pre-existed).
-  const ids = [...r.stdout.matchAll(/install_[\d_-]+/g)].map((m) => m[0]);
-  const bid = ids[0];
-  assert.ok(bid, `expected install_* backup ids (contains both claude and codex data):\n${r.stdout}`);
-
-  // This backup's directory has both claude.tar.gz and codex.tar.gz — restoring it unscoped
-  // would silently revert the codex mutation. Restoring it scoped to claude must leave codex alone.
   r = run(['rollback', bid, '-g', '--force', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
-  assert.strictEqual(fs.readFileSync(codexFile, 'utf8'), 'mutated codex content', 'rollback --target claude must not touch codex, even though the backup contains codex data');
+  assert.match(r.stderr, /Skipped \d+ file\(s\) of harnesses not in --target/);
+  assert.strictEqual(fs.readFileSync(claudeMd, 'utf8'), 'edited claude\n', 'rollback --target claude restores the Claude file');
+  assert.strictEqual(fs.readFileSync(codexFile, 'utf8'), 'mutated codex content', 'rollback --target claude must not touch codex, even though the backup holds a codex file');
 });
 
 test('install without --force waits on confirm and aborts when stdin is empty', () => {
@@ -703,7 +698,7 @@ test('--prune keeps only the N most recent backups on both install and update', 
   fs.utimesSync(claudeMd, new Date('2000-01-01T00:00:00Z'), new Date('2000-01-01T00:00:00Z'));
   const r = run(['update', '-g', '--force', '--target', 'claude', '--prune', '1'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
-  assert.match(r.stderr, /Pruned \d+ old backup\(s\)/);
+  assert.match(r.stderr, /Backups: kept 1, removed \d+ \(--prune 1\)/);
 
   listed = run(['list-backups', '-g'], { home });
   assert.strictEqual((listed.stdout.match(/(install|update)_[\d_-]+/g) || []).length, 1, '--prune 1 on update must also keep exactly one backup total');
@@ -790,7 +785,7 @@ test('update with an explicit --mcp overrides and re-persists the remembered sel
 });
 
 test('update --dry-run for an MCP-only change claims a backup exactly when the real run creates one', () => {
-  // Regression test: the dry-run branch used to print "Would create partial backup" whenever
+  // Regression test: the dry-run branch used to claim a backup whenever
   // --no-backup was absent, regardless of whether the real run would back anything up.
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
   let r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude'], { home });
@@ -798,7 +793,7 @@ test('update --dry-run for an MCP-only change claims a backup exactly when the r
 
   r = run(['update', '-g', '--force', '--dry-run', '--target', 'claude', '--mcp', 'sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
-  const claimed = /Would create partial backup/.test(r.stdout);
+  const claimed = /Would back up \d+ file\(s\)/.test(r.stdout);
 
   r = run(['update', '-g', '--force', '--target', 'claude', '--mcp', 'sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);

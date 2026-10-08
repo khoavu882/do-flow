@@ -123,13 +123,21 @@ function planGeminiHooks({ config, sourceFile, sourceHooksDir, settingsFile, des
   const mergedHooks = existing.hooks ? mergeHooks(existing.hooks, desired.hooks) : desired.hooks;
   const merged = { ...existing, hooks: mergedHooks };
   const changed = JSON.stringify(existing.hooks) !== JSON.stringify(mergedHooks);
+  // Preferred: the declared hooks directory (harnesses.json "paths".hooksDirectory); the derived
+  // sibling-of-settings fallback stays for direct callers passing raw inputs, and resolves to the
+  // same location.
+  const destinationHooksDir = declaredHooksDir || path.join(path.dirname(settingsFile), 'hooks');
+  // The scripts deployGeminiHooks copies beside settings.json, so a backup of this change holds them too.
+  const shipped = sourceHooksDir && fsImpl.existsSync(sourceHooksDir)
+    ? fsImpl.readdirSync(sourceHooksDir).filter((name) => !name.endsWith('.json') && fsImpl.statSync(path.join(sourceHooksDir, name)).isFile())
+    : [];
+  const companionTargets = [...new Set([
+    ...commands.checks.map((check) => path.join(destinationHooksDir, check.script)),
+    ...shipped.map((name) => path.join(destinationHooksDir, name)),
+  ])].sort();
   return { ok: true, status: changed ? 'change' : 'unchanged', settingsFile, existing, merged,
     changes: changed ? [{ type: fsImpl.existsSync(settingsFile) ? 'update' : 'create', file: settingsFile, key: 'hooks' }] : [],
-    errors: [], commands, trust: commands.trust, scriptsDir: sourceHooksDir,
-    // Preferred: the declared hooks directory (harnesses.json "paths".hooksDirectory); the derived
-    // sibling-of-settings fallback stays for direct callers passing raw inputs, and resolves to the
-    // same location.
-    destinationHooksDir: declaredHooksDir || path.join(path.dirname(settingsFile), 'hooks') };
+    errors: [], commands, trust: commands.trust, scriptsDir: sourceHooksDir, destinationHooksDir, companionTargets };
 }
 
 function deployGeminiHooks(plan, { dryRun = false, fsImpl = fs } = {}) {

@@ -338,7 +338,7 @@ describe('handlers that print their own [ERROR] and exit 1 still record a progra
     ['retrieve', ['retrieve', '--query', 'x'], { kind: 'export', module: 'src/runtime/knowledge/index-store.js', method: 'isFresh' },
       (cwd) => { fs.mkdirSync(path.join(cwd, '.doflow', 'guidance'), { recursive: true }); fs.writeFileSync(path.join(cwd, '.doflow', 'guidance', 'a.md'), '# A\n\nhello\n'); }],
     ['model-role', ['model-role', '--role', 'reasoning'], { kind: 'export', module: 'src/registry/index.js', method: 'loadRegistry' }, undefined],
-    ['rollback', ['rollback', 'no-such-backup', '-t', 'claude', '--force'], { kind: 'export', module: 'src/install/backup.js', method: 'restoreBackup' }, undefined],
+    ['rollback', ['rollback', 'no-such-backup', '-t', 'claude', '--force'], { kind: 'export', module: 'src/install/backup.js', method: 'planRestore' }, undefined],
   ];
   for (const [name, args, spec, setup] of sites) {
     test(`${name}: one line recorded, output and exit status identical with capture off`, () => {

@@ -5,9 +5,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {
-  backupId, createBackup, restoreBackup, listBackups, pruneBackups, assertSafeBackupId,
+  backupId, createFileBackup, restoreBackup, listBackups, applyRetention, assertSafeBackupId,
   backupReadRoots, BACKUP_ORIGIN_CURRENT, BACKUP_ORIGIN_LEGACY,
 } = require('../../src/install/backup');
+const { backupSetFromPaths } = require('../../src/install/backup-set');
+const { plantFullBackup } = require('../helper/backup-v1-fixture');
 const { writeManifest, readManifest, readInstallManifest, canonicalManifestPath, manifestPath } = require('../../src/install/manifest');
 const { legacyBackupReadRoot, scopeRootFromCanonicalBackupRoot } = require('../../src/install/paths');
 // `installPaths` is the exact expression install.js/update.js/rollback.js use to pick a backup root,
@@ -15,7 +17,7 @@ const { legacyBackupReadRoot, scopeRootFromCanonicalBackupRoot } = require('../.
 // literal path that could silently drift from it.
 const { installPaths } = require('../../src/cli/shared');
 
-/** A backup dir with a readable `.manifest.json`, planted directly at `root` (no createBackup). */
+/** A backup dir with a readable `.manifest.json`, planted directly at `root` (no writer). */
 function plantBackup(root, id, extra = {}) {
   fs.mkdirSync(path.join(root, id), { recursive: true });
   fs.writeFileSync(
@@ -32,44 +34,45 @@ function scratchDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-test-'));
 }
 
+/** A format-2 backup of `files` (absolute paths under `scopeRoot`), as install writes one. */
+function backupFiles({ scopeRoot, files, backupRoot, operation = 'install' }) {
+  const set = backupSetFromPaths({ items: files.map((f) => ({ path: f, harnesses: ['claude'] })), scope: 'project', scopeRoot });
+  return createFileBackup({ operation, set, backupRoot, repoRoot: REPO, sourceCommit: 'test', version: '0.0.0', date: FIXED_DATE });
+}
+
 test('backupId matches sync.sh format <op>_YYYY-MM-DD_HH-MM-SS', () => {
   assert.strictEqual(backupId('install', FIXED_DATE), 'install_2026-03-15_10-20-30');
 });
 
-test('createBackup (full) writes a tar.gz per tool + a .manifest.json', () => {
+test('a 1.19 full backup (a tar.gz per tool + a .manifest.json) is listed as type full', () => {
   const root = scratchDir();
   const claudeDir = path.join(root, 'claude-src');
   fs.mkdirSync(claudeDir, { recursive: true });
   fs.writeFileSync(path.join(claudeDir, 'CLAUDE.md'), 'hello');
   const backupRoot = path.join(root, 'backups');
 
-  const bid = createBackup({
-    operation: 'install', tools: ['claude'], dirs: { claude: claudeDir },
-    backupRoot, repoRoot: REPO, date: FIXED_DATE,
-  });
+  const bid = 'install_2026-03-15_10-20-30';
+  plantFullBackup(backupRoot, bid, { tool: 'claude', srcDir: claudeDir });
 
-  assert.strictEqual(bid, 'install_2026-03-15_10-20-30');
   assert.ok(fs.existsSync(path.join(backupRoot, bid, 'claude.tar.gz')));
   const manifest = JSON.parse(fs.readFileSync(path.join(backupRoot, bid, '.manifest.json'), 'utf8'));
   assert.strictEqual(manifest.type, 'full');
   assert.deepStrictEqual(manifest.tools_affected, ['claude']);
+  assert.deepStrictEqual(listBackups(backupRoot).map((r) => [r.id, r.type, r.format]), [[bid, 'full', 1]]);
 });
 
-test('createBackup (partial) copies only the listed files into <tool>/<rel>', () => {
+test('createFileBackup copies only the listed files into files/<rel>', () => {
   const root = scratchDir();
-  const claudeDir = path.join(root, 'claude-src');
+  const claudeDir = path.join(root, '.claude');
   fs.mkdirSync(path.join(claudeDir, 'sub'), { recursive: true });
   fs.writeFileSync(path.join(claudeDir, 'a.md'), 'A');
   fs.writeFileSync(path.join(claudeDir, 'sub', 'b.md'), 'B');
-  const backupRoot = path.join(root, 'backups');
+  const backupRoot = path.join(root, '.doflow', 'backups');
 
-  const bid = createBackup({
-    operation: 'update', tools: ['claude'], dirs: { claude: claudeDir },
-    backupRoot, repoRoot: REPO, partialFiles: [path.join(claudeDir, 'a.md')], date: FIXED_DATE,
-  });
+  const { id: bid } = backupFiles({ scopeRoot: root, files: [path.join(claudeDir, 'a.md')], backupRoot, operation: 'update' });
 
-  assert.ok(fs.existsSync(path.join(backupRoot, bid, 'claude', 'a.md')));
-  assert.ok(!fs.existsSync(path.join(backupRoot, bid, 'claude', 'sub', 'b.md')), 'unlisted file must not be backed up');
+  assert.ok(fs.existsSync(path.join(backupRoot, bid, 'files', '.claude', 'a.md')));
+  assert.ok(!fs.existsSync(path.join(backupRoot, bid, 'files', '.claude', 'sub', 'b.md')), 'unlisted file must not be backed up');
 });
 
 test('restoreBackup (full) round-trips a tar.gz back into the dst dir', () => {
@@ -78,7 +81,8 @@ test('restoreBackup (full) round-trips a tar.gz back into the dst dir', () => {
   fs.mkdirSync(claudeDir, { recursive: true });
   fs.writeFileSync(path.join(claudeDir, 'CLAUDE.md'), 'original content');
   const backupRoot = path.join(root, 'backups');
-  const bid = createBackup({ operation: 'install', tools: ['claude'], dirs: { claude: claudeDir }, backupRoot, repoRoot: REPO, date: FIXED_DATE });
+  const bid = 'install_2026-03-15_10-20-30';
+  plantFullBackup(backupRoot, bid, { tool: 'claude', srcDir: claudeDir });
 
   // mutate, then restore
   fs.writeFileSync(path.join(claudeDir, 'CLAUDE.md'), 'mutated!');
@@ -94,7 +98,7 @@ test('assertSafeBackupId rejects traversal/absolute ids', () => {
   assert.doesNotThrow(() => assertSafeBackupId('install_2026-03-15_10-20-30'));
 });
 
-test('listBackups / pruneBackups: prune keeps exactly N newest', () => {
+test('listBackups / applyRetention: retention keeps exactly N newest', () => {
   const root = scratchDir();
   const backupRoot = path.join(root, 'backups');
   for (const id of ['install_2026-01-01_00-00-00', 'install_2026-01-02_00-00-00', 'install_2026-01-03_00-00-00']) {
@@ -103,25 +107,25 @@ test('listBackups / pruneBackups: prune keeps exactly N newest', () => {
   }
   assert.strictEqual(listBackups(backupRoot).length, 3);
 
-  const pruned = pruneBackups(backupRoot, 1);
-  assert.strictEqual(pruned.length, 2);
+  const { removed } = applyRetention({ backupRoot, keep: 1 });
+  assert.strictEqual(removed.length, 2);
   assert.strictEqual(listBackups(backupRoot).length, 1);
 });
 
-test('createBackup disambiguates a same-second id collision instead of overwriting', () => {
+test('createFileBackup disambiguates a same-second id collision instead of overwriting', () => {
   const root = scratchDir();
-  const claudeDir = path.join(root, 'claude-src');
-  fs.mkdirSync(claudeDir, { recursive: true });
-  fs.writeFileSync(path.join(claudeDir, 'CLAUDE.md'), 'first');
-  const backupRoot = path.join(root, 'backups');
+  const claudeMd = path.join(root, '.claude', 'CLAUDE.md');
+  fs.mkdirSync(path.dirname(claudeMd), { recursive: true });
+  fs.writeFileSync(claudeMd, 'first');
+  const backupRoot = path.join(root, '.doflow', 'backups');
 
-  const bid1 = createBackup({ operation: 'install', tools: ['claude'], dirs: { claude: claudeDir }, backupRoot, repoRoot: REPO, date: FIXED_DATE });
-  fs.writeFileSync(path.join(claudeDir, 'CLAUDE.md'), 'second');
-  const bid2 = createBackup({ operation: 'install', tools: ['claude'], dirs: { claude: claudeDir }, backupRoot, repoRoot: REPO, date: FIXED_DATE });
+  const { id: bid1 } = backupFiles({ scopeRoot: root, files: [claudeMd], backupRoot });
+  fs.writeFileSync(claudeMd, 'second');
+  const { id: bid2 } = backupFiles({ scopeRoot: root, files: [claudeMd], backupRoot });
 
   assert.notStrictEqual(bid1, bid2, 'colliding same-second calls must get distinct ids');
-  assert.ok(fs.existsSync(path.join(backupRoot, bid1, 'claude.tar.gz')));
-  assert.ok(fs.existsSync(path.join(backupRoot, bid2, 'claude.tar.gz')), 'second backup must not have been skipped/overwritten');
+  assert.strictEqual(fs.readFileSync(path.join(backupRoot, bid1, 'files', '.claude', 'CLAUDE.md'), 'utf8'), 'first');
+  assert.strictEqual(fs.readFileSync(path.join(backupRoot, bid2, 'files', '.claude', 'CLAUDE.md'), 'utf8'), 'second', 'second backup must not have been skipped/overwritten');
 });
 
 test('manifest temp file is written next to the manifest, not shared os.tmpdir() (symlink-race fix)', () => {
@@ -209,13 +213,13 @@ test('readManifest returns null when no manifest exists yet', () => {
 test('the root the installer writes to is a root the restore path reads from', () => {
   const root = scratchDir();
   const scope = { global: false, projectRoot: root };
-  const lifecyclePaths = installPaths(scope);          // write side: what install.js hands createBackup
+  const lifecyclePaths = installPaths(scope);          // write side: what install.js hands createFileBackup
   const writeRoot = lifecyclePaths.backupRoot;
 
   const claudeDir = path.join(root, '.claude');
   fs.mkdirSync(claudeDir, { recursive: true });
   fs.writeFileSync(path.join(claudeDir, 'CLAUDE.md'), 'hello');
-  const bid = createBackup({ operation: 'install', tools: ['claude'], dirs: { claude: claudeDir }, backupRoot: writeRoot, repoRoot: REPO, date: FIXED_DATE });
+  const { id: bid } = backupFiles({ scopeRoot: lifecyclePaths.scopeRoot, files: [path.join(lifecyclePaths.scopeRoot, '.claude', 'CLAUDE.md')], backupRoot: writeRoot });
 
   // Read side: the roots backup.js itself consults for this scope.
   const readRoots = backupReadRoots(writeRoot);
@@ -266,7 +270,7 @@ test('restoreBackup resolves an id that only exists in the legacy root', () => {
   const legacyRoot = legacyBackupReadRoot({ scopeRoot: lifecyclePaths.scopeRoot });
   const dstDir = path.join(root, 'dst-claude');
 
-  // A legacy full backup: a tar.gz per tool plus its own manifest, exactly as createBackup wrote them.
+  // A legacy full backup: a tar.gz per tool plus its own manifest, exactly as DoFlow 1.19 wrote them.
   const srcDir = path.join(root, 'src-claude');
   fs.mkdirSync(srcDir, { recursive: true });
   fs.writeFileSync(path.join(srcDir, 'CLAUDE.md'), 'legacy content');
@@ -278,7 +282,7 @@ test('restoreBackup resolves an id that only exists in the legacy root', () => {
   assert.strictEqual(fs.readFileSync(path.join(dstDir, 'CLAUDE.md'), 'utf8'), 'legacy content');
 });
 
-test('pruneBackups never touches the legacy root, and refuses to run against it', () => {
+test('applyRetention never touches the legacy root, and refuses to run against it', () => {
   const root = scratchDir();
   const scope = { global: false, projectRoot: root };
   const lifecyclePaths = installPaths(scope);
@@ -290,24 +294,25 @@ test('pruneBackups never touches the legacy root, and refuses to run against it'
   }
   assert.strictEqual(listBackups(lifecyclePaths.backupRoot).length, 4, 'all four are visible before pruning');
 
-  const pruned = pruneBackups(lifecyclePaths.backupRoot, 1);
+  const pruned = applyRetention({ backupRoot: lifecyclePaths.backupRoot, keep: 1 }).removed;
   assert.ok(fs.existsSync(legacyDir), 'pruning must not delete a legacy-root backup');
   assert.ok(fs.existsSync(path.join(legacyDir, '.manifest.json')), 'the legacy backup must be intact, not emptied');
   assert.ok(!pruned.includes('install_2026-01-01_00-00-00'), 'a legacy backup must never be reported as pruned');
   assert.strictEqual(pruned.length, 2, 'retention applies to the canonical root only');
   assert.strictEqual(listBackups(lifecyclePaths.backupRoot).length, 2, 'one canonical survivor plus the untouched legacy backup');
 
-  // The positional (backupRoot, keepN) signature accepts any string, so a mistaken legacy root must
-  // fail loudly rather than delete a user's only restore points.
-  assert.throws(() => pruneBackups(legacyRoot, 1), /legacy backup root/);
+  // backupRoot accepts any string, so a mistaken legacy root must fail loudly rather than delete a
+  // user's only restore points.
+  assert.throws(() => applyRetention({ backupRoot: legacyRoot, keep: 1 }), /legacy backup root/);
   assert.ok(fs.existsSync(legacyDir), 'the refused prune must have deleted nothing');
 });
 
-test('createBackup refuses to write into the legacy root', () => {
+test('createFileBackup refuses to write into the legacy root', () => {
   const root = scratchDir();
   const legacyRoot = legacyBackupReadRoot({ scopeRoot: root });
+  fs.writeFileSync(path.join(root, 'AGENTS.md'), 'x');
   assert.throws(
-    () => createBackup({ operation: 'install', tools: ['claude'], dirs: { claude: root }, backupRoot: legacyRoot, repoRoot: REPO, date: FIXED_DATE }),
+    () => backupFiles({ scopeRoot: root, files: [path.join(root, 'AGENTS.md')], backupRoot: legacyRoot }),
     /legacy backup root/,
     'new backups must land only in the canonical root',
   );
