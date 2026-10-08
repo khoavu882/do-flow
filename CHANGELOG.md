@@ -17,9 +17,9 @@ All notable changes to DoFlow are documented here. Format follows
 
 ### Changed
 
-- `install` and `update` back up only the files the run changes or owns, and record the files the run creates, in a per-file copy with a format-2 manifest, instead of archiving whole harness homes. An earlier DoFlow cannot restore these backups: its `rollback` finds nothing to copy from them.
+- `install` and `update` back up only the files the run changes or owns, and record the files the run creates, in a per-file copy with a format-2 manifest, instead of archiving whole harness homes. An earlier DoFlow cannot restore these backups: DoFlow 1.19's `rollback` of one takes a whole-home snapshot, restores nothing, and still reports success, so keep that in mind before downgrading.
 - A file that holds only MCP entries is never backed up, for `install` as well as `update`.
-- After each `install` or `update`, DoFlow keeps the newest 3 backups of that scope; `--prune N` keeps N and `--prune 0` keeps all. The first run after upgrading removes the older DoFlow-written backups beyond 3 and says how many it removed. `--dry-run` shows that count first. The legacy `.claude/backups` folder is never pruned.
+- After each `install` or `update`, DoFlow keeps the newest 3 backups of that scope; `--prune N` keeps N and `--prune 0` keeps all. An `update` with nothing to change prunes nothing, so the first run after upgrading that prunes is an `install`, or an `update` that changes files; it removes the older DoFlow-written backups beyond 3 and says how many it removed. `--dry-run` shows that count first. The legacy `.claude/backups` folder is never pruned.
 - `rollback` restores what the backup holds, lists the files the run created and leaves them in place, and exits 1 when a file cannot be restored. With no `--target` it restores the whole backup. Backups made by 1.19 restore as before.
 - The pre-rollback snapshot holds only the files the rollback overwrites.
 - `list-backups` shows each backup's origin and size.
