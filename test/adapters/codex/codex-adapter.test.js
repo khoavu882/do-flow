@@ -219,3 +219,32 @@ test('verification reports registry gaps and reconciliation conflicts', () => {
   assert.ok(Array.isArray(result.resources));
   assert.ok(Array.isArray(result.conflicts));
 });
+
+test('verify records no MCP row for a server the user defined, and DoFlow\'s rendering when it wrote the table', () => {
+  const { fingerprint } = require('../../../src/adapters/codex/config');
+  const { renderServer } = require('../../../src/adapters/codex/mcp');
+  const registry = loadRegistry({ repoRoot: REPO });
+  const catalog = registry.mcp.filter((server) => server.id === 'context7');
+  for (const userTable of ['[mcp_servers.context7]\ncommand = "mine"\n', null]) {
+    const projectRoot = scratch();
+    const config = path.join(projectRoot, '.codex', 'config.toml');
+    if (userTable) { fs.mkdirSync(path.dirname(config), { recursive: true }); fs.writeFileSync(config, userTable); }
+    const input = { scope: 'project', projectRoot, ledger: { resources: [] }, projection: { mcp: { catalog, selected: ['context7'] } } };
+    const discovery = discover(input);
+    assert.deepEqual(discovery.mcpUserDefined, userTable ? ['context7'] : []);
+    const planned = plan({ ...input, discovery });
+    apply({ ...input, changes: planned.changes });
+    const verified = verify({ ...input, discovery });
+    const mcpRows = verified.resources.filter((resource) => resource.kind === 'mcp-server');
+    if (userTable) {
+      assert.equal(fs.readFileSync(config, 'utf8'), userTable);
+      assert.equal(verified.statuses.find((status) => status.identity === 'context7').status, 'not-managed');
+      assert.equal(verified.ok, true);
+      assert.deepEqual(mcpRows, []);
+    } else {
+      assert.equal(verified.ok, true);
+      assert.equal(mcpRows.length, 1);
+      assert.equal(mcpRows[0].fingerprint, fingerprint(renderServer('context7', { command: catalog[0].command, args: catalog[0].args })));
+    }
+  }
+});

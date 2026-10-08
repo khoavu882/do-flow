@@ -13,6 +13,21 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.21.0] - 2026-10-08
+
+### Changed
+
+- `install`, `update`, `remove`, `reconcile` and `rollback` take a run lock, so one runs at a time per scope. A second run prints a waiting line, waits up to 60 seconds, then exits 1 and changes nothing. A lock is stale after 10 minutes or when its holder is gone; after Ctrl+C the next run clears it and prints one `Cleared a stale DoFlow run lock` line. `--dry-run` and the read-only commands never take it. It is not supported on network file systems or Windows.
+- `install`, `update`, `remove` and `reconcile` without `-g` refuse a project root that is your home directory: one `[ERROR]` line pointing to the `-g` form, exit 1, nothing changed. A ledger that already mixes project rows into the global scope keeps them, and no command removes them.
+
+### Fixed
+
+- Codex: an `[mcp_servers.X]` table you wrote in `config.toml` under the same name as a DoFlow server is left untouched and is not recorded as DoFlow's. `install` and `update` say so when they skip it.
+- Codex: `config.toml` and the other files DoFlow rewrites keep their file mode.
+- Codex: a ledger row that 1.18 to 1.20 recorded for a table of yours is released with `doflow update -g -t codex --mcp <your other DoFlow servers, or none>`; the `modified outside DoFlow` conflict now names that command. DoFlow then stops managing the table and keeps it.
+- Codex: an empty `[features]` table, or root-level `features.x` keys, no longer gets a second `[features]` table, and the line DoFlow adds to an empty `[features]` table carries a DoFlow comment. A `features` value that cannot take a new key is refused with the file unchanged.
+- `update` removes the installed copy of a source file DoFlow no longer ships, for Claude, Codex, Kiro, OpenCode and Pi, as Copilot and Gemini already did. A copy you edited is kept and reported.
+
 ## [1.20.0] - 2026-10-08
 
 ### Changed
