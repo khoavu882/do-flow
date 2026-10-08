@@ -11,6 +11,16 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { createScratch } = require('../helper/scratch-env');
+
+// The scratch environment is this process's, so the git helper, the in-process resolver and every
+// spawned verify read no real HOME, global or system git config even when this file runs alone.
+const scratch = createScratch('doflow-vscope-env-');
+scratch.apply();
+after(() => {
+  scratch.restore();
+  scratch.remove();
+});
 
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');

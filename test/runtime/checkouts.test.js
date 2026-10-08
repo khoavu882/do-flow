@@ -14,6 +14,16 @@ const { spawnSync } = require('node:child_process');
 const { listCheckouts, findStateFile, clearCheckoutCache } = require('../../src/runtime/checkouts');
 const { BASE_FILE } = require('../../src/runtime/worktree');
 
+const { createScratch } = require('../helper/scratch-env');
+
+// The scratch environment is this process's, so git spawned in-process by listCheckouts, as well as
+// the helper below, reads no real HOME, global or system git config.
+const scratch = createScratch('doflow-checkouts-env-');
+scratch.apply();
+after(() => {
+  scratch.restore();
+  scratch.remove();
+});
 const ENV = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null' };
 
 function git(cwd, ...args) {

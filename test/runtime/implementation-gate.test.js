@@ -230,12 +230,33 @@ test('verify keeps a run in grace at its status: not ok, with the warning in pla
   assert.equal('grace' in verifyReadinessCheck({ stateRoot: root, taskId: 'T-1', now: NOW }), false);
 });
 
-test('the grace ends in 1.23.0: this test fails once the version reaches it while the grace is still exported', () => {
+/** Where the pre-1.22 run grace lives, each with what to remove there once it ends. */
+const GRACE_SITES = [
+  ['src/runtime/implementation-gate.js', /\bpreFloorGrace\b/, 'preFloorGrace, graceWarning, GRACE_CODES, both version constants and the grace branch of verifyReadinessCheck'],
+  ['src/runtime/workflow-orchestrator.js', /\bpreFloorGrace\b/, 'the grace branch of the orchestrate readiness evaluator'],
+  ['src/runtime/verification/engine.js', /readiness\.grace\b/, 'the grace exception in handleVerifyCommand'],
+  ['core/harnesses/shared/hooks/policies/pre-implementation-gate.sh', /has\("readinessFloor"\) \| not/, 'the run_grace block of the edit hook'],
+];
+
+test('the grace ends in 1.23.0: this test fails once the version reaches it while any grace site remains, naming each', () => {
   const { version } = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
   const parts = (v) => v.split(/[.-]/).slice(0, 3).map(Number);
   const [a, b] = [parts(version), parts(PRE_FLOOR_GRACE_ENDS)];
   const reached = a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] >= b[2];
-  assert.ok(!(reached && typeof gate.preFloorGrace === 'function'), 'remove the pre-1.22 run grace (058 DEC-017)');
+  const present = GRACE_SITES.filter(([file, pattern]) => pattern.test(fs.readFileSync(path.join(REPO, file), 'utf8')));
+  const jsGrace = typeof gate.preFloorGrace === 'function';
+  // The hook's bash branch exists exactly while the runtime's does: neither outlives the other.
+  assert.equal(present.some(([file]) => file.endsWith('.sh')), jsGrace, 'the edit hook\'s run_grace block and the runtime\'s preFloorGrace are removed together');
+  assert.ok(!(reached && (jsGrace || present.length > 0)),
+    `remove the pre-1.22 run grace (058 DEC-017): ${present.map(([file, , what]) => `${file}: ${what}`).join('; ')}; `
+    + 'and the grace cases in test/runtime/implementation-gate.test.js, workflow-orchestrator.test.js, runtime-orchestrate.test.js, '
+    + 'test/e2e/readiness-enforcement.e2e.test.js and test/hooks/pre-implementation-gate-readiness.test.js');
+});
+
+test('every grace site the end test names is where it says, so its message is complete', () => {
+  for (const [file, pattern] of GRACE_SITES) {
+    assert.match(fs.readFileSync(path.join(REPO, file), 'utf8'), pattern, `${file} holds a grace site today, so the list is not stale`);
+  }
 });
 
 test('a record from a newer DoFlow is refused by naming the file and the version, never by advising readiness', () => {
