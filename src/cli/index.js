@@ -49,7 +49,7 @@ function assertNoBackupRequiresForce(o) {
 
 function parseArgs(argv) {
   const o = { cmd: null, positional: [], targets: [], mcp: null, dryRun: false, force: false, adopt: false,
-    noBackup: false, prune: 0, global: false, json: false, help: false, version: false,
+    noBackup: false, prune: null, global: false, json: false, help: false, version: false,
     tools: null, action: 'status', days: null, slug: null,
     // Explicitly null, not absent. `handleReadinessCommand` declares defaults of `'feature'` and
     // `'default'`, and a JavaScript default parameter fires on `undefined` — so an *absent* key
@@ -174,15 +174,9 @@ function parseArgs(argv) {
       case '--prune': {
         const val = argv[i + 1];
         if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a number`); process.exit(1); }
-        // Validated like the adjacent --days arm rather than `parseInt(val,10) || 0`, which
-        // turned `--prune notanumber` into "no pruning" and reported success.
-        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a number`); process.exit(2); }
-        {
-          const parsed = parseInt(val, 10);
-          if (!Number.isFinite(parsed) || parsed < 1) { console.error(`doflow: ${a} requires a positive integer, got '${val}'`); process.exit(2); }
-          o.prune = parsed;
-        }
-        i++; break;
+        // Digits only: parseInt accepted `5abc` and `1.5`, and 0 is valid (keep every backup).
+        if (!/^[0-9]+$/.test(val) || Number(val) > Number.MAX_SAFE_INTEGER) { console.error(`doflow: ${a} requires a non-negative whole number, got '${val}'`); process.exit(2); }
+        o.prune = Number(val); i++; break;
       }
       default: {
         // Value-taking arguments of the runtime verbs. Table-driven rather than fifteen more
@@ -424,7 +418,7 @@ Options:
                        the file is still a conflict. For a tree installed before the neutral
                        ledger existed, which nothing else can re-adopt
       --no-backup      Skip backup (requires --force; ignored by rollback's safety snapshot)
-      --prune <N>      Keep only N most recent backups (install, update)
+      --prune <N>      Keep the N newest backups after install or update (default 3; 0 keeps all)
       --days <N>       Run-ledger window in calendar days (trace, stats, discover)
       --slug <name>    Scaffold this feature instead of the branch-resolved active one
 
