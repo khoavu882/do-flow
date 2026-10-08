@@ -360,7 +360,7 @@ install manifest use sibling paths under `.doflow/` (`backups/` and `.install-ma
 same neutral state directory also holds what the runtime writes: per-task evidence and claims, and
 the date-partitioned run ledger the dispatcher appends to. Lifecycle commands no longer anchor
 metadata to `.claude`; the explicit neutral-state importer remains separate for historical state.
-Each backup is a per-file copy of the files a run changes, with a format-2 `.manifest.json` recording which of them existed.
+Each backup is a per-file copy of the files a run changes, with a format-2 `.manifest.json` recording which of them existed. The same directory holds `run.lock` while an `install`, `update`, `remove`, `reconcile` or `rollback` runs, so two runs in one scope never read and write the ledger, `doflow.lock` or the install manifest at the same time.
 
 Migration order is deliberate: declare registry ownership, introduce adapters and neutral state,
 route the CLI through lifecycle planning, then retire a compatibility path only after idempotency,

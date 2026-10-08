@@ -217,6 +217,19 @@ doflow install -g --statusline --target claude      # doflow-statusline.sh + man
 # Remove accepts the same flags so it can identify exactly what to strip.
 ```
 
+`install`, `update`, `remove`, `reconcile` and `rollback` run one at a time in a scope. A second run
+prints `Waiting for another DoFlow run in ...` and waits up to 60 seconds for the first to finish;
+after that it stops with exit 1 and changes nothing. A lock left by a run that crashed or was
+interrupted with Ctrl+C is cleared with a `Cleared a stale DoFlow run lock` warning on the next run,
+when its process is gone or the lock is older than 10 minutes. `--dry-run`, `status`,
+`list-backups`, `doctor` and the runtime commands never take the lock and never wait. The lock is
+not reliable on a network file system, on a home directory shared between machines, on Windows, or
+against an older DoFlow running at the same time.
+
+A project command whose root is the home directory (`doflow install .` run from `~`, or `doflow
+update` without `-g` run from `~`) is refused with exit 1 and nothing is changed: it would share
+the global install's files and records, and its `remove` could delete them. Use `-g`.
+
 An install or update that changes files first copies only those files into
 `.doflow/backups/<id>/`, and records the files it is about to create so a rollback can tell them
 apart. A file that holds only MCP entries is never copied. After each install or update the newest 3
@@ -337,6 +350,14 @@ selection, or the full catalog on a first install. A non-interactive install (sc
 
 Each harness's selection is recorded in `doflow.lock` and reused by `doflow update` for that harness
 (an empty selection stays empty; a catalog reshuffle never resurrects servers you removed).
+
+In Codex, an MCP server that `config.toml` already defines under the same name
+(`[mcp_servers.context7]`, for example) is left exactly as it is. DoFlow does not record it as its
+own, and every `install` and `update` that selects it prints one line saying it kept your entry. To
+let DoFlow manage that server, remove or rename your table and run `update`. A 1.18 to 1.20
+install may have recorded your table as DoFlow's; `update` then refuses with `modified outside
+DoFlow`. Run `doflow update -g -t codex --mcp <your other DoFlow servers, or none>` (a project path
+in place of `-g` for a project): DoFlow stops managing that server and keeps your table.
 
 ## Verify, state, and recover
 
