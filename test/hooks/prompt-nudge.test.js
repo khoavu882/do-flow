@@ -8,9 +8,11 @@
 //
 // `envelope`: the existing first-prompt context leaves in one nested envelope for Claude and Codex
 // (IC-002); Claude's top-level `additionalContext` is ignored by Claude Code (memo T1).
+// `per-session`: the once-per-session `/do` nudge through the real hook (IC-001, IC-003, IC-004).
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
@@ -23,11 +25,12 @@ const HOOK_TEST = process.platform !== 'win32' ? test : test.skip; // GUARD: nee
 const scratch = createScratch('doflow-prompt-nudge-');
 after(() => scratch.remove());
 
-/** A copy of every policy file at `<dir>/shared/hooks/policies/` and the registry beside it. */
+/** A copy of every policy file at `<dir>/shared/hooks/policies/` and the registry beside it (none when `registryText` is null). */
 function installLayout(dir, registryText = fs.readFileSync(REGISTRY, 'utf8')) {
   const dest = path.join(dir, 'shared', 'hooks', 'policies');
   fs.mkdirSync(dest, { recursive: true });
   for (const name of fs.readdirSync(POLICIES)) fs.copyFileSync(path.join(POLICIES, name), path.join(dest, name));
+  if (registryText === null) return dest;
   const registry = path.join(dir, 'runtime', 'core', 'registry', 'workflows.json');
   fs.mkdirSync(path.dirname(registry), { recursive: true });
   fs.writeFileSync(registry, registryText);
@@ -61,16 +64,19 @@ function repo({ git = true } = {}) {
   return { dir, sha: run('rev-parse', '--short', 'HEAD') };
 }
 
-function runPolicy(layout, script, payload, agent) {
-  const r = spawnSync('bash', [path.join(layout, script)], { input: JSON.stringify(payload), env: env(agent), encoding: 'utf8' });
+function runPolicy(layout, script, payload, agent, envExtra = {}) {
+  const r = spawnSync('bash', [path.join(layout, script)], { input: JSON.stringify(payload), env: env(agent, envExtra), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout;
 }
 
-/** One prompt: `session-context.sh` first (unless `start` is false), then the prompt hook. Returns stdout. */
-function prompt(agent, sessionId, cwd, { start = true, extra = {}, layout = LAYOUT } = {}) {
-  if (start) runPolicy(layout, 'session-context.sh', { session_id: sessionId, cwd, source: 'startup' }, agent);
-  return runPolicy(layout, 'user-prompt-submit.sh', { session_id: sessionId, cwd, ...extra }, agent);
+/**
+ * One prompt: `session-context.sh` first (unless `start` is false), then the prompt hook. Returns stdout.
+ * `envExtra` adds environment variables (for example another XDG_CONFIG_HOME) to both policies.
+ */
+function prompt(agent, sessionId, cwd, { start = true, extra = {}, layout = LAYOUT, envExtra = {}, source = 'startup' } = {}) {
+  if (start) runPolicy(layout, 'session-context.sh', { session_id: sessionId, cwd, source }, agent, envExtra);
+  return runPolicy(layout, 'user-prompt-submit.sh', { session_id: sessionId, cwd, ...extra }, agent, envExtra);
 }
 
 describe('envelope', () => {
@@ -130,5 +136,354 @@ describe('envelope', () => {
       assert.deepStrictEqual(Object.keys(parsed.hookSpecificOutput), ['hookEventName', 'additionalContext']);
       assert.strictEqual(parsed.hookSpecificOutput.additionalContext, 'Git context unavailable for this session.');
     }
+  });
+});
+
+// ── per-session ───────────────────────────────────────────────────────────────
+
+const MESSAGE = JSON.parse(fs.readFileSync(REGISTRY, 'utf8')).promptNudge.message;
+const REQUEST = 'add a retry to the upload client in src/upload.js';
+
+let tokenSeq = 0;
+let caseTokens = [];
+/** A request that qualifies for the nudge and carries a token no file may ever contain (NFR-006). */
+function request(extraLine = '') {
+  const token = `zqtok${process.pid}x${tokenSeq++}`;
+  caseTokens.push(token);
+  return `${REQUEST} (${token})${extraLine}`;
+}
+
+function walk(dir, visit) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) { if (entry.name !== '.git') walk(full, visit); } else if (entry.isFile()) visit(full);
+  }
+}
+
+/** One case; afterwards no file under the scratch directory (outside .git) holds a token the case used. */
+function CASE(name, fn, options) {
+  HOOK_TEST(name, options, async () => {
+    caseTokens = [];
+    await fn();
+    const leaks = [];
+    walk(scratch.dir, (file) => {
+      let text;
+      try { text = fs.readFileSync(file, 'utf8'); } catch { return; }
+      for (const token of caseTokens) if (text.includes(token)) leaks.push(`${file} holds ${token}`);
+    });
+    assert.deepStrictEqual(leaks, [], 'the prompt text reached a file');
+  });
+}
+
+const out = (stdout) => JSON.parse(stdout).hookSpecificOutput;
+const markerFile = (id, xdg = scratch.xdg) => path.join(xdg, 'doflow', 'session-env', 'nudge', id);
+const markerText = (id, xdg) => { try { return fs.readFileSync(markerFile(id, xdg), 'utf8'); } catch { return null; } };
+const sessionFolder = (id, xdg = scratch.xdg) => path.join(xdg, 'doflow', 'session-env', 'sessions', id);
+const write = (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); return file; };
+const git = (dir, ...args) => {
+  const r = spawnSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { env: scratch.env(), encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  return r.stdout.trim();
+};
+let layoutSeq = 0;
+/** An install-shaped layout of its own (the registry is IC-006 candidate 1); `null` leaves out the registry. */
+const ownLayout = (registryText) => installLayout(path.join(scratch.dir, `own${layoutSeq++}`, 'x'), registryText);
+const registryWith = (change) => { const r = JSON.parse(fs.readFileSync(REGISTRY, 'utf8')); change(r); return JSON.stringify(r); };
+
+/** The first-prompt context this repository gets from a non-qualifying prompt (no nudge, no marker). */
+function plainContext(agent, cwd, id) {
+  return out(prompt(agent, id, cwd, { extra: { prompt: 'hi' } })).additionalContext;
+}
+
+describe('per-session', () => {
+  for (const agent of ['claude', 'codex']) {
+    CASE(`${agent}: a qualifying first prompt gets the git block, a blank line and the message in one envelope`, () => {
+      const { dir } = repo();
+      const base = plainContext(agent, dir, `ps-base-${agent}`);
+      const stdout = prompt(agent, `ps-first-${agent}`, dir, { extra: { prompt: request() } });
+      const parsed = JSON.parse(stdout);
+      assert.deepStrictEqual(Object.keys(parsed), ['hookSpecificOutput']);
+      assert.strictEqual(parsed.hookSpecificOutput.additionalContext, `${base}\n\n${MESSAGE}`);
+      assert.deepStrictEqual(Object.keys(parsed.hookSpecificOutput),
+        agent === 'codex' ? ['hookEventName', 'additionalContext'] : ['hookEventName', 'additionalContext', 'sessionTitle']);
+      assert.strictEqual(markerText(`ps-first-${agent}`), 'nudged\n');
+    });
+
+    CASE(`${agent}: a non-qualifying first prompt gets the git block only and no marker`, () => {
+      const { dir } = repo();
+      const stdout = prompt(agent, `ps-plain-${agent}`, dir, { extra: { prompt: 'what does src/upload.js do?' } });
+      const o = out(stdout);
+      assert.ok(o.additionalContext.startsWith('Git context — branch: main |'));
+      assert.ok(!o.additionalContext.includes(MESSAGE));
+      assert.strictEqual(markerText(`ps-plain-${agent}`), null);
+      if (agent === 'codex') assert.strictEqual(stdout, JSON.stringify(JSON.parse(stdout), null, 2) + '\n');
+    });
+
+    CASE(`${agent}: a second qualifying prompt in the same session prints {}`, () => {
+      const { dir } = repo();
+      const id = `ps-twice-${agent}`;
+      prompt(agent, id, dir, { extra: { prompt: request() } });
+      assert.deepStrictEqual(JSON.parse(prompt(agent, id, dir, { start: false, extra: { prompt: request() } })), {});
+      assert.strictEqual(markerText(id), 'nudged\n');
+    });
+
+    CASE(`${agent}: two session ids in one repository are each nudged once`, () => {
+      const { dir } = repo();
+      for (const id of [`ps-two-a-${agent}`, `ps-two-b-${agent}`]) {
+        assert.ok(out(prompt(agent, id, dir, { extra: { prompt: request() } })).additionalContext.endsWith(MESSAGE), id);
+        assert.deepStrictEqual(JSON.parse(prompt(agent, id, dir, { start: false, extra: { prompt: request() } })), {}, id);
+      }
+    });
+
+    CASE(`${agent}: a session that opens with hi and then sends a request is nudged once, with the message alone`, () => {
+      const { dir } = repo();
+      const id = `ps-later-${agent}`;
+      prompt(agent, id, dir, { extra: { prompt: 'hi' } });
+      const stdout = prompt(agent, id, dir, { start: false, extra: { prompt: request() } });
+      assert.deepStrictEqual(JSON.parse(stdout), { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: MESSAGE } });
+      assert.deepStrictEqual(JSON.parse(prompt(agent, id, dir, { start: false, extra: { prompt: request() } })), {});
+      assert.strictEqual(markerText(id), 'nudged\n');
+    });
+  }
+
+  CASE('a later non-qualifying prompt prints {} and leaves the session open to a nudge', () => {
+    const { dir } = repo();
+    const id = 'ps-later-plain';
+    prompt('claude', id, dir, { extra: { prompt: 'hi' } });
+    assert.deepStrictEqual(JSON.parse(prompt('claude', id, dir, { start: false, extra: { prompt: 'thanks' } })), {});
+    assert.strictEqual(markerText(id), null);
+  });
+
+  CASE('SessionStart re-run after compaction re-sends the context and gives no second nudge', () => {
+    const { dir } = repo();
+    const id = 'ps-compact';
+    const first = out(prompt('claude', id, dir, { extra: { prompt: request() } }));
+    assert.ok(first.additionalContext.endsWith(MESSAGE));
+    const again = out(prompt('claude', id, dir, { source: 'compact', extra: { prompt: request() } }));
+    assert.ok(again.additionalContext.startsWith('Git context — branch: main |'));
+    assert.ok(!again.additionalContext.includes(MESSAGE));
+  });
+
+  CASE('a resumed session with the same session id is not nudged again', () => {
+    const { dir } = repo();
+    const id = 'ps-resume';
+    prompt('codex', id, dir, { extra: { prompt: request() } });
+    fs.rmSync(sessionFolder(id), { recursive: true, force: true }); // what SessionEnd removes
+    const resumed = out(prompt('codex', id, dir, { extra: { prompt: request() } }));
+    assert.ok(resumed.additionalContext.startsWith('Git context — branch: main |'));
+    assert.ok(!resumed.additionalContext.includes(MESSAGE));
+    assert.strictEqual(markerText(id), 'nudged\n');
+  });
+
+  CASE('a feature folder for the branch gives no nudge and marker suppressed', () => {
+    const { dir } = repo();
+    git(dir, 'checkout', '-q', '-b', 'feat/900-demo');
+    fs.mkdirSync(path.join(dir, 'agent-docs', 'doflow', '900-demo'), { recursive: true });
+    const id = 'ps-feature';
+    const o = out(prompt('claude', id, dir, { extra: { prompt: request() } }));
+    assert.ok(!o.additionalContext.includes(MESSAGE));
+    assert.strictEqual(markerText(id), 'suppressed\n');
+    assert.deepStrictEqual(JSON.parse(prompt('claude', id, dir, { start: false, extra: { prompt: request() } })), {});
+  });
+
+  CASE('a run-ledger record newer than the session start gives no nudge and marker suppressed', () => {
+    const { dir } = repo();
+    write(path.join(dir, '.doflow', 'state', 'runs', '2999-01-01.jsonl'), '{"timestamp":"2999-01-01T00:00:00Z","event":"x"}\n');
+    const id = 'ps-ledger';
+    const o = out(prompt('codex', id, dir, { extra: { prompt: request() } }));
+    assert.ok(!o.additionalContext.includes(MESSAGE));
+    assert.strictEqual(markerText(id), 'suppressed\n');
+  });
+
+  CASE('a run-ledger record older than the session start does not suppress', () => {
+    const { dir } = repo();
+    write(path.join(dir, '.doflow', 'state', 'runs', '2001-01-01.jsonl'), '{"timestamp":"2001-01-01T00:00:00Z","event":"x"}\n');
+    assert.ok(out(prompt('claude', 'ps-ledger-old', dir, { extra: { prompt: request() } })).additionalContext.endsWith(MESSAGE));
+  });
+
+  CASE('a prompt that mentions /do-plan writes suppressed and a later request is silent', () => {
+    const { dir } = repo();
+    const id = 'ps-slash-do';
+    const first = out(prompt('claude', id, dir, { extra: { prompt: request(' then run /do-plan') } }));
+    assert.ok(!first.additionalContext.includes(MESSAGE));
+    assert.strictEqual(markerText(id), 'suppressed\n');
+    assert.deepStrictEqual(JSON.parse(prompt('claude', id, dir, { start: false, extra: { prompt: request() } })), {});
+  });
+
+  CASE('a payload with agent_id or agent_type gives no nudge and no marker', () => {
+    const { dir } = repo();
+    for (const [id, extra] of [['ps-agent-id', { agent_id: 'sub-1' }], ['ps-agent-type', { agent_type: 'Explore' }]]) {
+      const o = out(prompt('claude', id, dir, { extra: { prompt: request(), ...extra } }));
+      assert.ok(!o.additionalContext.includes(MESSAGE), id);
+      assert.strictEqual(markerText(id), null, id);
+    }
+  });
+
+  CASE('opt-out: project on beats user off, project off beats user on, user off alone silences', () => {
+    const settings = [
+      { project: 'on', user: 'off', nudged: true },
+      { project: 'off', user: 'on', nudged: false },
+      { project: null, user: 'off', nudged: false },
+      { project: null, user: null, nudged: true },
+    ];
+    settings.forEach(({ project, user, nudged }, i) => {
+      const { dir } = repo();
+      const xdg = fs.mkdtempSync(path.join(scratch.dir, 'xdg-'));
+      if (project) write(path.join(dir, '.doflow', 'prompt-nudge'), `${project}\n`);
+      if (user) write(path.join(xdg, 'doflow', 'prompt-nudge'), `${user}\n`);
+      const id = `ps-setting-${i}`;
+      const o = out(prompt('claude', id, dir, { envExtra: { XDG_CONFIG_HOME: xdg }, extra: { prompt: request() } }));
+      assert.strictEqual(o.additionalContext.includes(MESSAGE), nudged, JSON.stringify({ project, user }));
+      assert.strictEqual(markerText(id, xdg), nudged ? 'nudged\n' : null, JSON.stringify({ project, user }));
+      assert.ok(o.additionalContext.startsWith('Git context'), 'the opt-out never touches the first-prompt context');
+    });
+  });
+
+  CASE('an unreadable, empty or unknown setting counts as off', () => {
+    for (const [i, content] of ['', 'maybe\n', '\n'].entries()) {
+      const { dir } = repo();
+      write(path.join(dir, '.doflow', 'prompt-nudge'), content);
+      assert.ok(!out(prompt('claude', `ps-badsetting-${i}`, dir, { extra: { prompt: request() } })).additionalContext.includes(MESSAGE), JSON.stringify(content));
+    }
+  });
+
+  describe('failures are silent', () => {
+    const broken = {
+      'no registry at any candidate': () => ownLayout(null),
+      'a registry without promptNudge': () => ownLayout(registryWith((r) => { delete r.promptNudge; })),
+      'a pathPattern that does not compile': () => ownLayout(registryWith((r) => { r.promptNudge.pathPattern = '('; })),
+      'an empty message': () => ownLayout(registryWith((r) => { r.promptNudge.message = ''; })),
+      'a message that is not a string': () => ownLayout(registryWith((r) => { r.promptNudge.message = 7; })),
+      'an unparsable registry': () => ownLayout('{ not json'),
+    };
+    for (const [name, make] of Object.entries(broken)) {
+      for (const agent of ['claude', 'codex']) {
+        CASE(`${agent}: ${name}: exit 0, the context unchanged, no marker`, () => {
+          const { dir } = repo();
+          const base = plainContext(agent, dir, `ps-brk-base-${agent}`);
+          const id = `ps-brk-${agent}`;
+          const o = out(prompt(agent, id, dir, { layout: make(), extra: { prompt: request() } }));
+          assert.strictEqual(o.additionalContext, base);
+          assert.strictEqual(markerText(id), null);
+        });
+      }
+    }
+
+    CASE('an unreadable registry is silent', () => {
+      if (process.getuid && process.getuid() === 0) return;
+      const layout = ownLayout();
+      const registry = path.join(layout, '..', '..', '..', 'runtime', 'core', 'registry', 'workflows.json');
+      fs.chmodSync(registry, 0);
+      try {
+        const { dir } = repo();
+        const o = out(prompt('claude', 'ps-unreadable-registry', dir, { layout, extra: { prompt: request() } }));
+        assert.ok(o.additionalContext.startsWith('Git context'));
+        assert.ok(!o.additionalContext.includes(MESSAGE));
+        assert.strictEqual(markerText('ps-unreadable-registry'), null);
+      } finally { fs.chmodSync(registry, 0o644); }
+    });
+
+    CASE('an unwritable marker folder gives no nudge, and the context is unchanged', () => {
+      if (process.getuid && process.getuid() === 0) return;
+      const { dir } = repo();
+      const xdg = fs.mkdtempSync(path.join(scratch.dir, 'xdg-'));
+      const nudgeDir = path.join(xdg, 'doflow', 'session-env', 'nudge');
+      fs.mkdirSync(nudgeDir, { recursive: true });
+      fs.chmodSync(nudgeDir, 0o500);
+      try {
+        const o = out(prompt('claude', 'ps-readonly', dir, { envExtra: { XDG_CONFIG_HOME: xdg }, extra: { prompt: request() } }));
+        assert.ok(o.additionalContext.startsWith('Git context — branch: main |'));
+        assert.ok(!o.additionalContext.includes(MESSAGE));
+        assert.deepStrictEqual(fs.readdirSync(nudgeDir), []);
+      } finally { fs.chmodSync(nudgeDir, 0o700); }
+    });
+
+    CASE('an empty, whitespace-only, missing or non-string prompt is silent with no marker', () => {
+      const { dir } = repo();
+      const variants = [{ prompt: '' }, { prompt: '  \n\t ' }, {}, { prompt: 42 }, { prompt: null }];
+      variants.forEach((extra, i) => {
+        const id = `ps-empty-${i}`;
+        const o = out(prompt('claude', id, dir, { extra }));
+        assert.ok(o.additionalContext.startsWith('Git context — branch: main |'), JSON.stringify(extra));
+        assert.ok(!o.additionalContext.includes(MESSAGE), JSON.stringify(extra));
+        assert.strictEqual(markerText(id), null, JSON.stringify(extra));
+      });
+    });
+
+    CASE('an unsafe session id gets no nudge and the context path still runs', () => {
+      const { dir } = repo();
+      for (const [i, id] of ['a b', '../ps-escape', 'x'.repeat(129)].entries()) {
+        const o = out(prompt('claude', id, dir, { start: false, extra: { prompt: request() } }));
+        assert.strictEqual(o.additionalContext, 'Git context unavailable for this session.', `case ${i}`);
+      }
+      const nudgeDir = path.join(scratch.xdg, 'doflow', 'session-env', 'nudge');
+      assert.ok(!fs.existsSync(nudgeDir) || !fs.readdirSync(nudgeDir).some((n) => n === 'a b' || n === 'ps-escape' || n.startsWith('xxxx')));
+    });
+  });
+
+  CASE('the hook never starts node or doflow-run', () => {
+    const shims = path.join(scratch.dir, 'shims');
+    const trace = path.join(shims, 'called');
+    for (const name of ['node', 'doflow-run', 'doflow']) {
+      write(path.join(shims, name), `#!/bin/sh\necho ${name} >> "${trace}"\nexit 1\n`);
+      fs.chmodSync(path.join(shims, name), 0o755);
+    }
+    const { dir } = repo();
+    for (const agent of ['claude', 'codex']) {
+      const envExtra = { PATH: `${shims}:${process.env.PATH}` };
+      const o = out(prompt(agent, `ps-noproc-${agent}`, dir, { envExtra, extra: { prompt: request() } }));
+      assert.ok(o.additionalContext.endsWith(MESSAGE), agent);
+    }
+    assert.ok(!fs.existsSync(trace), 'a shim was called');
+    const text = fs.readFileSync(path.join(POLICIES, 'user-prompt-submit.sh'), 'utf8');
+    assert.ok(!/\b(doflow-run|node)\b/.test(text.replace(/^#.*$/gm, '')), 'the hook names node or doflow-run');
+  });
+
+  CASE('a 20 KB prompt with the request on its first line nudges within the latency budget', () => {
+    const { dir } = repo();
+    const filler = `${'0123456789 abcdefghij klmnopqrst\n'.repeat(700)}`.slice(0, 20 * 1024);
+    let run = 0;
+    // The median of five runs is the measure (RK3). A loaded machine can push one set of five over
+    // the budget, so the case passes when any of three sets is under it; a hook that is slow on every
+    // set still fails. The nudge decision is asserted on every run, on every platform.
+    const medianOfFive = () => {
+      const times = [];
+      for (let i = 0; i < 5; i += 1) {
+        const id = `ps-big-${run++}`;
+        const payload = { session_id: id, cwd: dir, prompt: `${request()}\n${filler}` };
+        runPolicy(LAYOUT, 'session-context.sh', { session_id: id, cwd: dir, source: 'startup' }, 'claude');
+        const start = process.hrtime.bigint();
+        const r = spawnSync('bash', [path.join(LAYOUT, 'user-prompt-submit.sh')], { input: JSON.stringify(payload), env: env('claude'), encoding: 'utf8' });
+        times.push(Number(process.hrtime.bigint() - start) / 1e6);
+        assert.equal(r.status, 0, r.stderr);
+        assert.ok(out(r.stdout).additionalContext.endsWith(MESSAGE), `run ${id}`);
+      }
+      return times.sort((a, b) => a - b)[2];
+    };
+    const medians = [];
+    do { medians.push(medianOfFive()); } while (process.platform !== 'win32' && medians[medians.length - 1] >= 100 && medians.length < 3);
+    // Wall time says nothing about the hook on a machine whose one-minute load already exceeds its
+    // cores (other suites or agents running), so the timing is asserted only on a machine that is not.
+    const overloaded = os.loadavg()[0] > os.cpus().length;
+    if (process.platform !== 'win32' && !overloaded) assert.ok(medians[medians.length - 1] < 100, `medians of five: ${medians.map((m) => m.toFixed(1)).join(', ')} ms`);
+  });
+
+  CASE('the Claude front door nudges through an install-shaped mirror', () => {
+    const mirror = path.join(scratch.dir, 'mirror');
+    const built = spawnSync('bash', [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), mirror], { env: scratch.env(), encoding: 'utf8' });
+    assert.equal(built.status, 0, built.stderr);
+    const registry = path.join(scratch.home, '.doflow', 'runtime', 'core', 'registry', 'workflows.json'); // IC-006 candidate 4
+    write(registry, fs.readFileSync(REGISTRY, 'utf8'));
+    const { dir } = repo();
+    const id = 'ps-front-door';
+    const run = (script, payload) => {
+      const r = spawnSync('bash', [path.join(mirror, '.claude', 'hooks', script)], { input: JSON.stringify(payload), env: scratch.env({ CLAUDE_CONFIG_DIR: '', CLAUDE_PROJECT_DIR: '' }), encoding: 'utf8' });
+      assert.equal(r.status, 0, r.stderr);
+      return r.stdout;
+    };
+    run('session-start.sh', { session_id: id, cwd: dir, source: 'startup' });
+    const o = out(run('user-prompt-submit.sh', { session_id: id, cwd: dir, prompt: request() }));
+    assert.ok(o.additionalContext.endsWith(`\n\n${MESSAGE}`), o.additionalContext);
+    fs.rmSync(path.join(scratch.home, '.doflow'), { recursive: true, force: true });
   });
 });

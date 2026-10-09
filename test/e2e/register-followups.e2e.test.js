@@ -769,7 +769,10 @@ describe('NFR-004: no write-time hook or refusal was added', { skip: SKIP }, () 
     // inside the two guard policies' existing fail-open branches and has no wiring entry, so the
     // no-write-time-hook intent holds; the wiring comparison below stays strict.
     const failureCaptureHelper = 'core/harnesses/shared/hooks/policies/capture-failure.sh';
-    assert.deepStrictEqual(hookFiles().filter((f) => f !== failureCaptureHelper), tagged, 'no hook file was added or removed since v1.12.0');
+    // Feature 059 adds the prompt nudge's decision program (IC-005): a jq file with no wiring entry
+    // and no write-time effect, run by the existing UserPromptSubmit policy.
+    const exempt = [failureCaptureHelper, 'core/harnesses/shared/hooks/policies/prompt-nudge.jq'];
+    assert.deepStrictEqual(hookFiles().filter((f) => !exempt.includes(f)), tagged, 'no hook file was added or removed since v1.12.0');
     const old = JSON.parse(gitShow('v1.12.0', 'core/harnesses/claude/settings/settings.json'));
     assert.deepStrictEqual(settings.hooks, old.hooks, 'the claude hook wiring is unchanged since v1.12.0');
   });
