@@ -309,13 +309,31 @@ describe('per-session', () => {
     assert.deepStrictEqual(JSON.parse(prompt('claude', id, dir, { start: false, extra: { prompt: request() } })), {});
   });
 
-  CASE('a payload with agent_id or agent_type gives no nudge and no marker', () => {
+  CASE('a payload with a non-empty agent_id or agent_type, of any type, gives no nudge and no marker', () => {
     const { dir } = repo();
-    for (const [id, extra] of [['ps-agent-id', { agent_id: 'sub-1' }], ['ps-agent-type', { agent_type: 'Explore' }]]) {
+    const subagents = [
+      ['ps-agent-id', { agent_id: 'sub-1' }], ['ps-agent-type', { agent_type: 'Explore' }],
+      ['ps-agent-num', { agent_id: 7 }], ['ps-agent-bool', { agent_type: true }], ['ps-agent-obj', { agent_id: { n: 1 } }],
+    ];
+    for (const [id, extra] of subagents) {
       const o = out(prompt('claude', id, dir, { extra: { prompt: request(), ...extra } }));
       assert.ok(!o.additionalContext.includes(MESSAGE), id);
       assert.strictEqual(markerText(id), null, id);
     }
+    // A null or empty value is no subagent.
+    const o = out(prompt('claude', 'ps-agent-none', dir, { extra: { prompt: request(), agent_id: null, agent_type: '' } }));
+    assert.ok(o.additionalContext.endsWith(MESSAGE));
+  });
+
+  CASE('a NUL inside a payload field is dropped and shifts no other field', () => {
+    const { dir, sha } = repo();
+    runPolicy(LAYOUT, 'session-context.sh', { session_id: 'psnulid', cwd: dir, source: 'startup' }, 'claude');
+    const stdout = runPolicy(LAYOUT, 'user-prompt-submit.sh', { session_id: 'psnul\u0000id', cwd: dir, session_title: '\u0000', prompt: request() }, 'claude');
+    const o = out(stdout);
+    assert.ok(o.additionalContext.startsWith('Git context — branch: main |'), o.additionalContext);
+    assert.strictEqual(o.sessionTitle, `main — ${sha}`, 'the cwd did not move into session_title');
+    assert.ok(o.additionalContext.endsWith(MESSAGE));
+    assert.strictEqual(markerText('psnulid'), 'nudged\n');
   });
 
   CASE('opt-out: project on beats user off, project off beats user on, user off alone silences', () => {
@@ -469,8 +487,8 @@ describe('per-session', () => {
   // median of seven 200 KB prompts against the median of seven 2 KB prompts carrying the same
   // request, on a first prompt and on a later one, must stay under LONG_SHORT_BOUND. With the
   // whole-prompt decision program the ratio was 1.9 to 2.1 (first) and 2.9 (later) on a loaded
-  // machine; with the bounded one, 1.3 to 1.5 and 1.6. The absolute medians are printed, never
-  // asserted.
+  // machine; with the bounded one and the single payload read, about 1.2 to 1.4 for both. The
+  // absolute medians are printed, never asserted.
   const LONG_SHORT_BOUND = 2;
   CASE('a 200 KB prompt costs the hook less than twice a 2 KB prompt with the same request', (t) => {
     const { dir } = repo();

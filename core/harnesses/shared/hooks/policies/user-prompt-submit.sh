@@ -30,12 +30,16 @@ source "$(dirname "$0")/lib.sh"
 require_jq
 
 INPUT=$(cat)
-# One jq pass over the payload for the three fields this hook reads (each pass costs about 8 ms on a
-# 20 KB prompt, and the budget is 100 ms): NUL-separated, null and false read as empty, as json_field does.
-SESSION_ID="" CWD="" PAYLOAD_TITLE=""
-{ IFS= read -r -d '' SESSION_ID; IFS= read -r -d '' CWD; IFS= read -r -d '' PAYLOAD_TITLE; } < <(
-  printf '%s' "$INPUT" | jq -j '[.session_id, .cwd, .session_title]
-    | map(if . == null or . == false then "" elif type == "string" then . else tojson end)
+# One jq pass over the payload for every field this hook reads (each pass costs about 8 ms on a
+# 20 KB prompt, and the budget is 100 ms), NUL-separated: session_id, cwd and session_title, null
+# and false read as empty as json_field does, with any NUL inside a value dropped so no field can
+# shift into the next; then `subagent` when agent_id or agent_type holds anything but null or "".
+SESSION_ID="" CWD="" PAYLOAD_TITLE="" SUBAGENT=""
+{ IFS= read -r -d '' SESSION_ID; IFS= read -r -d '' CWD; IFS= read -r -d '' PAYLOAD_TITLE; IFS= read -r -d '' SUBAGENT; } < <(
+  printf '%s' "$INPUT" | jq -j '. as $p
+    | [$p.session_id, $p.cwd, $p.session_title]
+    | map(if . == null or . == false then "" elif type == "string" then . else tojson end | split("\u0000") | join(""))
+    | . + [if any($p.agent_id, $p.agent_type; . != null and . != "") then "subagent" else "" end]
     | join("\u0000") + "\u0000"' 2>/dev/null
 ) || true
 
@@ -51,18 +55,14 @@ INJECTED_FLAG="$SESSION_PATH/injected"
 # here can change the exit status or the first-prompt output. The prompt only ever travels to jq
 # on stdin, with stderr discarded, and is never copied out of INPUT.
 nudge_message() {
-  local root policy_dir here registry decision message agents
+  local root policy_dir here registry decision message
   [[ "${DOFLOW_AGENT:-}" == "claude" || "${DOFLOW_AGENT:-}" == "codex" ]] || return 0   # N1
   nudge_safe_id "$SESSION_ID" || return 0                                               # N2
   root=$(nudge_repo_root "$CWD") || return 0
   [[ "$(nudge_setting "$root")" == "on" ]] || return 0                                  # N3
   [[ ! -e "$STATE_DIR/nudge/$SESSION_ID" ]] || return 0                                 # N4 (IC-008's path, no process)
-  # N5: a subagent prompt carries agent_id or agent_type. Only a payload that names either key
-  # is parsed, so the common prompt costs no process here.
-  if [[ "$INPUT" == *'"agent_id"'* || "$INPUT" == *'"agent_type"'* ]]; then
-    agents=$(printf '%s' "$INPUT" | jq -r '[(.agent_id | strings), (.agent_type | strings)] | join("")' 2>/dev/null) || agents=""
-    [[ -z "$agents" ]] || return 0
-  fi
+  # N5: a subagent prompt carries agent_id or agent_type (read with the other fields above).
+  [[ -z "$SUBAGENT" ]] || return 0
   # N6: the policy script's physical directory, found with built-ins (a subshell costs about 4 ms).
   case "$0" in */*) policy_dir="${0%/*}" ;; *) policy_dir="." ;; esac
   here="$PWD"
