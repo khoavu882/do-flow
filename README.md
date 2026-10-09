@@ -32,7 +32,7 @@ flowchart LR
 | Specialist review | 5 agents — `spec-analyst`, `system-architect`, `core-implementer`, `quality-guardian`, `research-writer` |
 | Safer automation | Claude hooks block destructive commands and unfinished implementation stubs |
 | Shared standards | Rules for safety, workflow, quality, and clarification across supported tools |
-| Session continuity | Claude hooks capture lightweight Git context and compact-session summaries |
+| Session continuity | Claude and Codex hooks capture lightweight Git context and compact-session summaries and deliver them on a session's first prompt |
 
 ## Start here
 

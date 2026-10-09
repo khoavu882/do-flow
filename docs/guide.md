@@ -201,6 +201,27 @@ DOFLOW_FAILURE_CAPTURE=off doflow ...          # off for one command or shell; c
 
 Failures are for the people who maintain DoFlow: inside the DoFlow repository, `/do maintain` lists new and regressed entries and lets you import one as a follow-up. Elsewhere they are only listed by `doflow failure --action list`.
 
+### The /do suggestion and its off switch
+
+On Claude Code and Codex, the first prompt of a session that reads as a plain code-change request
+(for example "add a retry to src/upload.js") gets a one-sentence suggestion from the model that `/do`
+would classify the task and apply DoFlow's checks. The model then does what you asked. It happens at
+most once per session, and only when no `/do-*` skill is already in use. It is advisory and
+keyword-based, so it can miss a request or fire on one that is not a change request. The other
+harnesses get no such hook; their skill descriptions steer a plain change request to `/do`. To turn it
+off for one project or for yourself:
+
+```bash
+mkdir -p .doflow && echo off > .doflow/prompt-nudge                      # this project, from the repo root
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/doflow" && echo off > "${XDG_CONFIG_HOME:-$HOME/.config}/doflow/prompt-nudge"   # every project, this user
+```
+
+Use `on` in place of `off` to turn it back on. If both files exist, the project file wins, even when
+the user file says the opposite. A file that is empty, unreadable or holds any other word counts as
+`off`. Whether the project file is committed or ignored is up to the project's own rules: commit it to
+switch the nudge off for everyone on the repository, or add it to `.gitignore` to keep the choice
+personal. The setting changes only the nudge, not the first-prompt Git context or any other hook.
+
 ### A worked example
 
 This was run in a scratch repository with a `develop` branch, a `v1.0.0` tag and empty feature folders under `agent-docs/doflow/`. The agent runs the same verbs through `doflow-run`; `doflow` is the same command for you. Item ids are random, so yours will differ.

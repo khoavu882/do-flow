@@ -7,23 +7,18 @@
       "split": "train",
       "name": "direct-fix-needs-no-chain",
       "prompt": "Just make `node bench/runner.js coverage` honour --skill <name> the way its `list` command already does, no ceremony.",
-      "expected_output": "do-implement is invoked on a real one-function gap without demanding chain artifacts",
+      "expected_output": "A plain change request that names no /do-* skill is not routed straight to do-implement; it resolves to do first",
       "files": [],
       "assertions": [
         {
-          "text": "do-implement was invoked",
+          "text": "the run judged this repo's do-implement description (sandbox path, matching hash)",
           "type": "skill_resolved",
           "skill": "do-implement"
         },
         {
-          "text": "The real target is located (cmdCoverage in bench/runner.js)",
-          "type": "output_matches",
-          "pattern": "(cmdCoverage|bench/runner\\.js)"
-        },
-        {
-          "text": "Does not demand a requirement.md before proceeding",
-          "type": "output_not_matches",
-          "pattern": "requirement\\.md.*(required|must exist)"
+          "text": "do-implement is not used: routing.json records routed false for a plain change request that names no /do-* skill",
+          "type": "skill_not_routed",
+          "skill": "do-implement"
         }
       ]
     },

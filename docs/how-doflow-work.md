@@ -85,6 +85,13 @@ A gate pauses the run between stages. Only `feature` declares any:
 `feature` additionally carries a hard hook, keyed on branch and artifact state, that blocks source
 edits until its three artifacts exist — regardless of which skill is doing the editing.
 
+Outside any class, the per-prompt hook on Claude Code and Codex can add one advisory note per
+session suggesting `/do` when the first prompt reads as a plain code-change request. It is not a gate:
+it never blocks a prompt, and it stays silent once work is already under DoFlow. On both harnesses the
+hook now returns its output in one nested `hookSpecificOutput` object, the shape Claude Code honours,
+so the first-prompt Git context and the session title reach Claude Code as well. The other harnesses
+have no such hook. See [Prompt nudge](reference.md#prompt-nudge) for the rules and the off switch.
+
 ## Readiness is four states, never a score
 
 Before a stage that edits source, the runtime grades the task against its class's template from
