@@ -2,12 +2,14 @@
 # user-prompt-submit.sh — Canonical Policy Library: UserPromptSubmit hook
 #
 # 022-hooks-remaining-duplication: claude and codex's UserPromptSubmit policies share the same
-# context-gathering behavior, while their native output envelopes differ. Gemini has no
-# UserPromptSubmit-equivalent event in its native hook set.
+# context-gathering behavior. Gemini has no UserPromptSubmit-equivalent event in its native hook set.
 #
 # On the FIRST prompt of a session: injects lightweight git context into the harness's LLM
-# context via additionalContext. Claude also receives sessionTitle for window identification;
-# Codex receives its additionalContext under hookSpecificOutput with an explicit event name.
+# context. Claude and Codex receive one nested envelope,
+#   {"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":...}}
+# because Claude Code ignores a top-level additionalContext. Claude's object also carries
+# sessionTitle for window identification, unless the payload's session_title shows the user
+# already titled the session; Codex rejects unknown fields, so its object never does.
 #
 # On subsequent prompts: outputs nothing (clean, no token waste).
 #
@@ -131,17 +133,14 @@ touch "$INJECTED_FLAG"
 
 # ── Output JSON ───────────────────────────────────────────────────────────────
 
-if [[ "${DOFLOW_AGENT:-}" == "codex" ]]; then
-  jq -n \
-    --arg ctx "$CONTEXT" \
-    '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":$ctx}}'
-elif [[ -n "${SESSION_TITLE:-}" ]]; then
-  jq -n \
-    --arg ctx "$CONTEXT" \
-    --arg title "$SESSION_TITLE" \
-    '{"additionalContext": $ctx, "sessionTitle": $title}'
-else
-  jq -n --arg ctx "$CONTEXT" '{"additionalContext": $ctx}'
+# One nested envelope for both harnesses. sessionTitle: not on Codex, only when a title was built,
+# and only when the user has not already titled the session.
+TITLE_ARG=""
+if [[ "${DOFLOW_AGENT:-}" != "codex" && -n "${SESSION_TITLE:-}" && -z "$(json_field "$INPUT" ".session_title")" ]]; then
+  TITLE_ARG="$SESSION_TITLE"
 fi
+jq -n --arg ctx "$CONTEXT" --arg title "$TITLE_ARG" \
+  '{"hookSpecificOutput": ({"hookEventName": "UserPromptSubmit", "additionalContext": $ctx}
+    + (if $title != "" then {"sessionTitle": $title} else {} end))}'
 
 exit 0

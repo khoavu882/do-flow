@@ -177,12 +177,12 @@ INJECTED_FLAG="$SESS_ENV/sessions/$SESS/injected"
 # First prompt — should inject
 OUT=$(hook_out user-prompt-submit.sh "$INPUT_UPS")
 
-HAS_CONTEXT=$(echo "$OUT" | jq -r '.additionalContext // empty' 2>/dev/null)
-if [[ -n "$HAS_CONTEXT" ]]; then
-  pass "first prompt: additionalContext present"
+HAS_CONTEXT=$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)
+if [[ -n "$HAS_CONTEXT" && "$(echo "$OUT" | jq -r 'has("additionalContext") or has("sessionTitle")' 2>/dev/null)" == "false" ]]; then
+  pass "first prompt: nested additionalContext present, no top-level additionalContext or sessionTitle"
   $VERBOSE && printf "    additionalContext: %.80s...\n" "$HAS_CONTEXT"
 else
-  fail "first prompt: additionalContext MISSING (output: $OUT)"
+  fail "first prompt: nested additionalContext missing or a top-level key present (output: $OUT)"
 fi
 
 if [[ -f "$INJECTED_FLAG" ]]; then
@@ -201,7 +201,7 @@ fi
 
 # Second prompt — should NOT re-inject (injected flag exists)
 OUT2=$(hook_out user-prompt-submit.sh "$INPUT_UPS")
-HAS_CONTEXT2=$(echo "$OUT2" | jq -r '.additionalContext // empty' 2>/dev/null)
+HAS_CONTEXT2=$(echo "$OUT2" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)
 if [[ -z "$HAS_CONTEXT2" && ( "$OUT2" == "{}" || -z "$OUT2" ) ]]; then
   pass "second prompt: no re-injection (output: '$OUT2')"
 else
@@ -212,7 +212,7 @@ fi
 INPUT_NOSTART="{\"session_id\":\"verify-sess-nostart\",\"cwd\":\"$CWD\"}"
 NOSTART_RC=0
 OUT_NOSTART=$(hook_out user-prompt-submit.sh "$INPUT_NOSTART") || NOSTART_RC=$?
-if [[ $NOSTART_RC -eq 0 && "$(jq -r '.additionalContext // empty' <<< "$OUT_NOSTART" 2>/dev/null)" == *"Git context unavailable"* \
+if [[ $NOSTART_RC -eq 0 && "$(jq -r '.hookSpecificOutput.additionalContext // empty' <<< "$OUT_NOSTART" 2>/dev/null)" == *"Git context unavailable"* \
       && -f "$SESS_ENV/sessions/verify-sess-nostart/injected" ]]; then
   pass "no SessionStart: fallback context injected, injected flag created"
 else
@@ -268,7 +268,7 @@ fi
 
 # Session 2 should still inject (has no injected flag yet)
 OUT_SESS2=$(hook_out user-prompt-submit.sh "$INPUT_SESS2")
-HAS_CTX_SESS2=$(echo "$OUT_SESS2" | jq -r '.additionalContext // empty' 2>/dev/null)
+HAS_CTX_SESS2=$(echo "$OUT_SESS2" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)
 if [[ -n "$HAS_CTX_SESS2" ]]; then
   pass "session 2 first prompt: injects independently"
 else
@@ -686,13 +686,13 @@ fi
 for sid in verify-sess-own verify-sess-next; do
   hook_out session-start.sh "{\"session_id\":\"$sid\",\"cwd\":\"$CWD\"}" > /dev/null 2>&1 || true
 done
-OWN_CTX=$(hook_out user-prompt-submit.sh "{\"session_id\":\"verify-sess-own\",\"cwd\":\"$CWD\"}" | jq -r '.additionalContext // empty' 2>/dev/null)
+OWN_CTX=$(hook_out user-prompt-submit.sh "{\"session_id\":\"verify-sess-own\",\"cwd\":\"$CWD\"}" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)
 if [[ -n "$OWN_CTX" && "$OWN_CTX" != *"Own-session summary text"* && -f "$SUMMARY_FILE" ]]; then
   pass "compacting session skips its own summary and leaves the file"
 else
   fail "compacting session: summary injected or file removed"
 fi
-NEXT_CTX=$(hook_out user-prompt-submit.sh "{\"session_id\":\"verify-sess-next\",\"cwd\":\"$CWD\"}" | jq -r '.additionalContext // empty' 2>/dev/null)
+NEXT_CTX=$(hook_out user-prompt-submit.sh "{\"session_id\":\"verify-sess-next\",\"cwd\":\"$CWD\"}" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)
 if [[ "$NEXT_CTX" == *"[Prior session summary"* && "$NEXT_CTX" == *"Own-session summary text"* && ! -f "$SUMMARY_FILE" ]]; then
   pass "next session receives the summary once and the file is consumed"
 else
@@ -755,7 +755,7 @@ RELAY_INPUT_UPS="{\"session_id\":\"$RELAY_SESS\",\"cwd\":\"$CWD\"}"
 
 # Step 2: UserPromptSubmit reads it and injects
 RELAY_OUT=$("${SANDBOXED[@]}" bash "$HOOKS/user-prompt-submit.sh" <<< "$RELAY_INPUT_UPS" 2>/dev/null)
-RELAY_CONTEXT=$(echo "$RELAY_OUT" | jq -r '.additionalContext // empty' 2>/dev/null)
+RELAY_CONTEXT=$(echo "$RELAY_OUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)
 
 if echo "$RELAY_CONTEXT" | grep -q "branch:"; then
   pass "relay: UserPromptSubmit context contains branch from SessionStart"
