@@ -4,8 +4,9 @@
 // `promptNudge` key of core/registry/workflows.json with jq, and the hook has no defaults: a missing
 // or mistyped field makes the decision error, which is silent. This guard turns that silence into a
 // red suite. It checks the shape and ranges (IC-007), the message rules (IC-010: names `/do` and no
-// other skill, 300 characters at most, no model or provider identifier) and that `pathPattern`
-// compiles in jq. The workflow engine does not read this key, so it is not validated anywhere else.
+// other skill, 300 characters at most, no model or provider identifier), that `pathPattern`
+// compiles in jq, and that the decision program (prompt-nudge.jq) runs against the shipped rules on
+// a probe payload, which compiles every regex it assembles from them (IC-014). The workflow engine does not read this key, so it is not validated anywhere else.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -80,6 +81,17 @@ test('G25 promptNudge.pathPattern compiles in jq', (t) => {
   assert.equal(typeof pattern, 'string', 'pathPattern must be a string');
   const r = spawnSync('jq', ['-n', '--arg', 'p', pattern, '"probe" | test($p)'], { encoding: 'utf8' });
   assert.equal(r.status, 0, `jq rejected pathPattern: ${r.stderr}`);
+});
+
+test('G25 the decision program runs on a probe payload against the shipped registry', (t) => {
+  const probe = spawnSync('jq', ['--version'], { encoding: 'utf8' });
+  if (probe.error || probe.status !== 0) return t.skip('jq is not installed');
+  const program = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'prompt-nudge.jq');
+  // Reaches every step and every clause of the line test, so every assembled regex is compiled.
+  const payload = JSON.stringify({ session_id: 'probe', cwd: '/tmp', prompt: 'please fix the parser in src/a.js' });
+  const r = spawnSync('jq', ['-r', '--slurpfile', 'R', REGISTRY, '-f', program], { input: payload, encoding: 'utf8' });
+  assert.equal(r.status, 0, `the decision program failed against the shipped registry: ${r.stderr}`);
+  assert.match(r.stdout, /^(nudge|suppress|)\n$/, `not one decision line: ${JSON.stringify(r.stdout)}`);
 });
 
 test('G25 control: the checks report an uppercase entry, a duplicate and a /do- skill in the message', () => {
