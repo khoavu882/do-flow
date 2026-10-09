@@ -26,7 +26,12 @@ const { detectCommands, applyTargetPattern } = require('../command-detect');
 const { RecoveryManager } = require('../recovery');
 const { finishRuntime, usageError } = require('../cli-result');
 const { REPO_ROOT } = require('../../helper/repo-root');
-const { buildScopeBound, resolveIntegrationBase } = require('./scope-bound');
+const {
+  resolveScopeBound, resolveIntegrationBase, parseDeclaredScope, scopeReasonText, boundSourcesText,
+} = require('./scope-bound');
+const { readReadinessRecord, RECORD_VERSION } = require('../readiness-record');
+const { verifyReadinessCheck, featureSlugFor } = require('../implementation-gate');
+const { assertSafeTaskId } = require('../evidence-ledger');
 const {
   VerificationContractRunner,
   FATAL_CHECK_MARKERS,
@@ -144,9 +149,12 @@ class VerificationEngine {
    * @param {string} [input.targetPattern] scopes the targeted-tests tier
    * @param {Array<{name: string, command: string, timeoutMs?: number}>} [input.structuralChecks]
    * @param {Array<{id: string, description?: string, command?: string}>} [input.requirements]
-   * @param {{maxFiles?: number, allowedPaths?: Array<string>, source?: string, baseline?: 'integration'}} [input.scope]
+   * @param {{maxFiles?: number, allowedPaths?: Array<string>, source?: string, sources?: Array<Object>,
+   *   baseline?: 'integration', unresolvedReason?: string, searched?: Array<Object>}} [input.scope]
    *   `baseline: 'integration'` measures the change from the merge base with the integration ref
    *   (a bound derived from a plan, scope-bound.js); without it only the working tree is observed.
+   *   `sources` names where the bound came from; with no bound, `unresolvedReason` replaces the
+   *   tier's generic reason and `searched` lists the places looked.
    * @returns {Object} the contract
    */
   compileContract(input = {}) {
@@ -255,6 +263,8 @@ class VerificationEngine {
       scope: {
         maxFiles: Number.isFinite(scope.maxFiles) ? scope.maxFiles : null,
         allowedPaths: toStringArray(scope.allowedPaths),
+        ...(Array.isArray(scope.sources) ? { sources: scope.sources } : {}),
+        ...(Array.isArray(scope.searched) ? { searched: scope.searched } : {}),
       },
       tiers,
       unresolvedRequiredTiers,
@@ -411,7 +421,9 @@ class VerificationEngine {
     if (maxFiles === null && allowedPaths.length === 0) {
       return {
         resolution: 'UNRESOLVED',
-        reason: 'No change-scope bound was declared before implementation, so the actual scope has nothing to be compared against.',
+        reason: typeof scope.unresolvedReason === 'string' && scope.unresolvedReason !== ''
+          ? scope.unresolvedReason
+          : 'No change-scope bound was declared before implementation, so the actual scope has nothing to be compared against.',
       };
     }
     return {
@@ -420,6 +432,7 @@ class VerificationEngine {
         maxFiles,
         allowedPaths,
         ...(typeof scope.source === 'string' ? { source: scope.source } : {}),
+        ...(Array.isArray(scope.sources) ? { sources: scope.sources } : {}),
         ...(scope.baseline === 'integration' ? { baseline: 'integration' } : {}),
       },
       reason: null,
@@ -954,21 +967,72 @@ class VerificationEngine {
  * @param {boolean} [options.json=false]
  * @param {string} [options.projectRoot]
  * @param {string} [options.slug] the feature whose plan bounds the change; the branch's when omitted
+ * @param {string} [options.scope] a declared scope (`<path>[,<path>...]`), unioned with any plan bound
  * @returns {number} exit code
  */
-function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null } = {}) {
+function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null, scope = null } = {}) {
+  // The task id names state files here, so it obeys the rule every other task verb applies.
+  try {
+    assertSafeTaskId(taskId);
+  } catch (error) {
+    return usageError('verify', error.message, json);
+  }
+  let declared = null;
+  if (scope !== null && scope !== undefined) {
+    const parsed = parseDeclaredScope(typeof scope === 'string' ? scope : '');
+    if (parsed.reason) {
+      return usageError('verify', `--scope ${parsed.reason}. Write repository-relative paths separated by commas, a trailing / for a directory, for example --scope src/a.js,src/lib/. Nothing was changed.`, json);
+    }
+    declared = { paths: parsed.paths, origin: 'verify-flag' };
+  }
   const cwd = projectRoot || process.cwd();
+  // The feature the task belongs to, for the readiness record's namespace and for a run keyed by
+  // the feature slug: `--slug`, else the task id's own folder, else the branch's.
+  const featureSlug = featureSlugFor({ projectRoot: cwd, taskId, slug });
+
+  // A scope is declared in one place. The readiness record carries the one stated before the
+  // work; a flag that says something else is refused rather than silently preferred. Records in two
+  // other checkouts declare nothing: the contract says so and still answers.
+  const recorded = readReadinessRecord({ stateRoot: cwd, taskId, slug: featureSlug });
+  const recordNote = recorded.status === 'ambiguous'
+    ? `readiness record: not used; task '${taskId}' has records in more than one other checkout (${recorded.candidates.join(', ')})`
+    : null;
+  // Only a record this runtime can read declares a scope; one it cannot read is reported by the
+  // readiness check, and refusing --scope against it would send the caller to a readiness run that
+  // cannot replace it.
+  const usable = recorded.status === 'found' && recorded.record && recorded.record.version === RECORD_VERSION;
+  const recordedScope = usable && Array.isArray(recorded.record.declaredScope) && recorded.record.declaredScope.length > 0
+    ? recorded.record.declaredScope : null;
+  if (recordedScope) {
+    const recordRel = recorded.origin === 'current' ? path.relative(cwd, recorded.file) : recorded.file;
+    if (declared && !sameSet(declared.paths, recordedScope)) {
+      return usageError('verify', `--scope ${String(scope).trim()} differs from the scope declared in the readiness record ${recordRel} (${recordedScope.join(',')}). A scope is declared in one place: re-run doflow-run readiness --task-class ${recorded.record.taskClass} --task-id ${taskId} --scope ${String(scope).trim()}, or drop --scope. Nothing was changed.`, json);
+    }
+    if (!declared) declared = { paths: [...recordedScope], origin: 'readiness-record', record: recordRel };
+  }
+
   let engine;
   let contract;
   try {
     engine = new VerificationEngine({ cwd, repoRoot: REPO_ROOT });
-    // The bound comes from the feature's plan (IC-003); a project with no feature or no plan keeps
-    // the old behaviour, where the change-scope tier is UNRESOLVED.
-    const bound = buildScopeBound({ projectRoot: cwd, slug });
-    const scope = bound ? { allowedPaths: bound.allowedPaths, source: bound.source, baseline: 'integration' } : undefined;
-    contract = engine.compileContract({ taskId, riskLevel: risk, projectRoot: cwd, planPath, scope });
+    // The bound comes from the feature's plan, this checkout's or the main checkout's, and from a
+    // declared scope; with neither the change-scope tier is UNRESOLVED and says where it looked.
+    const resolved = resolveScopeBound({ projectRoot: cwd, slug, planPath, declared });
+    if (recordNote) resolved.searched.push({ place: 'readiness record', result: recordNote.slice('readiness record: '.length) });
+    const scopeInput = resolved.bound
+      ? { ...resolved.bound, searched: resolved.searched }
+      : { unresolvedReason: scopeReasonText({ reason: resolved.reason, taskId, planSource: resolved.planSource }), searched: resolved.searched };
+    contract = engine.compileContract({ taskId, riskLevel: risk, projectRoot: cwd, planPath, scope: scopeInput });
   } catch (error) {
     return usageError('verify', error.message, json, error);
+  }
+  // The bound's sources print under the change-scope tier's line; no other line changes.
+  const boundLines = new Map(contract.tiers
+    .filter((t) => t.bound && Array.isArray(t.bound.sources) && t.bound.sources.length > 0)
+    .map((t) => [t.id, `      bound: ${boundSourcesText(t.bound.sources)}`]));
+  if (recordNote) {
+    const scopeTier = contract.tiers.find((t) => t.kind === 'scope');
+    if (scopeTier) boundLines.set(scopeTier.id, [boundLines.get(scopeTier.id), `      ${recordNote}`].filter(Boolean).join('\n'));
   }
 
   if (action === 'contract') {
@@ -978,6 +1042,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
       console.log('═'.repeat(78));
       for (const tier of contract.tiers) {
         console.log(`  ${tier.id.padEnd(22)} ${tier.resolution.padEnd(12)} ${tier.required ? 'required' : 'advisory'}`);
+        if (boundLines.has(tier.id)) console.log(boundLines.get(tier.id));
         if (tier.reason) console.log(`      ${tier.reason}`);
       }
       console.log('═'.repeat(78) + '\n');
@@ -991,14 +1056,28 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   }
 
   const report = engine.runContract(contract);
+  // A task whose run still has its gated stage pending is not verified while no READY readiness
+  // record exists: the checks passing says nothing about whether the work should have started.
+  try {
+    report.readiness = verifyReadinessCheck({ stateRoot: cwd, taskId, slug: featureSlug });
+  } catch (error) {
+    return usageError('verify', error.message, json, error);
+  }
+  const readinessHeld = report.readiness.applies && !report.readiness.ok;
+  if (readinessHeld && !report.readiness.grace && report.status === 'PASS') {
+    report.status = 'INCONCLUSIVE';
+    report.reason = report.readiness.message;
+  }
   if (json) console.log(JSON.stringify(report, null, 2));
   else {
     console.log(`\nDoFlow Verification Report [${report.taskId}] — ${report.status}:`);
     console.log('═'.repeat(78));
     console.log(report.reason);
+    if (readinessHeld) console.log(`readiness: ${report.readiness.message}`);
     console.log('─'.repeat(78));
     for (const tier of report.tiers) {
       console.log(`  ${tier.id.padEnd(22)} ${tier.status.padEnd(16)} ${tier.required ? 'required' : 'advisory'}`);
+      if (boundLines.has(tier.id)) console.log(boundLines.get(tier.id));
       if (tier.reason) console.log(`      ${tier.reason}`);
     }
     console.log('─'.repeat(78));
@@ -1012,6 +1091,13 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   // PASS is the only status that answers "verified". FAIL and INCONCLUSIVE are both findings, and
   // collapsing INCONCLUSIVE into success would report a verdict over zero evidence as a pass.
   return finishRuntime(report.status === 'PASS' ? 0 : 1);
+}
+
+/** Whether two path lists name the same set. */
+function sameSet(a, b) {
+  const left = new Set(a);
+  const right = new Set(b);
+  return left.size === right.size && [...left].every((p) => right.has(p));
 }
 
 module.exports = {

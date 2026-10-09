@@ -111,12 +111,15 @@ function readTaskState(fsImpl, file) {
  * @param {(diskPayload: Object|null) => Object} options.build called INSIDE the lock with what is
  *   currently on disk; must fold any disk items unknown to the caller into the caller's view and
  *   return the complete new payload (without `version`/`revision`, which are stamped here)
+ * @param {() => void} [options.prepare] called INSIDE the lock before the file is read, for a store
+ *   that must inspect or set aside what is there under the same exclusion as the write
  * @returns {string} the file path written
  */
-function updateTaskState({ fsImpl, file, build }) {
+function updateTaskState({ fsImpl, file, build, prepare }) {
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
   const release = acquireLock(fsImpl, file);
   try {
+    if (prepare) prepare();
     const disk = readTaskState(fsImpl, file);
     const payload = {
       ...build(disk),

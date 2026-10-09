@@ -251,6 +251,16 @@ class WorkflowEngine {
         if (kind && kind.mutatesSource === true && stage.readinessTemplate === null) {
           problems.push(`${where} mutates source but declares no readiness template`);
         }
+        // `editTimeGate: false` leaves a gated stage to the handoff check alone; only a stage that
+        // edits source has an edit-time check to opt out of. Absent means the check applies.
+        if (Object.prototype.hasOwnProperty.call(stage, 'editTimeGate')) {
+          if (typeof stage.editTimeGate !== 'boolean') {
+            problems.push(`${where} \`editTimeGate\` must be a boolean`);
+          }
+          if (!kind || kind.mutatesSource !== true) {
+            problems.push(`${where} declares \`editTimeGate\` but does not mutate source`);
+          }
+        }
       });
 
       if (!hasRequiredStage) {

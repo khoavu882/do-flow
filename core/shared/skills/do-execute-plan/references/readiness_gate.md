@@ -17,6 +17,12 @@ command disagree, the command is right.
 because evidence and claims are per-project state under that repo's `.doflow/state/evidence/`, not
 global.
 
+Every `readiness` call records its evaluation under `.doflow/state/readiness/`, replacing the
+task's earlier one. The implementation handoff and `complete-stage` read that record and refuse
+without a `READY` one made before the call; they evaluate nothing themselves, and the refusal names
+the `readiness` command to run. A `verify` report that would be `PASS` on a task whose implementation
+stage is still pending is `INCONCLUSIVE` while that record is missing or not `READY`.
+
 **Both `--task-class` and `--task-id` are required on `readiness`.** Omitting either exits 2 with
 the valid set named — the verb refuses rather than grading the wrong class or the wrong task.
 `readiness` then exits **0 for every state it can compute**, so branch on the `state` field; a zero
@@ -91,7 +97,7 @@ contract that was met and one that was described as met.
 | :--- | :--- | :--- |
 | Evidence | `evidence --task-id <id> --action add` — one item from `--kind/--provenance/--provider/--capability/--locator/--content`, plus `--establishes <req-id[,req-id]>` and (for executions) `--observed-command`/`--observed-exit`; or a whole stage from `--batch <file>` | every requirement declaring evidence kinds: `reproduction`, `affected_code`, `blast_radius`, `affected_components`, `architecture_mapped`, `baseline_tests`, `target_identified`, `compatibility_checked`, `usage_impact` |
 | Claims | `claim --action add` (with `--role root-cause` where the contract names a role), promoted by `claim --action link` | `root_cause`, the one requirement that demands a `supported` claim **in the `root-cause` role**. A `conflicted` claim additionally forces `BLOCKED` for the whole task |
-| Caller-stated profile | `readiness --verification-plan <text>` · `--scope <text>` · `--invariants <text>` · `--user-decision-pending` | `verification_plan`, `verification_command`, `regression_verification` (from `--verification-plan`); `scope_clear`, `scope_verified`, `invariants_captured` (from `--scope` or `--invariants`) |
+| Caller-stated profile | stated on `readiness`, not on `handoff`: `readiness --verification-plan <text>` · `--scope <text>` · `--invariants <text>` · `--user-decision-pending` | `verification_plan`, `verification_command`, `regression_verification` (from `--verification-plan`); `scope_clear`, `scope_verified`, `invariants_captured` (from `--scope` or `--invariants`) |
 
 So each state arrives as follows.
 

@@ -13,6 +13,21 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.22.0] - 2026-10-09
+
+### Added
+
+- `verify --scope <path>[,<path>…]` bounds the change-scope tier for a task with no plan, and is added to a plan's bound when there is one without narrowing it. A trailing `/` is a directory; one path that is empty, absolute, `.`, contains whitespace or climbs out with `..` refuses the whole value. A `bound:` line under the tier names where the bound came from, and when nothing bounds the change the tier lists where `verify` looked and the command that bounds it.
+- Every `readiness` call records its evaluation under `.doflow/state/readiness/`, whatever its state, and prints a `Recorded:` line (`record` and `declaredScope` in `--json`). A `--scope` that is a list of paths is also the task's declared scope for `verify`. A previous record that cannot be read is moved to `<record>.unreadable` and a `Replaced:` line says so; a record written by a newer DoFlow is never replaced, and the call exits 1 and says so.
+
+### Changed
+
+- `verify` finds the feature's plan from a linked worktree: `--plan-path`, else the feature folder in the current checkout, else the main checkout's. The `bound:` line names the plan it used and which checkout it came from.
+- `orchestrate` `handoff` and `complete-stage` of a gated `implementation` stage refuse, before changing anything, unless a READY readiness record of the stage's template was made before the call; run the `readiness` command the refusal prints to clear it. `--verification-plan`, `--scope` and `--invariants` on those two actions no longer satisfy the check, and a note says they were not read. A run started in another checkout of the same repository is read and updated where it lives.
+- A `verify` report that would pass is `INCONCLUSIVE` while the task's run has its gated stage pending and no READY readiness record exists.
+- The pre-implementation hook also checks readiness and reads the main checkout's feature folder, records and runs from a linked worktree. It now refuses a source edit on Claude Code, Codex (after its hook review), Gemini CLI, Antigravity and Kiro in two cases: a feature branch with all three artifacts and a decision register but no READY record, and an open `bug`, `refactor` or `dependency-change` run with its implementation stage pending; both also apply from a linked worktree. OpenCode, Pi and Copilot CLI have no hook layer and are checked at the handoff and by `verify` only, and `trivial-edit` is held at the handoff and by `verify` only on every harness. Runs now store `featureSlug` and `readinessFloor`, and the frozen-behaviour guard now forbids the hook script from invoking the runtime rather than from naming `readiness`.
+- A run started before this release gets a warning in place of the handoff refusal, and keeps its `verify` status, until 1.23.0, which ends that grace. The hook treats such a run as no run.
+
 ## [1.21.0] - 2026-10-08
 
 ### Changed
