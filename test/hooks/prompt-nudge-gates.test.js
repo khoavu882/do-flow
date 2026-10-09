@@ -119,17 +119,17 @@ function callIn(cwd, fn, args = [], env = {}) {
 
 /**
  * A base directory holding, relative to it: a git repository `relrepo` (with `src/`), a plain
- * `nogit/sub`, and a drive-shaped tree `C:/Users/kai/proj` (with `.git` and `src/`) beside a plain
- * `C:/Users/kai/other`.
+ * `nogit/sub`, and a drive-shaped tree `C:/Work/dev/proj` (with `.git` and `src/`) beside a plain
+ * `C:/Work/dev/other`.
  */
 function relativeTree() {
   const base = fresh('rel');
   fs.mkdirSync(path.join(base, 'relrepo', '.git'), { recursive: true });
   fs.mkdirSync(path.join(base, 'relrepo', 'src'), { recursive: true });
   fs.mkdirSync(path.join(base, 'nogit', 'sub'), { recursive: true });
-  fs.mkdirSync(path.join(base, 'C:', 'Users', 'kai', 'proj', '.git'), { recursive: true });
-  fs.mkdirSync(path.join(base, 'C:', 'Users', 'kai', 'proj', 'src'), { recursive: true });
-  fs.mkdirSync(path.join(base, 'C:', 'Users', 'kai', 'other'), { recursive: true });
+  fs.mkdirSync(path.join(base, 'C:', 'Work', 'dev', 'proj', '.git'), { recursive: true });
+  fs.mkdirSync(path.join(base, 'C:', 'Work', 'dev', 'proj', 'src'), { recursive: true });
+  fs.mkdirSync(path.join(base, 'C:', 'Work', 'dev', 'other'), { recursive: true });
   return base;
 }
 
@@ -142,11 +142,11 @@ test('root walk: a cwd without a leading / ends, finds a .git ancestor on its ow
     ['nogit', 'nogit'],
     ['nogit/sub/', 'nogit/sub'],
     ['C:', 'C:'],
-    ['C:/Users/kai/proj/src', 'C:/Users/kai/proj'],
-    ['C:/Users/kai/other', 'C:/Users/kai/other'],
-    ['C:\\Users\\kai\\proj\\src', 'C:\\Users\\kai\\proj'],
-    ['C:\\Users\\kai\\proj', 'C:\\Users\\kai\\proj'],
-    ['C:\\Users\\kai\\other', 'C:\\Users\\kai\\other'],
+    ['C:/Work/dev/proj/src', 'C:/Work/dev/proj'],
+    ['C:/Work/dev/other', 'C:/Work/dev/other'],
+    ['C:\\Work\\dev\\proj\\src', 'C:\\Work\\dev\\proj'],
+    ['C:\\Work\\dev\\proj', 'C:\\Work\\dev\\proj'],
+    ['C:\\Work\\dev\\other', 'C:\\Work\\dev\\other'],
     ['.', '.'],
     ['..', '..'],
     ['', ''],
@@ -450,12 +450,12 @@ test('ledger probe: a cwd without a leading / ends the walk and finds a .doflow 
   const session = fresh('session');
   write(path.join(session, 'git-context.json'), JSON.stringify({ captured_at: '2026-10-09T10:00:00Z' }));
   write(path.join(base, 'relrepo', '.doflow', 'state', 'runs', '2026-10-09.jsonl'), rec('2026-10-09T10:05:00Z'));
-  write(path.join(base, 'C:', 'Users', 'kai', 'proj', '.doflow', 'state', 'runs', '2026-10-09.jsonl'), rec('2026-10-09T10:05:00Z'));
+  write(path.join(base, 'C:', 'Work', 'dev', 'proj', '.doflow', 'state', 'runs', '2026-10-09.jsonl'), rec('2026-10-09T10:05:00Z'));
   fs.rmSync(path.join(scratch.home, '.doflow'), { recursive: true, force: true });
-  for (const cwd of ['relrepo/src', 'C:/Users/kai/proj/src', 'C:\\Users\\kai\\proj\\src']) {
+  for (const cwd of ['relrepo/src', 'C:/Work/dev/proj/src', 'C:\\Work\\dev\\proj\\src']) {
     assert.equal(callIn(base, 'nudge_ledger_active', [cwd, session]).status, 0, `${cwd} finds its ledger`);
   }
-  for (const cwd of ['relative/dir', 'nogit', 'C:', 'C:/Users/kai/other', 'C:\\Users\\kai\\other', '.', '..', '']) {
+  for (const cwd of ['relative/dir', 'nogit', 'C:', 'C:/Work/dev/other', 'C:\\Work\\dev\\other', '.', '..', '']) {
     assert.notEqual(callIn(base, 'nudge_ledger_active', [cwd, session]).status, 0, `${JSON.stringify(cwd)} has no ledger`);
   }
 });

@@ -471,7 +471,7 @@ describe('per-session', () => {
       assert.equal(r.status, 0, r.stderr);
       return r.stdout;
     };
-    const shapes = [['relrepo', 'Git context — branch: main |'], ['relative/dir', 'Not a git repository.'], ['C:\\Users\\kai\\proj', 'Not a git repository.']];
+    const shapes = [['relrepo', 'Git context — branch: main |'], ['relative/dir', 'Not a git repository.'], ['C:\\Work\\dev\\proj', 'Not a git repository.']];
     shapes.forEach(([cwd, context], i) => {
       const id = `ps-relcwd-${i}`;
       run('session-context.sh', { session_id: id, cwd, source: 'startup' });
