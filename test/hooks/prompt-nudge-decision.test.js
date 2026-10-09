@@ -206,6 +206,43 @@ test('prompt-nudge decision (IC-005)', { skip: HAS_JQ ? false : 'jq is not insta
     assert.equal(decide('rexdo the parser in src/a.js', dotted), '');
   });
 
+  await t.test('office and document artifacts stay silent even beside a word that is also a code noun', () => {
+    const silent = [
+      'Build a spreadsheet formula that sums column B wherever column A says paid.',
+      'Create an excel formula that looks up the key in column C of the table',
+      'Write a worksheet function that totals each row',
+      'Build a PowerPoint with a table and a chart for each column',
+      'Create a workbook with one sheet per key and a column for totals',
+      'Build a spreadsheet with a column for each field',
+      'Make a google doc with a table of the function names',
+      'Write an itinerary table with a column for each day',
+      'Make a playlist for the road trip with a row for each key',
+      'Draft a cover letter template with a field for the company name',
+      'Write a newsletter template with a table of contents field',
+      'Build a slide deck with a table of the results by column',
+      'Update my résumé template, the header field needs a new row',
+      'Create an invoice for the client with a row for each field',
+    ];
+    const nudged = silent.filter((p) => decide(p) !== '');
+    assert.deepEqual(nudged, [], 'office or document requests that nudged');
+  });
+
+  await t.test('real code requests that share words with the office family still nudge', () => {
+    const nudge = [
+      'add a column to the orders table in migrations/002_orders.sql',
+      'rename the template field in billing/email_template.py',
+      'fix the pivot table query in reports/pivot.py',
+      'add a spreadsheet export function to src/report.py',
+      'fix the resume handling in src/download.js',
+      'add an invoice total column to billing/invoice.py',
+      'implement the playlist shuffle function in src/player.js',
+      'add a worksheet parser to lib/xlsx_reader.py',
+      'add a key column to the sheet model in app/models.py',
+    ];
+    const silent = nudge.filter((p) => decide(p) !== 'nudge');
+    assert.deepEqual(silent, [], 'code requests that lost their nudge');
+  });
+
   await t.test('a pathPattern that does not compile makes jq exit non-zero', () => {
     const r = run({ prompt: 'fix the parser in src/a.js' }, registryWith((n) => { n.pathPattern = '('; }));
     assert.notEqual(r.status, 0);
