@@ -12,7 +12,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
 const { ClaimsManager } = require('../../src/runtime/claims');
-const { readTaskState, SCHEMA_VERSION } = require('../../src/runtime/task-state');
+const { acquireLock, readTaskState, SCHEMA_VERSION } = require('../../src/runtime/task-state');
 
 function stateRoot(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-taskstate-'));
@@ -155,4 +155,33 @@ test('R4: a stale lock from a dead writer is broken rather than honoured forever
 
   assert.equal(ledger.save(task), file, 'the save proceeds by breaking the minute-old lock');
   assert.ok(!fs.existsSync(`${file}.lock`), 'the lock is released after the write');
+});
+
+test('R4: a slow host gives up on a live holder at the wait bound instead of outliving its staleness window', (t) => {
+  // Regression for FU-cn8q67. The wait used to be bounded by attempt count only (250 x 20 ms) while
+  // the stale rule is wall-clock (10 s). When every filesystem call costs real time, 250 attempts
+  // take far longer than 5 s, so the waiter was still looping when a fresh foreign lock turned
+  // 10 s old; it broke that live holder's lock, took it, then removed it on release (macOS CI).
+  const root = stateRoot(t);
+  const file = path.join(root, 'slow-host.json');
+  const lockDir = `${file}.lock`;
+  fs.mkdirSync(lockDir);
+  const SLOW_MS = 40;
+  const slow = (fn) => (...args) => {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, SLOW_MS);
+    return fn(...args);
+  };
+  const slowFs = {
+    ...fs,
+    mkdirSync: slow(fs.mkdirSync),
+    statSync: slow(fs.statSync),
+    rmdirSync: slow(fs.rmdirSync),
+  };
+
+  const started = Date.now();
+  assert.throws(() => acquireLock(slowFs, file), /Could not lock/);
+  const waited = Date.now() - started;
+
+  assert.ok(waited < 9_000, `refusal must arrive inside the holder's 10 s staleness window, took ${waited} ms`);
+  assert.ok(fs.existsSync(lockDir), 'the live holder\'s lock must still be in place after the refusal');
 });
