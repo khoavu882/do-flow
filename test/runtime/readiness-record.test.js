@@ -237,7 +237,8 @@ test('an unreadable record is set aside only under the write lock', () => {
   try {
     assert.throws(() => write(root, 'T-8'), /Could not lock/);
   } finally {
-    fs.rmdirSync(`${file}.lock`);
+    assert.ok(fs.existsSync(`${file}.lock`), 'the other writer\'s lock must survive the refused writer');
+    fs.rmSync(`${file}.lock`, { recursive: true, force: true });
   }
   assert.equal(fs.readFileSync(file, 'utf8'), '{not json', 'nothing was renamed while another writer held the lock');
   assert.equal(fs.existsSync(`${file}.unreadable`), false);

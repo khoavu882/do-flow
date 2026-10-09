@@ -61,7 +61,11 @@ function sleep(ms) {
  */
 function acquireLock(fsImpl, file) {
   const lockDir = `${file}.lock`;
-  for (let attempt = 0; attempt < LOCK_RETRIES; attempt += 1) {
+  // The stale rule below is wall-clock, so the wait must be too: on a host where each attempt costs
+  // real time, counting attempts alone would outlive a live holder's staleness window and then
+  // break (and later release) its lock.
+  const deadline = Date.now() + LOCK_RETRIES * LOCK_WAIT_MS;
+  for (let attempt = 0; attempt < LOCK_RETRIES && (attempt === 0 || Date.now() < deadline); attempt += 1) {
     try {
       fsImpl.mkdirSync(lockDir);
       return () => { try { fsImpl.rmdirSync(lockDir); } catch { /* released is released */ } };

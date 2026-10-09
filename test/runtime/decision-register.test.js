@@ -576,7 +576,9 @@ test('a register lock that never frees exits 1 as register-locked, not as a usag
     assert.match(run.result.message, /Could not lock/);
     assert.equal(run.usage, undefined);
   } finally {
-    fs.rmdirSync(`${registerFile(r.featureDir)}.lock`);
+    const lockDir = `${registerFile(r.featureDir)}.lock`;
+    assert.ok(fs.existsSync(lockDir), 'the other writer\'s lock must survive the refused writer');
+    fs.rmSync(lockDir, { recursive: true, force: true });
   }
   assert.deepEqual(snapshot(r.featureDir), before);
 });
