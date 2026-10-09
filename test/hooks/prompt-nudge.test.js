@@ -421,6 +421,32 @@ describe('per-session', () => {
     });
   });
 
+  CASE('a cwd without a leading / ends: the first qualifying prompt keeps its context and is nudged', () => {
+    const base = fs.realpathSync(fs.mkdtempSync(path.join(scratch.dir, 'relcwd-')));
+    const rel = path.join(base, 'relrepo');
+    fs.mkdirSync(rel);
+    git(rel, 'init', '-q', '-b', 'main');
+    git(rel, 'commit', '-q', '--allow-empty', '-m', 'first');
+    // Run from `base` with a hard limit: a walk that never ends fails here instead of hanging the suite.
+    const run = (script, payload) => {
+      const r = spawnSync('bash', [path.join(LAYOUT, script)], {
+        cwd: base, input: JSON.stringify(payload), env: env('claude'), encoding: 'utf8', timeout: 5000,
+      });
+      assert.equal(r.error && r.error.code, undefined, `${script} with cwd ${payload.cwd} did not finish in 5 s`);
+      assert.equal(r.status, 0, r.stderr);
+      return r.stdout;
+    };
+    const shapes = [['relrepo', 'Git context — branch: main |'], ['relative/dir', 'Not a git repository.'], ['C:\\Users\\kai\\proj', 'Not a git repository.']];
+    shapes.forEach(([cwd, context], i) => {
+      const id = `ps-relcwd-${i}`;
+      run('session-context.sh', { session_id: id, cwd, source: 'startup' });
+      const o = out(run('user-prompt-submit.sh', { session_id: id, cwd, prompt: request() }));
+      assert.ok(o.additionalContext.startsWith(context), `${cwd}: ${o.additionalContext}`);
+      assert.ok(o.additionalContext.endsWith(`\n\n${MESSAGE}`), `${cwd}: ${o.additionalContext}`);
+      assert.strictEqual(markerText(id), 'nudged\n', cwd);
+    });
+  });
+
   CASE('the hook never starts node or doflow-run', () => {
     const shims = path.join(scratch.dir, 'shims');
     const trace = path.join(shims, 'called');

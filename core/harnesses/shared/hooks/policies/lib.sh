@@ -299,19 +299,34 @@ require_jq() {
 # process; none of them reads the prompt. A probe that cannot decide returns
 # non-zero, and the caller treats that as "no nudge".
 
+# Print the nearest ancestor of <path> (itself included) for which `test <op>
+# <ancestor>/<entry>` holds, spelled as in <path>; fail when none does. The walk runs
+# on a copy of <path> with every `\` read as `/` (a drive path such as C:\Users\x from
+# Git Bash or MSYS2) and stops as soon as dropping the last component no longer
+# shortens it, so it ends for every input: `relative/dir` stops at `relative`, `C:`
+# and `.` at themselves. Only the path's own components are walked: a relative path
+# is not resolved against $PWD. No process.
+nudge_find_up() {
+  local path="${1%/}" entry="${2:-}" op="${3:--e}" walk up
+  walk="${path//\\//}"
+  while [ -n "$walk" ]; do
+    if test "$op" "$walk/$entry"; then
+      printf '%s\n' "${path:0:${#walk}}"
+      return 0
+    fi
+    up="${walk%/*}"
+    [ "${#up}" -lt "${#walk}" ] || return 1
+    walk="$up"
+  done
+  return 1
+}
+
 # Print the nearest ancestor of <cwd> (itself included) holding a `.git` entry — a
 # directory, or the file a linked worktree and a submodule have — else <cwd>.
 nudge_repo_root() {
   local dir="${1%/}"
   [ -n "$dir" ] || { printf '%s\n' "$1"; return 0; }
-  while [ -n "$dir" ]; do
-    if [ -e "$dir/.git" ]; then
-      printf '%s\n' "$dir"
-      return 0
-    fi
-    dir="${dir%/*}"
-  done
-  printf '%s\n' "${1%/}"
+  nudge_find_up "$dir" .git -e || printf '%s\n' "$dir"
 }
 
 # Print `on` or `off`. The project file <root>/.doflow/prompt-nudge wins, then the
@@ -404,11 +419,8 @@ nudge_ledger_active() {
     config="$DOFLOW_CONFIG_DIR"
   else
     config="$HOME/.doflow"
-    dir="${cwd%/}"
-    while [ -n "$dir" ]; do
-      if [ -d "$dir/.doflow" ]; then config="$dir/.doflow"; break; fi
-      dir="${dir%/*}"
-    done
+    # The ancestor in the walk's own spelling (`\` read as `/`), the form its test succeeded on.
+    if dir=$(nudge_find_up "$cwd" .doflow -d); then config="${dir//\\//}/.doflow"; fi
   fi
   for f in "$config"/state/runs/*.jsonl; do
     [ -f "$f" ] && ledger="$f"

@@ -98,6 +98,60 @@ test('root walk: repository root, a subdirectory, a linked worktree, a non-git d
   assert.equal(out('nudge_repo_root', [plain]), plain);
 });
 
+/**
+ * Like `call`, from the working directory `cwd`, with a hard 5 s limit: a walk that never ends is
+ * killed and reported as a failure, never left to hang the suite.
+ */
+function callIn(cwd, fn, args = [], env = {}) {
+  const r = spawnSync(BASH, ['-c', 'source "$1"; shift; "$@"', 'bash', LIB, fn, ...args], {
+    cwd, env: scratch.env({ DOFLOW_CONFIG_DIR: '', ...env }), encoding: 'utf8', timeout: 5000,
+  });
+  assert.equal(r.error && r.error.code, undefined, `${fn} ${JSON.stringify(args)} did not finish in 5 s (${r.error && r.error.code})`);
+  assert.equal(r.signal, null, `${fn} ${JSON.stringify(args)} was killed by ${r.signal}`);
+  return { status: r.status, stdout: r.stdout.replace(/\n$/, ''), stderr: r.stderr };
+}
+
+/**
+ * A base directory holding, relative to it: a git repository `relrepo` (with `src/`), a plain
+ * `nogit/sub`, and a drive-shaped tree `C:/Users/kai/proj` (with `.git` and `src/`) beside a plain
+ * `C:/Users/kai/other`.
+ */
+function relativeTree() {
+  const base = fresh('rel');
+  fs.mkdirSync(path.join(base, 'relrepo', '.git'), { recursive: true });
+  fs.mkdirSync(path.join(base, 'relrepo', 'src'), { recursive: true });
+  fs.mkdirSync(path.join(base, 'nogit', 'sub'), { recursive: true });
+  fs.mkdirSync(path.join(base, 'C:', 'Users', 'kai', 'proj', '.git'), { recursive: true });
+  fs.mkdirSync(path.join(base, 'C:', 'Users', 'kai', 'proj', 'src'), { recursive: true });
+  fs.mkdirSync(path.join(base, 'C:', 'Users', 'kai', 'other'), { recursive: true });
+  return base;
+}
+
+test('root walk: a cwd without a leading / ends, finds a .git ancestor on its own path, else is returned as given', () => {
+  const base = relativeTree();
+  const cases = [
+    ['relative/dir', 'relative/dir'],
+    ['relrepo/src', 'relrepo'],
+    ['relrepo', 'relrepo'],
+    ['nogit', 'nogit'],
+    ['nogit/sub/', 'nogit/sub'],
+    ['C:', 'C:'],
+    ['C:/Users/kai/proj/src', 'C:/Users/kai/proj'],
+    ['C:/Users/kai/other', 'C:/Users/kai/other'],
+    ['C:\\Users\\kai\\proj\\src', 'C:\\Users\\kai\\proj'],
+    ['C:\\Users\\kai\\proj', 'C:\\Users\\kai\\proj'],
+    ['C:\\Users\\kai\\other', 'C:\\Users\\kai\\other'],
+    ['.', '.'],
+    ['..', '..'],
+    ['', ''],
+  ];
+  for (const [cwd, root] of cases) {
+    const r = callIn(base, 'nudge_repo_root', [cwd]);
+    assert.equal(r.status, 0, `${JSON.stringify(cwd)}: ${r.stderr}`);
+    assert.equal(r.stdout, root, `root of ${JSON.stringify(cwd)}`);
+  }
+});
+
 // ── nudge_setting ───────────────────────────────────────────────────────────
 
 function setting(root, { project, user } = {}) {
@@ -383,6 +437,21 @@ test('ledger probe: config dir from DOFLOW_CONFIG_DIR, then the nearest .doflow 
   write(path.join(scratch.home, '.doflow', 'state', 'runs', '2026-10-09.jsonl'), rec('2026-10-09T10:07:00Z'));
   assert.equal(fires(bare, {}), true);
   fs.rmSync(path.join(scratch.home, '.doflow'), { recursive: true, force: true });
+});
+
+test('ledger probe: a cwd without a leading / ends the walk and finds a .doflow on its own path', () => {
+  const base = relativeTree();
+  const session = fresh('session');
+  write(path.join(session, 'git-context.json'), JSON.stringify({ captured_at: '2026-10-09T10:00:00Z' }));
+  write(path.join(base, 'relrepo', '.doflow', 'state', 'runs', '2026-10-09.jsonl'), rec('2026-10-09T10:05:00Z'));
+  write(path.join(base, 'C:', 'Users', 'kai', 'proj', '.doflow', 'state', 'runs', '2026-10-09.jsonl'), rec('2026-10-09T10:05:00Z'));
+  fs.rmSync(path.join(scratch.home, '.doflow'), { recursive: true, force: true });
+  for (const cwd of ['relrepo/src', 'C:/Users/kai/proj/src', 'C:\\Users\\kai\\proj\\src']) {
+    assert.equal(callIn(base, 'nudge_ledger_active', [cwd, session]).status, 0, `${cwd} finds its ledger`);
+  }
+  for (const cwd of ['relative/dir', 'nogit', 'C:', 'C:/Users/kai/other', 'C:\\Users\\kai\\other', '.', '..', '']) {
+    assert.notEqual(callIn(base, 'nudge_ledger_active', [cwd, session]).status, 0, `${JSON.stringify(cwd)} has no ledger`);
+  }
 });
 
 // ── nudge_registry ──────────────────────────────────────────────────────────
