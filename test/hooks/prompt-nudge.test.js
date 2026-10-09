@@ -12,7 +12,6 @@
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
@@ -162,9 +161,9 @@ function walk(dir, visit) {
 
 /** One case; afterwards no file under the scratch directory (outside .git) holds a token the case used. */
 function CASE(name, fn, options) {
-  HOOK_TEST(name, options, async () => {
+  HOOK_TEST(name, options, async (t) => {
     caseTokens = [];
-    await fn();
+    await fn(t);
     const leaks = [];
     walk(scratch.dir, (file) => {
       let text;
@@ -465,33 +464,42 @@ describe('per-session', () => {
     assert.ok(!/\b(doflow-run|node)\b/.test(text.replace(/^#.*$/gm, '')), 'the hook names node or doflow-run');
   });
 
-  CASE('a 20 KB prompt with the request on its first line nudges within the latency budget', () => {
+  // NFR-002: the hook's time must not grow with the prompt. Wall time on a shared machine swings
+  // with load, so the check compares two prompt sizes measured interleaved in the same run: the
+  // median of seven 200 KB prompts against the median of seven 2 KB prompts carrying the same
+  // request, on a first prompt and on a later one, must stay under LONG_SHORT_BOUND. With the
+  // whole-prompt decision program the ratio was 1.9 to 2.1 (first) and 2.9 (later) on a loaded
+  // machine; with the bounded one, 1.3 to 1.5 and 1.6. The absolute medians are printed, never
+  // asserted.
+  const LONG_SHORT_BOUND = 2;
+  CASE('a 200 KB prompt costs the hook less than twice a 2 KB prompt with the same request', (t) => {
     const { dir } = repo();
-    const filler = `${'0123456789 abcdefghij klmnopqrst\n'.repeat(700)}`.slice(0, 20 * 1024);
+    const line = '2026-10-09T10:00:01 INFO worker[7] processed batch 12 in 12ms (queue=4, retries=0)\n';
+    const body = (n) => line.repeat(Math.ceil(n / line.length)).slice(0, n);
     let run = 0;
-    // The median of five runs is the measure (RK3). A loaded machine can push one set of five over
-    // the budget, so the case passes when any of three sets is under it; a hook that is slow on every
-    // set still fails. The nudge decision is asserted on every run, on every platform.
-    const medianOfFive = () => {
-      const times = [];
-      for (let i = 0; i < 5; i += 1) {
-        const id = `ps-big-${run++}`;
-        const payload = { session_id: id, cwd: dir, prompt: `${request()}\n${filler}` };
-        runPolicy(LAYOUT, 'session-context.sh', { session_id: id, cwd: dir, source: 'startup' }, 'claude');
-        const start = process.hrtime.bigint();
-        const r = spawnSync('bash', [path.join(LAYOUT, 'user-prompt-submit.sh')], { input: JSON.stringify(payload), env: env('claude'), encoding: 'utf8' });
-        times.push(Number(process.hrtime.bigint() - start) / 1e6);
-        assert.equal(r.status, 0, r.stderr);
-        assert.ok(out(r.stdout).additionalContext.endsWith(MESSAGE), `run ${id}`);
-      }
-      return times.sort((a, b) => a - b)[2];
+    const timed = (size, later) => {
+      const id = `ps-size-${run++}`;
+      runPolicy(LAYOUT, 'session-context.sh', { session_id: id, cwd: dir, source: 'startup' }, 'claude');
+      if (later) runPolicy(LAYOUT, 'user-prompt-submit.sh', { session_id: id, cwd: dir, prompt: 'hi' }, 'claude');
+      const payload = { session_id: id, cwd: dir, prompt: `${request()}\n${body(size)}` };
+      const start = process.hrtime.bigint();
+      const r = spawnSync('bash', [path.join(LAYOUT, 'user-prompt-submit.sh')], { input: JSON.stringify(payload), env: env('claude'), encoding: 'utf8' });
+      const ms = Number(process.hrtime.bigint() - start) / 1e6;
+      assert.equal(r.status, 0, r.stderr);
+      assert.ok(out(r.stdout).additionalContext.endsWith(MESSAGE), `${size} bytes, ${later ? 'later' : 'first'} prompt: no nudge`);
+      return ms;
     };
-    const medians = [];
-    do { medians.push(medianOfFive()); } while (process.platform !== 'win32' && medians[medians.length - 1] >= 100 && medians.length < 3);
-    // Wall time says nothing about the hook on a machine whose one-minute load already exceeds its
-    // cores (other suites or agents running), so the timing is asserted only on a machine that is not.
-    const overloaded = os.loadavg()[0] > os.cpus().length;
-    if (process.platform !== 'win32' && !overloaded) assert.ok(medians[medians.length - 1] < 100, `medians of five: ${medians.map((m) => m.toFixed(1)).join(', ')} ms`);
+    timed(20 * 1024, false); // the memo's 20 KB shape is decided too (and warms the caches)
+    const median = (xs) => [...xs].sort((a, b) => a - b)[xs.length >> 1];
+    for (const later of [false, true]) {
+      const short = [];
+      const long = [];
+      for (let i = 0; i < 7; i += 1) { short.push(timed(2 * 1024, later)); long.push(timed(200 * 1024, later)); }
+      const [s, l] = [median(short), median(long)];
+      const which = later ? 'later' : 'first';
+      t.diagnostic(`prompt-nudge ${which} prompt: 2 KB median ${s.toFixed(1)} ms, 200 KB median ${l.toFixed(1)} ms, ratio ${(l / s).toFixed(2)}`);
+      if (process.platform !== 'win32') assert.ok(l / s < LONG_SHORT_BOUND, `${which} prompt: 200 KB ${l.toFixed(1)} ms vs 2 KB ${s.toFixed(1)} ms`);
+    }
   });
 
   CASE('the Claude front door nudges through an install-shaped mirror', () => {

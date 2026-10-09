@@ -295,3 +295,160 @@ test('prompt-nudge decision (IC-005)', { skip: HAS_JQ ? false : 'jq is not insta
     assert.equal((code.match(/\bif\b/g) || []).length, (code.match(/\belse\b/g) || []).length, 'if without else');
   });
 });
+
+// ── differential: the bounded program against the whole-prompt one ─────────────
+//
+// prompt-nudge.jq avoids whole-prompt lowercasing and per-line work so its cost does not grow
+// with the prompt (G.2). OLD_PROGRAM is the program as it stood before that change (commit
+// 73fb7b4), verbatim, which applied IC-005's steps to the whole prompt literally. Both must give
+// the same answer on every corpus prompt and on long variants of them; the whitespace-padded
+// variants must also give the short form's answer.
+const OLD_PROGRAM = String.raw`# prompt-nudge.jq — decision program for the standalone-prompt nudge (IC-005)
+#
+# Invocation, identical in the UserPromptSubmit hook and in the corpus runner:
+#   printf '%s' "$INPUT" | jq -r --slurpfile R <registry> -f prompt-nudge.jq
+# Input is the hook payload on stdin; $R[0] is core/registry/workflows.json and its
+# ${'`'}promptNudge${'`'} object holds every rule (IC-007). Output is one line: ${'`'}nudge${'`'}, ${'`'}suppress${'`'},
+# or empty. jq exits non-zero only on an error, and the caller treats that as silence.
+#
+# The rules are data; this file is the algorithm. It reads only ${'`'}.${'`'} and $R[0].promptNudge,
+# keeps no state, and gives the same output for the same input. A missing or mistyped
+# rule, or a pathPattern that does not compile, is an error on every prompt, never a default.
+#
+# Portability: jq 1.5 built with Oniguruma. No builtin newer than 1.5 (no IN, trim, pick,
+# abs, toarray, splits, $__loc__, halt_error), no if without else, no input or environment.
+# Only the step 2 pattern and pathPattern are regexes; every list entry is matched literally.
+# Whole-prompt anchors use \A and \z so a newline inside the prompt never ends a match.
+
+# Whitespace removed from both ends. The trailing match may start only where a whitespace run
+# starts: a plain \s+$ retries from every position of a long interior run, which is quadratic
+# (a 20 KB run of spaces took 1.7 s).
+def strip_ws: sub("^\\s+"; "") | sub("(?<!\\s)\\s+$"; "");
+
+# A list entry with every regex metacharacter escaped. An empty entry makes ${'`'}add${'`'} null and
+# ${'`'}implode${'`'} fail, so an empty entry is an error rather than a pattern that matches anything.
+def esc:
+  ("\\.*+?()[]{}|^$" | explode) as $meta
+  | explode
+  | map(. as $c | if any($meta[]; . == $c) then [92, $c] else [$c] end)
+  | add
+  | implode;
+
+def string_list($v; $name):
+  if ($v | type) == "array" and ($v | length) > 0 and all($v[]; type == "string")
+  then $v
+  else error("promptNudge.\($name) is not a non-empty list of strings")
+  end;
+
+def int($v; $name):
+  if ($v | type) == "number" and $v == ($v | floor)
+  then $v
+  else error("promptNudge.\($name) is not an integer")
+  end;
+
+# One alternation of literal entries, for use inside (?: ... ).
+def alt($v; $name): string_list($v; $name) | map(esc) | join("|");
+
+# The line test: one line, already trimmed and non-empty, judged against the compiled rules.
+def line_ok($re):
+  .[0:$re.maxScan] as $l
+  | ($l | ascii_downcase | sub($re.lead; "")) as $ll
+  | ($ll | sub($re.verb; "")) as $after
+  | ($ll | test("\\?\\s*$") | not)
+    and ($ll | test($re.startWord) | not)
+    and ($ll | test($re.verb))
+    and ($after | test($re.objectBlocker) | not)
+    and ($ll | test($re.contextBlocker) | not)
+    and (($after | test($re.noun)) or ($l | test($re.path)));
+
+($R[0].promptNudge) as $n
+| if ($n | type) == "object" then . else error("promptNudge is missing or not an object") end
+| {
+    minChars: int($n.minChars; "minChars"),
+    maxScan: int($n.maxScanChars; "maxScanChars"),
+    prefixes: string_list($n.excludePrefixes; "excludePrefixes"),
+    phrases: string_list($n.excludeContainsPhrases; "excludeContainsPhrases"),
+    stall: ("\\A(?:" + alt($n.stallWords; "stallWords") + ")[[:punct:]\\s]*\\z"),
+    lead: ("^(?:(?:" + alt($n.leadIns; "leadIns") + "),?\\s+)+"),
+    startWord: ("^(?:" + alt($n.excludeStartWords; "excludeStartWords") + ")\\b"),
+    verb: ("^(?:" + alt($n.verbs; "verbs") + ")\\b"),
+    objectBlocker: ("^\\s+(?:" + alt($n.objectBlockers; "objectBlockers") + ")\\b"),
+    contextBlocker: ("\\b(?:" + alt($n.contextBlockers; "contextBlockers") + ")\\b"),
+    noun: ("\\b(?:" + alt($n.nouns; "nouns") + ")s?\\b"),
+    path: $n.pathPattern
+  } as $re
+# pathPattern is compiled here on every prompt, so a broken pattern never hides behind an
+# early return.
+| ("" | test($re.path)) as $path_compiles
+# Step 1: the prompt as a string, carriage returns removed, trimmed, ASCII-lowercased.
+| (if type == "object" then .prompt else null end) as $raw
+| (if ($raw | type) == "string" then $raw else "" end | split("\r") | join("") | strip_ws) as $t
+| ($t | ascii_downcase) as $lt
+# Step 2 runs before the length floor so a short /do-plan also ends evaluation (suppress).
+| if ($lt | test("(^|[\\s${'`'}'\"(])/do(-[a-z]+)?\\b")) then "suppress"
+  elif ($t | length) < $re.minChars then ""
+  elif any($re.prefixes[]; . as $x | $t | startswith($x)) then ""
+  elif ($lt | test($re.stall)) then ""
+  elif ($lt | endswith("?")) then ""
+  elif any($re.phrases[]; . as $x | $lt | contains($x)) then ""
+  # Step 8: only the first and the last non-empty lines are judged.
+  elif ([$t | split("\n")[] | select(test("\\S"))] | [.[0], .[-1]] | unique
+        | any(.[]; strip_ws | line_ok($re))) then "nudge"
+  else ""
+  end
+`;
+
+const PAD_LINE = '2026-10-09T10:00:01 INFO worker[7] processed batch 12 in 12ms (queue=4, retries=0) path=lib/x.py\n';
+const pasted = (n) => PAD_LINE.repeat(Math.ceil(n / PAD_LINE.length)).slice(0, n).replace(/\n?$/, '');
+const SHAPES = {
+  blank: (p, n) => '\n'.repeat(n) + p + '\n'.repeat(n),
+  spaces: (p, n) => ' '.repeat(n) + p + ' '.repeat(n),
+  'log-mid': (p, n) => `${p}\n${pasted(n)}\n${p}`,
+  crlf: (p, n) => `${p}\n${pasted(n)}`.replace(/\n/g, '\r\n'),
+  'log-first': (p, n) => `${pasted(n)}\n${p}`,
+  'question-end': (p, n) => `${p}\n${pasted(n)}\nis that right?`,
+};
+
+/** One jq run over many payloads (one decision line each); the status must be 0. */
+function decideAll(program, prompts) {
+  const r = spawnSync('jq', ['-r', '--slurpfile', 'R', REGISTRY, '-f', program], {
+    input: prompts.map((prompt) => JSON.stringify({ session_id: 's1', cwd: '/tmp', prompt })).join('\n'),
+    env: scratch.env(), encoding: 'utf8', maxBuffer: 1 << 26,
+  });
+  assert.equal(r.status, 0, `jq exited ${r.status}: ${r.stderr}`);
+  const lines = r.stdout.split('\n').slice(0, -1);
+  assert.equal(lines.length, prompts.length);
+  return lines;
+}
+
+test('differential: the bounded program answers as the whole-prompt program on the corpus and long variants', { skip: HAS_JQ ? false : 'jq is not installed' }, (t) => {
+  const { cases } = JSON.parse(fs.readFileSync(path.join(__dirname, 'prompt-nudge.corpus.json'), 'utf8'));
+  const shapeNames = Object.keys(SHAPES);
+  const inputs = [];
+  cases.forEach((c, i) => {
+    inputs.push({ id: c.id, shape: 'short', prompt: c.prompt });
+    // Every case gets one 1 KB variant, the shapes taken in turn; some get every shape at 20 KB and 200 KB.
+    const one = shapeNames[i % shapeNames.length];
+    inputs.push({ id: c.id, shape: `${one}-1k`, prompt: SHAPES[one](c.prompt, 1024) });
+    for (const [size, every] of [[20 * 1024, 37], [200 * 1024, 142]]) {
+      if (i % every !== 0) continue;
+      for (const name of shapeNames) inputs.push({ id: c.id, shape: `${name}-${size / 1024}k`, prompt: SHAPES[name](c.prompt, size) });
+    }
+  });
+  const oldFile = path.join(scratch.dir, 'prompt-nudge-73fb7b4.jq');
+  fs.writeFileSync(oldFile, OLD_PROGRAM);
+  const prompts = inputs.map((x) => x.prompt);
+  const before = decideAll(oldFile, prompts);
+  const after = decideAll(PROGRAM, prompts);
+  const short = {};
+  inputs.forEach((x, i) => { if (x.shape === 'short') short[x.id] = after[i]; });
+  const differ = [];
+  const unlikeShort = [];
+  inputs.forEach((x, i) => {
+    if (before[i] !== after[i]) differ.push(`${x.id} ${x.shape}: ${JSON.stringify(before[i])} -> ${JSON.stringify(after[i])}`);
+    if (/^(blank|spaces)-/.test(x.shape) && after[i] !== short[x.id]) unlikeShort.push(`${x.id} ${x.shape}`);
+  });
+  t.diagnostic(`prompt-nudge differential: ${inputs.length} inputs, ${cases.length} corpus prompts`);
+  assert.deepStrictEqual(differ, [], 'answers that changed');
+  assert.deepStrictEqual(unlikeShort, [], 'whitespace-padded prompts answered unlike their short form');
+});
