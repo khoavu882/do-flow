@@ -107,7 +107,7 @@ describe('envelope', () => {
     assert.deepStrictEqual(Object.keys(parsed), ['hookSpecificOutput']);
   });
 
-  HOOK_TEST('Codex first prompt: exactly hookEventName and additionalContext, bytes as jq -n prints them', () => {
+  HOOK_TEST('Codex first prompt: exactly hookEventName and additionalContext, pretty-printed with a two-space indent and a final newline', () => {
     const { dir } = repo();
     const stdout = prompt('codex', 'env-codex', dir, { extra: { session_title: '' } });
     const parsed = JSON.parse(stdout);
@@ -215,6 +215,7 @@ describe('per-session', () => {
       assert.ok(o.additionalContext.startsWith('Git context — branch: main |'));
       assert.ok(!o.additionalContext.includes(MESSAGE));
       assert.strictEqual(markerText(`ps-plain-${agent}`), null);
+      // Codex: the pretty-printed shape `jq -n` gives (a round trip, not a comparison with an older hook).
       if (agent === 'codex') assert.strictEqual(stdout, JSON.stringify(JSON.parse(stdout), null, 2) + '\n');
     });
 
@@ -356,13 +357,27 @@ describe('per-session', () => {
     });
   });
 
-  CASE('an unreadable, empty or unknown setting counts as off', () => {
+  const AS_ROOT = Boolean(process.getuid && process.getuid() === 0);
+
+  CASE('an empty or unknown setting counts as off', () => {
     for (const [i, content] of ['', 'maybe\n', '\n'].entries()) {
       const { dir } = repo();
       write(path.join(dir, '.doflow', 'prompt-nudge'), content);
       assert.ok(!out(prompt('claude', `ps-badsetting-${i}`, dir, { extra: { prompt: request() } })).additionalContext.includes(MESSAGE), JSON.stringify(content));
     }
   });
+
+  CASE('an unreadable setting counts as off', () => {
+    const { dir } = repo();
+    const file = write(path.join(dir, '.doflow', 'prompt-nudge'), 'on\n');
+    fs.chmodSync(file, 0);
+    try {
+      const o = out(prompt('claude', 'ps-unreadable-setting', dir, { extra: { prompt: request() } }));
+      assert.ok(o.additionalContext.startsWith('Git context — branch: main |'));
+      assert.ok(!o.additionalContext.includes(MESSAGE));
+      assert.strictEqual(markerText('ps-unreadable-setting'), null);
+    } finally { fs.chmodSync(file, 0o644); }
+  }, { skip: AS_ROOT ? 'root reads any file' : false });
 
   describe('failures are silent', () => {
     const broken = {
@@ -387,7 +402,6 @@ describe('per-session', () => {
     }
 
     CASE('an unreadable registry is silent', () => {
-      if (process.getuid && process.getuid() === 0) return;
       const layout = ownLayout();
       const registry = path.join(layout, '..', '..', '..', 'runtime', 'core', 'registry', 'workflows.json');
       fs.chmodSync(registry, 0);
@@ -398,10 +412,9 @@ describe('per-session', () => {
         assert.ok(!o.additionalContext.includes(MESSAGE));
         assert.strictEqual(markerText('ps-unreadable-registry'), null);
       } finally { fs.chmodSync(registry, 0o644); }
-    });
+    }, { skip: AS_ROOT ? 'root reads any file' : false });
 
     CASE('an unwritable marker folder gives no nudge, and the context is unchanged', () => {
-      if (process.getuid && process.getuid() === 0) return;
       const { dir } = repo();
       const xdg = fs.mkdtempSync(path.join(scratch.dir, 'xdg-'));
       const nudgeDir = path.join(xdg, 'doflow', 'session-env', 'nudge');
@@ -413,7 +426,7 @@ describe('per-session', () => {
         assert.ok(!o.additionalContext.includes(MESSAGE));
         assert.deepStrictEqual(fs.readdirSync(nudgeDir), []);
       } finally { fs.chmodSync(nudgeDir, 0o700); }
-    });
+    }, { skip: AS_ROOT ? 'root writes any folder' : false });
 
     CASE('an empty, whitespace-only, missing or non-string prompt is silent with no marker', () => {
       const { dir } = repo();
@@ -433,8 +446,13 @@ describe('per-session', () => {
         const o = out(prompt('claude', id, dir, { start: false, extra: { prompt: request() } }));
         assert.strictEqual(o.additionalContext, 'Git context unavailable for this session.', `case ${i}`);
       }
-      const nudgeDir = path.join(scratch.xdg, 'doflow', 'session-env', 'nudge');
-      assert.ok(!fs.existsSync(nudgeDir) || !fs.readdirSync(nudgeDir).some((n) => n === 'a b' || n === 'ps-escape' || n.startsWith('xxxx')));
+      // No marker for these ids anywhere: inside nudge/ or where `../` would lead.
+      const markers = [];
+      walk(path.join(scratch.xdg, 'doflow', 'session-env'), (file) => {
+        const base = path.basename(file);
+        if (base === 'a b' || base === 'ps-escape' || base.startsWith('xxxx')) markers.push(file);
+      });
+      assert.deepStrictEqual(markers, []);
     });
   });
 

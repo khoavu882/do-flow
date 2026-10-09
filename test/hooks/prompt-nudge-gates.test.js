@@ -66,7 +66,7 @@ test('sourcing lib.sh prints nothing and defines the nudge functions', () => {
   assert.equal(quiet.status, 0);
   assert.equal(quiet.stdout, '');
   assert.equal(quiet.stderr, '');
-  for (const fn of ['nudge_repo_root', 'nudge_setting', 'nudge_safe_id', 'nudge_marker_file', 'nudge_mark',
+  for (const fn of ['nudge_find_up', 'nudge_repo_root', 'nudge_setting', 'nudge_safe_id', 'nudge_marker_file', 'nudge_mark',
     'nudge_feature_active', 'nudge_ledger_active', 'nudge_registry']) {
     assert.equal(call('declare', ['-F', fn]).status, 0, `${fn} is not defined`);
   }
@@ -74,7 +74,13 @@ test('sourcing lib.sh prints nothing and defines the nudge functions', () => {
 
 test('lib.sh adds no trap and no top-level statement for the nudge helpers', () => {
   const text = fs.readFileSync(LIB, 'utf8');
-  assert.ok(!/trap\s+[^\n]*\bERR\b/.test(text));
+  assert.ok(!/trap\s+[^\n]*\bERR\b/.test(text), 'an ERR trap');
+  // From the first nudge helper on, a line at column 0 is a comment, a blank, a function head or
+  // the brace closing one; no line anywhere in that part runs `set` or `trap`.
+  const lines = text.slice(text.search(/^nudge_\w+\(\) \{$/m)).split('\n');
+  const stray = lines.filter((l) => /^[^\s#}]/.test(l) && !/^nudge_\w+\(\) \{$/.test(l));
+  assert.deepStrictEqual(stray, [], 'top-level statements among the nudge helpers');
+  assert.deepStrictEqual(lines.filter((l) => /^\s*(set|trap)\b/.test(l)), [], 'set or trap among the nudge helpers');
 });
 
 // ── nudge_repo_root ─────────────────────────────────────────────────────────
