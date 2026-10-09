@@ -243,6 +243,37 @@ test('prompt-nudge decision (IC-005)', { skip: HAS_JQ ? false : 'jq is not insta
     assert.deepEqual(silent, [], 'code requests that lost their nudge');
   });
 
+  await t.test('personal sheet, budget and list requests stay silent even beside a word that is also a code noun', () => {
+    const silent = [
+      'Add a column to my budget sheet that sums the rows above it.',
+      'Add a column for notes to the budget sheet',
+      'Rename the column headers in the sales sheet',
+      'Fix the totals column in this sheet',
+      'Add a row for rent to my budget table',
+      'Rename the key column in my sheet',
+      'Remove the duplicate rows from the budget sheet',
+      'Add a field for the due date to my budget list',
+      'Update the rows in this sheet so totals match',
+    ];
+    const nudged = silent.filter((p) => decide(p) !== '');
+    assert.deepEqual(nudged, [], 'personal sheet or budget requests that nudged');
+  });
+
+  await t.test('code requests that share sheet and budget words still nudge', () => {
+    const nudge = [
+      'add a style sheet loader to src/theme.ts',
+      'rename the sheet_name parameter in lib/xlsx_reader.py',
+      'add a column to the budget table in db/schema.sql',
+      'fix the budget calculation in src/budget.py',
+      'update the sheet model in app/models.py',
+      'add a sheet parameter to the export function in lib/xlsx.py',
+      'fix the budget sheet renderer in src/ui/BudgetSheet.tsx',
+      'rename the sales column in the report table in reports/sales.sql',
+    ];
+    const lost = nudge.filter((p) => decide(p) !== 'nudge');
+    assert.deepEqual(lost, [], 'code requests that lost their nudge');
+  });
+
   await t.test('a pathPattern that does not compile makes jq exit non-zero', () => {
     const r = run({ prompt: 'fix the parser in src/a.js' }, registryWith((n) => { n.pathPattern = '('; }));
     assert.notEqual(r.status, 0);

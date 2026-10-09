@@ -778,7 +778,14 @@
       "itinerary",
       "an invoice for",
       "a playlist for",
-      "my playlist"
+      "my playlist",
+      "my budget",
+      "my sheet",
+      "this sheet",
+      "sales sheet",
+      "to the budget sheet",
+      "in the budget sheet",
+      "from the budget sheet"
     ]
   }
 }
