@@ -12,7 +12,7 @@ contains only the shortest path to a working installation.
 | Node.js 18+ | The `doflow` installer, and `npx` for the bundled MCP servers | `package.json` declares `engines.node >= 18`; CI exercises 18 and 20 |
 | Git | Cloning, `self-update`, and the git context hooks | |
 | `bash` | Hook scripts, on any harness that supports hooks | POSIX bash, Git Bash/MSYS2, and WSL bash all qualify. DoFlow runs `bash --version` rather than a PATH check, so a same-named unrelated binary will not satisfy it. Installs that carry no hooks do not need it. |
-| `jq` | The DoFlow shell scripts and hook payload parsing | Preinstalled on GitHub-hosted runners |
+| `jq` | The DoFlow shell scripts and hook payload parsing | Preinstalled on GitHub-hosted runners. The prompt nudge also needs a `jq` built with regex support (Oniguruma) and stays silent without it |
 | At least one coding agent | Somewhere to install to | See the table below |
 
 ### Coding agents

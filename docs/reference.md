@@ -141,6 +141,72 @@ the same advisory availability probe `model-role` uses; the provider implementat
 vs API) is a separate decision and no caller invokes one today. Malformed slots fail registry load
 loudly rather than reading as "no dense provider".
 
+## Prompt nudge
+
+A plain change request that names no `/do-*` skill can be suggested `/do`, once per session. The
+suggestion is advisory: it never blocks, rewrites or delays a prompt, and the model still does the
+task.
+
+- **Where.** Claude Code and Codex only, through the existing per-prompt hook
+  (`core/harnesses/shared/hooks/policies/user-prompt-submit.sh`). The other six harnesses
+  (Gemini CLI, Antigravity, OpenCode, Pi, Copilot CLI, Kiro) get no hook for this; they get only the
+  rewritten `description` of `do`, `do-implement` and `do-flow`, which steer a plain change request
+  to `/do` first.
+- **When.** The first prompt of a session that reads as a code-change request: it starts with a
+  change verb (after a polite lead-in such as "please") and names a code noun or a file path. The
+  check is keyword-based, so it can miss a real request and can fire on a prompt that is not one.
+- **When it stays silent.** Questions, slash commands, review and explanation requests, short
+  replies such as "thanks" or "continue", prompts that mention `/do` or a `/do-*` skill, subagent
+  prompts, a session whose branch already has a feature folder under `agent-docs/doflow/`, and a
+  session where a `/do-*` skill has already run. A session is nudged at most once; a prompt that
+  mentions `/do` also ends the chance for that session.
+- **What it says.** One note, in the same hook output as the first-prompt context or alone on a
+  later prompt. It tells the model to mention in one sentence that `/do` would classify the task and
+  apply DoFlow's checks, then to do what the user asked, without running `/do` itself or waiting for
+  a reply. It names `/do` and no other skill.
+- **What it never does.** It makes no model call and no network call, stores no prompt text (the
+  prompt reaches `jq` on standard input and is never written out), starts no `node` or `doflow-run`
+  process, and never emits a `block` decision. Any failure on its path (no registry, no `jq` regex
+  support, an unwritable state folder) leaves the prompt un-nudged.
+- **Where the rules live.** Data, not code: the `promptNudge` object in
+  `core/registry/workflows.json` (message, verbs, nouns, lead-ins, blockers, path pattern). The
+  decision program is `core/harnesses/shared/hooks/policies/prompt-nudge.jq`. The workflow engine and
+  the task classifier do not read this key; the registry shape guard G25
+  (`test/guards/prompt-nudge-registry.test.js`) does.
+- **How a rule change is judged.** `test/hooks/prompt-nudge.corpus.json` holds labelled prompts, some
+  written with the rules in view and some without. `test/hooks/prompt-nudge.test.js` runs every one
+  through the shipped rules: a prompt labelled silent that nudges fails the test, while recall on the
+  prompts labelled as requests is printed as a diagnostic line and never asserted.
+
+### Switching the nudge off
+
+One setting file, `prompt-nudge`, holds one word on its first line (case and surrounding whitespace
+are ignored):
+
+| Scope | Path |
+|---|---|
+| Project | `<repo root>/.doflow/prompt-nudge` |
+| User | `${XDG_CONFIG_HOME:-$HOME/.config}/doflow/prompt-nudge` |
+
+| Value | Effect |
+|---|---|
+| `on` | the nudge may run (also the default when neither file exists) |
+| `off` | no nudge |
+
+When both files exist, the project file decides alone. A file that cannot be read, is empty, or holds
+any other word counts as `off`. The setting affects only the nudge: the first-prompt context, the
+session title and the other hooks are unchanged. The repo root is the nearest ancestor of the
+session's working directory that holds a `.git` entry.
+
+### First-prompt context on Claude Code
+
+The same hook builds the first-prompt context: a Git block, up to 4,000 characters of the previous
+compact summary, and a warning left by the prior session, plus a session title of the form
+`branch — sha`. It now emits one nested `hookSpecificOutput` object for both Claude Code and Codex.
+Claude Code ignores a top-level `additionalContext`, which is what the hook emitted before, so on
+Claude Code this context and the title were not delivered; they are now. The title is skipped when
+the session already has one, and Codex never receives a title.
+
 ## Git Lifecycle Intents
 
 The `/do-git` skill provides cycle-aware commands:
