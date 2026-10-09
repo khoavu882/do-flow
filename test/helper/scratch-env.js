@@ -7,11 +7,12 @@
 // test prune its fixtures, and PI_CODING_AGENT_DIR too, the one harness folder an adapter reads from
 // the environment, so pi's writes stay under the scratch HOME; a test that wants either passes it
 // in `extra`.
-// Nothing runs at require time; each test file creates its scratch and removes it in an `after`.
+// The shared temp helper registers each scratch for suite and process-exit cleanup; callers may still
+// remove it early when a test needs to assert its absence.
 
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir, removeTree } = require('./tmp');
 
 const DROPPED_ENV = ['DOFLOW_RETENTION_HOURS', 'PI_CODING_AGENT_DIR'];
 
@@ -24,15 +25,18 @@ function inheritedEnv() {
 
 /**
  * @param {string} [prefix]
+ * @param {{prune?: 'on'|'off'}} [options]
  * @returns {{dir: string, home: string, xdg: string, env: (extra?: Object) => Object, apply: () => void, restore: () => void, remove: () => void}}
  *   `dir` is a real path (macOS reaches the temp folder through a symlink, and git reports the real one).
  */
-function createScratch(prefix = 'doflow-lifecycle-') {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+function createScratch(prefix = 'doflow-lifecycle-', { prune = 'off' } = {}) {
+  const dir = suiteTempDir(prefix);
   const home = path.join(dir, 'home');
   const xdg = path.join(dir, 'xdg');
   fs.mkdirSync(home);
   fs.mkdirSync(xdg);
+  fs.mkdirSync(path.join(xdg, 'doflow'));
+  fs.writeFileSync(path.join(xdg, 'doflow', 'prune'), prune === 'on' ? 'on\n' : 'off\n');
   const saved = {};
   return {
     dir,
@@ -73,7 +77,7 @@ function createScratch(prefix = 'doflow-lifecycle-') {
         delete saved[key];
       }
     },
-    remove() { fs.rmSync(dir, { recursive: true, force: true }); },
+    remove() { removeTree(dir); },
   };
 }
 
