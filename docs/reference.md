@@ -144,8 +144,9 @@ loudly rather than reading as "no dense provider".
 ## Prompt nudge
 
 A plain change request that names no `/do-*` skill can be suggested `/do`, once per session. The
-suggestion is advisory: it never blocks, rewrites or delays a prompt, and the model still does the
-task.
+suggestion is advisory: it never blocks or rewrites a prompt, and the model still does the task. The
+decision's cost no longer grows with the prompt's length, and the hook stays near its existing 100 ms
+budget on an idle machine; it is not free, so a slow machine can feel it.
 
 - **Where.** Claude Code and Codex only, through the existing per-prompt hook
   (`core/harnesses/shared/hooks/policies/user-prompt-submit.sh`). The other six harnesses
@@ -154,7 +155,8 @@ task.
   to `/do` first.
 - **When.** The first prompt of a session that reads as a code-change request: it starts with a
   change verb (after a polite lead-in such as "please") and names a code noun or a file path. The
-  check is keyword-based, so it can miss a real request and can fire on a prompt that is not one.
+  check is keyword-based, so it can miss a real request and can fire on a prompt that is not one,
+for example a request to write a poem about a named function in a file.
 - **When it stays silent.** Questions, slash commands, review and explanation requests, short
   replies such as "thanks" or "continue", prompts that mention `/do` or a `/do-*` skill, subagent
   prompts, a session whose branch already has a feature folder under `agent-docs/doflow/`, and a
@@ -204,8 +206,9 @@ The same hook builds the first-prompt context: a Git block, up to 4,000 characte
 compact summary, and a warning left by the prior session, plus a session title of the form
 `branch — sha`. It now emits one nested `hookSpecificOutput` object for both Claude Code and Codex.
 Claude Code ignores a top-level `additionalContext`, which is what the hook emitted before, so on
-Claude Code this context and the title were not delivered; they are now. The title is skipped when
-the session already has one, and Codex never receives a title.
+Claude Code this context was not delivered; it is now, once per session start (including after
+compact, clear or resume). The hook emits the title in the form Claude Code documents; its rule is
+to skip the title when the session already has one, and Codex never receives a title.
 
 ## Git Lifecycle Intents
 

@@ -25,7 +25,7 @@ All notable changes to DoFlow are documented here. Format follows
 
 ### Changed
 
-- Claude Code now receives the first-prompt context and the session title. The hook emitted the Git block, up to 4,000 characters of the previous compact summary, the prior-session warning and the `branch — sha` session title in a form Claude Code ignores, so none of them reached the model. It now uses the nested `hookSpecificOutput` form Claude honours (Codex already did). Every Claude session's first prompt therefore carries that context, a one-off token cost per session, and the session title is applied unless the session already has one.
+- Claude Code now receives the first-prompt context. The hook emitted the Git block, up to 4,000 characters of the previous compact summary and the prior-session warning in a form Claude Code ignores, so none of them reached the model. It now uses the nested `hookSpecificOutput` form Claude honours (Codex already did). A live run confirmed that Claude receives the Git context and the nudge. The first prompt of every session start therefore carries that context, which costs tokens once per session start (including after compact, clear or resume). The hook now emits the `branch — sha` session title in the form Claude Code documents; the hook's own rule is to leave a title the session already has. That the title is applied was not checked. The nudge's decision cost no longer grows with the length of the prompt, and the hook stays near its existing 100 ms budget on an idle machine.
 - The `do-implement` bench case now expects a plain change request to resolve to `do`, matching the rewritten descriptions.
 
 ### Fixed

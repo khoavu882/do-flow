@@ -212,7 +212,7 @@ harnesses get no such hook; their skill descriptions steer a plain change reques
 off for one project or for yourself:
 
 ```bash
-echo off > .doflow/prompt-nudge                                        # this project, from the repo root
+mkdir -p .doflow && echo off > .doflow/prompt-nudge                      # this project, from the repo root
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/doflow" && echo off > "${XDG_CONFIG_HOME:-$HOME/.config}/doflow/prompt-nudge"   # every project, this user
 ```
 
