@@ -440,9 +440,9 @@ test('planTree names the sibling whose recorded bytes it replaced, and only then
 test('siblingReplacedNotices is one line naming every sibling, or nothing', () => {
   assert.deepEqual(siblingReplacedNotices([{ siblingReplaced: [] }, { siblingReplaced: [] }]), []);
   assert.deepEqual(siblingReplacedNotices([{ siblingReplaced: ['pi'] }]),
-    ['replaced shared runtime files written by pi; reinstall that harness to restore them']);
+    ['replaced shared files written by pi; reinstall that harness to restore them']);
   const [notice] = siblingReplacedNotices([{ siblingReplaced: ['pi', 'codex'] }, { siblingReplaced: ['pi'] }]);
-  assert.equal(notice, 'replaced shared runtime files written by codex, pi; reinstall those harnesses to restore them');
+  assert.equal(notice, 'replaced shared files written by codex, pi; reinstall those harnesses to restore them');
   assert.ok(notice.length <= 200);
 });
 
@@ -479,17 +479,32 @@ test('an omitted siblingFingerprints behaves as before', () => {
   assert.deepEqual(planTree({ sourceDir, destDir }).conflicts, ['a.md was modified outside DoFlow']);
 });
 
-test('planTree refuses a sibling row of a non-runtime asset, with the unchanged text', () => {
+test('planTree refuses a sibling row of a non-shared asset, with the unchanged text', () => {
   const { sourceDir, destDir, target, siblingRows } = siblingFixture();
   fs.writeFileSync(target, 'THEIRS');
-  for (const assetId of ['skills.core', 'guidance.context-layer', 'templates.core', 'hooks.core']) {
+  for (const assetId of ['skills.core', 'templates.core', 'hooks.core']) {
     const rows = siblingRows.map((row) => ({ ...row, assetId }));
     assert.deepEqual(planTree({ sourceDir, destDir, siblingFingerprints: ledgerSiblingFingerprints(rows, 'mine') }).conflicts,
       ['a.md was modified outside DoFlow'], assetId);
   }
 });
 
-test('ledgerSiblingFingerprints indexes only other harnesses\' runtime copy-tree-file rows with a target and fingerprint', () => {
+test('planTree accepts the bytes a sibling recorded for a shared guidance tree, and still refuses bytes no row recorded', () => {
+  const { sourceDir, destDir, target, siblingRows } = siblingFixture();
+  for (const assetId of ['guidance.context-layer', 'kiro.guidance-tree']) {
+    const rows = siblingRows.map((row) => ({ ...row, assetId }));
+    const siblingFingerprints = ledgerSiblingFingerprints(rows, 'mine');
+    fs.writeFileSync(target, 'THEIRS');
+    const accepted = planTree({ sourceDir, destDir, siblingFingerprints });
+    assert.deepEqual(accepted.conflicts, [], assetId);
+    assert.equal(accepted.changes.length, 1, assetId);
+    assert.deepEqual(accepted.siblingReplaced, ['sibling'], assetId);
+    fs.writeFileSync(target, 'HAND EDITED');
+    assert.deepEqual(planTree({ sourceDir, destDir, siblingFingerprints }).conflicts, ['a.md was modified outside DoFlow'], assetId);
+  }
+});
+
+test('ledgerSiblingFingerprints indexes only other harnesses\' shared-tree copy-tree-file rows with a target and fingerprint', () => {
   const row = { harness: 'sibling', assetId: 'runtime.lib', kind: 'copy-tree-file', target: '/t/a', fingerprint: 'f1' };
   const index = ledgerSiblingFingerprints([
     row,
@@ -498,11 +513,13 @@ test('ledgerSiblingFingerprints indexes only other harnesses\' runtime copy-tree
     { ...row, kind: 'native-config', fingerprint: 'cfg' },
     { ...row, assetId: 'skills.core', fingerprint: 'skill' },
     { ...row, assetId: 'scripts.doflow', harness: 'sibling-three', fingerprint: 'f3' },
+    { ...row, assetId: 'guidance.context-layer', harness: 'sibling-four', fingerprint: 'f4' },
+    { ...row, assetId: 'kiro.guidance-tree', harness: 'sibling-five', fingerprint: 'f5' },
     { ...row, target: undefined },
     { ...row, fingerprint: undefined },
   ], 'mine');
   assert.deepEqual([...index.keys()], ['/t/a']);
-  assert.deepEqual([...index.get('/t/a')].sort(), [['f1', 'sibling'], ['f2', 'sibling-two'], ['f3', 'sibling-three']]);
+  assert.deepEqual([...index.get('/t/a')].sort(), [['f1', 'sibling'], ['f2', 'sibling-two'], ['f3', 'sibling-three'], ['f4', 'sibling-four'], ['f5', 'sibling-five']]);
   assert.equal(ledgerSiblingFingerprints(undefined, 'mine').size, 0);
 });
 
