@@ -58,8 +58,12 @@ function problems(nudge) {
     if (msg.length > MAX_MESSAGE_CHARS) out.push(`message is ${msg.length} characters, over ${MAX_MESSAGE_CHARS}`);
     if (!/(^|[^\w-])\/do(?![\w-])/.test(msg)) out.push('message must contain /do as a token');
     if (/\/do-/.test(msg)) out.push('message must not name a /do- skill');
-    const hit = msg.match(MODEL_OR_PROVIDER);
-    if (hit) out.push(`message names a model or provider: ${hit[0]}`);
+  }
+  // NFR-007: no string anywhere in the object, list entries and pathPattern included, names a model or provider.
+  const strings = Object.entries(nudge).flatMap(([key, v]) => (Array.isArray(v) ? v : [v]).filter((x) => typeof x === 'string').map((x) => [key, x]));
+  for (const [key, text] of strings) {
+    const hit = text.match(MODEL_OR_PROVIDER);
+    if (hit) out.push(`${key} names a model or provider: ${hit[0]}`);
   }
   return out;
 }
@@ -94,13 +98,15 @@ test('G25 the decision program runs on a probe payload against the shipped regis
   assert.match(r.stdout, /^(nudge|suppress|)\n$/, `not one decision line: ${JSON.stringify(r.stdout)}`);
 });
 
-test('G25 control: the checks report an uppercase entry, a duplicate and a /do- skill in the message', () => {
+test('G25 control: the checks report an uppercase entry, a duplicate, a /do- skill in the message and a model name in a list', () => {
   const fixture = structuredClone(registry.promptNudge);
   fixture.verbs = [...fixture.verbs, 'Add'];
   fixture.nouns = [...fixture.nouns, fixture.nouns[0]];
   fixture.message = 'Try /do-flow for this.';
+  fixture.contextBlockers = [...fixture.contextBlockers, 'haiku'];
   const found = problems(fixture);
   assert.ok(found.some((p) => p === 'verbs entry "Add" is not lowercase'), found.join('\n'));
   assert.ok(found.some((p) => p === `nouns entry "${fixture.nouns[0]}" is duplicated`), found.join('\n'));
   assert.ok(found.some((p) => p === 'message must not name a /do- skill'), found.join('\n'));
+  assert.ok(found.some((p) => p === 'contextBlockers names a model or provider: haiku'), found.join('\n'));
 });
