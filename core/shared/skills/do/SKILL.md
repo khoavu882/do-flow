@@ -1,6 +1,6 @@
 ---
 name: do
-description: "DoFlow universal dispatcher and the entry point for a plain code-change request: it classifies the task, routes it to the matching /do-* workflow and applies that workflow's gates. Use whenever the user asks to add, fix, change or build something in code without naming a /do-* skill, a request bundles several unrelated asks, or needs a tool recommendation or effort estimate first (e.g., 'add a retry to the upload client in src/upload.js', 'give me a rough estimate for this change', 'first do X, then document Y'). Skip it for questions, explanations, reviews, and work already inside a /do-* skill."
+description: "DoFlow universal dispatcher and the entry point for a plain code-change request: it classifies the task, routes it to the matching /do-* workflow and applies that workflow's gates. Use whenever the user asks to add, fix, change or build something in code without naming a /do-* skill, a request bundles several unrelated asks, or needs a tool recommendation or effort estimate first (e.g., 'add a retry to the upload client in src/upload.js', 'give me a rough estimate for this change', 'first do X, then document Y'). Skip it for questions about how existing code behaves, explanations, reviews, and work already inside a /do-* skill."
 argument-hint: "[command|request] [--depth shallow|normal|deep] [--estimate]"
 effort: low
 ---
