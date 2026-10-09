@@ -436,16 +436,22 @@ function sharedTreeDestDir(rootDir, nativeDir) {
   return dest;
 }
 
-/** The assets that project the one runtime tree several harnesses claim at a scope root. */
-const SHARED_RUNTIME_ASSETS = new Set(['scripts.doflow', 'runtime.cli', 'runtime.lib', 'runtime.registry']);
+/** The assets that project a tree several harnesses claim at one scope root: the runtime tree, and
+ * the guidance tree. A harness whose
+ * install predates its own rows for a shared tree (Pi gained guidance rows in v1.15.0) can only
+ * recognise the bytes a sibling recorded. */
+const SHARED_TREE_ASSETS = new Set([
+  'scripts.doflow', 'runtime.cli', 'runtime.lib', 'runtime.registry',
+  'guidance.context-layer', 'kiro.guidance-tree',
+]);
 
-/** For each shared runtime target, the fingerprints other harnesses recorded and which harness
- * recorded each, so an update accepts a runtime tree a sibling wrote (several harnesses claim one
- * `.doflow` file) while bytes no runtime row recorded are still refused as a hand edit. */
+/** For each shared-tree target, the fingerprints other harnesses recorded and which harness
+ * recorded each, so an update accepts a runtime or guidance tree a sibling wrote (several harnesses
+ * claim one `.doflow` file) while bytes no such row recorded are still refused as a hand edit. */
 function ledgerSiblingFingerprints(resources, harness) {
   const byTarget = new Map();
   for (const resource of resources || []) {
-    if (resource.kind !== 'copy-tree-file' || resource.harness === harness || !SHARED_RUNTIME_ASSETS.has(resource.assetId)) continue;
+    if (resource.kind !== 'copy-tree-file' || resource.harness === harness || !SHARED_TREE_ASSETS.has(resource.assetId)) continue;
     if (typeof resource.target !== 'string' || typeof resource.fingerprint !== 'string') continue;
     if (!byTarget.has(resource.target)) byTarget.set(resource.target, new Map());
     const byFingerprint = byTarget.get(resource.target);
@@ -459,7 +465,7 @@ function ledgerSiblingFingerprints(resources, harness) {
 function siblingReplacedNotices(results) {
   const harnesses = [...new Set(results.flatMap((result) => result.siblingReplaced))].sort();
   if (!harnesses.length) return [];
-  return [`replaced shared runtime files written by ${harnesses.join(', ')}; reinstall ${harnesses.length > 1 ? 'those harnesses' : 'that harness'} to restore them`];
+  return [`replaced shared files written by ${harnesses.join(', ')}; reinstall ${harnesses.length > 1 ? 'those harnesses' : 'that harness'} to restore them`];
 }
 
 /** Narrow a harness's flat neutral-resource list to one asset's previously-owned copy-tree files. */

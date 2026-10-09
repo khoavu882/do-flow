@@ -513,25 +513,15 @@ test('a string evaluator keeps today\'s refusal text', (t) => {
     /Readiness for stage 'implementation' returned NEEDS_EVIDENCE; expected READY — resolve evidence or the user decision first/);
 });
 
-test('start, and a catch-up that starts a run, mark the run with readinessFloor', (t) => {
+test('start, and a catch-up that starts a run, record startedAt and no readinessFloor marker', (t) => {
   const orch = owned(t);
   orch.start({ taskId: 't.floor-start', taskClass: 'feature' });
-  assert.equal(orch.readRun('t.floor-start').readinessFloor, 1);
   orch.catchUp({ taskId: 't.floor-catchup', taskClass: 'bug', candidateStageIds: ['root-cause'] });
-  assert.equal(orch.readRun('t.floor-catchup').readinessFloor, 1);
-});
-
-test('a run without the marker completes its gated stage through handoff when the evaluator warns, and the result carries the warning', (t) => {
-  const orch = owned(t, () => ({ verdict: 'READY', warning: 'w' }));
-  orch.catchUp({ taskId: 't.grace', taskClass: 'bug', candidateStageIds: ['implementation'] });
-  const run = orch.readRun('t.grace');
-  delete run.readinessFloor;
-  fs.writeFileSync(orch.runFile('t.grace'), JSON.stringify(run, null, 2));
-  const result = orch.handoff({ taskId: 't.grace', callingSkill: 'do-implement', note: 'n' });
-  assert.equal(result.disposition, 'completed');
-  assert.equal(result.recordedStage, 'implementation');
-  assert.equal(result.readinessWarning, 'w');
-  assert.equal(orch.readRun('t.grace').program.find((n) => n.id === 'implementation').status, 'completed');
+  for (const id of ['t.floor-start', 't.floor-catchup']) {
+    const run = orch.readRun(id);
+    assert.equal(typeof run.startedAt, 'string');
+    assert.equal('readinessFloor' in run, false);
+  }
 });
 
 test('a standalone handoff says why nothing was recorded', (t) => {

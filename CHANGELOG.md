@@ -13,6 +13,28 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [1.23.0] - 2026-10-09
+
+### Added
+
+- A standalone-prompt nudge on Claude Code and Codex. On the first prompt of a session that reads as a clear imperative code-change request (a change verb that names a code thing or a file path) and names no `/do-*` skill, the existing per-prompt hook adds one advisory note suggesting `/do`; the model still does the task, and a session is nudged at most once. It makes no model call, stores no prompt text and never blocks a prompt. The other six harnesses have no hook for this and get only the rewritten skill descriptions below.
+- The nudge is switched off with a one-line `prompt-nudge` setting file holding `off`: `<repo root>/.doflow/prompt-nudge` for a project, `${XDG_CONFIG_HOME:-$HOME/.config}/doflow/prompt-nudge` for a user. `on` or no file leaves it running; when both files exist the project file decides alone, and a file that is unreadable, empty or holds any other word counts as `off`.
+- The nudge rules are data, not code: the `promptNudge` object in `core/registry/workflows.json` (message, verbs, nouns, lead-ins, blockers, path pattern), read by `core/harnesses/shared/hooks/policies/prompt-nudge.jq`. Guard G25 (`test/guards/prompt-nudge-registry.test.js`) checks the object's shape.
+- A labelled prompt corpus (`test/hooks/prompt-nudge.corpus.json`) and its runner (`test/hooks/prompt-nudge.test.js`) in the normal test suite. A prompt labelled silent that nudges fails the test; recall on the prompts labelled as requests is printed as a diagnostic line and never asserted.
+- The `description` of `do`, `do-implement` and `do-flow` now steers a plain change request that names no `/do-*` skill to `/do` first. This is the only steer on harnesses without a prompt hook (Gemini CLI, Antigravity, OpenCode, Pi, Copilot CLI, Kiro).
+
+- The shipped quality rules (always loaded) now also say to state uncertainty plainly, never invent sources, figures, citations or quotes, warn when a claim may be outdated, and never attribute a statement to a real person without verification. This adds 389 bytes to the always-loaded guidance of every session on every harness (9,603 to 9,992 bytes of the 10,245-byte G13 ceiling).
+
+### Changed
+
+- Claude Code now receives the first-prompt context. The hook emitted the Git block, up to 4,000 characters of the previous compact summary and the prior-session warning in a form Claude Code ignores, so none of them reached the model. It now uses the nested `hookSpecificOutput` form Claude honours (Codex already did). A live run confirmed that Claude receives the Git context and the nudge. The first prompt of every session start therefore carries that context, which costs tokens once per session start (including after compact, clear or resume). The hook now emits the `branch — sha` session title in the form Claude Code documents; the hook's own rule is to leave a title the session already has. That the title is applied was not checked. The nudge's decision cost no longer grows with the length of the prompt, and the hook stays near its existing 100 ms budget on an idle machine.
+- The `do-implement` bench case now expects a plain change request to resolve to `do`, matching the rewritten descriptions.
+- Runs started before DoFlow 1.22.0 recorded readiness no longer get a grace: their implementation handoff (and `complete-stage`) is refused until a READY readiness record exists for the task, with the refusal naming the `readiness` command to run; `verify` reports `INCONCLUSIVE`, and the pre-implementation hook holds their source edits to the same readiness rule as any other run. New runs no longer write the `readinessFloor` key; run files that carry it stay valid and need no migration.
+
+### Fixed
+
+- `update` no longer refuses guidance files whose bytes another harness's install recorded. A Pi, OpenCode, Copilot or Kiro install made by v1.14.x next to a Claude install was refused as "modified outside DoFlow" because only the four runtime assets accepted a sibling's recorded bytes; the guidance tree (`guidance.context-layer`, `kiro.guidance-tree`) now does too, which supersedes the runtime-only limit of 1.15.0 (hand-edited files are still refused). The replacement notice now reads "replaced shared files written by ..." instead of "shared runtime files".
+
 ## [1.22.1] - 2026-10-09
 
 ### Fixed

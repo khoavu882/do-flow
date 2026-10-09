@@ -95,6 +95,31 @@
           "skill": "do"
         }
       ]
+    },
+    {
+      "id": 5,
+      "kind": "triggering",
+      "split": "train",
+      "name": "plain-change-request-resolves-to-do",
+      "prompt": "Make `node bench/runner.js parity` print the number of pending cases on its first output line.",
+      "expected_output": "do is invoked for a plain change request that names no skill, states the task class, and routes the change to do-implement",
+      "files": [],
+      "assertions": [
+        {
+          "text": "do was invoked",
+          "type": "skill_resolved",
+          "skill": "do"
+        },
+        {
+          "text": "The change is routed to do-implement by name",
+          "type": "output_matches",
+          "pattern": "do-implement"
+        },
+        {
+          "text": "The task class is stated before the request is routed",
+          "type": "manual"
+        }
+      ]
     }
   ]
 }

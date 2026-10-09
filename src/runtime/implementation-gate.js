@@ -18,13 +18,6 @@ const { REPO_ROOT } = require('../helper/repo-root');
 
 const GATE = 'doflow gate readiness-before-implementation';
 
-/** The release that started recording readiness, and the one that ends the grace for older runs. */
-const READINESS_FLOOR_SINCE = '1.22.0';
-const PRE_FLOOR_GRACE_ENDS = '1.23.0';
-
-/** Check codes a run started before READINESS_FLOOR_SINCE is excused from until PRE_FLOOR_GRACE_ENDS. */
-const GRACE_CODES = new Set(['missing', 'not-ready', 'wrong-template', 'unusable']);
-
 /** What clears a record a newer DoFlow wrote; `readiness` here refuses to overwrite it. */
 const NEWER_NEXT = 'run this command with the DoFlow that wrote the record, or upgrade DoFlow here.';
 
@@ -268,47 +261,6 @@ function checkReadiness({ stateRoot, taskId, slug = null, template, now = new Da
 }
 
 /**
- * A run started before READINESS_FLOOR_SINCE: read from a file, with a `startedAt` and no
- * `readinessFloor` key, which every run started since carries. A task with no run is never one.
- * @param {Object|null} run
- * @returns {boolean}
- */
-function preFloorGrace(run) {
-  return Boolean(run) && typeof run.startedAt === 'string'
-    && !Object.prototype.hasOwnProperty.call(run, 'readinessFloor');
-}
-
-/**
- * The warning a run in grace gets where a fresh run would be refused.
- * @param {'missing'|'not-ready'|'wrong-template'|'unusable'} code
- * @param {Object} options
- * @param {string} options.taskId
- * @param {string|null} [options.slug]
- * @param {string} options.template
- * @param {Object|null} [options.record]
- * @param {string|null} [options.detail]
- * @param {string|null} [options.file] the record's file, when a newer DoFlow wrote it
- * @param {number|null} [options.newerVersion]
- * @param {string} options.startedAt
- * @param {'handoff'|'complete-stage'|'verify report'} options.action
- * @returns {string}
- */
-function graceWarning(code, { taskId, slug = null, template, record = null, detail = null, file = null, newerVersion = null, startedAt, action }) {
-  const newer = code === 'unusable' && newerVersion !== null;
-  const why = {
-    missing: () => 'no record',
-    'not-ready': () => `last evaluated ${record.state} at ${record.evaluatedAt}`,
-    'wrong-template': () => `its READY record is for the '${record.taskClass}' template`,
-    unusable: () => (newer ? `its record ${file} was written by a newer DoFlow (record version ${newerVersion})` : `its record cannot be used (${detail})`),
-  }[code];
-  if (!why) throw new Error(`no grace warning for code '${code}'`);
-  const next = newer ? NEWER_NEXT : `${nextCommand({ taskId, slug, template })}, then gather what it lists until it reports READY.`;
-  return `${GATE}: warning: task '${taskId}' has no READY readiness record for the '${template}' template (${why()}), `
-    + `but its run started at ${startedAt}, before DoFlow ${READINESS_FLOOR_SINCE} recorded readiness, so this ${action} proceeds. `
-    + `From DoFlow ${PRE_FLOOR_GRACE_ENDS} it is refused. Next: ${next}`;
-}
-
-/**
  * `verify`'s readiness check: whether a run for the task, or for its feature slug, is open with its
  * gated stage pending, and if so whether a READY record exists. Reads only.
  * @param {Object} options
@@ -318,7 +270,7 @@ function graceWarning(code, { taskId, slug = null, template, record = null, deta
  * @param {Date} [options.now]
  * @param {Function} [options.exec]
  * @returns {Object} `{applies: false, reason}` or `{applies: true, runTaskId, stage, template, ok, code,
- *   record, message}`, plus `grace: true` for a run started before readiness was recorded
+ *   record, message}`
  */
 function verifyReadinessCheck({ stateRoot, taskId, slug = null, now = new Date(), exec }) {
   let found = findRunFile({ stateRoot, taskId, slug, exec });
@@ -340,7 +292,7 @@ function verifyReadinessCheck({ stateRoot, taskId, slug = null, now = new Date()
 
   const template = stage.readinessTemplate;
   const check = checkReadiness({ stateRoot, taskId: run.taskId, slug, template, now, exec });
-  const result = {
+  return {
     applies: true,
     runTaskId: run.taskId,
     stage: stage.id,
@@ -352,14 +304,6 @@ function verifyReadinessCheck({ stateRoot, taskId, slug = null, now = new Date()
     } : null,
     message: check.message,
   };
-  if (!check.ok && GRACE_CODES.has(check.code) && preFloorGrace(run)) {
-    result.grace = true;
-    result.message = graceWarning(check.code, {
-      taskId: run.taskId, slug: check.nextSlug, template, record: check.record, detail: check.detail, file: check.file, newerVersion: check.newerVersion,
-      startedAt: run.startedAt, action: 'verify report',
-    });
-  }
-  return result;
 }
 
 module.exports = {
@@ -372,9 +316,4 @@ module.exports = {
   featureSlugFor,
   runSlugOf,
   findRunFile,
-  preFloorGrace,
-  graceWarning,
-  READINESS_FLOOR_SINCE,
-  PRE_FLOOR_GRACE_ENDS,
-  GRACE_CODES,
 };

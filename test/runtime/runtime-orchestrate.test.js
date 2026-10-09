@@ -156,44 +156,26 @@ test('a run started in the main checkout is read and updated from a linked workt
   assert.equal(fs.existsSync(runFileOf(wt, 't-cross')), false, 'no copy was created in the worktree');
 });
 
-test('a run started before readiness was recorded warns and proceeds at handoff; a run with the marker is refused', (t) => {
+test('a run started before DoFlow 1.22.0 is refused at handoff like a run from 1.22.x, with the run file untouched', (t) => {
   const cwd = project(t);
   for (const taskId of ['t-old', 't-new']) {
     json(cwd, ['orchestrate', '--action', 'start', '--task-id', taskId, '--task-class', 'trivial-edit']);
+    const file = JSON.parse(fs.readFileSync(runFileOf(cwd, taskId), 'utf8'));
+    // A pre-1.22.0 run file has startedAt and no readinessFloor; a 1.22.x one carries the key.
+    if (taskId === 't-old') delete file.readinessFloor;
+    else file.readinessFloor = 1;
+    fs.writeFileSync(runFileOf(cwd, taskId), JSON.stringify(file, null, 2));
   }
-  // 1.21.0 never wrote the marker: removing it stands for a run that runtime started.
-  const old = JSON.parse(fs.readFileSync(runFileOf(cwd, 't-old'), 'utf8'));
-  delete old.readinessFloor;
-  fs.writeFileSync(runFileOf(cwd, 't-old'), JSON.stringify(old, null, 2));
-
-  const graced = run(cwd, ['orchestrate', '--action', 'handoff', '--task-id', 't-old', '--calling-skill', 'do-implement', '--note', 'n']);
-  assert.equal(graced.status, 0, graced.stderr);
-  assert.match(graced.stdout, /^Handoff: completed$/m);
-  assert.match(graced.stderr, /doflow gate readiness-before-implementation: warning: task 't-old' has no READY readiness record for the 'trivial-edit' template \(no record\), but its run started at .*, before DoFlow 1\.22\.0 recorded readiness, so this handoff proceeds\. From DoFlow 1\.23\.0 it is refused\./);
-  assert.match(graced.stderr, /Edit-time check: /);
-
-  const graceJson = JSON.parse(fs.readFileSync(runFileOf(cwd, 't-old'), 'utf8'));
-  assert.equal(graceJson.program.find((n) => n.id === 'implementation').status, 'completed');
-
-  const before = fs.readFileSync(runFileOf(cwd, 't-new'));
-  const held = run(cwd, ['orchestrate', '--action', 'handoff', '--task-id', 't-new', '--calling-skill', 'do-implement', '--note', 'n']);
-  assert.equal(held.status, 1);
-  assert.match(held.stderr, /task 't-new' has no readiness record for the 'trivial-edit' template/);
-  assert.deepEqual(fs.readFileSync(runFileOf(cwd, 't-new')), before);
-});
-
-test('the JSON result of a handoff in grace carries readinessGrace', (t) => {
-  const cwd = project(t);
-  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 't-old-json', '--task-class', 'trivial-edit']);
-  const old = JSON.parse(fs.readFileSync(runFileOf(cwd, 't-old-json'), 'utf8'));
-  delete old.readinessFloor;
-  fs.writeFileSync(runFileOf(cwd, 't-old-json'), JSON.stringify(old, null, 2));
-  const res = json(cwd, ['orchestrate', '--action', 'handoff', '--task-id', 't-old-json', '--calling-skill', 'do-implement', '--note', 'n']);
-  assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.data.disposition, 'completed');
-  assert.equal(res.data.readinessGrace.code, 'missing');
-  assert.match(res.data.readinessGrace.message, /From DoFlow 1\.23\.0 it is refused/);
-  assert.equal('readinessWarning' in res.data, false);
+  for (const taskId of ['t-old', 't-new']) {
+    const before = fs.readFileSync(runFileOf(cwd, taskId));
+    const held = run(cwd, ['orchestrate', '--action', 'handoff', '--task-id', taskId, '--calling-skill', 'do-implement', '--note', 'n']);
+    assert.equal(held.status, 1, held.stderr);
+    assert.ok(held.stderr.startsWith(`[ERROR] orchestrate: doflow gate readiness-before-implementation: task '${taskId}' has no readiness record for the 'trivial-edit' template. `
+      + `Next: doflow-run readiness --task-class trivial-edit --task-id ${taskId}, then gather what it lists until it reports READY. Nothing was changed. Edit-time check: `), held.stderr);
+    assert.doesNotMatch(held.stderr, /warning|1\.23\.0/);
+    assert.equal(held.stdout, '');
+    assert.deepEqual(fs.readFileSync(runFileOf(cwd, taskId)), before);
+  }
 });
 
 // ──────────────────────────────────────────────────────────────── M3: --global scoping is honored

@@ -290,3 +290,170 @@ require_jq() {
     exit 0
   fi
 }
+
+# ── Prompt nudge gate helpers ────────────────────────────────────────────────
+#
+# Used by user-prompt-submit.sh for the once-per-session `/do` suggestion. Function
+# definitions only: no top-level statement, no `set`, no `trap`. Each is safe under
+# the `set -euo pipefail` above, bash 3.2 and BSD tools. The first four start no
+# process; none of them reads the prompt. A probe that cannot decide returns
+# non-zero, and the caller treats that as "no nudge".
+
+# Print the nearest ancestor of <path> (itself included) for which `test <op>
+# <ancestor>/<entry>` holds, spelled as in <path>; fail when none does. The walk runs
+# on a copy of <path> with every `\` read as `/` (a drive path such as C:\Users\x from
+# Git Bash or MSYS2) and stops as soon as dropping the last component no longer
+# shortens it, so it ends for every input: `relative/dir` stops at `relative`, `C:`
+# and `.` at themselves. Only the path's own components are walked: a relative path
+# is not resolved against $PWD. No process.
+nudge_find_up() {
+  local path="${1%/}" entry="${2:-}" op="${3:--e}" walk up
+  walk="${path//\\//}"
+  while [ -n "$walk" ]; do
+    if test "$op" "$walk/$entry"; then
+      printf '%s\n' "${path:0:${#walk}}"
+      return 0
+    fi
+    up="${walk%/*}"
+    [ "${#up}" -lt "${#walk}" ] || return 1
+    walk="$up"
+  done
+  return 1
+}
+
+# Print the nearest ancestor of <cwd> (itself included) holding a `.git` entry — a
+# directory, or the file a linked worktree and a submodule have — else <cwd>.
+nudge_repo_root() {
+  local dir="${1%/}"
+  [ -n "$dir" ] || { printf '%s\n' "$1"; return 0; }
+  nudge_find_up "$dir" .git -e || printf '%s\n' "$dir"
+}
+
+# Print `on` or `off`. The project file <root>/.doflow/prompt-nudge wins, then the
+# user file <DoFlow home>/prompt-nudge; neither present is `on`. A present file
+# decides alone: its first line trimmed and lowercased must be `on` or `off`, and a
+# file that cannot be read, is empty or holds anything else is `off`.
+nudge_setting() {
+  local root="${1:-}" file line=""
+  for file in "${root:+$root/.doflow/prompt-nudge}" "$DOFLOW_HOME/prompt-nudge"; do
+    [ -n "$file" ] && [ -e "$file" ] || continue
+    line=""
+    { IFS= read -r line || true; } 2>/dev/null < "$file" || line=""
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    case "$line" in
+      [Oo][Nn]) printf 'on\n' ;;
+      *) printf 'off\n' ;;
+    esac
+    return 0
+  done
+  printf 'on\n'
+}
+
+# Succeed when <id> is a safe session id: 1 to 128 of [A-Za-z0-9._-], first one
+# alphanumeric. No process.
+nudge_safe_id() {
+  local LC_ALL=C
+  local id="${1:-}"
+  [ -n "$id" ] && [ "${#id}" -le 128 ] || return 1
+  case "$id" in
+    [!A-Za-z0-9]*|*[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  return 0
+}
+
+# Print the marker path for a session id. The caller checks nudge_safe_id first.
+nudge_marker_file() {
+  printf '%s\n' "$STATE_DIR/nudge/$1"
+}
+
+# Create the marker for <id> holding <nudged|suppressed>. Succeeds only when this call
+# created it: the create is exclusive, so a second call for the same id fails and
+# leaves the first content. After a create, markers untouched for over 30 days are
+# removed. Silent on every failure.
+nudge_mark() {
+  local id="${1:-}" word="${2:-}" dir="$STATE_DIR/nudge" file
+  nudge_safe_id "$id" || return 1
+  case "$word" in nudged|suppressed) ;; *) return 1 ;; esac
+  file="$dir/$id"
+  mkdir -p "$dir" 2>/dev/null || return 1
+  ( set -o noclobber; : > "$file" ) 2>/dev/null || return 1
+  printf '%s\n' "$word" > "$file" 2>/dev/null || true
+  find "$dir" -type f -mtime +30 -delete 2>/dev/null || true
+  return 0
+}
+
+# S2: succeed when the active branch has chain artifacts at <root>/agent-docs/doflow/<slug>
+# (slug = the branch after its last `/`). <session_path> is the per-session folder; the
+# branch is the one its git-context.json recorded, else the one git reports for <cwd>.
+# The branches main, master, develop, trunk, HEAD and the empty one never fire.
+nudge_feature_active() {
+  local cwd="${1:-}" root="${2:-}" session="${3:-}" branch="" slug
+  [ -n "$root" ] || return 1
+  if [ -n "$session" ] && [ -f "$session/git-context.json" ]; then
+    branch=$(jq -r 'if (.branch | type) == "string" then "B:" + .branch else empty end' \
+      "$session/git-context.json" 2>/dev/null) || branch=""
+  fi
+  if [ -n "$branch" ]; then
+    branch="${branch#B:}"
+  elif [ -n "$cwd" ]; then
+    branch=$(git_branch_of "$cwd" 2>/dev/null) || branch=""
+  fi
+  case "$branch" in ""|main|master|develop|trunk|HEAD) return 1 ;; esac
+  slug="${branch##*/}"
+  case "$slug" in ""|.|..) return 1 ;; esac
+  [ -d "$root/agent-docs/doflow/$slug" ]
+}
+
+# S3: succeed when a `/do-*` skill already ran this session, read from the run ledger:
+# the lexically last <config>/state/runs/*.jsonl, whose last line's timestamp is not
+# earlier than the session's captured_at (both YYYY-MM-DDTHH:MM:SSZ). Config dir:
+# $DOFLOW_CONFIG_DIR, else the nearest `.doflow` at or above <cwd>, else $HOME/.doflow.
+# Without a captured_at the ledger counts when it is named for today's UTC date; a last
+# line without a usable timestamp counts too. No ledger, or an empty one, does not.
+nudge_ledger_active() {
+  local LC_ALL=C
+  local cwd="${1:-}" session="${2:-}" config dir f ledger="" last ts captured="" tsre
+  tsre='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+  if [ -n "${DOFLOW_CONFIG_DIR:-}" ]; then
+    config="$DOFLOW_CONFIG_DIR"
+  else
+    config="$HOME/.doflow"
+    # The ancestor in the walk's own spelling (`\` read as `/`), the form its test succeeded on.
+    if dir=$(nudge_find_up "$cwd" .doflow -d); then config="${dir//\\//}/.doflow"; fi
+  fi
+  for f in "$config"/state/runs/*.jsonl; do
+    [ -f "$f" ] && ledger="$f"
+  done
+  [ -n "$ledger" ] && [ -s "$ledger" ] || return 1
+  if [ -n "$session" ] && [ -f "$session/git-context.json" ]; then
+    captured=$(jq -r '.captured_at // empty | strings' "$session/git-context.json" 2>/dev/null) || captured=""
+  fi
+  last=$(tail -n 1 "$ledger" 2>/dev/null) || last=""
+  ts=$(printf '%s' "$last" | jq -r '.timestamp // empty | strings' 2>/dev/null) || ts=""
+  [[ "$ts" =~ $tsre ]] || return 0
+  if [[ "$captured" =~ $tsre ]]; then
+    [[ ! "$ts" < "$captured" ]]
+  else
+    [ "${ledger##*/}" = "$(date -u +%Y-%m-%d).jsonl" ]
+  fi
+}
+
+# Print the workflow registry's path: <policy_dir> is the physical directory of the
+# policy script (empty when unknown), <root> the repository root. First existing
+# regular file of IC-006's list wins: the install copy, the source tree's, the
+# project's install, the global install. Fails when none exists.
+nudge_registry() {
+  local policy_dir="${1:-}" root="${2:-}" candidate
+  for candidate in \
+    "${policy_dir:+$policy_dir/../../../runtime/core/registry/workflows.json}" \
+    "${policy_dir:+$policy_dir/../../../../registry/workflows.json}" \
+    "${root:+$root/.doflow/runtime/core/registry/workflows.json}" \
+    "$HOME/.doflow/runtime/core/registry/workflows.json"; do
+    if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}

@@ -1,6 +1,6 @@
 ---
 name: do-implement
-description: "Direct, standalone code implementation from a description, /do-code-review findings, or an existing task — no DoFlow chain artifacts required. Use whenever the user asks to implement, build, add, or fix something directly without a formal brainstorm-design-plan sequence, or says 'now implement that', 'fix what the review found', 'let's just build this', or 'address these comments'. Always activate this skill for one-off coding tasks, direct bugfixes, and immediate code changes even if the user never mentions DoFlow by name."
+description: "Direct, standalone code implementation from a description, /do-code-review findings, or an existing task — no DoFlow chain artifacts required. Use when the user names /do-implement, says 'now implement that', 'fix what the review found' or 'address these comments', or /do routed a bug, refactor, dependency change or small edit here. A plain change request that names no /do-* skill goes to /do first, which classifies it and routes it back here when it fits. Skip it for questions, reviews, and new features that need the full chain."
 argument-hint: "[description of the change] [--from-review]"
 effort: medium
 ---

@@ -153,7 +153,8 @@
               "status": "supported"
             },
             "UserPromptSubmit": {
-              "status": "supported"
+              "status": "supported",
+              "note": "DoFlow's once-per-session `/do` suggestion is delivered by this per-prompt hook."
             },
             "PostToolUseFailure": {
               "status": "supported"
@@ -354,7 +355,8 @@
               "status": "supported"
             },
             "UserPromptSubmit": {
-              "status": "supported"
+              "status": "supported",
+              "note": "DoFlow's once-per-session `/do` suggestion is delivered by this per-prompt hook."
             },
             "Stop": {
               "status": "supported"
@@ -564,7 +566,7 @@
             },
             "UserPromptSubmit": {
               "status": "unavailable",
-              "note": "No Gemini equivalent; the nearest native hook is BeforeAgent, which fires once before planning and can block the turn or inject context — not a per-prompt pre-submission gate."
+              "note": "No Gemini equivalent; the nearest native hook is BeforeAgent, which fires once before planning and can block the turn or inject context — not a per-prompt pre-submission gate. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only."
             },
             "Stop": {
               "status": "unavailable",
@@ -805,7 +807,7 @@
             },
             "UserPromptSubmit": {
               "status": "unavailable",
-              "note": "OpenCode exposes message.updated rather than a pre-submission prompt event, so a hook could not gate a prompt before the model sees it."
+              "note": "OpenCode exposes message.updated rather than a pre-submission prompt event, so a hook could not gate a prompt before the model sees it. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only."
             },
             "SubagentStart": {
               "status": "unavailable",
@@ -1005,7 +1007,7 @@
             },
             "UserPromptSubmit": {
               "status": "different",
-              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: input, which fires before skill expansion."
+              "note": "DoFlow projects shell hooks; Pi requires a code module, so no hook is installed. Native equivalent: input, which fires before skill expansion. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only."
             },
             "PreCompact": {
               "status": "different",
@@ -1264,7 +1266,7 @@
             },
             "UserPromptSubmit": {
               "status": "different",
-              "note": "Natives are userPromptSubmitted and userPromptTransformed; pre-submission gating semantics unverified."
+              "note": "Natives are userPromptSubmitted and userPromptTransformed; pre-submission gating semantics unverified. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only."
             },
             "PreCompact": {
               "status": "different",
@@ -1438,7 +1440,13 @@
             "https://kiro.dev/docs/permissions/"
           ],
           "note": "`.kiro/hooks/*.json` (flat `{version, hooks: [...]}` array, each entry naming its own `trigger`) is a confirmed, writable hook surface that is not in Kiro v3's untrusted-workspace exclusion list (custom agents, steering, MCP configuration, skills, workflows); an untrusted workspace asks before every shell command, and whether that covers hook commands is undocumented. Confirmed trigger names: SessionStart, Stop, PreToolUse, PostToolUse, UserPromptSubmit, PreTaskExec, PostTaskExec, PostFileSave, PostFileCreate, PostFileDelete; PreToolUse/UserPromptSubmit/PreTaskExec are documented as blockable via a non-zero command exit code. DoFlow now projects a real doflow.json (kiro.hooks-scripts asset) wiring SessionStart, PreToolUse (x2: pre-implementation-gate and mcp-tool-guard), and Stop to the same shared session-start/stop-check implementations Claude and Codex reuse. Kiro's docs mark Stop as explicitly NOT blockable (only PreToolUse/UserPromptSubmit/PreTaskExec block via non-zero exit), so stop-check's stub-detection runs advisory-only on Kiro — exit 0 stdout is injected as context rather than enforced.",
-          "verification": "Confirm a projected hook file under .kiro/hooks/ is present, is well-formed JSON with the expected trigger names, and that a PreToolUse hook's non-zero exit actually blocks the tool call on the installed Kiro CLI."
+          "verification": "Confirm a projected hook file under .kiro/hooks/ is present, is well-formed JSON with the expected trigger names, and that a PreToolUse hook's non-zero exit actually blocks the tool call on the installed Kiro CLI.",
+          "events": {
+            "UserPromptSubmit": {
+              "status": "different",
+              "note": "Kiro documents a native UserPromptSubmit trigger that is blockable via a non-zero exit code and exposes the prompt as the USER_PROMPT environment variable; DoFlow wires no hook to it. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only."
+            }
+          }
         },
         "mcp": {
           "status": "supported",
@@ -1665,6 +1673,10 @@
             "Stop": {
               "status": "supported",
               "note": "DoFlow projects its stop check as a native shim: emits the documented {decision:'continue', reason} when the last assistant response in transcriptPath carries unfinished-work markers (the same gate Claude's stop-check enforces via exit 2). transcriptPath is optional and unverified — empty/garbage stdin, missing/unreadable/unrecognized transcripts all fail open, so a broken hook can never trap session end."
+            },
+            "UserPromptSubmit": {
+              "status": "unavailable",
+              "note": "Antigravity documents no event that fires when a user submits a prompt; the nearest point, PreInvocation, fires before every model call and no DoFlow policy uses it. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only."
             }
           }
         },
