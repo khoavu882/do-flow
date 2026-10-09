@@ -211,10 +211,16 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
     assert.equal(parseJson(answered.stdout)?.ok, true, answered.stdout);
   });
 
-  const tagPresent = !IS_WIN && spawnSync('git', ['rev-parse', '--verify', '--quiet', `refs/tags/${LEGACY_TAG}`], { cwd: REPO }).status === 0;
-  const TAG_SKIP = tagPresent ? false : `the ${LEGACY_TAG} tag is absent from this clone, so the mixed-version update did not run (git fetch --tags)`;
+  const tagSkip = (tag) => (!IS_WIN && spawnSync('git', ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}`], { cwd: REPO }).status === 0
+    ? false
+    : `the ${tag} tag is absent from this clone, so the mixed-version update did not run (git fetch --tags)`);
+  // v1.14.1 predates Pi's guidance tree, so its Pi install recorded no guidance rows and its guidance
+  // bytes differ from this checkout's: the update has to accept them from Claude's rows, with no source edit.
+  const OLDER_TAG = 'v1.14.1';
 
-  test(`mixed versions: a ${LEGACY_TAG} install updates to this checkout's runtime and is removed cleanly`, { skip: TAG_SKIP }, async () => {
+  // `guidanceDiffers` is for a tag whose guidance bytes differ from this checkout's, which makes the
+  // cell prove the guidance acceptance without editing any guidance file.
+  const mixedVersion = (LEGACY_TAG, guidanceDiffers) => async () => {
     const cell = newCell('mixed-version');
     const legacy = path.join(cell.dir, 'legacy');
     fs.mkdirSync(legacy);
@@ -225,6 +231,15 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
 
     const older = await install(cell, 'project', 'claude,pi', path.join(legacy, 'bin', 'doflow.js'));
     assert.equal(older.status, 0, `${LEGACY_TAG} install: ${older.stderr}`);
+
+    const guidanceDir = path.join(cell.proj, '.doflow', 'guidance');
+    const guidanceSource = path.join(REPO, 'core', 'shared', 'guidance');
+    const guidanceDiffer = (rel) => !fs.existsSync(path.join(guidanceDir, rel)) || !fs.existsSync(path.join(guidanceSource, rel))
+      || !fs.readFileSync(path.join(guidanceDir, rel)).equals(fs.readFileSync(path.join(guidanceSource, rel)));
+    const allGuidance = () => new Set([...filesUnder(guidanceDir), ...filesUnder(guidanceSource)]);
+    if (guidanceDiffers) {
+      assert.ok([...allGuidance()].some(guidanceDiffer), `the ${LEGACY_TAG} guidance equals this checkout's; this cell proves nothing about guidance`);
+    }
 
     const mirror = path.join(cell.proj, '.doflow', 'runtime', 'src');
     const differs = (rel) => !fs.existsSync(path.join(mirror, rel)) || !fs.existsSync(path.join(REPO, 'src', rel))
@@ -241,14 +256,20 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
     };
 
     const updated = await step('update', 'pi');
-    const notices = `${updated.stdout}\n${updated.stderr}`.split('\n').filter((line) => line.includes('replaced shared runtime files'));
-    assert.deepEqual(notices, ['[INFO] pi: replaced shared runtime files written by claude; reinstall that harness to restore them'], `${updated.stdout}${updated.stderr}`);
+    const notices = `${updated.stdout}\n${updated.stderr}`.split('\n').filter((line) => line.includes('replaced shared files'));
+    assert.deepEqual(notices, ['[INFO] pi: replaced shared files written by claude; reinstall that harness to restore them'], `${updated.stdout}${updated.stderr}`);
     for (const rel of new Set([...filesUnder(mirror), ...filesUnder(path.join(REPO, 'src'))])) {
       assert.ok(!differs(rel), `${rel} differs from this checkout after the update`);
+    }
+    if (guidanceDiffers) {
+      for (const rel of allGuidance()) assert.ok(!guidanceDiffer(rel), `guidance ${rel} differs from this checkout after the update`);
     }
     await step('update', 'claude');
     await step('remove', 'pi');
     await step('remove', 'claude');
     assert.equal(fs.existsSync(path.join(cell.proj, '.doflow', 'runtime')), false);
-  });
+  };
+
+  test(`mixed versions: a ${LEGACY_TAG} install updates to this checkout's runtime and is removed cleanly`, { skip: tagSkip(LEGACY_TAG) }, mixedVersion(LEGACY_TAG, false));
+  test(`mixed versions: a ${OLDER_TAG} install, whose guidance differs from this checkout's, updates with no source edit`, { skip: tagSkip(OLDER_TAG) }, mixedVersion(OLDER_TAG, true));
 });

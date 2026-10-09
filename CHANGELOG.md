@@ -13,6 +13,12 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
+## [Unreleased]
+
+### Fixed
+
+- `update` no longer refuses guidance files whose bytes another harness's install recorded. A Pi, OpenCode, Copilot or Kiro install made by v1.14.x next to a Claude install was refused as "modified outside DoFlow" because only the four runtime assets accepted a sibling's recorded bytes; the guidance tree (`guidance.context-layer`, `kiro.guidance-tree`) now does too, which supersedes the runtime-only limit of 1.15.0 (hand-edited files are still refused). The replacement notice now reads "replaced shared files written by ..." instead of "shared runtime files".
+
 ## [1.22.1] - 2026-10-09
 
 ### Fixed

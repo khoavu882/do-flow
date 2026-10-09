@@ -353,7 +353,7 @@ test('two claimants of the runtime tree from different releases install and upda
   assert.equal(fs.readFileSync(run, 'utf8'), 'old\n');
   assert.deepEqual(plan('beta').notices, [], 'a harness replacing nothing a sibling wrote prints no notice');
   const replacing = plan('alpha');   // a tree beta wrote, matching neither alpha's source nor any alpha row
-  assert.deepEqual(replacing.notices, [{ harness: 'alpha', notice: 'replaced shared runtime files written by beta; reinstall that harness to restore them' }]);
+  assert.deepEqual(replacing.notices, [{ harness: 'alpha', notice: 'replaced shared files written by beta; reinstall that harness to restore them' }]);
   assert.equal(replacing.safe, true, 'a notice never blocks');
   apply('alpha');
   assert.equal(fs.readFileSync(run, 'utf8'), 'new\n');
@@ -371,12 +371,31 @@ test('two claimants of the runtime tree from different releases install and upda
   }
 });
 
-test('a sibling row of a skills, guidance, template or hook asset does not excuse a differing file', () => {
-  for (const assetId of ['skills.core', 'guidance.context-layer', 'shared.tree']) {
+test('a sibling row of a skills or generic shared-tree asset does not excuse a differing file', () => {
+  for (const assetId of ['skills.core', 'shared.tree']) {
     const { plan, apply, run } = twoReleases(assetId);
     apply('beta');
     assert.equal(fs.readFileSync(run, 'utf8'), 'old\n');
     assert.deepEqual(plan('alpha').conflicts.map((conflict) => conflict.reason), [`${assetId}: run was modified outside DoFlow`], assetId);
+  }
+});
+
+test('two claimants of the guidance tree from different releases install over each other with a notice, and a hand edit is still refused', () => {
+  for (const assetId of ['guidance.context-layer', 'kiro.guidance-tree']) {
+    const { plan, apply, rowOf, run } = twoReleases(assetId);
+    apply('beta');
+    assert.deepEqual(plan('beta').notices, [], assetId);
+    const replacing = plan('alpha');   // guidance beta wrote, matching neither alpha's source nor any alpha row
+    assert.deepEqual(replacing.conflicts, [], assetId);
+    assert.deepEqual(replacing.notices, [{ harness: 'alpha', notice: 'replaced shared files written by beta; reinstall that harness to restore them' }], assetId);
+    assert.equal(replacing.safe, true, 'a notice never blocks');
+    apply('alpha');
+    assert.equal(fs.readFileSync(run, 'utf8'), 'new\n');
+    assert.equal(rowOf('beta'), sha('old\n'), 'a sibling\'s row keeps the fingerprint it recorded');
+    fs.writeFileSync(run, 'hand edited\n');
+    for (const harness of ['alpha', 'beta']) {
+      assert.deepEqual(plan(harness).conflicts.map((conflict) => conflict.reason), [`${assetId}: run was modified outside DoFlow`], `${assetId} ${harness}`);
+    }
   }
 });
 
