@@ -13,11 +13,12 @@ All notable changes to DoFlow are documented here. Format follows
   `[Unreleased]` section is non-trivial, not per commit. Fold follow-up fixes to not-yet-released
   work into the same pending bump instead of tagging a same-day patch on top of it.
 
-## [Unreleased]
+## [1.22.1] - 2026-10-09
 
 ### Fixed
 
 - The wait for a state-file lock is now bounded by elapsed time as well as by attempts, so a slow host no longer outlasts a live holder's 10 s staleness window and takes its lock; this showed up as the decision-register and readiness-record lock tests failing on macOS CI.
+- The Cross-OS Tests workflow now runs the Node test matrix on pull requests and pushes. Its `os_matrix` input exists only for `workflow_call`, so the matrix job was never created outside release tags and macOS was only tested at release time.
 
 ## [1.22.0] - 2026-10-09
 
