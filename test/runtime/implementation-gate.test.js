@@ -1,7 +1,6 @@
 'use strict';
 // implementation-gate.test.js — which stage needs a READY readiness record, the words every refusal
-// uses, `verify`'s readiness check, and the one-release grace for runs started before the record
-// existed (and the test that ends it).
+// uses, and `verify`'s readiness check.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -14,8 +13,7 @@ const { writeReadinessRecord } = require('../../src/runtime/readiness-record');
 const gate = require('../../src/runtime/implementation-gate');
 
 const {
-  gatedStage, heldClasses, refusalText, harnessHookNote, verifyReadinessCheck, preFloorGrace, graceWarning,
-  READINESS_FLOOR_SINCE, PRE_FLOOR_GRACE_ENDS,
+  gatedStage, heldClasses, refusalText, harnessHookNote, verifyReadinessCheck,
 } = gate;
 
 const REPO = path.resolve(__dirname, '..', '..');
@@ -40,8 +38,10 @@ function dir() {
   return d;
 }
 
-/** A `bug` run for `taskId` in `root`, positioned at its gated `implementation` stage. */
-function bugRun(root, taskId, { floor = true, edit } = {}) {
+/** A `bug` run for `taskId` in `root`, positioned at its gated `implementation` stage. `floor`
+ * false is a run file from before DoFlow 1.22.0, true one written by 1.22.x, which carried a
+ * `readinessFloor` key; null leaves the file as this runtime writes it. */
+function bugRun(root, taskId, { floor = null, edit } = {}) {
   const orchestrator = new WorkflowOrchestrator({ repoRoot: REPO, projectRoot: root, stateDir: path.join(root, '.doflow', 'state', 'orchestration') });
   const file = orchestrator.runFile(taskId);
   fs.rmSync(file, { force: true });
@@ -52,8 +52,8 @@ function bugRun(root, taskId, { floor = true, edit } = {}) {
     node.status = node.type === 'gate' ? 'approved' : 'completed';
   }
   run.cursor = run.program.findIndex((node) => node.id === 'implementation');
-  if (floor) run.readinessFloor = 1;
-  else delete run.readinessFloor;
+  if (floor === true) run.readinessFloor = 1;
+  else if (floor === false) delete run.readinessFloor;
   if (edit) edit(run);
   fs.writeFileSync(file, JSON.stringify(run, null, 2));
   return run;
@@ -162,7 +162,6 @@ test('verify\'s readiness check applies only to an open run whose gated stage is
     applies: true, runTaskId: 'T-1', stage: 'implementation', template: 'bug', ok: false, code: 'missing', record: null,
     message: refusalText('missing', { taskId: 'T-1', template: 'bug' }),
   });
-  assert.equal('grace' in missing, false, 'a run with the marker is not in grace');
 
   record(root, 'T-1');
   const ready = verifyReadinessCheck({ stateRoot: root, taskId: 'T-1', now: NOW });
@@ -186,77 +185,24 @@ test('a run keyed by the feature slug is found when none is keyed by the task id
   assert.equal(bySlug.message, refusalText('missing', { taskId: '900-demo', slug: '900-demo', template: 'bug' }));
 });
 
-test('a run started before readiness was recorded is in grace; one with the marker, or no run file, is not', () => {
-  assert.equal(preFloorGrace({ startedAt: '2026-10-01T00:00:00.000Z' }), true);
-  assert.equal(preFloorGrace({ startedAt: '2026-10-01T00:00:00.000Z', readinessFloor: 1 }), false);
-  assert.equal(preFloorGrace({ taskId: 'fresh', taskClass: 'bug' }), false, 'a pseudo-run for a fresh task');
-  assert.equal(preFloorGrace(null), false);
-});
-
-test('every grace warning text', () => {
-  const base = { taskId: 'T-1', template: 'bug', startedAt: '2026-10-01T00:00:00.000Z' };
-  const text = (why, action) => `doflow gate readiness-before-implementation: warning: task 'T-1' has no READY readiness record for the 'bug' template (${why}), `
-    + `but its run started at 2026-10-01T00:00:00.000Z, before DoFlow ${READINESS_FLOOR_SINCE} recorded readiness, so this ${action} proceeds. `
-    + `From DoFlow ${PRE_FLOOR_GRACE_ENDS} it is refused. ${NEXT}`;
-  assert.equal(READINESS_FLOOR_SINCE, '1.22.0');
-  assert.equal(PRE_FLOOR_GRACE_ENDS, '1.23.0');
-  assert.equal(graceWarning('missing', { ...base, action: 'handoff' }), text('no record', 'handoff'));
-  assert.equal(graceWarning('not-ready', { ...base, record: { state: 'BLOCKED', evaluatedAt: '2026-10-02T00:00:00.000Z' }, action: 'complete-stage' }),
-    text('last evaluated BLOCKED at 2026-10-02T00:00:00.000Z', 'complete-stage'));
-  assert.equal(graceWarning('wrong-template', { ...base, record: { taskClass: 'feature' }, action: 'verify report' }),
-    text("its READY record is for the 'feature' template", 'verify report'));
-  assert.equal(graceWarning('unusable', { ...base, detail: 'version 2, this runtime reads 1', action: 'handoff' }),
-    text('its record cannot be used (version 2, this runtime reads 1)', 'handoff'));
-  assert.throws(() => graceWarning('ambiguous', { ...base, action: 'handoff' }), /no grace warning/);
-});
-
-test('verify keeps a run in grace at its status: not ok, with the warning in place of the refusal', () => {
+test('a run file from before DoFlow 1.22.0, or from 1.22.x, is held by verify exactly like any run', () => {
   const root = dir();
-  const run = bugRun(root, 'T-1', { floor: false });
-  const check = verifyReadinessCheck({ stateRoot: root, taskId: 'T-1', now: NOW });
-  assert.equal(check.applies, true);
-  assert.equal(check.ok, false);
-  assert.equal(check.grace, true);
-  assert.equal(check.code, 'missing');
-  assert.equal(check.message, graceWarning('missing', { taskId: 'T-1', template: 'bug', startedAt: run.startedAt, action: 'verify report' }));
+  const expected = {
+    applies: true, runTaskId: 'T-1', stage: 'implementation', template: 'bug', ok: false, code: 'missing', record: null,
+    message: refusalText('missing', { taskId: 'T-1', template: 'bug' }),
+  };
+  const old = bugRun(root, 'T-1', { floor: false });
+  assert.equal(typeof old.startedAt, 'string', 'a pre-1.22.0 run: startedAt and no readinessFloor');
+  assert.deepEqual(verifyReadinessCheck({ stateRoot: root, taskId: 'T-1', now: NOW }), expected);
+  bugRun(root, 'T-1', { floor: true });
+  assert.deepEqual(verifyReadinessCheck({ stateRoot: root, taskId: 'T-1', now: NOW }), expected);
 
+  bugRun(root, 'T-1', { floor: false });
   record(root, 'T-1', 'NEEDS_EVIDENCE');
   const notReady = verifyReadinessCheck({ stateRoot: root, taskId: 'T-1', now: NOW });
-  assert.equal(notReady.grace, true);
   assert.equal(notReady.code, 'not-ready');
-  assert.match(notReady.message, /\(last evaluated NEEDS_EVIDENCE at /);
-
-  bugRun(root, 'T-1');
-  assert.equal('grace' in verifyReadinessCheck({ stateRoot: root, taskId: 'T-1', now: NOW }), false);
-});
-
-/** Where the pre-1.22 run grace lives, each with what to remove there once it ends. */
-const GRACE_SITES = [
-  ['src/runtime/implementation-gate.js', /\bpreFloorGrace\b/, 'preFloorGrace, graceWarning, GRACE_CODES, both version constants and the grace branch of verifyReadinessCheck'],
-  ['src/runtime/workflow-orchestrator.js', /\bpreFloorGrace\b/, 'the grace branch of the orchestrate readiness evaluator'],
-  ['src/runtime/verification/engine.js', /readiness\.grace\b/, 'the grace exception in handleVerifyCommand'],
-  ['core/harnesses/shared/hooks/policies/pre-implementation-gate.sh', /has\("readinessFloor"\) \| not/, 'the run_grace block of the edit hook'],
-];
-
-test('the grace ends in 1.23.0: this test fails once the version reaches it while any grace site remains, naming each', () => {
-  const { version } = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
-  const parts = (v) => v.split(/[.-]/).slice(0, 3).map(Number);
-  const [a, b] = [parts(version), parts(PRE_FLOOR_GRACE_ENDS)];
-  const reached = a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] >= b[2];
-  const present = GRACE_SITES.filter(([file, pattern]) => pattern.test(fs.readFileSync(path.join(REPO, file), 'utf8')));
-  const jsGrace = typeof gate.preFloorGrace === 'function';
-  // The hook's bash branch exists exactly while the runtime's does: neither outlives the other.
-  assert.equal(present.some(([file]) => file.endsWith('.sh')), jsGrace, 'the edit hook\'s run_grace block and the runtime\'s preFloorGrace are removed together');
-  assert.ok(!(reached && (jsGrace || present.length > 0)),
-    `remove the pre-1.22 run grace (058 DEC-017): ${present.map(([file, , what]) => `${file}: ${what}`).join('; ')}; `
-    + 'and the grace cases in test/runtime/implementation-gate.test.js, workflow-orchestrator.test.js, runtime-orchestrate.test.js, '
-    + 'test/e2e/readiness-enforcement.e2e.test.js and test/hooks/pre-implementation-gate-readiness.test.js');
-});
-
-test('every grace site the end test names is where it says, so its message is complete', () => {
-  for (const [file, pattern] of GRACE_SITES) {
-    assert.match(fs.readFileSync(path.join(REPO, file), 'utf8'), pattern, `${file} holds a grace site today, so the list is not stale`);
-  }
+  assert.equal('grace' in notReady, false);
+  assert.match(notReady.message, /^doflow gate readiness-before-implementation: task 'T-1' was last evaluated NEEDS_EVIDENCE at /);
 });
 
 test('a record from a newer DoFlow is refused by naming the file and the version, never by advising readiness', () => {
@@ -273,11 +219,10 @@ test('a record from a newer DoFlow is refused by naming the file and the version
   assert.equal(check.message, newer);
 
   bugRun(root, 'T-1', { floor: false });
-  const graced = verifyReadinessCheck({ stateRoot: root, taskId: 'T-1', now: NOW });
-  assert.equal(graced.grace, true);
-  assert.doesNotMatch(graced.message, /doflow-run readiness/);
-  assert.ok(graced.message.includes(`its record ${file} was written by a newer DoFlow (record version 3)`), graced.message);
-  assert.match(graced.message, /Next: run this command with the DoFlow that wrote the record, or upgrade DoFlow here\.$/);
+  const held = verifyReadinessCheck({ stateRoot: root, taskId: 'T-1', now: NOW });
+  assert.equal(held.code, 'unusable');
+  assert.equal('grace' in held, false, 'a run from before DoFlow 1.22.0 gets the same refusal');
+  assert.equal(held.message, newer);
 });
 
 test('runs of one feature in two other checkouts: verify names the run files and does not advise readiness, which cannot settle it', () => {

@@ -13,8 +13,7 @@
 #      template of its workflow's first source-mutating stage. The task is held
 #      when its run (in this checkout or exactly one other) is open with that
 #      stage pending, or, with no run, on a feature branch whose folder has a
-#      decision register and all three artifacts. A run started before DoFlow
-#      recorded readiness (no `readinessFloor` key) counts as no run.
+#      decision register and all three artifacts.
 # It is deliberately SCOPED so it never fires outside the doflow chain:
 #   - trunk                            -> allow
 #   - branch is a fix, bugfix, refactor, chore, release or hotfix branch
@@ -429,18 +428,9 @@ RUN="$FOUND"
 run_slug=""
 if [ -n "$RUN" ]; then
   run_slug=$(run_feature "$RUN")
-  run_info=$(jq -r '(.state // ""), (.taskClass // ""),
-    (if (.startedAt | type) == "string" and (has("readinessFloor") | not) then "grace" else "" end)' "$RUN" 2>/dev/null) || exit 0
-  { IFS= read -r run_state; IFS= read -r run_class; IFS= read -r run_grace; } <<< "$run_info"
+  run_info=$(jq -r '(.state // ""), (.taskClass // "")' "$RUN" 2>/dev/null) || exit 0
+  { IFS= read -r run_state; IFS= read -r run_class; } <<< "$run_info"
   case "$run_state" in COMPLETED|REJECTED) exit 0 ;; esac
-  # A run started before DoFlow recorded readiness counts as no run here,
-  # unless it is already past its gated stage.
-  if [ "$run_grace" = grace ]; then
-    gated_stage "$run_class"
-    [ -n "$STAGE_ID" ] && stage_done "$STAGE_ID" && exit 0
-    RUN=""
-    run_slug=""
-  fi
 fi
 
 if [ -n "$RUN" ]; then

@@ -1,7 +1,7 @@
 'use strict';
 // readiness-enforcement.e2e.test.js — a handoff or complete-stage of a gated stage needs a READY
-// readiness record, `verify` is held to the same record, and a run started before the record
-// existed is warned instead of refused. Every case runs the real bin/doflow.js against real
+// readiness record, `verify` is held to the same record, and a run started before DoFlow 1.22.0
+// is held like any other. Every case runs the real bin/doflow.js against real
 // scratch git repositories in a scratch HOME; nothing outside the scratch root is read or written.
 const { test, after } = require('node:test');
 const assert = require('node:assert');
@@ -270,7 +270,6 @@ test('final verify with no record is INCONCLUSIVE and exits 1; the contract acti
   assert.strictEqual(report.readiness.ok, false);
   assert.strictEqual(report.status, 'INCONCLUSIVE');
   assert.ok(report.reason.startsWith(GATE), report.reason);
-  assert.ok(!('grace' in report.readiness), 'a fresh run is not in grace');
 
   const contract = doflow(main, ['verify', '--task-id', '904-demo', '--slug=904-demo', '--action', 'contract']);
   assert.strictEqual(contract.status, 0, `${contract.stdout}\n${contract.stderr}`);
@@ -306,39 +305,35 @@ test('from a linked worktree the run and the READY record are found in the main 
   assert.ok(!fs.existsSync(path.join(linked, '.doflow', 'state', 'orchestration')), 'the run was updated where it lives');
 });
 
-test('a run started before the upgrade is warned and proceeds; a fresh run beside it is refused', { timeout: CASE_TIMEOUT_MS * 2 }, () => {
+test('a run started before DoFlow 1.22.0 is held like a fresh run beside it: verify INCONCLUSIVE, handoff refused', { timeout: CASE_TIMEOUT_MS * 2 }, () => {
   const { main } = makeMain(['900-demo', '906-demo', '907-demo']);
   walkTo(main, '906-demo', 'feature', 'implementation');
   walkTo(main, '907-demo', 'feature', 'implementation');
+  // A pre-1.22.0 run file has startedAt and no readinessFloor key.
   const old = JSON.parse(fs.readFileSync(runFile(main, '906-demo'), 'utf8'));
-  assert.strictEqual(old.readinessFloor, 1, 'a run started now carries the marker');
   delete old.readinessFloor;
   fs.writeFileSync(runFile(main, '906-demo'), `${JSON.stringify(old, null, 2)}\n`);
   assert.ok(typeof old.startedAt === 'string');
 
+  const before = stateHashes(main);
   const verify = doflow(main, ['verify', '--task-id', '906-demo', '--slug=906-demo', '--json']);
+  assert.strictEqual(verify.status, 1, `${verify.stdout}\n${verify.stderr}`);
   const report = json(verify);
   assert.strictEqual(report.readiness.applies, true);
   assert.strictEqual(report.readiness.ok, false);
-  assert.strictEqual(report.readiness.grace, true);
-  assert.strictEqual(report.status, 'PASS', 'the tiers alone decide the status for a run in grace');
-  assert.strictEqual(verify.status, 0, verify.stdout);
-  assert.ok(!String(report.reason).startsWith(GATE), `the tiers' status is untouched: ${report.reason}`);
-  assert.ok(report.readiness.message.includes('From DoFlow 1.23.0 it is refused'), report.readiness.message);
+  assert.ok(!('grace' in report.readiness));
+  assert.strictEqual(report.status, 'INCONCLUSIVE');
+  assert.ok(report.reason.startsWith(missingText('906-demo', 'feature')), report.reason);
+  assert.deepStrictEqual(stateHashes(main), before, 'verify changes no state file');
 
-  const human = doflow(main, ['verify', '--task-id', '906-demo', '--slug=906-demo']);
-  const line = human.stdout.split('\n').find((l) => l.startsWith('readiness:'));
-  assert.ok(line && line.includes('From DoFlow 1.23.0 it is refused'), human.stdout);
-
-  const before = stateHashes(main);
-  const done = handoff(main, '906-demo');
-  assert.strictEqual(done.status, 0, `${done.stdout}\n${done.stderr}`);
-  assert.ok(done.stdout.split('\n').includes('Handoff: completed'), done.stdout);
-  assert.ok(done.stderr.includes("task '906-demo'") && done.stderr.includes('From DoFlow 1.23.0 it is refused'), done.stderr);
-  assert.ok(done.stderr.includes(`before DoFlow 1.22.0 recorded readiness, so this handoff proceeds.`), done.stderr);
-  assert.notDeepStrictEqual(stateHashes(main), before, 'the proceeding handoff did record the stage');
-
-  assertRefused(main, () => handoff(main, '907-demo'), [missingText('907-demo', 'feature')]);
+  for (const taskId of ['906-demo', '907-demo']) {
+    const refused = assertRefused(main, () => handoff(main, taskId), [missingText(taskId, 'feature'), HOOKLESS_NOTE]);
+    assert.ok(!refused.stderr.includes('1.23.0'), refused.stderr);
+  }
+  assertRefused(main, () => doflow(main, ['orchestrate', '--action', 'complete-stage', '--task-id', '906-demo', '--stage', 'implementation', '--task-class', 'feature']), [
+    missingText('906-demo', 'feature'),
+    'Nothing was changed.',
+  ]);
 });
 
 test('an unreadable record is refused, replaced by readiness with its bytes kept once, and then accepted', { timeout: CASE_TIMEOUT_MS }, () => {
