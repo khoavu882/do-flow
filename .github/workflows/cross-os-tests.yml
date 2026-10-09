@@ -30,7 +30,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(inputs.os_matrix) }}
+        # `inputs` (and its default) exists only for workflow_call; on pull_request/push it is empty.
+        os: ${{ fromJSON(inputs.os_matrix || '["ubuntu-latest","macos-latest","windows-latest"]') }}
         node: ["20"]
         # package.json declares engines.node >=18, so the floor is exercised too — otherwise the
         # supported minimum is only asserted, never tested. One OS is enough for a version sweep;
