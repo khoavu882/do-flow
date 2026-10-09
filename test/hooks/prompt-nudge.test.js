@@ -487,3 +487,88 @@ describe('per-session', () => {
     fs.rmSync(path.join(scratch.home, '.doflow'), { recursive: true, force: true });
   });
 });
+
+// ── corpus ────────────────────────────────────────────────────────────────────
+//
+// IC-012 / IC-013: every prompt in the corpus goes through IC-005's invocation against the shipped
+// registry. A `silent` case must not nudge; recall is reported and never asserted (D-2).
+
+const CORPUS = path.join(__dirname, 'prompt-nudge.corpus.json');
+const PROGRAM = path.join(POLICIES, 'prompt-nudge.jq');
+const TAGS = ['positive', 'question', 'slash', 'stall', 'review', 'how-why-what-explain', 'contains-do', 'short', 'empty', 'non-english', 'near-miss'];
+const REQUIRED_SILENT_TAGS = ['question', 'slash', 'stall', 'review', 'how-why-what-explain', 'contains-do'];
+const ORIGINS = ['rules-aware', 'rules-blind'];
+const BLIND_SILENT_FLOOR = 20;
+
+function loadCorpus() {
+  return JSON.parse(fs.readFileSync(CORPUS, 'utf8'));
+}
+
+/** IC-005's invocation for one prompt; returns the spawn result. */
+function decideCorpusCase(prompt) {
+  return spawnSync('jq', ['-r', '--slurpfile', 'R', REGISTRY, '-f', PROGRAM], {
+    input: JSON.stringify({ session_id: 'corpus', cwd: '/tmp', hook_event_name: 'UserPromptSubmit', prompt }),
+    env: scratch.env(),
+    encoding: 'utf8',
+  });
+}
+
+/** Every IC-012 violation in `doc`, as strings (empty when the file is valid). */
+function corpusProblems(doc) {
+  const problems = [];
+  if (doc === null || typeof doc !== 'object' || doc.version !== 1) problems.push('version must be 1');
+  const cases = doc && Array.isArray(doc.cases) ? doc.cases : null;
+  if (!cases) return [...problems, 'cases must be an array'];
+  const seen = new Set();
+  cases.forEach((c, i) => {
+    const where = `case ${i} (${c && c.id})`;
+    if (c === null || typeof c !== 'object') { problems.push(`${where}: not an object`); return; }
+    if (typeof c.id !== 'string' || !/^(pos|neg)-\d{3,}$/.test(c.id)) problems.push(`${where}: id must be pos-NNN or neg-NNN`);
+    if (seen.has(c.id)) problems.push(`${where}: duplicate id`);
+    seen.add(c.id);
+    if (typeof c.prompt !== 'string') problems.push(`${where}: prompt must be a string`);
+    if (c.expect !== 'nudge' && c.expect !== 'silent') problems.push(`${where}: expect must be nudge or silent`);
+    if (!TAGS.includes(c.tag)) problems.push(`${where}: tag ${JSON.stringify(c.tag)} is not in the closed set`);
+    if (!ORIGINS.includes(c.origin)) problems.push(`${where}: origin ${JSON.stringify(c.origin)} is not rules-aware or rules-blind`);
+    if (typeof c.id === 'string' && c.id.startsWith('pos-') && c.expect !== 'nudge') problems.push(`${where}: pos- ids take expect nudge`);
+    if (typeof c.id === 'string' && c.id.startsWith('neg-') && c.expect !== 'silent') problems.push(`${where}: neg- ids take expect silent`);
+    if ((c.tag === 'positive') !== (c.expect === 'nudge')) problems.push(`${where}: tag positive goes with expect nudge, and only with it`);
+  });
+  const silent = cases.filter((c) => c && c.expect === 'silent');
+  for (const tag of REQUIRED_SILENT_TAGS) {
+    if (!silent.some((c) => c.tag === tag)) problems.push(`content floor: no silent case tagged ${tag}`);
+  }
+  const blind = silent.filter((c) => c.origin === 'rules-blind').length;
+  if (blind < BLIND_SILENT_FLOOR) problems.push(`content floor: ${blind} rules-blind silent cases, need ${BLIND_SILENT_FLOOR}`);
+  return problems;
+}
+
+describe('corpus', () => {
+  HOOK_TEST('the corpus file holds valid IC-012 cases and meets the content floor', () => {
+    assert.deepStrictEqual(corpusProblems(loadCorpus()), []);
+  });
+
+  HOOK_TEST('no silent case nudges; recall is printed, never asserted', (t) => {
+    const { cases } = loadCorpus();
+    const errors = [];
+    const falseNudges = [];
+    const recall = { all: [0, 0], 'rules-aware': [0, 0], 'rules-blind': [0, 0] };
+    for (const c of cases) {
+      const r = decideCorpusCase(c.prompt);
+      if (r.status !== 0 || !/^(nudge|suppress|)\n$/.test(r.stdout)) {
+        errors.push(`${c.id}: jq exit ${r.status} ${r.stderr.trim()} ${JSON.stringify(r.stdout)}`);
+        continue;
+      }
+      const nudged = r.stdout === 'nudge\n';
+      if (c.expect === 'silent' && nudged) falseNudges.push(c.id);
+      if (c.expect === 'nudge') {
+        for (const key of ['all', c.origin]) { recall[key][1] += 1; if (nudged) recall[key][0] += 1; }
+      }
+    }
+    for (const [key, [n, m]] of Object.entries(recall)) {
+      t.diagnostic(`prompt-nudge recall ${key} ${n}/${m} = ${m ? (n / m).toFixed(2) : 'n/a'}`);
+    }
+    assert.deepStrictEqual(errors, [], 'the decision program failed on these cases');
+    assert.deepStrictEqual(falseNudges, [], `silent cases that nudged: ${falseNudges.join(', ')}`);
+  });
+});
