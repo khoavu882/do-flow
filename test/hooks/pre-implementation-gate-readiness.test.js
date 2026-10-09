@@ -2,8 +2,8 @@
 // pre-implementation-gate-readiness.test.js — the edit hook holds a task to a READY readiness
 // record: on a feature branch whose folder has a register and all three artifacts, and on any
 // branch whose run has its gated stage pending. It reads the main checkout's folder, records and
-// runs from a linked worktree, prints the runtime's refusal texts byte for byte, treats a run
-// started before the record existed as no run, and allows whenever it cannot decide.
+// runs from a linked worktree, prints the runtime's refusal texts byte for byte, holds a run
+// started before DoFlow 1.22.0 like any other, and allows whenever it cannot decide.
 //
 // The policy is copied into a scratch install layout (<x>/shared/hooks/policies/ beside
 // <x>/runtime/core/registry/workflows.json) and run with bash in scratch git repositories under a
@@ -168,11 +168,13 @@ function walkTo(cwd, taskId, cls, stage) {
   throw new Error(`never reached stage ${stage}`);
 }
 
-/** Removes the key every run started since readiness was recorded carries, as a 1.21.0 run lacks it. */
-function dropFloor(file) {
+/** Makes the run file one from before DoFlow 1.22.0 (`present` false: no `readinessFloor` key) or
+ * one written by 1.22.x (`present` true: the key it carried, which nothing reads now). */
+function setFloor(file, present) {
   const run = JSON.parse(fs.readFileSync(file, 'utf8'));
-  assert.strictEqual(run.readinessFloor, 1, 'a run started by this runtime carries readinessFloor');
-  delete run.readinessFloor;
+  assert.strictEqual(typeof run.startedAt, 'string');
+  if (present) run.readinessFloor = 1;
+  else delete run.readinessFloor;
   fs.writeFileSync(file, `${JSON.stringify(run, null, 2)}\n`);
 }
 
@@ -238,9 +240,11 @@ HOOK_TEST('a feature run is held while its implementation stage is pending, and 
   walkTo(main, '900-demo', 'feature', 'implementation');
   expectHook({ ...base, code: 2, stderr: missing });
 
-  // A run started before readiness was recorded counts as no run, and the feature branch still holds it.
+  // A run file from before DoFlow 1.22.0, or from 1.22.x, is held the same way.
   const started = fs.readFileSync(runFile(main, '900-demo'));
-  dropFloor(runFile(main, '900-demo'));
+  setFloor(runFile(main, '900-demo'), false);
+  expectHook({ ...base, code: 2, stderr: missing });
+  setFloor(runFile(main, '900-demo'), true);
   expectHook({ ...base, code: 2, stderr: missing });
   fs.writeFileSync(runFile(main, '900-demo'), started);
 
@@ -249,19 +253,19 @@ HOOK_TEST('a feature run is held while its implementation stage is pending, and 
   doflow(main, ['orchestrate', '--action', 'complete-stage', '--task-id', '900-demo', '--stage', 'implementation', '--task-class', 'feature', '--note', 'test']);
   fs.rmSync(recordPath(main, '900-demo.json'));
   expectHook({ ...base, code: 0, stderr: '' });
-  dropFloor(runFile(main, '900-demo'));
+  setFloor(runFile(main, '900-demo'), false);
   expectHook({ ...base, code: 0, stderr: '' });
 });
 
-HOOK_TEST('an exempt branch is held only by its run: bug held, bug in grace and trivial-edit not', { timeout: CASE_TIMEOUT_MS }, () => {
+HOOK_TEST('an exempt branch is held only by its run: bug held, a bug run from before DoFlow 1.22.0 too, trivial-edit not', { timeout: CASE_TIMEOUT_MS }, () => {
   const { root, main } = makeRepo('fix/901-bug');
   const base = { cwd: main, caseRoot: root, event: editEvent(path.join(main, 'src', 'a.js')) };
 
   expectHook({ ...base, code: 0, stderr: '' });
   walkTo(main, '901-bug', 'bug', 'implementation');
   expectHook({ ...base, code: 2, stderr: `${refusalText('missing', { taskId: '901-bug', template: 'bug' })}\n` });
-  dropFloor(runFile(main, '901-bug'));
-  expectHook({ ...base, code: 0, stderr: '' });
+  setFloor(runFile(main, '901-bug'), false);
+  expectHook({ ...base, code: 2, stderr: `${refusalText('missing', { taskId: '901-bug', template: 'bug' })}\n` });
 
   git(main, 'checkout', '-q', '-b', 'fix/903-trivial', 'main');
   walkTo(main, '903-trivial', 'trivial-edit', 'implementation');
@@ -277,9 +281,9 @@ HOOK_TEST('a linked worktree reads the main checkout\'s feature folder, run and 
 
   expectHook({ ...base, code: 2, stderr: ARTIFACT_MESSAGE });
 
-  // A run in grace leaves the artifact check as it is.
+  // A run, from before DoFlow 1.22.0 or since, leaves the artifact check as it is.
   walkTo(main, '900-demo', 'feature', 'discovery');
-  dropFloor(runFile(main, '900-demo'));
+  setFloor(runFile(main, '900-demo'), false);
   expectHook({ ...base, code: 2, stderr: ARTIFACT_MESSAGE });
   fs.rmSync(runFile(main, '900-demo'));
 

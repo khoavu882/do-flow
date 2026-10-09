@@ -17,7 +17,7 @@ const { REPO_ROOT } = require('../helper/repo-root');
 const { resolveActiveFeature } = require('./feature-resolve');
 const { compactDecisions } = require('./decision-register');
 const {
-  checkReadiness, harnessHookNote, preFloorGrace, graceWarning, GRACE_CODES, featureSlugFor, runSlugOf, findRunFile,
+  checkReadiness, harnessHookNote, featureSlugFor, runSlugOf, findRunFile,
 } = require('./implementation-gate');
 
 const RUN_STATES = Object.freeze(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED']);
@@ -91,9 +91,9 @@ class WorkflowOrchestrator {
    * @param {string} [options.repoRoot] install root owning core/registry + default state dir.
    * @param {string} [options.stateDir] where run journals live.
    * @param {WorkflowEngine} [options.engine] pre-built engine (injected workflows in tests).
-   * @param {(node: object, run: object) => string|{verdict: string, message?: string, warning?: string}|null} [options.readinessEvaluate]
-   *   cascade gate: returns a readiness verdict, as a string or with the refusal message and an
-   *   optional warning; anything but READY blocks completion of a source-mutating gated stage.
+   * @param {(node: object, run: object) => string|{verdict: string, message?: string}|null} [options.readinessEvaluate]
+   *   cascade gate: returns a readiness verdict, as a string or with the refusal message; anything
+   *   but READY blocks completion of a source-mutating gated stage.
    *   Unwired means such stages cannot be completed — fail closed, never open.
    * @param {object} [options.fsImpl]
    * @param {string|null} [options.featureSlug] the feature a run started here belongs to
@@ -151,9 +151,6 @@ class WorkflowOrchestrator {
       program,
       history: [{ at: iso(now), action: 'start', detail: `task-class=${taskClass}` }],
       startedAt: iso(now),
-      // Marks a run started by a runtime that records readiness; a run without it predates that
-      // and keeps a warning in place of the readiness refusal for one release.
-      readinessFloor: 1,
       // The feature the run belongs to, so another checkout can tell it from a run with the same id.
       ...(this.featureSlug ? { featureSlug: this.featureSlug } : {}),
     };
@@ -251,7 +248,7 @@ class WorkflowOrchestrator {
     if (outcome !== undefined && !STAGE_OUTCOMES.has(outcome)) {
       throw new Error(`Unknown stage outcome '${outcome}'. Valid: ${[...STAGE_OUTCOMES].join(', ')} — omit the flag to record 'unverified'.`);
     }
-    const readinessWarning = node.mutatesSource && node.readinessTemplate ? this.assertReady(node, run) : null;
+    if (node.mutatesSource && node.readinessTemplate) this.assertReady(node, run);
     node.status = 'completed';
     node.executionStatus = backfilled ? 'imported' : 'completed';
     node.outcome = backfilled ? 'unverified' : (outcome ?? 'unverified');
@@ -266,7 +263,7 @@ class WorkflowOrchestrator {
         .blockingGap(taskId, stageId);
       if (request) throw new Error(`Research request '${request.id}' blocks stage '${stageId}': ${request.failureReason || request.gap || request.status}`);
     });
-    return readinessWarning ? { ...this.snapshot(run), readinessWarning } : this.snapshot(run);
+    return this.snapshot(run);
   }
 
   /** Skip the current OPTIONAL stage without running it. Gates anchored directly to a skipped
@@ -475,9 +472,7 @@ class WorkflowOrchestrator {
   }
 
   /** Refuses a gated stage unless the evaluator answers READY. The evaluator returns a verdict
-   * string, or `{ verdict, message, warning }`: `message` replaces the generic refusal, and a
-   * `warning` on a READY answer is returned for the caller to report.
-   * @returns {string|null} the warning, when the evaluator gave one */
+   * string, or `{ verdict, message }`: `message` replaces the generic refusal. */
   assertReady(node, run) {
     if (!this.readinessEvaluate) {
       // Fail closed: without an evaluator there is no way to know the tree is safe to mutate.
@@ -485,11 +480,10 @@ class WorkflowOrchestrator {
     }
     const answer = this.readinessEvaluate(node, run);
     if (!answer) throw new Error(`Readiness evaluator returned no verdict for stage '${node.id}'`);
-    const { verdict, message = null, warning = null } = typeof answer === 'string' ? { verdict: answer } : answer;
+    const { verdict, message = null } = typeof answer === 'string' ? { verdict: answer } : answer;
     if (verdict !== 'READY') {
       throw new Error(message || `Readiness for stage '${node.id}' returned ${verdict}; expected READY — resolve evidence or the user decision first`);
     }
-    return warning;
   }
 
   /** Where `catchUp` would stop for these candidates, worked out on a copy of the run's program (or
@@ -595,7 +589,6 @@ function handleOrchestrateCommand({
     stateDir: path.join(runRoot, '.doflow', 'state', 'orchestration'),
     featureSlug,
   });
-  let readinessGrace = null;
   orchestrator.readinessEvaluate = (node, run) => {
     // This closure only ever runs for a stage that is actually gated (evaluateReadiness only calls
     // it for a mutating stage carrying a readiness template) — so a missing --task-class here is a
@@ -618,14 +611,6 @@ function handleOrchestrateCommand({
     const template = node.readinessTemplate;
     const check = checkReadiness({ stateRoot: state, taskId: run.taskId, slug: runSlugOf(run, runRoot) || featureSlug, template, now: new Date() });
     if (check.ok) return { verdict: 'READY', message: null };
-    if (GRACE_CODES.has(check.code) && preFloorGrace(run)) {
-      const warning = graceWarning(check.code, {
-        taskId: run.taskId, slug: check.nextSlug, template, record: check.record, detail: check.detail, file: check.file, newerVersion: check.newerVersion,
-        startedAt: run.startedAt, action,
-      });
-      readinessGrace = { code: check.code, message: warning };
-      return { verdict: 'READY', warning };
-    }
     return { verdict: check.code, message: [check.message, harnessHookNote({ repoRoot: root })].filter(Boolean).join(' ') };
   };
 
@@ -687,12 +672,6 @@ function handleOrchestrateCommand({
     // Only a handoff that recorded work compacts; `deferred` and `standalone` recorded nothing.
     if (action === 'handoff' && (snapshot.disposition === 'completed' || snapshot.disposition === 'annotated')) {
       snapshot = { ...snapshot, compaction: compactAfterHandoff({ taskId, projectRoot: state }) };
-    }
-    // A run started before readiness was recorded proceeds, and says what will refuse it later.
-    if (snapshot.readinessWarning) {
-      const { readinessWarning, ...rest } = snapshot;
-      console.error([readinessWarning, harnessHookNote({ repoRoot: root })].filter(Boolean).join(' '));
-      snapshot = { ...rest, readinessGrace };
     }
     if (json) { console.log(JSON.stringify(snapshot, null, 2)); return finishRuntime(0); }
     console.log(`Workflow ${snapshot.taskId} [${snapshot.taskClass}] — ${snapshot.state}`);

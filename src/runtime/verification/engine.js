@@ -1064,7 +1064,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
     return usageError('verify', error.message, json, error);
   }
   const readinessHeld = report.readiness.applies && !report.readiness.ok;
-  if (readinessHeld && !report.readiness.grace && report.status === 'PASS') {
+  if (readinessHeld && report.status === 'PASS') {
     report.status = 'INCONCLUSIVE';
     report.reason = report.readiness.message;
   }
