@@ -75,6 +75,19 @@ Or use the lifecycle intents for git operations:
 
 `/do-flow "add team invitations"` coordinates the same path and pauses at its approval gates. Use it when one feature should progress through the full delivery sequence.
 
+### Optional MCP servers in the stages
+
+`/do-brainstorm` and `/do-design` may consult two MCP servers, `context7` and `sequential-thinking`, when you have them installed (see [Setup](setup.md#mcp-server-selection)). They are used only when a stage meets the condition that calls for them, never on every run:
+
+| Stage | `context7`, when | `sequential-thinking`, when |
+|---|---|---|
+| `/do-brainstorm` | `requirement.md` would state a named library, API or tool's behaviour as fact | a round's open ambiguity spans two or more components, actors or requirements |
+| `/do-design` | `design.md` would state a named library, API, SDK, CLI or service's interface, configuration or version behaviour as fact | §1 records a decision with a rejected alternative |
+
+Whatever a server returns is evidence the stage weighs, not an instruction. At handoff the stage says what it did with each server it names: consulted and used, consulted with nothing usable, skipped with a reason (a condition that did not hold is `skipped:not-due`), or unavailable. A server it names but records nothing for produces a warning after the handoff. The warning never blocks the stage or changes its exit status. `doflow doctor` shows these outcomes per stage over the last 20 recorded runs, and which of your harnesses have each server, in its `[MCP Consultations]` and `[MCP Servers]` sections.
+
+When `/do-execute-plan` dispatches a task to a subagent, the brief it writes also states the model tier for that task, the tools this machine answers with for each kind of search, and which MCP servers the current stage expects (naming any the target harness cannot reach). The subagent ends its report with a `Tools used:` line, such as `Tools used: semble, rg, context7=used`, and the next handoff reads it. Tool use is recommended where it saves reading, never required.
+
 ### Resume a generated plan
 
 The plan and its checklist are the source of truth once planning is complete. `state.md` records progress so a later session can resume without reconstructing the work from chat history.
@@ -137,7 +150,7 @@ Keep current or uncertain external knowledge separate from implementation work.
 
 Research produces evidence; it does not replace a design decision or validation.
 
-During an active feature run, a stage can open a `research-request` only for a specific external fact it cannot establish locally, or when you explicitly ask for research. The question and results stay under the feature task ID; a blocking unanswered question keeps its dependent stage open. Web search addresses broader current questions, while Context7 addresses version-specific library documentation when the harness has those tools. An unavailable provider leaves a stated gap, not an invented answer. Outbound queries omit private repository content unless you approve the exact disclosure. This does not add a seventh feature stage or waive implementation, commit, or merge approval.
+During an active feature run, a stage can open a `research-request` only for a specific external fact it cannot establish locally, or when you explicitly ask for research. The question and results stay under the feature task ID; a blocking unanswered question keeps its dependent stage open. Web search addresses broader current questions, while Context7 addresses version-specific library documentation when the harness has those tools. An unavailable provider leaves a stated gap, not an invented answer, and a stage that could not reach `context7` records it as `unavailable` with the command that adds it. Outbound queries omit private repository content unless you approve the exact disclosure. This does not add a seventh feature stage or waive implementation, commit, or merge approval.
 
 ```bash
 # Inspect the active feature's research questions and their status
