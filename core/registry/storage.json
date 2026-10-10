@@ -1,0 +1,979 @@
+{
+  "version": 1,
+  "description": "Declared DoFlow storage retention catalogue.",
+  "settings": {
+    "optOutFile": "prune",
+    "upkeepIntervalHours": 24,
+    "passBudgetMs": 750,
+    "maxRemovalsPerPass": 5000,
+    "passLockStaleSeconds": 120,
+    "orphanGraceHours": 24,
+    "staleTmpHours": 24,
+    "ignoreFile": {
+      "name": ".gitignore",
+      "lines": [
+        "# DoFlow runtime state: local to this machine, kept out of git by DoFlow.",
+        "# Removed by `doflow remove` when DoFlow leaves this project.",
+        "*",
+        "!/ledger.json"
+      ]
+    }
+  },
+  "roots": {
+    "project-doflow": {
+      "base": "project",
+      "segments": [
+        ".doflow"
+      ]
+    },
+    "project-state": {
+      "base": "project",
+      "segments": [
+        ".doflow",
+        "state"
+      ]
+    },
+    "user-doflow": {
+      "base": "home",
+      "segments": [
+        ".doflow"
+      ]
+    },
+    "user-state": {
+      "base": "home",
+      "segments": [
+        ".doflow",
+        "state"
+      ]
+    },
+    "config-home": {
+      "base": "xdg-config",
+      "segments": [
+        "doflow"
+      ]
+    }
+  },
+  "stores": [
+    {
+      "id": "verification-logs",
+      "root": "project-state",
+      "path": "verification/logs",
+      "entry": "file",
+      "match": "^[0-9]{13}-[A-Za-z0-9._-]+\\.log$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 40,
+        "maxAgeDays": 30
+      },
+      "protect": "open-work",
+      "moments": [
+        "verify",
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/verification/contract-runner.js"
+      ]
+    },
+    {
+      "id": "task-evidence",
+      "root": "project-state",
+      "path": "evidence",
+      "entry": "record",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.json$",
+      "rule": "work",
+      "bound": {
+        "finishedDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/task-state.js"
+      ]
+    },
+    {
+      "id": "task-readiness",
+      "root": "project-state",
+      "path": "readiness",
+      "entry": "record",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.json$",
+      "rule": "work",
+      "bound": {
+        "finishedDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/readiness-record.js",
+        "src/runtime/task-state.js"
+      ]
+    },
+    {
+      "id": "task-research",
+      "root": "project-state",
+      "path": "research",
+      "entry": "record",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.json$",
+      "rule": "work",
+      "bound": {
+        "finishedDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/task-state.js"
+      ]
+    },
+    {
+      "id": "task-outcome",
+      "root": "project-state",
+      "path": "outcome",
+      "entry": "record",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.json$",
+      "rule": "work",
+      "bound": {
+        "finishedDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/outcome.js"
+      ]
+    },
+    {
+      "id": "task-retrieval",
+      "root": "project-state",
+      "path": "retrieval",
+      "entry": "record",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.json$",
+      "rule": "work",
+      "bound": {
+        "finishedDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/retrieval-plan.js"
+      ]
+    },
+    {
+      "id": "task-orchestration",
+      "root": "project-state",
+      "path": "orchestration",
+      "entry": "record",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.json$",
+      "rule": "work",
+      "bound": {
+        "finishedDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/task-state.js",
+        "src/runtime/workflow-orchestrator.js"
+      ]
+    },
+    {
+      "id": "runs-project",
+      "root": "project-state",
+      "path": "runs",
+      "entry": "file",
+      "match": "^[0-9]{4}-[0-9]{2}-[0-9]{2}\\.jsonl$",
+      "rule": "date-partition",
+      "bound": {
+        "maxAgeDays": 180
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "core/shared/scripts/doflow/bin/doflow-run",
+        "src/runtime/trace/ledger.js"
+      ]
+    },
+    {
+      "id": "runs-user",
+      "root": "user-state",
+      "path": "runs",
+      "entry": "file",
+      "match": "^[0-9]{4}-[0-9]{2}-[0-9]{2}\\.jsonl$",
+      "rule": "date-partition",
+      "bound": {
+        "maxAgeDays": 180
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "core/shared/scripts/doflow/bin/doflow-run",
+        "src/runtime/trace/ledger.js"
+      ]
+    },
+    {
+      "id": "recovery-user",
+      "root": "user-state",
+      "path": "recovery",
+      "entry": "file",
+      "match": "^recovery_[A-Za-z0-9_-]+\\.json$",
+      "rule": "recovery",
+      "bound": {
+        "keepNewest": 3
+      },
+      "protect": null,
+      "moments": [
+        "install"
+      ],
+      "writers": [
+        "src/state/index.js"
+      ]
+    },
+    {
+      "id": "recovery-project",
+      "root": "project-state",
+      "path": "recovery",
+      "entry": "file",
+      "match": "^recovery_[A-Za-z0-9_-]+\\.json$",
+      "rule": "recovery",
+      "bound": {
+        "keepNewest": 3
+      },
+      "protect": null,
+      "moments": [
+        "install"
+      ],
+      "writers": [
+        "src/state/index.js"
+      ]
+    },
+    {
+      "id": "lifecycle-events",
+      "root": "project-state",
+      "path": "lifecycle/events",
+      "entry": "file",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.json$",
+      "rule": "lifecycle-settled",
+      "bound": {
+        "defaultHours": 4320
+      },
+      "protect": null,
+      "moments": [
+        "lifecycle-verb",
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/lifecycle/event-store.js"
+      ]
+    },
+    {
+      "id": "report-bodies",
+      "root": "config-home",
+      "path": "reports",
+      "entry": "dir",
+      "match": "^[0-9a-f]{12}$",
+      "rule": "report-orphan",
+      "bound": {
+        "orphanGraceHours": 24,
+        "foreignMaxAgeDays": 180
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/lifecycle/report-store.js"
+      ]
+    },
+    {
+      "id": "session-dirs",
+      "root": "config-home",
+      "path": "session-env/sessions",
+      "entry": "dir",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "rule": "age",
+      "bound": {
+        "maxAgeDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "session",
+        "verb"
+      ],
+      "writers": [
+        "core/harnesses/claude/hooks/lib.sh",
+        "core/harnesses/claude/hooks/permission-audit.sh",
+        "core/harnesses/claude/hooks/post-edit-lint.sh",
+        "core/harnesses/claude/hooks/post-tool-failure.sh",
+        "core/harnesses/claude/hooks/skill-config-audit.sh",
+        "core/harnesses/codex/hooks/lib.sh",
+        "core/harnesses/codex/hooks/post-edit-lint.impl.sh",
+        "core/harnesses/gemini/hooks/lib.sh",
+        "core/harnesses/gemini/hooks/post-edit-lint.sh",
+        "core/harnesses/kiro/hooks/lib.sh",
+        "core/harnesses/shared/hooks/policies/lib.sh",
+        "core/harnesses/shared/hooks/policies/session-context.sh",
+        "core/harnesses/shared/hooks/policies/stop-check.sh",
+        "core/harnesses/shared/hooks/policies/subagent-audit.sh",
+        "core/harnesses/shared/hooks/policies/user-prompt-submit.sh"
+      ]
+    },
+    {
+      "id": "project-dirs",
+      "root": "config-home",
+      "path": "session-env/projects",
+      "entry": "dir",
+      "match": "^[0-9a-f]{16}$",
+      "rule": "age",
+      "bound": {
+        "maxAgeDays": 90
+      },
+      "protect": null,
+      "moments": [
+        "session",
+        "verb"
+      ],
+      "writers": [
+        "core/harnesses/claude/hooks/lib.sh",
+        "core/harnesses/claude/hooks/post-compact.sh",
+        "core/harnesses/claude/hooks/session-end.sh",
+        "core/harnesses/codex/hooks/lib.sh",
+        "core/harnesses/codex/hooks/session-end.impl.sh",
+        "core/harnesses/gemini/hooks/lib.sh",
+        "core/harnesses/gemini/hooks/session-end.impl.sh",
+        "core/harnesses/kiro/hooks/lib.sh",
+        "core/harnesses/shared/hooks/policies/lib.sh",
+        "core/harnesses/shared/hooks/policies/session-context.sh",
+        "core/harnesses/shared/hooks/policies/user-prompt-submit.sh"
+      ]
+    },
+    {
+      "id": "installer-backups-user-doflow",
+      "root": "user-doflow",
+      "path": "backups",
+      "entry": "dir",
+      "match": "^[A-Za-z0-9._-]+$",
+      "rule": "existing",
+      "bound": {
+        "value": 3,
+        "text": "keep 3"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/install/backup.js"
+      ],
+      "source": {
+        "file": "src/install/backup.js",
+        "pattern": "DEFAULT_BACKUP_RETENTION = {value}"
+      }
+    },
+    {
+      "id": "installer-backups-project-doflow",
+      "root": "project-doflow",
+      "path": "backups",
+      "entry": "dir",
+      "match": "^[A-Za-z0-9._-]+$",
+      "rule": "existing",
+      "bound": {
+        "value": 3,
+        "text": "keep 3"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/install/backup.js"
+      ],
+      "source": {
+        "file": "src/install/backup.js",
+        "pattern": "DEFAULT_BACKUP_RETENTION = {value}"
+      }
+    },
+    {
+      "id": "nudge-markers",
+      "root": "config-home",
+      "path": "session-env/nudge",
+      "entry": "file",
+      "match": "^[A-Za-z0-9._-]+$",
+      "rule": "existing",
+      "bound": {
+        "value": 30,
+        "text": "prune after 30 days"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "core/harnesses/shared/hooks/policies/lib.sh"
+      ],
+      "source": {
+        "file": "core/harnesses/shared/hooks/policies/lib.sh",
+        "pattern": "-mtime +{value}"
+      }
+    },
+    {
+      "id": "sessions-log",
+      "root": "config-home",
+      "path": "sessions.log",
+      "entry": "file",
+      "match": "^sessions\\.log$",
+      "rule": "existing",
+      "bound": {
+        "value": 500,
+        "text": "keep last 500 lines"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "core/harnesses/claude/hooks/lib.sh",
+        "core/harnesses/claude/hooks/session-end.sh",
+        "core/harnesses/codex/hooks/lib.sh",
+        "core/harnesses/codex/hooks/session-end.impl.sh",
+        "core/harnesses/gemini/hooks/lib.sh",
+        "core/harnesses/gemini/hooks/session-end.impl.sh",
+        "core/harnesses/kiro/hooks/lib.sh",
+        "core/harnesses/shared/hooks/policies/lib.sh",
+        "core/harnesses/shared/hooks/policies/session-context.sh"
+      ],
+      "source": {
+        "file": "core/harnesses/claude/hooks/session-end.sh",
+        "pattern": "tail -n {value}"
+      }
+    },
+    {
+      "id": "failure-events",
+      "root": "config-home",
+      "path": "failures",
+      "entry": "file",
+      "match": "^[A-Za-z0-9._-]+$",
+      "rule": "existing",
+      "bound": {
+        "value": 4,
+        "text": "keep 4 rotated files"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "core/harnesses/shared/hooks/policies/capture-failure.sh",
+        "core/harnesses/shared/hooks/stream-hook-runner.js",
+        "core/shared/scripts/doflow/bin/doflow-run",
+        "src/runtime/failure/capture.js",
+        "src/runtime/failure/cli.js",
+        "src/runtime/failure/store.js"
+      ],
+      "source": {
+        "file": "src/runtime/failure/capture.js",
+        "pattern": "KEEP_ROTATED = {value}"
+      }
+    },
+    {
+      "id": "install-ledger-user-state",
+      "root": "user-state",
+      "path": "ledger.json",
+      "entry": "file",
+      "match": "^ledger\\.json$",
+      "rule": "existing",
+      "bound": {
+        "text": "one file, overwritten"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/state/index.js"
+      ],
+      "source": {
+        "file": "src/state/index.js",
+        "pattern": "LEDGER_FILE"
+      }
+    },
+    {
+      "id": "install-ledger-project-state",
+      "root": "project-state",
+      "path": "ledger.json",
+      "entry": "file",
+      "match": "^ledger\\.json$",
+      "rule": "existing",
+      "bound": {
+        "text": "one file, overwritten"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/state/index.js"
+      ],
+      "source": {
+        "file": "src/state/index.js",
+        "pattern": "LEDGER_FILE"
+      }
+    },
+    {
+      "id": "lifecycle-control",
+      "root": "project-state",
+      "path": "lifecycle",
+      "entry": "dir",
+      "match": "^[A-Za-z0-9._-]+$",
+      "rule": "existing",
+      "bound": {
+        "text": "self-cleaning"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/lifecycle/store-upkeep.js"
+      ],
+      "source": {
+        "file": "src/runtime/lifecycle/store-upkeep.js",
+        "pattern": "MIGRATING_PREFIX"
+      }
+    },
+    {
+      "id": "task-locks-project-state",
+      "root": "project-state",
+      "path": "",
+      "entry": "dir",
+      "match": "^.+\\.lock$",
+      "rule": "existing",
+      "bound": {
+        "value": 10000,
+        "text": "removed on release; stale locks are broken"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/task-state.js"
+      ],
+      "source": {
+        "file": "src/runtime/task-state.js",
+        "pattern": "LOCK_STALE_MS = {value}"
+      }
+    },
+    {
+      "id": "install-projections-user-doflow",
+      "root": "user-doflow",
+      "path": "",
+      "entry": "dir",
+      "match": "^(?:scripts|runtime|guidance|shared|templates)$",
+      "rule": "existing",
+      "bound": {
+        "text": "owned by the install ledger"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/adapters/antigravity/index.js",
+        "src/adapters/copy-tree.js",
+        "src/install/manifest.js",
+        "src/lifecycle/index.js",
+        "src/state/index.js"
+      ],
+      "source": {
+        "file": "src/lifecycle/index.js",
+        "pattern": "MCP_INDEX.md"
+      }
+    },
+    {
+      "id": "install-projections-project-doflow",
+      "root": "project-doflow",
+      "path": "",
+      "entry": "dir",
+      "match": "^(?:scripts|runtime|guidance|shared|templates)$",
+      "rule": "existing",
+      "bound": {
+        "text": "owned by the install ledger"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/adapters/antigravity/index.js",
+        "src/adapters/copy-tree.js",
+        "src/install/manifest.js",
+        "src/lifecycle/index.js",
+        "src/state/index.js"
+      ],
+      "source": {
+        "file": "src/lifecycle/index.js",
+        "pattern": "MCP_INDEX.md"
+      }
+    },
+    {
+      "id": "knowledge-index-user-doflow",
+      "root": "user-doflow",
+      "path": "index",
+      "entry": "file",
+      "match": "^[A-Za-z0-9._-]+$",
+      "rule": "existing",
+      "bound": {
+        "text": "rewritten atomically, sha-keyed"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/knowledge/index-store.js"
+      ],
+      "source": {
+        "file": "src/runtime/knowledge/index-store.js",
+        "pattern": "sha256"
+      }
+    },
+    {
+      "id": "knowledge-index-project-doflow",
+      "root": "project-doflow",
+      "path": "index",
+      "entry": "file",
+      "match": "^[A-Za-z0-9._-]+$",
+      "rule": "existing",
+      "bound": {
+        "text": "rewritten atomically, sha-keyed"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/knowledge/index-store.js"
+      ],
+      "source": {
+        "file": "src/runtime/knowledge/index-store.js",
+        "pattern": "sha256"
+      }
+    },
+    {
+      "id": "bench-worktrees",
+      "root": "project-doflow",
+      "path": "worktrees",
+      "entry": "dir",
+      "match": "^[A-Za-z0-9._-]+$",
+      "rule": "existing",
+      "bound": {
+        "text": "removed per case by the bench runner, not shipped"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/worktree.js"
+      ],
+      "source": {
+        "file": "src/runtime/worktree.js",
+        "pattern": "worktree"
+      }
+    },
+    {
+      "id": "user-settings-project-doflow",
+      "root": "project-doflow",
+      "path": "",
+      "entry": "file",
+      "match": "^(?:prompt-nudge|prune)$",
+      "rule": "existing",
+      "bound": {
+        "text": "one line each, user-authored"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [],
+      "source": {
+        "file": "core/harnesses/shared/hooks/policies/lib.sh",
+        "pattern": "prompt-nudge"
+      }
+    },
+    {
+      "id": "user-settings-config-home",
+      "root": "config-home",
+      "path": "",
+      "entry": "file",
+      "match": "^(?:prompt-nudge|prune)$",
+      "rule": "existing",
+      "bound": {
+        "text": "one line each, user-authored"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [],
+      "source": {
+        "file": "core/harnesses/shared/hooks/policies/lib.sh",
+        "pattern": "prompt-nudge"
+      }
+    },
+    {
+      "id": "state-ignore-project-state",
+      "root": "project-state",
+      "path": ".gitignore",
+      "entry": "file",
+      "match": "^\\.gitignore$",
+      "rule": "control",
+      "bound": {
+        "text": "state ignore file"
+      },
+      "protect": null,
+      "moments": [
+        "uninstall"
+      ],
+      "writers": []
+    },
+    {
+      "id": "state-ignore-user-state",
+      "root": "user-state",
+      "path": ".gitignore",
+      "entry": "file",
+      "match": "^\\.gitignore$",
+      "rule": "control",
+      "bound": {
+        "text": "state ignore file"
+      },
+      "protect": null,
+      "moments": [
+        "uninstall"
+      ],
+      "writers": []
+    },
+    {
+      "id": "upkeep-marker-project-state",
+      "root": "project-state",
+      "path": "upkeep-due",
+      "entry": "file",
+      "match": "^upkeep-due$",
+      "rule": "control",
+      "bound": {
+        "text": "daily upkeep marker"
+      },
+      "protect": null,
+      "moments": [
+        "uninstall"
+      ],
+      "writers": []
+    },
+    {
+      "id": "upkeep-marker-user-state",
+      "root": "user-state",
+      "path": "upkeep-due",
+      "entry": "file",
+      "match": "^upkeep-due$",
+      "rule": "control",
+      "bound": {
+        "text": "daily upkeep marker"
+      },
+      "protect": null,
+      "moments": [
+        "uninstall"
+      ],
+      "writers": []
+    },
+    {
+      "id": "upkeep-marker-config-home",
+      "root": "config-home",
+      "path": "upkeep-due",
+      "entry": "file",
+      "match": "^upkeep-due$",
+      "rule": "control",
+      "bound": {
+        "text": "daily upkeep marker"
+      },
+      "protect": null,
+      "moments": [
+        "uninstall"
+      ],
+      "writers": []
+    },
+    {
+      "id": "upkeep-lock-project-state",
+      "root": "project-state",
+      "path": "upkeep.lock",
+      "entry": "dir",
+      "match": "^upkeep\\.lock$",
+      "rule": "control",
+      "bound": {
+        "text": "upkeep pass lock"
+      },
+      "protect": null,
+      "moments": [
+        "uninstall"
+      ],
+      "writers": []
+    },
+    {
+      "id": "upkeep-lock-user-state",
+      "root": "user-state",
+      "path": "upkeep.lock",
+      "entry": "dir",
+      "match": "^upkeep\\.lock$",
+      "rule": "control",
+      "bound": {
+        "text": "upkeep pass lock"
+      },
+      "protect": null,
+      "moments": [
+        "uninstall"
+      ],
+      "writers": []
+    },
+    {
+      "id": "upkeep-lock-config-home",
+      "root": "config-home",
+      "path": "upkeep.lock",
+      "entry": "dir",
+      "match": "^upkeep\\.lock$",
+      "rule": "control",
+      "bound": {
+        "text": "upkeep pass lock"
+      },
+      "protect": null,
+      "moments": [
+        "uninstall"
+      ],
+      "writers": []
+    },
+    {
+      "id": "upkeep-roots",
+      "root": "user-state",
+      "path": "upkeep-roots",
+      "entry": "file",
+      "match": "^upkeep-roots$",
+      "rule": "control",
+      "bound": {
+        "text": "project upkeep roots index"
+      },
+      "protect": null,
+      "moments": [
+        "uninstall"
+      ],
+      "writers": []
+    },
+    {
+      "id": "run-lock-project-state",
+      "root": "project-state",
+      "path": "",
+      "entry": "file",
+      "match": "^(?:run\\.lock|run\\.lock\\.claim\\.[A-Za-z0-9._-]+|\\.run\\.lock\\.[0-9a-f]{32}\\.tmp)$",
+      "rule": "control",
+      "bound": {
+        "text": "self-cleaning run lock and orphan sweep"
+      },
+      "protect": null,
+      "moments": [
+        "uninstall"
+      ],
+      "writers": [
+        "src/state/run-lock.js"
+      ]
+    },
+    {
+      "id": "run-lock-user-state",
+      "root": "user-state",
+      "path": "",
+      "entry": "file",
+      "match": "^(?:run\\.lock|run\\.lock\\.claim\\.[A-Za-z0-9._-]+|\\.run\\.lock\\.[0-9a-f]{32}\\.tmp)$",
+      "rule": "control",
+      "bound": {
+        "text": "self-cleaning run lock and orphan sweep"
+      },
+      "protect": null,
+      "moments": [
+        "uninstall"
+      ],
+      "writers": [
+        "src/state/run-lock.js"
+      ]
+    }
+  ],
+  "externalWriters": [
+    {
+      "file": "core/shared/scripts/doflow/bash/do-exec-paths.sh",
+      "reason": "agent-docs deliverable folder (<feature>/exec)"
+    },
+    {
+      "file": "core/shared/scripts/doflow/bash/do-review-package.sh",
+      "reason": "agent-docs deliverable (<feature>/exec/review-*.diff)"
+    },
+    {
+      "file": "core/shared/scripts/doflow/bash/do-task-brief.sh",
+      "reason": "agent-docs deliverable (<feature>/exec/*-brief.md)"
+    },
+    {
+      "file": "core/shared/scripts/doflow/bash/render-audit.sh",
+      "reason": "agent-docs deliverable (audit.md, tmp beside it, removed by trap :111)"
+    },
+    {
+      "file": "core/shared/scripts/doflow/bash/render-diagrams.sh",
+      "reason": "OS temp scratch with trap rm -rf at :117"
+    },
+    {
+      "file": "core/shared/scripts/doflow/bash/render-puml.sh",
+      "reason": "agent-docs deliverable (.sha beside .puml; design.md block rewrite; trap :174)"
+    },
+    {
+      "file": "core/shared/scripts/doflow/bash/sync-context.sh",
+      "reason": "agent context file (AGENTS.md or CLAUDE.md) managed block, owned by the install ledger"
+    },
+    {
+      "file": "src/adapters/claude/index.js",
+      "reason": "harness configuration/projection owned by the install ledger"
+    },
+    {
+      "file": "src/adapters/codex/config.js",
+      "reason": "harness configuration/projection owned by the install ledger"
+    },
+    {
+      "file": "src/adapters/codex/hooks.js",
+      "reason": "harness configuration/projection owned by the install ledger"
+    },
+    {
+      "file": "src/adapters/copilot/index.js",
+      "reason": "harness configuration/projection owned by the install ledger"
+    },
+    {
+      "file": "src/adapters/gemini/hooks.js",
+      "reason": "harness configuration/projection owned by the install ledger"
+    },
+    {
+      "file": "src/adapters/gemini/index.js",
+      "reason": "harness configuration/projection owned by the install ledger"
+    },
+    {
+      "file": "src/adapters/mcp-entries.js",
+      "reason": "harness configuration/projection owned by the install ledger"
+    },
+    {
+      "file": "src/adapters/opencode/index.js",
+      "reason": "harness configuration/projection owned by the install ledger"
+    },
+    {
+      "file": "src/adapters/pi/index.js",
+      "reason": "harness configuration/projection owned by the install ledger"
+    },
+    {
+      "file": "src/adapters/pi/mcp.js",
+      "reason": "harness configuration/projection owned by the install ledger"
+    },
+    {
+      "file": "src/helper/marker-merge.js",
+      "reason": "harness instruction file managed block (CLAUDE.md, AGENTS.md, GEMINI.md), owned by the install ledger"
+    },
+    {
+      "file": "src/release/sync-plugin-versions.js",
+      "reason": "maintainer release tool: rewrites the repo plugin manifests (no DoFlow root)"
+    },
+    {
+      "file": "src/runtime/decision-register.js",
+      "reason": "agent-docs deliverable (decisions register of a feature)"
+    },
+    {
+      "file": "src/runtime/history-compactor.js",
+      "reason": "agent-docs deliverable (decisions/history archive and artifact stub)"
+    },
+    {
+      "file": "src/runtime/lifecycle/intent-writer.js",
+      "reason": "agent-docs deliverable (agent-docs/intent/*.md)"
+    },
+    {
+      "file": "src/runtime/scaffold/generate.js",
+      "reason": "agent-docs deliverable (scaffold files and manifest)"
+    }
+  ]
+}
