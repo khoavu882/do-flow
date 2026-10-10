@@ -420,7 +420,9 @@ test('run state under .doflow/state and an old agent-docs/lifecycle folder keep 
   const legacy = snapshot(path.join(dir, LEGACY_LIFECYCLE_REL));
   const r = run(dir, ['followup', '--action', 'list', '--json'], '1');
   assert.deepEqual(retentionLines(r.stderr), ['doflow followup: retention: removed 2 event files older than 1 h']);
-  assert.deepEqual(state(snapshot(path.join(dir, '.doflow', 'state'))), runState);
+  const afterState = state(snapshot(path.join(dir, '.doflow', 'state')));
+  assert.equal(fs.readFileSync(path.join(dir, '.doflow', 'state', '.gitignore'), 'utf8'), `${require('../../core/registry/storage.json').settings.ignoreFile.lines.join('\n')}\n`);
+  assert.deepEqual(afterState, { ...runState, '.gitignore': afterState['.gitignore'] });
   assert.deepEqual(snapshot(path.join(dir, LEGACY_LIFECYCLE_REL)), legacy);
 });
 

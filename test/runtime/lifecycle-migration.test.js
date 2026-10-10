@@ -93,7 +93,8 @@ test('copy: the first verb copies the old store once with equal names and bytes;
   assert.deepEqual(lifecycleEntries(dir), ['events', 'migrated.json'], 'no temp, replaced or lock folder is left');
   assert.deepEqual(snapshot(path.join(dir, LEGACY_LIFECYCLE_REL)), oldTree);
   assert.equal(git(dir, 'status', '--porcelain', '--', 'agent-docs'), '');
-  for (const file of ['.gitignore', path.join('.doflow', '.gitignore'), path.join('.doflow', 'state', '.gitignore')]) assert.equal(fs.existsSync(path.join(dir, file)), false, file);
+  for (const file of ['.gitignore', path.join('.doflow', '.gitignore')]) assert.equal(fs.existsSync(path.join(dir, file)), false, file);
+  assert.equal(fs.readFileSync(path.join(dir, '.doflow', 'state', '.gitignore'), 'utf8'), `${require('../../core/registry/storage.json').settings.ignoreFile.lines.join('\n')}\n`);
   assert.equal(fs.readFileSync(path.join(dir, '.git', 'info', 'exclude'), 'utf8'), exclude);
 });
 

@@ -8,15 +8,14 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
 const { ClaimsManager } = require('../../src/runtime/claims');
-const { acquireLock, readTaskState, SCHEMA_VERSION } = require('../../src/runtime/task-state');
+const { acquireLock, tryAcquireLock, readTaskState, SCHEMA_VERSION } = require('../../src/runtime/task-state');
 
 function stateRoot(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-taskstate-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dir = tempDir(t, 'doflow-task-state-concurrency-');
   return dir;
 }
 
@@ -155,6 +154,26 @@ test('R4: a stale lock from a dead writer is broken rather than honoured forever
 
   assert.equal(ledger.save(task), file, 'the save proceeds by breaking the minute-old lock');
   assert.ok(!fs.existsSync(`${file}.lock`), 'the lock is released after the write');
+});
+
+test('bounded try-lock refuses a live holder immediately and reclaims a stale lock', (t) => {
+  const root = stateRoot(t), file = path.join(root, 'bounded-lock.json'), lockDir = `${file}.lock`;
+  const release = tryAcquireLock(fs, file);
+  assert.equal(typeof release, 'function');
+  const started = Date.now();
+  assert.equal(tryAcquireLock(fs, file), null);
+  assert.ok(Date.now() - started < 100, 'a bounded caller does not wait for a live holder');
+  release();
+  const reAcquired = tryAcquireLock(fs, file);
+  assert.equal(typeof reAcquired, 'function');
+  reAcquired();
+  fs.mkdirSync(lockDir, { recursive: true });
+  const past = new Date(Date.now() - 60_000);
+  fs.utimesSync(lockDir, past, past);
+  const staleRelease = tryAcquireLock(fs, file);
+  assert.equal(typeof staleRelease, 'function');
+  staleRelease();
+  assert.equal(fs.existsSync(lockDir), false);
 });
 
 test('R4: a slow host gives up on a live holder at the wait bound instead of outliving its staleness window', (t) => {

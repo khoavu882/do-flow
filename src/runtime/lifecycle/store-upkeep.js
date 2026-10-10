@@ -22,7 +22,7 @@
 
 const nodeFs = require('node:fs');
 const path = require('node:path');
-const { acquireLock } = require('../task-state');
+const { acquireLock, tryAcquireLock } = require('../task-state');
 const {
   EVENTS_REL, LIFECYCLE_REL, JOURNAL_REL, lockTarget, isEventName, randomChars, readEvents, readJournal, StoreUnsafeError,
 } = require('./event-store');
@@ -206,61 +206,106 @@ function refreshLock(fsImpl, root) {
   try { fsImpl.utimesSync(`${lockTarget(root)}.lock`, now, now); } catch { /* the lock folder is ours; a failed touch only shortens its life */ }
 }
 
-/** Unlinks the named event files, counting successful or already-absent entries, then empties the journal. */
-function removePending(fsImpl, root, names, onRemoved = () => {}) {
+/** Unlinks pending event files without clearing the journal until every hidden name is finished. */
+function removePending(fsImpl, root, names, onRemoved = () => {}, { maxFiles = Infinity, shouldStop } = {}) {
   const dir = path.join(root, EVENTS_REL);
-  names.forEach((name, index) => {
+  let removed = 0;
+  for (let index = 0; index < names.length; index += 1) {
+    if (shouldStop?.()) return { complete: false, removed };
+    const file = path.join(dir, names[index]);
+    if (removed >= maxFiles) {
+      try { fsImpl.lstatSync(file); return { complete: false, removed }; }
+      catch (error) { if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error; continue; }
+    }
     if (index % REFRESH_EVERY === 0) refreshLock(fsImpl, root);
-    try { fsImpl.unlinkSync(path.join(dir, name)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-    onRemoved();
-  });
+    try {
+      fsImpl.unlinkSync(file);
+      removed += 1;
+      onRemoved();
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+  }
   writeJournal(fsImpl, root, []);
+  return { complete: true, removed };
 }
 
-/** The selected units' files, whole units only, up to MAX_PASS_FILES (one unit always); the rest wait for the next verb. */
-function passFiles(units) {
-  const files = [];
+/** Selects whole units only; a unit that does not fit waits for the next pass. */
+function passFiles(units, { maxFiles = MAX_PASS_FILES, shouldStop } = {}) {
+  const files = [], limit = Math.max(0, Math.min(MAX_PASS_FILES, Number.isFinite(maxFiles) ? maxFiles : MAX_PASS_FILES));
+  let partial = false;
   for (const unit of units) {
-    if (files.length > 0 && files.length + unit.files.length > MAX_PASS_FILES) break;
+    if (shouldStop?.()) { partial = true; break; }
+    if (files.length + unit.files.length > limit) { partial = true; break; }
     files.push(...unit.files);
   }
-  return files.sort();
+  return { files: files.sort(), partial };
 }
 
 /**
- * The retention pass, under the store lock: finish a pass that stopped part way, then remove what
- * is eligible now. A removal that fails leaves its files listed in the journal, and so hidden, and
- * gives the warning line instead of the count line.
- * @returns {{removed: string[], warning: string[]}}
+ * The retention pass, under the store lock: finish a pending journal within the caller's remaining
+ * limits, then remove whole eligible units. A stopped deletion keeps the complete name set hidden.
  */
-function retain(fsImpl, root, window, now) {
+function retain(fsImpl, root, window, now, { maxFiles = MAX_PASS_FILES, shouldStop } = {}) {
   let removedCount = 0;
+  const selected = [];
   try {
+    if (shouldStop?.()) return { removed: [], removedCount, warning: [], partial: true, selected };
     const pending = readJournal(root, fsImpl).pending;
-    if (pending.length) removePending(fsImpl, root, pending, () => { removedCount += 1; });
-    if (window.state !== 'on') return { removed: [], removedCount, warning: [] };
-    const { events } = readEvents(root, { fsImpl });
+    if (shouldStop?.()) return { removed: [], removedCount, warning: [], partial: true, selected };
+    if (pending.length) {
+      const result = removePending(fsImpl, root, pending, () => { removedCount += 1; }, { maxFiles, shouldStop });
+      if (!result.complete) return { removed: [], removedCount, warning: [], partial: true, selected };
+    }
+    const remaining = Math.max(0, maxFiles - removedCount);
+    if (window.state !== 'on') return { removed: [], removedCount, warning: [], partial: false, selected };
+    if (shouldStop?.()) return { removed: [], removedCount, warning: [], partial: true, selected };
+    const snapshot = readEvents(root, { fsImpl, lockFallback: false, shouldStop });
+    if (snapshot.incomplete) return { removed: [], removedCount, warning: [], partial: true, selected };
+    if (snapshot.unreadable.length) throw Object.assign(new Error('unreadable lifecycle events'), { code: 'EIO' });
     refreshLock(fsImpl, root);
-    const files = passFiles(selectExpired(events, { now, windowMs: window.ms }).units);
+    const selection = selectExpired(snapshot.events, { now, windowMs: window.ms, shouldStop });
+    if (selection.incomplete) return { removed: [], removedCount, warning: [], partial: true, selected };
+    const bounded = passFiles(selection.units, { maxFiles: remaining, shouldStop });
+    if (shouldStop?.()) return { removed: [], removedCount, warning: [], partial: true, selected };
+    for (const name of bounded.files) {
+      if (shouldStop?.()) return { removed: [], removedCount, warning: [], partial: true, selected };
+      const file = path.join(root, EVENTS_REL, name);
+      let info;
+      try { info = fsImpl.lstatSync(file); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      selected.push({ name, bytes: info?.isFile() ? info.size : 0 });
+    }
     refreshLock(fsImpl, root);
-    if (files.length === 0) return { removed: [], removedCount, warning: [] };
-    writeJournal(fsImpl, root, files);
-    removePending(fsImpl, root, files, () => { removedCount += 1; });
-    return { removed: window.source === 'default' ? [] : [removedLine(files.length, window.hours)], removedCount, warning: [] };
+    if (bounded.files.length === 0) return { removed: [], removedCount, warning: [], partial: bounded.partial, selected };
+    writeJournal(fsImpl, root, bounded.files);
+    const result = removePending(fsImpl, root, bounded.files, () => { removedCount += 1; }, { maxFiles: remaining, shouldStop });
+    return {
+      removed: window.source === 'default' ? [] : [removedLine(bounded.files.length, window.hours)],
+      removedCount, warning: [], partial: bounded.partial || !result.complete, selected,
+    };
   } catch (error) {
-    return { removed: [], removedCount, warning: [unlinkLine(error.code || error.message)] };
+    // A failure is not a stopped pass: `partial` means only a stop, a held lock or the removal cap,
+    // so throttled upkeep advances its due time instead of retrying a failing pass on every verb.
+    return { removed: [], removedCount, warning: [unlinkLine(error.code || error.message)], partial: false, selected, code: error.code || 'EIO' };
   }
 }
 
-/** Runs a lifecycle retention pass under the store lock for the storage engine. */
-function retainLocked(root, { window, now = new Date(), fsImpl = nodeFs } = {}) {
+/** Runs a bounded lifecycle retention pass under a non-waiting store lock for the storage engine. */
+function retainLocked(root, options = {}) {
+  const { window, now = new Date(), fsImpl = nodeFs, maxFiles = MAX_PASS_FILES, shouldStop } = options;
+  const bounded = Object.hasOwn(options, 'maxFiles') || Object.hasOwn(options, 'shouldStop');
+  const outcome = (removed, warning, partial = false, selected = [], code) => bounded
+    ? { removed, warning, partial, selected, ...(code ? { code } : {}) }
+    : { removed, warning };
   const eventsDir = path.join(root, EVENTS_REL);
   const st = lstatOrNull(fsImpl, eventsDir);
-  if (!st || !st.isDirectory()) return { removed: 0, warning: [] };
-  const release = acquireLock(fsImpl, lockTarget(root));
+  if (!st || !st.isDirectory()) return outcome(0, []);
+  if (shouldStop?.()) return outcome(0, [], true);
+  const release = tryAcquireLock(fsImpl, lockTarget(root));
+  if (!release) return outcome(0, [], true);
   try {
-    const result = retain(fsImpl, root, window, now);
-    return { removed: result.removedCount, warning: result.warning };
+    const result = retain(fsImpl, root, window, now, { maxFiles, shouldStop });
+    return outcome(result.removedCount, result.warning, result.partial, result.selected, result.code);
   } finally {
     release();
   }

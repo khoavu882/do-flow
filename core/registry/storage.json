@@ -293,7 +293,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/lifecycle/report-store.js"
+        "src/runtime/lifecycle/report-store.js",
+        "src/runtime/storage/engine.js"
       ]
     },
     {
@@ -550,11 +551,12 @@
       "protect": null,
       "moments": [],
       "writers": [
+        "src/runtime/storage/engine.js",
         "src/runtime/task-state.js"
       ],
       "source": {
         "file": "src/runtime/task-state.js",
-        "pattern": "LOCK_STALE_MS = {value}"
+        "pattern": "LOCK_STALE_MS = 10_000"
       }
     },
     {
@@ -562,7 +564,7 @@
       "root": "user-doflow",
       "path": "",
       "entry": "dir",
-      "match": "^(?:scripts|runtime|guidance|shared|templates)$",
+      "match": "^(?:scripts|runtime|guidance|shared|templates|\\.install-manifest\\.json|doflow\\.lock)$",
       "rule": "existing",
       "bound": {
         "text": "owned by the install ledger"
@@ -586,7 +588,7 @@
       "root": "project-doflow",
       "path": "",
       "entry": "dir",
-      "match": "^(?:scripts|runtime|guidance|shared|templates)$",
+      "match": "^(?:scripts|runtime|guidance|shared|templates|\\.install-manifest\\.json|doflow\\.lock)$",
       "rule": "existing",
       "bound": {
         "text": "owned by the install ledger"
@@ -715,7 +717,9 @@
       "moments": [
         "uninstall"
       ],
-      "writers": []
+      "writers": [
+        "src/runtime/storage/upkeep.js"
+      ]
     },
     {
       "id": "state-ignore-user-state",
@@ -731,7 +735,9 @@
       "moments": [
         "uninstall"
       ],
-      "writers": []
+      "writers": [
+        "src/runtime/storage/upkeep.js"
+      ]
     },
     {
       "id": "upkeep-marker-project-state",
@@ -747,7 +753,9 @@
       "moments": [
         "uninstall"
       ],
-      "writers": []
+      "writers": [
+        "src/runtime/storage/upkeep.js"
+      ]
     },
     {
       "id": "upkeep-marker-user-state",
@@ -763,7 +771,9 @@
       "moments": [
         "uninstall"
       ],
-      "writers": []
+      "writers": [
+        "src/runtime/storage/upkeep.js"
+      ]
     },
     {
       "id": "upkeep-marker-config-home",
@@ -779,7 +789,9 @@
       "moments": [
         "uninstall"
       ],
-      "writers": []
+      "writers": [
+        "src/runtime/storage/upkeep.js"
+      ]
     },
     {
       "id": "upkeep-lock-project-state",
@@ -795,7 +807,9 @@
       "moments": [
         "uninstall"
       ],
-      "writers": []
+      "writers": [
+        "src/runtime/storage/upkeep.js"
+      ]
     },
     {
       "id": "upkeep-lock-user-state",
@@ -811,7 +825,9 @@
       "moments": [
         "uninstall"
       ],
-      "writers": []
+      "writers": [
+        "src/runtime/storage/upkeep.js"
+      ]
     },
     {
       "id": "upkeep-lock-config-home",
@@ -827,7 +843,9 @@
       "moments": [
         "uninstall"
       ],
-      "writers": []
+      "writers": [
+        "src/runtime/storage/upkeep.js"
+      ]
     },
     {
       "id": "upkeep-roots",
@@ -843,7 +861,9 @@
       "moments": [
         "uninstall"
       ],
-      "writers": []
+      "writers": [
+        "src/runtime/storage/upkeep.js"
+      ]
     },
     {
       "id": "run-lock-project-state",

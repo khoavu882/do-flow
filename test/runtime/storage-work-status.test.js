@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
-const { workStatus, createWorkCache, RUN_OPEN_STATES } = require('../../src/runtime/storage/work-status');
+const { workStatus, createWorkCache, refreshedWorkCache, RUN_OPEN_STATES } = require('../../src/runtime/storage/work-status');
 
 const ROOT_USER = typeof process.getuid === 'function' && process.getuid() === 0;
 const DAY = 24 * 60 * 60 * 1000;
@@ -213,12 +213,53 @@ test('W9 finished work uses the later run end or record mtime and distinguishes 
   });
 });
 
-test('a namespaced feature record with no run and no plan finishes after its own idle time', (t) => {
+test('a namespaced feature record with no run finishes after its own idle time once its plan is all checked', (t) => {
   const projectRoot = setup(t);
   writeRecord(projectRoot, { taskId: 'B.1', namespace: '061-feature', value: { version: 1 } });
+  writePlan(projectRoot, '061-feature');
   assert.deepEqual(status(projectRoot, { taskId: 'B.1', namespace: '061-feature', mtimeMs: 73 }), {
     state: 'finished', since: 73, reason: 'no-run', run: null, feature: '061-feature',
   });
+});
+
+test('W6/W7 (AM22): an existing feature folder without plan.md is open work, never finished by age', (t) => {
+  const projectRoot = setup(t);
+  writeRecord(projectRoot, { taskId: 'B.1', namespace: '061-feature', value: { version: 1 } });
+  fs.mkdirSync(path.join(projectRoot, 'agent-docs', 'doflow', '061-feature'), { recursive: true });
+  assert.deepEqual(status(projectRoot, { taskId: 'B.1', namespace: '061-feature', mtimeMs: 73 }), {
+    state: 'open', since: null, reason: 'plan-missing', run: null, feature: '061-feature',
+  });
+  fs.mkdirSync(path.join(projectRoot, 'agent-docs', 'doflow', '062-inferred'), { recursive: true });
+  writeRecord(projectRoot, { taskId: '062-inferred-A.1' });
+  assert.deepEqual(status(projectRoot, { taskId: '062-inferred-A.1', mtimeMs: 73 }), {
+    state: 'open', since: null, reason: 'plan-missing', run: null, feature: '062-inferred',
+  });
+});
+
+test('W6/W7 (AM22): a feature named by a record or run whose folder does not exist is undecidable and kept', (t) => {
+  const projectRoot = setup(t);
+  writeRecord(projectRoot, { taskId: 'B.1', namespace: 'renamed-feature', value: { version: 1 } });
+  assert.deepEqual(status(projectRoot, { taskId: 'B.1', namespace: 'renamed-feature', mtimeMs: 73 }), {
+    state: 'undecidable', since: null, reason: 'feature-missing', run: null, feature: 'renamed-feature',
+  });
+  writeRecord(projectRoot, { taskId: 'gone-run' });
+  writeRun(projectRoot, 'gone-run', { state: 'COMPLETED', featureSlug: 'removed-feature', updatedAt: '2026-01-01T00:00:00.000Z' });
+  assert.deepEqual(status(projectRoot, { taskId: 'gone-run', mtimeMs: 73 }), {
+    state: 'undecidable', since: null, reason: 'feature-missing', run: 'gone-run', feature: 'removed-feature',
+  });
+});
+
+test('W6/W7 (AM22): a refreshed cache rereads the feature folder and plan after selection', (t) => {
+  const projectRoot = setup(t);
+  writeRecord(projectRoot, { taskId: 'B.1', namespace: '061-feature', value: { version: 1 } });
+  const plan = writePlan(projectRoot, '061-feature');
+  const cache = createWorkCache({ projectRoot, fsImpl: fs });
+  assert.equal(status(projectRoot, { taskId: 'B.1', namespace: '061-feature', mtimeMs: 73, cache }).state, 'finished');
+  fs.unlinkSync(plan);
+  assert.equal(status(projectRoot, { taskId: 'B.1', namespace: '061-feature', mtimeMs: 73, cache }).state, 'finished', 'one pass reads a plan once');
+  assert.equal(status(projectRoot, { taskId: 'B.1', namespace: '061-feature', mtimeMs: 73, cache: refreshedWorkCache(cache) }).reason, 'plan-missing');
+  fs.rmdirSync(path.dirname(plan));
+  assert.equal(status(projectRoot, { taskId: 'B.1', namespace: '061-feature', mtimeMs: 73, cache: refreshedWorkCache(cache) }).reason, 'feature-missing');
 });
 
 test('_claims is stripped for run and feature matching while its own record is read', (t) => {

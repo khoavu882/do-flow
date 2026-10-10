@@ -301,7 +301,14 @@ function applyEvent(state, event, { checkFuture = true } = {}) {
 /** @param {Array<Object>} events IC-002 envelopes, in any order */
 function foldInto(events, options = {}) {
   const state = newState(options);
-  for (const event of [...events].sort(byOrder)) applyEvent(state, event);
+  if (options.shouldStop?.()) { state.incomplete = true; return state; }
+  const ordered = [...events].sort(byOrder);
+  if (options.shouldStop?.()) { state.incomplete = true; return state; }
+  for (const event of ordered) {
+    if (options.shouldStop?.()) { state.incomplete = true; break; }
+    applyEvent(state, event);
+  }
+  if (options.shouldStop?.()) state.incomplete = true;
   return state;
 }
 
