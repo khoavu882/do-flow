@@ -19,13 +19,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 
 const { fingerprint, planCodexConfig } = require('../../../src/adapters/codex/config');
 const { planCodexAgents, fingerprint: agentFingerprint } = require('../../../src/adapters/codex/agents');
 
-function scratch(prefix) { return fs.mkdtempSync(path.join(os.tmpdir(), `doflow-codex-adopt-${prefix}-`)); }
+function scratch(prefix) { return suiteTempDir(`doflow-codex-adopt-${prefix}-`); }
 
 function configResource(value = true) {
   return { target: 'codex', scope: 'project', kind: 'configuration-entry', identity: 'features.hooks', value, sourceVersion: 'test' };

@@ -2,12 +2,12 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../src/helper/marker-merge');
+const { tempDir } = require('./tmp');
 
-function scratchDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-claudemd-'));
+function scratchDir(t) {
+  return tempDir(t, 'doflow-claudemd-');
 }
 
 function writeSrc(dir, content) {
@@ -28,8 +28,8 @@ test('marker constants match the exact literal contract strings', () => {
   assert.strictEqual(MARKER_END, '<!-- doflow:end -->');
 });
 
-test('create-when-missing: dst is created containing exactly the computed section', () => {
-  const dir = scratchDir();
+test('create-when-missing: dst is created containing exactly the computed section', (t) => {
+  const dir = scratchDir(t);
   const srcContent = 'Content of the file.\n\n\n'; // trailing whitespace to prove trimming
   const src = writeSrc(dir, srcContent);
   const dst = dstPath(dir);
@@ -41,8 +41,8 @@ test('create-when-missing: dst is created containing exactly the computed sectio
   assert.strictEqual(fs.readFileSync(dst, 'utf8'), expected);
 });
 
-test('append: dst exists with no markers, no trailing newline -> separator is exactly "\\n\\n"', () => {
-  const dir = scratchDir();
+test('append: dst exists with no markers, no trailing newline -> separator is exactly "\\n\\n"', (t) => {
+  const dir = scratchDir(t);
   const src = writeSrc(dir, 'Section body text.');
   const dst = dstPath(dir);
   fs.mkdirSync(path.dirname(dst), { recursive: true });
@@ -59,8 +59,8 @@ test('append: dst exists with no markers, no trailing newline -> separator is ex
   assert.ok(actual.startsWith(existing), 'existing bytes must be preserved byte-for-byte at the start');
 });
 
-test('append: dst exists with no markers, ends with exactly ONE trailing newline -> one more "\\n" added', () => {
-  const dir = scratchDir();
+test('append: dst exists with no markers, ends with exactly ONE trailing newline -> one more "\\n" added', (t) => {
+  const dir = scratchDir(t);
   const src = writeSrc(dir, 'Section body text.');
   const dst = dstPath(dir);
   fs.mkdirSync(path.dirname(dst), { recursive: true });
@@ -77,8 +77,8 @@ test('append: dst exists with no markers, ends with exactly ONE trailing newline
   assert.ok(actual.startsWith(existing), 'existing bytes must be preserved byte-for-byte at the start');
 });
 
-test('append: dst exists with no markers, ends with TWO trailing newlines -> still exactly one "\\n" added', () => {
-  const dir = scratchDir();
+test('append: dst exists with no markers, ends with TWO trailing newlines -> still exactly one "\\n" added', (t) => {
+  const dir = scratchDir(t);
   const src = writeSrc(dir, 'Section body text.');
   const dst = dstPath(dir);
   fs.mkdirSync(path.dirname(dst), { recursive: true });
@@ -95,8 +95,8 @@ test('append: dst exists with no markers, ends with TWO trailing newlines -> sti
   assert.strictEqual(actual, expected);
 });
 
-test('append: dst exists with no markers, ends with THREE trailing newlines -> still exactly one "\\n" added', () => {
-  const dir = scratchDir();
+test('append: dst exists with no markers, ends with THREE trailing newlines -> still exactly one "\\n" added', (t) => {
+  const dir = scratchDir(t);
   const src = writeSrc(dir, 'Section body text.');
   const dst = dstPath(dir);
   fs.mkdirSync(path.dirname(dst), { recursive: true });
@@ -112,8 +112,8 @@ test('append: dst exists with no markers, ends with THREE trailing newlines -> s
   assert.strictEqual(actual, expected);
 });
 
-test('replace: existing marker span is replaced in place; content before and after the span is untouched', () => {
-  const dir = scratchDir();
+test('replace: existing marker span is replaced in place; content before and after the span is untouched', (t) => {
+  const dir = scratchDir(t);
   const dst = dstPath(dir);
   fs.mkdirSync(path.dirname(dst), { recursive: true });
 
@@ -142,8 +142,8 @@ test('replace: existing marker span is replaced in place; content before and aft
   assert.ok(!actual.includes('OLD SECTION CONTENT HERE'), 'old section content must be gone');
 });
 
-test('idempotency: calling twice with unchanged src/dst performs no second write (bytes and mtime unchanged)', () => {
-  const dir = scratchDir();
+test('idempotency: calling twice with unchanged src/dst performs no second write (bytes and mtime unchanged)', (t) => {
+  const dir = scratchDir(t);
   const src = writeSrc(dir, 'Stable content.');
   const dst = dstPath(dir);
 
@@ -167,8 +167,8 @@ test('idempotency: calling twice with unchanged src/dst performs no second write
   );
 });
 
-test('malformed markers: MARKER_START present with no MARKER_END anywhere after it throws', () => {
-  const dir = scratchDir();
+test('malformed markers: MARKER_START present with no MARKER_END anywhere after it throws', (t) => {
+  const dir = scratchDir(t);
   const src = writeSrc(dir, 'New content.');
   const dst = dstPath(dir);
   fs.mkdirSync(path.dirname(dst), { recursive: true });
@@ -177,8 +177,8 @@ test('malformed markers: MARKER_START present with no MARKER_END anywhere after 
   assert.throws(() => mergeMarkedSection(src, dst));
 });
 
-test('duplicate MARKER_START: dst containing MARKER_START twice throws', () => {
-  const dir = scratchDir();
+test('duplicate MARKER_START: dst containing MARKER_START twice throws', (t) => {
+  const dir = scratchDir(t);
   const src = writeSrc(dir, 'New content.');
   const dst = dstPath(dir);
   fs.mkdirSync(path.dirname(dst), { recursive: true });
@@ -195,8 +195,8 @@ test('duplicate MARKER_START: dst containing MARKER_START twice throws', () => {
 // a span whose own content happened to mention the marker text (source content documenting this
 // exact mechanism, or a copy-pasted example) was misdiagnosed as "duplicate marker" and blocked
 // forever, even though there is genuinely only one real span.
-test('self-reference: source content that itself contains the marker text does not false-positive as a duplicate', () => {
-  const dir = scratchDir();
+test('self-reference: source content that itself contains the marker text does not false-positive as a duplicate', (t) => {
+  const dir = scratchDir(t);
   const src = writeSrc(dir, `This project wraps managed content in ${MARKER_START} markers.`);
   const dst = dstPath(dir);
 
@@ -208,8 +208,8 @@ test('self-reference: source content that itself contains the marker text does n
   assert.strictEqual(second.changed, false);
 });
 
-test('dryRun: dst does not exist -> reports changed:true but creates nothing', () => {
-  const dir = scratchDir();
+test('dryRun: dst does not exist -> reports changed:true but creates nothing', (t) => {
+  const dir = scratchDir(t);
   const src = writeSrc(dir, 'Some content.');
   const dst = dstPath(dir);
 
@@ -219,8 +219,8 @@ test('dryRun: dst does not exist -> reports changed:true but creates nothing', (
   assert.strictEqual(fs.existsSync(dst), false, 'dryRun must never create the file');
 });
 
-test('dryRun: dst exists and would be appended to -> reports changed:true but dst bytes are completely unchanged', () => {
-  const dir = scratchDir();
+test('dryRun: dst exists and would be appended to -> reports changed:true but dst bytes are completely unchanged', (t) => {
+  const dir = scratchDir(t);
   const src = writeSrc(dir, 'Some content.');
   const dst = dstPath(dir);
   fs.mkdirSync(path.dirname(dst), { recursive: true });
@@ -233,8 +233,8 @@ test('dryRun: dst exists and would be appended to -> reports changed:true but ds
   assert.strictEqual(fs.readFileSync(dst, 'utf8'), existing, 'dryRun must not modify dst bytes at all');
 });
 
-test('dryRun: dst exists and would be replaced -> reports changed:true but dst bytes are completely unchanged', () => {
-  const dir = scratchDir();
+test('dryRun: dst exists and would be replaced -> reports changed:true but dst bytes are completely unchanged', (t) => {
+  const dir = scratchDir(t);
   const dst = dstPath(dir);
   fs.mkdirSync(path.dirname(dst), { recursive: true });
   const dstOriginal = 'before\n' + MARKER_START + '\nold\n' + MARKER_END + '\nafter';
@@ -247,8 +247,8 @@ test('dryRun: dst exists and would be replaced -> reports changed:true but dst b
   assert.strictEqual(fs.readFileSync(dst, 'utf8'), dstOriginal, 'dryRun must not modify dst bytes at all');
 });
 
-test('dryRun: nothing would change -> reports changed:false and performs no write', () => {
-  const dir = scratchDir();
+test('dryRun: nothing would change -> reports changed:false and performs no write', (t) => {
+  const dir = scratchDir(t);
   const src = writeSrc(dir, 'Stable content.');
   const dst = dstPath(dir);
 
@@ -269,16 +269,16 @@ test('dryRun: nothing would change -> reports changed:false and performs no writ
 
 // removeMarkedSection: shared by the Claude and Codex adapters' remove() — previously an
 // identical private copy in each adapter, centralized here alongside mergeMarkedSection.
-test('removeMarkedSection: file does not exist -> returns false, creates nothing', () => {
-  const dir = scratchDir();
+test('removeMarkedSection: file does not exist -> returns false, creates nothing', (t) => {
+  const dir = scratchDir(t);
   const file = dstPath(dir);
 
   assert.strictEqual(removeMarkedSection(file), false);
   assert.strictEqual(fs.existsSync(file), false);
 });
 
-test('removeMarkedSection: file exists with no markers -> returns false, bytes untouched', () => {
-  const dir = scratchDir();
+test('removeMarkedSection: file exists with no markers -> returns false, bytes untouched', (t) => {
+  const dir = scratchDir(t);
   const file = dstPath(dir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const content = 'Just a plain file, no doflow markers at all.\n';
@@ -288,8 +288,8 @@ test('removeMarkedSection: file exists with no markers -> returns false, bytes u
   assert.strictEqual(fs.readFileSync(file, 'utf8'), content);
 });
 
-test('removeMarkedSection: strips the span, preserving content before and after byte-for-byte', () => {
-  const dir = scratchDir();
+test('removeMarkedSection: strips the span, preserving content before and after byte-for-byte', (t) => {
+  const dir = scratchDir(t);
   const file = dstPath(dir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const before = '# My File\n\nSome intro text.\n\n';
@@ -302,8 +302,8 @@ test('removeMarkedSection: strips the span, preserving content before and after 
   assert.strictEqual(actual, before + after);
 });
 
-test('removeMarkedSection: file is only the managed span -> deleted, not left empty', () => {
-  const dir = scratchDir();
+test('removeMarkedSection: file is only the managed span -> deleted, not left empty', (t) => {
+  const dir = scratchDir(t);
   const file = dstPath(dir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, MARKER_START + '\n' + 'ONLY CONTENT' + '\n' + MARKER_END + '\n');
@@ -312,8 +312,8 @@ test('removeMarkedSection: file is only the managed span -> deleted, not left em
   assert.strictEqual(fs.existsSync(file), false, 'a file holding nothing but the managed span is removed');
 });
 
-test('removeMarkedSection: a user file holding only whitespace beside the span is written back, not deleted', () => {
-  const dir = scratchDir();
+test('removeMarkedSection: a user file holding only whitespace beside the span is written back, not deleted', (t) => {
+  const dir = scratchDir(t);
   const file = dstPath(dir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, '\n\n' + MARKER_START + '\n' + 'ONLY CONTENT' + '\n' + MARKER_END + '\n\n');
@@ -329,8 +329,8 @@ for (const [label, original] of [
   ['one trailing newline', 'user\n'], ['a trailing blank line', 'user\n\n'], ['two trailing blank lines', 'user\n\n\n'],
   ['CRLF', 'user\r\n'], ['CRLF blank line', 'user\r\n\r\n'],
 ]) {
-  test(`merge then removeMarkedSection restores a user file ending in ${label} byte for byte`, () => {
-    const dir = scratchDir();
+  test(`merge then removeMarkedSection restores a user file ending in ${label} byte for byte`, (t) => {
+    const dir = scratchDir(t);
     const src = writeSrc(dir, 'MANAGED\n');
     const file = dstPath(dir);
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -342,8 +342,8 @@ for (const [label, original] of [
   });
 }
 
-test('removeMarkedSection: undoes an append to a user file, separator included', () => {
-  const dir = scratchDir();
+test('removeMarkedSection: undoes an append to a user file, separator included', (t) => {
+  const dir = scratchDir(t);
   const src = path.join(dir, 'src.md');
   const file = dstPath(dir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -355,8 +355,8 @@ test('removeMarkedSection: undoes an append to a user file, separator included',
   assert.strictEqual(fs.readFileSync(file, 'utf8'), '# Mine\n');
 });
 
-test('removeMarkedSection: malformed markers (MARKER_START with no MARKER_END) throws', () => {
-  const dir = scratchDir();
+test('removeMarkedSection: malformed markers (MARKER_START with no MARKER_END) throws', (t) => {
+  const dir = scratchDir(t);
   const file = dstPath(dir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, 'prefix\n' + MARKER_START + '\nno end marker anywhere\n');
@@ -364,8 +364,8 @@ test('removeMarkedSection: malformed markers (MARKER_START with no MARKER_END) t
   assert.throws(() => removeMarkedSection(file));
 });
 
-test('removeMarkedSection: duplicate MARKER_START throws', () => {
-  const dir = scratchDir();
+test('removeMarkedSection: duplicate MARKER_START throws', (t) => {
+  const dir = scratchDir(t);
   const file = dstPath(dir);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const content =

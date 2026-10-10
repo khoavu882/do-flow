@@ -5,11 +5,11 @@
 // A task id such as `A.1` repeats across features. Two scratch features share that id here; the one
 // with a register keeps its records under its own slug and never reads the other's, and the one
 // without keeps the flat layout exactly, so a folder from before the register behaves as before.
-const { test, after } = require('node:test');
+const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const { spawnSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, '../..');
@@ -23,14 +23,9 @@ test.afterEach(() => { setDefaultSlug(null); clearTaskScopeCache(); });
 const WITH = '046-with-register';
 const WITHOUT = '047-no-register';
 
-/** Every scratch directory this file makes is removed when it finishes. */
-const made = [];
-after(() => { for (const dir of made) fs.rmSync(dir, { recursive: true, force: true }); });
-
 /** A scratch project with two features: one carrying a register file, one without. */
 function project(label) {
-  const real = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `doflow-scope-${label}-`)));
-  made.push(real);
+  const real = suiteTempDir(`doflow-task-scope-${label}-`);
   fs.writeFileSync(path.join(real, 'a.js'), 'const x = 1;\n');
   const feature = (slug, withRegister) => {
     const dir = path.join(real, 'agent-docs', 'doflow', slug);
@@ -154,8 +149,7 @@ test('resolveTaskScope reports the namespace and the reason for every outcome', 
     { namespace: null, slug: WITHOUT, reason: 'no-register' });
 
   // No feature folder anywhere above, and a resolver that cannot name one: null, never a throw.
-  const bare = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-scope-bare-')));
-  made.push(bare);
+  const bare = suiteTempDir('doflow-task-scope-bare-');
   assert.deepEqual(resolveTaskScope({ projectRoot: bare, taskId: 'A.1' }),
     { namespace: null, slug: null, reason: 'no-feature' });
   assert.deepEqual(resolveTaskScope({ projectRoot: root, taskId: 'A.1', slug: '../escape' }),
@@ -244,8 +238,7 @@ test('an explicit slug naming no feature notes it on stderr; stdout and the layo
   assert.equal(spawn(['--slug', WITHOUT]).stderr, '');
   assert.equal(spawn([]).stderr, '');
   // The bare project with no feature folder anywhere is the same situation.
-  const bare = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-scope-bare2-')));
-  made.push(bare);
+  const bare = suiteTempDir('doflow-task-scope-bare2-');
   const res = spawnSync('node', [DOFLOW, 'evidence', '--task-id', 'A.1', '--slug', '099-nothing', '--action', 'list', '--json'],
     { cwd: bare, env: { ...process.env, HOME: bare }, encoding: 'utf8' });
   assert.match(res.stderr, /names no feature/);

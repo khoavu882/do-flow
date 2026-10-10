@@ -1,23 +1,20 @@
 'use strict';
 // Retention and backup sizes in src/install/backup.js. Backups are planted by hand under scratch
 // directories; nothing here reaches a real HOME.
-const { test, after } = require('node:test');
+const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const { applyRetention, backupSize } = require('../../src/install/backup');
 const { plantFullBackup } = require('../helper/backup-v1-fixture');
 const { IS_WIN } = require('../helper-platform');
 
 const DAY = 24 * 60 * 60 * 1000;
 
-const scratches = [];
-after(() => { for (const dir of scratches) fs.rmSync(dir, { recursive: true, force: true }); });
-
 function scratchDir() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-backup-retention-')));
-  scratches.push(dir);
+  const dir = suiteTempDir('doflow-backup-retention-');
   return dir;
 }
 

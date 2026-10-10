@@ -2,12 +2,12 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const { createOpenCodeAdapter, nativePaths, mergeConfig, unmergeConfig, MARKER_START } = require('../../../src/adapters/opencode');
 const { assertAdapter } = require('../../../src/adapters');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-opencode-')); }
+function scratch() { return suiteTempDir('doflow-opencode-'); }
 const instructionAssets = [{ id: 'guidance.codex-pointer', capability: 'instructions', source: 'source.md' }];
 
 test('implements the adapter contract and resolves official project/user native paths', () => {

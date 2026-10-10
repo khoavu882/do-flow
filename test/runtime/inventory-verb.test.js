@@ -21,7 +21,7 @@
  *      logical asset between them and asserts the shape IC-002 promises: one entry, one record
  *      per scope, and a verdict naming the winner.
  *
- * Hermetic throughout. Scope roots are `mkdtemp` directories; the global scope's root is not a
+ * Hermetic throughout. Scope roots are `suiteTempDir` directories; the global scope's root is not a
  * parameter (design R7), so `os.homedir` is relocated around the synchronous call, as
  * `test/lifecycle/dual-scope-read.test.js` does. Nothing is written inside the repository or
  * inside the real `$HOME`, and no install is performed.
@@ -33,6 +33,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { suiteTempDir } = require('../helper/tmp');
 const { stateRoot, defaultLedger, writeLedger } = require('../../src/state');
 const { defaultLock } = require('../../src/state/lockfile');
 const { loadRegistry } = require('../../src/registry');
@@ -202,8 +203,6 @@ test('IC-002: one logical asset held at both scopes joins into one entry with a 
 
 // ------------------------------------------------------------------------------- the fixture
 
-function scratch(prefix) { return fs.mkdtempSync(path.join(os.tmpdir(), prefix)); }
-
 /** The human rendering, captured. Asserted beside the JSON wherever a report's two renderings could
  * disagree — which is not hypothetical here: `printReport` skips every asset whose remedy is null,
  * so an asset that gained a finding without gaining a remedy would be invisible in this half only. */
@@ -252,8 +251,8 @@ function seedScope({ scope, scopeRoot, resources, harness = 'claude' }) {
  * repair-coverage assertions tell `outside-repair-path` apart from a narrow lock.
  */
 function fixtureReport() {
-  const home = scratch('doflow-inventory-home-');
-  const project = scratch('doflow-inventory-project-');
+  const home = suiteTempDir('doflow-inventory-home-');
+  const project = suiteTempDir('doflow-inventory-project-');
 
   const joined = {
     identity: 'claude doflow:claude:copy-tree:skills.doflow:synthetic-041/SKILL.md',
@@ -449,8 +448,8 @@ test('FR-006: the same copy, with its selection recorded in the lock, is reporte
  * live plan really emits for that source file, so `diverged` is a judgement against a real plan
  * rather than a hand-set flag. */
 function restrictionFixture() {
-  const home = scratch('doflow-inventory-restrict-home-');
-  const project = scratch('doflow-inventory-restrict-project-');
+  const home = suiteTempDir('doflow-inventory-restrict-home-');
+  const project = suiteTempDir('doflow-inventory-restrict-project-');
   const rows = [
     {
       harness: 'claude', ownershipIdentity: 'doflow:claude:copy-tree:skills.doflow:do/SKILL.md',
@@ -485,8 +484,8 @@ function restrictionFixture() {
  * selection the lock records. The block on disk and the recorded fingerprint agree — the resource is
  * intact, which is the whole point: only the selection differs between the two callers. */
 function mcpReport({ mcpSelections }) {
-  const home = scratch('doflow-inventory-mcp-home-');
-  const project = scratch('doflow-inventory-mcp-project-');
+  const home = suiteTempDir('doflow-inventory-mcp-home-');
+  const project = suiteTempDir('doflow-inventory-mcp-project-');
   const block = '[mcp_servers.context7]\ncommand = "npx"\nargs = ["-y", "@upstash/context7-mcp"]\n';
   const configFile = path.join(home, '.codex', 'config.toml');
   fs.mkdirSync(path.dirname(configFile), { recursive: true });
@@ -567,8 +566,8 @@ test('IC-002: a resource of a harness whose plan was refused is indeterminable, 
 /** One recorded codex resource at a path no plan produces, beside a `config.toml` the caller chooses
  * — well-formed, or not well-formed enough for the codex adapter to plan at all. */
 function unplannableFixture({ config }) {
-  const home = scratch('doflow-inventory-refused-home-');
-  const project = scratch('doflow-inventory-refused-project-');
+  const home = suiteTempDir('doflow-inventory-refused-home-');
+  const project = suiteTempDir('doflow-inventory-refused-project-');
   const configFile = path.join(home, '.codex', 'config.toml');
   fs.mkdirSync(path.dirname(configFile), { recursive: true });
   fs.writeFileSync(configFile, config);
@@ -731,8 +730,8 @@ test('IC-002: a withheld verdict names no scope, and a shadow names the winning 
  * plan change matches them and no divergence clouds the sibling counts.
  */
 function siblingFixture(strayNames) {
-  const home = scratch('doflow-inventory-siblings-home-');
-  const project = scratch('doflow-inventory-siblings-project-');
+  const home = suiteTempDir('doflow-inventory-siblings-home-');
+  const project = suiteTempDir('doflow-inventory-siblings-project-');
   const instructions = path.join(home, '.github', 'instructions');
   fs.mkdirSync(instructions, { recursive: true });
 
@@ -768,8 +767,8 @@ function siblingFixture(strayNames) {
  * explicitly unestablished resolution mode (IC-003's second state), so the verdict is withheld —
  * which is the only way to reach the finding kind this fixture exists for. */
 function withheldFixture() {
-  const home = scratch('doflow-inventory-withheld-home-');
-  const project = scratch('doflow-inventory-withheld-project-');
+  const home = suiteTempDir('doflow-inventory-withheld-home-');
+  const project = suiteTempDir('doflow-inventory-withheld-project-');
   const ownershipIdentity = 'doflow:gemini:copy-tree:skills.doflow:synthetic-041/SKILL.md';
   const row = (scope, scopeRoot, native) => ({
     harness: 'gemini', scope, assetId: 'skills.doflow', ownershipIdentity,
@@ -1025,8 +1024,8 @@ function copyTreeRow({ relPath, target, fingerprint, harness = 'claude' }) {
  *     and prove nothing.
  */
 function staleRowFixture() {
-  const home = scratch('doflow-inventory-stale-home-');
-  const project = scratch('doflow-inventory-stale-project-');
+  const home = suiteTempDir('doflow-inventory-stale-home-');
+  const project = suiteTempDir('doflow-inventory-stale-project-');
   const skills = path.join(home, '.claude', 'skills');
 
   const stale = { relPath: 'do/SKILL.md', target: path.join(skills, 'do', 'SKILL.md') };
@@ -1074,8 +1073,8 @@ function staleRowFixture() {
  * old `matches` on the first of them impossible to defend.
  */
 function unjoinableFixture() {
-  const home = scratch('doflow-inventory-unjoinable-home-');
-  const project = scratch('doflow-inventory-unjoinable-project-');
+  const home = suiteTempDir('doflow-inventory-unjoinable-home-');
+  const project = suiteTempDir('doflow-inventory-unjoinable-project-');
   const base = copyTreeRow({
     relPath: 'synthetic-041/SKILL.md',
     target: path.join(home, '.claude', 'skills', 'synthetic-041', 'SKILL.md'),

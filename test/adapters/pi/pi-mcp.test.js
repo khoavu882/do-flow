@@ -2,8 +2,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const { createPiAdapter } = require('../../../src/adapters/pi');
 const { createAdapterRegistry } = require('../../../src/adapters');
 const { fingerprint } = require('../../../src/adapters/copy-tree');
@@ -25,7 +25,7 @@ const NOTICE = {
   N3: 'MCP: Pi reads .pi/mcp.json only after this project is trusted (/trust or --approve); DoFlow does not grant trust.',
 };
 
-function scratch() { return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-pi-mcp-'))); }
+function scratch() { return suiteTempDir('doflow-pi-mcp-'); }
 
 function userFile(root) { return path.join(root, '.pi', 'agent', 'mcp.json'); }
 

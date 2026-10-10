@@ -3,13 +3,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const {
   agentDirectory, destinationFor, discoverCodexAgents, planCodexAgents, reconcileCodexAgents,
 } = require('../../../src/adapters/codex/agents');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-codex-agents-')); }
+function scratch() { return suiteTempDir('doflow-codex-agents-'); }
 function agent(name = 'backend-architect', sandbox = 'sandbox_mode = "read-only"') {
   return `name = "${name}"\ndescription = "A specialist with a clear, bounded orchestration purpose."\n${sandbox}\ndeveloper_instructions = """\nUse evidence before recommendations and clearly identify trade-offs, risks, and validation needs.\nDo not make workspace changes; return concise findings for the parent orchestrator instead.\n"""\n`;
 }

@@ -3,9 +3,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { tempDir, suiteTempDir } = require('../helper/tmp');
 const {
   runDecision, addDecisions, initRegister, listDecisions, readRegister, renderLiveView, renderArchive,
   registerFile, handleDecisionCommand, STATEMENT_MAX,
@@ -20,7 +20,7 @@ function git(cwd, ...args) {
 
 /** A temp git repo on feat/001-demo; the feature folder exists only when `files` names something. */
 function repo(files = {}) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-decision-')));
+  const root = suiteTempDir('doflow-decision-register-');
   git(root, 'init', '-q');
   git(root, 'commit', '-q', '--allow-empty', '-m', 'init');
   git(root, 'checkout', '-q', '-b', `feat/${SLUG}`);
@@ -437,12 +437,12 @@ test('a compaction failure exits 1 as compaction-failed, names the artifact, and
 
 // ── usage and resolution ───────────────────────────────────────────────────────────────────────
 
-test('an unknown action and an unresolvable feature are usage errors', () => {
+test('an unknown action and an unresolvable feature are usage errors', (t) => {
   const r = initialised();
   const unknown = runDecision({ action: 'purge', projectRoot: r.root });
   assert.equal(unknown.exitCode, 2);
   assert.match(unknown.usage, /init, add, list, compact/);
-  const bare = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-decision-bare-')));
+  const bare = tempDir(t, 'doflow-decision-register-bare-');
   git(bare, 'init', '-q');
   git(bare, 'commit', '-q', '--allow-empty', '-m', 'init');
   git(bare, 'checkout', '-q', '-B', 'main');

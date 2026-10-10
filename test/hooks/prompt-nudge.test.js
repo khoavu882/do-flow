@@ -13,6 +13,7 @@ const { test, describe, after } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 
@@ -346,7 +347,7 @@ describe('per-session', () => {
     ];
     settings.forEach(({ project, user, nudged }, i) => {
       const { dir } = repo();
-      const xdg = fs.mkdtempSync(path.join(scratch.dir, 'xdg-'));
+      const xdg = suiteTempDir('doflow-prompt-nudge-xdg-');
       if (project) write(path.join(dir, '.doflow', 'prompt-nudge'), `${project}\n`);
       if (user) write(path.join(xdg, 'doflow', 'prompt-nudge'), `${user}\n`);
       const id = `ps-setting-${i}`;
@@ -416,7 +417,7 @@ describe('per-session', () => {
 
     CASE('an unwritable marker folder gives no nudge, and the context is unchanged', () => {
       const { dir } = repo();
-      const xdg = fs.mkdtempSync(path.join(scratch.dir, 'xdg-'));
+      const xdg = suiteTempDir('doflow-prompt-nudge-xdg-');
       const nudgeDir = path.join(xdg, 'doflow', 'session-env', 'nudge');
       fs.mkdirSync(nudgeDir, { recursive: true });
       fs.chmodSync(nudgeDir, 0o500);
@@ -457,7 +458,7 @@ describe('per-session', () => {
   });
 
   CASE('a cwd without a leading / ends: the first qualifying prompt keeps its context and is nudged', () => {
-    const base = fs.realpathSync(fs.mkdtempSync(path.join(scratch.dir, 'relcwd-')));
+    const base = suiteTempDir('doflow-prompt-nudge-relcwd-');
     const rel = path.join(base, 'relrepo');
     fs.mkdirSync(rel);
     git(rel, 'init', '-q', '-b', 'main');

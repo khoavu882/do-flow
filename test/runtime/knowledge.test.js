@@ -2,14 +2,14 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const { spawnSync } = require('node:child_process');
 const { chunkMarkdown, HARD_MAX_CHUNK_CHARS } = require('../../src/runtime/knowledge/chunker');
 const { buildIndex, loadIndex, isFresh } = require('../../src/runtime/knowledge/index-store');
 const { bm25Rank, searchGuidance } = require('../../src/runtime/knowledge/retrieval');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-know-')); }
+function scratch() { return suiteTempDir('doflow-knowledge-'); }
 
 const DOC = `---
 title: Graphify Guide

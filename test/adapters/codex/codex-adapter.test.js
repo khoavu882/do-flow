@@ -2,15 +2,15 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const { loadRegistry, selectAssets } = require('../../../src/registry');
 const { harnessFor } = require('../../../src/registry');
 const { projectAdapterInput } = require('../../../src/adapters');
 const { normalizeContext, discover, render, plan, apply, remove, verify } = require('../../../src/adapters/codex');
 
 const REPO = path.resolve(__dirname, "../../..");
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-codex-adapter-')); }
+function scratch() { return suiteTempDir('doflow-codex-adapter-'); }
 
 test('discovers native Codex locations in neutral project scope', () => {
   const projectRoot = scratch();

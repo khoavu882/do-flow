@@ -1,11 +1,11 @@
 'use strict';
 // Format-2 writer, temp sweep and listing in src/install/backup.js. Sets are built by hand here, the
-// way the set builder shapes them; every path lives under a scratch directory in os.tmpdir().
-const { test, after } = require('node:test');
+// way the set builder shapes them; every path lives under a scratch directory in the OS temporary folder.
+const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const {
   BackupError, createFileBackup, sweepStaleTemps, listBackups, formatBytes, backupId,
 } = require('../../src/install/backup');
@@ -14,12 +14,8 @@ const REPO = path.resolve(__dirname, '../..');
 const DATE = new Date('2026-03-15T10:20:30');
 const HOUR = 60 * 60 * 1000;
 
-const scratches = [];
-after(() => { for (const dir of scratches) fs.rmSync(dir, { recursive: true, force: true }); });
-
 function scratchDir() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-backup-format-')));
-  scratches.push(dir);
+  const dir = suiteTempDir('doflow-backup-format-');
   return dir;
 }
 

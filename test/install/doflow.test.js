@@ -4,6 +4,7 @@ const assert = require('node:assert');
 const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
+const { tempDir } = require('../helper/tmp');
 const { resolveTargets, VALID, toolDirs } = require('../../src/install/targets');
 const { writeManifest, readManifest, manifestPath } = require('../../src/install/manifest');
 const { resolveContext } = require('../../src/install/context');
@@ -123,8 +124,8 @@ test('toolDirs global:true resolves under $HOME', () => {
   assert.strictEqual(dirs.pi, path.join(os.homedir(), '.pi', 'agent'));
 });
 
-test('manifest keeps legacy state readable without a managed-resource ledger', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-manifest-'));
+test('manifest keeps legacy state readable without a managed-resource ledger', (t) => {
+  const root = tempDir(t, 'doflow-doflow-');
   const claudeDir = path.join(root, '.claude');
   fs.mkdirSync(claudeDir, { recursive: true });
   fs.writeFileSync(manifestPath(claudeDir), JSON.stringify({
@@ -137,8 +138,8 @@ test('manifest keeps legacy state readable without a managed-resource ledger', (
   assert.deepStrictEqual(manifest.managedResources, []);
 });
 
-test('manifest writes and reads Codex managed-resource ownership records', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-manifest-'));
+test('manifest writes and reads Codex managed-resource ownership records', (t) => {
+  const root = tempDir(t, 'doflow-doflow-');
   const claudeDir = path.join(root, '.claude');
   const managedResources = [{
     target: 'codex', scope: 'project', kind: 'mcp-server', identity: 'doflow.context7',
@@ -157,8 +158,8 @@ test('manifest writes and reads Codex managed-resource ownership records', () =>
   assert.deepStrictEqual(readManifest(claudeDir).managedResources, managedResources);
 });
 
-test('manifest preserves a managed-resource ledger when legacy callers omit it', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-manifest-'));
+test('manifest preserves a managed-resource ledger when legacy callers omit it', (t) => {
+  const root = tempDir(t, 'doflow-doflow-');
   const claudeDir = path.join(root, '.claude');
   const managedResources = [{ target: 'codex', scope: 'global', kind: 'asset', identity: 'doflow.config', sourceVersion: '2.4.4', fingerprint: 'sha256:config', selection: null, recoveryPoint: 'backup_1' }];
   const common = { claudeDir, scriptVersion: '2.4.4', repoRoot: REPO, tools: ['codex'], sourceCommit: 'test' };

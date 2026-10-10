@@ -2,14 +2,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { ResearchRequestStore } = require('../../src/runtime/research-request');
 const { updateTaskState } = require('../../src/runtime/task-state');
 
 function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-research-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = tempDir(t, 'doflow-research-request-');
   const file = path.join(root, '.doflow/state/orchestration/feature.json');
   updateTaskState({ fsImpl: fs, file, build: () => ({ taskId: 'feature', taskClass: 'feature',
     state: 'RUNNING', cursor: 0, program: [{ type: 'stage', id: 'design' }], history: [] }) });

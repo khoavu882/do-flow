@@ -7,8 +7,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { CapabilityRouter } = require('../../src/runtime/capability-router');
 
 const REPO = path.resolve(__dirname, "../..");
@@ -61,8 +61,7 @@ test('R5: every argv-producing branch quotes its display string consistently', (
 });
 
 test('R5: native.test detects the project command instead of inventing npm test', (t) => {
-  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-router-empty-'));
-  t.after(() => fs.rmSync(empty, { recursive: true, force: true }));
+  const empty = tempDir(t, 'doflow-capability-execution-');
 
   // A project with no manifest at all: no detection, no command, not healthy. The registry comes
   // from the install (repoRoot) while manifest detection reads the project (projectRoot) — the

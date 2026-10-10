@@ -2,13 +2,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const { createGeminiAdapter, nativePaths, MARKER_START } = require('../../../src/adapters/gemini');
 const { assertAdapter } = require('../../../src/adapters');
 const { IS_WIN } = require('../../helper-platform');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-gemini-')); }
+function scratch() { return suiteTempDir('doflow-gemini-'); }
 const assets = [{ id: 'guidance.core', source: 'core/CLAUDE.md' }];
 
 test('implements the adapter contract and resolves official project/user native paths', () => {

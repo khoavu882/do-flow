@@ -11,23 +11,20 @@ const { spawn, spawnSync } = require('node:child_process');
 const {
   acquireRunLock, RunLockTimeoutError, RunLockLostError, runLockPath, formatRunLockMessage,
 } = require('../../src/state/run-lock');
+const { tempDir } = require('../helper/tmp');
 
 const MODULE = path.resolve(__dirname, '../../src/state/run-lock.js');
 const PKG_VERSION = require('../../package.json').version;
 const ELEVEN_MINUTES_AGO = () => (Date.now() - 11 * 60 * 1000) / 1000;
 const NO_KILL_SEMANTICS = process.platform === 'win32' || process.getuid?.() === 0;
 
-const roots = [];
 const children = [];
 after(() => {
   for (const child of children) { try { child.kill('SIGKILL'); } catch { /* already gone */ } }
-  for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
 });
 
-function scopeRoot() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-run-lock-'));
-  roots.push(root);
-  return root;
+function scopeRoot(t) {
+  return tempDir(t, 'doflow-run-lock-');
 }
 
 const stateDir = (root) => path.join(root, '.doflow', 'state');
@@ -68,8 +65,8 @@ function collector() {
 
 const listState = (root) => fs.readdirSync(stateDir(root)).sort();
 
-test('acquire writes the owner record to run.lock and leaves no temp file', () => {
-  const root = scopeRoot();
+test('acquire writes the owner record to run.lock and leaves no temp file', (t) => {
+  const root = scopeRoot(t);
   const hold = acquireRunLock(target(root));
   try {
     const raw = fs.readFileSync(runLockPath(root), 'utf8');
@@ -93,21 +90,21 @@ test('acquire writes the owner record to run.lock and leaves no temp file', () =
   }
 });
 
-test('release removes the lock and the directories acquisition created', () => {
-  const root = scopeRoot();
+test('release removes the lock and the directories acquisition created', (t) => {
+  const root = scopeRoot(t);
   acquireRunLock(target(root)).release();
   assert.equal(fs.existsSync(path.join(root, '.doflow')), false);
 });
 
-test('release leaves a .doflow/state that existed before acquisition', () => {
-  const root = scopeRoot();
+test('release leaves a .doflow/state that existed before acquisition', (t) => {
+  const root = scopeRoot(t);
   fs.mkdirSync(stateDir(root), { recursive: true });
   acquireRunLock(target(root)).release();
   assert.deepEqual(listState(root), []);
 });
 
-test('a live holder on this host makes the run wait, say so once, and time out without touching anything', () => {
-  const root = scopeRoot();
+test('a live holder on this host makes the run wait, say so once, and time out without touching anything', (t) => {
+  const root = scopeRoot(t);
   const child = liveChild();
   const file = plant(root, record({ pid: child.pid }));
   const before = fs.readFileSync(file);
@@ -123,8 +120,8 @@ test('a live holder on this host makes the run wait, say so once, and time out w
   assert.deepEqual(listState(root), ['run.lock']);
 });
 
-test('a lock whose process is not running is cleared with that reason', () => {
-  const root = scopeRoot();
+test('a lock whose process is not running is cleared with that reason', (t) => {
+  const root = scopeRoot(t);
   const pid = deadPid();
   plant(root, record({ pid }));
   const { lines, log } = collector();
@@ -140,8 +137,8 @@ test('a lock whose process is not running is cleared with that reason', () => {
   }
 });
 
-test("a lock with this process's pid and another token was left by an earlier process and is cleared", () => {
-  const root = scopeRoot();
+test("a lock with this process's pid and another token was left by an earlier process and is cleared", (t) => {
+  const root = scopeRoot(t);
   plant(root, record({ pid: process.pid }));
   const hold = acquireRunLock(target(root), { log: () => {} });
   try {
@@ -151,14 +148,14 @@ test("a lock with this process's pid and another token was left by an earlier pr
   }
 });
 
-test('a fresh lock from another host is waited for', () => {
-  const root = scopeRoot();
+test('a fresh lock from another host is waited for', (t) => {
+  const root = scopeRoot(t);
   plant(root, record({ hostname: 'elsewhere.example' }));
   assert.throws(() => acquireRunLock(target(root), { waitMs: 300, pollMs: 50, log: () => {} }), RunLockTimeoutError);
 });
 
-test('a lock from another host older than the stale age is cleared as expired', () => {
-  const root = scopeRoot();
+test('a lock from another host older than the stale age is cleared as expired', (t) => {
+  const root = scopeRoot(t);
   plant(root, record({ hostname: 'elsewhere.example' }), { mtime: ELEVEN_MINUTES_AGO() });
   const { lines, log } = collector();
   const hold = acquireRunLock(target(root), { log });
@@ -170,8 +167,8 @@ test('a lock from another host older than the stale age is cleared as expired', 
   }
 });
 
-test('an unparsable lock is waited for while young and cleared once older than the stale age', () => {
-  const root = scopeRoot();
+test('an unparsable lock is waited for while young and cleared once older than the stale age', (t) => {
+  const root = scopeRoot(t);
   plant(root, 'not json');
   const { lines, log } = collector();
   assert.throws(() => acquireRunLock(target(root), { waitMs: 300, pollMs: 50, log }), (err) => err instanceof RunLockTimeoutError && err.holder === null);
@@ -185,8 +182,8 @@ test('an unparsable lock is waited for while young and cleared once older than t
   }
 });
 
-test('a live claim on the stale instance makes takeover abort and the run wait', () => {
-  const root = scopeRoot();
+test('a live claim on the stale instance makes takeover abort and the run wait', (t) => {
+  const root = scopeRoot(t);
   const child = liveChild();
   const stale = record();
   const file = plant(root, stale);
@@ -197,8 +194,8 @@ test('a live claim on the stale instance makes takeover abort and the run wait',
   assert.deepEqual(listState(root), ['run.lock', `run.lock.claim.${stale.token}`]);
 });
 
-test('a claim whose process is not running is removed and takeover proceeds', () => {
-  const root = scopeRoot();
+test('a claim whose process is not running is removed and takeover proceeds', (t) => {
+  const root = scopeRoot(t);
   const stale = record();
   plant(root, stale);
   const claim = path.join(stateDir(root), `run.lock.claim.${stale.token}`);
@@ -212,8 +209,8 @@ test('a claim whose process is not running is removed and takeover proceeds', ()
   }
 });
 
-test('release leaves run.lock in place while another run holds the claim on it', () => {
-  const root = scopeRoot();
+test('release leaves run.lock in place while another run holds the claim on it', (t) => {
+  const root = scopeRoot(t);
   const hold = acquireRunLock(target(root));
   const claim = path.join(stateDir(root), `run.lock.claim.${hold.token}`);
   fs.writeFileSync(claim, '{}\n');
@@ -222,8 +219,8 @@ test('release leaves run.lock in place while another run holds the claim on it',
   assert.equal(fs.existsSync(claim), true);
 });
 
-test('checkpoint renews the mtime, and reports a lock taken over by another run', () => {
-  const root = scopeRoot();
+test('checkpoint renews the mtime, and reports a lock taken over by another run', (t) => {
+  const root = scopeRoot(t);
   const hold = acquireRunLock(target(root));
   try {
     const file = runLockPath(root);
@@ -240,8 +237,8 @@ test('checkpoint renews the mtime, and reports a lock taken over by another run'
   assert.equal(JSON.parse(fs.readFileSync(runLockPath(root), 'utf8')).token, 'c'.repeat(32));
 });
 
-test('checkpoint reports the lock lost while another run holds the claim on it', () => {
-  const root = scopeRoot();
+test('checkpoint reports the lock lost while another run holds the claim on it', (t) => {
+  const root = scopeRoot(t);
   const hold = acquireRunLock(target(root));
   try {
     fs.writeFileSync(path.join(stateDir(root), `run.lock.claim.${hold.token}`), '{}\n');
@@ -251,14 +248,14 @@ test('checkpoint reports the lock lost while another run holds the claim on it',
   }
 });
 
-test('a takeover does not remove a lock its holder renewed after the taker judged it expired', () => {
-  const root = scopeRoot();
+test('a takeover does not remove a lock its holder renewed after the taker judged it expired', (t) => {
+  const root = scopeRoot(t);
   const holder = acquireRunLock(target(root));
   try {
     fs.utimesSync(runLockPath(root), ELEVEN_MINUTES_AGO(), ELEVEN_MINUTES_AGO());
     // The taker reaches the same lock through another spelling, so this process's own hold does not
     // make its acquisition reentrant, and judges by age as a run on another host would.
-    const alias = path.join(scopeRoot(), 'alias');
+    const alias = path.join(scopeRoot(t), 'alias');
     fs.symlinkSync(root, alias);
     let renewed = false;
     const fsImpl = {
@@ -277,8 +274,8 @@ test('a takeover does not remove a lock its holder renewed after the taker judge
   }
 });
 
-test('acquisition survives another run removing the state directory between its mkdir and its temp write', () => {
-  const root = scopeRoot();
+test('acquisition survives another run removing the state directory between its mkdir and its temp write', (t) => {
+  const root = scopeRoot(t);
   fs.mkdirSync(stateDir(root), { recursive: true });
   let removed = false;
   const fsImpl = {
@@ -297,8 +294,8 @@ test('acquisition survives another run removing the state directory between its 
   }
 });
 
-test('acquisition removes owner temp files left by runs that died while waiting, and keeps a live waiter\'s', () => {
-  const root = scopeRoot();
+test('acquisition removes owner temp files left by runs that died while waiting, and keeps a live waiter\'s', (t) => {
+  const root = scopeRoot(t);
   fs.mkdirSync(stateDir(root), { recursive: true });
   const temp = (token) => path.join(stateDir(root), `.run.lock.${token}.tmp`);
   const child = liveChild();
@@ -315,8 +312,8 @@ test('acquisition removes owner temp files left by runs that died while waiting,
   }
 });
 
-test('a second acquisition in one process returns the same hold, and the lock outlives the inner release', () => {
-  const root = scopeRoot();
+test('a second acquisition in one process returns the same hold, and the lock outlives the inner release', (t) => {
+  const root = scopeRoot(t);
   const outer = acquireRunLock(target(root));
   const inner = acquireRunLock(target(root));
   assert.equal(inner, outer);
@@ -326,8 +323,8 @@ test('a second acquisition in one process returns the same hold, and the lock ou
   assert.equal(fs.existsSync(runLockPath(root)), false);
 });
 
-test('a process that exits while holding leaves no lock', () => {
-  const root = scopeRoot();
+test('a process that exits while holding leaves no lock', (t) => {
+  const root = scopeRoot(t);
   const script = `const { acquireRunLock } = require(${JSON.stringify(MODULE)});
 acquireRunLock({ scopeRoot: ${JSON.stringify(root)}, scope: 'project', command: 'install' });
 process.exit(3);`;
@@ -336,8 +333,8 @@ process.exit(3);`;
   assert.equal(fs.existsSync(runLockPath(root)), false);
 });
 
-test('a lock left by a killed process is cleared as not running', { skip: NO_KILL_SEMANTICS && 'SIGKILL and pid liveness differ as root and on Windows' }, async () => {
-  const root = scopeRoot();
+test('a lock left by a killed process is cleared as not running', { skip: NO_KILL_SEMANTICS && 'SIGKILL and pid liveness differ as root and on Windows' }, async (t) => {
+  const root = scopeRoot(t);
   const script = `const { acquireRunLock } = require(${JSON.stringify(MODULE)});
 acquireRunLock({ scopeRoot: ${JSON.stringify(root)}, scope: 'project', command: 'install' });
 process.stdout.write('held\\n');
@@ -375,9 +372,9 @@ hold.release();`;
   return new Promise((resolve) => child.on('exit', (code) => resolve(code)));
 }
 
-test('six processes contending for one stale lock hold it one at a time', { timeout: 300_000 }, async () => {
+test('six processes contending for one stale lock hold it one at a time', { timeout: 300_000 }, async (t) => {
   for (let round = 0; round < 10; round += 1) {
-    const root = scopeRoot();
+    const root = scopeRoot(t);
     plant(root, record());
     const journal = path.join(root, 'journal');
     const codes = await Promise.all(Array.from({ length: 6 }, () => runContender(root, journal)));

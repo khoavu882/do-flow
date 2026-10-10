@@ -2,12 +2,12 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const { validateHooksConfig, classifyClaudeGuardrails, verifyHookCommands, planGeminiHooks, deployGeminiHooks, planRemoveGeminiHooks, deployRemoveGeminiHooks } = require('../../../src/adapters/gemini/hooks');
 const { IS_WIN, expectExecutable } = require('../../helper-platform');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-gemini-hooks-')); }
+function scratch() { return suiteTempDir('doflow-gemini-hooks-'); }
 function hookConfig(command = 'bash "$GEMINI_PROJECT_DIR/.gemini/hooks/session-start.sh"') {
   return { hooks: { SessionStart: [{ hooks: [{ type: 'command', command }] }] } };
 }

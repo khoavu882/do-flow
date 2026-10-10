@@ -11,11 +11,12 @@ const path = require('node:path');
 const { loadRegistry } = require('../../src/registry');
 const { stateRoot, ledgerPath, defaultLedger, writeLedger } = require('../../src/state');
 const { registryLifecycleView } = require('../../src/lifecycle/view');
+const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, '../..');
 const registry = loadRegistry({ repoRoot: REPO });
 
-function scratch(prefix) { return fs.mkdtempSync(path.join(os.tmpdir(), prefix)); }
+function scratch(t, prefix) { return tempDir(t, prefix); }
 
 /** The view derives a global scopeRoot from os.homedir() rather than from its scope descriptor, so
  * a hermetic global-scope read has to relocate the home directory for the duration of the call.
@@ -56,9 +57,9 @@ function readProject(projectRoot) {
   });
 }
 
-test('the lifecycle view called twice in one process with two scope descriptors returns two independent results', () => {
-  const homeDir = scratch('doflow-dual-scope-home-');
-  const projectRoot = scratch('doflow-dual-scope-project-');
+test('the lifecycle view called twice in one process with two scope descriptors returns two independent results', (t) => {
+  const homeDir = scratch(t, 'doflow-dual-scope-home-');
+  const projectRoot = scratch(t, 'doflow-dual-scope-project-');
   seedScope({ scope: 'global', scopeRoot: homeDir, assetId: 'global.only.asset' });
   seedScope({ scope: 'project', scopeRoot: projectRoot, assetId: 'project.only.asset' });
 
@@ -76,9 +77,9 @@ test('the lifecycle view called twice in one process with two scope descriptors 
   assert.ok(global.plan.targets.length === 1 && project.plan.targets.length === 1, 'each call plans independently');
 });
 
-test('neither scope read leaks into the other, in either order, and neither call writes to either scope', () => {
-  const homeDir = scratch('doflow-dual-scope-home-');
-  const projectRoot = scratch('doflow-dual-scope-project-');
+test('neither scope read leaks into the other, in either order, and neither call writes to either scope', (t) => {
+  const homeDir = scratch(t, 'doflow-dual-scope-home-');
+  const projectRoot = scratch(t, 'doflow-dual-scope-project-');
   const globalStateRoot = seedScope({ scope: 'global', scopeRoot: homeDir, assetId: 'global.only.asset' });
   const projectStateRoot = seedScope({ scope: 'project', scopeRoot: projectRoot, assetId: 'project.only.asset' });
   const onDisk = () => [globalStateRoot, projectStateRoot].map((root) => fs.readFileSync(ledgerPath(root), 'utf8'));
@@ -99,9 +100,9 @@ test('neither scope read leaks into the other, in either order, and neither call
   assert.deepEqual(onDisk(), before, 'the view is read-only: neither ledger on disk changed');
 });
 
-test('a scope with nothing recorded yields the default empty ledger rather than throwing (NFR-002)', () => {
-  const emptyHome = scratch('doflow-dual-scope-empty-home-');
-  const emptyProject = scratch('doflow-dual-scope-empty-project-');
+test('a scope with nothing recorded yields the default empty ledger rather than throwing (NFR-002)', (t) => {
+  const emptyHome = scratch(t, 'doflow-dual-scope-empty-home-');
+  const emptyProject = scratch(t, 'doflow-dual-scope-empty-project-');
 
   const global = readGlobal(emptyHome);
   const project = readProject(emptyProject);
@@ -112,12 +113,12 @@ test('a scope with nothing recorded yields the default empty ledger rather than 
   assert.equal(fs.existsSync(ledgerPath(project.stateRoot)), false, 'reporting an absent ledger must not create one');
 });
 
-test('a global scope descriptor takes its root from os.homedir(), not from the descriptor', () => {
+test('a global scope descriptor takes its root from os.homedir(), not from the descriptor', (t) => {
   // The constraint the dual-scope reader has to work within: the global root is not an argument.
   // A caller wanting both scopes in one process supplies the project root and inherits the home
   // directory for the global one.
-  const homeDir = scratch('doflow-dual-scope-home-');
-  const projectRoot = scratch('doflow-dual-scope-project-');
+  const homeDir = scratch(t, 'doflow-dual-scope-home-');
+  const projectRoot = scratch(t, 'doflow-dual-scope-project-');
   seedScope({ scope: 'global', scopeRoot: homeDir, assetId: 'global.only.asset' });
   seedScope({ scope: 'project', scopeRoot: projectRoot, assetId: 'project.only.asset' });
 

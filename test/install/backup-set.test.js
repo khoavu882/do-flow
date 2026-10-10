@@ -1,11 +1,11 @@
 'use strict';
 // The backup set builder (src/install/backup-set.js): which files a run backs up. Plans are built by
 // hand for the rules, and by the real lifecycle planner for the Codex and Gemini hook scripts.
-const { test, after } = require('node:test');
+const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const { backupSetFromPlan, backupSetFromPaths } = require('../../src/install/backup-set');
 const { BackupError } = require('../../src/install/backup');
 const { loadRegistry } = require('../../src/registry');
@@ -14,12 +14,8 @@ const { IS_WIN } = require('../helper-platform');
 
 const REPO = path.resolve(__dirname, '../..');
 
-const scratches = [];
-after(() => { for (const dir of scratches) fs.rmSync(dir, { recursive: true, force: true }); });
-
 function scratchDir() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-backup-set-')));
-  scratches.push(dir);
+  const dir = suiteTempDir('doflow-backup-set-');
   return dir;
 }
 

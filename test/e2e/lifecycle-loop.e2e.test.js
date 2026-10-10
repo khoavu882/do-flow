@@ -21,6 +21,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
+const { suiteTempDir, tempDir } = require('../helper/tmp');
 const { makeRepo, featureBranch } = require('../helper/lifecycle-git-fixtures');
 const { IS_WIN } = require('../helper-platform');
 
@@ -656,7 +657,7 @@ const MIN_HISTORY = '\n## 9. History\n\nNone — initial version.\n';
 
 /** A 045-shaped feature on branch feat/<slug>: requirement and design with a decision register, built by `root`'s runtime. */
 function legacyProject(root, name, slug) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(scratch.dir, `${name}-`)));
+  const dir = suiteTempDir(`doflow-lifecycle-loop-e2e-${name}-`);
   const git = (...a) => {
     const r = spawnSync('git', a, { cwd: dir, encoding: 'utf8', env: scratch.env({ GIT_AUTHOR_DATE: '2026-09-01T10:00:00Z', GIT_COMMITTER_DATE: '2026-09-01T10:00:00Z' }) });
     assert.equal(r.status, 0, r.stderr);
@@ -742,8 +743,8 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
     assert.match(rtWith(REPO, REPO, ['--help']).stdout, /followup/);
 
     const seed = legacyProject(legacy, 'equiv-seed', slug);
-    const oldDir = `${seed}-old`;
-    const newDir = `${seed}-new`;
+    const oldDir = tempDir(t, 'doflow-lifecycle-loop-e2e-equiv-old-');
+    const newDir = tempDir(t, 'doflow-lifecycle-loop-e2e-equiv-new-');
     fs.cpSync(seed, oldDir, { recursive: true });
     fs.cpSync(seed, newDir, { recursive: true });
     const norm = normaliser([legacy, REPO], oldDir, newDir);
@@ -772,7 +773,7 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
     // The state the two runtimes left behind is the same set of files, apart from that record.
     const filesOf = (dir) => fs.readdirSync(dir, { recursive: true }).filter((f) => !f.startsWith('.git') && fs.statSync(path.join(dir, f)).isFile()).sort();
     const readinessStore = path.join('.doflow', 'state', 'readiness') + path.sep;
-    assert.deepEqual(filesOf(newDir).filter((f) => !f.startsWith(readinessStore)), filesOf(oldDir), 'the same files exist after the same verbs');
+    assert.deepEqual(filesOf(newDir).filter((f) => !f.startsWith(readinessStore)), [...filesOf(oldDir), path.join('.doflow', 'state', '.gitignore')].sort(), 'the same files exist after the same verbs, plus the state ignore file');
     assert.deepEqual(filesOf(newDir).filter((f) => f.startsWith(readinessStore)), [path.join(readinessStore, `${slug}.json`)], 'one readiness record');
   });
 });
@@ -821,7 +822,7 @@ describe('Scenario: Older features are untouched (NFR-001)', { skip: SKIP }, () 
     const status = rt(dir, ['orchestrate', '--action', 'status', '--task-id', slug, '--task-class', 'feature', '--json']);
     assert.equal(status.status, 0, status.stdout + status.stderr);
     assert.equal(JSON.parse(status.stdout).taskId, slug);
-    assert.deepEqual(hashes(), before, 'the feature folder and the run state are unchanged');
+    assert.deepEqual(hashes(), { ...before, [path.join('.doflow', 'state', '.gitignore')]: `${require('../../core/registry/storage.json').settings.ignoreFile.lines.join('\n')}\n` }, 'the feature folder and the run state are unchanged, apart from the new state ignore file');
     for (const rel of [['.doflow', 'state', 'lifecycle'], ['agent-docs', 'lifecycle']]) {
       assert.equal(fs.existsSync(path.join(dir, ...rel)), false, `reading wrote no ${rel.join('/')}`);
     }

@@ -3,13 +3,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const { resolveLocator, describeResolution } = require('../../src/runtime/locator-resolve');
 
 /** A throwaway repo root, so every case reads real files rather than a mocked shape. */
 function tmpRepo(files) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-locator-'));
+  const root = suiteTempDir('doflow-runtime-locator-resolve-');
   for (const [rel, body] of Object.entries(files)) {
     const target = path.join(root, rel);
     fs.mkdirSync(path.dirname(target), { recursive: true });

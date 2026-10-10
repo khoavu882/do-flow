@@ -8,15 +8,16 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { tempDir } = require('../helper/tmp');
 const { msysArgConvGuards } = require('../helper-platform');
 
 const HOOKS = path.resolve(__dirname, '../..', 'core/harnesses/claude/hooks');
 
-function run(script, payload) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-hook-'));
+function run(t, script, payload) {
+  const home = tempDir(t, 'doflow-failure-hooks-');
+  const userHome = tempDir(t, 'doflow-failure-hooks-home-');
   const status = { code: 0 };
   try {
     execFileSync('bash', [path.join(HOOKS, script)], {
@@ -24,7 +25,7 @@ function run(script, payload) {
       // Without the MSYS guards, Git Bash rewrites a payload path like /x/y.js into X:/y.js when
       // it hands it to native jq.exe ("/x/" reads as drive X:) — a fixture artifact, not hook
       // behavior; real Windows payloads carry Windows paths, which are never rewritten.
-      env: { ...process.env, XDG_CONFIG_HOME: home, ...msysArgConvGuards() },
+      env: { ...process.env, HOME: userHome, XDG_CONFIG_HOME: home, ...msysArgConvGuards() },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
   } catch (error) { status.code = error.status ?? 1; }
@@ -37,12 +38,11 @@ function run(script, payload) {
       }
     }
   }
-  fs.rmSync(home, { recursive: true, force: true });
   return { ...status, records };
 }
 
-test('post-tool-failure.sh records the failed tool, its target, and the error', () => {
-  const { code, records } = run('post-tool-failure.sh', {
+test('post-tool-failure.sh records the failed tool, its target, and the error', (t) => {
+  const { code, records } = run(t, 'post-tool-failure.sh', {
     session_id: 's1', hook_event_name: 'PostToolUseFailure', tool_name: 'Edit',
     tool_input: { file_path: '/x/y.js' }, tool_response: { error: 'String not found' },
   });
@@ -56,8 +56,8 @@ test('post-tool-failure.sh records the failed tool, its target, and the error', 
     'a failed edit must never enter the lint queue — the file was not written');
 });
 
-test('permission-audit.sh records the refused tool and the reason', () => {
-  const { code, records } = run('permission-audit.sh', {
+test('permission-audit.sh records the refused tool and the reason', (t) => {
+  const { code, records } = run(t, 'permission-audit.sh', {
     session_id: 's1', hook_event_name: 'PermissionDenied', tool_name: 'Bash',
     permission_decision_reason: 'blocked by rule',
   });
@@ -70,18 +70,18 @@ test('permission-audit.sh records the refused tool and the reason', () => {
     'a permission event carries no agent_type/agent_id and must stay out of that log');
 });
 
-test('both hooks degrade to a thinner record when optional fields are absent', () => {
-  const { code, records } = run('post-tool-failure.sh', { session_id: 's2', hook_event_name: 'PostToolUseFailure' });
+test('both hooks degrade to a thinner record when optional fields are absent', (t) => {
+  const { code, records } = run(t, 'post-tool-failure.sh', { session_id: 's2', hook_event_name: 'PostToolUseFailure' });
   assert.equal(code, 0);
   const entry = JSON.parse(records['tool-failures.log']);
   assert.equal(entry.session_id, 's2');
   assert.equal(entry.tool_name, '');
 });
 
-test('both hooks are no-ops without a session id, and survive malformed input', () => {
+test('both hooks are no-ops without a session id, and survive malformed input', (t) => {
   for (const script of ['post-tool-failure.sh', 'permission-audit.sh']) {
-    assert.equal(run(script, {}).code, 0, `${script} must not fail without a session`);
-    assert.deepEqual(run(script, {}).records, {}, `${script} must write nothing without a session`);
-    assert.equal(run(script, 'not json').code, 0, `${script} must survive malformed input`);
+    assert.equal(run(t, script, {}).code, 0, `${script} must not fail without a session`);
+    assert.deepEqual(run(t, script, {}).records, {}, `${script} must write nothing without a session`);
+    assert.equal(run(t, script, 'not json').code, 0, `${script} must survive malformed input`);
   }
 });

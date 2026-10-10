@@ -1,15 +1,14 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
+const { createScratch } = require('../helper/scratch-env');
 const { spawnSync } = require('node:child_process');
 const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator');
 const root = path.resolve(__dirname, '../..');
 function fixture(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'handoff-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dir = tempDir(t, 'doflow-workflow-handoff-');
   return new WorkflowOrchestrator({ repoRoot: root, stateDir: path.join(dir, '.doflow/state/orchestration'), readinessEvaluate: () => 'READY' });
 }
 const args = { taskId: 'test', note: 'Observed result', outcome: 'passed' };
@@ -67,7 +66,7 @@ test('public CLI forwards skill identity and result without creating standalone 
   const cwd = path.resolve(orch.stateDir, '../../..');
   const result = spawnSync(process.execPath, [path.join(root, 'bin/doflow.js'), 'orchestrate',
     '--action', 'handoff', '--task-id', 'standalone', '--calling-skill', 'do-test', '--note', 'verified', '--result', 'passed', '--json'],
-  { cwd, encoding: 'utf8' });
+  { cwd, env: createScratch('doflow-workflow-handoff-home-').env(), encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).disposition, 'standalone');
 });

@@ -10,6 +10,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync, spawn } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
+const { suiteTempDir } = require('../helper/tmp');
 const { isProgrammingError, errorKind } = require('../../src/runtime/failure/classifier');
 const { failureHome, captureSwitch, captureIsOff } = require('../../src/runtime/failure/home');
 const { captureFailure, captureError, rotateIfDue, MAX_LINE_BYTES, ROTATE_AT_BYTES } = require('../../src/runtime/failure/capture');
@@ -23,7 +24,8 @@ const homeOf = (env) => failureHome(env);
 const readLines = (home) => fs.readFileSync(path.join(home, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
 
 function freshEnv(name, extra = {}) {
-  const dir = fs.mkdtempSync(path.join(scratch.dir, `${name}-`));
+  // A short prefix: a path segment of 32 or more mixed characters is masked as a secret run.
+  const dir = suiteTempDir('doflow-failure-env-');
   const home = path.join(dir, 'home');
   const xdg = path.join(dir, 'xdg');
   fs.mkdirSync(home);

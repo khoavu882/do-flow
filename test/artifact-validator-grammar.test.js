@@ -13,17 +13,12 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { tempDir, suiteTempDir } = require('./helper/tmp');
 
 const VALIDATOR = path.join(__dirname, '..', 'core', 'shared', 'scripts', 'doflow', 'bash', 'validate-artifacts.sh');
-const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-artifact-grammar-'));
-
-// Every fixture this file writes lives under `scratch`, so one removal releases all of them. Without
-// it each `npm test` leaves a directory behind -- rules/universal.md, Resource Management: no
-// resource is acquired without a guaranteed release path.
-process.on('exit', () => { try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* best effort */ } });
+const scratch = suiteTempDir('doflow-artifact-grammar-');
 
 // Run the checker over one artifact written to the scratch directory, and read its findings back
 // through --json so a message never has to be recovered from column-aligned text.
@@ -331,8 +326,8 @@ const dec = (id, extra) => ({
 
 /** A scratch repo holding feature 050-x (structured layout). `register` is the decisions array, or
  * null for a feature with no register. `files` maps feature-relative paths to content. */
-function featureRepo(name, register, files, { vcs = true } = {}) {
-  const repo = fs.mkdtempSync(path.join(scratch, `${name}-`));
+function featureRepo(t, name, register, files, { vcs = true } = {}) {
+  const repo = tempDir(t, `doflow-artifact-grammar-${name}-`);
   const feature = path.join(repo, 'agent-docs', 'doflow', '050-x');
   fs.mkdirSync(path.join(feature, 'intention'), { recursive: true });
   fs.mkdirSync(path.join(feature, 'design'), { recursive: true });
@@ -370,8 +365,8 @@ const CHAIN = [
   dec('DEC-004'),
 ];
 
-test('stale: a line citing a superseded decision is flagged with the live end of its chain', () => {
-  const { repo, feature } = featureRepo('stale-fires', CHAIN, {
+test('stale: a line citing a superseded decision is flagged with the live end of its chain', (t) => {
+  const { repo, feature } = featureRepo(t, 'stale-fires', CHAIN, {
     'design/design.md': '# Design\n\n## 1. Choices\n\nThe wire carries the key. DEC-001\nThis one is fine. DEC-004\n',
   });
   const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
@@ -380,8 +375,8 @@ test('stale: a line citing a superseded decision is flagged with the live end of
   assert.equal(result.status, 1);
 });
 
-test('stale: a line that also names a later decision in the chain is exempt', () => {
-  const { repo, feature } = featureRepo('stale-successor', CHAIN, {
+test('stale: a line that also names a later decision in the chain is exempt', (t) => {
+  const { repo, feature } = featureRepo(t, 'stale-successor', CHAIN, {
     'design/design.md': '# Design\n\n## 1. Choices\n\nWas DEC-001, now DEC-002.\nDEC-002 replaced DEC-001 and then DEC-003 replaced it.\n',
   });
   const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
@@ -390,16 +385,16 @@ test('stale: a line that also names a later decision in the chain is exempt', ()
   assert.deepEqual(rules(result), ['stale DEC-002']);
 });
 
-test('stale: a token that merely contains a DEC id is not a citation', () => {
-  const { repo, feature } = featureRepo('stale-boundary', CHAIN, {
+test('stale: a token that merely contains a DEC id is not a citation', (t) => {
+  const { repo, feature } = featureRepo(t, 'stale-boundary', CHAIN, {
     'design/design.md': '# Design\n\n## 1. Choices\n\nXDEC-001 and 1DEC-001 and DEC-001a are not citations.\n',
   });
   const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
   assert.deepEqual(rules(result), []);
 });
 
-test('stale: History sections and HTML comments are exempt', () => {
-  const { repo, feature } = featureRepo('stale-exempt', CHAIN, {
+test('stale: History sections and HTML comments are exempt', (t) => {
+  const { repo, feature } = featureRepo(t, 'stale-exempt', CHAIN, {
     'design/design.md': [
       '# Design', '', '## 1. Choices', '',
       '<!-- DEC-001 cited inside a one-line comment -->',
@@ -412,8 +407,8 @@ test('stale: History sections and HTML comments are exempt', () => {
   assert.deepEqual(rules(result), []);
 });
 
-test('stale: a feature without a register gets no stale finding', () => {
-  const { repo, feature } = featureRepo('stale-no-register', null, {
+test('stale: a feature without a register gets no stale finding', (t) => {
+  const { repo, feature } = featureRepo(t, 'stale-no-register', null, {
     'design/design.md': '# Design\n\n## 1. Choices\n\nThe wire carries the key. DEC-001\n',
   });
   const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
@@ -421,8 +416,8 @@ test('stale: a feature without a register gets no stale finding', () => {
   assert.equal(result.status, 0);
 });
 
-test('stale: discovery mode covers data-model.md alongside the other artifacts', () => {
-  const { repo } = featureRepo('stale-discovery', CHAIN, {
+test('stale: discovery mode covers data-model.md alongside the other artifacts', (t) => {
+  const { repo } = featureRepo(t, 'stale-discovery', CHAIN, {
     'design/data-model.md': '# Data model\n\n## 1. Entities\n\nKeyed by number. DEC-001\n',
     'plan.md': '# Plan\n\n## 1. Basis\n\nResting on DEC-004.\n',
   });
@@ -439,29 +434,29 @@ const BAD_DATA_MODEL = [
   '**Detail**', '', '- **E-2:** not in the index.', '',
 ].join('\n');
 
-test('data-model.md is not a default target without a register, and is with one', () => {
-  const legacy = featureRepo('target-legacy', null, { 'design/data-model.md': BAD_DATA_MODEL, 'plan.md': '# Plan\n' });
+test('data-model.md is not a default target without a register, and is with one', (t) => {
+  const legacy = featureRepo(t, 'target-legacy', null, { 'design/data-model.md': BAD_DATA_MODEL, 'plan.md': '# Plan\n' });
   const before = validateIn(legacy.repo);
   assert.deepEqual(before.findings, []);
   assert.equal(before.status, 0);
   // Naming the file explicitly still checks it: only the default target set is gated.
   assert.deepEqual(rules(validateIn(legacy.repo, path.join(legacy.feature, 'design', 'data-model.md'))).sort(), ['parity E-1', 'parity E-2']);
 
-  const registered = featureRepo('target-registered', CHAIN, { 'design/data-model.md': BAD_DATA_MODEL, 'plan.md': '# Plan\n' });
+  const registered = featureRepo(t, 'target-registered', CHAIN, { 'design/data-model.md': BAD_DATA_MODEL, 'plan.md': '# Plan\n' });
   const after = validateIn(registered.repo);
   assert.deepEqual(after.findings.map((f) => `${path.basename(f.file)} ${f.rule} ${f.id}`).sort(),
     ['data-model.md parity E-1', 'data-model.md parity E-2']);
   assert.equal(after.status, 1);
 });
 
-test('stale: an explicit path outside the feature folder is not checked against its register', () => {
-  const { repo } = featureRepo('stale-outside', CHAIN, {});
+test('stale: an explicit path outside the feature folder is not checked against its register', (t) => {
+  const { repo } = featureRepo(t, 'stale-outside', CHAIN, {});
   const outside = path.join(repo, 'notes.md');
   fs.writeFileSync(outside, '# Notes\n\n## 1. Choices\n\nCites DEC-001.\n');
   assert.deepEqual(rules(validateIn(repo, outside)), []);
 });
 
-test('history: an ID that moved to the archive named by the History pointer still has a History entry', () => {
+test('history: an ID that moved to the archive named by the History pointer still has a History entry', (t) => {
   const body = (withPointer) => [
     '# Specs', '',
     '## 1. Contracts', '',
@@ -477,26 +472,26 @@ test('history: an ID that moved to the archive named by the History pointer stil
     '| ID | Change |', '|---|---|', '| IC-001 | replaced |', '',
   ].join('\n');
 
-  const withPointer = featureRepo('history-pointer', CHAIN, { 'design/specs.md': body(true), 'decisions/history/specs.md': archive });
+  const withPointer = featureRepo(t, 'history-pointer', CHAIN, { 'design/specs.md': body(true), 'decisions/history/specs.md': archive });
   assert.deepEqual(rules(validateIn(withPointer.repo, path.join(withPointer.feature, 'design', 'specs.md'))), []);
 
   const bulletArchive = archive.replace('| IC-001 | replaced |', '').concat('\n- **IC-001** — replaced.\n');
-  const withBullet = featureRepo('history-bullet', null, { 'design/specs.md': body(true), 'decisions/history/specs.md': bulletArchive });
+  const withBullet = featureRepo(t, 'history-bullet', null, { 'design/specs.md': body(true), 'decisions/history/specs.md': bulletArchive });
   assert.deepEqual(rules(validateIn(withBullet.repo, path.join(withBullet.feature, 'design', 'specs.md'))), []);
 
   // No pointer: the archive file beside it is not consulted, so the rule still fires.
-  const noPointer = featureRepo('history-no-pointer', CHAIN, { 'design/specs.md': body(false), 'decisions/history/specs.md': archive });
+  const noPointer = featureRepo(t, 'history-no-pointer', CHAIN, { 'design/specs.md': body(false), 'decisions/history/specs.md': archive });
   assert.deepEqual(rules(validateIn(noPointer.repo, path.join(noPointer.feature, 'design', 'specs.md'))), ['history IC-001']);
 
   // Pointer to an archive that does not exist: the rule still fires rather than failing open.
-  const missing = featureRepo('history-missing', CHAIN, { 'design/specs.md': body(true) });
+  const missing = featureRepo(t, 'history-missing', CHAIN, { 'design/specs.md': body(true) });
   assert.deepEqual(rules(validateIn(missing.repo, path.join(missing.feature, 'design', 'specs.md'))), ['history IC-001']);
 });
 
-test('stale: a feature reached through a symlinked root is still checked', () => {
+test('stale: a feature reached through a symlinked root is still checked', (t) => {
   // Outside git the resolver reports the logical root, so the folder is compared by its physical
   // path on both sides.
-  const { repo } = featureRepo('stale-symlink', CHAIN, {
+  const { repo } = featureRepo(t, 'stale-symlink', CHAIN, {
     'design/design.md': '# Design\n\n## 1. Choices\n\nThe wire carries the key. DEC-001\n',
   }, { vcs: false });
   const link = path.join(scratch, `link-${path.basename(repo)}`);
@@ -505,8 +500,8 @@ test('stale: a feature reached through a symlinked root is still checked', () =>
   assert.deepEqual(rules(result), ['stale DEC-001']);
 });
 
-test('stale: fenced code neither opens a section nor cites a decision', () => {
-  const { repo, feature } = featureRepo('stale-fence', CHAIN, {
+test('stale: fenced code neither opens a section nor cites a decision', (t) => {
+  const { repo, feature } = featureRepo(t, 'stale-fence', CHAIN, {
     'design/design.md': [
       '# Design', '', '## 1. Choices', '',
       '```markdown', '## 9. History', 'DEC-001 inside a fence', '```',
@@ -523,8 +518,8 @@ test('stale: fenced code neither opens a section nor cites a decision', () => {
   ]);
 });
 
-test('stale: a lone <!-- quoted in prose does not hide later citations; a same-line comment is still stripped', () => {
-  const { repo, feature } = featureRepo('stale-inline-comment', CHAIN, {
+test('stale: a lone <!-- quoted in prose does not hide later citations; a same-line comment is still stripped', (t) => {
+  const { repo, feature } = featureRepo(t, 'stale-inline-comment', CHAIN, {
     'design/design.md': [
       '# Design', '', '## 1. Choices', '',
       'Comments open with `<!--` in markdown.',
@@ -541,8 +536,8 @@ test('stale: a lone <!-- quoted in prose does not hide later citations; a same-l
   ]);
 });
 
-test('stale: a cyclic supersededBy chain in a hand-edited register terminates and stays advisory', () => {
-  const { repo, feature } = featureRepo('stale-cycle', [
+test('stale: a cyclic supersededBy chain in a hand-edited register terminates and stays advisory', (t) => {
+  const { repo, feature } = featureRepo(t, 'stale-cycle', [
     dec('DEC-001', { status: 'superseded', supersededBy: 'DEC-002' }),
     dec('DEC-002', { status: 'superseded', supersededBy: 'DEC-001' }),
     dec('DEC-003', { status: 'superseded', supersededBy: 'DEC-003' }),
@@ -555,7 +550,7 @@ test('stale: a cyclic supersededBy chain in a hand-edited register terminates an
   assert.deepEqual(rules(result), ['stale DEC-001']);
 });
 
-test('history: a pointer leading outside decisions/history is ignored', () => {
+test('history: a pointer leading outside decisions/history is ignored', (t) => {
   const body = (target) => [
     '# Specs', '',
     '## 1. Contracts', '',
@@ -565,22 +560,22 @@ test('history: a pointer leading outside decisions/history is ignored', () => {
     `Earlier entries: [decisions/history/specs.md](${target}).`, '',
   ].join('\n');
   const archive = '# History archive: design/specs.md\n\n- **IC-001** — replaced.\n';
-  const inside = featureRepo('history-contained', CHAIN, { 'design/specs.md': body('../decisions/history/specs.md'), 'decisions/history/specs.md': archive });
+  const inside = featureRepo(t, 'history-contained', CHAIN, { 'design/specs.md': body('../decisions/history/specs.md'), 'decisions/history/specs.md': archive });
   assert.deepEqual(rules(validateIn(inside.repo, path.join(inside.feature, 'design', 'specs.md'))), []);
 
-  const up = featureRepo('history-dotdot', CHAIN, { 'design/specs.md': body('../../elsewhere.md'), 'decisions/history/specs.md': '# x\n' });
+  const up = featureRepo(t, 'history-dotdot', CHAIN, { 'design/specs.md': body('../../elsewhere.md'), 'decisions/history/specs.md': '# x\n' });
   fs.writeFileSync(path.join(up.feature, '..', 'elsewhere.md'), archive);
   assert.deepEqual(rules(validateIn(up.repo, path.join(up.feature, 'design', 'specs.md'))), ['history IC-001']);
 
-  const abs = featureRepo('history-absolute', CHAIN, { 'design/specs.md': '', 'decisions/history/specs.md': '# x\n' });
+  const abs = featureRepo(t, 'history-absolute', CHAIN, { 'design/specs.md': '', 'decisions/history/specs.md': '# x\n' });
   const outside = path.join(abs.repo, 'outside.md');
   fs.writeFileSync(outside, archive);
   fs.writeFileSync(path.join(abs.feature, 'design', 'specs.md'), body(outside));
   assert.deepEqual(rules(validateIn(abs.repo, path.join(abs.feature, 'design', 'specs.md'))), ['history IC-001']);
 });
 
-test('unknown: a cited DEC id the register does not hold is flagged; known live and superseded ids are not', () => {
-  const { repo, feature } = featureRepo('unknown-fires', CHAIN, {
+test('unknown: a cited DEC id the register does not hold is flagged; known live and superseded ids are not', (t) => {
+  const { repo, feature } = featureRepo(t, 'unknown-fires', CHAIN, {
     'design/design.md': [
       '# Design', '', '## 1. Choices', '',
       'Live and known. DEC-004',
@@ -599,17 +594,17 @@ test('unknown: a cited DEC id the register does not hold is flagged; known live 
   assert.equal(result.status, 1);
 });
 
-test('unknown: inert without a register, and active for a register holding no decisions', () => {
+test('unknown: inert without a register, and active for a register holding no decisions', (t) => {
   const body = { 'design/design.md': '# Design\n\n## 1. Choices\n\nCites DEC-001.\n' };
-  const none = featureRepo('unknown-no-register', null, body);
+  const none = featureRepo(t, 'unknown-no-register', null, body);
   assert.deepEqual(rules(validateIn(none.repo, path.join(none.feature, 'design', 'design.md'))), []);
-  const empty = featureRepo('unknown-empty-register', [], body);
+  const empty = featureRepo(t, 'unknown-empty-register', [], body);
   assert.deepEqual(rules(validateIn(empty.repo, path.join(empty.feature, 'design', 'design.md'))), ['unknown DEC-001']);
 });
 
-test('history: a project path containing a backslash is read literally, not as an escape sequence', () => {
+test('history: a project path containing a backslash is read literally, not as an escape sequence', (t) => {
   // A directory named with a literal "\t": awk -v would turn that into a tab and miss the archive.
-  const { repo, feature } = featureRepo('bs\\tdir', CHAIN, {
+  const { repo, feature } = featureRepo(t, 'bs\\tdir', CHAIN, {
     'design/specs.md': [
       '# Specs', '', '## 1. Contracts', '',
       '| ID | Contract | Status |', '|---|---|---|', '| IC-001 | old | Superseded -> IC-002 |', '| IC-002 | new | Live |', '',
@@ -624,8 +619,8 @@ test('history: a project path containing a backslash is read literally, not as a
 
 // ── IC-006 (feature 045): path tokens are not citations; fenced "## " lines are gated by a register ─
 
-test('unknown and stale: a DEC token after "/" in a URL or a path is not a citation; a bare one still is', () => {
-  const { repo, feature } = featureRepo('path-token', CHAIN, {
+test('unknown and stale: a DEC token after "/" in a URL or a path is not a citation; a bare one still is', (t) => {
+  const { repo, feature } = featureRepo(t, 'path-token', CHAIN, {
     'design/design.md': [
       '# Design', '', '## 1. Choices', '',
       'Link https://x.test/DEC-780 and file notes/DEC-781.md stay quiet.',
@@ -652,18 +647,18 @@ const FENCED_HISTORY_SPECS = [
   '**Detail**', '', '- **IC-001:** old.', '- **IC-002:** new.', '',
 ].join('\n');
 
-test('a fenced "## 9. History" example does not hide a missing History entry when the feature has a register', () => {
-  const { repo, feature } = featureRepo('fence-section-register', CHAIN, { 'design/specs.md': FENCED_HISTORY_SPECS });
+test('a fenced "## 9. History" example does not hide a missing History entry when the feature has a register', (t) => {
+  const { repo, feature } = featureRepo(t, 'fence-section-register', CHAIN, { 'design/specs.md': FENCED_HISTORY_SPECS });
   assert.deepEqual(rules(validateIn(repo, path.join(feature, 'design', 'specs.md'))), ['history IC-001']);
 });
 
-test('without a register the structural section tracking is exactly what it was', () => {
-  const { repo, feature } = featureRepo('fence-section-legacy', null, { 'design/specs.md': FENCED_HISTORY_SPECS });
+test('without a register the structural section tracking is exactly what it was', (t) => {
+  const { repo, feature } = featureRepo(t, 'fence-section-legacy', null, { 'design/specs.md': FENCED_HISTORY_SPECS });
   assert.deepEqual(rules(validateIn(repo, path.join(feature, 'design', 'specs.md'))), []);
 });
 
-test('unknown and stale: DEC-001/DEC-099 in prose is a pair of citations, only URL and path words are exempt', () => {
-  const { repo, feature } = featureRepo('slash-pair', CHAIN, {
+test('unknown and stale: DEC-001/DEC-099 in prose is a pair of citations, only URL and path words are exempt', (t) => {
+  const { repo, feature } = featureRepo(t, 'slash-pair', CHAIN, {
     'design/design.md': [
       '# Design', '', '## 1. Choices', '',
       'Pair DEC-004/DEC-099 in prose.',
@@ -688,18 +683,18 @@ const FENCED_PLAN = [
   '```markdown', '### Phase B', '- [ ] B.1 example', '- [ ] A.9 example', '## 3. History', '```', '',
 ].join('\n');
 
-test('with a register, headings and checklist lines inside a fence do not feed the phase rollup', () => {
-  const { repo, feature } = featureRepo('fence-phase-register', CHAIN, { 'plan.md': FENCED_PLAN });
+test('with a register, headings and checklist lines inside a fence do not feed the phase rollup', (t) => {
+  const { repo, feature } = featureRepo(t, 'fence-phase-register', CHAIN, { 'plan.md': FENCED_PLAN });
   assert.deepEqual(rules(validateIn(repo, path.join(feature, 'plan.md'))), []);
 });
 
-test('without a register the phase rollup reads fenced lines exactly as it always did', () => {
-  const { repo, feature } = featureRepo('fence-phase-legacy', null, { 'plan.md': FENCED_PLAN });
+test('without a register the phase rollup reads fenced lines exactly as it always did', (t) => {
+  const { repo, feature } = featureRepo(t, 'fence-phase-legacy', null, { 'plan.md': FENCED_PLAN });
   assert.deepEqual(rules(validateIn(repo, path.join(feature, 'plan.md'))), ['rollup Phase B']);
 });
 
-test('unknown and stale: link targets, query strings and file names are exempt; chains and a sentence-final token are not', () => {
-  const { repo, feature } = featureRepo('token-shapes', CHAIN, {
+test('unknown and stale: link targets, query strings and file names are exempt; chains and a sentence-final token are not', (t) => {
+  const { repo, feature } = featureRepo(t, 'token-shapes', CHAIN, {
     'design/design.md': [
       '# Design', '', '## 1. Choices', '',
       'Link [n](DEC-097.md) and https://x.test?id=DEC-095 and a bare DEC-094.md stay quiet.',

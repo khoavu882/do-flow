@@ -2,15 +2,15 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const { execFileSync } = require('node:child_process');
 const { validateHooksConfig, classifyClaudeGuardrails, verifyHookCommands, planCodexHooks, deployCodexHooks, shippedHookScripts, removeCodexHookScripts } = require('../../../src/adapters/codex/hooks');
 const { IS_WIN, expectExecutable } = require('../../helper-platform');
 
 const CODEX_HOOKS_DIR = path.resolve(__dirname, '../../..', 'core', 'harnesses', 'codex', 'hooks');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-codex-hooks-')); }
+function scratch() { return suiteTempDir('doflow-codex-hooks-'); }
 function hookConfig(command = 'bash "$(root)/hooks/session-start.sh"') {
   return { hooks: { SessionStart: [{ hooks: [{ type: 'command', command, statusMessage: 'Preparing context' }] }] } };
 }
@@ -193,17 +193,13 @@ test('post-edit-lint.impl.sh extracts every file path from a multi-file apply_pa
     '*** End Patch',
   ].join('\n');
   const sessionId = `test-apply-patch-${process.pid}-${Date.now()}`;
-  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-codex-post-edit-lint-'));
-  try {
-    execFileSync('bash', [path.join(CODEX_HOOKS_DIR, 'post-edit-lint.impl.sh')], {
-      input: JSON.stringify({ session_id: sessionId, tool_name: 'apply_patch', tool_input: { command: patch } }),
-      env: { ...process.env, XDG_CONFIG_HOME: stateDir },
-    });
-    const collected = fs.readFileSync(path.join(stateDir, 'doflow', 'session-env', 'sessions', sessionId, 'edited-files.txt'), 'utf8');
-    assert.deepEqual(collected.trim().split('\n'), ['foo/bar.txt', 'baz/qux.txt']);
-  } finally {
-    fs.rmSync(stateDir, { recursive: true, force: true });
-  }
+  const stateDir = suiteTempDir('doflow-codex-post-edit-lint-');
+  execFileSync('bash', [path.join(CODEX_HOOKS_DIR, 'post-edit-lint.impl.sh')], {
+    input: JSON.stringify({ session_id: sessionId, tool_name: 'apply_patch', tool_input: { command: patch } }),
+    env: { ...process.env, XDG_CONFIG_HOME: stateDir },
+  });
+  const collected = fs.readFileSync(path.join(stateDir, 'doflow', 'session-env', 'sessions', sessionId, 'edited-files.txt'), 'utf8');
+  assert.deepEqual(collected.trim().split('\n'), ['foo/bar.txt', 'baz/qux.txt']);
 });
 
 test('pre-compact.impl.sh emits valid JSON with only Codex-accepted universal fields', () => {

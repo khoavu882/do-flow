@@ -2,15 +2,15 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const test = require('node:test');
 const claude = require('../../../src/adapters/claude');
 const { MARKER_START, MARKER_END } = require('../../../src/helper/marker-merge');
 
 function fixture() {
-  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-claude-adapter-repo-'));
-  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-claude-adapter-project-'));
+  const repoRoot = suiteTempDir('doflow-claude-adapter-repo-');
+  const projectRoot = suiteTempDir('doflow-claude-adapter-project-');
   fs.mkdirSync(path.join(repoRoot, 'core'), { recursive: true });
   fs.writeFileSync(path.join(repoRoot, 'core', 'CLAUDE.md'), '# DoFlow framework\n');
   const instructions = path.join(projectRoot, '.claude', 'CLAUDE.md');
@@ -130,7 +130,7 @@ test('Claude adapter rewrites settings.json hook paths for project scope but not
   // hook-path-rewritten for project scope the way settings.json is.
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(projectRoot, '.claude', 'keybindings.json'), 'utf8')), { bind: 'ctrl+k' });
 
-  const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-claude-adapter-global-'));
+  const globalRoot = suiteTempDir('doflow-claude-adapter-global-');
   const globalPlanned = claude.plan({ assets: [asset2], scope: 'global', scopeRoot: globalRoot, context, ledger: { resources: [] } });
   claude.apply({ changes: globalPlanned.changes, scope: 'global', scopeRoot: globalRoot, context });
   const globalInstalled = JSON.parse(fs.readFileSync(path.join(globalRoot, '.claude', 'settings.json'), 'utf8'));

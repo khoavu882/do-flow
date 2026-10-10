@@ -27,12 +27,12 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { REPO } = require('./_shared');
 const {
   generateScaffold, ARTIFACTS, FINGERPRINT_RE, SCAFFOLD_DIR_NAME, MANIFEST_NAME, STUB_SUFFIX, STATUS, EXIT,
 } = require('../../src/runtime/scaffold/generate');
+const { tempDir } = require('../helper/tmp');
 
 // ---------------------------------------------------------------------------------------------
 
@@ -51,10 +51,6 @@ function jailedFs(recorded) {
     mkdirSync: (target, opts) => { recorded.push(path.resolve(target)); return fs.mkdirSync(target, opts); },
     writeFileSync: (target, data, opts) => { recorded.push(path.resolve(target)); return fs.writeFileSync(target, data, opts); },
   };
-}
-
-function tempDir(label) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), `doflow-scaffold-${label}-`));
 }
 
 /** Every file under `dir`, as `relative path → bytes`. */
@@ -138,8 +134,8 @@ function codeOf(text) {
 
 // ---------------------------------------------------------------------------------------------
 
-test('G11: a scaffold run mutates nothing outside the feature directory', () => {
-  const root = tempDir('containment');
+test('G11: a scaffold run mutates nothing outside the feature directory', (t) => {
+  const root = tempDir(t, 'doflow-scaffold-containment-');
   const { featureDir, repoRoot } = fixtureFeature(root);
   const outsideBefore = snapshot(repoRoot);
 
@@ -161,8 +157,8 @@ test('G11: a scaffold run mutates nothing outside the feature directory', () => 
   assert.equal(result.scaffoldDir, scaffoldDir);
 });
 
-test('G11: the same artifacts generate a byte-identical scaffold on every run', () => {
-  const root = tempDir('idempotent');
+test('G11: the same artifacts generate a byte-identical scaffold on every run', (t) => {
+  const root = tempDir(t, 'doflow-scaffold-idempotent-');
   const { featureDir, repoRoot } = fixtureFeature(root);
   const scaffoldDir = path.join(featureDir, SCAFFOLD_DIR_NAME);
 
@@ -180,8 +176,8 @@ test('G11: the same artifacts generate a byte-identical scaffold on every run', 
   assert.equal(second.unchanged.length, first.written.length, 'every file the first run wrote should be reported unchanged by the second');
 });
 
-test('G11: emitted files carry signatures and a single not-implemented signal, never logic', () => {
-  const root = tempDir('signatures');
+test('G11: emitted files carry signatures and a single not-implemented signal, never logic', (t) => {
+  const root = tempDir(t, 'doflow-scaffold-signatures-');
   const { featureDir, repoRoot } = fixtureFeature(root);
   generateScaffold({ featureDir, repoRoot });
 
@@ -210,8 +206,8 @@ test('G11: emitted files carry signatures and a single not-implemented signal, n
   assert.deepEqual(findings, [], `generated content is not signatures-only:\n  ${findings.join('\n  ')}`);
 });
 
-test('G11: nothing emitted can be picked up by the host project\'s toolchain', () => {
-  const root = tempDir('inert');
+test('G11: nothing emitted can be picked up by the host project\'s toolchain', (t) => {
+  const root = tempDir(t, 'doflow-scaffold-inert-');
   const { featureDir, repoRoot } = fixtureFeature(root);
   generateScaffold({ featureDir, repoRoot });
 
@@ -231,8 +227,8 @@ test('G11: nothing emitted can be picked up by the host project\'s toolchain', (
   }
 });
 
-test('G11: every generated file names the requirement, component or task it derives from', () => {
-  const root = tempDir('traceability');
+test('G11: every generated file names the requirement, component or task it derives from', (t) => {
+  const root = tempDir(t, 'doflow-scaffold-traceability-');
   const { featureDir, repoRoot } = fixtureFeature(root);
   generateScaffold({ featureDir, repoRoot });
 
@@ -250,8 +246,8 @@ test('G11: every generated file names the requirement, component or task it deri
   assert.deepEqual(untraceable, [], `scaffold files must be traceable to what they came from:\n  ${untraceable.join('\n  ')}`);
 });
 
-test('G11: a hand-edited scaffold file is reported and left alone', () => {
-  const root = tempDir('humanedit');
+test('G11: a hand-edited scaffold file is reported and left alone', (t) => {
+  const root = tempDir(t, 'doflow-scaffold-humanedit-');
   const { featureDir, repoRoot } = fixtureFeature(root);
   const scaffoldDir = path.join(featureDir, SCAFFOLD_DIR_NAME);
   generateScaffold({ featureDir, repoRoot });
@@ -275,9 +271,9 @@ test('G11: a hand-edited scaffold file is reported and left alone', () => {
     'a file with no fingerprint must be treated as hand-authored, not overwritten');
 });
 
-test('G11: an artifact the generator cannot parse blocks the run instead of thinning it', () => {
+test('G11: an artifact the generator cannot parse blocks the run instead of thinning it', (t) => {
   for (const missing of ARTIFACTS) {
-    const root = tempDir(`blocked-${missing.replace('.md', '')}`);
+    const root = tempDir(t, `doflow-scaffold-blocked-${missing.replace('.md', '')}-`);
     const { featureDir, repoRoot } = fixtureFeature(root, { omit: [missing] });
     const result = generateScaffold({ featureDir, repoRoot });
 
@@ -292,7 +288,7 @@ test('G11: an artifact the generator cannot parse blocks the run instead of thin
   }
 
   // plan.md present but with no task list: parseable file, unusable content. Same posture.
-  const root = tempDir('blocked-empty-plan');
+  const root = tempDir(t, 'doflow-scaffold-blocked-empty-plan-');
   const { featureDir, repoRoot } = fixtureFeature(root);
   fs.writeFileSync(path.join(featureDir, 'plan.md'), '# Implementation Plan\n\n## 8. Tasks\n\nNone yet.\n');
   const result = generateScaffold({ featureDir, repoRoot });
@@ -302,8 +298,8 @@ test('G11: an artifact the generator cannot parse blocks the run instead of thin
     'a blocked run must not emit source files alongside its own failure report');
 });
 
-test('G11: what was skipped is reported as prominently as what was produced', () => {
-  const root = tempDir('skips');
+test('G11: what was skipped is reported as prominently as what was produced', (t) => {
+  const root = tempDir(t, 'doflow-scaffold-skips-');
   const { featureDir, repoRoot } = fixtureFeature(root);
   const result = generateScaffold({ featureDir, repoRoot });
 
@@ -338,7 +334,7 @@ test('G11: what was skipped is reported as prominently as what was produced', ()
 // is what makes the guard mean the same thing everywhere.
 const FIXTURE_FEATURES = path.join(REPO, 'test', 'fixtures', 'scaffold');
 
-test('G11: real feature artifacts generate a contained, idempotent scaffold', () => {
+test('G11: real feature artifacts generate a contained, idempotent scaffold', (t) => {
   const complete = (dir) => ARTIFACTS.every((a) => fs.existsSync(path.join(dir, a)));
   const dirsIn = (root) => (fs.existsSync(root)
     ? fs.readdirSync(root, { withFileTypes: true })
@@ -358,7 +354,7 @@ test('G11: real feature artifacts generate a contained, idempotent scaffold', ()
   for (const source of features) {
     // Copied, never generated in place: a test suite that writes into agent-docs/ is itself the
     // uncontained-write failure this guard is about.
-    const root = tempDir('real');
+    const root = tempDir(t, 'doflow-scaffold-real-');
     const featureDir = path.join(root, path.basename(source));
     fs.mkdirSync(featureDir, { recursive: true });
     for (const artifact of ARTIFACTS) fs.copyFileSync(path.join(source, artifact), path.join(featureDir, artifact));

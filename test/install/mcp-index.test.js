@@ -4,6 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { loadRegistry, selectMcpServers } = require('../../src/registry');
 const { renderMcpIndex } = require('../../src/lifecycle/mcp-index');
 const { mcpIndexPath } = require('../../src/lifecycle');
@@ -116,13 +117,13 @@ test('anchor: every rendered doc path resolves to a real file under the guidance
 // when nothing else changed — so a change to the renderer, to a server's doc/shortFlag, or to the
 // resolved selection silently did nothing on any tree that was otherwise current. The index was
 // only ever rewritten as a side effect of some unrelated asset happening to change.
-test('a no-native-change install still reconciles the generated index', () => {
+test('a no-native-change install still reconciles the generated index', (t) => {
   const { execFileSync } = require('node:child_process');
-  const os = require('node:os');
-  const scope = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-mcpidx-'));
+  const scope = tempDir(t, 'doflow-mcp-index-');
+  const home = tempDir(t, 'doflow-mcp-index-home-');
   const run = () => execFileSync(process.execPath,
     [path.join(repoRoot, 'bin/doflow.js'), 'install', scope, '-t', 'claude', '--force', '--mcp', 'context7'],
-    { stdio: ['pipe', 'pipe', 'pipe'] });
+    { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, 'xdg') } });
 
   run();
   const index = path.join(scope, '.doflow', 'guidance', 'MCP_INDEX.md');
@@ -135,5 +136,4 @@ test('a no-native-change install still reconciles the generated index', () => {
   assert.notEqual(fs.readFileSync(index, 'utf8'), '# stale\n',
     'an install with no native changes must still reconcile the generated index');
   assert.match(fs.readFileSync(index, 'utf8'), /^@mcp\/MCP_Context7\.md$/m);
-  fs.rmSync(scope, { recursive: true, force: true });
 });

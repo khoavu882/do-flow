@@ -2,13 +2,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { updateLedger } = require('../../src/lifecycle');
 const { defaultLedger, LEDGER_VERSION } = require('../../src/state');
+const { tempDir } = require('../helper/tmp');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-tombstone-')); }
+function scratch(t) { return tempDir(t, 'doflow-tombstone-'); }
 const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
 
 function resource(target, identity) {
@@ -23,8 +23,8 @@ function verification(row) {
   return { harness: row.harness, ok: true, statuses: [], conflicts: [], resources: [row] };
 }
 
-test('a relocated claim records a tombstone and sweeps the byte-identical stale copy', () => {
-  const project = scratch();
+test('a relocated claim records a tombstone and sweeps the byte-identical stale copy', (t) => {
+  const project = scratch(t);
   const oldPath = path.join(project, '.codex', 'skills', 'do-x', 'SKILL.md');
   const newPath = path.join(project, '.agents', 'skills', 'do-x', 'SKILL.md');
   fs.mkdirSync(path.dirname(oldPath), { recursive: true });
@@ -58,8 +58,8 @@ test('a relocated claim records a tombstone and sweeps the byte-identical stale 
   assert.equal(fs.existsSync(newPath), true);
 });
 
-test('a user-edited stale copy is never swept: it stays, and the tombstone stays visible', () => {
-  const project = scratch();
+test('a user-edited stale copy is never swept: it stays, and the tombstone stays visible', (t) => {
+  const project = scratch(t);
   const oldPath = path.join(project, '.codex', 'skills', 'do-y', 'SKILL.md');
   const newPath = path.join(project, '.agents', 'skills', 'do-y', 'SKILL.md');
   fs.mkdirSync(path.dirname(oldPath), { recursive: true });
@@ -79,8 +79,8 @@ test('a user-edited stale copy is never swept: it stays, and the tombstone stays
   assert.equal(fs.existsSync(oldPath), true, 'user content outranks tidiness');
 });
 
-test('re-running the same reconciliation adds no duplicate tombstones', () => {
-  const project = scratch();
+test('re-running the same reconciliation adds no duplicate tombstones', (t) => {
+  const project = scratch(t);
   const oldPath = path.join(project, '.codex', 'skills', 'do-z', 'SKILL.md');
   const newPath = path.join(project, '.agents', 'skills', 'do-z', 'SKILL.md');
   fs.mkdirSync(path.dirname(newPath), { recursive: true });

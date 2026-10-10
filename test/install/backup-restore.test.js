@@ -1,11 +1,11 @@
 'use strict';
 // Restore planning and execution in src/install/backup.js: format-2 backups restore per file, 1.19
 // backups keep restoring through restoreBackup. Every path lives under a scratch directory.
-const { test, after } = require('node:test');
+const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const {
   createFileBackup, planRestore, executeRestore, restoreBackup,
 } = require('../../src/install/backup');
@@ -16,13 +16,9 @@ const REPO = path.resolve(__dirname, '../..');
 const DATE = new Date('2026-03-15T10:20:30');
 const CANNOT_DENY_WRITES = IS_WIN || process.getuid?.() === 0;
 
-const scratches = [];
-after(() => { for (const dir of scratches) fs.rmSync(dir, { recursive: true, force: true }); });
-
 /** A scratch scope root with its canonical backup root. */
 function scratchScope() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-backup-restore-')));
-  scratches.push(dir);
+  const dir = suiteTempDir('doflow-backup-restore-');
   const scopeRoot = path.join(dir, 'home');
   fs.mkdirSync(scopeRoot);
   return { dir, scopeRoot, backupRoot: path.join(scopeRoot, '.doflow', 'backups') };

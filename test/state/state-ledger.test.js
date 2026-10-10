@@ -2,27 +2,27 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { writeManifest } = require('../../src/install/manifest');
 const {
   STATE_VERSION, LEDGER_VERSION, stateRoot, ledgerPath, defaultLedger, readLedger, writeLedger,
   writeRecoveryRecord, readRecoveryRecord, migrateLegacyManifest, ownershipKey,
 } = require('../../src/state');
+const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, "../..");
 const DATE = new Date('2026-07-24T12:34:56Z');
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-state-')); }
+function scratch(t) { return tempDir(t, 'doflow-state-'); }
 
-test('state roots are neutral and scope-specific', () => {
-  const root = scratch();
+test('state roots are neutral and scope-specific', (t) => {
+  const root = scratch(t);
   assert.equal(stateRoot({ scope: 'project', projectRoot: root }), path.join(root, '.doflow', 'state'));
   assert.equal(stateRoot({ scope: 'global', homeDir: root }), path.join(root, '.doflow', 'state'));
   assert.throws(() => stateRoot({ scope: 'other', projectRoot: root }), /Invalid state scope/);
 });
 
-test('ledger writes atomically and round-trips without a harness directory', () => {
-  const root = path.join(scratch(), 'project', '.doflow', 'state');
+test('ledger writes atomically and round-trips without a harness directory', (t) => {
+  const root = path.join(scratch(t), 'project', '.doflow', 'state');
   const ledger = defaultLedger({ scope: 'project', scopeRoot: path.dirname(path.dirname(root)) });
   ledger.resources.push({ harness: 'gemini', scope: 'project', assetId: 'guidance.core', target: 'GEMINI.md', ownershipIdentity: 'managed-section' });
   writeLedger(root, ledger);
@@ -31,8 +31,8 @@ test('ledger writes atomically and round-trips without a harness directory', () 
   assert.ok(fs.existsSync(ledgerPath(root)));
 });
 
-test('recovery records are append-only, atomically readable journals', () => {
-  const root = path.join(scratch(), '.doflow', 'state');
+test('recovery records are append-only, atomically readable journals', (t) => {
+  const root = path.join(scratch(t), '.doflow', 'state');
   const first = writeRecoveryRecord(root, { changes: [{ operation: 'update', target: '.codex/config.toml' }] }, { now: DATE });
   const second = writeRecoveryRecord(root, { status: 'verified' }, { now: DATE });
   assert.notEqual(first.id, second.id);
@@ -41,8 +41,8 @@ test('recovery records are append-only, atomically readable journals', () => {
   assert.throws(() => readRecoveryRecord(root, '../escape'), /Invalid recovery id/);
 });
 
-test('legacy manifest migration imports explicit ownership once and leaves the legacy file untouched', () => {
-  const project = scratch();
+test('legacy manifest migration imports explicit ownership once and leaves the legacy file untouched', (t) => {
+  const project = scratch(t);
   const claude = path.join(project, '.claude');
   writeManifest({
     claudeDir: claude, scriptVersion: '2.4.4', operation: 'install', repoRoot: REPO,
@@ -70,8 +70,8 @@ test('legacy manifest migration imports explicit ownership once and leaves the l
   assert.equal(second.ledger.version, LEDGER_VERSION);
 });
 
-test('legacy migration does not create ownership from tool-only or malformed legacy state', () => {
-  const project = scratch();
+test('legacy migration does not create ownership from tool-only or malformed legacy state', (t) => {
+  const project = scratch(t);
   const claude = path.join(project, '.claude');
   writeManifest({ claudeDir: claude, scriptVersion: '2.4.4', operation: 'install', repoRoot: REPO, tools: ['gemini'], date: DATE });
   const root = stateRoot({ scope: 'project', projectRoot: project });
@@ -79,7 +79,7 @@ test('legacy migration does not create ownership from tool-only or malformed leg
   assert.equal(migrated.ledger.resources.length, 0);
   assert.ok(migrated.ledger.targets.gemini.imported);
 
-  const invalidProject = scratch();
+  const invalidProject = scratch(t);
   const invalidClaude = path.join(invalidProject, '.claude');
   fs.mkdirSync(invalidClaude, { recursive: true });
   fs.writeFileSync(path.join(invalidClaude, '.install-manifest.json'), '{ invalid');
@@ -94,8 +94,8 @@ test('legacy migration does not create ownership from tool-only or malformed leg
 // both `legacy.<kind>` (from an old manifest import) and adapter-owned (`skills.doflow`, etc.)
 // assetIds side by side. This scenario post-dates every existing coverage above (which only ever
 // imports into an *empty* ledger) and is the one FR-007 gap Phase H's plan identified.
-test('legacy manifest import coexists with pre-existing adapter-owned copy-tree/settings resources without collision or data loss', () => {
-  const project = scratch();
+test('legacy manifest import coexists with pre-existing adapter-owned copy-tree/settings resources without collision or data loss', (t) => {
+  const project = scratch(t);
   const claude = path.join(project, '.claude');
   const root = stateRoot({ scope: 'project', projectRoot: project });
 

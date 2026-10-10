@@ -3,8 +3,8 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
 const fs = require('node:fs');
-const os = require('node:os');
 const { loadRegistry, validateRegistry } = require('../../src/registry');
+const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const EMPTY = { harnesses: [], assets: [], mcp: [], lifecycle: [], externalTools: [], contracts: [] };
@@ -106,8 +106,8 @@ test('duplicate slot ids fail validation', () => {
   assert.ok(duplicated.errors.some((error) => error.includes("duplicate id 'dense'")));
 });
 
-test('an enabled slot loads end-to-end through loadRegistry; malformed fails the load', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-model-slots-'));
+test('an enabled slot loads end-to-end through loadRegistry; malformed fails the load', (t) => {
+  const root = tempDir(t, 'doflow-model-slots-');
   for (const dir of ['core', 'src', 'bin']) fs.cpSync(path.join(REPO, dir), path.join(root, dir), { recursive: true });
   const modelsPath = path.join(root, 'core', 'registry', 'models.json');
   const models = JSON.parse(fs.readFileSync(modelsPath, 'utf8'));

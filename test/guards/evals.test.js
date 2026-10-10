@@ -29,6 +29,7 @@ after(() => {
   scratch.remove();
 });
 const { WorktreeManager, SKILL_SOURCE_FILE, SANDBOX_SKILLS_DIR, sha256File } = require('../../src/runtime/worktree.js');
+const { tempDir } = require('../helper/tmp');
 
 test('G11/R6: the evaluation corpus is present — a clean clone can reproduce the baseline', () => {
   assert.ok(HAS_BENCH, 'bench/runner.js must be tracked; the corpus stopped being local-only under review R6');
@@ -403,35 +404,31 @@ test('G11b: the plan states why bare-name invocation is not an option', () => {
   assert.match(r.dispatchedAgentMustNot, /Skill tool|by name/i);
 });
 
-test('G11b: a sandbox is projected from this repo, byte for byte', () => {
+test('G11b: a sandbox is projected from this repo, byte for byte', (t) => {
   // A real projection through the shipped installer, not a hand-copy: a copy that only moved
   // SKILL.md would pass a hash check while leaving every `references/` path in it dangling.
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-bench-guard-'));
-  try {
-    const mgr = new WorktreeManager(REPO, tmp);
-    fs.mkdirSync(path.join(tmp, 'sandbox'), { recursive: true });
-    const manifest = mgr.projectSkills('sandbox');
+  const tmp = tempDir(t, 'doflow-bench-guard-');
+  const mgr = new WorktreeManager(REPO, tmp);
+  fs.mkdirSync(path.join(tmp, 'sandbox'), { recursive: true });
+  const manifest = mgr.projectSkills('sandbox');
 
-    const shipped = skillFiles().map(({ name }) => name).sort();
-    assert.deepEqual(Object.keys(manifest.skills).sort(), shipped, 'the sandbox does not carry every shipped skill');
-    assert.deepEqual(manifest.mismatches, [], 'projected skills differ from source');
+  const shipped = skillFiles().map(({ name }) => name).sort();
+  assert.deepEqual(Object.keys(manifest.skills).sort(), shipped, 'the sandbox does not carry every shipped skill');
+  assert.deepEqual(manifest.mismatches, [], 'projected skills differ from source');
 
-    for (const name of shipped) {
-      const src = fs.readFileSync(path.join(REPO, 'core', 'shared', 'skills', name, 'SKILL.md'));
-      const dst = fs.readFileSync(path.join(tmp, 'sandbox', SANDBOX_SKILLS_DIR, name, 'SKILL.md'));
-      assert.ok(src.equals(dst), `${name}: the sandbox copy is not this repo's source`);
-    }
-    assert.ok(fs.existsSync(path.join(tmp, 'sandbox', SKILL_SOURCE_FILE)), 'the sandbox recorded no skill-source manifest');
-  } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+  for (const name of shipped) {
+    const src = fs.readFileSync(path.join(REPO, 'core', 'shared', 'skills', name, 'SKILL.md'));
+    const dst = fs.readFileSync(path.join(tmp, 'sandbox', SANDBOX_SKILLS_DIR, name, 'SKILL.md'));
+    assert.ok(src.equals(dst), `${name}: the sandbox copy is not this repo's source`);
   }
+  assert.ok(fs.existsSync(path.join(tmp, 'sandbox', SKILL_SOURCE_FILE)), 'the sandbox recorded no skill-source manifest');
 });
 
-test('G11b: grading flags a run that resolved skills outside its sandbox', () => {
+test('G11b: grading flags a run that resolved skills outside its sandbox', (t) => {
   const cfg = runner.loadConfig();
   const skill = skillFiles()[0].name;
   const sourceSha = runner.skillSourceSha256(cfg, skill);
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-bench-prov-'));
+  const tmp = tempDir(t, 'doflow-bench-prov-');
   const mk = (name, record) => {
     const dir = path.join(tmp, name);
     fs.mkdirSync(dir, { recursive: true });
@@ -439,25 +436,21 @@ test('G11b: grading flags a run that resolved skills outside its sandbox', () =>
     if (record) fs.writeFileSync(path.join(dir, runner.RUN_SOURCE_FILE), JSON.stringify(record));
     return runner.verifySkillSource(cfg, skill, runner.loadRunContext(dir));
   };
-  try {
-    const sandboxPath = path.join(REPO, '.doflow', 'worktrees', 'bench-x', SANDBOX_SKILLS_DIR, skill, 'SKILL.md');
+  const sandboxPath = path.join(REPO, '.doflow', 'worktrees', 'bench-x', SANDBOX_SKILLS_DIR, skill, 'SKILL.md');
 
-    assert.equal(mk('ok', { skill, path: sandboxPath, sha256: sourceSha }).status, 'verified');
+  assert.equal(mk('ok', { skill, path: sandboxPath, sha256: sourceSha }).status, 'verified');
 
-    // The regression this guard exists for: the Skill tool silently serving the installed copy.
-    const global = mk('global', { skill, path: path.join(os.homedir(), '.claude', 'skills', skill, 'SKILL.md'), sha256: 'f'.repeat(64) });
-    assert.equal(global.status, 'global-fallback');
+  // The regression this guard exists for: the Skill tool silently serving the installed copy.
+  const global = mk('global', { skill, path: path.join(os.homedir(), '.claude', 'skills', skill, 'SKILL.md'), sha256: 'f'.repeat(64) });
+  assert.equal(global.status, 'global-fallback');
 
-    // A stale sandbox is a different fault from a global one and must not be conflated with it.
-    assert.equal(mk('stale', { skill, path: sandboxPath, sha256: '0'.repeat(64) }).status, 'mismatch');
+  // A stale sandbox is a different fault from a global one and must not be conflated with it.
+  assert.equal(mk('stale', { skill, path: sandboxPath, sha256: '0'.repeat(64) }).status, 'mismatch');
 
-    // Silence is what the defect looked like, so it can never read as a pass.
-    const missing = mk('silent', null);
-    assert.equal(missing.status, 'unrecorded');
-    assert.notEqual(missing.status, 'verified');
-  } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
-  }
+  // Silence is what the defect looked like, so it can never read as a pass.
+  const missing = mk('silent', null);
+  assert.equal(missing.status, 'unrecorded');
+  assert.notEqual(missing.status, 'verified');
 });
 
 test('G11b: the run contract in bench/README.md still requires provenance', () => {
@@ -492,13 +485,13 @@ test('G11: the bench harness is not wired into the default test command', () => 
   );
 });
 
-test('G11/034: an outputs-scoped assertion is graded from outputs/, not gated on a transcript', () => {
+test('G11/034: an outputs-scoped assertion is graded from outputs/, not gated on a transcript', (t) => {
   // Review finding. gradeAssertion decided `needsTranscript` from the assertion TYPE alone, while
   // scopeFor() routes `in: 'outputs'` to the artifacts and never reads the transcript. A run that
   // produced artifacts but no transcript.txt therefore failed every outputs-scoped assertion with
   // "no transcript.txt saved for this run" — 15 of them across four skills in the shipped corpus —
   // understating the pass rate and pointing a baseline delta at the wrong file.
-  const dir = fs.mkdtempSync(path.join(scratch.dir, 'grade-'));
+  const dir = tempDir(t, 'doflow-bench-grade-');
   fs.mkdirSync(path.join(dir, 'outputs'));
   fs.writeFileSync(path.join(dir, 'outputs', 'design.md'), 'a clean design with no forbidden token\n');
   const ctx = runner.loadRunContext(dir);
