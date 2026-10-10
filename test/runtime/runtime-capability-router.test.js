@@ -124,3 +124,11 @@ test('CapabilityRouter throws on unknown intent or capability', () => {
   assert.throws(() => router.resolveIntent('nonexistent-intent'), /Unknown route\/intent/);
   assert.throws(() => router.resolveCapability('nonexistent.capability'), /Unknown capability/);
 });
+
+test('formatExecution derives mcpTool from the provider mcp descriptor and omits it without one', () => {
+  const router = new CapabilityRouter({ repoRoot: REPO });
+  const withMcp = router.formatExecution('locate-concept', { id: 'acme.find', mcp: { server: 'acme', tool: 'find' } }, { query: 'q' });
+  assert.equal(withMcp.mcpTool, 'mcp__acme__find');
+  const without = router.formatExecution('locate-concept', { id: 'acme.find' }, { query: 'q' });
+  assert.equal('mcpTool' in without, false);
+});

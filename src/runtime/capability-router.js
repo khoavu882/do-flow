@@ -239,12 +239,17 @@ class CapabilityRouter {
   formatExecution(intent, provider, params = {}) {
     const query = params.query || params.symbol || params.concept || '';
     const targetPath = params.path || '.';
-    const withDisplay = (result) => (result.argv ? { ...result, cliCommand: result.argv.map(shellQuote).join(' ') } : result);
+    // The MCP tool name comes from the provider's registry descriptor (`mcp: {server, tool}`), so a
+    // new MCP-backed provider needs no code change here. A caller may pass a bare `{ id }`, so fall
+    // back to the registry entry with that id.
+    const mcp = provider.mcp
+      || Object.values(this.capabilities).flatMap((cap) => cap.providers || []).find((p) => p.id === provider.id && p.mcp)?.mcp;
+    const mcpTool = mcp ? { mcpTool: `mcp__${mcp.server}__${mcp.tool}` } : {};
+    const withDisplay = (result) => ({ ...mcpTool, ...result, ...(result.argv ? { cliCommand: result.argv.map(shellQuote).join(' ') } : {}) });
 
     if (provider.id === 'semble.search') {
       const content = params.content || 'code';
       return withDisplay({
-        mcpTool: 'mcp__semble__search',
         // `repo`, not `path`: the MCP tool's schema names the project root `repo` and rejects a
         // call without it (review R5 — the routed arguments did not fit the tool they named).
         args: { query, repo: targetPath, content },
@@ -254,7 +259,6 @@ class CapabilityRouter {
 
     if (provider.id === 'graphify.query') {
       return withDisplay({
-        mcpTool: 'mcp__graphify__query_graph',
         args: { query, project_path: targetPath },
         argv: ['graphify', 'query', query],
       });
