@@ -56,11 +56,12 @@ const PATH_CALLER_SURFACES = ['package.json', path.join('core', 'shared', 'scrip
  * render-puml.sh) and CONSUMER_ROOTS (worktree.js via bench/runner.js), both of which stop
  * vouching for a module the moment its caller goes — which an allowlist entry would not.
  * "Nothing calls it" is never a reason — that module is dead, and belongs deleted, not exempted.
- * The two storage declarations are temporary: consumer lands in B.2/C.1; C.1 removes these entries.
+ * The three storage declarations are temporary: consumers land in B.2/C.1; C.1 removes these entries.
  */
 const ALLOWLIST = new Set([
   'src/runtime/storage/registry.js', // consumer lands in B.2/C.1
   'src/runtime/storage/roots.js', // consumer lands in B.2/C.1
+  'src/runtime/storage/work-status.js', // consumer lands in C.1
 ]);
 
 /** Every `.js` file under a source/test root. */
