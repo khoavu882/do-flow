@@ -340,6 +340,7 @@ Artifact and repository state:
   prereqs          stage prerequisite checks
   parallel-check   dispatch groups and write-set collisions for one plan phase
   task-brief       task brief extraction for execution
+  brief-tools      tier, tools and report-format block for a brief (called by task-brief)
   review-package   assemble a review payload
   sync-context     write a marker-delimited block (stdin) into an agent context file
 
@@ -475,7 +476,7 @@ shell_helper_for() {
 is_node_verb() {
   case "$1" in
     classify|workflow|route|evidence|claim|readiness|context-pack|retrieval-plan|outcome|scaffold|decision|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
-trace|stats|indicators|discover|inventory|capabilities|doctor|orchestrate|research-request|retrieve|model-role|storage) return 0 ;;
+trace|stats|indicators|discover|inventory|capabilities|doctor|orchestrate|research-request|retrieve|model-role|storage|brief-tools) return 0 ;;
     *) return 1 ;;
   esac
 }

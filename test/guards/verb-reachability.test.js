@@ -74,6 +74,10 @@ const ALLOWLIST = new Map([
     'knowledge-fabric search verb: operator/diagnostic entry over the installed guidance index; skills adopt it through retrieval declarations rather than naming it directly, so it is allowlisted with that rationale',
   ],
   [
+    'brief-tools',
+    'called by do-task-brief.sh, never by a skill',
+  ],
+  [
     'model-role',
     'advisory model routing verb: resolves a role from models.json to availability-annotated provider candidates; consumed by skills and orchestration snapshots at adoption time rather than named directly by any skill today',
   ],

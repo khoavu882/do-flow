@@ -767,7 +767,12 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
     }
     // Feature 058 records every readiness evaluation: the verb's JSON names the record and the
     // declared scope, and the record is one new file. Nothing else may be added.
-    const recordAdditions = ['readiness --task-class feature: $.record', 'readiness --task-class feature: $.declaredScope'];
+    // Feature 062 adds the stage's MCP record and its warnings to a handoff's JSON; its text mode
+    // prints them, and --json prints nothing extra, so stderr above is still compared byte for byte.
+    const recordAdditions = [
+      'readiness --task-class feature: $.record', 'readiness --task-class feature: $.declaredScope',
+      'orchestrate --action handoff: $.consultations', 'orchestrate --action handoff: $.mcpWarnings',
+    ];
     assert.deepEqual([...added].filter((a) => !recordAdditions.includes(a)), [], 'the new runtime adds nothing to a chain verb\'s output');
 
     // The state the two runtimes left behind is the same set of files, apart from that record.

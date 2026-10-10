@@ -263,6 +263,10 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--readiness', 'readiness'],
   ['--verification', 'verification'],
   ['--risk', 'risk'],                  // verify: risk level selecting the required tiers
+  ['--owner', 'owner'],                // brief-tools: the agent type the brief is for
+  ['--tier', 'tier'],                  // brief-tools: the task line's tier (light | standard | frontier)
+  ['--harness', 'harness'],            // brief-tools: the harness the brief is for
+  ['--heading-level', 'headingLevel'], // brief-tools: 2 (default) or 3
   ['--plan-path', 'planPath'],         // verify: a feature plan.md whose doflow-verification
                                        // block overrides manifest detection. Without this the
                                        // override was implemented but unreachable (FR-011).
@@ -272,6 +276,7 @@ const RUNTIME_STRING_FLAGS = new Map([
 
 /** Repeatable arguments — each occurrence appends rather than replaces. */
 const RUNTIME_LIST_FLAGS = new Map([
+  ['--mcp-outcome', 'mcpOutcome'],     // orchestrate handoff: <server>=<outcome>, one per MCP server the step names
   ['--failed-check', 'failedChecks'],  // recover: check names outrank the error prose (see recovery.js)
   // retrieval-plan: the intents a stage declares, or (on report) the ones it states it reached.
   // Repeatable as well as comma-separated, because a plan assembled a need at a time should not
@@ -379,6 +384,7 @@ Commands:
   research-request     Open, list or resolve a feature-stage research question (--task-id)
   retrieve             BM25 search over the installed guidance tree (--query)
   model-role           Resolve a model role to ranked provider candidates (--role)
+  brief-tools          Tier, tools and report-format block for a dispatch brief (--owner)
   route                Resolve an information need to a healthy provider (--intent)
   verify               Compile the verification contract and report against it (--task-id)
   recover              Classify a verification failure and plan the bounded retry (--error)
@@ -450,10 +456,14 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --objective                           context-pack
       --need <intent[,intent]>,
       --stage                               retrieval-plan (--need is repeatable), outcome
+      --mcp-outcome <server>=<outcome>      orchestrate --action handoff, repeatable: used | nothing-usable |
+                                            skipped:<reason> | unavailable (a server left out only warns)
       --state <COMPLETED|BLOCKED|
                ABANDONED|INCONCLUSIVE>,
       --readiness, --verification           outcome --action record
       --risk, --plan-path, --scope          verify
+      --owner, --tier, --harness,
+      --heading-level 2|3                   brief-tools (--slug names the feature whose run gives the stage)
       --path, --exclude (repeatable)        leak-scan
       --ids, --as, --evidence, --title,
       --release, --source, --channel        followup (add, list, take, settle, promote)
