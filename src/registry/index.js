@@ -29,6 +29,8 @@ const EXTERNAL_TOOL_IDS = new Set(['rtk', 'graphify', 'semble', 'mermaid-cli', '
 const EXTERNAL_TOOL_ACTIONS = new Set(['install', 'update', 'uninstall']);
 const MODEL_KINDS = new Set(['hosted', 'local']);
 const MODEL_SLOT_IDS = new Set(['dense', 'rerank']);
+const MCP_STEP_KEYS = new Set(['skill', 'file', 'expectedWhen']);
+const MCP_NAME = /^[A-Za-z0-9_.-]+$/;
 
 function issue(errors, location, message) { errors.push(`${location}: ${message}`); }
 function object(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
@@ -60,6 +62,10 @@ function loadRegistry({ repoRoot, dir, fsImpl = fs } = {}) {
   for (const [name, fileName] of Object.entries(REGISTRY_FILES)) {
     loaded[name] = parseRegistryFile(path.join(base, fileName), fsImpl);
   }
+  // capabilities.json is read by the capability router, not a REGISTRY_FILES entry; the registry
+  // only validates it (provider `mcp` descriptors) when the file is present beside the others.
+  const capabilitiesFile = path.join(base, 'capabilities.json');
+  const capabilities = fsImpl.existsSync(capabilitiesFile) ? parseRegistryFile(capabilitiesFile, fsImpl).capabilities : undefined;
   const registry = {
     directory: base,
     repoRoot: repoRoot ? path.resolve(repoRoot) : path.resolve(base, '..', '..'),
@@ -72,6 +78,8 @@ function loadRegistry({ repoRoot, dir, fsImpl = fs } = {}) {
     modelProviders: loaded.models.providers,
     modelRoles: loaded.models.roles,
     retrievalSlots: Array.isArray(loaded.models.slots) ? loaded.models.slots : [],
+    dispatchTiers: loaded.models.dispatchTiers,
+    capabilities,
     versions: Object.fromEntries(Object.entries(loaded).map(([name, value]) => [name, value.version])),
   };
   const validation = validateRegistry(registry, { repoRoot: registry.repoRoot, fsImpl });
@@ -134,6 +142,12 @@ function validateContract(value, location, errors, harnessIds) {
   }
 }
 
+/** A harness MCP tool-name template: contains {server} and {tool}, and no other brace text. */
+function validToolNameTemplate(value) {
+  return typeof value === 'string' && value.includes('{server}') && value.includes('{tool}')
+    && !value.replace(/\{server\}|\{tool\}/g, '').match(/[{}]/);
+}
+
 function validateCapability(value, location, errors) {
   if (!object(value)) { issue(errors, location, 'must be an object'); return; }
   if (!CAPABILITY_STATUS.has(value.status)) issue(errors, location, 'status must be supported, different, or unavailable');
@@ -141,6 +155,9 @@ function validateCapability(value, location, errors) {
     issue(errors, location, 'must include one or more HTTPS evidence URLs');
   }
   if (typeof value.verification !== 'string' || !value.verification.trim()) issue(errors, location, 'requires a verification instruction');
+  if (value.toolName !== undefined && !validToolNameTemplate(value.toolName)) {
+    issue(errors, location, 'toolName must be a string with exactly the placeholders {server} and {tool} and no other braces');
+  }
   if (value.prerequisites !== undefined && (!Array.isArray(value.prerequisites) || value.prerequisites.some((item) => typeof item !== 'string' || !item))) {
     issue(errors, location, 'prerequisites must be an array of non-empty strings');
   }
@@ -294,6 +311,60 @@ function validateModelSlot(value, location, errors, providerIds) {
   }
 }
 
+/** `trigger` and `steps` on an MCP server (062): when a stage should reach for the server, and
+ * which skill files name it. Registry-only; adapters pick fields and never render these keys. */
+function validateMcpStageUse(server, at, errors) {
+  if (typeof server.trigger !== 'string' || server.trigger.length < 20 || server.trigger.length > 300 || /[\r\n]/.test(server.trigger)) {
+    issue(errors, at, 'trigger must be one line of 20 to 300 characters');
+  }
+  if (!Array.isArray(server.steps)) { issue(errors, at, 'steps must be an array'); return; }
+  const seen = new Set();
+  server.steps.forEach((step, index) => {
+    const where = `steps[${index}]`;
+    if (!object(step)) { issue(errors, at, `${where} must be an object`); return; }
+    for (const key of Object.keys(step)) if (!MCP_STEP_KEYS.has(key)) issue(errors, at, `${where} has unknown key '${key}'`);
+    if (typeof step.skill !== 'string' || !/^[a-z][a-z0-9-]*$/.test(step.skill)) issue(errors, at, `${where}.skill must be a skill directory name`);
+    if (typeof step.file !== 'string' || !step.file.trim() || path.isAbsolute(step.file) || step.file.split(/[\\/]/).includes('..')) {
+      issue(errors, at, `${where}.file must be a path relative to the skill directory`);
+    }
+    if (step.expectedWhen !== undefined && step.expectedWhen !== 'research-request') issue(errors, at, `${where}.expectedWhen must be 'research-request' when present`);
+    const key = `${step.skill}\u0000${step.file}`;
+    if (seen.has(key)) issue(errors, at, `${where} duplicates skill '${step.skill}' and file '${step.file}'`);
+    seen.add(key);
+  });
+}
+
+/** Optional `mcp: {server, tool}` on a capability provider in capabilities.json (062). */
+function validateCapabilityProviders(capabilities, errors) {
+  if (capabilities === undefined) return;
+  if (!object(capabilities)) { issue(errors, 'capabilities', 'must be an object'); return; }
+  for (const [capabilityId, capability] of Object.entries(capabilities)) {
+    for (const provider of object(capability) && Array.isArray(capability.providers) ? capability.providers : []) {
+      if (!object(provider) || provider.mcp === undefined) continue;
+      const at = `capability '${capabilityId}' provider '${provider.id ?? '?'}'`;
+      if (!object(provider.mcp)) { issue(errors, at, 'mcp must be an object with server and tool'); continue; }
+      for (const field of ['server', 'tool']) {
+        if (typeof provider.mcp[field] !== 'string' || !MCP_NAME.test(provider.mcp[field])) issue(errors, at, `mcp.${field} must match ${MCP_NAME}`);
+      }
+    }
+  }
+}
+
+/** `dispatchTiers` in models.json (062): the tier vocabulary and the per-owner default a brief names. */
+function validateDispatchTiers(value, errors) {
+  if (value === undefined) return;
+  const at = 'models.dispatchTiers';
+  if (!object(value)) { issue(errors, at, 'must be an object'); return; }
+  const tiers = Array.isArray(value.tiers) && value.tiers.length > 0 && value.tiers.every((tier) => typeof tier === 'string' && tier) ? value.tiers : null;
+  if (!tiers) { issue(errors, at, 'tiers must be a non-empty array of strings'); return; }
+  if (new Set(tiers).size !== tiers.length) issue(errors, at, 'tiers must be unique');
+  if (!tiers.includes(value.default)) issue(errors, at, `default must be one of: ${tiers.join(', ')}`);
+  if (!object(value.byOwner)) { issue(errors, at, 'byOwner must be an object'); return; }
+  for (const [owner, tier] of Object.entries(value.byOwner)) {
+    if (!tiers.includes(tier)) issue(errors, at, `byOwner '${owner}' must be one of: ${tiers.join(', ')}`);
+  }
+}
+
 function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
   const errors = [];
   const harnesses = Array.isArray(registry?.harnesses) ? registry.harnesses : null;
@@ -380,7 +451,11 @@ function validateRegistry(registry, { repoRoot, fsImpl = fs } = {}) {
     if (server.transport === 'stdio' && (typeof server.command !== 'string' || !server.command.trim())) issue(errors, at, 'stdio transport requires command');
     if (server.args !== undefined && (!Array.isArray(server.args) || server.args.some((arg) => typeof arg !== 'string'))) issue(errors, at, 'args must be an array of strings');
     if (!['optional', 'required'].includes(server.selection)) issue(errors, at, 'selection must be optional or required');
+    validateMcpStageUse(server, at, errors);
   }
+
+  validateCapabilityProviders(registry?.capabilities, errors);
+  validateDispatchTiers(registry?.dispatchTiers, errors);
 
   for (const policy of lifecycle || []) {
     const at = `lifecycle policy '${policy?.id ?? '?'}'`;

@@ -177,10 +177,9 @@ Branch on the returned `outcome` field, not the exit code.
      - Architecture & Schema $\rightarrow$ `system-architect`
      - Code Implementation & Refactoring $\rightarrow$ `core-implementer`
      - Test Automation & Quality $\rightarrow$ `quality-guardian`
-   - Name a model tier explicitly on every dispatch — an omitted tier silently inherits the
-     session's model rather than "using the default." Consult
-     the guidance tree's `references/MODEL_SELECTION.md` for how to pick the tier per task and per
-     review pass.
+   - Name a model tier on every dispatch — an omitted tier inherits the session's model. Pass the
+     tier from task-brief's `record.tier` as the dispatch model; for review passes see the guidance
+     tree's `references/MODEL_SELECTION.md`.
 
 7. **Batch the Phase's Evidence**:
    - One pass at each phase boundary, never one call per fact. Use the plan task id — the same id

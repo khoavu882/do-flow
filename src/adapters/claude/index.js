@@ -69,7 +69,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     return resolveHarnessPaths(declaredPaths, { scope, scopeRoot });
   }
 
-  function discover({ scope, scopeRoot, mcp = [], mcpAdoptable = [], ledger, registry }) {
+  function discover({ scope, scopeRoot, mcp = [], mcpAdoptable = [], ledger, registry, homeDir, context = {} }) {
     const paths = nativePaths({ scope, scopeRoot });
     return {
       paths,
@@ -77,7 +77,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
       settingsExists: fs.existsSync(paths.settings),
       mcpExists: fs.existsSync(paths.mcp),
       knownMcpServers: registry ? selectMcpServers(registry).map((server) => server.id) : [],
-      ...discoverMcp({ paths, mcp, mcpAdoptable, ledger }),
+      ...discoverMcp({ paths, mcp, mcpAdoptable, ledger, scope, scopeRoot, homeDir: context.homeDir || homeDir || undefined }),
     };
   }
 

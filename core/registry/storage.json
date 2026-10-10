@@ -913,7 +913,7 @@
     },
     {
       "file": "core/shared/scripts/doflow/bash/do-task-brief.sh",
-      "reason": "agent-docs deliverable (<feature>/exec/*-brief.md)"
+      "reason": "agent-docs deliverable (<feature>/exec/*-brief.md and its *-brief.json record)"
     },
     {
       "file": "core/shared/scripts/doflow/bash/render-audit.sh",

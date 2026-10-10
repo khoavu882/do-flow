@@ -1,7 +1,18 @@
 {
   "version": 1,
   "servers": [
-    {"id": "context7", "transport": "stdio", "command": "npx", "args": ["-y", "@upstash/context7-mcp"], "selection": "optional", "shortFlag": "--c7", "doc": "mcp/MCP_Context7.md"},
-    {"id": "sequential-thinking", "transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"], "selection": "optional", "shortFlag": "--seq", "doc": "mcp/MCP_Sequential.md"}
+    {"id": "context7", "transport": "stdio", "command": "npx", "args": ["-y", "@upstash/context7-mcp"], "selection": "optional", "shortFlag": "--c7", "doc": "mcp/MCP_Context7.md",
+     "trigger": "The work is about to state, as fact, the behaviour, interface, configuration or version detail of a named library, framework, API, SDK, CLI tool or service.",
+     "steps": [
+       {"skill": "do-brainstorm", "file": "SKILL.md"},
+       {"skill": "do-design", "file": "SKILL.md"},
+       {"skill": "do-document", "file": "references/embedded-research.md", "expectedWhen": "research-request"}
+     ]},
+    {"id": "sequential-thinking", "transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"], "selection": "optional", "shortFlag": "--seq", "doc": "mcp/MCP_Sequential.md",
+     "trigger": "The work settles a decision with more than one interacting part or competing option and records the choice.",
+     "steps": [
+       {"skill": "do-brainstorm", "file": "SKILL.md"},
+       {"skill": "do-design", "file": "SKILL.md"}
+     ]}
   ]
 }

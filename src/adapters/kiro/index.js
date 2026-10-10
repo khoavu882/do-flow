@@ -49,7 +49,10 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
     const paths = nativePaths({ scope, scopeRoot });
     const entries = mcpEntriesInput({ paths, mcp, mcpAdoptable, ledger });
     const mcpSnapshot = readMcpFiles({ file: entries.file, ownRows: entries.ownRows, container: MCP_CONTAINER, fsImpl });
-    return { paths, mcpSnapshot, mcpOwned: ownedMcpIds({ ...entries, files: mcpSnapshot }) };
+    const read = mcpSnapshot[entries.file];
+    // `null` while the file is absent, unreadable or has no server map; every name in it otherwise, whoever wrote it.
+    const mcpConfigured = read?.ok && read.servers ? Object.keys(read.servers).sort() : null;
+    return { paths, mcpSnapshot, mcpOwned: ownedMcpIds({ ...entries, files: mcpSnapshot }), mcpConfigured };
   }
 
   /**

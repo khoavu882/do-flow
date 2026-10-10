@@ -2,39 +2,16 @@
 
 **Purpose**: Multi-step reasoning engine for complex analysis and systematic problem solving
 
-## Triggers
-- Complex debugging scenarios with multiple layers
-- Architectural analysis and system design questions
-- A stage the caller asked to run at its deepest breadth setting. A skill's `effort:` frontmatter is a fixed declaration, not a signal raised per task
-- Problems requiring hypothesis testing and validation
-- Multi-component failure investigation
-- Performance bottleneck identification requiring methodical approach
-
-## Choose When
-- **Over native reasoning**: When problems have 3+ interconnected components
-- **For systematic analysis**: Root cause analysis, architecture review, security assessment
-- **When structure matters**: Problems benefit from decomposition and evidence gathering
-- **For cross-domain issues**: Problems spanning frontend, backend, database, infrastructure
-- **Not for simple tasks**: Basic explanations, single-file changes, straightforward fixes
+## Trigger
+The work settles a decision with more than one interacting part or competing option and records the choice. Otherwise skip it and record `skipped:not-due`.
 
 ## Works Best With
 - **Context7**: Sequential coordinates analysis → Context7 provides official patterns
 
-## Examples
-```
-"why is this API slow?" → Sequential (systematic performance analysis)
-"design a microservices architecture" → Sequential (structured system design)
-"debug this authentication flow" → Sequential (multi-component investigation)
-"analyze security vulnerabilities" → Sequential (comprehensive threat modeling)
-"explain this function" → Native Claude (simple explanation)
-"fix this typo" → Native Claude (straightforward change)
-```
-
 ## Tool IDs
 
-For a skill that calls sequential-thinking explicitly rather than relying on the ambient triggers
-above:
+For a skill that calls sequential-thinking explicitly rather than relying on the trigger above:
 - `mcp__sequential-thinking__sequentialthinking` — run structured multi-step reasoning
-- **Availability:** `ToolSearch("select:mcp__sequential-thinking__sequentialthinking")` finding no
-  match means sequential-thinking isn't connected this session — skip the call, note it in the
-  caller's own report, never halt on it.
+- **Availability:** no callable sequential-thinking tool (on Claude Code,
+  `ToolSearch("select:mcp__sequential-thinking__sequentialthinking")` finds none) means
+  unavailable: record that outcome, say how to add it, never halt.

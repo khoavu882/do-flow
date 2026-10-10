@@ -23,7 +23,8 @@
           "kind": "cli",
           "binary": "semble",
           "checkCommand": ["semble", "--version"],
-          "costTier": "local-index"
+          "costTier": "local-index",
+          "mcp": { "server": "semble", "tool": "search" }
         },
         {
           "id": "native.rg",
@@ -43,7 +44,8 @@
           "kind": "cli",
           "binary": "graphify",
           "checkCommand": ["graphify", "--version"],
-          "costTier": "local-graph"
+          "costTier": "local-graph",
+          "mcp": { "server": "graphify", "tool": "query_graph" }
         },
         {
           "id": "native.rg",
@@ -63,7 +65,8 @@
           "kind": "cli",
           "binary": "graphify",
           "checkCommand": ["graphify", "--version"],
-          "costTier": "local-graph"
+          "costTier": "local-graph",
+          "mcp": { "server": "graphify", "tool": "query_graph" }
         }
       ]
     },

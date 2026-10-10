@@ -473,3 +473,12 @@ test('rules project as .github/instructions/*.instructions.md with applyTo heade
   assert.ok(!fs.existsSync(instructionsDir) || fs.readdirSync(instructionsDir).length === 0,
     'remove reclaims every projected rule file');
 });
+
+test('Copilot discovery reports the servers in its MCP config, sorted, and null when the file is absent', () => {
+  const root = scratch(); const adapter = createCopilotAdapter();
+  const first = adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } });
+  assert.equal(first.mcpConfigured, null);
+  fs.mkdirSync(path.dirname(first.paths.mcp), { recursive: true });
+  fs.writeFileSync(first.paths.mcp, JSON.stringify({ mcpServers: { zeta: {}, alpha: {} } }));
+  assert.deepEqual(adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } }).mcpConfigured, ['alpha', 'zeta']);
+});

@@ -85,11 +85,11 @@ how a shared asset projects onto it:
 
 | File | Declares |
 |---|---|
-| `core/registry/harnesses.json` | Each target's adapter id, supported scopes, native target files, declared native path facts (`paths`: `{base, segments}` rules resolved through `src/helper/harness-paths.js`, with adapters owning only justified logic residue), and per-surface capability status with verification evidence |
+| `core/registry/harnesses.json` | Each target's adapter id, supported scopes, native target files, declared native path facts (`paths`: `{base, segments}` rules resolved through `src/helper/harness-paths.js`, with adapters owning only justified logic residue), and per-surface capability status with verification evidence. A harness's `capabilities.mcp` may carry `toolName`, a template holding `{server}` and `{tool}` (only `claude` has one: `mcp__{server}__{tool}`); the brief block uses it to show a provider's MCP tool name |
 | `core/registry/assets.json` | Each shared asset's `source` path and per-harness `projection`/`nativeDir` |
 | `core/registry/contracts.json` | Per-harness recognized frontmatter fields and hook events — what `test/guards/fields.test.js` (G1) checks every asset against |
 | `core/registry/lifecycle.json` | Hook-based lifecycle policies (session-context capture, pre-implementation gate, MCP tool guard, stop check) and each harness's support status or fallback |
-| `core/registry/mcp.json` | The neutral MCP server catalog every harness's adapter selects from |
+| `core/registry/mcp.json` | The neutral MCP server catalog every harness's adapter selects from. Each server also carries a required `trigger` (one sentence, 20 to 300 characters: the generic condition under which a stage consults it) and `steps` (the skill files that name it, each `{skill, file}` and optionally `expectedWhen: "research-request"`); adapters ignore both. `src/registry/index.js` fails the load on a server missing either |
 
 ## The runtime seam
 
@@ -157,8 +157,9 @@ registries](#installation-registries) for the same plain-JSON convention.
 | `core/registry/workflows.json` | Nine task classes, each an ordered stage list naming skills that already exist, with its readiness template and gates, plus the `callers` map giving every shipped skill a role (`stage`, `router`, `standalone`) so the classifier can judge whether a class has a stage for the skill asking. There is no default class: an unrecognized proposal is rejected with the valid set rather than coerced into one. It also carries the `promptNudge` object, the rules and message for the once-per-session `/do` suggestion; only the prompt hook and G25 read it, not the workflow engine or the classifier |
 | `core/registry/verification.json` | Nine check tiers and four risk levels; a level selects its required and advisory tiers and sets the recovery-retry bound |
 | `core/registry/readiness-templates.json` | Per-class readiness requirements and the evidence kinds that satisfy each one |
-| `core/registry/capabilities.json` | The capabilities an information need can resolve to, and their providers |
+| `core/registry/capabilities.json` | The capabilities an information need can resolve to, and their providers. A provider may carry `mcp: {server, tool}`; the router derives its `mcpTool` from it and the brief block names the MCP tool from it |
 | `core/registry/routes.json` | Information need → capability, with an ordered fallback when the preferred capability has no healthy provider |
+| `core/registry/models.json` | Abstract model roles and their providers (`doflow model-role`), and `dispatchTiers`: the tier names (`tiers`), the `default`, and the tier per agent archetype (`byOwner`) that a generated brief states. G29 holds `tiers` to `MODEL_SELECTION.md` and `byOwner` to `core/shared/agent-specs/` |
 | `core/registry/external-tools.json` | External tools DoFlow can detect, install, and probe rather than reimplement |
 | `core/registry/storage.json` | Every store DoFlow writes: its root, location, retention bound, rule kind and writer files, plus the pass budget, throttle and ignore-file text. `src/runtime/storage/` reads it and G26 checks it against the code and `docs/reference.md` |
 
@@ -389,6 +390,18 @@ Examples:
 - Change managed instruction behavior: edit the merge/copy implementation in `src/`, then test both fresh install and update paths.
 - Add or change a runtime verb: edit the dispatcher's own table alongside the implementation — it is the single place the verb namespace is written down — then run the guards, which cross-check that table against the shell helpers and the CLI commands in both directions.
 - Change a skill's flags: land the skill's `argument-hint`, `docs/reference.md`, and `docs/flags.md` in the same commit. Three guards cross-check them, so a partial change turns the suite red.
+- Add a stage step that uses an MCP server: the server must already be in `core/registry/mcp.json`; a new server needs no code change.
+  1. Word the step in the skill file with the marker ``MCP `<id>` `` (the word `MCP`, then the registry id in backticks) and a trigger naming an artifact and what in it fires the step. The marker belongs only under `core/shared/skills/`; G28 reads this form.
+  2. Add `{skill, file}` to that server's `steps` in `mcp.json` (`expectedWhen: "research-request"` for a step that applies only when the stage has a research request). A stage run whose calling skill matches a `steps` entry names the server.
+  3. Keep the skill's handoff line carrying ``--mcp-outcome "<server>=<outcome>"``, one per named server. A server named without an outcome prints a warning at handoff and in `doflow doctor`'s `[MCP Consultations]` section; neither blocks.
+  4. If the generic `trigger` changed, copy it verbatim into `docs/setup.md`; G28 checks it.
+  5. `doflow doctor`'s `[MCP Servers]` section lists the server by the `steps` you added, so it needs no edit.
+  6. Run `node --test test/guards/mcp-claims.test.js test/runtime/mcp-handoff.test.js test/runtime/doctor-mcp.test.js`, then `npm test`.
+- Add a capability provider:
+  1. Add it to its capability's `providers` in `core/registry/capabilities.json` with `id`, `kind`, `binary` where one exists, `costTier` and a `checkCommand` (`doflow doctor` runs it as the provider's probe; a provider without one reports unverified, and the brief names only healthy providers).
+  2. If it is reached through an MCP tool, add `mcp: {server, tool}`. The router derives `mcpTool` from it and the brief names the tool through the harness's `toolName` template.
+  3. A new information need is an intent in `core/registry/routes.json` naming a capability and an ordered `fallback`. The brief block has one row per intent, in file order, and names the provider the router resolves among the healthy ones, so no code changes.
+  4. Run `node --test test/guards/brief-tools-registry.test.js test/runtime/brief-tools.test.js test/runtime/runtime-capability-router.test.js`, then `npm test`.
 - Change user guidance: give it one canonical document—Quickstart, Setup, Guide, Reference, or Overview—rather than copying it across all of them.
 
 ### Storage and retention
@@ -435,12 +448,12 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-thirty-four test files (plus `_shared.js`, a helper rather than a test); the twenty-seven listed
-below are the ones this inventory documents, and they carry twenty-five distinct G-numbers because two
+thirty-six test files (plus `_shared.js`, a helper rather than a test); the twenty-nine listed
+below are the ones this inventory documents, and they carry twenty-seven distinct G-numbers because two
 numbers are used twice. Name the file, not the number, when you mean a specific guard: across the
 whole directory three numbers are claimed by two files each — G11 and G13, both pairs listed below,
 and G18, whose second claimant `adapter-force.test.js` is not. The collisions are historical rather
-than a convention; G27 is the highest number in use, so a new guard takes the next one above it
+than a convention; G29 is the highest number in use, so a new guard takes the next one above it
 instead of adding a fourth. The list is not the whole directory. The seven files absent from it are
 `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then G18;
 `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half of
@@ -595,6 +608,27 @@ the G18 pair — between them the reason the list runs G18 then G20; and `bounda
 - **G27** (`test-tempdirs.test.js`) — tests create temporary folders only through
   `test/helper/tmp.js`, so every folder is removed when its test or file ends. Each other call is
   named by file and line, and an `EXEMPT` entry needs a reason and fails once it no longer matches.
+
+- **G28** (`mcp-claims.test.js`) — shipped text, the MCP registry and the code agree on which MCP
+  servers exist and where they are used. Declared names are the `mcp.json` ids plus every
+  provider's `mcp.server`. Over the skills, agent specs and guidance (not `FLAGS.md`), ``MCP `<id>` ``,
+  `mcp__<id>__` and `MCP_<Name>.md` must name a declared server or doc, and the ``MCP `<id>` `` marker
+  appears only under `core/shared/skills/`; a sentence naming an `optional` server with "always",
+  "no flag" or "unconditionally" fails; a sentence holding `ToolSearch(` must say "Claude Code". Each
+  marker in a skill file needs a matching `steps` entry in `mcp.json`, and each `steps` entry's file
+  must exist and hold its server's marker. `mcp-consultations.js`, `mcp-reach.js`, `brief-tools.js`
+  and `do-task-brief.sh` contain no `mcp.json` id as a literal, and the first three require none of
+  `http`, `https`, `net` or `dns`. `docs/setup.md` holds each stepped server's `trigger` verbatim. The
+  checks are one function over injected files, and fixture tests run it over bad trees.
+- **G29** (`brief-tools-registry.test.js`) — the tier, tools and report-format block of a generated
+  brief follows the registries. `src/runtime/brief-tools.js` and `do-task-brief.sh` contain no
+  capability id, provider id or binary, route intent, `mcp.json` id or provider `mcp.server` as a
+  literal. The block rendered over the shipped registries has one row per route intent and names
+  only providers `capabilities.json` declares, and over a fixture registry with one more intent and
+  provider it includes them with no code change. `dispatchTiers.tiers` equals the backticked tier
+  names under `## Capability tiers` in `MODEL_SELECTION.md`, `default` and every `byOwner` value are
+  in `tiers`, and `byOwner` keys equal the `name` of each `core/shared/agent-specs/` archetype. Every
+  harness `capabilities.mcp.toolName` holds `{server}` and `{tool}` and no other braces.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.
