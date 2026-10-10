@@ -33,6 +33,6 @@
 For a skill that calls context7 explicitly rather than relying on the ambient triggers above:
 - `mcp__context7__resolve-library-id` — resolve a library/framework name to its context7 id
 - `mcp__context7__query-docs` — fetch docs for a resolved id
-- **Availability:** `ToolSearch("select:mcp__context7__resolve-library-id")` finding no match means
-  context7 isn't connected this session — skip the call, note it in the caller's own report, never
-  halt on it.
+- **Availability:** no callable context7 tool (on Claude Code,
+  `ToolSearch("select:mcp__context7__resolve-library-id")` finds none) means unavailable: record
+  that outcome, say how to add it, never halt.

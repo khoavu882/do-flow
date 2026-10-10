@@ -22,6 +22,7 @@ const BEHAVIOURAL_ONLY = new Map([]);
 const NOT_FRAMEWORK_FLAGS = new Map([
   ...['--action', '--calling-skill', '--note', '--result', '--task-class', '--task-id']
     .map(flag => [flag, 'orchestrate CLI argument documented in WORKFLOW_HANDOFF.md; owned by the runtime parser, not the global framework vocabulary']),
+  ['--mcp-outcome', 'orchestrate CLI argument documented in WORKFLOW_HANDOFF.md'],
   ['--json', 'output mode of do-paths.sh / do-prereqs.sh / validate-artifacts.sh, quoted in DOFLOW_CHAIN.md'],
   ['--scaffold', "do-execute-plan's own argument, described in DOFLOW_CHAIN.md"],
   ['--slug', 'feature-override argument of do-paths.sh / do-prereqs.sh / validate-artifacts.sh, quoted in ARTIFACT_FORMAT.md'],

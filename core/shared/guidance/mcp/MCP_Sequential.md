@@ -35,6 +35,6 @@
 For a skill that calls sequential-thinking explicitly rather than relying on the ambient triggers
 above:
 - `mcp__sequential-thinking__sequentialthinking` — run structured multi-step reasoning
-- **Availability:** `ToolSearch("select:mcp__sequential-thinking__sequentialthinking")` finding no
-  match means sequential-thinking isn't connected this session — skip the call, note it in the
-  caller's own report, never halt on it.
+- **Availability:** no callable sequential-thinking tool (on Claude Code,
+  `ToolSearch("select:mcp__sequential-thinking__sequentialthinking")` finds none) means
+  unavailable: record that outcome, say how to add it, never halt.

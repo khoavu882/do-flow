@@ -48,6 +48,9 @@ After a skill finishes its work, call the resolved runtime seam:
 "$DOFLOW" orchestrate --action handoff --task-id "<task>" --calling-skill "<skill>" --note "<what completed>" --json
 ```
 
+Pass `--mcp-outcome <server>=used|nothing-usable|skipped:<reason>|unavailable` once per MCP server
+your step names; a server left without one prints a warning, never a block.
+
 Pass `--task-class` only when a classifying skill has accepted that class and may start a run.
 Without an existing run or an explicit class, the result is `standalone` and no state is created.
 An existing run supplies its own class; a conflicting supplied class is refused. Stage ownership
