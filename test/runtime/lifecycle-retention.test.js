@@ -12,8 +12,8 @@ const crypto = require('node:crypto');
 const { spawn, spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const store = require('../../src/runtime/lifecycle/event-store');
-const { parseWindow, selectExpired } = require('../../src/runtime/lifecycle/retention');
-const { prepareStore, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL } = require('../../src/runtime/lifecycle/store-upkeep');
+const { parseWindow, retentionWindow, selectExpired } = require('../../src/runtime/lifecycle/retention');
+const { prepareStore, retainLocked, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL } = require('../../src/runtime/lifecycle/store-upkeep');
 
 const CLI = path.resolve(__dirname, '..', '..', 'bin', 'doflow.js');
 const POSIX = process.platform !== 'win32';
@@ -88,7 +88,7 @@ test('parseWindow: unset and empty are off; a positive whole number is on; anyth
   }
 });
 
-test('unset or empty keeps everything and prints no line', () => {
+test('unset or empty with prune off keeps everything and prints no line', () => {
   const dir = project('off');
   const files = writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', Date.now(), 1000));
   for (const hours of [undefined, '']) {
@@ -98,6 +98,78 @@ test('unset or empty keeps everything and prints no line', () => {
   }
   assert.deepEqual(eventFiles(dir), files.sort());
   assert.equal(fs.existsSync(path.join(dir, store.JOURNAL_REL)), false);
+});
+
+test('unset uses the 4320-hour default with prune on, removes 180-day events, keeps 179-day events, and prints no line', () => {
+  const dir = project('default-window');
+  const now = Date.now();
+  const old = writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', now, 180 * 24 + 1));
+  const recent = writeAll(eventsDir(dir), dismissedFollowup('FU-bbbbbb', now, 179 * 24));
+  const prune = path.join(scratch.xdg, 'doflow', 'prune');
+  fs.writeFileSync(prune, 'on\n');
+  try {
+    const r = run(dir, ['followup', '--action', 'list', '--state', 'all', '--json']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(retentionLines(r.stderr), []);
+    assert.deepEqual(r.json.items.map((item) => item.id), ['FU-bbbbbb']);
+    assert.deepEqual(eventFiles(dir), recent.sort());
+    assert.equal(old.every((name) => !eventFiles(dir).includes(name)), true);
+  } finally {
+    fs.writeFileSync(prune, 'off\n');
+  }
+});
+
+test('retentionWindow preserves an explicit setting and otherwise composes the project prune setting with the registry default', () => {
+  const dir = project('window-composition');
+  const projectPrune = path.join(dir, '.doflow', 'prune');
+  fs.mkdirSync(path.dirname(projectPrune), { recursive: true });
+  fs.writeFileSync(projectPrune, 'on\n');
+  assert.deepEqual(retentionWindow({ env: scratch.env(), projectRoot: dir }), { state: 'on', hours: 4320, ms: 4320 * HOUR, source: 'default' });
+  fs.writeFileSync(projectPrune, 'off\n');
+  assert.deepEqual(retentionWindow({ env: scratch.env(), projectRoot: dir }), { state: 'off' });
+  assert.deepEqual(retentionWindow({ env: scratch.env({ DOFLOW_RETENTION_HOURS: '3' }), projectRoot: dir }), { state: 'on', hours: 3, ms: 3 * HOUR, source: 'env' });
+  assert.deepEqual(retentionWindow({ env: scratch.env({ DOFLOW_RETENTION_HOURS: 'bad' }), projectRoot: dir }), { state: 'invalid', raw: 'bad' });
+});
+
+test('a missing or malformed registry disables automatic retention without breaking lifecycle reads', () => {
+  const dir = project('registry-refused');
+  const files = writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', Date.now(), 1000));
+  const prune = path.join(scratch.xdg, 'doflow', 'prune');
+  fs.writeFileSync(prune, 'on\n');
+  try {
+    for (const [name, replacement] of [['missing', "throw Object.assign(new Error('missing'), { code: 'ENOENT' });"], ['malformed', "return '{';"]]) {
+      const preload = path.join(scratch.dir, `refused-registry-${name}.js`);
+      fs.writeFileSync(preload, `
+        const fs = require('node:fs');
+        const readFileSync = fs.readFileSync;
+        fs.readFileSync = (file, ...args) => {
+          if (String(file).endsWith('core/registry/storage.json')) ${replacement}
+          return readFileSync.call(fs, file, ...args);
+        };
+      `);
+      const r = spawnSync(process.execPath, ['--require', preload, CLI, 'followup', '--action', 'list', '--state', 'all', '--json'], {
+        cwd: dir,
+        env: scratch.env(),
+        encoding: 'utf8',
+      });
+      assert.equal(r.status, 0, `${name}: ${r.stderr}`);
+      assert.deepEqual(JSON.parse(r.stdout).items.map((item) => item.id), ['FU-aaaaaa'], name);
+      assert.deepEqual(retentionLines(r.stderr), [], name);
+      assert.deepEqual(eventFiles(dir), files.sort(), name);
+    }
+    const refusedFs = {
+      ...fs,
+      readFileSync: (file, ...args) => {
+        if (String(file).endsWith('core/registry/storage.json')) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+        return fs.readFileSync(file, ...args);
+      },
+    };
+    assert.deepEqual(retentionWindow({ env: scratch.env(), projectRoot: dir, fsImpl: refusedFs }), { state: 'off' });
+    assert.deepEqual(retentionWindow({ env: scratch.env({ DOFLOW_RETENTION_HOURS: '2' }), projectRoot: dir, fsImpl: refusedFs }), { state: 'on', hours: 2, ms: 2 * HOUR, source: 'env' });
+    assert.deepEqual(retentionWindow({ env: scratch.env({ DOFLOW_RETENTION_HOURS: 'bad' }), projectRoot: dir, fsImpl: refusedFs }), { state: 'invalid', raw: 'bad' });
+  } finally {
+    fs.writeFileSync(prune, 'off\n');
+  }
 });
 
 test('an invalid window warns once, removes nothing, and the verb completes', () => {
@@ -295,7 +367,7 @@ test('an unlink failure keeps the journal and hides the files, warns, and the ne
   assert.deepEqual(journal(dir).pending, files);
   assert.deepEqual(store.readEvents(dir).events, []);
   assert.deepEqual(eventFiles(dir), [files[1]]);
-  assert.deepEqual(prepareStore(dir, { env: {} }), { ok: true, lines: [] });
+  assert.deepEqual(prepareStore(dir, { env: scratch.env() }), { ok: true, lines: [] });
   assert.deepEqual(eventFiles(dir), []);
   assert.deepEqual(journal(dir).pending, []);
 });
@@ -400,6 +472,32 @@ test('the journal is flushed to disk before the first event file is unlinked', (
   const firstUnlink = log.findIndex(([op, name]) => op === 'unlink' && store.isEventName(name));
   const journalFsync = log.findIndex(([op, name]) => op === 'fsync' && /^\.retention-.*\.tmp$/.test(name));
   assert.ok(journalFsync !== -1 && journalFsync < firstUnlink, JSON.stringify(log));
+});
+
+test('retainLocked holds the store lock while it completes the journal-backed retention pass and returns the removed count', () => {
+  const dir = project('locked-retention');
+  writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', Date.now(), 200));
+  const out = retainLocked(dir, { window: { state: 'on', hours: 1, ms: HOUR }, now: new Date() });
+  assert.deepEqual(out, { removed: 2, warning: [] });
+  assert.deepEqual(eventFiles(dir), []);
+  assert.equal(fs.existsSync(`${store.lockTarget(dir)}.lock`), false, 'released');
+});
+
+test('retainLocked counts files removed before a later unlink fails and leaves the journal for recovery', () => {
+  const dir = project('locked-retention-partial');
+  const files = writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', Date.now(), 200)).sort();
+  const failing = {
+    ...fs,
+    unlinkSync: (target) => {
+      if (path.basename(String(target)) === files[1]) throw Object.assign(new Error('blocked'), { code: 'EPERM' });
+      return fs.unlinkSync(target);
+    },
+  };
+  const out = retainLocked(dir, { window: { state: 'on', hours: 1, ms: HOUR }, now: new Date(), fsImpl: failing });
+  assert.deepEqual(out, { removed: 1, warning: ['warning: retention could not remove every file (EPERM); they stay hidden and the next lifecycle command finishes the removal'] });
+  assert.deepEqual(journal(dir).pending, files);
+  assert.deepEqual(eventFiles(dir), [files[1]]);
+  assert.equal(fs.existsSync(`${store.lockTarget(dir)}.lock`), false, 'released after the partial pass');
 });
 
 test('a pass renews the store lock\'s age while it works, so no other verb takes it for stale', () => {

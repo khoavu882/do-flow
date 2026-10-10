@@ -140,13 +140,13 @@ test('fault: a copy that fails part way refuses with store-migration-failed, lea
       return fs.copyFileSync(...args);
     },
   };
-  const out = prepareStore(dir, { fsImpl: failing });
+  const out = prepareStore(dir, { env: scratch.env(), fsImpl: failing });
   assert.deepEqual([out.ok, out.finding], [false, 'store-migration-failed']);
   assert.match(out.message, /^could not copy agent-docs\/lifecycle\/events to \.doflow\/state\/lifecycle\/events \(EIO\); the old folder is unchanged and the next lifecycle command retries\. Nothing was written\.$/);
   assert.deepEqual(lifecycleEntries(dir), [], 'no events, no events.migrating-*, no lock, no marker');
   assert.deepEqual(snapshot(path.join(dir, LEGACY_LIFECYCLE_REL)), oldTree);
 
-  const next = prepareStore(dir);
+  const next = prepareStore(dir, { env: scratch.env() });
   assert.deepEqual(next, { ok: true, lines: [NOTICE] });
   assert.deepEqual(fs.readdirSync(eventsDir(dir)).sort(), names);
 });

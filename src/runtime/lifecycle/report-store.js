@@ -49,10 +49,12 @@ function reportsHome(env = process.env) {
   return typeof home === 'string' && path.isAbsolute(home) ? path.join(home, '.config', 'doflow', 'reports') : null;
 }
 
+function realProjectRoot(root, fsImpl = nodeFs) {
+  try { return fsImpl.realpathSync(root); } catch { return root; }
+}
+
 function projectKey(root, fsImpl = nodeFs) {
-  let real = root;
-  try { real = fsImpl.realpathSync(root); } catch { /* the root is used as given */ }
-  return crypto.createHash('sha256').update(real).digest('hex').slice(0, 12);
+  return crypto.createHash('sha256').update(realProjectRoot(root, fsImpl)).digest('hex').slice(0, 12);
 }
 
 /** @returns {string|null} the body file of a report of this project, or null when no home resolves */
@@ -194,6 +196,11 @@ function writeBody(root, id, buffer, { env = process.env, fsImpl = nodeFs } = {}
     // `mkdir -p` applies the mode under the umask; the two folders that are ours are set outright.
     fsImpl.chmodSync(folder, 0o700);
     fsImpl.chmodSync(path.dirname(folder), 0o700);
+    try {
+      fsImpl.writeFileSync(path.join(folder, '.root'), `${realProjectRoot(root, fsImpl)}\n`, { flag: 'wx', mode: 0o600 });
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+    }
     fsImpl.writeFileSync(file, buffer, { flag: 'wx', mode: 0o600 });
     return { ok: true, file };
   } catch (error) {

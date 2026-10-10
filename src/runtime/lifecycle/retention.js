@@ -1,17 +1,23 @@
 'use strict';
 
 /**
- * Which event files the retention switch may delete. `DOFLOW_RETENTION_HOURS` is the window; unset
- * keeps everything. Events are grouped into deletion units, the follow-ups and goals they name
+ * Which event files the retention switch may delete. `DOFLOW_RETENTION_HOURS` overrides the window;
+ * when it is unset, the declared default applies only while the project's `prune` setting is on.
+ * Events are grouped into deletion units, the follow-ups and goals they name
  * joined by any event that names more than one, and a unit goes only as a whole: when every item in
  * it is settled in the fold (a follow-up done or dismissed, a goal done) and its newest event is
  * older than the window. A unit whose removal would change anything else the fold shows (another
  * item, a feature, a release, a conflict) is kept.
  *
- * Pure: no file, clock or git access.
+ * `parseWindow` remains pure. `retentionWindow` composes its unset case with the declared storage
+ * default and the project's prune setting; explicit environment values retain their existing meaning.
  */
 
+const nodeFs = require('node:fs');
 const { isDeepStrictEqual } = require('node:util');
+const { REPO_ROOT } = require('../../helper/repo-root');
+const { loadStorageRegistry } = require('../storage/registry');
+const { resolveRoots, readPruneSetting } = require('../storage/roots');
 const { foldInto, finalize } = require('./fold');
 
 const HOUR_MS = 3600000;
@@ -25,6 +31,25 @@ function parseWindow(env = process.env) {
     return { state: 'on', hours, ms: hours * HOUR_MS };
   }
   return { state: 'invalid', raw: String(raw) };
+}
+
+/** Composes IC-013's explicit environment override with the declared lifecycle default. */
+function retentionWindow({ env = process.env, projectRoot, registry, fsImpl = nodeFs } = {}) {
+  const parsed = parseWindow(env);
+  if (parsed.state === 'invalid') return parsed;
+  if (parsed.state === 'on') return { ...parsed, source: 'env' };
+  let activeRegistry;
+  try {
+    activeRegistry = registry || loadStorageRegistry({ repoRoot: REPO_ROOT, fsImpl });
+  } catch {
+    return { state: 'off' };
+  }
+  const roots = resolveRoots({ registry: activeRegistry, projectRoot, env });
+  if (readPruneSetting({ registry: activeRegistry, roots, rootId: 'project-state', fsImpl }).setting !== 'on') return { state: 'off' };
+  const lifecycleStore = activeRegistry.stores.find((store) => store.id === 'lifecycle-events');
+  if (!lifecycleStore) throw new Error('Storage registry has no lifecycle-events store');
+  const hours = lifecycleStore.bound.defaultHours;
+  return { state: 'on', hours, ms: hours * HOUR_MS, source: 'default' };
 }
 
 function isText(value) { return typeof value === 'string' && value.trim() !== ''; }
@@ -141,4 +166,4 @@ function selectExpired(events, { now, windowMs }) {
   return { files: units.flatMap((u) => u.files).sort(), units };
 }
 
-module.exports = { parseWindow, selectExpired };
+module.exports = { parseWindow, retentionWindow, selectExpired };

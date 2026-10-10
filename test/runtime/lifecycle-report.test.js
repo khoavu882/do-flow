@@ -69,6 +69,7 @@ test('a report keeps the body on this machine and puts only a reference, the siz
 
   const file = bodyFile(repo, created.id);
   const stored = fs.readFileSync(file, 'utf8');
+  assert.equal(fs.readFileSync(path.join(path.dirname(file), '.root'), 'utf8'), `${fs.realpathSync(repo.dir)}\n`);
   assert.equal(Buffer.byteLength(stored), event.data.bodyBytes);
   assert.equal(created.bodyBytes, event.data.bodyBytes);
   assert.ok(stored.includes(lateMarker));
@@ -158,7 +159,7 @@ test('when the event cannot be written the body file is removed again', () => {
   });
   assert.throws(() => report(repo, { input: { text: 'body' }, fsImpl: failing }), /disk full/);
   const dir = path.join(scratch.xdg, 'doflow', 'reports', keyOf(repo));
-  assert.deepEqual(fs.existsSync(dir) ? fs.readdirSync(dir) : [], []);
+  assert.deepEqual(fs.existsSync(dir) ? fs.readdirSync(dir) : [], ['.root']);
   assert.deepEqual(eventFiles(repo), []);
 });
 
@@ -223,7 +224,7 @@ test('the verb: --file, --stdin and --text (with the = form for a leading dash),
   assert.equal(overview.json.followups.open, 3);
   assert.equal(overview.json.followups.items.every((i) => i.source.kind === 'report'), true);
   // The scratch home holds the bodies and nothing else was touched.
-  assert.equal(fs.readdirSync(path.join(scratch.xdg, 'doflow', 'reports', keyOf(repo))).length, 3);
+  assert.equal(fs.readdirSync(path.join(scratch.xdg, 'doflow', 'reports', keyOf(repo))).filter((name) => name.endsWith('.txt')).length, 3);
 });
 
 test('the verb: usage errors exit 2 and write nothing; a 17 MiB file reads only its first 16 MiB', () => {

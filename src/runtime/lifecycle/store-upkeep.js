@@ -11,9 +11,9 @@
  * started at the new location) gets the marker and no copy. The old folder is only read, never
  * written, and while it exists every verb prints one line saying it is no longer read.
  *
- * With `DOFLOW_RETENTION_HOURS` set, it then deletes the event files of settled items older than
- * that many hours (retention.js decides which). The files to delete are first listed in the
- * retention journal, so every reader hides them from that moment, then unlinked; a pass that stops
+ * With `DOFLOW_RETENTION_HOURS` set, or unset while the project's `prune` setting is on, it then
+ * deletes the event files of settled items older than the effective retention window (retention.js
+ * decides which). The files to delete are first listed in the retention journal, so every reader hides them from that moment, then unlinked; a pass that stops
  * part way leaves them hidden, and the next verb finishes the removal before anything else.
  *
  * Nothing is locked or created unless there is work to do, so a read in a project with no store
@@ -26,7 +26,7 @@ const { acquireLock } = require('../task-state');
 const {
   EVENTS_REL, LIFECYCLE_REL, JOURNAL_REL, lockTarget, isEventName, randomChars, readEvents, readJournal, StoreUnsafeError,
 } = require('./event-store');
-const { parseWindow, selectExpired } = require('./retention');
+const { retentionWindow, selectExpired } = require('./retention');
 
 const LEGACY_LIFECYCLE_REL = path.join('agent-docs', 'lifecycle');
 const LEGACY_EVENTS_REL = path.join(LEGACY_LIFECYCLE_REL, 'events');
@@ -206,12 +206,13 @@ function refreshLock(fsImpl, root) {
   try { fsImpl.utimesSync(`${lockTarget(root)}.lock`, now, now); } catch { /* the lock folder is ours; a failed touch only shortens its life */ }
 }
 
-/** Unlinks the named event files, ignoring one already gone, then empties the journal. */
-function removePending(fsImpl, root, names) {
+/** Unlinks the named event files, counting successful or already-absent entries, then empties the journal. */
+function removePending(fsImpl, root, names, onRemoved = () => {}) {
   const dir = path.join(root, EVENTS_REL);
   names.forEach((name, index) => {
     if (index % REFRESH_EVERY === 0) refreshLock(fsImpl, root);
     try { fsImpl.unlinkSync(path.join(dir, name)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    onRemoved();
   });
   writeJournal(fsImpl, root, []);
 }
@@ -233,20 +234,35 @@ function passFiles(units) {
  * @returns {{removed: string[], warning: string[]}}
  */
 function retain(fsImpl, root, window, now) {
+  let removedCount = 0;
   try {
     const pending = readJournal(root, fsImpl).pending;
-    if (pending.length) removePending(fsImpl, root, pending);
-    if (window.state !== 'on') return { removed: [], warning: [] };
+    if (pending.length) removePending(fsImpl, root, pending, () => { removedCount += 1; });
+    if (window.state !== 'on') return { removed: [], removedCount, warning: [] };
     const { events } = readEvents(root, { fsImpl });
     refreshLock(fsImpl, root);
     const files = passFiles(selectExpired(events, { now, windowMs: window.ms }).units);
     refreshLock(fsImpl, root);
-    if (files.length === 0) return { removed: [], warning: [] };
+    if (files.length === 0) return { removed: [], removedCount, warning: [] };
     writeJournal(fsImpl, root, files);
-    removePending(fsImpl, root, files);
-    return { removed: [removedLine(files.length, window.hours)], warning: [] };
+    removePending(fsImpl, root, files, () => { removedCount += 1; });
+    return { removed: window.source === 'default' ? [] : [removedLine(files.length, window.hours)], removedCount, warning: [] };
   } catch (error) {
-    return { removed: [], warning: [unlinkLine(error.code || error.message)] };
+    return { removed: [], removedCount, warning: [unlinkLine(error.code || error.message)] };
+  }
+}
+
+/** Runs a lifecycle retention pass under the store lock for the storage engine. */
+function retainLocked(root, { window, now = new Date(), fsImpl = nodeFs } = {}) {
+  const eventsDir = path.join(root, EVENTS_REL);
+  const st = lstatOrNull(fsImpl, eventsDir);
+  if (!st || !st.isDirectory()) return { removed: 0, warning: [] };
+  const release = acquireLock(fsImpl, lockTarget(root));
+  try {
+    const result = retain(fsImpl, root, window, now);
+    return { removed: result.removedCount, warning: result.warning };
+  } finally {
+    release();
   }
 }
 
@@ -267,11 +283,11 @@ function needsPrune(fsImpl, root, window, now) {
  *   `lines` are for stderr, without the verb prefix.
  * @throws {StoreUnsafeError} a symlinked new store folder, or a symlinked old folder when a copy must read it
  */
-function prepareStore(root, { env = process.env, now = new Date(), fsImpl = nodeFs } = {}) {
+function prepareStore(root, { env = process.env, now = new Date(), fsImpl = nodeFs, registry } = {}) {
   refuseLinks(fsImpl, root, [LIFECYCLE_REL, EVENTS_REL]);
   const legacyDir = lstatOrNull(fsImpl, path.join(root, LEGACY_EVENTS_REL));
   const notice = legacyDir && legacyDir.isDirectory() ? [NOTICE] : [];
-  const window = parseWindow(env);
+  const window = retentionWindow({ env, projectRoot: root, registry, fsImpl });
   const invalid = window.state === 'invalid' ? [invalidLine(window.raw)] : [];
   let migrate = false;
   let markerDue = false;
@@ -327,4 +343,4 @@ function prepareStore(root, { env = process.env, now = new Date(), fsImpl = node
   }
 }
 
-module.exports = { prepareStore, LEGACY_LIFECYCLE_REL, LEGACY_EVENTS_REL, MARKER_REL };
+module.exports = { prepareStore, retainLocked, LEGACY_LIFECYCLE_REL, LEGACY_EVENTS_REL, MARKER_REL };
