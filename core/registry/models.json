@@ -49,6 +49,17 @@
       ]
     }
   ],
+  "dispatchTiers": {
+    "tiers": ["light", "standard", "frontier"],
+    "default": "standard",
+    "byOwner": {
+      "system-architect": "frontier",
+      "core-implementer": "standard",
+      "quality-guardian": "standard",
+      "spec-analyst": "standard",
+      "research-writer": "standard"
+    }
+  },
   "roles": [
     {
       "id": "triage",

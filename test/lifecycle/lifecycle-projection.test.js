@@ -25,7 +25,7 @@ test('Codex projection carries explicit asset, MCP, policy, and native-target in
   });
   assert.equal(projected.assets.find((asset) => asset.id === 'guidance.codex-pointer').renderer, 'codex-agents');
   assert.equal(projected.assets.find((asset) => asset.id === 'skills.doflow').nativeTarget, null);
-  assert.deepEqual(projected.mcp[0], { id: 'context7', transport: 'stdio', command: 'npx', args: ['-y', '@upstash/context7-mcp'], selection: 'optional', shortFlag: '--c7', doc: 'mcp/MCP_Context7.md' });
+  assert.deepEqual(projected.mcp[0], { id: 'context7', transport: 'stdio', command: 'npx', args: ['-y', '@upstash/context7-mcp'], selection: 'optional', shortFlag: '--c7', doc: 'mcp/MCP_Context7.md', trigger: registry.mcp[0].trigger, steps: registry.mcp[0].steps });
   assert.equal(projected.policies.find((policy) => policy.id === 'pre-implementation-gate').status, 'prerequisite');
   assert.equal(projected.nativeTargets.hooks, '.codex/hooks.json');
 });

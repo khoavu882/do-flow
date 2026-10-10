@@ -169,7 +169,8 @@
           "evidence": [
             "https://code.claude.com/docs/en/mcp"
           ],
-          "verification": "Confirm selected MCP servers appear in status."
+          "verification": "Confirm selected MCP servers appear in status.",
+          "toolName": "mcp__{server}__{tool}"
         },
         "plugin": {
           "status": "supported",
