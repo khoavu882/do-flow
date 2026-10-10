@@ -23,12 +23,20 @@
 # `missing[]` rather than yielding a quietly thin brief the implementer cannot tell
 # is incomplete.
 #
-# Usage:
-#   do-task-brief.sh --task=<id> [--slug=<slug>] [--json]
-#   do-task-brief.sh --group=<phase>:<owner> --tasks=<id,id,...> [--slug=<slug>] [--json]
+# Every brief also closes with a tier, tools and report-format block (IC-017) that the
+# `brief-tools` verb composes from the registries and this machine's probes; this script reads the
+# task line's `owner:` and `tier:`, calls the dispatcher once per brief and writes the block plus
+# the `*-brief.json` record (IC-018) beside the brief. It names no tool, provider, server or tier.
+# It fails open (IC-019): a missing dispatcher, a non-zero exit or output that is not the expected
+# JSON gives a "Not generated" line and a static report-format block, a `missing[]` note, no
+# record, and the exit status the brief would otherwise have had.
 #
-# Emits for task mode:  {path, lines, traced:{story, frs[], nfrs[], components[]}, missing[]}
-# Emits for group mode: {path, lines, tasks[], traced:{frs[], nfrs[], components[]}, missing[]}
+# Usage:
+#   do-task-brief.sh --task=<id> [--harness=<id>] [--slug=<slug>] [--json]
+#   do-task-brief.sh --group=<phase>:<owner> --tasks=<id,id,...> [--harness=<id>] [--slug=<slug>] [--json]
+#
+# Emits for task mode:  {path, lines, record, traced:{story, frs[], nfrs[], components[]}, missing[]}
+# Emits for group mode: {path, lines, record, tasks[], traced:{frs[], nfrs[], components[]}, missing[]}
 
 set -uo pipefail
 
@@ -36,6 +44,7 @@ task_id=""
 group_id=""
 tasks_csv=""
 slug_override=""
+harness=""
 mode=""
 
 for arg in "$@"; do
@@ -53,6 +62,9 @@ for arg in "$@"; do
       ;;
     --slug=*)
       slug_override="${arg#--slug=}"
+      ;;
+    --harness=*)
+      harness="${arg#--harness=}"
       ;;
     --json)   ;;
     *) ;;
@@ -126,6 +138,8 @@ des_abs="$repo_root/$(printf '%s' "$resolved" | jq -r '.design // empty')"
 specs_abs="$repo_root/$(printf '%s' "$resolved" | jq -r '.specs // empty')"
 has_specs="$(printf '%s' "$resolved" | jq -r '.has_specs // false')"
 brief_abs="$repo_root/$brief_rel"
+record_rel="$(printf '%s' "$paths" | jq -r '.brief_record // empty')"
+feature_slug="$(printf '%s' "$resolved" | jq -r '.feature_slug // empty')"
 
 # The preamble names specs.md only when this feature actually has one: a legacy-layout brief
 # stays byte-identical to what it was before specs.md existed, rather than advertising a source
@@ -168,6 +182,59 @@ to_json_array() {
     echo '[]'
   else
     printf '%s\n' "$input" | sed '/^$/d' | jq -R . | jq -s 'if length == 0 then [] else . end'
+  fi
+}
+
+# ── tier, tools and report format (IC-017 to IC-019) ─────────────────────────
+# A task line field is "; <name>: <value>" or "— <name>: <value>"; the value is one safe word.
+task_field() { # task_field <task line> <name>
+  printf '%s' "$1" | sed -nE "s/.*(; |— )$2: *([A-Za-z0-9_-]+).*/\\2/p"
+}
+
+# Sets bt_md and bt_record on success, bt_reason on every failure; never exits.
+bt_call() { # bt_call <owner> <tier> <heading level>
+  bt_md=""; bt_record=""; bt_reason=""
+  local dispatcher="$script_dir/../bin/doflow-run" out rc
+  if [ -z "$1" ]; then bt_reason="the task line names no owner"; return 0; fi
+  if [ ! -f "$dispatcher" ]; then bt_reason="the dispatcher was not found"; return 0; fi
+  out="$(cd "${repo_root:-.}" 2>/dev/null && bash "$dispatcher" brief-tools --json --owner "$1" \
+    ${2:+--tier "$2"} ${harness:+--harness "$harness"} ${feature_slug:+--slug "$feature_slug"} \
+    --heading-level "$3" </dev/null 2>/dev/null)"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then bt_reason="brief-tools exited $rc"; return 0; fi
+  if ! printf '%s' "$out" | jq -e '(.markdown | type == "string" and length > 0) and (.record | type == "object")' >/dev/null 2>&1; then
+    bt_reason="brief-tools printed unparseable output"; return 0
+  fi
+  bt_md="$(printf '%s' "$out" | jq -r '.markdown')"
+  bt_record="$(printf '%s' "$out" | jq -c '.record')"
+  return 0
+}
+
+# The block for the brief: the verb's markdown, or the static fallback (no tool names).
+bt_emit() { # bt_emit <heading level>
+  local h="##" who="your report"
+  if [ "$1" = "3" ]; then h="###"; who="each task's report"; fi
+  if [ -n "$bt_md" ]; then
+    printf '%s\n' "$bt_md"
+    return 0
+  fi
+  printf '%s Tier and tools\n\nNot generated: %s. Name the tier and tools in the dispatch.\n\n' "$h" "$bt_reason"
+  printf '%s Report format\n\nEnd %s with one line naming every tool and MCP server you used:\n' "$h" "$who"
+  printf '%s\n' '`Tools used: <name>[=used|nothing-usable|unavailable|skipped:<reason>], ...`'
+}
+
+# Writes the record beside the brief with its tasks filled in; sets record_out to its path, or to ""
+# when there is nothing to write or the write failed.
+record_out=""
+bt_write_record() { # bt_write_record <tasks json>
+  record_out=""
+  [ -n "$bt_record" ] || return 0
+  [ -n "$record_rel" ] || { missing+=("brief-tools: no record path from do-exec-paths.sh"); return 0; }
+  if printf '%s' "$bt_record" | jq --argjson tasks "$1" '. + {tasks: $tasks}' > "$repo_root/$record_rel" 2>/dev/null; then
+    record_out="$record_rel"
+  else
+    rm -f "$repo_root/$record_rel" 2>/dev/null
+    missing+=("brief-tools: the record could not be written")
   fi
 }
 
@@ -223,6 +290,9 @@ if [ "$mode" = "task" ]; then
         /^\| *CMP/ { if ($5 ~ fr) { id = $2; gsub(/^[ \t]+|[ \t]+$/, "", id); print id } }'
     done | sort -u)"
   fi
+
+  bt_call "$(task_field "$task_line" owner)" "$(task_field "$task_line" tier)" 2
+  [ -z "$bt_reason" ] || missing+=("brief-tools: $bt_reason")
 
   # Compose brief
   write_ok=1
@@ -294,6 +364,7 @@ if [ "$mode" = "task" ]; then
     done
     [ -n "$phase_letter" ] && grep -F "After Phase $phase_letter:" "$plan_abs" || true
     echo
+    bt_emit 2
   } > "$brief_abs" || write_ok=0
 
   if [ "${write_ok:-1}" -eq 0 ] || [ ! -s "$brief_abs" ]; then
@@ -304,15 +375,18 @@ if [ "$mode" = "task" ]; then
 
   lines="$(wc -l < "$brief_abs" | tr -d ' ')"
 
+  bt_write_record "$(jq -nc --arg id "$task_id" --arg report "$(printf '%s' "$paths" | jq -r '.report // empty')" '[{id:$id, report:$report}]')"
+
   jq -n \
     --arg path "$brief_rel" \
+    --arg record "$record_out" \
     --argjson lines "${lines:-0}" \
     --arg story "$story" \
     --argjson frs "$(to_json_array "$frs")" \
     --argjson nfrs "$(to_json_array "$nfrs")" \
     --argjson components "$(to_json_array "$components")" \
     --argjson missing "$(to_json_array "$(printf '%s\n' "${missing[@]+"${missing[@]}"}" | sed '/^$/d')")" \
-    '{path:$path, lines:$lines,
+    '{path:$path, lines:$lines, record:(if $record=="" then null else $record end),
       traced:{story:(if $story=="" then null else $story end), frs:$frs, nfrs:$nfrs, components:$components},
       missing:$missing}'
   exit 0
@@ -387,6 +461,20 @@ else
         /^\| *CMP/ { if ($5 ~ fr) { id = $2; gsub(/^[ \t]+|[ \t]+$/, "", id); print id } }'
     done | sort -u)"
   fi
+
+  # The group's owner is the part of --group after the phase; its tier is the tasks' shared tier.
+  group_owner=""
+  case "$group_id" in *:*) group_owner="${group_id#*:}" ;; esac
+  group_tier=""
+  for idx in "${!task_ids[@]}"; do
+    t_tier="$(task_field "${task_lines[$idx]}" tier)"
+    if [ "$idx" -eq 0 ]; then group_tier="$t_tier"
+    elif [ "$t_tier" != "$group_tier" ]; then group_tier=""; break; fi
+  done
+  bt_level=3
+  [ "$num_tasks" -eq 1 ] && bt_level=2
+  bt_call "$group_owner" "$group_tier" "$bt_level"
+  [ -z "$bt_reason" ] || missing+=("brief-tools: $bt_reason")
 
   write_ok=1
   if [ "$num_tasks" -eq 1 ]; then
@@ -474,6 +562,7 @@ else
       done
       [ -n "$t_phase_let" ] && grep -F "After Phase $t_phase_let:" "$plan_abs" || true
       echo
+      bt_emit 2
     } > "$brief_abs" || write_ok=0
 
   else
@@ -515,6 +604,9 @@ else
         section "$specs_abs" '^## 1[.]' | awk 'NF { p = 1 } p'
         echo
       fi
+
+      bt_emit 3
+      echo
 
       echo "## Task order"
       echo
@@ -586,14 +678,19 @@ else
 
   lines="$(wc -l < "$brief_abs" | tr -d ' ')"
 
+  bt_write_record "$(jq -nc --argjson reports "$(printf '%s' "$paths" | jq -c '.reports // []')" \
+    '$ARGS.positional as $ids | [range(0; $ids | length) | {id: $ids[.], report: ($reports[.] // null)}]' \
+    --args "${task_ids[@]}")"
+
   jq -n \
     --arg path "$brief_rel" \
+    --arg record "$record_out" \
     --argjson lines "${lines:-0}" \
     --argjson frs "$(to_json_array "$all_frs")" \
     --argjson nfrs "$(to_json_array "$nfrs")" \
     --argjson components "$(to_json_array "$all_comps_raw")" \
     --argjson missing "$(to_json_array "$(printf '%s\n' "${missing[@]+"${missing[@]}"}" | sed '/^$/d')")" \
-    '{path:$path, lines:$lines, tasks:$ARGS.positional,
+    '{path:$path, lines:$lines, record:(if $record=="" then null else $record end), tasks:$ARGS.positional,
       traced:{frs:$frs, nfrs:$nfrs, components:$components},
       missing:$missing}' \
     --args "${task_ids[@]}"
