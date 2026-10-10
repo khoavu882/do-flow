@@ -180,13 +180,12 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
    where each part came from, and its locator. Add every system-shape conclusion as a claim in the
    same pass.
 9. **Record the handoff** — read the guidance tree's `references/WORKFLOW_HANDOFF.md`.
-   Use the feature slug as `<task id>`; if no feature is active, this is standalone and there is
-   no workflow handoff. After completing this skill's work:
+   Use the feature slug as `<task id>`; with no active feature this is standalone, no handoff.
+   After this skill's work:
    ```bash
-   "$DOFLOW" orchestrate --action handoff --task-id "<task id>" --calling-skill do-design --task-class "<validated class>" --note "<work completed and verification result>" --mcp-outcome "<server>=<outcome>" --json
+   "$DOFLOW" orchestrate --action handoff --task-id "<task id>" --calling-skill do-design --task-class "<validated class>" --note "<work done and verification>" --mcp-outcome "context7=<outcome>" --mcp-outcome "sequential-thinking=<outcome>" --json
    ```
-   The runtime selects this skill's stage, records completion or a rerun annotation, and returns
-   `disposition`. Report `deferred` with its `reason`; resolve no gate in this skill.
+   The runtime records completion or a rerun annotation and returns `disposition`. Report `deferred` with its `reason`; resolve no gate in this skill.
    `standalone` means no run was created. Render the trail after a recorded handoff:
    ```bash
    "$DOFLOW" render-audit --slug="<task id>" --json

@@ -29,7 +29,7 @@ All notable changes to DoFlow are documented here. Format follows
 ### Changed
 - Settled follow-up and goal events are pruned after 180 days by default. `DOFLOW_RETENTION_HOURS` still sets the window when present, and still applies while the `prune` setting is `off`.
 - `trace`, `stats` and `discover` without `--days` cover at most the last 180 days, since older run partitions are pruned.
-- The MCP steps of `do-brainstorm`, `do-design` and the research reference of `do-document`, and the `context7` and `sequential-thinking` guidance, now state use as conditional on a concrete trigger (a named library's behaviour stated as fact; an ambiguity spanning two or more components, actors or requirements; a decision with a rejected alternative) and ask for one recorded outcome per server, replacing wording that read as if the servers were consulted on every run. The servers remain optional and opt-in. `docs/setup.md` lists each server's trigger and the outcome labels.
+- The MCP steps of `do-brainstorm`, `do-design` and the research reference of `do-document` now state use as conditional on a concrete trigger (a named library's behaviour stated as fact; a decision with more than one interacting part or competing option) and ask for one recorded outcome per server, replacing wording that read as if the servers were consulted on every run. The always-loaded `MCP_Context7.md` and `MCP_Sequential.md` guidance now carries only that registry trigger sentence in place of their keyword and example lists (1,745 and 2,012 bytes down to 902 and 830). The servers remain optional and opt-in. `docs/setup.md` lists each server's trigger and the outcome labels.
 
 ## [1.23.0] - 2026-10-09
 

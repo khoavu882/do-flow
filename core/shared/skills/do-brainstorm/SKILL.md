@@ -182,13 +182,13 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
    exactly how the user's words and your reading of them stop being distinguishable. Add every
    conclusion this stage reached as a claim in the same pass.
 8. **Record the handoff** — first follow the decision step in the guidance tree's
-   `references/WORKFLOW_HANDOFF.md`. One call positions the run (starting one when none exists yet, so this
-   stage never has to decide between `start` and completing it for itself), records this stage's
+   `references/WORKFLOW_HANDOFF.md`. One call positions the run (starting one if none exists, so this stage never
+   chooses between `start` and completing), records this stage's
    completion or a rerun annotation, and returns the disposition:
    ```bash
-   "$DOFLOW" orchestrate --action handoff --task-id "<slug>" --task-class "<class>" --calling-skill do-brainstorm --note "<requirement path written; §7 marker count>" --mcp-outcome "<server>=<outcome>" --json
+   "$DOFLOW" orchestrate --action handoff --task-id "<slug>" --task-class "<class>" --calling-skill do-brainstorm --note "<requirement path written; §7 marker count>" --mcp-outcome "context7=<outcome>" --mcp-outcome "sequential-thinking=<outcome>" --json
    ```
-   `<slug>` is step 1's `feature_slug`; `<class>` is the class step 2's `classify` call accepted.
+   `<slug>` is step 1's `feature_slug`; `<class>` is step 2's accepted class.
    Branch on the response's `disposition`, not the exit code:
    - **`completed`** — this stage was recorded normally; check `awaitingGate` below.
    - **`annotated`** — this stage was already recorded on an earlier run of this skill (a

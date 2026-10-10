@@ -149,6 +149,21 @@ test('full apply then verify returns lifecycle-ready owned resources for project
   assert.equal(fs.readFileSync(config, 'utf8'), edited, 'planning a conflict must preserve user-edited bytes');
 });
 
+test('the Codex-projected MCP guidance keeps the Claude Code ToolSearch availability wording (scenario 9)', () => {
+  const registry = loadRegistry({ repoRoot: REPO }); const projectRoot = scratch(); const harness = harnessFor(registry, 'codex');
+  const assets = selectAssets(registry, { harness: 'codex' });
+  const projected = projectAdapterInput({ registry, harness, scope: 'project', scopeRoot: projectRoot, assets, mcp: [], policies: [], context: { sourceVersion: 'test-v1' } });
+  const input = { ...projected, projectRoot, context: { repoRoot: REPO, sourceVersion: 'test-v1' } };
+  apply({ ...input, changes: plan(input).changes });
+  const availability = (text) => text.slice(text.indexOf('**Availability:**')).replace(/\s+/g, ' ').trim();
+  for (const doc of ['MCP_Context7.md', 'MCP_Sequential.md']) {
+    const source = fs.readFileSync(path.join(REPO, 'core', 'shared', 'guidance', 'mcp', doc), 'utf8');
+    const copy = fs.readFileSync(path.join(projectRoot, '.doflow', 'guidance', 'mcp', doc), 'utf8');
+    assert.match(availability(copy), /\(on Claude Code, `ToolSearch\("select:mcp__[a-z0-9-]+__[a-z-]+"\)` finds none\)/, `${doc} projected copy names Claude Code for ToolSearch`);
+    assert.equal(availability(copy), availability(source), `${doc} projected Availability sentence matches the source`);
+  }
+});
+
 test('copy-tree assets (rules/skills/agents/templates/scripts/references) install, converge, and remove across .agents/ and .codex/', () => {
   const registry = loadRegistry({ repoRoot: REPO }); const projectRoot = scratch(); const harness = harnessFor(registry, 'codex');
   const assets = selectAssets(registry, { harness: 'codex' });

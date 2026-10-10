@@ -118,6 +118,12 @@ function unknownProviders({ markdown, record }, liveRouter) {
   return [...used].filter((id) => !known.has(id));
 }
 
+/** Route intents with no table row (`| <intent> |`) in a rendered block. */
+function missingIntents(markdown, routes) {
+  const rows = new Set(markdown.split('\n').map((line) => line.match(/^\| ([^|]+?) \|/)?.[1]).filter(Boolean));
+  return Object.keys(routes).filter((intent) => !rows.has(intent));
+}
+
 /** A router over a fixture copy of the registries with one extra capability, provider and intent. */
 function fixtureRouter() {
   const capabilities = structuredClone(router.capabilities);
@@ -160,6 +166,29 @@ test('G29: a fixture registry with one more intent and provider reaches the bloc
   assert.equal(row?.provider, 'fixture.provider');
   assert.equal(row?.capability, 'fixture.capability');
   assert.deepEqual(unknownProviders(output, fixtureRouter()), []);
+});
+
+test('G29: the block has one markdown row per route intent', () => {
+  assert.deepEqual(missingIntents(render(router).markdown, router.routes), []);
+});
+
+test('G29: with reach and a stage set the block names the harness tool form and the expected servers', () => {
+  const harness = registry.harnesses.find((h) => h.capabilities?.mcp?.toolName);
+  const provider = Object.values(router.capabilities).flatMap((c) => c.providers).find((p) => p.mcp);
+  const stepped = registry.mcp.find((server) => (server.steps || []).some((step) => !step.expectedWhen));
+  const skill = stepped.steps.find((step) => !step.expectedWhen).skill;
+  const reach = {
+    harnesses: [{ id: harness.id, scope: 'project', catalog: 'taken', servers: { [provider.mcp.server]: 'selected' } }],
+    unreadable: [],
+    anyHarnessHas: () => true,
+  };
+  const stage = { feature: null, runTaskId: null, stageId: null, skill };
+  const output = render(router, { reach, stage, harness: harness.id });
+  const toolName = harness.capabilities.mcp.toolName.replace('{server}', provider.mcp.server).replace('{tool}', provider.mcp.tool);
+  assert.ok(output.markdown.includes(toolName), `block names ${toolName}`);
+  assert.match(output.markdown, new RegExp(`Expected for ${skill}: .*\`${stepped.id}\``));
+  assert.deepEqual(missingIntents(output.markdown, router.routes), []);
+  assert.deepEqual(unknownProviders(output, router), []);
 });
 
 test('G29: dispatchTiers matches MODEL_SELECTION.md and the agent specs', () => {
@@ -211,12 +240,14 @@ test('G29 control: the literal scan sees a name added to the registry with no ed
 test('G29 control: a block that omits a registry intent or names a provider the registry lacks is detected', () => {
   const full = render(fixtureRouter());
   assert.deepEqual(unknownProviders(full, fixtureRouter()), []);
+  assert.deepEqual(missingIntents(full.markdown, fixtureRouter().routes), []);
   // The shipped router does not know the fixture provider: the same block over it is a bad block.
   assert.deepEqual(unknownProviders(full, router), ['fixture.provider']);
-  // Dropping an intent's row from the block leaves the record short of the route set.
-  const missingRow = { markdown: full.markdown.replace(/^\| fixture-intent .*\n/m, ''), record: { ...full.record, tools: full.record.tools.filter((tool) => tool.intent !== 'fixture-intent') } };
-  assert.notEqual(missingRow.record.tools.length, Object.keys(fixtureRouter().routes).length);
-  assert.doesNotMatch(missingRow.markdown, /fixture-intent/);
+  // Dropping an intent's row from the rendered markdown is caught by the row check itself.
+  const without = (intent) => full.markdown.split('\n').filter((line) => !line.startsWith(`| ${intent} |`)).join('\n');
+  assert.deepEqual(missingIntents(without('fixture-intent'), fixtureRouter().routes), ['fixture-intent']);
+  const [first] = Object.keys(router.routes);
+  assert.deepEqual(missingIntents(without(first), fixtureRouter().routes), [first]);
 });
 
 test('G29 control: each tier-vocabulary violation fails', () => {

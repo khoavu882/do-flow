@@ -360,7 +360,7 @@ Each harness's selection is recorded in `doflow.lock` and reused by `doflow upda
 ### Which stages name a server
 
 A stage uses a server only where its skill names it. The trigger is the condition under which the
-stage consults the server; when it does not hold, the stage records `skipped: not-due` and moves on.
+stage consults the server; when it does not hold, the stage records `skipped:not-due` and moves on.
 
 | Server | Named by | Trigger |
 |---|---|---|
@@ -411,20 +411,26 @@ doflow install -g --target codex --mcp context7,sequential-thinking
 ```text
 [MCP Servers] — named by shipped stages; not blocking
   context7              named by do-brainstorm, do-design, do-document (research request)
-    claude        project  ? unknown          add: doflow install --target claude --mcp context7
-    gemini        project  ○ not taken        configure it in Gemini CLI's own MCP settings; DoFlow's catalog does not reach it
+    claude        project  ✓ selected
+    gemini        project  ? unknown          configure it in Gemini CLI's own MCP settings; DoFlow's catalog does not reach it
+  sequential-thinking   named by do-brainstorm, do-design
+    claude        project  ? unknown          add: doflow install --target claude --mcp context7,sequential-thinking
+    gemini        project  ? unknown          configure it in Gemini CLI's own MCP settings; DoFlow's catalog does not reach it
 ```
 
-`? unknown` means the harness's MCP configuration file could not be read, which is what a project
-with no `.mcp.json` yet looks like.
+`? unknown` means DoFlow cannot tell whether the harness has the server: it did not see every
+configuration the harness merges (Claude Code and Gemini CLI also load servers DoFlow cannot see,
+such as plugins and user-level settings), or a config file it reads could not be parsed. In the
+second case doctor prints `fix <file> first` in place of the `add:` command. `unknown` never means
+the server is missing, so a stage that finds no tool answering records `unavailable` itself.
 
 ### Gemini CLI
 
 DoFlow's catalog does not reach Gemini CLI, so `--mcp` never writes a server for it and doctor shows
-it as `not taken`. To use a server there, add it yourself under `mcpServers` in Gemini CLI's own
+it as `unknown`. To use a server there, add it yourself under `mcpServers` in Gemini CLI's own
 `settings.json` (`~/.gemini/settings.json` for the user, `.gemini/settings.json` in a project),
 following [Gemini CLI's MCP documentation](https://geminicli.com/docs/tools/mcp-server/). Doctor then
-lists it as `configured`, and the stage records its outcome like any other.
+lists it as `configured` where it can read that file, and the stage records its outcome like any other.
 
 In Codex, an MCP server that `config.toml` already defines under the same name
 (`[mcp_servers.context7]`, for example) is left exactly as it is. DoFlow does not record it as its

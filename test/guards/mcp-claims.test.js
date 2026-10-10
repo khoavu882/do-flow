@@ -23,6 +23,11 @@ const OFFLINE_FILES = CODE_FILES.slice(0, 3);
 const OFFLINE_MODULES = ['http', 'https', 'net', 'dns'];
 const SETUP_DOC = 'docs/setup.md';
 const UNCONDITIONAL = /\balways\b|\bno flag\b|\bunconditional(?:ly)?\b/i;
+// Quantifier wording ("every run", "at each step", "no exception") only claims universal use when the
+// sentence carries no condition: "record each outcome" under a "when available" marker is not a claim.
+const QUANTIFIED = /\bevery\b|\beach\b|\bno exception\b/i;
+const CONDITION = /\bwhen\b|\bif\b|\bonly\b|\bunless\b|\bwould\b/i;
+const universal = (text) => UNCONDITIONAL.test(text) || (QUANTIFIED.test(text) && !CONDITION.test(text));
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function lineOf(text, index) {
@@ -88,9 +93,12 @@ function checkMcpClaims({ registry, capabilities, files, indexDocs = [] }) {
       if (!docs.has(m[0])) findings.push(`${rel}:${lineOf(text, m.index)}: structural name: ${m[0]} is not a declared server doc`);
     }
     for (const s of sentences(text)) {
-      if (UNCONDITIONAL.test(s.text)) {
+      if (universal(s.text)) {
         for (const server of servers) {
-          if (server.selection === 'optional' && new RegExp(`(?<![\\w-])${escapeRe(server.id)}(?![\\w-])`, 'i').test(s.text)) {
+          // The id matches in any case; the doc alias (Context7, Sequential) only as the capitalised proper name.
+          const alias = path.posix.basename(server.doc || '').replace(/^MCP_|\.md$/g, '');
+          const named = (n, flags) => new RegExp(`(?<![\\w-])${escapeRe(n)}(?![\\w-])`, flags).test(s.text);
+          if (server.selection === 'optional' && (named(server.id, 'i') || (alias && named(alias, '')))) {
             findings.push(`${rel}:${s.line}: unconditional claim about optional server ${server.id}`);
           }
         }
@@ -212,6 +220,23 @@ test('G28 control: scenario 1 sequence (claim fails, undeclared fails, registry 
   };
   const files = replace(acme, SETUP_DOC, 'The work states library behaviour as fact. Acme trigger sentence here.\n');
   assert.deepEqual(run(files, withAcme), []);
+});
+
+test('G28 control: every/each/no exception phrasing, by id or by doc alias, is an unconditional claim', () => {
+  const REG = {
+    servers: [
+      ...REGISTRY.servers,
+      { id: 'sequential-thinking', selection: 'optional', doc: 'mcp/MCP_Sequential.md', trigger: 'T2.', steps: [] },
+    ],
+  };
+  for (const text of [
+    'Every design run consults sequential-thinking first.\n',
+    'Consult Context7 and Sequential at each step, with no exception.\n',
+  ]) {
+    const r = run(replace(baseFiles(), 'core/shared/agent-specs/a.md', text), REG);
+    assert.ok(r.some((x) => /a\.md:1: unconditional claim about optional server/.test(x)), `${text} -> ${r.join('\n')}`);
+  }
+  assert.deepEqual(run(replace(baseFiles(), 'core/shared/agent-specs/a.md', 'Consult Context7 when the trigger holds.\n'), REG), []);
 });
 
 test('G28 control: undeclared mcp__ tool prefix and server doc fail', () => {
