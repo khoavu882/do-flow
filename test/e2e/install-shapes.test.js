@@ -15,10 +15,9 @@
 // shapes is therefore asserted, not assumed (plan RK7).
 //
 // Serves FR-001, FR-002, FR-003, NFR-001, NFR-002, NFR-005, NFR-007.
-const { test, after } = require('node:test');
+const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
@@ -26,13 +25,14 @@ const REPO = path.resolve(__dirname, "../..");
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const SOURCE_DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const { inheritedEnv } = require('../helper/scratch-env');
+const { suiteTempDir } = require('../helper/tmp');
 const ALL_HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
 const { IS_WIN, interpreterSpawn, samePath, msysArgConvGuards } = require('../helper-platform');
 
 // A developer's PI_CODING_AGENT_DIR would send this file's global Pi MCP writes outside the scratch home.
 delete process.env.PI_CODING_AGENT_DIR;
 
-function scratch(tag) { return fs.mkdtempSync(path.join(os.tmpdir(), `doflow-shape-${tag}-`)); }
+function scratch(tag) { return suiteTempDir(`doflow-install-shapes-${tag}-`); }
 
 /** os.homedir() ignores HOME on Windows and reads USERPROFILE instead, so a scratch home must
  * redirect both or -g installs would land in the real profile. */
@@ -162,13 +162,18 @@ test('FR-001: a global install answers from a working directory that has no proj
     `repo_root ${JSON.parse(r.stdout).repo_root} != cwd ${fs.realpathSync(cwd)}`);
 
   // The old `doflow.sh` computed its root as /Users here. State proves where the dispatcher decided
-  // it lives: the run record must land under the global install, not under a truncated path.
+  // it lives: both install's storage upkeep and the later paths invocation land under the global
+  // install, in their actual append order, rather than under a truncated path.
   const runs = path.join(home, '.doflow', 'state', 'runs');
-  const records = walk(runs);
-  assert.ok(records.length > 0, `no run record under ${runs} — the dispatcher resolved a different root`);
-  const record = JSON.parse(fs.readFileSync(records[0], 'utf8').trim().split('\n')[0]);
-  assert.equal(record.verb, 'paths');
-  assert.equal(record.exit_code, 0);
+  const files = walk(runs);
+  assert.ok(files.length > 0, `no run record under ${runs} — the dispatcher resolved a different root`);
+  const records = files.flatMap((file) => fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)));
+  const storageIndex = records.findIndex((event) => event.verb === 'storage');
+  const pathsIndex = records.findIndex((event) => event.verb === 'paths');
+  assert.notEqual(storageIndex, -1, 'global install records its required storage upkeep telemetry');
+  assert.notEqual(pathsIndex, -1, 'the global dispatcher records the paths invocation');
+  assert.ok(storageIndex < pathsIndex, 'install upkeep telemetry precedes the later paths event');
+  assert.equal(records[pathsIndex].exit_code, 0);
 });
 
 // ---------------------------------------------------------------- FR-003: the uniform contract
@@ -501,10 +506,8 @@ function promoteThrough(exe, { home, cwd }) {
 }
 
 const intentByShape = {};
-const promoteDirs = [];
-/** A scratch directory these cases remove when the file is done. */
-function promoteScratch(tag) { const dir = scratch(tag); promoteDirs.push(dir); return dir; }
-after(() => { for (const dir of promoteDirs) fs.rmSync(dir, { recursive: true, force: true }); });
+/** A scratch directory these cases share the file's lifetime with. */
+function promoteScratch(tag) { return scratch(tag); }
 
 test('046: promote writes the intent from a source checkout', () => {
   const cwd = promoteScratch('promote-src');

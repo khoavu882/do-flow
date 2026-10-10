@@ -8,8 +8,8 @@
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 
@@ -47,14 +47,13 @@ function git(cwd, ...args) {
   return res.stdout;
 }
 
-/** Every scratch repository this file makes is removed when it finishes. */
+/** Linked worktrees sit beside their repository, outside its temp folder, so this file removes them itself. */
 const made = [];
 after(() => { for (const dir of made) fs.rmSync(dir, { recursive: true, force: true }); });
 
 /** A repo with `develop` as the integration branch and a feature branch checked out. */
 function repo({ plan = PLAN, register = true } = {}) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-vscope-')));
-  made.push(root);
+  const root = suiteTempDir('doflow-verification-scope-');
   git(root, 'init', '-q', '-b', 'develop');
   fs.mkdirSync(path.join(root, 'src'), { recursive: true });
   fs.writeFileSync(path.join(root, 'src', 'in.js'), 'module.exports = 1;\n');
@@ -111,8 +110,7 @@ test('buildScopeBound is null with no plan, and with a plan that names no task f
 });
 
 test('a runtime with no bash helpers reports them missing as the baseline reason, not a missing integration ref', () => {
-  const tree = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-vscope-rt-')), 'runtime');
-  made.push(path.dirname(tree));
+  const tree = path.join(suiteTempDir('doflow-verification-scope-runtime-'), 'runtime');
   fs.mkdirSync(path.join(tree, 'core'), { recursive: true });
   for (const part of ['bin', 'src']) fs.cpSync(path.join(REPO, part), path.join(tree, part), { recursive: true });
   fs.cpSync(path.join(REPO, 'core', 'registry'), path.join(tree, 'core', 'registry'), { recursive: true });
@@ -227,12 +225,16 @@ test('a moved file reports the file it left as well as the one it became', () =>
 });
 
 test('DoFlow\'s own state under .doflow/ never counts as a changed file', () => {
-  const root = repo();   // this repo does not ignore .doflow/
+  const root = repo();   // the verb installs DoFlow's state-local ignore file
   const rec = spawnSync('node', [DOFLOW, 'outcome', '--task-id', 'A.1', '--action', 'record', '--task-class', 'bug', '--stage', 'review', '--state', 'INCONCLUSIVE', '--json'],
     { cwd: root, env: { ...process.env, HOME: root }, encoding: 'utf8' });
   assert.equal(rec.status, 0, rec.stdout + rec.stderr);
-  assert.match(git(root, 'status', '--porcelain'), /\.doflow\//, 'the record is an untracked change');
-  commit(root, '.doflow/state/other.json');
+  assert.ok(fs.existsSync(path.join(root, '.doflow/state/.gitignore')));
+  assert.doesNotMatch(git(root, 'status', '--porcelain'), /\.doflow\//, 'the untracked record is ignored');
+  // Even state deliberately force-added by a user must not enter the changed-file set.
+  fs.writeFileSync(path.join(root, '.doflow/state/other.json'), 'changed\n');
+  git(root, 'add', '-f', '.doflow/state/other.json');
+  git(root, 'commit', '-q', '-m', 'touch .doflow/state/other.json');
   commit(root, 'src/in.js');
   const tier = scopeTier(root);
   assert.equal(tier.status, 'PASS', tier.reason);
@@ -278,8 +280,7 @@ function feature(dir, slug, { plan = DEMO_PLAN, register = true } = {}) {
 /** A main checkout `m` on `main` holding the gitignored feature folder, and a linked worktree `wt`
  * on the feature's branch with no folder of its own. */
 function pair() {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-vscope-wt-')));
-  made.push(root);
+  const root = suiteTempDir('doflow-verification-scope-pair-');
   const m = path.join(root, 'm');
   fs.mkdirSync(path.join(m, 'src'), { recursive: true });
   git(m, 'init', '-q', '-b', 'main');
@@ -557,7 +558,7 @@ test('records in two other checkouts are not used for the scope: the contract sa
 
 test('verify refuses a task id that could name a path outside the state store', () => {
   for (const id of ['../../../package', 'a/b', '..']) {
-    const res = spawnSync('node', [DOFLOW, 'verify', '--task-id', id, '--action', 'contract'], { cwd: repo({ plan: null }), env: { ...process.env, HOME: os.tmpdir() }, encoding: 'utf8' });
+    const res = spawnSync('node', [DOFLOW, 'verify', '--task-id', id, '--action', 'contract'], { cwd: repo({ plan: null }), env: { ...process.env, HOME: scratch.home }, encoding: 'utf8' });
     assert.equal(res.status, 2, `${id}: ${res.stdout}`);
     assert.match(res.stderr, /Invalid task id/);
   }

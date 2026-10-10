@@ -26,7 +26,7 @@ const {
 // `doctor` comes from the health module rather than src/runtime/cli.js: the health-probe report
 // (FR-013) supersedes the presence-check version, and one verb must have one implementation.
 const { handleDoctorCommand } = require('../runtime/health');
-const { handleTraceCommand, handleStatsCommand, handleDiscoverCommand } = require('../runtime/trace/ledger');
+const { handleTraceCommand, handleStatsCommand, handleDiscoverCommand, resolveRunsLocation } = require('../runtime/trace/ledger');
 const { handleIndicatorsCommand } = require('../runtime/trace/indicators');
 // The rest of the verb surface design §4.2 declares. `classify`, `workflow`, `route`, `claim`,
 // `context-pack`, `verify`, `recover` and `scaffold` each have exactly one implementation, in the
@@ -49,6 +49,9 @@ const { handleRecoverCommand } = require('../runtime/recovery');
 const { handleScaffoldCommand } = require('../runtime/scaffold/generate');
 const { handleDecisionCommand } = require('../runtime/decision-register');
 const { handleFollowupCommand, handleLifecycleCommand, handleGoalCommand } = require('../runtime/lifecycle/cli');
+const { projectRoot: lifecycleProjectRoot } = require('../runtime/lifecycle/root');
+const { upkeepAfterVerb } = require('../runtime/storage/upkeep');
+const { handleStorageCommand } = require('../runtime/storage/cli');
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options) { return require('../runtime/failure/cli').handleFailureCommand(options); }
 const { handleInventoryCommand } = require('../runtime/inventory');
@@ -155,7 +158,7 @@ function featureStoreRoot(o) {
  * to the engine module each case names.
  * @param {Object} o parsed arguments
  */
-function dispatchRuntimeCommand(o) {
+function dispatchRuntimeCommandInner(o, moment) {
   // A slug becomes a directory name and a state key, so one that could name a path is refused
   // here, once, for every verb that reads `--slug`, before any of them reads or writes state
   // (FR-013, IC-009). A well-formed slug that names no feature is the verbs' own business.
@@ -171,6 +174,17 @@ function dispatchRuntimeCommand(o) {
   // Reset on every dispatch, so one invocation's slug can never carry into the next in-process call.
   const featureStore = featureStoreRoot(o);
   const storeRoot = featureStore ? featureStore.root : evidenceRoot(o);
+  // Use the same root resolver as the handler: task redirection, the nearest run ledger,
+  // and lifecycle's shared main-worktree store are deliberately different scopes.
+  try {
+    if (['trace', 'stats', 'discover'].includes(o.cmd)) {
+      moment.projectRoot = path.dirname(resolveRunsLocation({ start: evidenceRoot(o), global: o.global }).configDir);
+    } else if (['followup', 'lifecycle', 'goal'].includes(o.cmd)) {
+      moment.projectRoot = lifecycleProjectRoot(evidenceRoot(o));
+    } else {
+      moment.projectRoot = storeRoot;
+    }
+  } catch { /* a failed upkeep lookup must not change the verb's answer */ }
   const storeSlug = featureStore ? featureStore.slug : o.slug;
   setDefaultSlug(TASK_STORE_VERBS.has(o.cmd) ? storeSlug : null);
   if (featureStore) {
@@ -217,6 +231,7 @@ function dispatchRuntimeCommand(o) {
     // report whose whole purpose is to be cross-scope. The global scope's own root is derived from
     // the process home directory inside the lifecycle view (design R7) and is not an argument.
     case 'inventory': return handleInventoryCommand({ json: o.json, global: o.global, targets: o.targets, repoRoot: REPO_ROOT, projectRoot: path.resolve(o.positional[0] || '.') });
+    case 'storage': return handleStorageCommand({ action: o.actionGiven ? o.action : 'report', json: o.json, global: o.global, projectRoot: evidenceRoot(o) });
     // No REPO_ROOT: the scaffold's repo root is the *caller's* repo, reported by the resolver,
     // because the plan's `files:` paths are relative to it. Passing the DoFlow install here
     // would detect the wrong language and mirror the wrong tree.
@@ -251,6 +266,14 @@ function dispatchRuntimeCommand(o) {
     case 'recover': return handleRecoverCommand({ errorMessage: o.errorMessage, failedChecks: o.failedChecks, iteration: o.iteration, agent: o.agent, json: o.json });
     default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
   }
+}
+
+/** Await the verb without changing its return value, output or exit code; usage exits never return. */
+async function dispatchRuntimeCommand(o) {
+  const moment = {};
+  const result = await dispatchRuntimeCommandInner(o, moment);
+  if (o.cmd !== 'storage') upkeepAfterVerb({ projectRoot: moment.projectRoot });
+  return result;
 }
 
 module.exports = { dispatchRuntimeCommand };

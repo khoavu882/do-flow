@@ -377,6 +377,7 @@ Observability:
   inventory        both scopes at once: shadowed assets, drift, unmanaged contenders
   capabilities     provider resolution
   doctor           installation and provider health
+  storage          report stored data and its retention bounds
 EOF
 }
 
@@ -474,7 +475,7 @@ shell_helper_for() {
 is_node_verb() {
   case "$1" in
     classify|workflow|route|evidence|claim|readiness|context-pack|retrieval-plan|outcome|scaffold|decision|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
-trace|stats|indicators|discover|inventory|capabilities|doctor|orchestrate|research-request|retrieve|model-role) return 0 ;;
+trace|stats|indicators|discover|inventory|capabilities|doctor|orchestrate|research-request|retrieve|model-role|storage) return 0 ;;
     *) return 1 ;;
   esac
 }

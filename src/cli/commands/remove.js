@@ -6,6 +6,7 @@ const path = require('node:path');
 const { resolveTargets, toolDirs } = require('../../install/targets');
 const { confirm } = require('../../helper/prompt');
 const { loadRegistry } = require('../../registry');
+const { storageForgetScope } = require('../../runtime/storage/upkeep');
 const { removeLifecycle, retentionSummary } = require('../../lifecycle');
 const {
   codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES,
@@ -71,6 +72,7 @@ function cmdRemove(o) {
       previous: lock, ledger: result.ledger });
     const removalLock = recordLock(scope.global ? { scope: 'global', homeDir: os.homedir() } : { scope: 'project', projectRoot: path.resolve(scope.projectRoot) }, next);
     if (lock || next) console.log(`[INFO] doflow.lock: ${removalLock.summary}`);
+    if (lock && !next) storageForgetScope({ scope: scope.global ? 'global' : 'project', scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot) });
   } finally {
     hold?.release();
   }
