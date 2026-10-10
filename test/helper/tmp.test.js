@@ -107,6 +107,32 @@ test('suiteTempDir removes its directory after the file ends', (t) => {
   assert.equal(fs.existsSync(childDir), false);
 });
 
+test('suiteTempDir called from a before hook remains available to test bodies', (t) => {
+  const dir = tempDir(t, 'doflow-tmp-before-parent-');
+  const result = path.join(dir, 'result');
+  const file = childFile(dir, 'before-hook', childSource(`
+    const { before, test } = require('node:test');
+    const assert = require('node:assert/strict');
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const { suiteTempDir } = require(${JSON.stringify(TMP_HELPER)});
+    let childDir;
+    before(() => {
+      childDir = suiteTempDir('doflow-tmp-before-child-');
+      fs.writeFileSync(path.join(childDir, 'marker'), 'ready');
+      fs.writeFileSync(process.env.RESULT_FILE, childDir);
+    });
+    test('uses suite directory after before hook', () => {
+      assert.equal(fs.readFileSync(path.join(childDir, 'marker'), 'utf8'), 'ready');
+    });
+  `));
+
+  const child = runChild(file, result);
+  assert.equal(child.status, 0, child.stderr);
+  const childDir = fs.readFileSync(result, 'utf8');
+  assert.equal(fs.existsSync(childDir), false);
+});
+
 test('temp directory prefixes must start with doflow-', (t) => {
   assert.throws(() => tempDir(t, 'other-'), /doflow-/);
   assert.throws(() => suiteTempDir('other-'), /doflow-/);

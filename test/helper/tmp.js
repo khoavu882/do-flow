@@ -3,8 +3,6 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { after } = require('node:test');
-
 const TEMP_DIRS = new Set();
 
 function requirePrefix(prefix) {
@@ -64,11 +62,9 @@ function tempDir(t, prefix = 'doflow-test-') {
   return dir;
 }
 
-/** A real-path temp dir removed by node:test after() of the calling file; call at top level or in before(). */
+/** A real-path temp dir removed by the process-exit cleanup net; call at top level or in before(). */
 function suiteTempDir(prefix = 'doflow-test-') {
-  const dir = makeTempDir(prefix);
-  after(() => removeTree(dir));
-  return dir;
+  return makeTempDir(prefix);
 }
 
 function cleanupOnExit() {
