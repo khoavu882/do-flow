@@ -232,7 +232,7 @@ test('M20: no entry any harness plans for the shipped servers carries the regist
   assert.ok(targets.length >= 2);
   for (const target of targets) {
     const plan = planLifecycle({
-      registry, adapters: buildAdapterRegistry(), scope: 'project', scopeRoot: scratch(), targets: [target], mcpSelections: { [target]: ids }, context: { sourceVersion: 'test', repoRoot },
+      registry, adapters: buildAdapterRegistry(), scope: 'project', scopeRoot: scratch(), targets: [target], mcpSelections: { [target]: ids }, context: { sourceVersion: 'test', repoRoot, homeDir: scratch() },
     });
     const mcpChanges = plan.changes.filter((change) => change.kind === 'mcp-server' || change.nativeComponent === 'mcp');
     assert.ok(mcpChanges.length > 0, `${target} plans MCP entries`);

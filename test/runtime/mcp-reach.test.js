@@ -46,13 +46,23 @@ function ledger(root, scope, { harnesses = [], selected = {} }) {
   }));
 }
 
+/** The real adapters, with the named ones claiming a complete view (`mcpComplete: true`) the way an
+ * adapter that reads every source its harness merges would. No shipped adapter claims it today. */
+function completeAdapters(...ids) {
+  return { get: (name) => {
+    const adapter = adapters.get(name);
+    if (!ids.includes(name)) return adapter;
+    return { ...adapter, discover: (input) => ({ ...adapter.discover(input), mcpComplete: true }) };
+  } };
+}
+
 function reach(f, extra = {}) {
   return mcpReach({ registry, projectRoot: f.proj, homeDir: f.home, adapters, ...extra });
 }
 
 const rowOf = (result, harness, scope) => result.harnesses.find((row) => row.id === harness && row.scope === scope);
 
-test('per-server states: selected, configured, not-selected, and the catalog flag', (t) => {
+test('per-server states: selected, configured, unknown where absence is no proof, and the catalog flag', (t) => {
   const f = fixture(t);
   ledger(f.proj, 'project', { harnesses: ['claude'], selected: { claude: [FIRST] } });
   write(path.join(f.proj, '.mcp.json'), JSON.stringify({ mcpServers: { [FIRST]: {}, semble: {} } }));
@@ -60,8 +70,10 @@ test('per-server states: selected, configured, not-selected, and the catalog fla
   assert.equal(row.catalog, 'taken');
   assert.equal(row.servers[FIRST], 'selected');
   assert.equal(row.servers.semble, 'configured', 'a provider mcp.server is reported too');
-  assert.equal(row.servers[SECOND], 'not-selected');
+  assert.equal(row.servers[SECOND], 'unknown', 'Claude loads servers DoFlow cannot read, so absence is not proof');
   assert.equal(row.note, undefined);
+  assert.equal(rowOf(reach(f, { adapters: completeAdapters('claude') }), 'claude', 'project').servers[SECOND], 'not-selected',
+    'not-selected needs an adapter that read every source');
 });
 
 test('a harness whose capabilities.mcp.status is not supported is not-taken and carries the note', (t) => {
@@ -71,7 +83,10 @@ test('a harness whose capabilities.mcp.status is not supported is not-taken and 
   const row = rowOf(result, 'gemini', 'global');
   assert.equal(row.catalog, 'not-taken');
   assert.match(row.note, /adapter-supported MCP registration/);
-  assert.equal(row.servers[FIRST], 'not-taken');
+  assert.equal(row.servers[FIRST], 'unknown', 'no settings read: Gemini cannot say');
+  write(path.join(f.home, '.gemini', 'settings.json'), JSON.stringify({ mcpServers: {} }));
+  assert.equal(rowOf(reach(f), 'gemini', 'global').servers[FIRST], 'unknown', 'Gemini merges system settings and extensions DoFlow does not read');
+  assert.equal(rowOf(reach(f, { adapters: completeAdapters('gemini') }), 'gemini', 'global').servers[FIRST], 'not-taken');
   write(path.join(f.home, '.gemini', 'settings.json'), JSON.stringify({ mcpServers: { [FIRST]: {} } }));
   assert.equal(rowOf(reach(f), 'gemini', 'global').servers[FIRST], 'configured', 'a hand-configured server shows');
 });
@@ -84,17 +99,18 @@ test('unknown: nothing selected and the MCP file is absent', (t) => {
   assert.equal(row.servers[SECOND], 'unknown');
 });
 
-test('anyHarnessHas returns true, false and unknown', (t) => {
+test('anyHarnessHas returns true, false and null (unknown)', (t) => {
   const f = fixture(t);
-  assert.equal(reach(f).anyHarnessHas(FIRST), 'unknown', 'no harness installed');
+  assert.equal(reach(f).anyHarnessHas(FIRST), null, 'no harness installed');
   ledger(f.proj, 'project', { harnesses: ['claude'], selected: { claude: [FIRST] } });
   write(path.join(f.proj, '.mcp.json'), JSON.stringify({ mcpServers: { [FIRST]: {}, other: {} } }));
   const result = reach(f);
   assert.equal(result.anyHarnessHas(FIRST), true);
   assert.equal(result.anyHarnessHas('other'), true, 'configured by hand');
-  assert.equal(result.anyHarnessHas(SECOND), false, 'every installed row says not-selected');
+  assert.equal(result.anyHarnessHas(SECOND), null, 'Claude absence is never proof');
+  assert.equal(reach(f, { adapters: completeAdapters('claude') }).anyHarnessHas(SECOND), false, 'every row read every source and says not-selected');
   fs.rmSync(path.join(f.proj, '.mcp.json'));
-  assert.equal(reach(f).anyHarnessHas(SECOND), 'unknown', 'an absent MCP file cannot say');
+  assert.equal(reach(f, { adapters: completeAdapters('claude') }).anyHarnessHas(SECOND), null, 'an absent MCP file cannot say');
 });
 
 test('anyHarnessHas is false when every row is not-selected or not-taken', (t) => {
@@ -102,7 +118,34 @@ test('anyHarnessHas is false when every row is not-selected or not-taken', (t) =
   ledger(f.proj, 'project', { harnesses: ['claude'] });
   ledger(f.home, 'global', { harnesses: ['gemini'] });
   write(path.join(f.proj, '.mcp.json'), JSON.stringify({ mcpServers: {} }));
-  assert.equal(reach(f).anyHarnessHas(FIRST), false);
+  write(path.join(f.home, '.gemini', 'settings.json'), JSON.stringify({ mcpServers: {} }));
+  assert.equal(reach(f, { adapters: completeAdapters('claude', 'gemini') }).anyHarnessHas(FIRST), false);
+  assert.equal(reach(f, { adapters: completeAdapters('claude') }).anyHarnessHas(FIRST), null, 'one row without a complete view keeps it unknown');
+  assert.equal(reach(f).anyHarnessHas(FIRST), null);
+});
+
+test('repro (062 X1): a Claude local-scope server in ~/.claude.json counts, and an absent one is unknown, not absent', (t) => {
+  const f = fixture(t);
+  ledger(f.proj, 'project', { harnesses: ['claude'] });
+  write(path.join(f.proj, '.mcp.json'), JSON.stringify({ mcpServers: { other: {} } }));
+  write(path.join(f.home, '.claude.json'), JSON.stringify({ projects: { [f.proj]: { mcpServers: { [FIRST]: {} } } } }));
+  const result = reach(f);
+  const row = rowOf(result, 'claude', 'project');
+  assert.equal(row.servers[FIRST], 'configured');
+  assert.equal(row.servers[SECOND], 'unknown');
+  assert.equal(result.anyHarnessHas(FIRST), true);
+  assert.equal(result.anyHarnessHas(SECOND), null);
+});
+
+test('repro (062 X1): Gemini servers in ~/.gemini/settings.json with no project settings count, and an absent one is unknown', (t) => {
+  const f = fixture(t);
+  ledger(f.proj, 'project', { harnesses: ['gemini'] });
+  write(path.join(f.home, '.gemini', 'settings.json'), JSON.stringify({ mcpServers: { [FIRST]: {} } }));
+  const result = reach(f);
+  const row = rowOf(result, 'gemini', 'project');
+  assert.equal(row.servers[FIRST], 'configured');
+  assert.equal(row.servers[SECOND], 'unknown');
+  assert.equal(result.anyHarnessHas(SECOND), null);
 });
 
 test('addCommand: project and global scope, servers already selected in registry order, and a not-taken harness', (t) => {
@@ -124,9 +167,9 @@ test('an unreadable MCP config lands in unreadable and its servers are unknown',
   ledger(f.proj, 'project', { harnesses: ['claude'] });
   write(path.join(f.proj, '.mcp.json'), '{ not json');
   const result = reach(f);
-  assert.deepEqual(result.unreadable, [{ harness: 'claude', scope: 'project', detail: 'invalid JSON' }]);
+  assert.deepEqual(result.unreadable, [{ harness: 'claude', scope: 'project', detail: 'invalid JSON', file: path.join(f.proj, '.mcp.json') }]);
   assert.equal(rowOf(result, 'claude', 'project').servers[FIRST], 'unknown');
-  assert.equal(result.anyHarnessHas(FIRST), 'unknown');
+  assert.equal(reach(f, { adapters: completeAdapters('claude') }).anyHarnessHas(FIRST), null);
 });
 
 test('a fixture registry with an extra server reaches the result with no code change', (t) => {
@@ -136,7 +179,7 @@ test('a fixture registry with an extra server reaches the result with no code ch
   const extended = { ...registry, mcp: [...registry.mcp, { ...registry.mcp[0], id: 'acme-docs' }] };
   const row = rowOf(reach(f, { registry: extended }), 'claude', 'project');
   assert.equal(row.servers['acme-docs'], 'configured');
-  assert.equal(row.servers[FIRST], 'not-selected');
+  assert.equal(row.servers[FIRST], 'unknown');
   const plain = rowOf(reach(f), 'claude', 'project');
   assert.equal(Object.hasOwn(plain.servers, 'acme-docs'), false);
 });

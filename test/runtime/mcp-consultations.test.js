@@ -159,15 +159,68 @@ test('IC-008 rule 4: a brief record for this stage listing the server unreachabl
   assert.deepEqual(result.notices.map((n) => n.text), ['[INFO] mcp: acme-docs unavailable to stage-a; add it: install acme-docs']);
 });
 
-test('IC-008 rule 5: install facts fire only for a named server and only on false', () => {
-  const no = run({ reach: { anyHarnessHas: (s) => s === 'acme-docs' ? false : 'unknown' } });
-  assert.deepEqual(no.record.outcomes, [{ server: 'acme-docs', state: 'unavailable', source: 'install' }]);
-  assert.deepEqual(no.warnings.map((w) => w.server), ['beta-think']);
-  assert.equal(no.notices[0].text, '[INFO] mcp: acme-docs unavailable to stage-a');
-  const unknown = run({ reach: { anyHarnessHas: () => 'unknown' } });
+test('IC-008 rule 5 (062 X1): install facts never store an outcome; the no-outcome warning still fires', () => {
+  const no = run({ reach: { anyHarnessHas: (s) => (s === 'acme-docs' ? false : null) }, addCommand: (server) => `install ${server}` });
+  assert.deepEqual(no.record.outcomes, []);
+  assert.deepEqual(no.warnings.map((w) => [w.kind, w.server]), [['no-outcome', 'acme-docs'], ['no-outcome', 'beta-think']]);
+  assert.deepEqual(no.notices, []);
+  const unknown = run({ reach: { anyHarnessHas: () => null } });
   assert.deepEqual(unknown.record.outcomes, []);
-  const notNamed = run({ skill: 'other', reach: { anyHarnessHas: () => false } });
-  assert.deepEqual(notNamed.record.outcomes, []);
+  assert.deepEqual(kinds(unknown.warnings), ['no-outcome', 'no-outcome']);
+});
+
+test('IC-008 rule 3 (062 X3): only evidence recorded after the previous stage completed counts', () => {
+  const at = (observedAt, over = {}) => evidence({ source: { provider: 'acme-docs' }, freshness: { observedAt }, ...over });
+  const since = '2026-10-10T10:00:00.000Z';
+  const earlier = run({ since, ledger: ledgerOf([at('2026-10-10T09:59:59.000Z')]) });
+  assert.deepEqual(earlier.record.outcomes, [], 'evidence from the stage before does not satisfy this one');
+  assert.ok(earlier.warnings.some((w) => w.kind === 'no-outcome' && w.server === 'acme-docs'));
+  const undated = run({ since, ledger: ledgerOf([evidence({ source: { provider: 'acme-docs' } })]) });
+  assert.deepEqual(undated.record.outcomes, [], 'an item with no time cannot be placed after the previous stage');
+  const later = run({ since, ledger: ledgerOf([at('2026-10-10T10:00:01.000Z')]) });
+  assert.deepEqual(later.record.outcomes, [{ server: 'acme-docs', state: 'consulted-used', source: 'evidence' }]);
+});
+
+test('X2: tools-used entries in backticks or with a trailing note parse; a dropped server entry warns', () => {
+  assert.deepEqual(parseToolsUsed('Tools used: `semble`, `acme-docs=used` (docs lookup), rg (exact search)').entries.map((e) => [e.name, e.state, e.valid]),
+    [['semble', 'consulted-used', true], ['acme-docs', 'consulted-used', true], ['rg', 'consulted-used', true]]);
+  assert.deepEqual(parseToolsUsed('`Tools used: a, b=unavailable`').entries.map((e) => [e.name, e.state]), [['a', 'consulted-used'], ['b', 'unavailable']]);
+  assert.deepEqual(parseToolsUsed('- **Tools used:** `a=skipped:not due` (why)').entries.map((e) => [e.name, e.reason]), [['a', 'not due']]);
+
+  const result = run({
+    briefRecords: [record()],
+    readReport: reports({ 'exec/task-A.1-report.md': 'Tools used: acme-docs=maybe, bad entry!, beta-think=used' }),
+  });
+  const unparsed = result.warnings.filter((w) => w.kind === 'tools-used-unparsed');
+  assert.deepEqual(unparsed.map((w) => [w.taskId, w.text]), [['A.1', "[WARN] tools-used: unparsed entry 'acme-docs=maybe'"]],
+    'only an entry naming a known server warns');
+});
+
+test('X2: an asserted unavailable contradicted by reach or the brief record is kept, warned, and has no add command', () => {
+  const byReach = run({
+    flags: ['acme-docs=unavailable'],
+    reach: { anyHarnessHas: (s) => s === 'acme-docs', harnessWith: () => 'Fixture Harness' },
+    addCommand: (server) => `install ${server}`,
+  });
+  assert.deepEqual(byReach.record.outcomes, [{ server: 'acme-docs', state: 'unavailable', source: 'flag' }]);
+  assert.ok(byReach.warnings.some((w) => w.kind === 'unavailable-contradicted'
+    && w.text === '[WARN] mcp: acme-docs reported unavailable but Fixture Harness has it configured'));
+  assert.deepEqual(byReach.notices.map((n) => n.text), ['[INFO] mcp: acme-docs unavailable to stage-a']);
+
+  const byBrief = run({
+    briefRecords: [record({ harness: 'fixture', expected: [{ server: 'acme-docs', reach: 'reachable' }] })],
+    readReport: reports({ 'exec/task-A.1-report.md': 'Tools used: acme-docs=unavailable' }),
+    reach: { anyHarnessHas: () => null },
+    harnessName: (id) => (id === 'fixture' ? 'Fixture Harness' : id),
+    addCommand: (server) => `install ${server}`,
+  });
+  assert.deepEqual(byBrief.record.outcomes, [{ server: 'acme-docs', state: 'unavailable', source: 'tools-used', taskId: 'A.1' }]);
+  assert.ok(byBrief.warnings.some((w) => w.text === '[WARN] mcp: acme-docs reported unavailable but Fixture Harness has it configured'));
+  assert.deepEqual(byBrief.notices.map((n) => n.text), ['[INFO] mcp: acme-docs unavailable to stage-a']);
+
+  const plain = run({ flags: ['acme-docs=unavailable'], reach: { anyHarnessHas: () => null }, addCommand: (server) => `install ${server}` });
+  assert.deepEqual(plain.notices.map((n) => n.text), ['[INFO] mcp: acme-docs unavailable to stage-a; add it: install acme-docs']);
+  assert.ok(!plain.warnings.some((w) => w.kind === 'unavailable-contradicted'));
 });
 
 test('tools-used grammar: prefixes, emphasis, none, unparseable entries kept in the evidence', () => {
@@ -263,7 +316,7 @@ test('same inputs twice give byte-identical JSON, whatever order the inputs arri
     briefRecords: [record({ tasks: [{ id: 'A.2', report: 'r2' }, { id: 'A.1', report: 'r1' }] })],
     readReport: reports({ r1: 'Tools used: acme-docs=used', r2: 'nope' }),
     ledger: ledgerOf(),
-    reach: { anyHarnessHas: () => 'unknown' },
+    reach: { anyHarnessHas: () => null },
   });
   const a = JSON.stringify(run(inputs()));
   assert.equal(JSON.stringify(run(inputs())), a);

@@ -219,7 +219,9 @@ class WorkflowOrchestrator {
     }
     const positioned = this.catchUp({ taskId, taskClass: resolvedClass, candidateStageIds: candidates, note, now });
     if (positioned.reason === 'reached-candidate') {
-      const mcp = this.resolveMcp({ taskId, stageId: positioned.caughtUpTo, skill: callingSkill, flags: mcpOutcomes });
+      // A run this handoff started has no earlier stage: every evidence item counts.
+      const since = existing ? this.stageSince(taskId, positioned.caughtUpTo) : null;
+      const mcp = this.resolveMcp({ taskId, stageId: positioned.caughtUpTo, skill: callingSkill, flags: mcpOutcomes, since });
       const consultations = mcp ? this.storeToolsUsed(mcp) : null;
       const snapshot = this.completeStage({ taskId, stageId: positioned.caughtUpTo, note, outcome, consultations, now });
       return { ...snapshot, disposition: 'completed', recordedStage: positioned.caughtUpTo, consultations, mcpWarnings: mcp ? mcp.messages : [] };
@@ -227,7 +229,7 @@ class WorkflowOrchestrator {
     if (positioned.reason.startsWith('already-completed:')) {
       // A rerun after all occurrences is an annotation on the latest occurrence, never a replay.
       const recordedStage = candidates[candidates.length - 1];
-      const mcp = this.resolveMcp({ taskId, stageId: recordedStage, skill: callingSkill, flags: mcpOutcomes });
+      const mcp = this.resolveMcp({ taskId, stageId: recordedStage, skill: callingSkill, flags: mcpOutcomes, since: this.stageSince(taskId, recordedStage) });
       const consultations = mcp ? this.storeToolsUsed(mcp) : null;
       return {
         ...this.annotate({ taskId, node: recordedStage, note, consultations, now }), disposition: 'annotated', recordedStage,
@@ -240,11 +242,12 @@ class WorkflowOrchestrator {
   /**
    * Resolve one stage run's MCP outcomes from what is on disk. Reads only: the evidence ledger, the
    * research requests, the brief records under the feature's `exec/` folder, the reports they name,
-   * and the install facts `mcpReach` reads. Any failure to read one of them means that source
+   * and the install facts `mcpReach` reads. `since` bounds the evidence rule 3 counts (stageSince).
+   * Any failure to read one of them means that source
    * contributes nothing, and a registry that cannot load means no record at all (NFR-003).
    * @returns {{record: object, messages: object[], evidenceToAdd: object[], ledger: EvidenceLedger}|null}
    */
-  resolveMcp({ taskId, stageId, skill, flags }) {
+  resolveMcp({ taskId, stageId, skill, flags, since = null }) {
     let registry;
     try { registry = loadRegistry({ repoRoot: this.repoRoot }); } catch { return null; }
     const ledger = new EvidenceLedger({ repoRoot: this.projectRoot, slug: this.featureSlug, fsImpl: this.fsImpl });
@@ -259,6 +262,10 @@ class WorkflowOrchestrator {
         } catch { reachMemo = null; }
       }
       return reachMemo;
+    };
+    const displayName = (id) => {
+      const harness = (registry.harnesses || []).find((item) => item.id === id);
+      return harness ? harness.displayName || harness.id : id;
     };
     const { briefRecords, repoRoot } = stageId ? this.readBriefRecords(taskId) : { briefRecords: [], repoRoot: this.projectRoot };
     try {
@@ -277,7 +284,15 @@ class WorkflowOrchestrator {
           if (path.relative(repoRoot, target).startsWith('..') || path.isAbsolute(path.relative(repoRoot, target))) return null;
           try { return this.fsImpl.readFileSync(target, 'utf8'); } catch { return null; }
         },
-        reach: { anyHarnessHas: (server) => { const reach = reachOf(); return reach ? reach.anyHarnessHas(server) : 'unknown'; } },
+        reach: {
+          anyHarnessHas: (server) => { const reach = reachOf(); return reach ? reach.anyHarnessHas(server) : null; },
+          harnessWith: (server) => {
+            const row = reachOf()?.harnesses.find((item) => ['selected', 'configured'].includes(item.servers[server]));
+            return row ? displayName(row.id) : null;
+          },
+        },
+        harnessName: displayName,
+        since,
         addCommand: (server) => {
           const reach = reachOf();
           const row = reach?.harnesses.find((item) => !['selected', 'configured'].includes(item.servers[server]));
@@ -285,6 +300,25 @@ class WorkflowOrchestrator {
         },
       });
       return { record: result.record, messages: [...result.warnings, ...result.notices], evidenceToAdd: result.evidenceToAdd, ledger };
+    } catch { return null; }
+  }
+
+  /** When this stage run began, for counting its evidence (IC-008 rule 3): the `at` of the last
+   * stage completed or skipped before it that was not backfilled, else the run start. A stage
+   * already completed (an annotation) is measured from the completion before its own. */
+  stageSince(taskId, stageId) {
+    try {
+      const run = this.readRun(taskId);
+      const history = Array.isArray(run?.history) ? run.history : [];
+      let end = history.length;
+      for (let i = history.length - 1; i >= 0; i -= 1) {
+        if (history[i]?.action === 'complete-stage' && history[i].node === stageId) { end = i; break; }
+      }
+      for (let i = end - 1; i >= 0; i -= 1) {
+        const item = history[i];
+        if ((item?.action === 'complete-stage' || item?.action === 'skip-stage') && !item.backfilled && item.node !== stageId) return item.at;
+      }
+      return run?.startedAt || history[0]?.at || null;
     } catch { return null; }
   }
 

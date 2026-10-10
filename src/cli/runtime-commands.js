@@ -201,7 +201,7 @@ function dispatchRuntimeCommandInner(o, moment) {
     // REPO_ROOT locates the capability registry; projectRoot is the tree whose index freshness
     // and build/test commands are being reported on, which follows the usual scope rules.
     case 'capabilities': return handleCapabilitiesCommand({ json: o.json, check: o.check, repoRoot: REPO_ROOT });
-    case 'doctor': return handleDoctorCommand({ json: o.json, repoRoot: REPO_ROOT, projectRoot: evidenceRoot(o) });
+    case 'doctor': return handleDoctorCommand({ json: o.json, repoRoot: REPO_ROOT, projectRoot: evidenceRoot(o), adapters: buildAdapterRegistry() });
     // REPO_ROOT locates the registry (templates ship with the package); stateRoot locates the
     // caller's evidence, which follows the same scope rules as every other command: -g means
     // $HOME, otherwise the positional project root (default cwd).

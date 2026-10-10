@@ -6,6 +6,8 @@
 // can be read and written by other tools — so DoFlow owns its servers one entry at a time through
 // ../mcp-entries.js and never rewrites another key or another entry's value.
 const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { nativeMcpCatalog } = require('../../registry');
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries');
 
@@ -41,15 +43,34 @@ function readFiles(entries, fsImpl) {
   return readMcpFiles({ file: entries.file, ownRows: entries.ownRows, container: MCP_CONTAINER, fsImpl });
 }
 
+/** Server names Claude Code merges into a project from `~/.claude.json` beside the project's own
+ * `.mcp.json`: the local scope (`projects[<root>].mcpServers`) and the user scope (`mcpServers`).
+ * Read-only and for reach alone; a file that cannot be read contributes nothing (null). */
+function claudeJsonNames({ scopeRoot, homeDir, fsImpl }) {
+  let doc;
+  try { doc = JSON.parse(fsImpl.readFileSync(path.join(homeDir, '.claude.json'), 'utf8')); } catch { return null; }
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return null;
+  const names = (servers) => (servers && typeof servers === 'object' && !Array.isArray(servers) ? Object.keys(servers) : []);
+  const projects = doc.projects && typeof doc.projects === 'object' ? doc.projects : {};
+  let real = scopeRoot;
+  try { real = fsImpl.realpathSync(scopeRoot); } catch { /* the path as given */ }
+  return [...names(doc.mcpServers), ...[...new Set([scopeRoot, real])].flatMap((key) => names(projects[key]?.mcpServers))];
+}
+
 /** The MCP files as plan read them (`mcpSnapshot`, which verify compares against), the servers
- * DoFlow owns in them now (`mcpOwned`) and every server the scope's file names (`mcpConfigured`). */
-function discoverMcp({ paths, mcp, mcpAdoptable, ledger, fsImpl = fs }) {
+ * DoFlow owns in them now (`mcpOwned`) and every server name DoFlow can see for the scope
+ * (`mcpConfigured`): the scope's file, plus at project scope the local- and user-scope entries in
+ * `~/.claude.json`. Claude Code also loads plugin, managed and connector servers DoFlow does not
+ * read, so the view is never complete (`mcpComplete: false`) and absence is never proof. */
+function discoverMcp({ paths, mcp, mcpAdoptable, ledger, scope, scopeRoot, homeDir = os.homedir(), fsImpl = fs }) {
   const entries = mcpEntriesInput({ paths, mcp, mcpAdoptable, ledger });
   const mcpSnapshot = readFiles(entries, fsImpl);
-  // `null` while the file is absent, unreadable or has no server map; every name in it otherwise, whoever wrote it.
+  // `null` while nothing could be read; every name otherwise, whoever wrote it.
   const read = mcpSnapshot[entries.file];
-  const mcpConfigured = read?.ok && read.servers ? Object.keys(read.servers).sort() : null;
-  return { mcpSnapshot, mcpOwned: ownedMcpIds({ ...entries, files: mcpSnapshot }), mcpConfigured };
+  const own = read?.ok && read.servers ? Object.keys(read.servers) : null;
+  const merged = scope === 'project' && scopeRoot ? claudeJsonNames({ scopeRoot, homeDir, fsImpl }) : null;
+  const mcpConfigured = own || merged ? [...new Set([...(own || []), ...(merged || [])])].sort() : null;
+  return { mcpSnapshot, mcpOwned: ownedMcpIds({ ...entries, files: mcpSnapshot }), mcpConfigured, mcpComplete: false };
 }
 
 function planMcp({ paths, mcp, mcpAdoptable, ledger, snapshot, removing, fsImpl = fs }) {

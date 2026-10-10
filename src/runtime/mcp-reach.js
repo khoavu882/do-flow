@@ -4,8 +4,9 @@
  * MCP reach: for each harness the ledgers say is installed, which MCP servers does that harness
  * have — selected from DoFlow's catalog, configured by hand, absent, or out of the catalog's reach.
  * Read-only: it reads the same ledgers `evaluateReach` reads and asks each adapter's `discover()`
- * for the servers named in the MCP file it already reads. It never starts a server and opens no
- * connection, so the same inputs give the same answer.
+ * for the server names it can see (`mcpConfigured`) and whether that view is complete
+ * (`mcpComplete`). A server is reported absent only from a complete view; otherwise its state is
+ * unknown. It never starts a server and opens no connection, so the same inputs give the same answer.
  *
  * Server names come from the registries only (`mcp.json`, and the `mcp.server` of capability
  * providers); nothing here names one.
@@ -29,21 +30,22 @@ function serverIdsOf(registry) {
   return [...new Set(ids)];
 }
 
-/** A fixed reason an adapter's discovery gives for an MCP file it could not read, or null. Reasons
- * come from the adapters (invalid JSON, wrong shape), never from file content. */
+/** The MCP file an adapter's discovery could not read and the fixed reason it gives, or null.
+ * Reasons come from the adapters (invalid JSON, wrong shape), never from file content. */
 function unreadableDetail(discovery) {
-  for (const read of Object.values(discovery.mcpSnapshot || {})) if (read?.ok === false) return read.reason;
-  for (const read of Object.values(discovery.mcp || {})) if (read?.doc?.ok === false) return read.doc.reason;
-  if (discovery.settings?.error) return 'invalid JSON';
+  for (const [file, read] of Object.entries(discovery.mcpSnapshot || {})) if (read?.ok === false) return { detail: read.reason, file };
+  for (const [file, read] of Object.entries(discovery.mcp || {})) if (read?.doc?.ok === false) return { detail: read.doc.reason, file };
+  if (discovery.settings?.error) return { detail: 'invalid JSON', ...(discovery.paths?.settings ? { file: discovery.paths.settings } : {}) };
   return null;
 }
 
+/** A server is absent (`not-taken`, `not-selected`) only where the adapter read every source its
+ * harness merges (`mcpComplete: true`); anywhere else absence is no proof and the state is unknown. */
 function stateOf(row, id) {
   if (row.selected.has(id)) return 'selected';
   if (row.configured?.includes(id)) return 'configured';
-  if (row.unreadable) return 'unknown';
-  if (row.catalog === 'not-taken') return 'not-taken';
-  return row.configured === null ? 'unknown' : 'not-selected';
+  if (row.unreadable || row.configured === null || !row.complete) return 'unknown';
+  return row.catalog === 'not-taken' ? 'not-taken' : 'not-selected';
 }
 
 /**
@@ -89,6 +91,7 @@ function mcpReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl = fs, 
       selected: new Set((ledger?.resources || [])
         .filter((resource) => resource.harness === id && resource.kind === 'mcp-server').map((resource) => resource.identity)),
       configured: null,
+      complete: false,
       unreadable: false,
     };
     try {
@@ -96,8 +99,9 @@ function mcpReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl = fs, 
         scope, scopeRoot: installRoot, homeDir, mcp: [], mcpAdoptable: [], ledger, registry, context: { homeDir },
       });
       row.configured = Array.isArray(discovery.mcpConfigured) ? discovery.mcpConfigured : null;
-      const detail = row.configured === null ? unreadableDetail(discovery) : null;
-      if (detail) { row.unreadable = true; unreadable.push({ harness: id, scope, detail }); }
+      row.complete = discovery.mcpComplete === true;
+      const found = unreadableDetail(discovery);
+      if (found) { row.unreadable = true; unreadable.push({ harness: id, scope, ...found }); }
     } catch (error) {
       row.unreadable = true;
       unreadable.push({ harness: id, scope, detail: error.message });
@@ -117,12 +121,13 @@ function mcpReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl = fs, 
     unreadable,
   };
 
-  /** `true` when a server is selected or configured on some installed harness, `false` when every
-   * installed harness says it is absent, `unknown` otherwise (including when none is installed). */
+  /** `true` when a server is selected or configured on some installed harness, `false` only when
+   * every installed harness read every source it merges and says it is absent, `null` (unknown)
+   * otherwise, including when none is installed. */
   const anyHarnessHas = (server) => {
     const states = rows.map((row) => stateOf(row, server));
     if (states.some((state) => state === 'selected' || state === 'configured')) return true;
-    return states.length > 0 && states.every((state) => state === 'not-selected' || state === 'not-taken') ? false : 'unknown';
+    return states.length > 0 && states.every((state) => state === 'not-selected' || state === 'not-taken') ? false : null;
   };
 
   /** The command that adds `serverId` for a harness at a scope, or where to configure it by hand. */

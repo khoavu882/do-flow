@@ -13,7 +13,7 @@
 const { REPO_ROOT } = require('../helper/repo-root');
 const { loadRegistry } = require('../registry');
 const { CapabilityRouter } = require('./capability-router');
-const { probeProviders, HEALTHY } = require('./health');
+const { probeProviders, HEALTHY, UNVERIFIED } = require('./health');
 const { mcpReach } = require('./mcp-reach');
 const { WorkflowOrchestrator } = require('./workflow-orchestrator');
 const { resolveActiveFeature } = require('./feature-resolve');
@@ -22,13 +22,14 @@ const { finishRuntime, usageError, captureCaught } = require('./cli-result');
 const SCHEMA = 1;
 const REACHABLE = new Set(['selected', 'configured']);
 
-/** The state of `server` on a harness: selected or configured on any of its scopes wins, else the
- * first scope's answer, else unknown (no row for it). */
+/** The state of `server` on a harness: selected or configured on any of its scopes wins; absent
+ * only when every scope says so from a complete view (IC-013); else unknown. */
 function stateOn(reach, harnessId, server) {
   const rows = (reach?.harnesses || []).filter((row) => row.id === harnessId);
   if (rows.some((row) => row.servers[server] === 'selected')) return 'selected';
   if (rows.some((row) => row.servers[server] === 'configured')) return 'configured';
-  return rows.length ? rows[0].servers[server] ?? 'unknown' : 'unknown';
+  const states = rows.map((row) => row.servers[server] ?? 'unknown');
+  return states.length && !states.includes('unknown') ? states[0] : 'unknown';
 }
 
 /** Whether `server` is selected or configured on the target harness, or on any harness without one. */
@@ -52,8 +53,13 @@ function chooseTarget({ registry, reach, harness, missing }) {
   return null;
 }
 
-/** Tier for a dispatch: the task line's tier when valid, else the owner's, else the default (IC-004). */
+/** Tier for a dispatch: the task line's tier when valid, else the owner's, else the default (IC-004).
+ * A registry without `dispatchTiers` (the key is optional) gives `standard` with a note. */
 function resolveTier({ dispatchTiers, owner, tier, missing }) {
+  if (!dispatchTiers) {
+    missing.push('models.json has no dispatchTiers; tier standard assumed');
+    return { tier: 'standard', source: 'default', note: 'models.json has no dispatchTiers' };
+  }
   if (tier !== undefined && tier !== null && tier !== '') {
     if (dispatchTiers.tiers.includes(tier)) return { tier, source: 'task' };
     missing.push(`tier '${tier}' is not in dispatchTiers.tiers; ignored`);
@@ -63,23 +69,25 @@ function resolveTier({ dispatchTiers, owner, tier, missing }) {
   return { tier: dispatchTiers.default, source: 'default' };
 }
 
-/** The first HEALTHY provider of a capability, in registry order, or null. */
-function firstHealthy(router, capabilityId, probes) {
-  const providers = router.capabilities[capabilityId]?.providers || [];
-  const index = providers.findIndex((provider) => probes[provider.id]?.status === HEALTHY);
-  return index < 0 ? null : { provider: providers[index], index };
+/** The first provider of a capability whose probe status is `status`, in registry order, or null. */
+function firstWith(router, capabilityId, probes, status) {
+  return (router.capabilities[capabilityId]?.providers || []).find((provider) => probes[provider.id]?.status === status) || null;
 }
 
-/** What answers one route intent on this machine: the first healthy provider of the primary
- * capability, else of the route's fallback capabilities in order, else nothing. */
+/** What answers one route intent on this machine: a healthy provider of the primary capability,
+ * else of the route's fallback capabilities in order; failing those, a provider that has no probe
+ * (UNVERIFIED) in the same order; else nothing. An unhealthy provider is never chosen. */
 function resolveRoute(router, route, probes) {
-  const primary = firstHealthy(router, route.capability, probes);
-  if (primary) return { capability: route.capability, provider: primary.provider, status: primary.index === 0 ? 'HEALTHY' : 'FALLBACK' };
-  for (const capability of route.fallback || []) {
-    const found = firstHealthy(router, capability, probes);
-    if (found) return { capability, provider: found.provider, status: 'FALLBACK' };
+  const chain = [route.capability, ...(route.fallback || [])];
+  for (const status of [HEALTHY, UNVERIFIED]) {
+    for (const capability of chain) {
+      const provider = firstWith(router, capability, probes, status);
+      if (!provider) continue;
+      const via = capability === route.capability ? null : 'fallback';
+      return { capability, provider, status: status === UNVERIFIED ? 'UNVERIFIED' : via ? 'FALLBACK' : 'HEALTHY', via };
+    }
   }
-  return { capability: route.capability, provider: null, status: 'NONE' };
+  return { capability: route.capability, provider: null, status: 'NONE', via: null };
 }
 
 const cell = (text) => String(text).replace(/\|/g, '\\|').replace(/\s+/g, ' ');
@@ -105,7 +113,7 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
   const targetHarness = target ? registry.harnesses.find((item) => item.id === target) : null;
   const resolved = resolveTier({ dispatchTiers: registry.dispatchTiers, owner, tier, missing });
   const sourceText = resolved.source === 'owner' ? `owner ${owner}`
-    : resolved.source === 'task' ? 'task line' : `default; owner ${owner} has no tier`;
+    : resolved.source === 'task' ? 'task line' : `default; ${resolved.note || `owner ${owner} has no tier`}`;
 
   const tools = [];
   const rows = [];
@@ -136,7 +144,8 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
       form = 'cli';
       how = cli;
     }
-    const use = found.status === 'HEALTHY' ? provider.id : `no healthy ${route.capability} provider; fallback ${provider.id}`;
+    const named = found.status === 'UNVERIFIED' ? `${provider.id} (unverified: no probe)` : provider.id;
+    const use = found.via === 'fallback' ? `no healthy ${route.capability} provider; fallback ${named}` : named;
     rows.push(`| ${cell(intent)} | ${cell(use)} | ${cell(how)} |`);
     tools.push({ intent, capability: found.capability, provider: provider.id, status: found.status, form });
   }
@@ -148,7 +157,7 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
   const expected = expectedServers.map((server) => {
     let state;
     if (target) state = stateOn(reach, target, server.id);
-    else state = reach ? reach.anyHarnessHas(server.id) : 'unknown';
+    else state = reach ? reach.anyHarnessHas(server.id) ?? 'unknown' : 'unknown';
     const reachState = target ? (REACHABLE.has(state) ? 'reachable' : state === 'unknown' ? 'unknown' : 'unreachable')
       : (state === true ? 'reachable' : state === false ? 'unreachable' : 'unknown');
     return { server: server.id, reach: reachState, detail: target ? state : `any-harness:${state}` };
@@ -161,7 +170,7 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
     `${hashes} Tier and tools`,
     '',
     `Tier: \`${resolved.tier}\` (${sourceText}), per`,
-    '`references/MODEL_SELECTION.md`. Pass it as the model where your host allows.',
+    '`references/MODEL_SELECTION.md`.',
     '',
     'Tools this machine answers with, per information need. Searching with them before reading whole',
     'files is recommended where it saves reading; it is not required.',
@@ -173,8 +182,11 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
     `MCP servers. Expected for ${skill || 'the running stage (none found)'}: ${list(expectedServers)}. Also selected here:`,
     `${list(also)}.`,
   ];
+  // `unreachable` is written only where every config the harness merges was read (IC-013), so it is
+  // stated; a server DoFlow cannot confirm either way is hedged.
   for (const item of expected) {
     if (item.reach === 'unreachable') lines.push(`\`${item.server}\` is not reachable on ${targetName}; report it as \`${item.server}=unavailable\`.`);
+    else if (item.reach === 'unknown') lines.push(`\`${item.server}\` may not be reachable on ${targetName}; if no tool answers, report \`${item.server}=unavailable\`.`);
   }
   lines.push(
     '',

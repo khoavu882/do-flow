@@ -54,7 +54,7 @@ function reachOf(rows) {
     anyHarnessHas: (server) => {
       const states = harnesses.map((row) => row.servers[server]);
       if (states.some((state) => state === 'selected' || state === 'configured')) return true;
-      return states.length > 0 && states.every((state) => state === 'not-selected' || state === 'not-taken') ? false : 'unknown';
+      return states.length > 0 && states.every((state) => state === 'not-selected' || state === 'not-taken') ? false : null;
     },
   };
 }
@@ -80,6 +80,7 @@ function row(markdown, intent) {
 test('a brief recommends a healthy provider and names the tier of the owner', (t) => {
   const { markdown, record } = render(t);
   assert.match(markdown, /^## Tier and tools\n\nTier: `standard` \(owner core-implementer\), per\n`references\/MODEL_SELECTION.md`\./);
+  assert.doesNotMatch(markdown, /Pass it as the model/, 'X5: the dispatched agent cannot choose its model');
   assert.match(markdown, /recommended/);
   assert.match(markdown, /not required/);
   assert.match(row(markdown, 'locate-concept'), new RegExp(`\\| ${SEARCH.id.replace('.', '\\.')} \\|`));
@@ -89,16 +90,56 @@ test('a brief recommends a healthy provider and names the tier of the owner', (t
   assert.equal(record.tools.find((tool) => tool.intent === 'locate-concept').status, 'HEALTHY');
 });
 
-test('an unhealthy provider is never named; the row says so and names the fallback', (t) => {
+test('an unhealthy provider is never named; the next healthy provider of the same capability is named plainly (X4)', (t) => {
   const router = new CapabilityRouter({ repoRoot: REPO_ROOT, projectRoot: projectDir(t).proj });
   const { markdown, record } = render(t, { router, probes: probesFor(router, [SEARCH.id]) });
   const line = row(markdown, 'locate-concept');
-  assert.match(line, /no healthy code\.semantic-search provider; fallback native\.rg/);
+  // native.rg is itself a code.semantic-search provider, so "no healthy provider" would be false.
+  assert.match(line, /^\| locate-concept \| native\.rg \|/);
+  assert.doesNotMatch(line, /no healthy/);
   assert.ok(!line.includes(SEARCH.id), line);
   assert.ok(!line.includes(SEARCH.mcp.server), line);
   const tool = record.tools.find((entry) => entry.intent === 'locate-concept');
   assert.equal(tool.provider, 'native.rg');
-  assert.equal(tool.status, 'FALLBACK');
+  assert.equal(tool.status, 'HEALTHY');
+});
+
+test('X4: the fallback wording appears only for a provider of the route fallback capability', (t) => {
+  const { proj } = projectDir(t);
+  const base = new CapabilityRouter({ repoRoot: REPO_ROOT, projectRoot: proj });
+  const capabilities = {
+    ...JSON.parse(JSON.stringify(base.capabilities)),
+    'fixture.primary': { description: 'fixture', providers: [{ id: 'fx.primary', name: 'P', kind: 'cli', binary: 'fx-p', checkCommand: ['fx-p'] }] },
+    'fixture.backup': { description: 'fixture', providers: [{ id: 'fx.backup', name: 'B', kind: 'cli', binary: 'fx-b', checkCommand: ['fx-b'] }] },
+  };
+  const routes = { 'fixture-need': { description: 'fixture', capability: 'fixture.primary', fallback: ['fixture.backup'] } };
+  const router = new CapabilityRouter({ repoRoot: REPO_ROOT, projectRoot: proj, capabilities, routes });
+  const { markdown, record } = renderBriefTools({
+    registry: { ...registry, capabilities }, router, probes: probesFor(router, ['fx.primary']), reach: null, owner: 'core-implementer', stage: null,
+  });
+  assert.match(row(markdown, 'fixture-need'), /\| no healthy fixture\.primary provider; fallback fx\.backup \|/);
+  assert.deepEqual([record.tools[0].provider, record.tools[0].status], ['fx.backup', 'FALLBACK']);
+});
+
+test('X4: a provider with no probe (UNVERIFIED) is named as unverified, not as missing', (t) => {
+  const router = new CapabilityRouter({ repoRoot: REPO_ROOT, projectRoot: projectDir(t).proj });
+  const probes = probesFor(router);
+  probes['native.test'] = { id: 'native.test', status: 'UNVERIFIED' };
+  const { markdown, record } = render(t, { router, probes });
+  const line = row(markdown, 'verify-runtime-behavior');
+  assert.match(line, /^\| verify-runtime-behavior \| native\.test \(unverified: no probe\) \|/);
+  assert.doesNotMatch(line, /no healthy provider/);
+  const tool = record.tools.find((entry) => entry.intent === 'verify-runtime-behavior');
+  assert.deepEqual([tool.provider, tool.status], ['native.test', 'UNVERIFIED']);
+});
+
+test('X9: a registry without dispatchTiers gives tier standard with a missing note, not an error', (t) => {
+  const { dispatchTiers: _drop, ...bare } = registry;
+  const { markdown, record } = render(t, { registry: bare });
+  assert.equal(record.tier, 'standard');
+  assert.equal(record.tierSource, 'default');
+  assert.ok(record.missing.includes('models.json has no dispatchTiers; tier standard assumed'), JSON.stringify(record.missing));
+  assert.match(markdown, /Tier: `standard` \(default; models\.json has no dispatchTiers\)/);
 });
 
 test('an intent with no healthy provider and no fallback says so', (t) => {
@@ -177,6 +218,26 @@ test('an expected server the target cannot reach is stated; selected servers out
     assert.deepEqual(record.optional.includes(OTHER.id), true);
     assert.ok(markdown.includes(`\`${OTHER.id}\` (${OTHER.trigger.replace(/\.$/, '')})`), markdown);
   }
+});
+
+test('X1: an expected server DoFlow cannot confirm is hedged, never stated unreachable', (t) => {
+  const stage = { feature: 'f', runTaskId: 'f', stageId: 'design', skill: STEP_SKILL };
+  const name = CLAUDE.displayName || CLAUDE.id;
+  const hedge = `\`${STEPPED.id}\` may not be reachable on ${name}; if no tool answers, report \`${STEPPED.id}=unavailable\`.`;
+  const unknown = render(t, { reach: reachOf([[CLAUDE.id, 'project', { [STEPPED.id]: 'unknown' }]]), harness: CLAUDE.id, stage });
+  assert.ok(unknown.markdown.includes(hedge), unknown.markdown);
+  assert.ok(!unknown.markdown.includes('is not reachable'), unknown.markdown);
+  assert.equal(unknown.record.expected.find((entry) => entry.server === STEPPED.id).reach, 'unknown');
+
+  // One scope with a complete view saying absent and another that cannot say: still unknown.
+  const mixed = render(t, { reach: reachOf([[CLAUDE.id, 'project', { [STEPPED.id]: 'not-selected' }], [CLAUDE.id, 'global', { [STEPPED.id]: 'unknown' }]]), harness: CLAUDE.id, stage });
+  assert.equal(mixed.record.expected.find((entry) => entry.server === STEPPED.id).reach, 'unknown');
+  assert.ok(mixed.markdown.includes(hedge), mixed.markdown);
+
+  // No target: any-harness answer null is unknown and hedged on "any installed harness".
+  const neutral = render(t, { reach: reachOf([[CLAUDE.id, 'project', { [STEPPED.id]: 'unknown' }], [OTHER_HARNESS.id, 'project', {}]]), stage });
+  assert.equal(neutral.record.expected.find((entry) => entry.server === STEPPED.id).reach, 'unknown');
+  assert.ok(neutral.markdown.includes(`\`${STEPPED.id}\` may not be reachable on any installed harness;`), neutral.markdown);
 });
 
 test('a reachable expected server is not reported unavailable', (t) => {

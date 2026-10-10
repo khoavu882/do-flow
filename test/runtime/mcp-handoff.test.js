@@ -20,6 +20,16 @@ const SEQ_WARN = '[WARN] mcp: do-brainstorm recorded no outcome for sequential-t
 const QUIET = ['--mcp-outcome', 'context7=used', '--mcp-outcome', 'sequential-thinking=skipped:not-due'];
 
 /** A git-backed scratch project holding one feature folder, with its own HOME and XDG folders. */
+/** Runs `fn` with HOME (and so `os.homedir()`) at `home`, so an in-process call never reads the
+ * developer's real ~/.claude.json, ~/.gemini/settings.json or global ledger. */
+function withHome(home, fn) {
+  const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  process.env.HOME = home; process.env.USERPROFILE = home;
+  try { return fn(); } finally {
+    for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+  }
+}
+
 function project(t) {
   const scratch = createScratch('doflow-mcp-handoff-');
   t.after(() => scratch.remove());
@@ -103,25 +113,43 @@ test('json mode returns consultations and mcpWarnings and prints nothing on stde
   assert.equal(data.mcpWarnings[0].text, SEQ_WARN);
 });
 
-test('a server no harness has installed is unavailable, with an info notice on stdout and no warning', (t) => {
-  const p = project(t);
-  // Claude is installed here, reads an MCP file that names no server, and selected none of them.
-  fs.writeFileSync(path.join(p.dir, '.mcp.json'), JSON.stringify({ mcpServers: {} }));
+/** Claude installed at the project with a `.mcp.json` that names none of the stage's servers. */
+function installClaude(p, mcpServers = {}) {
+  fs.writeFileSync(path.join(p.dir, '.mcp.json'), JSON.stringify({ mcpServers }));
   fs.mkdirSync(path.join(p.dir, '.doflow', 'state'), { recursive: true });
   fs.writeFileSync(path.join(p.dir, '.doflow', 'state', 'ledger.json'), JSON.stringify({
     version: 2, scope: 'project', scopeRoot: p.dir, targets: {}, mcpSelections: {},
     resources: [{ harness: 'claude', assetId: 'skills.doflow', kind: 'copy-tree-file' }], legacyImports: [],
   }));
+}
+
+test('X1: a server absent from the MCP files DoFlow reads is not stored unavailable; the no-outcome warning fires', (t) => {
+  const p = project(t);
+  // Claude is installed here and its project file names no server, but Claude also loads servers
+  // from configs DoFlow cannot read, so absence is no proof.
+  installClaude(p);
   start(p);
   const res = handoff(p, 'do-brainstorm');
   assert.equal(res.status, 0, res.stdout + res.stderr);
-  assert.equal(res.stderr, '', 'an unavailable server is a notice, not a warning');
-  assert.match(res.stdout, /\[INFO\] mcp: context7 unavailable to do-brainstorm; add it: doflow install --target claude --mcp context7/);
-  assert.match(res.stdout, /\[INFO\] mcp: sequential-thinking unavailable to do-brainstorm; add it: /);
+  assert.deepEqual(res.stderr.trim().split('\n'), [CONTEXT7_WARN, SEQ_WARN]);
+  assert.doesNotMatch(res.stdout, /unavailable/);
   const [entry] = entries(p, 'complete-stage');
-  assert.deepEqual(entry.consultations.outcomes.map((o) => [o.server, o.state, o.source]), [
-    ['context7', 'unavailable', 'install'], ['sequential-thinking', 'unavailable', 'install'],
-  ]);
+  assert.deepEqual(entry.consultations.outcomes, []);
+});
+
+test('X1 repro: a Claude local-scope server in ~/.claude.json is seen; an asserted unavailable is warned as contradicted, with no add command', (t) => {
+  const p = project(t);
+  installClaude(p, { other: {} });
+  fs.writeFileSync(path.join(p.scratch.home, '.claude.json'), JSON.stringify({ projects: { [p.dir]: { mcpServers: { context7: {} } } } }));
+  start(p);
+  const res = handoff(p, 'do-brainstorm', ['--mcp-outcome', 'context7=unavailable', '--mcp-outcome', 'sequential-thinking=used']);
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  assert.equal(res.stderr.trim(), '[WARN] mcp: context7 reported unavailable but Claude Code has it configured');
+  assert.match(res.stdout, /\[INFO\] mcp: context7 unavailable to do-brainstorm\n/);
+  assert.doesNotMatch(res.stdout, /add it:/);
+  const [entry] = entries(p, 'complete-stage');
+  assert.deepEqual(entry.consultations.outcomes.map((o) => [o.server, o.state, o.source]),
+    [['context7', 'unavailable', 'flag'], ['sequential-thinking', 'consulted-used', 'flag']]);
 });
 
 test('an unavailable flag prints the notice and is stored with its source', (t) => {
@@ -310,4 +338,95 @@ test('exit codes equal the same call without outcomes, success and failure alike
   assert.equal(bad.status, 1);
   assert.equal(bad.status, badWithout.status);
   assert.equal(bad.stderr, badWithout.stderr);
+});
+
+/** An evidence item for the run, attributed to a server, as a folded-in fact would be. */
+function writeServerEvidence(p, provider) {
+  const file = path.join(p.dir, '.doflow', 'state', 'evidence', `${SLUG}.json`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const item = {
+    id: 'ev_fixture_1', taskId: SLUG, kind: 'generated-analysis', source: { provider, capability: 'docs' }, locator: {},
+    provenance: 'extracted', content: 'a fact', freshness: { gitCommit: null, fileHash: null, observedAt: new Date().toISOString(), status: 'FRESH' },
+    establishes: [], observation: null, supports: [], contradicts: [], status: 'active', supersededBy: null,
+  };
+  fs.writeFileSync(file, JSON.stringify({ taskId: SLUG, updatedAt: item.freshness.observedAt, evidenceCount: 1, evidence: [item] }));
+}
+
+test('X3: evidence recorded during brainstorm does not satisfy design', (t) => {
+  const p = project(t);
+  start(p);
+  writeServerEvidence(p, 'context7');
+  const brainstorm = handoffJson(p, 'do-brainstorm', ['--mcp-outcome', 'sequential-thinking=used']).data;
+  assert.deepEqual(brainstorm.consultations.outcomes.find((o) => o.server === 'context7'), { server: 'context7', state: 'consulted-used', source: 'evidence' });
+  assert.equal(orch(p, ['--action', 'decide-gate', '--task-id', SLUG, '--gate', 'gate-0', '--decision', 'approve']).status, 0);
+  const design = handoffJson(p, 'do-design', ['--mcp-outcome', 'sequential-thinking=used']).data;
+  assert.equal(design.disposition, 'completed');
+  assert.deepEqual(design.consultations.outcomes.map((o) => o.server), ['sequential-thinking']);
+  assert.deepEqual(design.mcpWarnings.map((w) => [w.kind, w.server]), [['no-outcome', 'context7']]);
+});
+
+test('X11 fail-open: a corrupt brief record, an unreadable evidence ledger and a report reader that fails never stop the handoff', (t) => {
+  const p = project(t);
+  start(p);
+  fs.writeFileSync(path.join(p.dir, FEATURE, 'exec', 'task-B.1-brief.json'), '{ not json');
+  const report = writeBrief(p);
+  writeReport(p, report, 'Tools used: context7=used, sequential-thinking=used\n');
+  fs.mkdirSync(path.join(p.dir, '.doflow', 'state', 'evidence'), { recursive: true });
+  for (const id of [SLUG, 'A.1']) fs.writeFileSync(path.join(p.dir, '.doflow', 'state', 'evidence', `${id}.json`), '{ not json');
+  const res = handoff(p, 'do-brainstorm');
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  assert.match(res.stdout, /Handoff: completed/);
+  const [entry] = entries(p, 'complete-stage');
+  assert.deepEqual(entry.consultations.outcomes.map((o) => [o.server, o.source]), [['context7', 'tools-used'], ['sequential-thinking', 'tools-used']]);
+  assert.equal(entry.consultations.toolsUsed[0].evidenceId, undefined, 'a ledger that cannot be written leaves the row without an id');
+
+  // A report path that is a directory makes the reader fail: the row is no-report, the handoff completes.
+  const q = project(t);
+  start(q);
+  const dirReport = writeBrief(q);
+  fs.mkdirSync(path.join(q.dir, dirReport));
+  const dirRes = handoff(q, 'do-brainstorm', QUIET);
+  assert.equal(dirRes.status, 0, dirRes.stdout + dirRes.stderr);
+  assert.deepEqual(entries(q, 'complete-stage')[0].consultations.toolsUsed, [{ taskId: 'A.1', status: 'no-report', report: dirReport }]);
+});
+
+test('X11 fail-open: a registry that will not load stores no record and the handoff completes', (t) => {
+  const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator');
+  const { WorkflowEngine } = require('../../src/runtime/workflow-engine');
+  const { buildAdapterRegistry } = require('../../src/cli/shared');
+  const p = project(t);
+  const broken = path.join(p.scratch.dir, 'broken-repo');
+  fs.mkdirSync(path.join(broken, 'core', 'registry'), { recursive: true });
+  fs.writeFileSync(path.join(broken, 'core', 'registry', 'mcp.json'), '{ not json');
+  const orchestrator = new WorkflowOrchestrator({
+    repoRoot: broken, projectRoot: p.dir, engine: new WorkflowEngine({ repoRoot: REPO }), buildAdapters: buildAdapterRegistry,
+  });
+  const result = withHome(p.scratch.home, () => orchestrator.handoff({ taskId: SLUG, taskClass: 'feature', callingSkill: 'do-brainstorm', note: 'recorded' }));
+  assert.equal(result.disposition, 'completed');
+  assert.equal(result.consultations, null);
+  assert.deepEqual(result.mcpWarnings, []);
+  assert.deepEqual(runOf(p).history.filter((e) => 'consultations' in e), []);
+});
+
+test('X11 retry: evidence saved before a refused completion is found again, not added twice', (t) => {
+  const { ResearchRequestStore } = require('../../src/runtime/research-request');
+  const p = project(t);
+  start(p);
+  const report = writeBrief(p);
+  writeReport(p, report, 'Tools used: context7=used, sequential-thinking=used\n');
+  const store = new ResearchRequestStore({ projectRoot: p.dir });
+  store.open({ taskId: SLUG, stageId: 'discovery', question: 'what blocks?', reason: 'detected-gap', blocking: true });
+  const refused = handoff(p, 'do-brainstorm');
+  assert.equal(refused.status, 1, refused.stdout + refused.stderr);
+  assert.equal(entries(p, 'complete-stage').length, 0, 'the completion was refused');
+  const ledgerFile = path.join(p.dir, '.doflow', 'state', 'evidence', 'A.1.json');
+  const saved = JSON.parse(fs.readFileSync(ledgerFile, 'utf8')).evidence;
+  assert.equal(saved.length, 1, 'the evidence went in before the refusal');
+
+  fs.rmSync(store.file(SLUG));
+  const retry = handoffJson(p, 'do-brainstorm').data;
+  assert.equal(retry.disposition, 'completed');
+  assert.deepEqual(retry.consultations.toolsUsed, [{ taskId: 'A.1', status: 'already-recorded', evidenceId: saved[0].id }]);
+  assert.equal(JSON.parse(fs.readFileSync(ledgerFile, 'utf8')).evidence.length, 1);
+  assert.equal(entries(p, 'complete-stage').length, 1);
 });

@@ -15,6 +15,7 @@ const { REPO_ROOT } = require('../../src/helper/repo-root');
 const { REACH_DISPATCHER_REL, REACH_RUNTIME_REL } = require('../../src/runtime/reach');
 const { buildHealthReport } = require('../../src/runtime/health');
 const { OUTCOME_LABELS } = require('../../src/runtime/mcp-consultations');
+const { buildAdapterRegistry } = require('../../src/cli/shared');
 
 // A developer's PI_CODING_AGENT_DIR would send this file's global Pi MCP reads outside the scratch home.
 delete process.env.PI_CODING_AGENT_DIR;
@@ -23,6 +24,16 @@ const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const MCP = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'mcp.json'), 'utf8')).servers;
 const STEPPED = MCP.filter((server) => server.steps.length);
 const [FIRST, SECOND] = STEPPED.map((server) => server.id);
+
+/** Runs `fn` with HOME (and so `os.homedir()`) at `home`, so an in-process call never reads the
+ * developer's real ~/.claude.json, ~/.gemini/settings.json or global ledger. */
+function withHome(home, fn) {
+  const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  process.env.HOME = home; process.env.USERPROFILE = home;
+  try { return fn(); } finally {
+    for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+  }
+}
 
 function fixture(testContext) {
   const dir = tempDir(testContext, 'doflow-doctor-mcp-');
@@ -100,7 +111,7 @@ function consultations(skill, named, outcomes) {
 const stage = (report, skill) => report.mcp.consultations.stages.find((item) => item.skill === skill);
 const serverRow = (item, id) => item.servers.find((row) => row.server === id);
 
-test('a named server the machine lacks: claude not selected with the add command, gemini not taken, exit unchanged', (t) => {
+test('a named server DoFlow does not see: unknown (absence is no proof) with the add command or where to configure it, exit unchanged', (t) => {
   const f = fixture(t);
   ledger(f.proj, 'project', { harnesses: ['claude'] });
   install(f.proj);
@@ -114,9 +125,9 @@ test('a named server the machine lacks: claude not selected with the add command
   assert.equal(server.selection, 'optional');
   assert.ok(server.namedBy.includes('do-design'));
   assert.deepEqual(server.harnesses.find((row) => row.id === 'claude'),
-    { id: 'claude', scope: 'project', state: 'not-selected', add: `doflow install --target claude --mcp ${FIRST}` });
+    { id: 'claude', scope: 'project', state: 'unknown', add: `doflow install --target claude --mcp ${FIRST}` });
   const gemini = server.harnesses.find((row) => row.id === 'gemini');
-  assert.equal(gemini.state, 'not-taken');
+  assert.equal(gemini.state, 'unknown');
   assert.equal(gemini.add, "configure it in Gemini CLI's own MCP settings; DoFlow's catalog does not reach it");
 
   const text = doctor(f, [f.proj]);
@@ -124,8 +135,34 @@ test('a named server the machine lacks: claude not selected with the add command
   const lines = section(text.stdout, '[MCP Servers]');
   assert.equal(lines[0], '[MCP Servers] — named by shipped stages; not blocking');
   assert.ok(lines.some((line) => line.startsWith(`  ${FIRST.padEnd(22)}named by `)));
-  assert.ok(lines.includes(`    ${'claude'.padEnd(14)}${'project'.padEnd(9)}${'○ not selected'.padEnd(19)}add: doflow install --target claude --mcp ${FIRST}`));
-  assert.ok(lines.includes(`    ${'gemini'.padEnd(14)}${'global'.padEnd(9)}${'○ not taken'.padEnd(19)}configure it in Gemini CLI's own MCP settings; DoFlow's catalog does not reach it`));
+  assert.ok(lines.includes(`    ${'claude'.padEnd(14)}${'project'.padEnd(9)}${'? unknown'.padEnd(19)}add: doflow install --target claude --mcp ${FIRST}`));
+  assert.ok(lines.includes(`    ${'gemini'.padEnd(14)}${'global'.padEnd(9)}${'? unknown'.padEnd(19)}configure it in Gemini CLI's own MCP settings; DoFlow's catalog does not reach it`), lines.join('\n'));
+});
+
+test('X8: an unreadable MCP config says to fix the file first instead of an install command', (t) => {
+  const f = fixture(t);
+  ledger(f.proj, 'project', { harnesses: ['claude'] });
+  install(f.proj);
+  const file = path.join(f.proj, '.mcp.json');
+  write(file, '{ not json');
+  const report = JSON.parse(doctor(f, [f.proj, '--json']).stdout);
+  assert.deepEqual(report.mcp.servers.find((item) => item.id === FIRST).harnesses,
+    [{ id: 'claude', scope: 'project', state: 'unknown', fix: file }]);
+  const lines = section(doctor(f, [f.proj]).stdout, '[MCP Servers]');
+  assert.ok(lines.includes(`    ${'claude'.padEnd(14)}${'project'.padEnd(9)}${'? unknown'.padEnd(19)}fix ${file} first`), lines.join('\n'));
+});
+
+test('X7: the servers view degrades to a one-line note when it cannot be built; findings and exit are unchanged', (t) => {
+  const f = fixture(t);
+  const stub = () => { const error = new Error('not found'); error.code = 'ENOENT'; throw error; };
+  const degraded = withHome(f.home, () => buildHealthReport({ repoRoot: REPO_ROOT, projectRoot: f.proj, execFileImpl: stub }));
+  assert.deepEqual(degraded.mcp.servers, []);
+  assert.match(degraded.mcp.serversNote, /^MCP server view unavailable: /);
+  const full = withHome(f.home, () => buildHealthReport({ repoRoot: REPO_ROOT, projectRoot: f.proj, execFileImpl: stub, adapters: buildAdapterRegistry() }));
+  assert.equal(full.mcp.serversNote, undefined);
+  assert.deepEqual(degraded.findings, full.findings);
+  const source = fs.readFileSync(path.join(REPO_ROOT, 'src', 'runtime', 'health.js'), 'utf8');
+  assert.doesNotMatch(source, /require\(['"]\.\.\/cli\//, 'the runtime takes the adapter registry injected, never from the CLI layer');
 });
 
 test('an absent MCP file reads as unknown, never as not selected, and still carries the add command', (t) => {
@@ -291,6 +328,17 @@ test('the window keeps the 20 most recent entries per skill by "at"', (t) => {
   assert.deepEqual(design.noOutcome, []);
 });
 
+test('X6: no-outcome entries are bounded per server and skill: the count, and at most the latest 3', (t) => {
+  const f = fixture(t);
+  const days = [3, 1, 5, 2, 4];
+  run(f, 'quiet-ones', days.map((n) => entry(`2026-10-0${n}T00:00:00.000Z`, 'design', consultations('do-design', [FIRST, SECOND], [[FIRST, 'consulted-used']]))));
+  const design = stage(JSON.parse(doctor(f, [f.proj, '--json']).stdout), 'do-design');
+  assert.equal(serverRow(design, SECOND).noOutcome, 5);
+  assert.deepEqual(design.noOutcome.map((miss) => [miss.server, miss.at]), [5, 4, 3].map((n) => [SECOND, `2026-10-0${n}T00:00:00.000Z`]));
+  const lines = section(doctor(f, [f.proj]).stdout, '[MCP Consultations]').filter((line) => line.includes(`${OUTCOME_LABELS['no-outcome']}:`));
+  assert.equal(lines.length, 3, lines.join('\n'));
+});
+
 test('the window is per skill: another skill keeps its own 20', (t) => {
   const f = fixture(t);
   const days = Array.from({ length: 22 }, (_, index) => index + 1);
@@ -327,7 +375,7 @@ test('only servers with a steps entry are listed, and a registry entry with step
   );
   fs.writeFileSync(file, JSON.stringify(registry));
   const stub = () => { const error = new Error('not found'); error.code = 'ENOENT'; throw error; };
-  const report = buildHealthReport({ repoRoot: repo, projectRoot: f.proj, execFileImpl: stub });
+  const report = withHome(f.home, () => buildHealthReport({ repoRoot: repo, projectRoot: f.proj, execFileImpl: stub, adapters: buildAdapterRegistry() }));
   const ids = report.mcp.servers.map((server) => server.id);
   assert.ok(ids.includes('acme-docs'));
   assert.equal(ids.includes('acme-quiet'), false, 'a server with empty steps is not listed');

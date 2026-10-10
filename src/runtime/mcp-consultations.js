@@ -90,10 +90,33 @@ function parseMcpOutcomeFlags(values) {
   return { outcomes, ignored };
 }
 
-/** Strip a leading `- ` and `**...**` emphasis so `- **Tools used:** a` reads as `Tools used: a`. */
+/** Strip a leading `- `, `**...**` emphasis and a line-wide pair of backticks, so
+ * `- **Tools used:** a` and `` `Tools used: a` `` both read as `Tools used: a`. */
 function plainLine(line) {
   let text = line.trim().replace(/^-\s+/, '');
   if (text.startsWith('**')) text = text.slice(2).replace('**', '');
+  if (text.startsWith('`Tools used:') && text.endsWith('`')) text = text.slice(1, -1);
+  return text;
+}
+
+/** Split on commas outside parentheses, so a note like `(a, b)` stays with its entry. */
+function splitEntries(body) {
+  const pieces = [];
+  let depth = 0;
+  let current = '';
+  for (const char of body) {
+    if (char === '(') depth += 1;
+    else if (char === ')' && depth > 0) depth -= 1;
+    if (char === ',' && depth === 0) { pieces.push(current); current = ''; } else current += char;
+  }
+  pieces.push(current);
+  return pieces;
+}
+
+/** One entry with a trailing ` (note)` and a surrounding pair of backticks removed. */
+function plainEntry(piece) {
+  let text = piece.trim().replace(/\s+\([^()]*\)$/, '').trim();
+  if (text.length > 1 && text.startsWith('`') && text.endsWith('`')) text = text.slice(1, -1).trim();
   return text;
 }
 
@@ -113,8 +136,8 @@ function parseToolsUsed(text) {
   const body = plainLine(lines[found]).slice('Tools used:'.length).trim();
   const entries = [];
   if (body !== '' && body !== 'none') {
-    for (const piece of body.split(',')) {
-      const entry = piece.trim();
+    for (const piece of splitEntries(body)) {
+      const entry = plainEntry(piece);
       if (entry === '') continue;
       const at = entry.indexOf('=');
       const name = at === -1 ? entry : entry.slice(0, at).trim();
@@ -176,14 +199,18 @@ const bySortKey = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
  * - `requests.list(taskId)` -> research requests
  * - `briefRecords` -> IC-018 records already parsed, each `{ runTaskId, stage, tasks, expected }`
  * - `readReport(path)` -> report text, or null when the file is missing
- * - `reach.anyHarnessHas(server)` -> true | false | 'unknown'
+ * - `reach.anyHarnessHas(server)` -> true | false | null (unknown); never decides an outcome
+ * - `reach.harnessWith(server)` -> the display name of a harness that has the server, or null
+ * - `harnessName(id)` -> a harness id's display name (for a brief record's `harness`)
  * - `addCommand(server)` -> the text after "add it:" in the unavailable notice
+ * - `since` -> ISO time of the previous stage's completion (or the run start); rule 3 counts only
+ *   evidence observed after it
  *
  * @returns {{ record: object, warnings: object[], notices: object[], evidenceToAdd: object[] }}
  */
 function resolveConsultations({
   taskId = null, stageId = null, skill, flags, registry, ledger, requests,
-  briefRecords = [], readReport, reach, addCommand,
+  briefRecords = [], readReport, reach, addCommand, harnessName, since = null,
 } = {}) {
   const warnings = [];
   const notices = [];
@@ -260,6 +287,9 @@ function resolveConsultations({
       });
     }
     for (const entry of parsed.entries) {
+      if (!entry.valid && known.has(entry.name)) {
+        warnings.push({ kind: 'tools-used-unparsed', taskId: id, text: `[WARN] tools-used: unparsed entry '${entry.raw}'` });
+      }
       if (!entry.valid || !known.has(entry.name)) continue;
       const list = fromReports.get(entry.name) || [];
       list.push({ state: entry.state, reason: entry.reason, taskId: id });
@@ -267,31 +297,49 @@ function resolveConsultations({
     }
   }
 
-  // Rule 3: evidence attributed to a server by `source.provider`.
+  // Rule 3: evidence attributed to a server by `source.provider`, observed during this stage run:
+  // after `since` (the previous stage's completion or the run start) when the caller knows it.
   const evidenceServers = new Set();
+  const inThisStage = (item) => since === null || (typeof item.freshness?.observedAt === 'string' && item.freshness.observedAt > since);
   if (ledger && taskId) {
     let items = [];
     try { items = ledger.queryEvidence({ taskId }); } catch { items = []; }
     for (const item of items) {
-      if (item && item.status === 'active' && known.has(item.source?.provider)) evidenceServers.add(item.source.provider);
+      if (item && item.status === 'active' && known.has(item.source?.provider) && inThisStage(item)) evidenceServers.add(item.source.provider);
     }
   }
 
-  // Rule 4: a brief record for this stage that expected the server and found it unreachable.
+  // Rule 4: a brief record for this stage that expected the server and found it unreachable. The
+  // brief writes `unreachable` only where every config the harness merges was read (IC-017).
   const unreachable = new Map();
+  const reachableOn = new Map();
   for (const record of records) {
     for (const expected of record.expected || []) {
-      if (expected && expected.reach === 'unreachable' && typeof expected.server === 'string' && !unreachable.has(expected.server)) {
-        unreachable.set(expected.server, record.tasks?.[0]?.id);
-      }
+      if (!expected || typeof expected.server !== 'string') continue;
+      if (expected.reach === 'unreachable' && !unreachable.has(expected.server)) unreachable.set(expected.server, record.tasks?.[0]?.id);
+      if (expected.reach === 'reachable' && !reachableOn.has(expected.server)) reachableOn.set(expected.server, record.harness ?? null);
     }
   }
+
+  /** Who has a server the run asserted unavailable: the brief's harness, else an installed one. */
+  const nameOf = (id) => (typeof harnessName === 'function' && harnessName(id)) || id;
+  const contradiction = (server) => {
+    if (reachableOn.has(server)) {
+      const id = reachableOn.get(server);
+      return id ? nameOf(id) : 'an installed harness';
+    }
+    let has = null;
+    try { has = reach && typeof reach.anyHarnessHas === 'function' ? reach.anyHarnessHas(server) : null; } catch { has = null; }
+    if (has !== true) return null;
+    let name = null;
+    try { name = typeof reach.harnessWith === 'function' ? reach.harnessWith(server) : null; } catch { name = null; }
+    return name || 'an installed harness';
+  };
 
   const candidates = new Set([
     ...named, ...parsedFlags.outcomes.keys(), ...fromReports.keys(), ...evidenceServers, ...unreachable.keys(),
   ]);
   const outcomes = [];
-  const namedSet = new Set(named);
   for (const server of [...candidates].sort()) {
     let outcome = null;
     const flag = parsedFlags.outcomes.get(server);
@@ -307,9 +355,9 @@ function resolveConsultations({
     } else if (unreachable.has(server)) {
       const firstTask = unreachable.get(server);
       outcome = { server, state: 'unavailable', source: 'brief', ...(firstTask ? { taskId: firstTask } : {}) };
-    } else if (namedSet.has(server) && reach && typeof reach.anyHarnessHas === 'function' && reach.anyHarnessHas(server) === false) {
-      outcome = { server, state: 'unavailable', source: 'install' };
     }
+    // Install facts alone never decide an outcome (rule 5): a server DoFlow does not see may still
+    // be loaded from a config it cannot read, so the no-outcome warning asks instead.
 
     if (flag && !registered.has(server)) {
       notices.push({
@@ -326,7 +374,14 @@ function resolveConsultations({
     }
     outcomes.push(outcome);
     if (outcome.state === 'unavailable') {
-      const add = typeof addCommand === 'function' ? addCommand(server) : null;
+      const has = outcome.source === 'flag' || outcome.source === 'tools-used' ? contradiction(server) : null;
+      if (has) {
+        warnings.push({
+          kind: 'unavailable-contradicted', server,
+          text: `[WARN] mcp: ${server} reported unavailable but ${has} has it configured`,
+        });
+      }
+      const add = !has && typeof addCommand === 'function' ? addCommand(server) : null;
       notices.push({
         kind: 'unavailable', server,
         text: `[INFO] mcp: ${server} unavailable to ${skill}${add ? `; add it: ${add}` : ''}`,

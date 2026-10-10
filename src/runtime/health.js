@@ -458,6 +458,8 @@ function projectGitIdentity(projectRoot) {
 
 /** How many of the most recent recorded stage runs per stage the consultations view counts. */
 const CONSULTATION_WINDOW = 20;
+/** How many no-outcome entries the view lists per server and stage; the count covers the rest. */
+const NO_OUTCOME_SHOWN = 3;
 
 /**
  * The `[MCP Servers]` data (IC-014): per server a shipped stage names, which installed harness has
@@ -467,7 +469,9 @@ const CONSULTATION_WINDOW = 20;
 function mcpServersView({ registry, projectRoot, fsImpl, adapters }) {
   const named = registry.mcp.filter((server) => (server.steps || []).length);
   if (!named.length) return [];
-  const reach = mcpReach({ registry, projectRoot, fsImpl, adapters: adapters || require('../cli/shared').buildAdapterRegistry() });
+  if (!adapters) throw new Error('no adapter registry was given');
+  const reach = mcpReach({ registry, projectRoot, fsImpl, adapters });
+  const unreadableFile = (harness) => reach.unreadable.find((item) => item.harness === harness.id && item.scope === harness.scope);
   return named.map((server) => ({
     id: server.id,
     selection: server.selection,
@@ -475,7 +479,10 @@ function mcpServersView({ registry, projectRoot, fsImpl, adapters }) {
     harnesses: reach.harnesses.map((harness) => {
       const state = harness.servers[server.id];
       const row = { id: harness.id, scope: harness.scope, state };
-      if (state !== 'selected' && state !== 'configured') row.add = reach.addCommand(harness.id, harness.scope, server.id);
+      const unreadable = state === 'unknown' ? unreadableFile(harness) : null;
+      // An unreadable config is fixed before anything is added to it (IC-014).
+      if (unreadable) row.fix = unreadable.file || `${harness.id}'s MCP config`;
+      else if (state !== 'selected' && state !== 'configured') row.add = reach.addCommand(harness.id, harness.scope, server.id);
       return row;
     }),
   }));
@@ -517,6 +524,7 @@ function mcpConsultationsView({ projectRoot, fsImpl }) {
     };
     const key = { 'consulted-used': 'used', 'consulted-nothing-usable': 'nothingUsable', skipped: 'skipped', unavailable: 'unavailable' };
     const noOutcome = [];
+    const shown = new Map();
     for (const { taskId, node, at, record } of kept) {
       const outcomes = new Map();
       for (const outcome of Array.isArray(record.outcomes) ? record.outcomes : []) {
@@ -526,12 +534,23 @@ function mcpConsultationsView({ projectRoot, fsImpl }) {
       for (const server of (Array.isArray(record.named) ? record.named : []).filter((id) => typeof id === 'string').sort(byText)) {
         if (outcomes.has(server)) continue;
         row(server).noOutcome += 1;
-        noOutcome.push({ taskId, node, at, server });
+        // `kept` is newest first, so the first entries per server are its latest.
+        shown.set(server, (shown.get(server) || 0) + 1);
+        if (shown.get(server) <= NO_OUTCOME_SHOWN) noOutcome.push({ taskId, node, at, server });
       }
     }
     return { skill, runs: kept.length, servers: [...counts.values()].sort((a, b) => byText(a.server, b.server)), noOutcome };
   });
   return { window: CONSULTATION_WINDOW, stages, unreadableRuns };
+}
+
+/** The doctor's `mcp` block. A servers view that cannot be built degrades to a one-line note; the
+ * sections never enter findings or change the exit code (FR-011, FR-012). */
+function mcpView({ registry, projectRoot, fsImpl, adapters }) {
+  let servers = [];
+  let serversNote;
+  try { servers = mcpServersView({ registry, projectRoot, fsImpl, adapters }); } catch (error) { serversNote = `MCP server view unavailable: ${error.message}`; }
+  return { servers, ...(serversNote ? { serversNote } : {}), consultations: mcpConsultationsView({ projectRoot, fsImpl }) };
 }
 
 const MCP_STATE_MARK = Object.freeze({
@@ -544,13 +563,17 @@ const MCP_STATE_MARK = Object.freeze({
 
 function printMcpSections(mcp) {
   console.log('\n[MCP Servers] — named by shipped stages; not blocking');
-  if (!mcp.servers.some((server) => server.harnesses.length)) {
+  if (mcp.serversNote) {
+    console.log(`  ${mcp.serversNote}`);
+  } else if (!mcp.servers.some((server) => server.harnesses.length)) {
     console.log('  No harness has DoFlow ledger rows here, so no server selection to report.');
   } else {
     for (const server of mcp.servers) {
       console.log(`  ${server.id.padEnd(22)}named by ${server.namedBy.join(', ')}`);
       for (const harness of server.harnesses) {
-        const add = harness.add ? (harness.state === 'not-taken' ? harness.add : `add: ${harness.add}`) : '';
+        // An install command reads `add: <command>`; "configure it in ..." text stands as it is.
+        const add = harness.fix ? `fix ${harness.fix} first`
+          : harness.add ? (harness.add.startsWith('doflow ') ? `add: ${harness.add}` : harness.add) : '';
         console.log(`    ${harness.id.padEnd(14)}${harness.scope.padEnd(9)}${(MCP_STATE_MARK[harness.state] || harness.state).padEnd(19)}${add}`.trimEnd());
       }
     }
@@ -678,10 +701,7 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
     providers: Object.values(probes),
     freshness,
     project,
-    mcp: {
-      servers: mcpServersView({ registry, projectRoot, fsImpl, adapters }),
-      consultations: mcpConsultationsView({ projectRoot, fsImpl }),
-    },
+    mcp: mcpView({ registry, projectRoot, fsImpl, adapters }),
     findings,
     warnings,
     summary: {
