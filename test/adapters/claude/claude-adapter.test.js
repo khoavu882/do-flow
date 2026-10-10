@@ -190,3 +190,10 @@ test('Claude adapter leaves a foreign settings.json standing on remove, strippin
   const commands = (after.hooks?.SessionStart || []).flatMap((entry) => entry.hooks.map((h) => h.command));
   assert.deepEqual(commands, ['foreign-tool hook'], 'only DoFlow hooks are stripped');
 });
+
+test('Claude discovery reports the servers configured in .mcp.json, sorted, and null when the file is absent', () => {
+  const projectRoot = suiteTempDir('doflow-claude-configured-');
+  assert.equal(claude.discover({ scope: 'project', scopeRoot: projectRoot, context: {} }).mcpConfigured, null);
+  fs.writeFileSync(path.join(projectRoot, '.mcp.json'), JSON.stringify({ mcpServers: { zeta: {}, alpha: {} } }));
+  assert.deepEqual(claude.discover({ scope: 'project', scopeRoot: projectRoot, context: {} }).mcpConfigured, ['alpha', 'zeta']);
+});

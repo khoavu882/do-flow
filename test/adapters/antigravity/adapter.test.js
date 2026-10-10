@@ -526,3 +526,12 @@ test('global scope carries the no-skills notice, project scope and removal carry
   assert.deepEqual(adapter.plan(removing).notices, [], 'removal prints no notice');
   assert.deepEqual(adapter.plan(harnessInput(registry, { scopeRoot: scratch() })).notices, [], 'project scope has skills, so no notice');
 });
+
+test('Antigravity discovery reports the servers in mcp_config.json, sorted, and null when the file is absent', () => {
+  const root = scratch();
+  const first = adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } });
+  assert.strictEqual(first.mcpConfigured, null);
+  fs.mkdirSync(path.dirname(first.paths.mcpFile), { recursive: true });
+  fs.writeFileSync(first.paths.mcpFile, JSON.stringify({ mcpServers: { zeta: {}, alpha: {} } }));
+  assert.deepStrictEqual(adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } }).mcpConfigured, ['alpha', 'zeta']);
+});

@@ -57,7 +57,11 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
     const instruction = fsImpl.existsSync(paths.instruction) ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
     const rows = mcpRows(ledger);
     const snapshot = discoverPiMcp({ selected: mcp, rows, file: paths.mcp, fsImpl });
-    return { paths, instruction, mcp: snapshot, mcpOwned: ownedPiMcpIds({ rows, snapshot }) };
+    // Pi reads mcp.json only for a selection or a row; the names in it are read here regardless.
+    const file = snapshot[paths.mcp] ?? discoverPiMcp({ selected: [true], rows: [], file: paths.mcp, fsImpl })[paths.mcp];
+    const members = file?.exists && file.doc?.ok ? file.doc.servers?.members ?? [] : null;
+    const mcpConfigured = members && members.map((member) => member.key).sort();
+    return { paths, instruction, mcp: snapshot, mcpOwned: ownedPiMcpIds({ rows, snapshot }), mcpConfigured };
   }
 
   function render({ content = '' } = {}) {

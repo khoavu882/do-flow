@@ -341,3 +341,12 @@ test('hooks surface reports supported with no hooks asset selected, and installs
   assert.equal(verified.ok, true);
   assert.equal(verified.statuses.hooks.status, 'supported');
 });
+
+test('Kiro discovery reports the servers in mcp.json, sorted, and null when the file is absent', () => {
+  const root = scratch(); const adapter = createKiroAdapter();
+  const first = adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } });
+  assert.equal(first.mcpConfigured, null);
+  fs.mkdirSync(path.dirname(first.paths.mcp), { recursive: true });
+  fs.writeFileSync(first.paths.mcp, JSON.stringify({ mcpServers: { zeta: {}, alpha: {} } }));
+  assert.deepEqual(adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } }).mcpConfigured, ['alpha', 'zeta']);
+});

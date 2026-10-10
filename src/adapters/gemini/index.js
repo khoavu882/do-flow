@@ -54,7 +54,12 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
     const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir, fsImpl });
     const instruction = fsImpl.existsSync(paths.instruction) ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
     // Gemini takes no servers from DoFlow's MCP catalog.
-    return { paths, instruction, settings: readJson(paths.settings, { fsImpl }), mcpOwned: [] };
+    const settings = readJson(paths.settings, { fsImpl });
+    const servers = settings.value?.mcpServers;
+    // Names the user configured by hand; `null` while settings.json is absent or unreadable.
+    const mcpConfigured = settings.exists && !settings.error && settings.value && typeof settings.value === 'object'
+      ? Object.keys(servers && typeof servers === 'object' ? servers : {}).sort() : null;
+    return { paths, instruction, settings, mcpOwned: [], mcpConfigured };
   }
 
   function render({ content = '' } = {}) {

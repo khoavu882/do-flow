@@ -248,3 +248,15 @@ test('verify records no MCP row for a server the user defined, and DoFlow\'s ren
     }
   }
 });
+
+test('Codex discovery reports configured servers it can name, sorted, and null when config.toml is absent', () => {
+  const projectRoot = scratch();
+  const registry = { mcp: [{ id: 'context7' }], capabilities: { search: { providers: [{ id: 'p', mcp: { server: 'acme', tool: 'find' } }, { id: 'q' }] } } };
+  assert.equal(discover({ scope: 'project', projectRoot, registry }).mcpConfigured, null);
+  const config = path.join(projectRoot, '.codex', 'config.toml');
+  fs.mkdirSync(path.dirname(config), { recursive: true });
+  fs.writeFileSync(config, '[mcp_servers.acme]\ncommand = "acme"\n\n[mcp_servers.context7]\ncommand = "npx"\n\n[mcp_servers.other]\ncommand = "x"\n');
+  assert.deepEqual(discover({ scope: 'project', projectRoot, registry }).mcpConfigured, ['acme', 'context7']);
+  fs.writeFileSync(config, 'not = [valid');
+  assert.equal(discover({ scope: 'project', projectRoot, registry }).mcpConfigured, null);
+});

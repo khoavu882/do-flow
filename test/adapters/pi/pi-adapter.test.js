@@ -228,3 +228,12 @@ test('a ../.doflow nativeDir that escapes .doflow fails the plan before any writ
     context: { repoRoot, homeDir: root }, ledger: { resources: [] } }), /shared-tree nativeDir escapes \.doflow/);
   assert.equal(fs.existsSync(path.join(root, '.doflow')), false);
 });
+
+test('Pi discovery reports the mcpServers in mcp.json even when nothing is selected, sorted, and null when absent', () => {
+  const root = scratch(); const adapter = createPiAdapter();
+  const first = adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } });
+  assert.equal(first.mcpConfigured, null);
+  fs.mkdirSync(path.dirname(first.paths.mcp), { recursive: true });
+  fs.writeFileSync(first.paths.mcp, JSON.stringify({ mcpServers: { zeta: {}, alpha: {} } }));
+  assert.deepEqual(adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } }).mcpConfigured, ['alpha', 'zeta']);
+});

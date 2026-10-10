@@ -41,12 +41,15 @@ function readFiles(entries, fsImpl) {
   return readMcpFiles({ file: entries.file, ownRows: entries.ownRows, container: MCP_CONTAINER, fsImpl });
 }
 
-/** The MCP files as plan read them (`mcpSnapshot`, which verify compares against) and the servers
- * DoFlow owns in them now (`mcpOwned`). */
+/** The MCP files as plan read them (`mcpSnapshot`, which verify compares against), the servers
+ * DoFlow owns in them now (`mcpOwned`) and every server the scope's file names (`mcpConfigured`). */
 function discoverMcp({ paths, mcp, mcpAdoptable, ledger, fsImpl = fs }) {
   const entries = mcpEntriesInput({ paths, mcp, mcpAdoptable, ledger });
   const mcpSnapshot = readFiles(entries, fsImpl);
-  return { mcpSnapshot, mcpOwned: ownedMcpIds({ ...entries, files: mcpSnapshot }) };
+  // `null` while the file is absent, unreadable or has no server map; every name in it otherwise, whoever wrote it.
+  const read = mcpSnapshot[entries.file];
+  const mcpConfigured = read?.ok && read.servers ? Object.keys(read.servers).sort() : null;
+  return { mcpSnapshot, mcpOwned: ownedMcpIds({ ...entries, files: mcpSnapshot }), mcpConfigured };
 }
 
 function planMcp({ paths, mcp, mcpAdoptable, ledger, snapshot, removing, fsImpl = fs }) {

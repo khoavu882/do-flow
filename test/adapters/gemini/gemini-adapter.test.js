@@ -456,3 +456,12 @@ test('a scope root of / resolves the Gemini agents destination instead of report
     assert.deepEqual(planned.changes.map((c) => c.target).sort(), SPECS.map((f) => path.join('/', '.gemini', 'agents', f)).sort(), scope);
   }
 });
+
+test('Gemini discovery reports settings.mcpServers names, sorted, and null when settings are absent', () => {
+  const root = scratch(); const adapter = createGeminiAdapter();
+  const first = adapter.discover({ scope: 'project', scopeRoot: root });
+  assert.equal(first.mcpConfigured, null);
+  fs.mkdirSync(path.dirname(first.paths.settings), { recursive: true });
+  fs.writeFileSync(first.paths.settings, JSON.stringify({ mcpServers: { zeta: {}, alpha: {} } }));
+  assert.deepEqual(adapter.discover({ scope: 'project', scopeRoot: root }).mcpConfigured, ['alpha', 'zeta']);
+});
