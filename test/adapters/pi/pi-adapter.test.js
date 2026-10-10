@@ -2,13 +2,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const { createPiAdapter, nativePaths } = require('../../../src/adapters/pi');
 const { assertAdapter } = require('../../../src/adapters');
 const { MARKER_START } = require('../../../src/helper/marker-merge');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-pi-')); }
+function scratch() { return suiteTempDir('doflow-pi-'); }
 
 function guidanceAsset(sourceFile) {
   return { id: 'guidance.codex-pointer', capability: 'instructions', source: sourceFile };

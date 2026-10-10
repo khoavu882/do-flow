@@ -217,6 +217,8 @@ doflow install -g --statusline --target claude      # doflow-statusline.sh + man
 # Remove accepts the same flags so it can identify exactly what to strip.
 ```
 
+When `doflow remove` removes the last harness of a scope it also deletes DoFlow's storage control files (the `.doflow/state/.gitignore` it wrote, the upkeep marker and lock) but leaves `.doflow/state/` itself, which git then shows as untracked; delete it with `rm -rf .doflow/state` if you no longer want it.
+
 `install`, `update`, `remove`, `reconcile` and `rollback` run one at a time in a scope. A second run
 prints `Waiting for another DoFlow run in ...` and waits up to 60 seconds for the first to finish;
 after that it stops with exit 1 and changes nothing. A lock left by a run that crashed or was

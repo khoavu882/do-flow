@@ -15,6 +15,7 @@ const { sourceCommit } = require('../../helper/git');
 const { chmodHooksExecutable } = require('../../helper/settings-scope');
 const { promptMcpCheckbox, resolveMcpSelections } = require('../../install/mcp');
 const { loadRegistry } = require('../../registry');
+const { storageAfterInstall } = require('../../runtime/storage/upkeep');
 const { applyLifecycle, applyMcpIndex, recordMcpOwnership } = require('../../lifecycle');
 const {
   codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, assertSafeRegistryPlan,
@@ -151,6 +152,7 @@ function cmdInstall(o) {
     console.log(`[INFO] doflow.lock: ${lockResult.summary}`);
 
     applyBackupRetention({ backupRoot, prune: o.prune, keep, bid });
+    storageAfterInstall({ scope: scope.global ? 'global' : 'project', scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot) });
 
     console.log('[OK] Installation complete!');
   } finally {

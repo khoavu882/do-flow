@@ -3,19 +3,14 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const { inspectSiblings, WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings');
 
 /** A fresh, real temp directory per test — never the real `~/.claude`, `~/.kiro` or `~/.doflow`.
- * Removed after the test whether it passes or fails. */
+ * Removed by the shared temp helper when the suite or process ends, whether the test passes or fails. */
 function withTempDir(run) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-siblings-test-'));
-  try {
-    return run(dir);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  return run(suiteTempDir('doflow-inventory-siblings-'));
 }
 
 /** Records every directory `inspectSiblings` reads, then delegates to the real `fs`. The call list

@@ -2,13 +2,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const { createKiroAdapter, nativePaths } = require('../../../src/adapters/kiro');
 const { entryFingerprint } = require('../../../src/adapters/mcp-entries');
 const { assertAdapter } = require('../../../src/adapters');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-kiro-')); }
+function scratch() { return suiteTempDir('doflow-kiro-'); }
 
 function steeringAsset(repoRoot) {
   const sourceDir = path.join(repoRoot, 'core', 'shared', 'guidance');

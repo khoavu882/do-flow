@@ -3,16 +3,15 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
+const { tempDir } = require('../helper/tmp');
 const { measureFreshness, FreshnessValidator } = require('../../src/runtime/freshness');
 
 const CLI = path.resolve(__dirname, '../../bin/doflow.js');
 
 function project(t, gitBacked = false) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-observed-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = tempDir(t, 'doflow-freshness-observations-');
   fs.writeFileSync(path.join(root, 'a.js'), 'module.exports = 1;\n');
   const git = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
   if (gitBacked) {

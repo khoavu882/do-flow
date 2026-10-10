@@ -7,8 +7,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir, suiteTempDir } = require('../helper/tmp');
 const { readRecords, buildIndicators, orchestrationDir } = require('../../src/runtime/trace/indicators');
 
 const MINUTE = 60_000;
@@ -19,7 +19,7 @@ function record({ taskId, taskClass = 'feature', state = 'COMPLETED', startedAt,
 }
 
 function tmpDirWith(files) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-indicators-'));
+  const root = suiteTempDir('doflow-indicators-');
   const dir = orchestrationDir(root);
   fs.mkdirSync(dir, { recursive: true });
   for (const [name, body] of Object.entries(files)) {
@@ -167,8 +167,8 @@ test('033: an unparseable record is counted and named, never silently skipped', 
   assert.equal(view.unreadable.length, 2, 'the view carries them through so the report can name them');
 });
 
-test('033: an absent directory is a state, not an error', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-indicators-none-'));
+test('033: an absent directory is a state, not an error', (t) => {
+  const root = tempDir(t, 'doflow-indicators-none-');
   const read = readRecords(orchestrationDir(root));
   assert.equal(read.exists, false);
   const view = buildIndicators(read);

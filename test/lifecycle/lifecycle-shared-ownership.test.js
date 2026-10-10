@@ -25,11 +25,12 @@ const { defaultLedger } = require('../../src/state');
 const { planLifecycle, applyLifecycle, removeLifecycle, markRetainedRemovals, retentionSummary } = require('../../src/lifecycle');
 const { planTree, applyTree, removeTree, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../../src/adapters/copy-tree');
 const { interpreterSpawn, withinPath, msysArgConvGuards } = require('../helper-platform');
+const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, "../..");
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 
-function scratch(tag) { return fs.mkdtempSync(path.join(os.tmpdir(), `doflow-shared-${tag}-`)); }
+function scratch(t, tag) { return tempDir(t, `doflow-shared-${tag}-`); }
 
 // ------------------------------------------------------------------ a two-harness shared asset
 
@@ -87,8 +88,8 @@ function fileAdapter(id, { shared, own }) {
   };
 }
 
-function twoHarnessInstall(tag) {
-  const root = scratch(tag);
+function twoHarnessInstall(t, tag) {
+  const root = scratch(t, tag);
   const shared = path.join(root, 'shared', 'dispatcher');
   const adapters = {
     alpha: fileAdapter('alpha', { shared, own: path.join(root, 'alpha', 'own') }),
@@ -106,8 +107,8 @@ function twoHarnessInstall(tag) {
   return { root, shared, adapters, registryAdapters, stateRoot, ledger };
 }
 
-test('a removal releases its claim on a shared file without deleting it, and says so', () => {
-  const { shared, adapters, registryAdapters, stateRoot, ledger, root } = twoHarnessInstall('release');
+test('a removal releases its claim on a shared file without deleting it, and says so', (t) => {
+  const { shared, adapters, registryAdapters, stateRoot, ledger, root } = twoHarnessInstall(t, 'release');
 
   const result = removeLifecycle({ registry, adapters: registryAdapters, scope: 'project', scopeRoot: root,
     targets: ['alpha'], stateRoot, ledger });
@@ -125,8 +126,8 @@ test('a removal releases its claim on a shared file without deleting it, and say
   assert.deepEqual(retentionSummary(result.retained), ['alpha: retained 1 shared resource(s) still claimed by beta']);
 });
 
-test('the last claimant\'s removal reclaims the shared file', () => {
-  const { shared, registryAdapters, stateRoot, ledger, root } = twoHarnessInstall('reclaim');
+test('the last claimant\'s removal reclaims the shared file', (t) => {
+  const { shared, registryAdapters, stateRoot, ledger, root } = twoHarnessInstall(t, 'reclaim');
   const afterFirst = removeLifecycle({ registry, adapters: registryAdapters, scope: 'project', scopeRoot: root,
     targets: ['alpha'], stateRoot, ledger }).ledger;
 
@@ -138,8 +139,8 @@ test('the last claimant\'s removal reclaims the shared file', () => {
   assert.deepEqual(result.ledger.resources, []);
 });
 
-test('removing every claimant at once reclaims the shared file in one pass', () => {
-  const { shared, registryAdapters, stateRoot, ledger, root } = twoHarnessInstall('batch');
+test('removing every claimant at once reclaims the shared file in one pass', (t) => {
+  const { shared, registryAdapters, stateRoot, ledger, root } = twoHarnessInstall(t, 'batch');
   const result = removeLifecycle({ registry, adapters: registryAdapters, scope: 'project', scopeRoot: root,
     targets: ['alpha', 'beta'], stateRoot, ledger });
   assert.equal(fs.existsSync(shared), false, 'a claimant that is itself being removed is not a reason to keep the file');
@@ -147,10 +148,10 @@ test('removing every claimant at once reclaims the shared file in one pass', () 
   assert.deepEqual(result.ledger.resources, []);
 });
 
-test('a harness whose every resource is shared is removed without the adapter being called', () => {
+test('a harness whose every resource is shared is removed without the adapter being called', (t) => {
   // The whole plan is a ledger release. It must still run — the harness is uninstalled and its
   // rows must go — but nothing native may be touched.
-  const root = scratch('allshared');
+  const root = scratch(t, 'allshared');
   const shared = path.join(root, 'shared', 'dispatcher');
   const alpha = fileAdapter('alpha', { shared, own: shared });
   const beta = fileAdapter('beta', { shared, own: shared });
@@ -231,8 +232,8 @@ test('retentionSummary groups by harness and claimant set', () => {
 
 // ------------------------------------------------------- copy-tree: what counts as a safe delete
 
-test('copy-tree removal accepts the current source bytes as well as the recorded fingerprint', () => {
-  const root = scratch('copytree');
+test('copy-tree removal accepts the current source bytes as well as the recorded fingerprint', (t) => {
+  const root = scratch(t, 'copytree');
   const sourceDir = path.join(root, 'src');
   const destDir = path.join(root, 'dest');
   fs.mkdirSync(sourceDir, { recursive: true });
@@ -252,8 +253,8 @@ test('copy-tree removal accepts the current source bytes as well as the recorded
   assert.equal(fs.existsSync(path.join(destDir, 'run')), false);
 });
 
-test('copy-tree removal still refuses a file that matches neither the record nor the source', () => {
-  const root = scratch('handedit');
+test('copy-tree removal still refuses a file that matches neither the record nor the source', (t) => {
+  const root = scratch(t, 'handedit');
   const sourceDir = path.join(root, 'src');
   const destDir = path.join(root, 'dest');
   fs.mkdirSync(sourceDir, { recursive: true });
@@ -268,8 +269,8 @@ test('copy-tree removal still refuses a file that matches neither the record nor
   assert.ok(fs.existsSync(path.join(destDir, 'run')), 'a refused removal never deletes');
 });
 
-test('copy-tree removal reads no source when the recorded fingerprint already matches', () => {
-  const root = scratch('nosource');
+test('copy-tree removal reads no source when the recorded fingerprint already matches', (t) => {
+  const root = scratch(t, 'nosource');
   const destDir = path.join(root, 'dest');
   fs.mkdirSync(destDir, { recursive: true });
   fs.writeFileSync(path.join(destDir, 'run'), 'v1\n');
@@ -319,8 +320,8 @@ function copyTreeAdapter(id, assetId, { sourceDir, destDir }) {
 }
 
 /** Two claimants of one asset's tree, from different releases: alpha writes `new`, beta writes `old`. */
-function twoReleases(assetId) {
-  const root = scratch('mixed');
+function twoReleases(t, assetId) {
+  const root = scratch(t, 'mixed');
   const destDir = path.join(root, 'shared');
   const releases = { alpha: 'new\n', beta: 'old\n' };
   const adapters = {};
@@ -346,8 +347,8 @@ function twoReleases(assetId) {
 
 const sha = (text) => require('node:crypto').createHash('sha256').update(text).digest('hex');
 
-test('two claimants of the runtime tree from different releases install and update over each other, a hand edit is still refused, and the replacement is noticed once', () => {
-  const { plan, apply, rowOf, run } = twoReleases('runtime.lib');
+test('two claimants of the runtime tree from different releases install and update over each other, a hand edit is still refused, and the replacement is noticed once', (t) => {
+  const { plan, apply, rowOf, run } = twoReleases(t, 'runtime.lib');
 
   apply('beta');
   assert.equal(fs.readFileSync(run, 'utf8'), 'old\n');
@@ -371,18 +372,18 @@ test('two claimants of the runtime tree from different releases install and upda
   }
 });
 
-test('a sibling row of a skills or generic shared-tree asset does not excuse a differing file', () => {
+test('a sibling row of a skills or generic shared-tree asset does not excuse a differing file', (t) => {
   for (const assetId of ['skills.core', 'shared.tree']) {
-    const { plan, apply, run } = twoReleases(assetId);
+    const { plan, apply, run } = twoReleases(t, assetId);
     apply('beta');
     assert.equal(fs.readFileSync(run, 'utf8'), 'old\n');
     assert.deepEqual(plan('alpha').conflicts.map((conflict) => conflict.reason), [`${assetId}: run was modified outside DoFlow`], assetId);
   }
 });
 
-test('two claimants of the guidance tree from different releases install over each other with a notice, and a hand edit is still refused', () => {
+test('two claimants of the guidance tree from different releases install over each other with a notice, and a hand edit is still refused', (t) => {
   for (const assetId of ['guidance.context-layer', 'kiro.guidance-tree']) {
-    const { plan, apply, rowOf, run } = twoReleases(assetId);
+    const { plan, apply, rowOf, run } = twoReleases(t, assetId);
     apply('beta');
     assert.deepEqual(plan('beta').notices, [], assetId);
     const replacing = plan('alpha');   // guidance beta wrote, matching neither alpha's source nor any alpha row
@@ -401,8 +402,8 @@ test('two claimants of the guidance tree from different releases install over ea
 
 // ------------------------------------------------------------------------------ the real thing
 
-test('CLI: removing one of three harnesses that share .doflow leaves the runtime standing', { timeout: 120000 }, () => {
-  const root = scratch('cli');
+test('CLI: removing one of three harnesses that share .doflow leaves the runtime standing', { timeout: 120000 }, (t) => {
+  const root = scratch(t, 'cli');
   const home = path.join(root, 'home');
   // os.homedir() ignores HOME on Windows; USERPROFILE must be redirected alongside it.
   const homeEnv = process.platform === 'win32' ? { HOME: home, USERPROFILE: home } : { HOME: home };

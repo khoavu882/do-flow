@@ -17,11 +17,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared');
 const { loadRegistry, capabilityMapData } = require('../../src/registry');
+const { tempDir } = require('../helper/tmp');
 
 const BASH_DIR = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash');
 const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
@@ -455,82 +455,78 @@ function resolutionSnippets() {
   return out;
 }
 
-test('G8: every documented runtime-resolution snippet resolves with CWD at the project root', () => {
+test('G8: every documented runtime-resolution snippet resolves with CWD at the project root', (t) => {
   const snippets = resolutionSnippets();
   // The six chain skills plus parallel_dispatch.md. A floor, not an equality: the point is that the
   // set is non-trivial, so an accidental change to RESOLVER_MARK cannot quietly test nothing.
   assert.ok(snippets.length >= 7,
     `expected the chain skills to document a resolution snippet each, found ${snippets.length}`);
 
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-resolve-'));
-  try {
-    // $HOME is scratch too: a global install of the developer's own must not be what makes this
-    // pass, and the not-installed branch must be reachable.
-    const home = path.join(root, 'home');
-    fs.mkdirSync(home);
-    // os.homedir() ignores HOME on Windows, so USERPROFILE must be redirected alongside it.
-    const homeRedirect = process.platform === 'win32' ? { HOME: home, USERPROFILE: home } : { HOME: home };
-    const install = spawnSync(
-      'node',
-      [path.join(REPO, 'bin', 'doflow.js'), 'install', root, '-f', '--no-backup', '-t', 'claude'],
-      { encoding: 'utf8', input: '\n', env: { ...process.env, ...homeRedirect } },
-    );
-    assert.equal(install.status, 0, `installer failed: ${install.stderr}`);
-    assert.ok(fs.existsSync(path.join(root, INSTALLED_DISPATCHER)), 'install did not place the dispatcher');
+  const root = tempDir(t, 'doflow-resolve-');
+  // $HOME is scratch too: a global install of the developer's own must not be what makes this
+  // pass, and the not-installed branch must be reachable.
+  const home = path.join(root, 'home');
+  fs.mkdirSync(home);
+  // os.homedir() ignores HOME on Windows, so USERPROFILE must be redirected alongside it.
+  const homeRedirect = process.platform === 'win32' ? { HOME: home, USERPROFILE: home } : { HOME: home };
+  const install = spawnSync(
+    'node',
+    [path.join(REPO, 'bin', 'doflow.js'), 'install', root, '-f', '--no-backup', '-t', 'claude'],
+    { encoding: 'utf8', input: '\n', env: { ...process.env, ...homeRedirect } },
+  );
+  assert.equal(install.status, 0, `installer failed: ${install.stderr}`);
+  assert.ok(fs.existsSync(path.join(root, INSTALLED_DISPATCHER)), 'install did not place the dispatcher');
 
-    // Project root is where a skill actually runs; the subdirectory pins the walk-up, which is the
-    // second way the broken form failed.
-    const deep = path.join(root, 'src', 'a', 'b');
-    fs.mkdirSync(deep, { recursive: true });
+  // Project root is where a skill actually runs; the subdirectory pins the walk-up, which is the
+  // second way the broken form failed.
+  const deep = path.join(root, 'src', 'a', 'b');
+  fs.mkdirSync(deep, { recursive: true });
 
-    const failures = [];
-    for (const { rel, code } of snippets) {
-      for (const cwd of [root, deep]) {
-        const where = path.relative(root, cwd) || '<project root>';
-        const run = spawnSync('bash', ['-c', code], {
-          cwd,
-          encoding: 'utf8',
-          // A developer's exported override would resolve the runtime for reasons the snippet does
-          // not own, hiding exactly the defect under test.
-          env: { ...process.env, ...homeRedirect, DOFLOW_CONFIG_DIR: undefined },
-        });
-        if (run.status !== 0) {
-          failures.push(`${rel} (cwd=${where}): exit ${run.status} — ${(run.stderr || '').trim().split('\n')[0]}`);
-          continue;
-        }
-        // Resolving is not the same as reaching a runtime that answers: a snippet can exit 0
-        // having set $DOFLOW to a path that is present but broken. So drive one real verb through
-        // whatever the snippet resolved.
-        //
-        // This used to run only `if (code.includes('paths --json'))` — conditional on the skill's
-        // own prose happening to contain that string. D.3 moved the first verb call out of the
-        // canonical resolver block, and the condition silently stopped matching: 11 collected
-        // snippets, 0 containing it, assertion never fires, guard still green. Coverage that a
-        // prose edit can switch off is not coverage. The verb is appended here instead, so this
-        // check is a property of the guard rather than of what a skill happens to say.
-        const probe = spawnSync('bash', ['-c', `{\n${code}\n} >/dev/null 2>&1\n"$DOFLOW" paths --json\n`], {
-          cwd,
-          encoding: 'utf8',
-          env: { ...process.env, ...homeRedirect, DOFLOW_CONFIG_DIR: undefined },
-        });
-        if (probe.status !== 0) {
-          failures.push(`${rel} (cwd=${where}): resolved, but the dispatcher it found exited ${probe.status} on 'paths --json'`);
-          continue;
-        }
-        let parsed;
-        try { parsed = JSON.parse(probe.stdout); } catch {
-          failures.push(`${rel} (cwd=${where}): resolved, but 'paths --json' through it emitted non-JSON`);
-          continue;
-        }
-        if (!parsed.repo_root) failures.push(`${rel} (cwd=${where}): 'paths --json' through it returned no repo_root`);
+  const failures = [];
+  for (const { rel, code } of snippets) {
+    for (const cwd of [root, deep]) {
+      const where = path.relative(root, cwd) || '<project root>';
+      const run = spawnSync('bash', ['-c', code], {
+        cwd,
+        encoding: 'utf8',
+        // A developer's exported override would resolve the runtime for reasons the snippet does
+        // not own, hiding exactly the defect under test.
+        env: { ...process.env, ...homeRedirect, DOFLOW_CONFIG_DIR: undefined },
+      });
+      if (run.status !== 0) {
+        failures.push(`${rel} (cwd=${where}): exit ${run.status} — ${(run.stderr || '').trim().split('\n')[0]}`);
+        continue;
       }
+      // Resolving is not the same as reaching a runtime that answers: a snippet can exit 0
+      // having set $DOFLOW to a path that is present but broken. So drive one real verb through
+      // whatever the snippet resolved.
+      //
+      // This used to run only `if (code.includes('paths --json'))` — conditional on the skill's
+      // own prose happening to contain that string. D.3 moved the first verb call out of the
+      // canonical resolver block, and the condition silently stopped matching: 11 collected
+      // snippets, 0 containing it, assertion never fires, guard still green. Coverage that a
+      // prose edit can switch off is not coverage. The verb is appended here instead, so this
+      // check is a property of the guard rather than of what a skill happens to say.
+      const probe = spawnSync('bash', ['-c', `{\n${code}\n} >/dev/null 2>&1\n"$DOFLOW" paths --json\n`], {
+        cwd,
+        encoding: 'utf8',
+        env: { ...process.env, ...homeRedirect, DOFLOW_CONFIG_DIR: undefined },
+      });
+      if (probe.status !== 0) {
+        failures.push(`${rel} (cwd=${where}): resolved, but the dispatcher it found exited ${probe.status} on 'paths --json'`);
+        continue;
+      }
+      let parsed;
+      try { parsed = JSON.parse(probe.stdout); } catch {
+        failures.push(`${rel} (cwd=${where}): resolved, but 'paths --json' through it emitted non-JSON`);
+        continue;
+      }
+      if (!parsed.repo_root) failures.push(`${rel} (cwd=${where}): 'paths --json' through it returned no repo_root`);
     }
-    assert.deepEqual(failures, [],
-      'these documented snippets do not work from the directory a skill actually runs in:\n  '
-      + `${failures.join('\n  ')}`);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
   }
+  assert.deepEqual(failures, [],
+    'these documented snippets do not work from the directory a skill actually runs in:\n  '
+    + `${failures.join('\n  ')}`);
 });
 
 test('G8: no skill documents the known-broken `../../bin/doflow-run` relative call', () => {

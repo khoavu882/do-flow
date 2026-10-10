@@ -5,8 +5,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { defaultLock, writeLock } = require('../../src/state/lockfile');
 const { repairCoverage, readScopeLocks, REPAIR_REASONS } = require('../../src/runtime/inventory/coverage');
 
@@ -149,40 +149,31 @@ test('details preserve input order and echo the finding identity', () => {
     'the input findings are not mutated');
 });
 
-test('readScopeLocks reads both scopes from disk and reports an absent lock as null', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-coverage-home-'));
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-coverage-project-'));
-  try {
-    writeLock({ scope: 'global', homeDir: home }, lockPinning('global', ['codex'], home));
-    const locks = readScopeLocks({ projectRoot: project, homeDir: home });
+test('readScopeLocks reads both scopes from disk and reports an absent lock as null', (t) => {
+  const home = tempDir(t, 'doflow-inventory-coverage-home-');
+  const project = tempDir(t, 'doflow-inventory-coverage-project-');
+  writeLock({ scope: 'global', homeDir: home }, lockPinning('global', ['codex'], home));
+  const locks = readScopeLocks({ projectRoot: project, homeDir: home });
 
-    assert.deepEqual(locks.global.targets, [{ harness: 'codex' }]);
-    assert.equal(locks.project, null, 'a scope never installed into has no lock');
+  assert.deepEqual(locks.global.targets, [{ harness: 'codex' }]);
+  assert.equal(locks.project, null, 'a scope never installed into has no lock');
 
-    const coverage = repairCoverage({
-      findings: [finding('codex', 'global'), finding('claude', 'global'), finding('claude', 'project')],
-      locks,
-    });
-    assert.equal(coverage.repairable, 1);
-    assert.equal(coverage.scopes.project.lock, 'absent');
-    assert.equal(coverage.scopes.global.lock, 'present');
-  } finally {
-    fs.rmSync(home, { recursive: true, force: true });
-    fs.rmSync(project, { recursive: true, force: true });
-  }
+  const coverage = repairCoverage({
+    findings: [finding('codex', 'global'), finding('claude', 'global'), finding('claude', 'project')],
+    locks,
+  });
+  assert.equal(coverage.repairable, 1);
+  assert.equal(coverage.scopes.project.lock, 'absent');
+  assert.equal(coverage.scopes.global.lock, 'present');
 });
 
-test('readScopeLocks propagates an unreadable lock rather than reporting it as unpinned', () => {
+test('readScopeLocks propagates an unreadable lock rather than reporting it as unpinned', (t) => {
   // A lock `reconcile` itself could not read must not be quietly downgraded to "nothing pinned" —
   // that would be a coverage claim invented from a parse failure.
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-coverage-bad-'));
-  try {
-    fs.mkdirSync(path.join(home, '.doflow'), { recursive: true });
-    fs.writeFileSync(path.join(home, '.doflow', 'doflow.lock'), '{ not json', 'utf8');
-    assert.throws(() => readScopeLocks({ projectRoot: home, homeDir: home }), /doflow\.lock/);
-  } finally {
-    fs.rmSync(home, { recursive: true, force: true });
-  }
+  const home = tempDir(t, 'doflow-inventory-coverage-bad-');
+  fs.mkdirSync(path.join(home, '.doflow'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.doflow', 'doflow.lock'), '{ not json', 'utf8');
+  assert.throws(() => readScopeLocks({ projectRoot: home, homeDir: home }), /doflow\.lock/);
 });
 
 // R1: `doflow reconcile` states the same gap this module measures — a harness the ledger holds and

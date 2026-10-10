@@ -2,11 +2,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const {
   REGISTRY_FILES, loadRegistry, validateRegistry, selectAssets, selectMcpServers, mcpCapable, capabilityMapData,
 } = require('../../src/registry');
+const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, "../..");
 
@@ -110,8 +110,8 @@ test('generates capability-map records with evidence and explicit gaps', () => {
   }
 });
 
-test('fails closed for malformed JSON', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-registry-'));
+test('fails closed for malformed JSON', (t) => {
+  const root = tempDir(t, 'doflow-registry-');
   fs.mkdirSync(path.join(root, 'core', 'registry'), { recursive: true });
   for (const file of Object.values(REGISTRY_FILES)) fs.writeFileSync(path.join(root, 'core', 'registry', file), '{}');
   fs.writeFileSync(path.join(root, 'core', 'registry', 'harnesses.json'), '{not valid json');

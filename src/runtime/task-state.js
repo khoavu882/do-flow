@@ -51,10 +51,42 @@ function sleep(ms) {
 }
 
 /**
- * Takes the cross-process lock for one state file. Returns the release function.
- * A lock older than LOCK_STALE_MS is broken: its holder died mid-write (the rename-based write
- * below means the file it guarded is still whole), and honouring a dead writer's lock forever
- * turns one crash into a permanently unwritable task.
+ * Makes one non-waiting attempt to take the cross-process lock for a state file. A lock older than
+ * LOCK_STALE_MS may be broken; a live holder is never waited on. Returns a release function or null.
+ * @param {Object} fsImpl
+ * @param {string} file
+ * @returns {(() => void)|null}
+ */
+function tryAcquireLock(fsImpl, file) {
+  const lockDir = `${file}.lock`;
+  const release = () => { try { fsImpl.rmdirSync(lockDir); } catch { /* released is released */ } };
+  try {
+    fsImpl.mkdirSync(lockDir);
+    return release;
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+  }
+  let lock;
+  try { lock = fsImpl.statSync(lockDir); } catch (error) {
+    if (error.code !== 'ENOENT') return null;
+    try { fsImpl.mkdirSync(lockDir); return release; } catch (retryError) {
+      if (retryError.code === 'EEXIST') return null;
+      throw retryError;
+    }
+  }
+  if (Date.now() - lock.mtimeMs <= LOCK_STALE_MS) return null;
+  try { fsImpl.rmdirSync(lockDir); } catch (error) {
+    if (error.code !== 'ENOENT') return null;
+  }
+  try { fsImpl.mkdirSync(lockDir); return release; } catch (error) {
+    if (error.code === 'EEXIST') return null;
+    throw error;
+  }
+}
+
+/**
+ * Takes the cross-process lock for one state file, retrying for the existing bounded wait interval.
+ * A stale lock is broken because its holder died mid-write; the rename-based write keeps the file whole.
  * @param {Object} fsImpl
  * @param {string} file
  * @returns {() => void}
@@ -139,4 +171,4 @@ function updateTaskState({ fsImpl, file, build, prepare }) {
   }
 }
 
-module.exports = { acquireLock, updateTaskState, readTaskState, mergeRecords, SCHEMA_VERSION };
+module.exports = { acquireLock, tryAcquireLock, updateTaskState, readTaskState, mergeRecords, SCHEMA_VERSION };

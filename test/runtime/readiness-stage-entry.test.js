@@ -9,8 +9,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { spawnSync } = require('node:child_process');
 const {
   stageEntryFor, READINESS_STATES, EXECUTION_MODES, STAGE_ENTRY_DECISIONS,
@@ -53,8 +53,7 @@ test('an unknown mode is refused — the standalone exemption is declared, never
 });
 
 function project(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-entry-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dir = tempDir(t, 'doflow-readiness-stage-entry-');
   fs.writeFileSync(path.join(dir, 'a.js'), 'module.exports = 1;\n');
   return dir;
 }

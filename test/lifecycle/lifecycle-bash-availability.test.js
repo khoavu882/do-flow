@@ -8,14 +8,14 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { createAdapterRegistry } = require('../../src/adapters');
 const { defaultLedger } = require('../../src/state');
 const { hasBashCapableShell } = require('../../src/lifecycle/bash-availability');
 const { planLifecycle, applyLifecycle, targetNeedsHooks, assertBashAvailableForHooks } = require('../../src/lifecycle');
+const { tempDir, suiteTempDir } = require('../helper/tmp');
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-bash-availability-'));
+const root = suiteTempDir('doflow-bash-availability-');
 
 // --- hasBashCapableShell() in isolation -------------------------------------------------------
 
@@ -176,10 +176,10 @@ function fakeHooksAdapter({ includeHooks = true } = {}) {
   };
 }
 
-test('applyLifecycle: a hooks-bearing plan with hasBashCapableShellFn returning false throws before any adapter apply and before any recovery record is written', () => {
+test('applyLifecycle: a hooks-bearing plan with hasBashCapableShellFn returning false throws before any adapter apply and before any recovery record is written', (t) => {
   const adapter = fakeHooksAdapter({ includeHooks: true });
   const adapters = createAdapterRegistry({ fake: adapter });
-  const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-bash-availability-state-'));
+  const stateRoot = tempDir(t, 'doflow-bash-availability-state-');
   const plan = planLifecycle({ registry: hooksRegistry, adapters, scope: 'project', scopeRoot: root, targets: ['fake'] });
   assert.equal(plan.safe, true, 'precondition: plan itself has no conflicts, so the throw below is solely the bash preflight');
 
@@ -192,10 +192,10 @@ test('applyLifecycle: a hooks-bearing plan with hasBashCapableShellFn returning 
   assert.ok(!fs.existsSync(path.join(stateRoot, 'ledger.json')), 'ledger untouched');
 });
 
-test('applyLifecycle: the same hooks-bearing plan with hasBashCapableShellFn returning true succeeds', () => {
+test('applyLifecycle: the same hooks-bearing plan with hasBashCapableShellFn returning true succeeds', (t) => {
   const adapter = fakeHooksAdapter({ includeHooks: true });
   const adapters = createAdapterRegistry({ fake: adapter });
-  const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-bash-availability-state-'));
+  const stateRoot = tempDir(t, 'doflow-bash-availability-state-');
   const plan = planLifecycle({ registry: hooksRegistry, adapters, scope: 'project', scopeRoot: root, targets: ['fake'] });
 
   const result = applyLifecycle({ plan, registry: hooksRegistry, adapters, stateRoot, hasBashCapableShellFn: () => true });
@@ -204,21 +204,21 @@ test('applyLifecycle: the same hooks-bearing plan with hasBashCapableShellFn ret
   assert.ok(fs.existsSync(path.join(stateRoot, 'recovery', `${result.recovery.id}.json`)));
 });
 
-test('applyLifecycle: the same hooks-bearing plan succeeds with the real hasBashCapableShell check on this machine (no override)', () => {
+test('applyLifecycle: the same hooks-bearing plan succeeds with the real hasBashCapableShell check on this machine (no override)', (t) => {
   const adapter = fakeHooksAdapter({ includeHooks: true });
   const adapters = createAdapterRegistry({ fake: adapter });
-  const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-bash-availability-state-'));
+  const stateRoot = tempDir(t, 'doflow-bash-availability-state-');
   const plan = planLifecycle({ registry: hooksRegistry, adapters, scope: 'project', scopeRoot: root, targets: ['fake'] });
 
   const result = applyLifecycle({ plan, registry: hooksRegistry, adapters, stateRoot });
   assert.equal(result.verification.ok, true, 'this machine has a real bash on PATH, so the default hasBashCapableShellFn must pass');
 });
 
-test('applyLifecycle: a plan touching only a non-hooks asset succeeds regardless of the shell-check stub', () => {
+test('applyLifecycle: a plan touching only a non-hooks asset succeeds regardless of the shell-check stub', (t) => {
   for (const hasBashCapableShellFn of [() => false, () => true]) {
     const adapter = fakeHooksAdapter({ includeHooks: false });
     const adapters = createAdapterRegistry({ fake: adapter });
-    const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-bash-availability-state-'));
+    const stateRoot = tempDir(t, 'doflow-bash-availability-state-');
     const plan = planLifecycle({ registry: hooksRegistry, adapters, scope: 'project', scopeRoot: root, targets: ['fake'] });
 
     const result = applyLifecycle({ plan, registry: hooksRegistry, adapters, stateRoot, hasBashCapableShellFn });
@@ -227,10 +227,10 @@ test('applyLifecycle: a plan touching only a non-hooks asset succeeds regardless
   }
 });
 
-test('applyLifecycle: mode "remove" on a hooks-bearing plan succeeds even with hasBashCapableShellFn returning false', () => {
+test('applyLifecycle: mode "remove" on a hooks-bearing plan succeeds even with hasBashCapableShellFn returning false', (t) => {
   const adapter = fakeHooksAdapter({ includeHooks: true });
   const adapters = createAdapterRegistry({ fake: adapter });
-  const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-bash-availability-state-'));
+  const stateRoot = tempDir(t, 'doflow-bash-availability-state-');
   const ledger = defaultLedger({ scope: 'project', scopeRoot: root });
   ledger.resources.push(
     { harness: 'fake', scope: 'project', assetId: 'guidance.fake', target: 'FAKE.md', ownershipIdentity: 'fake:guidance', fingerprint: 'owned' },

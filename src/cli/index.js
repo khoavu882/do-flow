@@ -387,6 +387,7 @@ Commands:
   indicators           Per-stage and per-gate timings from the orchestration record
   discover             Missed capability opportunities in recorded runs
   inventory            Shadowed copies, drift and unmanaged files across both install scopes
+  storage              Report stored data and retention bounds (--action report|prune|upkeep)
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
   decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
   followup             Record, list, take, settle, promote or report what a feature left unfinished (--action add|list|take|settle|promote|report)
@@ -490,7 +491,7 @@ function commandName(name) { return typeof name === 'string' && COMMAND_NAMES.ha
  * through the installer table above or through the runtime-verb dispatcher.
  * @param {Array<string>} argv process.argv minus node and the script path
  */
-function main(argv) {
+async function main(argv) {
   const o = parseArgs(argv);
   if (o.version) { console.log(pkg.version); return; }
   if (o.help || !o.cmd) { console.log(HELP); return; }
@@ -498,7 +499,7 @@ function main(argv) {
   try {
     const handler = COMMANDS[o.cmd];
     if (handler) return handler(o);
-    return dispatchRuntimeCommand(o);
+    return await dispatchRuntimeCommand(o);
   } catch (error) {
     // Recorded silently when it is a programming error (IC-016); the output and exit status below
     // are the same whether or not anything was written.

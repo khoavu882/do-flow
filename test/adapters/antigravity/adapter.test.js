@@ -2,15 +2,15 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const { loadRegistry, selectAssets } = require('../../../src/registry');
 const { projectAdapterInput } = require('../../../src/adapters');
 const adapter = require('../../../src/adapters/antigravity');
 const { expectExecutable } = require('../../helper-platform');
 
 const REPO = path.resolve(__dirname, '..', '..', '..');
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-agy-')); }
+function scratch() { return suiteTempDir('doflow-agy-'); }
 
 function harnessInput(registry, { scope = 'project', scopeRoot, mcp = [], ledger } = {}) {
   const harness = registry.harnesses.find((h) => h.id === 'antigravity');
@@ -391,7 +391,7 @@ SHIM_TEST('pre-implementation-gate shim recognizes Antigravity\'s own native too
 });
 
 SHIM_TEST('pre-implementation-gate shim denies write_to_file when a started feature is missing specs', () => {
-  const scratchRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-agy-gate-'));
+  const scratchRepo = suiteTempDir('doflow-agy-gate-');
   execFileSync('git', ['init', '-q'], { cwd: scratchRepo });
   execFileSync('git', ['checkout', '-q', '-b', 'feat/999-scratch'], { cwd: scratchRepo });
   fs.mkdirSync(path.join(scratchRepo, 'agent-docs', 'doflow', '999-scratch'), { recursive: true });
@@ -430,7 +430,7 @@ function runStopShim(payload) {
 }
 
 function transcriptWith(lines) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-agy-transcript-'));
+  const dir = suiteTempDir('doflow-agy-transcript-');
   const file = path.join(dir, 'transcript.jsonl');
   fs.writeFileSync(file, lines.map((line) => JSON.stringify(line)).join('\n') + '\n');
   return file;

@@ -9,6 +9,7 @@ const { createScratch } = require('../helper/scratch-env');
 const { projectRoot } = require('../../src/runtime/lifecycle/root');
 const store = require('../../src/runtime/lifecycle/event-store');
 const { foldEvents } = require('../../src/runtime/lifecycle/fold');
+const { prepareStore } = require('../../src/runtime/lifecycle/store-upkeep');
 
 const scratch = createScratch('doflow-store-');
 test.before(() => scratch.apply());
@@ -118,6 +119,23 @@ test('read: no folder gives an empty fold and creates nothing', () => {
   const result = store.readFold(dir);
   assert.deepEqual([result.followups, result.conflicts, result.unreadable], [[], [], []]);
   assert.equal(fs.existsSync(path.join(dir, store.LIFECYCLE_REL)), false);
+});
+
+test('prepareStore composes the default retention window from a project prune setting', () => {
+  const dir = plainDir('prepare-default-window');
+  const at = new Date(Date.now() - 181 * 24 * 3600000).toISOString();
+  const addedId = `${at.replace(/[-:.]/g, '')}-aaaaaa`;
+  const settledAt = new Date(Date.parse(at) + 1).toISOString();
+  const settledId = `${settledAt.replace(/[-:.]/g, '')}-bbbbbb`;
+  const events = path.join(dir, store.EVENTS_REL);
+  fs.mkdirSync(events, { recursive: true });
+  fs.mkdirSync(path.join(dir, '.doflow'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.doflow', 'prune'), 'on\n');
+  fs.writeFileSync(path.join(events, `${addedId}.json`), JSON.stringify({ v: 1, id: addedId, type: 'followup.added', at, by: 'agent', data: { id: 'FU-aaaaaa', statement: 'settled', source: { kind: 'manual' } } }));
+  fs.writeFileSync(path.join(events, `${settledId}.json`), JSON.stringify({ v: 1, id: settledId, type: 'followup.settled', at: settledAt, by: 'agent', data: { id: 'FU-aaaaaa', as: 'dismissed', reason: 'done' } }));
+  const out = prepareStore(dir, { env: scratch.env() });
+  assert.deepEqual(out, { ok: true, lines: [] });
+  assert.deepEqual(fs.readdirSync(events), []);
 });
 
 test('read: names that are not event ids are ignored; a matching file that is not an envelope is unreadable', () => {

@@ -2,8 +2,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const {
   MCP_KIND, readCodexMcpCatalog, renderServer, resourceFor,
   reconcileCodexMcp, ownedCodexMcpIds,
@@ -13,7 +13,7 @@ const { loadRegistry } = require('../../../src/registry');
 
 const REPO = path.resolve(__dirname, "../../..");
 const REGISTRY = loadRegistry({ repoRoot: REPO });
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-codex-mcp-')); }
+function scratch() { return suiteTempDir('doflow-codex-mcp-'); }
 function catalog() { return readCodexMcpCatalog(REGISTRY); }
 function options(file, selected, extra = {}) { return { file, scope: 'project', selected, ...catalog(), ...extra }; }
 

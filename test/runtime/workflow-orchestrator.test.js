@@ -2,13 +2,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir, suiteTempDir } = require('../helper/tmp');
 const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator');
 const { WorkflowEngine } = require('../../src/runtime/workflow-engine');
 
 const REPO = path.resolve(__dirname, '..', '..');
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-orch-')); }
+function scratch(t) { return t ? tempDir(t, 'doflow-workflow-orchestrator-') : suiteTempDir('doflow-workflow-orchestrator-'); }
 const READY = () => 'READY';
 const NEVER_READY = () => 'NEEDS_EVIDENCE';
 
@@ -442,8 +442,7 @@ test('catch-up blocks on a mutating stage carrying a readiness template that onl
 
 
 test('blocking research request refuses handoff and direct completion without cursor movement', t => {
-  const root = scratch();
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = scratch(t);
   const orch = new WorkflowOrchestrator({ repoRoot: REPO, projectRoot: root,
     stateDir: path.join(root, '.doflow/state/orchestration'), readinessEvaluate: READY });
   const { ResearchRequestStore } = require('../../src/runtime/research-request');
@@ -464,8 +463,7 @@ test('blocking research request refuses handoff and direct completion without cu
 
 /** An orchestrator over a state directory removed when the test ends. */
 function owned(t, readinessEvaluate = READY) {
-  const root = scratch();
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = scratch(t);
   return new WorkflowOrchestrator({ repoRoot: REPO, projectRoot: root, stateDir: path.join(root, '.doflow', 'state', 'orchestration'), readinessEvaluate });
 }
 

@@ -83,7 +83,7 @@ class StoreUnsafeError extends Error {}
 class StoreLockedError extends Error {}
 
 function assertStoreFolders(root, fsImpl) {
-  for (const rel of [LIFECYCLE_REL, EVENTS_REL]) {
+  for (const rel of [path.join('.doflow'), path.join('.doflow', 'state'), LIFECYCLE_REL, EVENTS_REL]) {
     const folder = path.join(root, rel);
     let link = false;
     try { link = fsImpl.lstatSync(folder).isSymbolicLink(); } catch { /* absent: nothing to follow */ }
@@ -156,7 +156,7 @@ function readJournal(root, fsImpl = nodeFs) {
 }
 
 /** One pass over the event files, leaving out the names in `hidden`. */
-function readEventFiles(root, fsImpl, hidden) {
+function readEventFiles(root, fsImpl, hidden, shouldStop) {
   const dir = eventsDir(root);
   let names;
   try {
@@ -165,10 +165,13 @@ function readEventFiles(root, fsImpl, hidden) {
     if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return { events: [], unreadable: [], reasons: {} };
     throw error;
   }
+  const orderedNames = names.sort();
+  if (shouldStop?.()) return { events: [], unreadable: [], reasons: {}, incomplete: true };
   const events = [];
   const unreadable = [];
   const reasons = {};
-  for (const name of names.sort()) {
+  for (const name of orderedNames) {
+    if (shouldStop?.()) return { events: [], unreadable: [], reasons: {}, incomplete: true };
     if (!isEventName(name) || hidden.has(name)) continue;
     const read = readEventFile(fsImpl, path.join(dir, name));
     if (read.reason) { unreadable.push(name); reasons[name] = read.reason; continue; }
@@ -180,6 +183,7 @@ function readEventFiles(root, fsImpl, hidden) {
       unreadable.push(name);
     }
   }
+  if (shouldStop?.()) return { events: [], unreadable: [], reasons: {}, incomplete: true };
   return { events, unreadable, reasons };
 }
 
@@ -196,16 +200,24 @@ function readEventFiles(root, fsImpl, hidden) {
  * store lock, which every journal writer holds. A caller already holding the lock never sees the
  * generation move, so it returns after the first read. A lock that cannot be taken throws
  * StoreLockedError.
- * @returns {{events: Object[], unreadable: string[], reasons: Object<string,string>}}
+ * @returns {{events: Object[], unreadable: string[], reasons: Object<string,string>, incomplete?: true}}
  */
-function readEvents(root, { fsImpl = nodeFs } = {}) {
+function readEvents(root, { fsImpl = nodeFs, lockFallback = true, shouldStop } = {}) {
   assertStoreFolders(root, fsImpl);
+  if (shouldStop?.()) return { events: [], unreadable: [], reasons: {}, incomplete: true };
   for (let attempt = 1; attempt <= STABLE_READS; attempt += 1) {
+    if (shouldStop?.()) return { events: [], unreadable: [], reasons: {}, incomplete: true };
     const before = readJournal(root, fsImpl);
-    const result = readEventFiles(root, fsImpl, new Set(before.pending));
-    if (readJournal(root, fsImpl).generation === before.generation) return result;
-    if (attempt < STABLE_READS) sleep(READ_WAIT_MS);
+    if (shouldStop?.()) return { events: [], unreadable: [], reasons: {}, incomplete: true };
+    const result = readEventFiles(root, fsImpl, new Set(before.pending), shouldStop);
+    if (result.incomplete || shouldStop?.()) return { events: [], unreadable: [], reasons: {}, incomplete: true };
+    const after = readJournal(root, fsImpl);
+    if (shouldStop?.()) return { events: [], unreadable: [], reasons: {}, incomplete: true };
+    if (after.generation === before.generation) return result;
+    if (attempt < STABLE_READS && !shouldStop?.()) sleep(READ_WAIT_MS);
   }
+  if (shouldStop?.()) return { events: [], unreadable: [], reasons: {}, incomplete: true };
+  if (!lockFallback) throw new StoreLockedError('Lifecycle event store changed during a read; a stable snapshot was unavailable.');
   let release;
   try {
     release = acquireLock(fsImpl, lockTarget(root));
@@ -214,7 +226,7 @@ function readEvents(root, { fsImpl = nodeFs } = {}) {
     throw error;
   }
   try {
-    return readEventFiles(root, fsImpl, new Set(readJournal(root, fsImpl).pending));
+    return readEventFiles(root, fsImpl, new Set(readJournal(root, fsImpl).pending), shouldStop);
   } finally {
     release();
   }

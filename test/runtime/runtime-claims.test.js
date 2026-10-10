@@ -3,8 +3,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const fs = require('node:fs');
-const os = require('node:os');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
 const { ClaimsManager } = require('../../src/runtime/claims');
 
@@ -100,8 +100,8 @@ test('ClaimsManager invalidates supported claim when supporting evidence becomes
   assert.equal(claims.getClaim(claimId).status, 'invalidated');
 });
 
-test('ClaimsManager saves and loads task claims', () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-test-claims-'));
+test('ClaimsManager saves and loads task claims', (t) => {
+  const tmpDir = tempDir(t, 'doflow-runtime-claims-');
   const claims1 = new ClaimsManager({ stateDir: tmpDir });
 
   claims1.addClaim({
@@ -120,8 +120,6 @@ test('ClaimsManager saves and loads task claims', () => {
   const loaded = claims2.getClaim('claim_persist_1');
   assert.ok(loaded);
   assert.equal(loaded.statement, 'Retry limit is 3');
-
-  fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
 // ── Claim lifecycle: retract and supersede (FR-001, FR-002, FR-003) ──────────
@@ -204,8 +202,8 @@ test('retracting or superseding an unknown claim is refused', () => {
   assert.throws(() => claims.supersedeClaim('claim_nope', 'x'), /Unknown claim/);
 });
 
-test('a claims file written before terminal states loads and evaluates unchanged', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-claims-compat-'));
+test('a claims file written before terminal states loads and evaluates unchanged', (t) => {
+  const root = tempDir(t, 'doflow-runtime-claims-compat-');
   const stateDir = path.join(root, '.doflow', 'state', 'evidence');
   fs.mkdirSync(stateDir, { recursive: true });
   fs.writeFileSync(path.join(stateDir, 'legacy_claims.json'), JSON.stringify({
@@ -231,8 +229,8 @@ test('a claims file written before terminal states loads and evaluates unchanged
   assert.equal(claim.supersededBy, undefined);
 });
 
-test('terminal state and forward pointer survive a save/load round trip', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-claims-rt-'));
+test('terminal state and forward pointer survive a save/load round trip', (t) => {
+  const root = tempDir(t, 'doflow-runtime-claims-roundtrip-');
   const claims = new ClaimsManager({ repoRoot: root });
   const oldId = claims.addClaim({ statement: 'old', taskId: 't' });
   const newId = claims.addClaim({ statement: 'new', taskId: 't' });

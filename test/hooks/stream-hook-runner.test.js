@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const {
   evaluateToolCall, evaluatePayload, resolveProjectRoot,
   evaluateEvent, resolveAgent, resolveAdapter, resolvePolicyScript,
@@ -25,7 +26,7 @@ test('stream-hook-runner: resolveProjectRoot resolves to the git toplevel, not a
 test('stream-hook-runner: resolveProjectRoot skips a non-git workspacePaths entry in a multi-root list (022-code-review regression)', () => {
   // A multi-root workspace listing a non-git directory first must not stop the search — the
   // Antigravity shim this runner replaced iterated every entry, not just the first that exists.
-  const root = resolveProjectRoot([require('node:os').tmpdir(), process.cwd()]);
+  const root = resolveProjectRoot([suiteTempDir('doflow-runner-nongit-'), process.cwd()]);
   assert.equal(root, process.cwd());
 });
 
@@ -270,7 +271,7 @@ function capPair(runner, args, stdin, options = {}) {
 
 /** A scratch copy of the hooks folder whose pre-bash-guard.sh is replaced by `body`. */
 function runnerWithPolicy(body) {
-  const dir = fs.mkdtempSync(path.join(capScratch.dir, 'hooks-'));
+  const dir = suiteTempDir('doflow-runner-hooks-');
   fs.cpSync(HOOKS_DIR, dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'policies', 'pre-bash-guard.sh'), `#!/usr/bin/env bash\ncat >/dev/null   # read the payload like a real policy: a script that exits first makes the runner's stdin write fail with EPIPE\n${body}\n`, { mode: 0o755 });
   return path.join(dir, 'stream-hook-runner.js');

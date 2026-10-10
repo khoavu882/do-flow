@@ -11,8 +11,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const { spawnSync, execFileSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, "../..");
@@ -21,8 +21,7 @@ const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 /** A git-backed scratch project. Git-backed because freshness records the observed commit, and a
  *  non-repo temp dir would exercise only the null branch of that measurement. */
 function project() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-evidence-'));
-  const real = fs.realpathSync(dir);
+  const real = suiteTempDir('doflow-runtime-evidence-write-');
   fs.writeFileSync(path.join(real, 'a.js'), 'module.exports = { x: 1 };\n');
   fs.writeFileSync(path.join(real, 'b.js'), 'require("./a.js");\n');
   const git = (...args) => execFileSync('git', ['-C', real, ...args], { stdio: 'ignore' });

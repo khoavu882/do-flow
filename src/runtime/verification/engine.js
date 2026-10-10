@@ -32,6 +32,7 @@ const {
 const { readReadinessRecord, RECORD_VERSION } = require('../readiness-record');
 const { verifyReadinessCheck, featureSlugFor } = require('../implementation-gate');
 const { assertSafeTaskId } = require('../evidence-ledger');
+const { upkeepAfterVerify } = require('../storage/upkeep');
 const {
   VerificationContractRunner,
   FATAL_CHECK_MARKERS,
@@ -1090,6 +1091,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   }
   // PASS is the only status that answers "verified". FAIL and INCONCLUSIVE are both findings, and
   // collapsing INCONCLUSIVE into success would report a verdict over zero evidence as a pass.
+  upkeepAfterVerify({ projectRoot: cwd });
   return finishRuntime(report.status === 'PASS' ? 0 : 1);
 }
 

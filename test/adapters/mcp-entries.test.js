@@ -2,13 +2,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const {
   entryFingerprint, readMcpFiles, planMcpEntries, applyMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpJson, writeMcpEntries,
 } = require('../../src/adapters/mcp-entries');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-mcp-entries-')); }
+function scratch() { return suiteTempDir('doflow-mcp-entries-'); }
 
 const A = { id: 'alpha', entry: { command: 'npx', args: ['alpha'] } };
 const B = { id: 'beta', entry: { command: 'npx', args: ['beta'] } };

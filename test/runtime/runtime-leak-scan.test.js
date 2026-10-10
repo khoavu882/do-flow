@@ -3,12 +3,12 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const { scanPaths, handleLeakScanCommand, LEAK_PATTERNS } = require('../../src/runtime/leak-scan');
 
 function tmpRepo(files) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-leak-'));
+  const root = suiteTempDir('doflow-runtime-leak-scan-');
   for (const [rel, body] of Object.entries(files)) {
     const target = path.join(root, rel);
     fs.mkdirSync(path.dirname(target), { recursive: true });

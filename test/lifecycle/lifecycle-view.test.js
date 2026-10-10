@@ -1,17 +1,16 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { loadRegistry } = require('../../src/registry');
 const {
   codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES, assertSafeRegistryPlan,
 } = require('../../src/lifecycle/view');
+const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, "../..");
 
-function scratchProject() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-view-')); }
+function scratchProject(t) { return tempDir(t, 'doflow-lifecycle-view-'); }
 
 test('codexScope maps {global} to Codex\'s "global"/"project" scope names', () => {
   assert.equal(codexScope({ global: true }), 'global');
@@ -22,9 +21,9 @@ test('LIFECYCLE_HARNESSES names exactly the eight harnesses the registry/lifecyc
   assert.deepEqual(LIFECYCLE_HARNESSES, ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
 });
 
-test('registryLifecycleView computes a fresh-install plan for every requested harness from a real registry', () => {
+test('registryLifecycleView computes a fresh-install plan for every requested harness from a real registry', (t) => {
   const registry = loadRegistry({ repoRoot: REPO });
-  const projectRoot = scratchProject();
+  const projectRoot = scratchProject(t);
   const view = registryLifecycleView({
     registry, repoRoot: REPO, scope: { global: false, projectRoot }, targets: ['claude', 'codex', 'gemini'],
   });
@@ -36,9 +35,9 @@ test('registryLifecycleView computes a fresh-install plan for every requested ha
   assert.equal(view.plan.safe, true, 'a fresh install with no foreign conflicts must be a safe plan');
 });
 
-test('registryLifecycleView narrows to only the requested targets', () => {
+test('registryLifecycleView narrows to only the requested targets', (t) => {
   const registry = loadRegistry({ repoRoot: REPO });
-  const projectRoot = scratchProject();
+  const projectRoot = scratchProject(t);
   const view = registryLifecycleView({
     registry, repoRoot: REPO, scope: { global: false, projectRoot }, targets: ['claude'],
   });

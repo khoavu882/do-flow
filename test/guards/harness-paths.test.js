@@ -11,12 +11,12 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { loadRegistry } = require('../../src/registry');
 const { validatePathsSection, resolveHarnessPaths } = require('../../src/helper/harness-paths');
 const { REPO } = require('./_shared');
+const { tempDir } = require('../helper/tmp');
 
 const registry = loadRegistry({ repoRoot: REPO });
 
@@ -53,35 +53,31 @@ test('G-Paths: declarations are consistent — every uniform-rule surface exists
   assert.deepEqual(offenders, [], `declarations must resolve under their scope root:\n  ${offenders.join('\n  ')}`);
 });
 
-test('G-Paths: a real claude project install lands exactly on the declared paths', () => {
+test('G-Paths: a real claude project install lands exactly on the declared paths', (t) => {
   // One CLI spawn is the whole runtime cost; claude is the cheapest full-featured target.
-  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-gpaths-'));
+  const sandbox = tempDir(t, 'doflow-gpaths-');
   const project = path.join(sandbox, 'proj');
   const home = path.join(sandbox, 'home');
   fs.mkdirSync(project);
   fs.mkdirSync(home);
-  try {
-    const installed = spawnSync('node', [path.join(REPO, 'bin', 'doflow.js'), 'install', project, '-f', '--no-backup', '-t', 'claude'], {
-      cwd: REPO, encoding: 'utf8',
-      env: { ...process.env, HOME: home },
-    });
-    assert.equal(installed.status, 0, `probe install failed: ${installed.stderr}`);
+  const installed = spawnSync('node', [path.join(REPO, 'bin', 'doflow.js'), 'install', project, '-f', '--no-backup', '-t', 'claude'], {
+    cwd: REPO, encoding: 'utf8',
+    env: { ...process.env, HOME: home },
+  });
+  assert.equal(installed.status, 0, `probe install failed: ${installed.stderr}`);
 
-    const harness = registry.harnesses.find((item) => item.id === 'claude');
-    const resolved = resolveHarnessPaths(harness.paths, { scope: 'project', scopeRoot: project, homeDir: home });
-    // Every declared FILE surface that this install projects must exist at exactly the declared
-    // location — instructions/settings/keybindings/statusline come from assets, mcp from selection.
-    for (const surface of ['instructions', 'settings', 'keybindings']) {
-      assert.ok(fs.existsSync(resolved[surface]), `${surface} did not land at the declared path ${resolved[surface]}`);
-    }
-    // The config dir holds the projected trees at their declared root.
-    for (const dir of ['skills', 'agents', 'hooks']) {
-      assert.ok(fs.existsSync(path.join(resolved.configDir, dir)), `${dir}/ missing under the declared configDir`);
-    }
-    // And nothing landed OUTSIDE the declaration: the instruction file must not also exist at the
-    // historical wrong guess (the project root), which is the drift class this guard exists for.
-    assert.ok(!fs.existsSync(path.join(project, 'CLAUDE.md')), 'a CLAUDE.md at the project root contradicts the declared .claude/CLAUDE.md path');
-  } finally {
-    fs.rmSync(sandbox, { recursive: true, force: true });
+  const harness = registry.harnesses.find((item) => item.id === 'claude');
+  const resolved = resolveHarnessPaths(harness.paths, { scope: 'project', scopeRoot: project, homeDir: home });
+  // Every declared FILE surface that this install projects must exist at exactly the declared
+  // location — instructions/settings/keybindings/statusline come from assets, mcp from selection.
+  for (const surface of ['instructions', 'settings', 'keybindings']) {
+    assert.ok(fs.existsSync(resolved[surface]), `${surface} did not land at the declared path ${resolved[surface]}`);
   }
+  // The config dir holds the projected trees at their declared root.
+  for (const dir of ['skills', 'agents', 'hooks']) {
+    assert.ok(fs.existsSync(path.join(resolved.configDir, dir)), `${dir}/ missing under the declared configDir`);
+  }
+  // And nothing landed OUTSIDE the declaration: the instruction file must not also exist at the
+  // historical wrong guess (the project root), which is the drift class this guard exists for.
+  assert.ok(!fs.existsSync(path.join(project, 'CLAUDE.md')), 'a CLAUDE.md at the project root contradicts the declared .claude/CLAUDE.md path');
 });

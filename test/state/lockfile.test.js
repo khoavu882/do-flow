@@ -2,11 +2,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { LOCK_VERSION, lockPath, defaultLock, validateLock, readLock, writeLock, diffLocks } = require('../../src/state/lockfile');
+const { tempDir } = require('../helper/tmp');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lock-')); }
+function scratch(t) { return tempDir(t, 'doflow-lock-'); }
 const projectScope = (project) => ({ scope: 'project', projectRoot: project });
 
 function sampleLock(project, overrides = {}) {
@@ -25,16 +25,16 @@ function sampleLock(project, overrides = {}) {
   return lock;
 }
 
-test('lock paths are neutral and scope-specific under .doflow/', () => {
-  const home = scratch();
-  const project = scratch();
+test('lock paths are neutral and scope-specific under .doflow/', (t) => {
+  const home = scratch(t);
+  const project = scratch(t);
   assert.equal(lockPath(projectScope(project)), path.join(project, '.doflow', 'doflow.lock'));
   assert.equal(lockPath({ scope: 'global', homeDir: home }), path.join(home, '.doflow', 'doflow.lock'));
   assert.throws(() => lockPath({ scope: 'team', projectRoot: project }), /Invalid lock scope/);
 });
 
-test('lock writes atomically, round-trips, and is deterministically ordered', () => {
-  const project = scratch();
+test('lock writes atomically, round-trips, and is deterministically ordered', (t) => {
+  const project = scratch(t);
   const lock = sampleLock(project);
   writeLock(projectScope(project), lock);
   const onDisk = fs.readFileSync(path.join(project, '.doflow', 'doflow.lock'), 'utf8');
@@ -46,8 +46,8 @@ test('lock writes atomically, round-trips, and is deterministically ordered', ()
   assert.ok(fs.readdirSync(path.join(project, '.doflow')).every((f) => !f.endsWith('.tmp')));
 });
 
-test('validate rejects foreign versions and malformed shapes', () => {
-  const project = scratch();
+test('validate rejects foreign versions and malformed shapes', (t) => {
+  const project = scratch(t);
   const lock = sampleLock(project);
   validateLock(lock);
   assert.throws(() => validateLock({ ...lock, version: LOCK_VERSION + 1 }), /Unsupported doflow.lock version/);
@@ -60,8 +60,8 @@ test('validate rejects foreign versions and malformed shapes', () => {
   assert.throws(() => readLock(projectScope(project)), /Cannot read doflow\.lock/);
 });
 
-test('diffLocks reports added/removed/changed per section and a clean verdict', () => {
-  const project = scratch();
+test('diffLocks reports added/removed/changed per section and a clean verdict', (t) => {
+  const project = scratch(t);
   const before = sampleLock(project);
   assert.equal(diffLocks(before, before).clean, true);
 
@@ -80,8 +80,8 @@ test('diffLocks reports added/removed/changed per section and a clean verdict', 
   assert.equal(diff.clean, false);
 });
 
-test('a 1.18.0-shaped lock validates and a non-array MCP row is rejected', () => {
-  const project = scratch();
+test('a 1.18.0-shaped lock validates and a non-array MCP row is rejected', (t) => {
+  const project = scratch(t);
   // 1.18.0 wrote rows only for claude and codex, and none for an empty selection.
   const legacy = sampleLock(project, {
     targets: [{ harness: 'claude' }, { harness: 'codex' }, { harness: 'gemini' }],
@@ -94,8 +94,8 @@ test('a 1.18.0-shaped lock validates and a non-array MCP row is rejected', () =>
     { message: 'Invalid doflow.lock: mcpSelections.codex must be an array of server ids' });
 });
 
-test('diffLocks tells an absent MCP row from an empty one and ignores rows of non-targets', () => {
-  const project = scratch();
+test('diffLocks tells an absent MCP row from an empty one and ignores rows of non-targets', (t) => {
+  const project = scratch(t);
   const before = sampleLock(project, { mcpSelections: { codex: ['context7'] } });
   const after = sampleLock(project, { mcpSelections: { codex: ['context7'], claude: [] } });
   const diff = diffLocks(before, after);
@@ -106,8 +106,8 @@ test('diffLocks tells an absent MCP row from an empty one and ignores rows of no
   assert.equal(diffLocks(before, stray).clean, true, 'kiro is not a target, so its row is not pinned');
 });
 
-test('a failing rename leaves the prior lock bytes and no temp file', () => {
-  const project = scratch();
+test('a failing rename leaves the prior lock bytes and no temp file', (t) => {
+  const project = scratch(t);
   writeLock(projectScope(project), sampleLock(project));
   const file = lockPath(projectScope(project));
   const priorBytes = fs.readFileSync(file);

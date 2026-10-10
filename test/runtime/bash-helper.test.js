@@ -3,12 +3,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const { resolveBashHelper } = require('../../src/helper/bash-helper');
 
-const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-bash-helper-')));
-test.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+const dir = suiteTempDir('doflow-bash-helper-');
 
 /** A runtime root `<base>/.doflow/runtime`, with the helper in the checkout place, the install place, both or neither. */
 function layout(name, { checkout = false, install = false } = {}) {

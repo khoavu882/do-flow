@@ -47,6 +47,7 @@ are reported rather than imitated.
 | `src/adapters/` | Native file formats and verification boundaries, one directory per harness (`claude`, `codex`, `gemini`, `opencode`, `pi`, `copilot`, `kiro`, `antigravity`), each implementing the same six-function contract (`discover, render, plan, apply, remove, verify`) that `src/adapters/index.js` validates and each also exposing that contract through a uniform `create<Name>Adapter()` factory (`createClaudeAdapter`, `createCodexAdapter`, `createGeminiAdapter`, and so on); `src/adapters/copy-tree.js` is the shared tree-materializing engine most adapters call into rather than reimplementing file-copy logic; `src/adapters/mcp-entries.js` holds the MCP entry ownership rules the Claude, Kiro, OpenCode, Copilot and Antigravity adapters share |
 | `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification against the neutral state ledger; obtains `planGeminiHooks` from the gemini adapter's public export (`src/adapters/gemini/index.js`) rather than reaching into a file inside it, and shares the generic parser in `src/helper/toml.js` with `src/adapters/codex/config.js` instead of depending on that adapter |
 | `src/runtime/` | Everything a skill asks for at use time: classification, workflow resolution, capability routing, evidence and claims, readiness, verification and command detection, recovery, tracing, scaffold generation, the per-feature decision register and History compaction (`decision-register.js`, `history-compactor.js`), and provider health; `src/runtime/cli-result.js` holds the exit/error-reporting helpers (`finishRuntime`, `usageError`) shared by the verb handlers `src/cli/runtime-commands.js` dispatches to, and deliberately depends on nothing else in the tree |
+| `src/runtime/storage/` | Storage retention: the registry loader and roots (`registry.js`, `roots.js`), the one definition of finished work (`work-status.js`), the bounded pass and its rules (`engine.js`, `rules.js`), the silent cleanup moments (`upkeep.js`) and the `storage` verb (`cli.js`) |
 | `src/state/` | Harness-neutral ledger, recovery records, and legacy-manifest migration |
 | `src/registry/` | Loads and validates `core/registry/*.json` into the in-memory registry object every adapter and lifecycle call consumes — the same data `test/guards/registry.test.js` checks implementation claims against |
 | `src/helper/` | Cross-layer utilities with no harness-, install-, or runtime-specific domain: git commit lookup (`git.js`), managed-section merging (`marker-merge.js`), interactive prompts (`prompt.js`), `settings.json` merging (`settings-merge.js`, `settings-scope.js`), generic TOML parsing (`toml.js`), and the single computation of the package root (`repo-root.js`), which every layer shares and no layer should re-derive from its own depth |
@@ -159,6 +160,7 @@ registries](#installation-registries) for the same plain-JSON convention.
 | `core/registry/capabilities.json` | The capabilities an information need can resolve to, and their providers |
 | `core/registry/routes.json` | Information need → capability, with an ordered fallback when the preferred capability has no healthy provider |
 | `core/registry/external-tools.json` | External tools DoFlow can detect, install, and probe rather than reimplement |
+| `core/registry/storage.json` | Every store DoFlow writes: its root, location, retention bound, rule kind and writer files, plus the pass budget, throttle and ignore-file text. `src/runtime/storage/` reads it and G26 checks it against the code and `docs/reference.md` |
 
 Two contracts follow from these files and should not be re-expressed as flags. Readiness is a
 four-state verdict — `READY`, `NEEDS_EVIDENCE`, `NEEDS_USER_DECISION`, `BLOCKED` — with the missing
@@ -216,8 +218,9 @@ module headers of `root.js`, `event-store.js` and `fold.js`; the event types are
 Every event carries `v`, `id`, `type`, `at`, `by` and `data`. A file whose name is not an event id is
 ignored; one that does not parse is skipped and listed as `unreadable`; a transition that is illegal
 at its place in the order is not applied and is listed as a conflict. A write is refused with
-`store-locked` when the store lock cannot be taken in time. Nothing in the store is ever edited or deleted by DoFlow, and
-nothing in it is staged, committed or ignored by DoFlow.
+`store-locked` when the store lock cannot be taken in time. Nothing in the store is ever edited by DoFlow; the files of
+settled items are deleted once they pass the retention window (180 days by default, see `core/registry/storage.json`),
+and nothing in it is staged or committed. `.doflow/state/.gitignore` keeps the store out of `git add -A`.
 
 ### Release detection
 
@@ -388,6 +391,19 @@ Examples:
 - Change a skill's flags: land the skill's `argument-hint`, `docs/reference.md`, and `docs/flags.md` in the same commit. Three guards cross-check them, so a partial change turns the suite red.
 - Change user guidance: give it one canonical document—Quickstart, Setup, Guide, Reference, or Overview—rather than copying it across all of them.
 
+### Storage and retention
+
+Every file DoFlow writes belongs to a store declared in `core/registry/storage.json`, and the bound
+lives there and nowhere else.
+
+- **Add a writer.** Declare the file in the `writers` of the store it writes, or add a store with its
+  root, `match`, `bound` and rule. A new store also needs a step in G26's sandbox scenario that
+  produces it. Regenerate the `| Store | Location | Bound |` rows of `docs/reference.md` from
+  `formatBound()`, then run `node --test test/guards/storage-declarations.test.js` and the
+  `test/runtime/storage-*.test.js` files.
+- **Change a bound.** Edit the store's `bound` in `storage.json`, regenerate the same rows, and run the
+  same tests.
+
 ## Validation
 
 Run checks appropriate to the change:
@@ -401,7 +417,11 @@ bash test/verify-hooks.sh                  # shell suites — not part of npm te
 bash test/code-review-fixtures.sh          # do-code-review's analyzer fixtures, outside npm test
 pip install -r requirements.txt            # docs deps, once per environment — see note below
 mkdocs build --strict --site-dir /tmp/doflow-docs-site
+d="$(mktemp -d)"; TMPDIR="$d" npm test; find "$d" -mindepth 1 -maxdepth 1 -name 'doflow-*'; rm -rf "$d"   # test debris check, outside npm test
 ```
+
+The debris check prints nothing when the suite left no temporary folder behind. It is not part of
+`npm test`, because a test cannot observe the whole run it belongs to.
 
 The docs build needs `mkdocs` and the Dracula theme, which `requirements.txt` pins and which nothing
 else in this repository installs. Without that step `mkdocs build` reports command-not-found, which
@@ -415,12 +435,12 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-thirty-two test files (plus `_shared.js`, a helper rather than a test); the twenty-five listed
-below are the ones this inventory documents, and they carry twenty-three distinct G-numbers because two
+thirty-four test files (plus `_shared.js`, a helper rather than a test); the twenty-seven listed
+below are the ones this inventory documents, and they carry twenty-five distinct G-numbers because two
 numbers are used twice. Name the file, not the number, when you mean a specific guard: across the
 whole directory three numbers are claimed by two files each — G11 and G13, both pairs listed below,
 and G18, whose second claimant `adapter-force.test.js` is not. The collisions are historical rather
-than a convention; G25 is the highest number in use, so a new guard takes the next one above it
+than a convention; G27 is the highest number in use, so a new guard takes the next one above it
 instead of adding a fourth. The list is not the whole directory. The seven files absent from it are
 `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then G18;
 `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half of
@@ -565,6 +585,16 @@ the G18 pair — between them the reason the list runs G18 then G20; and `bounda
   names no model or provider, that `pathPattern` compiles in `jq`, and that the decision program
   (`prompt-nudge.jq`) runs against the shipped rules on a probe payload. The workflow engine does not
   read this key, so nothing else validates it.
+- **G26** (`storage-declarations.test.js`) — every store DoFlow writes is declared with its retention
+  in `core/registry/storage.json`. The registry's shape loads; every static write call under `src/`,
+  `bin/`, `core/shared/scripts/` and `core/harnesses/` is scanned and must sit in a declared writer
+  file (an undeclared file is reported once per call), and every declared writer still writes; a sandbox scenario of real verbs, hooks and install steps maps each new path
+  to a declaration and fails on a store no step produced; every `existing` store's bound is still in
+  its source; the store table in `docs/reference.md` equals the registry; and `src/runtime/storage/`
+  makes no network or child-process call.
+- **G27** (`test-tempdirs.test.js`) — tests create temporary folders only through
+  `test/helper/tmp.js`, so every folder is removed when its test or file ends. Each other call is
+  named by file and line, and an `EXEMPT` entry needs a reason and fails once it no longer matches.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

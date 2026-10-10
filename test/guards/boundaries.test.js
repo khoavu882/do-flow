@@ -58,8 +58,8 @@ test('G-B2: inventory ratchets — registry files and adapters', () => {
   // doctrine) before raising this.
   const registryEntries = fs.readdirSync(path.join(REPO, 'core', 'registry'))
     .filter((name) => /\.json$/.test(name));
-  assert.equal(registryEntries.length, 12,
-    `core/registry holds ${registryEntries.length} files; expected the ratcheted 12`);
+  assert.equal(registryEntries.length, 13,
+    `core/registry holds ${registryEntries.length} files; expected the ratcheted 13`);
 
   // Stage 3 makes adapters thinner but never fewer: one directory per harness, plus the shared
   // copy-tree engine and the contract validator live as siblings.

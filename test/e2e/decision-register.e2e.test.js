@@ -3,21 +3,20 @@
 // the real dispatcher `doflow-run` (what every harness calls) against scratch git repos. Needs no
 // model, no network and no ~/.doflow: HOME is redirected to a scratch directory and every feature
 // folder lives in a throwaway repo, so the orchestration journal lands under that repo's .doflow/.
-const { test, after } = require('node:test');
+const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW_RUN = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const { IS_WIN } = require('../helper-platform');
+const { suiteTempDir } = require('../helper/tmp');
 
-const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-decision-e2e-'));
+const SCRATCH = suiteTempDir('doflow-decision-register-e2e-');
 const HOME = path.join(SCRATCH, 'home');
 fs.mkdirSync(HOME, { recursive: true });
-after(() => { fs.rmSync(SCRATCH, { recursive: true, force: true }); });
 
 let repoCounter = 0;
 

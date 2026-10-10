@@ -2,8 +2,8 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const test = require('node:test');
 const { createClaudeAdapter } = require('../../../src/adapters/claude');
 
@@ -15,7 +15,7 @@ const USER_SERVER = { command: 'my-own-server', env: { TOKEN: 'secret-value' } }
 // Claude Code's own state in ~/.claude.json, which DoFlow must never rewrite.
 const CLAUDE_STATE = { numStartups: 42, userID: 'abc123', projects: { '/work': { allowedTools: ['Bash'] } } };
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-claude-mcp-')); }
+function scratch() { return suiteTempDir('doflow-claude-mcp-'); }
 
 function writeJson(file, doc) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
