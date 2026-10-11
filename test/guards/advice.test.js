@@ -295,10 +295,10 @@ test('G31.3 control: reads Work by header even when another column follows it', 
   const fixture = new Map(shipped);
   const guidancePath = 'core/shared/guidance/references/MODEL_SELECTION.md';
   const guidance = fixture.get(guidancePath)
-    .replace('| Tier | Claude | Work |', '| Tier | Claude | Work | Note |')
-    .replace('| `light` | Haiku | Verbatim extraction, classification, mechanical or high-volume work. |', '| `light` | Haiku | Verbatim extraction, classification, mechanical or high-volume work. | unused |')
-    .replace('| `standard` | Sonnet | Normal coding, debugging, writing, analysis, routine research, and evidence gathering. |', '| `standard` | Sonnet | Normal coding, debugging, writing, analysis, routine research, and evidence gathering. | unused |')
-    .replace('| `frontier` | Opus | Architecture, hard debugging, broad refactors, consequential decisions, and every review. |', '| `frontier` | Opus | Architecture, hard debugging, broad refactors, consequential decisions, and every review. | unused |');
+    .replace('| Tier | Work |', '| Tier | Work | Note |')
+    .replace('| `light` | Verbatim extraction, classification, mechanical or high-volume work. |', '| `light` | Verbatim extraction, classification, mechanical or high-volume work. | unused |')
+    .replace('| `standard` | Normal coding, debugging, writing, analysis, routine research, and evidence gathering. |', '| `standard` | Normal coding, debugging, writing, analysis, routine research, and evidence gathering. | unused |')
+    .replace('| `frontier` | Architecture, hard debugging, broad refactors, consequential decisions, and every review. |', '| `frontier` | Architecture, hard debugging, broad refactors, consequential decisions, and every review. | unused |');
   fixture.set(guidancePath, guidance);
   assert.deepEqual(checkG31TierText({ files: fixture }), []);
 });

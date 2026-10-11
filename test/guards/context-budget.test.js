@@ -243,8 +243,12 @@ test('G13: controls — a harness no condition matches is refused', () => {
 // do-brainstorm's overview and init lines, 448, plus the follow-up line in WORKFLOW_HANDOFF.md, 210).
 // Measured 2026-10-03: documentation 56,210 after the follow-up line in WORKFLOW_HANDOFF.md (+210 over 56,000;
 // do-test and do-code-review load it).
+// Measured 2026-10-12: feature 225,568 after MODEL_SELECTION.md gained its authoritative
+// "## Archetype dispatch tiers" prescription table (G29 now pins models.json byOwner to it); the
+// Claude model-name column was dropped from the capability-tiers table in the same change, so the
+// net guidance growth is the table minus that column.
 const TASK_CONTEXT_RAILS = new Map([
-  ['feature', 225000], // 046 raise is new prose (lifecycle overview and init lines, follow-up line in the handoff step)
+  ['feature', 225600], // 046 raise is new prose; 2026-10-12 raise is the archetype dispatch-tier prescription table
   ['dependency-change', 85000],
   ['bug', 71000],
   ['refactor', 71000],

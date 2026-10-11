@@ -13,8 +13,8 @@ category: mode
 
 ## Model and tool selection
 
-- Gather sources and evidence at `standard` (Sonnet in Claude); use `frontier` (Opus in Claude) to
-  judge consequential evidence. Use `light` (Haiku in Claude) for narrow extraction or
+- Gather sources and evidence at `standard`; use `frontier` to
+  judge consequential evidence. Use `light` for narrow extraction or
   classification. Follow `references/MODEL_SELECTION.md` and name the model/tier on every dispatch.
 - Use web search/fetch for current or broad public information. Use relevant documentation MCPs for
   version-specific specifications and official implementation patterns. Enable both for research
