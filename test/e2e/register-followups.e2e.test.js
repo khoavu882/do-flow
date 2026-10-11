@@ -2,126 +2,22 @@
 // register-followups.e2e.test.js — feature 045 acceptance scenarios (requirement §6), NFR-001 legacy
 // equivalence, RK5 slug acceptance and NFR-004, driven through the checkout's own dispatcher
 // `core/shared/scripts/doflow/bin/doflow-run` (never ~/.doflow) against scratch git repos. Needs no
-// model and no network: HOME is redirected to a scratch directory, DOFLOW_CONFIG_DIR points into the
-// scratch repo, and every feature folder lives in a throwaway repo under the OS temporary folder.
+// model and no network.
 //
 // Three comparisons read the v1.12.0 tag (validator output twice, hook wiring). Each also carries a
 // literal expectation that needs no tag. A missing tag fails under CI (CI fetches full history) and
 // marks the test skipped, with the reason, on a local clone.
+//
+// This file: US1 (compaction, tokens, escaping), US3, US4, NFR-001, NFR-004. Siblings: register-followups-tasks
+// (US2, US5) and register-followups-slugs (US6, RK5). Helpers: register-followups.shared.js.
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-
-const REPO = path.resolve(__dirname, '../..');
-const DOFLOW_RUN = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
-const { IS_WIN } = require('../helper-platform');
-const { suiteTempDir } = require('../helper/tmp');
-
-const SCRATCH = suiteTempDir('doflow-register-followups-e2e-');
-const HOME = path.join(SCRATCH, 'home');
-fs.mkdirSync(HOME, { recursive: true });
-
-const SKIP = IS_WIN ? 'doflow-run is a bash script' : false;
-let repoCounter = 0;
-
-/** A minimal, explicit environment: no inherited DOFLOW_CLI, GIT_* or provider keys. */
-function baseEnv() {
-  return {
-    PATH: process.env.PATH, HOME, USERPROFILE: HOME, TMPDIR: SCRATCH,
-    GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.com',
-    GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.com',
-    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null',
-  };
-}
-
-function git(cwd, ...args) {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8', env: baseEnv() });
-  assert.strictEqual(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
-  return r.stdout;
-}
-
-/** A scratch repo on `base` with `.doflow/` ignored (the runtime journals there) and one commit,
- * then branch `branch` checked out. Files in `seed` are committed on the base. */
-function makeRepo({ base = 'main', branch = null, seed = {} } = {}) {
-  const repo = path.join(SCRATCH, `repo-${repoCounter++}`);
-  fs.mkdirSync(repo, { recursive: true });
-  git(repo, 'init', '-q', '-b', base);
-  writeFiles(repo, { '.gitignore': '.doflow/\n', ...seed });
-  git(repo, 'add', '-A');
-  git(repo, 'commit', '-q', '-m', 'initial');
-  if (branch) git(repo, 'checkout', '-q', '-b', branch);
-  return repo;
-}
-
-/** Runs doflow-run with cwd = the scratch repo. Parses stdout as JSON when it is. */
-function run(repo, args, { input } = {}) {
-  const r = spawnSync('bash', [DOFLOW_RUN, ...args], {
-    cwd: repo, env: { ...baseEnv(), DOFLOW_CONFIG_DIR: path.join(repo, '.doflow') },
-    input: input ?? '', encoding: 'utf8',
-  });
-  let json = null;
-  try { json = JSON.parse(r.stdout); } catch { /* not JSON output */ }
-  return { status: r.status, stdout: r.stdout, stderr: r.stderr, json };
-}
-
-const decision = (repo, args, opts) => run(repo, ['decision', ...args, '--json'], opts);
-
-function writeFiles(dir, files) {
-  for (const [rel, body] of Object.entries(files)) {
-    const file = path.join(dir, rel);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, body);
-  }
-}
-
-const read = (file) => fs.readFileSync(file, 'utf8');
-const featureDir = (repo, slug) => path.join(repo, 'agent-docs', 'doflow', slug);
-
-function initRegister(repo, slug) {
-  const res = run(repo, ['decision', '--action', 'init', '--slug', slug, '--json']);
-  assert.strictEqual(res.status, 0, res.stdout + res.stderr);
-  return res;
-}
-
-/** Adds decisions through one batch file; returns the CLI result. */
-function addBatch(repo, name, items) {
-  const file = path.join(SCRATCH, `${name}-${repoCounter++}.json`);
-  fs.writeFileSync(file, JSON.stringify(items.map((i) => ({
-    channel: 'question', stage: 'design', rationale: `because ${i.topic}`, supersedes: [], refs: [],
-    source: `intention/q.md#${i.topic}`, ...i,
-  }))));
-  return decision(repo, ['--action', 'add', '--batch', file]);
-}
-
-/** Whether this clone has the v1.12.0 tag to compare against. */
-function hasTag(tag) {
-  return spawnSync('git', ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}`], { cwd: REPO }).status === 0;
-}
-
-/**
- * Gate for a comparison against a tagged release. With the tag it returns true. Without it, CI fails
- * (the workflow fetches full history, so a missing tag there means the comparison silently stopped
- * running), and a local run marks the test skipped with the reason instead of passing quietly.
- */
-function haveTagOrSkip(t, tag) {
-  if (hasTag(tag)) return true;
-  const reason = `the ${tag} tag is absent from this clone, so the comparison against it did not run (git fetch --tags)`;
-  if (process.env.CI) assert.fail(reason);
-  t.skip(reason);
-  return false;
-}
-
-function gitShow(rev, file) {
-  const r = spawnSync('git', ['show', `${rev}:${file}`], { cwd: REPO, encoding: 'utf8' });
-  assert.strictEqual(r.status, 0, r.stderr);
-  return r.stdout;
-}
-
-const squash = (text) => text.replace(/\s+/g, ' ');
-
-const HISTORY = '## 9. History\n\n- 2026-10-01 a\n- 2026-10-02 b\n';
+const {
+  REPO, SKIP, git, makeRepo, run, decision, writeFiles, read, featureDir, initRegister, addBatch, haveTagOrSkip, gitShow, squash, HISTORY, v1120Validate,
+} = require('./register-followups.shared');
 
 // ── US1: compaction ─────────────────────────────────────────────────────────────────────────────────
 
@@ -246,20 +142,6 @@ describe('Scenario: Older folders unchanged — a fenced History example (FR-014
   });
 });
 
-/** Output of v1.12.0's validator on the repo's active feature: its script, beside the current resolver. */
-function v1120Validate(repo) {
-  const dir = path.join(SCRATCH, `v1120-${repoCounter++}`);
-  fs.mkdirSync(dir, { recursive: true });
-  const bash = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash');
-  fs.writeFileSync(path.join(dir, 'validate-artifacts.sh'),
-    gitShow('v1.12.0', 'core/shared/scripts/doflow/bash/validate-artifacts.sh'));
-  fs.copyFileSync(path.join(bash, 'do-paths.sh'), path.join(dir, 'do-paths.sh'));
-  const r = spawnSync('bash', [path.join(dir, 'validate-artifacts.sh'), '--json'], {
-    cwd: repo, env: { ...baseEnv(), DOFLOW_CONFIG_DIR: path.join(repo, '.doflow') }, encoding: 'utf8',
-  });
-  return r.stdout;
-}
-
 // ── US1: live-view escaping ─────────────────────────────────────────────────────────────────────────
 
 describe('Scenario: Backslash and pipe in a statement (FR-004)', { skip: SKIP }, () => {
@@ -298,118 +180,6 @@ function splitRow(row) {
   cells.push(cur.trim());
   return cells;
 }
-
-// ── US2: per-feature task records ───────────────────────────────────────────────────────────────────
-
-describe('Scenario: Same task id in two features (FR-006, FR-007)', { skip: SKIP }, () => {
-  const LEGACY = '041-legacy';
-  const NEW = '046-new';
-  const OTHER = '047-other';
-  const repo = makeRepo({ branch: `feat/${NEW}`, seed: { 'a.js': 'const x = 1;\n' } });
-  writeFiles(featureDir(repo, LEGACY), { 'intention/requirement.md': '# Req\n' });
-  initRegister(repo, NEW);
-  initRegister(repo, OTHER);
-  const state = path.join(repo, '.doflow', 'state');
-
-  const evidence = (taskId, slug) => run(repo, ['evidence', '--task-id', taskId, ...(slug ? ['--slug', slug] : []),
-    '--action', 'add', '--kind', 'exact-search', '--provenance', 'extracted', '--provider', 'semble',
-    '--capability', 'code.exact-search', '--locator', 'a.js', '--establishes', 'affected_code', '--json']);
-  const count = (taskId, slug) => run(repo, ['evidence', '--task-id', taskId, '--slug', slug, '--action', 'list', '--json']).json.evidenceCount;
-  const affectedCode = (slug) => run(repo, ['readiness', '--task-id', 'A.1', '--task-class', 'bug', '--slug', slug, '--json'])
-    .json.requirements.find((r) => r.id === 'affected_code');
-
-  test('041 keeps its flat record; the register features write under their own slug', () => {
-    assert.strictEqual(evidence('A.1', LEGACY).status, 0);           // pre-register feature: flat
-    assert.strictEqual(evidence('A.1').status, 0);                    // branch-derived feature: namespaced
-    assert.strictEqual(evidence('A.1', OTHER).status, 0);             // --slug routing, branch says NEW
-    assert.ok(fs.existsSync(path.join(state, 'evidence', 'A.1.json')));
-    assert.ok(fs.existsSync(path.join(state, 'evidence', NEW, 'A.1.json')));
-    assert.ok(fs.existsSync(path.join(state, 'evidence', OTHER, 'A.1.json')));
-    assert.ok(!fs.existsSync(path.join(state, 'evidence', LEGACY)), 'the legacy feature gets no namespace directory');
-  });
-
-  test('readiness for the new feature\'s A.1 never sees 041\'s record, and 041\'s own record is still returned', () => {
-    const fresh = makeRepoLike();
-    const ev = (slug) => run(fresh, ['evidence', '--task-id', 'A.1', '--slug', slug, '--action', 'add', '--kind', 'exact-search',
-      '--provenance', 'extracted', '--provider', 'semble', '--capability', 'code.exact-search', '--locator', 'a.js',
-      '--establishes', 'affected_code', '--json']);
-    const readiness = (slug) => run(fresh, ['readiness', '--task-id', 'A.1', '--task-class', 'bug', '--slug', slug, '--json']);
-    assert.strictEqual(ev(LEGACY).status, 0);
-
-    const other = readiness(NEW);
-    const own = readiness(LEGACY);
-    const req = (res) => res.json.requirements.find((r) => r.id === 'affected_code');
-    assert.strictEqual(req(own).satisfied, true, '041 reads its own flat record');
-    assert.strictEqual(req(other).satisfied, false, 'the new feature must not borrow it');
-    assert.deepStrictEqual(req(other).evidenceIds, []);
-    assert.notStrictEqual(other.json.state, 'READY', 'the stale record does not move the new feature\'s verdict');
-    assert.strictEqual(run(fresh, ['evidence', '--task-id', 'A.1', '--slug', LEGACY, '--action', 'list', '--json']).json.evidenceCount, 1);
-    assert.strictEqual(run(fresh, ['evidence', '--task-id', 'A.1', '--slug', NEW, '--action', 'list', '--json']).json.evidenceCount, 0);
-  });
-
-  /** A repo with the same three features and a.js, empty state: isolates one assertion from the shared repo. */
-  function makeRepoLike() {
-    const r = makeRepo({ branch: `feat/${NEW}`, seed: { 'a.js': 'const x = 1;\n' } });
-    writeFiles(featureDir(r, LEGACY), { 'intention/requirement.md': '# Req\n' });
-    initRegister(r, NEW);
-    return r;
-  }
-
-  test('--slug routes a write to the named feature, whatever the branch says; counts stay separate', () => {
-    assert.strictEqual(count('A.1', LEGACY), 1);
-    assert.strictEqual(count('A.1', NEW), 1);
-    assert.strictEqual(count('A.1', OTHER), 1);
-    assert.strictEqual(evidence('A.1', OTHER).status, 0);
-    assert.strictEqual(count('A.1', OTHER), 2);
-    assert.strictEqual(count('A.1', NEW), 1, 'the branch\'s feature did not receive the routed write');
-    assert.strictEqual(count('A.1', LEGACY), 1, '041 is untouched by either');
-    assert.strictEqual(affectedCode(LEGACY).satisfied, true);
-  });
-
-  test('claims and the context pack follow the same isolation', () => {
-    const claim = (slug, text) => run(repo, ['claim', '--task-id', 'A.1', '--slug', slug, '--action', 'add', '--statement', text, '--json']);
-    assert.strictEqual(claim(LEGACY, 'legacy claim').status, 0);
-    assert.ok(fs.existsSync(path.join(state, 'evidence', 'A.1_claims.json')));
-    assert.strictEqual(claim(NEW, 'new claim').status, 0);
-    assert.ok(fs.existsSync(path.join(state, 'evidence', NEW, 'A.1_claims.json')));
-
-    const listed = run(repo, ['claim', '--task-id', 'A.1', '--slug', NEW, '--action', 'list', '--json']);
-    assert.ok(!JSON.stringify(listed.json).includes('legacy claim'), 'no claim from the other feature');
-    assert.ok(JSON.stringify(listed.json).includes('new claim'));
-
-    const pack = run(repo, ['context-pack', '--task-id', 'A.1', '--slug', NEW, '--json']);
-    assert.ok(pack.json, pack.stdout + pack.stderr);
-    assert.strictEqual(pack.json.evidenceCount, 1, 'only the new feature\'s evidence');
-    assert.ok(!JSON.stringify(pack.json).includes('legacy claim'));
-    const legacyPack = run(repo, ['context-pack', '--task-id', 'A.1', '--slug', LEGACY, '--json']);
-    assert.strictEqual(legacyPack.json.evidenceCount, 1);
-    assert.ok(JSON.stringify(legacyPack.json).includes('legacy claim'));
-  });
-
-  test('outcome and retrieval records are namespaced too', () => {
-    const outcome = run(repo, ['outcome', '--task-id', 'A.1', '--slug', NEW, '--action', 'record', '--task-class', 'bug',
-      '--stage', 'review', '--state', 'INCONCLUSIVE', '--json']);
-    assert.strictEqual(outcome.status, 0, outcome.stdout + outcome.stderr);
-    assert.ok(fs.existsSync(path.join(state, 'outcome', NEW, 'A.1.json')));
-    assert.ok(!fs.existsSync(path.join(state, 'outcome', 'A.1.json')));
-    assert.strictEqual(run(repo, ['outcome', '--task-id', 'A.1', '--slug', LEGACY, '--json']).status, 1, '041 recorded no outcome');
-
-    const plan = run(repo, ['retrieval-plan', '--task-id', 'A.1', '--slug', NEW, '--action', 'declare',
-      '--need', 'locate-known-symbol', '--stage', 'design', '--json']);
-    assert.strictEqual(plan.status, 0, plan.stdout + plan.stderr);
-    assert.ok(fs.existsSync(path.join(state, 'retrieval', NEW, 'A.1.json')));
-    assert.ok(!fs.existsSync(path.join(state, 'retrieval', 'A.1.json')));
-  });
-
-  test('a feature-level task id (the slug itself) stays flat even with a register', () => {
-    assert.strictEqual(evidence(NEW, NEW).status, 0);
-    assert.ok(fs.existsSync(path.join(state, 'evidence', `${NEW}.json`)));
-    assert.ok(!fs.existsSync(path.join(state, 'evidence', NEW, `${NEW}.json`)));
-    assert.strictEqual(run(repo, ['orchestrate', '--action', 'handoff', '--task-id', NEW, '--task-class', 'feature',
-      '--calling-skill', 'do-plan', '--note', 'done', '--json']).status, 0);
-    assert.ok(fs.existsSync(path.join(state, 'orchestration', `${NEW}.json`)), 'the journal keeps its flat per-slug file');
-  });
-});
 
 // ── US3: change scope ───────────────────────────────────────────────────────────────────────────────
 
@@ -525,154 +295,6 @@ describe('Scenario: Review fix records its decisions (FR-005, FR-010, FR-011, IC
     assert.ok(gate0.length > 0 && gate0.includes('patch the answers into `requirement.md`'), 'the gate-0 bullet was located');
     assert.ok(gate0.includes(pointer), 'do-flow gate-0 patch path');
     assert.ok(gate0.includes('(stage `discovery`, channel `question`)'));
-  });
-});
-
-// ── US5: release version ────────────────────────────────────────────────────────────────────────────
-
-describe('Scenario: Release proposes the right version (FR-012)', { skip: SKIP }, () => {
-  /** main holds v1.12.0 on a merge commit that develop never got back; develop carries newer work. */
-  function releaseRepo() {
-    const repo = makeRepo({ base: 'main' });
-    git(repo, 'tag', 'v1.11.0');
-    git(repo, 'checkout', '-q', '-b', 'develop');
-    git(repo, 'commit', '-q', '--allow-empty', '-m', 'feat: release work');
-    git(repo, 'checkout', '-q', 'main');
-    git(repo, 'merge', '-q', '--no-ff', 'develop', '-m', 'Merge release 1.12 into production');
-    git(repo, 'tag', 'v1.12.0');
-    git(repo, 'checkout', '-q', 'develop');
-    git(repo, 'commit', '-q', '--allow-empty', '-m', 'feat: next work');
-    assert.notStrictEqual(spawnSync('git', ['merge-base', '--is-ancestor', 'v1.12.0', 'HEAD'], { cwd: repo }).status, 0,
-      'the fixture must leave v1.12.0 unreachable from the integration branch');
-    return repo;
-  }
-  const next = (repo) => run(repo, ['git-state', '--next-version', '--json']);
-  const parts = (v) => v.split('.').map(Number);
-  const after = (a, b) => { const [x, y] = [parts(a), parts(b)]; for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return x[i] > y[i]; return false; };
-
-  test('from the integration branch the base tag is v1.12.0 and the proposal follows it', () => {
-    const repo = releaseRepo();
-    const res = next(repo);
-    assert.strictEqual(res.status, 0, res.stdout + res.stderr);
-    assert.strictEqual(res.json.base_tag, 'v1.12.0');
-    assert.strictEqual(res.json.current_version, '1.12.0');
-    assert.ok(after(res.json.next_version, '1.12.0'), `next ${res.json.next_version} is after 1.12.0`);
-    assert.ok(after(res.json.next_version, '1.11.0'));
-    assert.strictEqual(res.json.warning, undefined, 'no manifest, no warning');
-  });
-
-  test('a manifest that disagrees with the base tag adds a warning; agreement adds none; other keys are unchanged', () => {
-    const repo = releaseRepo();
-    const keys = Object.keys(next(repo).json).sort();
-    fs.writeFileSync(path.join(repo, 'package.json'), '{"version":"1.11.0"}\n');
-    const warned = next(repo).json;
-    assert.strictEqual(warned.warning, 'manifest version 1.11.0 differs from base tag v1.12.0');
-    assert.deepStrictEqual(Object.keys(warned).filter((k) => k !== 'warning').sort(), keys);
-    fs.writeFileSync(path.join(repo, 'package.json'), '{"version":"1.12.0"}\n');
-    assert.strictEqual(next(repo).json.warning, undefined);
-  });
-});
-
-// ── US6: slug safety ────────────────────────────────────────────────────────────────────────────────
-
-describe('Scenario: Unsafe feature name refused (FR-013, IC-009)', { skip: SKIP }, () => {
-  const BAD = ['../../x', 'a/b', '..', 'a..b', '.hidden', 'a b'];
-  const tree = (root) => {
-    const out = [];
-    const walk = (d) => {
-      for (const name of fs.readdirSync(d).sort()) {
-        if (name === '.git' || name === '.doflow') continue;   // .doflow: the dispatcher's own run ledger
-        const p = path.join(d, name);
-        out.push(path.relative(root, p));
-        if (fs.statSync(p).isDirectory()) walk(p);
-      }
-    };
-    walk(root);
-    return out;
-  };
-
-  test('paths, git-state --branch-name and decision refuse with exit 2 and write nothing', () => {
-    const repo = makeRepo({ branch: 'feat/046-safe' });
-    const before = { repo: tree(repo), scratch: fs.readdirSync(SCRATCH).sort() };
-    for (const slug of BAD) {
-      const paths = run(repo, ['paths', `--slug=${slug}`, '--json']);
-      assert.strictEqual(paths.status, 2, `paths ${slug}: ${paths.stdout}`);
-      assert.strictEqual(paths.json.error, 'invalid-slug', slug);
-
-      const branchName = run(repo, ['git-state', '--branch-name', '--class=feature', `--slug=${slug}`, '--json']);
-      assert.strictEqual(branchName.status, 2, `branch-name ${slug}: ${branchName.stdout}`);
-      assert.strictEqual(branchName.json.error, 'invalid-slug', slug);
-
-      for (const action of ['init', 'list']) {
-        const dec = run(repo, ['decision', '--action', action, '--slug', slug, '--json']);
-        assert.strictEqual(dec.status, 2, `decision ${action} ${slug}: ${dec.stdout}`);
-        assert.strictEqual(dec.json.error, 'invalid-slug', `decision ${action} ${slug}`);
-        assert.deepStrictEqual(Object.keys(dec.json).sort(), ['error', 'hint', 'message']);
-      }
-    }
-    assert.deepStrictEqual(tree(repo), before.repo, 'nothing written in the repo');
-    assert.deepStrictEqual(fs.readdirSync(SCRATCH).sort(), before.scratch, 'nothing written beside the repo');
-  });
-
-  test('task-store verbs, verify and validate refuse an unsafe slug and write nothing outside the state directory', () => {
-    const repo = makeRepo({ branch: 'feat/046-safe', seed: { 'a.js': 'x\n' } });
-    initRegister(repo, '046-safe');
-    const before = fs.readdirSync(SCRATCH).sort();
-    const stateBefore = fs.existsSync(path.join(repo, '.doflow', 'state')) ? tree(path.join(repo, '.doflow', 'state')) : [];
-    for (const slug of BAD) {
-      const res = run(repo, ['evidence', '--task-id', 'A.1', '--slug', slug, '--action', 'add', '--kind', 'exact-search',
-        '--provenance', 'extracted', '--provider', 'semble', '--capability', 'code.exact-search', '--locator', 'a.js', '--json']);
-      assert.strictEqual(res.status, 2, `evidence ${slug}: ${res.stdout}${res.stderr}`);
-      assert.deepStrictEqual(Object.keys(res.json).sort(), ['error', 'hint', 'message']);
-      assert.strictEqual(res.json.error, 'invalid-slug');
-      const verify = run(repo, ['verify', '--task-id', 'A.1', '--slug', slug, '--json']);
-      assert.strictEqual(verify.status, 2, `verify ${slug}`);
-      const validate = run(repo, ['validate', `--slug=${slug}`, '--json']);
-      assert.strictEqual(validate.status, 2, `validate ${slug}: ${validate.stdout}${validate.stderr}`);
-      assert.strictEqual(validate.json.error, 'invalid-slug');
-    }
-    const stateAfter = fs.existsSync(path.join(repo, '.doflow', 'state')) ? tree(path.join(repo, '.doflow', 'state')) : [];
-    assert.deepStrictEqual(stateAfter, stateBefore, 'no record was written under any name');
-    assert.deepStrictEqual(fs.readdirSync(SCRATCH).sort(), before);
-    assert.ok(!fs.existsSync(path.join(SCRATCH, 'x')) && !fs.existsSync(path.join(repo, '..', '..', 'x')));
-  });
-});
-
-describe('RK5: slugs that work today are still accepted', { skip: SKIP }, () => {
-  const SHAPES = ['041-cross-scope-inventory', '045-register-followups', 'ABC-123-x', '001-a', 'x', 'v1.2.3-hotfix', 'a_b.c-d', '2026-10-03.notes'];
-
-  test('every hardcoded representative shape passes `paths --slug` and echoes back', () => {
-    const repo = makeRepo({ branch: 'feat/046-shapes' });
-    for (const slug of SHAPES) {
-      const res = run(repo, ['paths', `--slug=${slug}`, '--json']);
-      assert.strictEqual(res.status, 0, `${slug}: ${res.stdout}${res.stderr}`);
-      assert.strictEqual(res.json.feature_slug, slug);
-    }
-  });
-
-  test('every feature folder under agent-docs/doflow/ of this checkout passes `paths --slug` (skipped when absent: gitignored)', (t) => {
-    const root = path.join(REPO, 'agent-docs', 'doflow');
-    // agent-docs/ is gitignored, so a clean CI checkout never has it: skipped with the reason rather
-    // than passing silently, and not a CI failure (the hardcoded shapes above cover the same rule).
-    if (!fs.existsSync(root)) { t.skip('agent-docs/doflow is absent (gitignored); the hardcoded shapes cover this'); return; }
-    const names = fs.readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
-    const repo = makeRepo({ branch: 'feat/046-shapes' });
-    for (const slug of names) {
-      const res = run(repo, ['paths', `--slug=${slug}`, '--json']);
-      assert.strictEqual(res.status, 0, `existing feature folder "${slug}" refused: ${res.stdout}${res.stderr}`);
-      assert.strictEqual(res.json.feature_slug, slug);
-    }
-  });
-
-  test('branch shapes feat/045-x, feat/ABC-123-x and fix/x resolve to their slug', () => {
-    const repo = makeRepo({ branch: 'feat/045-x' });
-    const expected = [['feat/045-x', '045-x'], ['feat/ABC-123-x', 'ABC-123-x'], ['fix/x', 'x']];
-    for (const [branch, slug] of expected) {
-      if (branch !== 'feat/045-x') git(repo, 'checkout', '-q', '-b', branch);
-      const res = run(repo, ['paths', '--json']);
-      assert.strictEqual(res.status, 0, `${branch}: ${res.stdout}${res.stderr}`);
-      assert.strictEqual(res.json.feature_slug, slug, branch);
-    }
   });
 });
 
