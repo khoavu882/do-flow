@@ -6,13 +6,14 @@ unavailable, set the model in the agent definition. An unset tier is a defect.
 
 ## Capability tiers
 
-Tiers describe capability; model names vary by harness.
+Tiers describe capability; model names vary by harness. Map each to the harness's supported
+identifier at dispatch; never hardcode a vendor model name here.
 
-| Tier | Claude | Work |
-|---|---|---|
-| `light` | Haiku | Verbatim extraction, classification, mechanical or high-volume work. |
-| `standard` | Sonnet | Normal coding, debugging, writing, analysis, routine research, and evidence gathering. |
-| `frontier` | Opus | Architecture, hard debugging, broad refactors, consequential decisions, and every review. |
+| Tier | Work |
+|---|---|
+| `light` | Verbatim extraction, classification, mechanical or high-volume work. |
+| `standard` | Normal coding, debugging, writing, analysis, routine research, and evidence gathering. |
+| `frontier` | Architecture, hard debugging, broad refactors, consequential decisions, and every review. |
 
 Use the harness's supported model identifier; never invent or probe one. Consequential decisions
 gate money paths, releases or tests, rewrite history, set design, or authorize unchecked action.
@@ -35,13 +36,27 @@ Reviews are read-only `frontier` work by an agent and model different from the a
 tier is unavailable. Review once per phase or fix batch; re-review only an open blocker tests cannot
 settle, after asking. Deep reviews use two independent reviewers with different lenses.
 
+## Archetype dispatch tiers
+
+> **Authoritative:** this section governs each archetype's default dispatch tier.
+> `core/registry/models.json` `dispatchTiers.byOwner` mirrors it and G29 asserts they match;
+> change both together.
+
+| Archetype | Tier | Why |
+|---|---|---|
+| `system-architect` | `frontier` | Architecture sets system shape: a consequential decision. |
+| `core-implementer` | `standard` | Routine coding against a settled spec. |
+| `quality-guardian` | `standard` | Its testing and evidence work; a review runs at `frontier` per-dispatch (`## Reviews`), not via `byOwner`. |
+| `spec-analyst` | `standard` | Requirements analysis and routine research. |
+| `research-writer` | `standard` | Documentation and routine research. |
+
 ## Briefs and inheritance
 
 Give `light` and `standard` agents exact files, values or `path:line`, steps, and a check command.
 Give `frontier` agents intent, constraints, evidence, settled decisions, and their open choices.
-Agents that may spawn agents inherit this policy: `light` = verbatim/mechanical (Claude: Haiku);
-`standard` = routine work/research/evidence (Sonnet); `frontier` = architecture, hard debugging,
-broad refactors, consequential decisions, and reviews (Opus). Name the tier/model per dispatch.
+Agents that may spawn agents inherit this policy: `light` = verbatim/mechanical;
+`standard` = routine work/research/evidence; `frontier` = architecture, hard debugging,
+broad refactors, consequential decisions, and reviews. Name the tier/model per dispatch.
 
 ## Escalation inside a fix loop
 

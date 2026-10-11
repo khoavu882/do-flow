@@ -159,7 +159,7 @@ registries](#installation-registries) for the same plain-JSON convention.
 | `core/registry/readiness-templates.json` | Per-class readiness requirements and the evidence kinds that satisfy each one |
 | `core/registry/capabilities.json` | The capabilities an information need can resolve to, and their providers. Every provider declares `sourceMode` (`live` or `index`) and may carry `mcp: {server, tool}`; the router derives its `mcpTool` from it and the brief block names the MCP tool from it |
 | `core/registry/routes.json` | Information need → capability, with an ordered fallback when the preferred capability has no healthy provider |
-| `core/registry/models.json` | Abstract model roles and their providers (`doflow model-role`), and `dispatchTiers`: the tier names (`tiers`), the `default`, and the tier per agent archetype (`byOwner`) that a generated brief states. G29 holds `tiers` to `MODEL_SELECTION.md` and `byOwner` to `core/shared/agent-specs/` |
+| `core/registry/models.json` | Abstract model roles and their providers (`doflow model-role`), and `dispatchTiers`: the tier names (`tiers`), the `default`, and the tier per agent archetype (`byOwner`) that a generated brief states. G29 holds `tiers` to `MODEL_SELECTION.md` `## Capability tiers`, `byOwner` keys to `core/shared/agent-specs/`, and every `byOwner` value to the `## Archetype dispatch tiers` prescription table in `MODEL_SELECTION.md` |
 | `core/registry/external-tools.json` | External tools DoFlow can detect, install, and probe rather than reimplement |
 | `core/registry/storage.json` | Every store DoFlow writes: its root, location, retention bound, rule kind and writer files, plus the pass budget, throttle and ignore-file text. `src/runtime/storage/` reads it and G26 checks it against the code and `docs/reference.md` |
 | `core/registry/advice.json` | Advice kinds, prompts and criteria, loaded by `src/runtime/advice/registry.js`. It stays outside the general `REGISTRY_FILES` list in `src/registry`: IC-003 makes a load failure turn advice off, whereas the general registry loader would make every install command fail (DEC-025) |
@@ -627,7 +627,9 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   only providers `capabilities.json` declares, and over a fixture registry with one more intent and
   provider it includes them with no code change. `dispatchTiers.tiers` equals the backticked tier
   names under `## Capability tiers` in `MODEL_SELECTION.md`, `default` and every `byOwner` value are
-  in `tiers`, and `byOwner` keys equal the `name` of each `core/shared/agent-specs/` archetype. Every
+  in `tiers`, `byOwner` keys equal the `name` of each `core/shared/agent-specs/` archetype, and
+  every `byOwner` value equals the archetype's row in the `## Archetype dispatch tiers` prescription
+  table in `MODEL_SELECTION.md`, so an off-policy tier edit to `models.json` is caught. Every
   harness `capabilities.mcp.toolName` holds `{server}` and `{tool}` and no other braces.
 - **G30** (`advice.test.js`) — hook, dependency, import and provider-route boundaries for advisory
   model calls: hooks cannot invoke advice, the project adds no package dependencies, only the
