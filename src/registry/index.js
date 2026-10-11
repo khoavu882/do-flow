@@ -31,6 +31,9 @@ const MODEL_KINDS = new Set(['hosted', 'local']);
 const MODEL_SLOT_IDS = new Set(['dense', 'rerank']);
 const MCP_STEP_KEYS = new Set(['skill', 'file', 'expectedWhen']);
 const MCP_NAME = /^[A-Za-z0-9_.-]+$/;
+/** How a capability provider answers: from the current files or commands (`live`), or from a built
+ * artifact that can lag the source (`index`). Required on every provider (068). */
+const PROVIDER_SOURCE_MODES = Object.freeze(['live', 'index']);
 
 function issue(errors, location, message) { errors.push(`${location}: ${message}`); }
 function object(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
@@ -334,14 +337,18 @@ function validateMcpStageUse(server, at, errors) {
   });
 }
 
-/** Optional `mcp: {server, tool}` on a capability provider in capabilities.json (062). */
+/** Provider checks for capabilities.json: required `sourceMode` (068) and optional `mcp: {server, tool}` (062). */
 function validateCapabilityProviders(capabilities, errors) {
   if (capabilities === undefined) return;
   if (!object(capabilities)) { issue(errors, 'capabilities', 'must be an object'); return; }
   for (const [capabilityId, capability] of Object.entries(capabilities)) {
     for (const provider of object(capability) && Array.isArray(capability.providers) ? capability.providers : []) {
-      if (!object(provider) || provider.mcp === undefined) continue;
+      if (!object(provider)) continue;
       const at = `capability '${capabilityId}' provider '${provider.id ?? '?'}'`;
+      if (!PROVIDER_SOURCE_MODES.includes(provider.sourceMode)) {
+        issue(errors, at, `sourceMode is required and must be one of: ${PROVIDER_SOURCE_MODES.join(', ')} (got ${provider.sourceMode === undefined ? 'nothing' : JSON.stringify(provider.sourceMode)})`);
+      }
+      if (provider.mcp === undefined) continue;
       if (!object(provider.mcp)) { issue(errors, at, 'mcp must be an object with server and tool'); continue; }
       for (const field of ['server', 'tool']) {
         if (typeof provider.mcp[field] !== 'string' || !MCP_NAME.test(provider.mcp[field])) issue(errors, at, `mcp.${field} must match ${MCP_NAME}`);
@@ -557,7 +564,7 @@ function capabilityMapData(registry) {
 }
 
 module.exports = {
-  REGISTRY_FILES, CAPABILITY_STATUS, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS,
+  REGISTRY_FILES, CAPABILITY_STATUS, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS,
   parseRegistryFile, registryDir, loadRegistry, validateRegistry,
   harnessFor, selectAssets, selectMcpServers, mcpCapable, nativeMcpCatalog, capabilityMapData,
 };

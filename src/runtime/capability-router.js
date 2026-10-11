@@ -5,6 +5,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { finishRuntime, usageError } = require('./cli-result');
 const { REPO_ROOT } = require('../helper/repo-root');
+const { validateCapabilityProviders } = require('../registry');
 
 // Mirrors bin/doflow.js's own REPO_ROOT computation, relative to this file's location, so
 // handleRouteCommand resolves the same repo root it did before relocation. (D8)
@@ -64,6 +65,13 @@ class CapabilityRouter {
     const routesData = parseYamlFile(routesPath, this.fsImpl);
 
     this.capabilities = capsData.capabilities || {};
+    // A provider without a valid `sourceMode` cannot be told apart from an index-backed one, so the
+    // file is refused whole rather than loaded with a guess (068).
+    const providerErrors = [];
+    validateCapabilityProviders(this.capabilities, providerErrors);
+    if (providerErrors.length > 0) {
+      throw new Error(`Invalid registry file '${capsPath}':\n- ${providerErrors.join('\n- ')}`);
+    }
     this.routes = routesData.routes || {};
   }
 

@@ -157,7 +157,7 @@ registries](#installation-registries) for the same plain-JSON convention.
 | `core/registry/workflows.json` | Nine task classes, each an ordered stage list naming skills that already exist, with its readiness template and gates, plus the `callers` map giving every shipped skill a role (`stage`, `router`, `standalone`) so the classifier can judge whether a class has a stage for the skill asking. There is no default class: an unrecognized proposal is rejected with the valid set rather than coerced into one. It also carries the `promptNudge` object, the rules and message for the once-per-session `/do` suggestion; only the prompt hook and G25 read it, not the workflow engine or the classifier |
 | `core/registry/verification.json` | Nine check tiers and four risk levels; a level selects its required and advisory tiers and sets the recovery-retry bound |
 | `core/registry/readiness-templates.json` | Per-class readiness requirements and the evidence kinds that satisfy each one |
-| `core/registry/capabilities.json` | The capabilities an information need can resolve to, and their providers. A provider may carry `mcp: {server, tool}`; the router derives its `mcpTool` from it and the brief block names the MCP tool from it |
+| `core/registry/capabilities.json` | The capabilities an information need can resolve to, and their providers. Every provider declares `sourceMode` (`live` or `index`) and may carry `mcp: {server, tool}`; the router derives its `mcpTool` from it and the brief block names the MCP tool from it |
 | `core/registry/routes.json` | Information need → capability, with an ordered fallback when the preferred capability has no healthy provider |
 | `core/registry/models.json` | Abstract model roles and their providers (`doflow model-role`), and `dispatchTiers`: the tier names (`tiers`), the `default`, and the tier per agent archetype (`byOwner`) that a generated brief states. G29 holds `tiers` to `MODEL_SELECTION.md` and `byOwner` to `core/shared/agent-specs/` |
 | `core/registry/external-tools.json` | External tools DoFlow can detect, install, and probe rather than reimplement |
@@ -399,10 +399,10 @@ Examples:
   5. `doflow doctor`'s `[MCP Servers]` section lists the server by the `steps` you added, so it needs no edit.
   6. Run `node --test test/guards/mcp-claims.test.js test/runtime/mcp-handoff.test.js test/runtime/doctor-mcp.test.js`, then `npm test`.
 - Add a capability provider:
-  1. Add it to its capability's `providers` in `core/registry/capabilities.json` with `id`, `kind`, `binary` where one exists, `costTier` and a `checkCommand` (`doflow doctor` runs it as the provider's probe; a provider without one reports unverified, and the brief names only healthy providers).
+  1. Add it to its capability's `providers` in `core/registry/capabilities.json` with `id`, `kind`, `binary` where one exists, `costTier`, `sourceMode` (`live` for a provider that reads current files or commands, `index` for one that answers from a built artifact; required, and an `index` provider also needs an entry in `PROVIDER_ARTIFACTS` in `src/runtime/health.js` or its freshness reads UNKNOWN) and a `checkCommand` (`doflow doctor` runs it as the provider's probe; a provider without one reports unverified, and the brief names only healthy providers).
   2. If it is reached through an MCP tool, add `mcp: {server, tool}`. The router derives `mcpTool` from it and the brief names the tool through the harness's `toolName` template.
   3. A new information need is an intent in `core/registry/routes.json` naming a capability and an ordered `fallback`. The brief block has one row per intent, in file order, and names the provider the router resolves among the healthy ones, so no code changes.
-  4. Run `node --test test/guards/brief-tools-registry.test.js test/runtime/brief-tools.test.js test/runtime/runtime-capability-router.test.js`, then `npm test`.
+  4. Run `node --test test/guards/brief-tools-registry.test.js test/guards/provider-source-mode.test.js test/runtime/brief-tools.test.js test/runtime/runtime-capability-router.test.js`, then `npm test`.
 - Change user guidance: give it one canonical document—Quickstart, Setup, Guide, Reference, or Overview—rather than copying it across all of them.
 
 ### Storage and retention
