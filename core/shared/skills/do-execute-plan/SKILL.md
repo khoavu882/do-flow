@@ -173,6 +173,7 @@ Branch on the returned `outcome` field, not the exit code.
      task, so the subagent works from the plan/design text `task-brief` already supplies without
      assuming a grounding evidence base that isn't there. A non-empty pack is included in the brief
      as the subagent's prior context, same handoff.
+   - Claim each task before dispatch and finish it with evidence: `references/task_attempts.md`.
    - Dispatch tasks to appropriate specialist archetypes:
      - Architecture & Schema $\rightarrow$ `system-architect`
      - Code Implementation & Refactoring $\rightarrow$ `core-implementer`

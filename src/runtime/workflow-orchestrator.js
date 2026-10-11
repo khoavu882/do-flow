@@ -22,10 +22,14 @@ const { mcpReach } = require('./mcp-reach');
 const { loadRegistry } = require('../registry');
 const { loadStorageRegistry } = require('./storage/registry');
 const { resolveRoots, resolveStorePath } = require('./storage/roots');
+const { checkCompletion: checkTaskAttemptCompletion } = require('./task-attempts');
 const { appendOutcome, findPick, readWindow } = require('./advice/record');
 const {
   checkReadiness, harnessHookNote, featureSlugFor, runSlugOf, findRunFile,
 } = require('./implementation-gate');
+
+/** Appended to the note of an implementation stage completed with no task-attempt ledger (FR-006). */
+const NO_LEDGER_NOTE = 'No task-attempt ledger exists for this feature, so its tasks were not verified; outcome recorded as unverified.';
 
 const RUN_STATES = Object.freeze(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED']);
 
@@ -102,12 +106,18 @@ class WorkflowOrchestrator {
    *   cascade gate: returns a readiness verdict, as a string or with the refusal message; anything
    *   but READY blocks completion of a source-mutating gated stage.
    *   Unwired means such stages cannot be completed — fail closed, never open.
+   * @param {(node: object, run: object) => {state: 'none'|'complete'|'incomplete', slug?: string|null, incomplete?: Array<string>}|null} [options.taskAttemptCheck]
+   *   FR-006 gate for the do-execute-plan implementation stage: reports whether the feature's
+   *   task-attempt ledger exists and is complete. `incomplete` refuses completion naming the tasks;
+   *   `none` (no ledger) records the stage as `unverified` whatever outcome was supplied. Unwired
+   *   means the stage is not checked, which only a unit test that builds the orchestrator by hand
+   *   relies on: the CLI always wires the real one.
    * @param {object} [options.fsImpl]
    * @param {string|null} [options.featureSlug] the feature a run started here belongs to
    * @param {() => object} [options.buildAdapters] builds the adapter registry `mcpReach` reads installs
    *   through; without it install facts are unknown and no outcome is inferred from them
    */
-  constructor({ repoRoot = REPO_ROOT, projectRoot, stateDir, engine, readinessEvaluate, fsImpl, featureSlug = null, buildAdapters = null } = {}) {
+  constructor({ repoRoot = REPO_ROOT, projectRoot, stateDir, engine, readinessEvaluate, taskAttemptCheck, fsImpl, featureSlug = null, buildAdapters = null } = {}) {
     this.fsImpl = fsImpl || fs;
     this.repoRoot = repoRoot;
     this.projectRoot = projectRoot || (stateDir?.endsWith(path.join('.doflow', 'state', 'orchestration'))
@@ -115,6 +125,7 @@ class WorkflowOrchestrator {
     this.engine = engine || new WorkflowEngine({ repoRoot });
     this.stateDir = stateDir || path.join(this.projectRoot, '.doflow', 'state', 'orchestration');
     this.readinessEvaluate = readinessEvaluate || null;
+    this.taskAttemptCheck = taskAttemptCheck || null;
     this.featureSlug = featureSlug;
     this.buildAdapters = buildAdapters;
   }
@@ -220,6 +231,9 @@ class WorkflowOrchestrator {
     if (preview.reason === 'reached-candidate' && preview.node.mutatesSource && preview.node.readinessTemplate) {
       this.assertReady(preview.node, existing || { taskId, taskClass: resolvedClass });
     }
+    // The ledger is checked here too, before catch-up writes anything, so a refused implementation
+    // handoff leaves no backfilled stage behind.
+    if (preview.reason === 'reached-candidate') this.assertTaskAttempts(preview.node, existing || { taskId, taskClass: resolvedClass });
     const positioned = this.catchUp({ taskId, taskClass: resolvedClass, candidateStageIds: candidates, note, now });
     if (positioned.reason === 'reached-candidate') {
       // A run this handoff started has no earlier stage: every evidence item counts.
@@ -446,11 +460,16 @@ class WorkflowOrchestrator {
       throw new Error(`Unknown stage outcome '${outcome}'. Valid: ${[...STAGE_OUTCOMES].join(', ')} — omit the flag to record 'unverified'.`);
     }
     if (node.mutatesSource && node.readinessTemplate) this.assertReady(node, run);
+    const attempts = backfilled ? null : this.assertTaskAttempts(node, run);
+    // No ledger for the feature: the stage is recorded, but nothing verified its tasks, and the
+    // record says so whatever outcome the caller supplied (FR-006).
+    const unledgered = attempts?.state === 'none';
     node.status = 'completed';
     node.executionStatus = backfilled ? 'imported' : 'completed';
-    node.outcome = backfilled ? 'unverified' : (outcome ?? 'unverified');
+    node.outcome = backfilled || unledgered ? 'unverified' : (outcome ?? 'unverified');
     run.history.push({
-      at: iso(now), action: 'complete-stage', node: node.id, note: note ?? null,
+      at: iso(now), action: 'complete-stage', node: node.id,
+      note: unledgered ? [note, NO_LEDGER_NOTE].filter(Boolean).join(' ') : (note ?? null),
       backfilled: Boolean(backfilled), executionStatus: node.executionStatus, outcome: node.outcome,
       ...(consultations ? { consultations } : {}),
     });
@@ -684,6 +703,23 @@ class WorkflowOrchestrator {
     }
   }
 
+  /** FR-006: the implementation stage of a run (the `do-execute-plan` stage that mutates source)
+   * cannot complete while its feature's task-attempt ledger exists and is incomplete. Returns the
+   * checker's answer for a stage the rule applies to, `null` otherwise. */
+  assertTaskAttempts(node, run) {
+    if (!this.taskAttemptCheck || node.skill !== 'do-execute-plan' || !node.mutatesSource) return null;
+    const answer = this.taskAttemptCheck(node, run);
+    if (!answer || !['none', 'complete', 'incomplete'].includes(answer.state)) {
+      throw new Error(`Task-attempt check returned no usable answer for stage '${node.id}'`);
+    }
+    if (answer.state === 'incomplete') {
+      const names = (answer.incomplete || []).join(', ') || 'unknown';
+      throw new Error(`Stage '${node.id}' cannot be completed: the task-attempt ledger${answer.slug ? ` for '${answer.slug}'` : ''} is incomplete — no COMPLETED attempt for ${names}. `
+        + 'Claim, verify and finish each task with doflow-run task-attempt, then complete the stage.');
+    }
+    return answer;
+  }
+
   /** Where `catchUp` would stop for these candidates, worked out on a copy of the run's program (or
    * of a fresh run's) without writing anything. Same stop rules and reason vocabulary as `catchUp`;
    * `stageId` is what `catchUp` reports as `caughtUpTo`, and `node` the program node it stops on.
@@ -811,6 +847,12 @@ function handleOrchestrateCommand({
     if (check.ok) return { verdict: 'READY', message: null };
     return { verdict: check.code, message: [check.message, harnessHookNote({ repoRoot: root })].filter(Boolean).join(' ') };
   };
+
+  // FR-006. The ledger lives under the main worktree, so the plan and the store are found from any
+  // linked worktree; a run whose feature cannot be named has no ledger to check.
+  orchestrator.taskAttemptCheck = (node, run) => checkTaskAttemptCompletion({
+    slug: runSlugOf(run, runRoot) || featureSlug, cwd: state,
+  });
 
   if ((action === 'handoff' || action === 'complete-stage')
     && [verificationPlan, scope, invariants].some((v) => typeof v === 'string' && v.trim() !== '')) {

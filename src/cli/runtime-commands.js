@@ -37,6 +37,7 @@ const { handleClassifyCommand } = require('../runtime/task-classifier');
 const { handleWorkflowCommand } = require('../runtime/workflow-engine');
 const { handleOrchestrateCommand } = require('../runtime/workflow-orchestrator');
 const { handleResearchRequestCommand } = require('../runtime/research-request');
+const { handleTaskAttemptCommand } = require('../runtime/task-attempts');
 const { handleRetrieveCommand } = require('../runtime/knowledge/retrieval');
 const { handleModelRoleCommand } = require('../runtime/model-router');
 const { handleRouteCommand } = require('../runtime/capability-router');
@@ -181,7 +182,7 @@ function dispatchRuntimeCommandInner(o, moment) {
   try {
     if (['trace', 'stats', 'discover'].includes(o.cmd)) {
       moment.projectRoot = path.dirname(resolveRunsLocation({ start: evidenceRoot(o), global: o.global }).configDir);
-    } else if (['followup', 'lifecycle', 'goal'].includes(o.cmd)) {
+    } else if (['followup', 'lifecycle', 'goal', 'task-attempt'].includes(o.cmd)) {
       moment.projectRoot = lifecycleProjectRoot(evidenceRoot(o));
     } else {
       moment.projectRoot = storeRoot;
@@ -256,6 +257,9 @@ function dispatchRuntimeCommandInner(o, moment) {
     case 'workflow': return handleWorkflowCommand({ taskClass: o.taskClass, json: o.json });
     case 'orchestrate': return handleOrchestrateCommand({ action: o.action, taskId: o.taskId, taskClass: o.taskClass, stage: o.stage, gate: o.gate, node: o.node, decision: o.decision, note: o.note, reason: o.reason, forced: o.forced, verificationPlan: o.verificationPlan, scope: o.scope, invariants: o.invariants, result: o.result, mcpOutcome: o.mcpOutcome, callingSkill: o.callingSkill, slug: o.slug, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o), buildAdapters: buildAdapterRegistry });
     case 'research-request': return handleResearchRequestCommand({ slug: o.slug, action: o.action === 'status' ? 'list' : o.action, taskId: requireTaskId(o), stageId: o.stageId, question: o.question, reason: o.reason, blocking: o.blocking === undefined ? undefined : o.blocking === 'true' ? true : o.blocking === 'false' ? false : o.blocking, requestId: o.requestId, outcome: o.researchOutcome, claimId: o.claimId, evidenceIds: o.evidenceIds, gap: o.gap, json: o.json, projectRoot: evidenceRoot(o) });
+    // The store is shared by every linked worktree of the clone (lifecycle's main-worktree root); the
+    // feature is `--slug`, else the branch's, resolved the way decision and scaffold resolve it.
+    case 'task-attempt': return handleTaskAttemptCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, task: o.task, owner: o.owner, mode: o.mode, token: o.token, result: o.result, evidenceId: o.evidenceId, reason: o.reason, json: o.json, cwd: evidenceRoot(o), resolveSlug: (cwd) => featureSlugFor({ projectRoot: cwd }) });
     case 'retrieve': return handleRetrieveCommand({ query: o.query, top: o.top, json: o.json });
     case 'brief-tools': return handleBriefToolsCommand({ owner: o.owner, tier: o.tier, harness: o.harness, slug: o.slug, headingLevel: o.headingLevel, tasks: o.tasks, json: o.json, repoRoot: REPO_ROOT, projectRoot: storeRoot, buildAdapters: buildAdapterRegistry });
     case 'advise': return handleAdviseCommand({ action: o.action, actionGiven: o.actionGiven, kind: o.kind, server: o.server, state: o.state, stateFile: o.stateFile, staticAnswer: o.staticAnswer, questionsFile: o.questionsFile, taskId: o.taskId, pickId: o.pickId, actual: o.actual, model: o.model, endpoint: o.endpoint, off: o.off, project: o.project, force: o.force, global: o.global, json: o.json, projectRoot: evidenceRoot(o) });

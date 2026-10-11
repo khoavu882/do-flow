@@ -350,6 +350,7 @@ Workflow and evidence:
   workflow         resolve stages, dependencies and gates for a class
   orchestrate      start/resume a run: complete stages, skip optional ones, decide gates
   research-request  open, list or resolve a feature-stage research question
+  task-attempt     claim, finish, release or read the attempts on a plan's tasks
   retrieve         BM25 search over the installed guidance tree (auto-refreshing index)
   model-role       resolve an abstract model role to ranked, availability-annotated providers
   route            resolve an information need to a healthy provider
@@ -477,7 +478,7 @@ shell_helper_for() {
 is_node_verb() {
   case "$1" in
     classify|workflow|route|evidence|claim|readiness|context-pack|retrieval-plan|outcome|scaffold|decision|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
-trace|stats|indicators|discover|inventory|capabilities|doctor|orchestrate|research-request|retrieve|model-role|storage|brief-tools|advise) return 0 ;;
+trace|stats|indicators|discover|inventory|capabilities|doctor|orchestrate|research-request|task-attempt|retrieve|model-role|storage|brief-tools|advise) return 0 ;;
     *) return 1 ;;
   esac
 }
