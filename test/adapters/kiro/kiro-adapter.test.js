@@ -201,8 +201,7 @@ test('confirms the real registry routes guidance, skills, and agents trees to ki
   assert.equal(skills[0].nativeDir.kiro, 'skills');
 
   const agents = selectAssets(registry, { harness: 'kiro', capability: 'agents' });
-  assert.equal(agents.length, 1);
-  assert.equal(agents[0].id, 'agents.shared');
+  assert.deepEqual(agents.map((asset) => asset.id), ['agents.shared', 'kiro.doflow-agent']);
 });
 
 // ---- MCP entries, owned per server through ledger rows ----
