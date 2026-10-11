@@ -28,8 +28,16 @@ one. All eight are fully declared, adapted, and installable via `--target <id>`.
 | [OpenCode](https://opencode.ai/) | `opencode` | Managed `AGENTS.md` section (registered via `opencode.json`'s `instructions[]`), skills discovered natively at `.opencode/skills/` (project) or `~/.config/opencode/skills/` (global), the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP servers merged into `opencode.json`'s `mcp` key |
 | [Pi](https://pi.dev/) | `pi` | Managed `AGENTS.md` section, skills copied into `.pi/skills/` (project) or `~/.pi/agent/skills/` (global), with `settings.json` left untouched, the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP servers merged into `.pi/mcp.json` (project; Pi reads it only after you trust the project) or `~/.pi/agent/mcp.json` (global, or `$PI_CODING_AGENT_DIR/mcp.json`; Pi moves its whole agent dir with that variable, but DoFlow moves only `mcp.json`, so skills and `AGENTS.md` stay in `~/.pi/agent/`); the [capability map](capability-map.md) states the Pi version floor and the `pi-mcp-adapter` case |
 | [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli) | `copilot` | `.github/copilot-instructions.md` (DoFlow writes project scope only; a personal `~/.copilot/copilot-instructions.md` also exists upstream but receives nothing), skills at `.agents/skills/` (project) or `~/.agents/skills/` (global), agents at `.github/agents/` (project) or `~/.copilot/agents/` (global), the `doflow-run` dispatcher and runtime plus the guidance tree in the shared `.doflow/` tree, and MCP merged into `.mcp.json` (project) or `~/.copilot/mcp-config.json` (global) |
-| [Kiro](https://kiro.dev/) | `kiro` | Guidance projected as steering files under `.kiro/steering/` (project) or `~/.kiro/steering/` (global), skills at `.kiro/skills/`, the `doflow-run` dispatcher and runtime in the shared `.doflow/` tree, agents at `.kiro/agents/`, hooks at `.kiro/hooks/` (not in Kiro's untrusted-workspace exclusion list; whether its shell-command prompt covers hooks is undocumented), and MCP via `.kiro/settings/mcp.json` |
+| [Kiro](https://kiro.dev/) | `kiro` | Guidance projected as steering files under `.kiro/steering/` (project) or `~/.kiro/steering/` (global), skills at `.kiro/skills/`, the `doflow-run` dispatcher and runtime in the shared `.doflow/` tree, agents rendered as `.kiro/agents/<name>.json` (the five specialists plus a `doflow` main agent, each carrying DoFlow's guard hooks), hooks at `.kiro/hooks/` (not in Kiro's untrusted-workspace exclusion list; whether its shell-command prompt covers hooks is undocumented), and MCP via `.kiro/settings/mcp.json` |
 | [Antigravity CLI](https://antigravity.google/) (`agy`) | `antigravity` | Managed `AGENTS.md` section (project), skills at `.agents/skills/`, shared agents at `.agents/agents/` (project) or `~/.gemini/config/agents/` (global), the runtime locator, the `doflow-run` dispatcher and runtime in the shared `.doflow/` tree (project scope only), and MCP merged into `.agents/mcp_config.json` / `~/.gemini/config/mcp_config.json` (remote servers project to `serverUrl`). Global instructions and user-scope skills are intentionally untouched — see the registry notes for why |
+
+Kiro CLI reads hooks from an agent's own configuration, so DoFlow's guards run only for the DoFlow
+agents. Start the main session with `kiro-cli chat --agent doflow`, or opt in permanently with
+`kiro-cli agent set-default doflow`; DoFlow never changes your default agent. The specialists
+(`core-implementer`, `quality-guardian`, `spec-analyst`, `system-architect`, `research-writer`) can be
+dispatched by role and carry the same pre-tool-use guards. The `doflow` agent adds the session-context
+(`agentSpawn`) and stop-check (`stop`) hooks. `.kiro/hooks/doflow.json` stays for the Kiro IDE;
+kiro-cli does not read it.
 
 Codex and Gemini both gate hook execution behind their own trust/review step — DoFlow writes the
 configuration, but neither runs a hook until you approve it in that tool. Kiro's hooks are
@@ -464,7 +472,7 @@ OpenCode, verify `AGENTS.md` loads and that `opencode.json`'s `instructions[]` a
 populated. In Pi, verify `AGENTS.md`, skill discovery under `.pi/skills/` (or `~/.pi/agent/skills/` globally), and any registered MCP servers in `.pi/mcp.json` (or `~/.pi/agent/mcp.json` globally). In Copilot CLI,
 verify the managed section in `.github/copilot-instructions.md`, skill discovery under
 `.agents/skills/`, and any registered MCP servers. In Kiro, verify the projected steering files
-under `.kiro/steering/`, skill discovery under `.kiro/skills/`, and hook files under `.kiro/hooks/`.
+under `.kiro/steering/`, skill discovery under `.kiro/skills/`, agents listed by `kiro-cli agent list` (run it in the project), and hook files under `.kiro/hooks/`.
 In Antigravity, additionally verify `.agents/hooks/pre-implementation-gate.sh` and `.agents/hooks/stop-check.sh` are executable and `.agents/hooks.json` registers them. In Antigravity, verify the managed section in `AGENTS.md`, skill discovery under `.agents/skills/`,
 and any registered MCP servers in `.agents/mcp_config.json` (project) or
 `~/.gemini/config/mcp_config.json` (global).

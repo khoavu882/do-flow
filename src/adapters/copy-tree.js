@@ -51,6 +51,12 @@ const LAYOUTS = {
     const base = path.basename(sourceRel, ext).replace(/^MODE_/i, '').replace(/_/g, '-').toLowerCase();
     return `doflow-${base}${ext || '.md'}`;
   },
+  /** `core-implementer.md` -> `core-implementer.json` — kiro-cli discovers custom agents as
+   * `.kiro/agents/<name>.json` (2.27.1 `kiro-cli agent list` did not list `.md` agents). */
+  'kiro-agent-json': (sourceRel) => {
+    const ext = path.extname(sourceRel);
+    return `${sourceRel.slice(0, sourceRel.length - ext.length)}.json`;
+  },
 };
 
 /** Resolve a declared layout name to its mapper. Unknown names fail loudly rather than silently
@@ -88,6 +94,11 @@ const TRANSFORMS = {
   'opencode-agents': (sourceRel, content) => {
     void sourceRel;
     return Buffer.from(renderOpencodeAgent(content.toString('utf8')));
+  },
+  /** Shared agent spec -> kiro-cli custom agent JSON (name, description, prompt, tools, hooks) */
+  'kiro-agents': (sourceRel, content) => {
+    void sourceRel;
+    return Buffer.from(renderKiroAgent(content.toString('utf8')));
   },
 };
 
@@ -134,6 +145,57 @@ function filterGeminiAgentFrontmatter(text) {
     return keep;
   });
   return `${text.slice(0, text.indexOf('\n') + 1)}${kept.join('')}${text.slice(match[0].length - 3)}`;
+}
+
+/** The command a Kiro hook runs for one front-door script: the project copy when the git root
+ * holds one, else the user-scope copy under $HOME. One builder, so the static `doflow` agent
+ * (core/harnesses/kiro/agents/doflow.json) and every generated specialist share the exact string. */
+function kiroHookCommand(script) {
+  return `bash "$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f "$root/.kiro/hooks/${script}" ] && printf '%s/.kiro/hooks/${script}' "$root" || printf '%s/.kiro/hooks/${script}' "$HOME")"`;
+}
+
+/** One kiro-cli agent hook entry. */
+function kiroHook({ name, trigger, matcher, script, timeout }) {
+  return {
+    name, trigger, ...(matcher ? { matcher } : {}),
+    action: { type: 'command', command: kiroHookCommand(script) }, timeout,
+  };
+}
+
+/** The three preToolUse hooks every DoFlow-rendered Kiro agent carries. The MCP guard uses the
+ * "*" matcher: Kiro documents "@<server>" (every tool of one server) and "*" but no all-MCP
+ * matcher, and mcp-tool-guard.sh exits 0 immediately for any non-MCP tool name, so "*" costs one
+ * fast no-op for built-in tools and still covers every MCP server. */
+function kiroPreToolUseHooks() {
+  return [
+    kiroHook({ name: 'doflow-pre-implementation-gate', trigger: 'preToolUse', matcher: 'write', script: 'pre-implement-gate.sh', timeout: 10 }),
+    kiroHook({ name: 'doflow-pre-bash-guard', trigger: 'preToolUse', matcher: 'shell', script: 'pre-bash-guard.sh', timeout: 10 }),
+    kiroHook({ name: 'doflow-mcp-tool-guard', trigger: 'preToolUse', matcher: '*', script: 'mcp-tool-guard.sh', timeout: 10 }),
+  ];
+}
+
+/** Map one core/shared agent-spec file onto a kiro-cli custom agent. Spec keys other than
+ * name/description (model: inherit, effort) are dropped: Kiro inherits the session model. */
+function renderKiroAgent(text) {
+  const fm = {};
+  let body = text;
+  if (text.startsWith('---')) {
+    const end = text.indexOf('\n---', 3);
+    if (end !== -1) {
+      for (const line of text.slice(4, end).split('\n')) {
+        const m = line.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/);
+        if (m) fm[m[1]] = m[2].trim().replace(/^"|"$/g, '');
+      }
+      body = text.slice(end + 4).replace(/^\n+/, '');
+    }
+  }
+  const agent = {
+    name: fm.name || '', description: fm.description || '',
+    prompt: `${body.replace(/\s+$/, '')}\n`,
+    tools: ['*'],
+    hooks: kiroPreToolUseHooks(),
+  };
+  return `${JSON.stringify(agent, null, 2)}\n`;
 }
 
 const OPENCODE_READONLY_AGENTS = new Set(['spec-analyst', 'system-architect', 'quality-guardian', 'research-writer']);
@@ -475,4 +537,4 @@ function ledgerFileResources(resources, harness, assetId) {
     .map((resource) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
-module.exports = { discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };
+module.exports = { kiroHook, kiroHookCommand, kiroPreToolUseHooks, discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };

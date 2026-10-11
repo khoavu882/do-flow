@@ -15,7 +15,7 @@
 // https://kiro.dev/docs/hooks/
 const fs = require('node:fs');
 const path = require('node:path');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, sourceDirFor } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, resolveTransform, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, sourceDirFor } = require('../copy-tree');
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
 
@@ -78,8 +78,9 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
    *
    * `agents.shared` is included alongside the generic `copy-tree` renderer even though its own
    * projection declares `renderer: 'kiro-agents'` — a distinct name chosen so the registry can tell
-   * the two apart, but both are, underneath, a plain mirrored file copy (Kiro accepts flat `.md`
-   * agent files natively, so no layout transform is declared or needed).
+   * the two apart. Both materialise through the same engine, but `kiro-agents` declares the
+   * `kiro-agent-json` layout and `kiro-agents` transform: kiro-cli discovers agents as
+   * `.kiro/agents/<name>.json`, so each shared `<name>.md` spec is rendered, not mirrored.
    */
   function kiroTreeAssets(assets) {
     return [...copyTreeAssets(assets), ...(assets || []).filter((asset) => asset.renderer === 'kiro-agents')];
@@ -95,7 +96,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
       const destDir = copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Kiro');
       const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, keepModified: !removing,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, transform: asset.transform, keepModified: !removing,
         // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
         // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
         // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file
@@ -112,6 +113,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
           ownershipIdentity: `doflow:${HARNESS}:copy-tree:${asset.id}:${change.relPath}`,
           kind: 'copy-tree-file', identity: change.relPath,
           afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: 'registry-v1',
+          transformName: asset.transform || null,
           ...(change.kept ? { retained: true, retainedFor: [] } : {}),
           projection: { renderer: asset.renderer },
         });
@@ -121,9 +123,18 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
   }
 
   function applyCopyTreeAssets(changes, { fsImpl = fs } = {}) {
-    const treeChanges = changes.filter((change) => change.kind === 'copy-tree-file' && change.operation !== 'remove')
-      .map((change) => ({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint }));
-    return applyTree({ changes: treeChanges, fsImpl }).applied;
+    let applied = 0;
+    const grouped = new Map();
+    for (const change of changes) {
+      if (change.kind !== 'copy-tree-file' || change.operation === 'remove') continue;
+      const key = change.transformName || null;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint });
+    }
+    for (const [transformName, treeChanges] of grouped) {
+      applied += applyTree({ changes: treeChanges, fsImpl, transform: resolveTransform(transformName) }).applied;
+    }
+    return applied;
   }
 
   function removeCopyTreeAssets(changes, { fsImpl = fs } = {}) {
@@ -140,7 +151,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
     for (const asset of kiroTreeAssets(assets)) {
       const destDir = copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Kiro');
-      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout });
+      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, transform: asset.transform });
       conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({

@@ -227,7 +227,9 @@
         },
         "kiro": {
           "renderer": "kiro-agents",
-          "capability": "agents"
+          "capability": "agents",
+          "layout": "kiro-agent-json",
+          "transform": "kiro-agents"
         },
         "antigravity": {
           "renderer": "copy-tree",
@@ -597,6 +599,24 @@
       "ownership": "managed-tree",
       "nativeDir": {
         "claude": "hooks"
+      }
+    },
+    {
+      "id": "kiro.doflow-agent",
+      "kind": "agent",
+      "source": "core/harnesses/kiro/agents",
+      "appliesTo": [
+        "kiro"
+      ],
+      "projection": {
+        "kiro": {
+          "renderer": "copy-tree",
+          "capability": "agents"
+        }
+      },
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "kiro": "agents"
       }
     },
     {
