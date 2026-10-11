@@ -327,6 +327,22 @@ describe('per-session', () => {
     assert.ok(o.additionalContext.endsWith(MESSAGE));
   });
 
+  for (const agent of ['claude', 'codex']) {
+    CASE(`${agent}: a worker session is never nudged, on its first prompt or a later qualifying one, and leaves no marker`, () => {
+      const { dir } = repo();
+      const id = `ps-worker-${agent}`;
+      const envExtra = { DOFLOW_SESSION_ROLE: 'worker' };
+      const first = prompt(agent, id, dir, { extra: { prompt: request() }, envExtra });
+      assert.deepStrictEqual(JSON.parse(first), {});
+      const later = prompt(agent, id, dir, { start: false, extra: { prompt: request() }, envExtra });
+      assert.deepStrictEqual(JSON.parse(later), {});
+      assert.strictEqual(markerText(id), null);
+      // The same session ids' environment, as a main session, is nudged: the role alone made the difference.
+      const main = out(prompt(agent, `${id}-main`, dir, { extra: { prompt: request() } }));
+      assert.ok(main.additionalContext.endsWith(MESSAGE));
+    });
+  }
+
   CASE('a NUL inside a payload field is dropped and shifts no other field', () => {
     const { dir, sha } = repo();
     runPolicy(LAYOUT, 'session-context.sh', { session_id: 'psnulid', cwd: dir, source: 'startup' }, 'claude');

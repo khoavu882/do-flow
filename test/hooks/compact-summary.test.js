@@ -183,3 +183,166 @@ test('an oversized summary file is read in bounded form and cut to the cap', () 
   assert.ok(ctx.length < 5000, `context is ${ctx.length} characters`);
   assert.match(ctx, /\[summary truncated: first 4000 of at least \d+ characters\]$/);
 });
+
+// ── Session role (DOFLOW_SESSION_ROLE) ──────────────────────────────────────────
+
+/** Like hook(), but returns stderr too, for the cases that assert on the diagnostic line. */
+function hookRaw(harness, script, payload, env = {}) {
+  const r = spawnSync('bash', [path.join(mirror, `.${harness}`, 'hooks', script)], {
+    input: JSON.stringify(payload), env: scratch.env(env), encoding: 'utf8',
+  });
+  assert.equal(r.status, 0, r.stderr);
+  return { stdout: r.stdout, stderr: r.stderr };
+}
+
+/** The project state directory for a working directory, whether or not anything is saved in it yet. */
+function projectDirFor(cwd) {
+  const lib = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'lib.sh');
+  const hash = spawnSync('bash', ['-c', 'source "$1"; cwd_hash "$2"', 'bash', lib, cwd], { env: scratch.env(), encoding: 'utf8' }).stdout.trim();
+  const dir = path.join(SUMMARY_DIR, hash);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+const WORKER = { DOFLOW_SESSION_ROLE: 'worker' };
+
+test('a worker compaction leaves the pending main summary and meta.json byte-identical', () => {
+  const cwd = project();
+  compact('A', cwd, 'MAIN-SUMMARY');
+  const dir = projectDirFor(cwd);
+  fs.writeFileSync(path.join(dir, 'meta.json'), '{"compacted_at":"2020-01-01T00:00:00Z"}\n');
+  const summaryBefore = fs.readFileSync(path.join(dir, 'last-compact-summary.md'));
+  const metaBefore = fs.readFileSync(path.join(dir, 'meta.json'));
+  compact('W', cwd, 'WORKER-SUMMARY', WORKER);
+  assert.deepEqual(fs.readFileSync(path.join(dir, 'last-compact-summary.md')), summaryBefore);
+  assert.deepEqual(fs.readFileSync(path.join(dir, 'meta.json')), metaBefore);
+});
+
+test('a worker compaction writes nothing when no summary is pending', () => {
+  const cwd = project();
+  compact('W', cwd, 'WORKER-SUMMARY', WORKER);
+  assert.equal(summaryFileFor(cwd), undefined);
+});
+
+for (const harness of ['claude', 'codex']) {
+  test(`a worker first prompt on ${harness} injects nothing and leaves the summary and warning`, () => {
+    const cwd = project('topic');
+    compact('A', cwd, 'MAIN-SUMMARY');
+    const warning = path.join(projectDirFor(cwd), 'uncommitted-warning.txt');
+    fs.writeFileSync(warning, 'MAIN-WARNING');
+    const out = hook(harness, 'user-prompt-submit.sh', { session_id: 'W', cwd }, WORKER);
+    hook(harness, 'session-start.sh', { session_id: 'W2', cwd, source: 'startup' });
+    const withStart = hook(harness, 'user-prompt-submit.sh', { session_id: 'W2', cwd }, WORKER);
+    for (const text of [out, withStart]) {
+      assert.deepEqual(JSON.parse(text), {});
+      assert.doesNotMatch(text, /MAIN-SUMMARY|MAIN-WARNING|Git context/);
+    }
+    assert.ok(summaryFileFor(cwd));
+    assert.ok(fs.existsSync(warning));
+    // The worker's first prompt marks the session injected: its later prompts stay silent too.
+    assert.equal(prompt(harness, 'W2', cwd, { first: false, env: WORKER }), '');
+    assert.match(prompt(harness, 'M', cwd), /MAIN-SUMMARY[\s\S]*MAIN-WARNING|MAIN-WARNING[\s\S]*MAIN-SUMMARY/);
+  });
+}
+
+test('the role is matched case-insensitively: WORKER is a worker, Main is a main session', () => {
+  const cwd = project();
+  compact('A', cwd, 'SUMMARY-CASE');
+  const upper = hookRaw('claude', 'user-prompt-submit.sh', { session_id: 'U', cwd }, { DOFLOW_SESSION_ROLE: 'WORKER' });
+  assert.deepEqual(JSON.parse(upper.stdout), {});
+  assert.equal(upper.stderr, '');
+  assert.ok(summaryFileFor(cwd));
+  assert.match(prompt('claude', 'V', cwd, { env: { DOFLOW_SESSION_ROLE: 'Main' } }), /SUMMARY-CASE/);
+  assert.equal(summaryFileFor(cwd), undefined);
+});
+
+/** The non-empty lines a hook wrote to stderr. */
+const diagnosticLines = (stderr) => stderr.split('\n').filter((line) => line.trim() !== '');
+
+test('an unknown role behaves as a worker and writes one diagnostic line to stderr', () => {
+  const cwd = project('topic');
+  compact('A', cwd, 'SUMMARY-BOGUS');
+  const warning = path.join(projectDirFor(cwd), 'uncommitted-warning.txt');
+  fs.writeFileSync(warning, 'MAIN-WARNING');
+  const bogus = { DOFLOW_SESSION_ROLE: 'bogus' };
+  hook('claude', 'session-start.sh', { session_id: 'B', cwd, source: 'startup' });
+  const first = hookRaw('claude', 'user-prompt-submit.sh', { session_id: 'B', cwd }, bogus);
+  assert.deepEqual(JSON.parse(first.stdout), {});
+  assert.doesNotMatch(first.stdout, /Git context|SUMMARY-BOGUS|MAIN-WARNING/);
+  assert.equal(diagnosticLines(first.stderr).length, 1);
+  assert.match(first.stderr, /^\[doflow\] unknown DOFLOW_SESSION_ROLE; treating session as worker$/m);
+  assert.ok(summaryFileFor(cwd));
+  assert.equal(fs.readFileSync(warning, 'utf8'), 'MAIN-WARNING');
+  const compacted = hookRaw('claude', 'post-compact.sh', { session_id: 'B', cwd, trigger: 'auto', compact_summary: 'BOGUS-SUMMARY' }, bogus);
+  const lines = diagnosticLines(compacted.stderr);
+  assert.equal(lines.length, 1, compacted.stderr);
+  assert.ok(lines[0].includes('unknown DOFLOW_SESSION_ROLE'), lines[0]);
+  assert.match(fs.readFileSync(summaryFileFor(cwd), 'utf8'), /SUMMARY-BOGUS/);
+});
+
+test('a summary written before roles existed, with no role line, is claimed by a main session', () => {
+  const cwd = project();
+  const file = path.join(projectDirFor(cwd), 'last-compact-summary.md');
+  fs.writeFileSync(file, '---\ncompacted_at: 2026-01-01T00:00:00Z\nsession_id: OLD\ntrigger: auto\nbranch: unknown\n---\n\nSUMMARY-LEGACY\n');
+  assert.match(prompt('claude', 'P', cwd), /SUMMARY-LEGACY/);
+  assert.equal(summaryFileFor(cwd), undefined);
+});
+
+test('a native subagent payload does not claim the summary or the warning but still gets git context', () => {
+  const cwd = project('topic');
+  compact('A', cwd, 'MAIN-SUMMARY');
+  const warning = path.join(projectDirFor(cwd), 'uncommitted-warning.txt');
+  fs.writeFileSync(warning, 'MAIN-WARNING');
+  hook('claude', 'session-start.sh', { session_id: 'S', cwd, source: 'startup' });
+  const out = hook('claude', 'user-prompt-submit.sh', { session_id: 'S', cwd, agent_id: 'sub1', agent_type: 'general' });
+  const ctx = JSON.parse(out).hookSpecificOutput.additionalContext;
+  assert.match(ctx, /Git context/);
+  assert.doesNotMatch(ctx, /MAIN-SUMMARY|MAIN-WARNING/);
+  assert.ok(summaryFileFor(cwd));
+  assert.ok(fs.existsSync(warning));
+});
+
+test('a main compaction records role: main in the frontmatter, with or without the variable', () => {
+  for (const env of [{}, { DOFLOW_SESSION_ROLE: 'main' }]) {
+    const cwd = project();
+    compact('A', cwd, 'SUMMARY-ROLE', env);
+    const text = fs.readFileSync(summaryFileFor(cwd), 'utf8');
+    const frontmatter = text.split('\n---\n')[0];
+    assert.match(frontmatter, /^role: main$/m);
+  }
+});
+
+// ── Session end and the nudge, by role ──────────────────────────────────────────
+
+/** A git repo with an untracked file, so the working tree is dirty at session end. */
+function dirtyProject() {
+  const cwd = project('topic');
+  fs.writeFileSync(path.join(cwd, 'dirty.txt'), 'x\n');
+  return cwd;
+}
+
+for (const harness of ['claude', 'codex']) {
+  test(`a worker session end on ${harness} writes no uncommitted warning; a main session end does`, () => {
+    const cwd = dirtyProject();
+    const warning = path.join(projectDirFor(cwd), 'uncommitted-warning.txt');
+    hook(harness, 'session-end.sh', { session_id: 'W', cwd }, WORKER);
+    assert.equal(fs.existsSync(warning), false);
+    hook(harness, 'session-end.sh', { session_id: 'M', cwd });
+    assert.match(fs.readFileSync(warning, 'utf8'), /Session M ended with uncommitted changes on branch topic/);
+  });
+
+  test(`a worker session end on ${harness} leaves a pre-existing main warning byte-identical`, () => {
+    const cwd = dirtyProject();
+    const warning = path.join(projectDirFor(cwd), 'uncommitted-warning.txt');
+    fs.writeFileSync(warning, 'MAIN-WARNING\n');
+    hook(harness, 'session-end.sh', { session_id: 'W', cwd }, WORKER);
+    assert.deepEqual(fs.readFileSync(warning), Buffer.from('MAIN-WARNING\n'));
+  });
+}
+
+test('a worker session end still logs the end marker', () => {
+  const cwd = dirtyProject();
+  hook('claude', 'session-end.sh', { session_id: 'WLOG', cwd }, WORKER);
+  const log = fs.readFileSync(path.join(scratch.xdg, 'doflow', 'sessions.log'), 'utf8');
+  assert.match(log, /END WLOG /);
+});

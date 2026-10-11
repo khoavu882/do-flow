@@ -303,6 +303,8 @@ Claude Code this context was not delivered; it is now, once per session start (i
 compact, clear or resume). The hook emits the title in the form Claude Code documents; its rule is
 to skip the title when the session already has one, and Codex never receives a title.
 
+`DOFLOW_SESSION_ROLE=main|worker` (case-insensitive; unset or empty is `main`) declares a launched session's role in the environment the hook process inherits. A `worker` never writes the project's compact summary, receives no git context, summary or prior warning on its first prompt, never receives the `/do` prompt nudge, and does not write `uncommitted-warning.txt` when its session ends (session logging and the project's `last_active` time are still updated), so both files are left for the main session. Any other value is treated as `worker` and writes one `[doflow] unknown DOFLOW_SESSION_ROLE` line to stderr. A prompt carrying `agent_id` or `agent_type` (a native subagent) never claims the summary or warning. Whether a given harness forwards a launcher's environment to its hooks is not verified here.
+
 ## Git Lifecycle Intents
 
 The `/do-git` skill provides cycle-aware commands:
