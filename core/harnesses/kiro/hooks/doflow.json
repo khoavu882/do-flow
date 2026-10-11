@@ -20,9 +20,19 @@
       "enabled": true
     },
     {
+      "name": "doflow-pre-bash-guard",
+      "trigger": "PreToolUse",
+      "matcher": "shell",
+      "action": {
+        "type": "command",
+        "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.kiro/hooks/pre-bash-guard.sh\" ] && printf '%s/.kiro/hooks/pre-bash-guard.sh' \"$root\" || printf '%s/.kiro/hooks/pre-bash-guard.sh' \"$HOME\")\""
+      },
+      "enabled": true
+    },
+    {
       "name": "doflow-mcp-tool-guard",
       "trigger": "PreToolUse",
-      "matcher": "^mcp__.*",
+      "matcher": "@mcp",
       "action": {
         "type": "command",
         "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.kiro/hooks/mcp-tool-guard.sh\" ] && printf '%s/.kiro/hooks/mcp-tool-guard.sh' \"$root\" || printf '%s/.kiro/hooks/mcp-tool-guard.sh' \"$HOME\")\""

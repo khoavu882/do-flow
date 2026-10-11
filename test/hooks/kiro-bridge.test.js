@@ -156,3 +156,77 @@ HOOK_TEST('kiro_bridge_payload prints a payload jq cannot parse unchanged', () =
   assert.equal(bridge('not json {'), 'not json {\n');
   assert.equal(bridge(''), '\n');
 });
+
+HOOK_TEST('pre-implement-gate blocks the V3 write family (str_replace, fs_append, delete_file) while plan.md is missing', () => {
+  const root = featureRepoMissingPlan();
+  for (const tool of ['str_replace', 'fs_append', 'delete_file']) {
+    const result = runDoor('pre-implement-gate.sh', { cwd: root, tool_name: tool, tool_input: { path: path.join(root, 'src', 'a.js') } }, { cwd: root });
+    assert.equal(result.status, 2, `${tool}: ${result.stderr}`);
+  }
+});
+
+HOOK_TEST('pre-bash-guard blocks a destructive command for `execute_pwsh`', () => {
+  const result = runDoor('pre-bash-guard.sh', { tool_name: 'execute_pwsh', tool_input: { command: 'rm -rf /' } });
+  assert.equal(result.status, 2, result.stderr);
+});
+
+HOOK_TEST('kiro_bridge_payload maps the V3 write family and execute_pwsh, and leaves mcp_ IDs unchanged', () => {
+  for (const tool of ['fs_append', 'str_replace', 'delete_file', 'write_file']) {
+    const mapped = JSON.parse(bridge(JSON.stringify({ tool_name: tool, tool_input: { path: '/p/a.js' } })));
+    assert.equal(mapped.tool_name, 'Write', tool);
+    assert.equal(mapped.tool_input.file_path, '/p/a.js', tool);
+  }
+  assert.equal(JSON.parse(bridge(JSON.stringify({ tool_name: 'execute_pwsh' }))).tool_name, 'Bash');
+  assert.equal(JSON.parse(bridge(JSON.stringify({ tool_name: 'mcp_evil_drop' }))).tool_name, 'mcp_evil_drop');
+  assert.equal(JSON.parse(bridge(JSON.stringify({ tool_name: 'read_file' }))).tool_name, 'read_file');
+});
+
+HOOK_TEST('mcp-tool-guard evaluates a V3 `mcp_<server>_<tool>` ID against the policy', () => {
+  const policy = path.join(mirror, '.doflow', 'shared', 'hooks', 'policies', 'mcp-policy.conf');
+  const original = fs.readFileSync(policy, 'utf8');
+  try {
+    fs.writeFileSync(policy, `${original}\n^mcp_evil_drop\tblocked in test\n`);
+    const blocked = runDoor('mcp-tool-guard.sh', { tool_name: 'mcp_evil_drop', tool_input: {} });
+    assert.equal(blocked.status, 2, blocked.stderr);
+    assert.match(blocked.stderr, /tool: mcp_evil_drop/);
+    const allowed = runDoor('mcp-tool-guard.sh', { tool_name: 'mcp_evil_other', tool_input: {} });
+    assert.equal(allowed.status, 0, allowed.stderr);
+  } finally {
+    fs.writeFileSync(policy, original);
+  }
+});
+
+HOOK_TEST('stop-check on a V3 payload turns a deny into a JSON block with exit 0, and blocks a message once', () => {
+  const payload = { session_id: 's1', assistant_response: '// TODO finish' };
+  const first = runDoor('stop-check.sh', payload);
+  assert.equal(first.status, 0, first.stderr);
+  const decision = JSON.parse(first.stdout);
+  assert.equal(decision.decision, 'block');
+  assert.match(decision.reason, /unfinished-work/);
+
+  const again = runDoor('stop-check.sh', payload);
+  assert.equal(again.status, 0, again.stderr);
+  assert.equal(again.stdout, '');
+});
+
+HOOK_TEST('stop-check on a 2.x payload without session_id keeps exit 2 with the reason on stderr', () => {
+  const result = runDoor('stop-check.sh', { hook_event_name: 'stop', assistant_response: '// TODO finish' }, { extra: { KIRO_SESSION_ID: 'kiro-2x' } });
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stderr, /unfinished-work/);
+  assert.equal(result.stdout, '');
+});
+
+HOOK_TEST('stop-check exits 0 with empty stdout for a clean message on either engine', () => {
+  const v3 = runDoor('stop-check.sh', { session_id: 's-clean', assistant_response: 'All done.' });
+  assert.equal(v3.status, 0, v3.stderr);
+  assert.equal(v3.stdout, '');
+  const legacy = runDoor('stop-check.sh', { assistant_response: 'All done.' }, { extra: { KIRO_SESSION_ID: 'kiro-clean' } });
+  assert.equal(legacy.status, 0, legacy.stderr);
+  assert.equal(legacy.stdout, '');
+});
+
+HOOK_TEST('doflow.json scopes the MCP guard with the V3 `@mcp` selector', () => {
+  const config = JSON.parse(fs.readFileSync(path.join(HOOKS, 'doflow.json'), 'utf8'));
+  const guard = config.hooks.find((hook) => hook.name === 'doflow-mcp-tool-guard');
+  assert.equal(guard.matcher, '@mcp');
+});
