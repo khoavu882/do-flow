@@ -1,0 +1,26 @@
+{
+  "kind": "followup-triage",
+  "cases": [
+    {
+      "id": "followup-triage-001",
+      "split": "train",
+      "state": "The reported regression blocks this feature's acceptance test and is localized to the code being changed.",
+      "expected": "now",
+      "note": "agent-docs/doflow/063-decision-model-routing/design/specs.md IC-004 followup-triage now criterion."
+    },
+    {
+      "id": "followup-triage-002",
+      "split": "heldout",
+      "state": "This is a possible enhancement unrelated to current requirements, and no current test or user workflow depends on it.",
+      "expected": "later",
+      "note": "agent-docs/doflow/063-decision-model-routing/design/specs.md IC-004 followup-triage later criterion."
+    },
+    {
+      "id": "followup-triage-003",
+      "split": "train",
+      "state": "The claimed defect is disproven by the verified current behavior and there is no remaining change to make.",
+      "expected": "dismiss",
+      "note": "agent-docs/doflow/063-decision-model-routing/design/specs.md IC-004 followup-triage dismiss criterion."
+    }
+  ]
+}

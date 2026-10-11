@@ -1,0 +1,33 @@
+{
+  "kind": "tier",
+  "cases": [
+    {
+      "id": "tier-001",
+      "split": "train",
+      "state": "Rename a local variable in one Java file.",
+      "expected": "light",
+      "note": "requirement.md NFR-007 first probe (0.77); light label from MODEL_SELECTION.md ## Capability tiers, Work row light."
+    },
+    {
+      "id": "tier-002",
+      "split": "train",
+      "state": "Rename a local variable in one Java file.",
+      "expected": "light",
+      "note": "requirement.md NFR-007 second probe (0.94) on the same state; light label from MODEL_SELECTION.md ## Capability tiers, Work row light."
+    },
+    {
+      "id": "tier-003",
+      "split": "heldout",
+      "state": "Implement an integration spanning several runtime modules, with focused tests and established interfaces.",
+      "expected": "standard",
+      "note": "MODEL_SELECTION.md ## Capability tiers, Work row standard."
+    },
+    {
+      "id": "tier-004",
+      "split": "train",
+      "state": "Choose an architecture for a new subsystem with interacting components and consequential security trade-offs.",
+      "expected": "frontier",
+      "note": "MODEL_SELECTION.md ## Capability tiers, Work row frontier."
+    }
+  ]
+}

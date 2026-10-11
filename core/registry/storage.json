@@ -223,6 +223,42 @@
       ]
     },
     {
+      "id": "advice-picks-project",
+      "root": "project-state",
+      "path": "advice/picks",
+      "entry": "file",
+      "match": "^[0-9]{4}-[0-9]{2}-[0-9]{2}\\.jsonl$",
+      "rule": "date-partition",
+      "bound": {
+        "maxAgeDays": 90
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/advice/record.js"
+      ]
+    },
+    {
+      "id": "advice-picks-user",
+      "root": "user-state",
+      "path": "advice/picks",
+      "entry": "file",
+      "match": "^[0-9]{4}-[0-9]{2}-[0-9]{2}\\.jsonl$",
+      "rule": "date-partition",
+      "bound": {
+        "maxAgeDays": 90
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/advice/record.js"
+      ]
+    },
+    {
       "id": "recovery-user",
       "root": "user-state",
       "path": "recovery",
@@ -672,14 +708,16 @@
       "root": "project-doflow",
       "path": "",
       "entry": "file",
-      "match": "^(?:prompt-nudge|prune)$",
+      "match": "^(?:prompt-nudge|prune|decision-model\\.json)$",
       "rule": "existing",
       "bound": {
-        "text": "one line each, user-authored"
+        "text": "one line each, user-authored; decision-model.json is one JSON object, written by hand or by advise --action configure"
       },
       "protect": null,
       "moments": [],
-      "writers": [],
+      "writers": [
+        "src/runtime/advice/config.js"
+      ],
       "source": {
         "file": "core/harnesses/shared/hooks/policies/lib.sh",
         "pattern": "prompt-nudge"
@@ -690,14 +728,16 @@
       "root": "config-home",
       "path": "",
       "entry": "file",
-      "match": "^(?:prompt-nudge|prune)$",
+      "match": "^(?:prompt-nudge|prune|decision-model\\.json)$",
       "rule": "existing",
       "bound": {
-        "text": "one line each, user-authored"
+        "text": "one line each, user-authored; decision-model.json is one JSON object, written by hand or by advise --action configure"
       },
       "protect": null,
       "moments": [],
-      "writers": [],
+      "writers": [
+        "src/runtime/advice/config.js"
+      ],
       "source": {
         "file": "core/harnesses/shared/hooks/policies/lib.sh",
         "pattern": "prompt-nudge"

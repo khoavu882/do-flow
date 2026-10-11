@@ -1,7 +1,8 @@
 'use strict';
 
-// Model role router. DoFlow never invokes a model itself; this resolves an abstract
-// role from core/registry/models.json into availability-annotated provider candidates that skills,
+// Model role router. DoFlow binds no model for the harness's own work; the runtime calls a
+// configured local decision model only for advisory picks. This resolves an abstract role from
+// core/registry/models.json into availability-annotated provider candidates that skills,
 // orchestration snapshots, or operators act on through each harness's native model selection.
 // Policy strings (prefer/fallback/require) pass through verbatim — the registry owns them; this
 // module owns matching them against providers' declared tiers and what is installed right now.

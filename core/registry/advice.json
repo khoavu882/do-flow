@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "timeoutMs": 5000,
+  "probeTimeoutMs": 1500,
+  "doctorBudgetMs": 6000,
+  "limits": {
+    "maxStateBytes": 49152,
+    "maxBodyBytes": 61440,
+    "minQuestions": 1,
+    "maxQuestions": 64,
+    "minOptions": 2,
+    "maxOptions": 26,
+    "questionName": "^[a-z][a-z0-9_-]{0,63}$"
+  },
+  "strength": {
+    "choice": {
+      "clearAt": 0.8,
+      "splitWithin": 0.2
+    },
+    "yesno": {
+      "clearAbove": 0.85,
+      "clearBelow": 0.15,
+      "splitFrom": 0.35,
+      "splitTo": 0.65
+    }
+  },
+  "providers": [
+    {
+      "id": "ollama",
+      "adapter": "ollama-systemone",
+      "modelProvider": "ollama",
+      "defaultEndpoint": "http://127.0.0.1:11434",
+      "route": "/v1/systemone",
+      "minVersion": "0.35.1",
+      "capability": "decision"
+    }
+  ],
+  "kinds": [
+    {
+      "id": "tier",
+      "type": "choice",
+      "instructions": "Select the capability tier that best fits the described task.",
+      "criteria": {
+        "light": "Verbatim extraction, classification, mechanical or high-volume work.",
+        "standard": "Normal coding, debugging, writing, analysis, routine research, and evidence gathering.",
+        "frontier": "Architecture, hard debugging, broad refactors, consequential decisions, and every review."
+      },
+      "staticFrom": "the brief tier (062 IC-004 resolution)",
+      "askedBy": ["brief-tools", "advise"]
+    },
+    {
+      "id": "task-class",
+      "type": "choice",
+      "instructions": "Select the task class whose workflow best matches the request.",
+      "criteriaFrom": "workflows.classes",
+      "staticFrom": "the proposed class",
+      "askedBy": ["classify"]
+    },
+    {
+      "id": "verify-risk",
+      "type": "choice",
+      "instructions": "Select the verification risk level that best fits the described change.",
+      "criteriaFrom": "verification.riskLevels",
+      "staticFrom": "the --risk level",
+      "askedBy": ["do-test"]
+    },
+    {
+      "id": "review-depth",
+      "type": "choice",
+      "instructions": "Select the independent review depth warranted by this work.",
+      "criteria": {
+        "single": "One frontier reviewer, different from the author",
+        "deep": "Two independent frontier reviewers with different lenses"
+      },
+      "staticFrom": "single",
+      "askedBy": []
+    },
+    {
+      "id": "mcp-need",
+      "type": "yesno",
+      "instructions": "Decide whether this server's documented trigger is due for the stage described.",
+      "criteriaFrom": "mcp.servers[].trigger",
+      "no": "The trigger is not due for this stage",
+      "yes": "The trigger is due for this stage",
+      "staticFrom": "whether the stage's steps name the server",
+      "askedBy": []
+    },
+    {
+      "id": "followup-triage",
+      "type": "choice",
+      "instructions": "Select when this follow-up should be addressed.",
+      "criteria": {
+        "now": "Act on it inside the current feature",
+        "later": "Keep it open for a later feature",
+        "dismiss": "It no longer applies"
+      },
+      "staticFrom": "none",
+      "askedBy": []
+    }
+  ]
+}

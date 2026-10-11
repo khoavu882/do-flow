@@ -20,6 +20,9 @@ const { EvidenceLedger } = require('./evidence-ledger');
 const { resolveConsultations } = require('./mcp-consultations');
 const { mcpReach } = require('./mcp-reach');
 const { loadRegistry } = require('../registry');
+const { loadStorageRegistry } = require('./storage/registry');
+const { resolveRoots, resolveStorePath } = require('./storage/roots');
+const { appendOutcome, findPick, readWindow } = require('./advice/record');
 const {
   checkReadiness, harnessHookNote, featureSlugFor, runSlugOf, findRunFile,
 } = require('./implementation-gate');
@@ -268,6 +271,7 @@ class WorkflowOrchestrator {
       return harness ? harness.displayName || harness.id : id;
     };
     const { briefRecords, repoRoot } = stageId ? this.readBriefRecords(taskId) : { briefRecords: [], repoRoot: this.projectRoot };
+    if (stageId) this.recordBriefTierAdvice({ briefRecords, taskId, stageId, repoRoot });
     try {
       const result = resolveConsultations({
         taskId, stageId, skill, flags, registry, ledger: {
@@ -320,6 +324,43 @@ class WorkflowOrchestrator {
       }
       return run?.startedAt || history[0]?.at || null;
     } catch { return null; }
+  }
+
+  /** Record advice outcomes for the same brief records the IC-008 handoff pass consumes. This is
+   * advisory telemetry only: every storage/read failure is ignored and never affects the handoff.
+   */
+  recordBriefTierAdvice({ briefRecords, taskId, stageId, repoRoot }) {
+    try {
+      const storage = loadStorageRegistry({ repoRoot: this.repoRoot });
+      const roots = resolveRoots({ registry: storage, projectRoot: repoRoot || this.projectRoot });
+      const declaredStores = new Map((storage.stores || []).map((store) => [store.id, store]));
+      const safeRoots = { ...roots };
+      for (const id of ['advice-picks-project', 'advice-picks-user']) {
+        const store = declaredStores.get(id);
+        if (!store) return;
+        if (!resolveStorePath({ store, roots, fsImpl: this.fsImpl })) safeRoots[store.root] = null;
+      }
+
+      const existing = readWindow({ roots: safeRoots, fsImpl: this.fsImpl }).records
+        .filter(({ record }) => record.type === 'outcome')
+        .map(({ record }) => record.pickId);
+      const seen = new Set(existing);
+      for (const record of briefRecords) {
+        const advice = record?.advice;
+        const pickId = advice?.pickId;
+        if (record?.runTaskId !== taskId || record?.stage !== stageId
+          || advice?.kind !== 'tier' || advice?.status !== 'answered'
+          || typeof pickId !== 'string' || !pickId || seen.has(pickId)) continue;
+        const pick = findPick({ pickId, roots: safeRoots, fsImpl: this.fsImpl });
+        if (!pick || pick.pick.kind !== 'tier' || !Array.isArray(pick.pick.options)
+          || !pick.pick.options.includes(record.tier)) continue;
+        seen.add(pickId);
+        appendOutcome({
+          roots: safeRoots, fsImpl: this.fsImpl, store: pick.store,
+          pickId, actual: record.tier, source: 'brief-record',
+        });
+      }
+    } catch { /* advice storage must never change a handoff */ }
   }
 
   /** The brief records (`*-brief.json`) of the feature this run belongs to, parsed; unreadable ones

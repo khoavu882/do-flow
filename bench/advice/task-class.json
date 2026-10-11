@@ -1,0 +1,68 @@
+{
+  "kind": "task-class",
+  "cases": [
+    {
+      "id": "task-class-001",
+      "split": "train",
+      "state": "Add a reusable retry option to an upload client, with a requirement, interface design, and tests.",
+      "expected": "feature",
+      "note": "core/registry/workflows.json classes.feature.description."
+    },
+    {
+      "id": "task-class-002",
+      "split": "train",
+      "state": "A reported billing total changes after removing a line; reproduce it and establish the root cause before fixing it.",
+      "expected": "bug",
+      "note": "core/registry/workflows.json classes.bug.description."
+    },
+    {
+      "id": "task-class-003",
+      "split": "train",
+      "state": "Restructure an existing router into smaller modules while preserving behavior and checking current invariants.",
+      "expected": "refactor",
+      "note": "core/registry/workflows.json classes.refactor.description."
+    },
+    {
+      "id": "task-class-004",
+      "split": "train",
+      "state": "Assess an existing change for correctness and risk, then report findings without implementing them.",
+      "expected": "review",
+      "note": "core/registry/workflows.json classes.review.description."
+    },
+    {
+      "id": "task-class-005",
+      "split": "train",
+      "state": "Investigate an external framework's current compatibility behavior and deliver a written report, with no repository change.",
+      "expected": "research",
+      "note": "core/registry/workflows.json classes.research.description."
+    },
+    {
+      "id": "task-class-006",
+      "split": "heldout",
+      "state": "Update the shipped setup guide with the current command examples and API description; the deliverable is repository prose.",
+      "expected": "documentation",
+      "note": "core/registry/workflows.json classes.documentation.description."
+    },
+    {
+      "id": "task-class-007",
+      "split": "heldout",
+      "state": "Upgrade a package after checking authoritative release notes and compatibility with this project.",
+      "expected": "dependency-change",
+      "note": "core/registry/workflows.json classes.dependency-change.description."
+    },
+    {
+      "id": "task-class-008",
+      "split": "heldout",
+      "state": "Create a release tag from a verified release candidate and perform the repository lifecycle steps.",
+      "expected": "operations",
+      "note": "core/registry/workflows.json classes.operations.description."
+    },
+    {
+      "id": "task-class-009",
+      "split": "heldout",
+      "state": "Correct one typo in a README sentence; the change is confined to one file and has no cascading effects.",
+      "expected": "trivial-edit",
+      "note": "core/registry/workflows.json classes.trivial-edit.description."
+    }
+  ]
+}
