@@ -31,7 +31,8 @@ echo "$TIMESTAMP END ${SESSION_ID:-unknown} ${CWD:-unknown}" >> "$SESSIONS_LOG"
 
 # ── 2. Uncommitted-changes warning ────────────────────────────────────────────
 
-if [[ -n "$CWD" ]] && is_git_worktree "$CWD"; then
+# A worker session never writes the project's warning; it is left for the main session.
+if [[ "$(doflow_session_role || echo main)" != "worker" ]] && [[ -n "$CWD" ]] && is_git_worktree "$CWD"; then
   if has_uncommitted_changes "$CWD"; then
     BRANCH=$(git_branch_of "$CWD" || echo "unknown")
     PROJECT_DIR=$(ensure_project_dir "$CWD")
