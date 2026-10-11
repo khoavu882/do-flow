@@ -13,7 +13,7 @@ const { backupSetFromPaths } = require('../../install/backup-set');
 const { writeManifest } = require('../../install/manifest');
 const { stateRoot } = require('../../state');
 const { confirm, promptLine } = require('../../helper/prompt');
-const { sourceCommit } = require('../../helper/git');
+const { sourceCommit } = require('../../helper/git.ts');
 const { captureCaught } = require('../../runtime/cli-result');
 const {
   REPO_ROOT, SCRIPT_DIR, pkg, installPaths, printBackupTable, holdRunLock, checkpointRunLock,

@@ -1,0 +1,23 @@
+{
+  "//": "Type-CHECK only. DoFlow runs .ts directly through Node native type-stripping (process.features.typescript === 'strip', Node >=22.6); there is NO build step and NO emit. tsc is invoked on demand via `npm run typecheck` (npx, no devDependency added) to catch type errors a stripper silently ignores. See agent-docs/BRIEF_GOAL_DOFLOW.md for the migration roadmap.",
+  "compilerOptions": {
+    "noEmit": true,
+    "checkJs": false,
+    "allowJs": true,
+    "strict": true,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2023",
+    "lib": ["es2023"],
+    "types": [],
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": false,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": false
+  },
+  "include": ["src/**/*.ts", "types/**/*.d.ts"],
+  "exclude": ["node_modules", "test", "bench", "core"]
+}

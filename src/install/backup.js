@@ -15,7 +15,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
-const { sourceCommit: gitSourceCommit } = require('../helper/git');
+const { sourceCommit: gitSourceCommit } = require('../helper/git.ts');
 const {
   legacyBackupReadRoot, isLegacyBackupReadRoot, scopeRootFromCanonicalBackupRoot,
 } = require('./paths');

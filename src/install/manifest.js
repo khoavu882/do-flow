@@ -5,7 +5,7 @@
 // the manifest, matching sync.sh's `mktemp` + `mv`).
 const fs = require('node:fs');
 const path = require('node:path');
-const { sourceCommit: gitSourceCommit } = require('../helper/git');
+const { sourceCommit: gitSourceCommit } = require('../helper/git.ts');
 
 // Explicit migration bridge: pre-registry installations stored this record beneath .claude.
 // Lifecycle commands use the scope-neutral .doflow location; only the neutral-state importer

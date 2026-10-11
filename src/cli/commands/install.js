@@ -11,7 +11,7 @@ const {
 const { backupSetFromPlan } = require('../../install/backup-set');
 const { writeManifest, readInstallManifest } = require('../../install/manifest');
 const { confirm } = require('../../helper/prompt');
-const { sourceCommit } = require('../../helper/git');
+const { sourceCommit } = require('../../helper/git.ts');
 const { chmodHooksExecutable } = require('../../helper/settings-scope');
 const { promptMcpCheckbox, resolveMcpSelections } = require('../../install/mcp');
 const { loadRegistry } = require('../../registry');

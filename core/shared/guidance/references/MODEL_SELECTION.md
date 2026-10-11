@@ -63,3 +63,12 @@ broad refactors, consequential decisions, and reviews. Name the tier/model per d
 After a stuck implementer, raise the tier at least once and use a fresh context.
 
 Consult the harness's capability notes before assuming its per-dispatch model selection behavior.
+
+## Enforceability: a rendered request, not an observed model
+
+`dispatchTiers.byOwner` in `core/registry/models.json` sets each archetype's tier, G29 pins it to the
+table above, and `resolveTier` renders it into every brief. Where a harness supports per-call model
+selection, pass `record.tier` and the policy applies; where it honors only `model: inherit`, the tier
+is a request the host cannot set and the worker runs on the session model — say which case applied in
+the hand-off. No cross-harness mechanism reads a worker's effective model, so the policy is verified
+by the rendered request plus G29, never by observation.

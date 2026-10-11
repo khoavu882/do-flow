@@ -59,7 +59,10 @@ const PATH_CALLER_SURFACES = ['package.json', path.join('core', 'shared', 'scrip
  */
 const ALLOWLIST = new Set();
 
-/** Every `.js` file under a source/test root. */
+/** Every runtime module file (`.js` or `.ts`) under a source/test root. The TypeScript migration
+ * (see agent-docs/BRIEF_GOAL_DOFLOW.md) runs `.ts` directly through Node native type-stripping, so a
+ * converted module is still a real node in this tree's require graph and must stay reachable. `.d.ts`
+ * declaration files are not modules and are excluded. */
 function jsFilesUnder(root) {
   const out = [];
   if (!fs.existsSync(root)) return out;
@@ -67,7 +70,8 @@ function jsFilesUnder(root) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) { walk(full); continue; }
-      if (entry.name.endsWith('.js')) out.push(full);
+      if (entry.name.endsWith('.d.ts')) continue;
+      if (entry.name.endsWith('.js') || entry.name.endsWith('.ts')) out.push(full);
     }
   }(root));
   return out;
@@ -106,10 +110,13 @@ function isInsideStringLiteral(text, index) {
 }
 
 /** Resolve a relative require specifier against the requiring file's directory, the way Node
- * would: the literal path, then `+ '.js'`, then `+ '/index.js'`. */
+ * would under native type-stripping: the literal path, then `+ '.js'` / `+ '.ts'`, then
+ * `/index.js` / `/index.ts`. A `.js` caller may require a converted `.ts` leaf by giving the
+ * explicit `.ts` extension (the literal-path branch catches that); a bare `./dep` resolves to
+ * `dep.ts` when only the `.ts` exists. */
 function resolveSpecifier(fromFile, spec) {
   const base = path.resolve(path.dirname(fromFile), spec);
-  for (const candidate of [base, `${base}.js`, path.join(base, 'index.js')]) {
+  for (const candidate of [base, `${base}.js`, `${base}.ts`, path.join(base, 'index.js'), path.join(base, 'index.ts')]) {
     if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
   }
   return null;
@@ -230,4 +237,31 @@ test('G16: every ALLOWLIST entry names a module that actually exists', () => {
   // this keeps the list honest if it is ever populated.
   const missing = [...ALLOWLIST].filter((rel) => !fs.existsSync(path.join(REPO, rel)));
   assert.deepEqual(missing, [], `ALLOWLIST names modules that do not exist:\n  ${missing.join('\n  ')}`);
+});
+
+// G30 — the TypeScript "force rule". DoFlow is migrating src/ to TypeScript run through Node native
+// type-stripping (agent-docs/BRIEF_GOAL_DOFLOW.md). The migration is enforced as direction, not as a
+// per-file mandate: the count of plain `.js` modules under src/ may only ever fall. This needs no
+// allowlist and no blocklist of the legitimately-permanent `.js` (a shebang entry point, a module a
+// stripper cannot help) — whatever `.js` remains is simply the ceiling the next change may not raise.
+// Converting one `.js` to `.ts` lowers the ceiling here in the same commit; adding a new `.js`
+// instead of a `.ts` raises it and fails. Lower JS_CEILING to match after each conversion.
+const JS_CEILING = 155;
+
+function jsOnlyUnder(root) {
+  return jsFilesUnder(root).filter((f) => f.endsWith('.js'));
+}
+
+test('G30: the count of plain .js modules under src/ never increases (TypeScript force rule)', () => {
+  const jsCount = jsOnlyUnder(SRC_DIR).length;
+  assert.ok(jsCount <= JS_CEILING,
+    `src/ holds ${jsCount} plain .js modules but the ceiling is ${JS_CEILING}. New runtime code under `
+    + 'src/ must be authored as TypeScript (.ts), and the migration only ever lowers this count. If you '
+    + 'converted a module to .ts, lower JS_CEILING in test/guards/module-reachability.test.js to match; '
+    + 'if you added a new .js, author it as .ts instead.');
+  // Drift guard: if the real count dropped below the ceiling, the ceiling was not lowered to track a
+  // completed conversion. Keep them equal so the ratchet always bites on the very next added .js.
+  assert.equal(jsCount, JS_CEILING,
+    `src/ holds ${jsCount} plain .js modules but JS_CEILING is ${JS_CEILING}. A conversion lowered the `
+    + 'real count without lowering the ceiling — set JS_CEILING to ' + jsCount + ' so the ratchet stays tight.');
 });
