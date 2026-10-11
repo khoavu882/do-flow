@@ -852,6 +852,7 @@ module.exports = {
   probeProvider,
   probeProviders,
   probeFreshness,
+  PROVIDER_ARTIFACTS,
   newestSourceMtime,
   detectProjectCommands,
   buildHealthReport,

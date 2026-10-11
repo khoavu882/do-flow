@@ -50,6 +50,8 @@ const {
   RESULTS,
   EMPTY_ANSWER_BY_FRESHNESS,
   FRESHNESS_STATES,
+  freshnessEntry,
+  sourceModeLookup,
 } = require('../../src/runtime/retrieval-plan');
 
 /** A scratch project root. Nothing here needs git — the plan record stamps no commit. */
@@ -217,6 +219,62 @@ test('an UNKNOWN index turns an empty answer into UNVERIFIED, not a finding (FR-
   assert.match(out, /UNVERIFIED/);
   assert.match(out, /not a negative finding/,
     'FR-015: the unverifiable-index case must be surfaced where it is used, not in a separate command');
+});
+
+// ── 068: a provider with no known artifact layout is judged by its declared sourceMode ─────────
+
+const fixtureCapabilities = {
+  'fixture.index-search': { providers: [
+    { id: 'fx.indexed', sourceMode: 'index' },
+    { id: 'fx.live', sourceMode: 'live' },
+  ] },
+  'fixture.other': { providers: [{ id: 'fx.live', sourceMode: 'live' }, { id: 'fx.both', sourceMode: 'live' }] },
+  'fixture.third': { providers: [{ id: 'fx.both', sourceMode: 'index' }] },
+};
+
+test('an index provider absent from PROVIDER_ARTIFACTS records UNKNOWN with no refresh (068)', () => {
+  const root = project('src-index');
+  cannedProbe = null;
+  const entry = freshnessEntry('fx.indexed', root, sourceModeLookup(fixtureCapabilities));
+  assert.equal(entry.state, 'UNKNOWN');
+  assert.equal(entry.refresh, null);
+  assert.equal(entry.artifact, null);
+  assert.equal(entry.reason, 'index-backed provider with no artifact layout DoFlow knows; freshness cannot be established');
+  assert.equal(EMPTY_ANSWER_BY_FRESHNESS[entry.state], 'UNVERIFIED', 'UNKNOWN reports like the probe-produced UNKNOWN');
+});
+
+test('a live provider absent from PROVIDER_ARTIFACTS records NOT_APPLICABLE (068)', () => {
+  const root = project('src-live');
+  cannedProbe = null;
+  const entry = freshnessEntry('fx.live', root, sourceModeLookup(fixtureCapabilities));
+  assert.equal(entry.state, 'NOT_APPLICABLE');
+  assert.match(entry.reason, /current by construction/);
+});
+
+test('a provider the registry does not declare, or declared index anywhere, is never trusted (068)', () => {
+  const root = project('src-unknown');
+  cannedProbe = null;
+  const lookup = sourceModeLookup(fixtureCapabilities);
+  assert.equal(freshnessEntry('fx.undeclared', root, lookup).state, 'UNKNOWN');
+  assert.equal(freshnessEntry('fx.both', root, lookup).state, 'UNKNOWN', 'index wins when one id is declared both ways');
+  assert.equal(freshnessEntry('fx.live', root).state, 'UNKNOWN', 'no lookup supplied fails closed');
+});
+
+test('semble and graphify keep their probed state; shipped live providers stay NOT_APPLICABLE (068)', () => {
+  const root = project('src-shipped');
+  cannedProbe = null;
+  const { CapabilityRouter } = require('../../src/runtime/capability-router');
+  const lookup = sourceModeLookup(new CapabilityRouter({ repoRoot: REPO }).capabilities);
+  for (const id of ['semble.search', 'graphify.query']) {
+    const entry = freshnessEntry(id, root, lookup);
+    assert.deepEqual(entry, (({ state, artifact, refresh, label, reason }) => ({
+      state, artifact, refresh: refresh || null, label: label || null, reason: reason || null,
+    }))(realProbeFreshness(id, { root })), `${id} entry must come from the probe, unchanged`);
+    assert.ok(entry.refresh, `${id} still carries its rebuild command`);
+  }
+  for (const id of ['native.rg', 'git.native']) {
+    assert.equal(freshnessEntry(id, root, lookup).state, 'NOT_APPLICABLE', id);
+  }
 });
 
 // ── the CLI contract, through the real entrypoint ─────────────────────────────────────────────

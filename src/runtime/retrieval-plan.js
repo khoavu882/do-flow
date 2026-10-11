@@ -151,6 +151,27 @@ function writePlan(projectRoot, taskId, record, slug = null) {
 }
 
 /**
+ * The `sourceMode` each provider id declares, as a lookup the plan builds once per declare.
+ *
+ * A provider id can appear under several capabilities (`native.rg`, `graphify.query`); `index` wins
+ * so a provider declared index-backed anywhere is never read as live.
+ *
+ * @param {Object} capabilities the router's `capabilities` map
+ * @returns {(providerId: string) => string|null} the declared mode, or null for an unknown id
+ */
+function sourceModeLookup(capabilities) {
+  const modes = new Map();
+  for (const capability of Object.values(capabilities || {})) {
+    for (const provider of (capability && capability.providers) || []) {
+      if (!provider || !provider.id) continue;
+      if (modes.get(provider.id) === 'index') continue;
+      modes.set(provider.id, provider.sourceMode || null);
+    }
+  }
+  return (providerId) => (modes.has(providerId) ? modes.get(providerId) : null);
+}
+
+/**
  * One provider's index freshness, in the shape the record stores it.
  *
  * Called once per distinct provider per plan and never per need — that bound is the whole of R8's
@@ -159,21 +180,33 @@ function writePlan(projectRoot, taskId, record, slug = null) {
  *
  * @param {string} providerId
  * @param {string} projectRoot the project whose source the index is compared against
+ * @param {(providerId: string) => string|null} [sourceModeOf] the provider's declared `sourceMode`;
+ *   absent, every provider without an artifact layout is treated as unknown (fail closed)
  * @returns {{state: string, artifact: string|null, refresh: string|null, label: string|null, reason: string|null}}
  */
-function freshnessEntry(providerId, projectRoot) {
+function freshnessEntry(providerId, projectRoot, sourceModeOf = () => null) {
   const probe = probeFreshness(providerId, { root: projectRoot });
   if (!probe) {
-    // `probeFreshness` returns null for a provider it has no artifact layout for. Design R9 records
-    // the accepted cost: a future index-backed provider missing from PROVIDER_ARTIFACTS reads as
-    // NOT_APPLICABLE and so as fully trustworthy. Stated here rather than silently defaulted.
+    // `probeFreshness` returns null for a provider it has no artifact layout for. What that means
+    // depends on how the provider answers: a `live` provider reads current files or commands, so
+    // there is no index to age; an `index` provider (or one the registry does not declare) answers
+    // from an artifact DoFlow cannot locate, so its freshness is UNKNOWN rather than trusted.
+    if (sourceModeOf(providerId) === 'live') {
+      return {
+        state: NOT_APPLICABLE,
+        artifact: null,
+        refresh: null,
+        label: null,
+        reason: 'this provider keeps no index DoFlow knows how to locate — a live filesystem or history '
+          + 'scan is current by construction, so there is nothing whose age could be measured',
+      };
+    }
     return {
-      state: NOT_APPLICABLE,
+      state: 'UNKNOWN',
       artifact: null,
       refresh: null,
       label: null,
-      reason: 'this provider keeps no index DoFlow knows how to locate — a live filesystem or history '
-        + 'scan is current by construction, so there is nothing whose age could be measured',
+      reason: 'index-backed provider with no artifact layout DoFlow knows; freshness cannot be established',
     };
   }
   return {
@@ -265,9 +298,10 @@ function declarePlan({ router, projectRoot, taskId, stage, intents, json, slug }
   // R8, in one loop: the probe set is the set of DISTINCT providers, so cost is bounded by
   // provider count and not by need count. Six needs across two providers pay two scans.
   const providers = {};
+  const sourceModeOf = sourceModeLookup(router.capabilities);
   for (const need of needs) {
     if (!need.provider || providers[need.provider]) continue;
-    providers[need.provider] = freshnessEntry(need.provider, projectRoot);
+    providers[need.provider] = freshnessEntry(need.provider, projectRoot, sourceModeOf);
   }
 
   const record = {
@@ -529,6 +563,7 @@ module.exports = {
   handleRetrievalPlanCommand,
   resultForEmptyAnswer,
   freshnessEntry,
+  sourceModeLookup,
   planPath,
   RESULTS,
   RETRIEVED,
