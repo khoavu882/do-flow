@@ -2,8 +2,8 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const test = require('node:test');
 const { createClaudeAdapter } = require('../../../src/adapters/claude');
 
@@ -15,7 +15,7 @@ const USER_SERVER = { command: 'my-own-server', env: { TOKEN: 'secret-value' } }
 // Claude Code's own state in ~/.claude.json, which DoFlow must never rewrite.
 const CLAUDE_STATE = { numStartups: 42, userID: 'abc123', projects: { '/work': { allowedTools: ['Bash'] } } };
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-claude-mcp-')); }
+function scratch() { return suiteTempDir('doflow-claude-mcp-'); }
 
 function writeJson(file, doc) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -30,7 +30,10 @@ function readJson(file) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
 function runMcp({ scope = 'global', root, mcp = [], mcpAdoptable = [], ledger = { resources: [] }, removing = false }) {
   const adapter = createClaudeAdapter();
   const operation = removing ? 'remove' : 'apply';
-  const input = { scope, scopeRoot: root, assets: [], mcp, mcpAdoptable, ledger, context: { operation } };
+  // Global scope takes the scratch root as home, as the CLI does; project scope gets a scratch home
+  // so discovery never reads the developer's ~/.claude.json.
+  const homeDir = scope === 'global' ? root : scratch();
+  const input = { scope, scopeRoot: root, assets: [], mcp, mcpAdoptable, ledger, context: { operation, homeDir } };
   const discovery = adapter.discover(input);
   const planned = adapter.plan({ ...input, discovery });
   if (!planned.conflicts.length) adapter[removing ? 'remove' : 'apply']({ ...input, changes: planned.changes });
@@ -129,4 +132,25 @@ test('A6 claude: a malformed ~/.claude.json is an install conflict and a remove 
   assert.match(removed.planned.notices[0], /^MCP: left .*\.claude\.json untouched because it cannot be edited safely/);
   assert.equal(fs.readFileSync(file, 'utf8'), '{ "mcpServers": { "secret-value": ');
   assert.deepEqual(mcpRows(removed.ledger), []);
+});
+
+test('reach (062 X1): project discover names local- and user-scope servers from ~/.claude.json and never claims a complete view', () => {
+  const home = scratch();
+  const root = scratch();
+  writeJson(path.join(root, '.mcp.json'), { mcpServers: { 'project-one': {} } });
+  writeJson(path.join(home, '.claude.json'), { ...CLAUDE_STATE, mcpServers: { 'user-one': {} },
+    projects: { [root]: { mcpServers: { context7: {} } }, '/elsewhere': { mcpServers: { 'other-project': {} } } } });
+  const adapter = createClaudeAdapter();
+  const discovery = adapter.discover({ scope: 'project', scopeRoot: root, homeDir: home, ledger: { resources: [] } });
+  assert.deepEqual(discovery.mcpConfigured, ['context7', 'project-one', 'user-one']);
+  assert.equal(discovery.mcpComplete, false, 'plugins, managed and connector servers are not read');
+  assert.deepEqual(Object.keys(discovery.mcpSnapshot), [path.join(root, '.mcp.json')], 'install planning sees only the scope file');
+
+  // No project file: the ~/.claude.json names still count; an unreadable ~/.claude.json adds nothing.
+  fs.rmSync(path.join(root, '.mcp.json'));
+  assert.deepEqual(adapter.discover({ scope: 'project', scopeRoot: root, homeDir: home }).mcpConfigured, ['context7', 'user-one']);
+  writeJson(path.join(home, '.claude.json'), '{ not json');
+  assert.equal(adapter.discover({ scope: 'project', scopeRoot: root, homeDir: home }).mcpConfigured, null);
+  writeJson(path.join(root, '.mcp.json'), { mcpServers: { 'project-one': {} } });
+  assert.deepEqual(adapter.discover({ scope: 'project', scopeRoot: root, homeDir: home }).mcpConfigured, ['project-one']);
 });

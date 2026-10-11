@@ -8,8 +8,8 @@
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 
@@ -25,9 +25,10 @@ after(() => {
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const {
-  buildScopeBound, taskFilesFromPlan, resolveIntegrationBase, resolvePlanSource, parseDeclaredScope, resolveScopeBound,
+  buildScopeBound, taskFilesFromPlan, resolveIntegrationBase, resolveExplicitBaseline, resolvePlanSource, parseDeclaredScope, resolveScopeBound,
   scopeReasonText, boundSourcesText,
 } = require('../../src/runtime/verification/scope-bound');
+const { VerificationEngine } = require('../../src/runtime/verification/engine');
 const resolveIntegrationBaseOf = (cwd) => resolveIntegrationBase({ cwd });
 
 const SLUG = '050-scope-demo';
@@ -47,14 +48,13 @@ function git(cwd, ...args) {
   return res.stdout;
 }
 
-/** Every scratch repository this file makes is removed when it finishes. */
+/** Linked worktrees sit beside their repository, outside its temp folder, so this file removes them itself. */
 const made = [];
 after(() => { for (const dir of made) fs.rmSync(dir, { recursive: true, force: true }); });
 
 /** A repo with `develop` as the integration branch and a feature branch checked out. */
 function repo({ plan = PLAN, register = true } = {}) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-vscope-')));
-  made.push(root);
+  const root = suiteTempDir('doflow-verification-scope-');
   git(root, 'init', '-q', '-b', 'develop');
   fs.mkdirSync(path.join(root, 'src'), { recursive: true });
   fs.writeFileSync(path.join(root, 'src', 'in.js'), 'module.exports = 1;\n');
@@ -111,8 +111,7 @@ test('buildScopeBound is null with no plan, and with a plan that names no task f
 });
 
 test('a runtime with no bash helpers reports them missing as the baseline reason, not a missing integration ref', () => {
-  const tree = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-vscope-rt-')), 'runtime');
-  made.push(path.dirname(tree));
+  const tree = path.join(suiteTempDir('doflow-verification-scope-runtime-'), 'runtime');
   fs.mkdirSync(path.join(tree, 'core'), { recursive: true });
   for (const part of ['bin', 'src']) fs.cpSync(path.join(REPO, part), path.join(tree, part), { recursive: true });
   fs.cpSync(path.join(REPO, 'core', 'registry'), path.join(tree, 'core', 'registry'), { recursive: true });
@@ -227,12 +226,16 @@ test('a moved file reports the file it left as well as the one it became', () =>
 });
 
 test('DoFlow\'s own state under .doflow/ never counts as a changed file', () => {
-  const root = repo();   // this repo does not ignore .doflow/
+  const root = repo();   // the verb installs DoFlow's state-local ignore file
   const rec = spawnSync('node', [DOFLOW, 'outcome', '--task-id', 'A.1', '--action', 'record', '--task-class', 'bug', '--stage', 'review', '--state', 'INCONCLUSIVE', '--json'],
     { cwd: root, env: { ...process.env, HOME: root }, encoding: 'utf8' });
   assert.equal(rec.status, 0, rec.stdout + rec.stderr);
-  assert.match(git(root, 'status', '--porcelain'), /\.doflow\//, 'the record is an untracked change');
-  commit(root, '.doflow/state/other.json');
+  assert.ok(fs.existsSync(path.join(root, '.doflow/state/.gitignore')));
+  assert.doesNotMatch(git(root, 'status', '--porcelain'), /\.doflow\//, 'the untracked record is ignored');
+  // Even state deliberately force-added by a user must not enter the changed-file set.
+  fs.writeFileSync(path.join(root, '.doflow/state/other.json'), 'changed\n');
+  git(root, 'add', '-f', '.doflow/state/other.json');
+  git(root, 'commit', '-q', '-m', 'touch .doflow/state/other.json');
   commit(root, 'src/in.js');
   const tier = scopeTier(root);
   assert.equal(tier.status, 'PASS', tier.reason);
@@ -278,8 +281,7 @@ function feature(dir, slug, { plan = DEMO_PLAN, register = true } = {}) {
 /** A main checkout `m` on `main` holding the gitignored feature folder, and a linked worktree `wt`
  * on the feature's branch with no folder of its own. */
 function pair() {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-vscope-wt-')));
-  made.push(root);
+  const root = suiteTempDir('doflow-verification-scope-pair-');
   const m = path.join(root, 'm');
   fs.mkdirSync(path.join(m, 'src'), { recursive: true });
   git(m, 'init', '-q', '-b', 'main');
@@ -557,7 +559,7 @@ test('records in two other checkouts are not used for the scope: the contract sa
 
 test('verify refuses a task id that could name a path outside the state store', () => {
   for (const id of ['../../../package', 'a/b', '..']) {
-    const res = spawnSync('node', [DOFLOW, 'verify', '--task-id', id, '--action', 'contract'], { cwd: repo({ plan: null }), env: { ...process.env, HOME: os.tmpdir() }, encoding: 'utf8' });
+    const res = spawnSync('node', [DOFLOW, 'verify', '--task-id', id, '--action', 'contract'], { cwd: repo({ plan: null }), env: { ...process.env, HOME: scratch.home }, encoding: 'utf8' });
     assert.equal(res.status, 2, `${id}: ${res.stdout}`);
     assert.match(res.stderr, /Invalid task id/);
   }
@@ -585,3 +587,146 @@ test('a files: value that says none names no path, and a path that merely starts
   ].join('\n');
   assert.deepEqual(taskFilesFromPlan(plan), ['src/a.js', 'none-of-these/x.js', 'nonexistent.js']);
 });
+
+test('resolveExplicitBaseline validates commits and requires ancestry with HEAD', () => {
+  const root = repo();
+  const headSha = git(root, 'rev-parse', 'HEAD').trim();
+
+  // Valid ref / commit
+  const valid = resolveExplicitBaseline({ cwd: root, ref: 'HEAD' });
+  assert.equal(valid.ok, true);
+  assert.equal(valid.sha, headSha);
+
+  // Invalid ref
+  const empty = resolveExplicitBaseline({ cwd: root, ref: '' });
+  assert.equal(empty.ok, false);
+  assert.match(empty.reason, /not a usable commit or ref/);
+
+  const dash = resolveExplicitBaseline({ cwd: root, ref: '--not-a-flag' });
+  assert.equal(dash.ok, false);
+  assert.match(dash.reason, /not a usable commit or ref/);
+
+  const missing = resolveExplicitBaseline({ cwd: root, ref: 'nonexistent-branch-or-tag' });
+  assert.equal(missing.ok, false);
+  assert.match(missing.reason, /does not name a commit/);
+
+  // Commit on another branch (not ancestor)
+  git(root, 'checkout', '-q', '-b', 'other-divergent-branch', headSha);
+  commit(root, 'other.js', 'divergent\n');
+  const otherSha = git(root, 'rev-parse', 'HEAD').trim();
+  git(root, 'checkout', '-q', `feat/${SLUG}`);
+
+  const nonAncestor = resolveExplicitBaseline({ cwd: root, ref: otherSha });
+  assert.equal(nonAncestor.ok, false);
+  assert.match(nonAncestor.reason, /is not an ancestor of HEAD/);
+});
+
+test('resolveScopeBound with explicit baseline pins commit and reports baseline: explicit', () => {
+  const root = repo();
+  const headSha = git(root, 'rev-parse', 'HEAD').trim();
+
+  const res = resolveScopeBound({ projectRoot: root, baselineRef: 'HEAD' });
+  assert.equal(res.reason, null);
+  assert.ok(res.bound);
+  assert.equal(res.bound.baseline, 'explicit');
+  assert.equal(res.bound.baselineRef, 'HEAD');
+  assert.equal(res.bound.baselineSha, headSha);
+
+  // Non-ancestor baseline leaves bound null and reports baseline-invalid
+  git(root, 'checkout', '-q', '-b', 'side-branch', headSha);
+  commit(root, 'side.js');
+  const sideSha = git(root, 'rev-parse', 'HEAD').trim();
+  git(root, 'checkout', '-q', `feat/${SLUG}`);
+
+  const nonAncestor = resolveScopeBound({ projectRoot: root, baselineRef: sideSha });
+  assert.equal(nonAncestor.bound, null);
+  assert.equal(nonAncestor.reason, 'baseline-invalid');
+  assert.match(nonAncestor.unresolvedReason, /is not an ancestor of HEAD/);
+});
+
+test('explicit baseline diff collection captures committed, staged, unstaged, untracked, renames, and unicode/spaces', () => {
+  const root = repo();
+  const baseSha = git(root, 'rev-parse', 'HEAD').trim();
+
+  // Committed change
+  commit(root, 'src/in.js', 'committed modification\n');
+
+  // Staged change
+  fs.mkdirSync(path.join(root, 'test'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'test/in.test.js'), 'staged\n');
+  git(root, 'add', 'test/in.test.js');
+
+  // Unstaged change
+  fs.writeFileSync(path.join(root, 'lib/legacy.js'), 'unstaged change\n');
+
+  // Untracked change with space and unicode
+  const spaceFile = 'test/fixtures/dir/file with space and 測試.txt';
+  fs.mkdirSync(path.dirname(path.join(root, spaceFile)), { recursive: true });
+  fs.writeFileSync(path.join(root, spaceFile), 'untracked\n');
+
+  // .doflow state change (must be excluded)
+  const doflowFile = '.doflow/state/test-marker.json';
+  fs.mkdirSync(path.dirname(path.join(root, doflowFile)), { recursive: true });
+  fs.writeFileSync(path.join(root, doflowFile), '{"test":true}\n');
+
+  const engine = new VerificationEngine({ cwd: root, repoRoot: REPO });
+  const observed = engine.observeChangedFiles(['fake-file-override.js'], {
+    baseline: 'explicit',
+    baselineRef: baseSha,
+    baselineSha: baseSha,
+  });
+
+  assert.equal(observed.reason, null);
+  assert.ok(observed.files.includes('src/in.js'), 'committed file included');
+  assert.ok(observed.files.includes('test/in.test.js'), 'staged file included');
+  assert.ok(observed.files.includes('lib/legacy.js'), 'unstaged file included');
+  assert.ok(observed.files.includes(spaceFile), 'space/unicode untracked file included');
+  assert.ok(!observed.files.some((f) => f.startsWith('.doflow')), '.doflow state excluded');
+  assert.ok(!observed.files.includes('fake-file-override.js'), 'caller changedFiles ignored under explicit baseline');
+});
+
+test('verify CLI with --baseline-ref handles valid ancestor and non-ancestor cleanly', () => {
+  const root = repo();
+  const baseSha = git(root, 'rev-parse', 'HEAD').trim();
+
+  // Change within plan bound
+  commit(root, 'src/in.js', 'valid change\n');
+
+  // Valid ancestor baseline: change-scope passes
+  const validReportRes = spawnSync('node', [DOFLOW, 'verify', '--task-id', 'A.1', '--risk', 'LOW', '--baseline-ref', baseSha, '--json'], {
+    cwd: root, env: { ...process.env, HOME: root }, encoding: 'utf8',
+  });
+  const validReport = JSON.parse(validReportRes.stdout);
+  const scopeTier = validReport.tiers.find((t) => t.id === 'change-scope');
+  assert.equal(scopeTier.status, 'PASS');
+  assert.equal(scopeTier.scope.baseline.kind, 'pinned');
+  assert.equal(scopeTier.scope.baseline.sha, baseSha);
+
+  // Divergent commit (non-ancestor)
+  git(root, 'checkout', '-q', '-b', 'divergent-branch', baseSha);
+  commit(root, 'divergent.js');
+  const divergentSha = git(root, 'rev-parse', 'HEAD').trim();
+  git(root, 'checkout', '-q', `feat/${SLUG}`);
+
+  // Non-ancestor ref leaves change-scope UNRESOLVED on contract (exits 0)
+  const contractRes = spawnSync('node', [DOFLOW, 'verify', '--task-id', 'A.1', '--action', 'contract', '--baseline-ref', divergentSha, '--json'], {
+    cwd: root, env: { ...process.env, HOME: root }, encoding: 'utf8',
+  });
+  assert.equal(contractRes.status, 0, contractRes.stderr);
+  const contract = JSON.parse(contractRes.stdout);
+  const contractScopeTier = contract.tiers.find((t) => t.id === 'change-scope');
+  assert.equal(contractScopeTier.resolution, 'UNRESOLVED');
+  assert.match(contractScopeTier.reason, /is not an ancestor of HEAD/);
+
+  // Non-ancestor ref leaves change-scope UNRESOLVED on report (not exit 2 usage error, exits 1 for inconclusive/unresolved)
+  const nonAncestorReportRes = spawnSync('node', [DOFLOW, 'verify', '--task-id', 'A.1', '--baseline-ref', divergentSha, '--json'], {
+    cwd: root, env: { ...process.env, HOME: root }, encoding: 'utf8',
+  });
+  assert.equal(nonAncestorReportRes.status, 1);
+  const nonAncestorReport = JSON.parse(nonAncestorReportRes.stdout);
+  assert.equal(nonAncestorReport.status, 'INCONCLUSIVE');
+  const reportScopeTier = nonAncestorReport.tiers.find((t) => t.id === 'change-scope');
+  assert.equal(reportScopeTier.status, 'UNRESOLVED');
+  assert.match(reportScopeTier.reason, /is not an ancestor of HEAD/);
+});
+

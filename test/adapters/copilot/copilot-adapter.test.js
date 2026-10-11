@@ -2,13 +2,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const { createCopilotAdapter, nativePaths, agentFileLayout, MARKER_START } = require('../../../src/adapters/copilot');
 const { entryFingerprint } = require('../../../src/adapters/mcp-entries');
 const { assertAdapter } = require('../../../src/adapters');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-copilot-')); }
+function scratch() { return suiteTempDir('doflow-copilot-'); }
 const instructionAssets = [{ id: 'guidance.codex-pointer', capability: 'instructions', source: 'source.md' }];
 
 test('implements the adapter contract', () => {
@@ -472,4 +472,13 @@ test('rules project as .github/instructions/*.instructions.md with applyTo heade
   const instructionsDir = path.join(root, '.github', 'instructions');
   assert.ok(!fs.existsSync(instructionsDir) || fs.readdirSync(instructionsDir).length === 0,
     'remove reclaims every projected rule file');
+});
+
+test('Copilot discovery reports the servers in its MCP config, sorted, and null when the file is absent', () => {
+  const root = scratch(); const adapter = createCopilotAdapter();
+  const first = adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } });
+  assert.equal(first.mcpConfigured, null);
+  fs.mkdirSync(path.dirname(first.paths.mcp), { recursive: true });
+  fs.writeFileSync(first.paths.mcp, JSON.stringify({ mcpServers: { zeta: {}, alpha: {} } }));
+  assert.deepEqual(adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } }).mcpConfigured, ['alpha', 'zeta']);
 });

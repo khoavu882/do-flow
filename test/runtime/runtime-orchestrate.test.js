@@ -17,19 +17,17 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir, suiteTempDir } = require('../helper/tmp');
 const { spawnSync, execFileSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 
 /** A git-backed scratch project, same shape as runtime-evidence-write.test.js's own helper; removed
- * when `t` ends, when one is given. */
+ * when `t` ends, when one is given, and otherwise when this file ends. */
 function project(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-orchestrate-'));
-  const real = fs.realpathSync(dir);
-  if (t) t.after(() => fs.rmSync(real, { recursive: true, force: true }));
+  const real = t ? tempDir(t, 'doflow-runtime-orchestrate-') : suiteTempDir('doflow-runtime-orchestrate-');
   fs.writeFileSync(path.join(real, 'a.js'), 'module.exports = { x: 1 };\n');
   const git = (...args) => execFileSync('git', ['-C', real, ...args], { stdio: 'ignore' });
   git('init', '-q');
@@ -182,7 +180,7 @@ test('a run started before DoFlow 1.22.0 is refused at handoff like a run from 1
 
 test('M3: orchestrate --global writes the run journal under $HOME, matching evidence\'s own --global scoping', () => {
   const cwd = project();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-orchestrate-home-'));
+  const home = suiteTempDir('doflow-runtime-orchestrate-home-');
   const started = json(cwd, ['orchestrate', '--action', 'start', '--task-id', 't-global', '--task-class', 'trivial-edit', '--global'], { home });
   assert.equal(started.status, 0);
   assert.ok(

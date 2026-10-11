@@ -1,0 +1,37 @@
+{
+  "kind": "mcp-need",
+  "cases": [
+    {
+      "id": "mcp-need-001",
+      "split": "train",
+      "state": "The stage will state the current versioned configuration behavior of a named library as fact.",
+      "server": "context7",
+      "expected": "yes",
+      "note": "core/registry/mcp.json servers.context7.trigger."
+    },
+    {
+      "id": "mcp-need-002",
+      "split": "heldout",
+      "state": "The task changes an internal helper using existing repository code and makes no claims about an external library or service.",
+      "server": "context7",
+      "expected": "no",
+      "note": "core/registry/mcp.json servers.context7.trigger."
+    },
+    {
+      "id": "mcp-need-003",
+      "split": "train",
+      "state": "The work must choose between several interacting design options and record the decision.",
+      "server": "sequential-thinking",
+      "expected": "yes",
+      "note": "core/registry/mcp.json servers.sequential-thinking.trigger."
+    },
+    {
+      "id": "mcp-need-004",
+      "split": "train",
+      "state": "Make a mechanical rename fixed by an approved specification; no competing options or recorded decision are involved.",
+      "server": "sequential-thinking",
+      "expected": "no",
+      "note": "core/registry/mcp.json servers.sequential-thinking.trigger."
+    }
+  ]
+}

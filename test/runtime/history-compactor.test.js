@@ -3,8 +3,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const { compactHistory, POINTER } = require('../../src/runtime/history-compactor');
 
 const FIXTURES = path.join(__dirname, '..', 'fixtures', 'decision-register');
@@ -12,7 +12,7 @@ const SLUG = '001-demo';
 
 /** Builds a feature folder holding the named fixtures at the given feature-relative paths. */
 function feature(layout) {
-  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-compact-'));
+  const repoRoot = suiteTempDir('doflow-history-compactor-');
   const featureDir = path.join(repoRoot, 'agent-docs', 'doflow', SLUG);
   const paths = {};
   for (const [key, [rel, fixture]] of Object.entries(layout)) {

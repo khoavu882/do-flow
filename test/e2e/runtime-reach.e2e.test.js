@@ -8,14 +8,14 @@
 // then run from a directory outside any DoFlow checkout. No harness binary is invoked, and there is
 // no network, model call or login.
 
-const { test, describe, before, after } = require('node:test');
+const { test, describe, before } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { spawn: spawnProcess, spawnSync } = require('node:child_process');
 const { resolverOf, filesUnder } = require('../helper/skill-resolver');
 const { IS_WIN } = require('../helper-platform');
+const { suiteTempDir } = require('../helper/tmp');
 
 // A developer's PI_CODING_AGENT_DIR would send this file's global Pi MCP writes outside the scratch home.
 delete process.env.PI_CODING_AGENT_DIR;
@@ -48,8 +48,7 @@ const READ_VERBS = [
   ['failure', '--action', 'list', '--json'],
 ];
 
-const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-reach-')));
-after(() => fs.rmSync(base, { recursive: true, force: true }));
+const base = suiteTempDir('doflow-runtime-reach-e2e-');
 
 let counter = 0;
 

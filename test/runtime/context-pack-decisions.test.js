@@ -2,9 +2,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { tempDir } = require('../helper/tmp');
 const { ContextPackCompiler, handleContextPackCommand } = require('../../src/runtime/context-pack');
 const { runDecision } = require('../../src/runtime/decision-register');
 
@@ -18,8 +18,7 @@ function git(cwd, ...args) {
 
 /** A repo on `branch` holding feature 060-x; `withRegister` seeds three decisions, one superseded. */
 function fixture(t, { branch = 'feat/060-x', withRegister = true } = {}) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-pack-decisions-')));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = tempDir(t, 'doflow-context-pack-decisions-');
   fs.mkdirSync(path.join(root, 'agent-docs', 'doflow', '060-x'), { recursive: true });
   fs.writeFileSync(path.join(root, 'agent-docs', 'doflow', '060-x', '.keep'), '');
   git(root, 'init', '-q', '-b', 'main');
@@ -79,8 +78,7 @@ test('a feature without a register reads as unavailable, and the empty pack stil
 });
 
 test('an unresolvable feature never throws', (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-pack-nofeature-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = tempDir(t, 'doflow-context-pack-decisions-nofeature-');
   const { pack } = packOf(root);
   assert.deepEqual(pack.decisions, { available: false, live: [], liveCount: 0 });
 });

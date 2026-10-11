@@ -7,15 +7,14 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { syncPluginVersions, PLUGIN_MANIFESTS } = require('../../src/release/sync-plugin-versions');
+const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, "../..");
 
 function fixture(t, { pkgVersion, manifestVersion }) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-relsync-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = tempDir(t, 'doflow-relsync-');
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'x', version: pkgVersion }, null, 2));
   for (const rel of PLUGIN_MANIFESTS) {
     const file = path.join(root, rel);

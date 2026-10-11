@@ -2,19 +2,21 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
+const { createScratch } = require('../helper/scratch-env');
 const { spawnSync } = require('node:child_process');
 const { updateTaskState } = require('../../src/runtime/task-state');
 const cli = path.resolve(__dirname, '../../bin/doflow.js');
 
+const scratch = createScratch('doflow-runtime-research-request-home-');
+
 function run(root, ...args) {
-  return spawnSync(process.execPath, [cli, 'research-request', ...args, '--json'], { cwd: root, encoding: 'utf8' });
+  return spawnSync(process.execPath, [cli, 'research-request', ...args, '--json'], { cwd: root, env: scratch.env(), encoding: 'utf8' });
 }
 
 test('CLI opens, lists and resolves requests in a temporary project', t => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-req-cli-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = tempDir(t, 'doflow-runtime-research-request-');
   updateTaskState({ fsImpl: fs, file: path.join(root, '.doflow/state/orchestration/demo.json'),
     build: () => ({ taskId: 'demo', taskClass: 'feature', state: 'RUNNING', cursor: 0,
       program: [{ type: 'stage', id: 'design' }] }) });

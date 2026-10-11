@@ -14,6 +14,7 @@ const {
 const { pkg } = require('./shared');
 const { VALID: VALID_TARGETS, DEFAULT_TARGETS } = require('../install/targets');
 const { dispatchRuntimeCommand } = require('./runtime-commands');
+const { usageError } = require('../runtime/cli-result');
 
 const cmdInstall = require('./commands/install');
 const cmdUpdate = require('./commands/update');
@@ -77,6 +78,9 @@ function parseArgs(argv) {
       case '--confirm': o.confirm = true; break;
       // followup --action report: the report body comes from stdin instead of --file or --text.
       case '--stdin': o.stdin = true; break;
+      // advise --action configure: these are deliberately presence-only switches.
+      case '--off': o.off = true; break;
+      case '--project': o.project = true; break;
       // goal --action check: record the item as not met (evidence is still required, as the reason).
       case '--unmet': o.unmet = true; break;
       // goal --action link: move a feature that already serves another goal.
@@ -200,6 +204,8 @@ const RUNTIME_STRING_FLAGS = new Map([
   // --slug=<chosen>"; without this flag that hint would name an argument this CLI rejects.
   ['--slug', 'slug'],
   ['--rationale', 'rationale'],        // classify: why this class was proposed · decision --action add: why it was decided
+  ['--request', 'request'],            // classify: request text for an advisory second opinion
+  ['--request-file', 'requestFile'],   // classify: request text read from a file
   // decision --action add. `--statement`, `--stage`, `--slug` and `--batch` above are shared.
   ['--topic', 'topic'],                // the subject key a decision is live on
   ['--channel', 'channel'],            // question | gate | prompt | default | resolution
@@ -232,7 +238,11 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--role', 'role'],                  // claim --action add: the claim's relationship to the task, e.g. root-cause
   ['--replaced-by', 'replacedBy'],     // claim --action supersede: the claim replacing this one ·
                                         // evidence --action supersede: the evidence replacing this one
-  ['--kind', 'kind'],                  // evidence --action add: one of VALID_EVIDENCE_KINDS
+  ['--kind', 'kind'],                  // evidence --action add: one of VALID_EVIDENCE_KINDS · advise --action ask
+  ['--server', 'server'],              // advise: MCP server for the mcp-need kind
+  ['--state-file', 'stateFile'],       // advise: request state from a UTF-8 file
+  ['--questions-file', 'questionsFile'], // advise: ad hoc question set JSON
+  ['--static', 'staticAnswer'],        // advise: explicit caller answer for comparison
   ['--provenance', 'provenance'],      // evidence --action add: extracted | inferred | asserted
   ['--provider', 'provider'],          // evidence --action add: source.provider
   ['--capability', 'capability'],      // evidence --action add: source.capability
@@ -263,15 +273,28 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--readiness', 'readiness'],
   ['--verification', 'verification'],
   ['--risk', 'risk'],                  // verify: risk level selecting the required tiers
+  ['--pick-id', 'pickId'],             // advise --action outcome: retained pick to label
+  ['--actual', 'actual'],              // advise --action outcome: observed outcome
+  ['--model', 'model'],                // advise --action configure: installed decision-capable model
+  ['--endpoint', 'endpoint'],          // advise --action configure: loopback Ollama endpoint
+  ['--owner', 'owner'],                // brief-tools: the agent type the brief is for
+  ['--tier', 'tier'],                  // brief-tools: the task line's tier (light | standard | frontier)
+  ['--harness', 'harness'],            // brief-tools: the harness the brief is for
+  ['--heading-level', 'headingLevel'], // brief-tools: 2 (default) or 3
+  ['--tasks', 'tasks'],               // brief-tools: comma-separated plan task ids for tier advice
   ['--plan-path', 'planPath'],         // verify: a feature plan.md whose doflow-verification
                                        // block overrides manifest detection. Without this the
                                        // override was implemented but unreachable (FR-011).
+  ['--verification-input', 'verificationInput'], // verify: manifest JSON file for explicit structuralChecks/requirements (IC-022)
+  ['--verification-phase', 'verificationPhase'], // verify: postimplementation (IC-022)
+  ['--baseline-ref', 'baselineRef'],             // verify: explicit ancestor commit or ref to measure change against (IC-022)
   ['--error', 'errorMessage'],         // recover: the failure text to classify
   ['--agent', 'agent'],                // recover: which agent produced the failure
 ]);
 
 /** Repeatable arguments — each occurrence appends rather than replaces. */
 const RUNTIME_LIST_FLAGS = new Map([
+  ['--mcp-outcome', 'mcpOutcome'],     // orchestrate handoff: <server>=<outcome>, one per MCP server the step names
   ['--failed-check', 'failedChecks'],  // recover: check names outrank the error prose (see recovery.js)
   // retrieval-plan: the intents a stage declares, or (on report) the ones it states it reached.
   // Repeatable as well as comma-separated, because a plan assembled a need at a time should not
@@ -379,6 +402,8 @@ Commands:
   research-request     Open, list or resolve a feature-stage research question (--task-id)
   retrieve             BM25 search over the installed guidance tree (--query)
   model-role           Resolve a model role to ranked provider candidates (--role)
+  advise               Route decision questions to the configured local model (--action)
+  brief-tools          Tier, tools and report-format block for a dispatch brief (--owner)
   route                Resolve an information need to a healthy provider (--intent)
   verify               Compile the verification contract and report against it (--task-id)
   recover              Classify a verification failure and plan the bounded retry (--error)
@@ -387,6 +412,7 @@ Commands:
   indicators           Per-stage and per-gate timings from the orchestration record
   discover             Missed capability opportunities in recorded runs
   inventory            Shadowed copies, drift and unmanaged files across both install scopes
+  storage              Report stored data and retention bounds (--action report|prune|upkeep)
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
   decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
   followup             Record, list, take, settle, promote or report what a feature left unfinished (--action add|list|take|settle|promote|report)
@@ -425,15 +451,16 @@ Options:
 
 Runtime verb arguments (accept --flag value or --flag=value):
       --task-class     classify, workflow, readiness, context-pack, outcome --action record
-      --task-id        readiness, evidence, claim, context-pack, retrieval-plan, outcome, verify
+      --task-id        readiness, evidence, claim, context-pack, retrieval-plan, outcome, verify, advise
       --action         claim: list|add|link|retract|supersede · evidence: list|add|supersede
                        verify: report|contract · retrieval-plan: declare|report
-                       outcome: record|show · tools: see above
+                       outcome: record|show · advise: ask|outcome|configure · tools: see above
                        followup: add|list|take|settle|promote|report
                        lifecycle: overview|init|release|status|merged
                        goal: add|item|check|link|list|done
                        failure: list|settle|capture
       --rationale, --proposed-by, --calling-skill    classify
+      --request <text>, --request-file <file>  classify (mutually exclusive; optional second opinion)
       --intent, --query, --check            route
       --statement, --claim-id,
       --evidence-id, --relation             claim
@@ -449,10 +476,23 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --objective                           context-pack
       --need <intent[,intent]>,
       --stage                               retrieval-plan (--need is repeatable), outcome
+      --mcp-outcome <server>=<outcome>      orchestrate --action handoff, repeatable: used | nothing-usable |
+                                            skipped:<reason> | unavailable (a server left out only warns)
       --state <COMPLETED|BLOCKED|
                ABANDONED|INCONCLUSIVE>,
       --readiness, --verification           outcome --action record
-      --risk, --plan-path, --scope          verify
+      --risk, --plan-path, --scope,
+      --verification-input,
+      --verification-phase,
+      --baseline-ref                     verify
+      --owner, --tier, --harness, --tasks <id,...>,
+      --heading-level 2|3                   brief-tools (--slug names the feature whose run gives the stage)
+      --kind, --state, --state-file,
+      --questions-file, --server,
+      --static                           advise --action ask
+      --pick-id, --actual                advise --action outcome
+      --model, --endpoint, --project,
+      --off                              advise --action configure
       --path, --exclude (repeatable)        leak-scan
       --ids, --as, --evidence, --title,
       --release, --source, --channel        followup (add, list, take, settle, promote)
@@ -490,15 +530,18 @@ function commandName(name) { return typeof name === 'string' && COMMAND_NAMES.ha
  * through the installer table above or through the runtime-verb dispatcher.
  * @param {Array<string>} argv process.argv minus node and the script path
  */
-function main(argv) {
+async function main(argv) {
   const o = parseArgs(argv);
   if (o.version) { console.log(pkg.version); return; }
   if (o.help || !o.cmd) { console.log(HELP); return; }
   assertNoBackupRequiresForce(o);
+  if (o.cmd === 'classify' && o.request !== undefined && o.requestFile !== undefined) {
+    return usageError('classify', '--request and --request-file are mutually exclusive; provide only one.', o.json);
+  }
   try {
     const handler = COMMANDS[o.cmd];
     if (handler) return handler(o);
-    return dispatchRuntimeCommand(o);
+    return await dispatchRuntimeCommand(o);
   } catch (error) {
     // Recorded silently when it is a programming error (IC-016); the output and exit status below
     // are the same whether or not anything was written.

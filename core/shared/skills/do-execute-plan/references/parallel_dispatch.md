@@ -57,7 +57,7 @@ one that governs dispatch).
 ## 3. Build each group's brief
 
 ```bash
-"$DOFLOW" task-brief --group=<PHASE>:<OWNER> --tasks=<id,id,...> --json
+"$DOFLOW" task-brief --group=<PHASE>:<OWNER> --tasks=<id,id,...> --harness=<your harness id> --json
 ```
 
 Writes the group brief and returns its path in `path`. The brief carries the shared preamble

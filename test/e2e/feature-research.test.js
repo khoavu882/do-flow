@@ -2,8 +2,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { spawnSync } = require('node:child_process');
 const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
@@ -11,14 +11,20 @@ const { ClaimsManager } = require('../../src/runtime/claims');
 const { ContextPackCompiler } = require('../../src/runtime/context-pack');
 const repo = path.resolve(__dirname, '../..');
 const cli = path.join(repo, 'bin/doflow.js');
+const homes = new Map();
+/** The spawned CLI runs under a scratch HOME and XDG folder, so it never reads the developer's own. */
+function scratchEnv(root) {
+  const home = homes.get(root);
+  return { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, 'xdg') };
+}
 const ready = () => ({ state: 'READY', missing: [] });
 function cmd(root, verb, ...args) {
-  const r = spawnSync(process.execPath, [cli, verb, ...args, '--json'], { cwd: root, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [cli, verb, ...args, '--json'], { cwd: root, encoding: 'utf8', env: scratchEnv(root) });
   return { code: r.status, data: r.status === 0 ? JSON.parse(r.stdout) : null, message: r.stderr + r.stdout };
 }
 function setup(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-feature-research-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = tempDir(t, 'doflow-feature-research-');
+  homes.set(root, tempDir(t, 'doflow-feature-research-home-'));
   const orch = new WorkflowOrchestrator({ repoRoot: repo, projectRoot: root,
     stateDir: path.join(root, '.doflow/state/orchestration'), readinessEvaluate: ready });
   orch.start({ taskId: 'demo', taskClass: 'feature' });
@@ -124,7 +130,7 @@ test('concurrent open and completion cannot strand a blocking request behind the
   const { spawn } = require('node:child_process');
   function concurrent(verb, args) {
     return new Promise(resolve => {
-      const child = spawn(process.execPath, [cli, verb, ...args, '--json'], { cwd: root });
+      const child = spawn(process.execPath, [cli, verb, ...args, '--json'], { cwd: root, env: scratchEnv(root) });
       let output = '';
       child.stdout.on('data', data => { output += data; });
       child.stderr.on('data', data => { output += data; });

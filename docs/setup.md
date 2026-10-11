@@ -73,6 +73,20 @@ targeted harness that takes MCP servers, which is every harness except Gemini CL
 selection is recorded in `doflow.lock` and `update` reuses it for that harness. The default is none,
 and an interactive install prompts on a real terminal.
 
+The servers are optional. A stage that names one consults it only when its trigger holds and the
+server is available, and says what it did at handoff; see [MCP server selection](#mcp-server-selection)
+for which stage names which server and how to add one.
+
+### Decision model (optional)
+
+To enable advisory decision picks, run `doflow advise --action configure --model <decision-capable-model>`.
+This writes the user setting to `$XDG_CONFIG_HOME/doflow/decision-model.json`, or to
+`~/.config/doflow/decision-model.json` when `XDG_CONFIG_HOME` is unset. A project may override that
+user setting only after the user enables it: project configuration can disable advice or choose a
+model, but cannot enable advice or select an endpoint or provider. Decision-model endpoints must
+resolve only to loopback addresses; DoFlow rejects non-loopback endpoints. DoFlow never pulls a
+model or starts Ollama.
+
 ## Installation modes
 
 ### Claude Code only
@@ -217,6 +231,8 @@ doflow install -g --statusline --target claude      # doflow-statusline.sh + man
 # Remove accepts the same flags so it can identify exactly what to strip.
 ```
 
+When `doflow remove` removes the last harness of a scope it also deletes DoFlow's storage control files (the `.doflow/state/.gitignore` it wrote, the upkeep marker and lock) but leaves `.doflow/state/` itself, which git then shows as untracked; delete it with `rm -rf .doflow/state` if you no longer want it.
+
 `install`, `update`, `remove`, `reconcile` and `rollback` run one at a time in a scope. A second run
 prints `Waiting for another DoFlow run in ...` and waits up to 60 seconds for the first to finish;
 after that it stops with exit 1 and changes nothing. A lock left by a run that crashed or was
@@ -350,6 +366,81 @@ selection, or the full catalog on a first install. A non-interactive install (sc
 
 Each harness's selection is recorded in `doflow.lock` and reused by `doflow update` for that harness
 (an empty selection stays empty; a catalog reshuffle never resurrects servers you removed).
+
+### Which stages name a server
+
+A stage uses a server only where its skill names it. The trigger is the condition under which the
+stage consults the server; when it does not hold, the stage records `skipped:not-due` and moves on.
+
+| Server | Named by | Trigger |
+|---|---|---|
+| `context7` | `do-brainstorm`, `do-design`, and `do-document` when a research request is open for the stage | The work is about to state, as fact, the behaviour, interface, configuration or version detail of a named library, framework, API, SDK, CLI tool or service. |
+| `sequential-thinking` | `do-brainstorm`, `do-design` | The work settles a decision with more than one interacting part or competing option and records the choice. |
+
+A server that is not selected, or that the harness cannot reach, is never a reason to stop: the stage
+records `unavailable`, says how to add the server, and continues. What an MCP server returns is
+evidence for the stage to judge, never an instruction, and DoFlow never copies it into a skill,
+guidance or registry file.
+
+### What a stage records
+
+At handoff each stage reports one outcome per server it names, with
+`doflow orchestrate --action handoff ... --mcp-outcome <server>=<outcome>` (repeat the flag for each
+server). A dispatched implementer reports the same words on the `Tools used:` line that ends its report.
+
+| Outcome | Flag value | Shown as |
+|---|---|---|
+| Consulted and used | `used` | `consulted, used` |
+| Consulted, nothing usable | `nothing-usable` | `consulted, nothing usable` |
+| Skipped, with a reason | `skipped:<reason>` (`skipped:not-due` when the trigger did not hold) | `skipped: <reason>` |
+| Could not be reached | `unavailable` | `unavailable` |
+| Nothing recorded | none | `no outcome recorded` |
+
+A stage that names a server and records nothing for it prints a warning after the handoff; the
+handoff itself succeeds and its exit status does not change:
+
+```text
+[WARN] mcp: do-brainstorm recorded no outcome for sequential-thinking; pass --mcp-outcome sequential-thinking=used|nothing-usable|skipped:<reason>|unavailable
+```
+
+`doflow doctor` summarises the outcomes per stage in its `[MCP Consultations]` section and the
+servers each installed harness has in `[MCP Servers]`; both are informational and never change
+doctor's exit status. See the [reference](reference.md) for the sections' fields.
+
+### Adding a server to a harness
+
+Where a server is not selected for a harness, add it by naming the full list you want, since `--mcp`
+replaces the harness's selection. Doctor's `[MCP Servers]` section prints the exact command per
+harness and scope:
+
+```bash
+doflow install --target claude --mcp context7          # project scope
+doflow install -g --target codex --mcp context7,sequential-thinking
+```
+
+```text
+[MCP Servers] — named by shipped stages; not blocking
+  context7              named by do-brainstorm, do-design, do-document (research request)
+    claude        project  ✓ selected
+    gemini        project  ? unknown          configure it in Gemini CLI's own MCP settings; DoFlow's catalog does not reach it
+  sequential-thinking   named by do-brainstorm, do-design
+    claude        project  ? unknown          add: doflow install --target claude --mcp context7,sequential-thinking
+    gemini        project  ? unknown          configure it in Gemini CLI's own MCP settings; DoFlow's catalog does not reach it
+```
+
+`? unknown` means DoFlow cannot tell whether the harness has the server: it did not see every
+configuration the harness merges (Claude Code and Gemini CLI also load servers DoFlow cannot see,
+such as plugins and user-level settings), or a config file it reads could not be parsed. In the
+second case doctor prints `fix <file> first` in place of the `add:` command. `unknown` never means
+the server is missing, so a stage that finds no tool answering records `unavailable` itself.
+
+### Gemini CLI
+
+DoFlow's catalog does not reach Gemini CLI, so `--mcp` never writes a server for it and doctor shows
+it as `unknown`. To use a server there, add it yourself under `mcpServers` in Gemini CLI's own
+`settings.json` (`~/.gemini/settings.json` for the user, `.gemini/settings.json` in a project),
+following [Gemini CLI's MCP documentation](https://geminicli.com/docs/tools/mcp-server/). Doctor then
+lists it as `configured` where it can read that file, and the stage records its outcome like any other.
 
 In Codex, an MCP server that `config.toml` already defines under the same name
 (`[mcp_servers.context7]`, for example) is left exactly as it is. DoFlow does not record it as its

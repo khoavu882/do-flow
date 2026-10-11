@@ -35,6 +35,26 @@ function managedInstruction(existing, rendered) {
   return { ok: true, operation: content === existing ? 'none' : 'merge', content };
 }
 
+/** Server names in one settings read, or null when the file is absent or unreadable. */
+function settingsServerNames(read) {
+  if (!read.exists || read.error || !read.value || typeof read.value !== 'object') return null;
+  const servers = read.value.mcpServers;
+  return Object.keys(servers && typeof servers === 'object' ? servers : {});
+}
+
+/**
+ * The server names DoFlow can see for Gemini at a scope (`mcpConfigured`): the scope's settings, and
+ * at project scope the user's `~/.gemini/settings.json` too, since Gemini merges both. `null` while
+ * neither can be read. Gemini also merges system settings and extension servers, which DoFlow does
+ * not read, so the view is never complete (`mcpComplete: false`) and absence is never proof.
+ */
+function configuredGeminiMcp({ scope, settings, homeDir, fsImpl }) {
+  const own = settingsServerNames(settings);
+  const user = scope === 'project' && homeDir ? settingsServerNames(readJson(path.join(homeDir, '.gemini', 'settings.json'), { fsImpl })) : null;
+  const mcpConfigured = own || user ? [...new Set([...(own || []), ...(user || [])])].sort() : null;
+  return { mcpConfigured, mcpComplete: false };
+}
+
 /**
  * Native path facts live in core/registry/harnesses.json under this harness's "paths" section and
  * resolve through the shared harness-paths resolver: project-scope config follows the Antigravity
@@ -54,7 +74,9 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
     const paths = nativePaths({ scope, scopeRoot, homeDir: context.homeDir, fsImpl });
     const instruction = fsImpl.existsSync(paths.instruction) ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
     // Gemini takes no servers from DoFlow's MCP catalog.
-    return { paths, instruction, settings: readJson(paths.settings, { fsImpl }), mcpOwned: [] };
+    const settings = readJson(paths.settings, { fsImpl });
+    const { mcpConfigured, mcpComplete } = configuredGeminiMcp({ scope, settings, homeDir: context.homeDir, fsImpl });
+    return { paths, instruction, settings, mcpOwned: [], mcpConfigured, mcpComplete };
   }
 
   function render({ content = '' } = {}) {

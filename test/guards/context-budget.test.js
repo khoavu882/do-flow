@@ -251,7 +251,8 @@ const TASK_CONTEXT_RAILS = new Map([
   ['documentation', 57000],
   ['operations', 45000],
   ['review', 42000],
-  ['research', 35000],
+  // Measured 2026-10-11: research 35,302 B after the IC-019 second-opinion text in do/SKILL.md.
+  ['research', 35302],
   ['trivial-edit', 30000],
 ]);
 

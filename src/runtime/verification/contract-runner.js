@@ -183,7 +183,7 @@ class VerificationContractRunner {
       };
     }
 
-    const dedupeKey = `${timeoutMs} ${command}`;
+    const dedupeKey = `${timeoutMs}\0${command}`;
     if (dedupeCache && dedupeCache.has(dedupeKey)) {
       return { ...dedupeCache.get(dedupeKey), name: checkName, deduplicated: true };
     }

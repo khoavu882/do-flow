@@ -2,13 +2,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const { createGeminiAdapter, nativePaths, MARKER_START } = require('../../../src/adapters/gemini');
 const { assertAdapter } = require('../../../src/adapters');
 const { IS_WIN } = require('../../helper-platform');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-gemini-')); }
+function scratch() { return suiteTempDir('doflow-gemini-'); }
 const assets = [{ id: 'guidance.core', source: 'core/CLAUDE.md' }];
 
 test('implements the adapter contract and resolves official project/user native paths', () => {
@@ -455,4 +455,29 @@ test('a scope root of / resolves the Gemini agents destination instead of report
     const planned = adapter.plan({ ...input, ledger: { resources: [] } });
     assert.deepEqual(planned.changes.map((c) => c.target).sort(), SPECS.map((f) => path.join('/', '.gemini', 'agents', f)).sort(), scope);
   }
+});
+
+test('Gemini discovery reports settings.mcpServers names, sorted, and null when settings are absent', () => {
+  const root = scratch(); const adapter = createGeminiAdapter();
+  const context = { homeDir: scratch() };
+  const first = adapter.discover({ scope: 'project', scopeRoot: root, context });
+  assert.equal(first.mcpConfigured, null);
+  fs.mkdirSync(path.dirname(first.paths.settings), { recursive: true });
+  fs.writeFileSync(first.paths.settings, JSON.stringify({ mcpServers: { zeta: {}, alpha: {} } }));
+  assert.deepEqual(adapter.discover({ scope: 'project', scopeRoot: root, context }).mcpConfigured, ['alpha', 'zeta']);
+});
+
+test('reach (062 X1): project discovery merges ~/.gemini/settings.json server names and never claims a complete view', () => {
+  const root = scratch(); const home = scratch(); const adapter = createGeminiAdapter();
+  const userSettings = path.join(home, '.gemini', 'settings.json');
+  fs.mkdirSync(path.dirname(userSettings), { recursive: true });
+  fs.writeFileSync(userSettings, JSON.stringify({ mcpServers: { context7: {} } }));
+  const onlyUser = adapter.discover({ scope: 'project', scopeRoot: root, context: { homeDir: home } });
+  assert.deepEqual(onlyUser.mcpConfigured, ['context7'], 'a user-scope server with no project settings is seen');
+  assert.equal(onlyUser.mcpComplete, false, 'system settings and extensions are not read');
+  assert.equal(onlyUser.settings.exists, false, 'the install-facing settings read is unchanged');
+  fs.mkdirSync(path.dirname(onlyUser.paths.settings), { recursive: true });
+  fs.writeFileSync(onlyUser.paths.settings, JSON.stringify({ mcpServers: { zeta: {} } }));
+  assert.deepEqual(adapter.discover({ scope: 'project', scopeRoot: root, context: { homeDir: home } }).mcpConfigured, ['context7', 'zeta']);
+  assert.deepEqual(adapter.discover({ scope: 'global', scopeRoot: home, context: { homeDir: home } }).mcpConfigured, ['context7']);
 });

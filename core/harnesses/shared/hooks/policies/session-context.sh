@@ -137,4 +137,5 @@ fi
 mkdir -p "$(dirname "$SESSIONS_LOG")"
 echo "$TIMESTAMP START $SESSION_ID ${CWD:-unknown}" >> "$SESSIONS_LOG"
 
+storage_upkeep_async "$CWD"
 exit 0

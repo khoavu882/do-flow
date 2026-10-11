@@ -58,6 +58,17 @@ if [[ -n "$SESSION_ID" ]]; then
   rm -rf "$SESSION_PATH" 2>/dev/null || true
 fi
 
+(
+  SHARED_POLICY_LIB="$(dirname "$0")/../../.doflow/shared/hooks/policies/lib.sh"
+  if [[ ! -f "$SHARED_POLICY_LIB" ]]; then
+    SHARED_POLICY_LIB="$(dirname "$0")/../../shared/hooks/policies/lib.sh"
+  fi
+  if [[ -f "$SHARED_POLICY_LIB" ]]; then
+    source "$SHARED_POLICY_LIB"
+    storage_upkeep_async "$CWD"
+  fi
+) >/dev/null 2>&1 || true
+
 # ── 4. Trim sessions.log (lock-guarded) ───────────────────────────────────────
 
 LOCK_FILE="${SESSIONS_LOG}.lock"

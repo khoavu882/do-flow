@@ -9,11 +9,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const { searchGuidance } = require('../../src/runtime/knowledge/retrieval');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-knoweval-')); }
+function scratch() { return suiteTempDir('doflow-knowledge-eval-'); }
 
 const CORPUS = {
   'DOFLOW_CORE.md': [

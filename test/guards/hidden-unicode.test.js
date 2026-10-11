@@ -19,6 +19,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { REPO } = require('./_shared');
+const { tempDir } = require('../helper/tmp');
 
 const SCAN_ROOTS = ['core', 'src', 'bin', 'docs'];
 const SCAN_FILES = ['README.md'];
@@ -226,8 +227,7 @@ test('G23: controls — binary files, symlinks and untracked files do not fail t
   assert.deepEqual(scanBuffer('image.png', Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0xC3, 0x28])), [],
     'a binary file is skipped, not reported as undecodable');
 
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-g23-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = tempDir(t, 'doflow-g23-');
   fs.mkdirSync(path.join(root, 'docs', 'sub'), { recursive: true });
   fs.writeFileSync(path.join(root, 'docs', 'a.md'), 'plain');
   fs.writeFileSync(path.join(root, 'docs', 'sub', 'b.md'), 'plain');

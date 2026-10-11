@@ -8,15 +8,14 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { WorkflowOrchestrator, STAGE_OUTCOMES } = require('../../src/runtime/workflow-orchestrator');
 
 const REPO = path.resolve(__dirname, "../..");
 
 function fresh(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-outcome-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dir = tempDir(t, 'doflow-stage-outcome-');
   const orch = new WorkflowOrchestrator({ repoRoot: REPO, stateDir: path.join(dir, 'orchestration') });
   orch.readinessEvaluate = () => 'READY';
   return orch;

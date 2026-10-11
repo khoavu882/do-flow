@@ -3,26 +3,25 @@
 // equivalence, RK5 slug acceptance and NFR-004, driven through the checkout's own dispatcher
 // `core/shared/scripts/doflow/bin/doflow-run` (never ~/.doflow) against scratch git repos. Needs no
 // model and no network: HOME is redirected to a scratch directory, DOFLOW_CONFIG_DIR points into the
-// scratch repo, and every feature folder lives in a throwaway repo under os.tmpdir().
+// scratch repo, and every feature folder lives in a throwaway repo under the OS temporary folder.
 //
 // Three comparisons read the v1.12.0 tag (validator output twice, hook wiring). Each also carries a
 // literal expectation that needs no tag. A missing tag fails under CI (CI fetches full history) and
 // marks the test skipped, with the reason, on a local clone.
-const { test, describe, after } = require('node:test');
+const { test, describe } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW_RUN = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const { IS_WIN } = require('../helper-platform');
+const { suiteTempDir } = require('../helper/tmp');
 
-const SCRATCH = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-followups-e2e-')));
+const SCRATCH = suiteTempDir('doflow-register-followups-e2e-');
 const HOME = path.join(SCRATCH, 'home');
 fs.mkdirSync(HOME, { recursive: true });
-after(() => { fs.rmSync(SCRATCH, { recursive: true, force: true }); });
 
 const SKIP = IS_WIN ? 'doflow-run is a bash script' : false;
 let repoCounter = 0;

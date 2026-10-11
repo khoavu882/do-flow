@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { suiteTempDir } = require('../helper/tmp');
 const { loadRegistry } = require('../../src/registry');
 const { stateRoot, ledgerPath, defaultLedger, writeLedger } = require('../../src/state');
 const { defaultLock, writeLock, lockPath } = require('../../src/state/lockfile');
@@ -19,8 +20,6 @@ delete process.env.PI_CODING_AGENT_DIR;
 
 const REPO = path.resolve(__dirname, '../..');
 const registry = loadRegistry({ repoRoot: REPO });
-
-function scratch(prefix) { return fs.mkdtempSync(path.join(os.tmpdir(), prefix)); }
 
 /** Every path under `root`, each file with the sha256 of its bytes — a whole-tree snapshot, so an
  * added, removed, or rewritten file all show up as one inequality. Sorted, because directory order
@@ -72,8 +71,8 @@ function read({ homeDir, projectRoot, targets = ['claude'] }) {
 const ids = (snapshot) => snapshot.resources.map((resource) => resource.assetId);
 
 test('one invocation returns a snapshot per scope, with distinct roots and independent contents', () => {
-  const homeDir = scratch('doflow-read-scopes-home-');
-  const projectRoot = scratch('doflow-read-scopes-project-');
+  const homeDir = suiteTempDir('doflow-read-scopes-home-');
+  const projectRoot = suiteTempDir('doflow-read-scopes-project-');
   seedScope({ scope: 'global', scopeRoot: homeDir, assetId: 'global.only.asset' });
   seedScope({ scope: 'project', scopeRoot: projectRoot, assetId: 'project.only.asset' });
 
@@ -93,8 +92,8 @@ test('one invocation returns a snapshot per scope, with distinct roots and indep
 });
 
 test('neither scope leaks into the other', () => {
-  const homeDir = scratch('doflow-read-scopes-home-');
-  const projectRoot = scratch('doflow-read-scopes-project-');
+  const homeDir = suiteTempDir('doflow-read-scopes-home-');
+  const projectRoot = suiteTempDir('doflow-read-scopes-project-');
   seedScope({ scope: 'global', scopeRoot: homeDir, assetId: 'global.only.asset' });
   seedScope({ scope: 'project', scopeRoot: projectRoot, assetId: 'project.only.asset' });
 
@@ -108,8 +107,8 @@ test('neither scope leaks into the other', () => {
 });
 
 test('a scope with nothing recorded is an empty snapshot, not an error, and creates no file (NFR-002)', () => {
-  const homeDir = scratch('doflow-read-scopes-empty-home-');
-  const projectRoot = scratch('doflow-read-scopes-empty-project-');
+  const homeDir = suiteTempDir('doflow-read-scopes-empty-home-');
+  const projectRoot = suiteTempDir('doflow-read-scopes-empty-project-');
 
   const { global, project } = read({ homeDir, projectRoot });
 
@@ -125,8 +124,8 @@ test('a scope with nothing recorded is an empty snapshot, not an error, and crea
 });
 
 test('one recorded scope beside one empty one — the ordinary state of a repository never installed into', () => {
-  const homeDir = scratch('doflow-read-scopes-home-');
-  const projectRoot = scratch('doflow-read-scopes-empty-project-');
+  const homeDir = suiteTempDir('doflow-read-scopes-home-');
+  const projectRoot = suiteTempDir('doflow-read-scopes-empty-project-');
   seedScope({ scope: 'global', scopeRoot: homeDir, assetId: 'global.only.asset' });
 
   const { global, project } = read({ homeDir, projectRoot });
@@ -138,8 +137,8 @@ test('one recorded scope beside one empty one — the ordinary state of a reposi
 });
 
 test('reading is side-effect free: both ledgers on disk are byte-identical afterwards', () => {
-  const homeDir = scratch('doflow-read-scopes-home-');
-  const projectRoot = scratch('doflow-read-scopes-project-');
+  const homeDir = suiteTempDir('doflow-read-scopes-home-');
+  const projectRoot = suiteTempDir('doflow-read-scopes-project-');
   const roots = [
     seedScope({ scope: 'global', scopeRoot: homeDir, assetId: 'global.only.asset' }),
     seedScope({ scope: 'project', scopeRoot: projectRoot, assetId: 'project.only.asset' }),
@@ -179,8 +178,8 @@ test('reading is side-effect free: both ledgers on disk are byte-identical after
  * wrong reason.
  */
 test('NFR-001: assembling the whole report writes nothing — both scope trees hash identically afterwards', () => {
-  const homeDir = scratch('doflow-inventory-readonly-home-');
-  const projectRoot = scratch('doflow-inventory-readonly-project-');
+  const homeDir = suiteTempDir('doflow-inventory-readonly-home-');
+  const projectRoot = suiteTempDir('doflow-inventory-readonly-project-');
 
   const seedCopilot = (scope, scopeRoot) => {
     const instructions = path.join(scopeRoot, '.github', 'instructions');
@@ -226,8 +225,8 @@ test('NFR-001: assembling the whole report writes nothing — both scope trees h
 });
 
 test('targets default to every lifecycle harness, so an inventory covers the whole install', () => {
-  const homeDir = scratch('doflow-read-scopes-home-');
-  const projectRoot = scratch('doflow-read-scopes-project-');
+  const homeDir = suiteTempDir('doflow-read-scopes-home-');
+  const projectRoot = suiteTempDir('doflow-read-scopes-project-');
 
   const { global, project } = withHomeDir(homeDir, () => readScopes({ registry, repoRoot: REPO, projectRoot }));
 
@@ -243,8 +242,8 @@ test('targets default to every lifecycle harness, so an inventory covers the who
 // ------------------------------------------------------- the restriction, and what the plan knows
 
 test('the restriction bounds the resources, not only the plan: an unrequested harness is absent, not asserted current', () => {
-  const homeDir = scratch('doflow-read-scopes-restrict-home-');
-  const projectRoot = scratch('doflow-read-scopes-restrict-project-');
+  const homeDir = suiteTempDir('doflow-read-scopes-restrict-home-');
+  const projectRoot = suiteTempDir('doflow-read-scopes-restrict-project-');
   seedScope({ scope: 'global', scopeRoot: homeDir, assetId: 'both.harnesses', harnesses: ['claude', 'gemini'] });
 
   const { global } = read({ homeDir, projectRoot, targets: ['claude'] });
@@ -308,8 +307,8 @@ test('R2: each harness plans with its own recorded selection, never another harn
 });
 
 test('a scope with no lock reads without error, resolves no selection, and creates no lock', () => {
-  const homeDir = scratch('doflow-read-scopes-nolock-home-');
-  const projectRoot = scratch('doflow-read-scopes-nolock-project-');
+  const homeDir = suiteTempDir('doflow-read-scopes-nolock-home-');
+  const projectRoot = suiteTempDir('doflow-read-scopes-nolock-project-');
   seedScope({ scope: 'global', scopeRoot: homeDir, assetId: 'global.only.asset' });
 
   // No `locks` argument: each scope's lock is read from disk, and neither scope has one.
@@ -336,8 +335,8 @@ function mcpFingerprint(block) {
 /** A global scope holding one registered, DoFlow-owned Codex MCP server: the block in config.toml,
  * the ledger row that owns it, and a lock whose `mcpSelections` the caller chooses. */
 function codexMcpScope({ mcpSelections, lockTargets = ['codex'] }) {
-  const homeDir = scratch('doflow-read-scopes-mcp-home-');
-  const projectRoot = scratch('doflow-read-scopes-mcp-project-');
+  const homeDir = suiteTempDir('doflow-read-scopes-mcp-home-');
+  const projectRoot = suiteTempDir('doflow-read-scopes-mcp-project-');
   const block = '[mcp_servers.context7]\ncommand = "npx"\nargs = ["-y", "@upstash/context7-mcp"]\n';
   const configFile = path.join(homeDir, '.codex', 'config.toml');
   fs.mkdirSync(path.dirname(configFile), { recursive: true });
@@ -375,8 +374,8 @@ function changesFor(snapshot, ownershipIdentity) {
 // and its lock records only Claude's selection. Reconcile reads the manifest list to tell DoFlow's
 // entries from the user's (recordedMcpSelections); this reader must judge the same plan.
 test('a 1.18.0 scope\'s manifest MCP list reaches the plan: kept entries are DoFlow\'s, not the user\'s', () => {
-  const homeDir = scratch('doflow-read-scopes-118-home-');
-  const projectRoot = scratch('doflow-read-scopes-118-project-');
+  const homeDir = suiteTempDir('doflow-read-scopes-118-home-');
+  const projectRoot = suiteTempDir('doflow-read-scopes-118-project-');
   seedScope({ scope: 'global', scopeRoot: homeDir, assetId: 'legacy.asset', harnesses: ['claude', 'opencode'] });
   const both = ['context7', 'sequential-thinking'];
   const entry = (id) => registry.mcp.find((server) => server.id === id);

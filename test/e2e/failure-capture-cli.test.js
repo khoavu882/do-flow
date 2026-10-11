@@ -12,6 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync, execFileSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
+const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const BIN = path.join(REPO, 'bin', 'doflow.js');
@@ -263,8 +264,8 @@ describe('uncaughtExceptionMonitor in bin/doflow.js', () => {
 describe('what capture must never change', () => {
   const type = { kind: 'stub', module: 'src/cli/commands/status.js', error: 'type' };
 
-  test('an unwritable store: silent, same output and exit status as capture off', () => {
-    const dir = fs.mkdtempSync(path.join(scratch.dir, 'blocked-'));
+  test('an unwritable store: silent, same output and exit status as capture off', (t) => {
+    const dir = tempDir(t, 'doflow-failure-capture-cli-blocked-');
     const blocker = path.join(dir, 'file');
     fs.writeFileSync(blocker, 'x');
     const off = run(['status', '--json'], { fault: type, env: { DOFLOW_FAILURE_CAPTURE: 'off' } });
@@ -286,8 +287,8 @@ describe('what capture must never change', () => {
     assert.equal(fs.existsSync(path.join(scratch.dir, 'relative')), false);
   });
 
-  test('the sentinel turns capture off over an env value of on', () => {
-    const dir = fs.mkdtempSync(path.join(scratch.dir, 'sentinel-'));
+  test('the sentinel turns capture off over an env value of on', (t) => {
+    const dir = tempDir(t, 'doflow-failure-capture-cli-sentinel-');
     const xdg = path.join(dir, 'xdg');
     fs.mkdirSync(path.join(xdg, 'doflow', 'failures'), { recursive: true });
     fs.writeFileSync(path.join(xdg, 'doflow', 'failures', 'off'), 'x');

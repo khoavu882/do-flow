@@ -18,8 +18,9 @@
 #   do-exec-paths.sh --task=<id> [--slug=<slug>] [--json]
 #   do-exec-paths.sh --group=<phase>:<owner> --tasks=<id,id,...> [--slug=<slug>] [--json]
 #
-# Emits for task mode: {feature_dir, workspace, brief, report, task_id}
-# Emits for group mode: {feature_dir, workspace, group_id, group_brief, reports[]}
+# Emits for task mode: {feature_dir, workspace, brief, brief_record, report, task_id}
+# Emits for group mode: {feature_dir, workspace, group_id, group_brief, brief_record, reports[]}
+# `brief_record` is the *-brief.json beside the brief (the tier, tools and report-format record).
 
 set -uo pipefail
 
@@ -116,9 +117,10 @@ if [ "$mode" = "task" ]; then
     --arg feature_dir "$feature_dir" \
     --arg workspace "$workspace_rel" \
     --arg brief "$workspace_rel/task-$task_id-brief.md" \
+    --arg brief_record "$workspace_rel/task-$task_id-brief.json" \
     --arg report "$workspace_rel/task-$task_id-report.md" \
     --arg task_id "$task_id" \
-    '{feature_dir:$feature_dir, workspace:$workspace, brief:$brief, report:$report, task_id:$task_id}'
+    '{feature_dir:$feature_dir, workspace:$workspace, brief:$brief, brief_record:$brief_record, report:$report, task_id:$task_id}'
   exit 0
 fi
 
@@ -151,11 +153,13 @@ jq -n \
   --arg workspace "$workspace_rel" \
   --arg group_id "$group_id" \
   --arg group_brief "$workspace_rel/group-${group_id//:/-}-brief.md" \
+  --arg brief_record "$workspace_rel/group-${group_id//:/-}-brief.json" \
   '{
     feature_dir: $feature_dir,
     workspace: $workspace,
     group_id: $group_id,
     group_brief: $group_brief,
+    brief_record: $brief_record,
     reports: [$ARGS.positional[] | $workspace + "/task-" + . + "-report.md"]
   }' \
   --args "${clean_task_ids[@]}"

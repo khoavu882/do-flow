@@ -2,12 +2,12 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const { createOpenCodeAdapter, nativePaths, mergeConfig, unmergeConfig, MARKER_START } = require('../../../src/adapters/opencode');
 const { assertAdapter } = require('../../../src/adapters');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-opencode-')); }
+function scratch() { return suiteTempDir('doflow-opencode-'); }
 const instructionAssets = [{ id: 'guidance.codex-pointer', capability: 'instructions', source: 'source.md' }];
 
 test('implements the adapter contract and resolves official project/user native paths', () => {
@@ -381,4 +381,13 @@ test('a ../.doflow nativeDir that escapes .doflow fails the plan before any writ
   assert.throws(() => createOpenCodeAdapter().plan({ scope: 'project', scopeRoot: root, assets: [sharedTreeAsset(repoRoot, '../.doflow/../x')],
     context: { repoRoot, homeDir: root }, ledger: { resources: [] } }), /shared-tree nativeDir escapes \.doflow/);
   assert.equal(fs.existsSync(path.join(root, '.doflow')), false);
+});
+
+test('OpenCode discovery reports the servers in opencode.json mcp, sorted, and null when the file is absent', () => {
+  const root = scratch(); const adapter = createOpenCodeAdapter();
+  const first = adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } });
+  assert.equal(first.mcpConfigured, null);
+  fs.mkdirSync(path.dirname(first.paths.config), { recursive: true });
+  fs.writeFileSync(first.paths.config, JSON.stringify({ mcp: { zeta: {}, alpha: {} } }));
+  assert.deepEqual(adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } }).mcpConfigured, ['alpha', 'zeta']);
 });

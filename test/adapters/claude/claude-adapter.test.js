@@ -2,21 +2,23 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const test = require('node:test');
 const claude = require('../../../src/adapters/claude');
 const { MARKER_START, MARKER_END } = require('../../../src/helper/marker-merge');
 
 function fixture() {
-  const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-claude-adapter-repo-'));
-  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-claude-adapter-project-'));
+  const repoRoot = suiteTempDir('doflow-claude-adapter-repo-');
+  const projectRoot = suiteTempDir('doflow-claude-adapter-project-');
   fs.mkdirSync(path.join(repoRoot, 'core'), { recursive: true });
   fs.writeFileSync(path.join(repoRoot, 'core', 'CLAUDE.md'), '# DoFlow framework\n');
   const instructions = path.join(projectRoot, '.claude', 'CLAUDE.md');
   fs.mkdirSync(path.dirname(instructions), { recursive: true });
   fs.writeFileSync(instructions, '# Project instructions\n\nPreserve this.\n');
-  return { repoRoot, projectRoot, instructions };
+  // A scratch home, so discovery never reads the developer's ~/.claude.json.
+  const homeDir = suiteTempDir('doflow-claude-adapter-home-');
+  return { repoRoot, projectRoot, instructions, homeDir };
 }
 
 // Shape matches what src/adapters/index.js#projectAdapterInput actually hands the adapter at
@@ -27,8 +29,8 @@ const asset = {
 };
 
 test('Claude adapter plans and applies a managed instruction section without replacing user content', () => {
-  const { repoRoot, projectRoot, instructions } = fixture();
-  const context = { repoRoot, assets: [asset] };
+  const { repoRoot, projectRoot, instructions, homeDir } = fixture();
+  const context = { repoRoot, assets: [asset], homeDir };
   const registry = { mcp: [{ id: 'context7', command: 'npx', args: ['-y', '@upstash/context7-mcp'] }] };
   const discovery = claude.discover({ scope: 'project', scopeRoot: projectRoot, context, registry });
   assert.deepEqual(discovery.knownMcpServers, ['context7']);
@@ -44,8 +46,8 @@ test('Claude adapter plans and applies a managed instruction section without rep
 });
 
 test('Claude adapter removes only its managed instruction section', () => {
-  const { repoRoot, projectRoot, instructions } = fixture();
-  const context = { repoRoot, assets: [asset] };
+  const { repoRoot, projectRoot, instructions, homeDir } = fixture();
+  const context = { repoRoot, assets: [asset], homeDir };
   const discovery = claude.discover({ scope: 'project', scopeRoot: projectRoot, context });
   const planned = claude.plan({ assets: [asset], scope: 'project', scopeRoot: projectRoot, discovery, context });
   claude.apply({ changes: planned.changes, scope: 'project', scopeRoot: projectRoot, context });
@@ -57,9 +59,9 @@ test('Claude adapter removes only its managed instruction section', () => {
 });
 
 test('Claude adapter reports malformed instruction ownership as a planning conflict', () => {
-  const { repoRoot, projectRoot, instructions } = fixture();
+  const { repoRoot, projectRoot, instructions, homeDir } = fixture();
   fs.writeFileSync(instructions, `${MARKER_START}\npartial\n`);
-  const context = { repoRoot, assets: [asset] };
+  const context = { repoRoot, assets: [asset], homeDir };
   const discovery = claude.discover({ scope: 'project', scopeRoot: projectRoot, context });
   const planned = claude.plan({ assets: [asset], scope: 'project', scopeRoot: projectRoot, discovery, context });
   assert.equal(planned.changes.length, 0);
@@ -130,7 +132,7 @@ test('Claude adapter rewrites settings.json hook paths for project scope but not
   // hook-path-rewritten for project scope the way settings.json is.
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(projectRoot, '.claude', 'keybindings.json'), 'utf8')), { bind: 'ctrl+k' });
 
-  const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-claude-adapter-global-'));
+  const globalRoot = suiteTempDir('doflow-claude-adapter-global-');
   const globalPlanned = claude.plan({ assets: [asset2], scope: 'global', scopeRoot: globalRoot, context, ledger: { resources: [] } });
   claude.apply({ changes: globalPlanned.changes, scope: 'global', scopeRoot: globalRoot, context });
   const globalInstalled = JSON.parse(fs.readFileSync(path.join(globalRoot, '.claude', 'settings.json'), 'utf8'));
@@ -189,4 +191,12 @@ test('Claude adapter leaves a foreign settings.json standing on remove, strippin
   assert.equal(after.model, 'user-choice', 'user settings must survive remove');
   const commands = (after.hooks?.SessionStart || []).flatMap((entry) => entry.hooks.map((h) => h.command));
   assert.deepEqual(commands, ['foreign-tool hook'], 'only DoFlow hooks are stripped');
+});
+
+test('Claude discovery reports the servers configured in .mcp.json, sorted, and null when the file is absent', () => {
+  const projectRoot = suiteTempDir('doflow-claude-configured-');
+  const context = { homeDir: suiteTempDir('doflow-claude-configured-home-') };
+  assert.equal(claude.discover({ scope: 'project', scopeRoot: projectRoot, context }).mcpConfigured, null);
+  fs.writeFileSync(path.join(projectRoot, '.mcp.json'), JSON.stringify({ mcpServers: { zeta: {}, alpha: {} } }));
+  assert.deepEqual(claude.discover({ scope: 'project', scopeRoot: projectRoot, context }).mcpConfigured, ['alpha', 'zeta']);
 });

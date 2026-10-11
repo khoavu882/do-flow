@@ -340,6 +340,8 @@ Artifact and repository state:
   prereqs          stage prerequisite checks
   parallel-check   dispatch groups and write-set collisions for one plan phase
   task-brief       task brief extraction for execution
+  brief-tools      tier, tools and report-format block for a brief (called by task-brief)
+  advise           local decision-model routing, outcomes and configuration
   review-package   assemble a review payload
   sync-context     write a marker-delimited block (stdin) into an agent context file
 
@@ -377,6 +379,7 @@ Observability:
   inventory        both scopes at once: shadowed assets, drift, unmanaged contenders
   capabilities     provider resolution
   doctor           installation and provider health
+  storage          report stored data and its retention bounds
 EOF
 }
 
@@ -474,7 +477,7 @@ shell_helper_for() {
 is_node_verb() {
   case "$1" in
     classify|workflow|route|evidence|claim|readiness|context-pack|retrieval-plan|outcome|scaffold|decision|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
-trace|stats|indicators|discover|inventory|capabilities|doctor|orchestrate|research-request|retrieve|model-role) return 0 ;;
+trace|stats|indicators|discover|inventory|capabilities|doctor|orchestrate|research-request|retrieve|model-role|storage|brief-tools|advise) return 0 ;;
     *) return 1 ;;
   esac
 }

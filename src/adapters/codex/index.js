@@ -18,6 +18,23 @@ const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harn
 
 const HARNESS = 'codex';
 
+/** Every server a capability provider names as its MCP server. */
+function providerMcpServers(registry) {
+  return Object.values(registry?.capabilities || {}).flatMap((capability) => (capability.providers || []).map((provider) => provider.mcp?.server)).filter(Boolean);
+}
+
+/** The servers config.toml defines among `names`, whoever wrote them: the tables DoFlow owns plus the
+ * user's own. `null` while the file is absent or cannot be parsed. */
+function configuredCodexMcpIds({ config, scope, fsImpl, mcpRecords, names }) {
+  try {
+    if (!fsImpl.existsSync(config)) return null;
+    parseToml(fsImpl.readFileSync(config, 'utf8'));
+  } catch { return null; }
+  const owned = ownedCodexMcpIds({ file: config, scope, fsImpl, managedResources: mcpRecords });
+  const own = userDefinedCodexMcpIds({ file: config, scope, fsImpl, managedResources: mcpRecords, names });
+  return [...new Set([...owned, ...own])].sort();
+}
+
 /**
  * Native path facts live in core/registry/harnesses.json under this harness's "paths" section and
  * resolve through the shared harness-paths resolver. createCodexAdapter({ declaredPaths }) is the
@@ -62,6 +79,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
       hooks: { file: hooks, exists: fsImpl.existsSync(hooks) },
       mcpOwned: ownedCodexMcpIds({ file: config, scope: context.scope, fsImpl, managedResources: mcpRecords }),
       mcpUserDefined: userDefinedCodexMcpIds({ file: config, scope: context.scope, fsImpl, managedResources: mcpRecords, names: catalogNames }),
+      mcpConfigured: configuredCodexMcpIds({ config, scope: context.scope, fsImpl, mcpRecords, names: [...catalogNames, ...providerMcpServers(options.registry)] }),
     };
   }
 

@@ -17,8 +17,9 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
+const { createScratch } = require('../helper/scratch-env');
 const { spawnSync, execFileSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, '../..');
@@ -53,8 +54,7 @@ const {
 
 /** A scratch project root. Nothing here needs git — the plan record stamps no commit. */
 function project(label) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `doflow-retrieval-${label}-`));
-  const real = fs.realpathSync(dir);
+  const real = suiteTempDir(`doflow-runtime-retrieval-plan-${label}-`);
   fs.writeFileSync(path.join(real, 'a.js'), 'module.exports = { x: 1 };\n');
   return real;
 }
@@ -374,7 +374,7 @@ test('the verb dispatches through the shell seam, not only through the entrypoin
 });
 
 test('the dispatcher help lists the verb it now dispatches', () => {
-  const help = spawnSync('bash', [DISPATCHER, '--help'], { encoding: 'utf8' });
+  const help = spawnSync('bash', [DISPATCHER, '--help'], { env: createScratch('doflow-runtime-retrieval-plan-home-').env(), encoding: 'utf8' });
   assert.equal(help.status, 0);
   assert.match(help.stdout, /^ {2}retrieval-plan {2,}\S/m,
     'G12 reads this list as the only verb inventory a user ever sees');

@@ -3,8 +3,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { LEGACY_MANIFEST_FILE_NAME, manifestPath, readManifest, writeManifest } = require('../../src/install/manifest');
 
 const REPO = path.resolve(__dirname, "../..");
@@ -17,8 +17,8 @@ const DATE = new Date('2026-07-24T00:00:00Z');
 // different, still-live legacy bridge: reading the pre-registry .install-manifest.json format
 // (src/manifest.js), which migrateLegacyManifest (src/state/) still imports from.
 
-test('legacy manifest bridge remains idempotent across registry migration-era writes', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-legacy-bridge-'));
+test('legacy manifest bridge remains idempotent across registry migration-era writes', (t) => {
+  const root = tempDir(t, 'doflow-deprecated-compatibility-');
   const claudeDir = path.join(root, '.claude');
   assert.equal(path.basename(manifestPath(claudeDir)), LEGACY_MANIFEST_FILE_NAME);
   writeManifest({ claudeDir, scriptVersion: '2.4.4', operation: 'install', repoRoot: REPO, sourceCommit: 'test', tools: ['claude', 'codex'], date: DATE,
@@ -29,8 +29,8 @@ test('legacy manifest bridge remains idempotent across registry migration-era wr
   assert.deepEqual(read.managedResources, [{ target: 'codex', scope: 'project', kind: 'mcp-server', identity: 'context7' }]);
 });
 
-test('malformed legacy manifest is reported as a conflict-safe error record, not adopted or rewritten', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-legacy-conflict-'));
+test('malformed legacy manifest is reported as a conflict-safe error record, not adopted or rewritten', (t) => {
+  const root = tempDir(t, 'doflow-deprecated-compatibility-');
   const claudeDir = path.join(root, '.claude'); fs.mkdirSync(claudeDir, { recursive: true });
   const file = manifestPath(claudeDir); const malformed = '{ this is not json'; fs.writeFileSync(file, malformed);
   const read = readManifest(claudeDir);

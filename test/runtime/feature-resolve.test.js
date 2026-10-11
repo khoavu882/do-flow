@@ -3,9 +3,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { tempDir, suiteTempDir } = require('../helper/tmp');
 const { resolveActiveFeature, PATHS_HELPER } = require('../../src/runtime/feature-resolve');
 
 function git(cwd, ...args) {
@@ -13,7 +13,7 @@ function git(cwd, ...args) {
 }
 
 function tempRepo(branch) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-resolve-')));
+  const root = suiteTempDir('doflow-feature-resolve-');
   git(root, 'init', '-q');
   git(root, 'commit', '-q', '--allow-empty', '-m', 'init');
   if (branch) git(root, 'checkout', '-q', '-b', branch);
@@ -56,8 +56,8 @@ test('a trunk branch with no feature folders is a no-feature error with the reso
   assert.match(result.message, /feat\/<NNN-slug>|no/i);
 });
 
-test('an ambiguous directory scan names the candidates', () => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-resolve-nogit-')));
+test('an ambiguous directory scan names the candidates', (t) => {
+  const root = tempDir(t, 'doflow-feature-resolve-nogit-');
   fs.mkdirSync(path.join(root, 'agent-docs/doflow/001-a'), { recursive: true });
   fs.mkdirSync(path.join(root, 'agent-docs/doflow/002-b'), { recursive: true });
   const result = resolveActiveFeature({ projectRoot: root });
@@ -66,8 +66,8 @@ test('an ambiguous directory scan names the candidates', () => {
   assert.match(result.message, /002-b/);
 });
 
-test('a missing working directory reports a resolver failure instead of throwing', () => {
-  const result = resolveActiveFeature({ projectRoot: path.join(os.tmpdir(), 'doflow-does-not-exist-xyz') });
+test('a missing working directory reports a resolver failure instead of throwing', (t) => {
+  const result = resolveActiveFeature({ projectRoot: path.join(tempDir(t, 'doflow-feature-resolve-missing-'), 'does-not-exist') });
   assert.ok(result.error);
   assert.ok(result.message);
 });

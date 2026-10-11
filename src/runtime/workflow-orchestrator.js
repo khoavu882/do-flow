@@ -16,6 +16,13 @@ const { ResearchRequestStore } = require('./research-request');
 const { REPO_ROOT } = require('../helper/repo-root');
 const { resolveActiveFeature } = require('./feature-resolve');
 const { compactDecisions } = require('./decision-register');
+const { EvidenceLedger } = require('./evidence-ledger');
+const { resolveConsultations } = require('./mcp-consultations');
+const { mcpReach } = require('./mcp-reach');
+const { loadRegistry } = require('../registry');
+const { loadStorageRegistry } = require('./storage/registry');
+const { resolveRoots, resolveStorePath } = require('./storage/roots');
+const { appendOutcome, findPick, readWindow } = require('./advice/record');
 const {
   checkReadiness, harnessHookNote, featureSlugFor, runSlugOf, findRunFile,
 } = require('./implementation-gate');
@@ -97,8 +104,10 @@ class WorkflowOrchestrator {
    *   Unwired means such stages cannot be completed — fail closed, never open.
    * @param {object} [options.fsImpl]
    * @param {string|null} [options.featureSlug] the feature a run started here belongs to
+   * @param {() => object} [options.buildAdapters] builds the adapter registry `mcpReach` reads installs
+   *   through; without it install facts are unknown and no outcome is inferred from them
    */
-  constructor({ repoRoot = REPO_ROOT, projectRoot, stateDir, engine, readinessEvaluate, fsImpl, featureSlug = null } = {}) {
+  constructor({ repoRoot = REPO_ROOT, projectRoot, stateDir, engine, readinessEvaluate, fsImpl, featureSlug = null, buildAdapters = null } = {}) {
     this.fsImpl = fsImpl || fs;
     this.repoRoot = repoRoot;
     this.projectRoot = projectRoot || (stateDir?.endsWith(path.join('.doflow', 'state', 'orchestration'))
@@ -107,6 +116,7 @@ class WorkflowOrchestrator {
     this.stateDir = stateDir || path.join(this.projectRoot, '.doflow', 'state', 'orchestration');
     this.readinessEvaluate = readinessEvaluate || null;
     this.featureSlug = featureSlug;
+    this.buildAdapters = buildAdapters;
   }
 
   runFile(taskId) {
@@ -179,14 +189,25 @@ class WorkflowOrchestrator {
   }
 
   /** Record completed work by skill identity. Gate decisions remain a separate action.
-   * With no existing run and no explicit class this is a standalone no-op, not a new workflow. */
-  handoff({ taskId, taskClass, callingSkill, note, outcome, now } = {}) {
+   * With no existing run and no explicit class this is a standalone no-op, not a new workflow.
+   *
+   * The MCP servers the stage names get one outcome each (062, IC-008): resolved here, stored on the
+   * entry this handoff writes, and returned as `consultations` and `mcpWarnings`. Only a handoff
+   * that completes a stage or annotates one stores a record; a standalone one reports and stores
+   * nothing, a deferred one does neither. Nothing in that path can fail or refuse the handoff. */
+  handoff({ taskId, taskClass, callingSkill, note, outcome, mcpOutcomes, now } = {}) {
     assertSafeId(taskId, 'taskId');
     assertSafeId(callingSkill, 'callingSkill');
     if (!note || !String(note).trim()) throw new Error('handoff requires a note describing the work recorded');
     if (outcome !== undefined && !STAGE_OUTCOMES.has(outcome)) throw new Error(`Unknown stage outcome '${outcome}'`);
     const existing = this.readRun(taskId);
-    if (!existing && !taskClass) return { taskId, disposition: 'standalone', state: null, awaitingGate: null, reason: STANDALONE_REASON };
+    if (!existing && !taskClass) {
+      const mcp = this.resolveMcp({ taskId, stageId: null, skill: callingSkill, flags: mcpOutcomes });
+      return {
+        taskId, disposition: 'standalone', state: null, awaitingGate: null, reason: STANDALONE_REASON,
+        consultations: null, mcpWarnings: mcp ? mcp.messages : [],
+      };
+    }
     if (existing && taskClass && taskClass !== existing.taskClass) throw new Error(`Task class '${taskClass}' does not match run '${existing.taskClass}'`);
     const resolvedClass = existing?.taskClass || taskClass;
     const stages = existing ? existing.program.filter(n => n.type === 'stage')
@@ -201,15 +222,191 @@ class WorkflowOrchestrator {
     }
     const positioned = this.catchUp({ taskId, taskClass: resolvedClass, candidateStageIds: candidates, note, now });
     if (positioned.reason === 'reached-candidate') {
-      const snapshot = this.completeStage({ taskId, stageId: positioned.caughtUpTo, note, outcome, now });
-      return { ...snapshot, disposition: 'completed', recordedStage: positioned.caughtUpTo };
+      // A run this handoff started has no earlier stage: every evidence item counts.
+      const since = existing ? this.stageSince(taskId, positioned.caughtUpTo) : null;
+      const mcp = this.resolveMcp({ taskId, stageId: positioned.caughtUpTo, skill: callingSkill, flags: mcpOutcomes, since });
+      const consultations = mcp ? this.storeToolsUsed(mcp) : null;
+      const snapshot = this.completeStage({ taskId, stageId: positioned.caughtUpTo, note, outcome, consultations, now });
+      return { ...snapshot, disposition: 'completed', recordedStage: positioned.caughtUpTo, consultations, mcpWarnings: mcp ? mcp.messages : [] };
     }
     if (positioned.reason.startsWith('already-completed:')) {
       // A rerun after all occurrences is an annotation on the latest occurrence, never a replay.
       const recordedStage = candidates[candidates.length - 1];
-      return { ...this.annotate({ taskId, node: recordedStage, note, now }), disposition: 'annotated', recordedStage };
+      const mcp = this.resolveMcp({ taskId, stageId: recordedStage, skill: callingSkill, flags: mcpOutcomes, since: this.stageSince(taskId, recordedStage) });
+      const consultations = mcp ? this.storeToolsUsed(mcp) : null;
+      return {
+        ...this.annotate({ taskId, node: recordedStage, note, consultations, now }), disposition: 'annotated', recordedStage,
+        consultations, mcpWarnings: mcp ? mcp.messages : [],
+      };
     }
-    return { ...positioned, disposition: 'deferred', recordedStage: null };
+    return { ...positioned, disposition: 'deferred', recordedStage: null, consultations: null, mcpWarnings: [] };
+  }
+
+  /**
+   * Resolve one stage run's MCP outcomes from what is on disk. Reads only: the evidence ledger, the
+   * research requests, the brief records under the feature's `exec/` folder, the reports they name,
+   * and the install facts `mcpReach` reads. `since` bounds the evidence rule 3 counts (stageSince).
+   * Any failure to read one of them means that source
+   * contributes nothing, and a registry that cannot load means no record at all (NFR-003).
+   * @returns {{record: object, messages: object[], evidenceToAdd: object[], ledger: EvidenceLedger}|null}
+   */
+  resolveMcp({ taskId, stageId, skill, flags, since = null }) {
+    let registry;
+    try { registry = loadRegistry({ repoRoot: this.repoRoot }); } catch { return null; }
+    const ledger = new EvidenceLedger({ repoRoot: this.projectRoot, slug: this.featureSlug, fsImpl: this.fsImpl });
+    const loaded = new Set();
+    let reachMemo;
+    const reachOf = () => {
+      if (reachMemo === undefined) {
+        try {
+          reachMemo = this.buildAdapters
+            ? mcpReach({ registry, projectRoot: this.projectRoot, fsImpl: this.fsImpl, adapters: this.buildAdapters() })
+            : null;
+        } catch { reachMemo = null; }
+      }
+      return reachMemo;
+    };
+    const displayName = (id) => {
+      const harness = (registry.harnesses || []).find((item) => item.id === id);
+      return harness ? harness.displayName || harness.id : id;
+    };
+    const { briefRecords, repoRoot } = stageId ? this.readBriefRecords(taskId) : { briefRecords: [], repoRoot: this.projectRoot };
+    if (stageId) this.recordBriefTierAdvice({ briefRecords, taskId, stageId, repoRoot });
+    try {
+      const result = resolveConsultations({
+        taskId, stageId, skill, flags, registry, ledger: {
+          queryEvidence: ({ taskId: id }) => {
+            if (!loaded.has(id)) { loaded.add(id); ledger.load(id); }
+            return ledger.queryEvidence({ taskId: id });
+          },
+        },
+        requests: new ResearchRequestStore({ projectRoot: this.projectRoot, fsImpl: this.fsImpl, slug: this.featureSlug }),
+        briefRecords,
+        readReport: (file) => {
+          const target = path.resolve(repoRoot, file);
+          // A brief record is project data: a report path that leaves the project is not read.
+          if (path.relative(repoRoot, target).startsWith('..') || path.isAbsolute(path.relative(repoRoot, target))) return null;
+          try { return this.fsImpl.readFileSync(target, 'utf8'); } catch { return null; }
+        },
+        reach: {
+          anyHarnessHas: (server) => { const reach = reachOf(); return reach ? reach.anyHarnessHas(server) : null; },
+          harnessWith: (server) => {
+            const row = reachOf()?.harnesses.find((item) => ['selected', 'configured'].includes(item.servers[server]));
+            return row ? displayName(row.id) : null;
+          },
+        },
+        harnessName: displayName,
+        since,
+        addCommand: (server) => {
+          const reach = reachOf();
+          const row = reach?.harnesses.find((item) => !['selected', 'configured'].includes(item.servers[server]));
+          return row ? reach.addCommand(row.id, row.scope, server) : null;
+        },
+      });
+      return { record: result.record, messages: [...result.warnings, ...result.notices], evidenceToAdd: result.evidenceToAdd, ledger };
+    } catch { return null; }
+  }
+
+  /** When this stage run began, for counting its evidence (IC-008 rule 3): the `at` of the last
+   * stage completed or skipped before it that was not backfilled, else the run start. A stage
+   * already completed (an annotation) is measured from the completion before its own. */
+  stageSince(taskId, stageId) {
+    try {
+      const run = this.readRun(taskId);
+      const history = Array.isArray(run?.history) ? run.history : [];
+      let end = history.length;
+      for (let i = history.length - 1; i >= 0; i -= 1) {
+        if (history[i]?.action === 'complete-stage' && history[i].node === stageId) { end = i; break; }
+      }
+      for (let i = end - 1; i >= 0; i -= 1) {
+        const item = history[i];
+        if ((item?.action === 'complete-stage' || item?.action === 'skip-stage') && !item.backfilled && item.node !== stageId) return item.at;
+      }
+      return run?.startedAt || history[0]?.at || null;
+    } catch { return null; }
+  }
+
+  /** Record advice outcomes for the same brief records the IC-008 handoff pass consumes. This is
+   * advisory telemetry only: every storage/read failure is ignored and never affects the handoff.
+   */
+  recordBriefTierAdvice({ briefRecords, taskId, stageId, repoRoot }) {
+    try {
+      const storage = loadStorageRegistry({ repoRoot: this.repoRoot });
+      const roots = resolveRoots({ registry: storage, projectRoot: repoRoot || this.projectRoot });
+      const declaredStores = new Map((storage.stores || []).map((store) => [store.id, store]));
+      const safeRoots = { ...roots };
+      for (const id of ['advice-picks-project', 'advice-picks-user']) {
+        const store = declaredStores.get(id);
+        if (!store) return;
+        if (!resolveStorePath({ store, roots, fsImpl: this.fsImpl })) safeRoots[store.root] = null;
+      }
+
+      const existing = readWindow({ roots: safeRoots, fsImpl: this.fsImpl }).records
+        .filter(({ record }) => record.type === 'outcome')
+        .map(({ record }) => record.pickId);
+      const seen = new Set(existing);
+      for (const record of briefRecords) {
+        const advice = record?.advice;
+        const pickId = advice?.pickId;
+        if (record?.runTaskId !== taskId || record?.stage !== stageId
+          || advice?.kind !== 'tier' || advice?.status !== 'answered'
+          || typeof pickId !== 'string' || !pickId || seen.has(pickId)) continue;
+        const pick = findPick({ pickId, roots: safeRoots, fsImpl: this.fsImpl });
+        if (!pick || pick.pick.kind !== 'tier' || !Array.isArray(pick.pick.options)
+          || !pick.pick.options.includes(record.tier)) continue;
+        seen.add(pickId);
+        appendOutcome({
+          roots: safeRoots, fsImpl: this.fsImpl, store: pick.store,
+          pickId, actual: record.tier, source: 'brief-record',
+        });
+      }
+    } catch { /* advice storage must never change a handoff */ }
+  }
+
+  /** The brief records (`*-brief.json`) of the feature this run belongs to, parsed; unreadable ones
+   * are left out. Resolving the feature spawns the resolver, so it is only done where a feature
+   * folder exists above the project. */
+  readBriefRecords(taskId) {
+    const none = { briefRecords: [], repoRoot: this.projectRoot };
+    try {
+      let dir = path.resolve(this.projectRoot);
+      let hasFolder = false;
+      for (;;) {
+        if (this.fsImpl.existsSync(path.join(dir, 'agent-docs', 'doflow'))) { hasFolder = true; break; }
+        const parent = path.dirname(dir);
+        if (parent === dir) break;
+        dir = parent;
+      }
+      if (!hasFolder) return none;
+      const feature = resolveActiveFeature({ projectRoot: this.projectRoot, slug: taskId });
+      if (feature.error) return none;
+      const exec = path.join(feature.featureDir, 'exec');
+      const briefRecords = [];
+      for (const name of this.fsImpl.readdirSync(exec).filter((entry) => entry.endsWith('-brief.json')).sort()) {
+        try { briefRecords.push(JSON.parse(this.fsImpl.readFileSync(path.join(exec, name), 'utf8'))); } catch { /* an unreadable record contributes nothing */ }
+      }
+      return { briefRecords, repoRoot: feature.repoRoot };
+    } catch { return none; }
+  }
+
+  /** Add the Tools used evidence items the resolver asked for, and stamp each `recorded` row with
+   * its evidence id. Evidence goes in before the stage entry is written, so the entry carries the
+   * ids; a retry after a refused completion finds the items and reports them `already-recorded`.
+   * A ledger that cannot be written leaves the rows without an id and never stops the handoff. */
+  storeToolsUsed({ record, evidenceToAdd, ledger }) {
+    if (!evidenceToAdd.length) return record;
+    try {
+      const idsByTask = new Map();
+      for (const item of evidenceToAdd) {
+        if (!idsByTask.has(item.taskId)) ledger.load(item.taskId);
+        idsByTask.set(item.taskId, [...(idsByTask.get(item.taskId) || []), ledger.addEvidence(item)]);
+      }
+      for (const taskId of idsByTask.keys()) ledger.save(taskId);
+      for (const row of record.toolsUsed) {
+        if (row.status === 'recorded') row.evidenceId = idsByTask.get(row.taskId)?.shift();
+      }
+    } catch { /* the rows stay as resolved */ }
+    return record;
   }
 
   requireRun(taskId) {
@@ -242,7 +439,7 @@ class WorkflowOrchestrator {
    * cannot import a verification. A 'failed' outcome still advances — recording the failure
    * honestly beats refusing to record it, and a bug reproduction legitimately completes by
    * observing the expected failure — but the record no longer reads as success. */
-  completeStage({ taskId, stageId, note, outcome, backfilled = false, now } = {}) {
+  completeStage({ taskId, stageId, note, outcome, backfilled = false, consultations, now } = {}) {
     const run = this.requireRun(taskId);
     const node = this.expectOpenStage(run, stageId);
     if (outcome !== undefined && !STAGE_OUTCOMES.has(outcome)) {
@@ -255,6 +452,7 @@ class WorkflowOrchestrator {
     run.history.push({
       at: iso(now), action: 'complete-stage', node: node.id, note: note ?? null,
       backfilled: Boolean(backfilled), executionStatus: node.executionStatus, outcome: node.outcome,
+      ...(consultations ? { consultations } : {}),
     });
     this.advance(run, now);
     this.writeRun(run, now, () => {
@@ -439,7 +637,7 @@ class WorkflowOrchestrator {
    * hand-edited after that stage's own handoff — without touching program/cursor/state. Not a
    * stage completion or a gate decision, so it never collides with the state machine's ordering
    * rules (D3). `forced` requires an explicit `note` reason, same rule as decideGate. */
-  annotate({ taskId, node: nodeId, note, forced = false, now } = {}) {
+  annotate({ taskId, node: nodeId, note, forced = false, consultations, now } = {}) {
     // Id validated before the run is loaded, matching decideGate's order exactly: an unsafe id is
     // the caller's problem to hear about first, whether or not the run happens to exist.
     assertSafeId(nodeId, 'node');
@@ -447,7 +645,7 @@ class WorkflowOrchestrator {
     const run = this.requireRun(taskId);
     const found = run.program.find((n) => n.id === nodeId);
     if (!found) throw new Error(`Invalid node: '${nodeId}' is not part of the program for run '${taskId}'`);
-    run.history.push({ at: iso(now), action: 'annotate', node: nodeId, note, forced: Boolean(forced) });
+    run.history.push({ at: iso(now), action: 'annotate', node: nodeId, note, forced: Boolean(forced), ...(consultations ? { consultations } : {}) });
     this.writeRun(run, now);
     return this.snapshot(run);
   }
@@ -558,7 +756,7 @@ function compactAfterHandoff({ taskId, projectRoot }) {
  * made by `doflow readiness` before this call; nothing is evaluated here. */
 function handleOrchestrateCommand({
   action = 'status', taskId, taskClass, stage, gate, node, decision, note, reason, forced = false,
-  verificationPlan, scope, invariants, result, callingSkill, json = false, repoRoot, stateRoot, slug = null,
+  verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, json = false, repoRoot, stateRoot, slug = null, buildAdapters = null,
 } = {}) {
   const { finishRuntime, usageError } = require('./cli-result');
 
@@ -587,7 +785,7 @@ function handleOrchestrateCommand({
   const orchestrator = new WorkflowOrchestrator({
     repoRoot: root, projectRoot: runRoot,
     stateDir: path.join(runRoot, '.doflow', 'state', 'orchestration'),
-    featureSlug,
+    featureSlug, buildAdapters,
   });
   orchestrator.readinessEvaluate = (node, run) => {
     // This closure only ever runs for a stage that is actually gated (evaluateReadiness only calls
@@ -631,10 +829,14 @@ function handleOrchestrateCommand({
     if (result !== undefined && action !== 'complete-stage' && action !== 'handoff') {
       return usageError('orchestrate', `'--result' has no effect on action '${action}' — only complete-stage and handoff record a stage outcome`, json);
     }
+    // And for --mcp-outcome: an outcome that nothing records must not look recorded.
+    if (mcpOutcome !== undefined && action !== 'handoff') {
+      return usageError('orchestrate', `'--mcp-outcome' has no effect on action '${action}' — only handoff records MCP outcomes`, json);
+    }
     let snapshot;
     switch (action) {
       case 'handoff':
-        snapshot = orchestrator.handoff({ taskId, taskClass, callingSkill, note, outcome: result });
+        snapshot = orchestrator.handoff({ taskId, taskClass, callingSkill, note, outcome: result, mcpOutcomes: mcpOutcome });
         break;
       case 'start':
         if (!taskId || !taskClass) return usageError('orchestrate', 'start requires --task-id and --task-class', json);
@@ -684,6 +886,8 @@ function handleOrchestrateCommand({
         ? `Awaiting gate ${snapshot.awaitingGate.gateId}${snapshot.awaitingGate.prompt ? `: ${snapshot.awaitingGate.prompt}` : ''}`
         : `Next: ${snapshot.current.type} '${snapshot.current.id}'${snapshot.current.mutatesSource ? ' (mutates source)' : ''}`);
     }
+    // MCP warnings go to stderr and notices to stdout, after everything else (IC-011).
+    for (const message of snapshot.mcpWarnings || []) (message.text.startsWith('[WARN]') ? console.error : console.log)(message.text);
     return finishRuntime(0);
   } catch (error) {
     // Transition refusals are findings, not crashes: out-of-order stages and unready gates are

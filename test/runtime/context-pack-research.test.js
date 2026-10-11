@@ -2,8 +2,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { ContextPackCompiler, handleContextPackCommand } = require('../../src/runtime/context-pack');
 const { updateTaskState } = require('../../src/runtime/task-state');
 const { ResearchRequestStore } = require('../../src/runtime/research-request');
@@ -21,8 +21,7 @@ test('context pack includes bounded research state without treating open questio
 });
 
 test('CLI context pack reads a persisted research request on restart', t => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-pack-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = tempDir(t, 'doflow-context-pack-research-');
   updateTaskState({ fsImpl: fs, file: path.join(root, '.doflow/state/orchestration/f.json'),
     build: () => ({ taskId: 'f', taskClass: 'feature', state: 'RUNNING', cursor: 0,
       program: [{ type: 'stage', id: 'design' }] }) });

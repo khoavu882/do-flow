@@ -2,13 +2,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const {
   entryFingerprint, readMcpFiles, planMcpEntries, applyMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpJson, writeMcpEntries,
 } = require('../../src/adapters/mcp-entries');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-mcp-entries-')); }
+function scratch() { return suiteTempDir('doflow-mcp-entries-'); }
 
 const A = { id: 'alpha', entry: { command: 'npx', args: ['alpha'] } };
 const B = { id: 'beta', entry: { command: 'npx', args: ['beta'] } };
@@ -218,4 +218,26 @@ test('writeMcpEntries keeps every other key and keeps or deletes an emptied cont
   const deleted = setup({ other: 1, mcpServers: { alpha: A.entry } });
   writeMcpEntries(removal.map((change) => ({ ...change, target: deleted.file })), { container: CONTAINER });
   assert.deepEqual(deleted.read(), { other: 1 });
+});
+
+test('M20: no entry any harness plans for the shipped servers carries the registry-only steps or trigger keys (062 R11)', () => {
+  const { loadRegistry, mcpCapable } = require('../../src/registry');
+  const { planLifecycle } = require('../../src/lifecycle');
+  const { buildAdapterRegistry } = require('../../src/cli/shared');
+  const repoRoot = path.resolve(__dirname, '../..');
+  const registry = loadRegistry({ repoRoot });
+  assert.ok(registry.mcp.every((server) => server.trigger && server.steps), 'the registry carries the keys the entries must not');
+  const ids = registry.mcp.map((server) => server.id);
+  const targets = registry.harnesses.map((harness) => harness.id).filter((id) => mcpCapable(registry, id));
+  assert.ok(targets.length >= 2);
+  for (const target of targets) {
+    const plan = planLifecycle({
+      registry, adapters: buildAdapterRegistry(), scope: 'project', scopeRoot: scratch(), targets: [target], mcpSelections: { [target]: ids }, context: { sourceVersion: 'test', repoRoot, homeDir: scratch() },
+    });
+    const mcpChanges = plan.changes.filter((change) => change.kind === 'mcp-server' || change.nativeComponent === 'mcp');
+    assert.ok(mcpChanges.length > 0, `${target} plans MCP entries`);
+    const text = JSON.stringify(mcpChanges);
+    assert.ok(!/"(steps|trigger)"|\\n(steps|trigger) =/.test(text), `${target}: steps/trigger stay in the registry`);
+    for (const server of registry.mcp) assert.ok(!text.includes(server.trigger), `${target}: ${server.id} trigger text`);
+  }
 });

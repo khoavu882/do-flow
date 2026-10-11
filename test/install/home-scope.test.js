@@ -2,19 +2,19 @@
 // sameDirectory decides whether a project run is rooted at the home directory, so it must see one
 // directory behind every spelling a user can type: a trailing separator, `.`, a symlink and the
 // macOS /var -> /private/var temp folder.
-const { test, after } = require('node:test');
+const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
 const { IS_WIN } = require('../helper-platform');
+const { suiteTempDir } = require('../helper/tmp');
 const { sameDirectory } = require('../../src/cli/shared');
 
-const R = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-home-scope-')));
+const R = suiteTempDir('doflow-home-scope-');
 const home = path.join(R, 'home');
 fs.mkdirSync(path.join(home, 'work'), { recursive: true });
-after(() => fs.rmSync(R, { recursive: true, force: true }));
 
 test('the same directory, with and without a trailing separator', () => {
   assert.strictEqual(sameDirectory(home, home), true);

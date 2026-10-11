@@ -26,7 +26,7 @@ const {
 // `doctor` comes from the health module rather than src/runtime/cli.js: the health-probe report
 // (FR-013) supersedes the presence-check version, and one verb must have one implementation.
 const { handleDoctorCommand } = require('../runtime/health');
-const { handleTraceCommand, handleStatsCommand, handleDiscoverCommand } = require('../runtime/trace/ledger');
+const { handleTraceCommand, handleStatsCommand, handleDiscoverCommand, resolveRunsLocation } = require('../runtime/trace/ledger');
 const { handleIndicatorsCommand } = require('../runtime/trace/indicators');
 // The rest of the verb surface design §4.2 declares. `classify`, `workflow`, `route`, `claim`,
 // `context-pack`, `verify`, `recover` and `scaffold` each have exactly one implementation, in the
@@ -49,6 +49,9 @@ const { handleRecoverCommand } = require('../runtime/recovery');
 const { handleScaffoldCommand } = require('../runtime/scaffold/generate');
 const { handleDecisionCommand } = require('../runtime/decision-register');
 const { handleFollowupCommand, handleLifecycleCommand, handleGoalCommand } = require('../runtime/lifecycle/cli');
+const { projectRoot: lifecycleProjectRoot } = require('../runtime/lifecycle/root');
+const { upkeepAfterVerb } = require('../runtime/storage/upkeep');
+const { handleStorageCommand } = require('../runtime/storage/cli');
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options) { return require('../runtime/failure/cli').handleFailureCommand(options); }
 const { handleInventoryCommand } = require('../runtime/inventory');
@@ -56,7 +59,9 @@ const { finishRuntime, usageError } = require('../runtime/cli-result');
 const { setDefaultSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope');
 const { listCheckouts } = require('../runtime/checkouts');
 const { featureSlugFor } = require('../runtime/implementation-gate');
-const { REPO_ROOT } = require('./shared');
+const { handleBriefToolsCommand } = require('../runtime/brief-tools');
+const { handleAdviseCommand } = require('../runtime/advice/cli');
+const { REPO_ROOT, buildAdapterRegistry } = require('./shared');
 
 /** Where `readiness`/`evidence` read and write per-task state. Mirrors scopeOf()'s rules so these
  * commands are scope-aware like the rest of the CLI, rather than defaulting to the DoFlow install
@@ -155,7 +160,7 @@ function featureStoreRoot(o) {
  * to the engine module each case names.
  * @param {Object} o parsed arguments
  */
-function dispatchRuntimeCommand(o) {
+function dispatchRuntimeCommandInner(o, moment) {
   // A slug becomes a directory name and a state key, so one that could name a path is refused
   // here, once, for every verb that reads `--slug`, before any of them reads or writes state
   // (FR-013, IC-009). A well-formed slug that names no feature is the verbs' own business.
@@ -171,6 +176,17 @@ function dispatchRuntimeCommand(o) {
   // Reset on every dispatch, so one invocation's slug can never carry into the next in-process call.
   const featureStore = featureStoreRoot(o);
   const storeRoot = featureStore ? featureStore.root : evidenceRoot(o);
+  // Use the same root resolver as the handler: task redirection, the nearest run ledger,
+  // and lifecycle's shared main-worktree store are deliberately different scopes.
+  try {
+    if (['trace', 'stats', 'discover'].includes(o.cmd)) {
+      moment.projectRoot = path.dirname(resolveRunsLocation({ start: evidenceRoot(o), global: o.global }).configDir);
+    } else if (['followup', 'lifecycle', 'goal'].includes(o.cmd)) {
+      moment.projectRoot = lifecycleProjectRoot(evidenceRoot(o));
+    } else {
+      moment.projectRoot = storeRoot;
+    }
+  } catch { /* a failed upkeep lookup must not change the verb's answer */ }
   const storeSlug = featureStore ? featureStore.slug : o.slug;
   setDefaultSlug(TASK_STORE_VERBS.has(o.cmd) ? storeSlug : null);
   if (featureStore) {
@@ -186,7 +202,7 @@ function dispatchRuntimeCommand(o) {
     // REPO_ROOT locates the capability registry; projectRoot is the tree whose index freshness
     // and build/test commands are being reported on, which follows the usual scope rules.
     case 'capabilities': return handleCapabilitiesCommand({ json: o.json, check: o.check, repoRoot: REPO_ROOT });
-    case 'doctor': return handleDoctorCommand({ json: o.json, repoRoot: REPO_ROOT, projectRoot: evidenceRoot(o) });
+    case 'doctor': return handleDoctorCommand({ json: o.json, repoRoot: REPO_ROOT, projectRoot: evidenceRoot(o), adapters: buildAdapterRegistry() });
     // REPO_ROOT locates the registry (templates ship with the package); stateRoot locates the
     // caller's evidence, which follows the same scope rules as every other command: -g means
     // $HOME, otherwise the positional project root (default cwd).
@@ -217,6 +233,7 @@ function dispatchRuntimeCommand(o) {
     // report whose whole purpose is to be cross-scope. The global scope's own root is derived from
     // the process home directory inside the lifecycle view (design R7) and is not an argument.
     case 'inventory': return handleInventoryCommand({ json: o.json, global: o.global, targets: o.targets, repoRoot: REPO_ROOT, projectRoot: path.resolve(o.positional[0] || '.') });
+    case 'storage': return handleStorageCommand({ action: o.actionGiven ? o.action : 'report', json: o.json, global: o.global, projectRoot: evidenceRoot(o) });
     // No REPO_ROOT: the scaffold's repo root is the *caller's* repo, reported by the resolver,
     // because the plan's `files:` paths are relative to it. Passing the DoFlow install here
     // would detect the wrong language and mirror the wrong tree.
@@ -235,22 +252,32 @@ function dispatchRuntimeCommand(o) {
     // The rest of design §4.2's Node arm. REPO_ROOT locates the registries that ship with the
     // package (workflows, capabilities, verification); evidenceRoot(o) locates the caller's own
     // state and source tree, following the same scope rules as every other command.
-    case 'classify': return handleClassifyCommand({ taskClass: o.taskClass, rationale: o.rationale, proposedBy: o.proposedBy, callingSkill: o.callingSkill, json: o.json });
+    case 'classify': return handleClassifyCommand({ taskClass: o.taskClass, rationale: o.rationale, proposedBy: o.proposedBy, callingSkill: o.callingSkill, request: o.request, requestFile: o.requestFile, taskId: o.taskId, projectRoot: evidenceRoot(o), json: o.json });
     case 'workflow': return handleWorkflowCommand({ taskClass: o.taskClass, json: o.json });
-    case 'orchestrate': return handleOrchestrateCommand({ action: o.action, taskId: o.taskId, taskClass: o.taskClass, stage: o.stage, gate: o.gate, node: o.node, decision: o.decision, note: o.note, reason: o.reason, forced: o.forced, verificationPlan: o.verificationPlan, scope: o.scope, invariants: o.invariants, result: o.result, callingSkill: o.callingSkill, slug: o.slug, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
+    case 'orchestrate': return handleOrchestrateCommand({ action: o.action, taskId: o.taskId, taskClass: o.taskClass, stage: o.stage, gate: o.gate, node: o.node, decision: o.decision, note: o.note, reason: o.reason, forced: o.forced, verificationPlan: o.verificationPlan, scope: o.scope, invariants: o.invariants, result: o.result, mcpOutcome: o.mcpOutcome, callingSkill: o.callingSkill, slug: o.slug, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o), buildAdapters: buildAdapterRegistry });
     case 'research-request': return handleResearchRequestCommand({ slug: o.slug, action: o.action === 'status' ? 'list' : o.action, taskId: requireTaskId(o), stageId: o.stageId, question: o.question, reason: o.reason, blocking: o.blocking === undefined ? undefined : o.blocking === 'true' ? true : o.blocking === 'false' ? false : o.blocking, requestId: o.requestId, outcome: o.researchOutcome, claimId: o.claimId, evidenceIds: o.evidenceIds, gap: o.gap, json: o.json, projectRoot: evidenceRoot(o) });
     case 'retrieve': return handleRetrieveCommand({ query: o.query, top: o.top, json: o.json });
+    case 'brief-tools': return handleBriefToolsCommand({ owner: o.owner, tier: o.tier, harness: o.harness, slug: o.slug, headingLevel: o.headingLevel, tasks: o.tasks, json: o.json, repoRoot: REPO_ROOT, projectRoot: storeRoot, buildAdapters: buildAdapterRegistry });
+    case 'advise': return handleAdviseCommand({ action: o.action, actionGiven: o.actionGiven, kind: o.kind, server: o.server, state: o.state, stateFile: o.stateFile, staticAnswer: o.staticAnswer, questionsFile: o.questionsFile, taskId: o.taskId, pickId: o.pickId, actual: o.actual, model: o.model, endpoint: o.endpoint, off: o.off, project: o.project, force: o.force, global: o.global, json: o.json, projectRoot: evidenceRoot(o) });
     case 'model-role': return handleModelRoleCommand({ role: o.role, exclude: o.exclude, json: o.json, repoRoot: REPO_ROOT });
     case 'route': return handleRouteCommand({ intent: o.intent, query: o.query, check: o.check, json: o.json, projectRoot: evidenceRoot(o) });
     case 'claim': return handleClaimCommand({ slug: storeSlug, taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, replacedBy: o.replacedBy, relation: o.relation, role: o.role, json: o.json, stateRoot: storeRoot });
     case 'context-pack': return handleContextPackCommand({ taskId: requireTaskId(o), taskClass: o.taskClass, objective: o.objective, json: o.json, stateRoot: evidenceRoot(o), slug: o.slug });
     case 'retrieval-plan': return handleRetrievalPlanCommand({ slug: o.slug, taskId: requireTaskId(o), action: o.action, need: o.need, stage: o.stage, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
     case 'outcome': return handleOutcomeCommand({ slug: o.slug, taskId: requireTaskId(o), action: o.action, state: o.state, taskClass: o.taskClass, stage: o.stage, readiness: o.readiness, verification: o.verification, json: o.json, repoRoot: REPO_ROOT, stateRoot: evidenceRoot(o) });
-    case 'verify': return handleVerifyCommand({ slug: o.slug, taskId: requireTaskId(o), action: o.action, risk: o.risk, planPath: o.planPath, scope: o.scope, json: o.json, projectRoot: evidenceRoot(o) });
+    case 'verify': return handleVerifyCommand({ slug: o.slug, taskId: requireTaskId(o), action: o.action, risk: o.risk, planPath: o.planPath, scope: o.scope, verificationInput: o.verificationInput, verificationPhase: o.verificationPhase, baselineRef: o.baselineRef, json: o.json, projectRoot: evidenceRoot(o) });
     case 'leak-scan': return handleLeakScanCommand({ paths: o.paths, exclude: o.exclude, json: o.json, repoRoot: evidenceRoot(o) });
     case 'recover': return handleRecoverCommand({ errorMessage: o.errorMessage, failedChecks: o.failedChecks, iteration: o.iteration, agent: o.agent, json: o.json });
     default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
   }
+}
+
+/** Await the verb without changing its return value, output or exit code; usage exits never return. */
+async function dispatchRuntimeCommand(o) {
+  const moment = {};
+  const result = await dispatchRuntimeCommandInner(o, moment);
+  if (o.cmd !== 'storage') upkeepAfterVerb({ projectRoot: moment.projectRoot });
+  return result;
 }
 
 module.exports = { dispatchRuntimeCommand };

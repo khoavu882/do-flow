@@ -2,12 +2,12 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const { createKiroAdapter } = require('../../../src/adapters/kiro');
 const { IS_WIN } = require('../../helper-platform');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-kiro-hooks-')); }
+function scratch() { return suiteTempDir('doflow-kiro-hooks-'); }
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 const HOOKS_SOURCE = path.join(REPO_ROOT, 'core', 'harnesses', 'kiro', 'hooks');

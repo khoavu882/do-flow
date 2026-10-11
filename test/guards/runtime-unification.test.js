@@ -26,6 +26,7 @@ const path = require('node:path');
 const { REPO } = require('./_shared');
 const { loadRegistry } = require('../../src/registry');
 const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view');
+const { tempDir } = require('../helper/tmp');
 
 const SCRIPTS = path.join(REPO, 'core', 'shared', 'scripts');
 const DISPATCHER = path.join(SCRIPTS, 'doflow', 'bin', 'doflow-run');
@@ -125,9 +126,9 @@ function plannedChanges(scope, home) {
   } finally { os.homedir = original; }
 }
 
-test('G12: every ../.doflow asset plans under <scope root>/.doflow in both scopes (IC-011 4a)', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-reach-home-'));
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-reach-project-'));
+test('G12: every ../.doflow asset plans under <scope root>/.doflow in both scopes (IC-011 4a)', (t) => {
+  const home = tempDir(t, 'doflow-reach-home-');
+  const project = tempDir(t, 'doflow-reach-project-');
   const plans = {
     project: { root: project, changes: plannedChanges({ global: false, projectRoot: project }, home) },
     global: { root: home, changes: plannedChanges({ global: true }, home) },
@@ -466,9 +467,19 @@ function runtimeJsFiles() {
     .map((file) => ({ rel: path.relative(REPO, file), text: fs.readFileSync(file, 'utf8') }));
 }
 
-const LEDGER_LOCATION = /state[\\/]+runs|runsDir\(|RUNS_DIRNAME|new RunLedger/;
+// A RunLedger consumer uses the sanitizer, even when it also writes unrelated control files.
+// Only direct ledger locations/directory markers identify a possible raw filesystem writer.
+const LEDGER_LOCATION = /state[\\/]+runs|state['"]\s*,\s*['"]runs|runsDir\(|RUNS_DIRNAME/;
 const FS_WRITE_SOURCE = String.raw`appendFileSync|writeFileSync|createWriteStream|promises\.appendFile|\bopenSync\(`;
 const FS_WRITE = new RegExp(FS_WRITE_SOURCE);
+
+test('G12: trusted RunLedger consumers may write controls, but raw ledger writers are caught', () => {
+  const isRawWriter = text => LEDGER_LOCATION.test(text) && FS_WRITE.test(text);
+  assert.equal(isRawWriter("new RunLedger({ configDir }).append({ verb: 'storage' }); fs.writeFileSync('.gitignore', '*');"), false);
+  assert.equal(isRawWriter("fs.appendFileSync('state/runs/2026-10-10.jsonl', raw);"), true);
+  assert.equal(isRawWriter("fs.appendFileSync(path.join(configDir, 'state', 'runs', 'today.jsonl'), raw);"), true);
+  assert.equal(isRawWriter("const dir = runsDir(configDir); fs.writeFileSync(dir + '/today.jsonl', raw);"), true);
+});
 
 test('G12: trace.js is the only module that writes the run ledger (NFR-004)', () => {
   const writers = runtimeJsFiles()

@@ -2,11 +2,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const { configPath, fingerprint, planCodexConfig, applyCodexConfig, reconcileCodexConfig } = require('../../../src/adapters/codex/config');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-codex-config-')); }
+function scratch() { return suiteTempDir('doflow-codex-config-'); }
 function resource(value = true) { return { target: 'codex', scope: 'project', kind: 'configuration-entry', identity: 'features.hooks', value, sourceVersion: '2.4.4' }; }
 
 test('creates a valid project config and records only the owned entry', () => {

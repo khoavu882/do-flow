@@ -75,6 +75,19 @@ Or use the lifecycle intents for git operations:
 
 `/do-flow "add team invitations"` coordinates the same path and pauses at its approval gates. Use it when one feature should progress through the full delivery sequence.
 
+### Optional MCP servers in the stages
+
+`/do-brainstorm` and `/do-design` may consult two MCP servers, `context7` and `sequential-thinking`, when you have them installed (see [Setup](setup.md#mcp-server-selection)). They are used only when a stage meets the condition that calls for them, never on every run:
+
+| Stage | `context7`, when | `sequential-thinking`, when |
+|---|---|---|
+| `/do-brainstorm` | `requirement.md` would state a named library, API or tool's behaviour as fact | a round's open ambiguity spans two or more components, actors or requirements |
+| `/do-design` | `design.md` would state a named library, API, SDK, CLI or service's interface, configuration or version behaviour as fact | §1 records a decision with a rejected alternative |
+
+Whatever a server returns is evidence the stage weighs, not an instruction. At handoff the stage says what it did with each server it names: consulted and used, consulted with nothing usable, skipped with a reason (a condition that did not hold is `skipped:not-due`), or unavailable. A server it names but records nothing for produces a warning after the handoff. The warning never blocks the stage or changes its exit status. `doflow doctor` shows these outcomes per stage over the last 20 recorded runs, and which of your harnesses have each server, in its `[MCP Consultations]` and `[MCP Servers]` sections.
+
+When `/do-execute-plan` dispatches a task to a subagent, the brief it writes also states the model tier for that task, the tools this machine answers with for each kind of search, and which MCP servers the current stage expects (naming any the target harness cannot reach). The subagent ends its report with a `Tools used:` line, such as `Tools used: semble, rg, context7=used`, and the next handoff reads it. Tool use is recommended where it saves reading, never required.
+
 ### Resume a generated plan
 
 The plan and its checklist are the source of truth once planning is complete. `state.md` records progress so a later session can resume without reconstructing the work from chat history.
@@ -137,7 +150,7 @@ Keep current or uncertain external knowledge separate from implementation work.
 
 Research produces evidence; it does not replace a design decision or validation.
 
-During an active feature run, a stage can open a `research-request` only for a specific external fact it cannot establish locally, or when you explicitly ask for research. The question and results stay under the feature task ID; a blocking unanswered question keeps its dependent stage open. Web search addresses broader current questions, while Context7 addresses version-specific library documentation when the harness has those tools. An unavailable provider leaves a stated gap, not an invented answer. Outbound queries omit private repository content unless you approve the exact disclosure. This does not add a seventh feature stage or waive implementation, commit, or merge approval.
+During an active feature run, a stage can open a `research-request` only for a specific external fact it cannot establish locally, or when you explicitly ask for research. The question and results stay under the feature task ID; a blocking unanswered question keeps its dependent stage open. Web search addresses broader current questions, while Context7 addresses version-specific library documentation when the harness has those tools. An unavailable provider leaves a stated gap, not an invented answer, and a stage that could not reach `context7` records it as `unavailable` with the command that adds it. Outbound queries omit private repository content unless you approve the exact disclosure. This does not add a seventh feature stage or waive implementation, commit, or merge approval.
 
 ```bash
 # Inspect the active feature's research questions and their status
@@ -174,20 +187,29 @@ DoFlow proposes and you decide. A goal is closed only when you say so, and an it
 
 ### Where it is stored
 
-Everything lives under `.doflow/state/lifecycle/` at the root of your repository, as one small JSON file per change. The store is local to this machine and not shared: DoFlow never stages, commits or pushes it and adds no ignore rule for it. Linked worktrees share the store of the main working tree.
+Everything lives under `.doflow/state/lifecycle/` at the root of your repository, as one small JSON file per change. The store is local to this machine and not shared: DoFlow never stages, commits or pushes it, and `.doflow/state/.gitignore` keeps it out of `git add -A`. Linked worktrees share the store of the main working tree.
 
 Earlier versions kept the store in `agent-docs/lifecycle/events/`. The first `followup`, `lifecycle`, `goal` or `failure --action settle --as imported` command in a repository that still has that folder copies it once into the new location, and leaves the old folder exactly as it was. The copy then writes `.doflow/state/lifecycle/migrated.json`, a marker that tells every later command the store is in place, so the old folder is never read again, even after retention empties the store; a new store that already holds events gets the marker without a copy. The line saying the old folder is no longer read and can be deleted repeats on every one of those commands for as long as the folder exists. If the copy fails, the command exits 1 with `store-migration-failed`, changes nothing, writes no marker, and the next command tries again.
 
-Nothing is deleted unless you ask for it. Set `DOFLOW_RETENTION_HOURS` to a positive whole number of hours and each of those commands removes the files of settled follow-ups (done or dismissed) and settled goals (done) whose newest event is older than that. Open, taken and unfinished items are never removed, and neither are feature or release records. A removal prints one line on stderr, such as `retention: removed 3 event files older than 720 h` (the count is not pluralised, so one file reads `removed 1 event files`). An unset or empty value keeps everything; a value that is not a positive whole number prints a warning, removes nothing and lets the command run. Only the lifecycle store is cleaned: run state under `.doflow/state/` and the old `agent-docs/lifecycle/` folder are never touched.
+Settled items are pruned after 180 days by default; open, taken and unfinished items never are. Set `DOFLOW_RETENTION_HOURS` to a positive whole number of hours to choose another window: each of those commands then removes the files of settled follow-ups (done or dismissed) and settled goals (done) whose newest event is older than that. Open, taken and unfinished items are never removed, and neither are feature or release records. A removal prints one line on stderr, such as `retention: removed 3 event files older than 720 h` (the count is not pluralised, so one file reads `removed 1 event files`). An unset or empty value uses the 180-day default, or keeps everything when pruning is switched off (see below); a value that is not a positive whole number prints a warning, removes nothing and lets the command run. The old `agent-docs/lifecycle/` folder is never touched.
 
 The machine-local pieces are kept outside the repository, under `${XDG_CONFIG_HOME:-$HOME/.config}/doflow/`:
 
 | What | Where | Sent anywhere |
 |---|---|---|
 | Failures DoFlow captured about itself | `failures/` | Never. Recorded on this machine only |
-| The full body of a report | `reports/` | Never. The project store keeps only the id, a masked excerpt and the size |
+| The full body of a report | `reports/` | Never. The project store keeps only the id, a masked excerpt and the size; a body is removed with its follow-up |
 
 Secrets are masked before anything is written, on a best-effort basis: it is a safeguard, not a guarantee, so do not paste credentials into a report.
+
+### How much DoFlow keeps
+
+DoFlow bounds everything it writes. Logs, per-task records, run history, recovery snapshots, session folders and settled lifecycle events are pruned once their work is finished and past the bound listed in the store table of `docs/reference.md` ("Storage stores"); work that is open, waiting at a gate or unfinished is never removed. Pruning runs quietly after DoFlow commands and session hooks and never changes their output.
+
+- `doflow storage` shows every store, its size and what a pass would remove, and changes nothing.
+- A `.doflow/prune` file containing `off` switches pruning off for the project, and `~/.config/doflow/prune` for your user; the report still works. An explicitly set `DOFLOW_RETENTION_HOURS` still removes settled lifecycle events while pruning is off.
+- `.doflow/state/.gitignore` keeps the state out of `git add -A`; DoFlow writes it once and never overwrites your own.
+- `doflow remove` deletes these control files when DoFlow leaves a project and leaves the state itself.
 
 ### Failure capture and its off switch
 

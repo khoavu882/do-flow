@@ -3,15 +3,15 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { createAdapterRegistry } = require('../../src/adapters');
 const { defaultLedger, readLedger } = require('../../src/state');
 const { loadRegistry } = require('../../src/registry');
 const { planLifecycle, applyLifecycle, removeLifecycle, normalizeRemovalVerification, mcpIndexPath } = require('../../src/lifecycle');
+const { tempDir, suiteTempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, "../..");
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-'));
+const root = suiteTempDir('doflow-lifecycle-');
 const registry = {
   harnesses: [{ id: 'fake', displayName: 'Fake', adapter: 'fake', scopes: ['project', 'user'], nativeTargets: {}, capabilities: { instructions: { status: 'supported' } } }],
   assets: [{ id: 'guidance.fake', kind: 'guidance', source: 'ignored', appliesTo: ['fake'], ownership: 'managed-file', projection: { fake: { renderer: 'fake', capability: 'instructions' } } }],
@@ -54,21 +54,21 @@ test('planning is non-mutating and returns normalized adapter changes', () => {
   });
 });
 
-test('apply refuses an empty native plan before journalling or ledger writes', () => {
+test('apply refuses an empty native plan before journalling or ledger writes', (t) => {
   const adapter = fakeAdapter();
   adapter.plan = () => ({ changes: [] });
   const adapters = createAdapterRegistry({ fake: adapter });
-  const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-state-'));
+  const stateRoot = tempDir(t, 'doflow-lifecycle-state-');
   const plan = planLifecycle({ registry, adapters, scope: 'project', scopeRoot: root, targets: ['fake'] });
   assert.throws(() => applyLifecycle({ plan, registry, adapters, stateRoot }), /no required native resources/);
   assert.ok(!fs.existsSync(path.join(stateRoot, 'ledger.json')));
   assert.ok(!fs.existsSync(path.join(stateRoot, 'recovery')));
 });
 
-test('apply journals, verifies, then persists only verified neutral ownership', () => {
+test('apply journals, verifies, then persists only verified neutral ownership', (t) => {
   const adapter = fakeAdapter();
   const adapters = createAdapterRegistry({ fake: adapter });
-  const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-state-'));
+  const stateRoot = tempDir(t, 'doflow-lifecycle-state-');
   const ledger = defaultLedger({ scope: 'project', scopeRoot: root });
   const plan = planLifecycle({ registry, adapters, scope: 'project', scopeRoot: root, ledger, targets: ['fake'] });
   const result = applyLifecycle({ plan, registry, adapters, stateRoot, ledger });
@@ -78,13 +78,13 @@ test('apply journals, verifies, then persists only verified neutral ownership', 
   assert.ok(fs.existsSync(path.join(stateRoot, 'recovery', `${result.recovery.id}.json`)));
 });
 
-test('conflicts and unmet prerequisites block apply before native mutation', () => {
+test('conflicts and unmet prerequisites block apply before native mutation', (t) => {
   for (const options of [{ conflict: true }, { prerequisite: 'review native config' }]) {
     const adapter = fakeAdapter(options);
     const adapters = createAdapterRegistry({ fake: adapter });
     const plan = planLifecycle({ registry, adapters, scope: 'project', scopeRoot: root, targets: ['fake'] });
     assert.equal(plan.safe, false);
-    assert.throws(() => applyLifecycle({ plan, registry, adapters, stateRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-state-')) }), /unsafe lifecycle plan/);
+    assert.throws(() => applyLifecycle({ plan, registry, adapters, stateRoot: tempDir(t, 'doflow-lifecycle-state-') }), /unsafe lifecycle plan/);
     assert.deepEqual(adapter.calls, [['discover', 'fake']]);
   }
 });
@@ -97,10 +97,10 @@ test('adapter failures are promoted to lifecycle conflicts and fail closed', () 
   assert.deepEqual(plan.conflicts, [{ harness: 'fake', reason: 'config: foreign settings' }]);
 });
 
-test('remove lifecycle asks adapters for a remove plan and applies only after verification', () => {
+test('remove lifecycle asks adapters for a remove plan and applies only after verification', (t) => {
   const adapter = fakeAdapter();
   const adapters = createAdapterRegistry({ fake: adapter });
-  const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-state-'));
+  const stateRoot = tempDir(t, 'doflow-lifecycle-state-');
   const ledger = defaultLedger({ scope: 'project', scopeRoot: root });
   ledger.resources.push({ harness: 'fake', scope: 'project', assetId: 'guidance.fake', target: 'FAKE.md', ownershipIdentity: 'fake:guidance', fingerprint: 'owned' });
   const result = removeLifecycle({ registry, adapters, scope: 'project', scopeRoot: root, targets: ['fake'], stateRoot, ledger });
@@ -111,7 +111,7 @@ test('remove lifecycle asks adapters for a remove plan and applies only after ve
   assert.equal(result.verification.verifications[0].statuses[0].status, 'removed');
 });
 
-test('a mid-loop adapter throw during apply marks the recovery record failed with the harnesses that completed, instead of leaving it pending forever', () => {
+test('a mid-loop adapter throw during apply marks the recovery record failed with the harnesses that completed, instead of leaving it pending forever', (t) => {
   const multiRegistry = {
     harnesses: [
       { id: 'fake', displayName: 'Fake', adapter: 'fake', scopes: ['project', 'user'], nativeTargets: {}, capabilities: { instructions: { status: 'supported' } } },
@@ -125,7 +125,7 @@ test('a mid-loop adapter throw during apply marks the recovery record failed wit
   const adapter2 = fakeAdapter();
   adapter2.apply = () => { throw new Error('disk full'); };
   const adapters = createAdapterRegistry({ fake: adapter1, fake2: adapter2 });
-  const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-state-'));
+  const stateRoot = tempDir(t, 'doflow-lifecycle-state-');
   const plan = planLifecycle({ registry: multiRegistry, adapters, scope: 'project', scopeRoot: root, targets: ['fake', 'fake2'] });
   assert.throws(() => applyLifecycle({ plan, registry: multiRegistry, adapters, stateRoot }), /disk full/);
   const recoveryDir = path.join(stateRoot, 'recovery');
@@ -206,11 +206,11 @@ test('removal without a ledger keeps the strict reading, since non-ownership can
   assert.equal(result.ok, false);
 });
 
-test('install with a non-empty MCP selection writes MCP_INDEX.md containing only the selected servers\' short flags', () => {
+test('install with a non-empty MCP selection writes MCP_INDEX.md containing only the selected servers\' short flags', (t) => {
   const adapter = fakeAdapter();
   const adapters = createAdapterRegistry({ fake: adapter });
-  const scopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-mcpindex-'));
-  const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-state-'));
+  const scopeRoot = tempDir(t, 'doflow-lifecycle-mcpindex-');
+  const stateRoot = tempDir(t, 'doflow-lifecycle-state-');
   const plan = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpSelections: { fake: ['context7', 'sequential-thinking'] } });
   applyLifecycle({ plan, registry: mcpRegistry, adapters, stateRoot });
 
@@ -221,11 +221,11 @@ test('install with a non-empty MCP selection writes MCP_INDEX.md containing only
   assert.match(content, /--seq/);
 });
 
-test('update with a changed MCP selection overwrites MCP_INDEX.md with the new selection only, no stale content', () => {
+test('update with a changed MCP selection overwrites MCP_INDEX.md with the new selection only, no stale content', (t) => {
   const adapter = fakeAdapter();
   const adapters = createAdapterRegistry({ fake: adapter });
-  const scopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-mcpindex-'));
-  const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-state-'));
+  const scopeRoot = tempDir(t, 'doflow-lifecycle-mcpindex-');
+  const stateRoot = tempDir(t, 'doflow-lifecycle-state-');
 
   const planA = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpSelections: { fake: ['context7'] } });
   const resultA = applyLifecycle({ plan: planA, registry: mcpRegistry, adapters, stateRoot });
@@ -242,22 +242,22 @@ test('update with a changed MCP selection overwrites MCP_INDEX.md with the new s
   assert.doesNotMatch(content, /--c7/, 'stale selection A content must not survive an update to selection B');
 });
 
-test('an empty MCP selection leaves MCP_INDEX.md absent rather than writing an empty file', () => {
+test('an empty MCP selection leaves MCP_INDEX.md absent rather than writing an empty file', (t) => {
   const adapter = fakeAdapter();
   const adapters = createAdapterRegistry({ fake: adapter });
-  const scopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-mcpindex-'));
-  const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-state-'));
+  const scopeRoot = tempDir(t, 'doflow-lifecycle-mcpindex-');
+  const stateRoot = tempDir(t, 'doflow-lifecycle-state-');
   const plan = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpSelections: { fake: [] } });
   applyLifecycle({ plan, registry: mcpRegistry, adapters, stateRoot });
 
   assert.ok(!fs.existsSync(mcpIndexPath(scopeRoot)));
 });
 
-test('remove deletes MCP_INDEX.md regardless of what selection would otherwise apply', () => {
+test('remove deletes MCP_INDEX.md regardless of what selection would otherwise apply', (t) => {
   const adapter = fakeAdapter();
   const adapters = createAdapterRegistry({ fake: adapter });
-  const scopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-mcpindex-'));
-  const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-state-'));
+  const scopeRoot = tempDir(t, 'doflow-lifecycle-mcpindex-');
+  const stateRoot = tempDir(t, 'doflow-lifecycle-state-');
 
   const installPlan = planLifecycle({ registry: mcpRegistry, adapters, scope: 'project', scopeRoot, targets: ['fake'], mcpSelections: { fake: ['context7'] } });
   const installResult = applyLifecycle({ plan: installPlan, registry: mcpRegistry, adapters, stateRoot });
@@ -280,8 +280,8 @@ test('remove deletes MCP_INDEX.md regardless of what selection would otherwise a
   const { createGeminiAdapter } = require('../../src/adapters/gemini');
   const { createKiroAdapter } = require('../../src/adapters/kiro');
 
-  function hookFixture(targets) {
-    const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-hook-wiring-'));
+  function hookFixture(t, targets) {
+    const project = tempDir(t, 'doflow-hook-wiring-');
     const realRegistry = loadRegistry({ repoRoot: REPO });
     const adapters = createAdapterRegistry({
       claude: realClaude, codex: realCodex, gemini: createGeminiAdapter(), kiro: createKiroAdapter(),
@@ -310,32 +310,32 @@ test('remove deletes MCP_INDEX.md regardless of what selection would otherwise a
     return verifyLifecycle({ plan: rePlan, adapters, context: { registry: realRegistry } });
   }
 
-  test('hookWiringStatus: Claude reports active once its hooks resource is installed', () => {
-    const fixture = hookFixture(['claude']);
+  test('hookWiringStatus: Claude reports active once its hooks resource is installed', (t) => {
+    const fixture = hookFixture(t, ['claude']);
     const verification = verifyInstalled({ ...fixture, targets: ['claude'] });
     const claudeVerification = verification.verifications.find((item) => item.harness === 'claude');
     assert.equal(claudeVerification.hookWiring.status, 'active');
     assert.deepEqual(claudeVerification.hookWiring.prerequisites, []);
   });
 
-  test('hookWiringStatus: Kiro reports active immediately, since Kiro hooks have no trust/review prerequisite', () => {
-    const fixture = hookFixture(['kiro']);
+  test('hookWiringStatus: Kiro reports active immediately, since Kiro hooks have no trust/review prerequisite', (t) => {
+    const fixture = hookFixture(t, ['kiro']);
     const verification = verifyInstalled({ ...fixture, targets: ['kiro'] });
     const kiroVerification = verification.verifications.find((item) => item.harness === 'kiro');
     assert.equal(kiroVerification.hookWiring.status, 'active');
     assert.deepEqual(kiroVerification.hookWiring.prerequisites, []);
   });
 
-  test('hookWiringStatus: Codex reports installed-pending (unmet hook-review prerequisite) even after install', () => {
-    const fixture = hookFixture(['codex']);
+  test('hookWiringStatus: Codex reports installed-pending (unmet hook-review prerequisite) even after install', (t) => {
+    const fixture = hookFixture(t, ['codex']);
     const verification = verifyInstalled({ ...fixture, targets: ['codex'] });
     const codexVerification = verification.verifications.find((item) => item.harness === 'codex');
     assert.equal(codexVerification.hookWiring.status, 'installed-pending');
     assert.deepEqual(codexVerification.hookWiring.prerequisites, ['trusted-project', 'hook-review']);
   });
 
-  test('hookWiringStatus: Gemini reports installed-pending from its own live trust computation, not a static registry prerequisite', () => {
-    const fixture = hookFixture(['gemini']);
+  test('hookWiringStatus: Gemini reports installed-pending from its own live trust computation, not a static registry prerequisite', (t) => {
+    const fixture = hookFixture(t, ['gemini']);
     // Gemini's registry capability declares no `prerequisites` field at all — confirms the
     // installed-pending verdict below comes from src/adapters/gemini/hooks.js's live trust check, not a
     // static registry list (unlike Codex).
@@ -348,10 +348,10 @@ test('remove deletes MCP_INDEX.md regardless of what selection would otherwise a
     assert.ok(geminiVerification.hookWiring.prerequisites.length > 0);
   });
 
-  test('hookWiringStatus: a harness with no hooks resource installed reports absent', () => {
+  test('hookWiringStatus: a harness with no hooks resource installed reports absent', (t) => {
     // Claude's own plan target with nothing applied yet: the freshly-built plan's own `changes`
     // still carry the pending create, but there is no ledger/verification yet, so nothing is owned.
-    const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-hook-wiring-absent-'));
+    const project = tempDir(t, 'doflow-hook-wiring-absent-');
     const realRegistry = loadRegistry({ repoRoot: REPO });
     const adapters = createAdapterRegistry({ claude: realClaude });
     const context = { repoRoot: REPO, projectRoot: project, homeDir: project, sourceVersion: '2.4.4' };

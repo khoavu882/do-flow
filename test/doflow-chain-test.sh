@@ -24,6 +24,11 @@ cp "$BASH_SCRIPTS/do-paths.sh" "$BASH_SCRIPTS/do-prereqs.sh" "$BASH_SCRIPTS/sync
    "$BASH_SCRIPTS/do-exec-paths.sh" "$BASH_SCRIPTS/do-task-brief.sh" \
    "$BASH_SCRIPTS/do-review-package.sh" "$BASH_SCRIPTS/do-parallel-check.sh" \
    "$BASH_SCRIPTS/render-audit.sh" "$FAKE/scripts/doflow/bash/"
+# do-task-brief.sh reaches the runtime through "$script_dir/../bin/doflow-run"; link the shipped
+# dispatcher there (it resolves the checkout from its real path) so a brief's tier and tools block
+# is generated and a complete trace has an empty missing[].
+mkdir -p "$FAKE/scripts/doflow/bin"
+ln -s "$REPO_ROOT/core/shared/scripts/doflow/bin/doflow-run" "$FAKE/scripts/doflow/bin/doflow-run"
 export CLAUDE_CONFIG_DIR="$FAKE"
 PATHS="$FAKE/scripts/doflow/bash/do-paths.sh"
 PREREQ="$FAKE/scripts/doflow/bash/do-prereqs.sh"
@@ -375,6 +380,16 @@ eq "group brief has task A.2 block" "$(grep -c '^## Task A.2' agent-docs/doflow/
 "$BRIEF" --task=A.5 >/dev/null 2>&1
 "$BRIEF" --group=A:devops-architect --tasks=A.5 >/dev/null 2>&1
 eq "single-task byte-identity invariant (RK1)" "$(diff -u agent-docs/doflow/001-auth/exec/task-A.5-brief.md agent-docs/doflow/001-auth/exec/group-A-devops-architect-brief.md | wc -l | tr -d ' ')" "0"
+# Fail-open: with no dispatcher the brief is still written, the gap is reported, and the exit is unchanged.
+mv "$FAKE/scripts/doflow/bin/doflow-run" "$FAKE/scripts/doflow/bin/doflow-run.off"
+NODISP="$("$BRIEF" --task=A.1)"; NODISP_RC=$?
+mv "$FAKE/scripts/doflow/bin/doflow-run.off" "$FAKE/scripts/doflow/bin/doflow-run"
+eq "no dispatcher -> exit 0" "$NODISP_RC" "0"
+eq "no dispatcher -> missing[] names brief-tools" "$(printf '%s' "$NODISP" | jq -r '.missing[0]')" "brief-tools: the dispatcher was not found"
+eq "no dispatcher -> no record" "$(printf '%s' "$NODISP" | jq -r '.record')" "null"
+eq "no dispatcher -> Not generated line" \
+   "$(grep -c '^Not generated: the dispatcher was not found. Name the tier and tools in the dispatch.$' agent-docs/doflow/001-auth/exec/task-A.1-brief.md)" "1"
+"$BRIEF" --task=A.1 >/dev/null 2>&1
 
 echo "[do-review-package]"
 echo change > src_a.txt; git add -A; git commit -q -m "first change"

@@ -2,11 +2,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const {
   REGISTRY_FILES, loadRegistry, validateRegistry, selectAssets, selectMcpServers, mcpCapable, capabilityMapData,
 } = require('../../src/registry');
+const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, "../..");
 
@@ -110,8 +110,8 @@ test('generates capability-map records with evidence and explicit gaps', () => {
   }
 });
 
-test('fails closed for malformed JSON', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-registry-'));
+test('fails closed for malformed JSON', (t) => {
+  const root = tempDir(t, 'doflow-registry-');
   fs.mkdirSync(path.join(root, 'core', 'registry'), { recursive: true });
   for (const file of Object.values(REGISTRY_FILES)) fs.writeFileSync(path.join(root, 'core', 'registry', file), '{}');
   fs.writeFileSync(path.join(root, 'core', 'registry', 'harnesses.json'), '{not valid json');
@@ -139,4 +139,94 @@ test('fails closed when Codex native projection source metadata is missing or es
   const result = validateRegistry(invalid, { repoRoot: REPO });
   assert.equal(result.ok, false);
   assert.match(result.errors.join('\n'), /nativeProjection hooks: source does not exist inside repository/);
+});
+
+// ---- 062 A.1: MCP steps/triggers, provider MCP descriptors, tool-name templates, dispatch tiers ----
+
+const errorsOf = (mutate) => {
+  const invalid = structuredClone(loadRegistry({ repoRoot: REPO }));
+  mutate(invalid);
+  const result = validateRegistry(invalid, { repoRoot: REPO });
+  assert.equal(result.ok, false);
+  return result.errors.join('\n');
+};
+
+test('the shipped registry declares a trigger and steps on every MCP server, and loads', () => {
+  const { mcp } = loadRegistry({ repoRoot: REPO });
+  for (const server of mcp) {
+    assert.match(server.trigger, /^[^\n]{20,300}$/, `${server.id} trigger`);
+    assert.ok(Array.isArray(server.steps), `${server.id} steps`);
+  }
+  assert.deepEqual(mcp.find((s) => s.id === 'context7').steps.map((s) => [s.skill, s.file, s.expectedWhen]),
+    [['do-brainstorm', 'SKILL.md', undefined], ['do-design', 'SKILL.md', undefined], ['do-document', 'references/embedded-research.md', 'research-request']]);
+  assert.deepEqual(mcp.find((s) => s.id === 'sequential-thinking').steps.map((s) => [s.skill, s.file]),
+    [['do-brainstorm', 'SKILL.md'], ['do-design', 'SKILL.md']]);
+});
+
+test('MCP servers: a missing or malformed trigger or steps fails load naming the server', () => {
+  const trigger = 'x'.repeat(40);
+  assert.match(errorsOf((r) => { delete r.mcp[0].trigger; }), /MCP server 'context7': trigger/);
+  assert.match(errorsOf((r) => { r.mcp[0].trigger = 'x'.repeat(301); }), /MCP server 'context7': trigger/);
+  assert.match(errorsOf((r) => { r.mcp[0].trigger = 'short'; }), /MCP server 'context7': trigger/);
+  assert.match(errorsOf((r) => { r.mcp[1].trigger = `${trigger}\n${trigger}`; }), /MCP server 'sequential-thinking': trigger/);
+  assert.match(errorsOf((r) => { r.mcp[0].steps = 'do-design'; }), /MCP server 'context7': steps must be an array/);
+  assert.match(errorsOf((r) => { delete r.mcp[0].steps; }), /MCP server 'context7': steps must be an array/);
+  assert.match(errorsOf((r) => { r.mcp[0].steps[0].extra = true; }), /MCP server 'context7': .*unknown key 'extra'/);
+  assert.match(errorsOf((r) => { r.mcp[0].steps[0].skill = ''; }), /MCP server 'context7': .*skill/);
+  assert.match(errorsOf((r) => { r.mcp[0].steps[0].file = ''; }), /MCP server 'context7': .*file/);
+  assert.match(errorsOf((r) => { r.mcp[0].steps.push({ ...r.mcp[0].steps[0] }); }), /MCP server 'context7': .*duplicate/);
+  assert.match(errorsOf((r) => { r.mcp[0].steps[0].expectedWhen = 'always'; }), /MCP server 'context7': .*expectedWhen/);
+  // An empty steps array is legal.
+  const ok = structuredClone(loadRegistry({ repoRoot: REPO }));
+  ok.mcp[1].steps = [];
+  assert.equal(validateRegistry(ok, { repoRoot: REPO }).ok, true);
+});
+
+test('loadRegistry throws on a registry directory whose mcp.json lacks steps', (t) => {
+  const root = tempDir(t, 'doflow-registry-steps-');
+  fs.cpSync(path.join(REPO, 'core'), path.join(root, 'core'), { recursive: true });
+  const file = path.join(root, 'core', 'registry', 'mcp.json');
+  const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+  delete doc.servers[0].steps;
+  fs.writeFileSync(file, JSON.stringify(doc));
+  assert.throws(() => loadRegistry({ repoRoot: root }), /MCP server 'context7': steps must be an array/);
+});
+
+test('capability providers: the two MCP-backed providers carry an mcp descriptor; a bad one fails', () => {
+  const { capabilities } = loadRegistry({ repoRoot: REPO });
+  const withMcp = Object.values(capabilities).flatMap((c) => c.providers).filter((p) => p.mcp);
+  assert.deepEqual(withMcp.map((p) => [p.id, p.mcp]), [
+    ['semble.search', { server: 'semble', tool: 'search' }],
+    ['graphify.query', { server: 'graphify', tool: 'query_graph' }],
+    ['graphify.query', { server: 'graphify', tool: 'query_graph' }],
+  ]);
+  const first = (r) => Object.values(r.capabilities).flatMap((c) => c.providers).find((p) => p.mcp);
+  assert.match(errorsOf((r) => { first(r).mcp.server = ''; }), /provider 'semble.search'.*mcp\.server/);
+  assert.match(errorsOf((r) => { first(r).mcp.tool = 'bad tool!'; }), /provider 'semble.search'.*mcp\.tool/);
+  assert.match(errorsOf((r) => { delete first(r).mcp.tool; }), /provider 'semble.search'.*mcp\.tool/);
+  assert.match(errorsOf((r) => { first(r).mcp = 'semble'; }), /provider 'semble.search'.*mcp must be an object/);
+});
+
+test('harness capabilities.mcp.toolName: claude declares a template; one lacking a placeholder fails', () => {
+  const { harnesses } = loadRegistry({ repoRoot: REPO });
+  assert.equal(harnesses.find((h) => h.id === 'claude').capabilities.mcp.toolName, 'mcp__{server}__{tool}');
+  assert.equal(harnesses.filter((h) => h.capabilities.mcp?.toolName !== undefined).length, 1);
+  const claude = (r) => r.harnesses.find((h) => h.id === 'claude').capabilities.mcp;
+  assert.match(errorsOf((r) => { claude(r).toolName = 'mcp__{server}'; }), /harness 'claude'.*toolName/);
+  assert.match(errorsOf((r) => { claude(r).toolName = 'mcp__{tool}'; }), /harness 'claude'.*toolName/);
+  assert.match(errorsOf((r) => { claude(r).toolName = '{server}__{tool}__{other}'; }), /harness 'claude'.*toolName/);
+  assert.match(errorsOf((r) => { claude(r).toolName = 7; }), /harness 'claude'.*toolName/);
+});
+
+test('models.json dispatchTiers: shipped values load; a default or owner tier outside tiers fails', () => {
+  const { dispatchTiers } = loadRegistry({ repoRoot: REPO });
+  assert.deepEqual(dispatchTiers, {
+    tiers: ['light', 'standard', 'frontier'],
+    default: 'standard',
+    byOwner: { 'system-architect': 'frontier', 'core-implementer': 'standard', 'quality-guardian': 'standard', 'spec-analyst': 'standard', 'research-writer': 'standard' },
+  });
+  assert.match(errorsOf((r) => { r.dispatchTiers.default = 'heavy'; }), /dispatchTiers.*default/);
+  assert.match(errorsOf((r) => { r.dispatchTiers.byOwner['core-implementer'] = 'heavy'; }), /dispatchTiers.*core-implementer/);
+  assert.match(errorsOf((r) => { r.dispatchTiers.tiers = []; }), /dispatchTiers.*tiers/);
+  assert.match(errorsOf((r) => { r.dispatchTiers.byOwner = []; }), /dispatchTiers.*byOwner/);
 });

@@ -2,22 +2,22 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { loadRegistry } = require('../../src/registry');
 const { lockDocument, lockDelta, recordLock } = require('../../src/lifecycle/view');
 const { readLock, lockPath, defaultLock } = require('../../src/state/lockfile');
+const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, '..', '..');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lockview-')); }
+function scratch(t) { return tempDir(t, 'doflow-lockview-'); }
 const projectArgs = (project) => ({ scope: 'project', projectRoot: project });
 /** A ledger as a run leaves it, holding one resource for each named harness. */
 const holding = (...harnesses) => ({ resources: harnesses.map((harness) => ({ harness, kind: 'skill' })) });
 
-test('L1: lockDocument pins per-harness asset selections with native dirs, a row per planned MCP-capable target, [] included', () => {
+test('L1: lockDocument pins per-harness asset selections with native dirs, a row per planned MCP-capable target, [] included', (t) => {
   const registry = loadRegistry({ repoRoot: REPO });
-  const project = scratch();
+  const project = scratch(t);
   const doc = lockDocument({
     registry, scope: 'project', scopeRoot: project, ledger: holding('claude', 'codex', 'gemini'), plannedTargets: ['codex', 'claude', 'gemini'],
     mcpSelections: { claude: ['context7'], codex: [] },
@@ -42,9 +42,9 @@ test('L1: lockDocument pins per-harness asset selections with native dirs, a row
   assert.deepEqual(doc.mcpSelections, { claude: ['context7'], codex: [] });
 });
 
-test('L5: a run planning codex keeps the prior claude pin and its row, and drops a row for a harness the lock never pinned', () => {
+test('L5: a run planning codex keeps the prior claude pin and its row, and drops a row for a harness the lock never pinned', (t) => {
   const registry = loadRegistry({ repoRoot: REPO });
-  const project = scratch();
+  const project = scratch(t);
   const previous = { ...defaultLock({ scope: 'project', scopeRoot: project }), targets: [{ harness: 'claude' }],
     mcpSelections: { claude: ['context7'], kiro: ['context7'] } };
   const doc = lockDocument({ registry, scope: 'project', scopeRoot: project, previous, ledger: holding('claude', 'codex', 'kiro'),
@@ -54,9 +54,9 @@ test('L5: a run planning codex keeps the prior claude pin and its row, and drops
   assert.ok(doc.assets.some((asset) => asset.nativeDir === '../.agents/skills'), 'codex assets are recomputed too');
 });
 
-test('L6: a prior target the ledger no longer holds is dropped with its row', () => {
+test('L6: a prior target the ledger no longer holds is dropped with its row', (t) => {
   const registry = loadRegistry({ repoRoot: REPO });
-  const project = scratch();
+  const project = scratch(t);
   const previous = { ...defaultLock({ scope: 'project', scopeRoot: project }), targets: [{ harness: 'claude' }, { harness: 'kiro' }],
     mcpSelections: { claude: ['context7'], kiro: [] } };
   const doc = lockDocument({ registry, scope: 'project', scopeRoot: project, previous, ledger: holding('claude'), plannedTargets: ['claude'] });
@@ -64,9 +64,9 @@ test('L6: a prior target the ledger no longer holds is dropped with its row', ()
   assert.deepEqual(doc.mcpSelections, { claude: ['context7'] });
 });
 
-test('L7: a remove-style call keeps every harness the ledger still holds, with its row', () => {
+test('L7: a remove-style call keeps every harness the ledger still holds, with its row', (t) => {
   const registry = loadRegistry({ repoRoot: REPO });
-  const project = scratch();
+  const project = scratch(t);
   const previous = { ...defaultLock({ scope: 'project', scopeRoot: project }), targets: [{ harness: 'codex' }, { harness: 'kiro' }],
     mcpSelections: { codex: ['sequential-thinking'], kiro: ['context7'] } };
   const doc = lockDocument({ registry, scope: 'project', scopeRoot: project, previous, ledger: holding('codex') });
@@ -74,9 +74,9 @@ test('L7: a remove-style call keeps every harness the ledger still holds, with i
   assert.deepEqual(doc.mcpSelections, { codex: ['sequential-thinking'] });
 });
 
-test('L8: with no pinned harness left lockDocument is null, and recordLock removes the file', () => {
+test('L8: with no pinned harness left lockDocument is null, and recordLock removes the file', (t) => {
   const registry = loadRegistry({ repoRoot: REPO });
-  const project = scratch();
+  const project = scratch(t);
   const args = projectArgs(project);
   const previous = lockDocument({ registry, scope: 'project', scopeRoot: project, ledger: holding('codex'), plannedTargets: ['codex'] });
   recordLock(args, previous);
@@ -86,9 +86,9 @@ test('L8: with no pinned harness left lockDocument is null, and recordLock remov
   assert.equal(fs.existsSync(lockPath(args)), false);
 });
 
-test('recordLock reports created -> unchanged -> changed, and removeLock clears', () => {
+test('recordLock reports created -> unchanged -> changed, and removeLock clears', (t) => {
   const registry = loadRegistry({ repoRoot: REPO });
-  const project = scratch();
+  const project = scratch(t);
   const args = projectArgs(project);
 
   const pin = (harnesses) => lockDocument({ registry, scope: 'project', scopeRoot: project, previous: readLock(args), ledger: holding(...harnesses), plannedTargets: harnesses });
@@ -113,8 +113,8 @@ test('recordLock reports created -> unchanged -> changed, and removeLock clears'
   assert.equal(fs.existsSync(lockPath(args)), false);
 });
 
-test('recordLock tolerates a pre-existing legacy-free empty directory (defaultLock shape)', () => {
-  const project = scratch();
+test('recordLock tolerates a pre-existing legacy-free empty directory (defaultLock shape)', (t) => {
+  const project = scratch(t);
   fs.mkdirSync(path.join(project, '.doflow'), { recursive: true });
   const registry = loadRegistry({ repoRoot: REPO });
   const result = recordLock(projectArgs(project),
@@ -122,9 +122,9 @@ test('recordLock tolerates a pre-existing legacy-free empty directory (defaultLo
   assert.deepEqual(result, { changed: true, summary: 'created' });
 });
 
-test('recordLock leaves an unchanged lock byte for byte on a re-run', () => {
+test('recordLock leaves an unchanged lock byte for byte on a re-run', (t) => {
   const registry = loadRegistry({ repoRoot: REPO });
-  const project = scratch();
+  const project = scratch(t);
   const args = projectArgs(project);
   const pin = (now) => lockDocument({
     registry, scope: 'project', scopeRoot: project, previous: readLock(args), ledger: holding('claude', 'codex'), plannedTargets: ['claude', 'codex'],
@@ -137,8 +137,8 @@ test('recordLock leaves an unchanged lock byte for byte on a re-run', () => {
   assert.deepEqual(fs.readFileSync(lockPath(args)), bytes);
 });
 
-test('lockDelta names created, unchanged, cleared and counted changes', () => {
-  const project = scratch();
+test('lockDelta names created, unchanged, cleared and counted changes', (t) => {
+  const project = scratch(t);
   const base = { ...defaultLock({ scope: 'project', scopeRoot: project }), sourceVersion: '1', targets: [{ harness: 'claude' }] };
   assert.deepEqual(lockDelta(null, base), { changed: true, summary: 'created' });
   assert.deepEqual(lockDelta(base, { ...base, generatedAt: 'later' }), { changed: false, summary: 'unchanged' });
@@ -147,9 +147,9 @@ test('lockDelta names created, unchanged, cleared and counted changes', () => {
   assert.deepEqual(lockDelta(base, { ...base, mcpSelections: { claude: [] } }), { changed: true, summary: '1 change(s)' });
 });
 
-test('recordLock with no lock to pin removes the file, and is silent when there was none', () => {
+test('recordLock with no lock to pin removes the file, and is silent when there was none', (t) => {
   const registry = loadRegistry({ repoRoot: REPO });
-  const project = scratch();
+  const project = scratch(t);
   const args = projectArgs(project);
   recordLock(args, lockDocument({ registry, scope: 'project', scopeRoot: project, ledger: holding('codex'), plannedTargets: ['codex'] }));
   assert.deepEqual(recordLock(args, null), { changed: true, summary: 'cleared' });

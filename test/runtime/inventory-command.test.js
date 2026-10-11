@@ -38,6 +38,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { suiteTempDir } = require('../helper/tmp');
 const { stateRoot, defaultLedger, writeLedger } = require('../../src/state');
 const { handleInventoryCommand } = require('../../src/runtime/inventory');
 
@@ -49,12 +50,6 @@ const GLOBAL_REFUSAL = '-g/--global is not accepted: this verb reads both scopes
   + 'which is its entire purpose. Re-run without the flag.';
 
 // ------------------------------------------------------------------------------- the two harnesses
-
-/** Real paths from the start: the subprocess half compares a reported root against the child's own
- * `process.cwd()`, which is already resolved, and on macOS `mkdtemp` hands back a symlinked one. */
-function scratch(prefix) {
-  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
-}
 
 /** The global scope root is derived from the process home directory and is not a parameter
  * (design R7), so a hermetic in-process call relocates it around the synchronous handler. */
@@ -105,7 +100,7 @@ function run(args, { home, cwd }) {
 
 /** Two scratch scopes with nothing recorded at either. Not an error and not a finding (IC-001). */
 function emptyScopes(label) {
-  return { home: scratch(`doflow-inventory-cmd-${label}-home-`), projectRoot: scratch(`doflow-inventory-cmd-${label}-project-`) };
+  return { home: suiteTempDir(`doflow-inventory-cmd-${label}-home-`), projectRoot: suiteTempDir(`doflow-inventory-cmd-${label}-project-`) };
 }
 
 /**
@@ -116,8 +111,8 @@ function emptyScopes(label) {
  * status, not the count, is what this file is about.
  */
 function divergedScopes(label) {
-  const home = scratch(`doflow-inventory-cmd-${label}-home-`);
-  const projectRoot = scratch(`doflow-inventory-cmd-${label}-project-`);
+  const home = suiteTempDir(`doflow-inventory-cmd-${label}-home-`);
+  const projectRoot = suiteTempDir(`doflow-inventory-cmd-${label}-project-`);
   const ledger = defaultLedger({ scope: 'project', scopeRoot: projectRoot });
   ledger.targets.claude = { installed: true, lastUpdated: '2026-01-01T00:00:00.000Z' };
   ledger.resources.push({
@@ -294,9 +289,9 @@ test('IC-001: --json emits the report object, in IC-002\'s order, and nothing el
  * the first assertion alone.
  */
 test('IC-001: the positional project root defaults to the working directory, and an explicit one overrides it', () => {
-  const home = scratch('doflow-inventory-cmd-cwd-home-');
-  const cwd = scratch('doflow-inventory-cmd-cwd-default-');
-  const elsewhere = scratch('doflow-inventory-cmd-cwd-explicit-');
+  const home = suiteTempDir('doflow-inventory-cmd-cwd-home-');
+  const cwd = suiteTempDir('doflow-inventory-cmd-cwd-default-');
+  const elsewhere = suiteTempDir('doflow-inventory-cmd-cwd-explicit-');
 
   const projectRootOf = (result) => {
     assert.equal(result.status, 0, `the run must answer:\n${result.stdout}${result.stderr}`);

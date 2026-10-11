@@ -10,8 +10,9 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+
+const { suiteTempDir } = require('../helper/tmp');
 
 const PROJECTOR = path.join(__dirname, '..', '..', 'src', 'runtime', 'c4-project.js');
 
@@ -21,9 +22,13 @@ const PROJECTOR = path.join(__dirname, '..', '..', 'src', 'runtime', 'c4-project
 // through a keyhole.
 const { project: projectInProcess, parse, ELEMENTS, BOUNDARIES, RELATIONS, Refused } = require('../../src/runtime/c4-project');
 
+const WORK_DIR = suiteTempDir('doflow-c4-project-');
+let projectCalls = 0;
+
 /** Run the projector over a source body. Returns {code, stdout, stderr}. */
 function project(body) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'c4proj-'));
+  const dir = path.join(WORK_DIR, String(projectCalls++));
+  fs.mkdirSync(dir);
   const file = path.join(dir, 't.puml');
   fs.writeFileSync(file, `@startuml\n!include <C4/C4_Component>\n${body}\n@enduml\n`);
   try {
@@ -31,8 +36,6 @@ function project(body) {
     return { code: 0, stdout, stderr: '' };
   } catch (err) {
     return { code: err.status, stdout: err.stdout || '', stderr: err.stderr || '' };
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 

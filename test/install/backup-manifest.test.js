@@ -2,8 +2,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const {
   backupId, createFileBackup, restoreBackup, listBackups, applyRetention, assertSafeBackupId,
   backupReadRoots, BACKUP_ORIGIN_CURRENT, BACKUP_ORIGIN_LEGACY,
@@ -31,7 +31,7 @@ const FIXED_DATE = new Date('2026-03-15T10:20:30');
 const REPO = path.resolve(__dirname, "../..");
 
 function scratchDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-test-'));
+  return suiteTempDir('doflow-backup-manifest-');
 }
 
 /** A format-2 backup of `files` (absolute paths under `scopeRoot`), as install writes one. */

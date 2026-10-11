@@ -13,6 +13,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync, execFileSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
+const { suiteTempDir } = require('../helper/tmp');
 const { captureIsOff } = require('../../src/runtime/failure/home');
 
 const DISPATCHER = path.resolve(__dirname, '..', '..', 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
@@ -159,7 +160,7 @@ describe('symlink loop point', () => {
 
 describe('what is never recorded (DEC-031)', () => {
   const toolDir = (withNode) => {
-    const dir = fs.mkdtempSync(path.join(scratch.dir, 'tools-'));
+    const dir = suiteTempDir('doflow-dispatcher-capture-tools-');
     for (const tool of ['dirname', 'readlink', 'date', 'mkdir', 'cat', 'rm', 'mktemp', 'sed', 'head', 'tr', 'grep', 'perl', 'ls', 'uname', ...(withNode ? ['node'] : [])]) {
       let found = '';
       try { found = execFileSync('/bin/sh', ['-c', `command -v ${tool}`], { encoding: 'utf8' }).trim(); } catch { /* absent */ }

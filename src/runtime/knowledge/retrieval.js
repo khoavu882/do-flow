@@ -172,4 +172,21 @@ function handleRetrieveCommand({ query, top, json = false, stateRoot } = {}) {
   }
 }
 
-module.exports = { bm25Rank, tokenize, searchGuidance, buildImportGraph, expandViaGraph, handleRetrieveCommand, STOPWORDS };
+const {
+  reciprocalRankFusion,
+  normalizeLocator,
+  fuseHybridResults,
+} = require('./hybrid');
+
+module.exports = {
+  bm25Rank,
+  tokenize,
+  searchGuidance,
+  buildImportGraph,
+  expandViaGraph,
+  handleRetrieveCommand,
+  STOPWORDS,
+  reciprocalRankFusion,
+  normalizeLocator,
+  fuseHybridResults,
+};

@@ -1,15 +1,14 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
-const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { STATE_VERSION, LEDGER_VERSION, defaultLedger, upgradeLedger, readLedger, writeLedger } = require('../../src/state');
+const { tempDir } = require('../helper/tmp');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ledgerv2-')); }
+function scratch(t) { return tempDir(t, 'doflow-ledgerv2-'); }
 
-test('new ledgers are written as v2 and carry an empty tombstone log', () => {
-  const project = scratch();
+test('new ledgers are written as v2 and carry an empty tombstone log', (t) => {
+  const project = scratch(t);
   const ledger = defaultLedger({ scope: 'project', scopeRoot: project });
   assert.equal(ledger.version, LEDGER_VERSION);
   assert.deepEqual(ledger.tombstones, []);
@@ -18,8 +17,8 @@ test('new ledgers are written as v2 and carry an empty tombstone log', () => {
   assert.deepEqual(readLedger(root), ledger);
 });
 
-test('v1 ledgers remain readable and round-trip untouched', () => {
-  const project = scratch();
+test('v1 ledgers remain readable and round-trip untouched', (t) => {
+  const project = scratch(t);
   const legacy = defaultLedger({ scope: 'project', scopeRoot: project });
   delete legacy.tombstones;
   legacy.version = STATE_VERSION;
@@ -28,8 +27,8 @@ test('v1 ledgers remain readable and round-trip untouched', () => {
   assert.deepEqual(readLedger(root), legacy);
 });
 
-test('upgradeLedger converts v1 in memory, is idempotent, and never mutates its input', () => {
-  const project = scratch();
+test('upgradeLedger converts v1 in memory, is idempotent, and never mutates its input', (t) => {
+  const project = scratch(t);
   const v1 = defaultLedger({ scope: 'project', scopeRoot: project });
   delete v1.tombstones;
   v1.version = STATE_VERSION;
@@ -41,19 +40,19 @@ test('upgradeLedger converts v1 in memory, is idempotent, and never mutates its 
   assert.ok(!('tombstones' in v1));
 });
 
-test('unknown versions are rejected and tombstones must stay an array', () => {
-  const project = scratch();
-  assert.throws(() => validateVersion(99), /Unsupported neutral ledger version/);
+test('unknown versions are rejected and tombstones must stay an array', (t) => {
+  const project = scratch(t);
+  assert.throws(() => validateVersion(t, 99), /Unsupported neutral ledger version/);
   const root = path.join(project, '.doflow', 'state');
   const broken = defaultLedger({ scope: 'project', scopeRoot: project });
   broken.tombstones = 'not-an-array';
   assert.throws(() => writeLedger(root, broken), /tombstones must be an array/);
 });
 
-function validateVersion(version) {
+function validateVersion(t, version) {
   // Exercise the version guard directly through a minimal well-formed body.
   return require('../../src/state').validateLedger({
-    version, scope: 'project', scopeRoot: scratch(), targets: {}, mcpSelections: {},
+    version, scope: 'project', scopeRoot: scratch(t), targets: {}, mcpSelections: {},
     resources: [], legacyImports: [],
   });
 }

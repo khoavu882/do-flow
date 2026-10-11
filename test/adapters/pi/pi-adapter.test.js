@@ -2,13 +2,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const { createPiAdapter, nativePaths } = require('../../../src/adapters/pi');
 const { assertAdapter } = require('../../../src/adapters');
 const { MARKER_START } = require('../../../src/helper/marker-merge');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-pi-')); }
+function scratch() { return suiteTempDir('doflow-pi-'); }
 
 function guidanceAsset(sourceFile) {
   return { id: 'guidance.codex-pointer', capability: 'instructions', source: sourceFile };
@@ -227,4 +227,13 @@ test('a ../.doflow nativeDir that escapes .doflow fails the plan before any writ
   assert.throws(() => createPiAdapter().plan({ scope: 'project', scopeRoot: root, assets: [sharedTreeAsset(repoRoot, '../.doflow/../x')],
     context: { repoRoot, homeDir: root }, ledger: { resources: [] } }), /shared-tree nativeDir escapes \.doflow/);
   assert.equal(fs.existsSync(path.join(root, '.doflow')), false);
+});
+
+test('Pi discovery reports the mcpServers in mcp.json even when nothing is selected, sorted, and null when absent', () => {
+  const root = scratch(); const adapter = createPiAdapter();
+  const first = adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } });
+  assert.equal(first.mcpConfigured, null);
+  fs.mkdirSync(path.dirname(first.paths.mcp), { recursive: true });
+  fs.writeFileSync(first.paths.mcp, JSON.stringify({ mcpServers: { zeta: {}, alpha: {} } }));
+  assert.deepEqual(adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } }).mcpConfigured, ['alpha', 'zeta']);
 });

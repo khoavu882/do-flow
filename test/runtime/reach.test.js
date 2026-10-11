@@ -1,22 +1,18 @@
 'use strict';
 
-const { test, after } = require('node:test');
+const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const { REPO_ROOT } = require('../../src/helper/repo-root');
 const { loadRegistry } = require('../../src/registry');
 const { evaluateReach, REACH_DISPATCHER_REL, REACH_RUNTIME_REL } = require('../../src/runtime/reach');
 
 const registry = loadRegistry({ repoRoot: REPO_ROOT });
-const made = [];
-after(() => { for (const dir of made) fs.rmSync(dir, { recursive: true, force: true }); });
-
 /** A real temporary tree: `home/` and `proj/sub/`, no DoFlow install anywhere. */
 function fixture() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-reach-')));
-  made.push(dir);
+  const dir = suiteTempDir('doflow-reach-');
   const home = path.join(dir, 'home');
   const proj = path.join(dir, 'proj');
   fs.mkdirSync(home);

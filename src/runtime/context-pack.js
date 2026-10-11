@@ -9,6 +9,18 @@ const { readRegister } = require('./decision-register');
 
 const NO_DECISIONS = Object.freeze({ available: false, live: [], liveCount: 0 });
 
+const TASK_CLASS_BUDGETS = Object.freeze({
+  feature: 225000,
+  'dependency-change': 85000,
+  bug: 71000,
+  refactor: 71000,
+  documentation: 57000,
+  operations: 45000,
+  review: 42000,
+  research: 35302,
+  'trivial-edit': 30000,
+});
+
 /**
  * The live decisions of the feature the caller is working on (IC-012). The feature is resolved
  * from the branch, or from `slug` when the task id is not the feature slug. A feature with no
@@ -238,6 +250,180 @@ class ContextPackCompiler {
 
     return md;
   }
+
+  /**
+   * Compiles bounded context pack payload with mandatory/optional partitioning (IC-001).
+   * @param {Object} options
+   * @param {string} options.taskId
+   * @param {string} [options.taskClass='feature']
+   * @param {number} [options.maxBytes]
+   * @param {string} [options.objective='']
+   * @param {Object} [options.mandatory]
+   * @param {Array<string>} [options.mandatory.acceptanceCriteria]
+   * @param {Array<string>} [options.mandatory.constraints]
+   * @param {string} [options.mandatory.verificationPlan]
+   * @param {Object} [options.optional]
+   * @param {Array<string>} [options.optional.hypotheses]
+   * @param {Array<string>} [options.optional.narrative]
+   * @param {Array<string>} [options.optional.unverifiedClaims]
+   * @returns {Object} ContextPackResult
+   */
+  compileBoundedContextPack(options = {}) {
+    const {
+      taskId = 'default',
+      taskClass = 'feature',
+      maxBytes,
+      objective = '',
+      mandatory = {},
+      optional = {},
+    } = options;
+
+    const budgetBytes = Number.isInteger(maxBytes) && maxBytes > 0
+      ? maxBytes
+      : (TASK_CLASS_BUDGETS[taskClass] || 225000);
+
+    const acceptanceCriteria = Array.isArray(mandatory.acceptanceCriteria) ? [...mandatory.acceptanceCriteria] : [];
+    const constraints = Array.isArray(mandatory.constraints) ? [...mandatory.constraints] : [];
+    const verificationPlan = typeof mandatory.verificationPlan === 'string' ? mandatory.verificationPlan : '';
+
+    // Build mandatory section payload
+    let mandatoryMd = `## ContextPack: [${taskClass.toUpperCase()}] ${taskId}\n`;
+    if (objective) {
+      mandatoryMd += `**Objective:** ${objective}\n\n`;
+    }
+    if (acceptanceCriteria.length > 0) {
+      mandatoryMd += `### Acceptance Criteria\n`;
+      for (const ac of acceptanceCriteria) {
+        mandatoryMd += `- [ ] ${ac}\n`;
+      }
+      mandatoryMd += '\n';
+    }
+    if (constraints.length > 0) {
+      mandatoryMd += `### Constraints\n`;
+      for (const c of constraints) {
+        mandatoryMd += `- ! ${c}\n`;
+      }
+      mandatoryMd += '\n';
+    }
+    if (verificationPlan) {
+      mandatoryMd += `### Verification Plan\n${verificationPlan}\n\n`;
+    }
+
+    const mandatoryBytes = Buffer.byteLength(mandatoryMd, 'utf8');
+
+    // Rule 1: Mandatory content is never truncated; if mandatoryBytes > budgetBytes, returns overflow: true.
+    if (mandatoryBytes > budgetBytes) {
+      const omissions = [];
+      const narrativeList = Array.isArray(optional.narrative) ? optional.narrative : [];
+      const claimsList = Array.isArray(optional.unverifiedClaims) ? optional.unverifiedClaims : [];
+      const hypList = Array.isArray(optional.hypotheses) ? optional.hypotheses : [];
+
+      for (let i = 0; i < narrativeList.length; i++) omissions.push({ id: `narrative-${i + 1}`, reason: 'budget-cap-exceeded' });
+      for (let i = 0; i < claimsList.length; i++) omissions.push({ id: `claim-${i + 1}`, reason: 'budget-cap-exceeded' });
+      for (let i = 0; i < hypList.length; i++) omissions.push({ id: `hypothesis-${i + 1}`, reason: 'budget-cap-exceeded' });
+
+      return {
+        taskId,
+        taskClass,
+        totalBytes: mandatoryBytes,
+        budgetBytes,
+        overflow: true,
+        mandatoryBytes,
+        optionalBytes: 0,
+        omissions,
+        payload: mandatoryMd,
+        error: `Mandatory context (${mandatoryBytes} B) exceeds budget (${budgetBytes} B)`,
+      };
+    }
+
+    // Rule 2: Optional content is trimmed in reverse priority order when mandatoryBytes + optionalBytes > budgetBytes.
+    // Priority order: 1. hypotheses, 2. unverifiedClaims, 3. narrative.
+    // Trimming in reverse priority: narrative first, then claims, then hypotheses.
+    const hypotheses = Array.isArray(optional.hypotheses) ? [...optional.hypotheses] : [];
+    const unverifiedClaims = Array.isArray(optional.unverifiedClaims) ? [...optional.unverifiedClaims] : [];
+    const narrative = Array.isArray(optional.narrative) ? [...optional.narrative] : [];
+
+    const keptHypotheses = [];
+    const keptClaims = [];
+    const keptNarrative = [];
+    const omissions = [];
+
+    const buildPayload = (hList, cList, nList) => {
+      let md = mandatoryMd;
+      if (hList.length > 0) {
+        md += `### Active Hypotheses (Unverified)\n`;
+        for (const h of hList) md += `- ? ${h}\n`;
+        md += '\n';
+      }
+      if (cList.length > 0) {
+        md += `### Unverified Claims\n`;
+        for (const c of cList) md += `- ? ${c}\n`;
+        md += '\n';
+      }
+      if (nList.length > 0) {
+        md += `### Background Narrative\n`;
+        for (const n of nList) md += `- ${n}\n`;
+        md += '\n';
+      }
+      return md;
+    };
+
+    // Forward trial fitting: hypotheses first
+    for (let i = 0; i < hypotheses.length; i++) {
+      const trial = [...keptHypotheses, hypotheses[i]];
+      const trialMd = buildPayload(trial, [], []);
+      if (Buffer.byteLength(trialMd, 'utf8') <= budgetBytes) {
+        keptHypotheses.push(hypotheses[i]);
+      } else {
+        omissions.push({ id: `hypothesis-${i + 1}`, reason: 'budget-cap-exceeded' });
+      }
+    }
+
+    // unverifiedClaims next
+    for (let i = 0; i < unverifiedClaims.length; i++) {
+      const trial = [...keptClaims, unverifiedClaims[i]];
+      const trialMd = buildPayload(keptHypotheses, trial, []);
+      if (Buffer.byteLength(trialMd, 'utf8') <= budgetBytes) {
+        keptClaims.push(unverifiedClaims[i]);
+      } else {
+        omissions.push({ id: `claim-${i + 1}`, reason: 'budget-cap-exceeded' });
+      }
+    }
+
+    // narrative next
+    for (let i = 0; i < narrative.length; i++) {
+      const trial = [...keptNarrative, narrative[i]];
+      const trialMd = buildPayload(keptHypotheses, keptClaims, trial);
+      if (Buffer.byteLength(trialMd, 'utf8') <= budgetBytes) {
+        keptNarrative.push(narrative[i]);
+      } else {
+        omissions.push({ id: `narrative-${i + 1}`, reason: 'budget-cap-exceeded' });
+      }
+    }
+
+    const payload = buildPayload(keptHypotheses, keptClaims, keptNarrative);
+    const totalBytes = Buffer.byteLength(payload, 'utf8');
+    const optionalBytes = totalBytes - mandatoryBytes;
+
+    return {
+      taskId,
+      taskClass,
+      totalBytes,
+      budgetBytes,
+      overflow: false,
+      mandatoryBytes,
+      optionalBytes,
+      omissions,
+      payload,
+    };
+  }
+
+  /**
+   * Alias for compileBoundedContextPack.
+   */
+  compileBoundedPayload(options = {}) {
+    return this.compileBoundedContextPack(options);
+  }
 }
 
 /**
@@ -297,6 +483,7 @@ function handleContextPackCommand({ taskId, taskClass, objective, json = false, 
 
 module.exports = {
   ContextPackCompiler,
+  TASK_CLASS_BUDGETS,
   handleContextPackCommand,
   loadLiveDecisions,
 };

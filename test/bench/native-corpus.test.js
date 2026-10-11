@@ -16,27 +16,27 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const { corpus, prepare, grade } = require('../../bench/native/runner');
+const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, '../..');
 const SKILLS_DIR = path.join(REPO, 'core', 'shared', 'skills');
 
-function tmpDir(suffix) {
+function tmpDir(t, suffix) {
   // prepare() requires a directory that does not exist yet, so name one inside a real temp root.
-  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-native-')), suffix);
+  return path.join(tempDir(t, 'doflow-native-'), suffix);
 }
 
-test('every case starts from a fixture that fails its own checks', () => {
+test('every case starts from a fixture that fails its own checks', (t) => {
   // The load-bearing property of the whole corpus. A case whose starting files already satisfy
   // `checks` measures nothing: the host could do absolutely nothing and still be graded taskSuccess.
   // That failure mode is invisible in a live run, because a PASS looks exactly like a real PASS.
   const vacuous = [];
   for (const item of corpus.cases) {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-native-fixture-'));
+    const dir = tempDir(t, 'doflow-native-fixture-');
     for (const [file, body] of Object.entries(item.files || {})) {
       fs.writeFileSync(path.join(dir, file), body);
     }
@@ -72,8 +72,8 @@ test('the corpus declares unique ids, real skills, and at least one message per 
   assert.deepEqual(problems, [], `native corpus problems:\n  ${problems.join('\n  ')}`);
 });
 
-test('prepare records the plan without installing anything, and refuses to overwrite a run', () => {
-  const dir = tmpDir('run');
+test('prepare records the plan without installing anything, and refuses to overwrite a run', (t) => {
+  const dir = tmpDir(t, 'run');
   const plan = prepare({
     id: 'routing',
     harness: corpus.harnesses[0],
@@ -103,23 +103,23 @@ test('prepare records the plan without installing anything, and refuses to overw
   }), 'a second prepare into the same directory must fail rather than overwrite measured work');
 });
 
-test('prepare rejects an unknown harness and a missing model or host version', () => {
+test('prepare rejects an unknown harness and a missing model or host version', (t) => {
   assert.throws(() => prepare({
-    id: 'routing', harness: 'not-a-harness', directory: tmpDir('a'), model: 'm', hostVersion: 'h',
+    id: 'routing', harness: 'not-a-harness', directory: tmpDir(t, 'a'), model: 'm', hostVersion: 'h',
   }), /harness/);
   assert.throws(() => prepare({
-    id: 'routing', harness: corpus.harnesses[0], directory: tmpDir('b'), model: '', hostVersion: 'h',
+    id: 'routing', harness: corpus.harnesses[0], directory: tmpDir(t, 'b'), model: '', hostVersion: 'h',
   }), /model and hostVersion/);
   assert.throws(() => prepare({
-    id: 'not-a-case', harness: corpus.harnesses[0], directory: tmpDir('c'), model: 'm', hostVersion: 'h',
+    id: 'not-a-case', harness: corpus.harnesses[0], directory: tmpDir(t, 'c'), model: 'm', hostVersion: 'h',
   }), /Unknown native case/);
 });
 
-test('grading a run with no controller record is INCONCLUSIVE, never PASS', () => {
+test('grading a run with no controller record is INCONCLUSIVE, never PASS', (t) => {
   // The fixture is still broken and no session was recorded, so there is nothing to conclude. The
   // distinction matters: a missing controller record must not be reported as a failing host, and it
   // must certainly not be reported as a passing one.
-  const dir = tmpDir('ungraded');
+  const dir = tmpDir(t, 'ungraded');
   prepare({
     id: 'routing', harness: corpus.harnesses[0], directory: dir, model: 'm', hostVersion: 'h',
   });
@@ -131,8 +131,8 @@ test('grading a run with no controller record is INCONCLUSIVE, never PASS', () =
   assert.equal(result.metrics.routing, null, 'routing is unknown, not false, with no observed reads');
 });
 
-test('grade refuses a run whose case changed after preparation', () => {
-  const dir = tmpDir('stale');
+test('grade refuses a run whose case changed after preparation', (t) => {
+  const dir = tmpDir(t, 'stale');
   prepare({
     id: 'routing', harness: corpus.harnesses[0], directory: dir, model: 'm', hostVersion: 'h',
   });

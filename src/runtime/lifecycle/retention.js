@@ -1,17 +1,23 @@
 'use strict';
 
 /**
- * Which event files the retention switch may delete. `DOFLOW_RETENTION_HOURS` is the window; unset
- * keeps everything. Events are grouped into deletion units, the follow-ups and goals they name
+ * Which event files the retention switch may delete. `DOFLOW_RETENTION_HOURS` overrides the window;
+ * when it is unset, the declared default applies only while the project's `prune` setting is on.
+ * Events are grouped into deletion units, the follow-ups and goals they name
  * joined by any event that names more than one, and a unit goes only as a whole: when every item in
  * it is settled in the fold (a follow-up done or dismissed, a goal done) and its newest event is
  * older than the window. A unit whose removal would change anything else the fold shows (another
  * item, a feature, a release, a conflict) is kept.
  *
- * Pure: no file, clock or git access.
+ * `parseWindow` remains pure. `retentionWindow` composes its unset case with the declared storage
+ * default and the project's prune setting; explicit environment values retain their existing meaning.
  */
 
+const nodeFs = require('node:fs');
 const { isDeepStrictEqual } = require('node:util');
+const { REPO_ROOT } = require('../../helper/repo-root');
+const { loadStorageRegistry } = require('../storage/registry');
+const { resolveRoots, readPruneSetting } = require('../storage/roots');
 const { foldInto, finalize } = require('./fold');
 
 const HOUR_MS = 3600000;
@@ -25,6 +31,25 @@ function parseWindow(env = process.env) {
     return { state: 'on', hours, ms: hours * HOUR_MS };
   }
   return { state: 'invalid', raw: String(raw) };
+}
+
+/** Composes IC-013's explicit environment override with the declared lifecycle default. */
+function retentionWindow({ env = process.env, projectRoot, registry, fsImpl = nodeFs } = {}) {
+  const parsed = parseWindow(env);
+  if (parsed.state === 'invalid') return parsed;
+  if (parsed.state === 'on') return { ...parsed, source: 'env' };
+  let activeRegistry;
+  try {
+    activeRegistry = registry || loadStorageRegistry({ repoRoot: REPO_ROOT, fsImpl });
+  } catch {
+    return { state: 'off' };
+  }
+  const roots = resolveRoots({ registry: activeRegistry, projectRoot, env });
+  if (readPruneSetting({ registry: activeRegistry, roots, rootId: 'project-state', fsImpl }).setting !== 'on') return { state: 'off' };
+  const lifecycleStore = activeRegistry.stores.find((store) => store.id === 'lifecycle-events');
+  if (!lifecycleStore) throw new Error('Storage registry has no lifecycle-events store');
+  const hours = lifecycleStore.bound.defaultHours;
+  return { state: 'on', hours, ms: hours * HOUR_MS, source: 'default' };
 }
 
 function isText(value) { return typeof value === 'string' && value.trim() !== ''; }
@@ -48,24 +73,36 @@ function itemsOf(event) {
 }
 
 /** Groups the items into units: items named together by one event share a unit. */
-function unitsOf(events) {
+function unitsOf(events, shouldStop) {
   const parent = new Map();
   const find = (key) => {
     while (parent.get(key) !== key) {
+      if (shouldStop?.()) return null;
       parent.set(key, parent.get(parent.get(key)));
       key = parent.get(key);
     }
     return key;
   };
-  const named = events.map((event) => ({ event, items: [...new Set(itemsOf(event))] }));
+  const named = [];
+  for (const event of events) {
+    if (shouldStop?.()) return null;
+    named.push({ event, items: [...new Set(itemsOf(event))] });
+  }
   for (const { items } of named) {
+    if (shouldStop?.()) return null;
     for (const key of items) if (!parent.has(key)) parent.set(key, key);
-    for (const key of items.slice(1)) parent.set(find(key), find(items[0]));
+    for (const key of items.slice(1)) {
+      const root = find(key), head = find(items[0]);
+      if (root === null || head === null) return null;
+      parent.set(root, head);
+    }
   }
   const units = new Map();
   for (const { event, items } of named) {
+    if (shouldStop?.()) return null;
     if (items.length === 0) continue;
     const head = find(items[0]);
+    if (head === null) return null;
     if (!units.has(head)) units.set(head, { items: new Set(), events: [] });
     const unit = units.get(head);
     for (const key of items) unit.items.add(key);
@@ -91,54 +128,83 @@ function comparable(result) {
 }
 
 /** Whether dropping `removed` units changes nothing but the removed items themselves. */
-function refoldEqual(events, full, removed, now) {
-  const gone = new Set(removed.flatMap((u) => u.events.map((e) => e.id)));
-  const keys = new Set(removed.flatMap((u) => [...u.items]));
+function refoldEqual(events, full, removed, now, shouldStop) {
+  if (shouldStop?.()) return null;
+  const gone = new Set(), keys = new Set();
+  for (const unit of removed) {
+    if (shouldStop?.()) return null;
+    for (const event of unit.events) gone.add(event.id);
+    for (const key of unit.items) keys.add(key);
+  }
   const expected = {
     ...full,
     followups: full.followups.filter((f) => !keys.has(`followup:${f.id}`)),
     goals: full.goals.filter((g) => !keys.has(`goal:${g.goal}`)),
     conflicts: full.conflicts.filter((c) => !gone.has(c.event)),
   };
-  const kept = finalize(foldInto(events.filter((e) => !gone.has(e.id)), { now }));
-  return isDeepStrictEqual(comparable(kept), comparable(expected));
+  const remaining = [];
+  for (const event of events) {
+    if (shouldStop?.()) return null;
+    if (!gone.has(event.id)) remaining.push(event);
+  }
+  const state = foldInto(remaining, { now, shouldStop });
+  if (state.incomplete) return null;
+  return isDeepStrictEqual(comparable(finalize(state)), comparable(expected));
 }
 
 /**
  * @param {Object[]} events IC-002 envelopes, as readEvents returns them
- * @param {{now: Date, windowMs: number}} options
- * @returns {{files: string[], units: Array<{items: string[], newestAt: string, files: string[]}>}}
+ * @param {{now: Date, windowMs: number, shouldStop?: Function}} options
+ * @returns {{files: string[], units: Array<{items: string[], newestAt: string, files: string[]}>, incomplete?: true}}
  *   files: `<id>.json` names, sorted
  */
-function selectExpired(events, { now, windowMs }) {
-  const state = foldInto(events, { now });
+function selectExpired(events, { now, windowMs, shouldStop } = {}) {
+  const incomplete = () => ({ files: [], units: [], incomplete: true });
+  if (shouldStop?.()) return incomplete();
+  const state = foldInto(events, { now, shouldStop });
+  if (state.incomplete || shouldStop?.()) return incomplete();
   const cutoff = now.getTime() - windowMs;
-  // A goal a tracked feature still serves cannot go without changing that feature, so the re-fold
-  // check would keep it; setting it aside here keeps such a goal from sending every pass down the
-  // one-fold-per-candidate path below.
-  const served = new Set([...state.tracked.values()].map((f) => f.goal).filter(Boolean));
-  const candidates = unitsOf(events)
-    .map((unit) => {
-      const newest = unit.events.reduce((max, e) => (Date.parse(e.at) > Date.parse(max) ? e.at : max), unit.events[0].at);
-      return { ...unit, newestAt: newest };
-    })
-    .filter((unit) => [...unit.items].every((key) => isSettled(state, key) && !(key.startsWith('goal:') && served.has(key.slice('goal:'.length))))
-      && Date.parse(unit.newestAt) < cutoff);
-
+  const served = new Set();
+  for (const feature of state.tracked.values()) {
+    if (shouldStop?.()) return incomplete();
+    if (feature.goal) served.add(feature.goal);
+  }
+  const named = unitsOf(events, shouldStop);
+  if (!named || shouldStop?.()) return incomplete();
+  const candidates = [];
+  for (const unit of named) {
+    if (shouldStop?.()) return incomplete();
+    const newest = unit.events.reduce((max, event) => (Date.parse(event.at) > Date.parse(max) ? event.at : max), unit.events[0].at);
+    if (shouldStop?.()) return incomplete();
+    let eligible = Date.parse(newest) < cutoff;
+    if (eligible) for (const key of unit.items) {
+      if (shouldStop?.()) return incomplete();
+      if (!isSettled(state, key) || (key.startsWith('goal:') && served.has(key.slice('goal:'.length)))) { eligible = false; break; }
+    }
+    if (eligible) candidates.push({ ...unit, newestAt: newest });
+  }
   const full = finalize(state);
   let selected = candidates;
-  if (!refoldEqual(events, full, candidates, now)) {
-    // Oldest first: a unit is taken when it still passes together with those already taken.
+  const allSafe = refoldEqual(events, full, candidates, now, shouldStop);
+  if (allSafe === null || shouldStop?.()) return incomplete();
+  if (!allSafe) {
     selected = [];
     const ordered = [...candidates].sort((a, b) => Date.parse(a.newestAt) - Date.parse(b.newestAt));
-    for (const unit of ordered) if (refoldEqual(events, full, [...selected, unit], now)) selected.push(unit);
+    if (shouldStop?.()) return incomplete();
+    for (const unit of ordered) {
+      if (shouldStop?.()) return incomplete();
+      const safe = refoldEqual(events, full, [...selected, unit], now, shouldStop);
+      if (safe === null) return incomplete();
+      if (safe) selected.push(unit);
+    }
   }
-  const units = selected.map((unit) => ({
-    items: [...unit.items].sort(),
-    newestAt: unit.newestAt,
-    files: unit.events.map((e) => `${e.id}.json`).sort(),
-  }));
-  return { files: units.flatMap((u) => u.files).sort(), units };
+  const units = [];
+  for (const unit of selected) {
+    if (shouldStop?.()) return incomplete();
+    units.push({ items: [...unit.items].sort(), newestAt: unit.newestAt, files: unit.events.map((event) => `${event.id}.json`).sort() });
+  }
+  if (shouldStop?.()) return incomplete();
+  return { files: units.flatMap((unit) => unit.files).sort(), units };
 }
 
-module.exports = { parseWindow, selectExpired };
+module.exports = { parseWindow, retentionWindow, selectExpired };

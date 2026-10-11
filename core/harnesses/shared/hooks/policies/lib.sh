@@ -291,6 +291,28 @@ require_jq() {
   fi
 }
 
+# Start storage cleanup without changing the hook's output, status, or latency.
+storage_upkeep_async() {
+  local cwd="${1:-}" root run home config_dir
+  [ -n "$cwd" ] || return 0
+  home="${HOME:-}"
+  config_dir="${CLAUDE_CONFIG_DIR:-$home/.claude}"
+  root=$(nudge_repo_root "$cwd" 2>/dev/null) || root="$cwd"
+  for run in \
+    "$root/.doflow/scripts/doflow/bin/doflow-run" \
+    "$config_dir/scripts/doflow/bin/doflow-run" \
+    "$home/.doflow/scripts/doflow/bin/doflow-run"
+  do
+    [ -x "$run" ] || continue
+    # Background the fully redirected subshell; an inner `&` leaves this shell
+    # holding the hook's captured stdout open until the dispatcher exits. The
+    # storage verb takes its project from the working directory: run it at the root.
+    ( cd "$root" 2>/dev/null && nohup "$run" storage --action upkeep </dev/null >/dev/null 2>&1 ) >/dev/null 2>&1 &
+    return 0
+  done
+  return 0
+}
+
 # ── Prompt nudge gate helpers ────────────────────────────────────────────────
 #
 # Used by user-prompt-submit.sh for the once-per-session `/do` suggestion. Function

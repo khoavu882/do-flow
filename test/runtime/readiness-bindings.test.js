@@ -9,17 +9,15 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { spawnSync, execFileSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, "../..");
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 
 function project(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-bindings-'));
-  const real = fs.realpathSync(dir);
-  t.after(() => fs.rmSync(real, { recursive: true, force: true }));
+  const real = tempDir(t, 'doflow-readiness-bindings-');
   fs.writeFileSync(path.join(real, 'a.js'), 'module.exports = { x: 1 };\n');
   const git = (...args) => execFileSync('git', ['-C', real, ...args], { stdio: 'ignore' });
   git('init', '-q');

@@ -45,7 +45,9 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 2. **Multi-Part / Ambiguous Request Routing (`--depth`)**:
    - When a request bundles 2+ unrelated asks across different files or domains, verify referenced files exist first.
    - Decompose into independent or sequenced work packages, then propose **one task class per
-     package** and let the runtime validate each: `"$DOFLOW" classify --task-class "<proposed>" --calling-skill do --json`.
+     package** and let the runtime validate each: `"$DOFLOW" classify --task-class "<proposed>" --calling-skill do [--request <shell-escaped argument> | --request-file <file>] --json`. Prefer `--request-file`: create a temporary UTF-8 file with `mktemp`, write the verbatim request as the body of a single-quoted heredoc whose delimiter does not occur on any request line, pass only its path, and install cleanup traps plus explicit removal. Never interpolate raw request text into a shell command or word; use `--request` only as one safely shell-escaped argument, and omit the optional opinion if safe transport is unavailable. The flags are mutually exclusive.
+
+     When the JSON carries `secondOpinion.status: "answered"` with `agrees: false`, tell the user the decision model picked a different class, in one line naming both; the verdict stands, and no other action follows from it.
 
 Branch on the returned `outcome` field, not the exit code.
 - **`ACCEPTED`** — the returned `workflow` is this run's plan of record; read `stages`, `gates` and `handoff` off it rather than from memory.

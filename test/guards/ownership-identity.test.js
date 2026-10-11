@@ -42,13 +42,14 @@ const path = require('node:path');
 const { REPO } = require('./_shared');
 const { loadRegistry } = require('../../src/registry');
 const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view');
+const { tempDir } = require('../helper/tmp');
 
 const ADAPTERS = path.join(REPO, 'src', 'adapters');
 const registry = loadRegistry({ repoRoot: REPO });
 
 // ------------------------------------------------------------------ behavioural: what adapters do
 
-function scratch(prefix) { return fs.mkdtempSync(path.join(os.tmpdir(), prefix)); }
+function scratch(t, prefix) { return tempDir(t, prefix); }
 
 /** The view derives a global scopeRoot from os.homedir() rather than from its scope descriptor
  * (design R7), so a hermetic global-scope plan relocates the home directory for the duration of
@@ -68,12 +69,12 @@ function planChanges(scope) {
 
 function pair(change) { return `${change.harness}|${change.ownershipIdentity}`; }
 
-test('G20: no adapter composes an ownership identity from a destination path (IC-004)', () => {
+test('G20: no adapter composes an ownership identity from a destination path (IC-004)', (t) => {
   // Two roots of deliberately different length and spelling: a path-derived identity differs
   // between them under any composition, prefix or suffix.
-  const first = scratch('doflow-identity-a-');
-  const second = scratch('doflow-identity-second-much-longer-');
-  const home = scratch('doflow-identity-home-');
+  const first = scratch(t, 'doflow-identity-a-');
+  const second = scratch(t, 'doflow-identity-second-much-longer-');
+  const home = scratch(t, 'doflow-identity-home-');
 
   const fromFirst = withHomeDir(home, () => planChanges({ global: false, projectRoot: first }));
   const fromSecond = withHomeDir(home, () => planChanges({ global: false, projectRoot: second }));
@@ -95,9 +96,9 @@ test('G20: no adapter composes an ownership identity from a destination path (IC
     + `unrelated singletons:\n  ${[...onlyFirst, ...onlySecond].join('\n  ')}`);
 });
 
-test('G20: no adapter composes an ownership identity from a scope name (IC-004)', () => {
-  const home = scratch('doflow-identity-scope-home-');
-  const project = scratch('doflow-identity-scope-project-');
+test('G20: no adapter composes an ownership identity from a scope name (IC-004)', (t) => {
+  const home = scratch(t, 'doflow-identity-scope-home-');
+  const project = scratch(t, 'doflow-identity-scope-project-');
 
   const globalChanges = withHomeDir(home, () => planChanges({ global: true }));
   const projectChanges = withHomeDir(home, () => planChanges({ global: false, projectRoot: project }));
@@ -136,9 +137,9 @@ test('G20: no adapter composes an ownership identity from a scope name (IC-004)'
   );
 });
 
-test('G20: no two resources share a (harness, ownership identity) pair (IC-004)', () => {
-  const home = scratch('doflow-identity-unique-home-');
-  const project = scratch('doflow-identity-unique-project-');
+test('G20: no two resources share a (harness, ownership identity) pair (IC-004)', (t) => {
+  const home = scratch(t, 'doflow-identity-unique-home-');
+  const project = scratch(t, 'doflow-identity-unique-project-');
 
   for (const [label, changes] of [
     ['global', withHomeDir(home, () => planChanges({ global: true }))],

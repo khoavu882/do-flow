@@ -21,6 +21,7 @@ calls** across 13 skills, so it runs under its own command — the same separati
 
 ```bash
 node bench/runner.js coverage     # offline, free
+node bench/runner.js advice-coverage # offline decision-model corpus coverage
 node bench/runner.js plan --iteration baseline > /tmp/plan.json
 ```
 
@@ -101,6 +102,8 @@ runner.js baseline / report
 | Command | Does | Needs API access |
 |---|---|---|
 | `coverage [--json]` | Which skills have triggering + behavioral cases. Exit 1 on any gap — this is what the A.4 guard consumes | no |
+| `advice-coverage [--json]` | Check every decision-model advice kind against its corpus coverage bar | no |
+| `advice [--kind K] [--split train\|heldout] [--json]` | Run advice cases against the configured local decision model; human text rows omit probabilities, while JSON includes probabilities and confidence | local compute only; no paid call |
 | `parity [--json]` | Does the committed baseline still describe the committed corpus. Lists pending cases, exits 1 on a removed, renamed or kind-changed case, a split-changed case whose baseline result recorded `split`, or a wrong `caseCount` | no |
 | `list [--skill S] [--split train\|heldout] [--json]` | Enumerate cases, optionally one side of the corpus | no |
 | `plan --iteration N [--skill S] [--split train\|heldout] [--arm without-skill]` | Emit the subagent dispatch plan as JSON: output paths, pinned model, sandbox commands, each run's skill path + expected hash, and the projected cost against the ceiling. Exit 2 when a known projection is over the ceiling | no |
@@ -108,7 +111,7 @@ runner.js baseline / report
 | `baseline [--from N]` | Freeze an iteration as the committed baseline, recording the commit it was taken at, how many cases proved their skill source, each case's side and its usage | no |
 | `report --iteration N` | Per-case delta against the baseline, with a `source` column marking rows whose delta is unmeasured, pending rows, usage, the ceiling check and, when without-skill runs exist, the per-skill delta | no |
 
-`--split` is accepted by `plan` and `list` only, `--arm` by `plan` only; any other command refuses
+`--split` is accepted by `plan`, `list`, and `advice`; `--arm` by `plan` only. Any other command refuses
 either flag with exit 2, as it does an unknown option.
 
 ## Case format

@@ -6,8 +6,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { loadRegistry } = require('../../src/registry');
 const { createAdapterRegistry } = require('../../src/adapters');
 const { planLifecycle, applyLifecycle, removeLifecycle } = require('../../src/lifecycle');
@@ -18,8 +18,8 @@ const { createGeminiAdapter } = require('../../src/adapters/gemini');
 
 const REPO = path.resolve(__dirname, "../..");
 
-function fixture() {
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-lifecycle-codex-e2e-'));
+function fixture(t) {
+  const project = tempDir(t, 'doflow-lifecycle-codex-e2e-');
   const registry = loadRegistry({ repoRoot: REPO });
   const adapters = createAdapterRegistry({ claude, codex, gemini: createGeminiAdapter() });
   const context = { repoRoot: REPO, projectRoot: project, homeDir: project, sourceVersion: '2.4.4' };
@@ -44,8 +44,8 @@ function diagnostics(root, project) {
   };
 }
 
-test('Codex lifecycle install -> MCP update -> guarded user edit -> remove verifies and updates the ledger', () => {
-  const run = fixture();
+test('Codex lifecycle install -> MCP update -> guarded user edit -> remove verifies and updates the ledger', (t) => {
+  const run = fixture(t);
   let current = plan({ ...run, selection: ['context7'] });
   assert.equal(current.safe, true, JSON.stringify(current.conflicts));
   applyLifecycle({ plan: current, registry: run.registry, adapters: run.adapters, stateRoot: run.root });

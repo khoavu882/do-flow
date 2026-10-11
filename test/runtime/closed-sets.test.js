@@ -18,9 +18,9 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 
+const { tempDir } = require('../helper/tmp');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
 const { renderPolicy } = require('../../src/lifecycle/policies');
 const { describeResolution, RESOLUTION_REASONS } = require('../../src/runtime/locator-resolve');
@@ -29,8 +29,8 @@ const { RUN_STATES } = require('../../src/runtime/workflow-orchestrator');
 
 const SRC = path.resolve(__dirname, '../../src');
 
-function tmpStateDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-closed-sets-'));
+function tmpStateDir(t) {
+  return tempDir(t, 'doflow-closed-sets-');
 }
 
 function writeLedger(stateDir, taskId, evidence) {
@@ -57,8 +57,8 @@ function item(overrides) {
 
 // ── EVIDENCE_STATUSES ──────────────────────────────────────────────────────────────────────────
 
-test('EVIDENCE_STATUSES: a ledger whose item carries an unknown status is refused, not guessed at', () => {
-  const stateDir = tmpStateDir();
+test('EVIDENCE_STATUSES: a ledger whose item carries an unknown status is refused, not guessed at', (t) => {
+  const stateDir = tmpStateDir(t);
   // 'supersede' rather than 'superseded' — the realistic typo, and the dangerous one: read as
   // anything other than superseded, retired evidence re-enters readiness.
   writeLedger(stateDir, 't1', [item({ status: 'supersede' })]);
@@ -72,8 +72,8 @@ test('EVIDENCE_STATUSES: a ledger whose item carries an unknown status is refuse
   });
 });
 
-test('EVIDENCE_STATUSES: both declared statuses load without complaint', () => {
-  const stateDir = tmpStateDir();
+test('EVIDENCE_STATUSES: both declared statuses load without complaint', (t) => {
+  const stateDir = tmpStateDir(t);
   writeLedger(stateDir, 't2', [
     item({ id: 'ev_a', status: 'active' }),
     item({ id: 'ev_b', status: 'superseded', supersededBy: 'ev_a' }),

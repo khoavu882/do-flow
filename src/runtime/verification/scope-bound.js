@@ -218,7 +218,7 @@ function parseDeclaredScope(text) {
  * @param {Function} [options.exec]
  * @returns {{bound: Object|null, reason: string|null, searched: Array<Object>, planSource: Object}}
  */
-function resolveScopeBound({ projectRoot, slug = null, planPath = null, declared = null, exec = spawnSync }) {
+function resolveScopeBound({ projectRoot, slug = null, planPath = null, declared = null, baselineRef = null, exec = spawnSync }) {
   const planSource = resolvePlanSource({ projectRoot, slug, planPath, exec });
   let reason = planSource.reason;
   const allowed = [];
@@ -242,10 +242,31 @@ function resolveScopeBound({ projectRoot, slug = null, planPath = null, declared
     allowed.push(...declared.paths);
     sources.push({ kind: 'declared', paths: [...declared.paths], origin: declared.origin, ...(declared.record ? { record: declared.record } : {}) });
   }
+
+  let baseline = null;
+  if (baselineRef !== null && baselineRef !== undefined) {
+    const res = resolveExplicitBaseline({ cwd: projectRoot, ref: baselineRef, exec });
+    if (!res.ok) {
+      return {
+        bound: null,
+        reason: 'baseline-invalid',
+        unresolvedReason: `change-scope: ${res.reason}. Nothing was changed.`,
+        searched: planSource ? planSource.searched : [],
+        planSource,
+      };
+    }
+    baseline = res;
+  }
+
   if (allowed.length === 0) return { bound: null, reason, searched: planSource.searched, planSource };
   const source = sources[0].kind === 'plan' ? planSource.planRel : (declared.record || '--scope');
   return {
-    bound: { allowedPaths: [...new Set(allowed)], source, sources, baseline: 'integration' },
+    bound: {
+      allowedPaths: [...new Set(allowed)],
+      source,
+      sources,
+      ...(baseline ? { baseline: 'explicit', baselineRef: baseline.ref, baselineSha: baseline.sha } : { baseline: 'integration' }),
+    },
     reason: null,
     searched: planSource.searched,
     planSource,
@@ -341,10 +362,40 @@ function resolveIntegrationBase({ cwd, exec = spawnSync }) {
   return { ref, mergeBase };
 }
 
+/**
+ * An explicit `--baseline-ref` (IC-022): resolved once to a commit SHA, and required to be an ancestor of
+ * HEAD so the measured diff is the whole of what happened since it. Anything else is unresolved with its
+ * reason; there is no fallback to the working tree, which would report committed work as a clean scope.
+ * @param {Object} options
+ * @param {string} options.cwd
+ * @param {string} options.ref commit or ref the caller pinned
+ * @param {Function} [options.exec] spawnSync-compatible
+ * @returns {{ok: true, ref: string, sha: string}|{ok: false, ref: string, reason: string}}
+ */
+function resolveExplicitBaseline({ cwd, ref, exec = spawnSync }) {
+  const fail = (reason) => ({ ok: false, ref, reason });
+  if (typeof ref !== 'string' || ref.trim() === '' || ref.startsWith('-')) {
+    return fail(`baseline ref '${ref}' is not a usable commit or ref`);
+  }
+  const run = (args) => {
+    try { return exec('git', args, { cwd, encoding: 'utf8', timeout: 30000 }); } catch (error) { return { error }; }
+  };
+  const parsed = run(['rev-parse', '--verify', '--quiet', '--end-of-options', `${ref}^{commit}`]);
+  const sha = parsed && !parsed.error && parsed.status === 0 ? String(parsed.stdout || '').trim() : '';
+  if (!/^[0-9a-f]{40,64}$/.test(sha)) return fail(`baseline ref '${ref}' does not name a commit`);
+  const ancestry = run(['merge-base', '--is-ancestor', sha, 'HEAD']);
+  if (!ancestry || ancestry.error || (ancestry.status !== 0 && ancestry.status !== 1)) {
+    return fail(`could not check whether ${sha} is an ancestor of HEAD`);
+  }
+  if (ancestry.status === 1) return fail(`baseline ${sha} is not an ancestor of HEAD, so the change since it cannot be measured`);
+  return { ok: true, ref, sha };
+}
+
 module.exports = {
   buildScopeBound,
   taskFilesFromPlan,
   resolveIntegrationBase,
+  resolveExplicitBaseline,
   resolvePlanSource,
   parseDeclaredScope,
   resolveScopeBound,

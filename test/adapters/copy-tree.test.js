@@ -2,11 +2,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const { discoverTree, planTree, applyTree, removeTree, verifyTree, sharedTreeDestDir, ledgerSiblingFingerprints, siblingReplacedNotices, TRANSFORMS } = require('../../src/adapters/copy-tree');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-copy-tree-')); }
+function scratch() { return suiteTempDir('doflow-copy-tree-'); }
 
 function seedSource(root, files) {
   const sourceDir = path.join(root, 'source');

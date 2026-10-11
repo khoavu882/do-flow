@@ -5,7 +5,6 @@
 const { test, after } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
@@ -13,6 +12,7 @@ const REPO = path.resolve(__dirname, "../..");
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const { IS_WIN, expectExecutable } = require('../helper-platform');
 const { createScratch } = require('../helper/scratch-env');
+const { tempDir, suiteTempDir } = require('../helper/tmp');
 
 // The per-harness MCP cases run in a scratch HOME with its own XDG folder and git config: nothing the
 // developer's environment sets (XDG_CONFIG_HOME, GIT_CONFIG_GLOBAL, DOFLOW_RETENTION_HOURS) reaches them.
@@ -45,7 +45,7 @@ function homeEnv(home) {
 }
 
 function run(args, { home, input, env } = {}) {
-  const resolvedHome = home ?? fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const resolvedHome = home ?? suiteTempDir('doflow-cli-e2e-');
   return spawnSync('node', [DOFLOW, ...args], {
     cwd: REPO,
     env: { ...inheritedEnv(resolvedHome), ...env, ...homeEnv(resolvedHome) },
@@ -59,8 +59,8 @@ function run(args, { home, input, env } = {}) {
   });
 }
 
-function fakeBin(files) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-tools-bin-'));
+function fakeBin(t, files) {
+  const dir = tempDir(t, 'doflow-tools-bin-');
   for (const [name, body] of Object.entries(files)) {
     const file = path.join(dir, name);
     fs.writeFileSync(file, `#!/bin/sh\n${body}\n`);
@@ -77,7 +77,7 @@ function toolEnv(bin, extra = {}) {
 
 function runInteractive(args, { home, env, replies }) {
   return new Promise((resolve, reject) => {
-    const resolvedHome = home ?? fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+    const resolvedHome = home ?? suiteTempDir('doflow-cli-e2e-');
     const child = require('node:child_process').spawn('node', [DOFLOW, ...args], {
       cwd: REPO,
       env: { ...inheritedEnv(resolvedHome), ...env, ...homeEnv(resolvedHome) },
@@ -109,7 +109,7 @@ function skipToolsOnWin(t) {
 
 test('tools status selects both registered tools and returns one JSON result per tool', (t) => {
   if (!skipToolsOnWin(t)) return;
-  const bin = fakeBin({
+  const bin = fakeBin(t, {
     rtk: 'case "$1" in --version|gain) exit 0;; *) exit 1;; esac',
     graphify: 'test "$1" = "--version"',
     uv: 'test "$1" = "--version"',
@@ -134,7 +134,7 @@ test('tools rejects --force and requires --tool outside an interactive terminal'
 
 test('tools --dry-run inspects and plans mutations without executing them', (t) => {
   if (!skipToolsOnWin(t)) return;
-  const bin = fakeBin({
+  const bin = fakeBin(t, {
     uv: 'test "$1" = "--version"',
   });
   const r = run(['tools', '--tool', 'rtk,graphify', '--action', 'install', '--dry-run', '--json'], { env: toolEnv(bin) });
@@ -150,7 +150,7 @@ test('tools --dry-run inspects and plans mutations without executing them', (t) 
 
 test('tools reports a declined lifecycle action without executing it', (t) => {
   if (!skipToolsOnWin(t)) return;
-  const bin = fakeBin({});
+  const bin = fakeBin(t, {});
   const r = run(['tools', '--tool', 'rtk', '--action', 'install'], { env: toolEnv(bin), input: 'n\n' });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stderr, /RTK \(Rust Token Killer\): "cargo" "install"/);
@@ -159,7 +159,7 @@ test('tools reports a declined lifecycle action without executing it', (t) => {
 
 test('tools continues independently when one confirmed lifecycle command fails', async (t) => {
   if (!skipToolsOnWin(t)) return;
-  const bin = fakeBin({
+  const bin = fakeBin(t, {
     rtk: 'case "$1" in --version|gain) exit 0;; *) exit 1;; esac',
     graphify: 'test "$1" = "--version"',
     uv: 'if test "$1" = "--version"; then exit 0; fi\nif test "$1" = "tool" && test "$2" = "uninstall"; then exit 0; fi\nexit 1',
@@ -173,8 +173,8 @@ test('tools continues independently when one confirmed lifecycle command fails',
   assert.match(r.stdout, /graphify: succeeded/);
 });
 
-test('--no-backup without --force is a hard error (exit 1), for install and update alike', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('--no-backup without --force is a hard error (exit 1), for install and update alike', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   const r1 = run(['install', '--no-backup', '-g', '--target', 'claude'], { home });
   assert.strictEqual(r1.status, 1);
   assert.match(r1.stderr, /--no-backup skips all backup protection and requires --force/);
@@ -183,17 +183,17 @@ test('--no-backup without --force is a hard error (exit 1), for install and upda
   assert.strictEqual(r2.status, 1);
 });
 
-test('--no-backup without --force is now a hard error for every command, not just install/update', () => {
+test('--no-backup without --force is now a hard error for every command, not just install/update', (t) => {
   // Regression test: the check used to only run inside cmdInstall/cmdUpdate; sync.sh's
   // validate_env() runs it once before dispatching to any operation, including --status.
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const home = tempDir(t, 'doflow-cli-e2e-');
   const r = run(['status', '--no-backup', '-g'], { home });
   assert.strictEqual(r.status, 1);
   assert.match(r.stderr, /--no-backup skips all backup protection and requires --force/);
 });
 
-test('--target and --prune reject a following flag as their value instead of silently swallowing it', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('--target and --prune reject a following flag as their value instead of silently swallowing it', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   const r1 = run(['install', '--target', '--no-backup', '-g', '--force'], { home });
   assert.strictEqual(r1.status, 1);
   assert.match(r1.stderr, /--target requires a value/);
@@ -223,10 +223,10 @@ test('rollback with no --target names and records only the harnesses the backup 
   assert.deepStrictEqual(Object.keys(recorded.tools), ['codex'], 'a rollback that restored only Codex files must not record Claude as installed');
 });
 
-test("rollback --target restores only that harness's files from a backup that holds several harnesses", () => {
+test("rollback --target restores only that harness's files from a backup that holds several harnesses", (t) => {
   // A backup holds the files one update changed for every harness it touched. Restoring it with
   // --target claude must put back the Claude file and leave every Codex file as it is now.
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const home = tempDir(t, 'doflow-cli-e2e-');
   let r = run(['install', '-g', '--force', '--target', 'claude,codex'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
 
@@ -259,9 +259,9 @@ test('install without --force waits on confirm and aborts when stdin is empty', 
   assert.match(r.stderr, /Aborted/);
 });
 
-test('project-scoped install (no -g, no path) resolves under cwd, not $HOME', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+test('project-scoped install (no -g, no path) resolves under cwd, not $HOME', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
+  const projectDir = tempDir(t, 'doflow-cli-e2e-project-');
   const r = run(['install', projectDir, '--force', '--no-backup', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.ok(fs.existsSync(path.join(projectDir, '.claude', 'CLAUDE.md')));
@@ -270,7 +270,7 @@ test('project-scoped install (no -g, no path) resolves under cwd, not $HOME', ()
   assert.ok(!fs.existsSync(path.join(home, '.claude')), 'must not also write to $HOME');
 });
 
-test('Codex install merges AGENTS.md and installs reusable skills', () => {  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('Codex install merges AGENTS.md and installs reusable skills', (t) => {  const home = tempDir(t, 'doflow-cli-e2e-');
   const codexDir = path.join(home, '.codex');
   fs.mkdirSync(codexDir, { recursive: true });
   fs.writeFileSync(path.join(codexDir, 'AGENTS.md'), '# Project instructions\n\nPreserve this content.\n');
@@ -296,8 +296,8 @@ test('Codex install merges AGENTS.md and installs reusable skills', () => {  con
   assert.match(updatedAgents, /\.doflow\/guidance\/DOFLOW_CORE\.md/);
 });
 
-test('full lifecycle: install -> mutate -> update -> rollback restores the pre-update dst content', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('full lifecycle: install -> mutate -> update -> rollback restores the pre-update dst content', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   const claudeMd = path.join(home, '.claude', 'CLAUDE.md');
 
   let r = run(['install', '-g', '--force', '--target', 'claude'], { home });
@@ -330,8 +330,8 @@ test('full lifecycle: install -> mutate -> update -> rollback restores the pre-u
   assert.strictEqual(fs.readFileSync(claudeMd, 'utf8'), mutatedContent, 'rollback should restore the pre-update (mutated) content');
 });
 
-test('status --json emits parseable JSON with the manifest', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('status --json emits parseable JSON with the manifest', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   run(['install', '-g', '--force', '--target', 'claude'], { home });
   const r = run(['status', '-g', '--json'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
@@ -340,8 +340,8 @@ test('status --json emits parseable JSON with the manifest', () => {
   assert.strictEqual(parsed.context.scope, 'global');
 });
 
-test('status reports a harness the ledger owns nothing of as not-installed, in JSON and text', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('status reports a harness the ledger owns nothing of as not-installed, in JSON and text', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   run(['install', '-g', '--force', '--target', 'claude'], { home });
   const parsed = JSON.parse(run(['status', '-g', '--json', '--target', 'claude,codex'], { home }).stdout);
   assert.strictEqual(parsed.context.claude.status, 'verified');
@@ -352,8 +352,8 @@ test('status reports a harness the ledger owns nothing of as not-installed, in J
   assert.match(text.stdout, /Claude verification:\s+verified/);
 });
 
-test('status keeps a conflict ahead of not-installed: a user-owned file in the way, or ledger rows lost over edited files', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('status keeps a conflict ahead of not-installed: a user-owned file in the way, or ledger rows lost over edited files', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
   fs.writeFileSync(path.join(home, '.codex', 'config.toml'), '# personal setting\n[features]\nhooks = false\n');
   run(['install', '-g', '--force', '--target', 'claude'], { home });
@@ -368,16 +368,16 @@ test('status keeps a conflict ahead of not-installed: a user-owned file in the w
   assert.strictEqual(parsed.context.claude.status, 'conflict-or-invalid');
 });
 
-test('rollback with an unknown id fails cleanly (exit 1, no crash)', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('rollback with an unknown id fails cleanly (exit 1, no crash)', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   run(['install', '-g', '--force', '--target', 'claude'], { home });
   const r = run(['rollback', 'no_such_backup', '-g', '--force'], { home });
   assert.strictEqual(r.status, 1);
   assert.match(r.stderr, /Backup not found/);
 });
 
-test('install --dry-run previews files and writes nothing', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('install --dry-run previews files and writes nothing', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   const r = run(['install', '-g', '--dry-run', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   // Every Claude asset is registry-owned as of Phase E — the legacy copier's per-file preview
@@ -387,8 +387,8 @@ test('install --dry-run previews files and writes nothing', () => {
   assert.ok(!fs.existsSync(path.join(home, '.claude')), 'dry-run must not create any files');
 });
 
-test('update --dry-run previews changed files and writes nothing', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('update --dry-run previews changed files and writes nothing', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   run(['install', '-g', '--force', '--target', 'claude'], { home });
   const claudeMd = path.join(home, '.claude', 'CLAUDE.md');
   fs.writeFileSync(claudeMd, 'mutated\n');
@@ -402,16 +402,16 @@ test('update --dry-run previews changed files and writes nothing', () => {
   assert.strictEqual(fs.readFileSync(claudeMd, 'utf8'), 'mutated\n', 'dry-run update must not touch the file');
 });
 
-test('update --dry-run when already up to date reports so and exits before the dry-run branch', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('update --dry-run when already up to date reports so and exits before the dry-run branch', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   run(['install', '-g', '--force', '--target', 'claude'], { home });
   const r = run(['update', '-g', '--dry-run', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stdout, /Already up to date/);
 });
 
-test('a second update with no upstream change is a true no-op for CLAUDE.md (idempotent merge)', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('a second update with no upstream change is a true no-op for CLAUDE.md (idempotent merge)', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   run(['install', '-g', '--force', '--target', 'claude'], { home });
   const claudeMd = path.join(home, '.claude', 'CLAUDE.md');
   const bytesAfterInstall = fs.readFileSync(claudeMd, 'utf8');
@@ -422,8 +422,8 @@ test('a second update with no upstream change is a true no-op for CLAUDE.md (ide
   assert.strictEqual(fs.readFileSync(claudeMd, 'utf8'), bytesAfterInstall, 'CLAUDE.md bytes must be untouched by a no-op update');
 });
 
-test('status (text, no --json) prints the resolved context and install status table', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('status (text, no --json) prints the resolved context and install status table', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   run(['install', '-g', '--force', '--target', 'claude'], { home });
   const r = run(['status', '-g'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
@@ -433,27 +433,27 @@ test('status (text, no --json) prints the resolved context and install status ta
   assert.match(r.stdout, /claude\s+installed/);
 });
 
-test('status (text, no --json) before any install warns no manifest found', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('status (text, no --json) before any install warns no manifest found', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   const r = run(['status', '-g'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stdout, /No install manifest found/);
 });
 
-test('list-backups with none present reports "No backups found" instead of an empty table', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('list-backups with none present reports "No backups found" instead of an empty table', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   const r = run(['list-backups', '-g'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stdout, /No backups found/);
 });
 
-test('rollback --dry-run (no --force) does not block on the confirm prompt', () => {
+test('rollback --dry-run (no --force) does not block on the confirm prompt', (t) => {
   // Regression test: cmdRollback used to call confirm() unconditionally, even under --dry-run,
   // unlike install/update (which skip the prompt entirely when previewing). That meant a
   // non-interactive `rollback <id> --dry-run` would abort as if the user answered "no" (or hang
   // waiting on a TTY), instead of behaving like a no-op preview. Feeding empty stdin here proves
   // the dry-run path no longer depends on an answer to that prompt.
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const home = tempDir(t, 'doflow-cli-e2e-');
   run(['install', '-g', '--force', '--target', 'claude'], { home });
   const listed = run(['list-backups', '-g'], { home });
   const bid = /install_[\d_-]+/.exec(listed.stdout)?.[0];
@@ -465,9 +465,9 @@ test('rollback --dry-run (no --force) does not block on the confirm prompt', () 
   assert.ok(!/Aborted/.test(r.stderr), 'dry-run rollback must not be treated as aborted by an empty confirm answer');
 });
 
-test('Codex-native lifecycle supports isolated project dry-run, selected MCP update, and verifiable ownership', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+test('Codex-native lifecycle supports isolated project dry-run, selected MCP update, and verifiable ownership', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
+  const project = tempDir(t, 'doflow-cli-e2e-project-');
 
   let r = run(['install', project, '--dry-run', '--target', 'codex', '--mcp', 'context7'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
@@ -499,9 +499,9 @@ test('Codex-native lifecycle supports isolated project dry-run, selected MCP upd
   assert.ok(status.codex.resources.some((resource) => resource.kind === 'mcp-server' && resource.identity === 'sequential-thinking'));
 });
 
-test('status --json reports the general per-harness hook-wiring status for claude, codex, gemini, and kiro', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+test('status --json reports the general per-harness hook-wiring status for claude, codex, gemini, and kiro', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
+  const project = tempDir(t, 'doflow-cli-e2e-project-');
 
   let r = run(['install', project, '--force', '--target', 'claude,codex,gemini,kiro', '--mcp', 'context7'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
@@ -518,8 +518,8 @@ test('status --json reports the general per-harness hook-wiring status for claud
   assert.ok(status.context.gemini.hooks.prerequisites.length > 0);
 });
 
-test('Codex reconciliation preserves foreign config and fails closed on a conflicting managed key', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('Codex reconciliation preserves foreign config and fails closed on a conflicting managed key', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   const codex = path.join(home, '.codex');
   fs.mkdirSync(codex, { recursive: true });
   const config = path.join(codex, 'config.toml');
@@ -532,9 +532,9 @@ test('Codex reconciliation preserves foreign config and fails closed on a confli
   assert.strictEqual(fs.readFileSync(config, 'utf8'), foreign, 'foreign TOML must remain byte-for-byte intact');
 });
 
-test('Codex dry-run and status expose the non-mutating registry lifecycle and neutral state location', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+test('Codex dry-run and status expose the non-mutating registry lifecycle and neutral state location', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
+  const project = tempDir(t, 'doflow-cli-e2e-project-');
   const dry = run(['install', project, '--dry-run', '--target', 'codex', '--mcp', 'context7'], { home });
   assert.strictEqual(dry.status, 0, dry.stderr);
   assert.match(dry.stdout, /Registry lifecycle: \d+ native change\(s\), 0 conflict\(s\)/);
@@ -552,9 +552,9 @@ test('Codex dry-run and status expose the non-mutating registry lifecycle and ne
   assert.ok(parsed.context.registry.plan.changes > 0);
 });
 
-test('Codex remove clears only lifecycle-owned native resources and retains compatibility assets', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+test('Codex remove clears only lifecycle-owned native resources and retains compatibility assets', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
+  const project = tempDir(t, 'doflow-cli-e2e-project-');
   let result = run(['install', project, '--force', '--target', 'codex', '--mcp', 'context7'], { home });
   assert.strictEqual(result.status, 0, result.stderr);
   // A genuinely foreign, untracked file the user placed themselves — unlike a doflow-shipped
@@ -577,9 +577,9 @@ test('Codex remove clears only lifecycle-owned native resources and retains comp
   assert.ok(!fs.existsSync(path.join(project, '.codex', 'config.toml')), 'a config.toml DoFlow created is removed, not left with an empty table');
 });
 
-test('Codex remove with a duplicated span in AGENTS.md is refused before anything is removed', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+test('Codex remove with a duplicated span in AGENTS.md is refused before anything is removed', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
+  const project = tempDir(t, 'doflow-cli-e2e-project-');
   let result = run(['install', project, '--force', '--target', 'codex'], { home });
   assert.strictEqual(result.status, 0, result.stderr);
   const agents = path.join(project, 'AGENTS.md');
@@ -596,9 +596,9 @@ test('Codex remove with a duplicated span in AGENTS.md is refused before anythin
   assert.strictEqual(fs.readFileSync(ledgerFile, 'utf8'), ledgerBefore);
 });
 
-test('Codex project install and remove rooted at HOME are refused and leave every global file', () => {
+test('Codex project install and remove rooted at HOME are refused and leave every global file', (t) => {
   // A project rooted at $HOME would share ~/.codex, ~/.agents and the one ledger with the global install.
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const home = tempDir(t, 'doflow-cli-e2e-');
   let result = run(['install', '-g', '--force', '--target', 'codex'], { home });
   assert.strictEqual(result.status, 0, result.stderr);
   const globalOwned = ['hooks.json', 'config.toml', path.join('hooks', 'session-start.sh'), path.join('bin', 'doflow-run')]
@@ -615,9 +615,9 @@ test('Codex project install and remove rooted at HOME are refused and leave ever
   assert.ok(!fs.existsSync(path.join(home, 'AGENTS.md')), 'no project AGENTS.md is written at HOME');
 });
 
-test('Codex remove keeps a user hook script, AGENTS.md line and config.toml table byte for byte', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+test('Codex remove keeps a user hook script, AGENTS.md line and config.toml table byte for byte', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
+  const project = tempDir(t, 'doflow-cli-e2e-project-');
   const agents = path.join(project, 'AGENTS.md');
   const config = path.join(project, '.codex', 'config.toml');
   const userAgents = '# My project rules\n';
@@ -642,8 +642,8 @@ test('Codex remove keeps a user hook script, AGENTS.md line and config.toml tabl
   assert.deepStrictEqual(fs.readdirSync(path.dirname(userHook)).sort(), ['my-hook.sh', 'session-start.sh']);
 });
 
-test('rollback with no id argument prompts interactively and accepts a typed backup id', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('rollback with no id argument prompts interactively and accepts a typed backup id', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   run(['install', '-g', '--force', '--target', 'claude'], { home });
   const listed = run(['list-backups', '-g'], { home });
   const bid = /install_[\d_-]+/.exec(listed.stdout)?.[0];
@@ -654,8 +654,8 @@ test('rollback with no id argument prompts interactively and accepts a typed bac
   assert.match(r.stdout, /Rollback to .* complete/);
 });
 
-test('rollback with no id argument and empty stdin aborts instead of restoring', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('rollback with no id argument and empty stdin aborts instead of restoring', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   run(['install', '-g', '--force', '--target', 'claude'], { home });
   const r = run(['rollback', '-g', '--force'], { home, input: '' });
   // Exit 1: a declined prompt is a decision, not a completed run. This asserted 0 until the D.4
@@ -666,8 +666,8 @@ test('rollback with no id argument and empty stdin aborts instead of restoring',
   assert.match(r.stderr, /Aborted/);
 });
 
-test('update without --force waits on confirm and aborts when stdin is empty', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('update without --force waits on confirm and aborts when stdin is empty', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   run(['install', '-g', '--force', '--target', 'claude'], { home });
   const claudeMd = path.join(home, '.claude', 'CLAUDE.md');
   fs.writeFileSync(claudeMd, 'mutated\n');
@@ -683,8 +683,8 @@ test('update without --force waits on confirm and aborts when stdin is empty', (
   assert.strictEqual(fs.readFileSync(claudeMd, 'utf8'), 'mutated\n', 'aborted update must not touch the file');
 });
 
-test('rollback with an explicit id but no --force aborts on an empty confirm answer, without restoring', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('rollback with an explicit id but no --force aborts on an empty confirm answer, without restoring', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   run(['install', '-g', '--force', '--target', 'claude'], { home });
   const listed = run(['list-backups', '-g'], { home });
   const bid = /install_[\d_-]+/.exec(listed.stdout)?.[0];
@@ -703,8 +703,8 @@ test('rollback with an explicit id but no --force aborts on an empty confirm ans
   assert.strictEqual(fs.readFileSync(claudeMd, 'utf8'), 'should survive an aborted rollback\n');
 });
 
-test('--prune keeps only the N most recent backups on both install and update', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('--prune keeps only the N most recent backups on both install and update', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   const claudeMd = path.join(home, '.claude', 'CLAUDE.md');
   // Each install changes a file, so each one makes a backup: two exist before the pruning run.
   for (const prune of [[], [], ['--prune', '1']]) {
@@ -737,8 +737,8 @@ test('--prune keeps only the N most recent backups on both install and update', 
 // test/registry/registry.test.js's "rejects projections to unavailable capabilities and missing source
 // files" test.
 
-test('--mcp <list> on global install merges only the selected servers into ~/.claude.json, not .claude/.mcp.json', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('--mcp <list> on global install merges only the selected servers into ~/.claude.json, not .claude/.mcp.json', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   const r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'context7,sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
 
@@ -747,9 +747,9 @@ test('--mcp <list> on global install merges only the selected servers into ~/.cl
   assert.ok(!fs.existsSync(path.join(home, '.claude', '.mcp.json')), 'Claude Code never reads .claude/.mcp.json — it must not be written there');
 });
 
-test('--mcp <list> on project-scoped install writes <projectRoot>/.mcp.json, not <projectRoot>/.claude/.mcp.json', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+test('--mcp <list> on project-scoped install writes <projectRoot>/.mcp.json, not <projectRoot>/.claude/.mcp.json', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
+  const projectDir = tempDir(t, 'doflow-cli-e2e-project-');
   const r = run(['install', projectDir, '--force', '--no-backup', '--target', 'claude', '--mcp', 'sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
 
@@ -758,8 +758,8 @@ test('--mcp <list> on project-scoped install writes <projectRoot>/.mcp.json, not
   assert.ok(!fs.existsSync(path.join(projectDir, '.claude', '.mcp.json')));
 });
 
-test('an install with no --mcp flag (non-interactive, piped stdin) selects none — safe by default', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('an install with no --mcp flag (non-interactive, piped stdin) selects none — safe by default', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   const r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stdout, /MCP: none selected by default/);
@@ -769,8 +769,8 @@ test('an install with no --mcp flag (non-interactive, piped stdin) selects none 
   assert.deepStrictEqual(Object.keys(claudeJson.mcpServers ?? {}).sort(), [], 'third-party servers are opt-in');
 });
 
-test('--mcp all adopts the full catalog; the notice is absent when a selection is explicit', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('--mcp all adopts the full catalog; the notice is absent when a selection is explicit', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   const r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'all'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.doesNotMatch(r.stdout, /MCP: none selected by default/);
@@ -778,8 +778,8 @@ test('--mcp all adopts the full catalog; the notice is absent when a selection i
   assert.deepStrictEqual(Object.keys(claudeJson.mcpServers).sort(), ['context7', 'sequential-thinking']);
 });
 
-test('update with no --mcp flag remembers the prior install\'s selection instead of reverting to all servers', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('update with no --mcp flag remembers the prior install\'s selection instead of reverting to all servers', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   let r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'context7'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
 
@@ -790,8 +790,8 @@ test('update with no --mcp flag remembers the prior install\'s selection instead
   assert.deepStrictEqual(Object.keys(claudeJson.mcpServers), ['context7'], 'update must not silently re-add servers a prior install deliberately excluded');
 });
 
-test('update with an explicit --mcp overrides and re-persists the remembered selection', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('update with an explicit --mcp overrides and re-persists the remembered selection', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   let r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'context7'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
 
@@ -807,10 +807,10 @@ test('update with an explicit --mcp overrides and re-persists the remembered sel
   assert.deepStrictEqual(Object.keys(claudeJson.mcpServers).sort(), ['sequential-thinking']);
 });
 
-test('update --dry-run for an MCP-only change claims a backup exactly when the real run creates one', () => {
+test('update --dry-run for an MCP-only change claims a backup exactly when the real run creates one', (t) => {
   // Regression test: the dry-run branch used to claim a backup whenever
   // --no-backup was absent, regardless of whether the real run would back anything up.
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const home = tempDir(t, 'doflow-cli-e2e-');
   let r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
 
@@ -843,15 +843,15 @@ test('an update whose only change is a Claude MCP entry backs up nothing, so no 
   assert.deepStrictEqual(walk(home).filter((f) => path.basename(f) === '.claude.json'), [file], 'no backup holds a copy of ~/.claude.json');
 });
 
-test('--mcp on install rejects an unknown server name with a clear message', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('--mcp on install rejects an unknown server name with a clear message', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   const r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'not-a-real-server'], { home });
   assert.notStrictEqual(r.status, 0);
   assert.match(r.stderr, /Unknown MCP server\(s\): not-a-real-server/);
 });
 
-test('doflow status reports the persisted MCP server selection', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('doflow status reports the persisted MCP server selection', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   let r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'context7,sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   r = run(['status', '-g', '--json', '--target', 'claude,codex,gemini'], { home });
@@ -877,9 +877,9 @@ test('T1: --mcp help says the default is none and reaches every harness that tak
 // --- Multi-harness lifecycle wiring (claude/codex/gemini all reconcile through the same
 // registry/lifecycle path — see bin/doflow.js's unified `lifecycleView`) ---------------------
 
-test('Claude lifecycle: fresh install owns the instructions asset in the neutral ledger with unchanged CLAUDE.md bytes', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+test('Claude lifecycle: fresh install owns the instructions asset in the neutral ledger with unchanged CLAUDE.md bytes', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
+  const project = tempDir(t, 'doflow-cli-e2e-project-');
   const r = run(['install', project, '--force', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   // Claude now owns its instructions asset plus every copy-tree asset (rules, skills, agents,
@@ -914,9 +914,9 @@ test('Claude lifecycle: fresh install owns the instructions asset in the neutral
   assert.ok(fs.existsSync(path.join(project, '.claude', 'skills', 'do-diagnose', 'SKILL.md')));
 });
 
-test('Gemini lifecycle: fresh install writes GEMINI.md (not AGENTS.md) and owns it in the neutral ledger', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+test('Gemini lifecycle: fresh install writes GEMINI.md (not AGENTS.md) and owns it in the neutral ledger', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
+  const project = tempDir(t, 'doflow-cli-e2e-project-');
   const r = run(['install', project, '--force', '--target', 'gemini'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   // Gemini now owns its instructions asset plus five copy-tree assets (rules, skills, agents,
@@ -944,9 +944,9 @@ test('Gemini lifecycle: fresh install writes GEMINI.md (not AGENTS.md) and owns 
   assert.ok(fs.existsSync(path.join(project, '.gemini', 'agents', 'system-architect.md')));
 });
 
-test('Claude lifecycle: remove strips only the managed section from CLAUDE.md, preserves foreign content, and updates the ledger', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+test('Claude lifecycle: remove strips only the managed section from CLAUDE.md, preserves foreign content, and updates the ledger', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
+  const project = tempDir(t, 'doflow-cli-e2e-project-');
   let r = run(['install', project, '--force', '--target', 'claude'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
 
@@ -965,9 +965,9 @@ test('Claude lifecycle: remove strips only the managed section from CLAUDE.md, p
   assert.ok(!ledger.resources.some((resource) => resource.harness === 'claude'), 'claude resource must be removed from the ledger');
 });
 
-test("Gemini lifecycle: remove deletes GEMINI.md per the adapter's own remove() semantics, updating the ledger", () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+test("Gemini lifecycle: remove deletes GEMINI.md per the adapter's own remove() semantics, updating the ledger", (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
+  const project = tempDir(t, 'doflow-cli-e2e-project-');
   let r = run(['install', project, '--force', '--target', 'gemini'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   const geminiMd = path.join(project, 'GEMINI.md');
@@ -983,12 +983,12 @@ test("Gemini lifecycle: remove deletes GEMINI.md per the adapter's own remove() 
   assert.ok(!ledger.resources.some((resource) => resource.harness === 'gemini'), 'gemini resource must be removed from the ledger');
 });
 
-test('mixed -t claude,codex,gemini: install, update, and remove all reconcile in one invocation without cross-harness interference', () => {
+test('mixed -t claude,codex,gemini: install, update, and remove all reconcile in one invocation without cross-harness interference', (t) => {
   // Global scope (matching the existing "already up to date" convergence tests): a project-scoped
   // Claude install also rewrites settings.json's hook paths to ${CLAUDE_PROJECT_DIR} after the
   // copy, which is an orthogonal, pre-existing legacy-path concern unrelated to this lifecycle
   // wiring — global scope keeps this test focused on the three harnesses' lifecycle convergence.
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+  const home = tempDir(t, 'doflow-cli-e2e-');
   let r = run(['install', '-g', '--force', '--target', 'claude,codex,gemini'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
 
@@ -1023,8 +1023,8 @@ test('mixed -t claude,codex,gemini: install, update, and remove all reconcile in
   assert.ok(!fs.existsSync(path.join(home, '.agents', 'skills', 'do-execute-plan', 'SKILL.md')));
 });
 
-test('doflow.lock pins resolved selections on install and clears on full removal', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('doflow.lock pins resolved selections on install and clears on full removal', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   const lockFile = path.join(home, '.doflow', 'doflow.lock');
 
   const r = run(['install', '-g', '--force', '--target', 'codex'], { home });
@@ -1053,8 +1053,8 @@ test('doflow.lock pins resolved selections on install and clears on full removal
   assert.ok(!fs.existsSync(lockFile), 'an empty scope has nothing left to pin');
 });
 
-test('reconcile reports drift, heals it onto the pin, and converges clean', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('reconcile reports drift, heals it onto the pin, and converges clean', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   const install = run(['install', '-g', '--force', '--target', 'codex'], { home });
   assert.strictEqual(install.status, 0, install.stderr);
 
@@ -1078,13 +1078,13 @@ test('reconcile reports drift, heals it onto the pin, and converges clean', () =
   assert.match(converged.stdout, /Observed state matches doflow\.lock/);
 
   // Reconcile without a lock has no desired state and says so instead of guessing.
-  const bare = run(['reconcile', '-g', '--force'], { home: fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-')) });
+  const bare = run(['reconcile', '-g', '--force'], { home: tempDir(t, 'doflow-cli-e2e-') });
   assert.strictEqual(bare.status, 0);
   assert.match(bare.stdout, /No doflow\.lock in this scope/);
 });
 
-test('Pi MCP: a global install merges into a hand-written ~/.pi/agent/mcp.json and remove leaves the user bytes untouched', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('Pi MCP: a global install merges into a hand-written ~/.pi/agent/mcp.json and remove leaves the user bytes untouched', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   const mcpFile = path.join(home, '.pi', 'agent', 'mcp.json');
   fs.mkdirSync(path.dirname(mcpFile), { recursive: true });
   const handWritten = '{\n  "mcpServers": { "mine": { "command": "my-server" } },\n  "other": 1\n}\n';
@@ -1104,9 +1104,9 @@ test('Pi MCP: a global install merges into a hand-written ~/.pi/agent/mcp.json a
   assert.strictEqual(fs.readFileSync(mcpFile, 'utf8'), handWritten, 'remove restores the user\'s bytes exactly');
 });
 
-test('Pi MCP: a project install writes <project>/.pi/mcp.json with both catalog servers and prints the trust notice', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-project-'));
+test('Pi MCP: a project install writes <project>/.pi/mcp.json with both catalog servers and prints the trust notice', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
+  const project = tempDir(t, 'doflow-cli-e2e-project-');
   const r = run(['install', project, '--force', '--no-backup', '-t', 'pi', '--mcp', 'all'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
 
@@ -1115,8 +1115,8 @@ test('Pi MCP: a project install writes <project>/.pi/mcp.json with both catalog 
   assert.ok(r.stdout.includes('MCP: Pi reads .pi/mcp.json only after this project is trusted (/trust or --approve); DoFlow does not grant trust.'), r.stdout);
 });
 
-test('Pi MCP: an update with a narrower --mcp selection drops the deselected server from Pi\'s mcp.json', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
+test('Pi MCP: an update with a narrower --mcp selection drops the deselected server from Pi\'s mcp.json', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
   let r = run(['install', '-g', '--force', '-t', 'claude,pi', '--mcp', 'context7,sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   const piMcp = path.join(home, '.pi', 'agent', 'mcp.json');
@@ -1128,9 +1128,9 @@ test('Pi MCP: an update with a narrower --mcp selection drops the deselected ser
   assert.deepStrictEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf8')).mcpServers), ['context7']);
 });
 
-test('Pi MCP: PI_CODING_AGENT_DIR redirects mcp.json while skills stay under ~/.pi/agent', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-'));
-  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-cli-e2e-agentdir-'));
+test('Pi MCP: PI_CODING_AGENT_DIR redirects mcp.json while skills stay under ~/.pi/agent', (t) => {
+  const home = tempDir(t, 'doflow-cli-e2e-');
+  const agentDir = tempDir(t, 'doflow-cli-e2e-agentdir-');
   const r = run(['install', '-g', '--force', '--no-backup', '-t', 'pi', '--mcp', 'all'], { home, env: { PI_CODING_AGENT_DIR: agentDir } });
   assert.strictEqual(r.status, 0, r.stderr);
 

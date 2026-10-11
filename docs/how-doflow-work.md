@@ -192,8 +192,10 @@ else. `/do maintain` is the entry in the `do` skill that walks the open items; i
 
 **The store is a folder of events, not a file.** Each change writes one small JSON file under
 `.doflow/state/lifecycle/events/`, created once and never edited or renamed. The folder is local to
-this machine and not shared. Files are deleted only by the retention switch, `DOFLOW_RETENTION_HOURS`,
-which removes the files of settled items older than the window it names; unset, nothing is deleted.
+this machine and not shared. The files of settled items are deleted once they are older than the
+retention window: 180 days by default and the hours `DOFLOW_RETENTION_HOURS` names when it is set.
+While pruning is switched off none are deleted, unless `DOFLOW_RETENTION_HOURS` is set explicitly:
+that window still decides lifecycle-event removal.
 Beside the events sit only a marker recording the one-time copy from the old `agent-docs/lifecycle/`
 folder and the retention switch's journal; there is no running state: every read lists the events,
 orders them by time and id, and folds them into the current picture. Two copies that hold the same files therefore produce
@@ -218,8 +220,8 @@ and may nudge when a linked feature is finished while an item is unchecked, but 
 Dismissing an item and reopening a dismissed one also need a reason, and every event records
 whether the user or the agent acted.
 
-**What it will not do.** DoFlow never stages, commits or pushes the lifecycle folder and writes no
-ignore rule for it; nothing in the loop makes a network call; and no part of it blocks an edit, a
+**What it will not do.** DoFlow never stages, commits or pushes the lifecycle folder, which
+`.doflow/state/.gitignore` keeps out of `git add -A`; nothing in the loop makes a network call; and no part of it blocks an edit, a
 write or a commit. Failure capture is machine-local, masked and switchable off, and it never
 changes the output or exit status of the command it observes.
 

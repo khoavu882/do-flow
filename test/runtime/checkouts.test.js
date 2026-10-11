@@ -7,7 +7,6 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
@@ -15,6 +14,7 @@ const { listCheckouts, findStateFile, clearCheckoutCache } = require('../../src/
 const { BASE_FILE } = require('../../src/runtime/worktree');
 
 const { createScratch } = require('../helper/scratch-env');
+const { suiteTempDir } = require('../helper/tmp');
 
 // The scratch environment is this process's, so git spawned in-process by listCheckouts, as well as
 // the helper below, reads no real HOME, global or system git config.
@@ -36,7 +36,7 @@ let root;
 const at = {};
 
 before(() => {
-  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-checkouts-')));
+  root = suiteTempDir('doflow-checkouts-');
   at.m = path.join(root, 'm');
   fs.mkdirSync(at.m);
   git(at.m, 'init', '-q', '-b', 'main');
@@ -60,8 +60,6 @@ before(() => {
   at.plain = path.join(root, 'plain');
   fs.mkdirSync(at.plain);
 });
-
-after(() => { if (root) fs.rmSync(root, { recursive: true, force: true }); });
 
 function list(cwd, exec) {
   clearCheckoutCache();

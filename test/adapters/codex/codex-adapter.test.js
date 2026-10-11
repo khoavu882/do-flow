@@ -2,15 +2,15 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp');
 const { loadRegistry, selectAssets } = require('../../../src/registry');
 const { harnessFor } = require('../../../src/registry');
 const { projectAdapterInput } = require('../../../src/adapters');
 const { normalizeContext, discover, render, plan, apply, remove, verify } = require('../../../src/adapters/codex');
 
 const REPO = path.resolve(__dirname, "../../..");
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-codex-adapter-')); }
+function scratch() { return suiteTempDir('doflow-codex-adapter-'); }
 
 test('discovers native Codex locations in neutral project scope', () => {
   const projectRoot = scratch();
@@ -149,6 +149,21 @@ test('full apply then verify returns lifecycle-ready owned resources for project
   assert.equal(fs.readFileSync(config, 'utf8'), edited, 'planning a conflict must preserve user-edited bytes');
 });
 
+test('the Codex-projected MCP guidance keeps the Claude Code ToolSearch availability wording (scenario 9)', () => {
+  const registry = loadRegistry({ repoRoot: REPO }); const projectRoot = scratch(); const harness = harnessFor(registry, 'codex');
+  const assets = selectAssets(registry, { harness: 'codex' });
+  const projected = projectAdapterInput({ registry, harness, scope: 'project', scopeRoot: projectRoot, assets, mcp: [], policies: [], context: { sourceVersion: 'test-v1' } });
+  const input = { ...projected, projectRoot, context: { repoRoot: REPO, sourceVersion: 'test-v1' } };
+  apply({ ...input, changes: plan(input).changes });
+  const availability = (text) => text.slice(text.indexOf('**Availability:**')).replace(/\s+/g, ' ').trim();
+  for (const doc of ['MCP_Context7.md', 'MCP_Sequential.md']) {
+    const source = fs.readFileSync(path.join(REPO, 'core', 'shared', 'guidance', 'mcp', doc), 'utf8');
+    const copy = fs.readFileSync(path.join(projectRoot, '.doflow', 'guidance', 'mcp', doc), 'utf8');
+    assert.match(availability(copy), /\(on Claude Code, `ToolSearch\("select:mcp__[a-z0-9-]+__[a-z-]+"\)` finds none\)/, `${doc} projected copy names Claude Code for ToolSearch`);
+    assert.equal(availability(copy), availability(source), `${doc} projected Availability sentence matches the source`);
+  }
+});
+
 test('copy-tree assets (rules/skills/agents/templates/scripts/references) install, converge, and remove across .agents/ and .codex/', () => {
   const registry = loadRegistry({ repoRoot: REPO }); const projectRoot = scratch(); const harness = harnessFor(registry, 'codex');
   const assets = selectAssets(registry, { harness: 'codex' });
@@ -247,4 +262,16 @@ test('verify records no MCP row for a server the user defined, and DoFlow\'s ren
       assert.equal(mcpRows[0].fingerprint, fingerprint(renderServer('context7', { command: catalog[0].command, args: catalog[0].args })));
     }
   }
+});
+
+test('Codex discovery reports configured servers it can name, sorted, and null when config.toml is absent', () => {
+  const projectRoot = scratch();
+  const registry = { mcp: [{ id: 'context7' }], capabilities: { search: { providers: [{ id: 'p', mcp: { server: 'acme', tool: 'find' } }, { id: 'q' }] } } };
+  assert.equal(discover({ scope: 'project', projectRoot, registry }).mcpConfigured, null);
+  const config = path.join(projectRoot, '.codex', 'config.toml');
+  fs.mkdirSync(path.dirname(config), { recursive: true });
+  fs.writeFileSync(config, '[mcp_servers.acme]\ncommand = "acme"\n\n[mcp_servers.context7]\ncommand = "npx"\n\n[mcp_servers.other]\ncommand = "x"\n');
+  assert.deepEqual(discover({ scope: 'project', projectRoot, registry }).mcpConfigured, ['acme', 'context7']);
+  fs.writeFileSync(config, 'not = [valid');
+  assert.equal(discover({ scope: 'project', projectRoot, registry }).mcpConfigured, null);
 });

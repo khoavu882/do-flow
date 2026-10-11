@@ -14,6 +14,7 @@ const { sourceCommit } = require('../../helper/git');
 const { chmodHooksExecutable } = require('../../helper/settings-scope');
 const { resolveMcpSelections } = require('../../install/mcp');
 const { loadRegistry } = require('../../registry');
+const { storageAfterInstall } = require('../../runtime/storage/upkeep');
 const { applyLifecycle, recordMcpOwnership } = require('../../lifecycle');
 const {
   codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, assertSafeRegistryPlan,
@@ -140,6 +141,7 @@ function cmdUpdate(o) {
     console.log(`[INFO] doflow.lock: ${updateLock.summary}`);
 
     applyBackupRetention({ backupRoot, prune: o.prune, keep, bid });
+    storageAfterInstall({ scope: scope.global ? 'global' : 'project', scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot) });
 
     console.log('[OK] Update complete!');
   } finally {

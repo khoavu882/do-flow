@@ -27,11 +27,13 @@ const { RecoveryManager } = require('../recovery');
 const { finishRuntime, usageError } = require('../cli-result');
 const { REPO_ROOT } = require('../../helper/repo-root');
 const {
-  resolveScopeBound, resolveIntegrationBase, parseDeclaredScope, scopeReasonText, boundSourcesText,
+  resolveScopeBound, resolveIntegrationBase, resolveExplicitBaseline, parseDeclaredScope, scopeReasonText, boundSourcesText,
 } = require('./scope-bound');
+const nodeCrypto = require('node:crypto');
 const { readReadinessRecord, RECORD_VERSION } = require('../readiness-record');
 const { verifyReadinessCheck, featureSlugFor } = require('../implementation-gate');
 const { assertSafeTaskId } = require('../evidence-ledger');
+const { upkeepAfterVerify } = require('../storage/upkeep');
 const {
   VerificationContractRunner,
   FATAL_CHECK_MARKERS,
@@ -176,11 +178,24 @@ class VerificationEngine {
       fsImpl: this.fsImpl,
     });
 
-    const structuralChecks = Array.isArray(input.structuralChecks) ? input.structuralChecks : [];
-    const requirements = Array.isArray(input.requirements) ? input.requirements : [];
+    let structuralChecks = Array.isArray(input.structuralChecks) ? input.structuralChecks : [];
+    let requirements = Array.isArray(input.requirements) ? input.requirements : [];
     const scope = input.scope && typeof input.scope === 'object' ? input.scope : {};
+    const phase = input.phase === 'postimplementation' ? 'postimplementation' : 'unknown';
     const declaredNone = new Set(detection.declaredNone || []);
     const absent = new Set(detection.absent || []);
+    let provenance = input.provenance && typeof input.provenance === 'object' ? { ...input.provenance } : null;
+
+    if (input.verificationInput !== undefined && input.verificationInput !== null) {
+      const val = validateVerificationInput({ cwd: this.cwd, verificationInput: input.verificationInput });
+      if (!val.ok) throw new Error(val.message);
+      structuralChecks = val.structuralChecks;
+      requirements = val.requirements;
+      provenance = { ...(provenance || {}), ...val.provenance };
+    }
+    if (scope.baseline === 'explicit' && scope.baselineSha) {
+      provenance = { ...(provenance || {}), baselineSha: scope.baselineSha };
+    }
 
     const tiers = this.registry.tiers.map((tier) => {
       const required = requiredTiers.has(tier.id);
@@ -249,7 +264,11 @@ class VerificationEngine {
       taskId: input.taskId,
       riskLevel,
       compiledAt: this.timestamp(),
-      compiledBeforeImplementation: true,
+      // Compilation does not know when it runs relative to implementation, so it never asserts it ran
+      // before: `unknown` is null, and only an explicit `postimplementation` phase records false (IC-022).
+      phase,
+      compiledBeforeImplementation: phase === 'postimplementation' ? false : null,
+      ...(provenance && typeof provenance === 'object' ? { provenance } : {}),
       cwd: this.cwd,
       maxRecoveryIterations: risk.maxRecoveryIterations,
       detection: {
@@ -263,6 +282,7 @@ class VerificationEngine {
       scope: {
         maxFiles: Number.isFinite(scope.maxFiles) ? scope.maxFiles : null,
         allowedPaths: toStringArray(scope.allowedPaths),
+        ...(scope.baseline === 'explicit' ? { baseline: { kind: 'pinned', ref: scope.baselineRef, sha: scope.baselineSha } } : {}),
         ...(Array.isArray(scope.sources) ? { sources: scope.sources } : {}),
         ...(Array.isArray(scope.searched) ? { searched: scope.searched } : {}),
       },
@@ -434,6 +454,7 @@ class VerificationEngine {
         ...(typeof scope.source === 'string' ? { source: scope.source } : {}),
         ...(Array.isArray(scope.sources) ? { sources: scope.sources } : {}),
         ...(scope.baseline === 'integration' ? { baseline: 'integration' } : {}),
+        ...(scope.baseline === 'explicit' ? { baseline: 'explicit', baselineRef: scope.baselineRef, baselineSha: scope.baselineSha } : {}),
       },
       reason: null,
     };
@@ -448,6 +469,8 @@ class VerificationEngine {
    * @returns {{ files: Array<string>|null, reason: string|null, baseline?: Object }}
    */
   observeChangedFiles(changedFiles, bound = null) {
+    // An explicit baseline observes git itself: a caller's file list cannot stand in for what changed.
+    if (bound && bound.baseline === 'explicit') return this.observeSince(bound.baselineSha, { kind: 'pinned', ref: bound.baselineRef, sha: bound.baselineSha });
     if (Array.isArray(changedFiles)) return { files: changedFiles.filter((f) => typeof f === 'string'), reason: null };
 
     if (bound && bound.baseline === 'integration') return this.observeFromBase();
@@ -479,6 +502,21 @@ class VerificationEngine {
    */
   observeFromBase() {
     const base = resolveIntegrationBase({ cwd: this.cwd, exec: this.exec });
+    if (base.reason) {
+      const working = this.observeSince(null, null);
+      if (working.files === null) return working;
+      return { files: working.files, reason: null, baseline: { kind: 'working-tree', note: base.note || `${base.reason}; only the working tree was compared` } };
+    }
+    return this.observeSince(base.mergeBase, { kind: 'merge-base', ref: base.ref, mergeBase: base.mergeBase });
+  }
+
+  /**
+   * Files changed since `commit` (null: the working tree alone): committed changes to HEAD, staged,
+   * unstaged and untracked paths. NUL-delimited, unquoted, with renames split so both names count; only
+   * DoFlow's own `.doflow/` state is excluded.
+   * @private
+   */
+  observeSince(commit, baseline) {
     const git = (args) => {
       let res;
       try {
@@ -499,18 +537,12 @@ class VerificationEngine {
     // and a repo that does not ignore it would otherwise fail its own scope after any record.
     const counts = (f) => f !== '.doflow' && !f.startsWith('.doflow/');
     const working = status.out.split('\0').filter(Boolean).map((entry) => entry.slice(3)).filter(Boolean).filter(counts);
+    if (commit === null) return { files: working, reason: null };
 
-    if (base.reason) {
-      return { files: working, reason: null, baseline: { kind: 'working-tree', note: base.note || `${base.reason}; only the working tree was compared` } };
-    }
-    const diff = git(['diff', '--name-only', '--no-renames', '-z', `${base.mergeBase}...HEAD`]);
+    const diff = git(['diff', '--name-only', '--no-renames', '-z', `${commit}..HEAD`]);
     if (diff.reason) return { files: null, reason: diff.reason };
     const committed = diff.out.split('\0').filter(Boolean).filter(counts);
-    return {
-      files: [...new Set([...committed, ...working])],
-      reason: null,
-      baseline: { kind: 'merge-base', ref: base.ref, mergeBase: base.mergeBase },
-    };
+    return { files: [...new Set([...committed, ...working])], reason: null, baseline };
   }
 
   /**
@@ -679,6 +711,14 @@ class VerificationEngine {
       notApplicable: reportTiers
         .filter((t) => t.status === 'NOT_APPLICABLE' || t.status === 'SUBSUMED')
         .map((t) => ({ tier: t.id, status: t.status, reason: t.reason })),
+      // The contract's own chronology and provenance travel with the verdict, so a report cannot read
+      // as stronger evidence than the contract it was run against (IC-022).
+      contract: {
+        compiledAt: contract.compiledAt || null,
+        phase: contract.phase || 'unknown',
+        compiledBeforeImplementation: contract.compiledBeforeImplementation === undefined ? null : contract.compiledBeforeImplementation,
+        ...(contract.provenance ? { provenance: contract.provenance } : {}),
+      },
       detection: contract.detection,
     };
   }
@@ -970,13 +1010,190 @@ class VerificationEngine {
  * @param {string} [options.scope] a declared scope (`<path>[,<path>...]`), unioned with any plan bound
  * @returns {number} exit code
  */
-function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null, scope = null } = {}) {
+/**
+ * Validates a verification input manifest file (IC-022).
+ *
+ * @param {Object} options
+ * @param {string} options.cwd
+ * @param {string} options.verificationInput
+ * @param {Object} [options.fs]
+ * @param {Object} [options.crypto]
+ * @returns {{ ok: true, structuralChecks: Array<Object>, requirements: Array<Object>, provenance: Object } | { ok: false, message: string }}
+ */
+function validateVerificationInput({ cwd, verificationInput, fs = nodeFs, crypto = nodeCrypto }) {
+  if (typeof verificationInput !== 'string' || verificationInput.trim() === '') {
+    return { ok: false, message: '--verification-input requires a file path.' };
+  }
+  const inputAbs = path.isAbsolute(verificationInput) ? verificationInput : path.resolve(cwd, verificationInput);
+  let rawBytes;
+  try {
+    rawBytes = fs.readFileSync(inputAbs);
+  } catch (err) {
+    return { ok: false, message: `--verification-input '${verificationInput}' could not be read: ${err.message}` };
+  }
+  const manifestDigest = 'sha256:' + crypto.createHash('sha256').update(rawBytes).digest('hex');
+  let manifest;
+  try {
+    manifest = JSON.parse(rawBytes.toString('utf8'));
+  } catch (err) {
+    return { ok: false, message: `--verification-input '${verificationInput}' is not valid JSON: ${err.message}` };
+  }
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    return { ok: false, message: `--verification-input '${verificationInput}' must be a JSON object.` };
+  }
+
+  const ALLOWED_KEYS = new Set(['structuralChecks', 'requirements', 'originalContractPath', 'originalContractDigest']);
+  for (const key of Object.keys(manifest)) {
+    if (!ALLOWED_KEYS.has(key)) {
+      return { ok: false, message: `--verification-input '${verificationInput}' contains unknown field '${key}'.` };
+    }
+  }
+
+  const hasOrigPath = manifest.originalContractPath !== undefined;
+  const hasOrigDigest = manifest.originalContractDigest !== undefined;
+  if ((hasOrigPath && !hasOrigDigest) || (!hasOrigPath && hasOrigDigest)) {
+    return { ok: false, message: `--verification-input '${verificationInput}' must specify both originalContractPath and originalContractDigest together.` };
+  }
+  if (hasOrigPath && hasOrigDigest) {
+    if (typeof manifest.originalContractPath !== 'string' || manifest.originalContractPath.trim() === '') {
+      return { ok: false, message: '--verification-input originalContractPath must be a non-empty string.' };
+    }
+    if (typeof manifest.originalContractDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(manifest.originalContractDigest)) {
+      return { ok: false, message: '--verification-input originalContractDigest must be in format sha256:<64 hex chars>.' };
+    }
+    const origAbs = path.isAbsolute(manifest.originalContractPath) ? manifest.originalContractPath : path.resolve(cwd, manifest.originalContractPath);
+    let origBytes;
+    try {
+      origBytes = fs.readFileSync(origAbs);
+    } catch (err) {
+      return { ok: false, message: `--verification-input originalContractPath '${manifest.originalContractPath}' could not be read: ${err.message}` };
+    }
+    const actualOrigDigest = 'sha256:' + crypto.createHash('sha256').update(origBytes).digest('hex');
+    if (actualOrigDigest !== manifest.originalContractDigest) {
+      return { ok: false, message: `--verification-input originalContractDigest mismatch for '${manifest.originalContractPath}': expected ${manifest.originalContractDigest}, got ${actualOrigDigest}.` };
+    }
+  }
+
+  let structuralChecks = [];
+  if (manifest.structuralChecks !== undefined) {
+    if (!Array.isArray(manifest.structuralChecks)) {
+      return { ok: false, message: '--verification-input structuralChecks must be an array.' };
+    }
+    const seenNames = new Set();
+    const ALLOWED_STRUCT_KEYS = new Set(['name', 'command', 'timeoutMs']);
+    for (let i = 0; i < manifest.structuralChecks.length; i++) {
+      const entry = manifest.structuralChecks[i];
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return { ok: false, message: `--verification-input structuralChecks[${i}] must be an object.` };
+      }
+      for (const k of Object.keys(entry)) {
+        if (!ALLOWED_STRUCT_KEYS.has(k)) {
+          return { ok: false, message: `--verification-input structuralChecks[${i}] contains unknown field '${k}'.` };
+        }
+      }
+      if (typeof entry.name !== 'string' || entry.name.trim() === '') {
+        return { ok: false, message: `--verification-input structuralChecks[${i}].name must be a non-empty string.` };
+      }
+      if (seenNames.has(entry.name)) {
+        return { ok: false, message: `--verification-input duplicate structural check name '${entry.name}'.` };
+      }
+      seenNames.add(entry.name);
+      if (typeof entry.command !== 'string' || entry.command.trim() === '') {
+        return { ok: false, message: `--verification-input structuralChecks[${i}].command must be a non-empty string.` };
+      }
+      if (entry.timeoutMs !== undefined && (!Number.isInteger(entry.timeoutMs) || entry.timeoutMs <= 0)) {
+        return { ok: false, message: `--verification-input structuralChecks[${i}].timeoutMs must be a positive integer.` };
+      }
+    }
+    structuralChecks = manifest.structuralChecks;
+  }
+
+  let requirements = [];
+  if (manifest.requirements !== undefined) {
+    if (!Array.isArray(manifest.requirements)) {
+      return { ok: false, message: '--verification-input requirements must be an array.' };
+    }
+    const seenIds = new Set();
+    const ALLOWED_REQ_KEYS = new Set(['id', 'description', 'command', 'timeoutMs']);
+    for (let i = 0; i < manifest.requirements.length; i++) {
+      const entry = manifest.requirements[i];
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return { ok: false, message: `--verification-input requirements[${i}] must be an object.` };
+      }
+      for (const k of Object.keys(entry)) {
+        if (!ALLOWED_REQ_KEYS.has(k)) {
+          return { ok: false, message: `--verification-input requirements[${i}] contains unknown field '${k}'.` };
+        }
+      }
+      if (typeof entry.id !== 'string' || entry.id.trim() === '') {
+        return { ok: false, message: `--verification-input requirements[${i}].id must be a non-empty string.` };
+      }
+      if (seenIds.has(entry.id)) {
+        return { ok: false, message: `--verification-input duplicate requirement id '${entry.id}'.` };
+      }
+      seenIds.add(entry.id);
+      if (entry.description !== undefined && typeof entry.description !== 'string') {
+        return { ok: false, message: `--verification-input requirements[${i}].description must be a string.` };
+      }
+      if (entry.command !== undefined && (typeof entry.command !== 'string' || entry.command.trim() === '')) {
+        return { ok: false, message: `--verification-input requirements[${i}].command must be a non-empty string when provided.` };
+      }
+      if (entry.timeoutMs !== undefined && (!Number.isInteger(entry.timeoutMs) || entry.timeoutMs <= 0)) {
+        return { ok: false, message: `--verification-input requirements[${i}].timeoutMs must be a positive integer.` };
+      }
+    }
+    requirements = manifest.requirements;
+  }
+
+  const provenance = {
+    manifestPath: verificationInput,
+    manifestDigest,
+    ...(hasOrigPath ? {
+      originalContractPath: manifest.originalContractPath,
+      originalContractDigest: manifest.originalContractDigest,
+    } : {}),
+  };
+
+  return { ok: true, structuralChecks, requirements, provenance };
+}
+
+/**
+ * Handles `doflow verify` — compile the verification contract (FR-009) and, by default, run it and
+ * report against it.
+ *
+ * `--action contract` stops after compiling, which is the before-implementation half: it states
+ * how success will be established without establishing anything. The default runs the checks and
+ * emits the report. The contract is recompiled rather than read back from a state file, so the two
+ * halves cannot describe different contracts.
+ *
+ * @param {Object} options
+ * @param {string} options.taskId
+ * @param {'report'|'contract'|'status'} [options.action='report']
+ * @param {string} [options.risk] risk level; the registry's default when omitted
+ * @param {string} [options.planPath] a `plan.md` whose command override beats detection
+ * @param {boolean} [options.json=false]
+ * @param {string} [options.projectRoot]
+ * @param {string} [options.slug] the feature whose plan bounds the change; the branch's when omitted
+ * @param {string} [options.scope] a declared scope (`<path>[,<path>...]`), unioned with any plan bound
+ * @param {string} [options.verificationInput] path to input manifest with structuralChecks and requirements (IC-022)
+ * @param {string} [options.verificationPhase] explicit compilation phase (e.g. postimplementation) (IC-022)
+ * @param {string} [options.baselineRef] commit or ref to measure change against (IC-022)
+ * @returns {number} exit code
+ */
+function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null, scope = null, verificationInput = null, verificationPhase = null, baselineRef = null } = {}) {
   // The task id names state files here, so it obeys the rule every other task verb applies.
   try {
     assertSafeTaskId(taskId);
   } catch (error) {
     return usageError('verify', error.message, json);
   }
+
+  if (verificationPhase !== null && verificationPhase !== undefined) {
+    if (verificationPhase !== 'postimplementation' && verificationPhase !== 'unknown') {
+      return usageError('verify', `unknown --verification-phase '${verificationPhase}'. Valid: postimplementation`, json);
+    }
+  }
+
   let declared = null;
   if (scope !== null && scope !== undefined) {
     const parsed = parseDeclaredScope(typeof scope === 'string' ? scope : '');
@@ -986,6 +1203,20 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
     declared = { paths: parsed.paths, origin: 'verify-flag' };
   }
   const cwd = projectRoot || process.cwd();
+
+  let structuralChecks = [];
+  let requirements = [];
+  let inputProvenance = null;
+  if (verificationInput !== null && verificationInput !== undefined) {
+    const val = validateVerificationInput({ cwd, verificationInput });
+    if (!val.ok) {
+      return usageError('verify', val.message, json);
+    }
+    structuralChecks = val.structuralChecks;
+    requirements = val.requirements;
+    inputProvenance = val.provenance;
+  }
+
   // The feature the task belongs to, for the readiness record's namespace and for a run keyed by
   // the feature slug: `--slug`, else the task id's own folder, else the branch's.
   const featureSlug = featureSlugFor({ projectRoot: cwd, taskId, slug });
@@ -1017,12 +1248,22 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
     engine = new VerificationEngine({ cwd, repoRoot: REPO_ROOT });
     // The bound comes from the feature's plan, this checkout's or the main checkout's, and from a
     // declared scope; with neither the change-scope tier is UNRESOLVED and says where it looked.
-    const resolved = resolveScopeBound({ projectRoot: cwd, slug, planPath, declared });
+    const resolved = resolveScopeBound({ projectRoot: cwd, slug, planPath, declared, baselineRef });
     if (recordNote) resolved.searched.push({ place: 'readiness record', result: recordNote.slice('readiness record: '.length) });
     const scopeInput = resolved.bound
       ? { ...resolved.bound, searched: resolved.searched }
-      : { unresolvedReason: scopeReasonText({ reason: resolved.reason, taskId, planSource: resolved.planSource }), searched: resolved.searched };
-    contract = engine.compileContract({ taskId, riskLevel: risk, projectRoot: cwd, planPath, scope: scopeInput });
+      : { unresolvedReason: resolved.unresolvedReason || scopeReasonText({ reason: resolved.reason, taskId, planSource: resolved.planSource }), searched: resolved.searched };
+    contract = engine.compileContract({
+      taskId,
+      riskLevel: risk,
+      projectRoot: cwd,
+      planPath,
+      scope: scopeInput,
+      phase: verificationPhase,
+      structuralChecks,
+      requirements,
+      provenance: inputProvenance,
+    });
   } catch (error) {
     return usageError('verify', error.message, json, error);
   }
@@ -1090,6 +1331,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   }
   // PASS is the only status that answers "verified". FAIL and INCONCLUSIVE are both findings, and
   // collapsing INCONCLUSIVE into success would report a verdict over zero evidence as a pass.
+  upkeepAfterVerify({ projectRoot: cwd });
   return finishRuntime(report.status === 'PASS' ? 0 : 1);
 }
 
@@ -1113,4 +1355,5 @@ module.exports = {
   MAX_STREAM_CHARS,
   REGISTRY_FILENAME,
   handleVerifyCommand,
+  validateVerificationInput,
 };

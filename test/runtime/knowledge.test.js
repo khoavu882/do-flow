@@ -2,14 +2,14 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../helper/tmp');
 const { spawnSync } = require('node:child_process');
 const { chunkMarkdown, HARD_MAX_CHUNK_CHARS } = require('../../src/runtime/knowledge/chunker');
 const { buildIndex, loadIndex, isFresh } = require('../../src/runtime/knowledge/index-store');
-const { bm25Rank, searchGuidance } = require('../../src/runtime/knowledge/retrieval');
+const { bm25Rank, searchGuidance, reciprocalRankFusion } = require('../../src/runtime/knowledge/retrieval');
 
-function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-know-')); }
+function scratch() { return suiteTempDir('doflow-knowledge-'); }
 
 const DOC = `---
 title: Graphify Guide
@@ -174,4 +174,27 @@ test('retrieve prefers the nearest project tree over the home tree', () => {
   fs.writeFileSync(path.join(project, '.doflow', 'guidance', 'project.md'), '# Project\n\nEscalation goes to the project owner.\n');
   const paths = retrieveFrom(project, home).map((hit) => hit.path);
   assert.deepEqual(paths, ['project.md']);
+});
+
+test('reciprocalRankFusion: combines and deduplicates ranked lists using 1 / (60 + rank)', () => {
+  const lexical = [
+    { id: 'doc-a', title: 'Doc A', score: 10.5 },
+    { id: 'doc-b', title: 'Doc B', score: 8.2 },
+    { id: 'doc-c', title: 'Doc C', score: 5.1 },
+  ];
+  const semantic = [
+    { id: 'doc-b', title: 'Doc B', score: 0.95 },
+    { id: 'doc-d', title: 'Doc D', score: 0.88 },
+    { id: 'doc-a', title: 'Doc A', score: 0.72 },
+  ];
+
+  const fused = reciprocalRankFusion([lexical, semantic]);
+
+  // doc-a is rank 0 in lexical (1/61) and rank 2 in semantic (1/63) -> ~0.03226
+  // doc-b is rank 1 in lexical (1/62) and rank 0 in semantic (1/61) -> ~0.03252 -> winner!
+  assert.equal(fused[0].id, 'doc-b', 'doc-b has highest reciprocal rank sum');
+  assert.equal(fused[1].id, 'doc-a', 'doc-a is second');
+  assert.ok(fused.find((f) => f.id === 'doc-c'));
+  assert.ok(fused.find((f) => f.id === 'doc-d'));
+  assert.equal(fused.length, 4, 'deduplicates 6 entries into 4 distinct items');
 });

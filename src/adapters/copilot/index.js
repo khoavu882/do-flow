@@ -68,7 +68,10 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     const instruction = paths.instruction && fsImpl.existsSync(paths.instruction) ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
     const entries = mcpEntriesInput({ paths, mcp, mcpAdoptable, ledger });
     const mcpSnapshot = readMcpFiles({ file: entries.file, ownRows: entries.ownRows, container: MCP_CONTAINER, fsImpl });
-    return { paths, instruction, mcpSnapshot, mcpOwned: ownedMcpIds({ ...entries, files: mcpSnapshot }) };
+    const read = mcpSnapshot[entries.file];
+    // `null` while the file is absent, unreadable or has no server map; every name in it otherwise, whoever wrote it.
+    const mcpConfigured = read?.ok && read.servers ? Object.keys(read.servers).sort() : null;
+    return { paths, instruction, mcpSnapshot, mcpOwned: ownedMcpIds({ ...entries, files: mcpSnapshot }), mcpConfigured };
   }
 
   function render({ content = '' } = {}) {
