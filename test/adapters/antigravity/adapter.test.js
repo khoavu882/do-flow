@@ -493,7 +493,7 @@ test('project plan reads its hook source from context.repoRoot, not the working 
   assert.ok(planned.changes.some((c) => c.assetId === 'hooks.antigravity' && c.identity === 'stop-check.sh'));
 });
 
-test('the four runtime assets plan under <project>/.doflow at project scope and nothing at global scope', () => {
+test('the four runtime assets plan under <root>/.doflow at both project and global scopes', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   const runtimeIds = new Set(RUNTIME_ASSETS.map((asset) => asset.id));
   const runtimeTargets = (planned) => planned.changes.filter((c) => runtimeIds.has(c.assetId)).map((c) => c.target);
@@ -509,18 +509,23 @@ test('the four runtime assets plan under <project>/.doflow at project scope and 
   const home = scratch();
   const globalInput = harnessInput(registry, { scope: 'global', scopeRoot: home });
   const globalPlan = adapter.plan({ ...globalInput, assets: [...globalInput.assets, ...RUNTIME_ASSETS] });
-  assert.deepEqual(runtimeTargets(globalPlan), [], 'global scope plans no runtime target');
-  assert.ok(!fs.existsSync(path.join(home, '.doflow')));
+  const globalTargets = runtimeTargets(globalPlan);
+  assert.ok(globalTargets.length > 0, 'global scope plans the runtime');
+  assert.ok(globalTargets.every((target) => target.startsWith(path.join(home, '.doflow') + path.sep)), 'every runtime target sits under <home>/.doflow');
+  assert.ok(globalTargets.includes(path.join(home, '.doflow', 'runtime', 'bin', 'doflow.js')));
+  assert.ok(globalTargets.includes(path.join(home, '.doflow', 'scripts', 'doflow', 'bin', 'doflow-run')));
 });
 
-test('global scope carries the no-skills notice, project scope and removal carry none', () => {
+test('global scope plans skills under ~/.gemini/config/skills and carries no notices', () => {
   const registry = loadRegistry({ repoRoot: REPO });
-  const global = harnessInput(registry, { scope: 'global', scopeRoot: scratch() });
-  const [notice, ...rest] = adapter.plan(global).notices;
-  assert.deepEqual(rest, []);
-  assert.match(notice, /^no skills at global scope \(the user-scope skills location is unresolved\)/);
-  assert.match(notice, /install per project with: npx @khoavu882\/doflow install -t antigravity$/);
-  assert.ok(notice.length <= 200 && !/[\u0000-\u001f]/.test(notice), 'a notice is one line of at most 200 characters');
+  const home = scratch();
+  const global = harnessInput(registry, { scope: 'global', scopeRoot: home });
+  const plan = adapter.plan(global);
+  assert.deepEqual(plan.notices, []);
+
+  const skillChanges = plan.changes.filter((c) => c.assetId === 'skills.doflow');
+  assert.ok(skillChanges.length > 0, 'global scope plans skills.doflow');
+  assert.ok(skillChanges.every((c) => c.target.startsWith(path.join(home, '.gemini', 'config', 'skills') + path.sep)));
 
   const removing = { ...global, context: { ...global.context, operation: 'remove' } };
   assert.deepEqual(adapter.plan(removing).notices, [], 'removal prints no notice');

@@ -191,7 +191,7 @@
         "pi": "skills",
         "copilot": "skills",
         "kiro": "skills",
-        "antigravity": ".agents/skills"
+        "antigravity": "skills"
       }
     },
     {

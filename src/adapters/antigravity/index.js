@@ -5,8 +5,7 @@
 //   instructions — marker-managed section in PROJECT AGENTS.md only. Global memory is
 //     ~/.gemini/GEMINI.md, shared with the Gemini CLI harness; two adapters writing one file with
 //     one marker pair would fight, so global instructions are reported, never written.
-//   skills       — folder-form copy-tree into project .agents/skills (user scope deliberately
-//     skipped: CLI pages document flat files there while desktop docs document folders).
+//   skills       — folder-form copy-tree into project .agents/skills or user ~/.gemini/config/skills.
 //   agents       — copy-tree into project .agents/agents or user ~/.gemini/config/agents.
 //   mcp          — entries of the mcpServers object in .agents/mcp_config.json (workspace) or
 //     ~/.gemini/config/mcp_config.json (user), owned one at a time through ../mcp-entries.js;
@@ -39,9 +38,6 @@ function readJsonObject(file, { fsImpl = fs } = {}) {
 // mcp-server alike). The antigravity projection shares that same pointer asset, so its rows do too.
 const POINTER_ASSET_ID = 'guidance.codex-pointer';
 const HOOKS_ASSET_ID = 'hooks.antigravity';
-// Printed by install and update at global scope, where Antigravity gets no skills to serve.
-const GLOBAL_SCOPE_NOTICE = 'no skills at global scope (the user-scope skills location is unresolved), so DoFlow skills and runtime are not installed here; install per project with: npx @khoavu882/doflow install -t antigravity';
-const SHARED_RUNTIME_ASSET_IDS = new Set(['scripts.doflow', 'runtime.cli', 'runtime.lib', 'runtime.registry']);
 // One owned hooks.json group per DoFlow policy (the Kiro doflow.json precedent): the two gates
 // stay independently removable/enablable, and a user's own groups are never touched. The Stop
 // registration is matcher-free — Antigravity documents handlers sitting directly under the event
@@ -216,7 +212,11 @@ function managedInstruction(existing, rendered) {
   if (existing === null) return { ok: true, operation: 'create', content: rendered };
   const start = existing.indexOf(MARKER_START);
   const end = existing.indexOf(MARKER_END);
-  if (start === -1 && end === -1) return { ok: false, conflict: 'AGENTS.md exists without a DoFlow managed section' };
+  if (start === -1 && end === -1) {
+    const separator = existing === '' || existing.endsWith('\n') ? '\n' : '\n\n';
+    const content = `${existing}${separator}${rendered}`;
+    return { ok: true, operation: 'merge', content };
+  }
   if (start === -1 || end === -1 || end < start) return { ok: false, conflict: 'AGENTS.md has malformed DoFlow managed-section markers' };
   const content = `${existing.slice(0, start)}${rendered}${existing.slice(end + MARKER_END.length).replace(/^\n?/, '')}`;
   return { ok: true, operation: content === existing ? 'none' : 'merge', content };
@@ -236,20 +236,12 @@ function strippedInstruction(existing) {
 
 /** Scope policy mirrors the registry notes, resolved from each asset's own flat nativeDir:
  *   ../x or .agents/x or .doflow/x  → rooted at the install root (project scope)
- *   plain names (bin, agents)       → inside the scope's config dir (.agents | ~/.gemini/config)
- * Skills are additionally project-only (the user-scope format contradiction is unresolved). */
+ *   plain names (bin, agents)       → inside the scope's config dir (.agents | ~/.gemini/config) */
 function treeDestFor(asset, paths, scope) {
   const nativeDir = asset.nativeDir;
   if (!nativeDir) return null;
   if (asset.id === 'skills.doflow') {
-    // Project-only: the user-scope skills format contradiction is unresolved upstream. The
-    // registry's own nativeDir (.agents/skills) is root-relative, so this joins the ROOT.
-    return scope === 'project' ? path.join(paths.root, nativeDir) : null;
-  }
-  if (SHARED_RUNTIME_ASSET_IDS.has(asset.id)) {
-    // Project-only, like skills: a global install has no skills location for the runtime to serve,
-    // so planting a shared tree under ~/.doflow would be unreachable from this harness.
-    return scope === 'project' ? path.join(paths.root, nativeDir.replace(/^\.\.\//, '')) : null;
+    return paths.skillsDir || path.join(paths.configDir, nativeDir);
   }
   if (asset.id === 'rules.antigravity' || asset.id === 'workflows.antigravity') {
     // Workspace-scope surfaces under .agents/: Antigravity documents workspace rules
@@ -451,7 +443,7 @@ function plan(options = {}, impl = {}) {
     conflicts,
     prerequisites: [],
     requiredNativeResources: changes,
-    notices: [...(scope === 'global' && !removing ? [GLOBAL_SCOPE_NOTICE] : []), ...trees.notices, ...mcp.notices],
+    notices: [...trees.notices, ...mcp.notices],
   };
 }
 

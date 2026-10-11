@@ -35,7 +35,7 @@ const PLACEMENT = {
   pi: { project: ['.pi/skills', '.pi/bin'], global: ['.pi/agent/skills', '.pi/agent/bin'] },
   copilot: { project: ['.agents/skills', '.agents/bin'], global: ['.agents/skills', '.agents/bin'] },
   kiro: { project: ['.kiro/skills', '.kiro/bin'], global: ['.kiro/skills', '.kiro/bin'] },
-  antigravity: { project: ['.agents/skills', '.agents/bin'], global: null },
+  antigravity: { project: ['.agents/skills', '.agents/bin'], global: ['.gemini/config/skills', '.gemini/config/bin'] },
 };
 
 /** Harness and scope pairs whose install carries the guidance tree under `<root>/.doflow/guidance`. */
@@ -177,16 +177,12 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
     assert.ok(finding.detail.includes(`npx @khoavu882/doflow install ${real(cell.proj)} -t pi`), finding.detail);
   }
 
-  test('antigravity, global: no skills and no runtime are installed, and the notice says so', async () => {
+  test('antigravity, global: skills and runtime are installed under ~/.gemini/config/skills and ~/.doflow', async () => {
     const cell = newCell('antigravity-global');
     const installed = await install(cell, 'global', 'antigravity');
     assert.equal(installed.status, 0, installed.stderr);
-    assert.match(installed.stdout + installed.stderr, /antigravity: no skills at global scope \(the user-scope skills location is unresolved\), so DoFlow skills and runtime are not installed here; install per project with: npx @khoavu882\/doflow install -t antigravity/);
-    // The skills directories of data-model §1: `.agents/skills` (project) and the user config dir's `skills`.
-    for (const skills of [path.join(cell.home, '.agents', 'skills'), path.join(cell.home, '.gemini', 'config', 'skills'), path.join(cell.proj, '.agents', 'skills')]) {
-      assert.equal(fs.existsSync(skills), false, `${skills} exists`);
-    }
-    assert.equal(fs.existsSync(path.join(cell.home, '.doflow', 'runtime')), false);
+    assert.equal(fs.existsSync(path.join(cell.home, '.gemini', 'config', 'skills')), true);
+    assert.equal(fs.existsSync(path.join(cell.home, '.doflow', 'runtime')), true);
   });
 
   test('the no-runtime hint, followed to its remedy, reaches the dispatcher', async () => {

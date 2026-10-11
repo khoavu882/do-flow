@@ -1542,6 +1542,14 @@
               ".agents",
               "skills"
             ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".gemini",
+              "config",
+              "skills"
+            ]
           }
         },
         "agentsDir": {
@@ -1605,7 +1613,7 @@
             "https://antigravity.google/docs/cli/plugins",
             "https://antigravity.google/docs/skills"
           ],
-          "note": "DoFlow projects folder-form skills to project .agents/skills only. User scope is deliberately skipped: CLI pages document flat ~/.gemini/antigravity-cli/skills/*.md while desktop docs document folder form under config/skills - an unresolved contradiction.",
+          "note": "Antigravity discovers folder-form skills under .agents/skills (project) and ~/.gemini/config/skills (global).",
           "verification": "Confirm the skill is discoverable by agy from .agents/skills."
         },
         "agents": {
@@ -1622,7 +1630,7 @@
             "https://antigravity.google/docs/cli/plugins",
             "https://antigravity.google/docs/skills"
           ],
-          "note": "Bundled skill scripts travel inside .agents/skills/<name>/scripts/. DoFlow does not project its runtime seam - only the locator lands (.agents/bin/doflow-run), so dispatched verbs exit 2 with the documented searched-paths message.",
+          "note": "Bundled skill scripts travel inside skills/<name>/scripts/. DoFlow projects its runtime seam under .doflow and locator in the configDir bin/ (project and global scopes).",
           "verification": "Confirm a bundled skill scripts/ directory is reachable from an installed skill."
         },
         "templates": {
