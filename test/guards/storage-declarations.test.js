@@ -270,6 +270,9 @@ function runScenario() {
       '```',
       '',
     ].join('\n'));
+    // A feature folder with one plan task, so `task-attempt claim` has a ledger to write (feature 070).
+    fs.mkdirSync(path.join(project, 'agent-docs', 'doflow', 'g26-task'), { recursive: true });
+    fs.writeFileSync(path.join(project, 'agent-docs', 'doflow', 'g26-task', 'plan.md'), '# Plan\n\n## Tasks\n\n- [ ] A.1 one task; owner: core-implementer; files: f.js\n');
     const registry = loadStorageRegistry({ repoRoot: REPO });
     const roots = resolveRoots({ registry, projectRoot: project, env });
     const sessionPayload = { session_id: 'g26-session', cwd: project, source: 'startup' };
@@ -295,6 +298,7 @@ function runScenario() {
       ['research-request', verb('research-request', '--task-id', 'g26-task', '--action', 'open', '--stage-id', 'discovery', '--question', 'a question', '--reason', 'user-request'), 0],
       ['outcome', verb('outcome', '--task-id', 'g26-task', '--action', 'record', '--state', 'BLOCKED', '--task-class', 'bug'), 0],
       ['retrieval-plan', verb('retrieval-plan', '--task-id', 'g26-task', '--action', 'declare', '--need', 'locate-concept'), 0],
+      ['task-attempt claim', verb('task-attempt', '--action', 'claim', '--slug', 'g26-task', '--task', 'A.1', '--owner', 'core-implementer', '--mode', 'manual'), 0],
       ['verify', verb('verify', '--task-id', 'g26-task', '--plan-path', 'plan.md'), 1],
       ['followup report', verb('followup', '--action', 'report', '--statement', 'a problem', '--text', 'its body'), 0],
       ['lifecycle', verb('lifecycle'), 0],

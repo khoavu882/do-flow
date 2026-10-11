@@ -290,6 +290,8 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--baseline-ref', 'baselineRef'],             // verify: explicit ancestor commit or ref to measure change against (IC-022)
   ['--error', 'errorMessage'],         // recover: the failure text to classify
   ['--agent', 'agent'],                // recover: which agent produced the failure
+  ['--task', 'task'],                  // task-attempt: the plan task id, e.g. A.1
+  ['--token', 'token'],                // task-attempt finish|release: the fencing token claim returned
 ]);
 
 /** Repeatable arguments — each occurrence appends rather than replaces. */
@@ -400,6 +402,7 @@ Commands:
   workflow             Resolve a task class to its stages, gates and readiness templates
   orchestrate          Start or resume a run: complete stages, decide gates (--action)
   research-request     Open, list or resolve a feature-stage research question (--task-id)
+  task-attempt         Claim, finish, release or read the attempts on a plan's tasks (--action, --slug)
   retrieve             BM25 search over the installed guidance tree (--query)
   model-role           Resolve a model role to ranked provider candidates (--role)
   advise               Route decision questions to the configured local model (--action)
@@ -456,9 +459,14 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        verify: report|contract · retrieval-plan: declare|report
                        outcome: record|show · advise: ask|outcome|configure · tools: see above
                        followup: add|list|take|settle|promote|report
+                       task-attempt: claim|finish|release|status
                        lifecycle: overview|init|release|status|merged
                        goal: add|item|check|link|list|done
                        failure: list|settle|capture
+      --task, --token, --owner, --mode,
+      --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent;
+                                            finish: --task --token --result COMPLETED|BLOCKED|ABANDONED|INCONCLUSIVE
+                                            [--evidence-id]; release: --task --token --reason)
       --rationale, --proposed-by, --calling-skill    classify
       --request <text>, --request-file <file>  classify (mutually exclusive; optional second opinion)
       --intent, --query, --check            route
