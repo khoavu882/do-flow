@@ -142,10 +142,6 @@ test('G12: every ../.doflow asset plans under <scope root>/.doflow in both scope
     const sharedRoot = path.join(root, '.doflow') + path.sep;
     for (const { id, harness } of shared) {
       const targets = changes.filter((c) => c.harness === harness && c.assetId === id).map((c) => c.target);
-      if (harness === 'antigravity' && scope === 'global' && RUNTIME_ASSET_IDS.includes(id)) {
-        assert.deepEqual(targets, [], `antigravity plans no ${id} at global scope (no skills there to serve)`);
-        continue;
-      }
       assert.ok(targets.length > 0, `${harness} ${scope}: ${id} planned no target, so its placement is unchecked`);
       const stray = targets.filter((target) => !target.startsWith(sharedRoot));
       assert.deepEqual(stray.slice(0, 3), [],

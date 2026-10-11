@@ -312,10 +312,8 @@ describe('Codex target: release, report, goal and failure run from the installed
 // locator reaches it the same way. The harness list is read from the registry, so a harness added
 // there is covered without an edit here.
 const HARNESS_IDS = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.json'), 'utf8')).harnesses.map((x) => x.id);
-// A global Antigravity install projects only the locator: Antigravity has no user-scope skills
-// location, so the runtime ships at project scope only, and a global install's dispatched verbs exit
-// 2. The project-scope case below covers Antigravity's real path.
-const NO_RUNTIME = new Set(['antigravity']);
+// All 8 harnesses project their locator and runtime at global scope.
+const NO_RUNTIME = new Set();
 const NOTICE = 'note: the lifecycle store is now .doflow/state/lifecycle/events; agent-docs/lifecycle/ is no longer read and can be deleted';
 
 /** The event files of a folder with their bytes. */
