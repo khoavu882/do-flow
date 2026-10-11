@@ -46,6 +46,12 @@ const PLAN_OVERRIDE_BLOCK = 'doflow-verification';
 /** Substituted by the verification engine when it has a target to scope tests to. */
 const TARGET_PATTERN_TOKEN = '{pattern}';
 
+/** A `package.json` test script that is `node --test` over files or directories, and nothing else:
+ * the one npm shape whose runner is known to take file arguments (feature 071, FR-002). */
+const NODE_TEST_SCRIPT = /^node --test( \S+)+$/;
+/** A script chaining other commands is not only `node --test`: a targeted form would drop the rest. */
+const SHELL_SYNTAX = /[&|;<>$`()\\]/;
+
 /**
  * Roles this module only ever synthesizes from another role. An override of the base role has to
  * invalidate the derived one: `testTargeted` detected as `npm test -- {pattern}` is a lie the
@@ -145,10 +151,20 @@ function detectNode(root, fsImpl) {
   const testScript = script('test');
   if (testScript) {
     roles.test = { command: pm.test, derivation: 'declared' };
-    // Whether the underlying runner accepts a trailing path or pattern depends on the runner, not
-    // on npm, so this is inferred rather than declared and the engine falls back to the broad
-    // command when no pattern is supplied.
-    roles.testTargeted = { command: `${pm.test} -- ${TARGET_PATTERN_TOKEN}`, derivation: 'inferred' };
+    const testText = scripts[testScript].trim();
+    const scriptArgs = testText.split(' ').slice(2);
+    // A flag (`--require ./setup.js`) would be dropped by the targeted form, so it is not declared.
+    if (NODE_TEST_SCRIPT.test(testText) && !SHELL_SYNTAX.test(testText) && !scriptArgs.some((arg) => arg.startsWith('-'))) {
+      // The runner is named by the script itself, so the targeted form is declared, not guessed.
+      // `testDirs` are the arguments the script already passes: where its test files live.
+      const testDirs = scriptArgs;
+      roles.testTargeted = { command: `node --test ${TARGET_PATTERN_TOKEN}`, derivation: 'declared', testDirs };
+    } else {
+      // Whether the underlying runner accepts a trailing path or pattern depends on the runner, not
+      // on npm, so this is inferred rather than declared and the engine falls back to the broad
+      // command when no pattern is supplied.
+      roles.testTargeted = { command: `${pm.test} -- ${TARGET_PATTERN_TOKEN}`, derivation: 'inferred' };
+    }
   } else absent.push('test');
 
   return { id: 'package.json', roles, absent };
@@ -347,7 +363,7 @@ function detectCommands(options = {}) {
       if (commands[role]) {
         alternatives.push({ role, command: entry.command, source: found.id, derivation: entry.derivation });
       } else {
-        commands[role] = { role, command: entry.command, source: found.id, derivation: entry.derivation };
+        commands[role] = { role, command: entry.command, source: found.id, derivation: entry.derivation, ...(entry.testDirs ? { testDirs: entry.testDirs } : {}) };
       }
     }
     for (const role of found.absent || []) {
