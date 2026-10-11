@@ -107,3 +107,28 @@ test('graph expansion: a strong anchor hit offers its imports as read-next, flag
     assert.equal(entry.score, null, 'graph entries carry no fabricated lexical score');
   }
 });
+
+test('hybrid RRF fusion eval: combines lexical and semantic rank lists with reciprocal rank fusion', () => {
+  const { fuseHybridResults } = require('../../src/runtime/knowledge/retrieval');
+  const lexicalList = [
+    { path: 'rollback.md:1', score: 4.2 },
+    { path: 'tombstones.md:1', score: 3.1 },
+    { path: 'mcp-servers.md:1', score: 2.0 },
+  ];
+  const semanticList = [
+    { locator: 'hooks-trust.md:12', text: 'Codex and Gemini gate hooks behind their own review' },
+    { locator: 'rollback.md:1', text: 'Restore with the backup id' },
+    { locator: 'skills-standard.md:46', text: 'Skill authoring standard' },
+  ];
+
+  const fused = fuseHybridResults({
+    lexicalResults: lexicalList,
+    semanticResults: semanticList,
+    topN: 5,
+    k: 60,
+  });
+
+  assert.ok(fused.length <= 5, 'bounded to top N');
+  assert.equal(fused[0].locator.file, 'rollback.md', 'consensus candidate ranked first');
+  assert.ok(fused[0].rrfScore > fused[1].rrfScore, 'rrfScore reflects rank consensus');
+});
