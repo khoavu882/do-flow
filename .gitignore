@@ -44,11 +44,12 @@ backups/
 downloads/
 
 # Local memories
+.agents
 .codex
 .claude
-.gemini
-.agents
 .doflow
+.gemini
+.kiro
 .opencode
 .pi
 GEMINI.md
