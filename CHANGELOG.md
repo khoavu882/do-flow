@@ -15,7 +15,13 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.24.0] - 2026-10-11
+
 ### Added
+- Decision model advisory routing via `doflow advise`: local loopback-only second opinions for `verify-risk`, `task-class`, `tier`, `followup-triage`, and `review-depth`, bounded by DNS resolution budgets and symlink write prevention.
+- Context footprint budgeting with `compileBoundedContextPack`, partitioning mandatory and optional context slices under explicit byte ceilings with omission tracing.
+- Ambient TypeScript declarations in `types/runtime.d.ts` included in the package distribution, alongside strict performance latency budgets.
+- Hybrid RAG retrieval using Reciprocal Rank Fusion (RRF) for bounded lexical and semantic result merging.
 - Storage retention, on by default. Every store DoFlow writes has one bound, declared in `core/registry/storage.json` and listed in `docs/reference.md`: the 40 newest verification logs within 30 days; per-task records 30 days after their work finished; run partitions after 180 days; the 3 newest recovery snapshots plus the one the ledger names; settled lifecycle events after 180 days; orphan report bodies after 24 hours; session folders after 30 days and project folders after 90 days. Open, waiting and unfinished work is never removed.
 - Cleanup runs silently after runtime verbs (at most daily per root), after `verify`, after `install` and `update`, and from session hooks. Each pass stops after 750 ms or 5,000 removals, so the first passes after upgrading remove an existing backlog over several runs.
 - `.doflow/state/.gitignore`, written once when the state folder exists, keeps runtime state out of `git add -A` except `ledger.json`. `doflow remove` deletes it with the other control files.
