@@ -108,11 +108,12 @@ capability reads Different: a full native surface is documented upstream, but Do
 it yet because its shipped scripts are Claude-payload-coupled — its cells record that status per
 event rather than hiding it behind a dash, and each note names the payload caveat blocking
 projection. Kiro's `hooks` capability is Supported — DoFlow projects a real `.kiro/hooks/*.json`
-file wiring `SessionStart`, two `PreToolUse` hooks, and `Stop` — but the registry does not yet break
+file wiring `SessionStart`, three `PreToolUse` hooks, and `Stop` — but the registry does not yet break
 that support down into a per-event map beyond `UserPromptSubmit` (Different: a native trigger DoFlow
 does not wire), so Kiro's other cells here are dashes pending that data;
 see the `hooks` capability note in `core/registry/harnesses.json` and the verification row below for
-Kiro's actual wired events instead of this table. Kiro's hooks are not in Kiro v3's
+Kiro's actual wired events instead of this table. Kiro CLI V3 loads standalone `.kiro/hooks/*.json` for every agent, so `doflow.json` also runs there, and its Stop hook
+returns a JSON block instead of exit 2. Kiro's hooks are not in Kiro v3's
 untrusted-workspace exclusion list (custom agents, steering, MCP configuration, skills, workflows);
 an untrusted workspace asks before every shell command, and whether that covers hook commands is
 undocumented. Antigravity's hooks are supported with a documented
