@@ -77,6 +77,16 @@ The servers are optional. A stage that names one consults it only when its trigg
 server is available, and says what it did at handoff; see [MCP server selection](#mcp-server-selection)
 for which stage names which server and how to add one.
 
+### Decision model (optional)
+
+To enable advisory decision picks, run `doflow advise --action configure --model <decision-capable-model>`.
+This writes the user setting to `$XDG_CONFIG_HOME/doflow/decision-model.json`, or to
+`~/.config/doflow/decision-model.json` when `XDG_CONFIG_HOME` is unset. A project may override that
+user setting only after the user enables it: project configuration can disable advice or choose a
+model, but cannot enable advice or select an endpoint or provider. Decision-model endpoints must
+resolve only to loopback addresses; DoFlow rejects non-loopback endpoints. DoFlow never pulls a
+model or starts Ollama.
+
 ## Installation modes
 
 ### Claude Code only

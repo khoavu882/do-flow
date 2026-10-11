@@ -30,7 +30,7 @@ esac
 level=2; prev=""
 for a in "$@"; do [ "$prev" = "--heading-level" ] && level="$a"; prev="$a"; done
 h="$(printf '#%.0s' $(seq 1 "$level"))"
-jq -n --arg h "$h" '{markdown: ($h + " Tier and tools\\n\\nFAKE BLOCK\\n\\n" + $h + " Report format\\n\\nFAKE REPORT FORMAT\\n"), record: {schema: 1, stage: "design", owner: "x", missing: []}}'
+jq -n --arg h "$h" '{markdown: ($h + " Tier and tools\\n\\nFAKE BLOCK\\n\\n" + $h + " Report format\\n\\nFAKE REPORT FORMAT\\n"), record: {schema: 1, stage: "design", owner: "x", missing: [], advice: {kind:"tier", status:"answered", pickId:"adv-1760097600000-3fa2c1"}}}'
 `;
 
 const PLAN = `## 1. Approach
@@ -136,6 +136,7 @@ describe('single-task mode', () => {
     const record = JSON.parse(f.read(`${EXEC}/task-A.1-brief.json`));
     assert.equal(record.schema, 1);
     assert.deepEqual(record.tasks, [{ id: 'A.1', report: `${EXEC}/task-A.1-report.md` }]);
+    assert.deepEqual(record.advice, { kind: 'tier', status: 'answered', pickId: 'adv-1760097600000-3fa2c1' });
     assert.deepEqual(res.data.missing, []);
     assert.equal(res.data.path, `${EXEC}/task-A.1-brief.md`, 'existing JSON fields are kept');
   });
@@ -150,6 +151,7 @@ describe('single-task mode', () => {
     assert.match(calls[0], /--owner core-implementer/);
     assert.match(calls[0], /--tier frontier/);
     assert.match(calls[0], /--heading-level 2/);
+    assert.match(calls[0], /--tasks A\.1/);
     assert.match(calls[0], new RegExp(`--slug ${FEATURE}`));
     assert.doesNotMatch(calls[0], /--harness/);
   });
@@ -180,6 +182,7 @@ describe('group mode', () => {
     assert.ok(at(md, '### Tier and tools') < at(md, '### Report format'));
     assert.ok(at(md, '### Report format') < at(md, '## Task order'));
     assert.match(f.calls()[0], /--heading-level 3/);
+    assert.match(f.calls()[0], /--tasks A\.1,A\.2/);
     assert.match(f.calls()[0], /--owner core-implementer/);
     assert.equal(res.data.record, `${EXEC}/group-A-core-implementer-brief.json`);
     const record = JSON.parse(f.read(`${EXEC}/group-A-core-implementer-brief.json`));
@@ -187,6 +190,7 @@ describe('group mode', () => {
       { id: 'A.1', report: `${EXEC}/task-A.1-report.md` },
       { id: 'A.2', report: `${EXEC}/task-A.2-report.md` },
     ]);
+    assert.deepEqual(record.advice, { kind: 'tier', status: 'answered', pickId: 'adv-1760097600000-3fa2c1' });
   });
 
   test('passes the tier when every task carries the same value, none when they disagree', () => {

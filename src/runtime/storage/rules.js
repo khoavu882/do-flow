@@ -11,7 +11,7 @@ const HOUR = 3600000;
 const BODY = /^FU-[0-9a-hjkmnp-tv-z]{6}\.txt$/;
 const LOG = /[0-9]{13}-[A-Za-z0-9._-]+\.log/g;
 const TMP = /^[A-Za-z0-9][A-Za-z0-9._-]*\.json\.[0-9]+\.tmp$/;
-const ruleOrder = ['verification-logs', 'task-evidence', 'task-readiness', 'task-research', 'task-outcome', 'task-retrieval', 'task-orchestration', 'runs-project', 'runs-user', 'lifecycle-events', 'report-bodies', 'session-dirs', 'project-dirs', 'recovery-user', 'recovery-project'];
+const ruleOrder = ['verification-logs', 'task-evidence', 'task-readiness', 'task-research', 'task-outcome', 'task-retrieval', 'task-orchestration', 'runs-project', 'runs-user', 'advice-picks-project', 'advice-picks-user', 'lifecycle-events', 'report-bodies', 'session-dirs', 'project-dirs', 'recovery-user', 'recovery-project'];
 const removableRules = new Set(['count-and-age','work','date-partition','recovery','lifecycle-settled','report-orphan','age']);
 const SAFE_NAMESPACE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 // Open-log protection cannot vouch for a record store that holds a link, so the pass fails closed.

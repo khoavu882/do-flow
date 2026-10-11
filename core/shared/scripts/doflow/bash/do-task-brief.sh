@@ -192,14 +192,14 @@ task_field() { # task_field <task line> <name>
 }
 
 # Sets bt_md and bt_record on success, bt_reason on every failure; never exits.
-bt_call() { # bt_call <owner> <tier> <heading level>
+bt_call() { # bt_call <owner> <tier> <heading level> <task ids>
   bt_md=""; bt_record=""; bt_reason=""
   local dispatcher="$script_dir/../bin/doflow-run" out rc
   if [ -z "$1" ]; then bt_reason="the task line names no owner"; return 0; fi
   if [ ! -f "$dispatcher" ]; then bt_reason="the dispatcher was not found"; return 0; fi
   out="$(cd "${repo_root:-.}" 2>/dev/null && bash "$dispatcher" brief-tools --json --owner "$1" \
     ${2:+--tier "$2"} ${harness:+--harness "$harness"} ${feature_slug:+--slug "$feature_slug"} \
-    --heading-level "$3" </dev/null 2>/dev/null)"
+    --heading-level "$3" ${4:+--tasks "$4"} </dev/null 2>/dev/null)"
   rc=$?
   if [ "$rc" -ne 0 ]; then bt_reason="brief-tools exited $rc"; return 0; fi
   if ! printf '%s' "$out" | jq -e '(.markdown | type == "string" and length > 0) and (.record | type == "object")' >/dev/null 2>&1; then
@@ -291,7 +291,7 @@ if [ "$mode" = "task" ]; then
     done | sort -u)"
   fi
 
-  bt_call "$(task_field "$task_line" owner)" "$(task_field "$task_line" tier)" 2
+  bt_call "$(task_field "$task_line" owner)" "$(task_field "$task_line" tier)" 2 "$task_id"
   [ -z "$bt_reason" ] || missing+=("brief-tools: $bt_reason")
 
   # Compose brief
@@ -473,7 +473,7 @@ else
   done
   bt_level=3
   [ "$num_tasks" -eq 1 ] && bt_level=2
-  bt_call "$group_owner" "$group_tier" "$bt_level"
+  bt_call "$group_owner" "$group_tier" "$bt_level" "$(IFS=,; printf '%s' "${task_ids[*]}")"
   [ -z "$bt_reason" ] || missing+=("brief-tools: $bt_reason")
 
   write_ok=1

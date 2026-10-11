@@ -1,9 +1,18 @@
 'use strict';
 
 const path = require('node:path');
+const fs = require('node:fs');
+const { TextDecoder } = require('node:util');
 const { WorkflowEngine, CALLER_ROLES } = require('./workflow-engine');
 const { finishRuntime } = require('./cli-result');
 const { REPO_ROOT } = require('../helper/repo-root');
+const { loadAdviceRegistry } = require('./advice/registry');
+const { createAdviceClient } = require('./advice/client');
+const { materializeKind } = require('./advice/kinds');
+const { appendOutcome, findPick } = require('./advice/record');
+const { strengthWords } = require('./advice/strength');
+const { loadStorageRegistry } = require('./storage/registry');
+const { resolveRoots } = require('./storage/roots');
 
 
 /**
@@ -410,50 +419,121 @@ class TaskClassifier {
 /**
  * Handles `doflow classify` — validate a proposed task class against the workflow registry.
  *
- * Prints the classifier's decision object verbatim: `outcome`, `taskClass`, `message`,
- * `validClasses`, `suggestions`, `fit`, `workflow`. A REJECTED decision keeps `taskClass: null` and
- * exits non-zero; it is never coerced to `feature`, which is the whole reason this verb exists
- * rather than callers reading a class out of a string themselves.
+ * Prints the classifier's decision and, when requested, an advisory second opinion that never
+ * changes the verdict. A REJECTED decision keeps `taskClass: null` and exits non-zero; it is never
+ * coerced to `feature`, which is the whole reason this verb exists rather than callers reading a
+ * class out of a string themselves.
  *
  * @param {Object} options
  * @param {string|null} options.taskClass the proposed class
  * @param {string} [options.rationale]
  * @param {string} [options.proposedBy]
  * @param {string} [options.callingSkill] the skill asking, against which fit is judged
+ * @param {string} [options.request] request text for a second opinion
+ * @param {string} [options.requestFile] file containing request text for a second opinion
  * @param {boolean} [options.json=false]
- * @returns {number} exit code
+ * @returns {number|Promise<number>} exit code; advisory calls are asynchronous
  */
-function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill, json = false } = {}) {
+function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill, request, requestFile, taskId, projectRoot, json = false } = {}) {
   const classifier = new TaskClassifier({ repoRoot: REPO_ROOT });
   const decision = classifier.classify({ taskClass, rationale, proposedBy, callingSkill });
-
-  if (json) console.log(JSON.stringify(decision, null, 2));
-  else {
-    console.log(`\nDoFlow Task Classification [${decision.outcome}]:`);
-    console.log('═'.repeat(78));
-    console.log(decision.message);
-    // Printed unconditionally, including when it says NOT_EVALUATED: an operator has to be able to
-    // see that fit was never checked without reading --json.
-    console.log(`Fit: ${decision.fit.state}${decision.fit.reason ? ` (${decision.fit.reason})` : ''}`);
-    if (decision.fit.state === 'NOT_HOSTED' && decision.fit.hostingClasses.length > 0) {
-      console.log(`Classes that host ${decision.fit.callingSkill}: `
-        + decision.fit.hostingClasses.map((h) => `${h.taskClass} (${h.stageIds.join(', ')})`).join(', '));
-    }
-    if (decision.workflow) {
-      console.log('─'.repeat(78));
-      console.log(`Workflow: ${decision.workflow.name} (${decision.workflow.stageIds.length} stage(s))`);
-      console.log(`Stages:   ${decision.workflow.stageIds.join(' → ')}`);
-      console.log(`Implementation stages: ${decision.workflow.hasImplementationStage ? decision.workflow.implementationStageIds.join(', ') : 'none'}`);
-    } else {
-      console.log(`Valid classes: ${decision.validClasses.join(', ')}`);
-    }
-    console.log('═'.repeat(78) + '\n');
+  const exitCode = decision.outcome === CLASSIFICATION_OUTCOMES.ACCEPTED
+    ? 0 : decision.reason === REJECTION_REASONS.MISSING_CLASS ? 2 : 1;
+  const hasRequest = request !== undefined || requestFile !== undefined;
+  if (!hasRequest) {
+    if (json) console.log(JSON.stringify({ ...decision, secondOpinion: null }, null, 2));
+    else printClassifyDecision(decision, null);
+    return finishRuntime(exitCode);
   }
 
-  if (decision.outcome === CLASSIFICATION_OUTCOMES.ACCEPTED) return finishRuntime(0);
-  // No class supplied is the CLI's caller failing to say what to classify; a class supplied and
-  // rejected is the classifier having done its job and found something the caller must fix.
-  return finishRuntime(decision.reason === REJECTION_REASONS.MISSING_CLASS ? 2 : 1);
+  return addSecondOpinion();
+
+  async function addSecondOpinion() {
+    let state = request;
+    let fileError = null;
+    if (requestFile !== undefined) {
+      try {
+        state = new TextDecoder('utf-8', { fatal: true }).decode(fs.readFileSync(requestFile));
+        if (!state.length) throw new Error('file is empty');
+      } catch (error) {
+        fileError = error;
+      }
+    }
+    let opinion;
+    if (fileError) {
+      opinion = emptySecondOpinion('unavailable', 'config-invalid');
+    } else {
+      try {
+        const advice = loadAdviceRegistry({ repoRoot: REPO_ROOT });
+        const storage = loadStorageRegistry({ repoRoot: REPO_ROOT });
+        const roots = resolveRoots({ registry: storage, projectRoot: path.resolve(projectRoot || process.cwd()) });
+        const source = (name) => JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core/registry', name), 'utf8'));
+        const sources = { workflows: source('workflows.json') };
+        const built = materializeKind('task-class', { adviceRegistry: advice.ok ? advice.registry : null, sources });
+        const client = createAdviceClient({ adviceRegistry: advice.ok ? advice.registry : null, roots, sources });
+        const result = advice.ok && built.ok
+          ? await client.ask({
+            questionSet: { state, questions: [built.question] }, kind: 'task-class',
+            staticAnswer: taskClass ?? null, caller: 'classify', taskId: taskId ?? null, record: true,
+          })
+          : { status: 'unavailable', reason: 'config-invalid', answers: [] };
+        opinion = secondOpinion(result, taskClass);
+        if (decision.outcome === CLASSIFICATION_OUTCOMES.ACCEPTED && opinion.status === 'answered' && opinion.pickId) {
+          const found = findPick({ pickId: opinion.pickId, roots });
+          if (found) appendOutcome({
+            pickId: opinion.pickId, actual: decision.taskClass, source: 'classify-verdict', roots, store: found.store,
+          });
+        }
+      } catch {
+        opinion = emptySecondOpinion('unavailable', 'config-invalid');
+      }
+    }
+    if (json) console.log(JSON.stringify({ ...decision, secondOpinion: opinion }, null, 2));
+    else printClassifyDecision(decision, opinion);
+    return finishRuntime(exitCode);
+  }
+}
+
+function emptySecondOpinion(status, reason) {
+  return { status, reason, pick: null, strength: null, between: null, agrees: null, proposed: null,
+    pickId: null, probabilities: null, confidence: null, model: null };
+}
+
+function secondOpinion(result, proposed) {
+  const answer = result.answers?.[0];
+  if (result.status !== 'answered' || !answer) return emptySecondOpinion(result.status, result.reason);
+  return {
+    status: 'answered', reason: null, pick: answer.pick, strength: answer.strength.word,
+    between: answer.strength.between, agrees: answer.agrees, proposed: proposed ?? null,
+    pickId: answer.pickId, probabilities: answer.probabilities, confidence: answer.confidence, model: result.model,
+  };
+}
+
+function printClassifyDecision(decision, opinion) {
+  console.log(`\nDoFlow Task Classification [${decision.outcome}]:`);
+  console.log('═'.repeat(78));
+  console.log(decision.message);
+  // Printed unconditionally, including when it says NOT_EVALUATED: an operator has to be able to
+  // see that fit was never checked without reading --json.
+  console.log(`Fit: ${decision.fit.state}${decision.fit.reason ? ` (${decision.fit.reason})` : ''}`);
+  if (opinion?.status === 'answered' && opinion.proposed !== null) {
+    const strength = strengthWords({ word: opinion.strength, between: opinion.between });
+    if (opinion.agrees) console.log(`Second opinion: agrees with '${opinion.proposed}' (${strength}).`);
+    else console.log(`Second opinion: '${opinion.pick}' (${strength}), differs from the proposed '${opinion.proposed}'. Validation alone decides the class.`);
+  }
+  if (decision.fit.state === 'NOT_HOSTED' && decision.fit.hostingClasses.length > 0) {
+    console.log(`Classes that host ${decision.fit.callingSkill}: `
+      + decision.fit.hostingClasses.map((h) => `${h.taskClass} (${h.stageIds.join(', ')})`).join(', '));
+  }
+  if (decision.workflow) {
+    console.log('─'.repeat(78));
+    console.log(`Workflow: ${decision.workflow.name} (${decision.workflow.stageIds.length} stage(s))`);
+    console.log(`Stages:   ${decision.workflow.stageIds.join(' → ')}`);
+    console.log(`Implementation stages: ${decision.workflow.hasImplementationStage ? decision.workflow.implementationStageIds.join(', ') : 'none'}`);
+  } else {
+    console.log(`Valid classes: ${decision.validClasses.join(', ')}`);
+  }
+  console.log('═'.repeat(78) + '\n');
 }
 
 module.exports = {

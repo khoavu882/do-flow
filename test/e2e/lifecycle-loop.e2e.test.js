@@ -770,6 +770,7 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
     // Feature 062 adds the stage's MCP record and its warnings to a handoff's JSON; its text mode
     // prints them, and --json prints nothing extra, so stderr above is still compared byte for byte.
     const recordAdditions = [
+      'classify --task-class feature: $.secondOpinion', // IC-010: null when no second opinion was requested.
       'readiness --task-class feature: $.record', 'readiness --task-class feature: $.declaredScope',
       'orchestrate --action handoff: $.consultations', 'orchestrate --action handoff: $.mcpWarnings',
     ];

@@ -1,0 +1,19 @@
+{
+  "kind": "review-depth",
+  "cases": [
+    {
+      "id": "review-depth-001",
+      "split": "train",
+      "state": "Review a routine two-function change with a complete specification and no high-risk interface changes.",
+      "expected": "single",
+      "note": "agent-docs/doflow/063-decision-model-routing/design/specs.md IC-004 review-depth single criterion."
+    },
+    {
+      "id": "review-depth-002",
+      "split": "heldout",
+      "state": "Review a cross-component authorization change with consequential security trade-offs and independent failure modes.",
+      "expected": "deep",
+      "note": "agent-docs/doflow/063-decision-model-routing/design/specs.md IC-004 review-depth deep criterion."
+    }
+  ]
+}

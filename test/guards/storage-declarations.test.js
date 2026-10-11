@@ -275,12 +275,19 @@ function runScenario() {
     const sessionPayload = { session_id: 'g26-session', cwd: project, source: 'startup' };
     const verb = (...args) => ({ cmd: '/bin/bash', args: [DOFLOW_RUN, ...args] });
     const cli = (...args) => ({ cmd: process.execPath, args: [DOFLOW_CLI, ...args] });
+    const node = (...args) => ({ cmd: process.execPath, args });
     const hook = (script, payload) => ({ cmd: '/bin/bash', args: [script], input: JSON.stringify(payload) });
     const target = ['--force', '--target', TARGETS];
+    const enableAdvice = "const fs=require('node:fs'),path=require('node:path');const f=path.join(process.env.XDG_CONFIG_HOME,'doflow','decision-model.json');fs.writeFileSync(f,JSON.stringify({schema:1,enabled:true,provider:'ollama',endpoint:'http://127.0.0.1:9',model:'clef-flash'})+'\\n');";
+    const seedOldAdvice = "const fs=require('node:fs'),path=require('node:path');const d=path.join(process.argv[1],'advice','picks');fs.mkdirSync(d,{recursive:true});fs.writeFileSync(path.join(d,'2000-01-01.jsonl'),'{}\\n');";
     // `trace -g` comes first so the user state exists when the project's ignore file is first
     // written: only then does the pass record the project in the roots index (IC-017).
     const steps = [
       ['trace -g', verb('trace', '-g'), 0],
+      ['advise configure off', cli('advise', '--action', 'configure', '--off'), 0],
+      ['write enabled decision model', node('-e', enableAdvice), 0],
+      ['advise project pick store', cli('advise', '--kind', 'tier', '--state', 'x'), 0],
+      ['advise user pick store', cli('advise', '-g', '--kind', 'tier', '--state', 'x'), 0],
       ['orchestrate start', verb('orchestrate', '--action', 'start', '--task-id', 'g26-task', '--task-class', 'feature'), 0],
       ['evidence add', verb('evidence', '--task-id', 'g26-task', '--action', 'add', '--kind', 'documentation', '--provenance', 'asserted', '--provider', 'test', '--capability', 'scenario', '--content', 'a note'), 0],
       ['claim add', verb('claim', '--task-id', 'g26-task', '--action', 'add', '--statement', 'a claim'), 0],
@@ -298,6 +305,7 @@ function runScenario() {
       ['project update', cli('update', project, ...target), 0],
       ['global install', cli('install', '-g', ...target, '--mcp', 'none'), 0],
       ['global update', cli('update', '-g', ...target), 0],
+      ['seed old advice partition', node('-e', seedOldAdvice, roots['project-state']), 0],
       ['storage --action prune', cli('storage', '--action', 'prune'), 0],
       ['project remove', cli('remove', project, ...target), 0],
       ['global remove', cli('remove', '-g', ...target), 0],

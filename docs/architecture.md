@@ -162,6 +162,7 @@ registries](#installation-registries) for the same plain-JSON convention.
 | `core/registry/models.json` | Abstract model roles and their providers (`doflow model-role`), and `dispatchTiers`: the tier names (`tiers`), the `default`, and the tier per agent archetype (`byOwner`) that a generated brief states. G29 holds `tiers` to `MODEL_SELECTION.md` and `byOwner` to `core/shared/agent-specs/` |
 | `core/registry/external-tools.json` | External tools DoFlow can detect, install, and probe rather than reimplement |
 | `core/registry/storage.json` | Every store DoFlow writes: its root, location, retention bound, rule kind and writer files, plus the pass budget, throttle and ignore-file text. `src/runtime/storage/` reads it and G26 checks it against the code and `docs/reference.md` |
+| `core/registry/advice.json` | Advice kinds, prompts and criteria, loaded by `src/runtime/advice/registry.js`. It stays outside the general `REGISTRY_FILES` list in `src/registry`: IC-003 makes a load failure turn advice off, whereas the general registry loader would make every install command fail (DEC-025) |
 
 Two contracts follow from these files and should not be re-expressed as flags. Readiness is a
 four-state verdict — `READY`, `NEEDS_EVIDENCE`, `NEEDS_USER_DECISION`, `BLOCKED` — with the missing
@@ -448,16 +449,15 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-thirty-six test files (plus `_shared.js`, a helper rather than a test); the twenty-nine listed
-below are the ones this inventory documents, and they carry twenty-seven distinct G-numbers because two
-numbers are used twice. Name the file, not the number, when you mean a specific guard: across the
-whole directory three numbers are claimed by two files each — G11 and G13, both pairs listed below,
-and G18, whose second claimant `adapter-force.test.js` is not. The collisions are historical rather
-than a convention; G29 is the highest number in use, so a new guard takes the next one above it
-instead of adding a fourth. The list is not the whole directory. The seven files absent from it are
-`verb-reachability.test.js`, which owns G17 and is why the list runs G16 then G18;
-`adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half of
-the G18 pair — between them the reason the list runs G18 then G20; and `boundaries.test.js`,
+thirty-seven test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+thirty-one entries across thirty test files and carries twenty-nine distinct G-numbers.
+Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
+entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
+historical rather than a convention; G31 is the highest number in use, so a new guard takes the next
+one above it instead of adding a fourth collision. The list is not the whole directory. The seven
+files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
+G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
+of the G18 pair — between them the reason the list runs G18 then G20; and `boundaries.test.js`,
 `harness-paths.test.js`, `cli-boundary.test.js` and `frozen-behaviour.test.js`.
 
 - **G1** (`fields.test.js`) — every frontmatter key an asset declares is recognized by something.
@@ -629,6 +629,13 @@ the G18 pair — between them the reason the list runs G18 then G20; and `bounda
   names under `## Capability tiers` in `MODEL_SELECTION.md`, `default` and every `byOwner` value are
   in `tiers`, and `byOwner` keys equal the `name` of each `core/shared/agent-specs/` archetype. Every
   harness `capabilities.mcp.toolName` holds `{server}` and `{tool}` and no other braces.
+- **G30** (`advice.test.js`) — hook, dependency, import and provider-route boundaries for advisory
+  model calls: hooks cannot invoke advice, the project adds no package dependencies, only the
+  permitted advice modules can import network/DNS modules, and providers cannot use model-pull,
+  push, create, copy or delete routes or start Ollama.
+- **G31** (`advice.test.js`) — advice cases cover every registered advice kind, and the `tier`
+  criteria keys/order and their `Work` text stay synchronized with `models.json` and
+  `MODEL_SELECTION.md` respectively, as DEC-033 requires.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

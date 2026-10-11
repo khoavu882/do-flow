@@ -30,6 +30,7 @@ const {
   SANDBOX_SKILLS_DIR,
   sha256File,
 } = require('../src/runtime/worktree.js');
+const { cmdAdviceCoverage, cmdAdvice } = require('./advice.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
@@ -1228,6 +1229,8 @@ function cmdReport(cfg, opts) {
 const USAGE = `doflow bench — evaluation harness for the shipped skills
 
   node bench/runner.js coverage [--json]              which skills have triggering + behavioral cases
+  node bench/runner.js advice-coverage [--json]        check decision-model advice corpus coverage
+  node bench/runner.js advice [--kind <kind>] [--split train|heldout] [--json] run advice cases against the local decision model
   node bench/runner.js parity [--json]                does the committed baseline still describe the corpus
   node bench/runner.js list [--skill S] [--split train|heldout] [--json]
                                                       enumerate cases
@@ -1248,6 +1251,15 @@ function parseArgs(argv) {
     if (!a.startsWith('--') && cmd === null) cmd = a;
     else if (a === '--json') opts.json = true;
     else if (a === '--skill') opts.skill = argv[++i];
+    else if (a === '--kind') {
+      const value = argv[i + 1];
+      if (!value || value.startsWith('--')) {
+        console.error('bench: --kind requires a value');
+        process.exit(2);
+      }
+      opts.kind = value;
+      i += 1;
+    }
     else if (a === '--iteration') opts.iteration = argv[++i];
     else if (a === '--from') opts.from = argv[++i];
     else if (a === '--split') {
@@ -1285,7 +1297,11 @@ function main() {
   }
   // Accepted only where it filters something; elsewhere it would be dropped on the floor, which is
   // the failure the unknown-option refusal above exists to prevent.
-  if (opts.split && cmd !== 'plan' && cmd !== 'list') {
+  if (opts.kind !== undefined && cmd !== 'advice') {
+    console.error(`bench ${cmd}: --kind is not accepted`);
+    return 2;
+  }
+  if (opts.split && cmd !== 'plan' && cmd !== 'list' && cmd !== 'advice') {
     console.error(`bench ${cmd}: --split is not accepted`);
     return 2;
   }
@@ -1296,6 +1312,8 @@ function main() {
   const cfg = loadConfig();
   switch (cmd) {
     case 'coverage': return cmdCoverage(cfg, opts);
+    case 'advice-coverage': return cmdAdviceCoverage(opts);
+    case 'advice': return cmdAdvice(opts);
     case 'parity': return cmdParity(cfg, opts);
     case 'list': return cmdList(cfg, opts);
     case 'plan': return cmdPlan(cfg, opts);
@@ -1453,7 +1471,9 @@ function cmdParity(cfg, opts) {
 if (require.main === module) {
   // Not process.exit(): it ends the process before a piped stdout has drained, cutting a large plan
   // off at the pipe buffer.
-  process.exitCode = main();
+  const result = main();
+  if (result && typeof result.then === 'function') result.then((code) => { process.exitCode = code; });
+  else process.exitCode = result;
 }
 
 module.exports = {

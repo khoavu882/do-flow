@@ -18,6 +18,15 @@ const { mcpReach } = require('./mcp-reach');
 const { WorkflowOrchestrator } = require('./workflow-orchestrator');
 const { resolveActiveFeature } = require('./feature-resolve');
 const { finishRuntime, usageError, captureCaught } = require('./cli-result');
+const fs = require('node:fs');
+const path = require('node:path');
+const { loadAdviceRegistry } = require('./advice/registry');
+const { loadStorageRegistry } = require('./storage/registry');
+const { resolveRoots } = require('./storage/roots');
+const { resolveSetting } = require('./advice/config');
+const { materializeKind } = require('./advice/kinds');
+const { createAdviceClient } = require('./advice/client');
+const { strengthWords } = require('./advice/strength');
 
 const SCHEMA = 1;
 const REACHABLE = new Set(['selected', 'configured']);
@@ -247,7 +256,34 @@ function stageFor({ repoRoot, projectRoot, slug, missing }) {
  * @param {Function} [options.buildAdapters] builds the adapter registry `mcpReach` reads installs through
  * @param {Function} [options.probe] injection seam for `probeProviders`
  */
-function handleBriefToolsCommand({ owner, tier, harness, slug, headingLevel, json = false, repoRoot = REPO_ROOT, projectRoot = process.cwd(), buildAdapters = null, probe = probeProviders } = {}) {
+function taskLinesForAdvice({ projectRoot, feature, tasks }) {
+  if (!feature || !Array.isArray(tasks) || tasks.length === 0) throw new Error('feature or task ids are unavailable');
+  const planPath = path.join(projectRoot, 'agent-docs', 'doflow', feature, 'plan.md');
+  const plan = fs.readFileSync(planPath, 'utf8');
+  return tasks.map((id) => {
+    const line = plan.split(/\r?\n/).find((candidate) => candidate.match(/^- \[[ x]\] (\S+)/)?.[1] === id);
+    if (!line) throw new Error(`task '${id}' was not found in ${planPath}`);
+    return line;
+  });
+}
+
+function adviceRecord(result) {
+  if (result?.status === 'answered' && result.answers?.[0]) {
+    const answer = result.answers[0];
+    return {
+      kind: 'tier', status: 'answered', pickId: answer.pickId, pick: answer.pick,
+      strength: answer.strength?.word || 'leaning', between: answer.strength?.between ?? null,
+      agrees: answer.agrees,
+    };
+  }
+  if (result?.status === 'unavailable') return { kind: 'tier', status: 'unavailable', reason: result.reason || 'config-invalid' };
+  return null;
+}
+
+/**
+ * The tier renderer remains synchronous/pure; optional local advice is requested afterward.
+ */
+async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLevel, tasks, json = false, repoRoot = REPO_ROOT, projectRoot = process.cwd(), buildAdapters = null, probe = probeProviders, adviceClient = null } = {}) {
   if (!owner) return usageError('brief-tools', '--owner is required (the agent type the brief is for)', json);
   const level = headingLevel === undefined ? 2 : Number(headingLevel);
   if (level !== 2 && level !== 3) return usageError('brief-tools', `--heading-level must be 2 or 3, got '${headingLevel}'`, json);
@@ -259,8 +295,38 @@ function handleBriefToolsCommand({ owner, tier, harness, slug, headingLevel, jso
     let reach = null;
     try { reach = mcpReach({ registry, projectRoot, adapters: buildAdapters ? buildAdapters() : undefined }); } catch { notes.push('install facts unavailable; MCP reach unknown'); }
     const stage = stageFor({ repoRoot, projectRoot, slug, missing: notes });
-    const { markdown, record } = renderBriefTools({ registry, router, probes, reach, owner, tier, harness, headingLevel: level, stage });
+    const rendered = renderBriefTools({ registry, router, probes, reach, owner, tier, harness, headingLevel: level, stage });
+    let markdown = rendered.markdown;
+    const record = rendered.record;
     record.missing.push(...notes);
+
+    const taskIds = Array.isArray(tasks) ? tasks : typeof tasks === 'string' ? tasks.split(',').filter(Boolean) : [];
+    if (taskIds.length) {
+      try {
+        const adviceRegistry = loadAdviceRegistry({ repoRoot });
+        const storageRegistry = loadStorageRegistry({ repoRoot });
+        const roots = resolveRoots({ registry: storageRegistry, projectRoot: path.resolve(projectRoot) });
+        if (adviceRegistry.ok && (adviceClient || resolveSetting({ adviceRegistry: adviceRegistry.registry, roots }).state === 'on')) {
+          const lines = taskLinesForAdvice({ projectRoot, feature: stage?.feature || slug, tasks: taskIds });
+          const built = materializeKind('tier', { adviceRegistry: adviceRegistry.registry });
+          const client = adviceClient || createAdviceClient({ adviceRegistry: adviceRegistry.registry, roots });
+          const result = built.ok ? await client.ask({
+            questionSet: { state: `${owner}\n${lines.join('\n')}`, questions: [built.question] },
+            kind: 'tier', staticAnswer: record.tier, caller: 'brief-tools', taskId: stage?.feature || slug,
+          }) : { status: 'unavailable', reason: built.reason || 'config-invalid' };
+          const added = adviceRecord(result);
+          if (added) {
+            record.advice = added;
+            if (added.status === 'answered') {
+              const line = `Decision model: \`${added.pick}\` (${strengthWords({ word: added.strength, between: added.between })}), advisory. The tier above stands unless you change it.`;
+              markdown = markdown.replace(/(Tier: `[^`]+`[^\n]*\n`references\/MODEL_SELECTION\.md`\.)\n\n/, `$1\n${line}\n\n`);
+            }
+          }
+        }
+      } catch (error) {
+        record.advice = { kind: 'tier', status: 'unavailable', reason: error?.reason || 'config-invalid' };
+      }
+    }
     if (json) console.log(JSON.stringify({ markdown, record }, null, 2));
     else process.stdout.write(markdown);
     return finishRuntime(0);

@@ -1,0 +1,33 @@
+{
+  "kind": "verify-risk",
+  "cases": [
+    {
+      "id": "verify-risk-001",
+      "split": "train",
+      "state": "A small isolated helper change is reversible and can be checked with deterministic checks and tests scoped to the edit.",
+      "expected": "LOW",
+      "note": "core/registry/verification.json riskLevels.LOW.description."
+    },
+    {
+      "id": "verify-risk-002",
+      "split": "heldout",
+      "state": "A multi-file runtime change needs the full test suite because it could affect behavior outside the edited modules.",
+      "expected": "MEDIUM",
+      "note": "core/registry/verification.json riskLevels.MEDIUM.description."
+    },
+    {
+      "id": "verify-risk-003",
+      "split": "train",
+      "state": "A security-sensitive authentication change touches authorization checks and a migration of stored credentials.",
+      "expected": "HIGH",
+      "note": "core/registry/verification.json riskLevels.HIGH.description."
+    },
+    {
+      "id": "verify-risk-004",
+      "split": "train",
+      "state": "A production outage requires a breaking data migration with a credible risk of data loss.",
+      "expected": "CRITICAL",
+      "note": "core/registry/verification.json riskLevels.CRITICAL.description."
+    }
+  ]
+}

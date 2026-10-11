@@ -31,15 +31,26 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 
 2. **State the contract before running anything** — compile it, do not recall it:
 
+   `<task id>` is the plan task id when the run is scoped to one task, otherwise the feature slug —
+   the same id every other stage used for it. `--risk` is an input the caller supplies: omitted, the
+   contract compiles at the registry's default; a change touching security, auth, payments or data
+   migration is what `HIGH` is for, and the level also sets `maxRecoveryIterations`.
+
+   Optionally ask for a decision-model second opinion before compiling the contract:
+
+```bash
+"$DOFLOW" advise --kind verify-risk --state "<what the change touches, one paragraph>" --static "<the level you chose>" --task-id "<task id>" --json
+```
+
+   When `status` is `answered` and `agrees` is `false`, say so in one line and keep or change the level
+   by your own judgement. Record the level used with `"$DOFLOW" advise --action outcome --pick-id
+   "<pickId>" --actual "<level>"`. Skip both calls when `status` is not `answered`.
+
 ```bash
 "$DOFLOW" verify --task-id "<task id>" --risk "<LOW|MEDIUM|HIGH|CRITICAL>" --action contract --json
 ```
 
-   `<task id>` is the plan task id when the run is scoped to one task, otherwise the feature slug —
-   the same id every other stage used for it. `--risk` is an input the caller supplies: omitted, the
-   contract compiles at the registry's default; a change touching security, auth, payments or data
-   migration is what `HIGH` is for, and the level also sets `maxRecoveryIterations`. Report, before a
-   single tier runs:
+   Report, before a single tier runs:
    - the compiled `tiers[]` in the order returned — that list, and nothing else, is what will run;
    - the `riskLevel` it compiled at and the `maxRecoveryIterations` it carries;
    - `detection.absent` — the command roles the runtime could not find in this repo's manifests
@@ -54,6 +65,8 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 ```bash
 "$DOFLOW" verify --task-id "<task id>" --risk "<the same level>" --action report --json
 ```
+
+   When an explicit manifest and pinned ancestor baseline are provided, pass `--verification-input <file> --verification-phase postimplementation --baseline-ref <ref>`; the verdict proves current checks under postimplementation chronology without claiming preimplementation compilation.
 
    Every tier step 2 listed gets a status in the report — `PASS`, `FAIL`, `UNRESOLVED`, `SUBSUMED`,
    `NOT_APPLICABLE`, `SKIPPED` or `NOT_RUN`. Report all of them. A tier the contract named and the

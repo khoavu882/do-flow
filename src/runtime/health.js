@@ -762,8 +762,12 @@ const FRESHNESS_MARK = Object.freeze({
  * @returns {number} process exit code — 1 when a provider is installed but does not answer, or an
  *   installed harness's skills cannot reach a runtime
  */
-function handleDoctorCommand({ json = false, repoRoot, projectRoot = process.cwd(), ...rest } = {}) {
+async function handleDoctorCommand({ json = false, repoRoot, projectRoot = process.cwd(), ...rest } = {}) {
   const report = buildHealthReport({ repoRoot, projectRoot, ...rest });
+  const { buildAdviceDoctor, printAdviceDoctor } = require('./advice/doctor');
+  const adviceSections = await buildAdviceDoctor({ repoRoot, projectRoot, fsImpl: rest.fsImpl });
+  report.decisionModel = adviceSections.decisionModel;
+  report.advice = adviceSections.advice;
 
   if (json) {
     console.log(JSON.stringify(report, null, 2));
@@ -821,6 +825,7 @@ function handleDoctorCommand({ json = false, repoRoot, projectRoot = process.cwd
   if (commands.reason) console.log(`  note              ${commands.reason}`);
 
   printMcpSections(report.mcp);
+  printAdviceDoctor(adviceSections);
 
   if (report.warnings.length) {
     console.log('\n[Warnings] — not blocking; a stale or unprobeable provider still degrades cleanly');
