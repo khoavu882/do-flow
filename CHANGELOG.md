@@ -15,6 +15,14 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.24.1] - 2026-10-11
+
+### Fixed
+- Unified Antigravity CLI (`agy`) and Antigravity IDE global and workspace skill discovery and runtime reachability:
+  - Added user-scoped skills directory under `~/.gemini/config/skills` matching Antigravity's official customization specification.
+  - Projected DoFlow skills and shared runtime (`~/.doflow/`) to global scope with full runtime reach (`doflow doctor` verified).
+  - Allowed `managedInstruction()` to safely append DoFlow marker sections to existing project `AGENTS.md` files without throwing conflicts.
+
 ## [1.24.0] - 2026-10-11
 
 ### Added
