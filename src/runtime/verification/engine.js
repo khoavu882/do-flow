@@ -22,7 +22,8 @@
 const path = require('node:path');
 const nodeFs = require('node:fs');
 const { spawnSync } = require('node:child_process');
-const { detectCommands, applyTargetPattern } = require('../command-detect');
+const { detectCommands, applyTargetPattern, TARGET_PATTERN_TOKEN } = require('../command-detect');
+const { selectChangedTests } = require('./test-selection');
 const { RecoveryManager } = require('../recovery');
 const { finishRuntime, usageError } = require('../cli-result');
 const { REPO_ROOT } = require('../../helper/repo-root');
@@ -55,6 +56,10 @@ const {
 /** `PASS` and `FAIL` are the Python's vocabulary. `INCONCLUSIVE` is added for the empty-contract
  * case only — see `evaluateContract`. */
 const VERIFICATION_STATUSES = Object.freeze(['PASS', 'FAIL', 'INCONCLUSIVE']);
+
+/** The targeted tier is subsumed by the broad one when both would run the same command (FR-001). */
+const TARGETED_TIER_ID = 'targeted-tests';
+const BROAD_TIER_ID = 'broad-tests';
 
 /**
  * @param {*} value
@@ -148,7 +153,10 @@ class VerificationEngine {
    * @param {string} [input.projectRoot] used for detection when `detection` is not supplied
    * @param {string} [input.planPath] a feature `plan.md` whose override block wins over detection
    * @param {string} [input.planText] override text supplied directly
-   * @param {string} [input.targetPattern] scopes the targeted-tests tier
+   * @param {string} [input.targetPattern] scopes the targeted-tests tier; without one, the tier is
+   *   scoped to the feature's changed test files (see test-selection.js) where the toolchain allows
+   * @param {Array<string>} [input.changedFiles] files the selection treats as changed, in place of the
+   *   change-scope observation
    * @param {Array<{name: string, command: string, timeoutMs?: number}>} [input.structuralChecks]
    * @param {Array<{id: string, description?: string, command?: string}>} [input.requirements]
    * @param {{maxFiles?: number, allowedPaths?: Array<string>, source?: string, sources?: Array<Object>,
@@ -217,7 +225,8 @@ class VerificationEngine {
       if (!required && !advisory) return base;
 
       if (tier.source === 'detected-command') {
-        return Object.assign(base, this.resolveCommandTier(tier, detection, declaredNone, absent, input.targetPattern));
+        const selectorContext = { changedFiles: input.changedFiles, scope, root: detection.projectRoot || input.projectRoot || this.cwd };
+        return Object.assign(base, this.resolveCommandTier(tier, detection, declaredNone, absent, input.targetPattern, selectorContext));
       }
       if (tier.source === 'caller-supplied' && tier.id === 'structural-invariants') {
         return Object.assign(base, this.resolveStructuralTier(tier, structuralChecks));
@@ -252,6 +261,20 @@ class VerificationEngine {
         resolved.resolution = 'SUBSUMED';
         resolved.subsumedBy = cover;
         resolved.reason = `No dedicated command; covered by the '${cover}' tier, which runs the same source through a stricter step.`;
+      }
+    }
+
+    // A targeted tier that would run the very command a required broad tier runs is that tier's
+    // duplicate, not a cheaper check: it is reported SUBSUMED and never executed (FR-001).
+    const targeted = byId.get(TARGETED_TIER_ID);
+    const broad = byId.get(BROAD_TIER_ID);
+    if (targeted && broad && targeted.resolution === 'RESOLVED' && broad.required && broad.resolution === 'RESOLVED') {
+      const broadCommands = new Set(broad.checks.map((c) => c.command));
+      if (targeted.checks.length > 0 && targeted.checks.every((c) => broadCommands.has(c.command))) {
+        targeted.resolution = 'SUBSUMED';
+        targeted.subsumedBy = BROAD_TIER_ID;
+        targeted.checks = [];
+        targeted.reason = `Would run the same command as the required '${BROAD_TIER_ID}' tier, which runs it once.`;
       }
     }
 
@@ -297,7 +320,7 @@ class VerificationEngine {
    * `command-detect` lands here.
    * @private
    */
-  resolveCommandTier(tier, detection, declaredNone, absent, targetPattern) {
+  resolveCommandTier(tier, detection, declaredNone, absent, targetPattern, selectorContext = null) {
     if (!detection.usable) {
       return {
         resolution: 'UNRESOLVED',
@@ -309,15 +332,41 @@ class VerificationEngine {
     const selectAll = tier.commandRoleSelection === 'all';
     const checks = [];
     const notes = [];
+    let selection = null;
 
     for (const role of roles) {
       const found = detection.commands[role];
       if (!found) continue;
-      const { command, substituted } = applyTargetPattern(found.command, targetPattern);
+      let pattern = targetPattern;
+      if (role === 'testTargeted' && found.command.includes(TARGET_PATTERN_TOKEN)) {
+        if (typeof targetPattern === 'string' && targetPattern.trim() !== '') {
+          selection = { basis: 'explicit-pattern', selectedCount: null, totalCount: null, fallback: null };
+        } else {
+          // No caller-supplied target: scope to the files this feature changed, where the toolchain
+          // has a test-file convention. The changed files are the ones the change-scope tier reads.
+          const ctx = selectorContext || {};
+          const scope = ctx.scope || {};
+          const observation = this.observeForSelection(ctx.changedFiles, {
+            baseline: scope.baseline, baselineRef: scope.baselineRef, baselineSha: scope.baselineSha,
+          });
+          const selected = selectChangedTests({
+            found, observation, root: ctx.root || this.cwd, fsImpl: this.fsImpl,
+          });
+          if (selected) {
+            pattern = selected.pattern;
+            selection = selected.selection;
+          } else {
+            selection = { basis: 'none', selectedCount: null, totalCount: null, fallback: 'not-scopable' };
+          }
+        }
+      }
+      const { command, substituted } = applyTargetPattern(found.command, pattern);
       if (command === null) {
         // The command is a template and no target was supplied. Fall through to the next role —
         // for targeted-tests that is the broad test command, which the report records.
-        notes.push(`role '${role}' needs a target pattern and none was supplied`);
+        notes.push(selection && selection.fallback
+          ? `role '${role}' has no selection (${selection.fallback})`
+          : `role '${role}' needs a target pattern and none was supplied`);
         continue;
       }
       checks.push({
@@ -341,6 +390,7 @@ class VerificationEngine {
           ? `Using the '${checks[0].role}' command; ${notes.join('; ')}.`
           : null,
         checks,
+        ...(selection ? { selection } : {}),
       };
     }
 
@@ -494,6 +544,18 @@ class VerificationEngine {
   }
 
   /**
+   * The changed files the test selector reads. Same sources as `observeChangedFiles`, except that
+   * with no baseline and no caller list the working tree is read NUL-separated, unquoted and with
+   * untracked directories expanded, so a non-ASCII name or a new directory of tests is not dropped.
+   * @private
+   */
+  observeForSelection(changedFiles, bound = null) {
+    const hasBaseline = bound && (bound.baseline === 'explicit' || bound.baseline === 'integration');
+    if (!Array.isArray(changedFiles) && !hasBaseline) return this.observeSince(null, null);
+    return this.observeChangedFiles(changedFiles, bound);
+  }
+
+  /**
    * The bounded observation (IC-004): files committed since the merge base with the integration ref,
    * plus the working tree. Paths are read NUL-separated and unquoted, so a name with a space or
    * non-ASCII characters is the name the plan wrote, and renames are not collapsed, so a moved file
@@ -582,6 +644,8 @@ class VerificationEngine {
         status: tier.resolution === 'RESOLVED' ? 'NOT_RUN' : tier.resolution,
         reason: tier.reason,
         checks: [],
+        ...(tier.selection ? { selection: tier.selection } : {}),
+        ...(tier.subsumedBy ? { subsumedBy: tier.subsumedBy } : {}),
       };
 
       if (tier.resolution !== 'RESOLVED') {
@@ -1285,6 +1349,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
         console.log(`  ${tier.id.padEnd(22)} ${tier.resolution.padEnd(12)} ${tier.required ? 'required' : 'advisory'}`);
         if (boundLines.has(tier.id)) console.log(boundLines.get(tier.id));
         if (tier.reason) console.log(`      ${tier.reason}`);
+        if (tier.selection) console.log(`      ${selectionText(tier.selection)}`);
       }
       console.log('═'.repeat(78) + '\n');
     }
@@ -1320,6 +1385,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
       console.log(`  ${tier.id.padEnd(22)} ${tier.status.padEnd(16)} ${tier.required ? 'required' : 'advisory'}`);
       if (boundLines.has(tier.id)) console.log(boundLines.get(tier.id));
       if (tier.reason) console.log(`      ${tier.reason}`);
+      if (tier.selection) console.log(`      ${selectionText(tier.selection)}`);
     }
     console.log('─'.repeat(78));
     console.log(`Checks: ${report.counts.checksPassed}/${report.counts.checksRun} passed`);
@@ -1333,6 +1399,14 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   // collapsing INCONCLUSIVE into success would report a verdict over zero evidence as a pass.
   upkeepAfterVerify({ projectRoot: cwd });
   return finishRuntime(report.status === 'PASS' ? 0 : 1);
+}
+
+/** One line stating what the targeted tier selected, or why it ran the broad command instead. */
+function selectionText(selection) {
+  const of = selection.totalCount === null ? '' : ` of ${selection.totalCount}`;
+  if (selection.fallback) return `selection: ${selection.basis}, fell back to the broad command (${selection.fallback})`;
+  if (selection.selectedCount === null) return `selection: ${selection.basis}`;
+  return `selection: ${selection.basis}, ${selection.selectedCount}${of} test files`;
 }
 
 /** Whether two path lists name the same set. */
