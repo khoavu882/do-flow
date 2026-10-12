@@ -16,7 +16,7 @@ const { chmodHooksExecutable } = require('../../helper/settings-scope.ts');
 const { resolveMcpSelections } = require('../../install/mcp.ts');
 const { loadRegistry } = require('../../registry/index.ts');
 const { storageAfterInstall } = require('../../runtime/storage/upkeep');
-const { applyLifecycle, recordMcpOwnership } = require('../../lifecycle/index.ts');
+const { applyLifecycle, recordMcpOwnership, retentionSummary } = require('../../lifecycle/index.ts');
 const {
   codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, assertSafeRegistryPlan,
   lockDocument, lockDelta, recordLock,
@@ -97,6 +97,7 @@ function cmdUpdate(o: any): void {
 
     if (o.dryRun) {
       printRegistryLifecycle(lifecycleView, '[DRY]');
+      for (const line of retentionSummary(lifecycleView.plan.retained)) console.log(`[DRY]  ${line}`);
       const set = o.noBackup ? null : backupStep(buildBackupSet);
       if (set) printBackupDryRun(set, `${backupRoot}/update_<timestamp>`);
       const retention = applyRetention({ backupRoot, keep, dryRun: true, reserve: set?.count ? 1 : 0 });
@@ -134,6 +135,9 @@ function cmdUpdate(o: any): void {
       console.log(`[INFO] ${target.harness}: lifecycle verified (${owned} owned resource(s))`);
     }
     printPlanNotices(lifecycleView);
+    // As remove does: a file this update leaves standing because a harness outside the run still
+    // claims it is said, not implied. The per-file prune and keep lines are the plan notices above.
+    for (const line of retentionSummary(result.retained)) console.log(`[INFO] ${line}`);
     if (targets.includes('claude')) chmodHooksExecutable(dirs.claude);
 
     writeManifest({ scopeRoot: lifecyclePaths.scopeRoot, scriptVersion: pkg.version, operation: 'update', repoRoot: SCRIPT_DIR, sourceCommit: commit, backupId: bid, tools: targets, date: new Date() });

@@ -266,6 +266,9 @@ function removalIsTotal(plan: any) {
 function retentionSummary(retained: any = []) {
   const groups = new Map();
   for (const item of retained) {
+    // No claimant: a release that is reported on its own line (a kept hand edit) or is silent
+    // bookkeeping (a row whose file is gone), never "still claimed by" nobody.
+    if (!item.retainedFor?.length) continue;
     const key = `${item.harness} | ${item.retainedFor.join(', ')}`;
     groups.set(key, (groups.get(key) ?? 0) + 1);
   }

@@ -17,6 +17,7 @@ const { defaultLedger, ownershipKey } = require('../../src/state/index.ts');
 const { planLifecycle, applyLifecycle, removeLifecycle } = require('../../src/lifecycle/index.ts');
 const { planTree, applyTree, removeTree, verifyTree, ledgerFileResources, ledgerSiblingFingerprints, sharedTreeDestDir } = require('../../src/adapters/copy-tree.ts');
 const { backupSetFromPlan } = require('../../src/install/backup-set.ts');
+const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 
 const ASSET = 'runtime.lib';
@@ -230,4 +231,55 @@ test('removal is untouched: a harness removed while another stays still only rel
   p.remove(['alpha']);
   assert.equal(fs.readFileSync(path.join(p.dest, 'a.js'), 'utf8'), 'v1\n', 'NFR-007: beta still needs it');
   assert.deepEqual(p.rowsAt('a.js').map((row) => row.harness), ['beta']);
+});
+
+// ------------------------------------------------------------------------------ the real CLI
+
+test('CLI: update names each pruned file and each retained one, in --dry-run and for real, and --dry-run deletes nothing', { timeout: 180000 }, (t) => {
+  const root = tempDir(t, 'doflow-runtime-prune-cli-');
+  const proj = path.join(root, 'proj');
+  const home = path.join(root, 'home');
+  fs.mkdirSync(proj, { recursive: true });
+  const env = { ...process.env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, '.config'), DOFLOW_FAILURE_CAPTURE: 'off' };
+  delete env.PI_CODING_AGENT_DIR;
+  const cli = (args, input = '\n') => spawnSync(process.execPath, [path.join(__dirname, '..', '..', 'bin', 'doflow.js'), ...args], { cwd: root, encoding: 'utf8', input, env });
+  const installed = cli(['install', proj, '-f', '--no-backup', '-t', 'claude,codex']);
+  assert.equal(installed.status, 0, installed.stderr);
+
+  // What an earlier release leaves: a file it shipped, written and recorded by both harnesses, that
+  // this source no longer produces. One in the runtime tree (pruned), one in the scripts tree
+  // (retained while claude, outside the run, still claims it).
+  const ledgerFile = path.join(proj, '.doflow', 'state', 'ledger.json');
+  const ledger = JSON.parse(fs.readFileSync(ledgerFile, 'utf8'));
+  const retired = { 'runtime.lib': ['runtime', 'src', 'retired.js'], 'scripts.doflow': ['scripts', 'retired.sh'] };
+  for (const [assetId, parts] of Object.entries(retired)) {
+    const target = path.join(proj, '.doflow', ...parts);
+    fs.writeFileSync(target, `${assetId} from an earlier release\n`);
+    for (const harness of ['claude', 'codex']) {
+      const template = ledger.resources.find((row) => row.harness === harness && row.assetId === assetId);
+      assert.ok(template, `fixture: ${harness} holds ${assetId} rows`);
+      const identity = parts[parts.length - 1];
+      ledger.resources.push({ ...template, target, identity, ownershipIdentity: template.ownershipIdentity.replace(template.identity, identity),
+        fingerprint: sha(fs.readFileSync(target)) });
+    }
+  }
+  fs.writeFileSync(ledgerFile, `${JSON.stringify(ledger, null, 2)}\n`);
+  const runtimeFile = path.join(proj, '.doflow', ...retired['runtime.lib']);
+  const scriptsFile = path.join(proj, '.doflow', ...retired['scripts.doflow']);
+
+  const dry = cli(['update', proj, '--dry-run', '-t', 'codex']);
+  assert.equal(dry.status, 0, dry.stderr);
+  assert.match(dry.stdout, /^\[DRY\] {3}codex: prune \.doflow\/runtime\/src\/retired\.js: no longer shipped, unchanged since DoFlow wrote it$/m);
+  assert.match(dry.stdout, /^\[DRY\] {2}codex: retained 1 shared resource\(s\) still claimed by claude$/m);
+  assert.ok(fs.existsSync(runtimeFile) && fs.existsSync(scriptsFile), '--dry-run deletes nothing');
+
+  const real = cli(['update', proj, '-t', 'codex'], 'y\n');
+  assert.equal(real.status, 0, real.stderr);
+  assert.match(real.stdout, /^\[INFO\] codex: prune \.doflow\/runtime\/src\/retired\.js: no longer shipped, unchanged since DoFlow wrote it$/m);
+  assert.match(real.stdout, /^\[INFO\] codex: retained 1 shared resource\(s\) still claimed by claude$/m);
+  assert.equal(fs.existsSync(runtimeFile), false);
+  assert.equal(fs.existsSync(scriptsFile), true, 'outside the runtime trees NFR-007 still keeps what claude claims');
+  const after = JSON.parse(fs.readFileSync(ledgerFile, 'utf8')).resources;
+  assert.deepEqual(after.filter((row) => row.target === runtimeFile), [], 'claude\'s row on the pruned file went with it');
+  assert.deepEqual(after.filter((row) => row.target === scriptsFile).map((row) => row.harness), ['claude']);
 });
