@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir, suiteTempDir } = require('../helper/tmp');
 const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator');
-const { WorkflowEngine } = require('../../src/runtime/workflow-engine');
+const { WorkflowEngine } = require('../../src/runtime/workflow-engine.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 function scratch(t) { return t ? tempDir(t, 'doflow-workflow-orchestrator-') : suiteTempDir('doflow-workflow-orchestrator-'); }

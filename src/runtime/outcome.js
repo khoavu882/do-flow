@@ -46,7 +46,7 @@ const { taskStoreDir } = require('./task-scope.ts');
 // here. A second copy would let this file accept a readiness state readiness itself has retired.
 const { READINESS_STATES } = require('./readiness');
 const { VERIFICATION_STATUSES } = require('./verification/engine.ts');
-const { WorkflowEngine } = require('./workflow-engine');
+const { WorkflowEngine } = require('./workflow-engine.ts');
 // Read, not re-derived: the retrieval plan's location is `retrieval-plan.js`'s to define, and the
 // unreached items this record carries forward are the ones that record already holds.
 const { planPath, UNREACHED } = require('./retrieval-plan');

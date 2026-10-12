@@ -116,11 +116,11 @@ describe('error-to-usage catch sites record a programming error and keep the usa
     ['route', ['route', '--intent', 'locate-concept', '--json'], { kind: 'proto', module: 'src/runtime/capability-router.ts', cls: 'CapabilityRouter', method: 'resolveIntent' }],
     ['claim', ['claim', '--task-id', 't1', '--action', 'add', '--statement', 'x', '--json'], { kind: 'proto', module: 'src/runtime/claims.js', cls: 'ClaimsManager', method: 'addClaim' }],
     ['inventory', ['inventory', '--json'], { kind: 'export', module: 'src/registry/index.ts', method: 'loadRegistry' }],
-    ['outcome record', ['outcome', '--action', 'record', '--task-id', 't1', '--task-class', 'feature', '--state', 'INCONCLUSIVE', '--json'], { kind: 'proto', module: 'src/runtime/workflow-engine.js', cls: 'WorkflowEngine', method: 'resolveWorkflow' }],
+    ['outcome record', ['outcome', '--action', 'record', '--task-id', 't1', '--task-class', 'feature', '--state', 'INCONCLUSIVE', '--json'], { kind: 'proto', module: 'src/runtime/workflow-engine.ts', cls: 'WorkflowEngine', method: 'resolveWorkflow' }],
     ['research-request', ['research-request', '--action', 'list', '--task-id', 't1', '--json'], { kind: 'proto', module: 'src/runtime/research-request.js', cls: 'ResearchRequestStore', method: 'list' }],
     ['retrieval-plan declare', ['retrieval-plan', '--action', 'declare', '--task-id', 't1', '--stage', 'design', '--need', 'locate-concept', '--json'], { kind: 'proto', module: 'src/runtime/capability-router.ts', cls: 'CapabilityRouter', method: 'resolveIntent' }],
     ['verify', ['verify', '--task-id', 't1', '--json'], { kind: 'proto', module: 'src/runtime/verification/engine.ts', cls: 'VerificationEngine', method: 'compileContract' }],
-    ['workflow', ['workflow', '--task-class', 'feature', '--json'], { kind: 'proto', module: 'src/runtime/workflow-engine.js', cls: 'WorkflowEngine', method: 'resolveWorkflow' }],
+    ['workflow', ['workflow', '--task-class', 'feature', '--json'], { kind: 'proto', module: 'src/runtime/workflow-engine.ts', cls: 'WorkflowEngine', method: 'resolveWorkflow' }],
   ];
   for (const [name, args, spec] of sites) {
     test(`${name}: exit 2, one line recorded, output identical with capture off`, () => {
@@ -141,7 +141,7 @@ describe('error-to-usage catch sites record a programming error and keep the usa
 
   test('a refusal-shaped plain Error at a usage site is not recorded', () => {
     const pair = onOff(['workflow', '--task-class', 'feature', '--json'],
-      { kind: 'proto', module: 'src/runtime/workflow-engine.js', cls: 'WorkflowEngine', method: 'resolveWorkflow', error: 'plain' });
+      { kind: 'proto', module: 'src/runtime/workflow-engine.ts', cls: 'WorkflowEngine', method: 'resolveWorkflow', error: 'plain' });
     assert.equal(pair.on.status, 2);
     assertIdentical(pair);
     assert.equal(pair.on.lines.length, 0);

@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { parseYamlFile } = require('./capability-router.ts');
@@ -30,17 +32,17 @@ const READINESS_REGISTRY_FILE = 'readiness-templates.json';
 const CALLER_ROLES = Object.freeze({ ROUTER: 'router', STAGE: 'stage', STANDALONE: 'standalone' });
 const CALLER_ROLE_VALUES = Object.freeze(Object.values(CALLER_ROLES));
 
-function isPlainObject(value) {
+function isPlainObject(value: any) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isNonEmptyString(value) {
+function isNonEmptyString(value: any) {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
 /** Accepts the several shapes a caller may already hold readiness templates in: the parsed
  * registry document, its `templates` map, a Set, or a plain list of names. */
-function normalizeTemplateNames(input) {
+function normalizeTemplateNames(input: any) {
   if (Array.isArray(input)) return new Set(input);
   if (input instanceof Set) return new Set(input);
   if (isPlainObject(input)) {
@@ -53,7 +55,7 @@ function normalizeTemplateNames(input) {
   );
 }
 
-function deepFreeze(value) {
+function deepFreeze(value: any) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   Object.freeze(value);
   for (const key of Object.keys(value)) deepFreeze(value[key]);
@@ -61,6 +63,15 @@ function deepFreeze(value) {
 }
 
 class WorkflowEngine {
+  declare fsImpl: any;
+  declare repoRoot: any;
+  declare registryPath: any;
+  declare knownReadinessTemplates: any;
+  declare version: any;
+  declare stageKinds: any;
+  declare classes: any;
+  declare callers: any;
+  declare resolvedCache: Map<any, any>;
   /**
    * @param {Object} [options]
    * @param {string} [options.repoRoot]
@@ -72,7 +83,7 @@ class WorkflowEngine {
    *   registry itself came from disk, so an injected document never forces a filesystem read.
    * @param {Object} [options.fsImpl]
    */
-  constructor(options = {}) {
+  constructor(options: any = {}) {
     this.fsImpl = options.fsImpl || fs;
     this.repoRoot = options.repoRoot || REPO_ROOT;
     this.registryPath = options.registryPath
@@ -130,7 +141,7 @@ class WorkflowEngine {
    * @param {Set<string>|null} [options.readinessTemplates]
    * @returns {Array<string>}
    */
-  static validateRegistry(document, options = {}) {
+  static validateRegistry(document: any, options: any = {}) {
     const problems = [];
     if (!isPlainObject(document)) {
       return ['registry document is not an object'];
@@ -147,7 +158,7 @@ class WorkflowEngine {
     }
     if (problems.length > 0) return problems;
 
-    for (const [callerId, caller] of Object.entries(document.callers)) {
+    for (const [callerId, caller] of (Object.entries(document.callers) as [string, any][])) {
       if (!isPlainObject(caller)) {
         problems.push(`caller '${callerId}' must be an object`);
         continue;
@@ -175,7 +186,7 @@ class WorkflowEngine {
     const knownTemplates = options.readinessTemplates || null;
     const kindIds = new Set(Object.keys(document.stageKinds));
 
-    for (const [kindId, kind] of Object.entries(document.stageKinds)) {
+    for (const [kindId, kind] of (Object.entries(document.stageKinds) as [string, any][])) {
       if (!isPlainObject(kind)) {
         problems.push(`stageKind '${kindId}' must be an object`);
         continue;
@@ -188,7 +199,7 @@ class WorkflowEngine {
       }
     }
 
-    for (const [classId, definition] of Object.entries(document.classes)) {
+    for (const [classId, definition] of (Object.entries(document.classes) as [string, any][])) {
       if (!isPlainObject(definition)) {
         problems.push(`class '${classId}' must be an object`);
         continue;
@@ -209,7 +220,7 @@ class WorkflowEngine {
       const stageIds = new Set();
       let hasRequiredStage = false;
 
-      definition.stages.forEach((stage, index) => {
+      definition.stages.forEach((stage: any, index: any) => {
         const where = `class '${classId}' stage #${index + 1}`;
         if (!isPlainObject(stage)) {
           problems.push(`${where} must be an object`);
@@ -310,7 +321,7 @@ class WorkflowEngine {
    * @param {*} taskClass
    * @returns {boolean} true only for an exactly-matching declared class id.
    */
-  hasClass(taskClass) {
+  hasClass(taskClass: any): boolean {
     return typeof taskClass === 'string'
       && Object.prototype.hasOwnProperty.call(this.classes, taskClass);
   }
@@ -324,7 +335,7 @@ class WorkflowEngine {
    * @param {*} skillId
    * @returns {boolean} true only for an exactly-matching declared caller id.
    */
-  hasCaller(skillId) {
+  hasCaller(skillId: any): boolean {
     return typeof skillId === 'string'
       && Object.prototype.hasOwnProperty.call(this.callers, skillId);
   }
@@ -333,7 +344,7 @@ class WorkflowEngine {
    * @param {string} skillId
    * @returns {'router'|'stage'|'standalone'|null} null when the id is not a declared caller.
    */
-  callerRole(skillId) {
+  callerRole(skillId: string) {
     return this.hasCaller(skillId) ? this.callers[skillId].role : null;
   }
 
@@ -341,7 +352,7 @@ class WorkflowEngine {
    * @param {string} skillId
    * @returns {string|null} the declared exemption reason, or null.
    */
-  callerReason(skillId) {
+  callerReason(skillId: string) {
     if (!this.hasCaller(skillId)) return null;
     const { reason } = this.callers[skillId];
     return isNonEmptyString(reason) ? reason : null;
@@ -353,11 +364,11 @@ class WorkflowEngine {
    * @param {string} skillId
    * @returns {Array<string>}
    */
-  stagesHosting(taskClass, skillId) {
+  stagesHosting(taskClass: string, skillId: string) {
     if (typeof skillId !== 'string' || !this.hasClass(taskClass)) return [];
     return this.resolveWorkflow(taskClass).stages
-      .filter((stage) => stage.skill === skillId)
-      .map((stage) => stage.id);
+      .filter((stage: any) => stage.skill === skillId)
+      .map((stage: any) => stage.id);
   }
 
   /**
@@ -366,7 +377,7 @@ class WorkflowEngine {
    * @param {string} skillId
    * @returns {Array<{taskClass: string, stageIds: Array<string>}>}
    */
-  classesHosting(skillId) {
+  classesHosting(skillId: string) {
     const hosting = [];
     for (const taskClass of this.listClasses()) {
       const stageIds = this.stagesHosting(taskClass, skillId);
@@ -376,7 +387,7 @@ class WorkflowEngine {
   }
 
   /** @param {string} kind @returns {boolean} */
-  isImplementationKind(kind) {
+  isImplementationKind(kind: string): boolean {
     const declared = this.stageKinds[kind];
     if (!declared) {
       throw new Error(
@@ -412,7 +423,7 @@ class WorkflowEngine {
    * @param {string} taskClass
    * @returns {Object} frozen ResolvedWorkflow
    */
-  resolveWorkflow(taskClass) {
+  resolveWorkflow(taskClass: string) {
     if (!isNonEmptyString(taskClass)) {
       throw new Error(
         `A task class is required to resolve a workflow (received ${JSON.stringify(taskClass)}). `
@@ -429,19 +440,19 @@ class WorkflowEngine {
     }
 
     const definition = this.classes[taskClass];
-    const gates = definition.gates.map((gate) => ({ ...gate }));
+    const gates = definition.gates.map((gate: any) => ({ ...gate }));
 
-    const stages = definition.stages.map((stage, index) => ({
+    const stages = definition.stages.map((stage: any, index: any) => ({
       ...stage,
       index,
       mutatesSource: this.isImplementationKind(stage.kind),
       kindDescription: this.stageKinds[stage.kind].description,
-      gatesAfter: gates.filter((gate) => gate.afterStage === stage.id),
+      gatesAfter: gates.filter((gate: any) => gate.afterStage === stage.id),
     }));
 
-    const implementationStages = stages.filter((stage) => stage.mutatesSource);
+    const implementationStages = stages.filter((stage: any) => stage.mutatesSource);
     const readinessTemplates = [
-      ...new Set(stages.map((stage) => stage.readinessTemplate).filter(Boolean)),
+      ...new Set(stages.map((stage: any) => stage.readinessTemplate).filter(Boolean)),
     ];
 
     const workflow = deepFreeze({
@@ -452,13 +463,13 @@ class WorkflowEngine {
       handoff: definition.handoff || null,
       readinessNote: definition.readinessNote,
       stages,
-      stageIds: stages.map((stage) => stage.id),
-      stageSkills: [...new Set(stages.map((stage) => stage.skill))],
-      requiredStageIds: stages.filter((stage) => !stage.optional).map((stage) => stage.id),
-      optionalStageIds: stages.filter((stage) => stage.optional).map((stage) => stage.id),
+      stageIds: stages.map((stage: any) => stage.id),
+      stageSkills: [...new Set(stages.map((stage: any) => stage.skill))],
+      requiredStageIds: stages.filter((stage: any) => !stage.optional).map((stage: any) => stage.id),
+      optionalStageIds: stages.filter((stage: any) => stage.optional).map((stage: any) => stage.id),
       gates,
-      gateIds: gates.map((gate) => gate.id),
-      implementationStageIds: implementationStages.map((stage) => stage.id),
+      gateIds: gates.map((gate: any) => gate.id),
+      implementationStageIds: implementationStages.map((stage: any) => stage.id),
       hasImplementationStage: implementationStages.length > 0,
       requiresImplementationReadiness: readinessTemplates.length > 0,
       readinessTemplates,
@@ -474,9 +485,9 @@ class WorkflowEngine {
    * @param {string} stageId
    * @returns {Object} the resolved stage
    */
-  describeStage(taskClass, stageId) {
+  describeStage(taskClass: string, stageId: string) {
     const workflow = this.resolveWorkflow(taskClass);
-    const stage = workflow.stages.find((candidate) => candidate.id === stageId);
+    const stage = workflow.stages.find((candidate: any) => candidate.id === stageId);
     if (!stage) {
       throw new Error(
         `Unknown stage '${stageId}' for task class '${taskClass}'. `
@@ -495,7 +506,7 @@ class WorkflowEngine {
    * @param {Array<string>} [completedStageIds]
    * @returns {Object|null} the next stage, or null when the workflow is exhausted
    */
-  nextStage(taskClass, completedStageIds = []) {
+  nextStage(taskClass: string, completedStageIds: any = []) {
     const workflow = this.resolveWorkflow(taskClass);
     if (!Array.isArray(completedStageIds)) {
       throw new TypeError('completedStageIds must be an array of stage ids');
@@ -510,7 +521,7 @@ class WorkflowEngine {
       }
     }
     const done = new Set(completedStageIds);
-    return workflow.stages.find((stage) => !done.has(stage.id)) || null;
+    return workflow.stages.find((stage: any) => !done.has(stage.id)) || null;
   }
 
   /**
@@ -518,7 +529,7 @@ class WorkflowEngine {
    * @param {string} stageId
    * @returns {Array<Object>} gates that fire after the named stage
    */
-  gatesAfter(taskClass, stageId) {
+  gatesAfter(taskClass: string, stageId: string) {
     return this.describeStage(taskClass, stageId).gatesAfter;
   }
 }
@@ -535,12 +546,12 @@ class WorkflowEngine {
  * @param {boolean} [options.json=false]
  * @returns {number} exit code
  */
-function handleWorkflowCommand({ taskClass, json = false } = {}) {
+function handleWorkflowCommand({ taskClass, json = false }: any = {}): number {
   const engine = new WorkflowEngine({ repoRoot: REPO_ROOT });
   let workflow;
   try {
     workflow = engine.resolveWorkflow(taskClass);
-  } catch (error) {
+  } catch (error: any) {
     // The engine's own message already names every valid class; restating it here would be a
     // second inventory to keep in step with the registry.
     return usageError('workflow', error.message, json, error);

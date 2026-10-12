@@ -17,7 +17,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO, skillFiles } = require('./_shared');
-const { WorkflowEngine } = require('../../src/runtime/workflow-engine');
+const { WorkflowEngine } = require('../../src/runtime/workflow-engine.ts');
 const { parseYamlFile } = require('../../src/runtime/capability-router.ts');
 
 const REGISTRY_DIR = path.join(REPO, 'core', 'registry');

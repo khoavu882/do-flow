@@ -10,7 +10,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { WorkflowEngine } = require('./workflow-engine');
+const { WorkflowEngine } = require('./workflow-engine.ts');
 const { updateTaskState, readTaskState } = require('./task-state.ts');
 const { ResearchRequestStore } = require('./research-request');
 const { REPO_ROOT } = require('../helper/repo-root.ts');

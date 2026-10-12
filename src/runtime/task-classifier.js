@@ -3,7 +3,7 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const { TextDecoder } = require('node:util');
-const { WorkflowEngine, CALLER_ROLES } = require('./workflow-engine');
+const { WorkflowEngine, CALLER_ROLES } = require('./workflow-engine.ts');
 const { finishRuntime } = require('./cli-result.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { loadAdviceRegistry } = require('./advice/registry.ts');
