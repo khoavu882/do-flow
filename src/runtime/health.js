@@ -22,7 +22,7 @@ const { execFileSync } = require('node:child_process');
 const { CapabilityRouter } = require('./capability-router.ts');
 const { loadRegistry } = require('../registry/index.ts');
 const { evaluateReach } = require('./reach.ts');
-const { mcpReach } = require('./mcp-reach');
+const { mcpReach } = require('./mcp-reach.ts');
 const { OUTCOME_LABELS } = require('./mcp-consultations.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 

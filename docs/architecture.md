@@ -616,7 +616,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   appears only under `core/shared/skills/`; a sentence naming an `optional` server with "always",
   "no flag" or "unconditionally" fails; a sentence holding `ToolSearch(` must say "Claude Code". Each
   marker in a skill file needs a matching `steps` entry in `mcp.json`, and each `steps` entry's file
-  must exist and hold its server's marker. `mcp-consultations.ts`, `mcp-reach.js`, `brief-tools.js`
+  must exist and hold its server's marker. `mcp-consultations.ts`, `mcp-reach.ts`, `brief-tools.js`
   and `do-task-brief.sh` contain no `mcp.json` id as a literal, and the first three require none of
   `http`, `https`, `net` or `dns`. `docs/setup.md` holds each stepped server's `trigger` verbatim. The
   checks are one function over injected files, and fixture tests run it over bad trees.

@@ -15,7 +15,7 @@ const { mcpIndexPath } = require('../../src/lifecycle/index.ts');
 const SKILLS_PREFIX = 'core/shared/skills/';
 const CODE_FILES = [
   'src/runtime/mcp-consultations.ts',
-  'src/runtime/mcp-reach.js',
+  'src/runtime/mcp-reach.ts',
   'src/runtime/brief-tools.js',
   'core/shared/scripts/doflow/bash/do-task-brief.sh',
 ];

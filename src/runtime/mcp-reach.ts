@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * MCP reach: for each harness the ledgers say is installed, which MCP servers does that harness
  * have — selected from DoFlow's catalog, configured by hand, absent, or out of the catalog's reach.
@@ -19,12 +21,12 @@ const { readLedger } = require('../state/index.ts');
 const { resolveAdapter } = require('../adapters/index.ts');
 const { evaluateReach } = require('./reach.ts');
 
-const SCOPE_ORDER = { project: 0, global: 1 };
+const SCOPE_ORDER: Record<string, number> = { project: 0, global: 1 };
 
 /** Every server id the answer covers: the MCP catalog, then each provider's own MCP server. */
-function serverIdsOf(registry) {
-  const ids = (registry.mcp || []).map((server) => server.id);
-  for (const capability of Object.values(registry.capabilities || {})) {
+function serverIdsOf(registry: any) {
+  const ids = (registry.mcp || []).map((server: any) => server.id);
+  for (const capability of (Object.values(registry.capabilities || {}) as any[])) {
     for (const provider of capability.providers || []) if (provider.mcp?.server) ids.push(provider.mcp.server);
   }
   return [...new Set(ids)];
@@ -32,16 +34,16 @@ function serverIdsOf(registry) {
 
 /** The MCP file an adapter's discovery could not read and the fixed reason it gives, or null.
  * Reasons come from the adapters (invalid JSON, wrong shape), never from file content. */
-function unreadableDetail(discovery) {
-  for (const [file, read] of Object.entries(discovery.mcpSnapshot || {})) if (read?.ok === false) return { detail: read.reason, file };
-  for (const [file, read] of Object.entries(discovery.mcp || {})) if (read?.doc?.ok === false) return { detail: read.doc.reason, file };
+function unreadableDetail(discovery: any) {
+  for (const [file, read] of (Object.entries(discovery.mcpSnapshot || {}) as [string, any][])) if (read?.ok === false) return { detail: read.reason, file };
+  for (const [file, read] of (Object.entries(discovery.mcp || {}) as [string, any][])) if (read?.doc?.ok === false) return { detail: read.doc.reason, file };
   if (discovery.settings?.error) return { detail: 'invalid JSON', ...(discovery.paths?.settings ? { file: discovery.paths.settings } : {}) };
   return null;
 }
 
 /** A server is absent (`not-taken`, `not-selected`) only where the adapter read every source its
  * harness merges (`mcpComplete: true`); anywhere else absence is no proof and the state is unknown. */
-function stateOf(row, id) {
+function stateOf(row: any, id: any) {
   if (row.selected.has(id)) return 'selected';
   if (row.configured?.includes(id)) return 'configured';
   if (row.unreadable || row.configured === null || !row.complete) return 'unknown';
@@ -57,14 +59,14 @@ function stateOf(row, id) {
  * @param {Object} options.adapters adapter registry (`buildAdapterRegistry()`)
  * @returns {{harnesses: Object[], unreadable: Object[]}} plain data; `anyHarnessHas` and `addCommand` ride along unenumerated
  */
-function mcpReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl = fs, adapters }) {
+function mcpReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl = fs, adapters }: any) {
   const serverIds = serverIdsOf(registry);
-  const catalogIds = (registry.mcp || []).map((server) => server.id);
-  const harnessOrder = registry.harnesses.map((harness) => harness.id);
+  const catalogIds = (registry.mcp || []).map((server: any) => server.id);
+  const harnessOrder = registry.harnesses.map((harness: any) => harness.id);
   const { rows: reached } = evaluateReach({ registry, projectRoot, homeDir, fsImpl });
 
   const ledgers = new Map();
-  const ledgerOf = ({ scope, installRoot }) => {
+  const ledgerOf = ({ scope, installRoot }: any) => {
     const key = `${scope}\0${installRoot}`;
     if (!ledgers.has(key)) {
       let ledger = null;
@@ -76,12 +78,12 @@ function mcpReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl = fs, 
 
   const unreadable = [];
   const seen = new Set();
-  const rows = [];
+  const rows: any[] = [];
   for (const { harness: id, scope, installRoot } of reached) {
     const key = `${id}\0${scope}\0${installRoot}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const harness = registry.harnesses.find((item) => item.id === id);
+    const harness = registry.harnesses.find((item: any) => item.id === id);
     const ledger = ledgerOf({ scope, installRoot });
     const mcp = harness.capabilities?.mcp;
     const row = {
@@ -89,7 +91,7 @@ function mcpReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl = fs, 
       catalog: mcp?.status === 'supported' ? 'taken' : 'not-taken',
       note: mcp?.note ?? mcp?.verification,
       selected: new Set((ledger?.resources || [])
-        .filter((resource) => resource.harness === id && resource.kind === 'mcp-server').map((resource) => resource.identity)),
+        .filter((resource: any) => resource.harness === id && resource.kind === 'mcp-server').map((resource: any) => resource.identity)),
       configured: null,
       complete: false,
       unreadable: false,
@@ -102,7 +104,7 @@ function mcpReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl = fs, 
       row.complete = discovery.mcpComplete === true;
       const found = unreadableDetail(discovery);
       if (found) { row.unreadable = true; unreadable.push({ harness: id, scope, ...found }); }
-    } catch (error) {
+    } catch (error: any) {
       row.unreadable = true;
       unreadable.push({ harness: id, scope, detail: error.message });
     }
@@ -113,7 +115,7 @@ function mcpReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl = fs, 
 
   const result = {
     harnesses: rows.map((row) => {
-      const entry = { id: row.id, scope: row.scope, catalog: row.catalog };
+      const entry: any = { id: row.id, scope: row.scope, catalog: row.catalog };
       if (row.catalog === 'not-taken' && row.note) entry.note = row.note;
       entry.servers = Object.fromEntries(serverIds.map((server) => [server, stateOf(row, server)]));
       return entry;
@@ -124,15 +126,15 @@ function mcpReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl = fs, 
   /** `true` when a server is selected or configured on some installed harness, `false` only when
    * every installed harness read every source it merges and says it is absent, `null` (unknown)
    * otherwise, including when none is installed. */
-  const anyHarnessHas = (server) => {
+  const anyHarnessHas = (server: any) => {
     const states = rows.map((row) => stateOf(row, server));
     if (states.some((state) => state === 'selected' || state === 'configured')) return true;
     return states.length > 0 && states.every((state) => state === 'not-selected' || state === 'not-taken') ? false : null;
   };
 
   /** The command that adds `serverId` for a harness at a scope, or where to configure it by hand. */
-  const addCommand = (harnessId, scope, serverId) => {
-    const harness = registry.harnesses.find((item) => item.id === harnessId);
+  const addCommand = (harnessId: any, scope: any, serverId: any) => {
+    const harness = registry.harnesses.find((item: any) => item.id === harnessId);
     const name = harness?.displayName || harnessId;
     if (harness?.capabilities?.mcp?.status !== 'supported') {
       return `configure it in ${name}'s own MCP settings; DoFlow's catalog does not reach it`;
@@ -142,7 +144,7 @@ function mcpReach({ registry, projectRoot, homeDir = os.homedir(), fsImpl = fs, 
     }
     const chosen = new Set([serverId]);
     for (const row of rows) if (row.id === harnessId && row.scope === scope) for (const id of row.selected) chosen.add(id);
-    return `doflow install${scope === 'global' ? ' -g' : ''} --target ${harnessId} --mcp ${catalogIds.filter((id) => chosen.has(id)).join(',')}`;
+    return `doflow install${scope === 'global' ? ' -g' : ''} --target ${harnessId} --mcp ${catalogIds.filter((id: any) => chosen.has(id)).join(',')}`;
   };
 
   Object.defineProperties(result, {
