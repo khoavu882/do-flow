@@ -627,7 +627,7 @@
       "moments": [],
       "writers": [
         "src/adapters/antigravity/index.js",
-        "src/adapters/copy-tree.js",
+        "src/adapters/copy-tree.ts",
         "src/install/manifest.ts",
         "src/lifecycle/index.js",
         "src/state/index.ts"
@@ -651,7 +651,7 @@
       "moments": [],
       "writers": [
         "src/adapters/antigravity/index.js",
-        "src/adapters/copy-tree.js",
+        "src/adapters/copy-tree.ts",
         "src/install/manifest.ts",
         "src/lifecycle/index.js",
         "src/state/index.ts"

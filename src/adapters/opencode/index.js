@@ -4,7 +4,7 @@
 //
 // OpenCode gets its own copy of DoFlow's skills tree, the same as Claude, Codex, and Gemini: it
 // natively discovers skills under `.opencode/skills/` (project) and `~/.config/opencode/skills/`
-// (global) without any settings entry, so the shared copy-tree engine in ../copy-tree.js
+// (global) without any settings entry, so the shared copy-tree engine in ../copy-tree.ts
 // materialises `skills.doflow` there directly. What remains registration, rather than
 // materialisation, is `opencode.json`'s `instructions[]` array (OpenCode needs `AGENTS.md` named
 // explicitly to read it) and its `mcp` object — neither has a native discovery path the way skills
@@ -14,7 +14,7 @@
 // https://opencode.ai/docs/rules
 const fs = require('node:fs');
 const path = require('node:path');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor, resolveTransform } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor, resolveTransform } = require('../copy-tree.ts');
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries');
 
 // Only the marker constants: marker-merge.js reads and writes files itself, which cannot be used

@@ -19,7 +19,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor } = require('../copy-tree.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries');
 

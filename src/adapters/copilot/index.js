@@ -4,7 +4,7 @@
 //
 // Copilot has no single native root the way Claude's `.claude` is one — instructions, skills,
 // agents, and MCP each live under a different path, split further by scope. Skills and agents are
-// both trees materialised via the shared copy-tree engine in ../copy-tree.js; the single instruction
+// both trees materialised via the shared copy-tree engine in ../copy-tree.ts; the single instruction
 // pointer is a marker-merged section in a shared file, the same shape opencode/pi/gemini already use;
 // MCP servers are entries of one JSON map that DoFlow owns one at a time through ../mcp-entries.js,
 // never touching an entry it does not own.
@@ -24,7 +24,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, sourceDirFor, resolveTransform } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, sourceDirFor, resolveTransform } = require('../copy-tree.ts');
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 
@@ -137,9 +137,9 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
    * `.agent.md` extension, while `core/shared/agent-specs/*.md` — already `name`/`description`
    * YAML-frontmatter files, the same shape `.agent.md` expects — carries a plain `.md` extension.
    * This is the same class of shape mismatch Gemini/Antigravity's `dir-per-file:agent.md` layout in
-   * copy-tree.js already solves for a directory-per-agent requirement; here the mismatch is only the
+   * copy-tree.ts already solves for a directory-per-agent requirement; here the mismatch is only the
    * extension, so a flat rename is enough and no directory restructuring is needed. Declared as a
-   * function (rather than a name registered in copy-tree.js's LAYOUTS) because it is specific to this
+   * function (rather than a name registered in copy-tree.ts's LAYOUTS) because it is specific to this
    * one adapter's asset, not a shape another harness also needs. Format logic, not a path fact —
    * it stays code rather than moving into the registry's path declarations.
    */

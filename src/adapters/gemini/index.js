@@ -5,7 +5,7 @@
 // settings/MCP/extensions as first-class native-surface results for the lifecycle UI.
 const fs = require('node:fs');
 const path = require('node:path');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor, resolveTransform } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor, resolveTransform } = require('../copy-tree.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 const { planGeminiHooks, deployGeminiHooks, planRemoveGeminiHooks, deployRemoveGeminiHooks } = require('./hooks');
 

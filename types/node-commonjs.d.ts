@@ -46,4 +46,5 @@ declare var Buffer: {
   alloc(size: number): Buffer;
   from(data: any, encoding?: string): Buffer;
   byteLength(string: string, encoding?: string): number;
+  isBuffer(value: any): boolean;
 };

@@ -13,7 +13,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const { fingerprint } = require('../copy-tree');
+const { fingerprint } = require('../copy-tree.ts');
 const { SKELETON, readDocument, insertMember, replaceValue, removeMember, replaceInner, renderNewDocument } = require('./json-members.ts');
 
 const HARNESS = 'pi';

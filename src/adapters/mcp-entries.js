@@ -12,7 +12,7 @@
 // the same reason a file DoFlow cannot read is described by a fixed reason, never parser output.
 const fs = require('node:fs');
 const path = require('node:path');
-const { fingerprint } = require('./copy-tree');
+const { fingerprint } = require('./copy-tree.ts');
 
 const REASONS = Object.freeze({
   json: 'invalid JSON',

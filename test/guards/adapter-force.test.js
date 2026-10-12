@@ -4,7 +4,7 @@
  * G18: every adapter forwards `force` into `planTree`.
  *
  * `--force` was parsed (src/cli/index.js), threaded onto the lifecycle view (install.js) and into
- * its context (lifecycle/view.js), and consulted by the conflict predicate (copy-tree.js) — while
+ * its context (lifecycle/view.js), and consulted by the conflict predicate (copy-tree.ts) — while
  * six of the eight adapters omitted it from their own `planTree` call. `planTree` declares
  * `force = false` as a parameter default, so every one of those calls silently received `false`
  * instead of the user's flag. Nothing errored: a missing optional argument is legal JavaScript.
@@ -91,7 +91,7 @@ test('G18: the parser, the lifecycle view and the conflict predicate all still s
     'install must pass the parsed flag to the lifecycle view');
   assert.match(read('src/lifecycle/view.js'), /^\s+force,$/m,
     'the lifecycle view must place force in the adapter context');
-  assert.match(read('src/adapters/copy-tree.js'), /const knownGood = force \|\|/,
+  assert.match(read('src/adapters/copy-tree.ts'), /const knownGood = force \|\|/,
     'planTree\'s conflict predicate must consult force');
 });
 

@@ -11,7 +11,7 @@ const { configPath, fingerprint: configFingerprint, parseToml, planCodexConfig, 
 const { renderServer, planCodexMcp, applyCodexMcp, ownedCodexMcpIds, userDefinedCodexMcpIds, serverTableText } = require('./mcp');
 const { agentDirectory, discoverCodexAgents, planCodexAgents, applyCodexAgents } = require('./agents');
 const { planCodexHooks, deployCodexHooks, removeCodexHookScripts } = require('./hooks');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../copy-tree.ts');
 const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
 const { nativeMcpCatalog } = require('../../registry/index.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');

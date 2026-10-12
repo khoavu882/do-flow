@@ -846,7 +846,7 @@ test('IC-002: the report carries no inspected-but-not-reported count, in either 
  * fingerprint. Every existing divergence fixture reaches `diverged` through a destination that does
  * not exist at all, where the two cases are indistinguishable.
  *
- * `src/adapters/copy-tree.js` treats a destination as a no-op only when the location, the disk bytes
+ * `src/adapters/copy-tree.ts` treats a destination as a no-op only when the location, the disk bytes
  * and the recorded row all agree with the source, which is correct for planning a write that also
  * refreshes the row — so it emits `update` when only the row is stale. That is routine rather than
  * exotic: the shared hooks asset projects one destination for claude, codex, gemini, kiro and

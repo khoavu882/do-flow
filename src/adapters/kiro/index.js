@@ -15,7 +15,7 @@
 // https://kiro.dev/docs/hooks/
 const fs = require('node:fs');
 const path = require('node:path');
-const { planTree, applyTree, removeTree, verifyTree, resolveTransform, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, sourceDirFor } = require('../copy-tree');
+const { planTree, applyTree, removeTree, verifyTree, resolveTransform, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, sourceDirFor } = require('../copy-tree.ts');
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 
