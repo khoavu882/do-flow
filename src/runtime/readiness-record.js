@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { updateTaskState } = require('./task-state.ts');
 const { resolveTaskScope } = require('./task-scope.ts');
-const { findStateFile } = require('./checkouts');
+const { findStateFile } = require('./checkouts.ts');
 
 // The readiness record: the latest evaluation of one task, kept where `readiness` ran.
 //

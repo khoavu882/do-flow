@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
@@ -13,9 +15,9 @@ const { BASE_FILE } = require('./worktree.ts');
 // source that names every checkout, and it is asked once per process.
 
 /** realpath(cwd) -> listCheckouts result. */
-const cache = new Map();
+const cache = new Map<string, any>();
 
-function realOrNull(p, fsImpl) {
+function realOrNull(p: string, fsImpl: any): string | null {
   try {
     return fsImpl.realpathSync(p);
   } catch {
@@ -23,7 +25,7 @@ function realOrNull(p, fsImpl) {
   }
 }
 
-function failed(reason, detail) {
+function failed(reason: string, detail: string): any {
   return {
     ok: false, reason, detail, current: null, main: null, mainReason: null, others: [], isLinked: false, sandbox: false,
   };
@@ -44,17 +46,17 @@ function failed(reason, detail) {
  * @returns {{ok: boolean, reason: string|null, detail: string|null, current: string|null, main: string|null,
  *   mainReason: string|null, others: Array<string>, isLinked: boolean, sandbox: boolean}}
  */
-function listCheckouts({ cwd, exec = spawnSync, fsImpl = fs }) {
+function listCheckouts({ cwd, exec = spawnSync, fsImpl = fs }: { cwd: string; exec?: any; fsImpl?: any }): any {
   const realCwd = realOrNull(cwd, fsImpl) || path.resolve(cwd);
   if (cache.has(realCwd)) return cache.get(realCwd);
 
-  let res;
+  let res: any;
   try {
     res = exec('git', ['-C', realCwd, 'worktree', 'list', '--porcelain'], { encoding: 'utf8', timeout: 10000 });
-  } catch (error) {
+  } catch (error: any) {
     res = { error };
   }
-  let result;
+  let result: any;
   if (res && res.error) {
     result = res.error.code === 'ENOENT'
       ? failed('git-unavailable', String(res.error.message || '').trim().slice(0, 200))
@@ -69,8 +71,8 @@ function listCheckouts({ cwd, exec = spawnSync, fsImpl = fs }) {
   return result;
 }
 
-function fromPorcelain(stdout, realCwd, fsImpl) {
-  const entries = [];
+function fromPorcelain(stdout: string, realCwd: string, fsImpl: any): any {
+  const entries: Array<{ real: string | null; bare: boolean; sandbox: boolean }> = [];
   for (const block of stdout.split(/\n\s*\n/)) {
     const lines = block.split('\n').filter(Boolean);
     if (lines.length === 0 || !lines[0].startsWith('worktree ')) continue;
@@ -82,7 +84,7 @@ function fromPorcelain(stdout, realCwd, fsImpl) {
     });
   }
 
-  let current = null;
+  let current: any = null;
   for (const e of entries) {
     if (e.real === null || e.bare) continue;
     if ((realCwd === e.real || realCwd.startsWith(e.real + path.sep)) && (current === null || e.real.length > current.real.length)) {
@@ -91,8 +93,8 @@ function fromPorcelain(stdout, realCwd, fsImpl) {
   }
   const sandbox = Boolean(current && current.sandbox);
   const first = entries[0];
-  let main = null;
-  let mainReason = null;
+  let main: string | null = null;
+  let mainReason: string | null = null;
   if (sandbox) mainReason = 'sandbox';
   else if (first && first.bare) mainReason = 'bare';
   else if (!first || first.real === null) mainReason = 'missing';
@@ -100,7 +102,7 @@ function fromPorcelain(stdout, realCwd, fsImpl) {
 
   const others = sandbox ? [] : entries
     .filter((e) => e.real !== null && !e.bare && !e.sandbox && e !== current)
-    .map((e) => e.real);
+    .map((e) => e.real as string);
   const currentPath = current ? current.real : null;
   return {
     ok: true,
@@ -116,7 +118,7 @@ function fromPorcelain(stdout, realCwd, fsImpl) {
 }
 
 /** Forgets every memoized `listCheckouts` result (tests that rebuild a repository in place). */
-function clearCheckoutCache() {
+function clearCheckoutCache(): void {
   cache.clear();
 }
 
@@ -136,8 +138,8 @@ function clearCheckoutCache() {
  * @returns {{status: 'found'|'missing'|'ambiguous', file: string|null, root: string|null,
  *   origin: 'current'|'other'|null, candidates: Array<string>}}
  */
-function findStateFile({ stateRoot, relPath, exec = spawnSync, fsImpl = fs }) {
-  const at = (root, isCurrent) => {
+function findStateFile({ stateRoot, relPath, exec = spawnSync, fsImpl = fs }: { stateRoot: string; relPath: any; exec?: any; fsImpl?: any }): any {
+  const at = (root: string, isCurrent: boolean): string | null => {
     const rel = typeof relPath === 'function' ? relPath(root, isCurrent) : relPath;
     for (const candidate of Array.isArray(rel) ? rel : [rel]) {
       if (typeof candidate !== 'string' || candidate === '') continue;
@@ -146,21 +148,21 @@ function findStateFile({ stateRoot, relPath, exec = spawnSync, fsImpl = fs }) {
     }
     return null;
   };
-  const missing = { status: 'missing', file: null, root: null, origin: null, candidates: [] };
+  const missing = { status: 'missing', file: null, root: null, origin: null, candidates: [] as string[] };
 
   const here = at(stateRoot, true);
   if (here) return { status: 'found', file: here, root: stateRoot, origin: 'current', candidates: [] };
 
   const checkouts = listCheckouts({ cwd: stateRoot, exec, fsImpl });
   if (!checkouts.ok || checkouts.sandbox) return missing;
-  const matches = [];
-  for (const root of checkouts.others) {
+  const matches: Array<{ file: string; root: string }> = [];
+  for (const root of checkouts.others as string[]) {
     const file = at(root, false);
     if (file) matches.push({ file, root });
   }
   if (matches.length === 0) return missing;
   if (matches.length > 1) {
-    return { status: 'ambiguous', file: null, root: null, origin: null, candidates: matches.map((m) => m.file) };
+    return { status: 'ambiguous', file: null, root: null, origin: null, candidates: matches.map((m: { file: string }) => m.file) };
   }
   return { status: 'found', file: matches[0].file, root: matches[0].root, origin: 'other', candidates: [] };
 }

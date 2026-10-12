@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { readReadinessRecord, newerVersionOf, RECORD_VERSION } = require('./readiness-record');
-const { listCheckouts } = require('./checkouts');
+const { listCheckouts } = require('./checkouts.ts');
 const { readTaskState } = require('./task-state.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');
 const { isSafeSlug } = require('./task-scope.ts');

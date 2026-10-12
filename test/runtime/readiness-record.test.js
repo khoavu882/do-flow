@@ -14,7 +14,7 @@ const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { writeReadinessRecord, readReadinessRecord } = require('../../src/runtime/readiness-record');
 const { checkReadiness } = require('../../src/runtime/implementation-gate');
-const { clearCheckoutCache } = require('../../src/runtime/checkouts');
+const { clearCheckoutCache } = require('../../src/runtime/checkouts.ts');
 const { clearTaskScopeCache } = require('../../src/runtime/task-scope.ts');
 
 const SLUG = '900-demo';

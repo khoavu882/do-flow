@@ -7,7 +7,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { resolveActiveFeature } = require('../feature-resolve.ts');
 const { resolveBashHelper } = require('../../helper/bash-helper.ts');
-const { listCheckouts } = require('../checkouts');
+const { listCheckouts } = require('../checkouts.ts');
 
 // The change-scope bound of a planned feature, and the baseline a change is measured from
 // (feature 045, IC-003 / IC-004).
