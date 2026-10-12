@@ -15,7 +15,7 @@
 const nodeFs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { maskLine } = require('../mask');
+const { maskLine } = require('../mask.ts');
 const { STAGES: CHAIN_STAGES } = require('../decision-register');
 const { isSafeSlug, invalidSlugRefusal } = require('../task-scope');
 const { resolveActiveFeature } = require('../feature-resolve');

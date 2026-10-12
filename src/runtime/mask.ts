@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Masking and normalisation (IC-012). Best-effort, never a guarantee: NFR-003 rests on local-only
  * storage, on keeping a report body on the machine that produced it and on DoFlow never committing
@@ -50,10 +52,10 @@ const KEY_VALUE_BODY = new RegExp(`(${KEY_NAME}["']?[ \\t]*[=:][ \\t]*)("[^"\\r\
 const AUTH_HEADER = /((?:Proxy-)?Authorization:)[ \t]*([^\r\n]*)/gi;
 const SECRET_FLAG = /(--(?:password|passwd|token|secret|api-key|client-secret)(?:=|[ \t]+))("[^"\r\n]*"|'[^'\r\n]*'|[^\s"']+)/gi;
 
-function escapeRegExp(text) { return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function escapeRegExp(text: string): string { return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 /** The home directory to abbreviate: an absolute path other than the file system root. */
-function homeOf(options) {
+function homeOf(options?: any): string | null {
   const raw = options && 'home' in options ? options.home : process.env.HOME;
   if (typeof raw !== 'string' || !raw.startsWith('/')) return null;
   const home = raw.replace(/\/+$/, '');
@@ -61,12 +63,12 @@ function homeOf(options) {
 }
 
 /** A run of 32 or more characters that is a path: starts with `/`, `~` or `.` and has no part of 32+. */
-function isPathRun(run, before) {
+function isPathRun(run: string, before: string | undefined): boolean {
   if (!(run.startsWith('/') || before === '~' || before === '.')) return false;
-  return run.split('/').every((part) => part.length < 32);
+  return run.split('/').every((part: string) => part.length < 32);
 }
 
-function looksLikeSecretRun(run, minDigits) {
+function looksLikeSecretRun(run: string, minDigits: number): boolean {
   const digits = (run.match(/[0-9]/g) || []).length;
   const upper = (run.match(/[A-Z]/g) || []).length;
   const lower = (run.match(/[a-z]/g) || []).length;
@@ -82,14 +84,14 @@ function looksLikeSecretRun(run, minDigits) {
 const KEY_VALUE_40 = /(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{40}(?![A-Za-z0-9+/])/g;
 
 /** Masks the 40-character values inside a run that did not qualify as a whole. */
-function mask40(run, before) {
-  return run.replace(KEY_VALUE_40, (value, index) => (
+function mask40(run: string, before: string | undefined): string {
+  return run.replace(KEY_VALUE_40, (value: string, index: number) => (
     looksLikeSecretRun(value, 1) && !isPathRun(value, index === 0 ? before : run[index - 1]) ? MASKED : value));
 }
 
-function isMasked(value) { return value.replace(/^["']|["']$/g, '') === MASKED; }
+function isMasked(value: string): boolean { return value.replace(/^["']|["']$/g, '') === MASKED; }
 
-function count(text, token) { return text.split(token).length - 1; }
+function count(text: string, token: string): number { return text.split(token).length - 1; }
 
 /**
  * Masks `text` with a profile.
@@ -100,7 +102,7 @@ function count(text, token) { return text.split(token).length - 1; }
  * @returns {{text: string, masked: number}} `masked` counts the values replaced: the net growth in
  *   the number of `<masked>`, `<email>` and `<ip>` markers, so a value two rules both reach counts once
  */
-function mask(text, profile, options = {}) {
+function mask(text: any, profile: 'line' | 'body', options: any = {}): { text: string; masked: number } {
   if (profile !== 'line' && profile !== 'body') throw new TypeError(`unknown mask profile '${profile}'`);
   const input = text == null ? '' : String(text);
   let out = input;
@@ -117,33 +119,33 @@ function mask(text, profile, options = {}) {
   // 3. Bearer tokens and URL credentials.
   out = out.replace(BEARER, `$1$2${MASKED}`).replace(URL_CREDENTIALS, `://${MASKED}@`);
   // 4. Key=value, unquoted, when the value is not plain letters.
-  out = out.replace(KEY_VALUE_LINE, (match, key, separator, value) => (
+  out = out.replace(KEY_VALUE_LINE, (match: string, key: string, separator: string, value: string) => (
     isMasked(value) || value.startsWith(MASKED) || !/[^A-Za-z]/.test(value) ? match : `${key}${separator}${MASKED}`));
   // 5. Long secret-looking runs that are not paths.
-  out = out.replace(LONG_RUN, (run, offset) => (
+  out = out.replace(LONG_RUN, (run: string, offset: number) => (
     looksLikeSecretRun(run, 2) && !isPathRun(run, out[offset - 1]) ? MASKED : mask40(run, out[offset - 1])));
   // 6. Email addresses and IPv4 addresses.
   out = out.replace(EMAIL_ADDRESS, EMAIL).replace(IPV4, IP);
 
   if (profile === 'body') {
     // 7. Key and value, quoted or not, whatever the value looks like.
-    out = out.replace(KEY_VALUE_BODY, (match, head, value) => {
+    out = out.replace(KEY_VALUE_BODY, (match: string, head: string, value: string) => {
       if (isMasked(value) || value.startsWith(MASKED)) return match;
       const quote = value[0] === '"' || value[0] === "'" ? value[0] : '';
       return `${head}${quote}${MASKED}${quote}`;
     });
     // 8. Authorization headers: everything after the colon.
-    out = out.replace(AUTH_HEADER, (match, name, rest) => (rest === '' || rest === MASKED ? match : `${name} ${MASKED}`));
+    out = out.replace(AUTH_HEADER, (match: string, name: string, rest: string) => (rest === '' || rest === MASKED ? match : `${name} ${MASKED}`));
     // 9. Secret-bearing command-line flags.
-    out = out.replace(SECRET_FLAG, (match, flag, value) => (isMasked(value) ? match : `${flag}${MASKED}`));
+    out = out.replace(SECRET_FLAG, (match: string, flag: string, value: string) => (isMasked(value) ? match : `${flag}${MASKED}`));
   }
 
   const masked = Math.max(0, [MASKED, EMAIL, IP].reduce((sum, token) => sum + count(out, token) - count(input, token), 0));
   return { text: out, masked };
 }
 
-const maskLine = (text, options) => mask(text, 'line', options);
-const maskBody = (text, options) => mask(text, 'body', options);
+const maskLine = (text: any, options?: any) => mask(text, 'line', options);
+const maskBody = (text: any, options?: any) => mask(text, 'body', options);
 
 const ABSOLUTE_PATH = /(?<![A-Za-z0-9_.:/~-])(?:~(?![A-Za-z0-9_])\/?|\/)[^\s"'`<>:;,()[\]{}]*|[A-Za-z]:\\[^\s"'`<>:;,()[\]{}]*/g;
 
@@ -152,7 +154,7 @@ const ABSOLUTE_PATH = /(?<![A-Za-z0-9_.:/~-])(?:~(?![A-Za-z0-9_])\/?|\/)[^\s"'`<
  * @param {*} text
  * @returns {string}
  */
-function normalise(text) {
+function normalise(text: any): string {
   let out = text == null ? '' : String(text);
   out = out.replace(ABSOLUTE_PATH, '<path>');                                          // 10
   out = out.replace(/"[^"]*"|(?<![A-Za-z0-9])'[^']*'|`[^`]*`/g, '"..."');              // 11
@@ -166,7 +168,7 @@ function normalise(text) {
  * a path with a long mixed-case segment would otherwise be masked by rule 5 as `<masked>` while a
  * short one becomes `<path>`.
  */
-function normaliseMessage(text, options) {
+function normaliseMessage(text: any, options?: any): string {
   const paths = (text == null ? '' : String(text)).replace(ABSOLUTE_PATH, '<path>');
   return normalise(maskLine(paths, options).text);
 }
@@ -191,14 +193,14 @@ const REPLACEMENT = '\uFFFD';
  * @param {{keepLineBreaks?: boolean}} [options]
  * @returns {T}
  */
-function printSafe(value, options = {}) {
+function printSafe(value: any, options: { keepLineBreaks?: boolean } = {}): any {
   if (typeof value === 'string') {
     const spaced = options.keepLineBreaks ? value : value.replace(PRINT_LINE_BREAK, ' ');
     return spaced.replace(PRINT_CONTROL, REPLACEMENT);
   }
-  if (Array.isArray(value)) return value.map((item) => printSafe(item, options));
+  if (Array.isArray(value)) return value.map((item: any) => printSafe(item, options));
   if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
-    const out = {};
+    const out: Record<string, any> = {};
     for (const key of Object.keys(value)) out[key] = printSafe(value[key], options);
     return out;
   }

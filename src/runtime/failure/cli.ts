@@ -13,7 +13,7 @@
 
 const fs = require('node:fs');
 const { finishRuntime, usageError } = require('../cli-result.ts');
-const { maskLine, printSafe } = require('../mask');
+const { maskLine, printSafe } = require('../mask.ts');
 const { failureHome, captureSwitch, sentinelPath } = require('./home.ts');
 const { rotateIfDue } = require('./capture.ts');
 const store = require('./store.ts');

@@ -579,7 +579,7 @@ describe('hostile errors and big messages', () => {
 
 describe('one fingerprint for one bug (normalise before masking)', () => {
   const { fingerprint } = require('../../src/runtime/failure/store.ts');
-  const { normaliseMessage } = require('../../src/runtime/mask');
+  const { normaliseMessage } = require('../../src/runtime/mask.ts');
   const fpFor = (message) => {
     const { env } = freshEnv('fp');
     captureError(new TypeError(message), { command: 'verify', exit: 1 }, env);

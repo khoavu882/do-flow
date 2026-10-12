@@ -282,7 +282,7 @@ test('R1: a run with no whitespace at all keeps nothing but the marker; a mask f
   const repo = newRepo();
   const out = report(repo, { input: { text: 'A'.repeat(2 * MiB) } });
   assert.equal(fs.readFileSync(bodyFile(repo, out.created[0].id), 'utf8'), '\n[truncated by doflow at 1 MiB]');
-  const maskModule = require('../../src/runtime/mask');
+  const maskModule = require('../../src/runtime/mask.ts');
   const original = maskModule.maskBody;
   maskModule.maskBody = () => { throw new RangeError('Maximum call stack size exceeded'); };
   try {

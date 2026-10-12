@@ -17,7 +17,7 @@
 const nodeFs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const mask = require('../mask');
+const mask = require('../mask.ts');
 
 /** A `--file` or `--stdin` source is read for at most this many bytes; the rest could not be kept anyway. */
 const MAX_READ_BYTES = 16 * 1024 * 1024;

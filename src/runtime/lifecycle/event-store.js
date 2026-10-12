@@ -16,7 +16,7 @@ const nodeFs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { acquireLock } = require('../task-state');
-const { printSafe } = require('../mask');
+const { printSafe } = require('../mask.ts');
 const { foldInto, finalize, applyEvent } = require('./fold');
 
 const LIFECYCLE_REL = path.join('.doflow', 'state', 'lifecycle');

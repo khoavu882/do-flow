@@ -19,7 +19,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { failureHome, captureSwitch, eventsPath } = require('./home.ts');
-const { printSafe } = require('../mask');
+const { printSafe } = require('../mask.ts');
 
 const ROTATED = /^events-\d{8}T\d{6}Z-\d+\.jsonl$/;
 const SETTLEMENTS = 'settlements.jsonl';
