@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomBytes } = require('node:crypto');
-const { formatBound } = require('./registry');
+const { formatBound } = require('./registry.ts');
 const { resolveStorePath } = require('./roots.ts');
 const { selectCandidates, recordStillCandidate, protectedLogs, removableRules, ruleOrder, projectRoot } = require('./rules');
 const { retainLocked } = require('../lifecycle/store-upkeep');

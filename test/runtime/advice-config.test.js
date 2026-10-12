@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { loadAdviceRegistry } = require('../../src/runtime/advice/registry');
-const { loadStorageRegistry } = require('../../src/runtime/storage/registry');
+const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
 const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
 const { resolveSetting, writeSetting } = require('../../src/runtime/advice/config');
 

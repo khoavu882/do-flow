@@ -2,7 +2,7 @@
 
 const path = require('node:path');
 const fs = require('node:fs');
-const { loadStorageRegistry } = require('./registry');
+const { loadStorageRegistry } = require('./registry.ts');
 const { resolveRoots, readPruneSetting } = require('./roots.ts');
 const { runPass } = require('./engine');
 const { upkeepAfterVerb } = require('./upkeep');

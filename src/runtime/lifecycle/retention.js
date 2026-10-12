@@ -16,7 +16,7 @@
 const nodeFs = require('node:fs');
 const { isDeepStrictEqual } = require('node:util');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
-const { loadStorageRegistry } = require('../storage/registry');
+const { loadStorageRegistry } = require('../storage/registry.ts');
 const { resolveRoots, readPruneSetting } = require('../storage/roots.ts');
 const { foldInto, finalize } = require('./fold');
 

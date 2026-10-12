@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const { resolveRoots } = require('../storage/roots.ts');
-const { loadStorageRegistry } = require('../storage/registry');
+const { loadStorageRegistry } = require('../storage/registry.ts');
 const { loadAdviceRegistry } = require('./registry');
 const { resolveSetting } = require('./config');
 const { createAdviceClient } = require('./client');
