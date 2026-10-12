@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * The machine-local report body (IC-005, DEC-014). A report's text can hold a crash trace, a log or
  * pasted output, so it never enters the repository: the body is masked with the body profile (IC-012),
@@ -42,32 +44,32 @@ class ReportInputError extends Error {}
  * repeated here rather than required from the failure module, so the follow-up service still loads in
  * a build or an install where the failure modules cannot be loaded (IC-016).
  */
-function reportsHome(env = process.env) {
+function reportsHome(env: Record<string, string | undefined> = process.env): string | null {
   const xdg = env.XDG_CONFIG_HOME;
   if (typeof xdg === 'string' && xdg !== '') return path.isAbsolute(xdg) ? path.join(xdg, 'doflow', 'reports') : null;
   const home = env.HOME;
   return typeof home === 'string' && path.isAbsolute(home) ? path.join(home, '.config', 'doflow', 'reports') : null;
 }
 
-function realProjectRoot(root, fsImpl = nodeFs) {
+function realProjectRoot(root: string, fsImpl: any = nodeFs): string {
   try { return fsImpl.realpathSync(root); } catch { return root; }
 }
 
-function projectKey(root, fsImpl = nodeFs) {
+function projectKey(root: string, fsImpl: any = nodeFs): string {
   return crypto.createHash('sha256').update(realProjectRoot(root, fsImpl)).digest('hex').slice(0, 12);
 }
 
 /** @returns {string|null} the body file of a report of this project, or null when no home resolves */
-function bodyPath(root, id, { env = process.env, fsImpl = nodeFs } = {}) {
+function bodyPath(root: string, id: string, { env = process.env, fsImpl = nodeFs }: any = {}): string | null {
   const home = reportsHome(env);
   return home === null ? null : path.join(home, projectKey(root, fsImpl), `${id}.txt`);
 }
 
 /** The `hasBody` the fold needs (IC-003): a report whose body file is on this machine. */
-function bodyChecker(root, { env = process.env, fsImpl = nodeFs } = {}) {
+function bodyChecker(root: string, { env = process.env, fsImpl = nodeFs }: any = {}): (item: any) => boolean {
   const home = reportsHome(env);
   const folder = home === null ? null : path.join(home, projectKey(root, fsImpl));
-  return (item) => {
+  return (item: any): boolean => {
     // The id comes from an event file, so it is checked before it becomes part of a path.
     if (folder === null || !FU_ID.test(String(item.id)) || item.bodyRef !== `local:${item.id}`) return false;
     try { return fsImpl.statSync(path.join(folder, `${item.id}.txt`)).isFile(); } catch { return false; }
@@ -75,8 +77,8 @@ function bodyChecker(root, { env = process.env, fsImpl = nodeFs } = {}) {
 }
 
 /** Reads at most `max` bytes from an open descriptor. */
-function readCapped(fsImpl, fd, max) {
-  const chunks = [];
+function readCapped(fsImpl: any, fd: number, max: number): Buffer {
+  const chunks: Buffer[] = [];
   let total = 0;
   const chunk = Buffer.allocUnsafe(64 * 1024);
   while (total < max) {
@@ -94,24 +96,24 @@ function readCapped(fsImpl, fd, max) {
  * @param {{file?: string, stdin?: boolean, text?: string}} source
  * @returns {string}
  */
-function readReportText({ file, stdin: stdinFlag, text }, { fsImpl = nodeFs } = {}) {
+function readReportText({ file, stdin: stdinFlag, text }: { file?: string; stdin?: boolean; text?: string }, { fsImpl = nodeFs }: any = {}): string {
   // `--file -` is stdin, as everywhere else a `-` stands for it.
   const stdin = Boolean(stdinFlag) || file === '-';
   if (file === '-') file = undefined;
   const given = [file !== undefined, Boolean(stdin), text !== undefined].filter(Boolean).length;
   if (given !== 1) throw new ReportInputError('give the report body with exactly one of --file <path>, --stdin or --text "<body>" (--file and --stdin also take text that starts with -)');
   if (text !== undefined) return String(text);
-  let bytes;
+  let bytes: Buffer;
   if (stdin) {
-    try { bytes = readCapped(fsImpl, 0, MAX_READ_BYTES); } catch (error) { throw new ReportInputError(`cannot read the report from stdin: ${error.message}`); }
+    try { bytes = readCapped(fsImpl, 0, MAX_READ_BYTES); } catch (error: any) { throw new ReportInputError(`cannot read the report from stdin: ${error.message}`); }
   } else {
-    const target = path.resolve(file);
-    let fd;
+    const target = path.resolve(file as string);
+    let fd: number | undefined;
     try {
       if (!fsImpl.statSync(target).isFile()) throw new ReportInputError(`--file ${file} is not a regular file`);
       fd = fsImpl.openSync(target, 'r');
-      bytes = readCapped(fsImpl, fd, MAX_READ_BYTES);
-    } catch (error) {
+      bytes = readCapped(fsImpl, fd as number, MAX_READ_BYTES);
+    } catch (error: any) {
       if (error instanceof ReportInputError) throw error;
       throw new ReportInputError(`cannot read --file ${file}: ${error.code || error.message}`);
     } finally {
@@ -123,7 +125,7 @@ function readReportText({ file, stdin: stdinFlag, text }, { fsImpl = nodeFs } = 
 }
 
 /** The length of the longest prefix of `buffer` of at most `limit` bytes that ends on a UTF-8 boundary. */
-function boundary(buffer, limit) {
+function boundary(buffer: Buffer, limit: number): number {
   let end = Math.min(limit, buffer.length);
   if (end === buffer.length) return end;
   while (end > 0 && (buffer[end] & 0xc0) === 0x80) end -= 1;
@@ -137,7 +139,7 @@ function boundary(buffer, limit) {
  * boundary; a token straddling the cut goes with the incomplete tail, never half-masked.
  * @returns {{text: string, cut: boolean}}
  */
-function boundMaskInput(raw) {
+function boundMaskInput(raw: string): { text: string; cut: boolean } {
   const stripped = raw.replace(ANSI, '');
   const whole = Buffer.from(stripped, 'utf8');
   if (whole.length <= MASK_INPUT_BYTES) return { text: stripped, cut: false };
@@ -155,9 +157,9 @@ function boundMaskInput(raw) {
  * @param {{home?: string}} [options] the home directory the mask replaces with `~`
  * @returns {{buffer: Buffer, masked: number, truncated: boolean}}
  */
-function prepareBody(raw, { home } = {}) {
+function prepareBody(raw: string, { home }: { home?: string } = {}): { buffer: Buffer; masked: number; truncated: boolean } {
   const { text: bounded, cut } = boundMaskInput(raw);
-  let result;
+  let result: any;
   try {
     result = mask.maskBody(bounded, home === undefined ? undefined : { home });
   } catch {
@@ -176,7 +178,7 @@ function prepareBody(raw, { home } = {}) {
  * @param {Buffer} body
  * @returns {string}
  */
-function excerptOf(body) {
+function excerptOf(body: Buffer): string {
   if (body.length <= EXCERPT_BYTES) return body.toString('utf8').replace(/\s+$/, '');
   const head = body.subarray(0, boundary(body, EXCERPT_BYTES));
   const lineEnd = head.lastIndexOf(0x0a);
@@ -187,7 +189,7 @@ function excerptOf(body) {
  * Writes the body once: exclusive create, file 0600, folders 0700, never inside the repository.
  * @returns {{ok: true, file: string}|{ok: false, reason: 'no-home'|'exists'|'error', message?: string}}
  */
-function writeBody(root, id, buffer, { env = process.env, fsImpl = nodeFs } = {}) {
+function writeBody(root: string, id: string, buffer: Buffer, { env = process.env, fsImpl = nodeFs }: any = {}): { ok: boolean; file?: string; reason?: string; message?: string } {
   const file = bodyPath(root, id, { env, fsImpl });
   if (file === null) return { ok: false, reason: 'no-home' };
   const folder = path.dirname(file);
@@ -198,18 +200,18 @@ function writeBody(root, id, buffer, { env = process.env, fsImpl = nodeFs } = {}
     fsImpl.chmodSync(path.dirname(folder), 0o700);
     try {
       fsImpl.writeFileSync(path.join(folder, '.root'), `${realProjectRoot(root, fsImpl)}\n`, { flag: 'wx', mode: 0o600 });
-    } catch (error) {
+    } catch (error: any) {
       if (error.code !== 'EEXIST') throw error;
     }
     fsImpl.writeFileSync(file, buffer, { flag: 'wx', mode: 0o600 });
     return { ok: true, file };
-  } catch (error) {
+  } catch (error: any) {
     return error.code === 'EEXIST' ? { ok: false, reason: 'exists' } : { ok: false, reason: 'error', message: error.code || error.message };
   }
 }
 
 /** Removes a body this process just wrote, when the event that names it could not be written. */
-function removeBody(file, fsImpl = nodeFs) {
+function removeBody(file: string, fsImpl: any = nodeFs): void {
   try { fsImpl.rmSync(file, { force: true }); } catch { /* the failure being reported stands */ }
 }
 

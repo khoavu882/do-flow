@@ -347,7 +347,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/lifecycle/report-store.js",
+        "src/runtime/lifecycle/report-store.ts",
         "src/runtime/storage/engine.js"
       ]
     },

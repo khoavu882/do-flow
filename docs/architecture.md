@@ -190,7 +190,7 @@ works](how-doflow-work.md#after-the-chain-the-lifecycle-loop).
 | `src/runtime/lifecycle/fold.ts` | The pure fold of events into follow-ups, tracked features, goals and release records, with conflicts. No file or git access |
 | `src/runtime/lifecycle/followup.js`, `goal.js` | The follow-up and goal services; each returns a result object and never prints |
 | `src/runtime/lifecycle/intent-writer.ts` | Creates a new intent for `followup --action promote`, from headings fixed in code |
-| `src/runtime/lifecycle/report-store.js` | The machine-local report body and its masked excerpt |
+| `src/runtime/lifecycle/report-store.ts` | The machine-local report body and its masked excerpt |
 | `src/runtime/lifecycle/status.ts` | Feature status derived from git and release records, never written |
 | `src/runtime/lifecycle/overview.js`, `release.js` | `overview`, `init`, `status`; `release` and `merged` |
 | `src/runtime/lifecycle/cli.js` | The `followup`, `lifecycle` and `goal` handlers: flag checks, text output, exit codes |

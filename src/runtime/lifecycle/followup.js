@@ -23,7 +23,7 @@ const { SETTLE_AS, withDerivedDone } = require('./fold.ts');
 const { appendEvents, readFold, byFromChannel, randomChars } = require('./event-store');
 const { deriveStatuses } = require('./status.ts');
 const { writeIntent, kebabTitle } = require('./intent-writer.ts');
-const reportStore = require('./report-store');
+const reportStore = require('./report-store.ts');
 
 /** The decision register's stages plus the two lifecycle stages (IC-006). */
 const STAGES = [...CHAIN_STAGES, 'release', 'maintain'];

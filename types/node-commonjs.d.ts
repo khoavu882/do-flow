@@ -43,12 +43,15 @@ declare var console: {
 interface Buffer extends Uint8Array {
   toString(encoding?: string, start?: number, end?: number): string;
   equals(other: Uint8Array): boolean;
+  subarray(begin?: number, end?: number): Buffer;
 }
 declare var Buffer: {
   alloc(size: number): Buffer;
   from(data: any, encoding?: string): Buffer;
   byteLength(string: string, encoding?: string): number;
   isBuffer(value: any): boolean;
+  allocUnsafe(size: number): Buffer;
+  concat(list: Uint8Array[], totalLength?: number): Buffer;
 };
 
 // Timers and WHATWG URL, as the migrated .ts modules use them (opaque handle; parsed URL fields only).

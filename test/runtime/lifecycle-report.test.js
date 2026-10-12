@@ -10,7 +10,7 @@ const { createScratch } = require('../helper/scratch-env');
 const { makeRepo } = require('../helper/lifecycle-git-fixtures');
 const store = require('../../src/runtime/lifecycle/event-store');
 const { reportFollowup, listFollowups, FollowupUsageError } = require('../../src/runtime/lifecycle/followup');
-const reportStore = require('../../src/runtime/lifecycle/report-store');
+const reportStore = require('../../src/runtime/lifecycle/report-store.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');

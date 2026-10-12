@@ -10,7 +10,7 @@ const { retainLocked } = require('../lifecycle/store-upkeep');
 const { parseWindow, selectExpired } = require('../lifecycle/retention.ts');
 const { readEvents } = require('../lifecycle/event-store');
 const { createWorkCache } = require('./work-status');
-const { projectKey } = require('../lifecycle/report-store');
+const { projectKey } = require('../lifecycle/report-store.ts');
 const SAFE_NAMESPACE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const TOMBSTONE = /^\.[A-Za-z0-9][A-Za-z0-9._-]*\.pruning-[0-9]+-[0-9a-f]{8}$/;
 

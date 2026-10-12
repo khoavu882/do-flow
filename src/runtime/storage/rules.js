@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { workStatus, createWorkCache, refreshedWorkCache } = require('./work-status');
-const { projectKey } = require('../lifecycle/report-store');
+const { projectKey } = require('../lifecycle/report-store.ts');
 const { readEvents } = require('../lifecycle/event-store');
 
 const DAY = 86400000;
