@@ -10,7 +10,7 @@
  * it rests on recorded beside it**, so "this finished" and "this stopped" are never the same
  * record.
  *
- * It mirrors `readiness.js`'s four-state shape and reuses `verification`'s meaning of
+ * It mirrors `readiness.ts`'s four-state shape and reuses `verification`'s meaning of
  * `INCONCLUSIVE` — a verdict over zero evidence is not a pass — and it owns no verdict of its own:
  *
  *   - It **never re-evaluates readiness and never re-runs verification.** Re-running verification
@@ -44,7 +44,7 @@ const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger.ts');
 const { taskStoreDir } = require('./task-scope.ts');
 // The two verdict vocabularies, imported from the modules that own them rather than respelled
 // here. A second copy would let this file accept a readiness state readiness itself has retired.
-const { READINESS_STATES } = require('./readiness');
+const { READINESS_STATES } = require('./readiness.ts');
 const { VERIFICATION_STATUSES } = require('./verification/engine.ts');
 const { WorkflowEngine } = require('./workflow-engine.ts');
 // Read, not re-derived: the retrieval plan's location is `retrieval-plan.js`'s to define, and the

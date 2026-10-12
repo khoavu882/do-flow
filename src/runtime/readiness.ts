@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { parseYamlFile } = require('./capability-router.ts');
@@ -35,7 +37,7 @@ const STAGE_ENTRY_DECISIONS = new Set(['ENTER', 'GATHER_FIRST', 'ASK_USER', 'STO
  * @param {string} [mode='workflow'] 'workflow' | 'standalone'
  * @returns {{decision: string, reason: string}}
  */
-function stageEntryFor(state, mode = 'workflow') {
+function stageEntryFor(state: any, mode = 'workflow') {
   if (!EXECUTION_MODES.has(mode)) {
     throw new Error(`Unknown execution mode '${mode}'. Valid: ${[...EXECUTION_MODES].join(', ')} — the standalone exemption is declared, never inferred.`);
   }
@@ -58,6 +60,11 @@ function stageEntryFor(state, mode = 'workflow') {
 }
 
 class ReadinessEngine {
+  declare fsImpl: any;
+  declare repoRoot: any;
+  declare projectRoot: any;
+  declare templatePath: any;
+  declare templates: any;
   /**
    * @param {Object} [options]
    * @param {string} [options.repoRoot] the DoFlow install, where readiness-templates.json lives
@@ -68,7 +75,7 @@ class ReadinessEngine {
    * @param {Object} [options.templates]
    * @param {Object} [options.fsImpl]
    */
-  constructor(options = {}) {
+  constructor(options: any = {}) {
     this.fsImpl = options.fsImpl || fs;
     this.repoRoot = options.repoRoot || REPO_ROOT;
     this.projectRoot = options.projectRoot || process.cwd();
@@ -85,7 +92,7 @@ class ReadinessEngine {
     try {
       const data = parseYamlFile(this.templatePath, this.fsImpl);
       this.templates = data.templates || {};
-    } catch (error) {
+    } catch (error: any) {
       throw new Error(`Failed to load readiness templates from '${this.templatePath}': ${error.message}`);
     }
   }
@@ -97,7 +104,7 @@ class ReadinessEngine {
    * @param {Object} taskProfile
    * @returns {Object}
    */
-  suggestAction(reqId, reqDef, taskProfile) {
+  suggestAction(reqId: any, reqDef: any, taskProfile: any) {
     if (reqId === 'root_cause') {
       return {
         intent: 'trace-dependency',
@@ -145,7 +152,7 @@ class ReadinessEngine {
    * @param {Object} claimsManager
    * @returns {Object} ReadinessReport
    */
-  evaluateReadiness(taskProfile, evidenceLedger, claimsManager) {
+  evaluateReadiness(taskProfile: any, evidenceLedger: any, claimsManager: any) {
     if (!taskProfile || typeof taskProfile !== 'object') {
       throw new Error('taskProfile must be an object');
     }
@@ -199,7 +206,7 @@ class ReadinessEngine {
 
     // Inspect claims
     const taskClaims = claimsManager ? claimsManager.getClaims(taskId) : [];
-    const conflictedClaims = taskClaims.filter((c) => c.status === 'conflicted');
+    const conflictedClaims = taskClaims.filter((c: any) => c.status === 'conflicted');
     if (conflictedClaims.length > 0) {
       hasBlocked = true;
     }
@@ -218,8 +225,8 @@ class ReadinessEngine {
     // in evaluateClaim — it is not a claim that the file never changed. An item that genuinely went
     // stale and was never superseded still forces NEEDS_EVIDENCE exactly as before.
     const staleEvidence = (evidenceLedger ? evidenceLedger.getAllEvidence() : [])
-      .filter((item) => item.taskId === taskId && item.freshness?.status === 'STALE' && item.status !== 'superseded')
-      .map((item) => ({ evidenceId: item.id, locator: item.locator, reason: 'file-modified-since-recorded' }));
+      .filter((item: any) => item.taskId === taskId && item.freshness?.status === 'STALE' && item.status !== 'superseded')
+      .map((item: any) => ({ evidenceId: item.id, locator: item.locator, reason: 'file-modified-since-recorded' }));
 
     const unresolvableEvidence = [];
     for (const item of taskEvidence) {
@@ -235,7 +242,7 @@ class ReadinessEngine {
       }
     }
 
-    for (const [reqId, reqDef] of Object.entries(requirements)) {
+    for (const [reqId, reqDef] of Object.entries<any>(requirements)) {
       let isSatisfied = false;
       let reason = null;
       let matchedEvidenceIds = [];
@@ -253,9 +260,9 @@ class ReadinessEngine {
       // not by any supported claim the task happens to hold (review R1 — a supported claim about an
       // unrelated invariant satisfied the bug template's root-cause requirement).
       else if (reqDef.requiresClaimStatus) {
-        let matchingClaims = taskClaims.filter((c) => c.status === reqDef.requiresClaimStatus);
+        let matchingClaims = taskClaims.filter((c: any) => c.status === reqDef.requiresClaimStatus);
         if (reqDef.requiresClaimRole) {
-          const withRole = matchingClaims.filter((c) => c.role === reqDef.requiresClaimRole);
+          const withRole = matchingClaims.filter((c: any) => c.role === reqDef.requiresClaimRole);
           if (withRole.length === 0 && matchingClaims.length > 0) {
             reason = `${matchingClaims.length} claim(s) have status '${reqDef.requiresClaimStatus}' but none `
               + `declares role '${reqDef.requiresClaimRole}' — add the claim with --role ${reqDef.requiresClaimRole}, `
@@ -265,7 +272,7 @@ class ReadinessEngine {
         }
         if (matchingClaims.length > 0) {
           isSatisfied = true;
-          matchedEvidenceIds = matchingClaims.flatMap((c) => c.supportingEvidence);
+          matchedEvidenceIds = matchingClaims.flatMap((c: any) => c.supportingEvidence);
         } else if (!reason) {
           reason = `Requires at least one claim with status '${reqDef.requiresClaimStatus}'`
             + `${reqDef.requiresClaimRole ? ` and role '${reqDef.requiresClaimRole}'` : ''}.`;
@@ -279,21 +286,21 @@ class ReadinessEngine {
       // (review R1, P1 — reproduced through the public CLI).
       else if (Array.isArray(reqDef.evidenceKinds) && reqDef.evidenceKinds.length > 0) {
         const allowedKinds = new Set(reqDef.evidenceKinds);
-        const kindMatched = taskEvidence.filter((ev) => allowedKinds.has(ev.kind));
-        const extracted = kindMatched.filter((ev) => ev.provenance === 'extracted');
-        const bound = extracted.filter((ev) => Array.isArray(ev.establishes) && ev.establishes.includes(reqId));
+        const kindMatched = taskEvidence.filter((ev: any) => allowedKinds.has(ev.kind));
+        const extracted = kindMatched.filter((ev: any) => ev.provenance === 'extracted');
+        const bound = extracted.filter((ev: any) => Array.isArray(ev.establishes) && ev.establishes.includes(reqId));
         let qualifying = bound;
         if (reqDef.requiresObservation) {
-          qualifying = qualifying.filter((ev) => ev.observation && Number.isInteger(ev.observation.exitCode));
+          qualifying = qualifying.filter((ev: any) => ev.observation && Number.isInteger(ev.observation.exitCode));
           if (reqDef.expectedExit === 'zero') {
-            qualifying = qualifying.filter((ev) => ev.observation.exitCode === 0);
+            qualifying = qualifying.filter((ev: any) => ev.observation.exitCode === 0);
           } else if (reqDef.expectedExit === 'nonzero') {
-            qualifying = qualifying.filter((ev) => ev.observation.exitCode !== 0);
+            qualifying = qualifying.filter((ev: any) => ev.observation.exitCode !== 0);
           }
         }
         if (qualifying.length > 0) {
           isSatisfied = true;
-          matchedEvidenceIds = qualifying.map((ev) => ev.id);
+          matchedEvidenceIds = qualifying.map((ev: any) => ev.id);
         } else if (kindMatched.length === 0) {
           reason = `Missing fresh evidence of kind: ${reqDef.evidenceKinds.join(', ')}.`;
         } else if (extracted.length === 0) {
@@ -303,8 +310,8 @@ class ReadinessEngine {
           reason = `${extracted.length} extracted item(s) of the right kind exist but none declares it `
             + `establishes '${reqId}' — record evidence with establishes: ['${reqId}'] so the gate grades `
             + 'what the item was actually gathered to prove.';
-        } else if (reqDef.expectedExit === 'zero' && bound.some((ev) => ev.observation && ev.observation.exitCode !== 0)) {
-          const failed = bound.find((ev) => ev.observation && ev.observation.exitCode !== 0);
+        } else if (reqDef.expectedExit === 'zero' && bound.some((ev: any) => ev.observation && ev.observation.exitCode !== 0)) {
+          const failed = bound.find((ev: any) => ev.observation && ev.observation.exitCode !== 0);
           reason = `The bound observation ran '${failed.observation.command}' and exited ${failed.observation.exitCode}; `
             + 'this requirement needs an exit status of 0. A failed run does not establish a passing baseline.';
         } else {
@@ -385,8 +392,8 @@ class ReadinessEngine {
       requirements: requirementResults,
       claimsSummary: {
         total: taskClaims.length,
-        supported: taskClaims.filter((c) => c.status === 'supported').length,
-        hypotheses: taskClaims.filter((c) => c.status === 'hypothesis').length,
+        supported: taskClaims.filter((c: any) => c.status === 'supported').length,
+        hypotheses: taskClaims.filter((c: any) => c.status === 'hypothesis').length,
         conflicts: conflictedClaims.length,
       },
       evidenceCount: taskEvidence.length,
@@ -399,7 +406,7 @@ class ReadinessEngine {
 /** One live snapshot for readiness inspection and orchestration transitions. Reads never persist
  * derived freshness or claim status; every invocation evaluates the current project again.
  * `mode` defaults to 'workflow' — fail closed: the standalone exemption must be declared. */
-function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot = process.cwd(), mode = 'workflow' }) {
+function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot = process.cwd(), mode = 'workflow' }: any) {
   // Validated before any ledger work, not just inside stageEntryFor at the end — an invalid mode
   // used to pay a full freshness/claims evaluation before erroring (review suggestion, 026).
   if (!EXECUTION_MODES.has(mode)) {

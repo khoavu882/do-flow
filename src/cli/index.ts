@@ -55,7 +55,7 @@ function parseArgs(argv: string[]): any {
     tools: null, action: 'status', days: null, slug: null,
     // Explicitly null, not absent. `handleReadinessCommand` declares defaults of `'feature'` and
     // `'default'`, and a JavaScript default parameter fires on `undefined` — so an *absent* key
-    // silently reinstated exactly the identity defect readiness.js fixed by failing closed.
+    // silently reinstated exactly the identity defect readiness.ts fixed by failing closed.
     taskClass: null, taskId: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];

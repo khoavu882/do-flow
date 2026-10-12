@@ -10,7 +10,7 @@ const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { ClaimsManager } = require('../../src/runtime/claims.ts');
 const { FreshnessValidator } = require('../../src/runtime/freshness.ts');
 const { ContextPackCompiler } = require('../../src/runtime/context-pack');
-const { ReadinessEngine } = require('../../src/runtime/readiness');
+const { ReadinessEngine } = require('../../src/runtime/readiness.ts');
 
 const REPO = path.resolve(__dirname, "../..");
 
@@ -61,7 +61,7 @@ test('ReadinessEngine evaluates Bug Fix readiness as READY when prerequisites sa
   const ev2 = ledger.addEvidence({
     taskId: 'task_bug_ready',
     kind: 'exact-search',
-    locator: { file: 'src/runtime/readiness.js', lineRange: [45, 60] },
+    locator: { file: 'src/runtime/readiness.ts', lineRange: [45, 60] },
     content: 'function processPayment()',
     establishes: ['affected_code'],
   });
@@ -234,7 +234,7 @@ test('a stale item alone forces NEEDS_EVIDENCE even when every requirement is ot
     taskId: 'task_supersede',
     kind: 'structural',
     provenance: 'extracted',
-    locator: { file: 'src/runtime/readiness.js', line: 1 },
+    locator: { file: 'src/runtime/readiness.ts', line: 1 },
     content: 'use strict',
     establishes: ['affected_components'],
   });
@@ -279,7 +279,7 @@ test('a stale item alone forces NEEDS_EVIDENCE even when every requirement is ot
 
 test('supersedeEvidence refuses a missing replacement, self-supersession, and re-superseding', () => {
   const ledger = new EvidenceLedger();
-  const a = ledger.addEvidence({ taskId: 't', kind: 'structural', provenance: 'extracted', locator: { file: 'src/runtime/readiness.js' } });
+  const a = ledger.addEvidence({ taskId: 't', kind: 'structural', provenance: 'extracted', locator: { file: 'src/runtime/readiness.ts' } });
   const b = ledger.addEvidence({ taskId: 't', kind: 'structural', provenance: 'extracted', locator: { file: 'src/runtime/claims.ts' } });
 
   assert.throws(() => ledger.supersedeEvidence(a, 'no-such-id'), /No evidence 'no-such-id' is recorded/);
@@ -305,7 +305,7 @@ test('FR-005: an unresolvable supporting locator keeps the gate off READY and na
     taskId: 'task_unresolvable',
     kind: 'exact-search',
     provenance: 'extracted',
-    locator: { file: 'src/runtime/readiness.js', line: 99999 },
+    locator: { file: 'src/runtime/readiness.ts', line: 99999 },
     content: 'a line that is not there',
   });
 
@@ -359,7 +359,7 @@ test('FR-005: resolvable evidence leaves the verdict untouched', () => {
     taskId: 'task_resolvable',
     kind: 'structural',
     provenance: 'extracted',
-    locator: { file: 'src/runtime/readiness.js', line: 1 },
+    locator: { file: 'src/runtime/readiness.ts', line: 1 },
     content: 'use strict',
     establishes: ['affected_components'],
   });

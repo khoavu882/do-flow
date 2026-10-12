@@ -462,7 +462,7 @@ test('C.12/FR-008: NEEDS_USER_DECISION — the caller declares a decision is owe
 test('C.12/FR-008: all four states are reachable, and only those four', () => {
   // The summary assertion of this task. C.5 measured one reachable state; this pins four, so a
   // later change that quietly re-strands one fails here rather than being rediscovered by reading.
-  const { READINESS_STATES } = require('../../src/runtime/readiness');
+  const { READINESS_STATES } = require('../../src/runtime/readiness.ts');
   const cwd = project();
   const reached = new Set();
 

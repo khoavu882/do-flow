@@ -110,7 +110,7 @@ function assertIdentical({ on, off }) {
 describe('error-to-usage catch sites record a programming error and keep the usage result', () => {
   const T = 'TypeError';
   const sites = [
-    ['readiness', ['readiness', '--task-class', 'feature', '--task-id', 't1', '--json'], { kind: 'export', module: 'src/runtime/readiness.js', method: 'evaluateTaskReadiness' }],
+    ['readiness', ['readiness', '--task-class', 'feature', '--task-id', 't1', '--json'], { kind: 'export', module: 'src/runtime/readiness.ts', method: 'evaluateTaskReadiness' }],
     ['evidence list (ledger load)', ['evidence', '--task-id', 't1', '--action', 'list', '--json'], { kind: 'proto', module: 'src/runtime/evidence-ledger.ts', cls: 'EvidenceLedger', method: 'load' }],
     ['evidence supersede', ['evidence', '--task-id', 't1', '--action', 'supersede', '--evidence-id', 'E1', '--replaced-by', 'E2', '--json'], { kind: 'proto', module: 'src/runtime/evidence-ledger.ts', cls: 'EvidenceLedger', method: 'supersedeEvidence' }],
     ['route', ['route', '--intent', 'locate-concept', '--json'], { kind: 'proto', module: 'src/runtime/capability-router.ts', cls: 'CapabilityRouter', method: 'resolveIntent' }],

@@ -179,7 +179,7 @@ class VerificationEngine {
    * @returns {Object} the contract
    */
   compileContract(input: any = {}): any {
-    // A contract with no task is the readiness.js `taskId || 'default'` defect in a new place: a
+    // A contract with no task is the readiness.ts `taskId || 'default'` defect in a new place: a
     // confident verdict filed against the wrong subject. Refuse instead of inventing an id.
     if (typeof input.taskId !== 'string' || input.taskId.trim() === '') {
       throw new Error('compileContract requires a non-empty taskId');
