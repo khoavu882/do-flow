@@ -1,5 +1,5 @@
 'use strict';
-// The scope run lock (src/state/run-lock.js): owner record, stale rule, takeover and release under
+// The scope run lock (src/state/run-lock.ts): owner record, stale rule, takeover and release under
 // claims, checkpoint, reentrancy, and exclusion between real processes. Each case uses its own
 // temporary scope root; timing paths use small injected limits, exclusion uses child processes.
 const { test, after } = require('node:test');
@@ -10,10 +10,10 @@ const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const {
   acquireRunLock, RunLockTimeoutError, RunLockLostError, runLockPath, formatRunLockMessage,
-} = require('../../src/state/run-lock');
+} = require('../../src/state/run-lock.ts');
 const { tempDir } = require('../helper/tmp');
 
-const MODULE = path.resolve(__dirname, '../../src/state/run-lock.js');
+const MODULE = path.resolve(__dirname, '../../src/state/run-lock.ts');
 const PKG_VERSION = require('../../package.json').version;
 const ELEVEN_MINUTES_AGO = () => (Date.now() - 11 * 60 * 1000) / 1000;
 const NO_KILL_SEMANTICS = process.platform === 'win32' || process.getuid?.() === 0;

@@ -16,11 +16,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { REPO, AGENT_SPECS } = require('./_shared');
-const { loadRegistry } = require('../../src/registry');
-const { CapabilityRouter } = require('../../src/runtime/capability-router');
-const { renderBriefTools } = require('../../src/runtime/brief-tools');
+const { loadRegistry } = require('../../src/registry/index.ts');
+const { CapabilityRouter } = require('../../src/runtime/capability-router.ts');
+const { renderBriefTools } = require('../../src/runtime/brief-tools.ts');
 
-const GENERATOR = 'src/runtime/brief-tools.js';
+const GENERATOR = 'src/runtime/brief-tools.ts';
 const BRIEF_SCRIPT = 'core/shared/scripts/doflow/bash/do-task-brief.sh';
 const MODEL_SELECTION = path.join(REPO, 'core', 'shared', 'guidance', 'references', 'MODEL_SELECTION.md');
 

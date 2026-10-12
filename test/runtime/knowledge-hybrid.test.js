@@ -3,7 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { normalizeLocator, fuseHybridResults } = require('../../src/runtime/knowledge/hybrid');
+const { normalizeLocator, fuseHybridResults } = require('../../src/runtime/knowledge/hybrid.ts');
 
 test('knowledge-hybrid: normalizeLocator handles various string and object formats', () => {
   const root = '/workspace/project';

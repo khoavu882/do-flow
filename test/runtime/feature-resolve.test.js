@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { tempDir, suiteTempDir } = require('../helper/tmp');
-const { resolveActiveFeature, PATHS_HELPER } = require('../../src/runtime/feature-resolve');
+const { resolveActiveFeature, PATHS_HELPER } = require('../../src/runtime/feature-resolve.ts');
 
 function git(cwd, ...args) {
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd, stdio: 'ignore' });

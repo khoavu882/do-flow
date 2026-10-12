@@ -8,9 +8,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { loadRegistry } = require('../../src/registry');
-const { stateRoot, ledgerPath, defaultLedger, writeLedger } = require('../../src/state');
-const { registryLifecycleView } = require('../../src/lifecycle/view');
+const { loadRegistry } = require('../../src/registry/index.ts');
+const { stateRoot, ledgerPath, defaultLedger, writeLedger } = require('../../src/state/index.ts');
+const { registryLifecycleView } = require('../../src/lifecycle/view.ts');
 const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, '../..');

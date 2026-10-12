@@ -9,7 +9,7 @@ const { tempDir, suiteTempDir } = require('../helper/tmp');
 const {
   runDecision, addDecisions, initRegister, listDecisions, readRegister, renderLiveView, renderArchive,
   registerFile, handleDecisionCommand, STATEMENT_MAX,
-} = require('../../src/runtime/decision-register');
+} = require('../../src/runtime/decision-register.ts');
 
 const SLUG = '001-demo';
 const FIXED = new Date('2026-10-03T09:12:44.120Z');

@@ -72,8 +72,8 @@ feature_dir=$(printf '%s' "$resolved_json" | jq -r '.feature_dir // empty')
 # The projector lives in the JS runtime, not beside the helpers: G12 keeps this repo to one runtime
 # implementation, and Python in core/ is how a shadow tree grew the first time, one individually
 # defensible module at a time. render-audit.sh already shells out to node for the same reason.
-PROJECTOR="$repo_root/src/runtime/c4-project.js"
-[ -f "$PROJECTOR" ] || PROJECTOR="${DOFLOW_CONFIG_DIR:-$HOME/.doflow}/runtime/src/runtime/c4-project.js"
+PROJECTOR="$repo_root/src/runtime/c4-project.ts"
+[ -f "$PROJECTOR" ] || PROJECTOR="${DOFLOW_CONFIG_DIR:-$HOME/.doflow}/runtime/src/runtime/c4-project.ts"
 design_rel=$(printf '%s' "$resolved_json" | jq -r '.design // empty')
 [ -n "$feature_slug" ] || note "no-active-feature"
 [ -n "$feature_dir" ] || note "resolver-missing-feature-dir"
@@ -152,10 +152,16 @@ for src in "${sources[@]}"; do
 
   # One source feeds design.md §2's inline block; the others render only to images.
   if [ "$src" = "$block_src" ]; then
-    if ! block="$(node "$PROJECTOR" "$src" 2>&1)"; then
-      printf 'render-puml: %s\n' "$block" >&2
+    # stdout only is the block: the splice writes it into authored prose, so anything the projector
+    # (or Node) prints on stderr, an ExperimentalWarning for one, must never become part of it.
+    proj_err="$(mktemp)" || note "mktemp-failed"
+    if ! block="$(node "$PROJECTOR" "$src" 2>"$proj_err")"; then
+      printf 'render-puml: %s%s\n' "$(cat "$proj_err")" "$block" >&2
+      rm -f "$proj_err"
       exit 1
     fi
+    [ -s "$proj_err" ] && cat "$proj_err" >&2
+    rm -f "$proj_err"
     projected="$block"
   fi
 done

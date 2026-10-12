@@ -12,7 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
-const { captureIsOff } = require('../../src/runtime/failure/home');
+const { captureIsOff } = require('../../src/runtime/failure/home.ts');
 
 const POLICIES = path.resolve(__dirname, '..', '..', 'core', 'harnesses', 'shared', 'hooks', 'policies');
 const HAS_JQ = spawnSync('jq', ['--version']).status === 0;
@@ -294,7 +294,7 @@ describe('the helper (IC-018)', () => {
     assert.equal(r.stdout, 'left=payload-stays-here\n');
   });
   test('the same line the Node writer would produce folds into one entry with the Node writer\'s lines', () => {
-    const { fingerprint } = require('../../src/runtime/failure/store');
+    const { fingerprint } = require('../../src/runtime/failure/store.ts');
     const m = machine('h-fp', { patterns: false });
     call(m, ['pre-bash-guard', 'patterns-missing']);
     call(m, ['pre-bash-guard', 'patterns-missing']);

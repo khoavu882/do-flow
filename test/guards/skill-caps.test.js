@@ -127,7 +127,7 @@ test('G22: every SKILL.md is within 20,000 bytes and starts ## Boundaries by byt
 });
 
 test('G22: the SKILL.md files of each task class workflow fit 100,000 bytes together', () => {
-  const { WorkflowEngine } = require('../../src/runtime/workflow-engine');
+  const { WorkflowEngine } = require('../../src/runtime/workflow-engine.ts');
   const workflows = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'workflows.json'), 'utf8'));
   const engine = new WorkflowEngine({ workflows, readinessTemplates: false });
   const classes = engine.listClasses();

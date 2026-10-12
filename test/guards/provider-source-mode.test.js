@@ -1,7 +1,7 @@
 'use strict';
 
 // Every capability provider declares how it answers (`sourceMode`: live or index), and every
-// index-backed provider has an artifact layout in health.js PROVIDER_ARTIFACTS (feature 068).
+// index-backed provider has an artifact layout in health.ts PROVIDER_ARTIFACTS (feature 068).
 //
 // Without a layout the freshness probe returns null and the retrieval plan can only say UNKNOWN for
 // that provider. That is the safe outcome, but it means the provider's index age is never measured,
@@ -11,8 +11,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { REPO } = require('./_shared');
-const { loadRegistry } = require('../../src/registry');
-const { PROVIDER_ARTIFACTS } = require('../../src/runtime/health');
+const { loadRegistry } = require('../../src/registry/index.ts');
+const { PROVIDER_ARTIFACTS } = require('../../src/runtime/health.ts');
 
 const SOURCE_MODES = ['live', 'index'];
 /** provider id -> why it is index-backed yet has no PROVIDER_ARTIFACTS entry. */
@@ -41,7 +41,7 @@ test('a provider id declares the same sourceMode under every capability', () => 
 test('every index provider has a PROVIDER_ARTIFACTS layout, or an explained reason it does not', () => {
   const unmeasured = [...new Set(declarations.filter(({ provider }) => provider.sourceMode === 'index').map(({ provider }) => provider.id))]
     .filter((id) => !PROVIDER_ARTIFACTS[id] && !EXPLAINED_UNMEASURED[id]);
-  assert.deepEqual(unmeasured, [], `index providers with no artifact layout in ${path.join('src', 'runtime', 'health.js')} and no entry in EXPLAINED_UNMEASURED`);
+  assert.deepEqual(unmeasured, [], `index providers with no artifact layout in ${path.join('src', 'runtime', 'health.ts')} and no entry in EXPLAINED_UNMEASURED`);
   for (const [id, reason] of Object.entries(EXPLAINED_UNMEASURED)) {
     assert.ok(reason && reason.length > 20, `${id}: the explanation must say why`);
     assert.ok(!PROVIDER_ARTIFACTS[id], `${id} now has a layout; drop its EXPLAINED_UNMEASURED entry`);

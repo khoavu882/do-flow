@@ -6,7 +6,7 @@
 // copy) and never whether a declaration connects to anything real.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { loadRegistry, selectAssets } = require('../../src/registry');
+const { loadRegistry, selectAssets } = require('../../src/registry/index.ts');
 const { REPO, frontmatterKeys, skillFiles, agentSpecFiles } = require('./_shared');
 
 const registry = loadRegistry({ repoRoot: REPO });

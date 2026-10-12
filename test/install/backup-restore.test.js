@@ -8,7 +8,8 @@ const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
 const {
   createFileBackup, planRestore, executeRestore, restoreBackup,
-} = require('../../src/install/backup');
+} = require('../../src/install/backup.ts');
+const { defaultLedger } = require('../../src/state/index.ts');
 const { plantFullBackup, plantPartialBackup } = require('../helper/backup-v1-fixture');
 const { IS_WIN } = require('../helper-platform');
 
@@ -193,19 +194,73 @@ test('--target restores only the named harnesses and counts the rest; no --targe
     { path: '.codex/b.md', existed: true, content: 'b', harnesses: ['codex'] },
     { path: '.agents/c.md', existed: true, content: 'c', harnesses: ['codex', 'claude'] },
     { path: '.codex/new.md', existed: false, harnesses: ['codex'] },
+    // The ownership ledger rides with the files under no harness. It restores only the rows of the
+    // files the restore writes (executeRestore), so --target narrows it with them and never skips it.
+    { path: '.doflow/state/ledger.json', existed: true, content: '{}', harnesses: [] },
   ]);
+  const ledgerFile = path.join(ctx.scopeRoot, '.doflow', 'state', 'ledger.json');
 
-  const targeted = plan(ctx, 'update_x', { targets: ['claude'], explicitTargets: true });
-  assert.deepStrictEqual(targeted.restore.map((r) => r.path), [
-    path.join(ctx.scopeRoot, '.claude', 'a.md'), path.join(ctx.scopeRoot, '.agents', 'c.md'),
+  const targeted = plan(ctx, 'update_x', { targets: ['claude'], explicitTargets: true, ledgerFile });
+  assert.deepStrictEqual(targeted.restore.map((r) => [r.path, r.ledger === true]), [
+    [path.join(ctx.scopeRoot, '.claude', 'a.md'), false], [path.join(ctx.scopeRoot, '.agents', 'c.md'), false], [ledgerFile, true],
   ]);
   assert.strictEqual(targeted.untargeted, 2);
   assert.deepStrictEqual(targeted.absent, []);
 
-  const all = plan(ctx, 'update_x', { targets: ['claude'], explicitTargets: false });
-  assert.strictEqual(all.restore.length, 3);
+  const all = plan(ctx, 'update_x', { targets: ['claude'], explicitTargets: false, ledgerFile });
+  assert.strictEqual(all.restore.length, 4);
   assert.strictEqual(all.untargeted, 0);
   assert.deepStrictEqual(all.absent, [path.join(ctx.scopeRoot, '.codex', 'new.md')]);
+});
+
+test('the ledger restores only the rows of the files written back; every other current row stays (073 B1, B2)', () => {
+  const ctx = scratchScope();
+  const ledgerFile = path.join(ctx.scopeRoot, '.doflow', 'state', 'ledger.json');
+  const at = (rel) => path.join(ctx.scopeRoot, ...rel.split('/'));
+  const row = (harness, rel, fingerprint, extra = {}) => ({ harness, scope: 'global', assetId: 'a', kind: 'copy-tree-file', target: at(rel), ownershipIdentity: rel, fingerprint, ...extra });
+  const ledger = (resources, tombstones = []) => ({ ...defaultLedger({ scope: 'global', scopeRoot: ctx.scopeRoot }), resources, tombstones });
+  const tomb = (rel, sweptAt) => ({ harness: 'claude', fromTarget: at(rel), sweptAt });
+
+  const old = ledger([row('claude', '.claude/a.md', 'old-a'), row('claude', '.claude/gone.md', 'old-gone'), row('claude', '.claude/b.md', 'old-b')],
+    [tomb('.claude/a.md', null), tomb('.claude/b.md', null)]);
+  plantV2(ctx.backupRoot, 'update_x', [
+    { path: '.claude/a.md', existed: true, content: 'a', harnesses: ['claude'] },
+    { path: '.claude/gone.md', existed: true, content: 'gone', harnesses: ['claude'] },
+    { path: '.codex/c.md', existed: true, content: 'c', harnesses: ['codex'] },
+    { path: '.claude/new.md', existed: false, harnesses: ['claude'] },
+    { path: '.doflow/state/ledger.json', existed: true, content: JSON.stringify(old), harnesses: [] },
+  ]);
+  const mcp = { harness: 'claude', scope: 'global', assetId: 'mcp.context7', kind: 'mcp-server', identity: 'context7', target: at('.claude.json'), ownershipIdentity: 'mcp:context7', fingerprint: 'm' };
+  const current = ledger([
+    row('claude', '.claude/a.md', 'new-a'), row('claude', '.claude/b.md', 'new-b'), row('claude', '.claude/new.md', 'new-new'),
+    row('codex', '.codex/c.md', 'new-c'), row('codex', '.codex/later.md', 'later'), mcp,
+  ], [tomb('.claude/a.md', 'swept'), tomb('.claude/b.md', 'swept')]);
+  current.targets = { claude: { at: 'now' }, codex: { at: 'now' } };
+  write(ledgerFile, JSON.stringify(current));
+  write(at('.claude/a.md'), 'now');
+  write(at('.codex/c.md'), 'now');
+
+  // --target claude: a.md and gone.md come back with their old rows; codex's c.md is not restored,
+  // so its current row stays, as do every row of a file the backup does not restore and the MCP row.
+  const result = executeRestore(plan(ctx, 'update_x', { targets: ['claude'], explicitTargets: true, ledgerFile }), { backupRoot: ctx.backupRoot });
+  assert.deepStrictEqual(result.restored, [at('.claude/a.md'), at('.claude/gone.md'), ledgerFile]);
+  const after = JSON.parse(read(ledgerFile));
+  const fp = Object.fromEntries(after.resources.map((r) => [path.relative(ctx.scopeRoot, r.target).split(path.sep).join('/'), r.fingerprint]));
+  assert.deepStrictEqual(fp, {
+    '.claude/a.md': 'old-a', '.claude/gone.md': 'old-gone', '.claude/b.md': 'new-b', '.claude/new.md': 'new-new',
+    '.codex/c.md': 'new-c', '.codex/later.md': 'later', '.claude.json': 'm',
+  });
+  assert.strictEqual(after.resources.length, 7, 'no row is duplicated');
+  assert.deepStrictEqual(after.targets, current.targets, 'everything but rows and tombstones is the current ledger');
+  assert.deepStrictEqual(after.tombstones.map((t) => [path.basename(t.fromTarget), t.sweptAt]).sort(), [['a.md', null], ['b.md', 'swept']]);
+
+  // A failed file restore keeps that file's current rows.
+  write(ledgerFile, JSON.stringify(current));
+  const failing = plan(ctx, 'update_x', { ledgerFile });
+  failing.restore.find((r) => r.path === at('.codex/c.md')).stored = path.join(ctx.dir, 'missing');
+  const partial = executeRestore(failing, { backupRoot: ctx.backupRoot });
+  assert.deepStrictEqual(partial.failed.map((f) => f.path), [at('.codex/c.md')]);
+  assert.strictEqual(JSON.parse(read(ledgerFile)).resources.find((r) => r.target === at('.codex/c.md')).fingerprint, 'new-c');
 });
 
 test('the snapshot lists exactly what the restore will write, for format 2, 1.19 full and 1.19 partial', () => {

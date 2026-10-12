@@ -11,7 +11,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
-const { searchGuidance } = require('../../src/runtime/knowledge/retrieval');
+const { searchGuidance } = require('../../src/runtime/knowledge/retrieval.ts');
 
 function scratch() { return suiteTempDir('doflow-knowledge-eval-'); }
 
@@ -109,7 +109,7 @@ test('graph expansion: a strong anchor hit offers its imports as read-next, flag
 });
 
 test('hybrid RRF fusion eval: combines lexical and semantic rank lists with reciprocal rank fusion', () => {
-  const { fuseHybridResults } = require('../../src/runtime/knowledge/retrieval');
+  const { fuseHybridResults } = require('../../src/runtime/knowledge/retrieval.ts');
   const lexicalList = [
     { path: 'rollback.md:1', score: 4.2 },
     { path: 'tombstones.md:1', score: 3.1 },

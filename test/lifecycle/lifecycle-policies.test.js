@@ -3,8 +3,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { loadRegistry } = require('../../src/registry');
-const { renderPolicies } = require('../../src/lifecycle/policies');
+const { loadRegistry } = require('../../src/registry/index.ts');
+const { renderPolicies } = require('../../src/lifecycle/policies.ts');
 
 const registry = loadRegistry({ repoRoot: path.resolve(__dirname, "../..") });
 

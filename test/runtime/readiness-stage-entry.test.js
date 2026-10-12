@@ -14,7 +14,7 @@ const { tempDir } = require('../helper/tmp');
 const { spawnSync } = require('node:child_process');
 const {
   stageEntryFor, READINESS_STATES, EXECUTION_MODES, STAGE_ENTRY_DECISIONS,
-} = require('../../src/runtime/readiness');
+} = require('../../src/runtime/readiness.ts');
 
 const REPO = path.resolve(__dirname, "../..");
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');

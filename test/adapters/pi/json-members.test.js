@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { SKELETON, readDocument, insertMember, replaceValue, removeMember, replaceInner, renderNewDocument } = require('../../../src/adapters/pi/json-members');
+const { SKELETON, readDocument, insertMember, replaceValue, removeMember, replaceInner, renderNewDocument } = require('../../../src/adapters/pi/json-members.ts');
 
 const ENTRY = { command: 'npx', args: ['-y', 'pkg'] };
 

@@ -14,7 +14,7 @@
  * Two halves, because the two facts behind the constant are not equally checkable:
  *
  *   1. **Derived, by executing the adapter.** Copilot's directory is loaded wholesale because
- *      `copy-tree.js`'s `copilot-rule-instructions` transform renders *every* file it copies under
+ *      `copy-tree.ts`'s `copilot-rule-instructions` transform renders *every* file it copies under
  *      an `applyTo: '**'` header. That is a property of the transform, so this guard runs each
  *      entry of the `TRANSFORMS` table over a probe file and reads the frontmatter it produces
  *      rather than trusting a comment. Any projection in `assets.json` declaring a transform that
@@ -27,7 +27,7 @@
  *      with its rationale, and this guard pins the two registry facts the rationale depends on, so
  *      the constant has to be re-derived if either moves.
  *
- * **Why not the signal D.1 proposed.** D.1 suggested tying the constant to `copy-tree.js` emitting
+ * **Why not the signal D.1 proposed.** D.1 suggested tying the constant to `copy-tree.ts` emitting
  * no change for a byte-identical destination (the `unchanged, no-op` branch). That branch compares
  * destination bytes against the bytes the source would write — it is the *currency* signal the
  * report already uses in `index.js#plannedChangeKeys`, and it behaves identically whether the
@@ -45,8 +45,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO } = require('./_shared');
-const { TRANSFORMS } = require('../../src/adapters/copy-tree');
-const { WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings');
+const { TRANSFORMS } = require('../../src/adapters/copy-tree.ts');
+const { WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings.ts');
 
 const ASSETS = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'assets.json'), 'utf8'));
 const HARNESSES = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.json'), 'utf8'));
@@ -108,7 +108,7 @@ function projectionsDeclaring(transformNames) {
 const RECORDED = new Map([
   [pairKey('kiro', 'guidance.context-layer'), {
     rationale: 'Kiro loads every file under .kiro/steering/ as steering context and has no '
-      + 'single-file instruction surface at all (src/adapters/kiro/index.js header; '
+      + 'single-file instruction surface at all (src/adapters/kiro/index.ts header; '
       + 'https://kiro.dev/docs/steering/), and DoFlow projects the whole shared guidance tree '
       + 'there. Nothing in the projection distinguishes that from a name-resolved copy-tree — same '
       + 'renderer, no transform — so it cannot be derived from adapter behaviour the way Copilot\'s '

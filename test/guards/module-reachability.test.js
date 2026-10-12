@@ -27,7 +27,7 @@ const REQUIRER_ROOTS = ['bin', 'src', 'test'].map((d) => path.join(REPO, d));
  * Roots whose requires make a src/ module *reachable*. Deliberately excludes test/: a module whose
  * only requirer is its own test is dead code with a passing test, which is how src/state/cas.js sat
  * in this tree for thirteen months with a green suite. Including bench/ because bench/runner.js
- * requires src/runtime/worktree.js for real — it is a consumer, not a test.
+ * requires src/runtime/worktree.ts for real — it is a consumer, not a test.
  */
 const CONSUMER_ROOTS = ['bin', 'src', 'bench'].map((d) => path.join(REPO, d));
 
@@ -40,8 +40,8 @@ const EXCLUDED_CONSUMER_DIRS = ['bench/runs', 'bench/reports'].map((d) => path.j
 
 /**
  * Surfaces that name a module by path instead of require()-ing it: package.json's npm scripts
- * (`node src/release/sync-plugin-versions.js`) and the shipped shell helpers (render-puml.sh sets
- * PROJECTOR to src/runtime/c4-project.js). A substring match, so a module merely *mentioned* in a
+ * (`node src/release/sync-plugin-versions.ts`) and the shipped shell helpers (render-puml.sh sets
+ * PROJECTOR to src/runtime/c4-project.ts). A substring match, so a module merely *mentioned* in a
  * script comment also counts — the same weakness the require scan has, and preferable to an
  * allowlist, which goes on vouching for a module after its caller is deleted. Add a surface here
  * when a real caller appears on one, not in advance.
@@ -52,14 +52,17 @@ const PATH_CALLER_SURFACES = ['package.json', path.join('core', 'shared', 'scrip
  * An entry here documents why the named module is deliberately unreferenced — e.g. an entry point
  * invoked only via `node <path>` or `require.resolve` rather than a static `require('...')` a text
  * scan can see. Empty: the three modules no bin/ or src/ file requires are recognised by
- * PATH_CALLER_SURFACES (sync-plugin-versions.js via the `version` npm script, c4-project.js via
+ * PATH_CALLER_SURFACES (sync-plugin-versions.ts via the `version` npm script, c4-project.ts via
  * render-puml.sh) and CONSUMER_ROOTS (worktree.js via bench/runner.js), both of which stop
  * vouching for a module the moment its caller goes — which an allowlist entry would not.
  * "Nothing calls it" is never a reason — that module is dead, and belongs deleted, not exempted.
  */
 const ALLOWLIST = new Set();
 
-/** Every `.js` file under a source/test root. */
+/** Every runtime module file (`.js` or `.ts`) under a source/test root. The TypeScript migration
+ * (see agent-docs/BRIEF_GOAL_DOFLOW.md) runs `.ts` directly through Node native type-stripping, so a
+ * converted module is still a real node in this tree's require graph and must stay reachable. `.d.ts`
+ * declaration files are not modules and are excluded. */
 function jsFilesUnder(root) {
   const out = [];
   if (!fs.existsSync(root)) return out;
@@ -67,7 +70,8 @@ function jsFilesUnder(root) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) { walk(full); continue; }
-      if (entry.name.endsWith('.js')) out.push(full);
+      if (entry.name.endsWith('.d.ts')) continue;
+      if (entry.name.endsWith('.js') || entry.name.endsWith('.ts')) out.push(full);
     }
   }(root));
   return out;
@@ -106,7 +110,15 @@ function isInsideStringLiteral(text, index) {
 }
 
 /** Resolve a relative require specifier against the requiring file's directory, the way Node
- * would: the literal path, then `+ '.js'`, then `+ '/index.js'`. */
+ * actually resolves it under native type-stripping: the literal path, then `+ '.js'`, then
+ * `/index.js`. A `.ts` leaf is reachable ONLY by an explicit `.ts` specifier — the literal-path
+ * branch catches a specifier that already ends in `.ts` because `base` is then the full `.ts`
+ * path. A bare specifier (no extension) does NOT resolve to a `.ts` file: verified directly on
+ * Node v26.8.1, a bare specifier to a `.ts`-only module throws MODULE_NOT_FOUND at runtime. The
+ * resolver therefore does not try `+ '.ts'` / `/index.ts` for a bare specifier — doing so made the
+ * guard pass a specifier that fails at runtime (it did, for a converted module whose intra-dir
+ * caller still used the bare form). Matching Node here is what lets the static check catch that
+ * dangling bare-to-dot-ts require. */
 function resolveSpecifier(fromFile, spec) {
   const base = path.resolve(path.dirname(fromFile), spec);
   for (const candidate of [base, `${base}.js`, path.join(base, 'index.js')]) {
@@ -212,9 +224,9 @@ test('G16: the repository root is computed in exactly one place', () => {
   // the computing file sits. Grouping scaffold, trace and verification into directories moved three
   // of them a level down and split that into two spellings of the same intent — and every wrong
   // pick resolves to a real directory (`<repo>/src`), so it fails by reading the wrong tree rather
-  // than by throwing. src/helper/repo-root.js owns it now; this keeps it owned.
+  // than by throwing. src/helper/repo-root.ts owns it now; this keeps it owned.
   const offenders = jsFilesUnder(SRC_DIR)
-    .filter((f) => path.relative(REPO, f) !== path.join('src', 'helper', 'repo-root.js'))
+    .filter((f) => path.relative(REPO, f) !== path.join('src', 'helper', 'repo-root.ts'))
     .filter((f) => /path\.resolve\(\s*__dirname\s*,\s*'\.\.'/.test(withoutComments(fs.readFileSync(f, 'utf8'))))
     .map((f) => path.relative(REPO, f))
     .sort();
@@ -222,7 +234,7 @@ test('G16: the repository root is computed in exactly one place', () => {
   assert.deepEqual(offenders, [],
     'these modules walk up from __dirname to reach the repository root. That expression encodes the '
     + "file's own depth, so moving it into a directory silently changes what it resolves to. Require "
-    + `{ REPO_ROOT } from src/helper/repo-root.js instead:\n  ${offenders.join('\n  ')}`);
+    + `{ REPO_ROOT } from src/helper/repo-root.ts instead:\n  ${offenders.join('\n  ')}`);
 });
 
 test('G16: every ALLOWLIST entry names a module that actually exists', () => {
@@ -230,4 +242,31 @@ test('G16: every ALLOWLIST entry names a module that actually exists', () => {
   // this keeps the list honest if it is ever populated.
   const missing = [...ALLOWLIST].filter((rel) => !fs.existsSync(path.join(REPO, rel)));
   assert.deepEqual(missing, [], `ALLOWLIST names modules that do not exist:\n  ${missing.join('\n  ')}`);
+});
+
+// G30 — the TypeScript "force rule". DoFlow is migrating src/ to TypeScript run through Node native
+// type-stripping (agent-docs/BRIEF_GOAL_DOFLOW.md). The migration is enforced as direction, not as a
+// per-file mandate: the count of plain `.js` modules under src/ may only ever fall. This needs no
+// allowlist and no blocklist of the legitimately-permanent `.js` (a shebang entry point, a module a
+// stripper cannot help) — whatever `.js` remains is simply the ceiling the next change may not raise.
+// Converting one `.js` to `.ts` lowers the ceiling here in the same commit; adding a new `.js`
+// instead of a `.ts` raises it and fails. Lower JS_CEILING to match after each conversion.
+const JS_CEILING = 0;
+
+function jsOnlyUnder(root) {
+  return jsFilesUnder(root).filter((f) => f.endsWith('.js'));
+}
+
+test('G30: the count of plain .js modules under src/ never increases (TypeScript force rule)', () => {
+  const jsCount = jsOnlyUnder(SRC_DIR).length;
+  assert.ok(jsCount <= JS_CEILING,
+    `src/ holds ${jsCount} plain .js modules but the ceiling is ${JS_CEILING}. New runtime code under `
+    + 'src/ must be authored as TypeScript (.ts), and the migration only ever lowers this count. If you '
+    + 'converted a module to .ts, lower JS_CEILING in test/guards/module-reachability.test.js to match; '
+    + 'if you added a new .js, author it as .ts instead.');
+  // Drift guard: if the real count dropped below the ceiling, the ceiling was not lowered to track a
+  // completed conversion. Keep them equal so the ratchet always bites on the very next added .js.
+  assert.equal(jsCount, JS_CEILING,
+    `src/ holds ${jsCount} plain .js modules but JS_CEILING is ${JS_CEILING}. A conversion lowered the `
+    + 'real count without lowering the ceiling — set JS_CEILING to ' + jsCount + ' so the ratchet stays tight.');
 });

@@ -10,8 +10,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const { listCheckouts, findStateFile, clearCheckoutCache } = require('../../src/runtime/checkouts');
-const { BASE_FILE } = require('../../src/runtime/worktree');
+const { listCheckouts, findStateFile, clearCheckoutCache } = require('../../src/runtime/checkouts.ts');
+const { BASE_FILE } = require('../../src/runtime/worktree.ts');
 
 const { createScratch } = require('../helper/scratch-env');
 const { suiteTempDir } = require('../helper/tmp');

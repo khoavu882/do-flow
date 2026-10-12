@@ -12,10 +12,10 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const { createScratch } = require('../helper/scratch-env');
-const { writeReadinessRecord, readReadinessRecord } = require('../../src/runtime/readiness-record');
-const { checkReadiness } = require('../../src/runtime/implementation-gate');
-const { clearCheckoutCache } = require('../../src/runtime/checkouts');
-const { clearTaskScopeCache } = require('../../src/runtime/task-scope');
+const { writeReadinessRecord, readReadinessRecord } = require('../../src/runtime/readiness-record.ts');
+const { checkReadiness } = require('../../src/runtime/implementation-gate.ts');
+const { clearCheckoutCache } = require('../../src/runtime/checkouts.ts');
+const { clearTaskScopeCache } = require('../../src/runtime/task-scope.ts');
 
 const SLUG = '900-demo';
 const NOW = new Date('2026-10-08T12:00:00.000Z');
@@ -245,7 +245,7 @@ test('an unreadable record is set aside only under the write lock', () => {
 });
 
 test('every reader takes the same candidates: the namespaced path, then the flat one, in each checkout', () => {
-  const { recordCandidates } = require('../../src/runtime/readiness-record');
+  const { recordCandidates } = require('../../src/runtime/readiness-record.ts');
   const store = path.join('.doflow', 'state', 'readiness');
   assert.deepEqual(recordCandidates('A.1', SLUG), [path.join(store, SLUG, 'A.1.json'), path.join(store, 'A.1.json')]);
   assert.deepEqual(recordCandidates(SLUG, SLUG), [path.join(store, `${SLUG}.json`)]);

@@ -3,7 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { loadStorageRegistry, validateStorageRegistry, renderSourcePattern, formatBound } = require('../../src/runtime/storage/registry');
+const { loadStorageRegistry, validateStorageRegistry, renderSourcePattern, formatBound } = require('../../src/runtime/storage/registry.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 
@@ -43,7 +43,7 @@ test('IC-001: user-settings declares the advice config writer', () => {
   const registry = validRegistry();
   const stores = registry.stores.filter((item) => item.id.startsWith('user-settings-'));
   assert.equal(stores.length, 2);
-  for (const store of stores) assert.deepEqual(store.writers, ['src/runtime/advice/config.js']);
+  for (const store of stores) assert.deepEqual(store.writers, ['src/runtime/advice/config.ts']);
   assert.equal(validateStorageRegistry(registry).ok, true);
 });
 

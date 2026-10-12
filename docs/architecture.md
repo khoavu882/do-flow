@@ -42,16 +42,16 @@ are reported rather than imitated.
 | `core/.codex-plugin/` | Codex plugin manifest for plugin-based distribution |
 | `core/.plugin/` | GitHub Copilot CLI plugin manifest (skills-only); first in Copilot's documented manifest check order |
 | `bin/doflow.js` | The thin CLI entry point (exposed as the `doflow` command) — a forwarder into `src/cli`; it defines no handlers and no parser, so the binary path and the dispatcher seam (`doflow-run`) keep resolving here |
-| `src/cli/` | The CLI itself: argument parsing and the installer command→handler table (`index.js`), one file per installer command under `commands/`, the runtime-verb forwarding switch (`runtime-commands.js`, whose implementations stay in `src/runtime/`), and the shared command plumbing (`shared.js`) — including `buildAdapterRegistry()`, the single construction of the adapter registry that install/update/remove/reconcile use |
+| `src/cli/` | The CLI itself: argument parsing and the installer command→handler table (`index.ts`), one file per installer command under `commands/`, the runtime-verb forwarding switch (`runtime-commands.ts`, whose implementations stay in `src/runtime/`), and the shared command plumbing (`shared.ts`) — including `buildAdapterRegistry()`, the single construction of the adapter registry that install/update/remove/reconcile use. Fully TypeScript (see `agent-docs/BRIEF_GOAL_DOFLOW.md`); `bin/doflow.js` stays `.js` as the shebang entry and requires `../src/cli/index.ts` explicitly |
 | `core/shared/scripts/doflow/bin/doflow-run` | The runtime seam: one dispatcher owning the whole verb namespace |
-| `src/adapters/` | Native file formats and verification boundaries, one directory per harness (`claude`, `codex`, `gemini`, `opencode`, `pi`, `copilot`, `kiro`, `antigravity`), each implementing the same six-function contract (`discover, render, plan, apply, remove, verify`) that `src/adapters/index.js` validates and each also exposing that contract through a uniform `create<Name>Adapter()` factory (`createClaudeAdapter`, `createCodexAdapter`, `createGeminiAdapter`, and so on); `src/adapters/copy-tree.js` is the shared tree-materializing engine most adapters call into rather than reimplementing file-copy logic; `src/adapters/mcp-entries.js` holds the MCP entry ownership rules the Claude, Kiro, OpenCode, Copilot and Antigravity adapters share |
-| `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification against the neutral state ledger; obtains `planGeminiHooks` from the gemini adapter's public export (`src/adapters/gemini/index.js`) rather than reaching into a file inside it, and shares the generic parser in `src/helper/toml.js` with `src/adapters/codex/config.js` instead of depending on that adapter |
-| `src/runtime/` | Everything a skill asks for at use time: classification, workflow resolution, capability routing, evidence and claims, readiness, verification and command detection, recovery, tracing, scaffold generation, the per-feature decision register and History compaction (`decision-register.js`, `history-compactor.js`), and provider health; `src/runtime/cli-result.js` holds the exit/error-reporting helpers (`finishRuntime`, `usageError`) shared by the verb handlers `src/cli/runtime-commands.js` dispatches to, and deliberately depends on nothing else in the tree |
-| `src/runtime/storage/` | Storage retention: the registry loader and roots (`registry.js`, `roots.js`), the one definition of finished work (`work-status.js`), the bounded pass and its rules (`engine.js`, `rules.js`), the silent cleanup moments (`upkeep.js`) and the `storage` verb (`cli.js`) |
+| `src/adapters/` | Native file formats and verification boundaries, one directory per harness (`claude`, `codex`, `gemini`, `opencode`, `pi`, `copilot`, `kiro`, `antigravity`), each implementing the same six-function contract (`discover, render, plan, apply, remove, verify`) that `src/adapters/index.ts` validates and each also exposing that contract through a uniform `create<Name>Adapter()` factory (`createClaudeAdapter`, `createCodexAdapter`, `createGeminiAdapter`, and so on); `src/adapters/copy-tree.ts` is the shared tree-materializing engine most adapters call into rather than reimplementing file-copy logic; `src/adapters/mcp-entries.ts` holds the MCP entry ownership rules the Claude, Kiro, OpenCode, Copilot and Antigravity adapters share |
+| `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification against the neutral state ledger; obtains `planGeminiHooks` from the gemini adapter's public export (`src/adapters/gemini/index.ts`) rather than reaching into a file inside it, and shares the generic parser in `src/helper/toml.ts` with `src/adapters/codex/config.ts` instead of depending on that adapter |
+| `src/runtime/` | Everything a skill asks for at use time: classification, workflow resolution, capability routing, evidence and claims, readiness, verification and command detection, recovery, tracing, scaffold generation, the per-feature decision register and History compaction (`decision-register.ts`, `history-compactor.ts`), and provider health; `src/runtime/cli-result.ts` holds the exit/error-reporting helpers (`finishRuntime`, `usageError`) shared by the verb handlers `src/cli/runtime-commands.ts` dispatches to, and deliberately depends on nothing else in the tree |
+| `src/runtime/storage/` | Storage retention: the registry loader and roots (`registry.ts`, `roots.ts`), the one definition of finished work (`work-status.ts`), the bounded pass and its rules (`engine.ts`, `rules.ts`), the silent cleanup moments (`upkeep.ts`) and the `storage` verb (`cli.ts`) |
 | `src/state/` | Harness-neutral ledger, recovery records, and legacy-manifest migration |
 | `src/registry/` | Loads and validates `core/registry/*.json` into the in-memory registry object every adapter and lifecycle call consumes — the same data `test/guards/registry.test.js` checks implementation claims against |
-| `src/helper/` | Cross-layer utilities with no harness-, install-, or runtime-specific domain: git commit lookup (`git.js`), managed-section merging (`marker-merge.js`), interactive prompts (`prompt.js`), `settings.json` merging (`settings-merge.js`, `settings-scope.js`), generic TOML parsing (`toml.js`), and the single computation of the package root (`repo-root.js`), which every layer shares and no layer should re-derive from its own depth |
-| `src/install/` | Installer-domain operations: backup set (`backup-set.js`), backup, restore, retention and listing (`backup.js`), scope and target resolution (`context.js`, `targets.js`), manifest read/write (`manifest.js`), external-tool detection and install (`tool-lifecycle.js`), and MCP server selection (`mcp.js`) |
+| `src/helper/` | Cross-layer utilities with no harness-, install-, or runtime-specific domain: git commit lookup (`git.ts`), managed-section merging (`marker-merge.ts`), interactive prompts (`prompt.ts`), `settings.json` merging (`settings-merge.ts`, `settings-scope.ts`), generic TOML parsing (`toml.ts`), destructive-command blocklist derivation (`guardrails.ts`), bash-helper resolution (`bash-helper.ts`), declared native path resolution (`harness-paths.ts`), and the single computation of the package root (`repo-root.ts`), which every layer shares and no layer should re-derive from its own depth. This layer is leading the TypeScript migration (see `agent-docs/BRIEF_GOAL_DOFLOW.md`); modules convert `.js` -> `.ts` leaf-first, and `src/helper/` is now fully TypeScript |
+| `src/install/` | Installer-domain operations: backup set (`backup-set.ts`), backup, restore, retention and listing (`backup.ts`), scope and target resolution (`context.ts`, `targets.ts`), manifest read/write (`manifest.ts`), external-tool detection and install (`tool-lifecycle.ts`), path resolution (`paths.ts`), and MCP server selection (`mcp.ts`). Fully TypeScript (see `agent-docs/BRIEF_GOAL_DOFLOW.md`) |
 | `test/` | Installer, mapping, and runtime behavior tests organized into module directories mirroring `src/` (`adapters/`, `lifecycle/`, `runtime/`, `registry/`, `state/`, `helper/`, `install/`, `e2e/`), plus `test/guards/` for structural invariants about this repo's content |
 | `bench/` | Skill-evaluation corpus, TRACKED so the baseline is reproducible from a clean clone; only `bench/runs/` and `bench/reports/` are ignored. Outside the default test command, whose dispatch step makes paid model calls |
 | `docs/` | User-facing and contributor documentation site |
@@ -85,11 +85,11 @@ how a shared asset projects onto it:
 
 | File | Declares |
 |---|---|
-| `core/registry/harnesses.json` | Each target's adapter id, supported scopes, native target files, declared native path facts (`paths`: `{base, segments}` rules resolved through `src/helper/harness-paths.js`, with adapters owning only justified logic residue), and per-surface capability status with verification evidence. A harness's `capabilities.mcp` may carry `toolName`, a template holding `{server}` and `{tool}` (only `claude` has one: `mcp__{server}__{tool}`); the brief block uses it to show a provider's MCP tool name |
+| `core/registry/harnesses.json` | Each target's adapter id, supported scopes, native target files, declared native path facts (`paths`: `{base, segments}` rules resolved through `src/helper/harness-paths.ts`, with adapters owning only justified logic residue), and per-surface capability status with verification evidence. A harness's `capabilities.mcp` may carry `toolName`, a template holding `{server}` and `{tool}` (only `claude` has one: `mcp__{server}__{tool}`); the brief block uses it to show a provider's MCP tool name |
 | `core/registry/assets.json` | Each shared asset's `source` path and per-harness `projection`/`nativeDir` |
 | `core/registry/contracts.json` | Per-harness recognized frontmatter fields and hook events — what `test/guards/fields.test.js` (G1) checks every asset against |
 | `core/registry/lifecycle.json` | Hook-based lifecycle policies (session-context capture, pre-implementation gate, MCP tool guard, stop check) and each harness's support status or fallback |
-| `core/registry/mcp.json` | The neutral MCP server catalog every harness's adapter selects from. Each server also carries a required `trigger` (one sentence, 20 to 300 characters: the generic condition under which a stage consults it) and `steps` (the skill files that name it, each `{skill, file}` and optionally `expectedWhen: "research-request"`); adapters ignore both. `src/registry/index.js` fails the load on a server missing either |
+| `core/registry/mcp.json` | The neutral MCP server catalog every harness's adapter selects from. Each server also carries a required `trigger` (one sentence, 20 to 300 characters: the generic condition under which a stage consults it) and `steps` (the skill files that name it, each `{skill, file}` and optionally `expectedWhen: "research-request"`); adapters ignore both. `src/registry/index.ts` fails the load on a server missing either |
 
 ## The runtime seam
 
@@ -162,7 +162,7 @@ registries](#installation-registries) for the same plain-JSON convention.
 | `core/registry/models.json` | Abstract model roles and their providers (`doflow model-role`), and `dispatchTiers`: the tier names (`tiers`), the `default`, and the tier per agent archetype (`byOwner`) that a generated brief states. G29 holds `tiers` to `MODEL_SELECTION.md` `## Capability tiers`, `byOwner` keys to `core/shared/agent-specs/`, and every `byOwner` value to the `## Archetype dispatch tiers` prescription table in `MODEL_SELECTION.md` |
 | `core/registry/external-tools.json` | External tools DoFlow can detect, install, and probe rather than reimplement |
 | `core/registry/storage.json` | Every store DoFlow writes: its root, location, retention bound, rule kind and writer files, plus the pass budget, throttle and ignore-file text. `src/runtime/storage/` reads it and G26 checks it against the code and `docs/reference.md` |
-| `core/registry/advice.json` | Advice kinds, prompts and criteria, loaded by `src/runtime/advice/registry.js`. It stays outside the general `REGISTRY_FILES` list in `src/registry`: IC-003 makes a load failure turn advice off, whereas the general registry loader would make every install command fail (DEC-025) |
+| `core/registry/advice.json` | Advice kinds, prompts and criteria, loaded by `src/runtime/advice/registry.ts`. It stays outside the general `REGISTRY_FILES` list in `src/registry`: IC-003 makes a load failure turn advice off, whereas the general registry loader would make every install command fail (DEC-025) |
 
 Two contracts follow from these files and should not be re-expressed as flags. Readiness is a
 four-state verdict — `READY`, `NEEDS_EVIDENCE`, `NEEDS_USER_DECISION`, `BLOCKED` — with the missing
@@ -172,8 +172,8 @@ number of recovery attempts allowed are both derived from the risk level, not ch
 ## The lifecycle loop
 
 Four runtime verbs, `followup`, `lifecycle`, `goal` and `failure`, keep what a feature leaves
-behind. They are wired the way `decision` is: a flag-table entry and help line in `src/cli/index.js`,
-one `case` in `src/cli/runtime-commands.js`, an `is_node_verb` entry and usage line in the
+behind. They are wired the way `decision` is: a flag-table entry and help line in `src/cli/index.ts`,
+one `case` in `src/cli/runtime-commands.ts`, an `is_node_verb` entry and usage line in the
 dispatcher, a row in [Reference](reference.md), and the literal `doflow-run <verb>` in
 `core/shared/skills/do/SKILL.md`. For how it reads to a user, see [How DoFlow
 works](how-doflow-work.md#after-the-chain-the-lifecycle-loop).
@@ -182,20 +182,20 @@ works](how-doflow-work.md#after-the-chain-the-lifecycle-loop).
 
 | Path | Owns |
 |---|---|
-| `src/runtime/mask.js` | Best-effort masking and failure-message normalisation, in two profiles (line and body). Used by the follow-up service, the report store and the failure writer |
-| `src/runtime/lifecycle/root.js` | The project root a store is keyed by: the first real working tree in `git worktree list`, else the current worktree's root, else the working directory |
-| `src/runtime/lifecycle/event-store.js` | Write-once event files under `.doflow/state/lifecycle/events/`, local to the machine: id and `at` stamping, exclusive create, the store lock, the pre-write fold check |
-| `src/runtime/lifecycle/store-upkeep.js` | The one-time copy from `agent-docs/lifecycle/events` and the retention pass, run once per verb before its work |
-| `src/runtime/lifecycle/retention.js` | The retention window and the pure selection of settled units |
-| `src/runtime/lifecycle/fold.js` | The pure fold of events into follow-ups, tracked features, goals and release records, with conflicts. No file or git access |
-| `src/runtime/lifecycle/followup.js`, `goal.js` | The follow-up and goal services; each returns a result object and never prints |
-| `src/runtime/lifecycle/intent-writer.js` | Creates a new intent for `followup --action promote`, from headings fixed in code |
-| `src/runtime/lifecycle/report-store.js` | The machine-local report body and its masked excerpt |
-| `src/runtime/lifecycle/status.js` | Feature status derived from git and release records, never written |
-| `src/runtime/lifecycle/overview.js`, `release.js` | `overview`, `init`, `status`; `release` and `merged` |
-| `src/runtime/lifecycle/cli.js` | The `followup`, `lifecycle` and `goal` handlers: flag checks, text output, exit codes |
-| `src/runtime/failure/home.js`, `classifier.js` | Where the failure home is and whether capture is on; the programming-error classifier |
-| `src/runtime/failure/capture.js`, `store.js`, `cli.js` | The Node writer with rotation; the reader, fingerprints and settlements; the `failure` handler |
+| `src/runtime/mask.ts` | Best-effort masking and failure-message normalisation, in two profiles (line and body). Used by the follow-up service, the report store and the failure writer |
+| `src/runtime/lifecycle/root.ts` | The project root a store is keyed by: the first real working tree in `git worktree list`, else the current worktree's root, else the working directory |
+| `src/runtime/lifecycle/event-store.ts` | Write-once event files under `.doflow/state/lifecycle/events/`, local to the machine: id and `at` stamping, exclusive create, the store lock, the pre-write fold check |
+| `src/runtime/lifecycle/store-upkeep.ts` | The one-time copy from `agent-docs/lifecycle/events` and the retention pass, run once per verb before its work |
+| `src/runtime/lifecycle/retention.ts` | The retention window and the pure selection of settled units |
+| `src/runtime/lifecycle/fold.ts` | The pure fold of events into follow-ups, tracked features, goals and release records, with conflicts. No file or git access |
+| `src/runtime/lifecycle/followup.ts`, `goal.ts` | The follow-up and goal services; each returns a result object and never prints |
+| `src/runtime/lifecycle/intent-writer.ts` | Creates a new intent for `followup --action promote`, from headings fixed in code |
+| `src/runtime/lifecycle/report-store.ts` | The machine-local report body and its masked excerpt |
+| `src/runtime/lifecycle/status.ts` | Feature status derived from git and release records, never written |
+| `src/runtime/lifecycle/overview.ts`, `release.ts` | `overview`, `init`, `status`; `release` and `merged` |
+| `src/runtime/lifecycle/cli.ts` | The `followup`, `lifecycle` and `goal` handlers: flag checks, text output, exit codes |
+| `src/runtime/failure/home.ts`, `classifier.js` | Where the failure home is and whether capture is on; the programming-error classifier |
+| `src/runtime/failure/capture.ts`, `store.js`, `cli.js` | The Node writer with rotation; the reader, fingerprints and settlements; the `failure` handler |
 
 ### The store
 
@@ -238,7 +238,7 @@ feature finishes when a release record names it, or when its merge is contained 
 The Node runtime finds `do-git-state.sh` inside the package, else in the `bash` folder of the scripts
 installed beside its runtime (DEC-048), and reports `git-state-helper-missing` when neither exists. The
 runtime that is installed carries only `bin/`, `src/` and `core/registry/`, so a path under
-`core/shared/` does not exist there. `scope-bound.js` and `feature-resolve.js` still use the older
+`core/shared/` does not exist there. `scope-bound.js` and `feature-resolve.ts` still use the older
 pattern; that is recorded as a follow-up, not fixed here.
 
 ### Failure capture
@@ -251,7 +251,7 @@ and is a no-op when no absolute home resolves or the switch is off (the `off` fi
 
 | Capture point | Records | Is not recorded |
 |---|---|---|
-| `main()` catch in `src/cli/index.js`, the usage-error catch sites in `src/runtime/cli.js` and the three exit-1 catch-and-convert sites | An error the classifier calls a programming error: `TypeError`, `RangeError`, `ReferenceError`, an assertion, `MODULE_NOT_FOUND`, a Node system error with a code | A bad flag, a refusal or finding, `EPIPE`, a plain `Error`, a `SyntaxError`, an `AggregateError`, an error class a verb defines and catches |
+| `main()` catch in `src/cli/index.ts`, the usage-error catch sites in `src/runtime/cli.ts` and the three exit-1 catch-and-convert sites | An error the classifier calls a programming error: `TypeError`, `RangeError`, `ReferenceError`, an assertion, `MODULE_NOT_FOUND`, a Node system error with a code | A bad flag, a refusal or finding, `EPIPE`, a plain `Error`, a `SyntaxError`, an `AggregateError`, an error class a verb defines and catches |
 | `uncaughtExceptionMonitor`, registered in `bin/doflow.js` before the CLI loads | The same classes, as `uncaught:<kind>` | The same exclusions |
 | Dispatcher: `helper-missing`, `helpers-not-found`, a symlink loop, a verb status outside 0, 1 and 2 | The reason or `exit-<n>`; no message | 127, 130, 141, 143, status 3 from `task-brief`, caller mistakes (`no-verb`, `unknown-verb`, `node-not-found`, `cli-not-found`, `unlinked-checkout`, `stale-runtime`), a missing `jq` |
 | Hook helper `capture-failure.sh`, called by `pre-bash-guard.sh` (`patterns-missing`) and `mcp-tool-guard.sh` (`policy-file-missing`) | A guard that fails open because its own install is broken | A deny, a missing `jq` |
@@ -294,7 +294,7 @@ command does.
   it, record the measured value and the reason beside the rail, and raise it deliberately in its own
   commit; do not trim an unrelated file to fit. The `dependency-change` rail has little headroom.
 - **G16** (`module-reachability.test.js`): every module in `src/runtime/lifecycle/`, `src/runtime/failure/`
-  and `mask.js` must be reached by a static `require()` literal. The failure modules are required
+  and `mask.ts` must be reached by a static `require()` literal. The failure modules are required
   lazily (in `bin/doflow.js` inside a `try`, in `runtime-commands.js` inside a function), so the CLI runs
   without them; keep the `require('<literal path>')` form when you add one.
 - **G17** (`verb-reachability.test.js`): each of the four verbs must be spelled `doflow-run <verb>` in
@@ -332,7 +332,7 @@ declares target capability and ownership inputs, and is not itself a native conf
 | Content | Where it lives | Why it is shared |
 |---|---|---|
 | `DOFLOW_CORE.md`, `PRINCIPLES.md`, `FLAGS.md`, `VERSION`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | One `guidance.context-layer` copy-tree asset mirrors this whole tree, byte-for-byte, into `.doflow/guidance/` for every scope, on the harnesses its `appliesTo` names, except Kiro, which gets this tree as `.kiro/steering/` and a second, Kiro-only `kiro.guidance-tree` asset that mirrors it into `.doflow/guidance/`; that copy is never loaded as steering |
-| `MCP_INDEX.md` (`.doflow/guidance/` only, no `core/` source) | Written directly by `applyLifecycle` (`src/lifecycle/index.js`) | The one file in `.doflow/guidance/` that varies per install (the resolved MCP selection) — deliberately outside `guidance.context-layer`'s copy-tree source so its per-install content never conflicts with that asset's byte-for-byte mirror; imported unconditionally from `DOFLOW_CORE.md` |
+| `MCP_INDEX.md` (`.doflow/guidance/` only, no `core/` source) | Written directly by `applyLifecycle` (`src/lifecycle/index.ts`) | The one file in `.doflow/guidance/` that varies per install (the resolved MCP selection) — deliberately outside `guidance.context-layer`'s copy-tree source so its per-install content never conflicts with that asset's byte-for-byte mirror; imported unconditionally from `DOFLOW_CORE.md` |
 
 > **Path anchor (load-bearing).** Every `@import` in `DOFLOW_CORE.md`, and every `doc` value in
 > `core/registry/mcp.json`, is relative to the **guidance root** (`.doflow/guidance/`). That is why
@@ -365,7 +365,7 @@ install manifest use sibling paths under `.doflow/` (`backups/` and `.install-ma
 same neutral state directory also holds what the runtime writes: per-task evidence and claims, and
 the date-partitioned run ledger the dispatcher appends to. Lifecycle commands no longer anchor
 metadata to `.claude`; the explicit neutral-state importer remains separate for historical state.
-Each backup is a per-file copy of the files a run changes, with a format-2 `.manifest.json` recording which of them existed. The same directory holds `run.lock` while an `install`, `update`, `remove`, `reconcile` or `rollback` runs, so two runs in one scope never read and write the ledger, `doflow.lock` or the install manifest at the same time.
+Each backup is a per-file copy of the files a run changes, plus the ownership ledger those files belong to (a rollback restores only the ledger rows of the files it writes back, and keeps every other current row), with a format-2 `.manifest.json` recording which of them existed. `reconcile` takes no backup, although its plan includes the runtime prune (`pruneRetiredRuntimeFiles`): the prune deletes only files the current source no longer ships whose bytes still equal what DoFlow recorded writing there, so nothing a user wrote or changed is lost, and a rollback would have nothing of theirs to bring back. The same directory holds `run.lock` while an `install`, `update`, `remove`, `reconcile` or `rollback` runs, so two runs in one scope never read and write the ledger, `doflow.lock` or the install manifest at the same time.
 
 Migration order is deliberate: declare registry ownership, introduce adapters and neutral state,
 route the CLI through lifecycle planning, then retire a compatibility path only after idempotency,
@@ -387,7 +387,7 @@ Examples:
 
 - Add or revise a workflow: edit its `core/shared/skills/<name>/SKILL.md`; keep the public description compact in [Reference](reference.md).
 - Change a client destination or add a supported asset: edit `core/registry/assets.json`, then cover it in tests.
-- Add a harness: declare it in `core/registry/harnesses.json`, `contracts.json`, and `assets.json`; implement `src/adapters/<id>/index.js`'s six-function contract (`discover, render, plan, apply, remove, verify`); and register the adapter via `buildAdapterRegistry()` in `src/cli/shared.js`, the one construction of the adapter registry. `test/guards/registry.test.js` checks the three registry files and the implementation against each other.
+- Add a harness: declare it in `core/registry/harnesses.json`, `contracts.json`, and `assets.json`; implement `src/adapters/<id>/index.js`'s six-function contract (`discover, render, plan, apply, remove, verify`); and register the adapter via `buildAdapterRegistry()` in `src/cli/shared.ts`, the one construction of the adapter registry. `test/guards/registry.test.js` checks the three registry files and the implementation against each other.
 - Change managed instruction behavior: edit the merge/copy implementation in `src/`, then test both fresh install and update paths.
 - Add or change a runtime verb: edit the dispatcher's own table alongside the implementation — it is the single place the verb namespace is written down — then run the guards, which cross-check that table against the shell helpers and the CLI commands in both directions.
 - Change a skill's flags: land the skill's `argument-hint`, `docs/reference.md`, and `docs/flags.md` in the same commit. Three guards cross-check them, so a partial change turns the suite red.
@@ -399,7 +399,7 @@ Examples:
   5. `doflow doctor`'s `[MCP Servers]` section lists the server by the `steps` you added, so it needs no edit.
   6. Run `node --test test/guards/mcp-claims.test.js test/runtime/mcp-handoff.test.js test/runtime/doctor-mcp.test.js`, then `npm test`.
 - Add a capability provider:
-  1. Add it to its capability's `providers` in `core/registry/capabilities.json` with `id`, `kind`, `binary` where one exists, `costTier`, `sourceMode` (`live` for a provider that reads current files or commands, `index` for one that answers from a built artifact; required, and an `index` provider also needs an entry in `PROVIDER_ARTIFACTS` in `src/runtime/health.js` or its freshness reads UNKNOWN) and a `checkCommand` (`doflow doctor` runs it as the provider's probe; a provider without one reports unverified, and the brief names only healthy providers).
+  1. Add it to its capability's `providers` in `core/registry/capabilities.json` with `id`, `kind`, `binary` where one exists, `costTier`, `sourceMode` (`live` for a provider that reads current files or commands, `index` for one that answers from a built artifact; required, and an `index` provider also needs an entry in `PROVIDER_ARTIFACTS` in `src/runtime/health.ts` or its freshness reads UNKNOWN) and a `checkCommand` (`doflow doctor` runs it as the provider's probe; a provider without one reports unverified, and the brief names only healthy providers).
   2. If it is reached through an MCP tool, add `mcp: {server, tool}`. The router derives `mcpTool` from it and the brief names the tool through the harness's `toolName` template.
   3. A new information need is an intent in `core/registry/routes.json` naming a capability and an ordered `fallback`. The brief block has one row per intent, in file order, and names the provider the router resolves among the healthy ones, so no code changes.
   4. Run `node --test test/guards/brief-tools-registry.test.js test/guards/provider-source-mode.test.js test/runtime/brief-tools.test.js test/runtime/runtime-capability-router.test.js`, then `npm test`.
@@ -449,16 +449,17 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-thirty-seven test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-thirty-one entries across thirty test files and carries twenty-nine distinct G-numbers.
+thirty-nine test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+thirty-two entries across thirty-one test files and carries thirty distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
-historical rather than a convention; G31 is the highest number in use, so a new guard takes the next
-one above it instead of adding a fourth collision. The list is not the whole directory. The seven
+historical rather than a convention; G32 is the highest number in use, so a new guard takes the next
+one above it instead of adding a fourth collision. The list is not the whole directory. The eight
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
 of the G18 pair — between them the reason the list runs G18 then G20; and `boundaries.test.js`,
-`harness-paths.test.js`, `cli-boundary.test.js` and `frozen-behaviour.test.js`.
+`harness-paths.test.js`, `cli-boundary.test.js`, `frozen-behaviour.test.js` and
+`provider-source-mode.test.js`.
 
 - **G1** (`fields.test.js`) — every frontmatter key an asset declares is recognized by something.
 - **G2** (`paths.test.js`) — path reachability from `MCP_INDEX.md`-style generalizations.
@@ -559,9 +560,9 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   scan covers the verify and remove sites the behavioral half never reaches.
 - **G21** (`wholesale-assets.test.js`) — `doflow inventory` reports an unmanaged neighbouring file
   only in a directory the harness loads *wholesale*, and nothing in the registry records load
-  semantics, so `WHOLESALE_ASSETS` in `src/runtime/inventory/siblings.js` is derived by hand. This
+  semantics, so `WHOLESALE_ASSETS` in `src/runtime/inventory/siblings.ts` is derived by hand. This
   pins it to what adapters actually do, so a harness that gains an apply-to-everything transform
-  cannot silently stop being inspected. The derived half runs every entry of `copy-tree.js`'s
+  cannot silently stop being inspected. The derived half runs every entry of `copy-tree.ts`'s
   `TRANSFORMS` table over a probe file and reads the frontmatter it produces — a projection whose
   transform renders an apply-to-everything directive must appear in the constant — and the
   constant may hold no entry that is neither derived this way nor recorded, nor one naming a
@@ -616,12 +617,12 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   appears only under `core/shared/skills/`; a sentence naming an `optional` server with "always",
   "no flag" or "unconditionally" fails; a sentence holding `ToolSearch(` must say "Claude Code". Each
   marker in a skill file needs a matching `steps` entry in `mcp.json`, and each `steps` entry's file
-  must exist and hold its server's marker. `mcp-consultations.js`, `mcp-reach.js`, `brief-tools.js`
+  must exist and hold its server's marker. `mcp-consultations.ts`, `mcp-reach.ts`, `brief-tools.ts`
   and `do-task-brief.sh` contain no `mcp.json` id as a literal, and the first three require none of
   `http`, `https`, `net` or `dns`. `docs/setup.md` holds each stepped server's `trigger` verbatim. The
   checks are one function over injected files, and fixture tests run it over bad trees.
 - **G29** (`brief-tools-registry.test.js`) — the tier, tools and report-format block of a generated
-  brief follows the registries. `src/runtime/brief-tools.js` and `do-task-brief.sh` contain no
+  brief follows the registries. `src/runtime/brief-tools.ts` and `do-task-brief.sh` contain no
   capability id, provider id or binary, route intent, `mcp.json` id or provider `mcp.server` as a
   literal. The block rendered over the shipped registries has one row per route intent and names
   only providers `capabilities.json` declares, and over a fixture registry with one more intent and
@@ -638,6 +639,15 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
 - **G31** (`advice.test.js`) — advice cases cover every registered advice kind, and the `tier`
   criteria keys/order and their `Work` text stay synchronized with `models.json` and
   `MODEL_SELECTION.md` respectively, as DEC-033 requires.
+- **G32** (`runtime-tree.test.js`) — the two facts the lifecycle's runtime prune rests on: each of
+  `runtime.cli`, `runtime.lib` and `runtime.registry` projects one source directory to one
+  `.doflow/runtime/...` tree for every harness, with no layout or transform, and no other asset
+  writes into those trees; and every path under a shared `.doflow/` tree that a projected file
+  names (harness hooks, shared scripts, skills, agent specs) exists in source — spelled
+  `.doflow/<tree>/...` or, for the runtime trees, through `$CONFIG_DIR/runtime/...`,
+  `${DOFLOW_CONFIG_DIR:-$HOME/.doflow}/runtime/...` or a `../runtime/...` hop — so a prune can never
+  delete a file a not-yet-updated harness calls by path. A reference already broken when the guard
+  landed is listed in `KNOWN_STALE` with its reason and fails once it resolves.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

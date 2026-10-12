@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { ContextPackCompiler } = require('../../src/runtime/context-pack');
+const { ContextPackCompiler } = require('../../src/runtime/context-pack.ts');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const CLI_PATH = path.join(REPO_ROOT, 'bin', 'doflow.js');

@@ -15,7 +15,7 @@ const { spawnSync } = require('node:child_process');
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 
-const { resolveTaskScope, clearTaskScopeCache, setDefaultSlug } = require('../../src/runtime/task-scope');
+const { resolveTaskScope, clearTaskScopeCache, setDefaultSlug } = require('../../src/runtime/task-scope.ts');
 
 // The `--slug` default and the per-root cache are process-wide; every test leaves them as it found them.
 test.afterEach(() => { setDefaultSlug(null); clearTaskScopeCache(); });
@@ -114,7 +114,7 @@ test('claims, outcome, retrieval and research records follow the same layout', (
   assert.ok(fs.existsSync(path.join(state, 'retrieval', WITH, 'A.1.json')));
   assert.ok(!fs.existsSync(path.join(state, 'retrieval', 'A.1.json')));
 
-  const { ResearchRequestStore } = require('../../src/runtime/research-request');
+  const { ResearchRequestStore } = require('../../src/runtime/research-request.ts');
   assert.equal(new ResearchRequestStore({ projectRoot: root, slug: WITH }).file('A.1'),
     path.join(state, 'research', WITH, 'A.1.json'));
   assert.equal(new ResearchRequestStore({ projectRoot: root, slug: WITHOUT }).file('A.1'),
@@ -214,7 +214,7 @@ test('readiness resolves the feature from the branch when no --slug is given', (
 
 test('an ambient --slug default routes a store, and clearing it restores the branch lookup', () => {
   const root = project('ambient');
-  const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
+  const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
   setDefaultSlug(WITH);
   assert.equal(resolveTaskScope({ projectRoot: root, taskId: 'A.1' }).namespace, WITH);
   const ledger = new EvidenceLedger({ repoRoot: root });

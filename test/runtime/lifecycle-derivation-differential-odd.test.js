@@ -25,8 +25,8 @@ const assert = require('node:assert/strict');
 const { createScratch } = require('../helper/scratch-env');
 const { historyBuilder } = require('../helper/lifecycle-git-fixtures');
 const { compareHistories, writeEvents, OUTCOMES, HISTORIES, CLOCK } = require('../helper/lifecycle-derivation-reference');
-const { releaseFeatures } = require('../../src/runtime/lifecycle/release');
-const { buildOverview } = require('../../src/runtime/lifecycle/overview');
+const { releaseFeatures } = require('../../src/runtime/lifecycle/release.ts');
+const { buildOverview } = require('../../src/runtime/lifecycle/overview.ts');
 
 const scratch = createScratch('doflow-differential-odd-');
 test.before(() => scratch.apply());

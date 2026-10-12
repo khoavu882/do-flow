@@ -4,7 +4,7 @@
 //
 // Two halves, for two different kinds of claim.
 //
-// The in-process half replaces `health.probeFreshness` with a spy BEFORE `retrieval-plan.js` is
+// The in-process half replaces `health.probeFreshness` with a spy BEFORE `retrieval-plan.ts` is
 // loaded, because that module destructures the function at require time. This is the only way to
 // assert the two properties the design spends its risk section on — that a provider is probed once
 // per plan and never once per need (R8), and that a STALE index does not produce UNVERIFIED (R10).
@@ -28,7 +28,7 @@ const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin',
 
 // ── the probe spy, installed before the module under test is loaded ───────────────────────────
 
-const health = require('../../src/runtime/health');
+const health = require('../../src/runtime/health.ts');
 const realProbeFreshness = health.probeFreshness;
 
 /** Provider ids `probeFreshness` was called with, in order, since the last reset. */
@@ -52,7 +52,7 @@ const {
   FRESHNESS_STATES,
   freshnessEntry,
   sourceModeLookup,
-} = require('../../src/runtime/retrieval-plan');
+} = require('../../src/runtime/retrieval-plan.ts');
 
 /** A scratch project root. Nothing here needs git — the plan record stamps no commit. */
 function project(label) {
@@ -263,7 +263,7 @@ test('a provider the registry does not declare, or declared index anywhere, is n
 test('semble and graphify keep their probed state; shipped live providers stay NOT_APPLICABLE (068)', () => {
   const root = project('src-shipped');
   cannedProbe = null;
-  const { CapabilityRouter } = require('../../src/runtime/capability-router');
+  const { CapabilityRouter } = require('../../src/runtime/capability-router.ts');
   const lookup = sourceModeLookup(new CapabilityRouter({ repoRoot: REPO }).capabilities);
   for (const id of ['semble.search', 'graphify.query']) {
     const entry = freshnessEntry(id, root, lookup);

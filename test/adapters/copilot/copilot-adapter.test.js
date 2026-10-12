@@ -4,9 +4,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
-const { createCopilotAdapter, nativePaths, agentFileLayout, MARKER_START } = require('../../../src/adapters/copilot');
-const { entryFingerprint } = require('../../../src/adapters/mcp-entries');
-const { assertAdapter } = require('../../../src/adapters');
+const { createCopilotAdapter, nativePaths, agentFileLayout, MARKER_START } = require('../../../src/adapters/copilot/index.ts');
+const { entryFingerprint } = require('../../../src/adapters/mcp-entries.ts');
+const { assertAdapter } = require('../../../src/adapters/index.ts');
 
 function scratch() { return suiteTempDir('doflow-copilot-'); }
 const instructionAssets = [{ id: 'guidance.codex-pointer', capability: 'instructions', source: 'source.md' }];

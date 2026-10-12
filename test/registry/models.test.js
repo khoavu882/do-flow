@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
 const fs = require('node:fs');
-const { loadRegistry, validateRegistry } = require('../../src/registry');
+const { loadRegistry, validateRegistry } = require('../../src/registry/index.ts');
 const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, '..', '..');

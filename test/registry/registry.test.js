@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   REGISTRY_FILES, loadRegistry, validateRegistry, selectAssets, selectMcpServers, mcpCapable, capabilityMapData,
-} = require('../../src/registry');
+} = require('../../src/registry/index.ts');
 const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, "../..");

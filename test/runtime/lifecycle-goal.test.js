@@ -11,10 +11,10 @@ const path = require('node:path');
 const { spawnSync, execFile } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { makeRepo, FIXTURES, SLUG, TRACKED_AT } = require('../helper/lifecycle-git-fixtures');
-const store = require('../../src/runtime/lifecycle/event-store');
-const goals = require('../../src/runtime/lifecycle/goal');
-const { buildOverview } = require('../../src/runtime/lifecycle/overview');
-const { FollowupUsageError } = require('../../src/runtime/lifecycle/followup');
+const store = require('../../src/runtime/lifecycle/event-store.ts');
+const goals = require('../../src/runtime/lifecycle/goal.ts');
+const { buildOverview } = require('../../src/runtime/lifecycle/overview.ts');
+const { FollowupUsageError } = require('../../src/runtime/lifecycle/followup.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');

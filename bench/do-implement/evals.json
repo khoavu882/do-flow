@@ -27,7 +27,7 @@
       "kind": "triggering",
       "split": "train",
       "name": "explanation-request-does-not-implement",
-      "prompt": "Explain how WorktreeManager in src/runtime/worktree.js decides where a sandbox worktree lives.",
+      "prompt": "Explain how WorktreeManager in src/runtime/worktree.ts decides where a sandbox worktree lives.",
       "expected_output": "An explanation grounded in the real code; no files are modified",
       "files": [],
       "assertions": [

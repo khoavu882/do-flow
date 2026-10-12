@@ -3,11 +3,11 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { writeManifest } = require('../../src/install/manifest');
+const { writeManifest } = require('../../src/install/manifest.ts');
 const {
   STATE_VERSION, LEDGER_VERSION, stateRoot, ledgerPath, defaultLedger, readLedger, writeLedger,
   writeRecoveryRecord, readRecoveryRecord, migrateLegacyManifest, ownershipKey,
-} = require('../../src/state');
+} = require('../../src/state/index.ts');
 const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, "../..");

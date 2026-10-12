@@ -1,0 +1,707 @@
+'use strict';
+
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
+// Codex adapter boundary. Native parsing and mutation remain in the existing
+// codex-* modules; this module composes their non-mutating plans into the
+// common adapter shape without changing legacy CLI ownership.
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const { configPath, fingerprint: configFingerprint, parseToml, planCodexConfig, applyCodexConfig } = require('./config.ts');
+const { renderServer, planCodexMcp, applyCodexMcp, ownedCodexMcpIds, userDefinedCodexMcpIds, serverTableText } = require('./mcp.ts');
+const { agentDirectory, discoverCodexAgents, planCodexAgents, applyCodexAgents } = require('./agents.ts');
+const { planCodexHooks, deployCodexHooks, removeCodexHookScripts } = require('./hooks.ts');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../copy-tree.ts');
+const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
+const { nativeMcpCatalog } = require('../../registry/index.ts');
+const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
+
+const HARNESS = 'codex';
+
+/** Every server a capability provider names as its MCP server. */
+function providerMcpServers(registry: any) {
+  return Object.values<any>(registry?.capabilities || {}).flatMap((capability) => (capability.providers || []).map((provider: any) => provider.mcp?.server)).filter(Boolean);
+}
+
+/** The servers config.toml defines among `names`, whoever wrote them: the tables DoFlow owns plus the
+ * user's own. `null` while the file is absent or cannot be parsed. */
+function configuredCodexMcpIds({ config, scope, fsImpl, mcpRecords, names }: any) {
+  try {
+    if (!fsImpl.existsSync(config)) return null;
+    parseToml(fsImpl.readFileSync(config, 'utf8'));
+  } catch { return null; }
+  const owned = ownedCodexMcpIds({ file: config, scope, fsImpl, managedResources: mcpRecords });
+  const own = userDefinedCodexMcpIds({ file: config, scope, fsImpl, managedResources: mcpRecords, names });
+  return [...new Set([...owned, ...own])].sort();
+}
+
+/**
+ * Native path facts live in core/registry/harnesses.json under this harness's "paths" section and
+ * resolve through the shared harness-paths resolver. createCodexAdapter({ declaredPaths }) is the
+ * injection point buildAdapterRegistry() uses; module-level exports delegate to a default-
+ * configured instance so direct callers keep their historical shape.
+ */
+function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {}) {
+  function normalizeContext({ scope, scopeRoot, projectRoot, codexDir, homeDir }: any = {}) {
+    if (!['project', 'global', 'user'].includes(scope)) throw new Error(`Unsupported Codex scope '${scope}'`);
+    if (scope === 'project') {
+      // Logic residue (input normalization, not a path fact): scopeRoot is accepted as the selected
+      // repository root for generic lifecycle callers. A workspace container is never substituted
+      // here: the caller must pass that container as projectRoot only when it is itself the
+      // repository being configured.
+      const root = projectRoot ?? scopeRoot;
+      if (!root) throw new Error('Codex project scope requires the selected repository projectRoot');
+      const paths = resolveHarnessPaths(declaredPaths, { scope: 'project', scopeRoot: root });
+      return { scope: 'project', projectRoot: path.resolve(root), paths };
+    }
+    // Logic residue (input normalization): the generic lifecycle may pass either global or user;
+    // both target the actual user configuration root.
+    const home = homeDir ?? os.homedir();
+    const paths = resolveHarnessPaths(declaredPaths, { scope: 'user', scopeRoot: home, homeDir: home });
+    return { scope: 'global', codexDir: codexDir ? path.resolve(codexDir) : paths.configDir, paths };
+  }
+
+  const nativeContext = normalizeContext;
+
+  function discover(options: any, { fsImpl = fs }: any = {}) {
+    const context = nativeContext(options);
+    const paths = context.paths;
+    const config = paths.configFile;
+    const agents = paths.agentsDirectory;
+    const hooks = paths.hooksFile;
+    const mcpRecords = nativeManagedResources(options.managedResources || options.ledger?.resources || [], context, { kind: 'mcp-server', target: config });
+    const catalogNames = [...(options.registry?.mcp || []), ...(projectedNativeOptions(options).mcpCatalog || [])].map((server) => server.id);
+    return {
+      harness: HARNESS,
+      scope: options.scope,
+      config: { file: config, exists: fsImpl.existsSync(config) },
+      agents: { directory: agents, exists: fsImpl.existsSync(agents) },
+      hooks: { file: hooks, exists: fsImpl.existsSync(hooks) },
+      mcpOwned: ownedCodexMcpIds({ file: config, scope: context.scope, fsImpl, managedResources: mcpRecords }),
+      mcpUserDefined: userDefinedCodexMcpIds({ file: config, scope: context.scope, fsImpl, managedResources: mcpRecords, names: catalogNames }),
+      mcpConfigured: configuredCodexMcpIds({ config, scope: context.scope, fsImpl, mcpRecords, names: [...catalogNames, ...providerMcpServers(options.registry)] }),
+    };
+  }
+
+  function render({ registry, asset }: any) {
+    if (!registry || !asset) throw new Error('render requires registry and asset');
+    const harness = registry.harnesses.find((item: any) => item.id === HARNESS);
+    if (!harness) throw new Error('Registry does not define the Codex harness');
+    const projection = asset.projection?.[HARNESS];
+    if (!projection) return { harness: HARNESS, assetId: asset.id, status: 'not-applicable' };
+    const capability = harness.capabilities?.[projection.capability];
+    if (!capability) throw new Error(`Codex projection '${asset.id}' references unknown capability '${projection.capability}'`);
+    return {
+      harness: HARNESS,
+      assetId: asset.id,
+      renderer: projection.renderer,
+      capability: projection.capability,
+      capabilityStatus: capability.status,
+      target: harness.nativeTargets?.[projection.capability] ?? null,
+      status: capability.status === 'unavailable' ? 'unavailable' : 'renderable',
+      prerequisites: [...(capability.prerequisites || [])],
+    };
+  }
+
+  function assetIdFor(options: any, componentName: any) {
+    const explicit = options.projection?.assetIds?.[componentName];
+    if (explicit) return explicit;
+    const assets = options.assets || [];
+    if (componentName === 'agents') return assets.find((asset: any) => asset.id === 'agents.shared')?.id ?? assets[0]?.id;
+    return assets.find((asset: any) => asset.id === 'guidance.codex-pointer')?.id ?? assets[0]?.id ?? `codex.${componentName}`;
+  }
+
+  function ownershipKind(componentName: any) {
+    return ({ config: 'configuration-entry', mcp: 'mcp-server', agents: 'custom-agent', hooks: 'hooks-file' } as Record<string, string>)[componentName] ?? componentName;
+  }
+  function ownershipIdentity(componentName: any, identity: any) { return `doflow:codex:${ownershipKind(componentName)}:${identity}`; }
+
+  function addChanges(output: any, assetId: any, component: any, componentName: any) {
+    for (const change of component?.changes || []) output.push({
+      harness: HARNESS,
+      assetId,
+      nativeComponent: componentName,
+      nativePlan: component,
+      operation: change.operation ?? change.type,
+      target: change.target ?? change.file ?? component.file ?? component.destination ?? component.directory,
+      ownershipIdentity: change.ownershipIdentity ?? ownershipIdentity(componentName, change.identity ?? (componentName === 'hooks' ? 'hooks.json' : assetId)),
+      ...change,
+      // A release drops the ownership row and leaves the file alone, so the lifecycle never hands
+      // it to apply() or remove().
+      ...(change.release ? { retained: true, retainedFor: [] } : {}),
+    });
+  }
+
+  function sha256(text: any) { return `sha256:${crypto.createHash('sha256').update(text).digest('hex')}`; }
+  function lifecycleResource({ scope, assetId, kind, identity, target, fingerprint, sourceVersion, selection, recoveryRef, projection }: any) {
+    return { harness: HARNESS, scope, assetId, kind, identity, target, ownershipIdentity: `doflow:codex:${kind}:${identity}`,
+      fingerprint, sourceVersion: sourceVersion ?? 'unknown', selection: selection ?? true, recoveryRef: recoveryRef ?? null, projection };
+  }
+
+  /** Convert neutral ledger entries to the legacy planner's ownership record.
+   * An absolute target must match the exact native file this component will
+   * reconcile; a record from another Codex project cannot authorize this plan. */
+  function nativeManagedResources(resources: any, context: any, { kind, target, directory }: any = {}) {
+    return (resources || []).flatMap((resource: any) => {
+      if (!resource || resource.kind !== kind) return [];
+      // Retain the pre-registry native record shape for direct callers/tests.
+      if (!resource.harness && resource.target === HARNESS) {
+        return [{ ...resource, scope: context.scope, target: HARNESS }];
+      }
+      if (resource.harness !== HARNESS) return [];
+      const expected = directory && resource.identity?.startsWith('agent:')
+        ? path.join(directory, `${resource.identity.slice('agent:'.length)}.toml`) : target;
+      if (typeof resource.target !== 'string' || path.resolve(resource.target) !== path.resolve(expected)) return [];
+      return [{ target: HARNESS, scope: context.scope, kind, identity: resource.identity, fingerprint: resource.fingerprint,
+        sourceVersion: resource.sourceVersion, selection: resource.selection, recoveryPoint: resource.recoveryRef }];
+    });
+  }
+
+  /** Whether a row of the OTHER scope claims `target` (for a config or MCP entry: the same entry in
+   * that file). A project rooted at $HOME shares `~/.codex`, `~/.agents` and the one ledger with the
+   * global install, so its removal must leave whatever the global rows still own, and vice versa. */
+  function claimedByOtherScope(resources: any, context: any, target: any, identity?: any) {
+    if (typeof target !== 'string') return false;
+    return (resources || []).some((resource: any) => resource?.scope && resource.scope !== context.scope
+      && typeof resource.target === 'string' && path.resolve(resource.target) === path.resolve(target)
+      && (identity === undefined || resource.identity === identity));
+  }
+
+  function claimedRowElsewhere(resources: any, context: any, resource: any) {
+    return claimedByOtherScope(resources, context, resource.target,
+      ['configuration-entry', 'config-entry', 'mcp-server'].includes(resource.kind) ? resource.identity : undefined);
+  }
+
+  /** The rows a removal may act on: this scope's own, minus any path the other scope still claims. */
+  function removableRows(resources: any, context: any) {
+    return (resources || []).filter((resource: any) => (!resource?.scope || resource.scope === context.scope)
+      && !claimedRowElsewhere(resources, context, resource));
+  }
+
+  /** This scope's rows on a path the other scope still claims become retained removals: the
+   * lifecycle releases the row and never hands the change to remove(), so nothing is deleted. */
+  function retainedRemovals(resources: any, context: any) {
+    return (resources || []).filter((resource: any) => resource?.harness === HARNESS && resource.scope === context.scope
+      && claimedRowElsewhere(resources, context, resource))
+      .map((resource: any) => ({ harness: HARNESS, assetId: resource.assetId, target: resource.target, operation: 'remove',
+        ownershipIdentity: resource.ownershipIdentity, kind: resource.kind, identity: resource.identity,
+        retained: true, retainedFor: [`${HARNESS} (${context.scope === 'global' ? 'project' : 'global'} scope)`] }));
+  }
+
+  function ownedRemovalPlan(resources: any, context: any, kind: any, directory?: any) {
+    const entries = (resources || []).filter((resource: any) => resource?.harness === HARNESS && resource.kind === kind);
+    const changes = []; const conflicts = [];
+    for (const resource of entries) {
+      const target = kind === 'custom-agent'
+        ? path.join(directory, `${resource.identity.replace(/^agent:/, '')}.toml`)
+        : resource.target;
+      if (path.resolve(target) !== path.resolve(resource.target)) continue;
+      if (fs.existsSync(target) && sha256(fs.readFileSync(target, 'utf8')) !== resource.fingerprint) {
+        conflicts.push(`${kind} '${resource.identity}' was modified outside DoFlow`);
+        continue;
+      }
+      changes.push({ type: 'remove', identity: resource.identity, file: target, fingerprint: resource.fingerprint });
+    }
+    return { ok: conflicts.length === 0, status: conflicts.length ? 'conflict' : (changes.length ? 'change' : 'unchanged'), changes, conflicts, directRemove: true };
+  }
+
+  function configResourcesFrom(config: any, { scope, sourceVersion, recoveryRef }: any) {
+    return (config?.managedResources || [])
+      .filter((record: any) => record.kind === 'configuration-entry' || record.kind === 'config-entry')
+      .map((record: any) => lifecycleResource({ scope, assetId: 'guidance.codex-pointer', kind: 'configuration-entry', identity: record.identity,
+        target: config.file, fingerprint: record.fingerprint, sourceVersion: record.sourceVersion ?? sourceVersion, recoveryRef,
+        projection: { renderer: 'codex-config' } }));
+  }
+
+  function mcpResourcesFrom(mcp: any, { scope, sourceVersion, recoveryRef }: any) {
+    return (mcp?.managedResources || [])
+      .filter((record: any) => record.kind === 'mcp-server')
+      .map((record: any) => lifecycleResource({ scope, assetId: 'guidance.codex-pointer', kind: 'mcp-server', identity: record.identity,
+        target: mcp.file, fingerprint: record.fingerprint, sourceVersion: record.sourceVersion ?? sourceVersion, selection: record.selection, recoveryRef,
+        projection: { renderer: 'codex-mcp' } }));
+  }
+
+  function agentResourcesFrom(agents: any, { scope, sourceVersion, recoveryRef }: any) {
+    return (agents?.managedResources || [])
+      .filter((record: any) => record.kind === 'custom-agent')
+      .map((record: any) => lifecycleResource({ scope, assetId: 'agents.shared', kind: 'custom-agent', identity: record.identity,
+        target: path.join(agents.directory, `${record.identity.replace(/^agent:/, '')}.toml`), fingerprint: record.fingerprint,
+        sourceVersion: record.sourceVersion ?? sourceVersion, recoveryRef, projection: { renderer: 'codex-agent' } }));
+  }
+
+  function hooksResourceFrom(hooks: any, { scope, sourceVersion, recoveryRef }: any) {
+    if (!hooks?.applied || !hooks.destination) return [];
+    return [lifecycleResource({ scope, assetId: 'guidance.codex-pointer', kind: 'hooks-file', identity: 'hooks.json',
+      target: hooks.destination, fingerprint: sha256(fs.readFileSync(hooks.destination, 'utf8')), sourceVersion, recoveryRef,
+      projection: { renderer: 'codex-hooks' } })];
+  }
+
+  function resourcesFromApplied({ components, scope, sourceVersion, recoveryRef }: any) {
+    const shared = { scope, sourceVersion, recoveryRef };
+    return [
+      ...configResourcesFrom(components.config, shared),
+      ...mcpResourcesFrom(components.mcp, shared),
+      ...agentResourcesFrom(components.agents, shared),
+      ...hooksResourceFrom(components.hooks, shared),
+    ];
+  }
+
+  // ---- copy-tree assets (rules, skills, agents, templates, scripts, references) ----
+
+  function codexConfigDir(context: any) { return context.paths.configDir; }
+  function sourceDirFor(asset: any, repoRoot: any) {
+    if (!asset || typeof asset.source !== 'string') throw new Error('Codex asset requires a source path');
+    const root = repoRoot ? path.resolve(repoRoot) : process.cwd();
+    const source = path.resolve(root, asset.source);
+    if (!source.startsWith(`${root}${path.sep}`) || !fs.existsSync(source)) {
+      throw new Error(`Codex asset source is unavailable: ${asset.source}`);
+    }
+    return source;
+  }
+
+  // ---- guidance.codex-pointer instructions (AGENTS.md managed-section merge) ----
+  // Codex discovers AGENTS.md at the repository root and walks down toward the CWD, plus
+  // ~/.codex/AGENTS.md for global scope (learn.chatgpt.com/docs/agent-configuration/agents-md).
+  // A project-scoped file inside .codex/ is not in that discovery chain and would never load, so
+  // the project-scope managed section must land at the project root itself — both locations are
+  // declared in harnesses.json (paths.instructions). The registry declares this asset's codex
+  // projection as renderer "codex-agents" (see core/registry/assets.json).
+
+  function instructionsAsset(assets: any) { return (assets || []).find((asset: any) => asset?.renderer === 'codex-agents'); }
+  function instructionsPath(context: any) {
+    return context.paths.instructions;
+  }
+  function sha256Text(text: any) { return crypto.createHash('sha256').update(text).digest('hex'); }
+
+  function planInstructionsAsset({ assets, context, removing, repoRoot, claimedElsewhere = () => false }: any) {
+    const asset = instructionsAsset(assets);
+    const changes: any[] = [];
+    const conflicts: any[] = [];
+    if (!asset) return { changes, conflicts };
+    const target = instructionsPath(context);
+    // Broken markers are a plan conflict, as for Claude: found only while applying, they would stop
+    // the run after hooks, config and skills were already removed.
+    const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : null;
+    if (existing !== null) {
+      const starts = existing.split(MARKER_START).length - 1;
+      if (starts !== existing.split(MARKER_END).length - 1 || starts > 1) {
+        conflicts.push(`Codex instructions contain malformed DoFlow markers: ${target}`);
+        return { changes, conflicts };
+      }
+    }
+    if (removing) {
+      if (existing === null || claimedElsewhere(target) || !existing.includes(MARKER_START)) return { changes, conflicts };
+      changes.push({ assetId: asset.id, target, operation: 'remove', ownershipIdentity: 'doflow:codex:instructions:managed-section',
+        kind: 'instructions-section', identity: 'AGENTS.md', projection: { renderer: 'codex-agents' } });
+      return { changes, conflicts };
+    }
+    const source = sourceDirFor(asset, repoRoot);
+    if (!mergeMarkedSection(source, target, { dryRun: true }).changed) return { changes, conflicts };
+    const content = fs.readFileSync(source, 'utf8').replace(/\s+$/, '');
+    changes.push({ assetId: asset.id, target, source, operation: fs.existsSync(target) ? 'update' : 'create',
+      ownershipIdentity: 'doflow:codex:instructions:managed-section', kind: 'instructions-section', identity: 'AGENTS.md',
+      afterFingerprint: sha256Text(content), sourceVersion: 'registry-v1', projection: { renderer: 'codex-agents' } });
+    return { changes, conflicts };
+  }
+
+  function applyInstructionsAsset(changes: any) {
+    for (const change of changes) {
+      if (change.projection?.renderer !== 'codex-agents' || change.operation === 'remove') continue;
+      mergeMarkedSection(change.source, change.target);
+    }
+  }
+
+  function removeInstructionsAsset(changes: any) {
+    for (const change of changes) {
+      if (change.projection?.renderer === 'codex-agents' && change.operation === 'remove') removeMarkedSection(change.target);
+    }
+  }
+
+  function verifyInstructionsAsset({ assets, context, repoRoot }: any) {
+    const asset = instructionsAsset(assets);
+    const statuses: any[] = []; const resources: any[] = [];
+    if (!asset) return { statuses, resources };
+    const target = instructionsPath(context);
+    const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : null;
+    const managed = existing !== null && existing.includes(MARKER_START) && existing.includes(MARKER_END);
+    statuses.push({ assetId: asset.id, capability: asset.capability, status: managed ? 'managed' : 'absent', target });
+    if (managed) {
+      resources.push({ assetId: asset.id, target, ownershipIdentity: 'doflow:codex:instructions:managed-section',
+        kind: 'instructions-section', identity: 'AGENTS.md', fingerprint: sha256Text(existing), sourceVersion: 'registry-v1',
+        projection: { renderer: 'codex-agents' } });
+    }
+    return { statuses, resources };
+  }
+
+  function planCopyTreeAssets({ assets, context, neutralResources, removing, repoRoot, sourceVersion, force = false }: any) {
+    const changes = [];
+    const conflicts = [];
+    const treeResults = [];
+    const notices = [];
+    for (const asset of copyTreeAssets(assets)) {
+      const destDir = copyTreeDestDir(codexConfigDir(context), asset);
+      const sourceDir = sourceDirFor(asset, repoRoot);
+      const previousResources = ledgerFileResources(neutralResources, HARNESS, asset.id);
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(neutralResources, HARNESS), operation: removing ? 'remove' : 'apply', layout: asset.layout, keepModified: !removing,
+        // `force` is the CLI's --force reaching the one conflict class a plan can actually
+        // downgrade: a ledger-owned destination whose bytes were edited underneath us. With force,
+        // that is drift to heal rather than a refusal — exactly what `doflow reconcile` (always
+        // forced) and `update --force` need. Removal stays strict by design: a hand-edited file is
+        // never deleted, forced or not.
+        force: !removing && force === true });
+      treeResults.push(result);
+      conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
+      // A hand-edited file at a path DoFlow no longer writes is the user's: it stays, only its
+      // ownership row is released.
+      notices.push(...result.kept.map((item: any) => `kept hand-edited ${path.relative(context.paths.root, item.target)}; DoFlow no longer manages it`));
+      for (const change of result.changes) {
+        changes.push({
+          assetId: asset.id, target: change.target, source: change.source, operation: change.operation,
+          ownershipIdentity: `doflow:codex:copy-tree:${asset.id}:${change.relPath}`,
+          kind: 'copy-tree-file', identity: change.relPath,
+          afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: sourceVersion ?? 'unknown',
+          ...(change.kept ? { retained: true, retainedFor: [] } : {}),
+          projection: { renderer: 'copy-tree' },
+        });
+      }
+    }
+    return { changes, conflicts, notices: [...siblingReplacedNotices(treeResults), ...notices] };
+  }
+
+  function applyCopyTreeAssets(changes: any) {
+    const treeChanges = changes.filter((change: any) => change.projection?.renderer === 'copy-tree' && change.operation !== 'remove')
+      .map((change: any) => ({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint }));
+    return applyTree({ changes: treeChanges }).applied;
+  }
+
+  function removeCopyTreeAssets(changes: any) {
+    const treeChanges = changes.filter((change: any) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove' && !change.retained)
+      .map((change: any) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint, pruneGuard: change.pruneGuard }));
+    return removeTree({ changes: treeChanges }).removed;
+  }
+
+  function verifyCopyTreeAssets({ assets, context, repoRoot, sourceVersion, plannedWrites }: any) {
+    const statuses = [];
+    const resources = [];
+    const conflicts = [];
+    for (const asset of copyTreeAssets(assets)) {
+      const destDir = copyTreeDestDir(codexConfigDir(context), asset);
+      const sourceDir = sourceDirFor(asset, repoRoot);
+      const result = verifyTree({ sourceDir, destDir, layout: asset.layout, plannedWrites });
+      conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
+      for (const resource of result.resources) {
+        resources.push({
+          assetId: asset.id, target: resource.target, ownershipIdentity: `doflow:codex:copy-tree:${asset.id}:${resource.relPath}`,
+          kind: 'copy-tree-file', identity: resource.relPath,
+          fingerprint: resource.fingerprint, sourceVersion: sourceVersion ?? 'unknown',
+          projection: { renderer: 'copy-tree' },
+        });
+      }
+      statuses.push({ assetId: asset.id, capability: asset.capability, status: result.ok ? 'managed' : 'conflict', target: destDir });
+    }
+    return { statuses, resources, conflicts };
+  }
+
+  /** Resolve the explicit projected-native shape. During the migration, direct
+   * callers may still use legacy option names; lifecycle callers pass `assets`,
+   * `mcp`, `policies`, and optionally `projection` for source-bearing surfaces.
+   * Native source paths are never guessed from an asset's renderer. */
+  function projectedNativeOptions(options: any) {
+    const projection = options.projection || {};
+    const configResources = projection.configResources ?? options.configResources ?? options.context?.codexConfigResources;
+    const mcpCatalog = projection.mcp?.catalog ?? options.mcpCatalog ?? options.mcp ?? [];
+    const selectedMcp = projection.mcp?.selected ?? options.selectedMcp ?? (options.mcp ? options.mcp.map((server: any) => server.id) : undefined);
+    const agentsSourceDir = projection.agents?.sourceDir ?? options.agentsSourceDir ?? options.context?.codexAgentsSourceDir;
+    const hooksSourceFile = projection.hooks?.sourceFile ?? options.hooksSourceFile ?? options.context?.codexHooksSourceFile;
+    const hooksSourceDir = projection.hooks?.sourceHooksDir ?? options.hooksSourceDir ?? options.context?.codexHooksSourceDir;
+    const hooksConfig = projection.hooks?.config ?? options.hooksConfig;
+    const hooksTrusted = projection.hooks?.trusted ?? options.hooksTrusted;
+    return { configResources, mcpCatalog, selectedMcp, agentsSourceDir, hooksSourceFile, hooksSourceDir, hooksConfig, hooksTrusted };
+  }
+
+  function planConfigComponent({ native, neutralResources, context, configFile, removing, adopt = false }: any) {
+    if (native.configResources === undefined) return undefined;
+    const managedResources = nativeManagedResources(neutralResources, context, { kind: 'configuration-entry', target: configFile });
+    const component = planCodexConfig({ file: configFile, scope: context.scope, managedResources, desiredResources: removing ? [] : native.configResources, adopt: !removing && adopt });
+    component.scope = context.scope;
+    component.desiredResources = removing ? [] : native.configResources;
+    // The next ledger intentionally omits a removed record. Keep the pre-plan
+    // ownership proof solely for apply's immediate replan over the current file.
+    component.reconciliationManagedResources = managedResources;
+    return component;
+  }
+
+  function planMcpComponent({ native, neutralResources, context, configFile, removing, options }: any) {
+    if (native.selectedMcp === undefined) return undefined;
+    const catalog = nativeMcpCatalog(native.mcpCatalog);
+    const managedResources = nativeManagedResources(neutralResources, context, { kind: 'mcp-server', target: configFile });
+    return planCodexMcp({ file: configFile, scope: context.scope, managedResources, selected: removing ? [] : native.selectedMcp,
+      removing, scopeArg: context.scope === 'global' ? '-g' : context.projectRoot,
+      ...catalog, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion, recoveryPoint: options.recoveryPoint });
+  }
+
+  /** Codex hooks.json is only replaced when the file on disk still matches the ledger's last-known
+   * fingerprint — a foreign edit (or a record the ledger never owned) downgrades an otherwise-clean
+   * plan to a conflict rather than silently overwriting it. */
+  function planHooksComponent({ native, neutralResources, context, adopt = false }: any) {
+    let hooks = planCodexHooks({ config: native.hooksConfig, sourceFile: native.hooksSourceFile,
+      sourceHooksDir: native.hooksSourceDir, trusted: native.hooksTrusted, destinationContext: context });
+    const hooksFile = hooks.destination;
+    if (hooks.ok && fs.existsSync(hooksFile)) {
+      const [record] = nativeManagedResources(neutralResources, context, { kind: 'hooks-file', target: hooksFile });
+      const current = sha256(fs.readFileSync(hooksFile, 'utf8'));
+      // `adopt` covers the no-record case only: the file is claimed into the ledger and planning
+      // proceeds. A record that disagrees with the bytes below is a different situation and stays a
+      // conflict — that one is `--force`'s business, not adoption's.
+      if (!record && !adopt) {
+        hooks = { ...hooks, ok: false, status: 'conflict', changes: [], errors: ['Codex hooks.json exists but is not owned by the neutral ledger'] };
+      } else if (record && record.fingerprint !== current) {
+        hooks = { ...hooks, ok: false, status: 'conflict', changes: [], errors: ['Codex hooks.json was modified outside DoFlow'] };
+      }
+    }
+    return hooks;
+  }
+
+  /** Agents/hooks share one removing-vs-planning fork: removal always owns both via the neutral
+   * ledger's own records, regardless of what native input the caller provided this run. */
+  function planAgentsAndHooksComponents({ native, neutralResources, context, agentsDirectory, removing, options, adopt = false }: any) {
+    if (removing) {
+      return {
+        agents: ownedRemovalPlan(neutralResources, context, 'custom-agent', agentsDirectory),
+        // The scripts deployed beside hooks.json have no ledger rows; remove() matches them by bytes.
+        hooks: { ...ownedRemovalPlan(neutralResources, context, 'hooks-file'),
+          scriptsDir: native.hooksSourceDir, destinationHooksDir: context.paths.hooksDirectory },
+      };
+    }
+    const components: Record<string, any> = {};
+    if (native.agentsSourceDir !== undefined) {
+      const managedResources = nativeManagedResources(neutralResources, context, { kind: 'custom-agent', directory: agentsDirectory });
+      // `...context` is the NARROW native context (scope/codexDir/paths) and carries no adopt, so
+      // it is passed explicitly. Reading it off that object is what silently did nothing.
+      components.agents = planCodexAgents({ ...context, managedResources, sourceDir: native.agentsSourceDir, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion, adopt });
+    }
+    if (native.hooksSourceFile !== undefined || native.hooksConfig !== undefined) {
+      components.hooks = planHooksComponent({ native, neutralResources, context, adopt });
+    }
+    return components;
+  }
+
+  /**
+   * Compose native, non-mutating plans. Callers opt into a component by providing
+   * its desired input, which prevents a generic plan from accidentally removing
+   * an owned configuration entry or MCP server merely because it was omitted.
+   */
+  function plan(options: any) {
+    const context = nativeContext(options);
+    const removing = options.context?.operation === 'remove';
+    const ledgerRows = options.managedResources || options.ledger?.resources || [];
+    const neutralResources = removing ? removableRows(ledgerRows, context) : ledgerRows;
+    const native = projectedNativeOptions(options);
+    const configFile = context.paths.configFile;
+    const agentsDirectory = context.paths.agentsDirectory;
+    const components: Record<string, any> = {};
+    // `options.context` is the lifecycle context; `context` is this adapter's narrow native one.
+    // copyTree below already reads force off the former — adopt is read the same way.
+    const adopt = options.context?.adopt === true;
+    const configComponent = planConfigComponent({ native, neutralResources, context, configFile, removing, adopt });
+    if (configComponent) components.config = configComponent;
+    const mcpComponent = planMcpComponent({ native, neutralResources, context, configFile, removing, options });
+    if (mcpComponent) components.mcp = mcpComponent;
+    Object.assign(components, planAgentsAndHooksComponents({ native, neutralResources, context, agentsDirectory, removing, options, adopt }));
+    const copyTree = planCopyTreeAssets({ assets: options.assets, context, neutralResources, removing,
+      repoRoot: options.context?.repoRoot, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion,
+      force: options.context?.force === true });
+    const instructions = planInstructionsAsset({ assets: options.assets, context, removing, repoRoot: options.context?.repoRoot,
+      claimedElsewhere: (target: any) => claimedByOtherScope(ledgerRows, context, target) });
+    // Two pseudo-components: their changes are already in final adapter shape (unlike the other
+    // components' native shape, which addChanges() below converts), so they're appended to `changes`
+    // directly rather than run through addChanges. Registering them in `components` still gets their
+    // conflicts picked up by both the existing `failures` reduction and the lifecycle's own
+    // adapterConflicts() component scan, with no special-casing needed in either.
+    components.copyTree = { ok: copyTree.conflicts.length === 0, conflicts: copyTree.conflicts };
+    components.instructions = { ok: instructions.conflicts.length === 0, conflicts: instructions.conflicts };
+    const failures = Object.entries(components).filter(([, component]: [string, any]) => !component.ok);
+    const changes: any[] = [];
+    addChanges(changes, assetIdFor(options, 'config'), components.config, 'config');
+    addChanges(changes, assetIdFor(options, 'mcp'), components.mcp, 'mcp');
+    addChanges(changes, assetIdFor(options, 'agents'), components.agents, 'agents');
+    addChanges(changes, assetIdFor(options, 'hooks'), components.hooks, 'hooks');
+    changes.push(...copyTree.changes, ...instructions.changes);
+    if (removing) changes.push(...retainedRemovals(ledgerRows, context));
+    const requiredNativeResources = [
+      ...Object.entries(components).flatMap(([component, result]: [string, any]) => (result.changes || []).map((change: any) => ({
+        harness: HARNESS, component, target: change.target ?? change.file ?? result.file ?? result.destination ?? result.directory,
+        operation: change.operation ?? change.type, identity: change.identity ?? null,
+      }))),
+      ...copyTree.changes.map((change) => ({ harness: HARNESS, component: 'copyTree', target: change.target, operation: change.operation, identity: change.identity })),
+      ...instructions.changes.map((change) => ({ harness: HARNESS, component: 'instructions', target: change.target, operation: change.operation, identity: change.identity })),
+    ];
+    return { harness: HARNESS, scope: options.scope, ok: failures.length === 0, safe: failures.length === 0, components, failures, changes, requiredNativeResources,
+      notices: [...copyTree.notices, ...(components.mcp?.notices || [])] };
+  }
+
+  /** Apply only native plans emitted by this adapter. MCP is first because it and
+   * config.toml share a file; config is then re-planned over the MCP result so it
+   * cannot overwrite an adjacent MCP table. */
+  function apply({ changes = [], dryRun = false, scope, sourceVersion, recoveryRef }: any = {}) {
+    const components = new Map();
+    for (const change of changes) if (change?.nativeComponent && change.nativePlan) components.set(change.nativeComponent, change.nativePlan);
+    let mcp = components.get('mcp');
+    if (mcp) mcp = applyCodexMcp(mcp, { dryRun });
+    let config = components.get('config');
+    if (config) {
+      const managedResources = mcp
+        ? [...(config.reconciliationManagedResources ?? config.managedResources ?? []), ...(mcp.managedResources ?? [])]
+        : null;
+      const replan = managedResources ? planCodexConfig({ file: config.file, scope: config.scope, managedResources,
+        desiredResources: config.desiredResources ?? [] }) : config;
+      config = applyCodexConfig(replan, { dryRun });
+    }
+    const agentsPlan = components.get('agents'); const hooksPlan = components.get('hooks');
+    const agents = agentsPlan && !agentsPlan.directRemove ? applyCodexAgents(agentsPlan, { dryRun }) : null;
+    const hooks = hooksPlan && !hooksPlan.directRemove ? deployCodexHooks(hooksPlan, { dryRun }) : null;
+    // applyCopyTreeAssets/applyInstructionsAsset already filter to non-remove operations, so calling
+    // them unconditionally here (including when apply() is invoked from remove(), below) is safe.
+    const copyTreeApplied = dryRun ? 0 : applyCopyTreeAssets(changes);
+    // Copy-tree removals run here too, for both verbs: an update that no longer ships a file
+    // carries its rows as removals inside the apply batch, and remove() delegates to this function.
+    if (!dryRun) { removeCopyTreeAssets(changes); applyInstructionsAsset(changes); }
+    const nativeComponents = { mcp, config, agents, hooks };
+    return { harness: HARNESS, applied: [mcp, config, agents, hooks].filter((result) => result?.applied).length + copyTreeApplied,
+      components: nativeComponents, resources: resourcesFromApplied({ components: nativeComponents, scope: scope ?? 'project', sourceVersion, recoveryRef }) };
+  }
+
+  /** Removal reuses the same fingerprint-checked native plans. Only config/MCP
+   * plans generated with context.operation=remove contain safe removals; hooks
+   * and agents are intentionally never blindly deleted. */
+  function remove({ changes = [], dryRun = false }: any = {}) {
+    const result = apply({ changes, dryRun });
+    const direct = new Map();
+    for (const change of changes) if (change?.nativePlan?.directRemove) direct.set(change.target, change);
+    for (const change of direct.values()) {
+      if (!fs.existsSync(change.target)) continue;
+      const current = sha256(fs.readFileSync(change.target, 'utf8'));
+      if (current !== change.fingerprint) throw new Error(`Refusing to remove modified Codex resource '${change.identity}'`);
+      if (!dryRun) fs.unlinkSync(change.target);
+    }
+    const hooksPlan = changes.find((change: any) => change?.nativeComponent === 'hooks' && change.nativePlan?.directRemove)?.nativePlan;
+    if (hooksPlan) removeCodexHookScripts(hooksPlan, { dryRun });
+    if (!dryRun) removeInstructionsAsset(changes);
+    return { ...result, removed: changes.filter((change: any) => (change.operation ?? change.type) === 'remove').length };
+  }
+
+  function verifyConfigResources({ native, parsed, context, options, sourceVersion, recoveryRef }: any) {
+    const statuses = []; const resources = [];
+    for (const resource of native.configResources || []) {
+      const entry = parsed?.entries.get(resource.identity);
+      const status = entry && configFingerprint(entry.value) === configFingerprint(resource.value) ? 'managed' : 'missing';
+      statuses.push({ assetId: assetIdFor(options, 'config'), capability: 'settings', status, identity: resource.identity,
+        ownershipIdentity: ownershipIdentity('config', resource.identity), target: context.paths.configFile });
+      if (status === 'managed') resources.push(lifecycleResource({ scope: options.scope, assetId: assetIdFor(options, 'config'), kind: 'configuration-entry', identity: resource.identity,
+        target: context.paths.configFile, fingerprint: configFingerprint(entry.value), sourceVersion, recoveryRef, projection: { renderer: 'codex-config' } }));
+    }
+    return { statuses, resources };
+  }
+
+  /** A server is recorded only when its table now holds DoFlow's rendering. One discovery found as
+   * the user's at plan time is reported `not-managed` and never recorded, even when its bytes match. */
+  function verifyMcpResources({ native, configText, context, options, sourceVersion, recoveryRef }: any) {
+    const statuses = []; const resources = [];
+    const catalog = nativeMcpCatalog(native.mcpCatalog);
+    const userDefined = new Set(options.discovery?.mcpUserDefined || []);
+    for (const id of native.selectedMcp || []) {
+      const definition = catalog.serverDefs[id];
+      const table = definition ? serverTableText(configText, id) : null;
+      const present = table !== null && configFingerprint(table) === configFingerprint(renderServer(id, definition));
+      const status = userDefined.has(id) ? 'not-managed' : (present ? 'managed' : 'missing');
+      statuses.push({ assetId: assetIdFor(options, 'mcp'), capability: 'mcp', status, identity: id,
+        ownershipIdentity: ownershipIdentity('mcp', id), target: context.paths.configFile });
+      if (status === 'managed') resources.push(lifecycleResource({ scope: options.scope, assetId: assetIdFor(options, 'mcp'), kind: 'mcp-server', identity: id,
+        target: context.paths.configFile, fingerprint: configFingerprint(renderServer(id, definition)), sourceVersion, recoveryRef,
+        projection: { renderer: 'codex-mcp' } }));
+    }
+    return { statuses, resources };
+  }
+
+  function verifyAgentResources({ native, context, options, sourceVersion, recoveryRef }: any) {
+    const statuses: any[] = []; const resources: any[] = [];
+    if (!native.agentsSourceDir) return { statuses, resources };
+    for (const agent of discoverCodexAgents(native.agentsSourceDir)) {
+      const target = path.join(agentDirectory(context), agent.fileName);
+      const present = fs.existsSync(target) && fs.readFileSync(target, 'utf8') === agent.source;
+      const identity = `agent:${agent.name}`;
+      statuses.push({ assetId: assetIdFor(options, 'agents'), capability: 'agents', status: present ? 'managed' : 'missing', identity,
+        ownershipIdentity: ownershipIdentity('agents', identity), target });
+      if (present) resources.push(lifecycleResource({ scope: options.scope, assetId: assetIdFor(options, 'agents'), kind: 'custom-agent', identity: `agent:${agent.name}`,
+        target, fingerprint: agent.fingerprint, sourceVersion, recoveryRef, projection: { renderer: 'codex-agent' } }));
+    }
+    return { statuses, resources };
+  }
+
+  function verifyHooksResource({ native, context, options, sourceVersion, recoveryRef }: any) {
+    const statuses: any[] = []; const resources: any[] = []; const conflicts: any[] = [];
+    if (!native.hooksSourceFile && !native.hooksConfig) return { statuses, resources, conflicts };
+    const hooks = planCodexHooks({ config: native.hooksConfig, sourceFile: native.hooksSourceFile, sourceHooksDir: native.hooksSourceDir,
+      trusted: native.hooksTrusted, destinationContext: context });
+    const status = hooks.ok && hooks.status === 'unchanged' ? 'managed' : (hooks.ok ? 'missing' : 'conflict');
+    statuses.push({ assetId: assetIdFor(options, 'hooks'), capability: 'hooks', status, identity: 'hooks.json',
+      ownershipIdentity: ownershipIdentity('hooks', 'hooks.json'), target: hooks.destination });
+    if (!hooks.ok) conflicts.push(...hooks.errors);
+    if (status === 'managed') resources.push(lifecycleResource({ scope: options.scope, assetId: assetIdFor(options, 'hooks'), kind: 'hooks-file', identity: 'hooks.json',
+      target: hooks.destination, fingerprint: sha256(fs.readFileSync(hooks.destination, 'utf8')), sourceVersion, recoveryRef, projection: { renderer: 'codex-hooks' } }));
+    return { statuses, resources, conflicts };
+  }
+
+  function verifyAssetRenderStatuses({ registry, assets }: any) {
+    return assets.map((asset: any) => render({ registry, asset })).filter((rendered: any) => rendered.status !== 'renderable');
+  }
+
+  function verify(options: any = {}) {
+    const { registry, assets = [], plan: proposed } = options;
+    const context = nativeContext(options);
+    const native = projectedNativeOptions(options);
+    const sourceVersion = options.sourceVersion ?? options.context?.sourceVersion;
+    const recoveryRef = options.recoveryRef;
+    let configText = '';
+    if (fs.existsSync(context.paths.configFile)) configText = fs.readFileSync(context.paths.configFile, 'utf8');
+    let parsed;
+    const conflicts = [];
+    try { parsed = parseToml(configText); } catch (error: any) { conflicts.push(`Malformed Codex config: ${error.message}`); }
+
+    const shared = { context, options, sourceVersion, recoveryRef };
+    const config = verifyConfigResources({ native, parsed, ...shared });
+    const mcp = verifyMcpResources({ native, configText, ...shared });
+    const agents = verifyAgentResources({ native, ...shared });
+    const hooks = verifyHooksResource({ native, ...shared });
+    const copyTree = verifyCopyTreeAssets({ assets, context, repoRoot: options.context?.repoRoot, sourceVersion, plannedWrites: options.context?.plannedWrites });
+    const instructions = verifyInstructionsAsset({ assets, context, repoRoot: options.context?.repoRoot });
+
+    const statuses = [
+      ...config.statuses, ...mcp.statuses, ...agents.statuses, ...hooks.statuses,
+      ...verifyAssetRenderStatuses({ registry, assets }),
+      ...copyTree.statuses, ...instructions.statuses,
+    ];
+    const resources = [...config.resources, ...mcp.resources, ...agents.resources, ...hooks.resources, ...copyTree.resources, ...instructions.resources];
+    conflicts.push(...hooks.conflicts, ...copyTree.conflicts);
+    const componentFailures = Object.values<any>(proposed?.components || {}).filter((component) => !component.ok);
+    for (const component of componentFailures) conflicts.push(...(component.conflicts || component.errors || []));
+
+    return { ok: conflicts.length === 0 && statuses.every((status) => status.status !== 'missing' && status.status !== 'conflict'), resources, statuses, conflicts };
+  }
+
+  return { normalizeContext, nativeContext, projectedNativeOptions, nativeManagedResources, ownershipIdentity, discover, render, plan, apply, remove, verify };
+}
+
+const singleton = createCodexAdapter();
+
+module.exports = {
+  HARNESS,
+  normalizeContext: singleton.normalizeContext, nativeContext: singleton.nativeContext,
+  projectedNativeOptions: singleton.projectedNativeOptions, nativeManagedResources: singleton.nativeManagedResources,
+  ownershipIdentity: singleton.ownershipIdentity,
+  discover: singleton.discover, render: singleton.render, plan: singleton.plan, apply: singleton.apply,
+  remove: singleton.remove, verify: singleton.verify,
+  createCodexAdapter,
+};

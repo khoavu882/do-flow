@@ -27,8 +27,8 @@ const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const {
   buildScopeBound, taskFilesFromPlan, resolveIntegrationBase, resolveExplicitBaseline, resolvePlanSource, parseDeclaredScope, resolveScopeBound,
   scopeReasonText, boundSourcesText,
-} = require('../../src/runtime/verification/scope-bound');
-const { VerificationEngine } = require('../../src/runtime/verification/engine');
+} = require('../../src/runtime/verification/scope-bound.ts');
+const { VerificationEngine } = require('../../src/runtime/verification/engine.ts');
 const resolveIntegrationBaseOf = (cwd) => resolveIntegrationBase({ cwd });
 
 const SLUG = '050-scope-demo';
@@ -115,7 +115,7 @@ test('a runtime with no bash helpers reports them missing as the baseline reason
   fs.mkdirSync(path.join(tree, 'core'), { recursive: true });
   for (const part of ['bin', 'src']) fs.cpSync(path.join(REPO, part), path.join(tree, part), { recursive: true });
   fs.cpSync(path.join(REPO, 'core', 'registry'), path.join(tree, 'core', 'registry'), { recursive: true });
-  const code = `const { resolveIntegrationBase } = require(${JSON.stringify(path.join(tree, 'src', 'runtime', 'verification', 'scope-bound'))});`
+  const code = `const { resolveIntegrationBase } = require(${JSON.stringify(path.join(tree, 'src', 'runtime', 'verification', 'scope-bound.ts'))});`
     + 'console.log(JSON.stringify(resolveIntegrationBase({ cwd: process.cwd() })));';
   const res = spawnSync(process.execPath, ['-e', code], { cwd: repo(), env: { ...process.env, HOME: tree }, encoding: 'utf8' });
   assert.equal(res.status, 0, res.stderr);

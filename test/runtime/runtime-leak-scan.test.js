@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
-const { scanPaths, handleLeakScanCommand, LEAK_PATTERNS } = require('../../src/runtime/leak-scan');
+const { scanPaths, handleLeakScanCommand, LEAK_PATTERNS } = require('../../src/runtime/leak-scan.ts');
 
 function tmpRepo(files) {
   const root = suiteTempDir('doflow-runtime-leak-scan-');

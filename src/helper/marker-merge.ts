@@ -1,0 +1,116 @@
+'use strict';
+// marker-merge.js — marker-delimited merge so a target project's own CLAUDE.md
+// content survives repeated doflow install/update runs; only the span between the
+// markers is ever regenerated.
+//
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
+// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
+// caller's `require('../helper/marker-merge.ts')` keeps working while the tree is still `.js`.
+const fs = require('node:fs');
+const path = require('node:path');
+
+const MARKER_START =
+  '<!-- doflow:start — content below is managed by doflow install/update; edits here are overwritten on the next run -->';
+const MARKER_END = '<!-- doflow:end -->';
+
+/**
+ * Merge `srcAbs`'s content into `dstAbs` inside a doflow-owned marker span,
+ * preserving any of `dstAbs`'s own content outside that span byte-for-byte.
+ */
+function mergeMarkedSection(srcAbs: string, dstAbs: string, { dryRun = false }: { dryRun?: boolean } = {}): { changed: boolean } {
+  const srcContent = fs.readFileSync(srcAbs, 'utf8').replace(/\s+$/, '');
+  const section = `${MARKER_START}\n${srcContent}\n${MARKER_END}\n`;
+
+  // Read once, reused both for parsing and for the final no-op comparison below.
+  const existing = fs.existsSync(dstAbs) ? fs.readFileSync(dstAbs, 'utf8') : null;
+
+  let newContent: string;
+  if (existing === null) {
+    newContent = section;
+  } else {
+    const startIdx = existing.indexOf(MARKER_START);
+    if (startIdx === -1) {
+      // Foreign file with no doflow span yet — append without touching existing's own bytes.
+      // A file ending in a newline (or empty) always gets exactly one '\n', so removeMarkedSection
+      // can strip exactly one and hand the user's bytes back unchanged; one with no final newline
+      // gets a blank line, and comes back from removal with a final newline added.
+      const separator = existing === '' || existing.endsWith('\n') ? '\n' : '\n\n';
+      newContent = existing + separator + section;
+    } else {
+      const endIdx = existing.indexOf(MARKER_END, startIdx + MARKER_START.length);
+      if (endIdx === -1) {
+        throw new Error(
+          `Malformed doflow markers in ${dstAbs}: found MARKER_START with no matching MARKER_END — fix or remove the markers manually before retrying.`
+        );
+      }
+      // Search for a duplicate START only *after* the span closes, not from inside it — the
+      // previous version of this function searched from startIdx + MARKER_START.length, which
+      // is *inside* the span, and false-positived whenever the span's own content happened to
+      // contain the marker text (e.g. srcContent documenting this exact mechanism). Searching
+      // from after the real end only flags a genuine second, structurally separate span.
+      //
+      // Residual limitation: endIdx above is still the *first* MARKER_END found after startIdx,
+      // so srcContent containing the literal MARKER_END text (not just MARKER_START) could still
+      // truncate the span early. Fixing that by taking the *last* MARKER_END in the file instead
+      // was tried and reverted — it silently defeated this exact duplicate-span detection (two
+      // complete, genuinely separate spans collapse into one under lastIndexOf). Between "rare,
+      // avoidable corruption if source content literally quotes MARKER_END" and "silently losing
+      // detection of real duplicate spans," the latter is worse, so this trade-off is intentional
+      // pending a more precise fix.
+      const dupIdx = existing.indexOf(MARKER_START, endIdx + MARKER_END.length);
+      if (dupIdx !== -1) {
+        throw new Error(
+          `Malformed doflow markers in ${dstAbs}: found a duplicate doflow:start marker — fix or remove the markers manually before retrying.`
+        );
+      }
+      // section always supplies its own trailing "\n" after MARKER_END, so the
+      // original file's matching trailing "\n" (if present) must be consumed here —
+      // otherwise a replace with no real change grows the file by one newline
+      // every time it runs (breaks idempotency).
+      let afterEnd = endIdx + MARKER_END.length;
+      if (existing[afterEnd] === '\n') afterEnd += 1;
+      newContent = existing.slice(0, startIdx) + section + existing.slice(afterEnd);
+    }
+  }
+
+  if (existing === newContent) return { changed: false };
+  if (dryRun) return { changed: true };
+
+  fs.mkdirSync(path.dirname(dstAbs), { recursive: true });
+  fs.writeFileSync(dstAbs, newContent);
+  return { changed: true };
+}
+
+/**
+ * Strip only the doflow-managed span from `file`, leaving any surrounding content (before/after
+ * the markers) byte-for-byte untouched. Companion to `mergeMarkedSection` — shared by the Claude
+ * and Codex adapters' `remove()`, which had each carried an identical private copy of this.
+ * A file that held nothing but the span is DoFlow's own and is deleted; any other file is written
+ * back, even when only whitespace remains.
+ * @returns whether a managed span was found and stripped (false if the file doesn't
+ *          exist or has no doflow markers — both are no-ops, not errors)
+ */
+function removeMarkedSection(file: string): boolean {
+  if (!fs.existsSync(file)) return false;
+  const existing = fs.readFileSync(file, 'utf8');
+  const start = existing.indexOf(MARKER_START);
+  if (start === -1) return false;
+  const end = existing.indexOf(MARKER_END, start + MARKER_START.length);
+  if (end === -1 || existing.indexOf(MARKER_START, end + MARKER_END.length) !== -1) {
+    throw new Error(`Refusing to remove malformed DoFlow markers in ${file}`);
+  }
+  let after = end + MARKER_END.length;
+  if (existing[after] === '\n') after += 1;
+  const before = existing.slice(0, start);
+  const rest = existing.slice(after);
+  if (before === '' && rest === '') {
+    fs.unlinkSync(file);
+    return true;
+  }
+  // Do not alter user content; only remove the one '\n' mergeMarkedSection put before an
+  // appended span.
+  fs.writeFileSync(file, (rest === '' && before.endsWith('\n') ? before.slice(0, -1) : before) + rest);
+  return true;
+}
+
+module.exports = { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END };

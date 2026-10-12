@@ -71,7 +71,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/verification/contract-runner.js"
+        "src/runtime/verification/contract-runner.ts"
       ]
     },
     {
@@ -89,7 +89,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.js"
+        "src/runtime/task-state.ts"
       ]
     },
     {
@@ -107,8 +107,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/readiness-record.js",
-        "src/runtime/task-state.js"
+        "src/runtime/readiness-record.ts",
+        "src/runtime/task-state.ts"
       ]
     },
     {
@@ -126,7 +126,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.js"
+        "src/runtime/task-state.ts"
       ]
     },
     {
@@ -144,7 +144,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/outcome.js"
+        "src/runtime/outcome.ts"
       ]
     },
     {
@@ -162,7 +162,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/retrieval-plan.js"
+        "src/runtime/retrieval-plan.ts"
       ]
     },
     {
@@ -180,7 +180,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.js"
+        "src/runtime/task-state.ts"
       ]
     },
     {
@@ -198,8 +198,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.js",
-        "src/runtime/workflow-orchestrator.js"
+        "src/runtime/task-state.ts",
+        "src/runtime/workflow-orchestrator.ts"
       ]
     },
     {
@@ -218,7 +218,7 @@
       ],
       "writers": [
         "core/shared/scripts/doflow/bin/doflow-run",
-        "src/runtime/trace/ledger.js"
+        "src/runtime/trace/ledger.ts"
       ]
     },
     {
@@ -237,7 +237,7 @@
       ],
       "writers": [
         "core/shared/scripts/doflow/bin/doflow-run",
-        "src/runtime/trace/ledger.js"
+        "src/runtime/trace/ledger.ts"
       ]
     },
     {
@@ -255,7 +255,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/advice/record.js"
+        "src/runtime/advice/record.ts"
       ]
     },
     {
@@ -273,7 +273,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/advice/record.js"
+        "src/runtime/advice/record.ts"
       ]
     },
     {
@@ -291,7 +291,7 @@
         "install"
       ],
       "writers": [
-        "src/state/index.js"
+        "src/state/index.ts"
       ]
     },
     {
@@ -309,7 +309,7 @@
         "install"
       ],
       "writers": [
-        "src/state/index.js"
+        "src/state/index.ts"
       ]
     },
     {
@@ -328,7 +328,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/lifecycle/event-store.js"
+        "src/runtime/lifecycle/event-store.ts"
       ]
     },
     {
@@ -347,8 +347,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/lifecycle/report-store.js",
-        "src/runtime/storage/engine.js"
+        "src/runtime/lifecycle/report-store.ts",
+        "src/runtime/storage/engine.ts"
       ]
     },
     {
@@ -427,10 +427,10 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/install/backup.js"
+        "src/install/backup.ts"
       ],
       "source": {
-        "file": "src/install/backup.js",
+        "file": "src/install/backup.ts",
         "pattern": "DEFAULT_BACKUP_RETENTION = {value}"
       }
     },
@@ -448,10 +448,10 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/install/backup.js"
+        "src/install/backup.ts"
       ],
       "source": {
-        "file": "src/install/backup.js",
+        "file": "src/install/backup.ts",
         "pattern": "DEFAULT_BACKUP_RETENTION = {value}"
       }
     },
@@ -522,12 +522,12 @@
         "core/harnesses/shared/hooks/policies/capture-failure.sh",
         "core/harnesses/shared/hooks/stream-hook-runner.js",
         "core/shared/scripts/doflow/bin/doflow-run",
-        "src/runtime/failure/capture.js",
-        "src/runtime/failure/cli.js",
-        "src/runtime/failure/store.js"
+        "src/runtime/failure/capture.ts",
+        "src/runtime/failure/cli.ts",
+        "src/runtime/failure/store.ts"
       ],
       "source": {
-        "file": "src/runtime/failure/capture.js",
+        "file": "src/runtime/failure/capture.ts",
         "pattern": "KEEP_ROTATED = {value}"
       }
     },
@@ -544,10 +544,10 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/state/index.js"
+        "src/state/index.ts"
       ],
       "source": {
-        "file": "src/state/index.js",
+        "file": "src/state/index.ts",
         "pattern": "LEDGER_FILE"
       }
     },
@@ -564,10 +564,10 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/state/index.js"
+        "src/state/index.ts"
       ],
       "source": {
-        "file": "src/state/index.js",
+        "file": "src/state/index.ts",
         "pattern": "LEDGER_FILE"
       }
     },
@@ -584,10 +584,10 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/lifecycle/store-upkeep.js"
+        "src/runtime/lifecycle/store-upkeep.ts"
       ],
       "source": {
-        "file": "src/runtime/lifecycle/store-upkeep.js",
+        "file": "src/runtime/lifecycle/store-upkeep.ts",
         "pattern": "MIGRATING_PREFIX"
       }
     },
@@ -605,11 +605,11 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/storage/engine.js",
-        "src/runtime/task-state.js"
+        "src/runtime/storage/engine.ts",
+        "src/runtime/task-state.ts"
       ],
       "source": {
-        "file": "src/runtime/task-state.js",
+        "file": "src/runtime/task-state.ts",
         "pattern": "LOCK_STALE_MS = 10_000"
       }
     },
@@ -626,14 +626,14 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/adapters/antigravity/index.js",
-        "src/adapters/copy-tree.js",
-        "src/install/manifest.js",
-        "src/lifecycle/index.js",
-        "src/state/index.js"
+        "src/adapters/antigravity/index.ts",
+        "src/adapters/copy-tree.ts",
+        "src/install/manifest.ts",
+        "src/lifecycle/index.ts",
+        "src/state/index.ts"
       ],
       "source": {
-        "file": "src/lifecycle/index.js",
+        "file": "src/lifecycle/index.ts",
         "pattern": "MCP_INDEX.md"
       }
     },
@@ -650,14 +650,14 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/adapters/antigravity/index.js",
-        "src/adapters/copy-tree.js",
-        "src/install/manifest.js",
-        "src/lifecycle/index.js",
-        "src/state/index.js"
+        "src/adapters/antigravity/index.ts",
+        "src/adapters/copy-tree.ts",
+        "src/install/manifest.ts",
+        "src/lifecycle/index.ts",
+        "src/state/index.ts"
       ],
       "source": {
-        "file": "src/lifecycle/index.js",
+        "file": "src/lifecycle/index.ts",
         "pattern": "MCP_INDEX.md"
       }
     },
@@ -674,10 +674,10 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/knowledge/index-store.js"
+        "src/runtime/knowledge/index-store.ts"
       ],
       "source": {
-        "file": "src/runtime/knowledge/index-store.js",
+        "file": "src/runtime/knowledge/index-store.ts",
         "pattern": "sha256"
       }
     },
@@ -694,10 +694,10 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/knowledge/index-store.js"
+        "src/runtime/knowledge/index-store.ts"
       ],
       "source": {
-        "file": "src/runtime/knowledge/index-store.js",
+        "file": "src/runtime/knowledge/index-store.ts",
         "pattern": "sha256"
       }
     },
@@ -714,10 +714,10 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/worktree.js"
+        "src/runtime/worktree.ts"
       ],
       "source": {
-        "file": "src/runtime/worktree.js",
+        "file": "src/runtime/worktree.ts",
         "pattern": "worktree"
       }
     },
@@ -734,7 +734,7 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/advice/config.js"
+        "src/runtime/advice/config.ts"
       ],
       "source": {
         "file": "core/harnesses/shared/hooks/policies/lib.sh",
@@ -754,7 +754,7 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/advice/config.js"
+        "src/runtime/advice/config.ts"
       ],
       "source": {
         "file": "core/harnesses/shared/hooks/policies/lib.sh",
@@ -776,7 +776,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -794,7 +794,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -812,7 +812,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -830,7 +830,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -848,7 +848,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -866,7 +866,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -884,7 +884,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -902,7 +902,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -920,7 +920,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/runtime/storage/upkeep.js"
+        "src/runtime/storage/upkeep.ts"
       ]
     },
     {
@@ -938,7 +938,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/state/run-lock.js"
+        "src/state/run-lock.ts"
       ]
     },
     {
@@ -956,7 +956,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/state/run-lock.js"
+        "src/state/run-lock.ts"
       ]
     }
   ],
@@ -990,67 +990,67 @@
       "reason": "agent context file (AGENTS.md or CLAUDE.md) managed block, owned by the install ledger"
     },
     {
-      "file": "src/adapters/claude/index.js",
+      "file": "src/adapters/claude/index.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/codex/config.js",
+      "file": "src/adapters/codex/config.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/codex/hooks.js",
+      "file": "src/adapters/codex/hooks.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/copilot/index.js",
+      "file": "src/adapters/copilot/index.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/gemini/hooks.js",
+      "file": "src/adapters/gemini/hooks.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/gemini/index.js",
+      "file": "src/adapters/gemini/index.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/mcp-entries.js",
+      "file": "src/adapters/mcp-entries.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/opencode/index.js",
+      "file": "src/adapters/opencode/index.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/pi/index.js",
+      "file": "src/adapters/pi/index.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/pi/mcp.js",
+      "file": "src/adapters/pi/mcp.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/helper/marker-merge.js",
+      "file": "src/helper/marker-merge.ts",
       "reason": "harness instruction file managed block (CLAUDE.md, AGENTS.md, GEMINI.md), owned by the install ledger"
     },
     {
-      "file": "src/release/sync-plugin-versions.js",
+      "file": "src/release/sync-plugin-versions.ts",
       "reason": "maintainer release tool: rewrites the repo plugin manifests (no DoFlow root)"
     },
     {
-      "file": "src/runtime/decision-register.js",
+      "file": "src/runtime/decision-register.ts",
       "reason": "agent-docs deliverable (decisions register of a feature)"
     },
     {
-      "file": "src/runtime/history-compactor.js",
+      "file": "src/runtime/history-compactor.ts",
       "reason": "agent-docs deliverable (decisions/history archive and artifact stub)"
     },
     {
-      "file": "src/runtime/lifecycle/intent-writer.js",
+      "file": "src/runtime/lifecycle/intent-writer.ts",
       "reason": "agent-docs deliverable (agent-docs/intent/*.md)"
     },
     {
-      "file": "src/runtime/scaffold/generate.js",
+      "file": "src/runtime/scaffold/generate.ts",
       "reason": "agent-docs deliverable (scaffold files and manifest)"
     }
   ]

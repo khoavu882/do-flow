@@ -12,7 +12,7 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const {
   VerificationContractRunner, extractFailedTests, MAX_FAILED_TESTS,
-} = require('../../src/runtime/verification/contract-runner');
+} = require('../../src/runtime/verification/contract-runner.ts');
 
 function workdir(t) {
   const dir = tempDir(t, 'doflow-verification-diagnostics-');

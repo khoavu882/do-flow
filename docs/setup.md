@@ -9,7 +9,7 @@ contains only the shortest path to a working installation.
 
 | Requirement | Needed for | Notes |
 |---|---|---|
-| Node.js 18+ | The `doflow` installer, and `npx` for the bundled MCP servers | `package.json` declares `engines.node >= 18`; CI exercises 18 and 20 |
+| Node.js 22.18+ / 24.3+ | The `doflow` installer and runtime, and `npx` for the bundled MCP servers | `package.json` declares `engines.node` as `^22.18.0 \|\| >=24.3.0`. The runtime ships TypeScript (`src/**/*.ts`) run directly through Node's native type-stripping (`process.features.typescript`), which has no build step. Type-stripping is on by default only from Node 22.18.0 and 23.6.0, but Node 23.6 to 24.2 print an `ExperimentalWarning: Type Stripping is an experimental feature` to stderr on every `.ts` load, so the floor skips them (Node 23 is end-of-life); Node 22.6 to 22.17 and 23.0 to 23.5 need `--experimental-strip-types`, which DoFlow does not pass, and `require('./x.ts')` there fails with a SyntaxError. Stripping disabled with `--no-experimental-strip-types` (for example through `NODE_OPTIONS`) is refused the same way. Node 18/20 are no longer supported as of the TypeScript migration (semver-major). |
 | Git | Cloning, `self-update`, and the git context hooks | |
 | `bash` | Hook scripts, on any harness that supports hooks | POSIX bash, Git Bash/MSYS2, and WSL bash all qualify. DoFlow runs `bash --version` rather than a PATH check, so a same-named unrelated binary will not satisfy it. Installs that carry no hooks do not need it. |
 | `jq` | The DoFlow shell scripts and hook payload parsing | Preinstalled on GitHub-hosted runners. The prompt nudge also needs a `jq` built with regex support (Oniguruma) and stays silent without it |
@@ -162,7 +162,7 @@ given invocation, so treat it as the source of truth over this table for a speci
 
 OpenCode's global config lives at `~/.config/opencode/`, **not** `~/.opencode/` — a path DoFlow's
 own docs asserted incorrectly for several releases. `~/.opencode/` is a plausible guess that
-OpenCode does not read; `src/adapters/opencode/index.js`'s `nativePaths()` is the authoritative
+OpenCode does not read; `src/adapters/opencode/index.ts`'s `nativePaths()` is the authoritative
 implementation, confirmed against <https://opencode.ai/docs>.
 
 The runtime is shared by every harness in a project. A project install of any one harness writes the
@@ -256,7 +256,13 @@ the global install's files and records, and its `remove` could delete them. Use 
 
 An install or update that changes files first copies only those files into
 `.doflow/backups/<id>/`, and records the files it is about to create so a rollback can tell them
-apart. A file that holds only MCP entries is never copied. After each install or update the newest 3
+apart. A file that holds only MCP entries is never copied. The ownership ledger
+(`.doflow/state/ledger.json`) is copied with those files, so a rollback restores the records that
+describe what it restores and a later `update` or `remove` accepts them. It restores only the records
+of the files it writes back (narrowed by `--target` with them): records of later runs, of other
+harnesses and of MCP entries stay as they are, so a later `remove` still finds everything DoFlow has
+on disk. Nothing else under `.doflow/state` (runs, evidence, recovery records), `doflow.lock` or the
+install manifest is copied. After each install or update the newest 3
 backups of that scope are kept: `--prune N` keeps N, and `--prune 0` keeps all. An update with
 nothing to change prunes nothing, so the first run after upgrading from 1.19 that prunes is an
 install, or an update that changes files; it removes the older DoFlow-written backups beyond the

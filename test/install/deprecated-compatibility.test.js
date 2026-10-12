@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
-const { LEGACY_MANIFEST_FILE_NAME, manifestPath, readManifest, writeManifest } = require('../../src/install/manifest');
+const { LEGACY_MANIFEST_FILE_NAME, manifestPath, readManifest, writeManifest } = require('../../src/install/manifest.ts');
 
 const REPO = path.resolve(__dirname, "../..");
 const DATE = new Date('2026-07-24T00:00:00Z');

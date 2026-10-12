@@ -5,8 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
-const { ContextPackCompiler, handleContextPackCommand } = require('../../src/runtime/context-pack');
-const { runDecision } = require('../../src/runtime/decision-register');
+const { ContextPackCompiler, handleContextPackCommand } = require('../../src/runtime/context-pack.ts');
+const { runDecision } = require('../../src/runtime/decision-register.ts');
 
 // IC-012: the pack carries the feature's live decisions. Each fixture is a scratch git repo with
 // one feature folder, so the real resolver (do-paths.sh) decides which feature is meant.

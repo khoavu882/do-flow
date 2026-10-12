@@ -28,7 +28,7 @@ after(() => {
   scratch.restore();
   scratch.remove();
 });
-const { WorktreeManager, SKILL_SOURCE_FILE, SANDBOX_SKILLS_DIR, sha256File } = require('../../src/runtime/worktree.js');
+const { WorktreeManager, SKILL_SOURCE_FILE, SANDBOX_SKILLS_DIR, sha256File } = require('../../src/runtime/worktree.ts');
 const { tempDir } = require('../helper/tmp');
 
 test('G11/R6: the evaluation corpus is present — a clean clone can reproduce the baseline', () => {

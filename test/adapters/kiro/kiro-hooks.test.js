@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
-const { createKiroAdapter } = require('../../../src/adapters/kiro');
+const { createKiroAdapter } = require('../../../src/adapters/kiro/index.ts');
 const { IS_WIN } = require('../../helper-platform');
 
 function scratch() { return suiteTempDir('doflow-kiro-hooks-'); }
@@ -146,7 +146,7 @@ test('installed hook scripts are executable', () => {
 });
 
 test('confirms the real registry routes kiro.hooks-scripts to kiro only', () => {
-  const { loadRegistry, selectAssets } = require('../../../src/registry');
+  const { loadRegistry, selectAssets } = require('../../../src/registry/index.ts');
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
   const hooksAssets = selectAssets(registry, { harness: 'kiro', capability: 'hooks' });
   // Two hooks-capability assets apply to kiro since 022-hooks-shared-install-gap: kiro's own

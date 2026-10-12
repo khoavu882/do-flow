@@ -15,8 +15,8 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared');
 const { createScratch } = require('../helper/scratch-env');
-const { loadStorageRegistry, validateStorageRegistry, renderSourcePattern, formatBound } = require('../../src/runtime/storage/registry');
-const { resolveRoots } = require('../../src/runtime/storage/roots');
+const { loadStorageRegistry, validateStorageRegistry, renderSourcePattern, formatBound } = require('../../src/runtime/storage/registry.ts');
+const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
 
 const REGISTRY_FILE = 'core/registry/storage.json';
 const DOCS_FILE = 'docs/reference.md';
@@ -39,9 +39,13 @@ function walkFiles(relativeDir) {
   return found;
 }
 
-/** The language of a shipped source file, by extension or shebang; null for data and prose files. */
+/** The language of a shipped source file, by extension or shebang; null for data and prose files.
+ * `.ts` is a JS-family source: DoFlow runs it directly through Node native type-stripping
+ * (agent-docs/BRIEF_GOAL_DOFLOW.md), so a converted writer still makes the same fs write calls and
+ * must still be scanned and declared. `.d.ts` is a declaration file, not a module, and is excluded. */
 function sourceKind(file, text) {
-  if (/\.(?:js|cjs|mjs)$/.test(file)) return 'js';
+  if (/\.d\.ts$/.test(file)) return null;
+  if (/\.(?:js|cjs|mjs|ts)$/.test(file)) return 'js';
   if (/\.sh$/.test(file)) return 'bash';
   const shebang = text.startsWith('#!') ? text.split('\n', 1)[0] : '';
   if (/\bnode\b/.test(shebang)) return 'js';

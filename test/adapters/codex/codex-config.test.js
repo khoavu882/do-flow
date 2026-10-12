@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
-const { configPath, fingerprint, planCodexConfig, applyCodexConfig, reconcileCodexConfig } = require('../../../src/adapters/codex/config');
+const { configPath, fingerprint, planCodexConfig, applyCodexConfig, reconcileCodexConfig } = require('../../../src/adapters/codex/config.ts');
 
 function scratch() { return suiteTempDir('doflow-codex-config-'); }
 function resource(value = true) { return { target: 'codex', scope: 'project', kind: 'configuration-entry', identity: 'features.hooks', value, sourceVersion: '2.4.4' }; }
@@ -167,7 +167,7 @@ test('a config.toml DoFlow creates gets the process default mode', { skip: NO_MO
 // Quoted keys are ordinary TOML. The scanner previously matched bare keys only and threw on the
 // whole file, so a single `[mcp_servers."my-server"]` made the entire config unreadable and
 // blocked every Codex operation.
-const { parseToml } = require('../../../src/helper/toml');
+const { parseToml } = require('../../../src/helper/toml.ts');
 
 test('parses quoted table headers and quoted assignment keys', () => {
   for (const toml of [

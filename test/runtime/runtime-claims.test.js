@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const fs = require('node:fs');
-const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
-const { ClaimsManager } = require('../../src/runtime/claims');
+const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
+const { ClaimsManager } = require('../../src/runtime/claims.ts');
 
 test('ClaimsManager initializes claims in hypothesis status', () => {
   const claims = new ClaimsManager();

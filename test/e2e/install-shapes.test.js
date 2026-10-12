@@ -290,7 +290,7 @@ test('009-unlinked-checkout: assertion 2 — a partial local .doflow/ with no ow
 
 test('009-unlinked-checkout: assertion 3 — a runtime/-sourced Node verb that hits the registry validator reports stale-runtime', () => {
   // `doctor` is the one Node-backed verb reachable through the dispatcher that calls the full,
-  // validated `loadRegistry` (src/runtime/health.js) rather than reading one or two registry files
+  // validated `loadRegistry` (src/runtime/health.ts) rather than reading one or two registry files
   // directly — so it is the one verb that can actually throw the registry loader's
   // `Invalid DoFlow registry:` error. The projected `runtime/` tree carries only bin/, src/ and
   // core/registry/ (not the full core/ tree assets.json's own entries point at), so running doctor

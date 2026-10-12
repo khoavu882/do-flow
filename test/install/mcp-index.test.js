@@ -5,9 +5,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
-const { loadRegistry, selectMcpServers } = require('../../src/registry');
-const { renderMcpIndex } = require('../../src/lifecycle/mcp-index');
-const { mcpIndexPath } = require('../../src/lifecycle');
+const { loadRegistry, selectMcpServers } = require('../../src/registry/index.ts');
+const { renderMcpIndex } = require('../../src/lifecycle/mcp-index.ts');
+const { mcpIndexPath } = require('../../src/lifecycle/index.ts');
 
 const repoRoot = path.resolve(__dirname, "../..");
 const registry = loadRegistry({ repoRoot });

@@ -13,8 +13,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO, GUIDANCE } = require('./_shared');
-const { resolveTransform } = require('../../src/adapters/copy-tree');
-const { WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings');
+const { resolveTransform } = require('../../src/adapters/copy-tree.ts');
+const { WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings.ts');
 
 const ROOT_FILE = path.join(GUIDANCE, 'DOFLOW_CORE.md');
 
@@ -246,9 +246,12 @@ test('G13: controls — a harness no condition matches is refused', () => {
 // Measured 2026-10-12: feature 225,568 after MODEL_SELECTION.md gained its authoritative
 // "## Archetype dispatch tiers" prescription table (G29 now pins models.json byOwner to it); the
 // Claude model-name column was dropped from the capability-tiers table in the same change, so the
-// net guidance growth is the table minus that column.
+// net guidance growth is the table minus that column. Raised again 2026-10-12 for MODEL_SELECTION.md's
+// "## Enforceability" note: the dispatch tier is a rendered request applied only where the host
+// supports per-call model selection — stated so a tier is never claimed applied that the host could
+// not set, and kept in the reference (not the capped skill) so it costs the skill window nothing.
 const TASK_CONTEXT_RAILS = new Map([
-  ['feature', 225600], // 046 raise is new prose; 2026-10-12 raise is the archetype dispatch-tier prescription table
+  ['feature', 226300], // 046 raise is new prose; 2026-10-12 raises are the archetype dispatch-tier table and the model-tier enforceability note
   ['dependency-change', 85000],
   ['bug', 71000],
   ['refactor', 71000],
@@ -279,7 +282,7 @@ function skillLoadedBytes(skillName, loadedReferences = new Set()) {
 }
 
 test('G13: every task class stays within its loaded-context rail', () => {
-  const { WorkflowEngine } = require('../../src/runtime/workflow-engine');
+  const { WorkflowEngine } = require('../../src/runtime/workflow-engine.ts');
   const REPO = path.resolve(__dirname, '..', '..');
   const workflows = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'workflows.json'), 'utf8'));
   const engine = new WorkflowEngine({ workflows, readinessTemplates: false });

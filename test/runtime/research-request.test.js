@@ -4,8 +4,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
-const { ResearchRequestStore } = require('../../src/runtime/research-request');
-const { updateTaskState } = require('../../src/runtime/task-state');
+const { ResearchRequestStore } = require('../../src/runtime/research-request.ts');
+const { updateTaskState } = require('../../src/runtime/task-state.ts');
 
 function fixture(t) {
   const root = tempDir(t, 'doflow-research-request-');
@@ -50,8 +50,8 @@ test('refuses wrong stage, absent feature, and unsupported answer without a writ
 
 test('answered requires same-task extracted source linked to supported claim', t => {
   const { root, store } = fixture(t);
-  const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
-  const { ClaimsManager } = require('../../src/runtime/claims');
+  const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
+  const { ClaimsManager } = require('../../src/runtime/claims.ts');
   const request = store.open({ taskId: 'feature', stageId: 'design', question: 'Current API?', reason: 'detected-gap' });
   const ledger = new EvidenceLedger({ repoRoot: root });
   const evId = ledger.addEvidence({ taskId: 'feature', kind: 'documentation', provenance: 'extracted',
@@ -71,7 +71,7 @@ test('answered requires same-task extracted source linked to supported claim', t
 test('cannot attach a new request to a completed stage while awaiting its gate', t => {
   const { root, store } = fixture(t);
   const file = path.join(root, '.doflow/state/orchestration/feature.json');
-  const { updateTaskState } = require('../../src/runtime/task-state');
+  const { updateTaskState } = require('../../src/runtime/task-state.ts');
   updateTaskState({ fsImpl: fs, file, build: disk => ({ ...disk, state: 'AWAITING_GATE', cursor: 1,
     program: [{ type: 'stage', id: 'design', status: 'completed' }, { type: 'gate', id: 'gate-a', status: 'pending' }] }) });
   assert.throws(() => store.open({ taskId: 'feature', stageId: 'design', question: 'Too late?', reason: 'detected-gap' }), /no active feature stage/);
@@ -89,7 +89,7 @@ test('detected gap upgrades a duplicate optional question to blocking without cr
   assert.equal(detected.reason, 'detected-gap');
   assert.equal(store.list('feature').length, 1);
   assert.equal(store.blockingGap('feature', 'design').id, optional.id);
-  const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator');
+  const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
   const orch = new WorkflowOrchestrator({ repoRoot: path.resolve(__dirname, '../..'), projectRoot: root,
     stateDir: path.join(root, '.doflow/state/orchestration') });
   assert.throws(() => orch.completeStage({ taskId: 'feature', stageId: 'design' }), /blocks stage/);
@@ -97,8 +97,8 @@ test('detected gap upgrades a duplicate optional question to blocking without cr
 
 test('answered refuses non-web and credential-bearing URI locators', t => {
   const { root, store } = fixture(t);
-  const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
-  const { ClaimsManager } = require('../../src/runtime/claims');
+  const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
+  const { ClaimsManager } = require('../../src/runtime/claims.ts');
   const request = store.open({ taskId: 'feature', stageId: 'design', question: 'External fact?', reason: 'detected-gap' });
   const ledger = new EvidenceLedger({ repoRoot: root });
   const ids = ['not-an-actual-locator', 'javascript:alert(1)', 'https://user:secret@example.com/path']
