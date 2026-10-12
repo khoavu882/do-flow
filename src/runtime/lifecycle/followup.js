@@ -22,7 +22,7 @@ const { resolveActiveFeature } = require('../feature-resolve.ts');
 const { SETTLE_AS, withDerivedDone } = require('./fold.ts');
 const { appendEvents, readFold, byFromChannel, randomChars } = require('./event-store');
 const { deriveStatuses } = require('./status');
-const { writeIntent, kebabTitle } = require('./intent-writer');
+const { writeIntent, kebabTitle } = require('./intent-writer.ts');
 const reportStore = require('./report-store');
 
 /** The decision register's stages plus the two lifecycle stages (IC-006). */

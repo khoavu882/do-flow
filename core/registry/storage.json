@@ -1046,7 +1046,7 @@
       "reason": "agent-docs deliverable (decisions/history archive and artifact stub)"
     },
     {
-      "file": "src/runtime/lifecycle/intent-writer.js",
+      "file": "src/runtime/lifecycle/intent-writer.ts",
       "reason": "agent-docs deliverable (agent-docs/intent/*.md)"
     },
     {

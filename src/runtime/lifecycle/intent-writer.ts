@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Promotion to a new intent (IC-024, FR-005). Creates `agent-docs/intent/<kebab-title>.md` under the
  * IC-001 root from headings fixed in this file, never from a template file: an installed runtime
@@ -25,11 +27,11 @@ const INTENT_SECTIONS = [
 ];
 
 /** `Cart robustness!` -> `cart-robustness`; empty when the title holds no letter or digit. */
-function kebabTitle(title) {
+function kebabTitle(title: any): string {
   return String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, SLUG_MAX).replace(/-+$/, '');
 }
 
-function sourceParts(source) {
+function sourceParts(source: any): any[] {
   switch (source.kind) {
     case 'stage': return [source.kind, source.feature, source.stage];
     case 'run': return [source.kind, source.taskClass, source.taskId, source.stage];
@@ -44,7 +46,7 @@ function sourceParts(source) {
  * @param {{title:string, by:'user'|'agent', date:string, items:Array<{id:string,statement:string,source:Object}>}} intent
  * @returns {string} the file content
  */
-function renderIntent({ title, by, date, items }) {
+function renderIntent({ title, by, date, items }: { title: string; by: string; date: string; items: Array<{ id: string; statement: string; source: any }> }): string {
   const lines = [
     `# Intent: ${title}`,
     '',
@@ -63,7 +65,7 @@ function renderIntent({ title, by, date, items }) {
  * @returns {{ok:true, file:string, path:string}|{ok:false, finding:'intent-exists'|'invalid-title', message:string}}
  *   `path` is root-relative with `/` separators.
  */
-function writeIntent(root, intent, { fsImpl = nodeFs } = {}) {
+function writeIntent(root: string, intent: any, { fsImpl = nodeFs }: any = {}): any {
   const title = String(intent.title ?? '').trim();
   const name = kebabTitle(title) || intent.fallbackName || '';
   if (!name || title.length > TITLE_MAX || /[\r\n\u2028\u2029\u0085]/.test(title)) {
@@ -74,7 +76,7 @@ function writeIntent(root, intent, { fsImpl = nodeFs } = {}) {
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
   try {
     fsImpl.writeFileSync(file, renderIntent({ ...intent, title }), { encoding: 'utf8', flag: 'wx' });
-  } catch (error) {
+  } catch (error: any) {
     if (error.code === 'EEXIST') return { ok: false, finding: 'intent-exists', message: `${rel.split(path.sep).join('/')} already exists and was left untouched. Nothing was written.` };
     throw error;
   }
