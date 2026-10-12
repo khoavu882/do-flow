@@ -25,7 +25,7 @@ const { createOpenCodeAdapter } = require('../adapters/opencode/index.ts');
 const { createPiAdapter } = require('../adapters/pi/index.ts');
 const { createCopilotAdapter } = require('../adapters/copilot/index.ts');
 const { createKiroAdapter } = require('../adapters/kiro/index.ts');
-const { createAntigravityAdapter } = require('../adapters/antigravity');
+const { createAntigravityAdapter } = require('../adapters/antigravity/index.ts');
 
 // The directory of the `doflow` entrypoint. Derived from the shared package root rather than
 // __dirname so its value survives this code physically moving between directories: manifests,

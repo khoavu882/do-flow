@@ -115,7 +115,7 @@ test('G20: no adapter composes an ownership identity from a scope name (IC-004)'
     + `per-scope destination root:\n  ${renamed.join('\n  ')}`);
 
   // The sentinel: the one asset whose destination ROOT differs by scope
-  // (src/adapters/antigravity/index.js#treeDestFor). If scope-freedom is ever broken, it breaks
+  // (src/adapters/antigravity/index.ts#treeDestFor). If scope-freedom is ever broken, it breaks
   // here first, so the case is named rather than left to the aggregate above.
   const sentinel = (changes) => changes
     .filter((change) => change.harness === 'antigravity' && change.assetId === 'agents.shared');

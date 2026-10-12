@@ -626,7 +626,7 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/adapters/antigravity/index.js",
+        "src/adapters/antigravity/index.ts",
         "src/adapters/copy-tree.ts",
         "src/install/manifest.ts",
         "src/lifecycle/index.js",
@@ -650,7 +650,7 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/adapters/antigravity/index.js",
+        "src/adapters/antigravity/index.ts",
         "src/adapters/copy-tree.ts",
         "src/install/manifest.ts",
         "src/lifecycle/index.js",

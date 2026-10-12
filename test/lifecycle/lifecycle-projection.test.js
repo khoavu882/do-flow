@@ -9,7 +9,7 @@ const { renderPolicies } = require('../../src/lifecycle/policies.ts');
 const { createAdapterRegistry } = require('../../src/adapters');
 const { planLifecycle, MCP_KEEP } = require('../../src/lifecycle');
 const codexAdapter = require('../../src/adapters/codex');
-const antigravityAdapter = require('../../src/adapters/antigravity');
+const antigravityAdapter = require('../../src/adapters/antigravity/index.ts');
 const fs = require('node:fs');
 const { tempDir } = require('../helper/tmp');
 
