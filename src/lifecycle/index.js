@@ -11,7 +11,7 @@ const { defaultLedger, ownershipKey, writeLedger, writeRecoveryRecord, upgradeLe
 const { resolveAdapter, projectAdapterInput } = require('../adapters');
 const { pruneEmptyAncestors } = require('../adapters/copy-tree');
 const { renderPolicies } = require('./policies');
-const { renderMcpIndex } = require('./mcp-index');
+const { renderMcpIndex } = require('./mcp-index.ts');
 const { hasBashCapableShell } = require('./bash-availability.ts');
 const { hookTrustFor: geminiHookTrustFor } = require('../adapters/gemini');
 
