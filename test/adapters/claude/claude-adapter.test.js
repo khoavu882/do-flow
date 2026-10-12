@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
 const test = require('node:test');
-const claude = require('../../../src/adapters/claude');
+const claude = require('../../../src/adapters/claude/index.ts');
 const { MARKER_START, MARKER_END } = require('../../../src/helper/marker-merge.ts');
 
 function fixture() {
@@ -21,7 +21,7 @@ function fixture() {
   return { repoRoot, projectRoot, instructions, homeDir };
 }
 
-// Shape matches what src/adapters/index.js#projectAdapterInput actually hands the adapter at
+// Shape matches what src/adapters/index.ts#projectAdapterInput actually hands the adapter at
 // runtime (flat renderer/capability), not the registry's raw nested asset.projection.claude.
 const asset = {
   id: 'guidance.core', source: 'core/CLAUDE.md',

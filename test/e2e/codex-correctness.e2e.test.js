@@ -10,7 +10,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { loadRegistry } = require('../../src/registry/index.ts');
-const { readCodexMcpCatalog, renderServer } = require('../../src/adapters/codex/mcp');
+const { readCodexMcpCatalog, renderServer } = require('../../src/adapters/codex/mcp.ts');
 const { fingerprint } = require('../../src/adapters/codex/config.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');

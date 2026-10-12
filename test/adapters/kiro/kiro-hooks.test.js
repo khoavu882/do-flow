@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
-const { createKiroAdapter } = require('../../../src/adapters/kiro');
+const { createKiroAdapter } = require('../../../src/adapters/kiro/index.ts');
 const { IS_WIN } = require('../../helper-platform');
 
 function scratch() { return suiteTempDir('doflow-kiro-hooks-'); }

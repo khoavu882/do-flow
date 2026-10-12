@@ -6,8 +6,8 @@ const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
 const { loadRegistry, selectAssets } = require('../../../src/registry/index.ts');
 const { harnessFor } = require('../../../src/registry/index.ts');
-const { projectAdapterInput } = require('../../../src/adapters');
-const { normalizeContext, discover, render, plan, apply, remove, verify } = require('../../../src/adapters/codex');
+const { projectAdapterInput } = require('../../../src/adapters/index.ts');
+const { normalizeContext, discover, render, plan, apply, remove, verify } = require('../../../src/adapters/codex/index.ts');
 
 const REPO = path.resolve(__dirname, "../../..");
 function scratch() { return suiteTempDir('doflow-codex-adapter-'); }
@@ -237,7 +237,7 @@ test('verification reports registry gaps and reconciliation conflicts', () => {
 
 test('verify records no MCP row for a server the user defined, and DoFlow\'s rendering when it wrote the table', () => {
   const { fingerprint } = require('../../../src/adapters/codex/config.ts');
-  const { renderServer } = require('../../../src/adapters/codex/mcp');
+  const { renderServer } = require('../../../src/adapters/codex/mcp.ts');
   const registry = loadRegistry({ repoRoot: REPO });
   const catalog = registry.mcp.filter((server) => server.id === 'context7');
   for (const userTable of ['[mcp_servers.context7]\ncommand = "mine"\n', null]) {

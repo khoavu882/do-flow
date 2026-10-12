@@ -8,10 +8,10 @@ const { writeManifest } = require('../../install/manifest.ts');
 const { confirm } = require('../../helper/prompt.ts');
 const { sourceCommit } = require('../../helper/git.ts');
 const { loadRegistry } = require('../../registry/index.ts');
-const { applyLifecycle, recordMcpOwnership } = require('../../lifecycle');
+const { applyLifecycle, recordMcpOwnership } = require('../../lifecycle/index.ts');
 const {
   registryLifecycleView, assertSafeRegistryPlan,
-} = require('../../lifecycle/view');
+} = require('../../lifecycle/view.ts');
 const { recordedMcpSelections } = require('../../install/mcp.ts');
 const {
   REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, scopeSelectionState, printRecordedMcpOwnership, buildAdapterRegistry,

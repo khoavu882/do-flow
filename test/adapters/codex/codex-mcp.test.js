@@ -7,8 +7,8 @@ const { suiteTempDir } = require('../../helper/tmp');
 const {
   MCP_KIND, readCodexMcpCatalog, renderServer, resourceFor,
   reconcileCodexMcp, ownedCodexMcpIds,
-} = require('../../../src/adapters/codex/mcp');
-const codexAdapter = require('../../../src/adapters/codex');
+} = require('../../../src/adapters/codex/mcp.ts');
+const codexAdapter = require('../../../src/adapters/codex/index.ts');
 const { loadRegistry } = require('../../../src/registry/index.ts');
 
 const REPO = path.resolve(__dirname, "../../..");
@@ -109,7 +109,7 @@ test('dry-run supplies plan and ownership records without writing', () => {
 });
 
 // --- a user's own server, release and the conflict that names it ---------------
-const { planCodexMcp } = require('../../../src/adapters/codex/mcp');
+const { planCodexMcp } = require('../../../src/adapters/codex/mcp.ts');
 const { NOTICES } = require('../../../src/adapters/mcp-entries.ts');
 
 function plannedOver(text, selected, extra = {}) {

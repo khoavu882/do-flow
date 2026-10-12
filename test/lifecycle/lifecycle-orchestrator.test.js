@@ -4,10 +4,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createAdapterRegistry } = require('../../src/adapters');
+const { createAdapterRegistry } = require('../../src/adapters/index.ts');
 const { defaultLedger, readLedger } = require('../../src/state/index.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
-const { planLifecycle, applyLifecycle, removeLifecycle, normalizeRemovalVerification, mcpIndexPath } = require('../../src/lifecycle');
+const { planLifecycle, applyLifecycle, removeLifecycle, normalizeRemovalVerification, mcpIndexPath } = require('../../src/lifecycle/index.ts');
 const { tempDir, suiteTempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, "../..");
@@ -274,11 +274,11 @@ test('remove deletes MCP_INDEX.md regardless of what selection would otherwise a
 // prerequisite declarations in core/registry/harnesses.json (Codex) and the live trust
 // computation in src/adapters/gemini/hooks.ts (Gemini) rather than a fake harness/adapter.
 {
-  const { verifyLifecycle, hookWiringStatus } = require('../../src/lifecycle');
-  const realClaude = require('../../src/adapters/claude');
-  const realCodex = require('../../src/adapters/codex');
-  const { createGeminiAdapter } = require('../../src/adapters/gemini');
-  const { createKiroAdapter } = require('../../src/adapters/kiro');
+  const { verifyLifecycle, hookWiringStatus } = require('../../src/lifecycle/index.ts');
+  const realClaude = require('../../src/adapters/claude/index.ts');
+  const realCodex = require('../../src/adapters/codex/index.ts');
+  const { createGeminiAdapter } = require('../../src/adapters/gemini/index.ts');
+  const { createKiroAdapter } = require('../../src/adapters/kiro/index.ts');
 
   function hookFixture(t, targets) {
     const project = tempDir(t, 'doflow-hook-wiring-');

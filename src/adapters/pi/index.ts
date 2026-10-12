@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Pi adapter — a marker-merged instruction file plus copy-tree materialisation, the same shape
 // Claude/Codex/Gemini already use for their own skills trees.
 //
@@ -38,7 +40,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
   // Parity note: Pi's historical nativePaths() derived even its user-scope root from scopeRoot
   // (the CLI passes $HOME there for -g installs), never from a separate homeDir argument — so the
   // resolver is fed no homeDir and "root" keeps resolving exactly as before.
-  function nativePaths({ scope, scopeRoot } = {}) {
+  function nativePaths({ scope, scopeRoot }: any = {}) {
     const paths = resolveHarnessPaths(declaredPaths, { scope, scopeRoot });
     // Pi's user-scope mcp.json follows $PI_CODING_AGENT_DIR when set. It is not declared in the
     // registry because the path schema has no environment base (src/helper/harness-paths.js); only
@@ -52,7 +54,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
     return typeof agentDir === 'string' && agentDir.trim() !== '' ? agentDir.trim() : null;
   }
 
-  function discover({ scope, scopeRoot, mcp = [], ledger, context = {}, fsImpl = fs }) {
+  function discover({ scope, scopeRoot, mcp = [], ledger, context = {}, fsImpl = fs }: any) {
     const paths = nativePaths({ scope, scopeRoot });
     const instruction = fsImpl.existsSync(paths.instruction) ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
     const rows = mcpRows(ledger);
@@ -60,18 +62,18 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
     // Pi reads mcp.json only for a selection or a row; the names in it are read here regardless.
     const file = snapshot[paths.mcp] ?? discoverPiMcp({ selected: [true], rows: [], file: paths.mcp, fsImpl })[paths.mcp];
     const members = file?.exists && file.doc?.ok ? file.doc.servers?.members ?? [] : null;
-    const mcpConfigured = members && members.map((member) => member.key).sort();
+    const mcpConfigured = members && members.map((member: any) => member.key).sort();
     return { paths, instruction, mcp: snapshot, mcpOwned: ownedPiMcpIds({ rows, snapshot }), mcpConfigured };
   }
 
-  function render({ content = '' } = {}) {
+  function render({ content = '' }: any = {}) {
     return `${MARKER_START}\n${String(content).trimEnd()}\n${MARKER_END}\n`;
   }
 
   /** Replace only the span between DoFlow's markers. An AGENTS.md with no DoFlow section is refused
    * rather than appended to — Pi shares AGENTS.md with every other agent that reads it, so where
    * DoFlow's content belongs is its owner's decision. Add an empty marker pair to opt in. */
-  function managedInstruction(existing, rendered) {
+  function managedInstruction(existing: any, rendered: any) {
     if (existing === null) return { ok: true, operation: 'create', content: rendered };
     const start = existing.indexOf(MARKER_START);
     const end = existing.indexOf(MARKER_END);
@@ -81,7 +83,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
     return { ok: true, operation: content === existing ? 'none' : 'merge', content };
   }
 
-  function strippedInstruction(existing) {
+  function strippedInstruction(existing: any) {
     if (typeof existing !== 'string') return null;
     const start = existing.indexOf(MARKER_START);
     const end = existing.indexOf(MARKER_END);
@@ -93,7 +95,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
 
   // ---- copy-tree assets (skills) ----
 
-  function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing, fsImpl = fs }) {
+  function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing, fsImpl = fs }: any) {
     const paths = nativePaths({ scope, scopeRoot });
     const changes = [];
     const conflicts = [];
@@ -106,14 +108,14 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
       const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, keepModified: !removing,
         // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
         // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
-        // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file
+        // reason codex/index.ts states in full: force heals drift on apply, but a hand-edited file
         // is never deleted on removal, forced or not.
         force: !removing && context?.force === true, });
       treeResults.push(result);
-      conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+      conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       // A hand-edited file at a path DoFlow no longer writes is the user's: it stays, only its
       // ownership row is released.
-      notices.push(...result.kept.map((item) => `kept hand-edited ${path.relative(paths.root, item.target)}; DoFlow no longer manages it`));
+      notices.push(...result.kept.map((item: any) => `kept hand-edited ${path.relative(paths.root, item.target)}; DoFlow no longer manages it`));
       for (const change of result.changes) {
         changes.push({
           assetId: asset.id, target: change.target, source: change.source, operation: change.operation,
@@ -128,19 +130,19 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
     return { changes, conflicts, notices: [...siblingReplacedNotices(treeResults), ...notices] };
   }
 
-  function applyCopyTreeAssets(changes, { fsImpl = fs } = {}) {
-    const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation !== 'remove')
-      .map((change) => ({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint }));
+  function applyCopyTreeAssets(changes: any, { fsImpl = fs }: any = {}) {
+    const treeChanges = changes.filter((change: any) => change.projection?.renderer === 'copy-tree' && change.operation !== 'remove')
+      .map((change: any) => ({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint }));
     return applyTree({ changes: treeChanges, fsImpl }).applied;
   }
 
-  function removeCopyTreeAssets(changes, { fsImpl = fs } = {}) {
-    const treeChanges = changes.filter((change) => change.kind === 'copy-tree-file' && change.operation === 'remove' && !change.retained)
-      .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
+  function removeCopyTreeAssets(changes: any, { fsImpl = fs }: any = {}) {
+    const treeChanges = changes.filter((change: any) => change.kind === 'copy-tree-file' && change.operation === 'remove' && !change.retained)
+      .map((change: any) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
     return removeTree({ changes: treeChanges, fsImpl }).removed;
   }
 
-  function verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl = fs }) {
+  function verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl = fs }: any) {
     const paths = nativePaths({ scope, scopeRoot });
     const statuses = [];
     const resources = [];
@@ -149,7 +151,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
       const destDir = sharedTreeDestDir(paths.root, asset.nativeDir) ?? copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Pi');
       const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout });
-      conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+      conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({
           assetId: asset.id, target: resource.target, ownershipIdentity: `doflow:pi:copy-tree:${asset.id}:${resource.relPath}`,
@@ -165,13 +167,13 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
 
   // ---- shared adapter contract ----
 
-  function plan({ scope, scopeRoot, assets = [], mcp = [], discovery, context = {}, ledger, fsImpl = fs }) {
+  function plan({ scope, scopeRoot, assets = [], mcp = [], discovery, context = {}, ledger, fsImpl = fs }: any) {
     const found = discovery || discover({ scope, scopeRoot, mcp, ledger, context, fsImpl });
     const changes = [];
     const conflicts = [];
     const removing = context.operation === 'remove';
 
-    const guidance = assets.find((asset) => asset.capability === 'instructions');
+    const guidance = assets.find((asset: any) => asset.capability === 'instructions');
     if (guidance) {
       const rendered = render({ content: fsImpl.readFileSync(path.resolve(context.repoRoot, guidance.source), 'utf8') });
       const outcome = removing
@@ -198,14 +200,14 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
     return { changes, conflicts, notices, paths: found.paths };
   }
 
-  function writeChange(change, fsImpl) {
+  function writeChange(change: any, fsImpl: any) {
     fsImpl.mkdirSync(path.dirname(change.target), { recursive: true });
     fsImpl.writeFileSync(change.target, change.content, 'utf8');
   }
 
-  function isPiMcp(change) { return change.projection?.renderer === 'pi-mcp'; }
+  function isPiMcp(change: any) { return change.projection?.renderer === 'pi-mcp'; }
 
-  function apply({ changes = [], fsImpl = fs }) {
+  function apply({ changes = [], fsImpl = fs }: any) {
     // MCP first: its base-hash check refuses a stale plan before any other Pi file is written.
     let applied = applyPiMcp(changes.filter(isPiMcp), { fsImpl }).applied;
     for (const change of changes) {
@@ -220,7 +222,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
     return { applied };
   }
 
-  function remove({ changes = [], fsImpl = fs }) {
+  function remove({ changes = [], fsImpl = fs }: any) {
     let removed = applyPiMcp(changes.filter(isPiMcp), { fsImpl }).applied;
     for (const change of changes) {
       if (change.operation !== 'remove' || change.projection?.renderer === 'copy-tree' || isPiMcp(change)) continue;
@@ -232,12 +234,12 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
     return { removed };
   }
 
-  function verify({ scope, scopeRoot, assets = [], mcp = [], discovery, ledger, context = {}, fsImpl = fs }) {
+  function verify({ scope, scopeRoot, assets = [], mcp = [], discovery, ledger, context = {}, fsImpl = fs }: any) {
     const found = discover({ scope, scopeRoot, mcp, ledger, context, fsImpl });
     const statuses = [];
     const resources = [];
     const conflicts = [];
-    const instructionsAssetId = assets.find((asset) => asset.capability === 'instructions')?.id ?? assets[0]?.id;
+    const instructionsAssetId = assets.find((asset: any) => asset.capability === 'instructions')?.id ?? assets[0]?.id;
 
     const hasSection = typeof found.instruction === 'string'
       && found.instruction.includes(MARKER_START) && found.instruction.includes(MARKER_END);
@@ -272,6 +274,6 @@ const singleton = createPiAdapter();
 module.exports = {
   HARNESS, nativePaths: singleton.nativePaths, discover: singleton.discover, render: singleton.render,
   plan: singleton.plan, apply: singleton.apply, remove: singleton.remove, verify: singleton.verify,
-  managedInstruction: singleton.managedInstruction, strippedInstruction: singleton.strippedInstruction,
+  managedInstruction: (singleton as any).managedInstruction, strippedInstruction: (singleton as any).strippedInstruction,
   createPiAdapter,
 };

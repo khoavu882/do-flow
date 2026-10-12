@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Claude's MCP component: DoFlow's servers as entries of `mcpServers` in `~/.claude.json` (user
 // scope) or `<project>/.mcp.json` (project scope), the locations Claude Code actually reads. Both
 // files are shared — `~/.claude.json` also holds Claude Code's own state, and a project `.mcp.json`
@@ -18,39 +20,39 @@ const MCP_RENDERER = 'claude-mcp';
 // install carries.
 const MCP_ASSET_ID = 'guidance.core';
 
-function ownershipIdentity(id) { return `doflow:${HARNESS}:mcp-server:${id}`; }
+function ownershipIdentity(id: any) { return `doflow:${HARNESS}:mcp-server:${id}`; }
 
 /** Claude Code's own per-server shape, the one the registry's native catalog renders. */
-function rendered(servers) {
+function rendered(servers: any) {
   const { serverDefs } = nativeMcpCatalog(servers);
-  return servers.map((server) => ({ id: server.id, entry: serverDefs[server.id] }));
+  return servers.map((server: any) => ({ id: server.id, entry: serverDefs[server.id] }));
 }
 
 /** Everything the shared entry-ownership rules need from this adapter. */
-function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], ledger }) {
-  const rows = (ledger?.resources || []).filter((row) => row.kind === 'mcp-server');
+function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], ledger }: any) {
+  const rows = (ledger?.resources || []).filter((row: any) => row.kind === 'mcp-server');
   return {
     file: paths.mcp, selected: rendered(mcp), adoptable: rendered(mcpAdoptable),
-    ownRows: rows.filter((row) => row.harness === HARNESS).map((row) => ({
+    ownRows: rows.filter((row: any) => row.harness === HARNESS).map((row: any) => ({
       identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity, legacy: false,
     })),
-    foreignRows: rows.filter((row) => row.harness !== HARNESS).map((row) => ({ harness: row.harness, identity: row.identity, target: row.target })),
+    foreignRows: rows.filter((row: any) => row.harness !== HARNESS).map((row: any) => ({ harness: row.harness, identity: row.identity, target: row.target })),
     identityFor: ownershipIdentity, assetId: MCP_ASSET_ID, renderer: MCP_RENDERER, label: 'Claude MCP',
   };
 }
 
-function readFiles(entries, fsImpl) {
+function readFiles(entries: any, fsImpl: any) {
   return readMcpFiles({ file: entries.file, ownRows: entries.ownRows, container: MCP_CONTAINER, fsImpl });
 }
 
 /** Server names Claude Code merges into a project from `~/.claude.json` beside the project's own
  * `.mcp.json`: the local scope (`projects[<root>].mcpServers`) and the user scope (`mcpServers`).
  * Read-only and for reach alone; a file that cannot be read contributes nothing (null). */
-function claudeJsonNames({ scopeRoot, homeDir, fsImpl }) {
+function claudeJsonNames({ scopeRoot, homeDir, fsImpl }: any) {
   let doc;
   try { doc = JSON.parse(fsImpl.readFileSync(path.join(homeDir, '.claude.json'), 'utf8')); } catch { return null; }
   if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return null;
-  const names = (servers) => (servers && typeof servers === 'object' && !Array.isArray(servers) ? Object.keys(servers) : []);
+  const names = (servers: any) => (servers && typeof servers === 'object' && !Array.isArray(servers) ? Object.keys(servers) : []);
   const projects = doc.projects && typeof doc.projects === 'object' ? doc.projects : {};
   let real = scopeRoot;
   try { real = fsImpl.realpathSync(scopeRoot); } catch { /* the path as given */ }
@@ -62,7 +64,7 @@ function claudeJsonNames({ scopeRoot, homeDir, fsImpl }) {
  * (`mcpConfigured`): the scope's file, plus at project scope the local- and user-scope entries in
  * `~/.claude.json`. Claude Code also loads plugin, managed and connector servers DoFlow does not
  * read, so the view is never complete (`mcpComplete: false`) and absence is never proof. */
-function discoverMcp({ paths, mcp, mcpAdoptable, ledger, scope, scopeRoot, homeDir = os.homedir(), fsImpl = fs }) {
+function discoverMcp({ paths, mcp, mcpAdoptable, ledger, scope, scopeRoot, homeDir = os.homedir(), fsImpl = fs }: any) {
   const entries = mcpEntriesInput({ paths, mcp, mcpAdoptable, ledger });
   const mcpSnapshot = readFiles(entries, fsImpl);
   // `null` while nothing could be read; every name otherwise, whoever wrote it.
@@ -73,17 +75,17 @@ function discoverMcp({ paths, mcp, mcpAdoptable, ledger, scope, scopeRoot, homeD
   return { mcpSnapshot, mcpOwned: ownedMcpIds({ ...entries, files: mcpSnapshot }), mcpConfigured, mcpComplete: false };
 }
 
-function planMcp({ paths, mcp, mcpAdoptable, ledger, snapshot, removing, fsImpl = fs }) {
+function planMcp({ paths, mcp, mcpAdoptable, ledger, snapshot, removing, fsImpl = fs }: any) {
   const entries = mcpEntriesInput({ paths, mcp, mcpAdoptable, ledger });
   return planMcpEntries({ ...entries, files: snapshot ?? readFiles(entries, fsImpl), removing });
 }
 
 /** An emptied `mcpServers` stays as `{}`, as Claude Code itself leaves it. */
-function writeMcp(changes, { fsImpl = fs } = {}) {
+function writeMcp(changes: any, { fsImpl = fs } = {}) {
   return writeMcpEntries(changes, { container: MCP_CONTAINER, keepEmptyContainer: true, fsImpl });
 }
 
-function verifyMcp({ paths, mcp, mcpAdoptable, ledger, snapshot, removing, sourceVersion, fsImpl = fs }) {
+function verifyMcp({ paths, mcp, mcpAdoptable, ledger, snapshot, removing, sourceVersion, fsImpl = fs }: any) {
   const entries = mcpEntriesInput({ paths, mcp, mcpAdoptable, ledger });
   const files = readFiles(entries, fsImpl);
   return verifyMcpEntries({ ...entries, files, snapshot: snapshot ?? files, removing, harness: HARNESS, sourceVersion });

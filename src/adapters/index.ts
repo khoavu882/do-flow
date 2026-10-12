@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Harness adapters own native formats and paths. This module intentionally only
 // validates and resolves that boundary; it never reads or writes harness files.
 const { resolveRegistrySource } = require('./resolve-source.ts');
@@ -10,12 +12,12 @@ const ADAPTER_METHODS = Object.freeze(['discover', 'render', 'plan', 'apply', 'r
  * A3: the Codex shape used to be inlined here, putting per-harness knowledge on the shared side of
  * the boundary); this module only dispatches by adapter name. An adapter gaining a
  * nativeProjection declaration registers its normalizer here. */
-const NATIVE_PROJECTION_NORMALIZERS = Object.freeze({
+const NATIVE_PROJECTION_NORMALIZERS: Record<string, () => any> = Object.freeze({
   codex: () => require('./codex/native-projection.ts').normalizeNativeProjection,
 });
 
 /** Dispatch a harness's nativeProjection declaration to its adapter's own normalizer. */
-function nativeProjectionFor(registry, harness, mcp, context) {
+function nativeProjectionFor(registry: any, harness: any, mcp: any, context: any) {
   if (!harness.nativeProjection) return {};
   const load = NATIVE_PROJECTION_NORMALIZERS[harness.adapter];
   if (!load) {
@@ -30,9 +32,9 @@ function nativeProjectionFor(registry, harness, mcp, context) {
  * adapter receives. Native serializers may add adapter-specific fields, but
  * cannot infer applicability from a missing projection.
  */
-function projectAdapterInput({ registry, harness, scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], policies = [], context = {} }) {
+function projectAdapterInput({ registry, harness, scope, scopeRoot, assets = [], mcp = [], mcpAdoptable = [], policies = [], context = {} }: any) {
   if (!registry || !harness) throw new Error('registry and harness are required for adapter projection');
-  const projectAsset = (asset) => {
+  const projectAsset = (asset: any) => {
     const projection = asset?.projection?.[harness.id];
     if (!projection || typeof projection.renderer !== 'string' || typeof projection.capability !== 'string') {
       throw new Error(`Asset '${asset?.id ?? '?'}' lacks a projection for '${harness.id}'`);
@@ -60,16 +62,16 @@ function projectAdapterInput({ registry, harness, scope, scopeRoot, assets = [],
   return Object.freeze({
     harness, scope, scopeRoot, context,
     assets: Object.freeze(assets.map(projectAsset)),
-    mcp: Object.freeze(mcp.map((server) => Object.freeze({ ...server }))),
+    mcp: Object.freeze(mcp.map((server: any) => Object.freeze({ ...server }))),
     // Servers whose existing entries the adapter may take as its own while it holds no MCP row.
-    mcpAdoptable: Object.freeze(mcpAdoptable.map((server) => Object.freeze({ ...server }))),
-    policies: Object.freeze(policies.map((policy) => Object.freeze({ ...policy }))),
+    mcpAdoptable: Object.freeze(mcpAdoptable.map((server: any) => Object.freeze({ ...server }))),
+    policies: Object.freeze(policies.map((policy: any) => Object.freeze({ ...policy }))),
     nativeTargets: Object.freeze({ ...harness.nativeTargets }),
     projection: Object.freeze({ ...projection }),
   });
 }
 
-function assertAdapter(adapter, name = 'adapter') {
+function assertAdapter(adapter: any, name = 'adapter') {
   if (!adapter || typeof adapter !== 'object') throw new Error(`${name} must be an object`);
   for (const method of ADAPTER_METHODS) {
     if (typeof adapter[method] !== 'function') throw new Error(`${name} must implement ${method}()`);
@@ -86,8 +88,8 @@ function createAdapterRegistry(adapters = {}) {
   }
   return Object.freeze({
     names: () => [...resolved.keys()],
-    has: (name) => resolved.has(name),
-    get(name) {
+    has: (name: any) => resolved.has(name),
+    get(name: any) {
       const adapter = resolved.get(name);
       if (!adapter) throw new Error(`No registered adapter '${name}'`);
       return adapter;
@@ -95,7 +97,7 @@ function createAdapterRegistry(adapters = {}) {
   });
 }
 
-function resolveAdapter(adapterRegistry, harness) {
+function resolveAdapter(adapterRegistry: any, harness: any) {
   if (!adapterRegistry || typeof adapterRegistry.get !== 'function') throw new Error('adapterRegistry must expose get(name)');
   if (!harness || typeof harness.adapter !== 'string') throw new Error('Harness must declare an adapter');
   return adapterRegistry.get(harness.adapter);

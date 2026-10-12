@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Antigravity CLI adapter (#8). Scope follows the surfaces verified against Antigravity's own
 // docs (antigravity.google/docs/cli/*):
 //   instructions — marker-managed section in PROJECT AGENTS.md only. Global memory is
@@ -29,7 +31,7 @@ const MCP_RENDERER = 'antigravity-mcp';
 
 /** copy-tree's readJson distinguishes absent/unparseable via an {exists,value,error} envelope;
  * every caller here wants the plain object or {}. */
-function readJsonObject(file, { fsImpl = fs } = {}) {
+function readJsonObject(file: any, { fsImpl = fs }: any = {}) {
   const result = readJson(file, { fsImpl });
   if (!result || !result.exists || result.error) return {};
   return result.value ?? {};
@@ -52,20 +54,20 @@ const GATE_MATCHER = 'write_to_file|replace_file_content|multi_replace_file_cont
 /** Build DoFlow's hooks.json groups from the projected scripts' on-disk locations. Absolute command
  * path: the docs' own examples use relative ./scripts paths whose resolution base is not stated,
  * and an absolute path is unambiguous for a per-workspace install. */
-function hookGroups({ gateCommand, stopCommand }) {
+function hookGroups({ gateCommand, stopCommand }: any) {
   return {
     [HOOKS_GROUP]: { PreToolUse: [{ matcher: GATE_MATCHER, hooks: [{ type: 'command', command: gateCommand }] }] },
     [STOP_HOOKS_GROUP]: { Stop: [{ type: 'command', command: stopCommand }] },
   };
 }
 
-function hookScriptTarget(identity, paths) {
+function hookScriptTarget(identity: any, paths: any) {
   return identity === 'pre-implementation-gate.sh' ? paths.hookScript : paths.stopHookScript;
 }
 
-function planHooks({ paths, scope, neutralResources, removing, repoRoot, fsImpl = fs }) {
-  const changes = [];
-  const conflicts = [];
+function planHooks({ paths, scope, neutralResources, removing, repoRoot, fsImpl = fs }: any) {
+  const changes: any[] = [];
+  const conflicts: any[] = [];
   if (scope !== 'project') {
     // The shims resolve the workspace via git/transcriptPath; a user-scope hooks.json would fire
     // against every project including non-git ones. Project-only until a documented user story exists.
@@ -74,9 +76,9 @@ function planHooks({ paths, scope, neutralResources, removing, repoRoot, fsImpl 
   const target = paths.hooksJson;
   const scriptSource = sourceDirFor({ source: 'core/harnesses/antigravity/hooks' }, { repoRoot }, fsImpl, HARNESS);
 
-  const previousHookRows = (neutralResources || []).filter((r) => r.harness === HARNESS && r.assetId === HOOKS_ASSET_ID && r.kind === 'hooks-json');
-  const previousScriptRows = (neutralResources || []).filter((r) => r.harness === HARNESS && r.assetId === HOOKS_ASSET_ID && r.kind === 'copy-tree-file');
-  const docRow = previousHookRows.find((r) => r.target === target);
+  const previousHookRows = (neutralResources || []).filter((r: any) => r.harness === HARNESS && r.assetId === HOOKS_ASSET_ID && r.kind === 'hooks-json');
+  const previousScriptRows = (neutralResources || []).filter((r: any) => r.harness === HARNESS && r.assetId === HOOKS_ASSET_ID && r.kind === 'copy-tree-file');
+  const docRow = previousHookRows.find((r: any) => r.target === target);
 
   if (removing) {
     if (docRow || fsImpl.existsSync(target)) {
@@ -87,7 +89,7 @@ function planHooks({ paths, scope, neutralResources, removing, repoRoot, fsImpl 
     }
     for (const identity of HOOK_SCRIPTS) {
       const scriptTarget = hookScriptTarget(identity, paths);
-      const scriptRow = previousScriptRows.find((r) => r.identity === identity);
+      const scriptRow = previousScriptRows.find((r: any) => r.identity === identity);
       if (scriptRow && fsImpl.existsSync(scriptTarget)) {
         const current = sha256File(fsImpl, scriptTarget);
         if (current === scriptRow.fingerprint) {
@@ -128,7 +130,7 @@ function planHooks({ paths, scope, neutralResources, removing, repoRoot, fsImpl 
   return { changes, conflicts };
 }
 
-function sha256File(fsImpl, file) {
+function sha256File(fsImpl: any, file: any) {
   return require('node:crypto').createHash('sha256').update(fsImpl.readFileSync(file)).digest('hex');
 }
 
@@ -136,7 +138,7 @@ function sha256File(fsImpl, file) {
  * ("paths"): project customization lives at <root>/.agents, global config at ~/.gemini/config
  * (the shared-customization root); instructions and skills are project-only surfaces, so no user
  * rule is declared for them and they resolve to null there. */
-function resolveNativePaths(declaredPaths, { scope, scopeRoot, homeDir } = {}) {
+function resolveNativePaths(declaredPaths: any, { scope, scopeRoot, homeDir }: any = {}) {
   if (scope !== 'project' && scope !== 'global') throw new Error(`Unsupported Antigravity scope '${scope}'`);
   const resolved = resolveHarnessPaths(declaredPaths, { scope, scopeRoot, homeDir });
   return {
@@ -166,33 +168,33 @@ function nativePaths(options = {}) {
  * keeps its planners module-level (they already thread resolved `paths` explicitly), so injection
  * flows through an optional `impl.nativePaths` seam instead of a full closure rewrite.
  */
-function createAntigravityAdapter({ declaredPaths = DEFAULT_DECLARED_PATHS } = {}) {
-  const nativePathsFor = (options) => resolveNativePaths(declaredPaths, options);
+function createAntigravityAdapter({ declaredPaths = DEFAULT_DECLARED_PATHS }: any = {}) {
+  const nativePathsFor = (options: any) => resolveNativePaths(declaredPaths, options);
   return {
     nativePaths: nativePathsFor,
-    discover: (options, impl = {}) => discover(options, { ...impl, nativePaths: nativePathsFor }),
+    discover: (options: any, impl = {}) => discover(options, { ...impl, nativePaths: nativePathsFor }),
     render,
-    plan: (options, impl = {}) => plan(options, { ...impl, nativePaths: nativePathsFor }),
+    plan: (options: any, impl = {}) => plan(options, { ...impl, nativePaths: nativePathsFor }),
     apply,
     remove,
-    verify: (options, impl = {}) => verify(options, { ...impl, nativePaths: nativePathsFor }),
+    verify: (options: any, impl = {}) => verify(options, { ...impl, nativePaths: nativePathsFor }),
   };
 }
 
 const singleton = createAntigravityAdapter();
 
 /** The scope's paths exactly as plan() and verify() resolve them, so discovery reads the same files. */
-function scopePaths(options, resolvePaths = singleton.nativePaths) {
+function scopePaths(options: any, resolvePaths = singleton.nativePaths) {
   return resolvePaths({ ...options, scope: options.scope ?? 'project', homeDir: options.context?.homeDir });
 }
 
-function ledgerResources(options) {
+function ledgerResources(options: any) {
   return options.ledger?.resources ?? options.managedResources ?? [];
 }
 
 /** Discovery keeps the MCP files as plan read them (`mcpSnapshot`), which verify compares against,
  * and reports the servers DoFlow owns in mcp_config.json now (`mcpOwned`). */
-function discover(options, { fsImpl = fs, nativePaths: resolvePaths = singleton.nativePaths } = {}) {
+function discover(options: any, { fsImpl = fs, nativePaths: resolvePaths = singleton.nativePaths }: any = {}) {
   const paths = scopePaths(options, resolvePaths);
   const instruction = paths.instruction && fsImpl.existsSync(paths.instruction)
     ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
@@ -204,11 +206,11 @@ function discover(options, { fsImpl = fs, nativePaths: resolvePaths = singleton.
   return { paths, instruction, mcpSnapshot, mcpOwned: ownedMcpIds({ ...entries, files: mcpSnapshot }), mcpConfigured };
 }
 
-function render({ content = '' } = {}) {
+function render({ content = '' }: any = {}) {
   return `${MARKER_START}\n${String(content).trimEnd()}\n${MARKER_END}\n`;
 }
 
-function managedInstruction(existing, rendered) {
+function managedInstruction(existing: any, rendered: any) {
   if (existing === null) return { ok: true, operation: 'create', content: rendered };
   const start = existing.indexOf(MARKER_START);
   const end = existing.indexOf(MARKER_END);
@@ -222,7 +224,7 @@ function managedInstruction(existing, rendered) {
   return { ok: true, operation: content === existing ? 'none' : 'merge', content };
 }
 
-function strippedInstruction(existing) {
+function strippedInstruction(existing: any) {
   if (typeof existing !== 'string') return null;
   const start = existing.indexOf(MARKER_START);
   const end = existing.indexOf(MARKER_END);
@@ -237,7 +239,7 @@ function strippedInstruction(existing) {
 /** Scope policy mirrors the registry notes, resolved from each asset's own flat nativeDir:
  *   ../x or .agents/x or .doflow/x  → rooted at the install root (project scope)
  *   plain names (bin, agents)       → inside the scope's config dir (.agents | ~/.gemini/config) */
-function treeDestFor(asset, paths, scope) {
+function treeDestFor(asset: any, paths: any, scope: any) {
   const nativeDir = asset.nativeDir;
   if (!nativeDir) return null;
   if (asset.id === 'skills.doflow') {
@@ -261,7 +263,7 @@ function treeDestFor(asset, paths, scope) {
   return path.join(paths.configDir, nativeDir);
 }
 
-function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot, force = false, fsImpl = fs }) {
+function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot, force = false, fsImpl = fs }: any) {
   const changes = [];
   const conflicts = [];
   const treeResults = [];
@@ -278,15 +280,15 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
     const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(neutralResources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, keepModified: !removing,
       // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
       // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
-      // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file
+      // reason codex/index.ts states in full: force heals drift on apply, but a hand-edited file
       // is never deleted on removal, forced or not. This adapter needed `force` threaded through
       // planTrees as well, since its signature did not carry the context the others already had.
       force: !removing && force === true });
     treeResults.push(result);
-    conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+    conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
     // A hand-edited file at a path DoFlow no longer writes is the user's: it stays, only its
     // ownership row is released.
-    notices.push(...result.kept.map((item) => `kept hand-edited ${path.relative(paths.root, item.target)}; DoFlow no longer manages it`));
+    notices.push(...result.kept.map((item: any) => `kept hand-edited ${path.relative(paths.root, item.target)}; DoFlow no longer manages it`));
     for (const change of result.changes) {
       changes.push({
         assetId: asset.id, target: change.target, source: change.source, operation: change.operation,
@@ -301,15 +303,15 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
   return { changes, conflicts, targets, notices: [...siblingReplacedNotices(treeResults), ...notices] };
 }
 
-function runTreeChanges(changes, mode) {
+function runTreeChanges(changes: any, mode: any) {
   // Route by what each change IS, not by which verb invoked us: remove() delegates here with a
   // plan full of operation:'remove' changes, and applyTree deliberately skips those — so routing
   // everything through one engine call silently deleted nothing (verification then correctly
   // refused to journal the no-op). Writes go to applyTree, removals to removeTree, always.
   void mode;
   const treeChanges = changes
-    .filter((c) => c.projection?.renderer === 'copy-tree' || c.kind === 'copy-tree-file')
-    .map((c) => ({ relPath: c.identity ?? c.relPath, target: c.target,
+    .filter((c: any) => c.projection?.renderer === 'copy-tree' || c.kind === 'copy-tree-file')
+    .map((c: any) => ({ relPath: c.identity ?? c.relPath, target: c.target,
       source: c._text ? undefined : c.source, operation: c.operation,
       fingerprint: c.fingerprint, ...(c._text ? { _text: c._text } : {}) }));
   // Content-managed tree files (hook scripts): write rendered text with +x, not a byte copy.
@@ -322,17 +324,17 @@ function runTreeChanges(changes, mode) {
   }
   return {
     applied: 0, removed: 0,
-    ...(function () {
-      const plain = treeChanges.filter((t) => t._text === undefined);
-      const writes = plain.filter((c) => c.operation !== 'remove');
-      const removals = plain.filter((c) => c.operation === 'remove');
+    ...(function (): any {
+      const plain = treeChanges.filter((t: any) => t._text === undefined);
+      const writes = plain.filter((c: any) => c.operation !== 'remove');
+      const removals = plain.filter((c: any) => c.operation === 'remove');
       const applied = writes.length ? applyTree({ changes: writes }).applied : 0;
       const removed = removals.length ? removeTree({ changes: removals }).removed : 0;
       return { applied, removed };
     })(),
   };
-  const writes = treeChanges.filter((c) => c.operation !== 'remove');
-  const removals = treeChanges.filter((c) => c.operation === 'remove');
+  const writes = treeChanges.filter((c: any) => c.operation !== 'remove');
+  const removals = treeChanges.filter((c: any) => c.operation === 'remove');
   const applied = writes.length ? applyTree({ changes: writes }).applied : 0;
   const removed = removals.length ? removeTree({ changes: removals }).removed : 0;
   return { applied, removed };
@@ -340,7 +342,7 @@ function runTreeChanges(changes, mode) {
 
 // ---- instructions component ----
 
-function planInstructions({ paths, assets, removing, repoRoot, fsImpl = fs }) {
+function planInstructions({ paths, assets, removing, repoRoot, fsImpl = fs }: any) {
   if (scopeOf(paths) !== 'project') return { changes: [], conflicts: [] };
   void repoRoot;
   if (removing) {
@@ -378,7 +380,7 @@ function planInstructions({ paths, assets, removing, repoRoot, fsImpl = fs }) {
   };
 }
 
-function pointerBody(fsImpl) {
+function pointerBody(fsImpl: any) {
   // The shared pointer prose ships once; read it through the same repo-relative anchor the other
   // AGENTS-style adapters use.
   try {
@@ -386,11 +388,11 @@ function pointerBody(fsImpl) {
   } catch { return null; }
 }
 
-function scopeOf(paths) { return paths.scope; }
+function scopeOf(paths: any) { return paths.scope; }
 
 // ---- MCP component ----
 
-function mcpDefinitionFor(server) {
+function mcpDefinitionFor(server: any) {
   // Remote transports project url/httpUrl -> serverUrl per the current Antigravity schema.
   if (server.transport === 'stdio') {
     return { command: server.command, ...(server.args?.length ? { args: server.args } : {}) };
@@ -398,27 +400,27 @@ function mcpDefinitionFor(server) {
   return { serverUrl: server.url ?? server.httpUrl };
 }
 
-function ownershipIdentity(id) { return `doflow:${HARNESS}:mcp-server:${id}`; }
+function ownershipIdentity(id: any) { return `doflow:${HARNESS}:mcp-server:${id}`; }
 
 /** Everything the shared entry-ownership rules (../mcp-entries.ts) need from this adapter. Rows
  * recorded before entries were fingerprinted carry `fingerprint: null`; such a row owns its entry
  * only while the entry still equals DoFlow's rendering. */
-function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], resources = [] }) {
-  const rendered = (servers) => servers.map((server) => ({ id: server.id, entry: mcpDefinitionFor(server) }));
-  const rows = resources.filter((row) => row.kind === 'mcp-server');
+function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], resources = [] }: any) {
+  const rendered = (servers: any) => servers.map((server: any) => ({ id: server.id, entry: mcpDefinitionFor(server) }));
+  const rows = resources.filter((row: any) => row.kind === 'mcp-server');
   return {
     file: paths.mcpFile, selected: rendered(mcp), adoptable: rendered(mcpAdoptable),
-    ownRows: rows.filter((row) => row.harness === HARNESS).map((row) => ({
+    ownRows: rows.filter((row: any) => row.harness === HARNESS).map((row: any) => ({
       identity: row.identity, target: row.target, fingerprint: row.fingerprint ?? null, ownershipIdentity: row.ownershipIdentity, legacy: false,
     })),
-    foreignRows: rows.filter((row) => row.harness !== HARNESS).map((row) => ({ harness: row.harness, identity: row.identity, target: row.target })),
+    foreignRows: rows.filter((row: any) => row.harness !== HARNESS).map((row: any) => ({ harness: row.harness, identity: row.identity, target: row.target })),
     identityFor: ownershipIdentity, assetId: POINTER_ASSET_ID, renderer: MCP_RENDERER, label: 'Antigravity MCP',
   };
 }
 
 // ---- required six-function surface ----
 
-function plan(options = {}, impl = {}) {
+function plan(options: any = {}, impl: any = {}) {
   const fsImpl = impl.fsImpl || fs;
   const context = options.context ?? {};
   const scope = options.scope ?? 'project';
@@ -447,7 +449,7 @@ function plan(options = {}, impl = {}) {
   };
 }
 
-function apply(options = {}, impl = {}) {
+function apply(options: any = {}, impl: any = {}) {
   const fsImpl = impl.fsImpl || fs;
   // apply()/verify() are reached through the lifecycle with the same scope inputs plan() saw, so
   // they re-derive paths instead of trusting plan-private state. `paths` itself is unused here —
@@ -456,7 +458,7 @@ function apply(options = {}, impl = {}) {
   (impl.nativePaths ?? singleton.nativePaths)(options);
   const changes = options.changes ?? [];
 
-  for (const change of changes.filter((c) => c.projection?.renderer === 'antigravity-instructions')) {
+  for (const change of changes.filter((c: any) => c.projection?.renderer === 'antigravity-instructions')) {
     if (change.operation === 'remove') {
       // pi precedent: strip only the managed span; the file survives even when nothing remains.
       if (!fsImpl.existsSync(change.target)) continue;
@@ -467,7 +469,7 @@ function apply(options = {}, impl = {}) {
     fsImpl.mkdirSync(path.dirname(change.target), { recursive: true });
     fsImpl.writeFileSync(change.target, change._content ?? render({ content: '' }), 'utf8');
   }
-  for (const change of changes.filter((c) => c.projection?.renderer === 'antigravity-hooks')) {
+  for (const change of changes.filter((c: any) => c.projection?.renderer === 'antigravity-hooks')) {
     if (change.kind === 'copy-tree-file') continue;          // handled by runTreeChanges below
     if (change.operation === 'remove') {
       // Unmerge only DoFlow's groups (one per policy); a user's own hook groups survive.
@@ -500,11 +502,11 @@ function apply(options = {}, impl = {}) {
 // Removal flows through apply(): plan(context.operation='remove') emits operation:'remove'
 // changes, and the branches above already know how to execute each kind. The six-function
 // contract still requires the verb itself.
-function remove(options = {}, impl = {}) {
+function remove(options: any = {}, impl: any = {}) {
   return apply(options, impl);
 }
 
-function verify(options = {}, impl = {}) {
+function verify(options: any = {}, impl: any = {}) {
   const fsImpl = impl.fsImpl || fs;
   const context = options.context ?? {};
   const scope = options.scope ?? 'project';
@@ -563,7 +565,7 @@ function verify(options = {}, impl = {}) {
   // Hooks projection (project scope): the shims' bytes and the registered groups.
   if (scope === 'project') {
     const hooksTarget = paths.hooksJson;
-    const scriptTargets = {
+    const scriptTargets: Record<string, any> = {
       'pre-implementation-gate.sh': paths.hookScript,
       'stop-check.sh': paths.stopHookScript,
     };
@@ -571,7 +573,7 @@ function verify(options = {}, impl = {}) {
     // projection, not an install destination — the destination is declared as the paths above).
     const scriptSourceDir = path.join(path.resolve(registryRepoRoot(options)), 'core', 'harnesses', 'antigravity', 'hooks');
     const removingOp = (context.operation ?? options.operation ?? '') === 'remove';
-    const fingerprints = {};
+    const fingerprints: Record<string, any> = {};
     let scriptsOk = true;
     let anyPresent = false;
     for (const identity of HOOK_SCRIPTS) {
@@ -615,11 +617,11 @@ function verify(options = {}, impl = {}) {
   return { ok: conflicts.length === 0, statuses, resources, conflicts };
 }
 
-function registryRepoRoot(options) {
+function registryRepoRoot(options: any) {
   return options.registry?.repoRoot ?? process.cwd();
 }
 
-function conflictsToStatuses(conflicts, assetId, statuses) {
+function conflictsToStatuses(conflicts: any, assetId: any, statuses: any) {
   for (const reason of conflicts) statuses.push({ assetId, capability: 'scripts', status: 'conflict', reason });
 }
 

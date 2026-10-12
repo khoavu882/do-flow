@@ -16,11 +16,11 @@ const { chmodHooksExecutable } = require('../../helper/settings-scope.ts');
 const { resolveMcpSelections } = require('../../install/mcp.ts');
 const { loadRegistry } = require('../../registry/index.ts');
 const { storageAfterInstall } = require('../../runtime/storage/upkeep');
-const { applyLifecycle, recordMcpOwnership } = require('../../lifecycle');
+const { applyLifecycle, recordMcpOwnership } = require('../../lifecycle/index.ts');
 const {
   codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, assertSafeRegistryPlan,
   lockDocument, lockDelta, recordLock,
-} = require('../../lifecycle/view');
+} = require('../../lifecycle/view.ts');
 const {
   REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, reportRetiredMcp, scopeSelectionState, printMcpSelection, plannedMcpSelections,
   printRecordedMcpOwnership, buildAdapterRegistry, refuseHomeRootedProject, holdRunLock, checkpointRunLock,

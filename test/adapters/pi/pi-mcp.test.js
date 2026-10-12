@@ -4,13 +4,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
-const { createPiAdapter } = require('../../../src/adapters/pi');
-const { createAdapterRegistry } = require('../../../src/adapters');
+const { createPiAdapter } = require('../../../src/adapters/pi/index.ts');
+const { createAdapterRegistry } = require('../../../src/adapters/index.ts');
 const { fingerprint } = require('../../../src/adapters/copy-tree.ts');
 const { SKELETON, renderNewDocument } = require('../../../src/adapters/pi/json-members.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../../src/helper/harness-paths.ts');
 const { loadRegistry, selectMcpServers, harnessFor } = require('../../../src/registry/index.ts');
-const { planLifecycle, applyLifecycle, removeLifecycle, updateLedger } = require('../../../src/lifecycle');
+const { planLifecycle, applyLifecycle, removeLifecycle, updateLedger } = require('../../../src/lifecycle/index.ts');
 const { defaultLedger } = require('../../../src/state/index.ts');
 
 const REPO = path.resolve(__dirname, '../../..');

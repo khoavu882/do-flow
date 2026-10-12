@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Codex adapter boundary. Native parsing and mutation remain in the existing
 // codex-* modules; this module composes their non-mutating plans into the
 // common adapter shape without changing legacy CLI ownership.
@@ -8,7 +10,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { configPath, fingerprint: configFingerprint, parseToml, planCodexConfig, applyCodexConfig } = require('./config.ts');
-const { renderServer, planCodexMcp, applyCodexMcp, ownedCodexMcpIds, userDefinedCodexMcpIds, serverTableText } = require('./mcp');
+const { renderServer, planCodexMcp, applyCodexMcp, ownedCodexMcpIds, userDefinedCodexMcpIds, serverTableText } = require('./mcp.ts');
 const { agentDirectory, discoverCodexAgents, planCodexAgents, applyCodexAgents } = require('./agents.ts');
 const { planCodexHooks, deployCodexHooks, removeCodexHookScripts } = require('./hooks.ts');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../copy-tree.ts');
@@ -19,13 +21,13 @@ const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harn
 const HARNESS = 'codex';
 
 /** Every server a capability provider names as its MCP server. */
-function providerMcpServers(registry) {
-  return Object.values(registry?.capabilities || {}).flatMap((capability) => (capability.providers || []).map((provider) => provider.mcp?.server)).filter(Boolean);
+function providerMcpServers(registry: any) {
+  return Object.values<any>(registry?.capabilities || {}).flatMap((capability) => (capability.providers || []).map((provider: any) => provider.mcp?.server)).filter(Boolean);
 }
 
 /** The servers config.toml defines among `names`, whoever wrote them: the tables DoFlow owns plus the
  * user's own. `null` while the file is absent or cannot be parsed. */
-function configuredCodexMcpIds({ config, scope, fsImpl, mcpRecords, names }) {
+function configuredCodexMcpIds({ config, scope, fsImpl, mcpRecords, names }: any) {
   try {
     if (!fsImpl.existsSync(config)) return null;
     parseToml(fsImpl.readFileSync(config, 'utf8'));
@@ -42,7 +44,7 @@ function configuredCodexMcpIds({ config, scope, fsImpl, mcpRecords, names }) {
  * configured instance so direct callers keep their historical shape.
  */
 function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {}) {
-  function normalizeContext({ scope, scopeRoot, projectRoot, codexDir, homeDir } = {}) {
+  function normalizeContext({ scope, scopeRoot, projectRoot, codexDir, homeDir }: any = {}) {
     if (!['project', 'global', 'user'].includes(scope)) throw new Error(`Unsupported Codex scope '${scope}'`);
     if (scope === 'project') {
       // Logic residue (input normalization, not a path fact): scopeRoot is accepted as the selected
@@ -63,7 +65,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
 
   const nativeContext = normalizeContext;
 
-  function discover(options, { fsImpl = fs } = {}) {
+  function discover(options: any, { fsImpl = fs }: any = {}) {
     const context = nativeContext(options);
     const paths = context.paths;
     const config = paths.configFile;
@@ -83,9 +85,9 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     };
   }
 
-  function render({ registry, asset }) {
+  function render({ registry, asset }: any) {
     if (!registry || !asset) throw new Error('render requires registry and asset');
-    const harness = registry.harnesses.find((item) => item.id === HARNESS);
+    const harness = registry.harnesses.find((item: any) => item.id === HARNESS);
     if (!harness) throw new Error('Registry does not define the Codex harness');
     const projection = asset.projection?.[HARNESS];
     if (!projection) return { harness: HARNESS, assetId: asset.id, status: 'not-applicable' };
@@ -103,20 +105,20 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     };
   }
 
-  function assetIdFor(options, componentName) {
+  function assetIdFor(options: any, componentName: any) {
     const explicit = options.projection?.assetIds?.[componentName];
     if (explicit) return explicit;
     const assets = options.assets || [];
-    if (componentName === 'agents') return assets.find((asset) => asset.id === 'agents.shared')?.id ?? assets[0]?.id;
-    return assets.find((asset) => asset.id === 'guidance.codex-pointer')?.id ?? assets[0]?.id ?? `codex.${componentName}`;
+    if (componentName === 'agents') return assets.find((asset: any) => asset.id === 'agents.shared')?.id ?? assets[0]?.id;
+    return assets.find((asset: any) => asset.id === 'guidance.codex-pointer')?.id ?? assets[0]?.id ?? `codex.${componentName}`;
   }
 
-  function ownershipKind(componentName) {
-    return ({ config: 'configuration-entry', mcp: 'mcp-server', agents: 'custom-agent', hooks: 'hooks-file' })[componentName] ?? componentName;
+  function ownershipKind(componentName: any) {
+    return ({ config: 'configuration-entry', mcp: 'mcp-server', agents: 'custom-agent', hooks: 'hooks-file' } as Record<string, string>)[componentName] ?? componentName;
   }
-  function ownershipIdentity(componentName, identity) { return `doflow:codex:${ownershipKind(componentName)}:${identity}`; }
+  function ownershipIdentity(componentName: any, identity: any) { return `doflow:codex:${ownershipKind(componentName)}:${identity}`; }
 
-  function addChanges(output, assetId, component, componentName) {
+  function addChanges(output: any, assetId: any, component: any, componentName: any) {
     for (const change of component?.changes || []) output.push({
       harness: HARNESS,
       assetId,
@@ -132,8 +134,8 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     });
   }
 
-  function sha256(text) { return `sha256:${crypto.createHash('sha256').update(text).digest('hex')}`; }
-  function lifecycleResource({ scope, assetId, kind, identity, target, fingerprint, sourceVersion, selection, recoveryRef, projection }) {
+  function sha256(text: any) { return `sha256:${crypto.createHash('sha256').update(text).digest('hex')}`; }
+  function lifecycleResource({ scope, assetId, kind, identity, target, fingerprint, sourceVersion, selection, recoveryRef, projection }: any) {
     return { harness: HARNESS, scope, assetId, kind, identity, target, ownershipIdentity: `doflow:codex:${kind}:${identity}`,
       fingerprint, sourceVersion: sourceVersion ?? 'unknown', selection: selection ?? true, recoveryRef: recoveryRef ?? null, projection };
   }
@@ -141,8 +143,8 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
   /** Convert neutral ledger entries to the legacy planner's ownership record.
    * An absolute target must match the exact native file this component will
    * reconcile; a record from another Codex project cannot authorize this plan. */
-  function nativeManagedResources(resources, context, { kind, target, directory } = {}) {
-    return (resources || []).flatMap((resource) => {
+  function nativeManagedResources(resources: any, context: any, { kind, target, directory }: any = {}) {
+    return (resources || []).flatMap((resource: any) => {
       if (!resource || resource.kind !== kind) return [];
       // Retain the pre-registry native record shape for direct callers/tests.
       if (!resource.harness && resource.target === HARNESS) {
@@ -160,36 +162,36 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
   /** Whether a row of the OTHER scope claims `target` (for a config or MCP entry: the same entry in
    * that file). A project rooted at $HOME shares `~/.codex`, `~/.agents` and the one ledger with the
    * global install, so its removal must leave whatever the global rows still own, and vice versa. */
-  function claimedByOtherScope(resources, context, target, identity) {
+  function claimedByOtherScope(resources: any, context: any, target: any, identity?: any) {
     if (typeof target !== 'string') return false;
-    return (resources || []).some((resource) => resource?.scope && resource.scope !== context.scope
+    return (resources || []).some((resource: any) => resource?.scope && resource.scope !== context.scope
       && typeof resource.target === 'string' && path.resolve(resource.target) === path.resolve(target)
       && (identity === undefined || resource.identity === identity));
   }
 
-  function claimedRowElsewhere(resources, context, resource) {
+  function claimedRowElsewhere(resources: any, context: any, resource: any) {
     return claimedByOtherScope(resources, context, resource.target,
       ['configuration-entry', 'config-entry', 'mcp-server'].includes(resource.kind) ? resource.identity : undefined);
   }
 
   /** The rows a removal may act on: this scope's own, minus any path the other scope still claims. */
-  function removableRows(resources, context) {
-    return (resources || []).filter((resource) => (!resource?.scope || resource.scope === context.scope)
+  function removableRows(resources: any, context: any) {
+    return (resources || []).filter((resource: any) => (!resource?.scope || resource.scope === context.scope)
       && !claimedRowElsewhere(resources, context, resource));
   }
 
   /** This scope's rows on a path the other scope still claims become retained removals: the
    * lifecycle releases the row and never hands the change to remove(), so nothing is deleted. */
-  function retainedRemovals(resources, context) {
-    return (resources || []).filter((resource) => resource?.harness === HARNESS && resource.scope === context.scope
+  function retainedRemovals(resources: any, context: any) {
+    return (resources || []).filter((resource: any) => resource?.harness === HARNESS && resource.scope === context.scope
       && claimedRowElsewhere(resources, context, resource))
-      .map((resource) => ({ harness: HARNESS, assetId: resource.assetId, target: resource.target, operation: 'remove',
+      .map((resource: any) => ({ harness: HARNESS, assetId: resource.assetId, target: resource.target, operation: 'remove',
         ownershipIdentity: resource.ownershipIdentity, kind: resource.kind, identity: resource.identity,
         retained: true, retainedFor: [`${HARNESS} (${context.scope === 'global' ? 'project' : 'global'} scope)`] }));
   }
 
-  function ownedRemovalPlan(resources, context, kind, directory) {
-    const entries = (resources || []).filter((resource) => resource?.harness === HARNESS && resource.kind === kind);
+  function ownedRemovalPlan(resources: any, context: any, kind: any, directory?: any) {
+    const entries = (resources || []).filter((resource: any) => resource?.harness === HARNESS && resource.kind === kind);
     const changes = []; const conflicts = [];
     for (const resource of entries) {
       const target = kind === 'custom-agent'
@@ -205,38 +207,38 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     return { ok: conflicts.length === 0, status: conflicts.length ? 'conflict' : (changes.length ? 'change' : 'unchanged'), changes, conflicts, directRemove: true };
   }
 
-  function configResourcesFrom(config, { scope, sourceVersion, recoveryRef }) {
+  function configResourcesFrom(config: any, { scope, sourceVersion, recoveryRef }: any) {
     return (config?.managedResources || [])
-      .filter((record) => record.kind === 'configuration-entry' || record.kind === 'config-entry')
-      .map((record) => lifecycleResource({ scope, assetId: 'guidance.codex-pointer', kind: 'configuration-entry', identity: record.identity,
+      .filter((record: any) => record.kind === 'configuration-entry' || record.kind === 'config-entry')
+      .map((record: any) => lifecycleResource({ scope, assetId: 'guidance.codex-pointer', kind: 'configuration-entry', identity: record.identity,
         target: config.file, fingerprint: record.fingerprint, sourceVersion: record.sourceVersion ?? sourceVersion, recoveryRef,
         projection: { renderer: 'codex-config' } }));
   }
 
-  function mcpResourcesFrom(mcp, { scope, sourceVersion, recoveryRef }) {
+  function mcpResourcesFrom(mcp: any, { scope, sourceVersion, recoveryRef }: any) {
     return (mcp?.managedResources || [])
-      .filter((record) => record.kind === 'mcp-server')
-      .map((record) => lifecycleResource({ scope, assetId: 'guidance.codex-pointer', kind: 'mcp-server', identity: record.identity,
+      .filter((record: any) => record.kind === 'mcp-server')
+      .map((record: any) => lifecycleResource({ scope, assetId: 'guidance.codex-pointer', kind: 'mcp-server', identity: record.identity,
         target: mcp.file, fingerprint: record.fingerprint, sourceVersion: record.sourceVersion ?? sourceVersion, selection: record.selection, recoveryRef,
         projection: { renderer: 'codex-mcp' } }));
   }
 
-  function agentResourcesFrom(agents, { scope, sourceVersion, recoveryRef }) {
+  function agentResourcesFrom(agents: any, { scope, sourceVersion, recoveryRef }: any) {
     return (agents?.managedResources || [])
-      .filter((record) => record.kind === 'custom-agent')
-      .map((record) => lifecycleResource({ scope, assetId: 'agents.shared', kind: 'custom-agent', identity: record.identity,
+      .filter((record: any) => record.kind === 'custom-agent')
+      .map((record: any) => lifecycleResource({ scope, assetId: 'agents.shared', kind: 'custom-agent', identity: record.identity,
         target: path.join(agents.directory, `${record.identity.replace(/^agent:/, '')}.toml`), fingerprint: record.fingerprint,
         sourceVersion: record.sourceVersion ?? sourceVersion, recoveryRef, projection: { renderer: 'codex-agent' } }));
   }
 
-  function hooksResourceFrom(hooks, { scope, sourceVersion, recoveryRef }) {
+  function hooksResourceFrom(hooks: any, { scope, sourceVersion, recoveryRef }: any) {
     if (!hooks?.applied || !hooks.destination) return [];
     return [lifecycleResource({ scope, assetId: 'guidance.codex-pointer', kind: 'hooks-file', identity: 'hooks.json',
       target: hooks.destination, fingerprint: sha256(fs.readFileSync(hooks.destination, 'utf8')), sourceVersion, recoveryRef,
       projection: { renderer: 'codex-hooks' } })];
   }
 
-  function resourcesFromApplied({ components, scope, sourceVersion, recoveryRef }) {
+  function resourcesFromApplied({ components, scope, sourceVersion, recoveryRef }: any) {
     const shared = { scope, sourceVersion, recoveryRef };
     return [
       ...configResourcesFrom(components.config, shared),
@@ -248,8 +250,8 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
 
   // ---- copy-tree assets (rules, skills, agents, templates, scripts, references) ----
 
-  function codexConfigDir(context) { return context.paths.configDir; }
-  function sourceDirFor(asset, repoRoot) {
+  function codexConfigDir(context: any) { return context.paths.configDir; }
+  function sourceDirFor(asset: any, repoRoot: any) {
     if (!asset || typeof asset.source !== 'string') throw new Error('Codex asset requires a source path');
     const root = repoRoot ? path.resolve(repoRoot) : process.cwd();
     const source = path.resolve(root, asset.source);
@@ -267,16 +269,16 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
   // declared in harnesses.json (paths.instructions). The registry declares this asset's codex
   // projection as renderer "codex-agents" (see core/registry/assets.json).
 
-  function instructionsAsset(assets) { return (assets || []).find((asset) => asset?.renderer === 'codex-agents'); }
-  function instructionsPath(context) {
+  function instructionsAsset(assets: any) { return (assets || []).find((asset: any) => asset?.renderer === 'codex-agents'); }
+  function instructionsPath(context: any) {
     return context.paths.instructions;
   }
-  function sha256Text(text) { return crypto.createHash('sha256').update(text).digest('hex'); }
+  function sha256Text(text: any) { return crypto.createHash('sha256').update(text).digest('hex'); }
 
-  function planInstructionsAsset({ assets, context, removing, repoRoot, claimedElsewhere = () => false }) {
+  function planInstructionsAsset({ assets, context, removing, repoRoot, claimedElsewhere = () => false }: any) {
     const asset = instructionsAsset(assets);
-    const changes = [];
-    const conflicts = [];
+    const changes: any[] = [];
+    const conflicts: any[] = [];
     if (!asset) return { changes, conflicts };
     const target = instructionsPath(context);
     // Broken markers are a plan conflict, as for Claude: found only while applying, they would stop
@@ -304,22 +306,22 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     return { changes, conflicts };
   }
 
-  function applyInstructionsAsset(changes) {
+  function applyInstructionsAsset(changes: any) {
     for (const change of changes) {
       if (change.projection?.renderer !== 'codex-agents' || change.operation === 'remove') continue;
       mergeMarkedSection(change.source, change.target);
     }
   }
 
-  function removeInstructionsAsset(changes) {
+  function removeInstructionsAsset(changes: any) {
     for (const change of changes) {
       if (change.projection?.renderer === 'codex-agents' && change.operation === 'remove') removeMarkedSection(change.target);
     }
   }
 
-  function verifyInstructionsAsset({ assets, context, repoRoot }) {
+  function verifyInstructionsAsset({ assets, context, repoRoot }: any) {
     const asset = instructionsAsset(assets);
-    const statuses = []; const resources = [];
+    const statuses: any[] = []; const resources: any[] = [];
     if (!asset) return { statuses, resources };
     const target = instructionsPath(context);
     const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : null;
@@ -333,7 +335,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     return { statuses, resources };
   }
 
-  function planCopyTreeAssets({ assets, context, neutralResources, removing, repoRoot, sourceVersion, force = false }) {
+  function planCopyTreeAssets({ assets, context, neutralResources, removing, repoRoot, sourceVersion, force = false }: any) {
     const changes = [];
     const conflicts = [];
     const treeResults = [];
@@ -350,10 +352,10 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
         // never deleted, forced or not.
         force: !removing && force === true });
       treeResults.push(result);
-      conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+      conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       // A hand-edited file at a path DoFlow no longer writes is the user's: it stays, only its
       // ownership row is released.
-      notices.push(...result.kept.map((item) => `kept hand-edited ${path.relative(context.paths.root, item.target)}; DoFlow no longer manages it`));
+      notices.push(...result.kept.map((item: any) => `kept hand-edited ${path.relative(context.paths.root, item.target)}; DoFlow no longer manages it`));
       for (const change of result.changes) {
         changes.push({
           assetId: asset.id, target: change.target, source: change.source, operation: change.operation,
@@ -368,19 +370,19 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     return { changes, conflicts, notices: [...siblingReplacedNotices(treeResults), ...notices] };
   }
 
-  function applyCopyTreeAssets(changes) {
-    const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation !== 'remove')
-      .map((change) => ({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint }));
+  function applyCopyTreeAssets(changes: any) {
+    const treeChanges = changes.filter((change: any) => change.projection?.renderer === 'copy-tree' && change.operation !== 'remove')
+      .map((change: any) => ({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint }));
     return applyTree({ changes: treeChanges }).applied;
   }
 
-  function removeCopyTreeAssets(changes) {
-    const treeChanges = changes.filter((change) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove' && !change.retained)
-      .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
+  function removeCopyTreeAssets(changes: any) {
+    const treeChanges = changes.filter((change: any) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove' && !change.retained)
+      .map((change: any) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
     return removeTree({ changes: treeChanges }).removed;
   }
 
-  function verifyCopyTreeAssets({ assets, context, repoRoot, sourceVersion }) {
+  function verifyCopyTreeAssets({ assets, context, repoRoot, sourceVersion }: any) {
     const statuses = [];
     const resources = [];
     const conflicts = [];
@@ -388,7 +390,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
       const destDir = copyTreeDestDir(codexConfigDir(context), asset);
       const sourceDir = sourceDirFor(asset, repoRoot);
       const result = verifyTree({ sourceDir, destDir, layout: asset.layout });
-      conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+      conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({
           assetId: asset.id, target: resource.target, ownershipIdentity: `doflow:codex:copy-tree:${asset.id}:${resource.relPath}`,
@@ -406,11 +408,11 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
    * callers may still use legacy option names; lifecycle callers pass `assets`,
    * `mcp`, `policies`, and optionally `projection` for source-bearing surfaces.
    * Native source paths are never guessed from an asset's renderer. */
-  function projectedNativeOptions(options) {
+  function projectedNativeOptions(options: any) {
     const projection = options.projection || {};
     const configResources = projection.configResources ?? options.configResources ?? options.context?.codexConfigResources;
     const mcpCatalog = projection.mcp?.catalog ?? options.mcpCatalog ?? options.mcp ?? [];
-    const selectedMcp = projection.mcp?.selected ?? options.selectedMcp ?? (options.mcp ? options.mcp.map((server) => server.id) : undefined);
+    const selectedMcp = projection.mcp?.selected ?? options.selectedMcp ?? (options.mcp ? options.mcp.map((server: any) => server.id) : undefined);
     const agentsSourceDir = projection.agents?.sourceDir ?? options.agentsSourceDir ?? options.context?.codexAgentsSourceDir;
     const hooksSourceFile = projection.hooks?.sourceFile ?? options.hooksSourceFile ?? options.context?.codexHooksSourceFile;
     const hooksSourceDir = projection.hooks?.sourceHooksDir ?? options.hooksSourceDir ?? options.context?.codexHooksSourceDir;
@@ -419,7 +421,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     return { configResources, mcpCatalog, selectedMcp, agentsSourceDir, hooksSourceFile, hooksSourceDir, hooksConfig, hooksTrusted };
   }
 
-  function planConfigComponent({ native, neutralResources, context, configFile, removing, adopt = false }) {
+  function planConfigComponent({ native, neutralResources, context, configFile, removing, adopt = false }: any) {
     if (native.configResources === undefined) return undefined;
     const managedResources = nativeManagedResources(neutralResources, context, { kind: 'configuration-entry', target: configFile });
     const component = planCodexConfig({ file: configFile, scope: context.scope, managedResources, desiredResources: removing ? [] : native.configResources, adopt: !removing && adopt });
@@ -431,7 +433,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     return component;
   }
 
-  function planMcpComponent({ native, neutralResources, context, configFile, removing, options }) {
+  function planMcpComponent({ native, neutralResources, context, configFile, removing, options }: any) {
     if (native.selectedMcp === undefined) return undefined;
     const catalog = nativeMcpCatalog(native.mcpCatalog);
     const managedResources = nativeManagedResources(neutralResources, context, { kind: 'mcp-server', target: configFile });
@@ -443,7 +445,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
   /** Codex hooks.json is only replaced when the file on disk still matches the ledger's last-known
    * fingerprint — a foreign edit (or a record the ledger never owned) downgrades an otherwise-clean
    * plan to a conflict rather than silently overwriting it. */
-  function planHooksComponent({ native, neutralResources, context, adopt = false }) {
+  function planHooksComponent({ native, neutralResources, context, adopt = false }: any) {
     let hooks = planCodexHooks({ config: native.hooksConfig, sourceFile: native.hooksSourceFile,
       sourceHooksDir: native.hooksSourceDir, trusted: native.hooksTrusted, destinationContext: context });
     const hooksFile = hooks.destination;
@@ -464,7 +466,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
 
   /** Agents/hooks share one removing-vs-planning fork: removal always owns both via the neutral
    * ledger's own records, regardless of what native input the caller provided this run. */
-  function planAgentsAndHooksComponents({ native, neutralResources, context, agentsDirectory, removing, options, adopt = false }) {
+  function planAgentsAndHooksComponents({ native, neutralResources, context, agentsDirectory, removing, options, adopt = false }: any) {
     if (removing) {
       return {
         agents: ownedRemovalPlan(neutralResources, context, 'custom-agent', agentsDirectory),
@@ -473,7 +475,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
           scriptsDir: native.hooksSourceDir, destinationHooksDir: context.paths.hooksDirectory },
       };
     }
-    const components = {};
+    const components: Record<string, any> = {};
     if (native.agentsSourceDir !== undefined) {
       const managedResources = nativeManagedResources(neutralResources, context, { kind: 'custom-agent', directory: agentsDirectory });
       // `...context` is the NARROW native context (scope/codexDir/paths) and carries no adopt, so
@@ -491,7 +493,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
    * its desired input, which prevents a generic plan from accidentally removing
    * an owned configuration entry or MCP server merely because it was omitted.
    */
-  function plan(options) {
+  function plan(options: any) {
     const context = nativeContext(options);
     const removing = options.context?.operation === 'remove';
     const ledgerRows = options.managedResources || options.ledger?.resources || [];
@@ -499,7 +501,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     const native = projectedNativeOptions(options);
     const configFile = context.paths.configFile;
     const agentsDirectory = context.paths.agentsDirectory;
-    const components = {};
+    const components: Record<string, any> = {};
     // `options.context` is the lifecycle context; `context` is this adapter's narrow native one.
     // copyTree below already reads force off the former — adopt is read the same way.
     const adopt = options.context?.adopt === true;
@@ -512,7 +514,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
       repoRoot: options.context?.repoRoot, sourceVersion: options.sourceVersion ?? options.context?.sourceVersion,
       force: options.context?.force === true });
     const instructions = planInstructionsAsset({ assets: options.assets, context, removing, repoRoot: options.context?.repoRoot,
-      claimedElsewhere: (target) => claimedByOtherScope(ledgerRows, context, target) });
+      claimedElsewhere: (target: any) => claimedByOtherScope(ledgerRows, context, target) });
     // Two pseudo-components: their changes are already in final adapter shape (unlike the other
     // components' native shape, which addChanges() below converts), so they're appended to `changes`
     // directly rather than run through addChanges. Registering them in `components` still gets their
@@ -520,8 +522,8 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     // adapterConflicts() component scan, with no special-casing needed in either.
     components.copyTree = { ok: copyTree.conflicts.length === 0, conflicts: copyTree.conflicts };
     components.instructions = { ok: instructions.conflicts.length === 0, conflicts: instructions.conflicts };
-    const failures = Object.entries(components).filter(([, component]) => !component.ok);
-    const changes = [];
+    const failures = Object.entries(components).filter(([, component]: [string, any]) => !component.ok);
+    const changes: any[] = [];
     addChanges(changes, assetIdFor(options, 'config'), components.config, 'config');
     addChanges(changes, assetIdFor(options, 'mcp'), components.mcp, 'mcp');
     addChanges(changes, assetIdFor(options, 'agents'), components.agents, 'agents');
@@ -529,7 +531,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     changes.push(...copyTree.changes, ...instructions.changes);
     if (removing) changes.push(...retainedRemovals(ledgerRows, context));
     const requiredNativeResources = [
-      ...Object.entries(components).flatMap(([component, result]) => (result.changes || []).map((change) => ({
+      ...Object.entries(components).flatMap(([component, result]: [string, any]) => (result.changes || []).map((change: any) => ({
         harness: HARNESS, component, target: change.target ?? change.file ?? result.file ?? result.destination ?? result.directory,
         operation: change.operation ?? change.type, identity: change.identity ?? null,
       }))),
@@ -543,7 +545,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
   /** Apply only native plans emitted by this adapter. MCP is first because it and
    * config.toml share a file; config is then re-planned over the MCP result so it
    * cannot overwrite an adjacent MCP table. */
-  function apply({ changes = [], dryRun = false, scope, sourceVersion, recoveryRef } = {}) {
+  function apply({ changes = [], dryRun = false, scope, sourceVersion, recoveryRef }: any = {}) {
     const components = new Map();
     for (const change of changes) if (change?.nativeComponent && change.nativePlan) components.set(change.nativeComponent, change.nativePlan);
     let mcp = components.get('mcp');
@@ -574,7 +576,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
   /** Removal reuses the same fingerprint-checked native plans. Only config/MCP
    * plans generated with context.operation=remove contain safe removals; hooks
    * and agents are intentionally never blindly deleted. */
-  function remove({ changes = [], dryRun = false } = {}) {
+  function remove({ changes = [], dryRun = false }: any = {}) {
     const result = apply({ changes, dryRun });
     const direct = new Map();
     for (const change of changes) if (change?.nativePlan?.directRemove) direct.set(change.target, change);
@@ -584,13 +586,13 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
       if (current !== change.fingerprint) throw new Error(`Refusing to remove modified Codex resource '${change.identity}'`);
       if (!dryRun) fs.unlinkSync(change.target);
     }
-    const hooksPlan = changes.find((change) => change?.nativeComponent === 'hooks' && change.nativePlan?.directRemove)?.nativePlan;
+    const hooksPlan = changes.find((change: any) => change?.nativeComponent === 'hooks' && change.nativePlan?.directRemove)?.nativePlan;
     if (hooksPlan) removeCodexHookScripts(hooksPlan, { dryRun });
     if (!dryRun) removeInstructionsAsset(changes);
-    return { ...result, removed: changes.filter((change) => (change.operation ?? change.type) === 'remove').length };
+    return { ...result, removed: changes.filter((change: any) => (change.operation ?? change.type) === 'remove').length };
   }
 
-  function verifyConfigResources({ native, parsed, context, options, sourceVersion, recoveryRef }) {
+  function verifyConfigResources({ native, parsed, context, options, sourceVersion, recoveryRef }: any) {
     const statuses = []; const resources = [];
     for (const resource of native.configResources || []) {
       const entry = parsed?.entries.get(resource.identity);
@@ -605,7 +607,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
 
   /** A server is recorded only when its table now holds DoFlow's rendering. One discovery found as
    * the user's at plan time is reported `not-managed` and never recorded, even when its bytes match. */
-  function verifyMcpResources({ native, configText, context, options, sourceVersion, recoveryRef }) {
+  function verifyMcpResources({ native, configText, context, options, sourceVersion, recoveryRef }: any) {
     const statuses = []; const resources = [];
     const catalog = nativeMcpCatalog(native.mcpCatalog);
     const userDefined = new Set(options.discovery?.mcpUserDefined || []);
@@ -623,8 +625,8 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     return { statuses, resources };
   }
 
-  function verifyAgentResources({ native, context, options, sourceVersion, recoveryRef }) {
-    const statuses = []; const resources = [];
+  function verifyAgentResources({ native, context, options, sourceVersion, recoveryRef }: any) {
+    const statuses: any[] = []; const resources: any[] = [];
     if (!native.agentsSourceDir) return { statuses, resources };
     for (const agent of discoverCodexAgents(native.agentsSourceDir)) {
       const target = path.join(agentDirectory(context), agent.fileName);
@@ -638,8 +640,8 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     return { statuses, resources };
   }
 
-  function verifyHooksResource({ native, context, options, sourceVersion, recoveryRef }) {
-    const statuses = []; const resources = []; const conflicts = [];
+  function verifyHooksResource({ native, context, options, sourceVersion, recoveryRef }: any) {
+    const statuses: any[] = []; const resources: any[] = []; const conflicts: any[] = [];
     if (!native.hooksSourceFile && !native.hooksConfig) return { statuses, resources, conflicts };
     const hooks = planCodexHooks({ config: native.hooksConfig, sourceFile: native.hooksSourceFile, sourceHooksDir: native.hooksSourceDir,
       trusted: native.hooksTrusted, destinationContext: context });
@@ -652,11 +654,11 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     return { statuses, resources, conflicts };
   }
 
-  function verifyAssetRenderStatuses({ registry, assets }) {
-    return assets.map((asset) => render({ registry, asset })).filter((rendered) => rendered.status !== 'renderable');
+  function verifyAssetRenderStatuses({ registry, assets }: any) {
+    return assets.map((asset: any) => render({ registry, asset })).filter((rendered: any) => rendered.status !== 'renderable');
   }
 
-  function verify(options = {}) {
+  function verify(options: any = {}) {
     const { registry, assets = [], plan: proposed } = options;
     const context = nativeContext(options);
     const native = projectedNativeOptions(options);
@@ -666,7 +668,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     if (fs.existsSync(context.paths.configFile)) configText = fs.readFileSync(context.paths.configFile, 'utf8');
     let parsed;
     const conflicts = [];
-    try { parsed = parseToml(configText); } catch (error) { conflicts.push(`Malformed Codex config: ${error.message}`); }
+    try { parsed = parseToml(configText); } catch (error: any) { conflicts.push(`Malformed Codex config: ${error.message}`); }
 
     const shared = { context, options, sourceVersion, recoveryRef };
     const config = verifyConfigResources({ native, parsed, ...shared });
@@ -683,7 +685,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     ];
     const resources = [...config.resources, ...mcp.resources, ...agents.resources, ...hooks.resources, ...copyTree.resources, ...instructions.resources];
     conflicts.push(...hooks.conflicts, ...copyTree.conflicts);
-    const componentFailures = Object.values(proposed?.components || {}).filter((component) => !component.ok);
+    const componentFailures = Object.values<any>(proposed?.components || {}).filter((component) => !component.ok);
     for (const component of componentFailures) conflicts.push(...(component.conflicts || component.errors || []));
 
     return { ok: conflicts.length === 0 && statuses.every((status) => status.status !== 'missing' && status.status !== 'conflict'), resources, statuses, conflicts };

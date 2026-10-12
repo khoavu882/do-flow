@@ -16,16 +16,16 @@ const { DEFAULT_BACKUP_RETENTION, formatBytes } = require('../install/backup.ts'
 const { stateRoot, readLedger } = require('../state/index.ts');
 const { readLock } = require('../state/lockfile.ts');
 const { acquireRunLock, RunLockTimeoutError, RunLockError, RunLockLostError } = require('../state/run-lock.ts');
-const { createAdapterRegistry } = require('../adapters');
+const { createAdapterRegistry } = require('../adapters/index.ts');
 const { declaredHarnessPaths } = require('../helper/harness-paths.ts');
-const claudeAdapter = require('../adapters/claude');
-const codexAdapter = require('../adapters/codex');
-const { createGeminiAdapter } = require('../adapters/gemini');
-const { createOpenCodeAdapter } = require('../adapters/opencode');
-const { createPiAdapter } = require('../adapters/pi');
-const { createCopilotAdapter } = require('../adapters/copilot');
-const { createKiroAdapter } = require('../adapters/kiro');
-const { createAntigravityAdapter } = require('../adapters/antigravity');
+const claudeAdapter = require('../adapters/claude/index.ts');
+const codexAdapter = require('../adapters/codex/index.ts');
+const { createGeminiAdapter } = require('../adapters/gemini/index.ts');
+const { createOpenCodeAdapter } = require('../adapters/opencode/index.ts');
+const { createPiAdapter } = require('../adapters/pi/index.ts');
+const { createCopilotAdapter } = require('../adapters/copilot/index.ts');
+const { createKiroAdapter } = require('../adapters/kiro/index.ts');
+const { createAntigravityAdapter } = require('../adapters/antigravity/index.ts');
 
 // The directory of the `doflow` entrypoint. Derived from the shared package root rather than
 // __dirname so its value survives this code physically moving between directories: manifests,
@@ -44,7 +44,7 @@ const pkg = loadPkg();
 /**
  * The one adapter registry construction, used by install/update/remove/reconcile. There used to
  * be three inline copies of the same construction (one per mutating command); a fourth variant
- * once grew in src/lifecycle/view.js and silently fell behind (fixed in 96006da) — which is why
+ * once grew in src/lifecycle/view.ts and silently fell behind (fixed in 96006da) — which is why
  * the registry guard pins every declared harness into each call site by parsing them.
  * Build one here rather than copying the object literal again. Stage 3: each adapter factory
  * receives its harness's declared native paths from core/registry/harnesses.json, so the CLI

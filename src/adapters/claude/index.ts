@@ -1,7 +1,9 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Claude native adapter.  It owns only Claude path/format decisions; selection and
-// ownership journalling remain lifecycle concerns. Its MCP entries live in ./mcp.js.
+// ownership journalling remain lifecycle concerns. Its MCP entries live in ./mcp.ts.
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -11,7 +13,7 @@ const { GLOBAL_HOOK_PREFIX, PROJECT_HOOK_PREFIX } = require('../../helper/settin
 const { mergeSettings, settingsContains, settingsContainsAny, stripManagedSettings } = require('../../helper/settings-merge.ts');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveTransform } = require('../copy-tree.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
-const { discoverMcp, planMcp, writeMcp, verifyMcp } = require('./mcp');
+const { discoverMcp, planMcp, writeMcp, verifyMcp } = require('./mcp.ts');
 
 const INSTRUCTION_RENDERER = 'claude-instructions';
 const SETTINGS_RENDERER = 'claude-settings';
@@ -28,11 +30,11 @@ const SETTINGS_RENDERER = 'claude-settings';
  */
 const SETTINGS_FILES = ['settings.json', 'keybindings.json'];
 
-function sha256(value) {
+function sha256(value: any) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
-function sourcePath(asset, context = {}) {
+function sourcePath(asset: any, context: any = {}) {
   if (!asset || typeof asset.source !== 'string') throw new Error('Claude asset requires a source path');
   const repoRoot = context.repoRoot ? path.resolve(context.repoRoot) : process.cwd();
   const source = path.resolve(repoRoot, asset.source);
@@ -42,7 +44,7 @@ function sourcePath(asset, context = {}) {
   return source;
 }
 
-function markerState(file) {
+function markerState(file: any) {
   if (!fs.existsSync(file)) return { exists: false, managed: false, malformed: false };
   const text = fs.readFileSync(file, 'utf8');
   const starts = text.split(MARKER_START).length - 1;
@@ -51,8 +53,8 @@ function markerState(file) {
 }
 
 /** Single serialization form for every settings write, so repeated runs are byte-stable. */
-const serializeSettings = (value) => `${JSON.stringify(value, null, 2)}\n`;
-const settingsChangeExtras = (fileName) => ({ kind: 'settings-file', identity: fileName });
+const serializeSettings = (value: any) => `${JSON.stringify(value, null, 2)}\n`;
+const settingsChangeExtras = (fileName: any) => ({ kind: 'settings-file', identity: fileName });
 
 /**
  * Native path facts live in core/registry/harnesses.json under this harness's "paths" section and
@@ -65,18 +67,18 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
   // Parity note: Claude's historical nativePaths() resolved BOTH scopes' root from scopeRoot (the
   // CLI passes $HOME there for -g installs) and never consulted homeDir — so the resolver is fed
   // no homeDir and "root" keeps resolving exactly as before.
-  function nativePaths({ scope, scopeRoot } = {}) {
+  function nativePaths({ scope, scopeRoot }: any = {}) {
     return resolveHarnessPaths(declaredPaths, { scope, scopeRoot });
   }
 
-  function discover({ scope, scopeRoot, mcp = [], mcpAdoptable = [], ledger, registry, homeDir, context = {} }) {
+  function discover({ scope, scopeRoot, mcp = [], mcpAdoptable = [], ledger, registry, homeDir, context = {} }: any) {
     const paths = nativePaths({ scope, scopeRoot });
     return {
       paths,
       instructions: markerState(paths.instructions),
       settingsExists: fs.existsSync(paths.settings),
       mcpExists: fs.existsSync(paths.mcp),
-      knownMcpServers: registry ? selectMcpServers(registry).map((server) => server.id) : [],
+      knownMcpServers: registry ? selectMcpServers(registry).map((server: any) => server.id) : [],
       ...discoverMcp({ paths, mcp, mcpAdoptable, ledger, scope, scopeRoot, homeDir: context.homeDir || homeDir || undefined }),
     };
   }
@@ -86,11 +88,11 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
   /** Every asset materialised through the copy-tree engine, whatever its declared renderer:
    * verbatim mirrors declare 'copy-tree', transformed projections (output styles) declare their
    * own name so the registry can tell the shapes apart. Routing is on `kind`, which both share. */
-  function claudeTreeAssets(assets) {
-    return [...copyTreeAssets(assets), ...(assets || []).filter((asset) => asset.renderer === 'claude-output-styles')];
+  function claudeTreeAssets(assets: any) {
+    return [...copyTreeAssets(assets), ...(assets || []).filter((asset: any) => asset.renderer === 'claude-output-styles')];
   }
 
-  function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing }) {
+  function planCopyTreeAssets({ assets, scope, scopeRoot, context, ledger, removing }: any) {
     const paths = nativePaths({ scope, scopeRoot });
     const changes = [];
     const conflicts = [];
@@ -103,14 +105,14 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
       const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, 'claude'), operation: removing ? 'remove' : 'apply', layout: asset.layout, transform: asset.transform, keepModified: !removing,
         // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
         // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
-        // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file
+        // reason codex/index.ts states in full: force heals drift on apply, but a hand-edited file
         // is never deleted on removal, forced or not.
         force: !removing && context?.force === true, });
       treeResults.push(result);
-      conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+      conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       // A hand-edited file at a path DoFlow no longer writes is the user's: it stays, only its
       // ownership row is released.
-      notices.push(...result.kept.map((item) => `kept hand-edited ${path.relative(paths.root, item.target)}; DoFlow no longer manages it`));
+      notices.push(...result.kept.map((item: any) => `kept hand-edited ${path.relative(paths.root, item.target)}; DoFlow no longer manages it`));
       for (const change of result.changes) {
         changes.push({
           assetId: asset.id, target: change.target, source: change.source, operation: change.operation,
@@ -126,7 +128,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     return { changes, conflicts, notices: [...siblingReplacedNotices(treeResults), ...notices] };
   }
 
-  function applyCopyTreeAssets(changes) {
+  function applyCopyTreeAssets(changes: any) {
     let applied = 0;
     const grouped = new Map();
     for (const change of changes) {
@@ -141,13 +143,13 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     return applied;
   }
 
-  function removeCopyTreeAssets(changes) {
-    const treeChanges = changes.filter((change) => change.kind === 'copy-tree-file' && change.operation === 'remove' && !change.retained)
-      .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
+  function removeCopyTreeAssets(changes: any) {
+    const treeChanges = changes.filter((change: any) => change.kind === 'copy-tree-file' && change.operation === 'remove' && !change.retained)
+      .map((change: any) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
     return removeTree({ changes: treeChanges }).removed;
   }
 
-  function verifyCopyTreeAssets({ assets, scope, scopeRoot, context }) {
+  function verifyCopyTreeAssets({ assets, scope, scopeRoot, context }: any) {
     const paths = nativePaths({ scope, scopeRoot });
     const statuses = [];
     const resources = [];
@@ -156,7 +158,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
       const destDir = copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourcePath(asset, context);
       const result = verifyTree({ sourceDir, destDir, layout: asset.layout, transform: asset.transform });
-      conflicts.push(...result.conflicts.map((reason) => `${asset.id}: ${reason}`));
+      conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({
           assetId: asset.id, target: resource.target, ownershipIdentity: `doflow:claude:copy-tree:${asset.id}:${resource.relPath}`,
@@ -172,16 +174,16 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
 
   // ---- claude-settings asset (settings.json + keybindings.json) ----
 
-  function settingsAsset(assets) { return (assets || []).find((asset) => asset?.renderer === SETTINGS_RENDERER); }
-  function settingsTarget(fileName, paths) {
+  function settingsAsset(assets: any) { return (assets || []).find((asset: any) => asset?.renderer === SETTINGS_RENDERER); }
+  function settingsTarget(fileName: any, paths: any) {
     // Per-file dispatch across the two DECLARED settings surfaces (paths.settings / paths.keybindings):
     // residue because the authored file list is content-shaped, not a single declarable destination.
     return fileName === 'settings.json' ? paths.settings : paths.keybindings;
   }
-  function settingsContent(fileName, raw, scope) {
+  function settingsContent(fileName: any, raw: any, scope: any) {
     return fileName === 'settings.json' && scope !== 'global' ? raw.split(GLOBAL_HOOK_PREFIX).join(PROJECT_HOOK_PREFIX) : raw;
   }
-  function settingsLedgerResources(ledger, assetId) {
+  function settingsLedgerResources(ledger: any, assetId: any) {
     const byFile = new Map();
     for (const resource of ledger?.resources || []) {
       if (resource.harness === 'claude' && resource.assetId === assetId && resource.kind === 'settings-file') byFile.set(resource.identity, resource);
@@ -192,7 +194,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
 
   /** Inject (or leave untouched) the statusLine key pointing at the projected script. Refuses to
    * overwrite a user's existing custom status line unless forced: their script is theirs. */
-  function withStatusLineKey(rawSettingsJson, scriptPath, force) {
+  function withStatusLineKey(rawSettingsJson: any, scriptPath: any, force: any) {
     let parsed;
     try {
       parsed = JSON.parse(rawSettingsJson);
@@ -205,10 +207,10 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     return serializeSettings(parsed);
   }
 
-  function planSettingsAsset({ assets, scope, scopeRoot, context, ledger, removing }) {
+  function planSettingsAsset({ assets, scope, scopeRoot, context, ledger, removing }: any) {
     const asset = settingsAsset(assets);
-    const changes = [];
-    const conflicts = [];
+    const changes: any[] = [];
+    const conflicts: any[] = [];
     if (!asset) return { changes, conflicts };
     const paths = nativePaths({ scope, scopeRoot });
     const sourceDir = sourcePath(asset, context);
@@ -309,7 +311,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
   // other copy-tree/settings write in this codebase — planSettingsAsset's own change detection is
   // fingerprint(sha256)-based, not mtime-based, so this is a consistency convention, not a
   // correctness requirement.
-  function applySettingsAsset(changes) {
+  function applySettingsAsset(changes: any) {
     let applied = 0;
     for (const change of changes) {
       if (change.projection?.renderer !== SETTINGS_RENDERER || change.operation === 'remove') continue;
@@ -326,7 +328,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
   // is deleted outright only when nothing but schema pointers remains — i.e. DoFlow created it.
   // Previously this rmSync'd unconditionally, which on a user-maintained settings.json would have
   // destroyed their model, permissions, env, and every foreign tool's hooks along with ours.
-  function removeSettingsAsset(changes) {
+  function removeSettingsAsset(changes: any) {
     let removed = 0;
     for (const change of changes) {
       if (change.projection?.renderer !== SETTINGS_RENDERER || change.operation !== 'remove') continue;
@@ -345,11 +347,11 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     return removed;
   }
 
-  function verifySettingsAsset({ assets, scope, scopeRoot, context }) {
+  function verifySettingsAsset({ assets, scope, scopeRoot, context }: any) {
     const asset = settingsAsset(assets);
-    const statuses = [];
-    const resources = [];
-    const conflicts = [];
+    const statuses: any[] = [];
+    const resources: any[] = [];
+    const conflicts: any[] = [];
     if (!asset) return { statuses, resources, conflicts };
     const paths = nativePaths({ scope, scopeRoot });
     const sourceDir = sourcePath(asset, context);
@@ -422,9 +424,9 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
 
   /** Render native Claude input without writing it.
    * `asset` is the lifecycle-projected shape (flat `renderer`/`capability` fields — see
-   * src/adapters/index.js#projectAdapterInput), not the raw registry asset's nested
+   * src/adapters/index.ts#projectAdapterInput), not the raw registry asset's nested
    * `asset.projection.claude`. Every adapter method below shares that same expectation. */
-  function render({ asset, scope, scopeRoot, context = {} }) {
+  function render({ asset, scope, scopeRoot, context = {} }: any) {
     const paths = nativePaths({ scope, scopeRoot });
     if (asset?.renderer === INSTRUCTION_RENDERER) {
       const source = sourcePath(asset, context);
@@ -442,7 +444,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     return { type: 'unsupported', assetId: asset?.id, renderer: asset?.renderer ?? null };
   }
 
-  function plan({ assets, scope, scopeRoot, mcp = [], mcpAdoptable = [], discovery, context = {}, ledger }) {
+  function plan({ assets, scope, scopeRoot, mcp = [], mcpAdoptable = [], discovery, context = {}, ledger }: any) {
     const changes = [];
     const conflicts = [];
     const paths = nativePaths({ scope, scopeRoot });
@@ -478,13 +480,13 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     return { changes, conflicts, prerequisites: [], notices: [...copyTree.notices, ...mcpPlan.notices] };
   }
 
-  function apply({ changes, scope, scopeRoot, context = {} }) {
+  function apply({ changes, scope, scopeRoot, context = {} }: any) {
     for (const change of changes) {
       if (change.projection?.renderer !== INSTRUCTION_RENDERER) continue;
       // A plan records the resolved source. This keeps apply self-contained when
       // the lifecycle supplies normalized changes rather than the original asset
       // array, while still avoiding any implicit source discovery at write time.
-      const source = change.source ?? sourcePath((context.assets || []).find((item) => item.id === change.assetId), context);
+      const source = change.source ?? sourcePath((context.assets || []).find((item: any) => item.id === change.assetId), context);
       mergeMarkedSection(source, change.target ?? nativePaths({ scope, scopeRoot }).instructions);
     }
     applyCopyTreeAssets(changes);
@@ -496,7 +498,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     return { applied: changes.length };
   }
 
-  function remove({ changes }) {
+  function remove({ changes }: any) {
     let removed = 0;
     for (const change of changes) {
       if (change.projection?.renderer === INSTRUCTION_RENDERER && removeMarkedSection(change.target)) removed += 1;
@@ -507,11 +509,11 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     return { removed };
   }
 
-  function verify({ assets, scope, scopeRoot, mcp = [], mcpAdoptable = [], discovery, ledger, operation, context = {} }) {
+  function verify({ assets, scope, scopeRoot, mcp = [], mcpAdoptable = [], discovery, ledger, operation, context = {} }: any) {
     const paths = nativePaths({ scope, scopeRoot });
     const statuses = [];
     const resources = [];
-    const instruction = assets.find((asset) => asset?.renderer === INSTRUCTION_RENDERER);
+    const instruction = assets.find((asset: any) => asset?.renderer === INSTRUCTION_RENDERER);
     const state = markerState(paths.instructions);
     if (instruction) {
       statuses.push({ assetId: instruction.id, status: state.managed ? 'managed' : 'absent', target: paths.instructions });

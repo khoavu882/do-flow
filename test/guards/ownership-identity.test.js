@@ -5,7 +5,7 @@
  * (feature 041, task D.3; IC-004).
  *
  * `doflow inventory` decides that two recorded resources are two copies of the same logical asset
- * when `(harness, ownershipIdentity)` agrees. `src/lifecycle/index.js:40` already refuses a change
+ * when `(harness, ownershipIdentity)` agrees. `src/lifecycle/index.ts:40` already refuses a change
  * carrying no ownership identity, so the field is mandatory. Two further properties are load-
  * bearing and neither was enforced anywhere before this guard:
  *
@@ -41,7 +41,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { REPO } = require('./_shared');
 const { loadRegistry } = require('../../src/registry/index.ts');
-const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view');
+const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view.ts');
 const { tempDir } = require('../helper/tmp');
 
 const ADAPTERS = path.join(REPO, 'src', 'adapters');
@@ -115,7 +115,7 @@ test('G20: no adapter composes an ownership identity from a scope name (IC-004)'
     + `per-scope destination root:\n  ${renamed.join('\n  ')}`);
 
   // The sentinel: the one asset whose destination ROOT differs by scope
-  // (src/adapters/antigravity/index.js#treeDestFor). If scope-freedom is ever broken, it breaks
+  // (src/adapters/antigravity/index.ts#treeDestFor). If scope-freedom is ever broken, it breaks
   // here first, so the case is named rather than left to the aggregate above.
   const sentinel = (changes) => changes
     .filter((change) => change.harness === 'antigravity' && change.assetId === 'agents.shared');
@@ -238,7 +238,7 @@ const SCOPE_FREE_INTERPOLATIONS = new Map([
   ['server.id', 'an MCP server id'],
   ['fileName', 'a settings file basename'],
   ['kind', 'a literal resource-kind word (copy-tree-file, mcp-server, ...)'],
-  ['ownershipKind(componentName)', "codex's fixed component-name -> kind table (src/adapters/codex/index.js), a closed set of literals"],
+  ['ownershipKind(componentName)', "codex's fixed component-name -> kind table (src/adapters/codex/index.ts), a closed set of literals"],
 ]);
 
 /** Identifiers that name a scope or a destination. None may appear anywhere in a composition. */

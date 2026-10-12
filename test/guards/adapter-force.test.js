@@ -4,7 +4,7 @@
  * G18: every adapter forwards `force` into `planTree`.
  *
  * `--force` was parsed (src/cli/index.js), threaded onto the lifecycle view (install.js) and into
- * its context (lifecycle/view.js), and consulted by the conflict predicate (copy-tree.ts) — while
+ * its context (lifecycle/view.ts), and consulted by the conflict predicate (copy-tree.ts) — while
  * six of the eight adapters omitted it from their own `planTree` call. `planTree` declares
  * `force = false` as a parameter default, so every one of those calls silently received `false`
  * instead of the user's flag. Nothing errored: a missing optional argument is legal JavaScript.
@@ -53,13 +53,19 @@ function planTreeCalls(source) {
   return calls;
 }
 
+/** An adapter's entry module: `index.ts` once converted, else `index.js`. */
+function adapterIndex(name) {
+  const ts = path.join(ADAPTERS_DIR, name, 'index.ts');
+  return fs.existsSync(ts) ? ts : path.join(ADAPTERS_DIR, name, 'index.js');
+}
+
 test('G18: every adapter forwards force into planTree', () => {
   const offenders = [];
   const checked = [];
 
   for (const entry of fs.readdirSync(ADAPTERS_DIR, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const file = path.join(ADAPTERS_DIR, entry.name, 'index.js');
+    const file = adapterIndex(entry.name);
     if (!fs.existsSync(file)) continue;
 
     const source = fs.readFileSync(file, 'utf8');
@@ -89,7 +95,7 @@ test('G18: the parser, the lifecycle view and the conflict predicate all still s
     'the CLI must parse --force');
   assert.match(read('src/cli/commands/install.ts'), /force: o\.force/,
     'install must pass the parsed flag to the lifecycle view');
-  assert.match(read('src/lifecycle/view.js'), /^\s+force,$/m,
+  assert.match(read('src/lifecycle/view.ts'), /^\s+force,$/m,
     'the lifecycle view must place force in the adapter context');
   assert.match(read('src/adapters/copy-tree.ts'), /const knownGood = force \|\|/,
     'planTree\'s conflict predicate must consult force');
@@ -102,7 +108,7 @@ test('G18: forwarding is gated so a forced removal never deletes a hand-edited f
   const ungated = [];
   for (const entry of fs.readdirSync(ADAPTERS_DIR, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const file = path.join(ADAPTERS_DIR, entry.name, 'index.js');
+    const file = adapterIndex(entry.name);
     if (!fs.existsSync(file)) continue;
     for (const call of planTreeCalls(fs.readFileSync(file, 'utf8'))) {
       if (!/\bforce\b/.test(call)) continue;

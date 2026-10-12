@@ -16,7 +16,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { readLedger } = require('../state/index.ts');
-const { resolveAdapter } = require('../adapters');
+const { resolveAdapter } = require('../adapters/index.ts');
 const { evaluateReach } = require('./reach.ts');
 
 const SCOPE_ORDER = { project: 0, global: 1 };

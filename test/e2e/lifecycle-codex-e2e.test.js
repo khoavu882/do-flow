@@ -9,12 +9,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { loadRegistry } = require('../../src/registry/index.ts');
-const { createAdapterRegistry } = require('../../src/adapters');
-const { planLifecycle, applyLifecycle, removeLifecycle } = require('../../src/lifecycle');
+const { createAdapterRegistry } = require('../../src/adapters/index.ts');
+const { planLifecycle, applyLifecycle, removeLifecycle } = require('../../src/lifecycle/index.ts');
 const { stateRoot, readLedger, recoveryRoot } = require('../../src/state/index.ts');
-const claude = require('../../src/adapters/claude');
-const codex = require('../../src/adapters/codex');
-const { createGeminiAdapter } = require('../../src/adapters/gemini');
+const claude = require('../../src/adapters/claude/index.ts');
+const codex = require('../../src/adapters/codex/index.ts');
+const { createGeminiAdapter } = require('../../src/adapters/gemini/index.ts');
 
 const REPO = path.resolve(__dirname, "../..");
 

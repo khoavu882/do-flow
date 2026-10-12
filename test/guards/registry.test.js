@@ -121,7 +121,7 @@ test('G5: every declared harness has an adapter module, exactly one contract, an
   const { VALID } = require('../../src/install/targets.ts');
   const offenders = [];
   for (const harness of registry.harnesses) {
-    const dirAdapter = path.join(REPO, 'src', 'adapters', harness.adapter, 'index.js');
+    const dirAdapter = ['index.ts', 'index.js'].map((n) => path.join(REPO, 'src', 'adapters', harness.adapter, n)).find((p) => fs.existsSync(p)) ?? path.join(REPO, 'src', 'adapters', harness.adapter, 'index.js');
     const fileAdapter = path.join(REPO, 'src', 'adapters', `${harness.adapter}.js`);
     if (!fs.existsSync(dirAdapter) && !fs.existsSync(fileAdapter)) {
       offenders.push(`${harness.id}: no adapter module at src/adapters/${harness.adapter}/index.js or src/adapters/${harness.adapter}.js`);
@@ -137,11 +137,11 @@ test('G5: every declared harness has an adapter module, exactly one contract, an
   assert.deepEqual(offenders, [], `harness declared without a full extension contract:\n  ${offenders.join('\n  ')}`);
 });
 
-// A module existing on disk is not the same as it being reachable: src/lifecycle/view.js once kept
+// A module existing on disk is not the same as it being reachable: src/lifecycle/view.ts once kept
 // its own, separate adapter registry that silently fell behind the one in src/cli/shared.js
 // (fixed in 96006da). Grep every createAdapterRegistry({...}) call site — the one shared factory
 // in src/cli/shared.js (used by install, update, remove and reconcile since Stage 2 collapsed the
-// three inline copies) plus the one shared by src/lifecycle/view.js — and confirm each declared
+// three inline copies) plus the one shared by src/lifecycle/view.ts — and confirm each declared
 // harness's id is actually passed in as a key, not just that its file exists somewhere under
 // src/adapters/. Since Stage 3 the values are factory calls with their own braces
 // (`x: createXAdapter({ ... })`), so the block extractor balances braces instead of stopping at
@@ -168,7 +168,7 @@ function extractRegistryBlocks(text) {
 test('G5: every declared harness is wired into every createAdapterRegistry(...) dispatch call site', () => {
   const files = [
     path.join(REPO, 'src', 'cli', 'shared.ts'),
-    path.join(REPO, 'src', 'lifecycle', 'view.js'),
+    path.join(REPO, 'src', 'lifecycle', 'view.ts'),
   ];
   const offenders = [];
   for (const file of files) {
