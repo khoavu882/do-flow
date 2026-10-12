@@ -6,7 +6,7 @@ const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
 const {
   entryFingerprint, readMcpFiles, planMcpEntries, applyMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpJson, writeMcpEntries,
-} = require('../../src/adapters/mcp-entries');
+} = require('../../src/adapters/mcp-entries.ts');
 
 function scratch() { return suiteTempDir('doflow-mcp-entries-'); }
 

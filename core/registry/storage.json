@@ -1014,7 +1014,7 @@
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/mcp-entries.js",
+      "file": "src/adapters/mcp-entries.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {

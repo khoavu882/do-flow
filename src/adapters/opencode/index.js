@@ -8,14 +8,14 @@
 // materialises `skills.doflow` there directly. What remains registration, rather than
 // materialisation, is `opencode.json`'s `instructions[]` array (OpenCode needs `AGENTS.md` named
 // explicitly to read it) and its `mcp` object — neither has a native discovery path the way skills
-// now do. DoFlow's servers in `mcp` are owned one entry at a time through ../mcp-entries.js.
+// now do. DoFlow's servers in `mcp` are owned one entry at a time through ../mcp-entries.ts.
 //
 // Evidence: https://opencode.ai/docs/skills, https://opencode.ai/docs/config,
 // https://opencode.ai/docs/rules
 const fs = require('node:fs');
 const path = require('node:path');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor, resolveTransform } = require('../copy-tree.ts');
-const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries');
+const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries.ts');
 
 // Only the marker constants: marker-merge.js reads and writes files itself, which cannot be used
 // from plan(), whose contract is to compute changes without touching disk. The gemini adapter
@@ -273,7 +273,7 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
 
   function ownershipIdentity(id) { return `doflow:${HARNESS}:mcp-server:${id}`; }
 
-  /** Everything the shared entry-ownership rules (../mcp-entries.js) need from this adapter. */
+  /** Everything the shared entry-ownership rules (../mcp-entries.ts) need from this adapter. */
   function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], ledger, assets = [] }) {
     const rendered = (servers) => servers.map((server) => ({ id: server.id, entry: buildServerEntry(server) }));
     const rows = (ledger?.resources || []).filter((row) => row.kind === 'mcp-server');

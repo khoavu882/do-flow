@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
 const { createKiroAdapter, nativePaths } = require('../../../src/adapters/kiro');
-const { entryFingerprint } = require('../../../src/adapters/mcp-entries');
+const { entryFingerprint } = require('../../../src/adapters/mcp-entries.ts');
 const { assertAdapter } = require('../../../src/adapters');
 
 function scratch() { return suiteTempDir('doflow-kiro-'); }

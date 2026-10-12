@@ -6,7 +6,7 @@
 // agents, and MCP each live under a different path, split further by scope. Skills and agents are
 // both trees materialised via the shared copy-tree engine in ../copy-tree.ts; the single instruction
 // pointer is a marker-merged section in a shared file, the same shape opencode/pi/gemini already use;
-// MCP servers are entries of one JSON map that DoFlow owns one at a time through ../mcp-entries.js,
+// MCP servers are entries of one JSON map that DoFlow owns one at a time through ../mcp-entries.ts,
 // never touching an entry it does not own.
 //
 // Native paths (see design.md §4's harness-native-surfaces table):
@@ -25,7 +25,7 @@ const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, sourceDirFor, resolveTransform } = require('../copy-tree.ts');
-const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries');
+const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 
 const HARNESS = 'copilot';
@@ -241,7 +241,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
 
   function ownershipIdentity(id) { return `doflow:${HARNESS}:mcp-server:${id}`; }
 
-  /** Everything the shared entry-ownership rules (../mcp-entries.js) need from this adapter. */
+  /** Everything the shared entry-ownership rules (../mcp-entries.ts) need from this adapter. */
   function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], ledger, assets = [] }) {
     const rendered = (servers) => servers.map((server) => ({ id: server.id, entry: buildServerEntry(server) }));
     const rows = (ledger?.resources || []).filter((row) => row.kind === 'mcp-server');

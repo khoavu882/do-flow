@@ -16,7 +16,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { planTree, applyTree, removeTree, verifyTree, resolveTransform, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, sourceDirFor } = require('../copy-tree.ts');
-const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries');
+const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 
 const HARNESS = 'kiro';
@@ -193,7 +193,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
     });
   }
 
-  /** Everything the shared entry-ownership rules (../mcp-entries.js) need from this adapter. */
+  /** Everything the shared entry-ownership rules (../mcp-entries.ts) need from this adapter. */
   function mcpEntriesInput({ paths, mcp = [], mcpAdoptable = [], ledger, assets = [] }) {
     const rendered = (servers) => servers.map((server) => ({ id: server.id, entry: buildServerEntry(server) }));
     return {

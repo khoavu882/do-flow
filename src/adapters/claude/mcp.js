@@ -4,12 +4,12 @@
 // scope) or `<project>/.mcp.json` (project scope), the locations Claude Code actually reads. Both
 // files are shared — `~/.claude.json` also holds Claude Code's own state, and a project `.mcp.json`
 // can be read and written by other tools — so DoFlow owns its servers one entry at a time through
-// ../mcp-entries.js and never rewrites another key or another entry's value.
+// ../mcp-entries.ts and never rewrites another key or another entry's value.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { nativeMcpCatalog } = require('../../registry/index.ts');
-const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries');
+const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries.ts');
 
 const HARNESS = 'claude';
 const MCP_CONTAINER = 'mcpServers';
