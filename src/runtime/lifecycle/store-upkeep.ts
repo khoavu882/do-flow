@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Store upkeep, run once by each lifecycle verb before its own work. A project whose store still
  * lives at `agent-docs/lifecycle/events/` has it copied once into `.doflow/state/lifecycle/events/`
@@ -34,30 +36,30 @@ const LEGACY_EVENTS_REL = path.join(LEGACY_LIFECYCLE_REL, 'events');
 const MARKER_REL = path.join(LIFECYCLE_REL, 'migrated.json');
 const MIGRATING_PREFIX = 'events.migrating-';
 const NOTICE = 'note: the lifecycle store is now .doflow/state/lifecycle/events; agent-docs/lifecycle/ is no longer read and can be deleted';
-const removedLine = (count, hours) => `retention: removed ${count} event files older than ${hours} h`;
-const invalidLine = (raw) => `warning: DOFLOW_RETENTION_HOURS='${raw}' is not a positive whole number of hours; ignored, nothing removed`;
+const removedLine = (count: any, hours: any) => `retention: removed ${count} event files older than ${hours} h`;
+const invalidLine = (raw: any) => `warning: DOFLOW_RETENTION_HOURS='${raw}' is not a positive whole number of hours; ignored, nothing removed`;
 /** Bounds one pass, so its journal stays far below the reader's cap and its lock is held briefly. */
 const MAX_PASS_FILES = 20000;
 /** Unlinks between two refreshes of the lock's age. */
 const REFRESH_EVERY = 500;
-const unwritableLine = (code) => `warning: retention skipped: .doflow/state/lifecycle cannot be written (${code}); nothing was hidden or removed`;
-const unlinkLine = (code) => `warning: retention could not remove every file (${code}); they stay hidden and the next lifecycle command finishes the removal`;
+const unwritableLine = (code: any) => `warning: retention skipped: .doflow/state/lifecycle cannot be written (${code}); nothing was hidden or removed`;
+const unlinkLine = (code: any) => `warning: retention could not remove every file (${code}); they stay hidden and the next lifecycle command finishes the removal`;
 
-function lstatOrNull(fsImpl, file) {
+function lstatOrNull(fsImpl: any, file: any) {
   try { return fsImpl.lstatSync(file); } catch { return null; }
 }
 
 /** The names in a folder, or none when it is absent or not a folder. */
-function namesIn(fsImpl, dir) {
+function namesIn(fsImpl: any, dir: any) {
   try {
     return fsImpl.readdirSync(dir).sort();
-  } catch (error) {
+  } catch (error: any) {
     if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return [];
     throw error;
   }
 }
 
-function refuseLinks(fsImpl, root, rels) {
+function refuseLinks(fsImpl: any, root: any, rels: any) {
   for (const rel of rels) {
     const folder = path.join(root, rel);
     const st = lstatOrNull(fsImpl, folder);
@@ -66,21 +68,21 @@ function refuseLinks(fsImpl, root, rels) {
 }
 
 /** The event files of the old folder that a copy takes: event-named regular files, nothing else. */
-function legacyEventFiles(fsImpl, root) {
+function legacyEventFiles(fsImpl: any, root: any) {
   const dir = path.join(root, LEGACY_EVENTS_REL);
   const st = lstatOrNull(fsImpl, dir);
   if (!st || !st.isDirectory()) return [];
-  return namesIn(fsImpl, dir).filter((name) => {
+  return namesIn(fsImpl, dir).filter((name: any) => {
     if (!isEventName(name)) return false;
     const entry = lstatOrNull(fsImpl, path.join(dir, name));
     return Boolean(entry && entry.isFile());
   });
 }
 
-const hasMarker = (fsImpl, root) => lstatOrNull(fsImpl, path.join(root, MARKER_REL)) !== null;
-const storeHasEvents = (fsImpl, root) => namesIn(fsImpl, path.join(root, EVENTS_REL)).some(isEventName);
+const hasMarker = (fsImpl: any, root: any) => lstatOrNull(fsImpl, path.join(root, MARKER_REL)) !== null;
+const storeHasEvents = (fsImpl: any, root: any) => namesIn(fsImpl, path.join(root, EVENTS_REL)).some(isEventName);
 
-function removeQuietly(fsImpl, target) {
+function removeQuietly(fsImpl: any, target: any) {
   try { fsImpl.rmSync(target, { recursive: true, force: true }); } catch { /* best effort */ }
 }
 
@@ -88,26 +90,26 @@ function removeQuietly(fsImpl, target) {
  * Flushes one copied file. The copy takes the source's mode, so it is made writable by its owner
  * first, like any file the store writes: Windows refuses to flush a read-only handle.
  */
-function fsyncCopy(fsImpl, file) {
+function fsyncCopy(fsImpl: any, file: any) {
   fsImpl.chmodSync(file, 0o644);
   const fd = fsImpl.openSync(file, 'r+');
   try { fsImpl.fsyncSync(fd); } finally { fsImpl.closeSync(fd); }
 }
 
 /** Flushes a folder's entries where the platform lets a folder be opened. */
-function fsyncFolder(fsImpl, dir) {
+function fsyncFolder(fsImpl: any, dir: any) {
   let fd;
   try { fd = fsImpl.openSync(dir, 'r'); } catch { return; }
   try { fsImpl.fsyncSync(fd); } finally { fsImpl.closeSync(fd); }
 }
 
-const migrationFailed = (code) => ({
+const migrationFailed = (code: any) => ({
   ok: false,
   finding: 'store-migration-failed',
   message: `could not copy agent-docs/lifecycle/events to .doflow/state/lifecycle/events (${code}); the old folder is unchanged and the next lifecycle command retries. Nothing was written.`,
   lines: [],
 });
-const legacyUnreadable = (code) => ({
+const legacyUnreadable = (code: any) => ({
   ok: false,
   finding: 'store-migration-failed',
   message: `could not list agent-docs/lifecycle/events (${code}), so the old store cannot be copied to .doflow/state/lifecycle/events; make the folder readable, or delete it if its events are not needed, and the next lifecycle command retries. Nothing was written.`,
@@ -115,7 +117,7 @@ const legacyUnreadable = (code) => ({
 });
 
 /** Writes `text` to `file` by a flushed temp file in the same folder and a rename. */
-function writeAtomic(fsImpl, file, text) {
+function writeAtomic(fsImpl: any, file: any, text: any) {
   const dir = path.dirname(file);
   const tmp = path.join(dir, `.${path.basename(file, '.json')}-${process.pid}-${randomChars(6)}.tmp`);
   try {
@@ -127,7 +129,7 @@ function writeAtomic(fsImpl, file, text) {
       fsImpl.closeSync(fd);
     }
     fsImpl.renameSync(tmp, file);
-  } catch (error) {
+  } catch (error: any) {
     try { fsImpl.unlinkSync(tmp); } catch { /* never written */ }
     throw error;
   }
@@ -135,7 +137,7 @@ function writeAtomic(fsImpl, file, text) {
 }
 
 /** Records that the store is in place; false when it cannot be written, so a later verb tries again. */
-function writeMarker(fsImpl, root, copied, now) {
+function writeMarker(fsImpl: any, root: any, copied: any, now: any) {
   try {
     writeAtomic(fsImpl, path.join(root, MARKER_REL), `${JSON.stringify({ v: 1, from: 'agent-docs/lifecycle/events', copied, at: now.toISOString() })}\n`);
     return true;
@@ -148,7 +150,7 @@ function writeMarker(fsImpl, root, copied, now) {
  * The copy itself, under the store lock, of the event files the caller listed. Returns the number
  * copied, or the `store-migration-failed` refusal.
  */
-function copyLegacyStore(fsImpl, root, files) {
+function copyLegacyStore(fsImpl: any, root: any, files: any) {
   const lifecycleDir = path.join(root, LIFECYCLE_REL);
   const eventsDir = path.join(root, EVENTS_REL);
   const legacyDir = path.join(root, LEGACY_EVENTS_REL);
@@ -174,26 +176,26 @@ function copyLegacyStore(fsImpl, root, files) {
     }
     try {
       fsImpl.renameSync(tmp, eventsDir);
-    } catch (error) {
+    } catch (error: any) {
       if (error.code !== 'EEXIST' && error.code !== 'ENOTEMPTY') throw error;
       removeQuietly(fsImpl, tmp); // another copier committed first
     }
     fsyncFolder(fsImpl, lifecycleDir);
     return files.length;
-  } catch (error) {
+  } catch (error: any) {
     if (tmp) removeQuietly(fsImpl, tmp);
     return migrationFailed(error.code || error.message);
   }
 }
 
 /** The UTC time an event file name's id starts with. */
-function idTime(name) {
+function idTime(name: any) {
   const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\d{3})Z-/.exec(name);
   return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6], +m[7]) : NaN;
 }
 
 /** Writes the retention journal, flushed to disk, with a new generation. */
-function writeJournal(fsImpl, root, pending) {
+function writeJournal(fsImpl: any, root: any, pending: any) {
   writeAtomic(fsImpl, path.join(root, JOURNAL_REL), `${JSON.stringify({ v: 1, generation: randomChars(16), pending })}\n`);
 }
 
@@ -201,13 +203,13 @@ function writeJournal(fsImpl, root, pending) {
  * Keeps the held store lock from looking stale: another verb breaks a lock whose folder is older
  * than the lock's stale timeout, so a long pass renews its folder's time as it goes.
  */
-function refreshLock(fsImpl, root) {
+function refreshLock(fsImpl: any, root: any) {
   const now = new Date();
   try { fsImpl.utimesSync(`${lockTarget(root)}.lock`, now, now); } catch { /* the lock folder is ours; a failed touch only shortens its life */ }
 }
 
 /** Unlinks pending event files without clearing the journal until every hidden name is finished. */
-function removePending(fsImpl, root, names, onRemoved = () => {}, { maxFiles = Infinity, shouldStop } = {}) {
+function removePending(fsImpl: any, root: any, names: any, onRemoved = () => {}, { maxFiles = Infinity, shouldStop }: any = {}) {
   const dir = path.join(root, EVENTS_REL);
   let removed = 0;
   for (let index = 0; index < names.length; index += 1) {
@@ -215,14 +217,14 @@ function removePending(fsImpl, root, names, onRemoved = () => {}, { maxFiles = I
     const file = path.join(dir, names[index]);
     if (removed >= maxFiles) {
       try { fsImpl.lstatSync(file); return { complete: false, removed }; }
-      catch (error) { if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error; continue; }
+      catch (error: any) { if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error; continue; }
     }
     if (index % REFRESH_EVERY === 0) refreshLock(fsImpl, root);
     try {
       fsImpl.unlinkSync(file);
       removed += 1;
       onRemoved();
-    } catch (error) {
+    } catch (error: any) {
       if (error.code !== 'ENOENT') throw error;
     }
   }
@@ -231,7 +233,7 @@ function removePending(fsImpl, root, names, onRemoved = () => {}, { maxFiles = I
 }
 
 /** Selects whole units only; a unit that does not fit waits for the next pass. */
-function passFiles(units, { maxFiles = MAX_PASS_FILES, shouldStop } = {}) {
+function passFiles(units: any, { maxFiles = MAX_PASS_FILES, shouldStop }: any = {}) {
   const files = [], limit = Math.max(0, Math.min(MAX_PASS_FILES, Number.isFinite(maxFiles) ? maxFiles : MAX_PASS_FILES));
   let partial = false;
   for (const unit of units) {
@@ -246,9 +248,9 @@ function passFiles(units, { maxFiles = MAX_PASS_FILES, shouldStop } = {}) {
  * The retention pass, under the store lock: finish a pending journal within the caller's remaining
  * limits, then remove whole eligible units. A stopped deletion keeps the complete name set hidden.
  */
-function retain(fsImpl, root, window, now, { maxFiles = MAX_PASS_FILES, shouldStop } = {}) {
+function retain(fsImpl: any, root: any, window: any, now: any, { maxFiles = MAX_PASS_FILES, shouldStop }: any = {}) {
   let removedCount = 0;
-  const selected = [];
+  const selected: any[] = [];
   try {
     if (shouldStop?.()) return { removed: [], removedCount, warning: [], partial: true, selected };
     const pending = readJournal(root, fsImpl).pending;
@@ -272,7 +274,7 @@ function retain(fsImpl, root, window, now, { maxFiles = MAX_PASS_FILES, shouldSt
       if (shouldStop?.()) return { removed: [], removedCount, warning: [], partial: true, selected };
       const file = path.join(root, EVENTS_REL, name);
       let info;
-      try { info = fsImpl.lstatSync(file); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      try { info = fsImpl.lstatSync(file); } catch (error: any) { if (error.code !== 'ENOENT') throw error; }
       selected.push({ name, bytes: info?.isFile() ? info.size : 0 });
     }
     refreshLock(fsImpl, root);
@@ -283,7 +285,7 @@ function retain(fsImpl, root, window, now, { maxFiles = MAX_PASS_FILES, shouldSt
       removed: window.source === 'default' ? [] : [removedLine(bounded.files.length, window.hours)],
       removedCount, warning: [], partial: bounded.partial || !result.complete, selected,
     };
-  } catch (error) {
+  } catch (error: any) {
     // A failure is not a stopped pass: `partial` means only a stop, a held lock or the removal cap,
     // so throttled upkeep advances its due time instead of retrying a failing pass on every verb.
     return { removed: [], removedCount, warning: [unlinkLine(error.code || error.message)], partial: false, selected, code: error.code || 'EIO' };
@@ -291,10 +293,10 @@ function retain(fsImpl, root, window, now, { maxFiles = MAX_PASS_FILES, shouldSt
 }
 
 /** Runs a bounded lifecycle retention pass under a non-waiting store lock for the storage engine. */
-function retainLocked(root, options = {}) {
+function retainLocked(root: any, options: any = {}) {
   const { window, now = new Date(), fsImpl = nodeFs, maxFiles = MAX_PASS_FILES, shouldStop } = options;
   const bounded = Object.hasOwn(options, 'maxFiles') || Object.hasOwn(options, 'shouldStop');
-  const outcome = (removed, warning, partial = false, selected = [], code) => bounded
+  const outcome = (removed: any, warning: any, partial = false, selected: any = [], code?: any) => bounded
     ? { removed, warning, partial, selected, ...(code ? { code } : {}) }
     : { removed, warning };
   const eventsDir = path.join(root, EVENTS_REL);
@@ -312,10 +314,10 @@ function retainLocked(root, options = {}) {
 }
 
 /** Whether a lock-free look finds anything for the retention pass to remove. */
-function needsPrune(fsImpl, root, window, now) {
+function needsPrune(fsImpl: any, root: any, window: any, now: any) {
   if (window.state !== 'on') return false;
   const cutoff = now.getTime() - window.ms;
-  if (!namesIn(fsImpl, path.join(root, EVENTS_REL)).some((name) => isEventName(name) && idTime(name) < cutoff)) return false;
+  if (!namesIn(fsImpl, path.join(root, EVENTS_REL)).some((name: any) => isEventName(name) && idTime(name) < cutoff)) return false;
   return selectExpired(readEvents(root, { fsImpl }).events, { now, windowMs: window.ms }).files.length > 0;
 }
 
@@ -328,7 +330,7 @@ function needsPrune(fsImpl, root, window, now) {
  *   `lines` are for stderr, without the verb prefix.
  * @throws {StoreUnsafeError} a symlinked new store folder, or a symlinked old folder when a copy must read it
  */
-function prepareStore(root, { env = process.env, now = new Date(), fsImpl = nodeFs, registry } = {}) {
+function prepareStore(root: string, { env = process.env, now = new Date(), fsImpl = nodeFs, registry }: any = {}) {
   refuseLinks(fsImpl, root, [LIFECYCLE_REL, EVENTS_REL]);
   const legacyDir = lstatOrNull(fsImpl, path.join(root, LEGACY_EVENTS_REL));
   const notice = legacyDir && legacyDir.isDirectory() ? [NOTICE] : [];
@@ -340,7 +342,7 @@ function prepareStore(root, { env = process.env, now = new Date(), fsImpl = node
     if (storeHasEvents(fsImpl, root)) {
       markerDue = true;
     } else {
-      try { migrate = legacyEventFiles(fsImpl, root).length > 0; } catch (error) { return legacyUnreadable(error.code || error.message); }
+      try { migrate = legacyEventFiles(fsImpl, root).length > 0; } catch (error: any) { return legacyUnreadable(error.code || error.message); }
     }
   }
   const retentionDue = readJournal(root, fsImpl).pending.length > 0 || needsPrune(fsImpl, root, window, now);
@@ -352,7 +354,7 @@ function prepareStore(root, { env = process.env, now = new Date(), fsImpl = node
     fsImpl.mkdirSync(lifecycleDir, { recursive: true });
     // An unwritable folder would only show as a lock that never comes; name it for what it is.
     fsImpl.accessSync(lifecycleDir, nodeFs.constants.W_OK);
-  } catch (error) {
+  } catch (error: any) {
     // Without a copy to make, an unwritable store only stops the retention pass, not the verb.
     if (!migrate) return { ok: true, lines: [...notice, ...invalid, ...(retentionDue ? [unwritableLine(error.code || error.message)] : [])] };
     return migrationFailed(error.code || error.message);
@@ -360,7 +362,7 @@ function prepareStore(root, { env = process.env, now = new Date(), fsImpl = node
   let release;
   try {
     release = acquireLock(fsImpl, lockTarget(root));
-  } catch (error) {
+  } catch (error: any) {
     if (/^Could not lock/.test(error.message || '')) return { ok: false, finding: 'store-locked', message: `${error.message} Nothing was written.`, lines: [] };
     throw error;
   }
@@ -371,7 +373,7 @@ function prepareStore(root, { env = process.env, now = new Date(), fsImpl = node
       marked = writeMarker(fsImpl, root, 0, now);
     } else if (!marked) {
       let files;
-      try { files = legacyEventFiles(fsImpl, root); } catch (error) { return legacyUnreadable(error.code || error.message); }
+      try { files = legacyEventFiles(fsImpl, root); } catch (error: any) { return legacyUnreadable(error.code || error.message); }
       if (files.length) {
         refuseLinks(fsImpl, root, [LEGACY_LIFECYCLE_REL, LEGACY_EVENTS_REL]);
         const copied = copyLegacyStore(fsImpl, root, files);

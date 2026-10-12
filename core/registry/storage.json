@@ -584,10 +584,10 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/lifecycle/store-upkeep.js"
+        "src/runtime/lifecycle/store-upkeep.ts"
       ],
       "source": {
-        "file": "src/runtime/lifecycle/store-upkeep.js",
+        "file": "src/runtime/lifecycle/store-upkeep.ts",
         "pattern": "MIGRATING_PREFIX"
       }
     },

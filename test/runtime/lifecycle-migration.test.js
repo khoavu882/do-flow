@@ -12,7 +12,7 @@ const crypto = require('node:crypto');
 const { execFileSync, spawn, spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const store = require('../../src/runtime/lifecycle/event-store.ts');
-const { prepareStore, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL, MARKER_REL } = require('../../src/runtime/lifecycle/store-upkeep');
+const { prepareStore, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL, MARKER_REL } = require('../../src/runtime/lifecycle/store-upkeep.ts');
 
 const CLI = path.resolve(__dirname, '..', '..', 'bin', 'doflow.js');
 const POSIX = process.platform !== 'win32';

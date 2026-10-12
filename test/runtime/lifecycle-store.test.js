@@ -9,7 +9,7 @@ const { createScratch } = require('../helper/scratch-env');
 const { projectRoot } = require('../../src/runtime/lifecycle/root.ts');
 const store = require('../../src/runtime/lifecycle/event-store.ts');
 const { foldEvents } = require('../../src/runtime/lifecycle/fold.ts');
-const { prepareStore } = require('../../src/runtime/lifecycle/store-upkeep');
+const { prepareStore } = require('../../src/runtime/lifecycle/store-upkeep.ts');
 
 const scratch = createScratch('doflow-store-');
 test.before(() => scratch.apply());

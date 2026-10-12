@@ -185,7 +185,7 @@ works](how-doflow-work.md#after-the-chain-the-lifecycle-loop).
 | `src/runtime/mask.ts` | Best-effort masking and failure-message normalisation, in two profiles (line and body). Used by the follow-up service, the report store and the failure writer |
 | `src/runtime/lifecycle/root.ts` | The project root a store is keyed by: the first real working tree in `git worktree list`, else the current worktree's root, else the working directory |
 | `src/runtime/lifecycle/event-store.ts` | Write-once event files under `.doflow/state/lifecycle/events/`, local to the machine: id and `at` stamping, exclusive create, the store lock, the pre-write fold check |
-| `src/runtime/lifecycle/store-upkeep.js` | The one-time copy from `agent-docs/lifecycle/events` and the retention pass, run once per verb before its work |
+| `src/runtime/lifecycle/store-upkeep.ts` | The one-time copy from `agent-docs/lifecycle/events` and the retention pass, run once per verb before its work |
 | `src/runtime/lifecycle/retention.ts` | The retention window and the pure selection of settled units |
 | `src/runtime/lifecycle/fold.ts` | The pure fold of events into follow-ups, tracked features, goals and release records, with conflicts. No file or git access |
 | `src/runtime/lifecycle/followup.ts`, `goal.js` | The follow-up and goal services; each returns a result object and never prints |

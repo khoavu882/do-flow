@@ -13,7 +13,7 @@ const { spawn, spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const store = require('../../src/runtime/lifecycle/event-store.ts');
 const { parseWindow, retentionWindow, selectExpired } = require('../../src/runtime/lifecycle/retention.ts');
-const { prepareStore, retainLocked, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL } = require('../../src/runtime/lifecycle/store-upkeep');
+const { prepareStore, retainLocked, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL } = require('../../src/runtime/lifecycle/store-upkeep.ts');
 
 const CLI = path.resolve(__dirname, '..', '..', 'bin', 'doflow.js');
 const POSIX = process.platform !== 'win32';

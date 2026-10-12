@@ -19,7 +19,7 @@ const { rotateIfDue } = require('./capture.ts');
 const store = require('./store.ts');
 const { projectRoot } = require('../lifecycle/root.ts');
 const { appendEvents, readFold, randomChars, StoreUnsafeError, StoreLockedError } = require('../lifecycle/event-store.ts');
-const { prepareStore } = require('../lifecycle/store-upkeep');
+const { prepareStore } = require('../lifecycle/store-upkeep.ts');
 
 const ACTIONS = ['list', 'settle', 'capture'];
 const STATEMENT_MAX = 280;
