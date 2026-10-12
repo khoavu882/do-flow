@@ -11,7 +11,7 @@ const { loadAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
 const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
 const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
 const { readWindow } = require('../../src/runtime/advice/record.ts');
-const { createAdviceClient } = require('../../src/runtime/advice/client');
+const { createAdviceClient } = require('../../src/runtime/advice/client.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const BASE_ADVICE = loadAdviceRegistry({ repoRoot: REPO }).registry;

@@ -7,7 +7,7 @@ const { loadAdviceRegistry, validateAdviceRegistry } = require('../src/runtime/a
 const { loadStorageRegistry } = require('../src/runtime/storage/registry.ts');
 const { resolveRoots } = require('../src/runtime/storage/roots.ts');
 const { resolveSetting } = require('../src/runtime/advice/config.ts');
-const { createAdviceClient } = require('../src/runtime/advice/client');
+const { createAdviceClient } = require('../src/runtime/advice/client.ts');
 const { materializeKind } = require('../src/runtime/advice/kinds.ts');
 
 function loadSources() {

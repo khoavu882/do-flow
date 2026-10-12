@@ -5,7 +5,7 @@ const { resolveRoots } = require('../storage/roots.ts');
 const { loadStorageRegistry } = require('../storage/registry.ts');
 const { loadAdviceRegistry } = require('./registry.ts');
 const { resolveSetting } = require('./config.ts');
-const { createAdviceClient } = require('./client');
+const { createAdviceClient } = require('./client.ts');
 const { readWindow } = require('./record.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
