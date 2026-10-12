@@ -5,7 +5,7 @@ const path = require('node:path');
 const { randomBytes } = require('node:crypto');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { loadStorageRegistry } = require('./registry');
-const { resolveRoots, readPruneSetting } = require('./roots');
+const { resolveRoots, readPruneSetting } = require('./roots.ts');
 const engine = require('./engine');
 const { RunLedger } = require('../trace/ledger.ts');
 

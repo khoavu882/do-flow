@@ -16,7 +16,7 @@ const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared');
 const { createScratch } = require('../helper/scratch-env');
 const { loadStorageRegistry, validateStorageRegistry, renderSourcePattern, formatBound } = require('../../src/runtime/storage/registry');
-const { resolveRoots } = require('../../src/runtime/storage/roots');
+const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
 
 const REGISTRY_FILE = 'core/registry/storage.json';
 const DOCS_FILE = 'docs/reference.md';

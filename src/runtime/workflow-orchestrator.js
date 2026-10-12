@@ -21,7 +21,7 @@ const { resolveConsultations } = require('./mcp-consultations');
 const { mcpReach } = require('./mcp-reach');
 const { loadRegistry } = require('../registry/index.ts');
 const { loadStorageRegistry } = require('./storage/registry');
-const { resolveRoots, resolveStorePath } = require('./storage/roots');
+const { resolveRoots, resolveStorePath } = require('./storage/roots.ts');
 const { checkCompletion: checkTaskAttemptCompletion } = require('./task-attempts');
 const { appendOutcome, findPick, readWindow } = require('./advice/record');
 const {

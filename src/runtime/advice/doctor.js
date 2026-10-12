@@ -1,7 +1,7 @@
 'use strict';
 
 const fs = require('node:fs');
-const { resolveRoots } = require('../storage/roots');
+const { resolveRoots } = require('../storage/roots.ts');
 const { loadStorageRegistry } = require('../storage/registry');
 const { loadAdviceRegistry } = require('./registry');
 const { resolveSetting } = require('./config');

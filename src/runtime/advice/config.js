@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { resolveRoots } = require('../storage/roots');
+const { resolveRoots } = require('../storage/roots.ts');
 
 const SETTING_FILE = 'decision-model.json';
 const PROJECT_NOTE = 'a project cannot enable the decision model or choose its endpoint';

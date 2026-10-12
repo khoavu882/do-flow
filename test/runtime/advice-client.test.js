@@ -9,7 +9,7 @@ const { tempDir } = require('../helper/tmp');
 const { startFakeServer, spawnFakeServer } = require('../helper/fake-decision-server');
 const { loadAdviceRegistry } = require('../../src/runtime/advice/registry');
 const { loadStorageRegistry } = require('../../src/runtime/storage/registry');
-const { resolveRoots } = require('../../src/runtime/storage/roots');
+const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
 const { readWindow } = require('../../src/runtime/advice/record');
 const { createAdviceClient } = require('../../src/runtime/advice/client');
 

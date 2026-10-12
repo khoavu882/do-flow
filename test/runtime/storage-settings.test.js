@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { loadStorageRegistry } = require('../../src/runtime/storage/registry');
-const { resolveRoots, readPruneSetting, resolveStorePath } = require('../../src/runtime/storage/roots');
+const { resolveRoots, readPruneSetting, resolveStorePath } = require('../../src/runtime/storage/roots.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const ROOT_USER = typeof process.getuid === 'function' && process.getuid() === 0;

@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { resolveStorePath } = require('../storage/roots');
+const { resolveStorePath } = require('../storage/roots.ts');
 
 const RETAINED_DAYS = 90;
 const PARTITION_NAME = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
