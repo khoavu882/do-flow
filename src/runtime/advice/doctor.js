@@ -6,7 +6,7 @@ const { loadStorageRegistry } = require('../storage/registry.ts');
 const { loadAdviceRegistry } = require('./registry.ts');
 const { resolveSetting } = require('./config.ts');
 const { createAdviceClient } = require('./client');
-const { readWindow } = require('./record');
+const { readWindow } = require('./record.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 const WINDOW_DAYS = 90;

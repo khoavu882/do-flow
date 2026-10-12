@@ -10,7 +10,7 @@ const { resolveRoots } = require('../storage/roots.ts');
 const { resolveSetting, writeSetting } = require('./config.ts');
 const { createAdviceClient } = require('./client');
 const { materializeKind, validateQuestionSet, validateStaticAnswer } = require('./kinds.ts');
-const { findPick, appendOutcome } = require('./record');
+const { findPick, appendOutcome } = require('./record.ts');
 const { strengthWords } = require('./strength.ts');
 
 function loadSources(repoRoot) {

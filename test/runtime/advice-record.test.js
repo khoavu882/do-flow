@@ -8,7 +8,7 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
 const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
-const { appendPick, appendMiss, appendOutcome, readWindow, findPick } = require('../../src/runtime/advice/record');
+const { appendPick, appendMiss, appendOutcome, readWindow, findPick } = require('../../src/runtime/advice/record.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const STORAGE = loadStorageRegistry({ repoRoot: REPO });

@@ -255,7 +255,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/advice/record.js"
+        "src/runtime/advice/record.ts"
       ]
     },
     {
@@ -273,7 +273,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/advice/record.js"
+        "src/runtime/advice/record.ts"
       ]
     },
     {

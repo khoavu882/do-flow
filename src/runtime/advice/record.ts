@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -8,20 +10,20 @@ const { resolveStorePath } = require('../storage/roots.ts');
 const RETAINED_DAYS = 90;
 const PARTITION_NAME = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
 
-function timestamp(now = () => new Date()) {
+function timestamp(now: any = () => new Date()): string | null {
   const value = typeof now === 'function' ? now() : now;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function selectedStore(roots, requestedStore) {
+function selectedStore(roots: any, requestedStore?: string): { store: string; root: string } | null {
   if (requestedStore && roots?.[requestedStore]) return { store: requestedStore, root: roots[requestedStore] };
   if (roots?.['project-state']) return { store: 'project-state', root: roots['project-state'] };
   if (roots?.['user-state']) return { store: 'user-state', root: roots['user-state'] };
   return null;
 }
 
-function appendLine({ roots, at, line, fsImpl = fs, store }) {
+function appendLine({ roots, at, line, fsImpl = fs, store }: any): { file: string; store: string } | null {
   try {
     const selected = selectedStore(roots, store);
     if (!selected) return null;
@@ -29,7 +31,7 @@ function appendLine({ roots, at, line, fsImpl = fs, store }) {
     if (!directory) return null;
     const file = path.join(directory, `${at.slice(0, 10)}.jsonl`);
     try { if (fsImpl.lstatSync(file).isSymbolicLink()) return null; }
-    catch (error) { if (error.code !== 'ENOENT') return null; }
+    catch (error: any) { if (error.code !== 'ENOENT') return null; }
     fsImpl.mkdirSync(path.dirname(file), { recursive: true });
     fsImpl.appendFileSync(file, `${JSON.stringify(line)}\n`, 'utf8');
     return { file, store: selected.store };
@@ -41,7 +43,7 @@ function appendLine({ roots, at, line, fsImpl = fs, store }) {
 function appendPick({
   roots, now = () => new Date(), fsImpl = fs, kind, answer, question,
   staticAnswer = null, provider = null, model = null, state, caller, taskId = null, durationMs = 0,
-} = {}) {
+}: any = {}): { pickId: string; file: string; store: string } | null {
   try {
     if (typeof state !== 'string' || !answer || !question) return null;
     const at = timestamp(now);
@@ -52,7 +54,7 @@ function appendPick({
       : question.type === 'score' ? [...(question.criteria || [])] : ['no', 'yes'];
     const instructions = kind === 'adhoc' && typeof question.instructions === 'string'
       ? question.instructions.slice(0, 500) : null;
-    const line = {
+    const line: any = {
       schema: 1,
       type: 'pick',
       pickId,
@@ -88,7 +90,7 @@ function appendPick({
   }
 }
 
-function appendMiss({ roots, now = () => new Date(), fsImpl = fs, kind, caller, reason, model = null, durationMs = 0 } = {}) {
+function appendMiss({ roots, now = () => new Date(), fsImpl = fs, kind, caller, reason, model = null, durationMs = 0 }: any = {}): any {
   try {
     const at = timestamp(now);
     if (!at) return null;
@@ -101,7 +103,7 @@ function appendMiss({ roots, now = () => new Date(), fsImpl = fs, kind, caller, 
   } catch { return null; }
 }
 
-function appendOutcome({ roots, now = () => new Date(), fsImpl = fs, pickId, actual, source, store } = {}) {
+function appendOutcome({ roots, now = () => new Date(), fsImpl = fs, pickId, actual, source, store }: any = {}): any {
   try {
     const at = timestamp(now);
     if (!at) return null;
@@ -110,36 +112,36 @@ function appendOutcome({ roots, now = () => new Date(), fsImpl = fs, pickId, act
   } catch { return null; }
 }
 
-function cutoffDate(now, maxAgeDays = RETAINED_DAYS) {
+function cutoffDate(now: any, maxAgeDays: number = RETAINED_DAYS): string | null {
   const at = timestamp(now);
   if (!at) return null;
   const cutoff = new Date(Date.parse(at) - maxAgeDays * 24 * 60 * 60 * 1000);
   return cutoff.toISOString().slice(0, 10);
 }
 
-function partitionFiles(root, cutoff, fsImpl) {
+function partitionFiles(root: string | undefined, cutoff: string, fsImpl: any): any[] {
   if (!root) return [];
   const directory = path.join(root, 'advice', 'picks');
   try {
     return fsImpl.readdirSync(directory)
-      .filter((name) => PARTITION_NAME.test(name) && name.slice(0, 10) >= cutoff)
+      .filter((name: string) => PARTITION_NAME.test(name) && name.slice(0, 10) >= cutoff)
       .sort()
-      .map((name) => path.join(directory, name));
-  } catch (error) {
+      .map((name: string) => path.join(directory, name));
+  } catch (error: any) {
     if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return [];
     return [{ unreadable: true, file: directory }];
   }
 }
 
-function readWindow({ roots, now = () => new Date(), maxAgeDays = RETAINED_DAYS, fsImpl = fs } = {}) {
+function readWindow({ roots, now = () => new Date(), maxAgeDays = RETAINED_DAYS, fsImpl = fs }: any = {}): { records: any[]; unreadable: number } {
   const cutoff = cutoffDate(now, maxAgeDays);
   if (!cutoff) return { records: [], unreadable: 0 };
-  const records = [];
+  const records: any[] = [];
   let unreadable = 0;
   for (const store of ['project-state', 'user-state']) {
     for (const item of partitionFiles(roots?.[store], cutoff, fsImpl)) {
       if (typeof item !== 'string') { unreadable += 1; continue; }
-      let contents;
+      let contents: string;
       try { contents = fsImpl.readFileSync(item, 'utf8'); } catch { unreadable += 1; continue; }
       for (const line of contents.split(/\r?\n/)) {
         if (!line.trim()) continue;
@@ -154,10 +156,10 @@ function readWindow({ roots, now = () => new Date(), maxAgeDays = RETAINED_DAYS,
   return { records, unreadable };
 }
 
-function findPick({ pickId, roots, now = () => new Date(), fsImpl = fs } = {}) {
+function findPick({ pickId, roots, now = () => new Date(), fsImpl = fs }: any = {}): any {
   if (typeof pickId !== 'string') return null;
   const window = readWindow({ roots, now, fsImpl });
-  const found = window.records.find((entry) => entry.record.type === 'pick' && entry.record.pickId === pickId);
+  const found = window.records.find((entry: any) => entry.record.type === 'pick' && entry.record.pickId === pickId);
   return found ? { pick: found.record, file: found.file, store: found.store } : null;
 }
 

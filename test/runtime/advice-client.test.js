@@ -10,7 +10,7 @@ const { startFakeServer, spawnFakeServer } = require('../helper/fake-decision-se
 const { loadAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
 const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
 const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
-const { readWindow } = require('../../src/runtime/advice/record');
+const { readWindow } = require('../../src/runtime/advice/record.ts');
 const { createAdviceClient } = require('../../src/runtime/advice/client');
 
 const REPO = path.resolve(__dirname, '../..');

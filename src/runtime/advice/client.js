@@ -7,7 +7,7 @@ const { resolveSetting } = require('./config.ts');
 const { checkEndpoint } = require('./endpoint-guard.ts');
 const { strengthOf } = require('./strength.ts');
 const { validateQuestionSet, validateStaticAnswer } = require('./kinds.ts');
-const { appendPick, appendMiss } = require('./record');
+const { appendPick, appendMiss } = require('./record.ts');
 
 // Keep this map literal: module reachability must be auditable without dynamic require paths.
 const ADAPTERS = Object.freeze({

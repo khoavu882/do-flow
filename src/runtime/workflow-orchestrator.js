@@ -23,7 +23,7 @@ const { loadRegistry } = require('../registry/index.ts');
 const { loadStorageRegistry } = require('./storage/registry.ts');
 const { resolveRoots, resolveStorePath } = require('./storage/roots.ts');
 const { checkCompletion: checkTaskAttemptCompletion } = require('./task-attempts');
-const { appendOutcome, findPick, readWindow } = require('./advice/record');
+const { appendOutcome, findPick, readWindow } = require('./advice/record.ts');
 const {
   checkReadiness, harnessHookNote, featureSlugFor, runSlugOf, findRunFile,
 } = require('./implementation-gate');
