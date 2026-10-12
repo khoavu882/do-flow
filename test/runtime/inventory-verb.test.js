@@ -60,7 +60,7 @@ test('IC-001: the inventory verb is present in all four places the seam requires
   assert.match(usage[1], /^ {2}inventory\s{2,}\S/m,
     'usage() is the only verb list a user ever sees; an undocumented verb is an unreachable one');
 
-  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.js'), 'utf8');
+  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.ts'), 'utf8');
   assert.match(cli, /case 'inventory': return handleInventoryCommand/,
     "the command must stay in the single-expression case form: written as a block it becomes "
     + 'invisible to G8 and G12, which then go quiet rather than red');

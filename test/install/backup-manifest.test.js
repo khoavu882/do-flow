@@ -15,7 +15,7 @@ const { legacyBackupReadRoot, scopeRootFromCanonicalBackupRoot } = require('../.
 // `installPaths` is the exact expression install.js/update.js/rollback.js use to pick a backup root,
 // so the tests below derive the write side from the installer's own resolver rather than restating a
 // literal path that could silently drift from it.
-const { installPaths } = require('../../src/cli/shared');
+const { installPaths } = require('../../src/cli/shared.ts');
 
 /** A backup dir with a readable `.manifest.json`, planted directly at `root` (no writer). */
 function plantBackup(root, id, extra = {}) {

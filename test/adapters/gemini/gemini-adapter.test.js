@@ -419,7 +419,7 @@ test('a migration from the folder layout leaves no empty .agents/agents behind, 
 
 test('a relocation removal is carried through the lifecycle retained filter, so a file Antigravity claims stays', () => {
   const { loadRegistry } = require('../../../src/registry');
-  const { buildAdapterRegistry } = require('../../../src/cli/shared');
+  const { buildAdapterRegistry } = require('../../../src/cli/shared.ts');
   const { planLifecycle, applyLifecycle } = require('../../../src/lifecycle');
   const { defaultLedger } = require('../../../src/state');
   const registry = loadRegistry({ repoRoot: REPO });

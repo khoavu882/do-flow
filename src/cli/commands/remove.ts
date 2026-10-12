@@ -1,6 +1,7 @@
 'use strict';
 // `doflow remove` — remove only lifecycle-owned native resources; user-owned files are preserved
 // and what remains standing (shared destinations) is reported, not implied.
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const os = require('node:os');
 const path = require('node:path');
 const { resolveTargets, toolDirs } = require('../../install/targets.ts');
@@ -15,16 +16,16 @@ const {
 const { recordedMcpSelections } = require('../../install/mcp.ts');
 const {
   REPO_ROOT, scopeOf, scopeSelectionState, buildAdapterRegistry, refuseHomeRootedProject, holdRunLock, checkpointRunLock,
-} = require('../shared');
+} = require('../shared.ts');
 
-function cmdRemove(o) {
+function cmdRemove(o: any): void {
   refuseHomeRootedProject(o, 'remove');
   const targets = resolveTargets(o.targets);
   const scope = scopeOf(o);
   const hold = holdRunLock(o, scope, 'remove');
   try {
     const dirs = toolDirs(scope);
-    const lifecycleTargets = targets.filter((t) => LIFECYCLE_HARNESSES.includes(t));
+    const lifecycleTargets = targets.filter((t: string) => LIFECYCLE_HARNESSES.includes(t));
     if (!lifecycleTargets.length) {
       console.log('[INFO] No lifecycle-owned native resources selected; legacy compatibility assets are never broadly removed.');
       return;

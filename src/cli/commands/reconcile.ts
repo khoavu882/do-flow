@@ -1,6 +1,7 @@
 'use strict';
 // `doflow reconcile` — converge observed state onto the doflow.lock pin: report drift, then heal
 // it on confirmation. Never re-prompts for MCP; selections ride exactly as pinned.
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const { toolDirs } = require('../../install/targets.ts');
 const { resolveContext, printContext } = require('../../install/context.ts');
 const { writeManifest } = require('../../install/manifest.ts');
@@ -15,17 +16,17 @@ const { recordedMcpSelections } = require('../../install/mcp.ts');
 const {
   REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, scopeSelectionState, printRecordedMcpOwnership, buildAdapterRegistry,
   refuseHomeRootedProject, holdRunLock, checkpointRunLock,
-} = require('../shared');
+} = require('../shared.ts');
 
 /** Classify desired-vs-observed drift for one lifecycle view. The plan IS the diff: its changes
  * are the operations needed to converge, its conflicts and prerequisites are the drift that must
  * not be silently healed. */
-function reconcileReport(view) {
+function reconcileReport(view: any): any {
   const drifts = [];
   const perHarness = new Map();
   for (const target of view.plan.targets) {
     if (target.skipped) continue;
-    const entry = { create: 0, update: 0, remove: 0 };
+    const entry: any = { create: 0, update: 0, remove: 0 };
     for (const change of target.changes) {
       if (entry[change.operation] !== undefined) entry[change.operation] += 1;
       drifts.push({ harness: target.harness, operation: change.operation, assetId: change.assetId, target: change.target });
@@ -41,9 +42,9 @@ function reconcileReport(view) {
   };
 }
 
-function printReconcileReport(report, lock) {
+function printReconcileReport(report: any, lock: any): void {
   console.log(`[INFO] Reconciling against doflow.lock (sourceVersion ${lock.sourceVersion ?? 'unknown'})`);
-  for (const [harness, counts] of Object.entries(report.perHarness)) {
+  for (const [harness, counts] of Object.entries<any>(report.perHarness)) {
     const total = counts.create + counts.update + counts.remove;
     console.log(`[INFO] ${harness}: ${total === 0 ? 'clean' : `${total} drift(s) (${counts.create} create, ${counts.update} update, ${counts.remove} remove)`}`);
   }
@@ -52,7 +53,7 @@ function printReconcileReport(report, lock) {
   if (report.clean) console.log('[OK] Observed state matches doflow.lock.');
 }
 
-function cmdReconcile(o) {
+function cmdReconcile(o: any): void {
   refuseHomeRootedProject(o, 'reconcile');
   const scope = scopeOf(o);
   const hold = holdRunLock(o, scope, 'reconcile');
@@ -62,10 +63,10 @@ function cmdReconcile(o) {
     const { lock, ledger, manifestServers } = scopeSelectionState(scope);
     // A harness the ledger holds but the lock does not pin is installed and outside reconcile's reach.
     // Said, not converged: the lock records choices, and reconcile has no choice to record for it.
-    const pinned = new Set((lock?.targets ?? []).map((entry) => entry.harness));
-    const unpinned = [...new Set((ledger?.resources ?? []).map((resource) => resource.harness))].filter((harness) => !pinned.has(harness)).sort();
+    const pinned = new Set((lock?.targets ?? []).map((entry: any) => entry.harness));
+    const unpinned = [...new Set((ledger?.resources ?? []).map((resource: any) => resource.harness))].filter((harness) => !pinned.has(harness)).sort();
     for (const harness of unpinned) {
-      const count = ledger.resources.filter((resource) => resource.harness === harness).length;
+      const count = ledger.resources.filter((resource: any) => resource.harness === harness).length;
       console.log(`[WARN] ${harness}: installed (ledger holds ${count} resource(s)) but absent from doflow.lock; reconcile does not converge it.`);
     }
     if (!lock || !lock.targets.length) {
@@ -75,7 +76,7 @@ function cmdReconcile(o) {
       console.log('[INFO] No doflow.lock in this scope — nothing pinned to reconcile against. Run `doflow install` first.');
       return;
     }
-    const targets = lock.targets.map((entry) => entry.harness);
+    const targets = lock.targets.map((entry: any) => entry.harness);
     const registry = loadRegistry({ repoRoot: REPO_ROOT });
     printContext(resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: sourceCommit(SCRIPT_DIR), ...scope }));
     // Each harness converges onto its own pinned selection — reconcile never re-prompts and never

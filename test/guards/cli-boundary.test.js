@@ -27,31 +27,32 @@ const { REPO } = require('./_shared');
 const BIN = fs.readFileSync(path.join(REPO, 'bin', 'doflow.js'), 'utf8');
 const CLI_DIR = path.join(REPO, 'src', 'cli');
 
-/** The nine installer commands and the kebab-case handler filename each one owns. */
+/** The nine installer commands and the kebab-case handler filename each one owns.
+ * `.ts` since the TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md) converted the CLI layer. */
 const COMMAND_FILES = new Map([
-  ['install', 'install.js'],
-  ['update', 'update.js'],
-  ['reconcile', 'reconcile.js'],
-  ['remove', 'remove.js'],
-  ['status', 'status.js'],
-  ['tools', 'tools.js'],
-  ['list-backups', 'list-backups.js'],
-  ['rollback', 'rollback.js'],
-  ['self-update', 'self-update.js'],
+  ['install', 'install.ts'],
+  ['update', 'update.ts'],
+  ['reconcile', 'reconcile.ts'],
+  ['remove', 'remove.ts'],
+  ['status', 'status.ts'],
+  ['tools', 'tools.ts'],
+  ['list-backups', 'list-backups.ts'],
+  ['rollback', 'rollback.ts'],
+  ['self-update', 'self-update.ts'],
 ]);
 
 test('cli-boundary: bin/doflow.js is a thin forwarder with no handlers and no parser', () => {
   assert.doesNotMatch(BIN, /\bfunction\s+cmd[A-Za-z]*/,
     'a command handler defined in bin/doflow.js is a second implementation growing back inside '
-    + 'the entry point; handlers live in src/cli/commands/<name>.js');
+    + 'the entry point; handlers live in src/cli/commands/<name>.ts');
   assert.doesNotMatch(BIN, /\bfunction\s+parseArgs\b/,
     'argument parsing lives in src/cli/index.js; a parser copy here would drift from it silently');
-  assert.match(BIN, /require\([^)]*src\/cli["']\)|require\([^)]*src[\\/]cli["']\)/,
+  assert.match(BIN, /require\([^)]*src\/cli(?:\/index\.ts)?["']\)|require\([^)]*src[\\/]cli(?:[\\/]index\.ts)?["']\)/,
     'bin/doflow.js must reach the CLI through src/cli, not re-implement any part of it');
 });
 
 test('cli-boundary: COMMANDS exports exactly the nine installer commands, wired to their files', () => {
-  const { COMMANDS } = require(path.join(CLI_DIR, 'index.js'));
+  const { COMMANDS } = require(path.join(CLI_DIR, 'index.ts'));
 
   const names = Object.keys(COMMANDS).sort();
   assert.deepEqual(names, [...COMMAND_FILES.keys()].sort(),
@@ -65,7 +66,7 @@ test('cli-boundary: COMMANDS exports exactly the nine installer commands, wired 
 
 test('cli-boundary: src/cli/commands holds exactly one kebab-case file per command', () => {
   const files = fs.readdirSync(path.join(CLI_DIR, 'commands'))
-    .filter((f) => f.endsWith('.js'))
+    .filter((f) => f.endsWith('.ts'))
     .sort();
   assert.deepEqual(files, [...COMMAND_FILES.values()].sort(),
     'src/cli/commands/ and COMMAND_FILES must describe the same nine handlers. A command without '

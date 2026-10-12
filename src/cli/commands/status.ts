@@ -2,6 +2,7 @@
 // `doflow status` — resolved context plus installed state from the manifest, with per-harness
 // lifecycle verification. Must stay usable even when the local registry is invalid (--json for
 // scripting).
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const path = require('node:path');
 const { resolveTargets, toolDirs } = require('../../install/targets.ts');
 const { resolveContext, printContext } = require('../../install/context.ts');
@@ -13,25 +14,25 @@ const { pinnedSelections } = require('../../state/lockfile');
 const { readLedger } = require('../../state');
 const { verifyLifecycle } = require('../../lifecycle');
 const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../lifecycle/view');
-const { REPO_ROOT, SCRIPT_DIR, installPaths, scopeOf, scopeSelectionState } = require('../shared');
+const { REPO_ROOT, SCRIPT_DIR, installPaths, scopeOf, scopeSelectionState } = require('../shared.ts');
 
-function cmdStatus(o) {
+function cmdStatus(o: any): void {
   const targets = resolveTargets(o.targets);
   const scope = scopeOf(o);
   const dirs = toolDirs(scope);
   const lifecyclePaths = installPaths(scope);
-  const ctx = resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: sourceCommit(SCRIPT_DIR), ...scope });
+  const ctx: any = resolveContext({ repoRoot: REPO_ROOT, targets, dirs, sourceCommit: sourceCommit(SCRIPT_DIR), ...scope });
   const manifest = readInstallManifest({ scopeRoot: lifecyclePaths.scopeRoot });
-  let registryView = null;
+  let registryView: any = null;
   // Per MCP-capable target, the servers doflow.lock records for it, or null when it records none.
-  let mcpSelections = null;
+  let mcpSelections: any = null;
   try {
     const registry = loadRegistry({ repoRoot: REPO_ROOT });
     const { lock, ledger, manifestServers } = scopeSelectionState(scope);
     const recorded = recordedMcpSelections({ registry, lock, ledger, targets, manifestServers });
     const rows = pinnedSelections(lock);
-    mcpSelections = Object.fromEntries(targets.filter((harness) => mcpCapable(registry, harness))
-      .map((harness) => [harness, rows[harness] ?? null]));
+    mcpSelections = Object.fromEntries(targets.filter((harness: string) => mcpCapable(registry, harness))
+      .map((harness: string) => [harness, rows[harness] ?? null]));
     registryView = registryLifecycleView({ registry, repoRoot: REPO_ROOT, scope, dirs, targets,
       mcpSelections: recorded.selections, mcpAdoptable: recorded.adoptable, retainedMcpIds: recorded.retainedMcpIds });
     ctx.registry = {
@@ -45,17 +46,17 @@ function cmdStatus(o) {
     // registryView.plan.changes/conflicts across every target — otherwise, e.g., Codex having
     // pending changes when it isn't installed yet would make Claude's line falsely report
     // 'drift-or-pending-change' even though Claude itself has nothing pending.
-    const harnessPlan = (harness) => registryView.plan.targets.find((target) => target.harness === harness);
+    const harnessPlan = (harness: string) => registryView.plan.targets.find((target: any) => target.harness === harness);
     // Hook-wiring status needs the same general per-harness verification every install/update run
     // already flows through (src/lifecycle's verifyLifecycle) rather than a Codex-only hardcode:
     // it is the one place that can tell 'installed and active' apart from 'installed but pending a
     // prerequisite' (Codex's unreviewed trust, Gemini's live hook-trust check) from 'absent'.
     const verification = verifyLifecycle({ plan: registryView.plan, adapters: registryView.adapters, context: { registry } });
-    const hooksFor = (harness) => verification.verifications.find((item) => item.harness === harness)?.hookWiring ?? null;
-    const harnessStatus = (harness) => {
+    const hooksFor = (harness: string) => verification.verifications.find((item: any) => item.harness === harness)?.hookWiring ?? null;
+    const harnessStatus = (harness: string) => {
       const target = harnessPlan(harness);
       if (!target) return { status: 'verified', resources: [], errors: [], hooks: hooksFor(harness) };
-      const resources = registryView.ledger.resources.filter((resource) => resource.harness === harness);
+      const resources = registryView.ledger.resources.filter((resource: any) => resource.harness === harness);
       // A conflict is reported first: a user-owned file in the way is not the same as nothing being
       // installed. With no conflict, a harness the ledger owns nothing of was never installed: its
       // whole plan is pending, which is not drift from an installation that does not exist.
@@ -74,7 +75,7 @@ function cmdStatus(o) {
     for (const harness of LIFECYCLE_HARNESSES) {
       if (targets.includes(harness)) ctx[harness] = harnessStatus(harness);
     }
-  } catch (error) {
+  } catch (error: any) {
     // Status must remain usable for an existing installation even if a local registry is invalid.
     ctx.registry = { status: 'invalid', error: error.message };
   }
@@ -84,7 +85,7 @@ function cmdStatus(o) {
     return;
   }
 
-  const hookLine = (label, hooks) => {
+  const hookLine = (label: string, hooks: any) => {
     if (!hooks || hooks.status === 'absent') return null;
     const prereqSuffix = hooks.prerequisites.length ? ` (unmet: ${hooks.prerequisites.join(', ')})` : '';
     return `  ${label} hooks: ${hooks.status}${prereqSuffix}`;
@@ -103,7 +104,7 @@ function cmdStatus(o) {
   console.log(`  Last backup ID:       ${manifest.backupId}`);
   console.log(`  Script version:       ${manifest.scriptVersion}`);
   if (mcpSelections && Object.keys(mcpSelections).length) {
-    const recordedText = (ids) => (ids === null ? 'not recorded' : ids.join(', ') || 'none');
+    const recordedText = (ids: any) => (ids === null ? 'not recorded' : ids.join(', ') || 'none');
     console.log(`  MCP selections:       ${Object.entries(mcpSelections).map(([harness, ids]) => `${harness} ${recordedText(ids)}`).join('; ')}`);
   }
   // Printed in the same order LIFECYCLE_HARNESSES declares, so every wired harness gets a line —

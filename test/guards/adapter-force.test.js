@@ -85,9 +85,9 @@ test('G18: the parser, the lifecycle view and the conflict predicate all still s
   // across five harnesses to find, so each link is asserted rather than assumed.
   const read = (rel) => fs.readFileSync(path.join(REPO, rel), 'utf8');
 
-  assert.match(read('src/cli/index.js'), /case '-f': case '--force': o\.force = true/,
+  assert.match(read('src/cli/index.ts'), /case '-f': case '--force': o\.force = true/,
     'the CLI must parse --force');
-  assert.match(read('src/cli/commands/install.js'), /force: o\.force/,
+  assert.match(read('src/cli/commands/install.ts'), /force: o\.force/,
     'install must pass the parsed flag to the lifecycle view');
   assert.match(read('src/lifecycle/view.js'), /^\s+force,$/m,
     'the lifecycle view must place force in the adapter context');

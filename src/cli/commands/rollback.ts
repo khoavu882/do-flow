@@ -3,6 +3,7 @@
 // whole restore first, then snapshots exactly the files it will overwrite (regardless of
 // --no-backup), then restores. A per-file backup restores every file it holds unless --target
 // narrows it; a backup from an earlier DoFlow restores per tool, as it always did.
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const path = require('node:path');
 const { resolveTargets, toolDirs } = require('../../install/targets.ts');
 const { resolveContext, printContext } = require('../../install/context.ts');
@@ -17,18 +18,18 @@ const { sourceCommit } = require('../../helper/git.ts');
 const { captureCaught } = require('../../runtime/cli-result');
 const {
   REPO_ROOT, SCRIPT_DIR, pkg, installPaths, printBackupTable, holdRunLock, checkpointRunLock,
-} = require('../shared');
+} = require('../shared.ts');
 
 const LISTED_ABSENT = 10;
 
-function fail(error) {
+function fail(error: any): void {
   captureCaught(error, 'rollback', 1);
   console.error(`[ERROR] ${error.message}`);
   console.error('[ERROR] Use --list-backups to see available backups');
   process.exit(1);
 }
 
-function cmdRollback(o) {
+function cmdRollback(o: any): void {
   const targets = resolveTargets(o.targets);
   const dirs = toolDirs({ global: o.global, projectRoot: '.' });
   const scope = { global: o.global, projectRoot: '.' };
@@ -48,7 +49,7 @@ function cmdRollback(o) {
     }
 
     // Worked out before anything is written. Reads only, so a bad id fails here, before the prompt.
-    let plan;
+    let plan: any;
     try {
       plan = planRestore({ bid, backupRoot, scope: scopeName, scopeRoot: lifecyclePaths.scopeRoot, targets, explicitTargets, dirs });
     } catch (error) {
@@ -57,7 +58,7 @@ function cmdRollback(o) {
     // A per-file backup restores the harnesses it holds (only those in --target when given), so the
     // banner and the install manifest name those, not the default target.
     const restoredTools = plan.format === 2
-      ? [...new Set(plan.restore.flatMap((item) => item.harnesses))].filter((h) => !explicitTargets || targets.includes(h)).sort()
+      ? [...new Set(plan.restore.flatMap((item: any) => item.harnesses))].filter((h) => !explicitTargets || targets.includes(h)).sort()
       : targets;
     printContext(resolveContext({ repoRoot: REPO_ROOT, targets: restoredTools, dirs, sourceCommit: commit, global: o.global, projectRoot: '.' }));
 
@@ -83,7 +84,7 @@ function cmdRollback(o) {
 
     snapshotBeforeRestore({ o, plan, bid, backupRoot, lifecyclePaths, scopeName, commit });
 
-    let result;
+    let result: any;
     try {
       result = executeRestore(plan, { backupRoot, dryRun: o.dryRun });
     } catch (error) {
@@ -130,7 +131,7 @@ function cmdRollback(o) {
 /** A backup of exactly the files the restore will overwrite, taken regardless of --no-backup:
  * rollback is destructive enough that skipping it is not offered. Skipped when the restore
  * overwrites nothing, so an empty snapshot never pushes a real restore point out of retention. */
-function snapshotBeforeRestore({ o, plan, bid, backupRoot, lifecyclePaths, scopeName, commit }) {
+function snapshotBeforeRestore({ o, plan, bid, backupRoot, lifecyclePaths, scopeName, commit }: any): void {
   if (o.dryRun) {
     console.log(`[DRY]  Would snapshot ${plan.snapshot.length} file(s) before restoring`);
     return;
@@ -150,7 +151,7 @@ function snapshotBeforeRestore({ o, plan, bid, backupRoot, lifecyclePaths, scope
     });
     snapshot = createFileBackup({ operation: 'pre-rollback', set, backupRoot, repoRoot: SCRIPT_DIR, sourceCommit: commit,
       version: pkg.version, date: new Date(), restores: bid });
-  } catch (error) {
+  } catch (error: any) {
     if (!(error instanceof BackupError)) throw error;
     console.error(`[ERROR] Pre-rollback snapshot failed, nothing was restored: ${error.message}`);
     process.exit(1);

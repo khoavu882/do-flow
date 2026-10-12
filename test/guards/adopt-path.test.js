@@ -93,8 +93,8 @@ test('G19: adopt is parsed, threaded, and read off the lifecycle context', () =>
   // the first cut of `adopt` read it off the adapter's own narrow native context, where it is absent.
   const read = (rel) => fs.readFileSync(path.join(REPO, rel), 'utf8');
 
-  assert.match(read('src/cli/index.js'), /case '--adopt': o\.adopt = true/, 'the CLI must parse --adopt');
-  assert.match(read('src/cli/commands/install.js'), /adopt: o\.adopt === true/, 'install must pass it on');
+  assert.match(read('src/cli/index.ts'), /case '--adopt': o\.adopt = true/, 'the CLI must parse --adopt');
+  assert.match(read('src/cli/commands/install.ts'), /adopt: o\.adopt === true/, 'install must pass it on');
   assert.match(read('src/lifecycle/view.js'), /^\s+adopt,$/m, 'the lifecycle view must put it in the adapter context');
   assert.match(read('src/adapters/codex/index.js'), /options\.context\?\.adopt === true/,
     'the adapter must read it off the LIFECYCLE context (options.context), not its own native one');

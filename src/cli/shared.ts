@@ -5,6 +5,7 @@
 // adapter-registry factory, and the helpers more than one command uses (scope resolution, MCP
 // selection, backup-table printing). Nothing here is harness-specific — native quirks belong in
 // src/adapters/<id>/.
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -35,7 +36,7 @@ const SCRIPT_DIR = path.join(REPO_ROOT, 'bin');
 // core/registry/ but no package.json — see the `runtime.*` assets in core/registry/assets.json.
 // A hard require here would make every Node-backed verb fail in an install, which is the exact
 // defect that projection exists to fix. Only version reporting depends on this.
-function loadPkg() {
+function loadPkg(): any {
   try { return require('../../package.json'); } catch { return { version: '0.0.0-installed', name: '@khoavu882/doflow' }; }
 }
 const pkg = loadPkg();
@@ -49,7 +50,7 @@ const pkg = loadPkg();
  * receives its harness's declared native paths from core/registry/harnesses.json, so the CLI
  * consumes exactly what the loader validates.
  */
-function buildAdapterRegistry() {
+function buildAdapterRegistry(): any {
   const declared = declaredHarnessPaths();
   return createAdapterRegistry({
     claude: claudeAdapter.createClaudeAdapter({ declaredPaths: declared.claude }),
@@ -64,11 +65,11 @@ function buildAdapterRegistry() {
 }
 
 /** Resolve {global, projectRoot} scope options for src/install/targets.js#toolDirs from parsed args. */
-function scopeOf(o) {
+function scopeOf(o: any): { global: boolean; projectRoot: string } {
   return { global: o.global, projectRoot: o.positional[0] || '.' };
 }
 
-function installPaths(scope) {
+function installPaths(scope: any): any {
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   return doflowPaths({ scopeRoot });
 }
@@ -76,7 +77,7 @@ function installPaths(scope) {
 /** Whether two paths name the same directory. Device and inode follow symlinks (macOS reaches
  * /var through /private/var) and ignore letter case on a case-insensitive volume; a file system
  * that reports inode 0 falls back to real paths, and paths that do not exist to resolved strings. */
-function sameDirectory(a, b, { fsImpl = fs } = {}) {
+function sameDirectory(a: string, b: string, { fsImpl = fs }: any = {}): boolean {
   const ra = path.resolve(a);
   const rb = path.resolve(b);
   try {
@@ -94,7 +95,7 @@ function sameDirectory(a, b, { fsImpl = fs } = {}) {
 /** A project install, update, remove or reconcile rooted at the home directory would share the
  * global install's files and records, and its remove could delete them. Refuses that run with one
  * line and exit 1 before anything is read, locked or written; `-g` and every other root pass. */
-function refuseHomeRootedProject(o, command) {
+function refuseHomeRootedProject(o: any, command: string): void {
   if (o.global) return;
   const projectRoot = o.positional[0] || '.';
   if (!sameDirectory(projectRoot, os.homedir())) return;
@@ -105,40 +106,40 @@ function refuseHomeRootedProject(o, command) {
 
 /** Takes the scope's run lock for a mutating command, or returns null under --dry-run. A run that
  * cannot take it prints the one reason line and exits 1 before it has read or changed anything. */
-function holdRunLock(o, scope, command) {
+function holdRunLock(o: any, scope: any, command: string): any {
   if (o.dryRun) return null;
   try {
     return acquireRunLock({ scopeRoot: installPaths(scope).scopeRoot, scope: scope.global ? 'global' : 'project', command });
   } catch (err) {
     if (!(err instanceof RunLockTimeoutError || err instanceof RunLockError)) throw err;
-    console.error(err.message);
+    console.error((err as any).message);
     process.exit(1);
   }
 }
 
 /** After the confirm prompt: renews the hold, and exits 1 before the first write if another run
  * took the lock over while the prompt waited. */
-function checkpointRunLock(hold) {
+function checkpointRunLock(hold: any): void {
   if (!hold) return;
   try {
     hold.checkpoint();
   } catch (err) {
     if (!(err instanceof RunLockLostError)) throw err;
-    console.error(err.message);
+    console.error((err as any).message);
     process.exit(1);
   }
 }
 
 /** Surface a reconciled-away MCP server rather than dropping it silently: the user picked it once,
  * so its disappearance from their config should be explained, not discovered. */
-function reportRetiredMcp(retired) {
+function reportRetiredMcp(retired: string[]): void {
   console.error(`[WARN]  Dropping MCP server(s) no longer in the registry: ${retired.join(', ')}`);
   console.error('        They were removed from DoFlow; your saved selection is being reconciled.');
 }
 
 /** The scope's doflow.lock, ledger and 1.18.0 manifest MCP list, as the MCP selection functions in
  * src/install/mcp.js read them. */
-function scopeSelectionState(scope) {
+function scopeSelectionState(scope: any): any {
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   return {
     lock: readLock(scope.global ? { scope: 'global', homeDir: scopeRoot } : { scope: 'project', projectRoot: scopeRoot }),
@@ -147,13 +148,13 @@ function scopeSelectionState(scope) {
   };
 }
 
-const MCP_SOURCE_WORDS = Object.freeze({ flag: '--mcp', prompt: 'prompt', recorded: 'recorded', kept: 'kept', manifest: 'remembered', default: 'default' });
+const MCP_SOURCE_WORDS = Object.freeze({ flag: '--mcp', prompt: 'prompt', recorded: 'recorded', kept: 'kept', manifest: 'remembered', default: 'default' } as Record<string, string>);
 
 /** The one line a run names its MCP selections in, from what the plan resolved for each harness:
  * harnesses with the same servers and source share a group, groups follow target order. Prints
  * nothing when no target takes MCP servers, except that an explicit --mcp is said to do nothing. */
-function printMcpSelection(view, sources, { requested, prefix = '[INFO]' } = {}) {
-  const groups = [];
+function printMcpSelection(view: any, sources: any, { requested, prefix = '[INFO]' }: any = {}): void {
+  const groups: any[] = [];
   for (const target of view.plan.targets) {
     if (target.skipped || !Array.isArray(target.mcpSelected) || !(target.harness in sources)) continue;
     const ids = target.mcpSelected.join(', ') || 'none';
@@ -171,26 +172,26 @@ function printMcpSelection(view, sources, { requested, prefix = '[INFO]' } = {})
 
 /** Says which MCP entries a run with no native change recorded as DoFlow's (lifecycle
  * recordMcpOwnership), or, under --dry-run, would record. */
-function printRecordedMcpOwnership(recorded, { dryRun = false } = {}) {
-  for (const [harness, ids] of Object.entries(recorded)) {
+function printRecordedMcpOwnership(recorded: any, { dryRun = false }: any = {}): void {
+  for (const [harness, ids] of Object.entries<any>(recorded)) {
     const what = `${ids.length} MCP ${ids.length === 1 ? 'entry' : 'entries'} (${ids.join(', ')})`;
     console.log(dryRun ? `[DRY]  ${harness}: would record DoFlow's ownership of ${what}` : `[INFO] ${harness}: recorded DoFlow's ownership of ${what}`);
   }
 }
 
 /** What each planned harness that takes MCP servers will hold, as doflow.lock records it. */
-function plannedMcpSelections(view) {
-  return Object.fromEntries(view.plan.targets.filter((target) => !target.skipped && Array.isArray(target.mcpSelected))
-    .map((target) => [target.harness, target.mcpSelected]));
+function plannedMcpSelections(view: any): any {
+  return Object.fromEntries(view.plan.targets.filter((target: any) => !target.skipped && Array.isArray(target.mcpSelected))
+    .map((target: any) => [target.harness, target.mcpSelected]));
 }
 
 /** Total size of some rows, noting when any of them could not be measured. */
-function rowsSize(rows) {
+function rowsSize(rows: any[]): string {
   const total = formatBytes(rows.reduce((sum, r) => sum + (r.bytes ?? 0), 0));
   return rows.some((r) => r.bytes === null) ? `${total} (some sizes unknown)` : total;
 }
 
-function printBackupTable(rows, rootLabel) {
+function printBackupTable(rows: any[], rootLabel: string): void {
   if (rows.length === 0) { console.log(`[INFO] No backups found in ${rootLabel}`); return; }
   const header = `${'BACKUP ID'.padEnd(42)} ${'OPERATION'.padEnd(14)} ${'TYPE'.padEnd(9)} ${'ORIGIN'.padEnd(9)} ${'SIZE'.padEnd(11)} TIMESTAMP`;
   console.log(`\n${header}`);

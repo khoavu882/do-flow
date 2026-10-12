@@ -1,13 +1,14 @@
 'use strict';
 // `doflow update` — incremental refresh: diff the pinned/selected state against what is on disk
 // and apply only what changed. Never re-prompts for MCP (reuses each harness's recorded selection).
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const os = require('node:os');
 const path = require('node:path');
 const { resolveTargets, toolDirs } = require('../../install/targets.ts');
 const { resolveContext, printContext } = require('../../install/context.ts');
 const { DEFAULT_BACKUP_RETENTION, createFileBackup, applyRetention, retentionNote } = require('../../install/backup.ts');
 const { backupSetFromPlan } = require('../../install/backup-set.ts');
-const { backupStep, reportBackup, printBackupDryRun, applyBackupRetention } = require('./install');
+const { backupStep, reportBackup, printBackupDryRun, applyBackupRetention } = require('./install.ts');
 const { writeManifest, readInstallManifest } = require('../../install/manifest.ts');
 const { confirm } = require('../../helper/prompt.ts');
 const { sourceCommit } = require('../../helper/git.ts');
@@ -23,9 +24,9 @@ const {
 const {
   REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, reportRetiredMcp, scopeSelectionState, printMcpSelection, plannedMcpSelections,
   printRecordedMcpOwnership, buildAdapterRegistry, refuseHomeRootedProject, holdRunLock, checkpointRunLock,
-} = require('../shared');
+} = require('../shared.ts');
 
-function cmdUpdate(o) {
+function cmdUpdate(o: any): void {
   refuseHomeRootedProject(o, 'update');
   const targets = resolveTargets(o.targets);
   const scope = scopeOf(o);
@@ -63,7 +64,7 @@ function cmdUpdate(o) {
     const keep = o.prune ?? DEFAULT_BACKUP_RETENTION;
 
     const lockArgs = scope.global ? { scope: 'global', homeDir: os.homedir() } : { scope: 'project', projectRoot: path.resolve(scope.projectRoot) };
-    const nextLock = (ledgerAfter) => lockDocument({
+    const nextLock = (ledgerAfter: any) => lockDocument({
       registry, scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot),
       previous: lock, ledger: ledgerAfter, plannedTargets: targets, mcpSelections: plannedMcpSelections(lifecycleView),
     });
@@ -129,7 +130,7 @@ function cmdUpdate(o) {
       stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
     for (const target of lifecycleView.plan.targets) {
       if (target.skipped || !target.changes.length) continue;
-      const owned = result.ledger.resources.filter((resource) => resource.harness === target.harness).length;
+      const owned = result.ledger.resources.filter((resource: any) => resource.harness === target.harness).length;
       console.log(`[INFO] ${target.harness}: lifecycle verified (${owned} owned resource(s))`);
     }
     printPlanNotices(lifecycleView);

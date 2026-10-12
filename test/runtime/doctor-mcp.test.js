@@ -15,7 +15,7 @@ const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { REACH_DISPATCHER_REL, REACH_RUNTIME_REL } = require('../../src/runtime/reach');
 const { buildHealthReport } = require('../../src/runtime/health');
 const { OUTCOME_LABELS } = require('../../src/runtime/mcp-consultations');
-const { buildAdapterRegistry } = require('../../src/cli/shared');
+const { buildAdapterRegistry } = require('../../src/cli/shared.ts');
 
 // A developer's PI_CODING_AGENT_DIR would send this file's global Pi MCP reads outside the scratch home.
 delete process.env.PI_CODING_AGENT_DIR;

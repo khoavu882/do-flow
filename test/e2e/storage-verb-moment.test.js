@@ -71,7 +71,7 @@ test('IC-008/009: a verb exitCode and returned value survive post-verb upkeep', 
   const out = [], log = console.log, exitCode = process.exitCode;
   console.log = text => out.push(text);
   try {
-    const { dispatchRuntimeCommand } = require('../../src/cli/runtime-commands');
+    const { dispatchRuntimeCommand } = require('../../src/cli/runtime-commands.ts');
     const result = await dispatchRuntimeCommand({ cmd: 'classify', taskClass: 'not-a-class', positional: [project], json: true });
     assert.equal(result, 1); assert.equal(process.exitCode, 1);
     assert.equal(out.length, 1);

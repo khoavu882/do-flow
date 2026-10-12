@@ -17,6 +17,7 @@
 // this switch — each case written as the single expression `case '<name>': return
 // handle<Name>Command(...)` — to cross-check the dispatcher's verb table in both directions. Keep
 // every case in exactly that shape.
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -54,7 +55,7 @@ const { projectRoot: lifecycleProjectRoot } = require('../runtime/lifecycle/root
 const { upkeepAfterVerb } = require('../runtime/storage/upkeep');
 const { handleStorageCommand } = require('../runtime/storage/cli');
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
-function handleFailureCommand(options) { return require('../runtime/failure/cli').handleFailureCommand(options); }
+function handleFailureCommand(options: any): any { return require('../runtime/failure/cli').handleFailureCommand(options); }
 const { handleInventoryCommand } = require('../runtime/inventory');
 const { finishRuntime, usageError } = require('../runtime/cli-result');
 const { setDefaultSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope');
@@ -62,12 +63,12 @@ const { listCheckouts } = require('../runtime/checkouts');
 const { featureSlugFor } = require('../runtime/implementation-gate');
 const { handleBriefToolsCommand } = require('../runtime/brief-tools');
 const { handleAdviseCommand } = require('../runtime/advice/cli');
-const { REPO_ROOT, buildAdapterRegistry } = require('./shared');
+const { REPO_ROOT, buildAdapterRegistry } = require('./shared.ts');
 
 /** Where `readiness`/`evidence` read and write per-task state. Mirrors scopeOf()'s rules so these
  * commands are scope-aware like the rest of the CLI, rather than defaulting to the DoFlow install
  * directory — which for an npm install is inside node_modules/. */
-function evidenceRoot(o) {
+function evidenceRoot(o: any): string {
   return o.global ? os.homedir() : path.resolve(o.positional[0] || '.');
 }
 
@@ -79,10 +80,8 @@ function evidenceRoot(o) {
  * READY/NEEDS_EVIDENCE verdict computed from the wrong contract, and nothing in the output said so.
  * The valid set comes from the readiness registry rather than a list written here, so it cannot
  * drift from the templates that actually exist.
- * @param {Object} o parsed arguments
- * @returns {string}
  */
-function requireTaskClass(o) {
+function requireTaskClass(o: any): string {
   if (typeof o.taskClass === 'string' && o.taskClass.trim() !== '') return o.taskClass;
   let valid = '';
   try {
@@ -93,7 +92,7 @@ function requireTaskClass(o) {
 }
 
 /** The task id the caller named, or exit 2. Same reasoning as requireTaskClass. */
-function requireTaskId(o) {
+function requireTaskId(o: any): string {
   if (typeof o.taskId === 'string' && o.taskId.trim() !== '') return o.taskId;
   usageError(o.cmd, '--task-id is required — evidence and claims belong to one task, so guessing an id would report on a different one.', o.json);
   process.exit(2);
@@ -104,11 +103,9 @@ function requireTaskId(o) {
  *
  * Absent flags stay absent. Filling a gap here with 'unknown'/'general' would move the omission out
  * of the caller's error message and into the stored record, where it reads as a measurement.
- * @param {Object} o parsed arguments
- * @returns {Object} a raw item for the write boundary to validate
  */
-function evidenceItemFromFlags(o) {
-  const item = {};
+function evidenceItemFromFlags(o: any): any {
+  const item: any = {};
   if (o.kind !== undefined) item.kind = o.kind;
   if (o.provenance !== undefined) item.provenance = o.provenance;
   if (o.locator !== undefined) item.locator = o.locator;
@@ -121,7 +118,7 @@ function evidenceItemFromFlags(o) {
     if (o.observedCommand !== undefined) item.observation.command = o.observedCommand;
     if (o.observedExit !== undefined) item.observation.exitCode = o.observedExit;
   }
-  const source = {};
+  const source: any = {};
   if (o.provider !== undefined) source.provider = o.provider;
   if (o.capability !== undefined) source.capability = o.capability;
   if (Object.keys(source).length > 0) item.source = source;
@@ -141,15 +138,13 @@ const FEATURE_STORE_VERBS = new Set(['evidence', 'claim', 'readiness']);
  * else the branch's. A locator such as `agent-docs/doflow/<slug>/plan.md` resolves only there, and
  * the readiness record written there is the one verify, orchestrate and the edit hook read from
  * the worktree.
- * @param {Object} o parsed arguments
- * @returns {{root: string, slug: string}|null}
  */
-function featureStoreRoot(o) {
+function featureStoreRoot(o: any): { root: string; slug: string } | null {
   if (!FEATURE_STORE_VERBS.has(o.cmd) || o.global) return null;
   const checkouts = listCheckouts({ cwd: evidenceRoot(o) });
   if (!checkouts.isLinked) return null;
   const slug = featureSlugFor({ projectRoot: checkouts.current, slug: o.slug });
-  const folder = (root) => path.join(root, 'agent-docs', 'doflow', slug || '');
+  const folder = (root: string) => path.join(root, 'agent-docs', 'doflow', slug || '');
   if (!slug || fs.existsSync(folder(checkouts.current)) || !fs.existsSync(folder(checkouts.main))) return null;
   return { root: checkouts.main, slug };
 }
@@ -159,9 +154,8 @@ function featureStoreRoot(o) {
  * command. Argument shaping stays here (requireTaskClass/requireTaskId/evidenceItemFromFlags
  * validate parsed CLI arguments, which is the CLI's job, not a library's); everything else belongs
  * to the engine module each case names.
- * @param {Object} o parsed arguments
  */
-function dispatchRuntimeCommandInner(o, moment) {
+function dispatchRuntimeCommandInner(o: any, moment: any): any {
   // A slug becomes a directory name and a state key, so one that could name a path is refused
   // here, once, for every verb that reads `--slug`, before any of them reads or writes state
   // (FR-013, IC-009). A well-formed slug that names no feature is the verbs' own business.
@@ -259,7 +253,7 @@ function dispatchRuntimeCommandInner(o, moment) {
     case 'research-request': return handleResearchRequestCommand({ slug: o.slug, action: o.action === 'status' ? 'list' : o.action, taskId: requireTaskId(o), stageId: o.stageId, question: o.question, reason: o.reason, blocking: o.blocking === undefined ? undefined : o.blocking === 'true' ? true : o.blocking === 'false' ? false : o.blocking, requestId: o.requestId, outcome: o.researchOutcome, claimId: o.claimId, evidenceIds: o.evidenceIds, gap: o.gap, json: o.json, projectRoot: evidenceRoot(o) });
     // The store is shared by every linked worktree of the clone (lifecycle's main-worktree root); the
     // feature is `--slug`, else the branch's, resolved the way decision and scaffold resolve it.
-    case 'task-attempt': return handleTaskAttemptCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, task: o.task, owner: o.owner, mode: o.mode, token: o.token, result: o.result, evidenceId: o.evidenceId, reason: o.reason, json: o.json, cwd: evidenceRoot(o), resolveSlug: (cwd) => featureSlugFor({ projectRoot: cwd }) });
+    case 'task-attempt': return handleTaskAttemptCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, task: o.task, owner: o.owner, mode: o.mode, token: o.token, result: o.result, evidenceId: o.evidenceId, reason: o.reason, json: o.json, cwd: evidenceRoot(o), resolveSlug: (cwd: string) => featureSlugFor({ projectRoot: cwd }) });
     case 'retrieve': return handleRetrieveCommand({ query: o.query, top: o.top, json: o.json });
     case 'brief-tools': return handleBriefToolsCommand({ owner: o.owner, tier: o.tier, harness: o.harness, slug: o.slug, headingLevel: o.headingLevel, tasks: o.tasks, json: o.json, repoRoot: REPO_ROOT, projectRoot: storeRoot, buildAdapters: buildAdapterRegistry });
     case 'advise': return handleAdviseCommand({ action: o.action, actionGiven: o.actionGiven, kind: o.kind, server: o.server, state: o.state, stateFile: o.stateFile, staticAnswer: o.staticAnswer, questionsFile: o.questionsFile, taskId: o.taskId, pickId: o.pickId, actual: o.actual, model: o.model, endpoint: o.endpoint, off: o.off, project: o.project, force: o.force, global: o.global, json: o.json, projectRoot: evidenceRoot(o) });
@@ -277,8 +271,8 @@ function dispatchRuntimeCommandInner(o, moment) {
 }
 
 /** Await the verb without changing its return value, output or exit code; usage exits never return. */
-async function dispatchRuntimeCommand(o) {
-  const moment = {};
+async function dispatchRuntimeCommand(o: any): Promise<any> {
+  const moment: any = {};
   const result = await dispatchRuntimeCommandInner(o, moment);
   if (o.cmd !== 'storage') upkeepAfterVerb({ projectRoot: moment.projectRoot });
   return result;

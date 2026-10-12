@@ -22,5 +22,5 @@ try {
     } catch { /* best-effort */ }
   });
 } catch { /* best-effort */ }
-cli = require('../src/cli');
+cli = require('../src/cli/index.ts');
 cli.main(process.argv.slice(2));

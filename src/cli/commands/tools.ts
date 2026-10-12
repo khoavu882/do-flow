@@ -1,34 +1,35 @@
 'use strict';
 // `doflow tools` — inspect or manage registered external tools (status/install/update/uninstall).
 // --force is deliberately unavailable: every mutation gets its own confirmation.
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const { confirm, promptLine } = require('../../helper/prompt.ts');
 const { loadRegistry } = require('../../registry');
 const { commandText, planToolLifecycle, executeToolLifecycle } = require('../../install/tool-lifecycle.ts');
-const { REPO_ROOT } = require('../shared');
+const { REPO_ROOT } = require('../shared.ts');
 
-function selectExternalTools(registry, o) {
+function selectExternalTools(registry: any, o: any): any[] {
   let requested = o.tools;
   if (!requested) {
     const interactive = Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY);
     if (!interactive) throw new Error("doflow tools: --tool is required when stdin is not an interactive terminal");
     const answer = promptLine('Select tools (rtk, graphify; comma-separated): ');
-    requested = answer.split(',').map((item) => item.trim()).filter(Boolean);
+    requested = answer.split(',').map((item: string) => item.trim()).filter(Boolean);
   }
   if (!requested.length) throw new Error('doflow tools: select at least one tool');
-  const available = new Set(registry.externalTools.map((tool) => tool.id));
+  const available = new Set(registry.externalTools.map((tool: any) => tool.id));
   const unknown = [...new Set(requested)].filter((id) => !available.has(id));
   if (unknown.length) throw new Error(`doflow tools: unknown tool id(s): ${unknown.join(', ')}; expected: ${[...available].join(', ')}`);
   const wanted = new Set(requested);
-  return registry.externalTools.filter((tool) => wanted.has(tool.id));
+  return registry.externalTools.filter((tool: any) => wanted.has(tool.id));
 }
 
-function toolJsonResults(plan, execution = null) {
-  const executed = new Map((execution?.results || []).map((result) => [result.tool, result]));
-  return plan.tools.map((item) => ({
+function toolJsonResults(plan: any, execution: any = null): any[] {
+  const executed = new Map((execution?.results || []).map((result: any) => [result.tool, result]));
+  return plan.tools.map((item: any) => ({
     tool: item.tool.id,
     state: item.state,
     inspections: item.inspections,
-    prerequisites: item.prerequisites.map((prerequisite) => ({ name: prerequisite.name, available: prerequisite.available })),
+    prerequisites: item.prerequisites.map((prerequisite: any) => ({ name: prerequisite.name, available: prerequisite.available })),
     action: item.action,
     result: executed.get(item.tool.id) ?? (item.action.applicable
       ? { tool: item.tool.id, status: 'not-attempted', command: [...item.action.command] }
@@ -36,7 +37,7 @@ function toolJsonResults(plan, execution = null) {
   }));
 }
 
-function cmdTools(o) {
+function cmdTools(o: any): void {
   if (o.force) throw new Error("doflow tools: --force is not supported; each lifecycle command requires its own confirmation");
   if (!['status', 'install', 'update', 'uninstall'].includes(o.action)) {
     throw new Error(`doflow tools: unsupported action '${o.action}'; expected: status, install, update, uninstall`);
@@ -71,12 +72,12 @@ function cmdTools(o) {
 
   const execution = executeToolLifecycle({
     plan,
-    displayCommand: (command, tool) => console.error(`[INFO]  ${tool.displayName}: ${commandText(command)}`),
-    confirmCommand: (command, tool, action) => confirm(`Run ${tool.displayName} ${action}: ${commandText(command)}?`, false),
+    displayCommand: (command: string[], tool: any) => console.error(`[INFO]  ${tool.displayName}: ${commandText(command)}`),
+    confirmCommand: (command: string[], tool: any, action: string) => confirm(`Run ${tool.displayName} ${action}: ${commandText(command)}?`, false),
   });
   // Keep processing independent tools so the user receives every outcome, but make a confirmed
   // command failure visible to scripts and CI through the process result as well as the report.
-  const hasFailures = execution.results.some((result) => result.status === 'failed');
+  const hasFailures = execution.results.some((result: any) => result.status === 'failed');
   if (o.json) {
     console.log(JSON.stringify({ action: o.action, dryRun: false, results: toolJsonResults(plan, execution) }, null, 2));
     if (hasFailures) process.exitCode = 1;

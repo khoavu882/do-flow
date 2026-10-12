@@ -167,7 +167,7 @@ function extractRegistryBlocks(text) {
 
 test('G5: every declared harness is wired into every createAdapterRegistry(...) dispatch call site', () => {
   const files = [
-    path.join(REPO, 'src', 'cli', 'shared.js'),
+    path.join(REPO, 'src', 'cli', 'shared.ts'),
     path.join(REPO, 'src', 'lifecycle', 'view.js'),
   ];
   const offenders = [];

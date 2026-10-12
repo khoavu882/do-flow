@@ -7,28 +7,29 @@
 // implementations stay one-per-module in src/runtime/. Adding an installer command means a new
 // file in src/cli/commands/, an entry in COMMANDS, and an edit to test/guards/cli-boundary.test.js,
 // which ratchets this surface.
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const {
   handleCapabilitiesCommand, handleReadinessCommand, handleEvidenceCommand,
   EVIDENCE_SCORE_FIELDS, scoreFieldRefusal,
 } = require('../runtime/cli');
-const { pkg } = require('./shared');
+const { pkg } = require('./shared.ts');
 const { VALID: VALID_TARGETS, DEFAULT_TARGETS } = require('../install/targets.ts');
-const { dispatchRuntimeCommand } = require('./runtime-commands');
+const { dispatchRuntimeCommand } = require('./runtime-commands.ts');
 const { usageError } = require('../runtime/cli-result');
 
-const cmdInstall = require('./commands/install');
-const cmdUpdate = require('./commands/update');
-const cmdReconcile = require('./commands/reconcile');
-const cmdRemove = require('./commands/remove');
-const cmdStatus = require('./commands/status');
-const cmdTools = require('./commands/tools');
-const cmdListBackups = require('./commands/list-backups');
-const cmdRollback = require('./commands/rollback');
-const cmdSelfUpdate = require('./commands/self-update');
+const cmdInstall = require('./commands/install.ts');
+const cmdUpdate = require('./commands/update.ts');
+const cmdReconcile = require('./commands/reconcile.ts');
+const cmdRemove = require('./commands/remove.ts');
+const cmdStatus = require('./commands/status.ts');
+const cmdTools = require('./commands/tools.ts');
+const cmdListBackups = require('./commands/list-backups.ts');
+const cmdRollback = require('./commands/rollback.ts');
+const cmdSelfUpdate = require('./commands/self-update.ts');
 
 /** The installer command surface, written down once. The runtime verbs are dispatched separately
  * (see ./runtime-commands) because their namespace is owned by the doflow-run verb table. */
-const COMMANDS = {
+const COMMANDS: Record<string, (o: any) => any> = {
   install: cmdInstall,
   update: cmdUpdate,
   reconcile: cmdReconcile,
@@ -41,15 +42,15 @@ const COMMANDS = {
 };
 
 /** "skip all backup protection" must be an explicit, deliberate choice, never a default combo. */
-function assertNoBackupRequiresForce(o) {
+function assertNoBackupRequiresForce(o: any): void {
   if (o.noBackup && !o.force) {
     console.error('doflow: --no-backup skips all backup protection and requires --force');
     process.exit(1);
   }
 }
 
-function parseArgs(argv) {
-  const o = { cmd: null, positional: [], targets: [], mcp: null, dryRun: false, force: false, adopt: false,
+function parseArgs(argv: string[]): any {
+  const o: any = { cmd: null, positional: [], targets: [], mcp: null, dryRun: false, force: false, adopt: false,
     noBackup: false, prune: null, global: false, json: false, help: false, version: false,
     tools: null, action: 'status', days: null, slug: null,
     // Explicitly null, not absent. `handleReadinessCommand` declares defaults of `'feature'` and
@@ -321,13 +322,9 @@ const RUNTIME_INT_FLAGS = new Map([
  * `do-paths.sh`'s own hint says `--slug=<chosen>` while the rest of this CLI is space-separated,
  * and rejecting either would punish following the instructions.
  *
- * @param {string} arg the current argv entry
- * @param {Array<string>} argv
- * @param {number} i index of `arg` in argv
- * @param {Object} o option object mutated in place
- * @returns {number|null} the new loop index, or null when `arg` is not a runtime flag
+ * Returns the new loop index, or null when `arg` is not a runtime flag.
  */
-function parseRuntimeFlag(arg, argv, i, o) {
+function parseRuntimeFlag(arg: string, argv: string[], i: number, o: any): number | null {
   const eq = arg.indexOf('=');
   const name = eq === -1 ? arg : arg.slice(0, eq);
   // A score-shaped flag is refused by name rather than falling through to "unknown flag", which
@@ -340,7 +337,7 @@ function parseRuntimeFlag(arg, argv, i, o) {
   const key = RUNTIME_STRING_FLAGS.get(name) || RUNTIME_LIST_FLAGS.get(name) || RUNTIME_INT_FLAGS.get(name);
   if (!key) return null;
 
-  let value = inline;
+  let value: any = inline;
   let next = i;
   if (value === null) {
     value = argv[i + 1];
@@ -366,7 +363,7 @@ function parseRuntimeFlag(arg, argv, i, o) {
     // spelling's comma-splitting, this generic path handling both spellings but never splitting),
     // so `--exclude=bin,src` silently excluded nothing while `--exclude bin,src` worked. One path,
     // both spellings, same behavior now.
-    const parts = name === '--exclude' ? value.split(',').map((s) => s.trim()).filter(Boolean) : [value];
+    const parts = name === '--exclude' ? value.split(',').map((s: string) => s.trim()).filter(Boolean) : [value];
     (o[key] = o[key] || []).push(...parts);
   } else if (name === '--evidence-id' && o.cmd === 'research-request') {
     (o.evidenceIds = o.evidenceIds || []).push(value);
@@ -529,16 +526,15 @@ External tools:
 // so a record can only ever carry a name from DoFlow's own tables and never an argument value.
 const COMMAND_NAMES = new Set([...Object.keys(COMMANDS), ...[...HELP.matchAll(/^  ([a-z][a-z-]*) {2,}\S/gm)].map((m) => m[1])]);
 
-/** @param {*} name @returns {string} `name` when it is one of DoFlow's own command names, else `unknown` */
-function commandName(name) { return typeof name === 'string' && COMMAND_NAMES.has(name) ? name : 'unknown'; }
+/** `name` when it is one of DoFlow's own command names, else `unknown`. */
+function commandName(name: any): string { return typeof name === 'string' && COMMAND_NAMES.has(name) ? name : 'unknown'; }
 
 /**
  * Run one CLI invocation. Same behavior as the pre-extraction monolith's main(): --version and
  * --help answer first, --no-backup-without-force is refused, then the command resolves either
  * through the installer table above or through the runtime-verb dispatcher.
- * @param {Array<string>} argv process.argv minus node and the script path
  */
-async function main(argv) {
+async function main(argv: string[]): Promise<any> {
   const o = parseArgs(argv);
   if (o.version) { console.log(pkg.version); return; }
   if (o.help || !o.cmd) { console.log(HELP); return; }
@@ -550,7 +546,7 @@ async function main(argv) {
     const handler = COMMANDS[o.cmd];
     if (handler) return handler(o);
     return await dispatchRuntimeCommand(o);
-  } catch (error) {
+  } catch (error: any) {
     // Recorded silently when it is a programming error (IC-016); the output and exit status below
     // are the same whether or not anything was written.
     // Required here, not at load, so a CLI whose failure modules cannot be loaded still runs as today.

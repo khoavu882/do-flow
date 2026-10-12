@@ -1,6 +1,7 @@
 'use strict';
 // `doflow install` — plan the full lifecycle across the requested targets, back up, apply, and
 // pin what was chosen in doflow.lock. Supports --dry-run previews and MCP selection.
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const os = require('node:os');
 const path = require('node:path');
 const { resolveTargets, toolDirs } = require('../../install/targets.ts');
@@ -24,9 +25,9 @@ const {
 const {
   REPO_ROOT, SCRIPT_DIR, pkg, scopeOf, installPaths, reportRetiredMcp, scopeSelectionState, printMcpSelection, plannedMcpSelections,
   printRecordedMcpOwnership, buildAdapterRegistry, refuseHomeRootedProject, holdRunLock, checkpointRunLock,
-} = require('../shared');
+} = require('../shared.ts');
 
-function cmdInstall(o) {
+function cmdInstall(o: any): void {
   refuseHomeRootedProject(o, 'install');
   const targets = resolveTargets(o.targets);
   const scope = scopeOf(o);
@@ -111,7 +112,7 @@ function cmdInstall(o) {
         stateRoot: lifecycleView.stateRoot, ledger: lifecycleView.ledger });
       for (const target of lifecycleView.plan.targets) {
         if (target.skipped || !target.changes.length) continue;
-        const owned = result.ledger.resources.filter((resource) => resource.harness === target.harness).length;
+        const owned = result.ledger.resources.filter((resource: any) => resource.harness === target.harness).length;
         console.log(`[INFO] ${target.harness}: lifecycle verified (${owned} owned resource(s))`);
       }
       ledgerAfter = result.ledger;
@@ -161,10 +162,10 @@ function cmdInstall(o) {
 }
 
 /** Run a backup step; a BackupError stops the command before anything is changed. */
-function backupStep(step) {
+function backupStep(step: () => any): any {
   try {
     return step();
-  } catch (error) {
+  } catch (error: any) {
     if (!(error instanceof BackupError)) throw error;
     console.error(`[ERROR] Backup failed, nothing was changed: ${error.message}`);
     process.exit(1);
@@ -172,7 +173,7 @@ function backupStep(step) {
 }
 
 /** Print what a backup step wrote and return its id ('' when there was nothing to back up). */
-function reportBackup(backup) {
+function reportBackup(backup: any): string {
   if (!backup) {
     console.error('[INFO]  Backup: nothing to back up (no file changes)');
     return '';
@@ -182,22 +183,22 @@ function reportBackup(backup) {
 }
 
 /** The dry-run backup lines for a set the real run would back up. */
-function printBackupDryRun(set, destination) {
+function printBackupDryRun(set: any, destination: string): void {
   if (set.count === 0) {
     console.log('[DRY]  Backup: nothing to back up (no file changes)');
   } else {
     console.log(`[DRY]  Would back up ${set.count} file(s), ${formatBytes(set.bytes)} (${set.bytes} bytes; ${set.absent} not present yet) to ${destination}`);
   }
-  const mcpOnly = set.excluded.filter((item) => item.reason === 'mcp-entries-only').length;
+  const mcpOnly = set.excluded.filter((item: any) => item.reason === 'mcp-entries-only').length;
   if (mcpOnly > 0) console.log(`[DRY]  Not backed up: ${mcpOnly} file(s) holding only MCP entries`);
 }
 
 /** Keep the newest backups after a run that changed files; never changes the exit code. */
-function applyBackupRetention({ backupRoot, prune, keep, bid }) {
+function applyBackupRetention({ backupRoot, prune, keep, bid }: any): void {
   let retention;
   try {
     retention = applyRetention({ backupRoot, keep, protect: bid ? [bid] : [] });
-  } catch (error) {
+  } catch (error: any) {
     console.error(`[WARN]  Backups: could not apply retention: ${error.message}`);
     return;
   }

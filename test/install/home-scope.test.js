@@ -10,7 +10,7 @@ const path = require('node:path');
 
 const { IS_WIN } = require('../helper-platform');
 const { suiteTempDir } = require('../helper/tmp');
-const { sameDirectory } = require('../../src/cli/shared');
+const { sameDirectory } = require('../../src/cli/shared.ts');
 
 const R = suiteTempDir('doflow-home-scope-');
 const home = path.join(R, 'home');

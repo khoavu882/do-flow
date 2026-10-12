@@ -290,7 +290,7 @@ test('G12: the dispatcher documents exactly the verbs it dispatches', () => {
 // Both sides are parsed. The command list comes from the dispatch switch, so a command wired
 // tomorrow is guarded the moment it is wired rather than when someone remembers this file.
 test('G12: every runtime command the CLI implements is dispatched by a verb (FR-003)', () => {
-  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.js'), 'utf8');
+  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.ts'), 'utf8');
   const commands = [...cli.matchAll(/case '([a-z-]+)': return handle[A-Za-z]+Command/g)].map((m) => m[1]);
   assert.ok(commands.length > 0,
     "expected to parse runtime commands from src/cli/runtime-commands.js's dispatch switch. A command written as a "
@@ -316,7 +316,7 @@ test('G12: every runtime command the CLI implements is dispatched by a verb (FR-
 // This test asks only that a verb which *is* wired is wired visibly. Whether every advertised verb
 // is wired at all is section 5c's question.
 test('G12: a wired runtime verb uses the case form the guards can parse', () => {
-  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.js'), 'utf8');
+  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.ts'), 'utf8');
   const nodeArm = new Set(nodeVerbs());
   const invisible = [];
   for (const [, verb, tail] of cli.matchAll(/case '([a-z-]+)':(.{0,60})/g)) {
@@ -343,7 +343,7 @@ test('G12: a wired runtime verb uses the case form the guards can parse', () => 
 // Both arms are now checked in both directions. An advertised verb is a promise to every skill that
 // reads the verb table, and this is the guard that makes the promise mean something.
 test('G12: every verb the dispatcher advertises on the Node arm has a CLI command (FR-003)', () => {
-  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.js'), 'utf8');
+  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.ts'), 'utf8');
   const commands = new Set([...cli.matchAll(/case '([a-z-]+)': return handle[A-Za-z]+Command/g)].map((m) => m[1]));
   const unimplemented = nodeVerbs().filter((verb) => !commands.has(verb)).sort();
   assert.deepEqual(unimplemented, [],
@@ -364,7 +364,7 @@ test('G12: every verb the dispatcher advertises on the Node arm has a CLI comman
 // Both sides are derived, because a hardcoded list here would be the same drift one level up. The
 // accepted set is the installer table the CLI itself exports plus the dispatcher's Node arm; the
 // documented set is parsed out of the HELP template that `--help` prints.
-const CLI_INDEX = path.join(REPO, 'src', 'cli', 'index.js');
+const CLI_INDEX = path.join(REPO, 'src', 'cli', 'index.ts');
 
 /** The command names the `Commands:` block of `doflow --help` advertises. A positional placeholder
  * (`install [path]`) is part of the entry, not part of the name. */
@@ -388,7 +388,7 @@ const HIDDEN_FROM_CLI_HELP = new Map([]);
 
 test('G12: doflow --help documents every command the CLI accepts, and nothing it does not', () => {
   const documented = documentedCliCommands();
-  const accepted = new Set([...Object.keys(require('../../src/cli').COMMANDS), ...nodeVerbs()]);
+  const accepted = new Set([...Object.keys(require('../../src/cli/index.ts').COMMANDS), ...nodeVerbs()]);
 
   const undocumented = [...accepted]
     .filter((name) => !documented.has(name) && !HIDDEN_FROM_CLI_HELP.has(name)).sort();
