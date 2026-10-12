@@ -42,7 +42,7 @@ const sha = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 /** A harness projecting the runtime tree the way every real adapter does: planTree with its own
  * rows and its siblings' fingerprints, keepModified on apply, removeTree on any non-retained
  * copy-tree removal, and a verifier that reports what is on disk. */
-function runtimeAdapter(id) {
+function runtimeAdapter(id, { ownRequired = false } = {}) {
   const tree = ({ scopeRoot, context }) => ({ sourceDir: path.join(context.repoRoot, 'src'), destDir: sharedTreeDestDir(scopeRoot, NATIVE_DIR) });
   return {
     discover() { return {}; },
@@ -51,15 +51,18 @@ function runtimeAdapter(id) {
       const removing = context.operation === 'remove';
       const result = planTree({ ...tree({ scopeRoot, context }), previousResources: ledgerFileResources(ledger.resources, id, ASSET),
         siblingFingerprints: ledgerSiblingFingerprints(ledger.resources, id), operation: removing ? 'remove' : 'apply', keepModified: !removing });
+      const changes = result.changes.map((change) => ({
+        assetId: ASSET, target: change.target, source: change.source, operation: change.operation,
+        ownershipIdentity: `doflow:${id}:copy-tree:${ASSET}:${change.relPath}`, kind: 'copy-tree-file', identity: change.relPath,
+        fingerprint: change.fingerprint, sourceVersion: 'test', projection: { renderer: 'copy-tree' },
+        ...(change.kept ? { retained: true, retainedFor: [] } : {}),
+      }));
       return {
+        // Codex lists its own required resources instead of letting the lifecycle default to its changes.
+        ...(ownRequired ? { requiredNativeResources: changes.map((change) => ({ harness: id, target: change.target, operation: change.operation })) } : {}),
         conflicts: result.conflicts,
         notices: result.kept.map((item) => `kept hand-edited ${path.relative(scopeRoot, item.target)}; DoFlow no longer manages it`),
-        changes: result.changes.map((change) => ({
-          assetId: ASSET, target: change.target, source: change.source, operation: change.operation,
-          ownershipIdentity: `doflow:${id}:copy-tree:${ASSET}:${change.relPath}`, kind: 'copy-tree-file', identity: change.relPath,
-          fingerprint: change.fingerprint, sourceVersion: 'test', projection: { renderer: 'copy-tree' },
-          ...(change.kept ? { retained: true, retainedFor: [] } : {}),
-        })),
+        changes,
       };
     },
     apply({ changes }) {
@@ -80,13 +83,13 @@ function runtimeAdapter(id) {
 }
 
 /** A project whose runtime source can be rewritten between runs, with alpha and beta installed. */
-function project(t, files) {
+function project(t, files, adapterOptions = {}) {
   const root = tempDir(t, 'doflow-runtime-prune-');
   const repoRoot = path.join(root, 'repo');
   const scopeRoot = path.join(root, 'proj');
   const stateRoot = path.join(scopeRoot, '.doflow', 'state');
   const dest = path.join(scopeRoot, '.doflow', 'runtime', 'src');
-  const adapters = createAdapterRegistry(Object.fromEntries(HARNESSES.map((id) => [id, runtimeAdapter(id)])));
+  const adapters = createAdapterRegistry(Object.fromEntries(HARNESSES.map((id) => [id, runtimeAdapter(id, adapterOptions)])));
   let ledger = defaultLedger({ scope: 'project', scopeRoot });
   const ship = (next) => {
     fs.rmSync(path.join(repoRoot, 'src'), { recursive: true, force: true });
@@ -224,6 +227,16 @@ test('a row whose file is already gone is released when the source no longer shi
   assert.deepEqual(p.rowsAt('gone.js'), [], 'both harnesses\' rows on a file nothing ships and nothing holds are gone');
   assert.equal(fs.readFileSync(path.join(p.dest, 'shipped.js'), 'utf8'), 'still\n');
   assert.equal(p.rowsAt('shipped.js').length, 2);
+});
+
+test('a plan holding only the prune\'s own changes applies for an adapter that lists its own required resources', (t) => {
+  const p = project(t, { 'gone.js': 'v1\n', 'kept.js': 'k\n' }, { ownRequired: true });
+  fs.rmSync(path.join(p.dest, 'gone.js'));
+  p.ship({ 'kept.js': 'k\n' });
+  const planned = p.plan(['alpha']);
+  assert.deepEqual(planned.changes.map((change) => [change.harness, path.basename(change.target), change.retained === true]), [['alpha', 'gone.js', true]]);
+  p.apply(planned);
+  assert.deepEqual(p.rowsAt('gone.js'), []);
 });
 
 test('removal is untouched: a harness removed while another stays still only releases its claim on the runtime', (t) => {

@@ -324,11 +324,13 @@ function isUnder(file: string, root: string): boolean {
 }
 
 /** Replace some of a harness plan's changes and append others, keeping `requiredNativeResources`
- * in step when it is the same array (as markRetainedRemovals does). */
+ * in step: the same array when it is one (as markRetainedRemovals does), else with the added
+ * changes listed, so a plan holding only those is still applicable (codex lists its own). */
 function withChanges(target: any, replaced: Map<any, any>, added: any[], notices: string[]) {
   if (!replaced.size && !added.length && !notices.length) return target;
   const changes = [...target.changes.map((change: any) => replaced.get(change) ?? change), ...added];
-  const requiredNativeResources = target.requiredNativeResources === target.changes ? changes : target.requiredNativeResources;
+  const requiredNativeResources = target.requiredNativeResources === target.changes ? changes
+    : [...target.requiredNativeResources, ...added.map((change: any) => ({ harness: change.harness, component: 'runtimePrune', target: change.target, operation: change.operation, identity: change.identity }))];
   return { ...target, changes, requiredNativeResources, notices: [...target.notices, ...notices] };
 }
 
