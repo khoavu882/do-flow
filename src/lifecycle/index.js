@@ -13,7 +13,7 @@ const { pruneEmptyAncestors } = require('../adapters/copy-tree.ts');
 const { renderPolicies } = require('./policies.ts');
 const { renderMcpIndex } = require('./mcp-index.ts');
 const { hasBashCapableShell } = require('./bash-availability.ts');
-const { hookTrustFor: geminiHookTrustFor } = require('../adapters/gemini');
+const { hookTrustFor: geminiHookTrustFor } = require('../adapters/gemini/index.ts');
 
 const OPERATIONS = new Set(['create', 'merge', 'update', 'remove']);
 /** A harness's MCP selection meaning "the servers it owns now", read through its adapter's
@@ -509,7 +509,7 @@ function hookAssetIds(target) {
 /** Whether this harness's plan includes at least one hooks-bearing change. Claude's hooks are a
  * registry-declared asset (`kind: "hooks"` in core/registry/assets.json); Codex and Gemini deploy
  * hooks via their own bespoke code paths and tag the resulting change with `nativeComponent:
- * 'hooks'` instead (see src/adapters/codex/index.js and src/adapters/gemini/index.js). Either
+ * 'hooks'` instead (see src/adapters/codex/index.js and src/adapters/gemini/index.ts). Either
  * signal is sufficient — this stays harness-agnostic on purpose. */
 function targetNeedsHooks(target) {
   const hookIds = hookAssetIds(target);
@@ -520,7 +520,7 @@ function targetNeedsHooks(target) {
  * asset (Claude, Kiro) is matched by assetId; Codex's bespoke hooks-file resource is matched by
  * `kind`; Gemini's bespoke hooks resource (a key inside settings.json, not a standalone file) is
  * matched by its `projection.renderer` tag — see src/adapters/codex/index.js's
- * `lifecycleResource(..., kind: 'hooks-file', ...)` and src/adapters/gemini/index.js's verify(),
+ * `lifecycleResource(..., kind: 'hooks-file', ...)` and src/adapters/gemini/index.ts's verify(),
  * which tags its hooks resource `projection: { renderer: 'gemini-hooks' }`. */
 function verificationOwnsHooks(verification, hookIds) {
   return (verification?.resources || []).some((resource) =>

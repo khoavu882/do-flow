@@ -210,7 +210,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
   /** Kiro has no hooks or mcp asset of its own in core/registry/assets.json (mcp servers come from
    * core/registry/mcp.json, not an asset), so an MCP entry change piggybacks on an asset id
    * this harness actually receives — the same "pseudo-component" technique
-   * src/adapters/gemini/index.js#hooksAssetId already uses for its own settings-only component. */
+   * src/adapters/gemini/index.ts#hooksAssetId already uses for its own settings-only component. */
   function pseudoAssetId(assets: any) {
     return assets.find((asset: any) => asset.id === 'guidance.context-layer')?.id ?? assets[0]?.id;
   }

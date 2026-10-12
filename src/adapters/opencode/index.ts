@@ -259,7 +259,7 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
   /** OpenCode's settings-merge change has no asset of its own in core/registry/assets.json (it's a
    * registration side-effect of the instructions/mcp assets, not a projected asset), so it piggybacks
    * on a real asset id already routed to this harness — the same "pseudo-component" technique
-   * src/adapters/gemini/index.js#hooksAssetId and src/adapters/kiro/index.ts#pseudoAssetId use. The
+   * src/adapters/gemini/index.ts#hooksAssetId and src/adapters/kiro/index.ts#pseudoAssetId use. The
    * lifecycle layer validates every change's assetId against the harness's actual asset list, so an
    * invented id like the literal string 'opencode.config' is rejected as unknown. */
   function pseudoAssetId(assets: any) {

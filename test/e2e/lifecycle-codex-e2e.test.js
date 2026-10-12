@@ -14,7 +14,7 @@ const { planLifecycle, applyLifecycle, removeLifecycle } = require('../../src/li
 const { stateRoot, readLedger, recoveryRoot } = require('../../src/state/index.ts');
 const claude = require('../../src/adapters/claude');
 const codex = require('../../src/adapters/codex');
-const { createGeminiAdapter } = require('../../src/adapters/gemini');
+const { createGeminiAdapter } = require('../../src/adapters/gemini/index.ts');
 
 const REPO = path.resolve(__dirname, "../..");
 

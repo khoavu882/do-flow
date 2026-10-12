@@ -277,7 +277,7 @@ test('remove deletes MCP_INDEX.md regardless of what selection would otherwise a
   const { verifyLifecycle, hookWiringStatus } = require('../../src/lifecycle');
   const realClaude = require('../../src/adapters/claude');
   const realCodex = require('../../src/adapters/codex');
-  const { createGeminiAdapter } = require('../../src/adapters/gemini');
+  const { createGeminiAdapter } = require('../../src/adapters/gemini/index.ts');
   const { createKiroAdapter } = require('../../src/adapters/kiro/index.ts');
 
   function hookFixture(t, targets) {

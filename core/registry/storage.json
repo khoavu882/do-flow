@@ -1010,7 +1010,7 @@
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/gemini/index.js",
+      "file": "src/adapters/gemini/index.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
