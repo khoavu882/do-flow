@@ -69,21 +69,30 @@ function sharedTrees(reg) {
   return trees;
 }
 
-/** Every `.doflow/<tree>/<path>` a scanned file names, with the source path it maps to. A
- * reference built from a variable (`.doflow/scripts/${x}`) or a glob is not a path, and a path
- * under a `.doflow/` directory no asset projects (state, backups) is not DoFlow source. */
+/** Runtime paths spelled through the DoFlow root's variable or a relative hop instead of `.doflow/`:
+ * `$CONFIG_DIR/runtime/...` (doflow-run), `${DOFLOW_CONFIG_DIR:-$HOME/.doflow}/runtime/...`
+ * (render-puml.sh), `$POLICY_DIR/../../../runtime/...` (the hook policies). Only the runtime trees,
+ * whose `runtime/<tree>/` prefix names nothing else in the scanned files. */
+const RUNTIME_SPELLED = /(\$\{?[A-Za-z_][A-Za-z0-9_]*\}?"?|\.doflow["}]|\.\.)\/(runtime\/[A-Za-z0-9_./-]+)(.?)/g;
+
+/** Every `.doflow/<tree>/<path>` a scanned file names, and every runtime path RUNTIME_SPELLED
+ * finds, with the source path it maps to. A reference built from a variable
+ * (`.doflow/scripts/${x}`) or a glob is not a path, and a path under a `.doflow/` directory no asset
+ * projects (state, backups) is not DoFlow source. */
 function referencedPaths(files, trees, repo) {
   const refs = [];
   const keys = [...trees.keys()].sort((a, b) => b.length - a.length);
+  const add = (file, rawRel, tail, label, only) => {
+    if (/[$*{<]/.test(tail)) return;
+    const rel = rawRel.replace(/[./]+$/, '');
+    const key = keys.find((tree) => rel.startsWith(`${tree}/`) && (!only || tree.startsWith(only)));
+    if (!key) return;
+    refs.push({ file: path.relative(repo, file), ref: `${label}${rel}`, source: path.join(repo, trees.get(key), rel.slice(key.length + 1)) });
+  };
   for (const file of files) {
     const text = fs.readFileSync(file, 'utf8');
-    for (const match of text.matchAll(/\.doflow\/([A-Za-z0-9_./-]+)(.?)/g)) {
-      if (/[$*{<]/.test(match[2])) continue;
-      const rel = match[1].replace(/[./]+$/, '');
-      const key = keys.find((tree) => rel.startsWith(`${tree}/`));
-      if (!key) continue;
-      refs.push({ file: path.relative(repo, file), ref: `.doflow/${rel}`, source: path.join(repo, trees.get(key), rel.slice(key.length + 1)) });
-    }
+    for (const match of text.matchAll(/\.doflow\/([A-Za-z0-9_./-]+)(.?)/g)) add(file, match[1], match[2], '.doflow/');
+    for (const match of text.matchAll(RUNTIME_SPELLED)) add(file, match[2], match[3], `${match[1]}/`, 'runtime/');
   }
   return refs;
 }
@@ -121,19 +130,30 @@ const KNOWN_STALE = new Map([
 test('G32.2: every path under a shared .doflow tree that a projected file names exists in this source', () => {
   const refs = referencedPaths(scannedFiles, sharedTrees(registry), REPO);
   assert.ok(refs.some((ref) => ref.ref.startsWith('.doflow/runtime/')), 'the scan must reach the runtime references (doflow-run, the hook policies)');
+  assert.ok(refs.some((ref) => !ref.ref.startsWith('.doflow/')), 'the scan must reach runtime paths spelled through a variable or ../ (doflow-run, render-puml.sh, the hook policies)');
   const missing = [...new Set(refs.filter((ref) => !fs.existsSync(ref.source)).map((ref) => `${ref.file}: ${ref.ref}`))];
   assert.deepEqual(missing.filter((entry) => !KNOWN_STALE.has(entry)), []);
   assert.deepEqual([...KNOWN_STALE.keys()].filter((entry) => !missing.includes(entry)), [], 'a known-stale reference now resolves: drop it from KNOWN_STALE');
 });
 
-test('G32.2 control: a reference to a runtime file the source no longer ships is named; variables and unprojected trees are not paths', (t) => {
+test('G32.2 control: a reference to a runtime file the source no longer ships is named, in every spelling; variables and unprojected trees are not paths', (t) => {
   const file = path.join(tempDir(t, 'doflow-g32-'), 'hook.sh');
   fs.writeFileSync(file, [
     'node "$ROOT/.doflow/runtime/src/helper/git.js"',
     'node "$ROOT/.doflow/runtime/bin/doflow.js"',
     'cat "$ROOT/.doflow/scripts/${name}.sh" "$ROOT/.doflow/state/ledger.json"',
+    'node "$CONFIG_DIR/runtime/bin/gone.js"',
+    'node "${DOFLOW_CONFIG_DIR:-$HOME/.doflow}/runtime/src/runtime/gone.ts"',
+    'cat "${POLICY_DIR:+$POLICY_DIR/../../../runtime/core/registry/gone.json}"',
+    'node "$CONFIG_DIR/runtime/bin/doflow.js" "$CONFIG_DIR/runtime/src/${x}.ts" "$SRC/src/runtime/x.ts"',
   ].join('\n'));
   const refs = referencedPaths([file], sharedTrees(registry), REPO);
-  assert.deepEqual(refs.map((ref) => ref.ref), ['.doflow/runtime/src/helper/git.js', '.doflow/runtime/bin/doflow.js']);
-  assert.deepEqual(refs.filter((ref) => !fs.existsSync(ref.source)).map((ref) => ref.ref), ['.doflow/runtime/src/helper/git.js']);
+  assert.deepEqual(refs.map((ref) => ref.ref), [
+    '.doflow/runtime/src/helper/git.js', '.doflow/runtime/bin/doflow.js',
+    '$CONFIG_DIR/runtime/bin/gone.js', '.doflow}/runtime/src/runtime/gone.ts', '../runtime/core/registry/gone.json',
+    '$CONFIG_DIR/runtime/bin/doflow.js',
+  ]);
+  assert.deepEqual(refs.filter((ref) => !fs.existsSync(ref.source)).map((ref) => ref.ref), [
+    '.doflow/runtime/src/helper/git.js', '$CONFIG_DIR/runtime/bin/gone.js', '.doflow}/runtime/src/runtime/gone.ts', '../runtime/core/registry/gone.json',
+  ]);
 });

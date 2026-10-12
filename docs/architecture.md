@@ -643,7 +643,9 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   `runtime.cli`, `runtime.lib` and `runtime.registry` projects one source directory to one
   `.doflow/runtime/...` tree for every harness, with no layout or transform, and no other asset
   writes into those trees; and every path under a shared `.doflow/` tree that a projected file
-  names (harness hooks, shared scripts, skills, agent specs) exists in source, so a prune can never
+  names (harness hooks, shared scripts, skills, agent specs) exists in source — spelled
+  `.doflow/<tree>/...` or, for the runtime trees, through `$CONFIG_DIR/runtime/...`,
+  `${DOFLOW_CONFIG_DIR:-$HOME/.doflow}/runtime/...` or a `../runtime/...` hop — so a prune can never
   delete a file a not-yet-updated harness calls by path. A reference already broken when the guard
   landed is listed in `KNOWN_STALE` with its reason and fails once it resolves.
 
