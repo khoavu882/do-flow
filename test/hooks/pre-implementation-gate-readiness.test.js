@@ -19,7 +19,7 @@ const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const POLICY = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'pre-implementation-gate.sh');
 const REGISTRY = path.join(REPO, 'core', 'registry', 'workflows.json');
 const RESOLVER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-paths.sh');
-const { refusalText } = require('../../src/runtime/implementation-gate');
+const { refusalText } = require('../../src/runtime/implementation-gate.ts');
 const { createScratch } = require('../helper/scratch-env');
 
 const HOOK_TEST = process.platform !== 'win32' ? test : test.skip; // GUARD: needs bash + jq

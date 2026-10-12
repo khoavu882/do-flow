@@ -13,7 +13,7 @@ const { spawnSync } = require('node:child_process');
 
 const { createScratch } = require('../helper/scratch-env');
 const { writeReadinessRecord, readReadinessRecord } = require('../../src/runtime/readiness-record.ts');
-const { checkReadiness } = require('../../src/runtime/implementation-gate');
+const { checkReadiness } = require('../../src/runtime/implementation-gate.ts');
 const { clearCheckoutCache } = require('../../src/runtime/checkouts.ts');
 const { clearTaskScopeCache } = require('../../src/runtime/task-scope.ts');
 

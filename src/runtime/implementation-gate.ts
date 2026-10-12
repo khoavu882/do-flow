@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { readReadinessRecord, newerVersionOf, RECORD_VERSION } = require('./readiness-record.ts');
@@ -28,8 +30,8 @@ const NEWER_NEXT = 'run this command with the DoFlow that wrote the record, or u
  * @param {{editTime?: boolean}} [options]
  * @returns {{id: string, readinessTemplate: string, editTimeGate: boolean}|null}
  */
-function gatedStage(stages, { editTime = false } = {}) {
-  const stage = (stages || []).find((s) => s && s.mutatesSource === true
+function gatedStage(stages: any, { editTime = false }: any = {}) {
+  const stage = (stages || []).find((s: any) => s && s.mutatesSource === true
     && typeof s.readinessTemplate === 'string' && s.readinessTemplate !== ''
     && (!editTime || s.editTimeGate !== false));
   return stage ? { id: stage.id, readinessTemplate: stage.readinessTemplate, editTimeGate: stage.editTimeGate !== false } : null;
@@ -41,12 +43,12 @@ function gatedStage(stages, { editTime = false } = {}) {
  * @param {{editTime?: boolean}} [options]
  * @returns {Array<string>}
  */
-function heldClasses(engine, { editTime = false } = {}) {
-  return engine.listClasses().filter((cls) => gatedStage(engine.resolveWorkflow(cls).stages, { editTime }) !== null);
+function heldClasses(engine: any, { editTime = false }: any = {}) {
+  return engine.listClasses().filter((cls: any) => gatedStage(engine.resolveWorkflow(cls).stages, { editTime }) !== null);
 }
 
 /** The command that clears every readiness refusal. */
-function nextCommand({ taskId, slug, template }) {
+function nextCommand({ taskId, slug, template }: any) {
   const withSlug = slug && slug !== taskId ? ` --slug=${slug}` : '';
   return `doflow-run readiness --task-class ${template} --task-id ${taskId}${withSlug}`;
 }
@@ -66,7 +68,7 @@ function nextCommand({ taskId, slug, template }) {
  *   replace such a record, so the text does not send the caller there
  * @returns {string}
  */
-function refusalText(code, { taskId, slug = null, template, record = null, candidates = [], detail = null, file = null, newerVersion = null }) {
+function refusalText(code: any, { taskId, slug = null, template, record = null, candidates = [], detail = null, file = null, newerVersion = null }: any): string {
   const next = nextCommand({ taskId, slug, template });
   const tail = `Next: ${next}, then gather what it lists until it reports READY. Nothing was changed.`;
   if (code === 'unusable' && newerVersion !== null) {
@@ -101,14 +103,14 @@ function refusalText(code, { taskId, slug = null, template, record = null, candi
  * @param {{repoRoot?: string}} [options]
  * @returns {string}
  */
-function harnessHookNote({ repoRoot = REPO_ROOT } = {}) {
+function harnessHookNote({ repoRoot = REPO_ROOT }: any = {}): string {
   try {
     const { policies } = JSON.parse(fs.readFileSync(path.join(repoRoot, 'core', 'registry', 'lifecycle.json'), 'utf8'));
-    const { mappings } = policies.find((p) => p.id === 'pre-implementation-gate');
+    const { mappings } = policies.find((p: any) => p.id === 'pre-implementation-gate');
     const runs = [];
     const gated = new Map();
     const none = [];
-    for (const [id, m] of Object.entries(mappings)) {
+    for (const [id, m] of (Object.entries(mappings) as [string, any][])) {
       const prerequisites = Array.isArray(m.prerequisites) ? m.prerequisites : [];
       if (m.status === 'unavailable' || (m.status !== 'supported' && m.status !== 'different')) none.push(id);
       else if (prerequisites.length === 0) runs.push(id);
@@ -127,17 +129,17 @@ function harnessHookNote({ repoRoot = REPO_ROOT } = {}) {
   }
 }
 
-const isDir = (dir) => {
+const isDir = (dir: any) => {
   try {
     return fs.statSync(dir).isDirectory();
   } catch {
     return false;
   }
 };
-const folderOf = (root, slug) => path.join(root, 'agent-docs', 'doflow', slug);
+const folderOf = (root: any, slug: any) => path.join(root, 'agent-docs', 'doflow', slug);
 
 /** The branch's feature slug as the resolver names it, or null. */
-function branchFeatureSlug(cwd) {
+function branchFeatureSlug(cwd: any) {
   try {
     const found = resolveActiveFeature({ projectRoot: cwd });
     const s = !found.error && found.paths ? found.paths.feature_slug : null;
@@ -153,7 +155,7 @@ function branchFeatureSlug(cwd) {
  * @param {{projectRoot: string, taskId?: string|null, slug?: string|null}} options
  * @returns {string|null}
  */
-function featureSlugFor({ projectRoot, taskId = null, slug = null }) {
+function featureSlugFor({ projectRoot, taskId = null, slug = null }: any) {
   if (slug) return slug;
   if (isSafeSlug(taskId) && isDir(folderOf(projectRoot, taskId))) return taskId;
   return branchFeatureSlug(projectRoot);
@@ -161,7 +163,7 @@ function featureSlugFor({ projectRoot, taskId = null, slug = null }) {
 
 /** The feature a run belongs to: the slug recorded when it started, else its task id when that names
  * a feature folder in the checkout holding the run. */
-function runSlugOf(run, root) {
+function runSlugOf(run: any, root: any) {
   if (run && typeof run.featureSlug === 'string' && run.featureSlug !== '') return run.featureSlug;
   return run && isSafeSlug(run.taskId) && isDir(folderOf(root, run.taskId)) ? run.taskId : null;
 }
@@ -174,7 +176,7 @@ function runSlugOf(run, root) {
  * @returns {{status: 'found'|'missing'|'ambiguous', file: string|null, root: string|null,
  *   origin: 'current'|'other'|null, candidates: Array<string>}}
  */
-function findRunFile({ stateRoot, taskId, slug, exec }) {
+function findRunFile({ stateRoot, taskId, slug, exec }: any) {
   const rel = path.join('.doflow', 'state', 'orchestration', `${taskId}.json`);
   const missing = { status: 'missing', file: null, root: null, origin: null, candidates: [] };
   if (fs.existsSync(path.join(stateRoot, rel))) {
@@ -183,7 +185,7 @@ function findRunFile({ stateRoot, taskId, slug, exec }) {
   if (!slug) return missing;
   const checkouts = listCheckouts({ cwd: stateRoot, ...(exec ? { exec } : {}) });
   if (!checkouts.ok || checkouts.sandbox) return missing;
-  const matches = checkouts.others.filter((root) => {
+  const matches = checkouts.others.filter((root: any) => {
     const file = path.join(root, rel);
     if (!fs.existsSync(file)) return false;
     try {
@@ -193,13 +195,13 @@ function findRunFile({ stateRoot, taskId, slug, exec }) {
     }
   });
   if (matches.length === 0) return missing;
-  if (matches.length > 1) return { ...missing, status: 'ambiguous', candidates: matches.map((root) => path.join(root, rel)) };
+  if (matches.length > 1) return { ...missing, status: 'ambiguous', candidates: matches.map((root: any) => path.join(root, rel)) };
   return { status: 'found', file: path.join(matches[0], rel), root: matches[0], origin: 'other', candidates: [] };
 }
 
 /** The slug a refusal's next command names: one whose feature folder exists in this checkout or in
  * the main checkout, which is when `readiness --slug` resolves it the same way the edit hook does. */
-function nextSlugFor({ stateRoot, taskId, slug, exec }) {
+function nextSlugFor({ stateRoot, taskId, slug, exec }: any) {
   if (!slug || slug === taskId) return null;
   if (isDir(folderOf(stateRoot, slug))) return slug;
   const checkouts = listCheckouts({ cwd: stateRoot, ...(exec ? { exec } : {}) });
@@ -207,7 +209,7 @@ function nextSlugFor({ stateRoot, taskId, slug, exec }) {
 }
 
 /** Why a record cannot be read as an evaluation, or null when it can. */
-function unusableDetail(record, now) {
+function unusableDetail(record: any, now: any) {
   if (!record || typeof record !== 'object' || Array.isArray(record)) return 'not a JSON object';
   if (record.version !== RECORD_VERSION) return `version ${JSON.stringify(record.version)}, this runtime reads ${RECORD_VERSION}`;
   for (const key of ['state', 'taskClass', 'evaluatedAt']) {
@@ -233,11 +235,11 @@ function unusableDetail(record, now) {
  *   record: Object|null, file: string|null, origin: string|null, candidates: Array<string>,
  *   detail: string|null, nextSlug: string|null, message: string|null}}
  */
-function checkReadiness({ stateRoot, taskId, slug = null, template, now = new Date(), exec }) {
+function checkReadiness({ stateRoot, taskId, slug = null, template, now = new Date(), exec }: any) {
   const read = readReadinessRecord({ stateRoot, taskId, slug, exec });
   const newerVersion = read.status === 'found' ? newerVersionOf(read.record) : null;
   const nextSlug = nextSlugFor({ stateRoot, taskId, slug, exec });
-  const result = (code, detail = null) => ({
+  const result = (code: any, detail: any = null) => ({
     ok: code === 'ready',
     code,
     record: read.record,
@@ -272,7 +274,7 @@ function checkReadiness({ stateRoot, taskId, slug = null, template, now = new Da
  * @returns {Object} `{applies: false, reason}` or `{applies: true, runTaskId, stage, template, ok, code,
  *   record, message}`
  */
-function verifyReadinessCheck({ stateRoot, taskId, slug = null, now = new Date(), exec }) {
+function verifyReadinessCheck({ stateRoot, taskId, slug = null, now = new Date(), exec }: any) {
   let found = findRunFile({ stateRoot, taskId, slug, exec });
   if (found.status === 'missing' && slug && slug !== taskId) found = findRunFile({ stateRoot, taskId: slug, slug, exec });
   if (found.status === 'ambiguous') {
@@ -284,10 +286,10 @@ function verifyReadinessCheck({ stateRoot, taskId, slug = null, now = new Date()
   if (found.status === 'missing') return { applies: false, reason: 'no-run' };
   const run = readTaskState(fs, found.file);
   if (run.state === 'COMPLETED' || run.state === 'REJECTED') return { applies: false, reason: 'run-finished' };
-  const stageNodes = (run.program || []).filter((n) => n.type === 'stage');
+  const stageNodes = (run.program || []).filter((n: any) => n.type === 'stage');
   const stage = gatedStage(stageNodes);
   if (!stage) return { applies: false, reason: 'no-gated-stage' };
-  const node = stageNodes.find((n) => n.id === stage.id);
+  const node = stageNodes.find((n: any) => n.id === stage.id);
   if (node.status === 'completed' || node.status === 'skipped') return { applies: false, reason: 'gated-stage-done' };
 
   const template = stage.readinessTemplate;

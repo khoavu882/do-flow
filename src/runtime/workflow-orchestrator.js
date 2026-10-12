@@ -26,7 +26,7 @@ const { checkCompletion: checkTaskAttemptCompletion } = require('./task-attempts
 const { appendOutcome, findPick, readWindow } = require('./advice/record.ts');
 const {
   checkReadiness, harnessHookNote, featureSlugFor, runSlugOf, findRunFile,
-} = require('./implementation-gate');
+} = require('./implementation-gate.ts');
 
 /** Appended to the note of an implementation stage completed with no task-attempt ledger (FR-006). */
 const NO_LEDGER_NOTE = 'No task-attempt ledger exists for this feature, so its tasks were not verified; outcome recorded as unverified.';
