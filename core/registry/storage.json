@@ -938,7 +938,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/state/run-lock.js"
+        "src/state/run-lock.ts"
       ]
     },
     {
@@ -956,7 +956,7 @@
         "uninstall"
       ],
       "writers": [
-        "src/state/run-lock.js"
+        "src/state/run-lock.ts"
       ]
     }
   ],

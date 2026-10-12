@@ -24,6 +24,8 @@ declare var process: {
   stdin: { isTTY?: boolean; isRaw?: boolean; setRawMode(mode: boolean): void };
   stdout: { write(chunk: string): boolean; isTTY?: boolean };
   stderr: { write(chunk: string): boolean };
+  on(event: string, listener: (...args: any[]) => void): any;
+  removeListener(event: string, listener: (...args: any[]) => void): any;
 };
 
 declare var __dirname: string;

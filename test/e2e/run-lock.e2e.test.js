@@ -1,6 +1,6 @@
 'use strict';
 // run-lock.e2e.test.js — one case per run-lock scenario, through the real bin/doflow.js in a scratch
-// HOME. A lock holder is a child process that takes the lock through src/state/run-lock.js and
+// HOME. A lock holder is a child process that takes the lock through src/state/run-lock.ts and
 // keeps it until the test creates a release file, so no case depends on how long a run takes: the
 // test waits for the run's own output and then releases the holder. Every wait is bounded.
 const { test, after } = require('node:test');
@@ -13,7 +13,7 @@ const { spawn, spawnSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
-const RUN_LOCK_MODULE = path.join(REPO, 'src', 'state', 'run-lock.js');
+const RUN_LOCK_MODULE = path.join(REPO, 'src', 'state', 'run-lock.ts');
 const { IS_WIN } = require('../helper-platform');
 const { createScratch } = require('../helper/scratch-env');
 
