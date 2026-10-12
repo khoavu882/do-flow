@@ -11,7 +11,7 @@ const nodeFs = require('node:fs');
 const path = require('node:path');
 const { isSafeSlug, invalidSlugRefusal } = require('../task-scope.ts');
 const { withDerivedDone } = require('./fold.ts');
-const { appendEvents, readFold, readEvents } = require('./event-store');
+const { appendEvents, readFold, readEvents } = require('./event-store.ts');
 const { deriveStatuses, bucketize, behindNote } = require('./status.ts');
 const { FollowupUsageError, parseIds } = require('./followup');
 

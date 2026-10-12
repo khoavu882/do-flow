@@ -10,7 +10,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { makeRepo, historyBuilder, failingGit } = require('../helper/lifecycle-git-fixtures');
-const store = require('../../src/runtime/lifecycle/event-store');
+const store = require('../../src/runtime/lifecycle/event-store.ts');
 const { buildOverview, FEATURES_SHOWN } = require('../../src/runtime/lifecycle/overview');
 const { addFollowups, settleFollowups } = require('../../src/runtime/lifecycle/followup');
 

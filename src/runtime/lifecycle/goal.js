@@ -15,7 +15,7 @@
 
 const nodeFs = require('node:fs');
 const { isSafeSlug, invalidSlugRefusal } = require('../task-scope.ts');
-const { appendEvents, readFold } = require('./event-store');
+const { appendEvents, readFold } = require('./event-store.ts');
 const { deriveStatuses } = require('./status.ts');
 const { FollowupUsageError, oneLine, channelBy } = require('./followup');
 const { goalView, goalConflicts, goalConflictNext } = require('./overview');

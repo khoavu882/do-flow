@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * The project lifecycle event store (IC-001, IC-002, IC-003). One JSON file per event under
  * `<root>/.doflow/state/lifecycle/events/`, created with an exclusive create, never edited or
@@ -37,39 +39,39 @@ const MAX_EVENT_BYTES = 256 * 1024;
 const MAX_JOURNAL_BYTES = 16 * 1024 * 1024;
 const READ_CHUNK = 64 * 1024;
 /** The decision register's channel vocabulary: who the caller says is acting. */
-const CHANNEL_BY = { question: 'user', gate: 'user', prompt: 'user', default: 'agent' };
+const CHANNEL_BY: Record<string, string> = { question: 'user', gate: 'user', prompt: 'user', default: 'agent' };
 
-function eventsDir(root) { return path.join(root, EVENTS_REL); }
-function lockTarget(root) { return path.join(root, EVENTS_REL); }
+function eventsDir(root: string): string { return path.join(root, EVENTS_REL); }
+function lockTarget(root: string): string { return path.join(root, EVENTS_REL); }
 
 /** @param {string} [channel] defaults to `default` @returns {'user'|'agent'|null} null for an unknown channel */
-function byFromChannel(channel = 'default') { return CHANNEL_BY[channel] ?? null; }
+function byFromChannel(channel: string = 'default'): string | null { return CHANNEL_BY[channel] ?? null; }
 
 /** `length` random characters of the lowercase Crockford base32 alphabet. */
-function randomChars(length) {
+function randomChars(length: number): string {
   const bytes = crypto.randomBytes(length);
   let out = '';
   for (const b of bytes) out += ALPHABET[b % 32];
   return out;
 }
 
-function idFor(at, random) { return `${at.replace(/[-:.]/g, '')}-${random(6)}`; }
+function idFor(at: string, random: (n: number) => string): string { return `${at.replace(/[-:.]/g, '')}-${random(6)}`; }
 
 /** Synchronous sleep without spinning, as the store lock waits. */
-function sleep(ms) {
+function sleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 /** DEC-045: `at` is a strict UTC timestamp that is a real instant, so year 10000 and "+275760-..." never parse. */
 const STRICT_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
-function isStrictAt(at) {
+function isStrictAt(at: any): boolean {
   if (typeof at !== 'string' || !STRICT_AT.test(at)) return false;
   const ms = Date.parse(at);
   return Number.isFinite(ms) && new Date(ms).toISOString() === at;
 }
 
 /** An IC-002 envelope whose `at` is strict and equals the time prefix of its file id. */
-function isEnvelope(event, idFromName) {
+function isEnvelope(event: any, idFromName: string): boolean {
   return event && typeof event === 'object' && event.v === 1 && event.id === idFromName
     && typeof event.type === 'string' && typeof event.by === 'string'
     && isStrictAt(event.at) && idFromName.startsWith(`${event.at.replace(/[-:.]/g, '')}-`)
@@ -82,7 +84,7 @@ class StoreUnsafeError extends Error {}
 /** The store lock could not be taken in time; the verb refuses with `store-locked` and writes nothing. */
 class StoreLockedError extends Error {}
 
-function assertStoreFolders(root, fsImpl) {
+function assertStoreFolders(root: string, fsImpl: any): void {
   for (const rel of [path.join('.doflow'), path.join('.doflow', 'state'), LIFECYCLE_REL, EVENTS_REL]) {
     const folder = path.join(root, rel);
     let link = false;
@@ -97,9 +99,9 @@ function assertStoreFolders(root, fsImpl) {
  * and again by `O_NOFOLLOW` where the platform has it; `O_NONBLOCK` keeps a FIFO swapped in after
  * the `lstat` from blocking the open, and the descriptor is checked again before any read.
  */
-function readEventFile(fsImpl, file, maxBytes = MAX_EVENT_BYTES) {
+function readEventFile(fsImpl: any, file: string, maxBytes: number = MAX_EVENT_BYTES): { reason?: string; text?: string } {
   const flags = nodeFs.constants;
-  let fd;
+  let fd: number | undefined;
   try {
     if (!fsImpl.lstatSync(file).isFile()) return { reason: 'not a regular file' };
     fd = fsImpl.openSync(file, flags.O_RDONLY | (flags.O_NOFOLLOW || 0) | (flags.O_NONBLOCK || 0));
@@ -108,7 +110,7 @@ function readEventFile(fsImpl, file, maxBytes = MAX_EVENT_BYTES) {
     const tooLarge = { reason: `larger than ${maxBytes / 1024} KiB` };
     if (st.size > maxBytes) return tooLarge;
     // Read in chunks up to one byte past the cap, so a file that grew after the fstat is still caught.
-    const chunks = [];
+    const chunks: Buffer[] = [];
     let length = 0;
     while (length <= maxBytes) {
       const chunk = Buffer.allocUnsafe(Math.min(READ_CHUNK, maxBytes + 1 - length));
@@ -118,7 +120,7 @@ function readEventFile(fsImpl, file, maxBytes = MAX_EVENT_BYTES) {
       length += n;
     }
     return length > maxBytes ? tooLarge : { text: Buffer.concat(chunks, length).toString('utf8') };
-  } catch (error) {
+  } catch (error: any) {
     return { reason: error.code || 'unreadable' };
   } finally {
     if (fd !== undefined) { try { fsImpl.closeSync(fd); } catch { /* read already done */ } }
@@ -126,16 +128,16 @@ function readEventFile(fsImpl, file, maxBytes = MAX_EVENT_BYTES) {
 }
 
 /** The event with every string print-safe; a report excerpt is multi-line by design, so it keeps its line breaks (cli.js removes them when printing). */
-function cleanEvent(event) {
+function cleanEvent(event: any): any {
   const clean = printSafe(event);
   if (typeof event.data.excerpt === 'string') clean.data.excerpt = printSafe(event.data.excerpt, { keepLineBreaks: true });
   return clean;
 }
 
 /** Whether `name` is `<EVENT_ID>.json`. */
-function isEventName(name) {
+function isEventName(name: string): boolean {
   const match = /^(.+)\.json$/.exec(name);
-  return Boolean(match) && EVENT_ID.test(match[1]);
+  return Boolean(match) && EVENT_ID.test((match as RegExpExecArray)[1]);
 }
 
 /**
@@ -144,39 +146,39 @@ function isEventName(name) {
  * pending; a pending name that is not an event file name is ignored.
  * @returns {{generation: string|null, pending: string[]}}
  */
-function readJournal(root, fsImpl = nodeFs) {
+function readJournal(root: string, fsImpl: any = nodeFs): { generation: string | null; pending: string[] } {
   const read = readEventFile(fsImpl, path.join(root, JOURNAL_REL), MAX_JOURNAL_BYTES);
-  let journal;
-  try { journal = read.reason ? null : JSON.parse(read.text); } catch { journal = null; }
+  let journal: any;
+  try { journal = read.reason ? null : JSON.parse(read.text as string); } catch { journal = null; }
   if (!journal || typeof journal !== 'object' || journal.v !== 1) return { generation: null, pending: [] };
   return {
     generation: typeof journal.generation === 'string' ? journal.generation : null,
-    pending: Array.isArray(journal.pending) ? journal.pending.filter((name) => typeof name === 'string' && isEventName(name)) : [],
+    pending: Array.isArray(journal.pending) ? journal.pending.filter((name: any) => typeof name === 'string' && isEventName(name)) : [],
   };
 }
 
 /** One pass over the event files, leaving out the names in `hidden`. */
-function readEventFiles(root, fsImpl, hidden, shouldStop) {
+function readEventFiles(root: string, fsImpl: any, hidden: Set<string>, shouldStop?: () => boolean): any {
   const dir = eventsDir(root);
-  let names;
+  let names: string[];
   try {
     names = fsImpl.readdirSync(dir);
-  } catch (error) {
+  } catch (error: any) {
     if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return { events: [], unreadable: [], reasons: {} };
     throw error;
   }
   const orderedNames = names.sort();
   if (shouldStop?.()) return { events: [], unreadable: [], reasons: {}, incomplete: true };
-  const events = [];
-  const unreadable = [];
-  const reasons = {};
+  const events: any[] = [];
+  const unreadable: string[] = [];
+  const reasons: Record<string, string> = {};
   for (const name of orderedNames) {
     if (shouldStop?.()) return { events: [], unreadable: [], reasons: {}, incomplete: true };
     if (!isEventName(name) || hidden.has(name)) continue;
     const read = readEventFile(fsImpl, path.join(dir, name));
     if (read.reason) { unreadable.push(name); reasons[name] = read.reason; continue; }
     try {
-      const event = JSON.parse(read.text);
+      const event = JSON.parse(read.text as string);
       // Someone else's file is shown as it is read, so its text is made print-safe here (stored bytes are not changed).
       if (isEnvelope(event, name.slice(0, -'.json'.length))) events.push(cleanEvent(event)); else unreadable.push(name);
     } catch {
@@ -202,7 +204,7 @@ function readEventFiles(root, fsImpl, hidden, shouldStop) {
  * StoreLockedError.
  * @returns {{events: Object[], unreadable: string[], reasons: Object<string,string>, incomplete?: true}}
  */
-function readEvents(root, { fsImpl = nodeFs, lockFallback = true, shouldStop } = {}) {
+function readEvents(root: string, { fsImpl = nodeFs, lockFallback = true, shouldStop }: any = {}): any {
   assertStoreFolders(root, fsImpl);
   if (shouldStop?.()) return { events: [], unreadable: [], reasons: {}, incomplete: true };
   for (let attempt = 1; attempt <= STABLE_READS; attempt += 1) {
@@ -218,10 +220,10 @@ function readEvents(root, { fsImpl = nodeFs, lockFallback = true, shouldStop } =
   }
   if (shouldStop?.()) return { events: [], unreadable: [], reasons: {}, incomplete: true };
   if (!lockFallback) throw new StoreLockedError('Lifecycle event store changed during a read; a stable snapshot was unavailable.');
-  let release;
+  let release: () => void;
   try {
     release = acquireLock(fsImpl, lockTarget(root));
-  } catch (error) {
+  } catch (error: any) {
     if (/^Could not lock/.test(error.message || '')) throw new StoreLockedError(`${error.message} Nothing was written.`);
     throw error;
   }
@@ -238,20 +240,20 @@ function readEvents(root, { fsImpl = nodeFs, lockFallback = true, shouldStop } =
  * @param {{hasBody?: Function, fsImpl?: Object}} [options]
  * @returns {Object} the fold result (see fold.js) plus `unreadable`
  */
-function readFold(root, { fsImpl = nodeFs, hasBody, now = new Date() } = {}) {
+function readFold(root: string, { fsImpl = nodeFs, hasBody, now = new Date() }: any = {}): any {
   const { events, unreadable, reasons } = readEvents(root, { fsImpl });
   return { ...finalize(foldInto(events, { now }), { hasBody }), unreadable, unreadableReasons: reasons };
 }
 
 /** Picks a free, valid id for each draft before any file is created, so a batch is all or nothing. */
-function allocateIds(fsImpl, dir, stamped, random) {
-  const chosen = new Set();
-  const ids = [];
+function allocateIds(fsImpl: any, dir: string, stamped: any[], random: (n: number) => string): string[] | null {
+  const chosen = new Set<string>();
+  const ids: string[] = [];
   for (const { at, id } of stamped) {
-    let candidate = id;
+    let candidate: string | null = id;
     for (let attempt = 0; attempt <= COLLISION_RETRIES; attempt += 1) {
       if (attempt > 0) candidate = idFor(at, random);
-      if (EVENT_ID.test(candidate) && !chosen.has(candidate) && !fsImpl.existsSync(path.join(dir, `${candidate}.json`))) break;
+      if (EVENT_ID.test(candidate as string) && !chosen.has(candidate as string) && !fsImpl.existsSync(path.join(dir, `${candidate}.json`))) break;
       candidate = null;
     }
     if (!candidate) return null;
@@ -274,17 +276,17 @@ function allocateIds(fsImpl, dir, stamped, random) {
  *   conflict, with its own `code` in `conflict.code`), `id-collision`, `invalid-id` (the clock or
  *   the random source cannot produce an id of the IC-001 shape) and `store-locked`.
  */
-function appendEvents(root, drafts, { now = new Date(), fsImpl = nodeFs, random = randomChars } = {}) {
+function appendEvents(root: string, drafts: any[], { now = new Date(), fsImpl = nodeFs, random = randomChars }: any = {}): any {
   const dir = eventsDir(root);
   // A write that would be refused leaves nothing behind, not even the store folder (IC-001: created
   // on the first write), so the check runs once before the folder and the lock and again under the lock.
   const early = planEvents(root, drafts, { now, fsImpl, random });
   if (early.refused) return early.refused;
   fsImpl.mkdirSync(dir, { recursive: true });
-  let release;
+  let release: () => void;
   try {
     release = acquireLock(fsImpl, lockTarget(root));
-  } catch (error) {
+  } catch (error: any) {
     if (/^Could not lock/.test(error.message || '')) return { ok: false, finding: 'store-locked', message: `${error.message} Nothing was written.` };
     throw error;
   }
@@ -293,8 +295,8 @@ function appendEvents(root, drafts, { now = new Date(), fsImpl = nodeFs, random 
     if (refused) return refused;
     const ids = allocateIds(fsImpl, dir, stamped, random);
     if (!ids) return { ok: false, finding: 'id-collision', written: [], message: `could not find a free event id after ${COLLISION_RETRIES} tries. Nothing was written.` };
-    const written = [];
-    stamped.forEach(({ draft, at }, index) => {
+    const written: any[] = [];
+    stamped.forEach(({ draft, at }: any, index: number) => {
       const event = { v: 1, id: ids[index], type: draft.type, at, by: draft.by, data: draft.data };
       const file = path.join(dir, `${event.id}.json`);
       // The ids are free under the lock; the exclusive create only guards against a writer outside it.
@@ -308,15 +310,15 @@ function appendEvents(root, drafts, { now = new Date(), fsImpl = nodeFs, random 
 }
 
 /** Folds the store, stamps each draft and applies it; `refused` is the whole call's refusal when any is illegal. */
-function planEvents(root, drafts, { now, fsImpl, random }) {
+function planEvents(root: string, drafts: any[], { now, fsImpl, random }: any): any {
   const state = foldInto(readEvents(root, { fsImpl }).events, { now });
   // An event dated far ahead is not in the fold (DEC-045), so it cannot push this stamp forward.
   let floor = state.newestAt === null ? -Infinity : state.newestAt + 1;
-  const stamped = [];
+  const stamped: any[] = [];
   for (const draft of drafts) {
     const atMs = Math.max(now.getTime(), floor);
     floor = atMs + 1;
-    let at;
+    let at: string | null;
     try { at = new Date(atMs).toISOString(); } catch { at = null; }
     // The dry run draws the id the write will try first, so a conflict names the event it refuses.
     const id = at && isStrictAt(at) ? idFor(at, random) : null;

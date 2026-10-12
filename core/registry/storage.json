@@ -328,7 +328,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/lifecycle/event-store.js"
+        "src/runtime/lifecycle/event-store.ts"
       ]
     },
     {

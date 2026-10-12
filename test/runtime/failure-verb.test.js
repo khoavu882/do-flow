@@ -377,7 +377,7 @@ describe('failure --action settle', () => {
     m.markDoflowRepo();
     writeEvents(m, [line()]);
     const preload = path.join(m.dir, 'locked-preload.js');
-    fs.writeFileSync(preload, `const store = require(${JSON.stringify(path.resolve(__dirname, '..', '..', 'src', 'runtime', 'lifecycle', 'event-store'))});
+    fs.writeFileSync(preload, `const store = require(${JSON.stringify(path.resolve(__dirname, '..', '..', 'src', 'runtime', 'lifecycle', 'event-store.ts'))});
 store.readFold = () => { throw new store.StoreLockedError("Could not lock 'events' after 5s. Nothing was written."); };
 `);
     const r = spawnSync(process.execPath, ['-r', preload, BIN, 'failure', '--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json'], { cwd: m.project, env: m.env, encoding: 'utf8' });

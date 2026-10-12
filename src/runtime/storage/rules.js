@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { workStatus, createWorkCache, refreshedWorkCache } = require('./work-status.ts');
 const { projectKey } = require('../lifecycle/report-store.ts');
-const { readEvents } = require('../lifecycle/event-store');
+const { readEvents } = require('../lifecycle/event-store.ts');
 
 const DAY = 86400000;
 const HOUR = 3600000;

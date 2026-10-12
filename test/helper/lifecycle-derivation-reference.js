@@ -14,7 +14,7 @@
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const { historyBuilder } = require('./lifecycle-git-fixtures');
-const store = require('../../src/runtime/lifecycle/event-store');
+const store = require('../../src/runtime/lifecycle/event-store.ts');
 const { deriveStatuses, readGitFacts, bucketize, subjectNames, behindNote } = require('../../src/runtime/lifecycle/status.ts');
 const { releaseFeatures } = require('../../src/runtime/lifecycle/release');
 
