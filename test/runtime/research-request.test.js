@@ -89,7 +89,7 @@ test('detected gap upgrades a duplicate optional question to blocking without cr
   assert.equal(detected.reason, 'detected-gap');
   assert.equal(store.list('feature').length, 1);
   assert.equal(store.blockingGap('feature', 'design').id, optional.id);
-  const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator');
+  const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
   const orch = new WorkflowOrchestrator({ repoRoot: path.resolve(__dirname, '../..'), projectRoot: root,
     stateDir: path.join(root, '.doflow/state/orchestration') });
   assert.throws(() => orch.completeStage({ taskId: 'feature', stageId: 'design' }), /blocks stage/);

@@ -391,7 +391,7 @@ test('X11 fail-open: a corrupt brief record, an unreadable evidence ledger and a
 });
 
 test('X11 fail-open: a registry that will not load stores no record and the handoff completes', (t) => {
-  const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator');
+  const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
   const { WorkflowEngine } = require('../../src/runtime/workflow-engine.ts');
   const { buildAdapterRegistry } = require('../../src/cli/shared.ts');
   const p = project(t);

@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir, suiteTempDir } = require('../helper/tmp');
-const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator');
+const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
 const { WorkflowEngine } = require('../../src/runtime/workflow-engine.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');

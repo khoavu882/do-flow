@@ -25,7 +25,7 @@ const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { renderPolicy } = require('../../src/lifecycle/policies.ts');
 const { describeResolution, RESOLUTION_REASONS } = require('../../src/runtime/locator-resolve.ts');
 const { DERIVATIONS } = require('../../src/runtime/command-detect.ts');
-const { RUN_STATES } = require('../../src/runtime/workflow-orchestrator');
+const { RUN_STATES } = require('../../src/runtime/workflow-orchestrator.ts');
 
 const SRC = path.resolve(__dirname, '../../src');
 
@@ -134,7 +134,7 @@ test('RUN_STATES: every write to run.state goes through the validator', () => {
   // No input can carry a bad run state into this module — every write is a literal in the file — so
   // the threat is an edit adding a sixth write that skips the check. That is a property of the
   // source, and this is where it is enforced.
-  const source = fs.readFileSync(path.join(SRC, 'runtime/workflow-orchestrator.js'), 'utf8');
+  const source = fs.readFileSync(path.join(SRC, 'runtime/workflow-orchestrator.ts'), 'utf8');
 
   // `=(?!=)` so the five `run.state === '...'` comparisons are not mistaken for assignments.
   const bare = [...source.matchAll(/run\.state\s*=(?!=)\s*(?!runState\()(\S+)/g)].map((m) => m[0]);

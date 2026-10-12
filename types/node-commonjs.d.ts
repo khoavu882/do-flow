@@ -63,3 +63,6 @@ declare var URL: {
 
 // High-resolution clock (storage engine pass budget).
 declare var performance: { now(): number };
+
+// structuredClone (workflow-orchestrator previewHandoff deep-copies a run program).
+declare function structuredClone<T>(value: T): T;

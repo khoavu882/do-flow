@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // WorkflowOrchestrator — deterministic execution over the workflow registry. The registry
 // declares WHAT a class's
 // stages are (workflow-engine resolves that); this module owns the state machine that walks it:
@@ -47,7 +49,7 @@ const RUN_STATES = Object.freeze(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJE
  * @param {string} state
  * @returns {string} the same state, once it is known to be one
  */
-function runState(state) {
+function runState(state: any) {
   if (!RUN_STATES.includes(state)) {
     throw new Error(`Unknown run state '${state}' (expected one of: ${RUN_STATES.join(', ')})`);
   }
@@ -61,16 +63,16 @@ const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 /** Why a handoff with no run and no class records nothing, as the result and the CLI line say. */
 const STANDALONE_REASON = 'no run exists for this task and no --task-class was given, so nothing was recorded and no readiness was required';
 
-function assertSafeId(value, label) {
+function assertSafeId(value: any, label: any) {
   if (!ID_PATTERN.test(String(value ?? ''))) throw new Error(`Invalid ${label}: '${value}'`);
   return String(value);
 }
 
-function iso(now) { return (now ?? new Date()).toISOString(); }
+function iso(now: any) { return (now ?? new Date()).toISOString(); }
 
 /** Interleave stages with their gates: each gate sits immediately after the stage named by its
  * `afterStage`. A gate anchored to an unknown stage is a compile error here, not a silent orphan. */
-function compileProgram(workflow) {
+function compileProgram(workflow: any) {
   const gates = [...(workflow.gates || [])];
   const nodes = [];
   for (const stage of workflow.stages || []) {
@@ -97,6 +99,15 @@ function compileProgram(workflow) {
 }
 
 class WorkflowOrchestrator {
+  declare fsImpl: any;
+  declare repoRoot: any;
+  declare projectRoot: any;
+  declare engine: any;
+  declare stateDir: any;
+  declare readinessEvaluate: any;
+  declare taskAttemptCheck: any;
+  declare featureSlug: any;
+  declare buildAdapters: any;
   /**
    * @param {Object} [options]
    * @param {string} [options.repoRoot] install root owning core/registry + default state dir.
@@ -117,7 +128,7 @@ class WorkflowOrchestrator {
    * @param {() => object} [options.buildAdapters] builds the adapter registry `mcpReach` reads installs
    *   through; without it install facts are unknown and no outcome is inferred from them
    */
-  constructor({ repoRoot = REPO_ROOT, projectRoot, stateDir, engine, readinessEvaluate, taskAttemptCheck, fsImpl, featureSlug = null, buildAdapters = null } = {}) {
+  constructor({ repoRoot = REPO_ROOT, projectRoot, stateDir, engine, readinessEvaluate, taskAttemptCheck, fsImpl, featureSlug = null, buildAdapters = null }: any = {}) {
     this.fsImpl = fsImpl || fs;
     this.repoRoot = repoRoot;
     this.projectRoot = projectRoot || (stateDir?.endsWith(path.join('.doflow', 'state', 'orchestration'))
@@ -130,21 +141,21 @@ class WorkflowOrchestrator {
     this.buildAdapters = buildAdapters;
   }
 
-  runFile(taskId) {
+  runFile(taskId: any) {
     return path.join(this.stateDir, `${assertSafeId(taskId, 'taskId')}.json`);
   }
 
-  readRun(taskId) {
+  readRun(taskId: any) {
     const file = this.runFile(taskId);
     if (!this.fsImpl.existsSync(file)) return null;
     return readTaskState(this.fsImpl, file);
   }
 
-  writeRun(run, now, beforeWrite) {
+  writeRun(run: any, now: any, beforeWrite?: any) {
     run.updatedAt = iso(now);
     this.fsImpl.mkdirSync(this.stateDir, { recursive: true });
     const expectedRevision = run.revision || 0;
-    updateTaskState({ file: this.runFile(run.taskId), fsImpl: this.fsImpl, build: disk => {
+    updateTaskState({ file: this.runFile(run.taskId), fsImpl: this.fsImpl, build: (disk: any) => {
       if ((disk?.revision || 0) !== expectedRevision) {
         throw new Error(`Concurrent workflow update for '${run.taskId}'; reload the run before retrying. Nothing was written.`);
       }
@@ -156,7 +167,7 @@ class WorkflowOrchestrator {
   }
 
   /** Begin a new run. An existing run for the same task id is refused — resume instead. */
-  start({ taskId, taskClass, now } = {}) {
+  start({ taskId, taskClass, now }: any = {}) {
     assertSafeId(taskId, 'taskId');
     if (this.readRun(taskId)) throw new Error(`Workflow run '${taskId}' already exists; resume it instead of restarting`);
     const workflow = this.engine.resolveWorkflow(taskClass); // unknown classes are rejected loudly
@@ -179,9 +190,9 @@ class WorkflowOrchestrator {
     return this.snapshot(run);
   }
 
-  snapshot(run) {
+  snapshot(run: any) {
     const current = run.cursor < run.program.length ? run.program[run.cursor] : null;
-    const done = run.program.filter((n) => n.status === 'completed' || n.status === 'skipped' || n.status === 'approved').length;
+    const done = run.program.filter((n: any) => n.status === 'completed' || n.status === 'skipped' || n.status === 'approved').length;
     return {
       taskId: run.taskId,
       taskClass: run.taskClass,
@@ -194,7 +205,7 @@ class WorkflowOrchestrator {
     };
   }
 
-  status(taskId) {
+  status(taskId: any) {
     const run = this.requireRun(taskId);
     return this.snapshot(run);
   }
@@ -206,7 +217,7 @@ class WorkflowOrchestrator {
    * entry this handoff writes, and returned as `consultations` and `mcpWarnings`. Only a handoff
    * that completes a stage or annotates one stores a record; a standalone one reports and stores
    * nothing, a deferred one does neither. Nothing in that path can fail or refuse the handoff. */
-  handoff({ taskId, taskClass, callingSkill, note, outcome, mcpOutcomes, now } = {}) {
+  handoff({ taskId, taskClass, callingSkill, note, outcome, mcpOutcomes, now }: any = {}) {
     assertSafeId(taskId, 'taskId');
     assertSafeId(callingSkill, 'callingSkill');
     if (!note || !String(note).trim()) throw new Error('handoff requires a note describing the work recorded');
@@ -221,9 +232,9 @@ class WorkflowOrchestrator {
     }
     if (existing && taskClass && taskClass !== existing.taskClass) throw new Error(`Task class '${taskClass}' does not match run '${existing.taskClass}'`);
     const resolvedClass = existing?.taskClass || taskClass;
-    const stages = existing ? existing.program.filter(n => n.type === 'stage')
+    const stages = existing ? existing.program.filter((n: any) => n.type === 'stage')
       : this.engine.resolveWorkflow(resolvedClass).stages;
-    const candidates = stages.filter(n => n.skill === callingSkill).map(n => n.id);
+    const candidates = stages.filter((n: any) => n.skill === callingSkill).map((n: any) => n.id);
     if (!candidates.length) throw new Error(`Skill '${callingSkill}' owns no stage in '${resolvedClass}'`);
     // The stage this handoff would complete is known before anything is written, so a gated stage
     // without readiness is refused before catch-up starts a run or backfills a stage.
@@ -240,7 +251,7 @@ class WorkflowOrchestrator {
       const since = existing ? this.stageSince(taskId, positioned.caughtUpTo) : null;
       const mcp = this.resolveMcp({ taskId, stageId: positioned.caughtUpTo, skill: callingSkill, flags: mcpOutcomes, since });
       const consultations = mcp ? this.storeToolsUsed(mcp) : null;
-      const snapshot = this.completeStage({ taskId, stageId: positioned.caughtUpTo, note, outcome, consultations, now });
+      const snapshot: any = this.completeStage({ taskId, stageId: positioned.caughtUpTo, note, outcome, consultations, now });
       return { ...snapshot, disposition: 'completed', recordedStage: positioned.caughtUpTo, consultations, mcpWarnings: mcp ? mcp.messages : [] };
     }
     if (positioned.reason.startsWith('already-completed:')) {
@@ -264,12 +275,12 @@ class WorkflowOrchestrator {
    * contributes nothing, and a registry that cannot load means no record at all (NFR-003).
    * @returns {{record: object, messages: object[], evidenceToAdd: object[], ledger: EvidenceLedger}|null}
    */
-  resolveMcp({ taskId, stageId, skill, flags, since = null }) {
+  resolveMcp({ taskId, stageId, skill, flags, since = null }: any) {
     let registry;
     try { registry = loadRegistry({ repoRoot: this.repoRoot }); } catch { return null; }
     const ledger = new EvidenceLedger({ repoRoot: this.projectRoot, slug: this.featureSlug, fsImpl: this.fsImpl });
     const loaded = new Set();
-    let reachMemo;
+    let reachMemo: any;
     const reachOf = () => {
       if (reachMemo === undefined) {
         try {
@@ -280,8 +291,8 @@ class WorkflowOrchestrator {
       }
       return reachMemo;
     };
-    const displayName = (id) => {
-      const harness = (registry.harnesses || []).find((item) => item.id === id);
+    const displayName = (id: any) => {
+      const harness = (registry.harnesses || []).find((item: any) => item.id === id);
       return harness ? harness.displayName || harness.id : id;
     };
     const { briefRecords, repoRoot } = stageId ? this.readBriefRecords(taskId) : { briefRecords: [], repoRoot: this.projectRoot };
@@ -289,31 +300,31 @@ class WorkflowOrchestrator {
     try {
       const result = resolveConsultations({
         taskId, stageId, skill, flags, registry, ledger: {
-          queryEvidence: ({ taskId: id }) => {
+          queryEvidence: ({ taskId: id }: any) => {
             if (!loaded.has(id)) { loaded.add(id); ledger.load(id); }
             return ledger.queryEvidence({ taskId: id });
           },
         },
         requests: new ResearchRequestStore({ projectRoot: this.projectRoot, fsImpl: this.fsImpl, slug: this.featureSlug }),
         briefRecords,
-        readReport: (file) => {
+        readReport: (file: any) => {
           const target = path.resolve(repoRoot, file);
           // A brief record is project data: a report path that leaves the project is not read.
           if (path.relative(repoRoot, target).startsWith('..') || path.isAbsolute(path.relative(repoRoot, target))) return null;
           try { return this.fsImpl.readFileSync(target, 'utf8'); } catch { return null; }
         },
         reach: {
-          anyHarnessHas: (server) => { const reach = reachOf(); return reach ? reach.anyHarnessHas(server) : null; },
-          harnessWith: (server) => {
-            const row = reachOf()?.harnesses.find((item) => ['selected', 'configured'].includes(item.servers[server]));
+          anyHarnessHas: (server: any) => { const reach = reachOf(); return reach ? reach.anyHarnessHas(server) : null; },
+          harnessWith: (server: any) => {
+            const row = reachOf()?.harnesses.find((item: any) => ['selected', 'configured'].includes(item.servers[server]));
             return row ? displayName(row.id) : null;
           },
         },
         harnessName: displayName,
         since,
-        addCommand: (server) => {
+        addCommand: (server: any) => {
           const reach = reachOf();
-          const row = reach?.harnesses.find((item) => !['selected', 'configured'].includes(item.servers[server]));
+          const row = reach?.harnesses.find((item: any) => !['selected', 'configured'].includes(item.servers[server]));
           return row ? reach.addCommand(row.id, row.scope, server) : null;
         },
       });
@@ -324,7 +335,7 @@ class WorkflowOrchestrator {
   /** When this stage run began, for counting its evidence (IC-008 rule 3): the `at` of the last
    * stage completed or skipped before it that was not backfilled, else the run start. A stage
    * already completed (an annotation) is measured from the completion before its own. */
-  stageSince(taskId, stageId) {
+  stageSince(taskId: any, stageId: any) {
     try {
       const run = this.readRun(taskId);
       const history = Array.isArray(run?.history) ? run.history : [];
@@ -343,21 +354,21 @@ class WorkflowOrchestrator {
   /** Record advice outcomes for the same brief records the IC-008 handoff pass consumes. This is
    * advisory telemetry only: every storage/read failure is ignored and never affects the handoff.
    */
-  recordBriefTierAdvice({ briefRecords, taskId, stageId, repoRoot }) {
+  recordBriefTierAdvice({ briefRecords, taskId, stageId, repoRoot }: any) {
     try {
       const storage = loadStorageRegistry({ repoRoot: this.repoRoot });
       const roots = resolveRoots({ registry: storage, projectRoot: repoRoot || this.projectRoot });
-      const declaredStores = new Map((storage.stores || []).map((store) => [store.id, store]));
+      const declaredStores = new Map((storage.stores || []).map((store: any) => [store.id, store]));
       const safeRoots = { ...roots };
       for (const id of ['advice-picks-project', 'advice-picks-user']) {
-        const store = declaredStores.get(id);
+        const store: any = declaredStores.get(id);
         if (!store) return;
         if (!resolveStorePath({ store, roots, fsImpl: this.fsImpl })) safeRoots[store.root] = null;
       }
 
       const existing = readWindow({ roots: safeRoots, fsImpl: this.fsImpl }).records
-        .filter(({ record }) => record.type === 'outcome')
-        .map(({ record }) => record.pickId);
+        .filter(({ record }: any) => record.type === 'outcome')
+        .map(({ record }: any) => record.pickId);
       const seen = new Set(existing);
       for (const record of briefRecords) {
         const advice = record?.advice;
@@ -380,7 +391,7 @@ class WorkflowOrchestrator {
   /** The brief records (`*-brief.json`) of the feature this run belongs to, parsed; unreadable ones
    * are left out. Resolving the feature spawns the resolver, so it is only done where a feature
    * folder exists above the project. */
-  readBriefRecords(taskId) {
+  readBriefRecords(taskId: any) {
     const none = { briefRecords: [], repoRoot: this.projectRoot };
     try {
       let dir = path.resolve(this.projectRoot);
@@ -396,7 +407,7 @@ class WorkflowOrchestrator {
       if (feature.error) return none;
       const exec = path.join(feature.featureDir, 'exec');
       const briefRecords = [];
-      for (const name of this.fsImpl.readdirSync(exec).filter((entry) => entry.endsWith('-brief.json')).sort()) {
+      for (const name of this.fsImpl.readdirSync(exec).filter((entry: any) => entry.endsWith('-brief.json')).sort()) {
         try { briefRecords.push(JSON.parse(this.fsImpl.readFileSync(path.join(exec, name), 'utf8'))); } catch { /* an unreadable record contributes nothing */ }
       }
       return { briefRecords, repoRoot: feature.repoRoot };
@@ -407,7 +418,7 @@ class WorkflowOrchestrator {
    * its evidence id. Evidence goes in before the stage entry is written, so the entry carries the
    * ids; a retry after a refused completion finds the items and reports them `already-recorded`.
    * A ledger that cannot be written leaves the rows without an id and never stops the handoff. */
-  storeToolsUsed({ record, evidenceToAdd, ledger }) {
+  storeToolsUsed({ record, evidenceToAdd, ledger }: any) {
     if (!evidenceToAdd.length) return record;
     try {
       const idsByTask = new Map();
@@ -423,17 +434,17 @@ class WorkflowOrchestrator {
     return record;
   }
 
-  requireRun(taskId) {
+  requireRun(taskId: any) {
     const run = this.readRun(taskId);
     if (!run) throw new Error(`No workflow run for task '${taskId}'`);
     return run;
   }
 
-  currentNode(run) {
+  currentNode(run: any) {
     return run.cursor < run.program.length ? run.program[run.cursor] : null;
   }
 
-  expectOpenStage(run, stageId) {
+  expectOpenStage(run: any, stageId: any) {
     if (run.state !== 'RUNNING') throw new Error(`Run '${run.taskId}' is ${run.state}, not RUNNING`);
     const node = this.currentNode(run);
     if (!node || node.type !== 'stage') throw new Error(`Run '${run.taskId}' has no stage to complete next`);
@@ -453,7 +464,7 @@ class WorkflowOrchestrator {
    * cannot import a verification. A 'failed' outcome still advances — recording the failure
    * honestly beats refusing to record it, and a bug reproduction legitimately completes by
    * observing the expected failure — but the record no longer reads as success. */
-  completeStage({ taskId, stageId, note, outcome, backfilled = false, consultations, now } = {}) {
+  completeStage({ taskId, stageId, note, outcome, backfilled = false, consultations, now }: any = {}) {
     const run = this.requireRun(taskId);
     const node = this.expectOpenStage(run, stageId);
     if (outcome !== undefined && !STAGE_OUTCOMES.has(outcome)) {
@@ -485,7 +496,7 @@ class WorkflowOrchestrator {
 
   /** Skip the current OPTIONAL stage without running it. Gates anchored directly to a skipped
    * stage cannot fire, so they are recorded as skipped too rather than blocking forever. */
-  skipStage({ taskId, stageId, reason, backfilled = false, now } = {}) {
+  skipStage({ taskId, stageId, reason, backfilled = false, now }: any = {}) {
     const run = this.requireRun(taskId);
     const node = this.expectOpenStage(run, stageId);
     if (!node.optional) throw new Error(`Stage '${node.id}' is required and cannot be skipped`);
@@ -528,7 +539,7 @@ class WorkflowOrchestrator {
    * (that stage mutates source and only its owner may complete it), or a terminal run state. An
    * optional non-candidate stage is skipped rather than completed, matching what its own skill
    * would have done with it. */
-  catchUp({ taskId, taskClass, candidateStageIds, note, now } = {}) {
+  catchUp({ taskId, taskClass, candidateStageIds, note, now }: any = {}) {
     if (!Array.isArray(candidateStageIds) || candidateStageIds.length === 0) {
       throw new Error('catch-up requires at least one candidate stage id');
     }
@@ -550,11 +561,11 @@ class WorkflowOrchestrator {
     // through them instead of refusing.
     let unknownCandidates;
     if (run) {
-      const programStageIds = new Set(run.program.filter((n) => n.type === 'stage').map((n) => n.id));
+      const programStageIds = new Set(run.program.filter((n: any) => n.type === 'stage').map((n: any) => n.id));
       unknownCandidates = candidateStageIds.filter((id) => !programStageIds.has(id));
     } else {
       const workflow = this.engine.resolveWorkflow(taskClass); // unknown classes are rejected loudly, same as start()
-      const workflowStageIds = new Set((workflow.stages || []).map((s) => s.id));
+      const workflowStageIds = new Set((workflow.stages || []).map((s: any) => s.id));
       unknownCandidates = candidateStageIds.filter((id) => !workflowStageIds.has(id));
     }
     if (unknownCandidates.length > 0) {
@@ -585,9 +596,9 @@ class WorkflowOrchestrator {
     // before the walk below can complete anything past it as a side effect. A caller with more than
     // one candidate (do-test owns two occurrences in `bug`/`refactor`) is not done until every
     // occurrence is: one completed and one still pending must still walk forward to the pending one.
-    const candidateNodes = run.program.filter((n) => candidates.has(n.id));
-    if (candidateNodes.length > 0 && candidateNodes.every((n) => n.status === 'completed' || n.status === 'approved' || n.status === 'skipped')) {
-      return { ...this.snapshot(run), caughtUpTo: null, reason: `already-completed:${candidateNodes.map((n) => n.id).join(',')}` };
+    const candidateNodes = run.program.filter((n: any) => candidates.has(n.id));
+    if (candidateNodes.length > 0 && candidateNodes.every((n: any) => n.status === 'completed' || n.status === 'approved' || n.status === 'skipped')) {
+      return { ...this.snapshot(run), caughtUpTo: null, reason: `already-completed:${candidateNodes.map((n: any) => n.id).join(',')}` };
     }
     for (;;) {
       if (run.state === 'COMPLETED' || run.state === 'REJECTED') {
@@ -629,7 +640,7 @@ class WorkflowOrchestrator {
    * `forced` decision (e.g. approving despite unresolved clarification markers) requires an
    * explicit `note` reason — never a silent override — and is flagged in history for
    * `render-audit.sh` to distinguish from a routine handoff. */
-  decideGate({ taskId, gateId, decision, note, forced = false, now } = {}) {
+  decideGate({ taskId, gateId, decision, note, forced = false, now }: any = {}) {
     assertSafeId(gateId, 'gateId');
     if (!GATE_DECISIONS.includes(decision)) throw new Error(`Invalid gate decision '${decision}'; valid: ${GATE_DECISIONS.join(', ')}`);
     if (forced && (!note || !String(note).trim())) throw new Error('A forced gate decision requires a --note reason');
@@ -656,13 +667,13 @@ class WorkflowOrchestrator {
    * hand-edited after that stage's own handoff — without touching program/cursor/state. Not a
    * stage completion or a gate decision, so it never collides with the state machine's ordering
    * rules (D3). `forced` requires an explicit `note` reason, same rule as decideGate. */
-  annotate({ taskId, node: nodeId, note, forced = false, consultations, now } = {}) {
+  annotate({ taskId, node: nodeId, note, forced = false, consultations, now }: any = {}) {
     // Id validated before the run is loaded, matching decideGate's order exactly: an unsafe id is
     // the caller's problem to hear about first, whether or not the run happens to exist.
     assertSafeId(nodeId, 'node');
     if (forced && (!note || !String(note).trim())) throw new Error('A forced annotation requires a --note reason');
     const run = this.requireRun(taskId);
-    const found = run.program.find((n) => n.id === nodeId);
+    const found = run.program.find((n: any) => n.id === nodeId);
     if (!found) throw new Error(`Invalid node: '${nodeId}' is not part of the program for run '${taskId}'`);
     run.history.push({ at: iso(now), action: 'annotate', node: nodeId, note, forced: Boolean(forced), ...(consultations ? { consultations } : {}) });
     this.writeRun(run, now);
@@ -671,7 +682,7 @@ class WorkflowOrchestrator {
 
   /** After any advance: walk past finished nodes, land on the next pending action point, and set
    * the run state from what is found there. Cursor always sits ON the node awaiting action. */
-  settleCursor(run) {
+  settleCursor(run: any) {
     for (;;) {
       if (run.cursor >= run.program.length) { run.state = runState('COMPLETED'); return; }
       const node = run.program[run.cursor];
@@ -682,7 +693,7 @@ class WorkflowOrchestrator {
     }
   }
 
-  advance(run, now) {
+  advance(run: any, now: any) {
     run.cursor += 1;
     this.settleCursor(run);
     if (run.state === 'COMPLETED') run.history.push({ at: iso(now), action: 'complete-run' });
@@ -690,7 +701,7 @@ class WorkflowOrchestrator {
 
   /** Refuses a gated stage unless the evaluator answers READY. The evaluator returns a verdict
    * string, or `{ verdict, message }`: `message` replaces the generic refusal. */
-  assertReady(node, run) {
+  assertReady(node: any, run: any) {
     if (!this.readinessEvaluate) {
       // Fail closed: without an evaluator there is no way to know the tree is safe to mutate.
       throw new Error(`Stage '${node.id}' is gated by the '${node.readinessTemplate}' readiness template but no readiness evaluator is wired into this orchestrator`);
@@ -706,7 +717,7 @@ class WorkflowOrchestrator {
   /** FR-006: the implementation stage of a run (the `do-execute-plan` stage that mutates source)
    * cannot complete while its feature's task-attempt ledger exists and is incomplete. Returns the
    * checker's answer for a stage the rule applies to, `null` otherwise. */
-  assertTaskAttempts(node, run) {
+  assertTaskAttempts(node: any, run: any) {
     if (!this.taskAttemptCheck || node.skill !== 'do-execute-plan' || !node.mutatesSource) return null;
     const answer = this.taskAttemptCheck(node, run);
     if (!answer || !['none', 'complete', 'incomplete'].includes(answer.state)) {
@@ -724,17 +735,17 @@ class WorkflowOrchestrator {
    * of a fresh run's) without writing anything. Same stop rules and reason vocabulary as `catchUp`;
    * `stageId` is what `catchUp` reports as `caughtUpTo`, and `node` the program node it stops on.
    * @returns {{reason: string, stageId: string|null, node: Object|null}} */
-  previewHandoff({ taskId, taskClass, candidateStageIds }) {
+  previewHandoff({ taskId, taskClass, candidateStageIds }: any) {
     const existing = this.readRun(taskId);
     const run = existing
       ? { state: existing.state, cursor: existing.cursor, program: structuredClone(existing.program) }
       : { state: 'RUNNING', cursor: 0, program: compileProgram(this.engine.resolveWorkflow(taskClass)) };
     const candidates = new Set(candidateStageIds);
-    const stop = (reason, node = null) => ({ reason, stageId: reason === 'reached-candidate' ? node.id : null, node });
+    const stop = (reason: any, node: any = null) => ({ reason, stageId: reason === 'reached-candidate' ? node.id : null, node });
     if (run.state === 'REJECTED') return stop('run-rejected');
-    const candidateNodes = run.program.filter((n) => candidates.has(n.id));
-    if (candidateNodes.length > 0 && candidateNodes.every((n) => n.status === 'completed' || n.status === 'approved' || n.status === 'skipped')) {
-      return stop(`already-completed:${candidateNodes.map((n) => n.id).join(',')}`);
+    const candidateNodes = run.program.filter((n: any) => candidates.has(n.id));
+    if (candidateNodes.length > 0 && candidateNodes.every((n: any) => n.status === 'completed' || n.status === 'approved' || n.status === 'skipped')) {
+      return stop(`already-completed:${candidateNodes.map((n: any) => n.id).join(',')}`);
     }
     for (;;) {
       if (run.state === 'COMPLETED' || run.state === 'REJECTED') return stop(`run-${run.state.toLowerCase()}`);
@@ -764,7 +775,7 @@ class WorkflowOrchestrator {
  * @returns {{status:'compacted'|'unchanged'|'partial'|'skipped'|'failed', reason?:string, moved?:Array,
  *   failed?:Array<{artifact:string, path:string, message:string}>}} `partial` carries `failed`, one entry per refused artifact
  */
-function compactAfterHandoff({ taskId, projectRoot }) {
+function compactAfterHandoff({ taskId, projectRoot }: any) {
   try {
     const feature = resolveActiveFeature({ projectRoot, slug: taskId });
     if (feature.error) return { status: 'skipped', reason: feature.message };
@@ -781,7 +792,7 @@ function compactAfterHandoff({ taskId, projectRoot }) {
     }
     if (result.finding) return { status: 'failed', reason: result.message };
     return { status: result.status, moved: result.moved };
-  } catch (error) {
+  } catch (error: any) {
     return { status: 'failed', reason: error.message };
   }
 }
@@ -793,7 +804,7 @@ function compactAfterHandoff({ taskId, projectRoot }) {
 function handleOrchestrateCommand({
   action = 'status', taskId, taskClass, stage, gate, node, decision, note, reason, forced = false,
   verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, json = false, repoRoot, stateRoot, slug = null, buildAdapters = null,
-} = {}) {
+}: any = {}) {
   const { finishRuntime, usageError } = require('./cli-result.ts');
 
   const root = repoRoot || REPO_ROOT;
@@ -823,7 +834,7 @@ function handleOrchestrateCommand({
     stateDir: path.join(runRoot, '.doflow', 'state', 'orchestration'),
     featureSlug, buildAdapters,
   });
-  orchestrator.readinessEvaluate = (node, run) => {
+  orchestrator.readinessEvaluate = (node: any, run: any) => {
     // This closure only ever runs for a stage that is actually gated (evaluateReadiness only calls
     // it for a mutating stage carrying a readiness template) — so a missing --task-class here is a
     // caller mistake on THIS command, not a fact about the task's readiness. Reported before the
@@ -850,7 +861,7 @@ function handleOrchestrateCommand({
 
   // FR-006. The ledger lives under the main worktree, so the plan and the store are found from any
   // linked worktree; a run whose feature cannot be named has no ledger to check.
-  orchestrator.taskAttemptCheck = (node, run) => checkTaskAttemptCompletion({
+  orchestrator.taskAttemptCheck = (node: any, run: any) => checkTaskAttemptCompletion({
     slug: runSlugOf(run, runRoot) || featureSlug, cwd: state,
   });
 
@@ -931,7 +942,7 @@ function handleOrchestrateCommand({
     // MCP warnings go to stderr and notices to stdout, after everything else (IC-011).
     for (const message of snapshot.mcpWarnings || []) (message.text.startsWith('[WARN]') ? console.error : console.log)(message.text);
     return finishRuntime(0);
-  } catch (error) {
+  } catch (error: any) {
     // Transition refusals are findings, not crashes: out-of-order stages and unready gates are
     // exactly what an operator asked about when they ran this.
     console.error(`[ERROR] orchestrate: ${error.message}`);

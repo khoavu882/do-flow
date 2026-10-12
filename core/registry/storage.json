@@ -199,7 +199,7 @@
       ],
       "writers": [
         "src/runtime/task-state.ts",
-        "src/runtime/workflow-orchestrator.js"
+        "src/runtime/workflow-orchestrator.ts"
       ]
     },
     {

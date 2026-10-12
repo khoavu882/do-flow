@@ -8,7 +8,7 @@ const path = require('node:path');
 
 const { createScratch } = require('../helper/scratch-env');
 const { WorkflowEngine } = require('../../src/runtime/workflow-engine.ts');
-const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator');
+const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
 const { writeReadinessRecord } = require('../../src/runtime/readiness-record.ts');
 const gate = require('../../src/runtime/implementation-gate.ts');
 

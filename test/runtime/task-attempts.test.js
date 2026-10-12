@@ -13,7 +13,7 @@ const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
-const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator');
+const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
 const { checkCompletion, taskLineHash } = require('../../src/runtime/task-attempts.ts');
 
 const REPO = path.resolve(__dirname, '../..');
