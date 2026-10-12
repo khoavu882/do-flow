@@ -42,7 +42,9 @@ test('session hooks launch asynchronous storage upkeep through the first availab
 
   const record = path.join(scratch.dir, 'dispatcher-record');
   const makeDispatcher = (file, label) => {
-    fs.writeFileSync(file, `#!/bin/bash\nsleep 2\nprintf '%s\\n%s\\n%s\\n' ${JSON.stringify(label)} "$*" "$PWD" > "$STORAGE_TEST_RECORD"\n`);
+    // Written to a temp file and renamed into place: `> "$STORAGE_TEST_RECORD"` creates the file
+    // before printf fills it, so awaitRecord could read it empty or half-written.
+    fs.writeFileSync(file, `#!/bin/bash\nsleep 2\nprintf '%s\\n%s\\n%s\\n' ${JSON.stringify(label)} "$*" "$PWD" > "$STORAGE_TEST_RECORD.tmp.$$"\nmv -f "$STORAGE_TEST_RECORD.tmp.$$" "$STORAGE_TEST_RECORD"\n`);
     fs.chmodSync(file, 0o755);
   };
   makeDispatcher(projectDispatcher, 'project');
@@ -155,7 +157,7 @@ test('a session started in a subdirectory runs upkeep from the project root (G.3
   const record = path.join(scratch.dir, 'subdir-record');
   const dispatcher = path.join(project, PROJECT_DISPATCHER);
   fs.mkdirSync(path.dirname(dispatcher), { recursive: true });
-  fs.writeFileSync(dispatcher, `#!/bin/bash\nprintf '%s\\n' "$PWD" > "$STORAGE_TEST_RECORD"\n`);
+  fs.writeFileSync(dispatcher, `#!/bin/bash\nprintf '%s\\n' "$PWD" > "$STORAGE_TEST_RECORD.tmp.$$"\nmv -f "$STORAGE_TEST_RECORD.tmp.$$" "$STORAGE_TEST_RECORD"\n`);   // atomic, as above
   fs.chmodSync(dispatcher, 0o755);
   const result = spawnSync('/bin/bash', [POLICY], {
     input: JSON.stringify({ session_id: 'subdir', cwd: sub, source: 'startup' }), cwd: sub,
