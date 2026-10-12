@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -8,7 +10,7 @@ const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 // Freshness is measured against the bytes observed, not whether the file was clean at HEAD.
 // Git identity remains provenance and a conservative fallback for older records without hashes.
-function fileHash(root, locator) {
+function fileHash(root: string, locator: any): string | null {
   if (!locator?.file) return null;
   try {
     const absolute = path.resolve(root, locator.file);
@@ -17,22 +19,26 @@ function fileHash(root, locator) {
   } catch { return null; }
 }
 
-function measureFreshness(root, locator, gitCommit) {
+function measureFreshness(root: string, locator: any, gitCommit: any): any {
   return { gitCommit, fileHash: fileHash(root, locator), observedAt: new Date().toISOString(), status: 'FRESH' };
 }
 
 class FreshnessValidator {
+  repoRoot: string;
+  gitRunner: (args: string[], cwd?: string) => string | null;
+  declare diffCache?: Map<string, Set<string>>;
+
   /**
    * @param {Object} [options]
    * @param {string} [options.repoRoot]
    * @param {Function} [options.gitRunner]
    */
-  constructor(options = {}) {
+  constructor(options: any = {}) {
     this.repoRoot = options.repoRoot || REPO_ROOT;
     this.gitRunner = options.gitRunner || this.defaultGitRunner.bind(this);
   }
 
-  defaultGitRunner(args, cwd = this.repoRoot) {
+  defaultGitRunner(args: string[], cwd: string = this.repoRoot): string | null {
     try {
       return execFileSync('git', args, {
         cwd,
@@ -49,7 +55,7 @@ class FreshnessValidator {
    * Retrieves the current HEAD commit hash.
    * @returns {string|null}
    */
-  getCurrentHead() {
+  getCurrentHead(): string | null {
     return this.gitRunner(['rev-parse', 'HEAD']);
   }
 
@@ -57,11 +63,11 @@ class FreshnessValidator {
    * Retrieves all modified/unstaged/staged files in the repository.
    * @returns {Set<string>}
    */
-  getDirtyFiles() {
+  getDirtyFiles(): Set<string> {
     const output = this.gitRunner(['status', '--porcelain']);
     if (!output) return new Set();
 
-    const dirty = new Set();
+    const dirty = new Set<string>();
     const lines = output.split('\n');
     for (const line of lines) {
       if (line.length > 3) {
@@ -77,14 +83,14 @@ class FreshnessValidator {
    * @param {string} [refCommit]
    * @returns {Set<string>}
    */
-  getModifiedFilesSince(refCommit) {
+  getModifiedFilesSince(refCommit?: string): Set<string> {
     // `checkEvidenceFreshness` calls this once per evidence item, and a batch of evidence shares
     // one recorded commit — so without a memo a task with ninety items ran ninety `git diff`s to
     // answer the same question. Keyed on the commit because that is the axis the work collapses
     // on. Instance-scoped, so it lives exactly as long as one invocation.
     if (!this.diffCache) this.diffCache = new Map();
     const key = refCommit || '';
-    if (this.diffCache.has(key)) return this.diffCache.get(key);
+    if (this.diffCache.has(key)) return this.diffCache.get(key) as Set<string>;
 
     const dirty = this.getDirtyFiles();
     if (!refCommit) {
@@ -107,7 +113,7 @@ class FreshnessValidator {
    * @param {Object} item - Evidence item
    * @returns {{ status: 'FRESH'|'STALE', reason?: string }}
    */
-  checkEvidenceFreshness(item) {
+  checkEvidenceFreshness(item: any): { status: 'FRESH' | 'STALE'; reason?: string } {
     if (!item) return { status: 'STALE', reason: 'Evidence item is missing' };
     
     // If explicitly marked stale
@@ -146,7 +152,7 @@ class FreshnessValidator {
    * @param {Object} ledger - EvidenceLedger instance
    * @returns {number} count of newly invalidated items
    */
-  validateLedgerFreshness(ledger) {
+  validateLedgerFreshness(ledger: any): number {
     if (!ledger || typeof ledger.getAllEvidence !== 'function') return 0;
     
     let count = 0;

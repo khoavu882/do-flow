@@ -7,7 +7,7 @@ const { acquireLock, updateTaskState, readTaskState } = require('./task-state');
 const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger');
 const { ClaimsManager } = require('./claims');
 const { taskStoreDir } = require('./task-scope');
-const { FreshnessValidator } = require('./freshness');
+const { FreshnessValidator } = require('./freshness.ts');
 const { resolveLocator } = require('./locator-resolve.ts');
 const { finishRuntime, usageError } = require('./cli-result.ts');
 

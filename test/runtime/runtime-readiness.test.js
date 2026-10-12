@@ -8,7 +8,7 @@ const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger');
 const { ClaimsManager } = require('../../src/runtime/claims');
-const { FreshnessValidator } = require('../../src/runtime/freshness');
+const { FreshnessValidator } = require('../../src/runtime/freshness.ts');
 const { ContextPackCompiler } = require('../../src/runtime/context-pack');
 const { ReadinessEngine } = require('../../src/runtime/readiness');
 

@@ -407,7 +407,7 @@ function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot 
   }
   const { EvidenceLedger } = require('./evidence-ledger');
   const { ClaimsManager } = require('./claims');
-  const { FreshnessValidator } = require('./freshness');
+  const { FreshnessValidator } = require('./freshness.ts');
   const ledger = new EvidenceLedger({ repoRoot: projectRoot });
   ledger.load(taskProfile.taskId);
   new FreshnessValidator({ repoRoot: projectRoot }).validateLedgerFreshness(ledger);
