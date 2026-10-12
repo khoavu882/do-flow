@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const path = require('node:path');
 const fs = require('node:fs');
 const { TextDecoder } = require('node:util');
@@ -77,7 +79,7 @@ const NEAR_MISS_KEYS = ['class', 'taskType', 'type', 'proposedClass', 'workflow'
  * silent skip of the fit check. */
 const CALLER_NEAR_MISS_KEYS = ['caller', 'callerSkill', 'skill', 'skillId', 'invokedBy', 'calledBy'];
 
-function isPlainObject(value) {
+function isPlainObject(value: any) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
@@ -88,7 +90,7 @@ function isPlainObject(value) {
  * a silent match. Trimming here would be a small coercion that hides a real formatting bug in the
  * caller's output.
  */
-function readProposal(proposal) {
+function readProposal(proposal: any) {
   if (proposal === null || proposal === undefined) {
     return {
       taskClass: null, rationale: null, proposedBy: null, callingSkill: null,
@@ -136,10 +138,10 @@ function readProposal(proposal) {
  * every `do-*` skill. That is acceptable for a hint nobody acts on; it is why the messages present
  * the result as "Did you mean" rather than as a shortlist.
  */
-function suggestFrom(proposed, candidates) {
+function suggestFrom(proposed: any, candidates: any) {
   if (typeof proposed !== 'string' || proposed.trim() === '') return [];
   const needle = proposed.trim().toLowerCase();
-  return candidates.filter((candidate) => {
+  return candidates.filter((candidate: any) => {
     const other = candidate.toLowerCase();
     return other === needle || other.includes(needle) || needle.includes(other);
   });
@@ -161,8 +163,8 @@ function suggestFrom(proposed, candidates) {
  *   hostedStageIds: Array<string>, hostingClasses: Array<{taskClass: string, stageIds: Array<string>}>,
  *   callerSuggestions: Array<string>}} frozen
  */
-function judgeFit(engine, taskClass, callingSkill, nearMissCallerKeys) {
-  const unevaluated = (reason, extra = {}) => Object.freeze({
+function judgeFit(engine: any, taskClass: string, callingSkill: any, nearMissCallerKeys: any) {
+  const unevaluated = (reason: any, extra: any = {}) => Object.freeze({
     state: FIT_STATES.NOT_EVALUATED,
     reason,
     callingSkill,
@@ -192,7 +194,7 @@ function judgeFit(engine, taskClass, callingSkill, nearMissCallerKeys) {
   // Derived from the stage lists rather than declared, so it cannot drift from them. On HOSTED it
   // includes the accepted class: it is the caller's complete map, not a list of alternatives.
   const hostingClasses = engine.classesHosting(callingSkill);
-  const decided = (state, reason, hostedStageIds = []) => Object.freeze({
+  const decided = (state: any, reason: any, hostedStageIds: any = []) => Object.freeze({
     state, reason, callingSkill, callerRole, hostedStageIds, hostingClasses, callerSuggestions: [],
   });
 
@@ -210,9 +212,9 @@ function judgeFit(engine, taskClass, callingSkill, nearMissCallerKeys) {
 }
 
 /** `bug (root-cause), refactor (architecture-mapping)` — the caller's hosting map, as prose. */
-function renderHostingClasses(hostingClasses) {
+function renderHostingClasses(hostingClasses: any) {
   return hostingClasses
-    .map(({ taskClass, stageIds }) => `${taskClass} (${stageIds.join(', ')})`)
+    .map(({ taskClass, stageIds }: any) => `${taskClass} (${stageIds.join(', ')})`)
     .join(', ');
 }
 
@@ -221,7 +223,7 @@ function renderHostingClasses(hostingClasses) {
  * when fit was not evaluated: an operator must be able to read the blind spot off the message
  * without inspecting the JSON.
  */
-function describeAcceptedFit(fit, nearMissCallerKeys) {
+function describeAcceptedFit(fit: any, nearMissCallerKeys: any) {
   if (fit.state === FIT_STATES.HOSTED) {
     return ` It hosts '${fit.callingSkill}' at stage(s): ${fit.hostedStageIds.join(', ')}.`;
   }
@@ -231,7 +233,7 @@ function describeAcceptedFit(fit, nearMissCallerKeys) {
   }
   if (fit.reason === FIT_REASONS.CALLER_KEY_NEAR_MISS) {
     return ' Fit was NOT evaluated: the proposal carries '
-      + `${nearMissCallerKeys.map((key) => `'${key}'`).join(', ')}; the calling skill must be given `
+      + `${nearMissCallerKeys.map((key: any) => `'${key}'`).join(', ')}; the calling skill must be given `
       + 'as `callingSkill`. Membership is all this decision establishes.';
   }
   return ' Fit was NOT evaluated: no calling skill was named, so this decision establishes that the '
@@ -243,7 +245,7 @@ function describeAcceptedFit(fit, nearMissCallerKeys) {
  * The message for a rejection the fit check produced. Each one names the remedy: a rejection nobody
  * can act on is a stop rather than a fix.
  */
-function describeFitRejection(fit, taskClass, workflow, engine) {
+function describeFitRejection(fit: any, taskClass: any, workflow: any, engine: any) {
   if (fit.reason === REJECTION_REASONS.UNKNOWN_CALLER) {
     const hint = fit.callerSuggestions.length > 0
       ? ` Did you mean: ${fit.callerSuggestions.join(', ')}?`
@@ -270,12 +272,14 @@ function describeFitRejection(fit, taskClass, workflow, engine) {
 }
 
 class TaskClassifier {
+  declare engine: any;
+  declare now: any;
   /**
    * @param {Object} [options]
    * @param {WorkflowEngine} [options.engine] Pre-built engine; otherwise one is built from `options`.
    * @param {Function} [options.now] Clock returning an ISO timestamp, for deterministic tests.
    */
-  constructor(options = {}) {
+  constructor(options: any = {}) {
     this.engine = options.engine || new WorkflowEngine(options);
     this.now = options.now || (() => new Date().toISOString());
   }
@@ -302,7 +306,7 @@ class TaskClassifier {
    *   skill can occupy — including `NOT_EVALUATED` when no caller was named, since an unchecked fit
    *   must never read as a checked one.
    */
-  classify(proposal, context = {}) {
+  classify(proposal: any, context: any = {}) {
     const validClasses = this.listClasses();
     const parsed = readProposal(proposal);
     const base = {
@@ -407,7 +411,7 @@ class TaskClassifier {
    * @param {Object} [context]
    * @returns {Object} the resolved workflow
    */
-  resolve(proposal, context = {}) {
+  resolve(proposal: any, context: any = {}) {
     const decision = this.classify(proposal, context);
     if (decision.outcome !== CLASSIFICATION_OUTCOMES.ACCEPTED) {
       throw new Error(decision.message);
@@ -434,7 +438,7 @@ class TaskClassifier {
  * @param {boolean} [options.json=false]
  * @returns {number|Promise<number>} exit code; advisory calls are asynchronous
  */
-function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill, request, requestFile, taskId, projectRoot, json = false } = {}) {
+function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill, request, requestFile, taskId, projectRoot, json = false }: any = {}) {
   const classifier = new TaskClassifier({ repoRoot: REPO_ROOT });
   const decision = classifier.classify({ taskClass, rationale, proposedBy, callingSkill });
   const exitCode = decision.outcome === CLASSIFICATION_OUTCOMES.ACCEPTED
@@ -455,7 +459,7 @@ function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill,
       try {
         state = new TextDecoder('utf-8', { fatal: true }).decode(fs.readFileSync(requestFile));
         if (!state.length) throw new Error('file is empty');
-      } catch (error) {
+      } catch (error: any) {
         fileError = error;
       }
     }
@@ -467,7 +471,7 @@ function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill,
         const advice = loadAdviceRegistry({ repoRoot: REPO_ROOT });
         const storage = loadStorageRegistry({ repoRoot: REPO_ROOT });
         const roots = resolveRoots({ registry: storage, projectRoot: path.resolve(projectRoot || process.cwd()) });
-        const source = (name) => JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core/registry', name), 'utf8'));
+        const source = (name: any) => JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core/registry', name), 'utf8'));
         const sources = { workflows: source('workflows.json') };
         const built = materializeKind('task-class', { adviceRegistry: advice.ok ? advice.registry : null, sources });
         const client = createAdviceClient({ adviceRegistry: advice.ok ? advice.registry : null, roots, sources });
@@ -494,12 +498,12 @@ function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill,
   }
 }
 
-function emptySecondOpinion(status, reason) {
+function emptySecondOpinion(status: any, reason: any) {
   return { status, reason, pick: null, strength: null, between: null, agrees: null, proposed: null,
     pickId: null, probabilities: null, confidence: null, model: null };
 }
 
-function secondOpinion(result, proposed) {
+function secondOpinion(result: any, proposed: any) {
   const answer = result.answers?.[0];
   if (result.status !== 'answered' || !answer) return emptySecondOpinion(result.status, result.reason);
   return {
@@ -509,7 +513,7 @@ function secondOpinion(result, proposed) {
   };
 }
 
-function printClassifyDecision(decision, opinion) {
+function printClassifyDecision(decision: any, opinion: any) {
   console.log(`\nDoFlow Task Classification [${decision.outcome}]:`);
   console.log('═'.repeat(78));
   console.log(decision.message);
@@ -523,7 +527,7 @@ function printClassifyDecision(decision, opinion) {
   }
   if (decision.fit.state === 'NOT_HOSTED' && decision.fit.hostingClasses.length > 0) {
     console.log(`Classes that host ${decision.fit.callingSkill}: `
-      + decision.fit.hostingClasses.map((h) => `${h.taskClass} (${h.stageIds.join(', ')})`).join(', '));
+      + decision.fit.hostingClasses.map((h: any) => `${h.taskClass} (${h.stageIds.join(', ')})`).join(', '));
   }
   if (decision.workflow) {
     console.log('─'.repeat(78));

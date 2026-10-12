@@ -34,7 +34,7 @@ const { handleIndicatorsCommand } = require('../runtime/trace/indicators.ts');
 // engine module named on the right; this file only dispatches to them.
 const { ReadinessEngine } = require('../runtime/readiness');
 const { handleClaimCommand } = require('../runtime/claims.ts');
-const { handleClassifyCommand } = require('../runtime/task-classifier');
+const { handleClassifyCommand } = require('../runtime/task-classifier.ts');
 const { handleWorkflowCommand } = require('../runtime/workflow-engine.ts');
 const { handleOrchestrateCommand } = require('../runtime/workflow-orchestrator');
 const { handleResearchRequestCommand } = require('../runtime/research-request');

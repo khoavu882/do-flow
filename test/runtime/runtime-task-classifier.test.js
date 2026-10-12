@@ -13,7 +13,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs');
-const { TaskClassifier } = require('../../src/runtime/task-classifier');
+const { TaskClassifier } = require('../../src/runtime/task-classifier.ts');
 const { WorkflowEngine } = require('../../src/runtime/workflow-engine.ts');
 const { parseYamlFile } = require('../../src/runtime/capability-router.ts');
 
