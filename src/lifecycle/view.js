@@ -18,7 +18,7 @@ const { createCopilotAdapter } = require('../adapters/copilot');
 const { createKiroAdapter } = require('../adapters/kiro');
 const { createAntigravityAdapter } = require('../adapters/antigravity');
 const { planLifecycle } = require('./index');
-const { stateRoot, readLedger, defaultLedger } = require('../state');
+const { stateRoot, readLedger, defaultLedger } = require('../state/index.ts');
 const { selectAssets } = require('../registry/index.ts');
 const { defaultLock, readLock, writeLock, diffLocks, removeLock, pinnedSelections } = require('../state/lockfile');
 // Tolerant because the projected runtime under `.doflow/runtime/` ships bin/, src/ and

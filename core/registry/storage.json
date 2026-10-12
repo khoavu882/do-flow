@@ -291,7 +291,7 @@
         "install"
       ],
       "writers": [
-        "src/state/index.js"
+        "src/state/index.ts"
       ]
     },
     {
@@ -309,7 +309,7 @@
         "install"
       ],
       "writers": [
-        "src/state/index.js"
+        "src/state/index.ts"
       ]
     },
     {
@@ -544,10 +544,10 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/state/index.js"
+        "src/state/index.ts"
       ],
       "source": {
-        "file": "src/state/index.js",
+        "file": "src/state/index.ts",
         "pattern": "LEDGER_FILE"
       }
     },
@@ -564,10 +564,10 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/state/index.js"
+        "src/state/index.ts"
       ],
       "source": {
-        "file": "src/state/index.js",
+        "file": "src/state/index.ts",
         "pattern": "LEDGER_FILE"
       }
     },
@@ -630,7 +630,7 @@
         "src/adapters/copy-tree.js",
         "src/install/manifest.ts",
         "src/lifecycle/index.js",
-        "src/state/index.js"
+        "src/state/index.ts"
       ],
       "source": {
         "file": "src/lifecycle/index.js",
@@ -654,7 +654,7 @@
         "src/adapters/copy-tree.js",
         "src/install/manifest.ts",
         "src/lifecycle/index.js",
-        "src/state/index.js"
+        "src/state/index.ts"
       ],
       "source": {
         "file": "src/lifecycle/index.js",

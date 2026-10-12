@@ -15,7 +15,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { readLedger } = require('../state');
+const { readLedger } = require('../state/index.ts');
 const { resolveAdapter } = require('../adapters');
 const { evaluateReach } = require('./reach');
 

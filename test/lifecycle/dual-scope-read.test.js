@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { loadRegistry } = require('../../src/registry/index.ts');
-const { stateRoot, ledgerPath, defaultLedger, writeLedger } = require('../../src/state');
+const { stateRoot, ledgerPath, defaultLedger, writeLedger } = require('../../src/state/index.ts');
 const { registryLifecycleView } = require('../../src/lifecycle/view');
 const { tempDir } = require('../helper/tmp');
 

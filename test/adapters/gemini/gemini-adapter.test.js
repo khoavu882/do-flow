@@ -421,7 +421,7 @@ test('a relocation removal is carried through the lifecycle retained filter, so 
   const { loadRegistry } = require('../../../src/registry/index.ts');
   const { buildAdapterRegistry } = require('../../../src/cli/shared.ts');
   const { planLifecycle, applyLifecycle } = require('../../../src/lifecycle');
-  const { defaultLedger } = require('../../../src/state');
+  const { defaultLedger } = require('../../../src/state/index.ts');
   const registry = loadRegistry({ repoRoot: REPO });
   const adapters = buildAdapterRegistry();
   const root = fs.realpathSync(scratch());

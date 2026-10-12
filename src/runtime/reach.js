@@ -13,7 +13,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { readLedger, stateRoot } = require('../state');
+const { readLedger, stateRoot } = require('../state/index.ts');
 
 /** Where the dispatcher sits under a `.doflow` root; the skill resolver and the locator shim spell the same path. */
 const REACH_DISPATCHER_REL = 'scripts/doflow/bin/doflow-run';

@@ -8,7 +8,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { atomicJsonWrite } = require('./index');
+const { atomicJsonWrite } = require('./index.ts');
 
 const LOCK_VERSION = 1;
 const LOCK_FILE = 'doflow.lock';

@@ -11,7 +11,7 @@ const { SKELETON, renderNewDocument } = require('../../../src/adapters/pi/json-m
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../../src/helper/harness-paths.ts');
 const { loadRegistry, selectMcpServers, harnessFor } = require('../../../src/registry/index.ts');
 const { planLifecycle, applyLifecycle, removeLifecycle, updateLedger } = require('../../../src/lifecycle');
-const { defaultLedger } = require('../../../src/state');
+const { defaultLedger } = require('../../../src/state/index.ts');
 
 const REPO = path.resolve(__dirname, '../../..');
 const registry = loadRegistry({ repoRoot: REPO });

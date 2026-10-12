@@ -7,7 +7,7 @@ const { writeManifest } = require('../../src/install/manifest.ts');
 const {
   STATE_VERSION, LEDGER_VERSION, stateRoot, ledgerPath, defaultLedger, readLedger, writeLedger,
   writeRecoveryRecord, readRecoveryRecord, migrateLegacyManifest, ownershipKey,
-} = require('../../src/state');
+} = require('../../src/state/index.ts');
 const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, "../..");

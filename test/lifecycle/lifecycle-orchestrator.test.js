@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createAdapterRegistry } = require('../../src/adapters');
-const { defaultLedger, readLedger } = require('../../src/state');
+const { defaultLedger, readLedger } = require('../../src/state/index.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { planLifecycle, applyLifecycle, removeLifecycle, normalizeRemovalVerification, mcpIndexPath } = require('../../src/lifecycle');
 const { tempDir, suiteTempDir } = require('../helper/tmp');
@@ -301,7 +301,7 @@ test('remove deletes MCP_INDEX.md regardless of what selection would otherwise a
   }
 
   function stateRootFor(project) {
-    const { stateRoot } = require('../../src/state');
+    const { stateRoot } = require('../../src/state/index.ts');
     return stateRoot({ scope: 'project', projectRoot: project });
   }
 

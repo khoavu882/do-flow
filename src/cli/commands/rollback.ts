@@ -12,7 +12,7 @@ const {
 } = require('../../install/backup.ts');
 const { backupSetFromPaths } = require('../../install/backup-set.ts');
 const { writeManifest } = require('../../install/manifest.ts');
-const { stateRoot } = require('../../state');
+const { stateRoot } = require('../../state/index.ts');
 const { confirm, promptLine } = require('../../helper/prompt.ts');
 const { sourceCommit } = require('../../helper/git.ts');
 const { captureCaught } = require('../../runtime/cli-result');

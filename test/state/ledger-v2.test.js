@@ -2,7 +2,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
-const { STATE_VERSION, LEDGER_VERSION, defaultLedger, upgradeLedger, readLedger, writeLedger } = require('../../src/state');
+const { STATE_VERSION, LEDGER_VERSION, defaultLedger, upgradeLedger, readLedger, writeLedger } = require('../../src/state/index.ts');
 const { tempDir } = require('../helper/tmp');
 
 function scratch(t) { return tempDir(t, 'doflow-ledgerv2-'); }
@@ -51,7 +51,7 @@ test('unknown versions are rejected and tombstones must stay an array', (t) => {
 
 function validateVersion(t, version) {
   // Exercise the version guard directly through a minimal well-formed body.
-  return require('../../src/state').validateLedger({
+  return require('../../src/state/index.ts').validateLedger({
     version, scope: 'project', scopeRoot: scratch(t), targets: {}, mcpSelections: {},
     resources: [], legacyImports: [],
   });

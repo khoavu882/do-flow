@@ -7,7 +7,7 @@
  *
  * Two recorded resources describe the same logical asset when two parts agree: the harness, and the
  * ownership identity the adapter recorded for that resource. That pair is not a new key — it is the
- * stored ownership key (`src/state/index.js#ownershipKey`, five components) with its two
+ * stored ownership key (`src/state/index.ts#ownershipKey`, five components) with its two
  * scope-bearing components dropped: the `scope`, which names itself, and the absolute `target`,
  * which differs between a global and a project copy of the same asset by construction. So this is a
  * projection of a key the ledger already holds, not a value reconstructed from a path; nothing is
