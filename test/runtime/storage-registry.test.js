@@ -43,7 +43,7 @@ test('IC-001: user-settings declares the advice config writer', () => {
   const registry = validRegistry();
   const stores = registry.stores.filter((item) => item.id.startsWith('user-settings-'));
   assert.equal(stores.length, 2);
-  for (const store of stores) assert.deepEqual(store.writers, ['src/runtime/advice/config.js']);
+  for (const store of stores) assert.deepEqual(store.writers, ['src/runtime/advice/config.ts']);
   assert.equal(validateStorageRegistry(registry).ok, true);
 });
 

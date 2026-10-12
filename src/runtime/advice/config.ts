@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { resolveRoots } = require('../storage/roots.ts');
@@ -8,11 +10,11 @@ const SETTING_FILE = 'decision-model.json';
 const PROJECT_NOTE = 'a project cannot enable the decision model or choose its endpoint';
 const KNOWN_KEYS = new Set(['schema', 'enabled', 'provider', 'endpoint', 'model']);
 
-function isObject(value) {
+function isObject(value: any): boolean {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function offResult(reason, decidedBy, notes = [], setting = {}) {
+function offResult(reason: string, decidedBy: any, notes: string[] = [], setting: any = {}): any {
   return {
     state: 'off', reason,
     provider: setting.provider ?? null,
@@ -24,24 +26,24 @@ function offResult(reason, decidedBy, notes = [], setting = {}) {
   };
 }
 
-function readJson(file, fsImpl) {
+function readJson(file: string | null, fsImpl: any): { exists: boolean; value?: any; error?: any } {
   if (!file) return { exists: false };
   try {
     return { exists: true, value: JSON.parse(fsImpl.readFileSync(file, 'utf8')) };
-  } catch (error) {
+  } catch (error: any) {
     if (error?.code === 'ENOENT') return { exists: false };
     return { exists: true, error };
   }
 }
 
-function parseUserSetting(value, adviceRegistry) {
+function parseUserSetting(value: any, adviceRegistry: any): any {
   if (!isObject(value)) return { error: 'user setting must be a JSON object' };
   if (value.schema !== 1) return { error: 'user setting schema must be 1' };
   if (typeof value.enabled !== 'boolean') return { error: 'user setting enabled must be a boolean' };
 
   const providers = Array.isArray(adviceRegistry?.providers) ? adviceRegistry.providers : [];
   const providerId = value.provider === undefined ? 'ollama' : value.provider;
-  const provider = providers.find((item) => item?.id === providerId);
+  const provider = providers.find((item: any) => item?.id === providerId);
   if (typeof providerId !== 'string' || !provider) return { error: `user setting provider '${providerId}' is not in advice.json providers` };
 
   let endpoint = provider.defaultEndpoint;
@@ -68,13 +70,13 @@ function parseUserSetting(value, adviceRegistry) {
   };
 }
 
-function parseProjectSetting(value) {
+function parseProjectSetting(value: any): any {
   if (!isObject(value)) return { error: 'project setting must be a JSON object' };
   if (value.schema !== 1) return { error: 'project setting schema must be 1' };
   if (value.enabled !== undefined && typeof value.enabled !== 'boolean') return { error: 'project setting enabled must be a boolean' };
   if (value.model !== undefined && (typeof value.model !== 'string' || !value.model.trim())) return { error: 'project setting model must be a non-empty string' };
 
-  const notes = [];
+  const notes: string[] = [];
   if (value.enabled === true) notes.push(`project key 'enabled' ignored: ${PROJECT_NOTE}`);
   for (const key of ['endpoint', 'provider']) {
     if (Object.hasOwn(value, key)) notes.push(`project key '${key}' ignored: ${PROJECT_NOTE}`);
@@ -93,12 +95,12 @@ function resolveSetting({
   global = false,
   env = process.env,
   fsImpl = fs,
-} = {}) {
-  const notes = [];
+}: any = {}): any {
+  const notes: string[] = [];
   let resolvedRoots = roots;
   try {
     if (!resolvedRoots) resolvedRoots = resolveRoots({ registry: storageRegistry, projectRoot, global, env });
-  } catch (error) {
+  } catch (error: any) {
     return offResult('config-invalid', { user: null, project: null }, [`storage roots could not be resolved: ${error.message}`]);
   }
   const userFile = resolvedRoots?.['config-home'] ? path.join(resolvedRoots['config-home'], SETTING_FILE) : null;
@@ -147,19 +149,19 @@ function resolveSetting({
   };
 }
 
-function writeSetting({ file, setting, level = 'user', force = false, fsImpl = fs } = {}) {
+function writeSetting({ file, setting, level = 'user', force = false, fsImpl = fs }: any = {}): any {
   if (typeof file !== 'string' || !file || !isObject(setting)) {
     return { ok: false, reason: 'config-invalid', detail: 'file and setting object are required' };
   }
   const directory = path.dirname(file);
-  let existing = {};
+  let existing: any = {};
   try {
     if (fsImpl.existsSync(file)) {
       try {
         const parsed = JSON.parse(fsImpl.readFileSync(file, 'utf8'));
         if (!isObject(parsed)) throw new Error('setting must be a JSON object');
         existing = parsed;
-      } catch (error) {
+      } catch (error: any) {
         if (!force) return { ok: false, reason: 'config-invalid', detail: `${file}: ${error.message}` };
       }
     }
@@ -179,7 +181,7 @@ function writeSetting({ file, setting, level = 'user', force = false, fsImpl = f
       try { if (fsImpl.existsSync(temporary)) fsImpl.unlinkSync(temporary); } catch { /* keep the primary result */ }
     }
     return { ok: true, file, setting: output };
-  } catch (error) {
+  } catch (error: any) {
     return { ok: false, reason: 'config-invalid', detail: `${file}: ${error.message}` };
   }
 }

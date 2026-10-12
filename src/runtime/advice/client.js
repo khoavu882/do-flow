@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const http = require('node:http');
 const https = require('node:https');
-const { resolveSetting } = require('./config');
+const { resolveSetting } = require('./config.ts');
 const { checkEndpoint } = require('./endpoint-guard.ts');
 const { strengthOf } = require('./strength.ts');
 const { validateQuestionSet, validateStaticAnswer } = require('./kinds.ts');

@@ -734,7 +734,7 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/advice/config.js"
+        "src/runtime/advice/config.ts"
       ],
       "source": {
         "file": "core/harnesses/shared/hooks/policies/lib.sh",
@@ -754,7 +754,7 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/advice/config.js"
+        "src/runtime/advice/config.ts"
       ],
       "source": {
         "file": "core/harnesses/shared/hooks/policies/lib.sh",
