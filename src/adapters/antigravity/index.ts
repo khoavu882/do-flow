@@ -280,7 +280,7 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
     const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(neutralResources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, keepModified: !removing,
       // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
       // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
-      // reason codex/index.js states in full: force heals drift on apply, but a hand-edited file
+      // reason codex/index.ts states in full: force heals drift on apply, but a hand-edited file
       // is never deleted on removal, forced or not. This adapter needed `force` threaded through
       // planTrees as well, since its signature did not carry the context the others already had.
       force: !removing && force === true });

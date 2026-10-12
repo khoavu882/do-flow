@@ -152,7 +152,7 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
         // Was `force: context?.force`, ungated. Gemini was one of only two adapters forwarding force
         // at all, so it looked like the reference implementation — but it handed force to the remove
         // path too, where copy-tree deliberately stays strict: force heals drift on apply, and a
-        // hand-edited file is never deleted, forced or not (codex/index.js states the rule in full).
+        // hand-edited file is never deleted, forced or not (codex/index.ts states the rule in full).
         // Found by the guard written for the six adapters that forwarded nothing.
         force: !removing && context?.force === true });
       treeResults.push(result);

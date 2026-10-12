@@ -13,7 +13,7 @@ const { createAdapterRegistry } = require('../../src/adapters/index.ts');
 const { planLifecycle, applyLifecycle, removeLifecycle } = require('../../src/lifecycle');
 const { stateRoot, readLedger, recoveryRoot } = require('../../src/state/index.ts');
 const claude = require('../../src/adapters/claude/index.ts');
-const codex = require('../../src/adapters/codex');
+const codex = require('../../src/adapters/codex/index.ts');
 const { createGeminiAdapter } = require('../../src/adapters/gemini/index.ts');
 
 const REPO = path.resolve(__dirname, "../..");

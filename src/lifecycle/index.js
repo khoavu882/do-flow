@@ -509,7 +509,7 @@ function hookAssetIds(target) {
 /** Whether this harness's plan includes at least one hooks-bearing change. Claude's hooks are a
  * registry-declared asset (`kind: "hooks"` in core/registry/assets.json); Codex and Gemini deploy
  * hooks via their own bespoke code paths and tag the resulting change with `nativeComponent:
- * 'hooks'` instead (see src/adapters/codex/index.js and src/adapters/gemini/index.ts). Either
+ * 'hooks'` instead (see src/adapters/codex/index.ts and src/adapters/gemini/index.ts). Either
  * signal is sufficient — this stays harness-agnostic on purpose. */
 function targetNeedsHooks(target) {
   const hookIds = hookAssetIds(target);
@@ -519,7 +519,7 @@ function targetNeedsHooks(target) {
 /** Whether a verified resource is the hooks resource this harness owns. A registry-declared hooks
  * asset (Claude, Kiro) is matched by assetId; Codex's bespoke hooks-file resource is matched by
  * `kind`; Gemini's bespoke hooks resource (a key inside settings.json, not a standalone file) is
- * matched by its `projection.renderer` tag — see src/adapters/codex/index.js's
+ * matched by its `projection.renderer` tag — see src/adapters/codex/index.ts's
  * `lifecycleResource(..., kind: 'hooks-file', ...)` and src/adapters/gemini/index.ts's verify(),
  * which tags its hooks resource `projection: { renderer: 'gemini-hooks' }`. */
 function verificationOwnsHooks(verification, hookIds) {

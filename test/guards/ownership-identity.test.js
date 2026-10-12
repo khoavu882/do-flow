@@ -238,7 +238,7 @@ const SCOPE_FREE_INTERPOLATIONS = new Map([
   ['server.id', 'an MCP server id'],
   ['fileName', 'a settings file basename'],
   ['kind', 'a literal resource-kind word (copy-tree-file, mcp-server, ...)'],
-  ['ownershipKind(componentName)', "codex's fixed component-name -> kind table (src/adapters/codex/index.js), a closed set of literals"],
+  ['ownershipKind(componentName)', "codex's fixed component-name -> kind table (src/adapters/codex/index.ts), a closed set of literals"],
 ]);
 
 /** Identifiers that name a scope or a destination. None may appear anywhere in a composition. */

@@ -8,7 +8,7 @@ const {
   MCP_KIND, readCodexMcpCatalog, renderServer, resourceFor,
   reconcileCodexMcp, ownedCodexMcpIds,
 } = require('../../../src/adapters/codex/mcp.ts');
-const codexAdapter = require('../../../src/adapters/codex');
+const codexAdapter = require('../../../src/adapters/codex/index.ts');
 const { loadRegistry } = require('../../../src/registry/index.ts');
 
 const REPO = path.resolve(__dirname, "../../..");
