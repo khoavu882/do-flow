@@ -1,5 +1,5 @@
 {
-  "//": "Type-CHECK only. DoFlow runs .ts directly through Node native type-stripping (process.features.typescript === 'strip', Node ^22.18.0 || >=23.6.0); there is NO build step and NO emit. tsc is invoked on demand via `npm run typecheck` (npx, no devDependency added) to catch type errors a stripper silently ignores. See agent-docs/BRIEF_GOAL_DOFLOW.md for the migration roadmap.",
+  "//": "Type-CHECK only. DoFlow runs .ts directly through Node native type-stripping (process.features.typescript === 'strip', Node ^22.18.0 || >=24.3.0); there is NO build step and NO emit. tsc is invoked on demand via `npm run typecheck` (npx, no devDependency added) to catch type errors a stripper silently ignores. See agent-docs/BRIEF_GOAL_DOFLOW.md for the migration roadmap.",
   "compilerOptions": {
     "noEmit": true,
     "checkJs": false,

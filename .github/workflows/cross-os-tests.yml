@@ -33,7 +33,7 @@ jobs:
         # `inputs` (and its default) exists only for workflow_call; on pull_request/push it is empty.
         os: ${{ fromJSON(inputs.os_matrix || '["ubuntu-latest","macos-latest","windows-latest"]') }}
         node: ["24"]
-        # package.json declares engines.node ^22.18.0 || >=23.6.0, so its lowest release (22.18.0) is exercised too — otherwise the
+        # package.json declares engines.node ^22.18.0 || >=24.3.0, so its lowest release (22.18.0) is exercised too — otherwise the
         # supported minimum is only asserted, never tested. One OS is enough for a version sweep;
         # the OS matrix above already covers the portability axis.
         include:

@@ -39,7 +39,7 @@ test('node floor: without type-stripping the CLI exits 2 naming the Node, the ra
   assert.equal(r.status, 2, r.stderr);
   assert.equal(r.stdout, '');
   assert.ok(r.stderr.includes(process.versions.node), 'stderr must name the running Node version');
-  assert.ok(r.stderr.includes('^22.18.0 || >=23.6.0'), 'stderr must state the required range');
+  assert.ok(r.stderr.includes('^22.18.0 || >=24.3.0'), 'stderr must state the required range');
   assert.ok(r.stderr.includes('--no-experimental-strip-types'), 'stderr must name the disabled-stripping case');
   assert.equal(r.stderr.trim().split('\n').length, 1, 'one line, no stack trace');
 });

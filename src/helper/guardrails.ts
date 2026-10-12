@@ -10,7 +10,7 @@
 // the inner command glob is what every other harness wants.
 //
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
-// native type-stripping (process.features.typescript === 'strip', Node ^22.18.0 || >=23.6.0) — no build step and
+// native type-stripping (process.features.typescript === 'strip', Node ^22.18.0 || >=24.3.0) — no build step and
 // no runtime dependency. The body stays CommonJS so a `.js` caller's `require('../helper/guardrails.ts')`
 // keeps working while the rest of the tree is still `.js`; the explicit `.ts` extension is what the
 // CommonJS resolver needs to find this file.

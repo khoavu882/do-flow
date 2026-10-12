@@ -7,10 +7,11 @@
 // keep resolving to this exact location.
 // Refuse clearly on a Node that cannot strip types: src/ is TypeScript, and without stripping
 // loading a .ts module dies with a SyntaxError on the first annotation. Stripping is on by
-// default from Node 22.18.0 / 23.6.0 and off under --no-experimental-strip-types. This file stays
+// default from Node 22.18.0 / 23.6.0 and off under --no-experimental-strip-types; the range stops at
+// 24.3.0 because 23.6 to 24.2 print an ExperimentalWarning on every .ts load. This file stays
 // plain JavaScript so it can say so. Exit 2 is the doflow-run usage/resolution-error code.
 if (!process.features || !process.features.typescript) {
-  process.stderr.write(`doflow: Node ${process.versions.node} cannot strip TypeScript types; doflow needs Node ^22.18.0 || >=23.6.0 with type-stripping enabled (it is off under --no-experimental-strip-types, including via NODE_OPTIONS).\n`);
+  process.stderr.write(`doflow: Node ${process.versions.node} cannot strip TypeScript types; doflow needs Node ^22.18.0 || >=24.3.0 with type-stripping enabled (it is off under --no-experimental-strip-types, including via NODE_OPTIONS).\n`);
   process.exit(2);
 }
 // Enable Node's module compile cache before any ../src require. Type stripping makes the first load
