@@ -804,4 +804,4 @@ function removeLifecycle(options: any) {
   return applyLifecycle({ ...options, plan, mode: 'remove', acceptPrerequisites: options.acceptPrerequisites });
 }
 
-module.exports = { OPERATIONS, MCP_KEEP, recordMcpOwnership, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus, markRetainedRemovals, retentionSummary };
+module.exports = { OPERATIONS, MCP_KEEP, recordMcpOwnership, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus, markRetainedRemovals, retentionSummary, RUNTIME_TREE_ASSETS };

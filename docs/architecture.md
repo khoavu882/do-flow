@@ -449,16 +449,17 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-thirty-seven test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-thirty-one entries across thirty test files and carries twenty-nine distinct G-numbers.
+thirty-nine test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+thirty-two entries across thirty-one test files and carries thirty distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries, and G18 labels two files, of which `adapter-force.test.js` is not listed. The collisions are
-historical rather than a convention; G31 is the highest number in use, so a new guard takes the next
-one above it instead of adding a fourth collision. The list is not the whole directory. The seven
+historical rather than a convention; G32 is the highest number in use, so a new guard takes the next
+one above it instead of adding a fourth collision. The list is not the whole directory. The eight
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
 of the G18 pair — between them the reason the list runs G18 then G20; and `boundaries.test.js`,
-`harness-paths.test.js`, `cli-boundary.test.js` and `frozen-behaviour.test.js`.
+`harness-paths.test.js`, `cli-boundary.test.js`, `frozen-behaviour.test.js` and
+`provider-source-mode.test.js`.
 
 - **G1** (`fields.test.js`) — every frontmatter key an asset declares is recognized by something.
 - **G2** (`paths.test.js`) — path reachability from `MCP_INDEX.md`-style generalizations.
@@ -638,6 +639,13 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
 - **G31** (`advice.test.js`) — advice cases cover every registered advice kind, and the `tier`
   criteria keys/order and their `Work` text stay synchronized with `models.json` and
   `MODEL_SELECTION.md` respectively, as DEC-033 requires.
+- **G32** (`runtime-tree.test.js`) — the two facts the lifecycle's runtime prune rests on: each of
+  `runtime.cli`, `runtime.lib` and `runtime.registry` projects one source directory to one
+  `.doflow/runtime/...` tree for every harness, with no layout or transform, and no other asset
+  writes into those trees; and every path under a shared `.doflow/` tree that a projected file
+  names (harness hooks, shared scripts, skills, agent specs) exists in source, so a prune can never
+  delete a file a not-yet-updated harness calls by path. A reference already broken when the guard
+  landed is listed in `KNOWN_STALE` with its reason and fails once it resolves.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.
