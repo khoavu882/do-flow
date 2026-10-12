@@ -80,7 +80,7 @@
       "kind": "triggering",
       "split": "heldout",
       "name": "single-skill-review-does-not-route",
-      "prompt": "Review src/runtime/worktree.js for code smells.",
+      "prompt": "Review src/runtime/worktree.ts for code smells.",
       "expected_output": "do does not route this request; it belongs to do-code-review",
       "files": [],
       "assertions": [

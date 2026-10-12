@@ -27,7 +27,7 @@ const REQUIRER_ROOTS = ['bin', 'src', 'test'].map((d) => path.join(REPO, d));
  * Roots whose requires make a src/ module *reachable*. Deliberately excludes test/: a module whose
  * only requirer is its own test is dead code with a passing test, which is how src/state/cas.js sat
  * in this tree for thirteen months with a green suite. Including bench/ because bench/runner.js
- * requires src/runtime/worktree.js for real — it is a consumer, not a test.
+ * requires src/runtime/worktree.ts for real — it is a consumer, not a test.
  */
 const CONSUMER_ROOTS = ['bin', 'src', 'bench'].map((d) => path.join(REPO, d));
 
@@ -251,7 +251,7 @@ test('G16: every ALLOWLIST entry names a module that actually exists', () => {
 // stripper cannot help) — whatever `.js` remains is simply the ceiling the next change may not raise.
 // Converting one `.js` to `.ts` lowers the ceiling here in the same commit; adding a new `.js`
 // instead of a `.ts` raises it and fails. Lower JS_CEILING to match after each conversion.
-const JS_CEILING = 78;
+const JS_CEILING = 77;
 
 function jsOnlyUnder(root) {
   return jsFilesUnder(root).filter((f) => f.endsWith('.js'));

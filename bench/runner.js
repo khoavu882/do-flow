@@ -29,7 +29,7 @@ const {
   SKILL_SOURCE_FILE,
   SANDBOX_SKILLS_DIR,
   sha256File,
-} = require('../src/runtime/worktree.js');
+} = require('../src/runtime/worktree.ts');
 const { cmdAdviceCoverage, cmdAdvice } = require('./advice.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -598,7 +598,7 @@ function cmdList(cfg, opts) {
   return 0;
 }
 
-const WT_REQUIRE = "const{WorktreeManager}=require('./src/runtime/worktree.js');const m=new WorktreeManager(process.cwd());";
+const WT_REQUIRE = "const{WorktreeManager}=require('./src/runtime/worktree.ts');const m=new WorktreeManager(process.cwd());";
 
 /**
  * The rule every dispatched run has to follow, stated once at the top of the plan rather than

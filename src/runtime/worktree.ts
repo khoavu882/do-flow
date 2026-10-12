@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Ephemeral git worktrees for isolated task execution — the JavaScript port of
  * `core/shared/scripts/doflow/sandbox/worktree_manager.py` (plan task B.3, pulled forward because
@@ -50,66 +52,69 @@ const SANDBOX_SKILLS_DIR = path.join('.claude', 'skills');
 /** Source of truth for skill content, relative to the repo root. */
 const SOURCE_SKILLS_DIR = path.join('core', 'shared', 'skills');
 
-function sha256File(file) {
+function sha256File(file: string): string {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-function git(args, cwd, { allowFailure = false } = {}) {
+function git(args: string[], cwd: string, { allowFailure = false }: { allowFailure?: boolean } = {}): { ok: boolean; stdout: string; stderr?: string } {
   try {
     return {
       ok: true,
       stdout: execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
     };
-  } catch (err) {
+  } catch (err: any) {
     if (!allowFailure) throw err;
     return { ok: false, stdout: '', stderr: err.stderr ? String(err.stderr) : String(err.message) };
   }
 }
 
 class WorktreeManager {
+  repoRoot: string;
+  worktreesDir: string;
+
   /**
    * @param {string} repoRoot repository whose worktrees are managed
    * @param {string} [worktreesDir] override the sandbox root; defaults to `<repo>/.doflow/worktrees`,
    *   which is gitignored so sandboxes never appear as untracked noise in the parent tree.
    */
-  constructor(repoRoot, worktreesDir) {
+  constructor(repoRoot: string, worktreesDir?: string) {
     this.repoRoot = repoRoot;
     this.worktreesDir = worktreesDir || path.join(repoRoot, '.doflow', 'worktrees');
   }
 
-  static assertSafeId(taskId) {
+  static assertSafeId(taskId: any): void {
     if (!taskId || !SAFE_ID.test(taskId)) {
       throw new Error(`unsafe worktree id ${JSON.stringify(taskId)} — allowed: letters, digits, dot, dash, underscore`);
     }
   }
 
-  pathFor(taskId) {
+  pathFor(taskId: string): string {
     WorktreeManager.assertSafeId(taskId);
     return path.join(this.worktreesDir, taskId);
   }
 
-  branchFor(taskId) {
+  branchFor(taskId: string): string {
     WorktreeManager.assertSafeId(taskId);
     return `task/${taskId}`;
   }
 
   /** Whether git itself considers this path a registered worktree — the directory existing on disk
    * is not the same question, which is the bug fixed here. */
-  isRegistered(wtPath) {
+  isRegistered(wtPath: string): boolean {
     const res = git(['worktree', 'list', '--porcelain'], this.repoRoot, { allowFailure: true });
     if (!res.ok) return false;
     const resolved = path.resolve(wtPath);
     return res.stdout
       .split('\n')
-      .filter((l) => l.startsWith('worktree '))
-      .some((l) => path.resolve(l.slice('worktree '.length).trim()) === resolved);
+      .filter((l: string) => l.startsWith('worktree '))
+      .some((l: string) => path.resolve(l.slice('worktree '.length).trim()) === resolved);
   }
 
   /**
    * Create an isolated worktree, reusing it only when git agrees it is registered. Returns the
    * absolute path.
    */
-  create(taskId, baseRef = 'HEAD') {
+  create(taskId: string, baseRef: string = 'HEAD'): string {
     const wtPath = this.pathFor(taskId);
     const branch = this.branchFor(taskId);
 
@@ -137,7 +142,7 @@ class WorktreeManager {
   }
 
   /** The resolved base SHA recorded at creation, or null when unavailable. */
-  baseOf(taskId) {
+  baseOf(taskId: string): string | null {
     const file = path.join(this.pathFor(taskId), BASE_FILE);
     return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim() : null;
   }
@@ -167,7 +172,7 @@ class WorktreeManager {
    *
    * @returns {object} the manifest also written to `<worktree>/.doflow-skill-source.json`
    */
-  projectSkills(taskId, { harness = 'claude', cli = path.join('bin', 'doflow.js'), skillsRoot = SOURCE_SKILLS_DIR } = {}) {
+  projectSkills(taskId: string, { harness = 'claude', cli = path.join('bin', 'doflow.js'), skillsRoot = SOURCE_SKILLS_DIR }: { harness?: string; cli?: string; skillsRoot?: string } = {}): any {
     const wtPath = this.pathFor(taskId);
     if (!fs.existsSync(wtPath)) {
       throw new Error(`no worktree at ${wtPath} — create it before projecting skills`);
@@ -177,25 +182,25 @@ class WorktreeManager {
       throw new Error(`no skill source at ${sourceRoot}`);
     }
 
-    let installOutput;
+    let installOutput: string;
     try {
       installOutput = execFileSync(
         process.execPath,
         [path.join(this.repoRoot, cli), 'install', wtPath, '--force', '-t', harness],
         { cwd: this.repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
       );
-    } catch (err) {
+    } catch (err: any) {
       throw new Error(`projecting skills into ${wtPath} failed: ${err.stderr || err.message}`);
     }
 
     const names = fs
       .readdirSync(sourceRoot, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && fs.existsSync(path.join(sourceRoot, e.name, 'SKILL.md')))
-      .map((e) => e.name)
+      .filter((e: any) => e.isDirectory() && fs.existsSync(path.join(sourceRoot, e.name, 'SKILL.md')))
+      .map((e: any) => e.name)
       .sort();
 
-    const skills = {};
-    const mismatches = [];
+    const skills: Record<string, any> = {};
+    const mismatches: string[] = [];
     for (const name of names) {
       const rel = path.join(SANDBOX_SKILLS_DIR, name, 'SKILL.md');
       const dst = path.join(wtPath, rel);
@@ -232,7 +237,7 @@ class WorktreeManager {
   }
 
   /** The skill-source manifest a sandbox recorded, or null when it was never projected. */
-  skillSourceOf(taskId) {
+  skillSourceOf(taskId: string): any {
     const file = path.join(this.pathFor(taskId), SKILL_SOURCE_FILE);
     if (!fs.existsSync(file)) return null;
     try {
@@ -244,7 +249,7 @@ class WorktreeManager {
 
   /** Repo HEAD, or null outside a repository. Recorded for readability; the per-skill hashes are
    * the actual provenance, and they stay correct on a dirty tree where a commit id does not. */
-  headCommit() {
+  headCommit(): string | null {
     const res = git(['rev-parse', 'HEAD'], this.repoRoot, { allowFailure: true });
     return res.ok ? res.stdout.trim() : null;
   }
@@ -254,13 +259,13 @@ class WorktreeManager {
    * skills. Split from `create()` because non-evaluation callers want a bare worktree and should
    * not pay for a projection they will not read.
    */
-  createSandbox(taskId, { baseRef = 'HEAD', ...opts } = {}) {
+  createSandbox(taskId: string, { baseRef = 'HEAD', ...opts }: { baseRef?: string; [key: string]: any } = {}): { path: string; manifest: any } {
     const wtPath = this.create(taskId, baseRef);
     return { path: wtPath, manifest: this.projectSkills(taskId, opts) };
   }
 
   /** Remove the worktree and its branch. Idempotent: removing something absent is success. */
-  remove(taskId) {
+  remove(taskId: string): void {
     const wtPath = this.pathFor(taskId);
     const branch = this.branchFor(taskId);
 
@@ -277,7 +282,7 @@ class WorktreeManager {
    * collapsing a failure into an empty diff, so a caller can tell "nothing changed" from
    * "could not tell", which the Python version could not.
    */
-  collectDiff(taskId, baseRef) {
+  collectDiff(taskId: string, baseRef?: string): { diff: string | null; untracked: string[]; error: string | null | undefined } {
     const wtPath = this.pathFor(taskId);
     if (!fs.existsSync(wtPath)) {
       return { diff: null, untracked: [], error: `no worktree at ${wtPath}` };
@@ -299,23 +304,23 @@ class WorktreeManager {
       // Harness bookkeeping is not task work: the base pointer and the skill-source manifest are
       // written by this module, not by the skill under test.
       untracked: untracked.ok
-        ? untracked.stdout.split('\n').filter((f) => f && f !== BASE_FILE && f !== SKILL_SOURCE_FILE)
+        ? untracked.stdout.split('\n').filter((f: string) => f && f !== BASE_FILE && f !== SKILL_SOURCE_FILE)
         : [],
       error: null,
     };
   }
 
   /** Every sandbox this manager knows about — used to clean up after an interrupted run. */
-  list() {
+  list(): string[] {
     if (!fs.existsSync(this.worktreesDir)) return [];
     return fs
       .readdirSync(this.worktreesDir, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name);
+      .filter((e: any) => e.isDirectory())
+      .map((e: any) => e.name);
   }
 
   /** Run `fn(worktreePath)` in a fresh sandbox and always tear it down, even when `fn` throws. */
-  withWorktree(taskId, fn, baseRef = 'HEAD') {
+  withWorktree(taskId: string, fn: (wtPath: string) => any, baseRef: string = 'HEAD'): any {
     const wtPath = this.create(taskId, baseRef);
     try {
       return fn(wtPath);

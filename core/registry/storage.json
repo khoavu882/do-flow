@@ -714,10 +714,10 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/worktree.js"
+        "src/runtime/worktree.ts"
       ],
       "source": {
-        "file": "src/runtime/worktree.js",
+        "file": "src/runtime/worktree.ts",
         "pattern": "worktree"
       }
     },

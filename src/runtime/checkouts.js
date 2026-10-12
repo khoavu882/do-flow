@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { BASE_FILE } = require('./worktree');
+const { BASE_FILE } = require('./worktree.ts');
 
 // The checkouts of one repository: the main working tree and its linked worktrees.
 //

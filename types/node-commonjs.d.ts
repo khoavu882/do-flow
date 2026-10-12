@@ -13,6 +13,7 @@ declare var process: {
   features?: { typescript?: false | 'strip' | 'transform' };
   env: Record<string, string | undefined>;
   platform: string;
+  execPath: string;
   version: string;
   pid: number;
   argv: string[];
