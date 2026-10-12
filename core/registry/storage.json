@@ -144,7 +144,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/outcome.js"
+        "src/runtime/outcome.ts"
       ]
     },
     {

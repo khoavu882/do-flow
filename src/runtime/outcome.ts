@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * The task's terminal record (feature 011, plan task B.2, design component C2; FR-011).
  *
@@ -94,7 +96,7 @@ const NOT_RECORDED = 'NOT_RECORDED';
  * @param {string|null} [slug] the feature the task belongs to, when not the branch's (task-scope.js)
  * @returns {string}
  */
-function outcomePath(projectRoot, taskId, slug = null) {
+function outcomePath(projectRoot: any, taskId: any, slug: any = null) {
   const dir = taskStoreDir({ projectRoot, store: 'outcome', taskId: assertSafeTaskId(taskId), slug });
   return path.join(dir, `${taskId}.json`);
 }
@@ -104,12 +106,12 @@ function outcomePath(projectRoot, taskId, slug = null) {
  * @param {string} taskId
  * @returns {Object|null} the record, or null when no outcome was recorded
  */
-function readOutcome(projectRoot, taskId, slug = null) {
+function readOutcome(projectRoot: any, taskId: any, slug: any = null) {
   const file = outcomePath(projectRoot, taskId, slug);
   if (!fs.existsSync(file)) return null;
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(`the outcome record at '${file}' is not readable: ${error.message}`);
   }
 }
@@ -120,7 +122,7 @@ function readOutcome(projectRoot, taskId, slug = null) {
  * @param {Object} record
  * @returns {string} the file written
  */
-function writeOutcome(projectRoot, taskId, record, slug = null) {
+function writeOutcome(projectRoot: any, taskId: any, record: any, slug: any = null) {
   const file = outcomePath(projectRoot, taskId, slug);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
@@ -140,7 +142,7 @@ function writeOutcome(projectRoot, taskId, record, slug = null) {
  * @param {string} taskId
  * @returns {number}
  */
-function countEvidence(projectRoot, taskId, slug = null) {
+function countEvidence(projectRoot: any, taskId: any, slug: any = null) {
   const ledger = new EvidenceLedger({ repoRoot: projectRoot, slug });
   ledger.load(taskId);
   return ledger.queryEvidence({ taskId }).length;
@@ -162,14 +164,14 @@ function countEvidence(projectRoot, taskId, slug = null) {
  * @param {string} verification the stated verification verdict, or NOT_RECORDED
  * @returns {Array<string>}
  */
-function unreachedItems(projectRoot, taskId, verification, slug = null) {
+function unreachedItems(projectRoot: any, taskId: any, verification: any, slug: any = null) {
   const items = [];
   const file = planPath(projectRoot, taskId, slug);
   if (fs.existsSync(file)) {
     let plan;
     try {
       plan = JSON.parse(fs.readFileSync(file, 'utf8'));
-    } catch (error) {
+    } catch (error: any) {
       throw new Error(`the retrieval plan at '${file}' is not readable: ${error.message}`);
     }
     for (const need of plan.needs || []) {
@@ -196,7 +198,7 @@ function unreachedItems(projectRoot, taskId, verification, slug = null) {
  * @param {string} flag the flag name, for the refusal
  * @returns {{value: string, stated: boolean}}
  */
-function statedVerdict(value, vocabulary, flag) {
+function statedVerdict(value: any, vocabulary: any, flag: any) {
   if (value === undefined || value === null || String(value).trim() === '') {
     return { value: NOT_RECORDED, stated: false };
   }
@@ -224,7 +226,7 @@ function statedVerdict(value, vocabulary, flag) {
  *
  * @returns {number} exit code
  */
-function recordOutcome({ projectRoot, packageRoot, taskId, taskClass, stage, state, readiness, verification, json, slug }) {
+function recordOutcome({ projectRoot, packageRoot, taskId, taskClass, stage, state, readiness, verification, json, slug }: any) {
   if (state === undefined || state === null || String(state).trim() === '') {
     return usageError('outcome',
       `--action record needs --state <state>. Valid: ${OUTCOME_STATES.join(', ')}`, json);
@@ -247,7 +249,7 @@ function recordOutcome({ projectRoot, packageRoot, taskId, taskClass, stage, sta
   let workflow;
   try {
     workflow = new WorkflowEngine({ repoRoot: packageRoot }).resolveWorkflow(taskClass);
-  } catch (error) {
+  } catch (error: any) {
     return usageError('outcome', error.message, json, error);
   }
   const terminalStage = workflow.terminalStage;
@@ -264,7 +266,7 @@ function recordOutcome({ projectRoot, packageRoot, taskId, taskClass, stage, sta
   try {
     basisReadiness = statedVerdict(readiness, READINESS_STATES, '--readiness');
     basisVerification = statedVerdict(verification, VERIFICATION_STATUSES, '--verification');
-  } catch (error) {
+  } catch (error: any) {
     return usageError('outcome', error.message, json, error);
   }
 
@@ -273,7 +275,7 @@ function recordOutcome({ projectRoot, packageRoot, taskId, taskClass, stage, sta
   try {
     evidenceCount = countEvidence(projectRoot, taskId, slug);
     unreached = unreachedItems(projectRoot, taskId, basisVerification.value, slug);
-  } catch (error) {
+  } catch (error: any) {
     return usageError('outcome', error.message, json, error);
   }
 
@@ -329,11 +331,11 @@ function recordOutcome({ projectRoot, packageRoot, taskId, taskClass, stage, sta
  *
  * @returns {number} exit code
  */
-function showOutcome({ projectRoot, taskId, json, slug }) {
+function showOutcome({ projectRoot, taskId, json, slug }: any) {
   let record;
   try {
     record = readOutcome(projectRoot, taskId, slug);
-  } catch (error) {
+  } catch (error: any) {
     return usageError('outcome', error.message, json, error);
   }
   if (!record) {
@@ -363,7 +365,7 @@ function showOutcome({ projectRoot, taskId, json, slug }) {
 }
 
 /** The one text rendering both actions print, so a shown record reads exactly as the written one. */
-function printOutcome(record, file, verb) {
+function printOutcome(record: any, file: any, verb: any) {
   const basis = record.basis || {};
   console.log(`\nDoFlow Task Outcome [Task: ${record.taskId}] — ${record.state}:`);
   console.log('═'.repeat(78));
@@ -411,7 +413,7 @@ function printOutcome(record, file, verb) {
  * @param {string} [options.stateRoot] the project the task belongs to, holding its state
  * @returns {number} exit code
  */
-function handleOutcomeCommand(options = {}) {
+function handleOutcomeCommand(options: any = {}) {
   const {
     taskId, action = 'show', state, taskClass, stage, readiness, verification,
     json = false, repoRoot, stateRoot, slug,
@@ -422,7 +424,7 @@ function handleOutcomeCommand(options = {}) {
   // option object, so a second input surface cannot arrive later without inheriting the refusal.
   try {
     assertNoScoreFields(options, '');
-  } catch (error) {
+  } catch (error: any) {
     return usageError('outcome', error.message, json, error);
   }
 
@@ -441,7 +443,7 @@ function handleOutcomeCommand(options = {}) {
 
   try {
     assertSafeTaskId(taskId);
-  } catch (error) {
+  } catch (error: any) {
     return usageError('outcome', error.message, json, error);
   }
 
