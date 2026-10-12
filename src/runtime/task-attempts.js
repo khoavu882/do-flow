@@ -23,7 +23,7 @@ const crypto = require('node:crypto');
 const { updateTaskState, readTaskState } = require('./task-state');
 const { parsePlan } = require('./scaffold/artifacts.ts');
 const { EvidenceLedger } = require('./evidence-ledger');
-const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root');
+const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root.ts');
 const { isSafeSlug } = require('./task-scope');
 
 const SCHEMA_VERSION = 1;

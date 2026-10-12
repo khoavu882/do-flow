@@ -17,7 +17,7 @@ const { maskLine, printSafe } = require('../mask');
 const { failureHome, captureSwitch, sentinelPath } = require('./home.ts');
 const { rotateIfDue } = require('./capture.ts');
 const store = require('./store.ts');
-const { projectRoot } = require('../lifecycle/root');
+const { projectRoot } = require('../lifecycle/root.ts');
 const { appendEvents, readFold, randomChars, StoreUnsafeError, StoreLockedError } = require('../lifecycle/event-store');
 const { prepareStore } = require('../lifecycle/store-upkeep');
 
