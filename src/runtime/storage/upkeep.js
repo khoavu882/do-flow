@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomBytes } = require('node:crypto');
-const { REPO_ROOT } = require('../../helper/repo-root');
+const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { loadStorageRegistry } = require('./registry');
 const { resolveRoots, readPruneSetting } = require('./roots');
 const engine = require('./engine');

@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { REPO_ROOT } = require('../src/helper/repo-root');
+const { REPO_ROOT } = require('../src/helper/repo-root.ts');
 const { loadAdviceRegistry, validateAdviceRegistry } = require('../src/runtime/advice/registry');
 const { loadStorageRegistry } = require('../src/runtime/storage/registry');
 const { resolveRoots } = require('../src/runtime/storage/roots');

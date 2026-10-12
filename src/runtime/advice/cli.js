@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { finishRuntime, usageError } = require('../cli-result');
-const { REPO_ROOT } = require('../../helper/repo-root');
+const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { loadAdviceRegistry } = require('./registry');
 const { loadStorageRegistry } = require('../storage/registry');
 const { resolveRoots } = require('../storage/roots');

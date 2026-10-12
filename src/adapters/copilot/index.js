@@ -23,10 +23,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
+const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, sourceDirFor, resolveTransform } = require('../copy-tree');
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries');
-const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
+const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 
 const HARNESS = 'copilot';
 /** Message text naming the instruction file the declared paths.instruction surface installs.

@@ -2,6 +2,10 @@
 // marker-merge.js — marker-delimited merge so a target project's own CLAUDE.md
 // content survives repeated doflow install/update runs; only the span between the
 // markers is ever regenerated.
+//
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
+// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
+// caller's `require('../helper/marker-merge.ts')` keeps working while the tree is still `.js`.
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -12,19 +16,15 @@ const MARKER_END = '<!-- doflow:end -->';
 /**
  * Merge `srcAbs`'s content into `dstAbs` inside a doflow-owned marker span,
  * preserving any of `dstAbs`'s own content outside that span byte-for-byte.
- * @param {string} srcAbs
- * @param {string} dstAbs
- * @param {{dryRun?: boolean}} [opts]
- * @returns {{changed: boolean}}
  */
-function mergeMarkedSection(srcAbs, dstAbs, { dryRun = false } = {}) {
+function mergeMarkedSection(srcAbs: string, dstAbs: string, { dryRun = false }: { dryRun?: boolean } = {}): { changed: boolean } {
   const srcContent = fs.readFileSync(srcAbs, 'utf8').replace(/\s+$/, '');
   const section = `${MARKER_START}\n${srcContent}\n${MARKER_END}\n`;
 
   // Read once, reused both for parsing and for the final no-op comparison below.
   const existing = fs.existsSync(dstAbs) ? fs.readFileSync(dstAbs, 'utf8') : null;
 
-  let newContent;
+  let newContent: string;
   if (existing === null) {
     newContent = section;
   } else {
@@ -87,11 +87,10 @@ function mergeMarkedSection(srcAbs, dstAbs, { dryRun = false } = {}) {
  * and Codex adapters' `remove()`, which had each carried an identical private copy of this.
  * A file that held nothing but the span is DoFlow's own and is deleted; any other file is written
  * back, even when only whitespace remains.
- * @param {string} file
- * @returns {boolean} whether a managed span was found and stripped (false if the file doesn't
+ * @returns whether a managed span was found and stripped (false if the file doesn't
  *          exist or has no doflow markers — both are no-ops, not errors)
  */
-function removeMarkedSection(file) {
+function removeMarkedSection(file: string): boolean {
   if (!fs.existsSync(file)) return false;
   const existing = fs.readFileSync(file, 'utf8');
   const start = existing.indexOf(MARKER_START);

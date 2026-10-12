@@ -20,9 +20,9 @@ const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEnt
 // Only the marker constants: marker-merge.js reads and writes files itself, which cannot be used
 // from plan(), whose contract is to compute changes without touching disk. The gemini adapter
 // solves this the same way, with a pure managedInstruction() over strings.
-const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
-const { destructiveCommandGlobs } = require('../../helper/guardrails');
-const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
+const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
+const { destructiveCommandGlobs } = require('../../helper/guardrails.ts');
+const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 
 const HARNESS = 'opencode';
 /**

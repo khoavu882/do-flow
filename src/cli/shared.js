@@ -8,7 +8,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { REPO_ROOT } = require('../helper/repo-root');
+const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { doflowPaths } = require('../install/paths');
 const { readInstallManifest } = require('../install/manifest');
 const { DEFAULT_BACKUP_RETENTION, formatBytes } = require('../install/backup');
@@ -16,7 +16,7 @@ const { stateRoot, readLedger } = require('../state');
 const { readLock } = require('../state/lockfile');
 const { acquireRunLock, RunLockTimeoutError, RunLockError, RunLockLostError } = require('../state/run-lock');
 const { createAdapterRegistry } = require('../adapters');
-const { declaredHarnessPaths } = require('../helper/harness-paths');
+const { declaredHarnessPaths } = require('../helper/harness-paths.ts');
 const claudeAdapter = require('../adapters/claude');
 const codexAdapter = require('../adapters/codex');
 const { createGeminiAdapter } = require('../adapters/gemini');

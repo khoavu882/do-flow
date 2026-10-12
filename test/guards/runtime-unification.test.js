@@ -455,11 +455,13 @@ const TRACE_FILE = path.join(REPO, 'src', 'runtime', 'trace', 'ledger.js');
 const traceText = fs.readFileSync(TRACE_FILE, 'utf8');
 const trace = require('../../src/runtime/trace/ledger');
 
-/** Every .js under src/ and bin/, the two trees that could plausibly hold a second writer. */
+/** Every runtime module (`.js` or `.ts`, excluding `.d.ts`) under src/ and bin/, the two trees
+ * that could plausibly hold a second writer. `.ts` is included since the TypeScript migration, so a
+ * converted module that writes the ledger raw is still caught. */
 function runtimeJsFiles() {
   return [path.join(REPO, 'src'), path.join(REPO, 'bin')]
     .flatMap((root) => walk(root))
-    .filter((file) => file.endsWith('.js'))
+    .filter((file) => (file.endsWith('.js') || file.endsWith('.ts')) && !file.endsWith('.d.ts'))
     .map((file) => ({ rel: path.relative(REPO, file), text: fs.readFileSync(file, 'utf8') }));
 }
 

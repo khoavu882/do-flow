@@ -6,7 +6,7 @@ const { loadStorageRegistry } = require('./registry');
 const { resolveRoots, readPruneSetting } = require('./roots');
 const { runPass } = require('./engine');
 const { upkeepAfterVerb } = require('./upkeep');
-const { REPO_ROOT } = require('../../helper/repo-root');
+const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 function handleStorageCommand({ action = 'report', json = false, global = false, projectRoot = '.', env = process.env, fsImpl = fs } = {}) {
   if (!['report', 'prune', 'upkeep'].includes(action)) {

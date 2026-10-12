@@ -13,7 +13,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { verifyHookCommands } = require('../hook-commands');
-const { mergeHooks } = require('../../helper/settings-merge');
+const { mergeHooks } = require('../../helper/settings-merge.ts');
 
 const SUPPORTED_EVENTS = new Set([
   'SessionStart', 'SessionEnd', 'BeforeAgent', 'AfterAgent', 'BeforeModel', 'AfterModel',

@@ -7,7 +7,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
-const { REPO_ROOT } = require('../../src/helper/repo-root');
+const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { handleStorageCommand } = require('../../src/runtime/storage/cli');
 const DAY = 86400000;
 

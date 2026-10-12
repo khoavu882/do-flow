@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { finishRuntime, usageError } = require('./cli-result');
-const { REPO_ROOT } = require('../helper/repo-root');
+const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { validateCapabilityProviders } = require('../registry');
 
 // Mirrors bin/doflow.js's own REPO_ROOT computation, relative to this file's location, so

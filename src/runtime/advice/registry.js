@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { REPO_ROOT } = require('../../helper/repo-root');
+const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 const ADVICE_FILE = 'core/registry/advice.json';
 const MODELS_FILE = 'core/registry/models.json';

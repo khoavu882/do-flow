@@ -10,7 +10,7 @@
  * those inputs and prints the block; it writes nothing.
  */
 
-const { REPO_ROOT } = require('../helper/repo-root');
+const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { loadRegistry } = require('../registry');
 const { CapabilityRouter } = require('./capability-router');
 const { probeProviders, HEALTHY, UNVERIFIED } = require('./health');

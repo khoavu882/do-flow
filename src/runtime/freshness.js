@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
-const { REPO_ROOT } = require('../helper/repo-root');
+const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 // Freshness is measured against the bytes observed, not whether the file was clean at HEAD.
 // Git identity remains provenance and a conservative fallback for older records without hashes.

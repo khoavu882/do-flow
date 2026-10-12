@@ -10,9 +10,9 @@ const {
 } = require('../../install/backup');
 const { backupSetFromPlan } = require('../../install/backup-set');
 const { writeManifest, readInstallManifest } = require('../../install/manifest');
-const { confirm } = require('../../helper/prompt');
+const { confirm } = require('../../helper/prompt.ts');
 const { sourceCommit } = require('../../helper/git.ts');
-const { chmodHooksExecutable } = require('../../helper/settings-scope');
+const { chmodHooksExecutable } = require('../../helper/settings-scope.ts');
 const { promptMcpCheckbox, resolveMcpSelections } = require('../../install/mcp');
 const { loadRegistry } = require('../../registry');
 const { storageAfterInstall } = require('../../runtime/storage/upkeep');

@@ -25,20 +25,36 @@
 // XDG-style directories (~/.config/opencode) are just home-rooted segment joins: no adapter in
 // this repository consults $XDG_* today, so the schema carries no xdg base rather than declaring
 // vocabulary nothing reads.
+//
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
+// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
+// caller's `require('../helper/harness-paths.ts')` keeps working while the tree is still `.js`. The
+// `./repo-root` require stays bare while repo-root is still `.js`.
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { REPO_ROOT } = require('./repo-root');
+const { REPO_ROOT } = require('./repo-root.ts');
 
 const PATH_BASES = new Set(['root', 'home']);
 const SURFACE_NAME = /^[a-z][a-zA-Z0-9]*$/;
 const SEGMENT = /^(?!\.\.$)[^\\/]+$/;
 const SCOPES = ['project', 'user'];
 
-function issue(errors, location, message) { errors.push(`${location}: ${message}`); }
+interface PathRule {
+  base?: string;
+  segments?: string[];
+}
+
+interface ResolveInputs {
+  scope?: string;
+  scopeRoot?: string;
+  homeDir?: string;
+}
+
+function issue(errors: string[], location: string, message: string): void { errors.push(`${location}: ${message}`); }
 
 /** Validate one {base, segments} rule. Returns errors via the pushed array. */
-function validateRule(rule, location, errors) {
+function validateRule(rule: any, location: string, errors: string[]): void {
   if (!rule || typeof rule !== 'object' || Array.isArray(rule)) {
     issue(errors, location, 'must be an object'); return;
   }
@@ -47,7 +63,7 @@ function validateRule(rule, location, errors) {
   }
   if (!PATH_BASES.has(rule.base)) issue(errors, location, `base must be one of ${[...PATH_BASES].join(', ')}`);
   const segments = rule.segments;
-  if (!Array.isArray(segments) || segments.some((segment) => typeof segment !== 'string' || !SEGMENT.test(segment))) {
+  if (!Array.isArray(segments) || segments.some((segment: any) => typeof segment !== 'string' || !SEGMENT.test(segment))) {
     issue(errors, location, "segments must be an array of plain single path segments (no '/', no '\\', no '..')");
   }
 }
@@ -55,12 +71,12 @@ function validateRule(rule, location, errors) {
 /** Validate one harness's whole paths section. Unknown keys and malformed rules are rejected
  * loudly: a typo'd declaration must fail the registry load, not silently fall back to whatever
  * the adapter used to hardcode. Returns an array of error messages (empty when valid). */
-function validatePathsSection(section, location) {
-  const errors = [];
+function validatePathsSection(section: any, location: string): string[] {
+  const errors: string[] = [];
   if (!section || typeof section !== 'object' || Array.isArray(section)) {
     return [`${location}: must be an object`];
   }
-  for (const [name, value] of Object.entries(section)) {
+  for (const [name, value] of Object.entries<any>(section)) {
     const at = `${location}.${name}`;
     if (!SURFACE_NAME.test(name)) { issue(errors, at, `surface name '${name}' must be camelCase`); continue; }
     if (!value || typeof value !== 'object' || Array.isArray(value)) { issue(errors, at, 'must be an object'); continue; }
@@ -82,7 +98,7 @@ function validatePathsSection(section, location) {
 }
 
 /** Resolve one rule to an absolute path. */
-function resolveRule(rule, { root, home }) {
+function resolveRule(rule: PathRule, { root, home }: { root: string; home: string }): string {
   const base = rule.base === 'home' ? home : root;
   return path.join(base, ...(rule.segments || []));
 }
@@ -93,12 +109,12 @@ function resolveRule(rule, { root, home }) {
  * Returns { <surface>: absolutePath | null } — null when the scope has no rule for a surface —
  * plus `root`, the scope's install root itself (an input, not a declaration).
  */
-function resolveHarnessPaths(section, { scope, scopeRoot, homeDir } = {}) {
+function resolveHarnessPaths(section: any, { scope, scopeRoot, homeDir }: ResolveInputs = {}): Record<string, string | null> {
   const userScope = scope === 'user' || scope === 'global';
   const home = path.resolve(homeDir || scopeRoot);
   const root = userScope ? home : path.resolve(scopeRoot);
-  const resolved = { root };
-  for (const [name, value] of Object.entries(section || {})) {
+  const resolved: Record<string, string | null> = { root };
+  for (const [name, value] of Object.entries<any>(section || {})) {
     const rule = (value.base !== undefined || value.segments !== undefined)
       ? value
       : (value[userScope ? 'user' : 'project'] ?? null);
@@ -107,16 +123,16 @@ function resolveHarnessPaths(section, { scope, scopeRoot, homeDir } = {}) {
   return resolved;
 }
 
-let declaredCache;
+let declaredCache: { repoRoot: string; paths: Record<string, any> } | undefined;
 /** Every harness's declared paths section, keyed by harness id, read straight from
  * core/registry/harnesses.json (memoized per process — the file ships inside the package).
  * Adapters default their factories to this, so a factory called with no arguments and the CLI
  * wiring in src/cli/shared.js#buildAdapterRegistry consume byte-identical declarations. */
-function declaredHarnessPaths(repoRoot = REPO_ROOT) {
+function declaredHarnessPaths(repoRoot: string = REPO_ROOT): Record<string, any> {
   if (declaredCache && declaredCache.repoRoot === path.resolve(repoRoot)) return declaredCache.paths;
   const file = path.join(path.resolve(repoRoot), 'core', 'registry', 'harnesses.json');
   const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-  const paths = Object.fromEntries((parsed.harnesses || []).map((harness) => [harness.id, harness.paths ?? {}]));
+  const paths = Object.fromEntries((parsed.harnesses || []).map((harness: any) => [harness.id, harness.paths ?? {}]));
   declaredCache = { repoRoot: path.resolve(repoRoot), paths };
   return paths;
 }

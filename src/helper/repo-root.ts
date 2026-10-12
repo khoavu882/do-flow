@@ -18,7 +18,12 @@ const path = require('node:path');
  *
  * A constant rather than a function: it cannot vary within a process, and a function invites a
  * caller to pass an argument that would make it vary.
+ *
+ * TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
+ * native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
+ * caller's `require('../helper/repo-root.ts')` keeps working while the rest of the tree is still
+ * `.js`. As the highest-fan-out helper, this is the last T1 leaf converted.
  */
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const REPO_ROOT: string = path.resolve(__dirname, '..', '..');
 
 module.exports = { REPO_ROOT };

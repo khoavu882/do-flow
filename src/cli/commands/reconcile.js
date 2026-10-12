@@ -4,7 +4,7 @@
 const { toolDirs } = require('../../install/targets');
 const { resolveContext, printContext } = require('../../install/context');
 const { writeManifest } = require('../../install/manifest');
-const { confirm } = require('../../helper/prompt');
+const { confirm } = require('../../helper/prompt.ts');
 const { sourceCommit } = require('../../helper/git.ts');
 const { loadRegistry } = require('../../registry');
 const { applyLifecycle, recordMcpOwnership } = require('../../lifecycle');

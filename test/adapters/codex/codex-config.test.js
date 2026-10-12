@@ -167,7 +167,7 @@ test('a config.toml DoFlow creates gets the process default mode', { skip: NO_MO
 // Quoted keys are ordinary TOML. The scanner previously matched bare keys only and threw on the
 // whole file, so a single `[mcp_servers."my-server"]` made the entire config unreadable and
 // blocked every Codex operation.
-const { parseToml } = require('../../../src/helper/toml');
+const { parseToml } = require('../../../src/helper/toml.ts');
 
 test('parses quoted table headers and quoted assignment keys', () => {
   for (const toml of [

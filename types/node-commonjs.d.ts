@@ -13,9 +13,35 @@ declare var process: {
   features?: { typescript?: false | 'strip' | 'transform' };
   env: Record<string, string | undefined>;
   platform: string;
+  version: string;
+  pid: number;
   argv: string[];
   cwd(): string;
+  exit(code?: number): never;
+  exitCode?: number;
+  kill(pid: number, signal?: string | number): void;
+  hrtime: { (time?: [number, number]): [number, number]; bigint(): bigint };
+  stdin: { isTTY?: boolean; isRaw?: boolean; setRawMode(mode: boolean): void };
+  stdout: { write(chunk: string): boolean; isTTY?: boolean };
+  stderr: { write(chunk: string): boolean };
 };
 
 declare var __dirname: string;
 declare var __filename: string;
+
+// Narrow Buffer / console surface the migrated .ts modules touch. Not a re-implementation of
+// @types/node — only what the converted modules reference. Extend as more modules migrate.
+declare var console: {
+  log(...args: any[]): void;
+  error(...args: any[]): void;
+  warn(...args: any[]): void;
+};
+
+interface Buffer extends Uint8Array {
+  toString(encoding?: string, start?: number, end?: number): string;
+}
+declare var Buffer: {
+  alloc(size: number): Buffer;
+  from(data: any, encoding?: string): Buffer;
+  byteLength(string: string, encoding?: string): number;
+};

@@ -5,8 +5,40 @@
 // headers for a surgical, comment-preserving rewrite. It was extracted out of codex-config.js
 // (which is Codex-specific and is moving under src/adapters/codex/) so that non-Codex code, such
 // as the lifecycle layer, can parse TOML without depending on a harness-specific module.
-function stripComment(line) {
-  let quote = null;
+//
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
+// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
+// caller's `require('../helper/toml.ts')` keeps working while the rest of the tree is still `.js`.
+
+type TomlScalar = string | number | boolean;
+
+interface TomlEntry {
+  value: TomlScalar;
+  line: number;
+  table: string;
+}
+
+interface TomlHeader {
+  line: number;
+  table: string;
+}
+
+interface ParsedToml {
+  lines: string[];
+  entries: Map<string, TomlEntry>;
+  headers: TomlHeader[];
+}
+
+type TableViolationKind = 'duplicate-table' | 'table-and-value';
+
+interface TableViolation {
+  kind: TableViolationKind;
+  table: string;
+  line: number;
+}
+
+function stripComment(line: string): string {
+  let quote: string | null = null;
   let escape = false;
   for (let i = 0; i < line.length; i++) {
     const char = line[i];
@@ -20,8 +52,8 @@ function stripComment(line) {
   return line;
 }
 
-function splitAssignment(line) {
-  let quote = null;
+function splitAssignment(line: string): [string, string] | null {
+  let quote: string | null = null;
   let escape = false;
   let depth = 0;
   for (let i = 0; i < line.length; i++) {
@@ -40,8 +72,8 @@ function splitAssignment(line) {
   return null;
 }
 
-function balanced(value) {
-  let quote = null;
+function balanced(value: string): boolean {
+  let quote: string | null = null;
   let escape = false;
   let depth = 0;
   for (const char of value) {
@@ -59,7 +91,7 @@ function balanced(value) {
   return !quote && depth === 0;
 }
 
-function parseValue(raw) {
+function parseValue(raw: string): TomlScalar {
   const value = raw.trim();
   if (!value || !balanced(value)) throw new Error('invalid TOML value');
   if (value === 'true') return true;
@@ -84,14 +116,14 @@ const BARE_KEY = /^[A-Za-z0-9_-]+$/;
  *
  * A dot *inside* a quoted segment is legal TOML (`"gpt-5.5" = 4`) and is preserved — see
  * flattenKeyPath for how it is kept from colliding with a genuine path separator. */
-function parseKeyPath(raw) {
-  const segments = [];
+function parseKeyPath(raw: string): string[] | null {
+  const segments: string[] = [];
   let i = 0;
   const skipSpace = () => { while (i < raw.length && (raw[i] === ' ' || raw[i] === '\t')) i += 1; };
   skipSpace();
   if (i >= raw.length) return null;
   while (i < raw.length) {
-    let segment;
+    let segment: string;
     const quote = raw[i];
     if (quote === '"' || quote === "'") {
       i += 1;
@@ -126,18 +158,18 @@ function parseKeyPath(raw) {
  * `["a.b"]` and `[a.b]` collide and a surgical edit could rewrite the wrong line. Managed
  * identities (normaliseDesired) are bare-key-only, so their flattened form is unchanged and
  * lookups against them still match. */
-function flattenKeyPath(segments) {
+function flattenKeyPath(segments: string[]): string {
   return segments.map((segment) => segment.replace(/\\/g, '\\\\').replace(/\./g, '\\.')).join('.');
 }
 
 /** A conservative TOML scanner. It validates the subset needed to safely locate scalar keys;
  * unsupported multi-line syntax fails closed rather than risking a destructive rewrite. `headers`
  * lists each table header line in file order, so a caller never re-detects headers itself. */
-function parseToml(text) {
+function parseToml(text: string): ParsedToml {
   const lines = text.split(/\r?\n/);
-  let table = [];
-  const entries = new Map();
-  const headers = [];
+  let table: string[] = [];
+  const entries = new Map<string, TomlEntry>();
+  const headers: TomlHeader[] = [];
   for (let index = 0; index < lines.length; index++) {
     const clean = stripComment(lines[index]).trim();
     if (!clean) continue;
@@ -156,7 +188,7 @@ function parseToml(text) {
     if (!assignment) throw new Error(`Malformed TOML assignment on line ${index + 1}`);
     const keyPath = parseKeyPath(assignment[0].trim());
     if (!keyPath) throw new Error(`Unsupported TOML key on line ${index + 1}`);
-    let value;
+    let value: TomlScalar;
     try { value = parseValue(assignment[1]); } catch { throw new Error(`Malformed TOML value on line ${index + 1}`); }
     const fullKey = flattenKeyPath([...table, ...keyPath]);
     if (entries.has(fullKey)) throw new Error(`Duplicate TOML key '${fullKey}'`);
@@ -170,33 +202,33 @@ function parseToml(text) {
  * keys already defined it; `table-and-value` when one path is both a key's value and a table (by a
  * header, or implied by a longer dotted key). `line` is the 1-based line of the second definition.
  * Throws what parseToml throws. */
-function tableViolations(text) {
+function tableViolations(text: string): TableViolation[] {
   parseToml(text);
   const lines = text.split(/\r?\n/);
-  const violations = [];
-  const opened = new Set();
-  const dotted = new Set();
-  const tables = new Set();
-  const values = new Set();
-  const asTable = (segments, line) => {
+  const violations: TableViolation[] = [];
+  const opened = new Set<string>();
+  const dotted = new Set<string>();
+  const tables = new Set<string>();
+  const values = new Set<string>();
+  const asTable = (segments: string[], line: number) => {
     const flat = flattenKeyPath(segments);
     if (values.has(flat)) violations.push({ kind: 'table-and-value', table: flat, line });
     tables.add(flat);
   };
-  let table = [];
+  let table: string[] = [];
   for (let index = 0; index < lines.length; index++) {
     const clean = stripComment(lines[index]).trim();
     if (!clean) continue;
     const tableMatch = clean.match(/^\[(.+)\]$/);
     if (tableMatch) {
-      table = parseKeyPath(tableMatch[1].trim());
+      table = parseKeyPath(tableMatch[1].trim())!;
       const flat = flattenKeyPath(table);
       if (opened.has(flat) || dotted.has(flat)) violations.push({ kind: 'duplicate-table', table: flat, line: index + 1 });
       opened.add(flat);
       for (let length = 1; length <= table.length; length++) asTable(table.slice(0, length), index + 1);
       continue;
     }
-    const keyPath = parseKeyPath(splitAssignment(clean)[0].trim());
+    const keyPath = parseKeyPath(splitAssignment(clean)![0].trim())!;
     for (let length = 1; length < keyPath.length; length++) {
       const segments = [...table, ...keyPath.slice(0, length)];
       dotted.add(flattenKeyPath(segments));

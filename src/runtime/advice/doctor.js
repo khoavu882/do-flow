@@ -7,7 +7,7 @@ const { loadAdviceRegistry } = require('./registry');
 const { resolveSetting } = require('./config');
 const { createAdviceClient } = require('./client');
 const { readWindow } = require('./record');
-const { REPO_ROOT } = require('../../helper/repo-root');
+const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 const WINDOW_DAYS = 90;
 const DONE_PHRASES = Object.freeze({

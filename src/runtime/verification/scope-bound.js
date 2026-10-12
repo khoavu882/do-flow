@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { resolveActiveFeature } = require('../feature-resolve');
-const { resolveBashHelper } = require('../../helper/bash-helper');
+const { resolveBashHelper } = require('../../helper/bash-helper.ts');
 const { listCheckouts } = require('../checkouts');
 
 // The change-scope bound of a planned feature, and the baseline a change is measured from

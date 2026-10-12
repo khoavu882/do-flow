@@ -110,13 +110,18 @@ function isInsideStringLiteral(text, index) {
 }
 
 /** Resolve a relative require specifier against the requiring file's directory, the way Node
- * would under native type-stripping: the literal path, then `+ '.js'` / `+ '.ts'`, then
- * `/index.js` / `/index.ts`. A `.js` caller may require a converted `.ts` leaf by giving the
- * explicit `.ts` extension (the literal-path branch catches that); a bare `./dep` resolves to
- * `dep.ts` when only the `.ts` exists. */
+ * actually resolves it under native type-stripping: the literal path, then `+ '.js'`, then
+ * `/index.js`. A `.ts` leaf is reachable ONLY by an explicit `.ts` specifier — the literal-path
+ * branch catches a specifier that already ends in `.ts` because `base` is then the full `.ts`
+ * path. A bare specifier (no extension) does NOT resolve to a `.ts` file: verified directly on
+ * Node v26.8.1, a bare specifier to a `.ts`-only module throws MODULE_NOT_FOUND at runtime. The
+ * resolver therefore does not try `+ '.ts'` / `/index.ts` for a bare specifier — doing so made the
+ * guard pass a specifier that fails at runtime (it did, for a converted module whose intra-dir
+ * caller still used the bare form). Matching Node here is what lets the static check catch that
+ * dangling bare-to-dot-ts require. */
 function resolveSpecifier(fromFile, spec) {
   const base = path.resolve(path.dirname(fromFile), spec);
-  for (const candidate of [base, `${base}.js`, `${base}.ts`, path.join(base, 'index.js'), path.join(base, 'index.ts')]) {
+  for (const candidate of [base, `${base}.js`, path.join(base, 'index.js')]) {
     if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
   }
   return null;
@@ -219,9 +224,9 @@ test('G16: the repository root is computed in exactly one place', () => {
   // the computing file sits. Grouping scaffold, trace and verification into directories moved three
   // of them a level down and split that into two spellings of the same intent — and every wrong
   // pick resolves to a real directory (`<repo>/src`), so it fails by reading the wrong tree rather
-  // than by throwing. src/helper/repo-root.js owns it now; this keeps it owned.
+  // than by throwing. src/helper/repo-root.ts owns it now; this keeps it owned.
   const offenders = jsFilesUnder(SRC_DIR)
-    .filter((f) => path.relative(REPO, f) !== path.join('src', 'helper', 'repo-root.js'))
+    .filter((f) => path.relative(REPO, f) !== path.join('src', 'helper', 'repo-root.ts'))
     .filter((f) => /path\.resolve\(\s*__dirname\s*,\s*'\.\.'/.test(withoutComments(fs.readFileSync(f, 'utf8'))))
     .map((f) => path.relative(REPO, f))
     .sort();
@@ -229,7 +234,7 @@ test('G16: the repository root is computed in exactly one place', () => {
   assert.deepEqual(offenders, [],
     'these modules walk up from __dirname to reach the repository root. That expression encodes the '
     + "file's own depth, so moving it into a directory silently changes what it resolves to. Require "
-    + `{ REPO_ROOT } from src/helper/repo-root.js instead:\n  ${offenders.join('\n  ')}`);
+    + `{ REPO_ROOT } from src/helper/repo-root.ts instead:\n  ${offenders.join('\n  ')}`);
 });
 
 test('G16: every ALLOWLIST entry names a module that actually exists', () => {
@@ -246,7 +251,7 @@ test('G16: every ALLOWLIST entry names a module that actually exists', () => {
 // stripper cannot help) — whatever `.js` remains is simply the ceiling the next change may not raise.
 // Converting one `.js` to `.ts` lowers the ceiling here in the same commit; adding a new `.js`
 // instead of a `.ts` raises it and fails. Lower JS_CEILING to match after each conversion.
-const JS_CEILING = 155;
+const JS_CEILING = 146;
 
 function jsOnlyUnder(root) {
   return jsFilesUnder(root).filter((f) => f.endsWith('.js'));

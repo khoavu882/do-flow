@@ -1030,7 +1030,7 @@
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/helper/marker-merge.js",
+      "file": "src/helper/marker-merge.ts",
       "reason": "harness instruction file managed block (CLAUDE.md, AGENTS.md, GEMINI.md), owned by the install ledger"
     },
     {

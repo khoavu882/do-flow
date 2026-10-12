@@ -6,7 +6,7 @@ const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
 const { createPiAdapter, nativePaths } = require('../../../src/adapters/pi');
 const { assertAdapter } = require('../../../src/adapters');
-const { MARKER_START } = require('../../../src/helper/marker-merge');
+const { MARKER_START } = require('../../../src/helper/marker-merge.ts');
 
 function scratch() { return suiteTempDir('doflow-pi-'); }
 

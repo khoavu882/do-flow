@@ -18,9 +18,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
+const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor } = require('../copy-tree');
-const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
+const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries');
 
 const HARNESS = 'antigravity';

@@ -6,7 +6,7 @@ const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
 const test = require('node:test');
 const claude = require('../../../src/adapters/claude');
-const { MARKER_START, MARKER_END } = require('../../../src/helper/marker-merge');
+const { MARKER_START, MARKER_END } = require('../../../src/helper/marker-merge.ts');
 
 function fixture() {
   const repoRoot = suiteTempDir('doflow-claude-adapter-repo-');

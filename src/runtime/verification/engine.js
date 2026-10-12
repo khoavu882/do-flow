@@ -26,7 +26,7 @@ const { detectCommands, applyTargetPattern, TARGET_PATTERN_TOKEN } = require('..
 const { selectChangedTests } = require('./test-selection');
 const { RecoveryManager } = require('../recovery');
 const { finishRuntime, usageError } = require('../cli-result');
-const { REPO_ROOT } = require('../../helper/repo-root');
+const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const {
   resolveScopeBound, resolveIntegrationBase, resolveExplicitBaseline, parseDeclaredScope, scopeReasonText, boundSourcesText,
 } = require('./scope-bound');

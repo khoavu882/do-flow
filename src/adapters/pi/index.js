@@ -21,9 +21,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { MARKER_START, MARKER_END } = require('../../helper/marker-merge');
+const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, sourceDirFor } = require('../copy-tree');
-const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
+const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 const { mcpRows, discoverPiMcp, ownedPiMcpIds, planPiMcp, applyPiMcp, verifyPiMcp } = require('./mcp');
 
 const HARNESS = 'pi';

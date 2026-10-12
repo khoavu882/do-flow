@@ -12,31 +12,39 @@
 // CLAUDE.md: DoFlow guarantees ITS keys are present and correct, and treats everything else in
 // the file as none of its business — preserved on write, ignored on verify, left behind on
 // remove.
+//
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
+// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
+// caller's `require('../helper/settings-merge.ts')` keeps working while the tree is still `.js`.
+
+interface HookCommand { command?: unknown }
+interface HookEntry { matcher?: unknown; hooks?: HookCommand[] }
+type Settings = Record<string, any>;
 
 /** A hook entry's identity is its (matcher, commands) pair — NOT the commands alone. One script is
  * legitimately registered under several matchers for the same event (post-edit-lint.sh runs on
  * both `Edit` and `Write`), so comparing commands only makes those entries indistinguishable and
  * silently collapses them to one during a merge. Position is not usable: it is not stable across
  * a re-render. */
-function hookCommands(entry) {
-  return (entry?.hooks || []).map((hook) => hook?.command).filter((command) => typeof command === 'string');
+function hookCommands(entry: HookEntry | null | undefined): string[] {
+  return (entry?.hooks || []).map((hook) => hook?.command).filter((command): command is string => typeof command === 'string');
 }
 
-function sameHookEntry(a, b) {
+function sameHookEntry(a: HookEntry | null | undefined, b: HookEntry | null | undefined): boolean {
   if ((a?.matcher ?? null) !== (b?.matcher ?? null)) return false;
   const left = hookCommands(a);
   const right = hookCommands(b);
   return left.length === right.length && left.every((command, index) => command === right[index]);
 }
 
-function isPlainObject(value) {
+function isPlainObject(value: any): value is Record<string, any> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 /** Union of managed hook entries into whatever is already registered for an event. Foreign
  * entries keep their relative order and stay first, so a third-party guard that was already
  * intercepting a tool keeps intercepting it. */
-function mergeHookEvent(existing, managed) {
+function mergeHookEvent(existing: HookEntry[] | undefined, managed: HookEntry[] | undefined): HookEntry[] {
   const result = Array.isArray(existing) ? existing.slice() : [];
   for (const entry of managed || []) {
     if (!result.some((present) => sameHookEntry(present, entry))) result.push(entry);
@@ -44,9 +52,9 @@ function mergeHookEvent(existing, managed) {
   return result;
 }
 
-function mergeHooks(existing, managed) {
+function mergeHooks(existing: any, managed: any): Record<string, HookEntry[]> {
   const result = isPlainObject(existing) ? { ...existing } : {};
-  for (const [event, entries] of Object.entries(managed || {})) {
+  for (const [event, entries] of Object.entries<any>(managed || {})) {
     result[event] = mergeHookEvent(result[event], entries);
   }
   return result;
@@ -62,10 +70,10 @@ function mergeHooks(existing, managed) {
  *     install is exactly the surprise this module exists to prevent. Managed keys the file does
  *     not have yet are still added, so a fresh install is unchanged.
  */
-function mergeSettings(existing, managed) {
+function mergeSettings(existing: any, managed: any): Settings {
   if (!isPlainObject(existing)) return managed;
-  const result = { ...existing };
-  for (const [key, value] of Object.entries(managed || {})) {
+  const result: Settings = { ...existing };
+  for (const [key, value] of Object.entries<any>(managed || {})) {
     if (key === 'hooks') { result.hooks = mergeHooks(existing.hooks, value); continue; }
     if (!Object.hasOwn(result, key)) { result[key] = value; continue; }
     if (isPlainObject(result[key]) && isPlainObject(value)) result[key] = mergeSettings(result[key], value);
@@ -77,15 +85,15 @@ function mergeSettings(existing, managed) {
 /** Verification predicate replacing byte-equality: DoFlow's own keys must be present, and every
  * managed hook entry must still be registered. A foreign key, a user-tuned `model`, or an extra
  * hook entry are all legitimate and must NOT read as drift. */
-function settingsContains(current, managed) {
+function settingsContains(current: any, managed: any): boolean {
   if (!isPlainObject(current)) return false;
-  for (const [key, value] of Object.entries(managed || {})) {
+  for (const [key, value] of Object.entries<any>(managed || {})) {
     if (key === 'hooks') {
-      for (const [event, entries] of Object.entries(value || {})) {
+      for (const [event, entries] of Object.entries<any>(value || {})) {
         const present = current.hooks?.[event];
         if (!Array.isArray(present)) return false;
         for (const entry of entries || []) {
-          if (!present.some((candidate) => sameHookEntry(candidate, entry))) return false;
+          if (!present.some((candidate: HookEntry) => sameHookEntry(candidate, entry))) return false;
         }
       }
       continue;
@@ -100,15 +108,15 @@ function settingsContains(current, managed) {
  * rmSync'd the whole file, which on a shared settings.json would delete the user's entire
  * own configuration along with DoFlow's contribution. Returns null only when nothing
  * meaningful remains, letting the caller delete a file DoFlow genuinely created. */
-function stripManagedSettings(current, managed) {
+function stripManagedSettings(current: any, managed: any): Settings | null {
   if (!isPlainObject(current)) return null;
-  const result = { ...current };
+  const result: Settings = { ...current };
   const managedHooks = managed?.hooks;
   if (isPlainObject(result.hooks) && isPlainObject(managedHooks)) {
-    const hooks = {};
-    for (const [event, entries] of Object.entries(result.hooks)) {
+    const hooks: Record<string, HookEntry[]> = {};
+    for (const [event, entries] of Object.entries<any>(result.hooks)) {
       const remaining = (entries || []).filter(
-        (entry) => !(managedHooks[event] || []).some((owned) => sameHookEntry(owned, entry)),
+        (entry: HookEntry) => !(managedHooks[event] || []).some((owned: HookEntry) => sameHookEntry(owned, entry)),
       );
       if (remaining.length) hooks[event] = remaining;
     }
@@ -118,7 +126,7 @@ function stripManagedSettings(current, managed) {
   // nothing has touched it since. A key the user changed no longer matches and is left alone.
   // Without this, a file DoFlow created outright (keybindings.json, which has no hooks at all)
   // would survive `remove` fully intact and read as a resource that refused to go away.
-  for (const [key, value] of Object.entries(managed || {})) {
+  for (const [key, value] of Object.entries<any>(managed || {})) {
     if (key === 'hooks') continue;
     if (Object.hasOwn(result, key) && JSON.stringify(result[key]) === JSON.stringify(value)) delete result[key];
   }
@@ -130,12 +138,12 @@ function stripManagedSettings(current, managed) {
  * non-hook managed keys are ordinary settings that survive a remove and are indistinguishable
  * from the user's own, so they cannot signal DoFlow's presence. Lets verification tell "removed"
  * (none of ours left) apart from "damaged" (some of ours left, some missing). */
-function settingsContainsAny(current, managed) {
+function settingsContainsAny(current: any, managed: any): boolean {
   if (!isPlainObject(current)) return false;
-  for (const [event, entries] of Object.entries(managed?.hooks || {})) {
+  for (const [event, entries] of Object.entries<any>(managed?.hooks || {})) {
     const present = current.hooks?.[event];
     if (!Array.isArray(present)) continue;
-    if ((entries || []).some((entry) => present.some((candidate) => sameHookEntry(candidate, entry)))) return true;
+    if ((entries || []).some((entry: HookEntry) => present.some((candidate: HookEntry) => sameHookEntry(candidate, entry)))) return true;
   }
   return false;
 }

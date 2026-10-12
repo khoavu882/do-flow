@@ -6,7 +6,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { verifyHookCommands } = require('../hook-commands');
-const { mergeHooks } = require('../../helper/settings-merge');
+const { mergeHooks } = require('../../helper/settings-merge.ts');
 const { atomicWrite } = require('./config');
 
 const SUPPORTED_EVENTS = new Set([

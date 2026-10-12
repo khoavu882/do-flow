@@ -1,5 +1,9 @@
 'use strict';
 // prompt.js — port of sync.sh's confirm(): y/N prompt, auto-confirmed under --force.
+//
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): authored as `.ts`, run directly by Node
+// native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
+// caller's `require('../helper/prompt.ts')` keeps working while the rest of the tree is still `.js`.
 const fs = require('node:fs');
 
 /**
@@ -10,22 +14,21 @@ const fs = require('node:fs');
  * available": retry after a brief synchronous sleep rather than failing the prompt closed. Only
  * done when stdin is actually a TTY (a human might still type) and bounded by a deadline (a fd
  * that will genuinely never produce data must still fail closed, not hang forever).
- * @returns {number} bytes read
  */
-function readSyncBlocking(fd, buf) {
+function readSyncBlocking(fd: number, buf: Buffer): number {
   const deadline = Date.now() + 5 * 60 * 1000;
   for (;;) {
     try {
       return fs.readSync(fd, buf, 0, buf.length, null);
-    } catch (e) {
+    } catch (e: any) {
       if (!process.stdin.isTTY || e.code !== 'EAGAIN' || Date.now() > deadline) throw e;
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
     }
   }
 }
 
-/** @returns {boolean} true if confirmed (via --force or an explicit y/Y reply) */
-function confirm(message, force) {
+/** true if confirmed (via --force or an explicit y/Y reply) */
+function confirm(message: string, force: boolean): boolean {
   if (force) {
     console.error(`[INFO]  ${message} [auto-confirmed via --force]`);
     return true;
@@ -43,7 +46,7 @@ function confirm(message, force) {
 }
 
 /** Free-text stdin read (e.g. "which backup id?"), matching sync.sh's `read -r reply`. */
-function promptLine(message) {
+function promptLine(message: string): string {
   process.stdout.write(message);
   const buf = Buffer.alloc(1024);
   let bytesRead = 0;

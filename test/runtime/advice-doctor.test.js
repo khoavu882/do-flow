@@ -8,7 +8,7 @@ const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
 const { startFakeServer, spawnFakeServer } = require('../helper/fake-decision-server');
 const { buildAdviceDoctor } = require('../../src/runtime/advice/doctor');
-const { REPO_ROOT } = require('../../src/helper/repo-root');
+const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
 const kinds = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core/registry/advice.json'), 'utf8')).kinds.map((kind) => kind.id);

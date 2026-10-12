@@ -6,9 +6,9 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { parseToml } = require('../helper/toml');
+const { parseToml } = require('../helper/toml.ts');
 const { createAdapterRegistry } = require('../adapters');
-const { declaredHarnessPaths } = require('../helper/harness-paths');
+const { declaredHarnessPaths } = require('../helper/harness-paths.ts');
 const claudeAdapter = require('../adapters/claude');
 const codexAdapter = require('../adapters/codex');
 const { createGeminiAdapter } = require('../adapters/gemini');

@@ -55,7 +55,7 @@ const { planPath, UNREACHED } = require('./retrieval-plan');
 // number NFR-001 exists to keep out of the one record the next worker reads first.
 const { assertNoScoreFields } = require('./cli');
 const { finishRuntime, usageError } = require('./cli-result');
-const { REPO_ROOT } = require('../helper/repo-root');
+const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 // ── the closed terminal vocabulary (design §4) ───────────────────────────────────────────────
 

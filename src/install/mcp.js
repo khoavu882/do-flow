@@ -2,7 +2,7 @@
 // mcp.js — MCP server selection: which of the registry's servers each harness gets, from --mcp,
 // the interactive checkbox, doflow.lock, the ledger or a 1.18.0 manifest. Writing a harness's MCP
 // file is that harness's adapter's job (src/adapters/<id>/), never this module's.
-const { readSyncBlocking } = require('../helper/prompt');
+const { readSyncBlocking } = require('../helper/prompt.ts');
 const { selectMcpServers, nativeMcpCatalog, mcpCapable } = require('../registry');
 const { pinnedSelections } = require('../state/lockfile');
 

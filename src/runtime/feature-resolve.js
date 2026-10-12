@@ -2,7 +2,7 @@
 
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { resolveBashHelper } = require('../helper/bash-helper');
+const { resolveBashHelper } = require('../helper/bash-helper.ts');
 
 // `resolveActiveFeature` was moved here from `scaffold/generate.js` (which had it from
 // bin/doflow.js) so the scaffold and the decision register ask the same resolver. The root comes

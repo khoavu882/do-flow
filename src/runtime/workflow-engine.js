@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { parseYamlFile } = require('./capability-router');
 const { finishRuntime, usageError } = require('./cli-result');
-const { REPO_ROOT } = require('../helper/repo-root');
+const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 
 /**

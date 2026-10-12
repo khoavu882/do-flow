@@ -47,7 +47,7 @@ const { probeFreshness } = require('./health');
 // that recorded one would hand the next worker a confidence dressed as a measurement.
 const { assertNoScoreFields } = require('./cli');
 const { finishRuntime, usageError } = require('./cli-result');
-const { REPO_ROOT } = require('../helper/repo-root');
+const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 // ── the closed result vocabulary (design §4) ─────────────────────────────────────────────────
 

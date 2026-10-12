@@ -12,7 +12,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { REPO_ROOT } = require('../helper/repo-root');
+const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 /** Every distribution manifest that repeats the release version, relative to the repo root. */
 const PLUGIN_MANIFESTS = [

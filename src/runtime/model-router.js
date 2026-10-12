@@ -11,7 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { loadRegistry } = require('../registry');
 const { finishRuntime, usageError, captureCaught } = require('./cli-result');
-const { REPO_ROOT } = require('../helper/repo-root');
+const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 /** The machine-level command each provider's backend answers to. A provider without a local CLI
  * (hosted-only access through another harness) reports backendCli null and is never "available". */

@@ -14,7 +14,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { loadRegistry } = require('../../src/registry');
-const { validatePathsSection, resolveHarnessPaths } = require('../../src/helper/harness-paths');
+const { validatePathsSection, resolveHarnessPaths } = require('../../src/helper/harness-paths.ts');
 const { REPO } = require('./_shared');
 const { tempDir } = require('../helper/tmp');
 

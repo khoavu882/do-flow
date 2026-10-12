@@ -14,7 +14,7 @@ const {
 } = require('./config');
 const { selectMcpServers, nativeMcpCatalog } = require('../../registry');
 const { NOTICES } = require('../mcp-entries');
-const { stripComment } = require('../../helper/toml');
+const { stripComment } = require('../../helper/toml.ts');
 
 const MCP_KIND = 'mcp-server';
 const MCP_PREFIX = 'mcp_servers.';

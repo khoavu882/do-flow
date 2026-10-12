@@ -3,7 +3,7 @@
 // Registry loader and validator.  Registry files are plain JSON (core/registry/*.json).
 const fs = require('node:fs');
 const path = require('node:path');
-const { validatePathsSection } = require('../helper/harness-paths');
+const { validatePathsSection } = require('../helper/harness-paths.ts');
 
 const REGISTRY_FILES = Object.freeze({
   harnesses: 'harnesses.json',

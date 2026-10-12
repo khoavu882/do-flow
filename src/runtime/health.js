@@ -24,7 +24,7 @@ const { loadRegistry } = require('../registry');
 const { evaluateReach } = require('./reach');
 const { mcpReach } = require('./mcp-reach');
 const { OUTCOME_LABELS } = require('./mcp-consultations');
-const { REPO_ROOT } = require('../helper/repo-root');
+const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 /** Answered a probe. */
 const HEALTHY = 'HEALTHY';

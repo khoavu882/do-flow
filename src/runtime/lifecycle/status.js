@@ -27,8 +27,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { REPO_ROOT } = require('../../helper/repo-root');
-const { resolveBashHelper } = require('../../helper/bash-helper');
+const { REPO_ROOT } = require('../../helper/repo-root.ts');
+const { resolveBashHelper } = require('../../helper/bash-helper.ts');
 
 const MAX_BUFFER = 256 * 1024 * 1024;
 

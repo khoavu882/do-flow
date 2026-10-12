@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env');
-const { REPO_ROOT } = require('../../src/helper/repo-root');
+const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadStorageRegistry } = require('../../src/runtime/storage/registry');
 
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');

@@ -17,7 +17,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { planTree, applyTree, removeTree, verifyTree, resolveTransform, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, sourceDirFor } = require('../copy-tree');
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries');
-const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths');
+const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 
 const HARNESS = 'kiro';
 const MCP_CONTAINER = 'mcpServers';

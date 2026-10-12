@@ -7,7 +7,7 @@ const { listCheckouts } = require('./checkouts');
 const { readTaskState } = require('./task-state');
 const { resolveActiveFeature } = require('./feature-resolve');
 const { isSafeSlug } = require('./task-scope');
-const { REPO_ROOT } = require('../helper/repo-root');
+const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 // The implementation gate: which stage of a workflow needs a READY readiness record before it is
 // handed off, whether a task has one, and the words every refusal uses.

@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
-const { REPO_ROOT } = require('../../src/helper/repo-root');
+const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadRegistry } = require('../../src/registry');
 const { evaluateReach, REACH_DISPATCHER_REL, REACH_RUNTIME_REL } = require('../../src/runtime/reach');
 
