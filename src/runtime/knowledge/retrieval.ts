@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Retrieval over the guidance index. Ranking is BM25 — pure, deterministic, and the correctness
 // floor: BM25 plus the import graph answer questions well enough that no downstream stage depends
 // on embeddings being present. Dense/rerank slots (models.json `slots`, resolved by
@@ -8,7 +10,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { buildIndex, loadIndex, isFresh } = require('./index-store');
+const { buildIndex, loadIndex, isFresh } = require('./index-store.ts');
 const { finishRuntime, usageError, captureCaught } = require('../cli-result');
 const { resolveRunsLocation } = require('../trace/ledger');
 
@@ -20,7 +22,7 @@ const STOPWORDS = new Set([
   'do', 'does', 'did', 'how', 'what', 'when', 'which', 'who', 'why', 'not', 'no', 'yes', 'can',
 ]);
 
-function tokenize(text) {
+function tokenize(text: any): string[] {
   return String(text ?? '')
     .toLowerCase()
     .split(/[^a-z0-9]+/)
@@ -29,24 +31,24 @@ function tokenize(text) {
 
 /** Deterministic BM25 (Okapi) over preloaded chunks. Corpus sizes here are thousands of chunks at
  * most, so scoring at query time from plain arrays beats maintaining incremental postings. */
-function bm25Rank(queryText, chunks, { k = 5 } = {}) {
+function bm25Rank(queryText: string, chunks: any[], { k = 5 }: { k?: number } = {}): any[] {
   const queryTerms = [...new Set(tokenize(queryText))];
   if (!queryTerms.length || !chunks.length) return [];
-  const docTokens = chunks.map((chunk) => tokenize(`${chunk.title ?? ''} ${chunk.text}`));
-  const avgLen = docTokens.reduce((sum, tokens) => sum + tokens.length, 0) / docTokens.length || 1;
+  const docTokens = chunks.map((chunk: any) => tokenize(`${chunk.title ?? ''} ${chunk.text}`));
+  const avgLen = docTokens.reduce((sum: number, tokens: string[]) => sum + tokens.length, 0) / docTokens.length || 1;
 
-  const df = new Map();
+  const df = new Map<string, number>();
   for (const term of queryTerms) {
     let count = 0;
     for (const tokens of docTokens) if (tokens.includes(term)) count += 1;
     df.set(term, count);
   }
 
-  const scored = [];
+  const scored: Array<{ score: number; chunk: any }> = [];
   for (let i = 0; i < chunks.length; i += 1) {
     const tokens = docTokens[i];
     if (!tokens.length) continue;
-    const tf = new Map();
+    const tf = new Map<string, number>();
     for (const token of tokens) tf.set(token, (tf.get(token) ?? 0) + 1);
     let score = 0;
     for (const term of queryTerms) {
@@ -65,17 +67,17 @@ function bm25Rank(queryText, chunks, { k = 5 } = {}) {
 /** Registry-derived document graph: every `@file.md` import inside a corpus document is an edge.
  * Guidance's own path-anchor rule makes these resolvable against the corpus root, which turns the
  * content itself into the knowledge graph — no LLM extraction, no external store. */
-function buildImportGraph(corpusDir, { fsImpl = fs } = {}) {
-  const edges = new Map();
+function buildImportGraph(corpusDir: string, { fsImpl = fs }: { fsImpl?: any } = {}): Map<string, string[]> {
+  const edges = new Map<string, string[]>();
   try { fsImpl.readdirSync(corpusDir); } catch { return edges; }
-  const walk = (dir, rel) => {
+  const walk = (dir: string, rel: string) => {
     for (const entry of fsImpl.readdirSync(dir, { withFileTypes: true })) {
       const abs = path.join(dir, entry.name);
       const relPath = rel ? `${rel}/${entry.name}` : entry.name;
       if (entry.isDirectory()) { walk(abs, relPath); continue; }
       if (!entry.name.toLowerCase().endsWith('.md')) continue;
       const text = (() => { try { return fsImpl.readFileSync(abs, 'utf8'); } catch { return ''; } })();
-      const targets = new Set();
+      const targets = new Set<string>();
       for (const match of text.matchAll(/(?:^|\s)@([^\s`]+\.md)\b/g)) {
         const target = path.posix.normalize(match[1].replace(/^\.\//, ''));
         if (target.startsWith('..') || path.isAbsolute(target)) continue;
@@ -91,17 +93,17 @@ function buildImportGraph(corpusDir, { fsImpl = fs } = {}) {
 /** Expand BM25 hits along import edges (1 hop): a linked document is "what to read next" for the
  * question that surfaced its anchor. Graph results are capped separately and never displace
  * lexical hits — they extend the answer instead of reranking it. */
-function expandViaGraph(hits, chunks, graph, { maxExtra = 3 } = {}) {
-  const hitPaths = new Set(hits.map((h) => h.path));
-  const seen = new Set();
-  const extras = [];
+function expandViaGraph(hits: any[], chunks: any[], graph: Map<string, string[]>, { maxExtra = 3 }: { maxExtra?: number } = {}): any[] {
+  const hitPaths = new Set(hits.map((h: any) => h.path));
+  const seen = new Set<string>();
+  const extras: any[] = [];
   for (const hit of hits) {
     for (const target of graph.get(hit.path) ?? []) {
       if (hitPaths.has(target) || seen.has(target)) continue;
       seen.add(target);
-      const linkedChunks = chunks.filter((c) => c.path === target);
+      const linkedChunks = chunks.filter((c: any) => c.path === target);
       if (!linkedChunks.length) continue;
-      const best = linkedChunks.reduce((a, b) => (b.text.length > a.text.length ? b : a));
+      const best = linkedChunks.reduce((a: any, b: any) => (b.text.length > a.text.length ? b : a));
       extras.push({
         path: best.path,
         title: best.title,
@@ -117,18 +119,18 @@ function expandViaGraph(hits, chunks, graph, { maxExtra = 3 } = {}) {
 
 /** Ensure the on-disk index matches the corpus, rebuilding only what changed, then rank.
  * Returns {results, rebuilt}. A missing corpus is the caller's usage problem, thrown loudly. */
-function searchGuidance({ corpusDir, indexDir, query, k = 5, fsImpl = fs } = {}) {
+function searchGuidance({ corpusDir, indexDir, query, k = 5, fsImpl = fs }: { corpusDir: string; indexDir: string; query: string; k?: number; fsImpl?: any } = {} as any): any {
   if (!fsImpl.existsSync(corpusDir)) {
     throw new Error(`No guidance tree found at '${corpusDir}' — run \`doflow install\` first`);
   }
-  let rebuiltFiles = null;
+  let rebuiltFiles: string[] | null = null;
   if (!isFresh({ corpusDir, indexDir, fsImpl })) {
     const build = buildIndex({ corpusDir, indexDir, fsImpl });
     rebuiltFiles = build.rebuilt;
   }
   const loaded = loadIndex({ indexDir, fsImpl });
   if (!loaded) throw new Error(`Index at '${indexDir}' is unreadable after rebuild`);
-  const ranked = bm25Rank(query, loaded.chunks, { k }).map((hit) => ({
+  const ranked = bm25Rank(query, loaded.chunks, { k }).map((hit: any) => ({
     path: hit.path,
     title: hit.title,
     score: Number(hit.score.toFixed(4)),
@@ -143,7 +145,7 @@ function searchGuidance({ corpusDir, indexDir, query, k = 5, fsImpl = fs } = {})
  * code from this install, knowledge from the project being worked on. The `.doflow` root is
  * $DOFLOW_CONFIG_DIR, else the nearest one above `stateRoot` that holds a guidance tree, else the
  * home install; the index is kept beside the corpus chosen. */
-function handleRetrieveCommand({ query, top, json = false, stateRoot } = {}) {
+function handleRetrieveCommand({ query, top, json = false, stateRoot }: { query?: any; top?: any; json?: boolean; stateRoot?: any } = {}): any {
   const { configDir } = resolveRunsLocation({ start: stateRoot, containing: 'guidance' });
   const corpusDir = path.join(configDir, 'guidance');
   const indexDir = path.join(configDir, 'index', 'guidance');
@@ -159,13 +161,13 @@ function handleRetrieveCommand({ query, top, json = false, stateRoot } = {}) {
     } else if (!results.length) {
       console.log('[OK] No matching guidance found.');
     } else {
-      results.forEach((result, i) => {
+      results.forEach((result: any, i: number) => {
         console.log(`${i + 1}. [${result.score}] ${result.path}${result.title ? ` — ${result.title}` : ''}`);
         console.log(`   ${result.snippet}`);
       });
     }
     return finishRuntime(0);
-  } catch (error) {
+  } catch (error: any) {
     captureCaught(error, 'retrieve', 1);
     console.error(`[ERROR] retrieve: ${error.message}`);
     return finishRuntime(1);
@@ -176,7 +178,7 @@ const {
   reciprocalRankFusion,
   normalizeLocator,
   fuseHybridResults,
-} = require('./hybrid');
+} = require('./hybrid.ts');
 
 module.exports = {
   bm25Rank,

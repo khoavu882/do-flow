@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Structure-aware markdown chunker. Chunks follow document
 // structure — frontmatter becomes metadata, headings bound sections, fenced code blocks never
 // split mid-block — because every downstream stage (indexing, ranking, prompting) inherits the
@@ -13,10 +15,10 @@ const HARD_MAX_CHUNK_CHARS = 1200;
 /** Split raw markdown into chunks: {id, path, section, text}. Ids are stable path+ordinal pairs,
  * not content hashes — the index manifest owns content addressing, and a chunk whose text changed
  * should keep its identity so diffs are legible. */
-function chunkMarkdown(rawText, { path: filePath } = {}) {
+function chunkMarkdown(rawText: any, { path: filePath }: { path?: string } = {}): any[] {
   const { body, title } = stripFrontmatter(String(rawText ?? ''));
   const sections = splitSections(body);
-  const chunks = [];
+  const chunks: any[] = [];
   let ordinal = 0;
   for (const section of sections) {
     for (const piece of packSection(section.text)) {
@@ -33,7 +35,7 @@ function chunkMarkdown(rawText, { path: filePath } = {}) {
   return chunks;
 }
 
-function stripFrontmatter(text) {
+function stripFrontmatter(text: string): { body: string; title: string | null } {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
   if (!match) return { body: text, title: null };
   const meta = match[1];
@@ -42,10 +44,10 @@ function stripFrontmatter(text) {
 }
 
 /** Heading-bounded sections; a leading H1 is metadata (the title), not a section boundary. */
-function splitSections(body) {
+function splitSections(body: string): Array<{ heading: string | null; text: string }> {
   const lines = body.split(/\r?\n/);
-  const sections = [];
-  let current = { heading: null, lines: [] };
+  const sections: Array<{ heading: string | null; text: string }> = [];
+  let current: { heading: string | null; lines: string[] } = { heading: null, lines: [] };
   const flush = () => {
     if (current.lines.some((l) => l.trim() !== '')) {
       sections.push({ heading: current.heading, text: current.lines.join('\n') });
@@ -66,9 +68,9 @@ function splitSections(body) {
 
 /** Group a section's blocks (paragraphs, lists, fenced code) into chunks near the target size.
  * A block larger than the hard max (a long code fence) stands alone rather than being cut. */
-function packSection(text) {
+function packSection(text: string): string[] {
   const blocks = splitBlocks(text).filter((b) => b.trim() !== '');
-  const packed = [];
+  const packed: string[] = [];
   let buffer = '';
   for (const block of blocks) {
     if (block.length > HARD_MAX_CHUNK_CHARS) {
@@ -89,11 +91,11 @@ function packSection(text) {
 }
 
 /** Split into blocks at blank lines, keeping fenced code blocks intact across their blank lines. */
-function splitBlocks(text) {
+function splitBlocks(text: string): string[] {
   const lines = text.split(/\r?\n/);
-  const blocks = [];
-  let buffer = [];
-  let fence = null;
+  const blocks: string[] = [];
+  let buffer: string[] = [];
+  let fence: string | null = null;
   for (const line of lines) {
     const opening = /^\s*(```|~~~)/.exec(line);
     if (fence) {

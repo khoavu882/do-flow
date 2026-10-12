@@ -5,9 +5,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
 const { spawnSync } = require('node:child_process');
-const { chunkMarkdown, HARD_MAX_CHUNK_CHARS } = require('../../src/runtime/knowledge/chunker');
-const { buildIndex, loadIndex, isFresh } = require('../../src/runtime/knowledge/index-store');
-const { bm25Rank, searchGuidance, reciprocalRankFusion } = require('../../src/runtime/knowledge/retrieval');
+const { chunkMarkdown, HARD_MAX_CHUNK_CHARS } = require('../../src/runtime/knowledge/chunker.ts');
+const { buildIndex, loadIndex, isFresh } = require('../../src/runtime/knowledge/index-store.ts');
+const { bm25Rank, searchGuidance, reciprocalRankFusion } = require('../../src/runtime/knowledge/retrieval.ts');
 
 function scratch() { return suiteTempDir('doflow-knowledge-'); }
 

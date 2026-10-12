@@ -674,10 +674,10 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/knowledge/index-store.js"
+        "src/runtime/knowledge/index-store.ts"
       ],
       "source": {
-        "file": "src/runtime/knowledge/index-store.js",
+        "file": "src/runtime/knowledge/index-store.ts",
         "pattern": "sha256"
       }
     },
@@ -694,10 +694,10 @@
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/knowledge/index-store.js"
+        "src/runtime/knowledge/index-store.ts"
       ],
       "source": {
-        "file": "src/runtime/knowledge/index-store.js",
+        "file": "src/runtime/knowledge/index-store.ts",
         "pattern": "sha256"
       }
     },

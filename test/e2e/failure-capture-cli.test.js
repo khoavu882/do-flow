@@ -336,7 +336,7 @@ describe('a CLI whose failure modules cannot be loaded runs as today (IC-016)', 
 
 describe('handlers that print their own [ERROR] and exit 1 still record a programming error (IC-016)', () => {
   const sites = [
-    ['retrieve', ['retrieve', '--query', 'x'], { kind: 'export', module: 'src/runtime/knowledge/index-store.js', method: 'isFresh' },
+    ['retrieve', ['retrieve', '--query', 'x'], { kind: 'export', module: 'src/runtime/knowledge/index-store.ts', method: 'isFresh' },
       (cwd) => { fs.mkdirSync(path.join(cwd, '.doflow', 'guidance'), { recursive: true }); fs.writeFileSync(path.join(cwd, '.doflow', 'guidance', 'a.md'), '# A\n\nhello\n'); }],
     ['model-role', ['model-role', '--role', 'reasoning'], { kind: 'export', module: 'src/registry/index.js', method: 'loadRegistry' }, undefined],
     ['rollback', ['rollback', 'no-such-backup', '-t', 'claude', '--force'], { kind: 'export', module: 'src/install/backup.ts', method: 'planRestore' }, undefined],

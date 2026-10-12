@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -9,9 +11,9 @@ const path = require('node:path');
  * @param {{ k?: number }} [options]
  * @returns {Array<{ id: string, rrfScore: number }>}
  */
-function reciprocalRankFusion(rankedLists, { k = 60 } = {}) {
-  const scores = new Map();
-  const items = new Map();
+function reciprocalRankFusion(rankedLists: any[][], { k = 60 }: { k?: number } = {}): any[] {
+  const scores = new Map<string, number>();
+  const items = new Map<string, any>();
 
   for (const list of rankedLists) {
     if (!Array.isArray(list)) continue;
@@ -30,7 +32,7 @@ function reciprocalRankFusion(rankedLists, { k = 60 } = {}) {
     }
   }
 
-  const fused = [];
+  const fused: any[] = [];
   for (const [id, rrfScore] of scores.entries()) {
     fused.push({
       ...items.get(id),
@@ -39,7 +41,7 @@ function reciprocalRankFusion(rankedLists, { k = 60 } = {}) {
     });
   }
 
-  fused.sort((a, b) => b.rrfScore - a.rrfScore || (a.id < b.id ? -1 : 1));
+  fused.sort((a: any, b: any) => b.rrfScore - a.rrfScore || (a.id < b.id ? -1 : 1));
   return fused;
 }
 
@@ -49,7 +51,7 @@ function reciprocalRankFusion(rankedLists, { k = 60 } = {}) {
  * @param {string} [projectRoot]
  * @returns {{ file: string, line?: number, endLine?: number }}
  */
-function normalizeLocator(raw, projectRoot = process.cwd()) {
+function normalizeLocator(raw: any, projectRoot: string = process.cwd()): { file: string; line?: number; endLine?: number } {
   if (!raw) return { file: '' };
   if (typeof raw === 'string') {
     const match = raw.match(/^([^:]+)(?::(\d+))?(?::(\d+))?$/);
@@ -95,14 +97,22 @@ function fuseHybridResults({
   projectRoot = process.cwd(),
   maxSnippetLines = 50,
   fsImpl = fs,
-} = {}) {
-  const normLex = (Array.isArray(lexicalResults) ? lexicalResults : []).map((item, idx) => {
+}: {
+  lexicalResults?: any[];
+  semanticResults?: any[];
+  k?: number;
+  topN?: number;
+  projectRoot?: string;
+  maxSnippetLines?: number;
+  fsImpl?: any;
+} = {}): any[] {
+  const normLex = (Array.isArray(lexicalResults) ? lexicalResults : []).map((item: any, idx: number) => {
     const loc = normalizeLocator(item.locator || item.path || item.file, projectRoot);
     const id = `${loc.file}:${loc.line || 1}`;
     return { ...item, id, locator: loc, sourceList: 'lexical', originalRank: idx };
   });
 
-  const normSem = (Array.isArray(semanticResults) ? semanticResults : []).map((item, idx) => {
+  const normSem = (Array.isArray(semanticResults) ? semanticResults : []).map((item: any, idx: number) => {
     const loc = normalizeLocator(item.locator || item.path || item.file, projectRoot);
     const id = `${loc.file}:${loc.line || 1}`;
     return { ...item, id, locator: loc, sourceList: 'semantic', originalRank: idx };
