@@ -350,7 +350,8 @@ function withChanges(target: any, replaced: Map<any, any>, added: any[], notices
  * - releases rows whose file is already gone, since the source no longer produces it either;
  * - keeps, and names, a changed file, an unrecorded one, one whose real path leaves the tree, and
  *   one that is the same file as a path the source produces (a case-only rename).
- * removeTree re-hashes every file just before deleting it, as for any removal.
+ * removeTree re-hashes every file just before deleting it, as for any removal, and for the removals
+ * this pass plans (`pruneGuard`) re-runs the containment and same-file checks there too.
  */
 function pruneRetiredRuntimeFiles(harnessPlans: any[], ledger: any, { scopeRoot, repoRoot, fsImpl = fs }: any) {
   const planned = harnessPlans.filter((target: any) => !target.skipped);
@@ -428,14 +429,16 @@ function pruneRetiredRuntimeFiles(harnessPlans: any[], ledger: any, { scopeRoot,
         continue;
       }
       notices.get(executor.harness)!.push(`prune ${shown(file)}: no longer shipped, unchanged since DoFlow wrote it`);
+      // removeTree re-runs containment and the same-file check from this right before the unlink.
+      const pruneGuard = { root: destDir, source: sourceDir };
       if (!removals.length) {
-        added.get(executor.harness)!.push(synthetic({ fingerprint: current, supersedes: superseded }));
+        added.get(executor.harness)!.push(synthetic({ fingerprint: current, supersedes: superseded, pruneGuard }));
         continue;
       }
       removals.forEach((change: any, index: number) => {
         const { retained, retainedFor, ...rest } = change;
         void retained; void retainedFor;
-        replaced.get(change.harness)!.set(change, Object.freeze({ ...rest, fingerprint: current, ...(index === 0 ? { supersedes: superseded } : {}) }));
+        replaced.get(change.harness)!.set(change, Object.freeze({ ...rest, fingerprint: current, pruneGuard, ...(index === 0 ? { supersedes: superseded } : {}) }));
       });
     }
 

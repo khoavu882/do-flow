@@ -313,7 +313,7 @@ function runTreeChanges(changes: any, mode: any) {
     .filter((c: any) => c.projection?.renderer === 'copy-tree' || c.kind === 'copy-tree-file')
     .map((c: any) => ({ relPath: c.identity ?? c.relPath, target: c.target,
       source: c._text ? undefined : c.source, operation: c.operation,
-      fingerprint: c.fingerprint, ...(c._text ? { _text: c._text } : {}) }));
+      fingerprint: c.fingerprint, pruneGuard: c.pruneGuard, ...(c._text ? { _text: c._text } : {}) }));
   // Content-managed tree files (hook scripts): write rendered text with +x, not a byte copy.
   for (const t of treeChanges) {
     if (t._text === undefined) continue;

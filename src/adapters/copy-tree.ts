@@ -439,13 +439,35 @@ function applyTree({ changes = [], fsImpl = fs, transform }: any): { applied: nu
   return { applied };
 }
 
+/** Why a removal the runtime prune planned may no longer run, or null when it still may: the
+ * prune's plan-time proof (src/lifecycle/index.ts pruneRetiredRuntimeFiles) re-run right before the
+ * unlink, so a directory swapped for a symlink, or a file linked to a shipped one, after the plan was
+ * made is not deleted through. `guard` is `{ root, source }`: the tree and the source it projects.
+ * One walk of the source and one stat per shipped path per tree per call, cached in `cache`. */
+function pruneGuardRefusal(change: any, cache: Map<string, any>, fsImpl: any): string | null {
+  const { root, source } = change.pruneGuard;
+  const key = `${root}\0${source}`;
+  if (!cache.has(key)) {
+    const produced = fsImpl.existsSync(source) ? discoverTree({ sourceDir: source, destDir: root, fsImpl }).files.map((file: any) => file.destAbs) : [];
+    cache.set(key, { realRoot: fsImpl.realpathSync(root), sameFile: sameFileIndex(produced, fsImpl) });
+  }
+  const { realRoot, sameFile } = cache.get(key);
+  if (!fsImpl.realpathSync(change.target).startsWith(`${realRoot}${path.sep}`)) return `it resolves outside ${root}`;
+  const shipped = sameFile(change.target);
+  return shipped ? `it is the same file as ${shipped}, which this version ships` : null;
+}
+
 /** Delete every remove change, re-checking each file's fingerprint immediately before deletion —
- * refuses (throws) rather than silently deleting a file modified since planTree ran. */
+ * refuses (throws) rather than silently deleting a file modified since planTree ran. A removal the
+ * runtime prune planned (`pruneGuard`) also re-checks its containment and same-file proof there. */
 function removeTree({ changes = [], fsImpl = fs }: any): { removed: number } {
   let removed = 0;
+  const guards = new Map<string, any>();
   for (const change of changes) {
     if (change.operation !== 'remove' || change.kept) continue;
     if (!fsImpl.existsSync(change.target)) continue;
+    const refusal = change.pruneGuard ? pruneGuardRefusal(change, guards, fsImpl) : null;
+    if (refusal) throw new Error(`Refusing to remove copy-tree resource ${change.relPath ?? change.target}: ${refusal}`);
     const current = sha256(fsImpl.readFileSync(change.target));
     if (current !== change.fingerprint) throw new Error(`Refusing to remove modified copy-tree resource: ${change.relPath}`);
     fsImpl.rmSync(change.target, { force: true });

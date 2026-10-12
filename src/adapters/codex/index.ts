@@ -378,7 +378,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
 
   function removeCopyTreeAssets(changes: any) {
     const treeChanges = changes.filter((change: any) => change.projection?.renderer === 'copy-tree' && change.operation === 'remove' && !change.retained)
-      .map((change: any) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint }));
+      .map((change: any) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint, pruneGuard: change.pruneGuard }));
     return removeTree({ changes: treeChanges }).removed;
   }
 

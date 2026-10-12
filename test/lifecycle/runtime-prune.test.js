@@ -68,7 +68,7 @@ function runtimeAdapter(id, { ownRequired = false } = {}) {
     apply({ changes }) {
       applyTree({ changes: changes.filter((change) => change.operation !== 'remove').map((change) => ({ ...change, relPath: change.identity })) });
       removeTree({ changes: changes.filter((change) => change.kind === 'copy-tree-file' && change.operation === 'remove')
-        .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint })) });
+        .map((change) => ({ relPath: change.identity, target: change.target, operation: 'remove', fingerprint: change.fingerprint, pruneGuard: change.pruneGuard })) });
     },
     remove(input) { this.apply(input); },
     verify({ scopeRoot, context = {} }) {
@@ -239,6 +239,33 @@ test('negative control: an orphan row of a harness outside the run that names a 
     'nothing removes the old spelling: on this filesystem it is the file the source produces');
   p.apply(planned);
   assert.equal(fs.readFileSync(path.join(p.dest, 'x', 'bar.js'), 'utf8'), 'same\n', 'the produced file survives the update');
+});
+
+test('negative control: a directory swapped for a symlink between plan and apply is not deleted through; delete time re-checks containment (B6)', (t) => {
+  const p = project(t, { 'lib/old.js': 'v1\n', 'keep.js': 'keep\n' });
+  p.ship({ 'keep.js': 'keep\n' });
+  const planned = p.plan(['alpha']);
+  const [removal] = changesAt(planned, path.join(p.dest, 'lib', 'old.js'));
+  assert.ok(removal && !removal.retained, 'fixture: at plan time the orphan is inside the tree and pruned');
+
+  // While the confirm prompt waits: the directory becomes a link to an outside one with the same bytes.
+  const outside = path.join(path.dirname(p.scopeRoot), 'outside-lib');
+  fs.renameSync(path.join(p.dest, 'lib'), outside);
+  fs.symlinkSync(outside, path.join(p.dest, 'lib'), 'dir');
+  assert.throws(() => p.apply(planned), /Refusing to remove copy-tree resource lib\/old\.js: it resolves outside/);
+  assert.equal(fs.readFileSync(path.join(outside, 'old.js'), 'utf8'), 'v1\n', 'the file outside the tree is untouched');
+});
+
+test('negative control: an orphan hard-linked to a shipped file between plan and apply is not deleted; delete time re-checks the inode (B6)', (t) => {
+  const p = project(t, { 'old.js': 'same\n', 'keep.js': 'keep\n' });
+  p.ship({ 'keep.js': 'keep\n' });
+  const planned = p.plan(['alpha']);
+  assert.ok(changesAt(planned, path.join(p.dest, 'old.js')).some((change) => !change.retained), 'fixture: the orphan is pruned at plan time');
+  fs.rmSync(path.join(p.dest, 'old.js'));
+  fs.writeFileSync(path.join(p.dest, 'keep.js'), 'same\n');
+  fs.linkSync(path.join(p.dest, 'keep.js'), path.join(p.dest, 'old.js'));
+  assert.throws(() => p.apply(planned), /Refusing to remove copy-tree resource old\.js: it is the same file as .*keep\.js/);
+  assert.equal(fs.existsSync(path.join(p.dest, 'old.js')), true);
 });
 
 test('a row whose file is already gone is released when the source no longer ships it, and kept while it still does', (t) => {
