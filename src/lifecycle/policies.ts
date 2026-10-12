@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 // Registry lifecycle policies are logical intent. This projection reports what a
 // harness may render and any human prerequisite; native event serialization stays
 // in the owning harness adapter.
@@ -7,26 +9,26 @@ const { harnessFor } = require('../registry/index.ts');
 
 const POLICY_STATUSES = new Set(['supported', 'different', 'unavailable', 'prerequisite']);
 
-function unique(values) { return [...new Set(values.filter(Boolean))]; }
+function unique(values: any[]): any[] { return [...new Set(values.filter(Boolean))]; }
 
-function policyFor(registry, id) {
-  const policy = registry?.lifecycle?.find((item) => item.id === id);
+function policyFor(registry: any, id: string): any {
+  const policy = registry?.lifecycle?.find((item: any) => item.id === id);
   if (!policy) throw new Error(`Unknown lifecycle policy '${id}'`);
   return policy;
 }
 
-function renderPolicy(policy, harness) {
+function renderPolicy(policy: any, harness: any): any {
   const mapping = policy?.mappings?.[harness.id];
   if (!mapping) throw new Error(`Lifecycle policy '${policy.id}' has no mapping for '${harness.id}'`);
-  const requiredCapabilities = (policy.requires || []).map((capability) => {
+  const requiredCapabilities = (policy.requires || []).map((capability: string): [string, any] => {
     const declaration = harness.capabilities?.[capability];
     if (!declaration) throw new Error(`Lifecycle policy '${policy.id}' requires unknown '${harness.id}' capability '${capability}'`);
     return [capability, declaration];
   });
-  const unavailableCapability = requiredCapabilities.find(([, declaration]) => declaration.status === 'unavailable');
+  const unavailableCapability = requiredCapabilities.find(([, declaration]: [string, any]) => declaration.status === 'unavailable');
   const prerequisites = unique([
     ...(mapping.prerequisites || []),
-    ...requiredCapabilities.flatMap(([, declaration]) => declaration.prerequisites || []),
+    ...requiredCapabilities.flatMap(([, declaration]: [string, any]) => declaration.prerequisites || []),
   ]);
   const capabilityStatus = unavailableCapability ? 'unavailable' : mapping.status;
   const unavailable = capabilityStatus === 'unavailable';
@@ -58,14 +60,14 @@ function renderPolicy(policy, harness) {
 }
 
 /** Render policy status data for one harness without calling an adapter or writing state. */
-function renderPolicies(registry, { harness: harnessId, policyIds } = {}) {
+function renderPolicies(registry: any, { harness: harnessId, policyIds }: { harness?: string, policyIds?: string[] | null } = {}): any {
   if (!harnessId) throw new Error('A harness id is required to render lifecycle policies');
   const harness = harnessFor(registry, harnessId);
   const policies = policyIds === undefined || policyIds === null
     ? registry.lifecycle
-    : policyIds.map((id) => policyFor(registry, id));
+    : policyIds.map((id: string) => policyFor(registry, id));
   if (!Array.isArray(policies)) throw new Error('Lifecycle policies must be an array');
-  return Object.freeze(policies.map((policy) => renderPolicy(policy, harness)));
+  return Object.freeze(policies.map((policy: any) => renderPolicy(policy, harness)));
 }
 
 module.exports = { POLICY_STATUSES, policyFor, renderPolicy, renderPolicies };
