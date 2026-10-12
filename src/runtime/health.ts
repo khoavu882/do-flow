@@ -1,5 +1,7 @@
 'use strict';
 
+// TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
+
 /**
  * Capability health probes and the health-aware `doctor` report (plan task C.3, components C4 and
  * C9; requirement FR-013).
@@ -47,15 +49,15 @@ const BANNER_MAX = 80;
  * them exists the result is UNKNOWN naming the paths searched, because a provider that owns its
  * own cache layout must not have a freshness verdict invented for it.
  */
-const PROVIDER_ARTIFACTS = Object.freeze({
+const PROVIDER_ARTIFACTS: Record<string, any> = Object.freeze({
   'graphify.query': {
     label: 'code graph',
-    candidates: (root) => [path.join(root, 'graphify-out', 'graph.json')],
+    candidates: (root: any) => [path.join(root, 'graphify-out', 'graph.json')],
     refresh: 'graphify update .',
   },
   'semble.search': {
     label: 'semantic index',
-    candidates: (root, home) => [
+    candidates: (root: any, home: any) => [
       path.join(root, '.semble', 'index.json'),
       path.join(root, '.semble'),
       path.join(home, '.cache', 'semble', 'index'),
@@ -82,7 +84,7 @@ const SCAN_FILE_LIMIT = 4000;
  * @param {number} [options.timeoutMs=PROBE_TIMEOUT_MS]
  * @returns {{ok: boolean, output: string, durationMs: number, timedOut: boolean, error: string|null}}
  */
-function runProbe(command, { execFileImpl = execFileSync, timeoutMs = PROBE_TIMEOUT_MS } = {}) {
+function runProbe(command: any, { execFileImpl = execFileSync, timeoutMs = PROBE_TIMEOUT_MS }: any = {}) {
   const [bin, ...args] = command;
   const started = Number(process.hrtime.bigint() / 1000000n);
   try {
@@ -98,7 +100,7 @@ function runProbe(command, { execFileImpl = execFileSync, timeoutMs = PROBE_TIME
       timedOut: false,
       error: null,
     };
-  } catch (error) {
+  } catch (error: any) {
     // A killed process and a non-zero exit are both "did not answer", but they are different
     // repairs — a timeout usually means a first-run index build, a non-zero exit usually means a
     // broken install — so they are reported apart rather than as one failure string.
@@ -115,7 +117,7 @@ function runProbe(command, { execFileImpl = execFileSync, timeoutMs = PROBE_TIME
 
 /** First line of probe output, trimmed to a banner. Control characters are stripped so a provider
  * cannot rewrite the doctor report with an escape sequence. */
-function banner(output) {
+function banner(output: any) {
   if (!output) return null;
   // Control characters are removed by code point rather than by a literal class, so this source
   // file stays free of the escape sequences it is defending against.
@@ -135,7 +137,7 @@ function banner(output) {
  * @param {number} [options.limit=SCAN_FILE_LIMIT]
  * @returns {{mtimeMs: number|null, filesScanned: number, truncated: boolean}}
  */
-function newestSourceMtime(root, { fsImpl = fs, limit = SCAN_FILE_LIMIT } = {}) {
+function newestSourceMtime(root: any, { fsImpl = fs, limit = SCAN_FILE_LIMIT }: any = {}) {
   let mtimeMs = null;
   let filesScanned = 0;
   let truncated = false;
@@ -178,7 +180,7 @@ function newestSourceMtime(root, { fsImpl = fs, limit = SCAN_FILE_LIMIT } = {}) 
  * @param {Object} [options.fsImpl=fs]
  * @returns {Object|null} null when the provider is not index-backed
  */
-function probeFreshness(providerId, { root = process.cwd(), homeDir = os.homedir(), fsImpl = fs } = {}) {
+function probeFreshness(providerId: any, { root = process.cwd(), homeDir = os.homedir(), fsImpl = fs }: any = {}) {
   const spec = PROVIDER_ARTIFACTS[providerId];
   if (!spec) return null;
 
@@ -251,11 +253,11 @@ function probeFreshness(providerId, { root = process.cwd(), homeDir = os.homedir
  * @param {Object} [options.fsImpl]
  * @returns {Object} probe result
  */
-function probeProvider(provider, { router, projectRoot = process.cwd(), execFileImpl, fsImpl = fs } = {}) {
+function probeProvider(provider: any, { router, projectRoot = process.cwd(), execFileImpl, fsImpl = fs }: any = {}) {
   if (!provider || !provider.id) {
     return { id: null, status: UNVERIFIED, detail: 'no provider declared' };
   }
-  const result = {
+  const result: any = {
     id: provider.id,
     name: provider.name || provider.id,
     binary: provider.binary || null,
@@ -324,11 +326,11 @@ function probeProvider(provider, { router, projectRoot = process.cwd(), execFile
  * @param {CapabilityRouter} [options.router]
  * @returns {Object} map of provider id -> probe result
  */
-function probeProviders({ repoRoot, projectRoot = process.cwd(), ids = null, router, execFileImpl, fsImpl = fs } = {}) {
+function probeProviders({ repoRoot, projectRoot = process.cwd(), ids = null, router, execFileImpl, fsImpl = fs }: any = {}) {
   const activeRouter = router || new CapabilityRouter({ repoRoot: repoRoot || REPO_ROOT, projectRoot });
   const wanted = ids ? new Set(ids) : null;
-  const results = {};
-  for (const capability of Object.values(activeRouter.capabilities || {})) {
+  const results: Record<string, any> = {};
+  for (const capability of Object.values<any>(activeRouter.capabilities || {})) {
     for (const provider of capability.providers || []) {
       if (!provider || !provider.id) continue;
       if (wanted && !wanted.has(provider.id)) continue;
@@ -353,7 +355,7 @@ function probeProviders({ repoRoot, projectRoot = process.cwd(), ids = null, rou
  * @param {Function} [options.detector] injection seam; defaults to the C.2 module when present
  * @returns {{status: string, build: Object|null, test: Object|null, reason?: string}}
  */
-function detectProjectCommands({ projectRoot = process.cwd(), detector } = {}) {
+function detectProjectCommands({ projectRoot = process.cwd(), detector }: any = {}) {
   let detect = detector;
   if (!detect) {
     let mod = null;
@@ -381,7 +383,7 @@ function detectProjectCommands({ projectRoot = process.cwd(), detector } = {}) {
   let detected;
   try {
     detected = detect({ projectRoot }) || {};
-  } catch (error) {
+  } catch (error: any) {
     return { status: 'UNKNOWN', build: null, test: null, reason: `command detection failed: ${error.message}` };
   }
 
@@ -412,15 +414,15 @@ function detectProjectCommands({ projectRoot = process.cwd(), detector } = {}) {
 }
 
 /** Roll a capability's provider probes up into one status. */
-function capabilityStatus(probes) {
+function capabilityStatus(probes: any) {
   if (!probes.length) return { status: 'UNAVAILABLE', activeProvider: null };
-  const firstHealthy = probes.findIndex((probe) => probe.status === HEALTHY);
+  const firstHealthy = probes.findIndex((probe: any) => probe.status === HEALTHY);
   if (firstHealthy === 0) return { status: HEALTHY, activeProvider: probes[0].id };
   if (firstHealthy > 0) return { status: 'FALLBACK', activeProvider: probes[firstHealthy].id };
   // Nothing answered. "Installed but broken" and "not installed" are different problems: the first
   // is actionable now, the second is the graceful degradation NFR-002 requires.
-  if (probes.some((probe) => probe.status === UNHEALTHY)) return { status: 'DEGRADED', activeProvider: null };
-  if (probes.every((probe) => probe.status === ABSENT)) return { status: 'UNAVAILABLE', activeProvider: null };
+  if (probes.some((probe: any) => probe.status === UNHEALTHY)) return { status: 'DEGRADED', activeProvider: null };
+  if (probes.every((probe: any) => probe.status === ABSENT)) return { status: 'UNAVAILABLE', activeProvider: null };
   return { status: UNVERIFIED, activeProvider: null };
 }
 
@@ -432,7 +434,7 @@ function capabilityStatus(probes) {
  * @returns {Object} report model
  */
 /** The installed DoFlow source's own version, read from its package.json; null when unreadable. */
-function installVersion(root, fsImpl = fs) {
+function installVersion(root: any, fsImpl = fs) {
   try {
     return JSON.parse(fsImpl.readFileSync(path.join(root, 'package.json'), 'utf8')).version || null;
   } catch {
@@ -441,8 +443,8 @@ function installVersion(root, fsImpl = fs) {
 }
 
 /** The project's git identity — short commit and branch — or null outside a repository. */
-function projectGitIdentity(projectRoot) {
-  const git = (args) => {
+function projectGitIdentity(projectRoot: any) {
+  const git = (args: any) => {
     try {
       return execFileSync('git', ['-C', projectRoot, ...args], {
         encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'],
@@ -466,19 +468,19 @@ const NO_OUTCOME_SHOWN = 3;
  * it and the command that adds it where it is missing. Read-only; starts no server (NFR-001).
  * Server ids come from the registry, never from this file.
  */
-function mcpServersView({ registry, projectRoot, fsImpl, adapters }) {
-  const named = registry.mcp.filter((server) => (server.steps || []).length);
+function mcpServersView({ registry, projectRoot, fsImpl, adapters }: any) {
+  const named = registry.mcp.filter((server: any) => (server.steps || []).length);
   if (!named.length) return [];
   if (!adapters) throw new Error('no adapter registry was given');
   const reach = mcpReach({ registry, projectRoot, fsImpl, adapters });
-  const unreadableFile = (harness) => reach.unreadable.find((item) => item.harness === harness.id && item.scope === harness.scope);
-  return named.map((server) => ({
+  const unreadableFile = (harness: any) => reach.unreadable.find((item: any) => item.harness === harness.id && item.scope === harness.scope);
+  return named.map((server: any) => ({
     id: server.id,
     selection: server.selection,
-    namedBy: [...new Set(server.steps.map((step) => (step.expectedWhen === 'research-request' ? `${step.skill} (research request)` : step.skill)))],
-    harnesses: reach.harnesses.map((harness) => {
+    namedBy: [...new Set(server.steps.map((step: any) => (step.expectedWhen === 'research-request' ? `${step.skill} (research request)` : step.skill)))],
+    harnesses: reach.harnesses.map((harness: any) => {
       const state = harness.servers[server.id];
-      const row = { id: harness.id, scope: harness.scope, state };
+      const row: any = { id: harness.id, scope: harness.scope, state };
       const unreadable = state === 'unknown' ? unreadableFile(harness) : null;
       // An unreadable config is fixed before anything is added to it (IC-014).
       if (unreadable) row.fix = unreadable.file || `${harness.id}'s MCP config`;
@@ -488,7 +490,7 @@ function mcpServersView({ registry, projectRoot, fsImpl, adapters }) {
   }));
 }
 
-const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+const byText = (a: any, b: any) => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
  * The `[MCP Consultations]` data (IC-015): the recorded `consultations` of the project's run
@@ -496,10 +498,10 @@ const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
  * `at`, counted per server. An entry without `consultations` predates the feature and is never
  * counted (NFR-005); "no outcome" is `named` minus the servers with an outcome, never stored.
  */
-function mcpConsultationsView({ projectRoot, fsImpl }) {
+function mcpConsultationsView({ projectRoot, fsImpl }: any) {
   const dir = path.join(projectRoot, '.doflow', 'state', 'orchestration');
   let files = [];
-  try { files = fsImpl.readdirSync(dir).filter((name) => name.endsWith('.json')).sort(); } catch { files = []; }
+  try { files = fsImpl.readdirSync(dir).filter((name: any) => name.endsWith('.json')).sort(); } catch { files = []; }
   let unreadableRuns = 0;
   const bySkill = new Map();
   for (const name of files) {
@@ -515,14 +517,14 @@ function mcpConsultationsView({ projectRoot, fsImpl }) {
   }
   const stages = [...bySkill.keys()].sort(byText).map((skill) => {
     const kept = bySkill.get(skill)
-      .sort((a, b) => byText(b.at, a.at) || byText(a.taskId, b.taskId) || byText(String(a.node), String(b.node)))
+      .sort((a: any, b: any) => byText(b.at, a.at) || byText(a.taskId, b.taskId) || byText(String(a.node), String(b.node)))
       .slice(0, CONSULTATION_WINDOW);
     const counts = new Map();
-    const row = (server) => {
+    const row = (server: any) => {
       if (!counts.has(server)) counts.set(server, { server, used: 0, nothingUsable: 0, skipped: 0, unavailable: 0, noOutcome: 0 });
       return counts.get(server);
     };
-    const key = { 'consulted-used': 'used', 'consulted-nothing-usable': 'nothingUsable', skipped: 'skipped', unavailable: 'unavailable' };
+    const key: Record<string, any> = { 'consulted-used': 'used', 'consulted-nothing-usable': 'nothingUsable', skipped: 'skipped', unavailable: 'unavailable' };
     const noOutcome = [];
     const shown = new Map();
     for (const { taskId, node, at, record } of kept) {
@@ -531,7 +533,7 @@ function mcpConsultationsView({ projectRoot, fsImpl }) {
         if (outcome && typeof outcome.server === 'string' && key[outcome.state]) outcomes.set(outcome.server, key[outcome.state]);
       }
       for (const [server, field] of outcomes) row(server)[field] += 1;
-      for (const server of (Array.isArray(record.named) ? record.named : []).filter((id) => typeof id === 'string').sort(byText)) {
+      for (const server of (Array.isArray(record.named) ? record.named : []).filter((id: any) => typeof id === 'string').sort(byText)) {
         if (outcomes.has(server)) continue;
         row(server).noOutcome += 1;
         // `kept` is newest first, so the first entries per server are its latest.
@@ -546,14 +548,14 @@ function mcpConsultationsView({ projectRoot, fsImpl }) {
 
 /** The doctor's `mcp` block. A servers view that cannot be built degrades to a one-line note; the
  * sections never enter findings or change the exit code (FR-011, FR-012). */
-function mcpView({ registry, projectRoot, fsImpl, adapters }) {
+function mcpView({ registry, projectRoot, fsImpl, adapters }: any) {
   let servers = [];
   let serversNote;
-  try { servers = mcpServersView({ registry, projectRoot, fsImpl, adapters }); } catch (error) { serversNote = `MCP server view unavailable: ${error.message}`; }
+  try { servers = mcpServersView({ registry, projectRoot, fsImpl, adapters }); } catch (error: any) { serversNote = `MCP server view unavailable: ${error.message}`; }
   return { servers, ...(serversNote ? { serversNote } : {}), consultations: mcpConsultationsView({ projectRoot, fsImpl }) };
 }
 
-const MCP_STATE_MARK = Object.freeze({
+const MCP_STATE_MARK: Record<string, any> = Object.freeze({
   selected: '✓ selected',
   configured: '✓ configured',
   'not-selected': '○ not selected',
@@ -561,11 +563,11 @@ const MCP_STATE_MARK = Object.freeze({
   unknown: '? unknown',
 });
 
-function printMcpSections(mcp) {
+function printMcpSections(mcp: any) {
   console.log('\n[MCP Servers] — named by shipped stages; not blocking');
   if (mcp.serversNote) {
     console.log(`  ${mcp.serversNote}`);
-  } else if (!mcp.servers.some((server) => server.harnesses.length)) {
+  } else if (!mcp.servers.some((server: any) => server.harnesses.length)) {
     console.log('  No harness has DoFlow ledger rows here, so no server selection to report.');
   } else {
     for (const server of mcp.servers) {
@@ -600,11 +602,11 @@ function printMcpSections(mcp) {
   if (unreadableRuns) console.log(`  ${unreadableRuns} run file(s) could not be read`);
 }
 
-function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, execFileImpl, fsImpl = fs, detector, adapters } = {}) {
+function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, execFileImpl, fsImpl = fs, detector, adapters }: any = {}) {
   const root = repoRoot || REPO_ROOT;
   const registry = loadRegistry({ repoRoot: root });
   const activeRouter = router || new CapabilityRouter({ repoRoot: root, projectRoot });
-  const probes = probeProviders({ repoRoot: root, projectRoot, router: activeRouter, execFileImpl, fsImpl });
+  const probes: Record<string, any> = probeProviders({ repoRoot: root, projectRoot, router: activeRouter, execFileImpl, fsImpl });
   const project = { root: path.resolve(projectRoot), commands: detectProjectCommands({ projectRoot, detector }) };
 
   // `native.test` is the one provider with neither a binary nor a probe: it stands for whatever the
@@ -619,8 +621,8 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
       : 'no probe of its own, and no project test command was detected — nothing establishes that this capability can answer';
   }
 
-  const capabilities = Object.entries(activeRouter.capabilities || {}).map(([id, capability]) => {
-    const declared = (capability.providers || []).map((provider) => probes[provider.id]).filter(Boolean);
+  const capabilities = Object.entries<any>(activeRouter.capabilities || {}).map(([id, capability]) => {
+    const declared = (capability.providers || []).map((provider: any) => probes[provider.id]).filter(Boolean);
     const rolled = capabilityStatus(declared);
     return {
       capability: id,
@@ -628,14 +630,14 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
       status: rolled.status,
       activeProvider: rolled.activeProvider,
       totalProviders: declared.length,
-      providers: declared.map((probe) => ({ id: probe.id, status: probe.status, detail: probe.detail })),
+      providers: declared.map((probe: any) => ({ id: probe.id, status: probe.status, detail: probe.detail })),
     };
   });
 
   // External tools are the same binaries the providers use, so their status comes from the probe
   // that already ran rather than from a second, weaker presence check.
-  const externalTools = registry.externalTools.map((tool) => {
-    const probe = Object.values(probes).find((candidate) => candidate.binary === tool.id);
+  const externalTools = registry.externalTools.map((tool: any) => {
+    const probe: any = Object.values(probes).find((candidate) => candidate.binary === tool.id);
     if (probe) return { id: tool.id, displayName: tool.displayName, status: probe.status, detail: probe.detail };
     const present = activeRouter.isBinaryAvailable(tool.id);
     return {
@@ -660,8 +662,8 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
       .filter((capability) => capability.status === 'DEGRADED')
       .map((capability) => ({ kind: 'capability-degraded', subject: capability.capability, detail: 'every installed provider for this capability failed its probe' })),
     ...reach.rows
-      .filter((row) => row.state === 'NO-REACH')
-      .map((row) => ({ kind: 'runtime-no-reach', subject: `${row.harness}:${row.scope}`, detail: `${row.reason}; fix: ${row.fix}` })),
+      .filter((row: any) => row.state === 'NO-REACH')
+      .map((row: any) => ({ kind: 'runtime-no-reach', subject: `${row.harness}:${row.scope}`, detail: `${row.reason}; fix: ${row.fix}` })),
   ];
   const warnings = [
     ...freshness
@@ -674,7 +676,7 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
       .filter((probe) => probe.status === UNVERIFIED)
       .map((probe) => ({ kind: 'provider-unverified', subject: probe.id, detail: probe.detail })),
     ...reach.unreadable
-      .map((item) => ({ kind: 'reach-ledger-unreadable', subject: `${item.scope}: ${item.ledger}`, detail: item.detail })),
+      .map((item: any) => ({ kind: 'reach-ledger-unreadable', subject: `${item.scope}: ${item.ledger}`, detail: item.detail })),
     ...(project.commands.status === 'DETECTED' ? [] : [{ kind: 'project-commands', subject: 'build/test', detail: project.commands.reason }]),
   ];
 
@@ -690,11 +692,11 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
 
   return {
     identity,
-    harnesses: registry.harnesses.map((harness) => ({
+    harnesses: registry.harnesses.map((harness: any) => ({
       id: harness.id,
       displayName: harness.displayName,
       status: 'PASS',
-      reach: reach.rows.filter((row) => row.harness === harness.id).map(({ harness: _harness, ...row }) => row),
+      reach: reach.rows.filter((row: any) => row.harness === harness.id).map(({ harness: _harness, ...row }: any) => row),
     })),
     externalTools,
     capabilities,
@@ -726,12 +728,12 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
  * @param {number} code
  * @returns {number}
  */
-function finish(code) {
+function finish(code: any) {
   process.exitCode = code;
   return code;
 }
 
-const STATUS_MARK = Object.freeze({
+const STATUS_MARK: Record<string, any> = Object.freeze({
   HEALTHY: '✓ HEALTHY',
   UNHEALTHY: '✗ UNHEALTHY',
   ABSENT: '○ ABSENT',
@@ -741,13 +743,13 @@ const STATUS_MARK = Object.freeze({
   UNAVAILABLE: '○ UNAVAILABLE',
 });
 
-const REACH_MARK = Object.freeze({
+const REACH_MARK: Record<string, any> = Object.freeze({
   REACHED: '✓ REACHED',
   'NO-REACH': '✗ NO-REACH',
   'N/A': '○ N/A',
 });
 
-const FRESHNESS_MARK = Object.freeze({
+const FRESHNESS_MARK: Record<string, any> = Object.freeze({
   FRESH: '✓ FRESH',
   STALE: '▲ STALE',
   UNKNOWN: '? UNKNOWN',
@@ -762,8 +764,8 @@ const FRESHNESS_MARK = Object.freeze({
  * @returns {number} process exit code — 1 when a provider is installed but does not answer, or an
  *   installed harness's skills cannot reach a runtime
  */
-async function handleDoctorCommand({ json = false, repoRoot, projectRoot = process.cwd(), ...rest } = {}) {
-  const report = buildHealthReport({ repoRoot, projectRoot, ...rest });
+async function handleDoctorCommand({ json = false, repoRoot, projectRoot = process.cwd(), ...rest }: any = {}) {
+  const report: any = buildHealthReport({ repoRoot, projectRoot, ...rest });
   const { buildAdviceDoctor, printAdviceDoctor } = require('./advice/doctor.ts');
   const adviceSections = await buildAdviceDoctor({ repoRoot, projectRoot, fsImpl: rest.fsImpl });
   report.decisionModel = adviceSections.decisionModel;
@@ -788,8 +790,8 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   for (const harness of report.harnesses) console.log(`  ${harness.displayName.padEnd(28)} adapter PASS`);
 
   console.log('\n[Runtime Reach]');
-  const reachLines = report.harnesses.flatMap((harness) => harness.reach.map((row) => {
-    const detail = { REACHED: row.root, 'NO-REACH': `fix: ${row.fix}`, 'N/A': row.reason }[row.state];
+  const reachLines = report.harnesses.flatMap((harness: any) => harness.reach.map((row: any) => {
+    const detail = ({ REACHED: row.root, 'NO-REACH': `fix: ${row.fix}`, 'N/A': row.reason } as Record<string, any>)[row.state];
     const where = row.scope === 'project' ? ` [install at ${row.installRoot}]` : '';
     return `  ${harness.id.padEnd(14)}${row.scope.padEnd(9)}${(REACH_MARK[row.state] || row.state).padEnd(13)}${detail}${where}`;
   }));
@@ -817,7 +819,7 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
 
   console.log('\n[Project Commands]');
   const commands = report.project.commands;
-  const commandLine = (role) => (role
+  const commandLine = (role: any) => (role
     ? `✓ ${role.command}${role.source ? `  (${role.source}, ${role.derivation || 'declared'})` : ''}`
     : '? not detected');
   console.log(`  build             ${commandLine(commands.build)}`);

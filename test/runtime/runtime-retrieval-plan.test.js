@@ -28,7 +28,7 @@ const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin',
 
 // ── the probe spy, installed before the module under test is loaded ───────────────────────────
 
-const health = require('../../src/runtime/health');
+const health = require('../../src/runtime/health.ts');
 const realProbeFreshness = health.probeFreshness;
 
 /** Provider ids `probeFreshness` was called with, in order, since the last reset. */

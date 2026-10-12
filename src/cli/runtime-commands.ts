@@ -26,7 +26,7 @@ const {
 } = require('../runtime/cli');
 // `doctor` comes from the health module rather than src/runtime/cli.js: the health-probe report
 // (FR-013) supersedes the presence-check version, and one verb must have one implementation.
-const { handleDoctorCommand } = require('../runtime/health');
+const { handleDoctorCommand } = require('../runtime/health.ts');
 const { handleTraceCommand, handleStatsCommand, handleDiscoverCommand, resolveRunsLocation } = require('../runtime/trace/ledger.ts');
 const { handleIndicatorsCommand } = require('../runtime/trace/indicators.ts');
 // The rest of the verb surface design §4.2 declares. `classify`, `workflow`, `route`, `claim`,

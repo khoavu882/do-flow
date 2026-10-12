@@ -19,7 +19,7 @@
  * **Freshness qualifies an answer; it never routes one.** FR-009 freezes routing, so a provider's
  * index state is recorded against the need and reported, and is not consulted when resolving which
  * provider a need goes to. `probeFreshness` is reused unchanged rather than reimplemented — this
- * module owns the qualification, `health.js` owns the measurement.
+ * module owns the qualification, `health.ts` owns the measurement.
  *
  * Two shape decisions are load-bearing and are enforced structurally rather than by convention:
  *
@@ -41,7 +41,7 @@ const path = require('node:path');
 const { CapabilityRouter } = require('./capability-router.ts');
 const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger.ts');
 const { taskStoreDir } = require('./task-scope.ts');
-const { probeFreshness } = require('./health');
+const { probeFreshness } = require('./health.ts');
 // One definition of the score refusal, applied at a second boundary. See the note on
 // EVIDENCE_SCORE_FIELDS in cli.js: relevance is a property of a search, not of a fact, and a plan
 // that recorded one would hand the next worker a confidence dressed as a measurement.
