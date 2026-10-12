@@ -644,3 +644,79 @@ test('removeTree prunes the agents and skills folders it emptied, never the harn
   removeTree({ changes: [changes[0]] });
   assert.equal(fs.existsSync(harnessRoot), true, 'still never pruned when it is left empty');
 });
+
+// ------------------------------------------------------------- case-only rename (same file, two names)
+
+/** Whether the scratch filesystem folds case, probed where the tests write. */
+function foldsCase(root) {
+  const probe = path.join(root, 'CaseProbe');
+  fs.writeFileSync(probe, '');
+  return fs.existsSync(path.join(root, 'caseprobe'));
+}
+
+/** Real fs, except that under `root` every path component resolves case-insensitively against what
+ * is on disk, the way APFS and NTFS resolve it. Lets a case-sensitive CI filesystem run the same
+ * collision: `Foo.js` and `foo.js` then stat, read and delete as one file. */
+function caseFoldingFs(root) {
+  const fold = (p) => {
+    if (typeof p !== 'string' || !p.startsWith(root + path.sep)) return p;
+    let current = root;
+    for (const part of path.relative(root, p).split(path.sep)) {
+      let next = path.join(current, part);
+      if (!fs.existsSync(next) && fs.existsSync(current) && fs.statSync(current).isDirectory()) {
+        const hit = fs.readdirSync(current).find((name) => name.toLowerCase() === part.toLowerCase());
+        if (hit) next = path.join(current, hit);
+      }
+      current = next;
+    }
+    return current;
+  };
+  const twoPaths = new Set(['copyFileSync', 'renameSync', 'linkSync']);
+  return new Proxy(fs, {
+    get(target, key) {
+      const value = target[key];
+      if (typeof value !== 'function') return value;
+      return (...args) => value.apply(target, args.map((arg, i) => (i === 0 || (i === 1 && twoPaths.has(key)) ? fold(arg) : arg)));
+    },
+  });
+}
+
+test('a case-only rename keeps the file it writes: the old spelling is released, never deleted', () => {
+  const root = scratch();
+  const real = foldsCase(root);
+  const fsImpl = real ? fs : caseFoldingFs(root);
+  const sourceDir = seedSource(root, { 'sub/foo.js': 'same bytes\n' });
+  const destDir = path.join(root, 'dest');
+  const oldName = path.join(destDir, 'sub', 'Foo.js');
+  fs.mkdirSync(path.dirname(oldName), { recursive: true });
+  fs.writeFileSync(oldName, 'same bytes\n');
+  const previousResources = [{ relPath: path.join('sub', 'Foo.js'), fingerprint: sha256('same bytes\n'), target: oldName }];
+
+  const plan = planTree({ sourceDir, destDir, previousResources, keepModified: true, fsImpl });
+  assert.deepEqual(plan.conflicts, []);
+  assert.deepEqual(plan.kept, [], 'a release of the old spelling is not a hand edit, so nothing is reported as kept by the user');
+  const release = plan.changes.find((change) => change.target === oldName);
+  assert.ok(release, `the old row is released (${real ? 'real' : 'simulated'} case-insensitive filesystem)`);
+  assert.equal(release.kept, true, 'released without deleting: removeTree skips a kept change');
+
+  applyTree({ changes: plan.changes, fsImpl });
+  removeTree({ changes: plan.changes, fsImpl });
+  const newName = path.join(destDir, 'sub', 'foo.js');
+  assert.equal(fsImpl.existsSync(newName), true, 'the file the run wrote survives its own removal pass');
+  assert.equal(fsImpl.readFileSync(newName, 'utf8'), 'same bytes\n');
+  assert.deepEqual(verifyTree({ sourceDir, destDir, fsImpl, plannedWrites: [newName] }).conflicts, []);
+});
+
+test('verifyTree reports a file the run wrote that is missing, and still ignores one a user deleted', () => {
+  const root = scratch();
+  const sourceDir = seedSource(root, { 'a.md': 'A', 'b.md': 'B' });
+  const destDir = path.join(root, 'dest');
+  applyTree({ changes: planTree({ sourceDir, destDir }).changes });
+  fs.rmSync(path.join(destDir, 'a.md'));
+  fs.rmSync(path.join(destDir, 'b.md'));
+
+  const result = verifyTree({ sourceDir, destDir, plannedWrites: [path.join(destDir, 'a.md')] });
+  assert.deepEqual(result.conflicts, ['a.md was written by this run but is missing']);
+  assert.equal(result.ok, false);
+  assert.deepEqual(verifyTree({ sourceDir, destDir }).conflicts, [], 'with no planned writes, absent files stay unreported as before');
+});

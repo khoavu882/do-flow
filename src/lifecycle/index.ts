@@ -484,9 +484,14 @@ function verifyLifecycle({ plan, adapters, context = {} }: any) {
     const harness = harnessFor(context.registry ?? plan.registry, target.harness);
     const adapter = resolveAdapter(adapters, harness);
     const operation = context.operation ?? 'verify';
+    // After an apply, the files this harness just wrote: a copy-tree verifier reports one that is
+    // missing instead of skipping it like a file the user deleted.
+    const plannedWrites = context.checkPlannedWrites
+      ? target.changes.filter((change: any) => !change.retained && (change.operation === 'create' || change.operation === 'update')).map((change: any) => change.target)
+      : undefined;
     let verification = normalizeVerification(adapter.verify({ ...target.adapterInput,
       registry: context.registry ?? plan.registry, discovery: target.discovery, ledger: plan.ledger,
-      operation, context: { ...target.adapterInput.context, operation } }), harness);
+      operation, context: { ...target.adapterInput.context, operation, ...(plannedWrites ? { plannedWrites } : {}) } }), harness);
     if (operation === 'remove') verification = normalizeRemovalVerification(verification, target.changes, plan.ledger);
     verifications.push({ ...verification, hookWiring: hookWiringStatus(harness, target, verification) });
   }
@@ -601,7 +606,7 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
     throw error;
   }
   const verification = verifyLifecycle({ plan: { ...plan, registry }, adapters,
-    context: { ...context, registry, operation: mode === 'remove' ? 'remove' : 'apply' } });
+    context: { ...context, registry, operation: mode === 'remove' ? 'remove' : 'apply', checkPlannedWrites: mode !== 'remove' } });
   if (!verification.ok) {
     writeRecoveryRecordFn(stateRoot, { ...recovery.record, status: 'verification-failed', verification });
     throw new Error('Lifecycle verification failed; ledger was not updated');

@@ -150,7 +150,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
     for (const asset of copyTreeAssets(assets)) {
       const destDir = sharedTreeDestDir(paths.root, asset.nativeDir) ?? copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Pi');
-      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout });
+      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, plannedWrites: context?.plannedWrites });
       conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({

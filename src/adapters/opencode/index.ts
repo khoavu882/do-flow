@@ -239,7 +239,7 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
     for (const asset of opencodeTreeAssets(assets)) {
       const destDir = asset.renderer === 'opencode-agents' ? agentsDestDir(paths) : sharedTreeDestDir(paths.root, asset.nativeDir) ?? copyTreeDestDir(treeConfigDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'OpenCode');
-      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, transform: asset.transform });
+      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, transform: asset.transform, plannedWrites: context?.plannedWrites });
       conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({

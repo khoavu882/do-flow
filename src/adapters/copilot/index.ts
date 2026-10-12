@@ -214,7 +214,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     for (const asset of treeAssetsFor(assets, renderer)) {
       const destDir = copyTreeDestDir(destRoot, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Copilot');
-      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: layout || asset.layout, transform: asset.transform });
+      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: layout || asset.layout, transform: asset.transform, plannedWrites: context?.plannedWrites });
       conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({

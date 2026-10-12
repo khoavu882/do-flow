@@ -247,6 +247,40 @@ function discoverTree({ sourceDir, destDir, fsImpl = fs, layout, transform }: an
   return { files };
 }
 
+/** A file's identity on disk (device + inode), or null when the path does not resolve to one. */
+function fileId(file: string, fsImpl: any): string | null {
+  try {
+    const stat = fsImpl.statSync(file, { bigint: true });
+    // An fs stand-in that reports no inode identifies nothing, rather than every file as one.
+    if (stat?.dev === undefined || stat?.ino === undefined) return null;
+    return `${stat.dev}:${stat.ino}`;
+  } catch { return null; }
+}
+
+/**
+ * A lookup answering "is `target` the same file on disk as one of `paths`, and which one?".
+ * A case-insensitive filesystem (APFS, NTFS by default) resolves `Foo.js` and `foo.js` to one
+ * file, so a string compare calls them two and a removal of the old spelling deletes the file just
+ * written under the new one. Device + inode is the only answer that holds on every filesystem, and
+ * a hard link answers the same way. Built on first use, one stat per path; a path that does not
+ * exist matches nothing, and `target` never matches itself.
+ */
+function sameFileIndex(paths: string[], fsImpl: any = fs): (target: string) => string | null {
+  let byId: Map<string, string> | undefined;
+  return (target: string) => {
+    if (byId === undefined) {
+      byId = new Map();
+      for (const candidate of paths) {
+        const id = fileId(candidate, fsImpl);
+        if (id !== null && !byId.has(id)) byId.set(id, candidate);
+      }
+    }
+    const id = fileId(target, fsImpl);
+    const match = id === null ? undefined : byId.get(id);
+    return match !== undefined && match !== target ? match : null;
+  };
+}
+
 /**
  * Diff the source tree against `previousResources` (the ledger's prior per-file ownership
  * records: `{relPath, fingerprint}`) to produce create/update/remove changes, refusing to touch
@@ -279,6 +313,9 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
     return sourceByDest.get(destAbs);
   };
 
+  // Every destination the current source produces, set once the apply path has discovered them.
+  let producedSameFile: ((target: string) => string | null) | undefined;
+
   const proposeRemoval = (prev: any, { relocated = false }: { relocated?: boolean } = {}) => {
     // prev's OWN recorded location, not the current destDir — an asset whose nativeDir changed
     // since prev was recorded must be removed from where it actually is, not from where it would
@@ -287,6 +324,14 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
     const destAbs = prev.target ?? path.join(destDir, prev.relPath);
     if (!fsImpl.existsSync(destAbs)) return;
     const current = sha256(fsImpl.readFileSync(destAbs));
+    // A recorded path that is the same file as one the source produces (a case-only rename on a
+    // case-insensitive filesystem) is that produced file under its old spelling: deleting it
+    // deletes what this run writes. Only the old row is released; the file stays, and the
+    // produced path's row is recorded when the run verifies.
+    if (relocated && producedSameFile?.(destAbs)) {
+      changes.push({ relPath: prev.relPath, target: destAbs, operation: 'remove', fingerprint: current, kept: true });
+      return;
+    }
     // Untampered on removal means the same two signals the apply path below already accepts: the
     // bytes this harness last recorded, or the bytes the current source would write. The second
     // one matters because a destination tree can be claimed by several harnesses (scripts.doflow
@@ -319,6 +364,7 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
   }
 
   const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout, transform });
+  producedSameFile = sameFileIndex(files.map((file) => file.destAbs), fsImpl);
   const satisfiedAtSameLocation = new Set();
   for (const file of files) {
     const prev = prevByPath.get(file.relPath);
@@ -425,13 +471,20 @@ function pruneEmptyAncestors(startDir: string, { fsImpl = fs }: { fsImpl?: any }
   }
 }
 
-/** Re-derive ownership resources from what's actually on disk right now, for status/verify. */
-function verifyTree({ sourceDir, destDir, fsImpl = fs, layout, transform }: any): { ok: boolean, resources: any[], conflicts: string[] } {
+/** Re-derive ownership resources from what's actually on disk right now, for status/verify.
+ * `plannedWrites` lists the destinations the run being verified wrote. An absent source file is
+ * not reported in general, because a user may delete one, but an absent file this run wrote means
+ * the run lost it (a case-only rename once deleted the file it had just written) and is a conflict. */
+function verifyTree({ sourceDir, destDir, fsImpl = fs, layout, transform, plannedWrites = [] }: any): { ok: boolean, resources: any[], conflicts: string[] } {
   const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout, transform });
+  const written = new Set(plannedWrites);
   const resources: any[] = [];
   const conflicts: string[] = [];
   for (const file of files) {
-    if (!file.exists) continue;
+    if (!file.exists) {
+      if (written.has(file.destAbs)) conflicts.push(`${file.relPath} was written by this run but is missing`);
+      continue;
+    }
     const current = sha256(fsImpl.readFileSync(file.destAbs));
     if (current !== file.fingerprint) { conflicts.push(`${file.relPath} does not match source`); continue; }
     resources.push({ relPath: file.relPath, target: file.destAbs, fingerprint: file.fingerprint });
@@ -539,4 +592,4 @@ function ledgerFileResources(resources: any, harness: string, assetId: string): 
     .map((resource: any) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
-module.exports = { kiroHook, kiroHookCommand, kiroPreToolUseHooks, discoverTree, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };
+module.exports = { kiroHook, kiroHookCommand, kiroPreToolUseHooks, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };

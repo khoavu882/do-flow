@@ -540,7 +540,7 @@ function verify(options: any = {}, impl: any = {}) {
     const destDir = treeDestFor(asset, paths, scope);
     if (!destDir) continue;
     const sourceDir = sourceDirFor(asset, { repoRoot: context.repoRoot }, fsImpl, HARNESS);
-    const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout });
+    const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, plannedWrites: context.plannedWrites });
     conflictsToStatuses(result.conflicts, asset.id, statuses);
     for (const resource of result.resources) {
       resources.push({

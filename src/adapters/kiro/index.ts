@@ -153,7 +153,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
     for (const asset of kiroTreeAssets(assets)) {
       const destDir = copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Kiro');
-      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, transform: asset.transform });
+      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, transform: asset.transform, plannedWrites: context?.plannedWrites });
       conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({

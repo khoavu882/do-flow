@@ -157,7 +157,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     for (const asset of claudeTreeAssets(assets)) {
       const destDir = copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourcePath(asset, context);
-      const result = verifyTree({ sourceDir, destDir, layout: asset.layout, transform: asset.transform });
+      const result = verifyTree({ sourceDir, destDir, layout: asset.layout, transform: asset.transform, plannedWrites: context?.plannedWrites });
       conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({

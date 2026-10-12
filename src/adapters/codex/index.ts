@@ -382,14 +382,14 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     return removeTree({ changes: treeChanges }).removed;
   }
 
-  function verifyCopyTreeAssets({ assets, context, repoRoot, sourceVersion }: any) {
+  function verifyCopyTreeAssets({ assets, context, repoRoot, sourceVersion, plannedWrites }: any) {
     const statuses = [];
     const resources = [];
     const conflicts = [];
     for (const asset of copyTreeAssets(assets)) {
       const destDir = copyTreeDestDir(codexConfigDir(context), asset);
       const sourceDir = sourceDirFor(asset, repoRoot);
-      const result = verifyTree({ sourceDir, destDir, layout: asset.layout });
+      const result = verifyTree({ sourceDir, destDir, layout: asset.layout, plannedWrites });
       conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({
@@ -675,7 +675,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     const mcp = verifyMcpResources({ native, configText, ...shared });
     const agents = verifyAgentResources({ native, ...shared });
     const hooks = verifyHooksResource({ native, ...shared });
-    const copyTree = verifyCopyTreeAssets({ assets, context, repoRoot: options.context?.repoRoot, sourceVersion });
+    const copyTree = verifyCopyTreeAssets({ assets, context, repoRoot: options.context?.repoRoot, sourceVersion, plannedWrites: options.context?.plannedWrites });
     const instructions = verifyInstructionsAsset({ assets, context, repoRoot: options.context?.repoRoot });
 
     const statuses = [

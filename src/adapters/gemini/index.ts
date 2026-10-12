@@ -204,7 +204,7 @@ function createGeminiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] }
     for (const asset of copyTreeAssets(assets)) {
       const destDir = geminiDestDir(paths, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Gemini');
-      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, transform: asset.transform });
+      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, transform: asset.transform, plannedWrites: context?.plannedWrites });
       conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({
