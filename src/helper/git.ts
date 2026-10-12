@@ -5,7 +5,7 @@
 //
 // First module of the TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md). Authored as `.ts` and
 // run directly by Node's native type-stripping (process.features.typescript === 'strip', Node
-// >=22.6), so no build step and no runtime dependency are added. The body stays CommonJS
+// ^22.18.0 || >=23.6.0), so no build step and no runtime dependency are added. The body stays CommonJS
 // (`module.exports`) so a `require('../helper/git.ts')` from a `.js` caller keeps working while the
 // rest of the tree is still `.js`; the explicit `.ts` extension on those requires is what the
 // CommonJS resolver needs to find this file.
